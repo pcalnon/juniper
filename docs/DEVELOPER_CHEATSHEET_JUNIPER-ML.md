@@ -203,6 +203,12 @@ Meta-package publish flow: build + `twine check`, TestPyPI upload with attestati
 fails CI if they drift. Manual releases must keep the same pair equal. Operator review checklist:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2.
 
+**Ceremony signed-archive failure edges (ml#709 / #714):** if a `ceremony` run dies inside
+`open_archive_pr`, do **not** invent a base sha or hand-push an archive branch. Unresolvable
+`origin/<base>`, non-422 refs errors (e.g. HTTP 401), and unresolvable existing tips are hard stops;
+only tip-at-base or single-commit-atop-base are safe re-entry shapes. Operator table:
+[`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.3.
+
 ---
 
 ## Environment Variables
