@@ -341,13 +341,14 @@ run. The detect job must not configure identity (it never commits).
    / ml#707). Owner one-click is now only the degraded/manual fallback (e.g. `allow_auto_merge` off). No
    security-posture change — the PyPI deploy still waits at the owner-gated `pypi` environment (Gate 2).
    The **live proof** (an archive PR auto-merging with zero clicks) rides the next real ceremony dispatch.
-6. **Sibling `Author identity unknown` (RESOLVED 2026-07-23, ml#705).** A red `propose` /
+7. **Sibling `Author identity unknown` (RESOLVED 2026-07-23, ml#705).** A red `propose` /
    `ceremony` job that dies at `git commit` inside a sibling clone with
    `Author identity unknown` / `Please tell me who you are` means the write job's identity step
    regressed to **repo-local** `git config` (or was removed). Confirm both write jobs still use
    `git config --global user.name|user.email|commit.gpgsign` (`release-train.yml:473-478`,
    `682-687`). Nothing is pushed when this fires — safe to re-dispatch after the workflow fix.
    Structural pin: juniper-ml#718 (`tests/test_release_train_workflow_guard.py` invariant `(g)`).
+   (Numbered **#7** so open docs PR #725 can keep heredoc late-failure as §8 **#6**.)
 
 ## 9. Quick reference
 
