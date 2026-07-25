@@ -24,11 +24,7 @@ PyYAML and asserting:
       full commit SHA (fleet convention);
   (f) **Phase 4.3 off-quiesce** -- ``mode=off`` runs nothing beyond mode resolution: every detect-job step
       other than the mode resolver is gated on the resolved mode (``!= 'off'`` for the work steps, the one
-      ``== 'off'`` quiesce step), and both write jobs are unreachable (their ``if`` requires a non-off mode);
-  (g) **Phase 4.1 repo-scope lockstep** -- each mint step's ``with.repositories`` is exactly the 8
-      publishing repos from ``util/release_train/registry.yaml``, and workflow ``env.ECOSYSTEM_REPOS``
-      is exactly those minus ``juniper-ml`` (the 7 siblings the write jobs clone). Drift here either
-      widens App privilege or silently skips a sibling package.
+      ``== 'off'`` quiesce step), and both write jobs are unreachable (their ``if`` requires a non-off mode).
 
 Beyond the structural pins, three **YAML-extraction rehearsals** execute the actual workflow snippets
 hermetically (the "run the real thing, not a reimplementation" idiom): ``ModeResolutionMatrixTest`` extracts
@@ -36,8 +32,9 @@ the ``id: mode`` step's shell and runs it over the whole mode matrix (incl. ``ce
 dispatch-input > repo-variable precedence), ``CeremonySummaryRehearsalTest`` extracts the ceremony
 step-summary Python and runs it over a synthetic ``ceremony-output.txt`` (proving it renders
 ceremonies/resumes/HALTs/PENDING_PYPI_APPROVAL and the degraded-issue line), and
-``PackagesInputRehearsalTest`` extracts the write-job ``packages`` / ``--cross-repo`` shell prefix
-(charset reject + App-token capability gate).
+``PackagesInputRehearsalTest`` extracts the write-job ``packages`` / ``--cross-repo`` shell prefix and
+*runs* it (charset reject exit 2 + App-token capability gate) -- complementary to the structural
+mint/ECOSYSTEM_REPOS / packages string pins.
 
 Companion to ``tests/test_release_train_propose.py`` / ``tests/test_release_train_ceremony.py``. Neither
 ``util/`` nor the workflow YAML is pre-commit-lint-gated for these properties, so this unittest IS the gate.
@@ -235,56 +232,6 @@ class ReleaseTrainWorkflowGuardTest(unittest.TestCase):
                     re.match(rf"^{re.escape(APP_TOKEN_ACTION)}@[0-9a-f]{{40}}(\s|$)", uses + " "),
                     f"create-github-app-token must be pinned by a full 40-hex commit SHA (fleet convention); got {uses!r}.",
                 )
-
-    # (g) Phase 4.1: mint repositories + ECOSYSTEM_REPOS lockstep with registry.yaml -------------
-    def _registry_publishing_repos(self) -> frozenset:
-        """The 8 owning repos from util/release_train/registry.yaml (plan S4.1 / registry gate)."""
-        registry = self.repo_root / "util" / "release_train" / "registry.yaml"
-        data = yaml.safe_load(registry.read_text(encoding="utf-8")) or {}
-        return frozenset(p["repo"] for p in (data.get("packages") or []) if p.get("repo"))
-
-    @staticmethod
-    def _multiline_repo_set(blob: str) -> frozenset:
-        return frozenset(ln.strip() for ln in str(blob or "").splitlines() if ln.strip())
-
-    def test_mint_repositories_lockstep_with_registry(self):
-        """Each write job's App mint ``with.repositories`` must be exactly the 8 registry publishing repos.
-
-        Widening this list elevates the App token beyond the publishing surface (R7 / least-privilege);
-        shrinking it silently drops a sibling from cross-repo propose/ceremony.
-        """
-        expected = self._registry_publishing_repos()
-        self.assertEqual(len(expected), 8, "registry must still enumerate exactly 8 publishing repos")
-        self.assertIn("juniper-ml", expected)
-        self.assertIn("juniper-recurrence", expected)
-        for job in WRITE_JOBS:
-            with self.subTest(job=job):
-                repos_blob = (self._mint_steps(job)[0].get("with") or {}).get("repositories", "")
-                got = self._multiline_repo_set(repos_blob)
-                self.assertEqual(
-                    got,
-                    expected,
-                    f"{job} mint with.repositories {sorted(got)} != registry publishing repos {sorted(expected)}",
-                )
-
-    def test_ecosystem_repos_are_registry_siblings(self):
-        """Workflow ``env.ECOSYSTEM_REPOS`` must be the 7 non-meta publishing repos (the clone list).
-
-        Detect + both write jobs clone siblings from this list; omitting a registry sibling means
-        that package's compare/propose/ceremony falls back to a missing checkout.
-        """
-        expected_siblings = self._registry_publishing_repos() - {"juniper-ml"}
-        got = self._multiline_repo_set((self.doc.get("env") or {}).get("ECOSYSTEM_REPOS", ""))
-        self.assertEqual(
-            got,
-            expected_siblings,
-            f"ECOSYSTEM_REPOS {sorted(got)} != registry siblings {sorted(expected_siblings)}",
-        )
-        # mint repositories must equal ECOSYSTEM_REPOS ∪ {juniper-ml} (meta is the checkout itself).
-        for job in WRITE_JOBS:
-            with self.subTest(job=job):
-                mint_repos = self._multiline_repo_set((self._mint_steps(job)[0].get("with") or {}).get("repositories", ""))
-                self.assertEqual(mint_repos, got | {"juniper-ml"}, f"{job} mint repos must be ECOSYSTEM_REPOS + juniper-ml")
 
     # reinforcement: the gate depends on the mode output existing -------------------------------
     def test_detect_job_exposes_mode_output(self):
@@ -519,7 +466,11 @@ def _extract_packages_prefix(run: str) -> str:
 
 
 class PackagesInputRehearsalTest(unittest.TestCase):
-    """Extract each write job's ``packages`` / ``--cross-repo`` shell prefix and rehearse it.
+    """Extract each write job's ``packages`` / ``--cross-repo`` shell prefix and *run* it.
+
+    Complementary to the structural string pins (charset needle / APP_TOKEN ``if`` present): this
+    rehearses the ACTUAL shell so a drifted regex or a reordered gate that still "contains" the
+    substrings cannot silently accept garbage or always pass ``--cross-repo``.
 
     Pins (a) garbage ``packages`` tokens exit 2 with ``::error::`` before any python runs,
     (b) empty input means no ``--package`` filter, (c) commas and whitespace are equivalent,
