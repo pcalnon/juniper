@@ -6,7 +6,11 @@ package the detector classified ``UNRELEASED_CHANGES``, builds the **complete co
 single **standard-gated release-proposal PR** (plan S5.4):
 
   * the version bump edit -- ``[project].version`` for a static package, ``_version.py``
-    ``__version__`` for a dynamic one (model-core + the 3 recurrence packages, audit S2);
+    ``__version__`` for a dynamic one (model-core + the 3 recurrence packages, audit S2). A static
+    package that ALSO ships a ``_version.py`` dunder (all five in-repo static packages) gets the
+    dunder bumped in lockstep as a co-change edit, auto-detected by file presence -- the ci-tools
+    0.7.0 / service-core 0.5.0 stale-dunder incident class (ml#701; gate:
+    ``tests/test_release_train_registry.py`` ``VersionDunderLockstepTest``);
   * the CHANGELOG ``[Unreleased]`` -> ``[<version>] - <date>`` move, leaving a fresh empty
     ``[Unreleased]`` behind (Keep-a-Changelog, plan S5.4);
   * a drafted release-notes body from ``notes_render.py`` (the template, plan S10.1) -- shown
@@ -279,10 +283,15 @@ def make_live_sources(owner: str, repo_root: Path, ecosystem_root: Path) -> Prop
 # ── version-file editing (static pyproject / dynamic _version.py / AGENTS.md) ─
 
 
+def dunder_file_rel(entry: "detect.PackageEntry") -> str:
+    """Repo-relative path of the package's ``_version.py`` dunder file (whether or not it exists)."""
+    return os.path.normpath(os.path.join(entry.path, entry.import_package, "_version.py")).replace(os.sep, "/")
+
+
 def version_file_rel(entry: "detect.PackageEntry") -> str:
     """Repo-relative path of the file carrying the version to bump."""
     if entry.version_source == "dynamic":
-        return os.path.normpath(os.path.join(entry.path, entry.import_package, "_version.py")).replace(os.sep, "/")
+        return dunder_file_rel(entry)
     return entry.pyproject_rel
 
 
@@ -906,8 +915,11 @@ def _changelog_rel(entry: "detect.PackageEntry") -> str:
     return os.path.normpath(os.path.join(entry.path, "CHANGELOG.md")).replace(os.sep, "/")
 
 
-def _co_change_checklist(entry: "detect.PackageEntry", bump: str, edges: list, agents_edited: bool, cochanges: list) -> list:
+def _co_change_checklist(entry: "detect.PackageEntry", bump: str, edges: list, agents_edited: bool, cochanges: list, dunder_rel: "str | None" = None, dunder_edited: bool = False) -> list:
     items: list = []
+    if dunder_rel is not None:
+        state = "included in this PR" if dunder_edited else "REQUIRED (``__version__`` assignment not found -- edit manually)"
+        items.append(f"`{dunder_rel}` `__version__` lockstep bump ({state}); a static-version package's dunder must move with `pyproject.toml` or the shipped wheel's `__version__` lies (the ci-tools 0.7.0 / service-core 0.5.0 stale-dunder class, ml#701); guarded by tests/test_release_train_registry.py (VersionDunderLockstepTest).")
     if entry.pypi_name == notes_render.META_PACKAGE:
         state = "included in this PR" if agents_edited else "REQUIRED (edit could not be computed -- do it manually)"
         items.append(f"AGENTS.md **Version** header bump ({state}); guarded by tests/test_agents_md_version_drift.py.")
@@ -933,6 +945,9 @@ def _pr_body(prop: Proposal, date: str) -> str:
     lines.append("")
     lines.append("### Version bump")
     lines.append(f"- `{version_change_summary(prop)}` (via `{version_file_rel_for(prop)}`)")
+    dunder_rel = dunder_cochange_rel(prop)
+    if dunder_rel is not None:
+        lines.append(f"- Lockstep `__version__` dunder co-change: `{dunder_rel}` (the static-with-dunder stale-dunder class, ml#701)")
     lines.append("")
     lines.append("### CHANGELOG")
     lines.append(f"- Move `[Unreleased]` -> `[{prop.to_version}] - {date}`, leaving a fresh empty `[Unreleased]` (Keep-a-Changelog).")
@@ -998,6 +1013,17 @@ def version_file_rel_for(prop: Proposal) -> str:
     return prop.edits[0].path if prop.edits else "(version file)"
 
 
+def dunder_cochange_rel(prop: Proposal) -> "str | None":
+    """The static-with-dunder ``_version.py`` lockstep co-change path (ml#701), or None.
+
+    The version bump is always ``edits[0]``; for a static package any LATER ``_version.py`` edit is
+    the dunder co-change (a dynamic package's ``_version.py`` IS ``edits[0]``, never later)."""
+    for edit in prop.edits[1:]:
+        if edit.path.endswith("/_version.py"):
+            return edit.path
+    return None
+
+
 def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSources, repo_root: Path, ecosystem_root: Path, entries: list, date: str, *, cross_repo: bool = False) -> Proposal:
     """Build the full proposal for one UNRELEASED_CHANGES manifest package (or a refusal stub).
 
@@ -1040,6 +1066,24 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
         prop.skipped_reason = f"could not locate the version assignment in {vfile}"
         return prop
     prop.edits.append(FileEdit(path=vfile, old_text=vtext, new_text=new_vtext))
+
+    # 3a. static-with-dunder ``_version.py`` lockstep co-change (ml#701). All five in-repo static
+    # packages ALSO carry a ``_version.py`` ``__version__`` dunder that the pyproject-only bump used
+    # to silently falsify -- the ci-tools 0.7.0 / service-core 0.5.0 stale-dunder incidents (the
+    # shipped wheel's metadata is right while its ``__version__`` lies). Auto-detected by file
+    # presence (no registry field that could itself drift); a present-but-unparseable dunder is left
+    # alone and surfaced REQUIRED-manual via the co-change checklist (the AGENTS.md header precedent).
+    dunder_rel = None
+    dunder_edited = False
+    if entry.version_source != "dynamic":
+        candidate = dunder_file_rel(entry)
+        dtext = sources.read_file(entry, candidate)
+        if dtext is not None:
+            dunder_rel = candidate
+            new_dtext, dold = set_dynamic_version(dtext, to_version)
+            if dold is not None and new_dtext != dtext:
+                prop.edits.append(FileEdit(path=dunder_rel, old_text=dtext, new_text=new_dtext))
+                dunder_edited = True
 
     # 4. CHANGELOG move (+ source the notes bullets from the same text).
     clog_rel = _changelog_rel(entry)
@@ -1126,7 +1170,7 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
         trigger_title=f"release: {entry.pypi_name} v{to_version} (proposal)",
         date=date,
     )
-    prop.co_change_checklist = _co_change_checklist(entry, bump, prop.propagation_edges, agents_edited, prop.consumer_pin_cochanges)
+    prop.co_change_checklist = _co_change_checklist(entry, bump, prop.propagation_edges, agents_edited, prop.consumer_pin_cochanges, dunder_rel=dunder_rel, dunder_edited=dunder_edited)
 
     # 8. branch / commit / PR metadata.
     prop.branch = release_branch(entry.pypi_name, to_version)
