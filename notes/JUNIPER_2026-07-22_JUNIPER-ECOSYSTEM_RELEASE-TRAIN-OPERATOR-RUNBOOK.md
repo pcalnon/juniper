@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.0
+**Version**: 1.2.1
 **Last Updated**: 2026-07-25
 
 ---
@@ -37,7 +37,7 @@ Mode is resolved once by the detect job's `id: mode` step (`release-train.yml:16
 |---|---|---|---|
 | **`off`** | nothing beyond mode resolution | **nothing** — detection is skipped, both write jobs unreachable | quiesce step `release-train.yml:182-190` |
 | **`report`** (default) | detect job only | **nothing** to GitHub/PyPI — only a step-summary table + the `release-manifest.json` run artifact + a non-blocking Slack post | detect job, workflow-level `contents: read` (`release-train.yml:139`) |
-| **`propose`** | detect + **propose** job | opens **standard-gated** release-proposal PRs (version bump + CHANGELOG move + drafted notes + pin / `_version.py` dunder co-changes); **no** Releases, **no** (Test)PyPI | `propose` job `if: needs.detect.outputs.mode == 'propose'` (`release-train.yml:382`) |
+| **`propose`** | detect + **propose** job | opens **standard-gated** release-proposal PRs (version bump + CHANGELOG move + drafted notes + pin / `_version.py` dunder co-changes) **upstream-first**, plus D6 ceiling-bump follow-ons when a consumer pin escapes; **no** Releases, **no** (Test)PyPI | `propose` job `if: needs.detect.outputs.mode == 'propose'` (`release-train.yml:382`) |
 | **`ceremony`** | detect + **ceremony** job | for `BUMPED_NOT_RELEASED` packages: opens the add-only notes-archive PR (central in juniper-ml, via a **GitHub-signed API commit** → auto-merges hands-free), enables `--auto`, **cuts the Release** on the owning repo, monitors its publish run to `PENDING_PYPI_APPROVAL`; **never** touches (Test)PyPI | `ceremony` job `if: needs.detect.outputs.mode == 'ceremony'` (`release-train.yml:587`) |
 
 Notes:
@@ -130,6 +130,56 @@ When reviewing a Gate 1 proposal for a static in-repo package, confirm:
 Dynamic packages (model-core + the three recurrence packages) are unchanged: the version bump *is*
 the `_version.py` edit, so there is no separate lockstep co-change to look for.
 
+#### Gate 1 — Phase 4.2 dependency order + consumer ceiling-bump follow-ons
+
+As of the Phase 4.2 land (`propose.py`, plan §13 / §12 step 4.2; CHANGELOG Unreleased), a `mode=propose`
+run does two operator-visible things beyond the per-package proposal itself:
+
+1. **Upstream-first scheduling.** Eligible `UNRELEASED_CHANGES` packages are processed in a
+   deterministic topological order of the registry `depends_on` DAG (`topological_order`,
+   `propose.py:552`) with a lexicographic `pypi_name` tie-break — shared libs → sub-libs → apps →
+   meta (`juniper-ml` last). The tier list is documentation; the registry edges are the truth. A cyclic
+   `depends_on` graph is a hard invocation error (**exit 2**) naming the cycle (`CycleError`,
+   `propose.py:547` / `1382-1385`). Empty `packages=` therefore does **not** mean “filesystem
+   order” — expect upstream proposals (and their follow-ons) before consumers.
+2. **Standard-gated ceiling-bump follow-on PRs (D6).** When a proposed upstream bump is a pre-1.0
+   MINOR/MAJOR that escapes a consumer’s `<next-minor` ceiling, `propose.py` annotates each
+   `propagation_edges` row with a `consumer_pin_state` read from that consumer’s real pyproject and —
+   for each escaped **non-meta** consumer — opens (or dry-run previews) a **separate** follow-on PR in
+   the consumer’s repo (`enrich_edges_with_pin_state` / `execute_follow_on`, `propose.py:837` /
+   `891`, execute loop `1432-1454`). Branch shape: `deps/<upstream>-ceiling-<new-ceiling>` (e.g.
+   `deps/juniper-model-core-ceiling-0.5.0`). The pin edit raises **only** the escaped ceiling; floors
+   and other specifiers are preserved byte-for-byte. Follow-ons trail their upstream proposals in the
+   same run and are **never** folded into the upstream proposal or the exempt notes-archive path
+   (2026-07-06 ci-tools incident class; rec#85 is the hand-made model).
+
+| `consumer_pin_state` | Meaning | Operator action |
+|---|---|---|
+| `within_range` | Consumer pin already admits the new version | None — no follow-on |
+| `floor_only (no ceiling)` | Floor-only pin; no `<ceiling` to raise | None — no follow-on |
+| `escaped -> follow-on` | Ceiling escapes; follow-on PR opened (or dry-run previewed) | **Gate 1 review** the follow-on in the **consumer** repo (pin-only diff) |
+| `escaped -> skipped(<reason>)` | Escaped, but this run cannot open (no `--cross-repo` / sibling missing / dup-guard) | Read the reason; on the degraded no-App path, open/merge the ceiling bump by hand (or re-run with App + sibling checkouts) |
+| `escaped -> deferred (juniper-ml meta…)` | Meta pin escaped a **sibling** upstream | Manual Q-META — bump the meta pin when the meta itself is next released (in-repo upstreams stay on the #661 folded co-change; meta never gets a follow-on) |
+| `no_versioned_pin (…)` / `unknown (…)` | Registry edge without a versioned requirement, or unreadable pyproject | Investigate the consumer pin / checkout; do not invent a ceiling |
+
+**Reviewing a follow-on PR (Gate 1, consumer repo):**
+
+1. **Pin-only** — Files changed should be the consumer `pyproject.toml` (ceiling raise only). Reject
+   anything that looks like a version bump, CHANGELOG move, or notes archive.
+2. **Branch / title** — Head starts with `deps/<upstream>-ceiling-`; title cites the upstream and new
+   ceiling. Dup-guard: an open PR with the same `deps/<upstream>-ceiling-` prefix suppresses a second
+   open (`find_existing_follow_on_pr`, `propose.py:776`).
+3. **Merge timing** — Upstream-first ordering is **soft for deploy** but **hard for propagation**: merge
+   the upstream proposal (and complete its release) before relying on the consumer pin; the follow-on
+   can land once the new upstream version is the one you intend consumers to admit.
+4. **Cross-repo capability** — Follow-ons in sibling repos require the same App-token `--cross-repo`
+   path as sibling proposals (§7). Without it they surface as `escaped -> skipped(...)` and do **not**
+   open.
+
+Hermetic pins: `tests/test_release_train_propose.py` (topological order over the real registry + synthetic
+cycle → exit 2; escaped / within-range / floor-only / extras-form pins; degraded skip; per-repo
+dup-guard; dry-run writes nothing).
+
 ### 3.3 Dispatching `ceremony` against specific packages (drives toward Gate 2)
 
 ```bash
@@ -166,7 +216,7 @@ monitors the triggered publish run.
 
 | Gate | What it guards | Who | Where |
 |---|---|---|---|
-| **Gate 1** | the version bump (+ static `_version.py` dunder lockstep when present) | owner reviews + merges the proposal PR | the standard-gated `propose` PR |
+| **Gate 1** | the version bump (+ static `_version.py` dunder lockstep when present) **and** any D6 ceiling-bump follow-on | owner reviews + merges each standard-gated PR | the upstream `propose` PR **and** any `deps/<upstream>-ceiling-*` follow-on in a consumer repo |
 | **Gate 2** | the PyPI deploy | owner approves the `pypi` environment | the publish run's environment review |
 
 Neither gate is ever a release-train identity action (plan §9.3; enforced in code by
@@ -359,9 +409,11 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
   (ml#701 / juniper-ml#710).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
-- Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
+- Engines: `util/release_train/detect.py`, `propose.py` (incl. Phase 4.2 topo order + follow-ons),
+  `ceremony.py`, `registry.yaml`.
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
   `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
+  `tests/test_release_train_propose.py` (Phase 4.2 ordering + follow-on matrix),
   `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701).
 - Static `_version.py` lockstep (Gate 1 review):
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)

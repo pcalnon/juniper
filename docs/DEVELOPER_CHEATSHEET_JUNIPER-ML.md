@@ -203,6 +203,14 @@ Meta-package publish flow: build + `twine check`, TestPyPI upload with attestati
 fails CI if they drift. Manual releases must keep the same pair equal. Operator review checklist:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2.
 
+**Phase 4.2 propose ordering + follow-ons.** Empty `packages=` propose runs process eligible packages
+**upstream-first** (registry `depends_on` DAG). A pre-1.0 MINOR/MAJOR that escapes a consumer
+`<next-minor` ceiling also opens a separate standard-gated PR
+`deps/<upstream>-ceiling-<new-ceiling>` in the **consumer** repo (pin ceiling only; never on the
+exempt archive path). Meta (`juniper-ml`) never gets a follow-on. Operator table:
+[release-train runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2
+“Phase 4.2”.
+
 ---
 
 ## Environment Variables
