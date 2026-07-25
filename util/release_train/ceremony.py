@@ -32,6 +32,12 @@ coincide, so the split is a no-op and behaviour is byte-identical to Phase 3:
   2. **Final central notes** -- build the archive file (``notes_render``, from the released
      sub-package's ``CHANGELOG [<version>]`` section; ``archive_name`` from ``registry.yaml``).
   3. **Exempt archive PR** -- open the add-only, single-file PR (the thing the S7.2 archive-guard proves).
+     The archive branch and its single file are created **through the GitHub API** (a ``git/refs`` POST +
+     a ``createCommitOnBranch`` GraphQL mutation), so the commit is **GitHub-signed / Verified** and the
+     exempt PR satisfies the juniper-ml ruleset's ``required_signatures`` rule -- which is what makes the
+     auto-merge (step 4) truly hands-free. A plain runner-side ``git commit`` is unsigned and left the
+     armed auto-merge BLOCKED behind that rule despite all checks green (2026-07-23 ml#707, owner
+     admin-bypass one-click); the API commit removes that block with zero security-posture change.
   4. **Auto-merge** -- enable ``gh pr merge --auto --squash`` on it; if the repo has ``allow_auto_merge``
      off (step 3.3 has not landed yet) enabling **degrades gracefully** to the owner one-click merge,
      it is NOT a halt.
@@ -44,11 +50,18 @@ coincide, so the split is a no-op and behaviour is byte-identical to Phase 3:
 
 **R7 hard invariant (plan S9.3), enforced in code AND asserted by the tests:** the ``gh`` surface the
 ceremony's write identity may touch is exactly {``pr create``, ``pr merge --auto``, ``release create``,
-``run list/view``, ``issue create/edit``} plus the read guards it needs -- and **nothing** that mutates a
-deployment environment or a reviewer. Every live ``gh`` call is routed through ``_assert_gh_allowed``,
-which raises ``SeamViolation`` for any subcommand outside ``GH_ALLOWED_SURFACE`` or carrying a forbidden
-token (``api`` / ``environment`` / ``deployment`` / ``review`` / ``--admin`` / ...), a bare ``pr merge``
-without ``--auto``, or a ``release create --verify-tag``. Phase 4.1 adds a **``--repo`` value bound**:
+``issue create/edit``, and -- for the archive lane -- an **archive-branch ``git/refs`` POST** + an
+**archive ``createCommitOnBranch`` signed commit**} plus the read guards it needs -- and **nothing** that
+mutates a deployment environment or a reviewer. Every live ``gh`` call is routed through
+``_assert_gh_allowed``, which raises ``SeamViolation`` for any subcommand outside ``GH_ALLOWED_SURFACE``
+or carrying a forbidden token (``environment`` / ``deployment`` / ``review`` / ``--admin`` / ...), a bare
+``pr merge`` without ``--auto``, or a ``release create --verify-tag``. ``api`` **stays forbidden for the
+general surface**; the ONLY carve-out is the archive lane's two calls, which are bounded by the sibling
+assertion ``_assert_api_allowed`` to (a) a ``repos/<owner>/<repo>/git/refs`` POST creating a
+``refs/heads/*`` ref and (b) an ``api graphql`` body containing ``createCommitOnBranch`` with
+``repoWithOwner`` bound -- each pinned to one of the 8 publishing repos; every other ``gh api`` (a
+different path, a different mutation, a non-POST ref write, or an out-of-allowlist repo) is a
+``SeamViolation``. Phase 4.1 adds a **``--repo`` value bound**:
 when a call carries ``--repo <slug>`` and the live seam was built with the registry-derived allowlist,
 the slug MUST name one of the 8 publishing repos (``owner/<repo>``); a ``--repo`` pointing anywhere else
 is a ``SeamViolation``. This is how cross-repo ``--repo pcalnon/<owning>`` is expressed WITHOUT widening
@@ -81,6 +94,7 @@ Status: permanent utility (Phase 3, exempt-archive ceremony engine)
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -154,10 +168,12 @@ GH_READONLY_SURFACE = frozenset(
 )
 GH_ALLOWED_SURFACE = GH_MUTATING_SURFACE | GH_READONLY_SURFACE
 
-# Tokens that must NEVER appear in any ``gh`` argv the ceremony builds -- the R7 red lines. ``api`` is
-# forbidden so no raw REST call can reach an environment/deployment endpoint; ``review`` / ``approve``
-# would touch a reviewer; ``--admin`` would bypass required checks; env/deploy/secret/variable/ruleset
-# are environment- or policy-mutating.
+# Tokens that must NEVER appear in a general ``gh`` argv the ceremony builds -- the R7 red lines. ``api``
+# is forbidden so no raw REST call can reach an environment/deployment endpoint -- with the SOLE, tightly
+# bounded exception of the archive lane's two calls (a ``git/refs`` POST + a ``createCommitOnBranch``
+# GraphQL signed commit), which are dispatched to ``_assert_api_allowed`` before this general check runs;
+# ``review`` / ``approve`` would touch a reviewer; ``--admin`` would bypass required checks;
+# env/deploy/secret/variable/ruleset are environment- or policy-mutating.
 GH_FORBIDDEN_TOKENS = frozenset(
     {
         "api",
@@ -187,9 +203,17 @@ def _assert_gh_allowed(args: list, allowed_repos: "frozenset[str] | None" = None
     and -- when ``allowed_repos`` is supplied (the registry-derived ``owner/<repo>`` set, Phase 4.1) --
     any ``--repo <slug>`` names one of the 8 publishing repos and nothing else. ``allowed_repos=None``
     leaves the ``--repo`` VALUE unchecked (the surface + token guards still apply); the live seam always
-    supplies it, so a real run is always bounded to the 8."""
+    supplies it, so a real run is always bounded to the 8.
+
+    A leading ``api`` subcommand is dispatched to ``_assert_api_allowed`` (the ONLY sanctioned raw-REST /
+    GraphQL calls are the archive lane's branch-ref create + signed commit); every other ``api`` usage
+    raises there. ``api`` therefore never reaches the general ``GH_ALLOWED_SURFACE`` / forbidden-token
+    checks below (where it would always be rejected)."""
     if len(args) < 2:
         raise SeamViolation(f"gh call too short to validate: {args!r}")
+    if args[0] == "api":
+        _assert_api_allowed(args, allowed_repos)
+        return
     pair = (args[0], args[1])
     forbidden = [tok for tok in args if tok in GH_FORBIDDEN_TOKENS]
     if forbidden:
@@ -211,6 +235,89 @@ def publishing_repo_slugs(entries: list, owner: str) -> "frozenset[str]":
     """The ``owner/<repo>`` allowlist for ``_assert_gh_allowed``, derived from the registry's repo set
     (data-driven, so it can never drift from the 8 publishing repos -- plan S4.1 / the registry lint)."""
     return frozenset(f"{owner}/{e.repo}" for e in entries)
+
+
+# ── the archive lane's two sanctioned ``gh api`` calls (GitHub-signed commit) ─
+#
+# The exempt notes-archive PR is created through GitHub's API so its commit is GitHub-signed / Verified
+# (satisfying the juniper-ml ruleset's ``required_signatures`` rule -> hands-free auto-merge). ``api``
+# stays forbidden for everything else; these two shapes are the deliberate, narrowly-bounded carve-out.
+
+# The ONLY sanctioned non-graphql ``gh api`` REST path: a POST creating ``refs/heads/<archive-branch>``
+# on one of the 8 publishing repos (group 1 == ``<owner>/<repo>``).
+_API_REFS_PATH_RE = re.compile(r"^repos/([^/]+/[^/]+)/git/refs$")
+
+# The ONLY sanctioned ``gh api graphql`` mutation. ``createCommitOnBranch`` adds the single archive file
+# as a commit authored by the API -> GitHub-signed. All six variables are string-serialised scalars
+# (``Base64String`` / ``GitObjectID`` serialise from JSON strings), so ``gh api graphql -f name=value``
+# passes them verbatim; the document is one whitespace-insensitive line (no embedded newlines needed).
+_CREATE_COMMIT_ON_BRANCH_MUTATION = (
+    "mutation($repoWithOwner: String!, $branch: String!, $headline: String!, "
+    "$path: String!, $contents: Base64String!, $expectedHeadOid: GitObjectID!) { "
+    "createCommitOnBranch(input: {"
+    "branch: {repositoryNameWithOwner: $repoWithOwner, branchName: $branch}, "
+    "message: {headline: $headline}, "
+    "expectedHeadOid: $expectedHeadOid, "
+    "fileChanges: {additions: [{path: $path, contents: $contents}]}"
+    "}) { commit { oid url } } }"
+)
+
+
+def _api_field(args: list, key: str) -> "str | None":
+    """The value of the first ``-f/-F <key>=<value>`` (or bare ``<key>=<value>``) token, else None.
+
+    ``gh api`` splits a field token on the FIRST ``=`` only, so a base64 value carrying ``=`` padding
+    round-trips intact -- this mirrors that split (everything after the first ``=`` is the value)."""
+    prefix = f"{key}="
+    for tok in args:
+        if tok.startswith(prefix):
+            return tok[len(prefix):]
+    return None
+
+
+def _api_is_post(args: list) -> bool:
+    """True iff the argv carries an explicit POST method (``-X POST`` / ``--method POST``)."""
+    return any(tok in ("-X", "--method") and args[i + 1].upper() == "POST" for i, tok in enumerate(args[:-1]))
+
+
+def _assert_api_allowed(args: list, allowed_repos: "frozenset[str] | None") -> None:
+    """Validate the ONLY two sanctioned ``gh api`` calls (the archive lane) -- reject everything else.
+
+    ``api`` stays in ``GH_FORBIDDEN_TOKENS`` for the general surface; this sibling assertion is the
+    deliberate carve-out, each call pinned to one of the 8 publishing repos:
+
+      (a) ``api repos/<owner>/<repo>/git/refs`` with method POST and a ``ref=refs/heads/*`` field, or
+      (b) ``api graphql`` whose body is the ``createCommitOnBranch`` mutation with ``repoWithOwner`` bound.
+
+    A different path, a different mutation, a non-POST ref write, or a repo outside ``allowed_repos`` (when
+    supplied) is a ``SeamViolation``. ``allowed_repos=None`` leaves the repo VALUE unchecked (the path-shape
+    + mutation-name guards still bite); the live seam always supplies the registry-derived set, so a real
+    run is always bounded to the 8. A genuinely env/deploy/reviewer-mutating token can never ride a
+    sanctioned call (the defence-in-depth token check below)."""
+    bad = [tok for tok in args if tok != "api" and tok in GH_FORBIDDEN_TOKENS]
+    if bad:
+        raise SeamViolation(f"forbidden gh token(s) {bad} in an otherwise-sanctioned api call {args!r}")
+    sub = args[1]
+    if sub == "graphql":
+        if not any("createCommitOnBranch" in tok for tok in args):
+            raise SeamViolation(f"gh api graphql is sanctioned ONLY for the createCommitOnBranch archive commit; got {args!r}")
+        slug = _api_field(args, "repoWithOwner")
+        if slug is None:
+            raise SeamViolation(f"gh api graphql createCommitOnBranch must bind repoWithOwner=<owner>/<repo>; got {args!r}")
+        if allowed_repos is not None and slug not in allowed_repos:
+            raise SeamViolation(f"gh api graphql createCommitOnBranch bound to {slug!r}, not one of the {len(allowed_repos)} publishing repos {sorted(allowed_repos)} -- R7 archive-lane repo bound")
+        return
+    m = _API_REFS_PATH_RE.match(sub)
+    if not m:
+        raise SeamViolation(f"gh api is forbidden except the archive-branch `repos/<owner>/<repo>/git/refs` POST and the createCommitOnBranch graphql mutation; got {args!r}")
+    slug = m.group(1)
+    if allowed_repos is not None and slug not in allowed_repos:
+        raise SeamViolation(f"gh api git/refs bound to {slug!r}, not one of the {len(allowed_repos)} publishing repos {sorted(allowed_repos)} -- R7 archive-lane repo bound")
+    if not _api_is_post(args):
+        raise SeamViolation(f"gh api {sub} must be a POST (the archive-branch ref create); got {args!r}")
+    ref = _api_field(args, "ref")
+    if ref is not None and not ref.startswith("refs/heads/"):
+        raise SeamViolation(f"archive-branch ref create must target refs/heads/*, got ref={ref!r}")
 
 
 # ── low-level gh / git runners (fixed argv, no shell) ────────────────────────
@@ -248,47 +355,18 @@ def _git(repo_dir: Path, args: list, timeout: int = 120, check: bool = True) -> 
     return proc.stdout
 
 
-# ── branch capture / restore (leave the operator's checkout as we found it) ──
+# ── operator warning (best-effort stderr; used by the graceful-degrade paths) ─
+#
+# NB: the archive lane now creates its branch + commit through the GitHub API (signed commit), so it
+# never switches the operator's checkout -- the former ``_capture_git_ref`` / ``_restore_git_ref``
+# branch-restore machinery (the 07-19 rough-edge fix) is removed as moot. The archive lane was the last
+# local-git WRITE; git is now used only for READS (``archive_on_main`` + the base-sha / branch-reuse
+# reads in ``open_archive_pr``), so nothing switches HEAD and there is nothing to restore.
 
 
 def _warn(msg: str) -> None:
-    """Best-effort operator warning to stderr (never raises; used by the non-fatal restore path)."""
+    """Best-effort operator warning to stderr (never raises; used by the HALT-issue graceful degrade)."""
     print(f"WARNING: {msg}", file=sys.stderr)
-
-
-def _capture_git_ref(repo_dir: Path, git: Callable) -> "tuple[str, str] | None":
-    """The ref to restore the checkout to after the ceremony's branch ops (recorded BEFORE any switch).
-
-    ``("branch", <name>)`` when HEAD is on a branch, ``("detached", <sha>)`` when HEAD is detached, or
-    ``None`` when git cannot answer (a later restore then safely no-ops). Uses the SAME injected ``git``
-    runner the branch ops use, so it is hermetic under the seam-surface test."""
-    branch = git(repo_dir, ["symbolic-ref", "--quiet", "--short", "HEAD"], 30, False)
-    if branch and branch.strip():
-        return ("branch", branch.strip())
-    sha = git(repo_dir, ["rev-parse", "HEAD"], 30, False)
-    if sha and sha.strip():
-        return ("detached", sha.strip())
-    return None
-
-
-def _restore_git_ref(repo_dir: Path, git: Callable, start_ref: "tuple[str, str] | None", warn: "Callable[[str], None] | None" = None) -> bool:
-    """Restore the checkout to ``start_ref`` after the archive-PR branch ops -- but NEVER clobber work.
-
-    Switches back only when the working tree is CLEAN (``git status --porcelain`` empty); a dirty tree is
-    left on the ceremony branch with a warning (the operator's uncommitted changes are never discarded).
-    A best-effort courtesy, not a hard ceremony step: returns True iff it switched back. Mirrors how
-    ``open_archive_pr`` does branch ops -- ``git switch`` through the injected runner."""
-    if start_ref is None:
-        return False
-    kind, ref = start_ref
-    status = git(repo_dir, ["status", "--porcelain"], 30, False)
-    if status is None:
-        return False  # cannot determine cleanliness -> do not risk a clobber
-    if status.strip():
-        (warn or _warn)(f"release-train ceremony: {repo_dir} has uncommitted changes; left the checkout on the ceremony branch (restore to {ref} skipped -- a dirty tree is never clobbered)")
-        return False
-    git(repo_dir, ["switch", "--detach", ref] if kind == "detached" else ["switch", ref], 60, False)
-    return True
 
 
 # ── small pure helpers ───────────────────────────────────────────────────────
@@ -523,7 +601,9 @@ class CeremonySources:
 
     The read/query members are used by the planner (safe in ``--dry-run``); the write members
     (``open_archive_pr`` / ``enable_automerge`` / ``create_release`` / ``upsert_halt_issue``) are
-    execute-only and may be ``None`` in a read-only seam."""
+    execute-only and may be ``None`` in a read-only seam. ``create_branch`` / ``create_signed_commit`` are
+    the archive lane's two API helpers (the GitHub-signed-commit path) that ``open_archive_pr`` composes;
+    the live seam exposes them so the seam-surface tests can drive each directly."""
 
     pypi_json: Callable[[str], "dict | None"]
     read_file: Callable[["detect.PackageEntry", str], "str | None"]
@@ -536,6 +616,8 @@ class CeremonySources:
     enable_automerge: "Callable[..., bool] | None" = None
     create_release: "Callable[..., str] | None" = None
     upsert_halt_issue: "Callable[..., str] | None" = None
+    create_branch: "Callable[..., tuple] | None" = None
+    create_signed_commit: "Callable[..., str] | None" = None
 
 
 def make_live_sources(owner: str, repo_root: Path, ecosystem_root: Path, *, allowed_repos: "frozenset[str] | None" = None, gh: "Callable | None" = None, git: "Callable | None" = None) -> CeremonySources:
@@ -603,24 +685,84 @@ def make_live_sources(owner: str, repo_root: Path, ecosystem_root: Path, *, allo
             "jobs": [{"name": j.get("name"), "status": j.get("status"), "conclusion": j.get("conclusion")} for j in (data.get("jobs") or [])],
         }
 
-    def open_archive_pr(repo: str, base: str, branch: str, relpath: str, content: str, title: str, body: str) -> str:
-        rdir = _repo_dir(repo)
-        start_ref = _capture_git_ref(rdir, git)  # record the operator's branch BEFORE any switch, to restore on the way out
+    def create_branch(repo: str, branch: str, from_sha: str) -> "tuple[str, bool]":
+        # Create refs/heads/<branch> at <from_sha> via REST (POST /repos/<owner>/<repo>/git/refs).
+        # Returns (effective_head_oid, already_committed): the head oid the subsequent signed commit must
+        # thread as expectedHeadOid, and whether the branch ALREADY carries our archive commit (so the
+        # caller must NOT re-commit). Idempotent re-entry (the branch survives a prior partial run):
+        #   * branch does not exist            -> create it at main; (from_sha, False).
+        #   * exists, tip == from_sha (at main)-> reuse; commit onto it; (from_sha, False).
+        #   * exists, tip is ONE commit atop main (tip^ == from_sha == our single-file archive commit)
+        #                                       -> reuse as-is, no re-commit; (tip, True).
+        #   * exists, diverged / multi-commit  -> SourceError (a human must resolve; the existing HALT
+        #                                          semantics -- the planner's PR-open / on-main dup-guards
+        #                                          normally prevent ever reaching here).
         try:
-            git(rdir, ["switch", "-c", branch, base])
-            target = rdir / relpath
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
-            git(rdir, ["add", "--", relpath])
-            # -c commit.gpgsign=false: the CI runner has no GPG key and the owner's YubiKey signing config
-            # must never reach a headless commit (memory: the YubiKey pinentry landmine).
-            git(rdir, ["-c", "commit.gpgsign=false", "commit", "-m", title])
-            git(rdir, ["push", "--set-upstream", "origin", branch])
-            return (_cgh(["pr", "create", "--repo", f"{owner}/{repo}", "--base", base, "--head", branch, "--title", title, "--body", body]) or "").strip()
-        finally:
-            # Return the operator to the branch they started on -- even if a step above raised
-            # (try/finally). Never clobbers a dirty tree (see _restore_git_ref).
-            _restore_git_ref(rdir, git, start_ref)
+            _cgh(["api", f"repos/{owner}/{repo}/git/refs", "-X", "POST", "-f", f"ref=refs/heads/{branch}", "-f", f"sha={from_sha}"])
+            return (from_sha, False)
+        except SourceError as exc:
+            if "already exists" not in str(exc).lower() and "422" not in str(exc):
+                raise  # a genuine transport/auth failure, not the idempotent branch-exists case
+        rdir = _repo_dir(repo)
+        git(rdir, ["fetch", "--quiet", "origin", branch], 120, False)
+        tip = (git(rdir, ["rev-parse", "FETCH_HEAD"], 30, False) or "").strip()
+        if not tip:
+            raise SourceError(f"archive branch {branch} exists on origin but its tip could not be resolved -- resolve by hand")
+        if tip == from_sha:
+            return (from_sha, False)
+        parent = (git(rdir, ["rev-parse", f"{tip}^"], 30, False) or "").strip()
+        if parent == from_sha:
+            return (tip, True)
+        raise SourceError(f"archive branch {branch} exists but diverged from base {from_sha[:8]} (tip {tip[:8]}, parent {parent[:8]}) -- a human must resolve (idempotent re-entry expects the branch at base or carrying only the single archive commit)")
+
+    def create_signed_commit(repo: str, branch: str, message: str, path: str, content_b64: str, expected_head_oid: str) -> str:
+        # Add the single archive file via the GraphQL createCommitOnBranch mutation. A commit authored
+        # through GitHub's API under the App / GITHUB_TOKEN identity is GitHub-signed / Verified, so the
+        # exempt archive PR satisfies the ruleset's required_signatures rule (hands-free auto-merge).
+        # expectedHeadOid pins optimistic concurrency to the branch tip create_branch just resolved.
+        out = _cgh(
+            [
+                "api",
+                "graphql",
+                "-f",
+                f"query={_CREATE_COMMIT_ON_BRANCH_MUTATION}",
+                "-f",
+                f"repoWithOwner={owner}/{repo}",
+                "-f",
+                f"branch={branch}",
+                "-f",
+                f"headline={message}",
+                "-f",
+                f"path={path}",
+                "-f",
+                f"contents={content_b64}",
+                "-f",
+                f"expectedHeadOid={expected_head_oid}",
+            ]
+        )
+        try:  # best-effort: return the created commit oid (callers use the PR URL from gh pr create)
+            data = json.loads(out) if out else {}
+            return (((data.get("data") or {}).get("createCommitOnBranch") or {}).get("commit") or {}).get("oid") or ""
+        except ValueError:
+            return ""
+
+    def open_archive_pr(repo: str, base: str, branch: str, relpath: str, content: str, title: str, body: str) -> str:
+        # The archive branch AND its single-file commit are created through the GitHub API so the commit
+        # is GitHub-signed / Verified (2026-07-23 ml#707: a plain unsigned runner commit left the armed
+        # auto-merge BLOCKED behind the ruleset's required_signatures rule). No local checkout switch, no
+        # local commit, no push -- git is used only for READS here (freshen origin/<base>, resolve the
+        # base sha), so nothing to capture/restore. The archive PR is ALWAYS in juniper-ml (plan S10.2),
+        # where both token modes hold contents:write, so this API path is unconditional (no git fallback).
+        rdir = _repo_dir(repo)
+        git(rdir, ["fetch", "--quiet", "origin", base], 120, False)
+        base_sha = (git(rdir, ["rev-parse", f"origin/{base}"], 30, False) or "").strip()
+        if not base_sha:
+            raise SourceError(f"could not resolve origin/{base} in {rdir} to base the archive branch on")
+        head_oid, already_committed = create_branch(repo, branch, base_sha)
+        if not already_committed:
+            content_b64 = base64.b64encode(content.encode("utf-8")).decode("ascii")
+            create_signed_commit(repo, branch, title, relpath, content_b64, head_oid)
+        return (_cgh(["pr", "create", "--repo", f"{owner}/{repo}", "--base", base, "--head", branch, "--title", title, "--body", body]) or "").strip()
 
     def enable_automerge(repo: str, pr: str) -> bool:
         # Graceful degrade (plan S12 step 3.3 not yet landed -> allow_auto_merge may be off): a failure
@@ -669,6 +811,8 @@ def make_live_sources(owner: str, repo_root: Path, ecosystem_root: Path, *, allo
         enable_automerge=enable_automerge,
         create_release=create_release,
         upsert_halt_issue=upsert_halt_issue,
+        create_branch=create_branch,
+        create_signed_commit=create_signed_commit,
     )
 
 

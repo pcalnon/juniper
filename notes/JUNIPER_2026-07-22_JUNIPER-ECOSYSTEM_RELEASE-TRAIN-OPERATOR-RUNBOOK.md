@@ -4,8 +4,8 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.0.0
-**Last Updated**: 2026-07-22
+**Version**: 1.1.0
+**Last Updated**: 2026-07-23
 
 ---
 
@@ -38,7 +38,7 @@ Mode is resolved once by the detect job's `id: mode` step (`release-train.yml:16
 | **`off`** | nothing beyond mode resolution | **nothing** — detection is skipped, both write jobs unreachable | quiesce step `release-train.yml:182-190` |
 | **`report`** (default) | detect job only | **nothing** to GitHub/PyPI — only a step-summary table + the `release-manifest.json` run artifact + a non-blocking Slack post | detect job, workflow-level `contents: read` (`release-train.yml:139`) |
 | **`propose`** | detect + **propose** job | opens **standard-gated** release-proposal PRs (version bump + CHANGELOG move + drafted notes + pin co-changes); **no** Releases, **no** (Test)PyPI | `propose` job `if: needs.detect.outputs.mode == 'propose'` (`release-train.yml:382`) |
-| **`ceremony`** | detect + **ceremony** job | for `BUMPED_NOT_RELEASED` packages: opens the add-only notes-archive PR (central in juniper-ml), enables `--auto`, **cuts the Release** on the owning repo, monitors its publish run to `PENDING_PYPI_APPROVAL`; **never** touches (Test)PyPI | `ceremony` job `if: needs.detect.outputs.mode == 'ceremony'` (`release-train.yml:587`) |
+| **`ceremony`** | detect + **ceremony** job | for `BUMPED_NOT_RELEASED` packages: opens the add-only notes-archive PR (central in juniper-ml, via a **GitHub-signed API commit** → auto-merges hands-free), enables `--auto`, **cuts the Release** on the owning repo, monitors its publish run to `PENDING_PYPI_APPROVAL`; **never** touches (Test)PyPI | `ceremony` job `if: needs.detect.outputs.mode == 'ceremony'` (`release-train.yml:587`) |
 
 Notes:
 
@@ -112,17 +112,26 @@ gh workflow run release-train.yml -f mode=propose -f packages=juniper-observabil
 gh workflow run release-train.yml -f mode=ceremony -f packages=juniper-observability
 ```
 
-For each `BUMPED_NOT_RELEASED` package the ceremony (`ceremony.py:1-38`): runs the §8 preconditions,
+For each `BUMPED_NOT_RELEASED` package the ceremony (`ceremony.py:1-45`): runs the §8 preconditions,
 builds the central notes file, opens the **add-only** archive PR (always in juniper-ml — the central
 `notes/releases/` archive, plan §10.2), enables `gh pr merge --auto --squash` behind the required
 archive-guard check, **cuts the Release** on the owning repo (`gh release create <tag> --latest=false`;
-the Release **creates** the tag, so deliberately **no** `--verify-tag`, `ceremony.py:201-202`), and
+the Release **creates** the tag, so deliberately **no** `--verify-tag`, `ceremony.py:225-226`), and
 monitors the triggered publish run.
 
+- **The archive PR auto-merges hands-free.** The archive branch **and** its single-file commit are
+  created through the GitHub API — a `git/refs` POST plus a `createCommitOnBranch` GraphQL mutation
+  (`ceremony.py:open_archive_pr`). A commit made through GitHub's API under the App / `GITHUB_TOKEN`
+  identity is **GitHub-signed / Verified**, so the exempt archive PR satisfies the juniper-ml ruleset's
+  `required_signatures` rule and the armed `--auto` merge **completes with zero clicks**. (A plain
+  runner-side `git commit` is unsigned and left an all-green archive PR BLOCKED behind that rule until an
+  owner admin one-click — 2026-07-23 run 30051952226 / ml#707; the API commit removes that block with no
+  security-posture change.) **Owner one-click is now only the degraded/manual fallback** — e.g. if
+  `allow_auto_merge` is off (a graceful degrade, not a HALT) or the auto-merge never lands.
 - The monitor polls a bounded ~15-minute wall clock (`--monitor-timeout 900`,
-  `release-train.yml:733`; `DEFAULT_MONITOR_TIMEOUT_SECONDS`, `ceremony.py:123`) until the run parks at
+  `release-train.yml:733`; `DEFAULT_MONITOR_TIMEOUT_SECONDS`, `ceremony.py:137`) until the run parks at
   the owner-gated `pypi` environment — GitHub reports that as run status `waiting`, which the train
-  reports as **`PENDING_PYPI_APPROVAL`** (`ceremony.py:453`). **That terminal state is SUCCESS for the
+  reports as **`PENDING_PYPI_APPROVAL`** (`ceremony.py:531`). **That terminal state is SUCCESS for the
   train** (plan §5.1). If the run is still building at timeout it reports `IN_PROGRESS` (honest; re-run
   ceremony mode to resume — it is idempotent).
 - **Gate 2 is yours**: the publish workflow's `pypi`-environment deploy job waits for the owner to
@@ -248,14 +257,21 @@ These are **not** train actions — they are owner console/CLI actions the train
 **degrades gracefully** to the built-in single-repo `GITHUB_TOKEN`.
 
 **What the identity may do (and nothing else) — R7 (plan §9.3).** The ceremony routes every `gh` call
-through `ceremony.py:_assert_gh_allowed` (`181`), which permits **exactly**
+through `ceremony.py:_assert_gh_allowed` (`197`), which permits **exactly**
 `{pr create, pr merge --auto, release create, run list/view, issue create/edit}`
-(`GH_MUTATING_SURFACE`, `ceremony.py:136`) and rejects any `api` / `environment` / `deployment` /
-`review` / `--admin` token (`GH_FORBIDDEN_TOKENS`, `ceremony.py:161`), a bare `pr merge` without
-`--auto`, or a `release create --verify-tag`. Every `--repo` is bounded to the 8 publishing repos.
-**The identity is never a `pypi` environment reviewer and never approves/mutates a deployment** — PyPI
-approval stays owner-only (Gate 2). The workflow-level `contents: read` plus the two mode-gated write
-jobs are pinned by `tests/test_release_train_workflow_guard.py`.
+(`GH_MUTATING_SURFACE`, `ceremony.py:150`) — **plus the archive lane's two GitHub-signed-commit calls**
+(a `repos/<owner>/<repo>/git/refs` POST and a `createCommitOnBranch` GraphQL mutation) — and rejects any
+`environment` / `deployment` / `review` / `--admin` token (`GH_FORBIDDEN_TOKENS`, `ceremony.py:177`), a
+bare `pr merge` without `--auto`, or a `release create --verify-tag`. `api` **stays forbidden for the
+general surface**; the sole carve-out is those two archive-lane calls, dispatched to the sibling
+assertion `_assert_api_allowed` (`ceremony.py:283`) which accepts ONLY a `git/refs` POST creating a
+`refs/heads/*` ref or a `createCommitOnBranch` body with `repoWithOwner` bound — every other `gh api`
+(a different path, a different mutation, a non-POST ref write, an out-of-allowlist repo) raises
+`SeamViolation`. Every `--repo` — and both archive-lane calls' repo bind — is bounded to the 8
+publishing repos. **The identity is never a `pypi` environment reviewer and never approves/mutates a
+deployment** — PyPI approval stays owner-only (Gate 2). The workflow-level `contents: read` plus the two
+mode-gated write jobs are pinned by `tests/test_release_train_workflow_guard.py`; the archive-lane api
+carve-out and its negative case are pinned by `tests/test_release_train_ceremony.py`.
 
 ## 8. Known limitations (accepted)
 
@@ -279,6 +295,15 @@ jobs are pinned by `tests/test_release_train_workflow_guard.py`.
 4. **Cross-repo pilot is owner-triggered.** No cross-repo write has run live from this automation yet;
    the ceremony's live cross-repo path is exercised only under owner-initiated dispatch. Hermetic tests
    + `--dry-run` cover the logic (`tests/test_release_train_ceremony.py`).
+5. **Archive-PR signature gate (RESOLVED 2026-07-23).** The juniper-ml ruleset's `required_signatures`
+   rule evaluates a PR's source commits, so the exempt archive PR only auto-merges if its commit is
+   signed. It now is: the archive branch + commit are created through the GitHub API (`git/refs` POST +
+   `createCommitOnBranch`), yielding a **GitHub-signed / Verified** commit under the App / `GITHUB_TOKEN`
+   identity (§3.3). Previously the commit was a plain unsigned runner-side `git commit`, so an all-green
+   archive PR stayed BLOCKED behind that rule until an owner admin one-click (2026-07-23 run 30051952226
+   / ml#707). Owner one-click is now only the degraded/manual fallback (e.g. `allow_auto_merge` off). No
+   security-posture change — the PyPI deploy still waits at the owner-gated `pypi` environment (Gate 2).
+   The **live proof** (an archive PR auto-merging with zero clicks) rides the next real ceremony dispatch.
 
 ## 9. Quick reference
 

@@ -19,6 +19,11 @@ Covers (task acceptance list):
     environment/deployment/reviewer-mutating call, a bare `pr merge` without `--auto`, and a
     `release create --verify-tag`; and the LIVE seam driven with a recording gh issues ONLY
     allowlisted calls, with `--auto`/`--squash`, `--latest=false`/`--notes-file`, and no `--verify-tag`
+  * the archive lane's GitHub-signed-commit path (replaces the local-git archive write): `open_archive_pr`
+    creates the branch via a `git/refs` POST + adds the single file via a `createCommitOnBranch` GraphQL
+    mutation (no `git commit`/`push`/`switch -c` argv), the base64 content round-trips, `expectedHeadOid`
+    is threaded, branch-exists re-entry reuses/re-commits/HALTs, and the `_assert_api_allowed` carve-out
+    accepts EXACTLY those two calls (bound to the 8 repos) while a stray `gh api` still raises SeamViolation
   * `--dry-run` writes NOTHING (a git-tracked repo_root's `git status` stays clean)
   * the execute happy path (PENDING_PYPI_APPROVAL), the auto-merge graceful-degrade, and the pure
     helpers (classify_publish_run, changelog_version_section, infer_bump, release_tag)
@@ -32,6 +37,7 @@ Created: 2026-07-17
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import subprocess  # nosec B404 - git init/commit/status of a throwaway tmp repo for the dry-run snapshot
@@ -287,6 +293,36 @@ class GhSurfaceInvariantTest(unittest.TestCase):
         self.assertIn("pcalnon/juniper-recurrence", slugs)
         self.assertTrue(all(s.startswith("pcalnon/") for s in slugs))
 
+    # ── the archive lane's two sanctioned `gh api` calls (signed-commit carve-out) ──
+    def test_assert_gh_allowed_permits_the_two_archive_api_calls(self):
+        allowed = frozenset({"pcalnon/juniper-ml", "pcalnon/juniper-cascor-client"})
+        refs = ["api", "repos/pcalnon/juniper-ml/git/refs", "-X", "POST", "-f", "ref=refs/heads/release-notes/juniper-service-core-v0.5.0", "-f", "sha=abc123"]
+        gql = ["api", "graphql", "-f", f"query={ce._CREATE_COMMIT_ON_BRANCH_MUTATION}", "-f", "repoWithOwner=pcalnon/juniper-ml", "-f", "branch=release-notes/x", "-f", "headline=t", "-f", "path=notes/releases/RELEASE_NOTES_x.md", "-f", "contents=Zm9v", "-f", "expectedHeadOid=abc123"]
+        ce._assert_gh_allowed(refs, allowed)  # must not raise
+        ce._assert_gh_allowed(gql, allowed)  # must not raise
+        # allowed_repos=None leaves the repo VALUE unchecked but the path-shape + mutation-name guards bite
+        ce._assert_gh_allowed(refs)  # must not raise
+        ce._assert_gh_allowed(gql)  # must not raise
+        # a cross-repo archive Release owning-repo is still expressible on the graphql repoWithOwner bound
+        ce._assert_gh_allowed(["api", "repos/pcalnon/juniper-cascor-client/git/refs", "-X", "POST", "-f", "ref=refs/heads/x", "-f", "sha=a"], allowed)
+
+    def test_assert_gh_allowed_rejects_stray_api(self):
+        allowed = frozenset({"pcalnon/juniper-ml"})
+        strays = [
+            ["api", "repos/pcalnon/juniper-ml/environments/pypi", "-X", "PUT"],  # env mutation
+            ["api", "repos/pcalnon/juniper-ml/deployments"],  # deployment mutation
+            ["api", "repos/pcalnon/juniper-evil/git/refs", "-X", "POST", "-f", "ref=refs/heads/x", "-f", "sha=a"],  # repo outside the 8
+            ["api", "repos/someone-else/juniper-ml/git/refs", "-X", "POST", "-f", "ref=refs/heads/x", "-f", "sha=a"],  # wrong owner
+            ["api", "repos/pcalnon/juniper-ml/git/refs", "-f", "ref=refs/heads/x", "-f", "sha=a"],  # missing POST method
+            ["api", "repos/pcalnon/juniper-ml/git/refs", "-X", "POST", "-f", "ref=refs/tags/v1", "-f", "sha=a"],  # a TAG ref, not heads/*
+            ["api", "graphql", "-f", "query=mutation { addStar(input: {}) { clientMutationId } }", "-f", "repoWithOwner=pcalnon/juniper-ml"],  # a different mutation
+            ["api", "graphql", "-f", f"query={ce._CREATE_COMMIT_ON_BRANCH_MUTATION}", "-f", "repoWithOwner=pcalnon/juniper-evil"],  # createCommit to a repo outside the 8
+            ["api", "graphql", "-f", f"query={ce._CREATE_COMMIT_ON_BRANCH_MUTATION}"],  # createCommit with no repoWithOwner bound
+        ]
+        for bad in strays:
+            with self.assertRaises(ce.SeamViolation, msg=bad):
+                ce._assert_gh_allowed(bad, allowed)
+
 
 # ── S9.3 seam-surface invariant (LIVE seam, recording gh) ────────────────────
 
@@ -309,10 +345,16 @@ class LiveSeamSurfaceTest(unittest.TestCase):
             return "{}"
         if pair in (("release", "view"), ("issue", "list")):
             return ""
+        if pair == ("api", "graphql"):  # createCommitOnBranch -> a signed commit oid
+            return json.dumps({"data": {"createCommitOnBranch": {"commit": {"oid": "5164ed", "url": "u"}}}})
         return "https://github.com/pcalnon/juniper-ml/x/1"
 
     def _rec_git(self, repo_dir, args, timeout=120, check=True):
-        return ""  # all git ops succeed, empty stdout
+        # rev-parse origin/main -> a fake base sha (the archive lane bases its branch on it); everything
+        # else (fetch, etc.) succeeds with empty stdout. No git WRITE ever occurs in the archive lane now.
+        if args[:1] == ["rev-parse"]:
+            return "1a2b3c4d5e6f78901a2b3c4d5e6f78901a2b3c4d\n"
+        return ""
 
     def _drive(self):
         src = ce.make_live_sources("pcalnon", self.tmp, self.tmp.parent, gh=self._rec_gh, git=self._rec_git)
@@ -329,9 +371,15 @@ class LiveSeamSurfaceTest(unittest.TestCase):
     def test_every_gh_call_is_within_the_allowlist(self):
         self._drive()
         self.assertTrue(self.gh_calls)
+        allowed = ce.publishing_repo_slugs(d.load_registry(UTIL_DIR / "registry.yaml"), "pcalnon")
         for args in self.gh_calls:
-            self.assertIn((args[0], args[1]), ce.GH_ALLOWED_SURFACE, args)
-            self.assertFalse(set(args) & ce.GH_FORBIDDEN_TOKENS, args)
+            # every recorded call passes the R7 gate (surface pairs + forbidden tokens, or the two api carve-outs)
+            ce._assert_gh_allowed(args, allowed)  # must not raise
+            if args[0] == "api":  # only the two sanctioned archive-lane calls are `api`
+                self.assertTrue(args[1] == "graphql" or args[1].endswith("/git/refs"), args)
+            else:
+                self.assertIn((args[0], args[1]), ce.GH_ALLOWED_SURFACE, args)
+                self.assertFalse(set(args) & ce.GH_FORBIDDEN_TOKENS, args)
 
     def test_mutating_calls_carry_the_required_flags(self):
         self._drive()
@@ -352,6 +400,21 @@ class LiveSeamSurfaceTest(unittest.TestCase):
         # the HALT-issue upsert is a read (issue list) + a write (issue create/edit) -- both benign.
         self.assertTrue(any(a[:2] == ["issue", "list"] for a in self.gh_calls))
         self.assertTrue(any(a[:2] in (["issue", "create"], ["issue", "edit"]) for a in self.gh_calls))
+
+    def test_archive_lane_issues_the_two_signed_commit_api_calls(self):
+        # driving open_archive_pr composes the branch-ref REST create + the createCommitOnBranch signed
+        # commit -- the ONLY two `gh api` calls the ceremony ever builds.
+        self._drive()
+        api_calls = [a for a in self.gh_calls if a[0] == "api"]
+        refs = [a for a in api_calls if a[1].endswith("/git/refs")]
+        gql = [a for a in api_calls if a[1] == "graphql"]
+        self.assertEqual(len(refs), 1, api_calls)
+        self.assertEqual(len(gql), 1, api_calls)
+        self.assertEqual(refs[0][1], "repos/pcalnon/juniper-ml/git/refs")
+        self.assertTrue(ce._api_is_post(refs[0]))
+        self.assertEqual(ce._api_field(refs[0], "ref"), "refs/heads/release-notes/juniper-service-core-v0.5.0")
+        self.assertTrue(any("createCommitOnBranch" in tok for tok in gql[0]))
+        self.assertEqual(ce._api_field(gql[0], "repoWithOwner"), "pcalnon/juniper-ml")
 
 
 # ── S8 precondition HALTs ────────────────────────────────────────────────────
@@ -593,7 +656,7 @@ class CliDryRunTest(unittest.TestCase):
         self.assertIn("unknown --package", err.getvalue())
 
 
-# ── defect fix 1: open_archive_pr restores the operator's starting branch ─────
+# ── publish-run fixtures + the archive lane's GitHub-signed-commit path ───────
 
 
 BUILDING_RUN = {
@@ -616,140 +679,135 @@ GATE_PARKED_JOBLEVEL_RUN = {
 }
 
 
-class _GitRecorder:
-    """A recording fake for the injected ``git`` runner: reports a branch/detached/dirty checkout and can
-    raise on a chosen verb to simulate a mid-ceremony failure. Drives ``make_live_sources`` hermetically
-    (mirrors ``LiveSeamSurfaceTest._rec_git`` but with restore-relevant answers)."""
+BASE_SHA = "1a2b3c4d5e6f78901a2b3c4d5e6f78901a2b3c4d"  # a fake origin/<base> tip the archive branch is based on
 
-    def __init__(self, *, branch="main", detached=None, dirty=False, raise_on=None):
-        self.calls = []
-        self._branch = branch
-        self._detached = detached
-        self._dirty = dirty
-        self._raise_on = raise_on
 
-    def __call__(self, repo_dir, args, timeout=120, check=True):
-        self.calls.append(list(args))
-        if self._raise_on and args and args[0] == self._raise_on:
-            raise ce.SourceError(f"fake git {self._raise_on} failed")
-        if args[:1] == ["symbolic-ref"]:
-            return None if self._detached else f"{self._branch}\n"  # real _git returns None on a detached HEAD
+class _ApiLaneRecorder:
+    """Recording gh + git fakes for the GitHub-signed archive lane (replaces the retired ``_GitRecorder``).
+
+    ``gh``: the branch-ref POST and the createCommitOnBranch graphql both succeed; ``pr list`` / ``run
+    list`` return ``[]``; ``pr create`` returns a URL. Set ``branch_exists=True`` to make the ref POST
+    raise the idempotent "Reference already exists (HTTP 422)" SourceError, then ``existing_tip`` /
+    ``existing_parent`` drive the git-read reuse inspection. ``git``: ``rev-parse origin/<base>`` ->
+    ``BASE_SHA``; ``rev-parse FETCH_HEAD`` -> ``existing_tip``; ``rev-parse <tip>^`` -> ``existing_parent``;
+    everything else (``fetch``, ...) succeeds empty. No git WRITE is ever expected."""
+
+    def __init__(self, *, branch_exists=False, existing_tip=None, existing_parent=None):
+        self.gh_calls = []
+        self.git_calls = []
+        self._branch_exists = branch_exists
+        self._tip = existing_tip
+        self._parent = existing_parent
+
+    def gh(self, args, timeout=90):
+        self.gh_calls.append(list(args))
+        pair = (args[0], args[1])
+        if pair in (("pr", "list"), ("run", "list")):
+            return "[]"
+        if args[0] == "api" and args[1].endswith("/git/refs"):
+            if self._branch_exists:
+                raise ce.SourceError("gh failed (api repos): HTTP 422: Reference already exists")
+            return json.dumps({"ref": "refs/heads/x", "object": {"sha": BASE_SHA}})
+        if pair == ("api", "graphql"):
+            return json.dumps({"data": {"createCommitOnBranch": {"commit": {"oid": "c0ffee", "url": "u"}}}})
+        return "https://github.com/pcalnon/juniper-ml/pull/1"
+
+    def git(self, repo_dir, args, timeout=120, check=True):
+        self.git_calls.append(list(args))
         if args[:1] == ["rev-parse"]:
-            return f"{self._detached or 'deadbeef'}\n"
-        if args[:1] == ["status"]:
-            return " M dirty_file\n" if self._dirty else ""
+            spec = args[1] if len(args) > 1 else ""
+            if spec == "FETCH_HEAD":
+                return f"{self._tip}\n" if self._tip else "\n"
+            if spec.endswith("^"):
+                return f"{self._parent}\n" if self._parent else "\n"
+            return f"{BASE_SHA}\n"  # rev-parse origin/<base>
         return ""
 
 
-class BranchRestoreUnitTest(unittest.TestCase):
-    """Unit coverage of the capture/restore helpers (defect 1: leave the checkout as we found it)."""
-
-    def test_capture_returns_branch_detached_or_none(self):
-        def on_branch(repo_dir, args, *a):
-            return "main\n" if args[0] == "symbolic-ref" else ""
-
-        self.assertEqual(ce._capture_git_ref(Path("/x"), on_branch), ("branch", "main"))
-
-        def detached(repo_dir, args, *a):
-            if args[0] == "symbolic-ref":
-                return None  # real _git returns None (non-zero, check=False) on a detached HEAD
-            return "abc1234\n" if args[0] == "rev-parse" else ""
-
-        self.assertEqual(ce._capture_git_ref(Path("/x"), detached), ("detached", "abc1234"))
-        self.assertIsNone(ce._capture_git_ref(Path("/x"), lambda *a: ""))
-
-    def test_restore_switches_back_when_clean(self):
-        calls = []
-
-        def git(repo_dir, args, *a):
-            calls.append(list(args))
-            return ""  # status --porcelain empty -> clean
-
-        self.assertTrue(ce._restore_git_ref(Path("/x"), git, ("branch", "main")))
-        self.assertIn(["switch", "main"], calls)
-
-    def test_restore_detached_uses_switch_detach(self):
-        calls = []
-
-        def git(repo_dir, args, *a):
-            calls.append(list(args))
-            return ""
-
-        self.assertTrue(ce._restore_git_ref(Path("/x"), git, ("detached", "abc1234")))
-        self.assertIn(["switch", "--detach", "abc1234"], calls)
-
-    def test_restore_skipped_and_warns_when_dirty(self):
-        calls, warns = [], []
-
-        def git(repo_dir, args, *a):
-            calls.append(list(args))
-            return " M dirty_file\n" if args[0] == "status" else ""
-
-        self.assertFalse(ce._restore_git_ref(Path("/x"), git, ("branch", "main"), warn=warns.append))
-        self.assertNotIn(["switch", "main"], calls)  # a dirty tree is NEVER clobbered
-        self.assertTrue(warns and "uncommitted" in warns[0])
-
-    def test_restore_noop_when_capture_none(self):
-        calls = []
-
-        def git(repo_dir, args, *a):
-            calls.append(list(args))
-            return ""
-
-        self.assertFalse(ce._restore_git_ref(Path("/x"), git, None))
-        self.assertEqual(calls, [])  # nothing to restore to -> no git touched
-
-
-class OpenArchivePrRestoreTest(unittest.TestCase):
-    """Integration: drive the LIVE ``open_archive_pr`` seam member with a recording git and prove the
-    starting branch is restored on success AND on a mid-ceremony failure, and skipped for a dirty tree."""
+class ArchiveLaneApiCommitTest(unittest.TestCase):
+    """The archive lane creates its branch + single-file commit through the GitHub API (a signed commit),
+    NOT runner-side git -- so the exempt archive PR satisfies the ruleset's required_signatures rule and
+    auto-merges hands-free. Drives the LIVE ``open_archive_pr`` (which composes ``create_branch`` +
+    ``create_signed_commit``) with the recording seam; hermetic, no real gh/git."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: __import__("shutil").rmtree(self.tmp, ignore_errors=True))
 
-    def _gh(self, args, timeout=90):
-        if (args[0], args[1]) in (("pr", "list"), ("run", "list")):
-            return "[]"
-        return "https://github.com/pcalnon/juniper-ml/pull/1"
-
-    def _open(self, git_rec):
-        src = ce.make_live_sources("pcalnon", self.tmp, self.tmp.parent, gh=self._gh, git=git_rec)
+    def _open(self, rec, content="the notes body\n"):
+        src = ce.make_live_sources("pcalnon", self.tmp, self.tmp.parent, allowed_repos=frozenset({"pcalnon/juniper-ml"}), gh=rec.gh, git=rec.git)
         return src.open_archive_pr(
             "juniper-ml",
             "main",
             "release-notes/juniper-service-core-v0.5.0",
             "notes/releases/RELEASE_NOTES_juniper-service-core_v0.5.0.md",
-            "notes body\n",
+            content,
             "release-notes: juniper-service-core v0.5.0",
             "pr body",
         )
 
-    def test_restores_starting_branch_on_success(self):
-        rec = _GitRecorder(branch="main")
-        self._open(rec)
-        create = ["switch", "-c", "release-notes/juniper-service-core-v0.5.0", "main"]
-        restore = ["switch", "main"]
-        self.assertIn(create, rec.calls)  # created the ceremony branch
-        self.assertIn(restore, rec.calls)  # ... and restored the operator's branch
-        self.assertLess(rec.calls.index(create), rec.calls.index(restore))  # restore happens on the way OUT
+    def test_signed_api_commit_replaces_local_git_writes(self):
+        rec = _ApiLaneRecorder()
+        url = self._open(rec)
+        self.assertTrue(url)  # the PR URL from gh pr create
+        # the branch-ref REST create: exact path + POST + a heads/* ref based on origin/<base>'s sha
+        refs = next(a for a in rec.gh_calls if a[0] == "api" and a[1].endswith("/git/refs"))
+        self.assertEqual(refs[1], "repos/pcalnon/juniper-ml/git/refs")
+        self.assertTrue(ce._api_is_post(refs))
+        self.assertEqual(ce._api_field(refs, "ref"), "refs/heads/release-notes/juniper-service-core-v0.5.0")
+        self.assertEqual(ce._api_field(refs, "sha"), BASE_SHA)
+        # the createCommitOnBranch signed commit
+        gql = next(a for a in rec.gh_calls if a[:2] == ["api", "graphql"])
+        self.assertTrue(any("createCommitOnBranch" in tok for tok in gql))
+        self.assertEqual(ce._api_field(gql, "repoWithOwner"), "pcalnon/juniper-ml")
+        self.assertEqual(ce._api_field(gql, "branch"), "release-notes/juniper-service-core-v0.5.0")
+        self.assertEqual(ce._api_field(gql, "path"), "notes/releases/RELEASE_NOTES_juniper-service-core_v0.5.0.md")
+        # NO local-git WRITE argv is ever recorded for the archive (the whole point of the change)
+        for a in rec.git_calls:
+            self.assertNotIn(a[:1], (["commit"], ["push"], ["add"]), a)
+            self.assertNotEqual(a[:2], ["switch", "-c"], a)
+            self.assertNotEqual(a[:1], ["switch"], a)
+        # git is used only for READS here (freshen origin/<base> + resolve the base sha)
+        self.assertEqual(sorted({a[0] for a in rec.git_calls}), ["fetch", "rev-parse"])
 
-    def test_restores_on_mid_ceremony_failure(self):
-        rec = _GitRecorder(branch="main", raise_on="push")  # push blows up after the branch switch
+    def test_base64_content_round_trips_and_expected_head_oid_is_threaded(self):
+        rec = _ApiLaneRecorder()
+        self._open(rec, content="A new capability.\nAnd a fix.\n")
+        gql = next(a for a in rec.gh_calls if a[:2] == ["api", "graphql"])
+        contents_b64 = ce._api_field(gql, "contents")
+        self.assertEqual(base64.b64decode(contents_b64).decode("utf-8"), "A new capability.\nAnd a fix.\n")
+        # expectedHeadOid pins optimistic concurrency to the branch tip create_branch resolved (== base sha)
+        self.assertEqual(ce._api_field(gql, "expectedHeadOid"), BASE_SHA)
+
+    def test_branch_exists_at_base_recommits(self):
+        # a prior partial run created the branch AT origin/<base> but never committed -> commit onto it
+        rec = _ApiLaneRecorder(branch_exists=True, existing_tip=BASE_SHA)
+        self._open(rec)
+        self.assertTrue(any(a[:2] == ["api", "graphql"] for a in rec.gh_calls))  # the signed commit still happens
+        self.assertTrue(any(a[:2] == ["pr", "create"] for a in rec.gh_calls))
+
+    def test_branch_exists_carrying_archive_commit_is_reused_no_recommit(self):
+        # the branch already carries our single archive commit (tip^ == base) -> reuse, do NOT re-commit
+        rec = _ApiLaneRecorder(branch_exists=True, existing_tip="ffff0000ffff0000ffff0000ffff0000ffff0000", existing_parent=BASE_SHA)
+        self._open(rec)
+        self.assertFalse(any(a[:2] == ["api", "graphql"] for a in rec.gh_calls))  # NOT re-committed (idempotent)
+        self.assertTrue(any(a[:2] == ["pr", "create"] for a in rec.gh_calls))  # the PR is still (re)opened
+
+    def test_branch_exists_diverged_halts(self):
+        # the branch diverged (tip^ != base): a human must resolve -> SourceError (the HALT semantics)
+        rec = _ApiLaneRecorder(branch_exists=True, existing_tip="ffff0000ffff0000ffff0000ffff0000ffff0000", existing_parent="9999888877776666555544443333222211110000")
         with self.assertRaises(ce.SourceError):
             self._open(rec)
-        self.assertIn(["switch", "main"], rec.calls)  # finally: restored despite the failure
+        self.assertFalse(any(a[:2] == ["api", "graphql"] for a in rec.gh_calls))  # never committed onto a diverged branch
 
-    def test_dirty_tree_left_on_ceremony_branch_with_warning(self):
-        import contextlib
-
-        rec = _GitRecorder(branch="main", dirty=True)
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err):
-            self._open(rec)
-        self.assertNotIn(["switch", "main"], rec.calls)  # never clobber uncommitted work
-        self.assertIn("WARNING", err.getvalue())
-        self.assertIn("dirty tree", err.getvalue().lower())
+    def test_create_branch_and_signed_commit_are_exposed_on_the_seam(self):
+        # the two archive-lane helpers are exposed on the live seam so they can be driven directly
+        rec = _ApiLaneRecorder()
+        src = ce.make_live_sources("pcalnon", self.tmp, self.tmp.parent, allowed_repos=frozenset({"pcalnon/juniper-ml"}), gh=rec.gh, git=rec.git)
+        head_oid, already = src.create_branch("juniper-ml", "release-notes/x", BASE_SHA)
+        self.assertEqual((head_oid, already), (BASE_SHA, False))
+        oid = src.create_signed_commit("juniper-ml", "release-notes/x", "msg", "notes/releases/RELEASE_NOTES_x.md", base64.b64encode(b"body").decode("ascii"), BASE_SHA)
+        self.assertEqual(oid, "c0ffee")  # the createCommitOnBranch commit oid
 
 
 # ── defect fix 2: bounded monitor -> PENDING_PYPI_APPROVAL / honest IN_PROGRESS ──
@@ -935,6 +993,8 @@ class LiveSeamRepoBoundTest(unittest.TestCase):
         return "https://github.com/pcalnon/x/1"
 
     def _git(self, repo_dir, args, timeout=120, check=True):
+        if args[:1] == ["rev-parse"]:  # rev-parse origin/<base> -> the base sha for the archive branch
+            return "1a2b3c4d5e6f78901a2b3c4d5e6f78901a2b3c4d\n"
         return ""
 
     def _src(self):
