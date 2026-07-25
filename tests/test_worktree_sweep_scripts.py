@@ -235,13 +235,77 @@ class TestApplySafety(WorktreeSweepTestCase):
             )
 
             self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn(f"skipped (no longer safe; dirty): {worktree_name}", result.stdout)
+            self.assertIn(f"skipped (ignored files present; rerun with --include-ignored to sweep them): {worktree_name}", result.stdout)
             self.assertTrue((worktree_path / "local.secret").exists())
             _run_git(main_repo, "show-ref", "--verify", "--quiet", "refs/heads/ignored-local")
 
+    def test_include_ignored_flag_sweeps_ignored_only_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            worktrees_root = root / "worktrees"
+            repo_base = root / "repos"
+            worktrees_root.mkdir()
+            repo_base.mkdir()
+
+            main_repo = repo_base / "juniper-ml"
+            _init_repo(main_repo)
+            (main_repo / ".gitignore").write_text("*.secret\n")
+            _run_git(main_repo, "add", ".gitignore")
+            _run_git(main_repo, "commit", "-q", "-m", "ignore local secrets")
+            _run_git(main_repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+            worktree_name = "juniper-ml--ignored-optin--20260604-0000--abab7777"
+            worktree_path = worktrees_root / worktree_name
+            _run_git(main_repo, "worktree", "add", "-q", "-b", "ignored-optin", str(worktree_path), "main")
+            (worktree_path / "local.secret").write_text("derived data, explicitly approved for sweep\n")
+
+            result = subprocess.run(
+                ["bash", str(APPLY_SCRIPT), "--include-ignored"],
+                input=f"SAFE\tjuniper-ml\tignored-optin\t{worktree_name}\n",
+                capture_output=True,
+                text=True,
+                env=self._env(worktrees_root, repo_base),
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("removed: juniper-ml / ignored-optin", result.stdout)
+            self.assertFalse(worktree_path.exists())
+            with self.assertRaises(subprocess.CalledProcessError):
+                _run_git(main_repo, "show-ref", "--verify", "--quiet", "refs/heads/ignored-optin")
+
+    def test_include_ignored_still_hard_skips_untracked_dirt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            worktrees_root = root / "worktrees"
+            repo_base = root / "repos"
+            worktrees_root.mkdir()
+            repo_base.mkdir()
+
+            main_repo = repo_base / "juniper-ml"
+            _init_repo(main_repo)
+            worktree_name = "juniper-ml--untracked-dirt--20260604-0000--cdcd8888"
+            worktree_path = worktrees_root / worktree_name
+            _run_git(main_repo, "worktree", "add", "-q", "-b", "untracked-dirt", str(worktree_path), "main")
+            (worktree_path / "precious.txt").write_text("untracked, never sweep\n")
+
+            result = subprocess.run(
+                ["bash", str(APPLY_SCRIPT), "--include-ignored"],
+                input=f"SAFE\tjuniper-ml\tuntracked-dirt\t{worktree_name}\n",
+                capture_output=True,
+                text=True,
+                env=self._env(worktrees_root, repo_base),
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn(f"skipped (no longer safe; dirty): {worktree_name}", result.stdout)
+            self.assertTrue((worktree_path / "precious.txt").exists())
+            _run_git(main_repo, "show-ref", "--verify", "--quiet", "refs/heads/untracked-dirt")
+
 
 class TestSurveyApplyContract(WorktreeSweepTestCase):
-    def test_survey_marks_ignored_local_files_dirty(self) -> None:
+    def test_survey_classifies_ignored_only_worktree_safe(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             worktrees_root = root / "worktrees"
@@ -273,7 +337,10 @@ class TestSurveyApplyContract(WorktreeSweepTestCase):
 
             self.assertEqual(survey.returncode, 0, msg=survey.stderr)
             data_rows = [line for line in survey.stdout.splitlines() if line and not line.startswith("#")]
-            self.assertEqual(data_rows, [f"DIRTY\tjuniper-ml\tignored-survey\t{worktree_name}"])
+            # Gitignored debris is not dirt (2026-07-25 triage: counting it made
+            # SAFE unreachable); the apply script still guards ignored content
+            # at removal time (default skip; --include-ignored to sweep).
+            self.assertEqual(data_rows, [f"SAFE\tjuniper-ml\tignored-survey\t{worktree_name}"])
 
     def test_survey_safe_row_can_feed_apply_dry_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
