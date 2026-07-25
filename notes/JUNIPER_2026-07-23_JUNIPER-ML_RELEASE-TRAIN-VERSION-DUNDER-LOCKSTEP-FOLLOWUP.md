@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **Date**: 2026-07-23
-**Status**: PARKED FOLLOW-UP — documented for a future implementation session; owner-directed archival
+**Status**: IMPLEMENTED — Option A shipped in [juniper-ml#710](https://github.com/pcalnon/juniper-ml/pull/710) (2026-07-25)
 
 ---
 
@@ -50,3 +50,19 @@ Every future static-package release re-creates the drift until propose.py change
 ## 5. Grounding / validation record
 
 Probed 2026-07-23 at juniper-ml main `69efc9c` by the authoring session: `propose.py` apply-site and helper line numbers; registry `version_source` values; per-package `_version.py` presence and pyproject/dunder comparison (table above); gate inventory (`grep` for dunder asserts — ci-tools consumer gates only; doc-tools' `test_cli.py` asserts its `--version` output matches its own dunder, which is self-consistent and would NOT catch a pyproject/dunder split). The service-core live drift was discovered during this probe and is being fixed in a companion PR alongside this document's PR.
+
+## 6. Implementation record (juniper-ml#710)
+
+Option A (design of record) landed in [juniper-ml#710](https://github.com/pcalnon/juniper-ml/pull/710):
+
+| Acceptance (§4) | Where it landed |
+|---|---|
+| Static-with-dunder proposal bumps `pyproject.toml` **and** `_version.py` together; body names the co-change | `util/release_train/propose.py` step 3a (`dunder_file_rel` / `dunder_cochange_rel`; auto-detect by file presence, no registry field); hermetic shapes in `tests/test_release_train_propose.py` |
+| Hermetic propose tests cover the §3.2 shapes (+ unparseable → REQUIRED-manual) | `tests/test_release_train_propose.py` (both-bumped / no-phantom / dynamic-unchanged / unparseable-REQUIRED-manual) |
+| Generic pyproject==dunder gate in CI | `tests/test_release_train_registry.py` `VersionDunderLockstepTest` (always-on; hard-pins eligible count at 5; dynamic exempt) |
+| Docs / plan inventory mention the dunder artifact | Plan §5.4 atomicity co-changes; `propose.py` module docstring; AGENTS.md; operator runbook Gate 1 review table |
+
+**Operator surface:** when reviewing a Gate 1 proposal for a static-with-dunder package, expect both files in the diff (or a REQUIRED-manual checklist item if the dunder is unparseable). See the release-train
+[operator runbook](JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2.
+
+**Still available later (Option B, §3.4):** flipping all five static packages to `dynamic = ["version"]` would dissolve the class structurally; not required once Option A + the always-on gate are in place.
