@@ -118,10 +118,13 @@ When reviewing a Gate 1 proposal for one of those packages, expect:
 
 | Signal in the proposal PR | Meaning | Operator action |
 |---|---|---|
-| Diff edits **both** `pyproject.toml` `[project].version` **and** `<import>/_version.py` | Normal lockstep co-change (`propose.py` step 3a; auto-detected by file presence, no registry field) | Merge when the rest of the proposal looks right |
+| Diff edits **both** `pyproject.toml` `[project].version` **and** `<import>/_version.py` | Normal lockstep co-change (`propose.py` step 3a; auto-detected by file presence, no registry field). Single- or double-quoted `__version__` both count. | Merge when the rest of the proposal looks right |
 | Body names a lockstep `__version__` dunder co-change + checklist "included in this PR" | Train already applied the dunder edit | No extra manual edit |
-| Checklist item **REQUIRED** (`__version__` assignment not found) | File exists but is unparseable — train left it alone (AGENTS.md-header precedent) | Edit `__version__` by hand in the same PR before merge |
-| Diff touches **only** `pyproject.toml` for a static-with-dunder package | Pre-#710 / stale train / bug — the old failure class | Do **not** merge as-is; add the dunder bump (or re-dispatch `propose` after #710) |
+| Checklist item **REQUIRED** (`__version__` assignment not found); body does **not** claim a lockstep co-change | File exists but is unparseable — train left it alone (AGENTS.md-header precedent) | Edit `__version__` by hand in the same PR before merge |
+| Diff touches **only** `pyproject.toml` for version; **no** dunder checklist item; `__version__` already equals `to_version` | Partial heal / re-entry — step 3a left a correct dunder alone (silent success; juniper-ml#712) | Confirm the dunder is already at the proposed version, then merge |
+| Diff touches **only** `pyproject.toml` for version; dunder still at `from_version` (or missing) | Pre-#710 / stale train / bug — the old failure class | Do **not** merge as-is; add the dunder bump (or re-dispatch `propose`) |
+
+**Pitfall (pre-#712 only):** if a proposal still shows checklist **REQUIRED** while `__version__` already equals the proposed version, that is a false alarm from the #710 checklist shape — do **not** "fix" a correct dunder; merge after confirming, or re-dispatch `propose` once #712 is on main.
 
 Always-on CI gate (train or no train; lands with juniper-ml#710): `tests/test_release_train_registry.py`
 (`VersionDunderLockstepTest`) asserts pyproject == dunder for every in-repo static-with-dunder package.
@@ -355,7 +358,7 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   §12 phased plan (steps 1.3/2.2/4.1/4.3).
 - Static-with-dunder lockstep design + implementation record:
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
-  (ml#701 / juniper-ml#710).
+  (ml#701 / juniper-ml#710; edge-case coverage + already-at-target checklist fix juniper-ml#712).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
 - Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),

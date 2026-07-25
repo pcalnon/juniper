@@ -65,4 +65,18 @@ Option A (design of record) landed in [juniper-ml#710](https://github.com/pcalno
 **Operator surface:** when reviewing a Gate 1 proposal for a static-with-dunder package, expect both files in the diff (or a REQUIRED-manual checklist item if the dunder is unparseable). See the release-train
 [operator runbook](JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2.
 
+### 6.1 Coverage hardening + checklist correctness (juniper-ml#712)
+
+[juniper-ml#712](https://github.com/pcalnon/juniper-ml/pull/712) layers the edge cases #710's happy-path shapes missed, plus a tiny checklist fix found while writing them:
+
+| Edge case | Intended step-3a / checklist behavior | Why it matters |
+|---|---|---|
+| `__version__` already equals `to_version` (partial heal / re-entry) | No phantom edit; **no** checklist item; body does not claim a lockstep co-change | #710 set `dunder_rel` whenever the file existed, so already-correct dunders false-flagged **REQUIRED-manual** |
+| Present-but-unparseable dunder | No edit; checklist **REQUIRED**; body does **not** claim a co-change landed | Operators must hand-edit; body must not lie about the diff |
+| Single-quoted `__version__ = '…'` | Bumped in lockstep (same as double-quoted) | Quote-style skip would recreate the stale-dunder class |
+| Edit ordering | Dunder `FileEdit` is `edits[1]` (after pyproject, before CHANGELOG) | Keeps `dunder_cochange_rel` honest |
+| Registry gate comparator | Synthetic bite-proof (service-core 0.5.0 class) + path agreement with `propose.dunder_file_rel` | Gate fails closed in CI without a live red package |
+
+Hermetic homes: `tests/test_release_train_propose.py` (edge + helper shapes) and `tests/test_release_train_registry.py` (comparator + path lockstep).
+
 **Still available later (Option B, §3.4):** flipping all five static packages to `dynamic = ["version"]` would dissolve the class structurally; not required once Option A + the always-on gate are in place.
