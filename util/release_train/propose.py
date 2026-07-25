@@ -915,15 +915,17 @@ def _changelog_rel(entry: "detect.PackageEntry") -> str:
     return os.path.normpath(os.path.join(entry.path, "CHANGELOG.md")).replace(os.sep, "/")
 
 
-def _co_change_checklist(entry: "detect.PackageEntry", bump: str, edges: list, agents_edited: bool, cochanges: list, dunder_rel: "str | None" = None, dunder_edited: bool = False) -> list:
+def _co_change_checklist(entry: "detect.PackageEntry", bump: str, edges: list, agents_edited: bool, cochanges: list, dunder_rel: "str | None" = None, dunder_edited: bool = False, *, agents_surface: bool = True) -> list:
     items: list = []
     if dunder_rel is not None:
         state = "included in this PR" if dunder_edited else "REQUIRED (``__version__`` assignment not found -- edit manually)"
         items.append(f"`{dunder_rel}` `__version__` lockstep bump ({state}); a static-version package's dunder must move with `pyproject.toml` or the shipped wheel's `__version__` lies (the ci-tools 0.7.0 / service-core 0.5.0 stale-dunder class, ml#701); guarded by tests/test_release_train_registry.py (VersionDunderLockstepTest).")
-    if entry.pypi_name == notes_render.META_PACKAGE:
+    # agents_surface=False: header already at to_version (partial heal / re-entry) — silent success;
+    # do NOT false-flag REQUIRED for an AGENTS.md that already satisfies the portable drift lint.
+    if agents_surface and entry.pypi_name == notes_render.META_PACKAGE:
         state = "included in this PR" if agents_edited else "REQUIRED (edit could not be computed -- do it manually)"
         items.append(f"AGENTS.md **Version** header bump ({state}); guarded by tests/test_agents_md_version_drift.py.")
-    elif entry.pypi_name == entry.repo:
+    elif agents_surface and entry.pypi_name == entry.repo:
         state = "included in this PR" if agents_edited else "REQUIRED (header absent or not at the expected from-version -- verify and edit manually)"
         items.append(f"Sibling AGENTS.md **Version** header bump ({state}); the target repo's CI runs the portable version-drift lint against its primary package version (the worker#140 pilot failure class).")
     if cochanges:
@@ -1104,13 +1106,20 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
     # pin itself in its own extras), and only a sub-package edits the extras table -- so AGENTS.md is
     # touched by at most one of the two steps and never gets two conflicting FileEdits.
     agents_edited = False
+    agents_surface = False  # True => checklist item (included or REQUIRED); False => already-at-target silent
     if entry.pypi_name == notes_render.META_PACKAGE:
         atext = sources.read_file(entry, "AGENTS.md")
-        if atext is not None:
+        if atext is None:
+            agents_surface = True  # absent → REQUIRED-manual
+        else:
             new_atext, aold = set_agents_version(atext, to_version)
-            if aold is not None and new_atext != atext:
+            if aold is None:
+                agents_surface = True  # no **Version** line → REQUIRED-manual
+            elif new_atext != atext:
                 prop.edits.append(FileEdit(path="AGENTS.md", old_text=atext, new_text=new_atext))
                 agents_edited = True
+                agents_surface = True
+            # else: already at to_version (partial heal / re-entry) — silent success
     # 5a. sibling-repo AGENTS.md **Version** co-change. Every sibling repo's AGENTS.md header tracks
     # that repo's PRIMARY package version, and the portable version-drift lint runs in their CI --
     # the worker#140 pilot failure class: the proposal bumped pyproject.toml and the lint correctly
@@ -1118,13 +1127,21 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
     # sub-package hosted in a sibling repo (e.g. juniper-cascor-model in juniper-cascor) never touches
     # the host repo's header. Only a header whose current value equals the from-version is rewritten;
     # anything unexpected is left alone and surfaced via the co-change checklist (agents_edited=False).
+    # Already-at-to_version is silent success (same class as the ml#701 dunder re-entry fix).
     elif entry.pypi_name == entry.repo:
         atext = sources.read_file(entry, "AGENTS.md")
-        if atext is not None:
+        if atext is None:
+            agents_surface = True  # absent → REQUIRED-manual
+        else:
             new_atext, aold = set_agents_version(atext, to_version)
             if aold == from_version and new_atext != atext:
                 prop.edits.append(FileEdit(path="AGENTS.md", old_text=atext, new_text=new_atext))
                 agents_edited = True
+                agents_surface = True
+            elif aold == to_version:
+                pass  # already correct — silent success; do NOT false-REQUIRED
+            else:
+                agents_surface = True  # unexpected / missing header → REQUIRED-manual
 
     # 5b. in-repo meta-package consumer-pin co-changes (plan S5.4; closes the ml#657 RK-11 gap).
     # For an in-repo bump whose new version escapes a meta ``[extras]`` ``<next-minor`` ceiling, move
@@ -1170,7 +1187,7 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
         trigger_title=f"release: {entry.pypi_name} v{to_version} (proposal)",
         date=date,
     )
-    prop.co_change_checklist = _co_change_checklist(entry, bump, prop.propagation_edges, agents_edited, prop.consumer_pin_cochanges, dunder_rel=dunder_rel, dunder_edited=dunder_edited)
+    prop.co_change_checklist = _co_change_checklist(entry, bump, prop.propagation_edges, agents_edited, prop.consumer_pin_cochanges, dunder_rel=dunder_rel, dunder_edited=dunder_edited, agents_surface=agents_surface)
 
     # 8. branch / commit / PR metadata.
     prop.branch = release_branch(entry.pypi_name, to_version)
