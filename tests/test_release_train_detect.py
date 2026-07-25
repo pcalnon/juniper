@@ -17,6 +17,8 @@ Covers (task acceptance list):
   * SemVer proposal derivation (pre-1.0: breaking/feature => MINOR, fix => PATCH)
   * release-manifest JSON shape
   * CLI exit codes 0 / 1 / 2
+  * live-sources ``gh compare`` 300-file cap -> ``local_git_compare`` fallback
+    (keeps remote commit messages for SemVer)
 
 ``util/`` is not pre-commit-lint-gated, so this unittest IS the gate (the
 ``env_floor_drift_check`` precedent). Imported via the house ``sys.path.insert`` idiom.
@@ -38,6 +40,7 @@ import textwrap
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 UTIL_DIR = Path(__file__).resolve().parents[1] / "util" / "release_train"
 sys.path.insert(0, str(UTIL_DIR))
@@ -547,6 +550,81 @@ class CliExitCodeTest(unittest.TestCase):
         with redirect_stdout(buf):
             code = d.main(["--repo-root", str(self.repo_root), "--registry", str(self.registry), "--package", "nope"], sources=self.fake.build())
         self.assertEqual(code, 2)
+
+
+# ── live-sources compare: 300-file gh-compare cap -> local_git_compare fallback ──
+
+
+class LiveCompareCapFallbackTest(unittest.TestCase):
+    """Pin ``make_live_sources().compare`` falling back to ``local_git_compare`` at the 300-file cap.
+
+    ClassificationTest covers patch-unavailable / no-tag ``SHIP_UNCERTAIN``, but the live-sources
+    auto-fallback that preserves remote commit messages when ``gh compare`` hits GitHub's 300-file
+    array cap was untested -- a regression there would silently thin path-scoped diffs for busy
+    subdir packages (the exact class ``local_git_compare`` exists to fix).
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.repo_root = self.root / "juniper-ml"
+        self.repo_root.mkdir()
+        self.eco = self.root
+        self.entry = _entry(repo="juniper-ml", path="juniper-thing/")
+        self.sources = d.make_live_sources("pcalnon", self.repo_root, self.eco)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_at_300_files_falls_back_to_local_git_and_keeps_remote_commits(self):
+        remote_files = [{"filename": f"f{i}.py", "status": "modified", "patch": None} for i in range(300)]
+        remote_commits = [{"commit": {"message": "feat: keep me\n\nbody"}}, {"commit": {"message": "fix: also keep"}}]
+        local = d.CompareResult(
+            files=[_fc("juniper-thing/juniper_thing/mod.py", _REAL_CODE_PATCH)],
+            commits=["local-only-msg-must-be-replaced"],
+            truncated=False,
+            ok=True,
+        )
+        with mock.patch.object(d, "_gh_json_single", return_value={"files": remote_files, "commits": remote_commits}) as gh, mock.patch.object(
+            d, "local_git_compare", return_value=local
+        ) as local_cmp:
+            result = self.sources.compare(self.entry, "juniper-thing-v0.4.0", "main")
+        gh.assert_called_once()
+        local_cmp.assert_called_once_with(self.entry, "juniper-thing-v0.4.0", "main", self.repo_root)
+        self.assertTrue(result.ok)
+        self.assertEqual(result.files, local.files)
+        # remote commit first-lines preserved for the SemVer signal (local msgs discarded when remote present)
+        self.assertEqual(result.commits, ["feat: keep me", "fix: also keep"])
+
+    def test_below_300_uses_gh_payload_without_local_fallback(self):
+        remote_files = [{"filename": f"f{i}.py", "status": "modified", "patch": "@@ -1 +1 @@\n-a\n+b"} for i in range(299)]
+        remote_commits = [{"commit": {"message": "chore: under the cap"}}]
+        with mock.patch.object(d, "_gh_json_single", return_value={"files": remote_files, "commits": remote_commits}), mock.patch.object(
+            d, "local_git_compare"
+        ) as local_cmp:
+            result = self.sources.compare(self.entry, "juniper-thing-v0.4.0", "main")
+        local_cmp.assert_not_called()
+        self.assertTrue(result.ok)
+        self.assertEqual(len(result.files), 299)
+        self.assertEqual(result.commits, ["chore: under the cap"])
+        self.assertFalse(result.truncated)
+
+    def test_gh_compare_missing_returns_error_without_local_fallback(self):
+        with mock.patch.object(d, "_gh_json_single", return_value=None), mock.patch.object(d, "local_git_compare") as local_cmp:
+            result = self.sources.compare(self.entry, "missing-tag", "main")
+        local_cmp.assert_not_called()
+        self.assertFalse(result.ok)
+        self.assertIn("not found", result.error or "")
+
+    def test_local_fallback_failure_is_returned_when_cap_hit(self):
+        remote_files = [{"filename": f"f{i}.py", "status": "modified"} for i in range(300)]
+        failed = d.CompareResult(files=[], commits=[], ok=False, error="local diff failed")
+        with mock.patch.object(d, "_gh_json_single", return_value={"files": remote_files, "commits": []}), mock.patch.object(
+            d, "local_git_compare", return_value=failed
+        ):
+            result = self.sources.compare(self.entry, "juniper-thing-v0.4.0", "main")
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error, "local diff failed")
 
 
 if __name__ == "__main__":

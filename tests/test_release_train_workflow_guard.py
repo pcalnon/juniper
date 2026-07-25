@@ -24,14 +24,20 @@ PyYAML and asserting:
       full commit SHA (fleet convention);
   (f) **Phase 4.3 off-quiesce** -- ``mode=off`` runs nothing beyond mode resolution: every detect-job step
       other than the mode resolver is gated on the resolved mode (``!= 'off'`` for the work steps, the one
-      ``== 'off'`` quiesce step), and both write jobs are unreachable (their ``if`` requires a non-off mode).
+      ``== 'off'`` quiesce step), and both write jobs are unreachable (their ``if`` requires a non-off mode);
+  (g) **Phase 4.1 repo-scope lockstep** -- each mint step's ``with.repositories`` is exactly the 8
+      publishing repos from ``util/release_train/registry.yaml``, and workflow ``env.ECOSYSTEM_REPOS``
+      is exactly those minus ``juniper-ml`` (the 7 siblings the write jobs clone). Drift here either
+      widens App privilege or silently skips a sibling package.
 
-Beyond the structural pins, two **YAML-extraction rehearsals** execute the actual workflow snippets
+Beyond the structural pins, three **YAML-extraction rehearsals** execute the actual workflow snippets
 hermetically (the "run the real thing, not a reimplementation" idiom): ``ModeResolutionMatrixTest`` extracts
 the ``id: mode`` step's shell and runs it over the whole mode matrix (incl. ``ceremony`` now valid + the
-dispatch-input > repo-variable precedence), and ``CeremonySummaryRehearsalTest`` extracts the ceremony
+dispatch-input > repo-variable precedence), ``CeremonySummaryRehearsalTest`` extracts the ceremony
 step-summary Python and runs it over a synthetic ``ceremony-output.txt`` (proving it renders
-ceremonies/resumes/HALTs/PENDING_PYPI_APPROVAL and the degraded-issue line).
+ceremonies/resumes/HALTs/PENDING_PYPI_APPROVAL and the degraded-issue line), and
+``PackagesInputRehearsalTest`` extracts the write-job ``packages`` / ``--cross-repo`` shell prefix
+(charset reject + App-token capability gate).
 
 Companion to ``tests/test_release_train_propose.py`` / ``tests/test_release_train_ceremony.py``. Neither
 ``util/`` nor the workflow YAML is pre-commit-lint-gated for these properties, so this unittest IS the gate.
@@ -229,6 +235,56 @@ class ReleaseTrainWorkflowGuardTest(unittest.TestCase):
                     re.match(rf"^{re.escape(APP_TOKEN_ACTION)}@[0-9a-f]{{40}}(\s|$)", uses + " "),
                     f"create-github-app-token must be pinned by a full 40-hex commit SHA (fleet convention); got {uses!r}.",
                 )
+
+    # (g) Phase 4.1: mint repositories + ECOSYSTEM_REPOS lockstep with registry.yaml -------------
+    def _registry_publishing_repos(self) -> frozenset:
+        """The 8 owning repos from util/release_train/registry.yaml (plan S4.1 / registry gate)."""
+        registry = self.repo_root / "util" / "release_train" / "registry.yaml"
+        data = yaml.safe_load(registry.read_text(encoding="utf-8")) or {}
+        return frozenset(p["repo"] for p in (data.get("packages") or []) if p.get("repo"))
+
+    @staticmethod
+    def _multiline_repo_set(blob: str) -> frozenset:
+        return frozenset(ln.strip() for ln in str(blob or "").splitlines() if ln.strip())
+
+    def test_mint_repositories_lockstep_with_registry(self):
+        """Each write job's App mint ``with.repositories`` must be exactly the 8 registry publishing repos.
+
+        Widening this list elevates the App token beyond the publishing surface (R7 / least-privilege);
+        shrinking it silently drops a sibling from cross-repo propose/ceremony.
+        """
+        expected = self._registry_publishing_repos()
+        self.assertEqual(len(expected), 8, "registry must still enumerate exactly 8 publishing repos")
+        self.assertIn("juniper-ml", expected)
+        self.assertIn("juniper-recurrence", expected)
+        for job in WRITE_JOBS:
+            with self.subTest(job=job):
+                repos_blob = (self._mint_steps(job)[0].get("with") or {}).get("repositories", "")
+                got = self._multiline_repo_set(repos_blob)
+                self.assertEqual(
+                    got,
+                    expected,
+                    f"{job} mint with.repositories {sorted(got)} != registry publishing repos {sorted(expected)}",
+                )
+
+    def test_ecosystem_repos_are_registry_siblings(self):
+        """Workflow ``env.ECOSYSTEM_REPOS`` must be the 7 non-meta publishing repos (the clone list).
+
+        Detect + both write jobs clone siblings from this list; omitting a registry sibling means
+        that package's compare/propose/ceremony falls back to a missing checkout.
+        """
+        expected_siblings = self._registry_publishing_repos() - {"juniper-ml"}
+        got = self._multiline_repo_set((self.doc.get("env") or {}).get("ECOSYSTEM_REPOS", ""))
+        self.assertEqual(
+            got,
+            expected_siblings,
+            f"ECOSYSTEM_REPOS {sorted(got)} != registry siblings {sorted(expected_siblings)}",
+        )
+        # mint repositories must equal ECOSYSTEM_REPOS ∪ {juniper-ml} (meta is the checkout itself).
+        for job in WRITE_JOBS:
+            with self.subTest(job=job):
+                mint_repos = self._multiline_repo_set((self._mint_steps(job)[0].get("with") or {}).get("repositories", ""))
+                self.assertEqual(mint_repos, got | {"juniper-ml"}, f"{job} mint repos must be ECOSYSTEM_REPOS + juniper-ml")
 
     # reinforcement: the gate depends on the mode output existing -------------------------------
     def test_detect_job_exposes_mode_output(self):
@@ -434,6 +490,117 @@ class CeremonySummaryRehearsalTest(unittest.TestCase):
     def test_truly_empty_output_shows_crash_banner(self):
         md = self._render("")
         self.assertIn("produced no output", md)
+
+
+# ── YAML-extraction rehearsal 3: packages dispatch charset + --cross-repo capability gate ──
+
+
+_PACKAGES_STEP_NAMES = {
+    "propose": "Open release-proposal PRs (propose.py --execute)",
+    "ceremony": "Run the ceremony (ceremony.py --execute)",
+}
+
+
+def _extract_packages_prefix(run: str) -> str:
+    """Take the write-job run script up to (not including) the ``rc=0`` / python invocation.
+
+    The prefix owns the ``packages`` charset reject and the App-token ``--cross-repo`` gate; the
+    remainder shells out to propose.py / ceremony.py and is covered by their hermetic suites.
+    Append a deterministic ARGS line so the rehearsal can assert resolved flags without a fake python.
+    """
+    lines = run.splitlines()
+    kept = []
+    for line in lines:
+        if re.match(r"^\s*rc=0\s*$", line):
+            break
+        kept.append(line)
+    kept.append('echo "ARGS:${pkg_args[*]}|CROSS:${cross_repo_args[*]}"')
+    return "\n".join(kept) + "\n"
+
+
+class PackagesInputRehearsalTest(unittest.TestCase):
+    """Extract each write job's ``packages`` / ``--cross-repo`` shell prefix and rehearse it.
+
+    Pins (a) garbage ``packages`` tokens exit 2 with ``::error::`` before any python runs,
+    (b) empty input means no ``--package`` filter, (c) commas and whitespace are equivalent,
+    (d) ``--cross-repo`` is emitted ONLY when ``APP_TOKEN`` is non-empty (Phase 4.1 capability gate).
+    """
+
+    prefixes: dict  # job -> extracted shell prefix
+
+    @classmethod
+    def setUpClass(cls):
+        repo_root = _find_repo_root(Path(__file__).resolve().parent)
+        wf_path = repo_root / ".github" / "workflows" / WORKFLOW_NAME
+        if not wf_path.is_file():
+            raise unittest.SkipTest(f"{WORKFLOW_NAME} not present at {wf_path}")
+        doc = yaml.safe_load(wf_path.read_text(encoding="utf-8"))
+        cls.prefixes = {}
+        for job, step_name in _PACKAGES_STEP_NAMES.items():
+            step = next((s for s in (doc["jobs"][job].get("steps") or []) if s.get("name") == step_name), None)
+            if step is None or "run" not in step:
+                raise unittest.SkipTest(f"could not locate {job} step {step_name!r}")
+            run = step["run"]
+            if "PACKAGES_INPUT" not in (step.get("env") or {}):
+                raise unittest.SkipTest(f"{job} step must bind PACKAGES_INPUT from inputs.packages")
+            if "pkg_args" not in run or "cross_repo_args" not in run:
+                raise unittest.SkipTest(f"{job} step lacks packages/cross-repo parsing")
+            cls.prefixes[job] = _extract_packages_prefix(run)
+
+    def _run(self, job: str, packages_input: str, app_token: str = "") -> "subprocess.CompletedProcess":
+        with tempfile.TemporaryDirectory() as td:
+            script_path = Path(td) / "packages.sh"
+            script_path.write_text(self.prefixes[job], encoding="utf-8")
+            env = RedactedEnv(os.environ, PACKAGES_INPUT=packages_input, APP_TOKEN=app_token)
+            return subprocess.run(["bash", str(script_path)], capture_output=True, text=True, env=env, check=False)  # nosec B603,B607 - workflow's own shell prefix
+
+    def test_both_write_jobs_share_packages_charset_and_cross_repo_gate(self):
+        # structural: the charset regex + APP_TOKEN gate exist in BOTH write-job prefixes (drift of one
+        # job alone would let garbage through propose while ceremony rejects, or vice versa).
+        for job, prefix in self.prefixes.items():
+            with self.subTest(job=job):
+                self.assertIn("^[a-z0-9][a-z0-9-]*$", prefix)
+                self.assertIn('if [ -n "${APP_TOKEN:-}" ]', prefix)
+                self.assertIn("--cross-repo", prefix)
+
+    def test_empty_packages_means_all_eligible(self):
+        for job in WRITE_JOBS:
+            with self.subTest(job=job):
+                proc = self._run(job, "")
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIn("package filter: <all eligible packages>", proc.stdout)
+                self.assertIn("ARGS:|CROSS:", proc.stdout)  # no --package, no --cross-repo
+
+    def test_comma_and_whitespace_separated_tokens(self):
+        for job in WRITE_JOBS:
+            with self.subTest(job=job):
+                proc = self._run(job, "juniper-observability, juniper-ci-tools")
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIn("--package juniper-observability", proc.stdout)
+                self.assertIn("--package juniper-ci-tools", proc.stdout)
+                self.assertRegex(proc.stdout, r"ARGS:--package juniper-observability --package juniper-ci-tools\|CROSS:")
+
+    def test_invalid_token_exits_2_with_error_annotation(self):
+        for job in WRITE_JOBS:
+            for garbage in ("Juniper-Observability", "../evil", "juniper_observability", "a;rm -rf /"):
+                with self.subTest(job=job, tok=garbage):
+                    proc = self._run(job, garbage)
+                    self.assertEqual(proc.returncode, 2, f"expected exit 2 for {garbage!r}; got {proc.returncode}: {proc.stdout}{proc.stderr}")
+                    self.assertIn("::error::invalid package token", proc.stdout + proc.stderr)
+                    self.assertNotIn("ARGS:", proc.stdout)  # never reached the stub echo
+
+    def test_cross_repo_only_when_app_token_nonempty(self):
+        for job in WRITE_JOBS:
+            with self.subTest(job=job, token="present"):
+                proc = self._run(job, "juniper-observability", app_token="minted-token")
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIn("cross-repo", proc.stdout.lower())
+                self.assertRegex(proc.stdout, r"ARGS:--package juniper-observability\|CROSS:--cross-repo")
+            with self.subTest(job=job, token="absent"):
+                proc = self._run(job, "juniper-observability", app_token="")
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIn("degraded", proc.stdout.lower())
+                self.assertRegex(proc.stdout, r"ARGS:--package juniper-observability\|CROSS:$")
 
 
 class HeredocBalanceTest(unittest.TestCase):
