@@ -303,6 +303,95 @@ class TestApplySafety(WorktreeSweepTestCase):
             self.assertTrue((worktree_path / "precious.txt").exists())
             _run_git(main_repo, "show-ref", "--verify", "--quiet", "refs/heads/untracked-dirt")
 
+    def test_include_ignored_still_hard_skips_tracked_modification(self) -> None:
+        """Tracked edits remain a hard skip even when --include-ignored is set."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            worktrees_root = root / "worktrees"
+            repo_base = root / "repos"
+            worktrees_root.mkdir()
+            repo_base.mkdir()
+
+            main_repo = repo_base / "juniper-ml"
+            _init_repo(main_repo)
+            worktree_name = "juniper-ml--tracked-dirt--20260604-0000--efef9999"
+            worktree_path = worktrees_root / worktree_name
+            _run_git(main_repo, "worktree", "add", "-q", "-b", "tracked-dirt", str(worktree_path), "main")
+            (worktree_path / "README.md").write_text("# modified tracked file\n")
+
+            result = subprocess.run(
+                ["bash", str(APPLY_SCRIPT), "--include-ignored"],
+                input=f"SAFE\tjuniper-ml\ttracked-dirt\t{worktree_name}\n",
+                capture_output=True,
+                text=True,
+                env=self._env(worktrees_root, repo_base),
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn(f"skipped (no longer safe; dirty): {worktree_name}", result.stdout)
+            self.assertTrue(worktree_path.exists())
+            _run_git(main_repo, "show-ref", "--verify", "--quiet", "refs/heads/tracked-dirt")
+
+    def test_unknown_flag_exits_2(self) -> None:
+        """Arg parsing fail-closes on unknown flags (was single-flag before #715)."""
+        result = subprocess.run(
+            ["bash", str(APPLY_SCRIPT), "--force"],
+            input="",
+            capture_output=True,
+            text=True,
+            timeout=SCRIPT_TIMEOUT_SECONDS,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("unknown flag: --force", result.stderr)
+        self.assertNotIn("removed:", result.stdout)
+        self.assertNotIn("DRY:", result.stdout)
+
+    def test_dry_run_and_include_ignored_can_combine(self) -> None:
+        """Both new flags parse together; dry-run never deletes ignored-only worktrees."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            worktrees_root = root / "worktrees"
+            repo_base = root / "repos"
+            worktrees_root.mkdir()
+            repo_base.mkdir()
+
+            main_repo = repo_base / "juniper-ml"
+            _init_repo(main_repo)
+            (main_repo / ".gitignore").write_text("*.secret\n")
+            _run_git(main_repo, "add", ".gitignore")
+            _run_git(main_repo, "commit", "-q", "-m", "ignore local secrets")
+            _run_git(main_repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+            worktree_name = "juniper-ml--ignored-combo--20260604-0000--1010bbbb"
+            worktree_path = worktrees_root / worktree_name
+            _run_git(main_repo, "worktree", "add", "-q", "-b", "ignored-combo", str(worktree_path), "main")
+            (worktree_path / "local.secret").write_text("would be swept only without --dry-run\n")
+
+            # Flag order must not matter for the multi-flag parser.
+            for argv in (
+                ["bash", str(APPLY_SCRIPT), "--dry-run", "--include-ignored"],
+                ["bash", str(APPLY_SCRIPT), "--include-ignored", "--dry-run"],
+            ):
+                with self.subTest(argv=argv[2:]):
+                    result = subprocess.run(
+                        argv,
+                        input=f"SAFE\tjuniper-ml\tignored-combo\t{worktree_name}\n",
+                        capture_output=True,
+                        text=True,
+                        env=self._env(worktrees_root, repo_base),
+                        timeout=SCRIPT_TIMEOUT_SECONDS,
+                    )
+
+                    self.assertEqual(result.returncode, 0, msg=result.stderr)
+                    self.assertIn("DRY: git -C juniper-ml worktree remove", result.stdout)
+                    self.assertIn("ignored-combo", result.stdout)
+                    self.assertNotIn("removed:", result.stdout)
+                    self.assertTrue(worktree_path.exists())
+                    self.assertTrue((worktree_path / "local.secret").exists())
+                    _run_git(main_repo, "show-ref", "--verify", "--quiet", "refs/heads/ignored-combo")
+
 
 class TestSurveyApplyContract(WorktreeSweepTestCase):
     def test_survey_classifies_ignored_only_worktree_safe(self) -> None:
@@ -341,6 +430,36 @@ class TestSurveyApplyContract(WorktreeSweepTestCase):
             # SAFE unreachable); the apply script still guards ignored content
             # at removal time (default skip; --include-ignored to sweep).
             self.assertEqual(data_rows, [f"SAFE\tjuniper-ml\tignored-survey\t{worktree_name}"])
+
+    def test_survey_classifies_untracked_dirt_as_dirty(self) -> None:
+        """Plain --porcelain still marks real untracked dirt DIRTY (not loosened with ignored)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            worktrees_root = root / "worktrees"
+            repo_base = root / "repos"
+            worktrees_root.mkdir()
+            repo_base.mkdir()
+
+            for repo_key in REPO_KEYS:
+                _init_repo(repo_base / repo_key)
+
+            main_repo = repo_base / "juniper-ml"
+            worktree_name = "juniper-ml--untracked-survey--20260604-0000--2020cccc"
+            worktree_path = worktrees_root / worktree_name
+            _run_git(main_repo, "worktree", "add", "-q", "-b", "untracked-survey", str(worktree_path), "main")
+            (worktree_path / "precious.txt").write_text("untracked dirt must stay DIRTY\n")
+
+            survey = subprocess.run(
+                ["bash", str(SURVEY_SCRIPT)],
+                capture_output=True,
+                text=True,
+                env=self._env(worktrees_root, repo_base),
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+
+            self.assertEqual(survey.returncode, 0, msg=survey.stderr)
+            data_rows = [line for line in survey.stdout.splitlines() if line and not line.startswith("#")]
+            self.assertEqual(data_rows, [f"DIRTY\tjuniper-ml\tuntracked-survey\t{worktree_name}"])
 
     def test_survey_safe_row_can_feed_apply_dry_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
