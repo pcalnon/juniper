@@ -352,8 +352,12 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
 ## 10. References
 
 - Plan: [`JUNIPER_2026-07-11_JUNIPER-ECOSYSTEM_PYPI-RELEASE-TRAIN-WORKFLOW-PLAN.md`](JUNIPER_2026-07-11_JUNIPER-ECOSYSTEM_PYPI-RELEASE-TRAIN-WORKFLOW-PLAN.md)
-  — §5 states, §8 HALT preconditions, §9.2-9.4 identity + R7 + rollback switch, §10.2 central archive,
-  §11 failure/observability/rollback, §12 phased plan (steps 1.3/2.2/4.1/4.3).
+  — §5 states, §5.4 atomicity co-changes (incl. static `_version.py` lockstep), §8 HALT preconditions,
+  §9.2-9.4 identity + R7 + rollback switch, §10.2 central archive, §11 failure/observability/rollback,
+  §12 phased plan (steps 1.3/2.2/4.1/4.3).
+- Static-with-dunder lockstep design + implementation record:
+  [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
+  (ml#701 / juniper-ml#710).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
 - Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
