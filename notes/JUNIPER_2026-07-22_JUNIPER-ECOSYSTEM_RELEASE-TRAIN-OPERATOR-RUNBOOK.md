@@ -4,8 +4,8 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.1.0
-**Last Updated**: 2026-07-23
+**Version**: 1.2.0
+**Last Updated**: 2026-07-25
 
 ---
 
@@ -37,7 +37,7 @@ Mode is resolved once by the detect job's `id: mode` step (`release-train.yml:16
 |---|---|---|---|
 | **`off`** | nothing beyond mode resolution | **nothing** — detection is skipped, both write jobs unreachable | quiesce step `release-train.yml:182-190` |
 | **`report`** (default) | detect job only | **nothing** to GitHub/PyPI — only a step-summary table + the `release-manifest.json` run artifact + a non-blocking Slack post | detect job, workflow-level `contents: read` (`release-train.yml:139`) |
-| **`propose`** | detect + **propose** job | opens **standard-gated** release-proposal PRs (version bump + CHANGELOG move + drafted notes + pin co-changes); **no** Releases, **no** (Test)PyPI | `propose` job `if: needs.detect.outputs.mode == 'propose'` (`release-train.yml:382`) |
+| **`propose`** | detect + **propose** job | opens **standard-gated** release-proposal PRs (version bump + CHANGELOG move + drafted notes + pin / `_version.py` dunder co-changes); **no** Releases, **no** (Test)PyPI | `propose` job `if: needs.detect.outputs.mode == 'propose'` (`release-train.yml:382`) |
 | **`ceremony`** | detect + **ceremony** job | for `BUMPED_NOT_RELEASED` packages: opens the add-only notes-archive PR (central in juniper-ml, via a **GitHub-signed API commit** → auto-merges hands-free), enables `--auto`, **cuts the Release** on the owning repo, monitors its publish run to `PENDING_PYPI_APPROVAL`; **never** touches (Test)PyPI | `ceremony` job `if: needs.detect.outputs.mode == 'ceremony'` (`release-train.yml:587`) |
 
 Notes:
@@ -105,6 +105,31 @@ gh workflow run release-train.yml -f mode=propose -f packages=juniper-observabil
   PRs in their own repos; on the degraded no-App path only juniper-ml packages are proposed and siblings
   are skipped with a clear reason.
 
+#### Gate 1 review — static `_version.py` dunder lockstep (ml#701 / juniper-ml#710)
+
+All five in-repo **static** packages (`juniper-ci-tools`, `juniper-config-tools`, `juniper-doc-tools`,
+`juniper-observability`, `juniper-service-core`) also ship `<import>/_version.py` `__version__`. A
+pyproject-only bump used to ship wheels whose metadata was right while `__version__` lied (ci-tools
+0.7.0 / service-core 0.5.0). As of juniper-ml#710, `propose.py` auto-detects that dunder by file
+presence (no registry field) and bumps it in the same proposal (`build_proposal` step 3a; design
+[`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)).
+
+When reviewing a Gate 1 proposal for a static in-repo package, confirm:
+
+1. **Both files move together** — `pyproject.toml` `[project].version` **and**
+   `<import>/_version.py` `__version__` in the Files-changed list (or the PR body's
+   `### Version bump` names the lockstep dunder co-change).
+2. **Checklist is honest** — if the co-change checklist says the dunder bump is
+   `REQUIRED (... edit manually)`, the auto-edit could not parse `__version__ = "..."`; fix it in the
+   proposal before merge (same pattern as a missing AGENTS.md header edit).
+3. **CI gate** — `tests/test_release_train_registry.py::VersionDunderLockstepTest` (ships with
+   juniper-ml#710) asserts pyproject == dunder for every in-repo static-with-dunder package
+   (dynamic packages are exempt — their dunder *is* the source). A red
+   `VersionDunderLockstepTest` means do not merge.
+
+Dynamic packages (model-core + the three recurrence packages) are unchanged: the version bump *is*
+the `_version.py` edit, so there is no separate lockstep co-change to look for.
+
 ### 3.3 Dispatching `ceremony` against specific packages (drives toward Gate 2)
 
 ```bash
@@ -141,7 +166,7 @@ monitors the triggered publish run.
 
 | Gate | What it guards | Who | Where |
 |---|---|---|---|
-| **Gate 1** | the version bump | owner reviews + merges the proposal PR | the standard-gated `propose` PR |
+| **Gate 1** | the version bump (+ static `_version.py` dunder lockstep when present) | owner reviews + merges the proposal PR | the standard-gated `propose` PR |
 | **Gate 2** | the PyPI deploy | owner approves the `pypi` environment | the publish run's environment review |
 
 Neither gate is ever a release-train identity action (plan §9.3; enforced in code by
@@ -332,6 +357,10 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
 - Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
-  `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation).
+  `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
+  `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701).
+- Static `_version.py` lockstep (Gate 1 review):
+  [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
+  (implemented by juniper-ml#710).
 - Release convention (cut a Release, archive notes centrally): repo `AGENTS.md` "Publishing" +
   [`JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md`](JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md) §11.
