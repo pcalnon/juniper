@@ -239,6 +239,56 @@ class TestApplySafety(WorktreeSweepTestCase):
             self.assertTrue((worktree_path / "local.secret").exists())
             _run_git(main_repo, "show-ref", "--verify", "--quiet", "refs/heads/ignored-local")
 
+    def test_ignored_guard_not_blinded_by_show_untracked_files_no(self) -> None:
+        """status.showUntrackedFiles=no must not fail-open the ignored guard.
+
+        Plain `git status --porcelain --ignored` returns empty under that
+        config even when ignored files exist; `git worktree remove` still
+        succeeds on ignored-only debris, so a blinded guard deletes secrets.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            worktrees_root = root / "worktrees"
+            repo_base = root / "repos"
+            worktrees_root.mkdir()
+            repo_base.mkdir()
+
+            main_repo = repo_base / "juniper-ml"
+            _init_repo(main_repo)
+            (main_repo / ".gitignore").write_text("*.secret\n")
+            _run_git(main_repo, "add", ".gitignore")
+            _run_git(main_repo, "commit", "-q", "-m", "ignore local secrets")
+            _run_git(main_repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+            worktree_name = "juniper-ml--ignored-blind--20260604-0000--9a9a9999"
+            worktree_path = worktrees_root / worktree_name
+            _run_git(main_repo, "worktree", "add", "-q", "-b", "ignored-blind", str(worktree_path), "main")
+            (worktree_path / "local.secret").write_text("decrypted secret, must survive default apply\n")
+            # Operator/repo config that blinds default porcelain --ignored.
+            _run_git(worktree_path, "config", "status.showUntrackedFiles", "no")
+            self.assertEqual(
+                _run_git(worktree_path, "status", "--porcelain", "--ignored"),
+                "",
+                msg="precondition: config must blind plain --ignored visibility",
+            )
+
+            result = subprocess.run(
+                ["bash", str(APPLY_SCRIPT)],
+                input=f"SAFE\tjuniper-ml\tignored-blind\t{worktree_name}\n",
+                capture_output=True,
+                text=True,
+                env=self._env(worktrees_root, repo_base),
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn(
+                f"skipped (ignored files present; rerun with --include-ignored to sweep them): {worktree_name}",
+                result.stdout,
+            )
+            self.assertTrue((worktree_path / "local.secret").exists())
+            _run_git(main_repo, "show-ref", "--verify", "--quiet", "refs/heads/ignored-blind")
+
     def test_include_ignored_flag_sweeps_ignored_only_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
