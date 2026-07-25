@@ -25,8 +25,10 @@ Covers (task acceptance list):
     is threaded, branch-exists re-entry reuses/re-commits/HALTs, and the `_assert_api_allowed` carve-out
     accepts EXACTLY those two calls (bound to the 8 repos) while a stray `gh api` still raises SeamViolation
   * `--dry-run` writes NOTHING (a git-tracked repo_root's `git status` stays clean)
-  * the execute happy path (PENDING_PYPI_APPROVAL), the auto-merge graceful-degrade, and the pure
-    helpers (classify_publish_run, changelog_version_section, infer_bump, release_tag)
+  * the execute happy path (PENDING_PYPI_APPROVAL), the auto-merge graceful-degrade, execute-time
+    open-PR reuse (no re-open; automerge on archive branch) and archive-already-on-main (release
+    only), and the pure helpers (classify_publish_run, changelog_version_section, infer_bump,
+    release_tag)
 
 Run: python3 -m unittest -v tests/test_release_train_ceremony.py
 
