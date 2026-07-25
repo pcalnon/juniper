@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.0
+**Version**: 1.2.1
 **Last Updated**: 2026-07-25
 
 ---
@@ -296,6 +296,16 @@ deployment** — PyPI approval stays owner-only (Gate 2). The workflow-level `co
 mode-gated write jobs are pinned by `tests/test_release_train_workflow_guard.py`; the archive-lane api
 carve-out and its negative case are pinned by `tests/test_release_train_ceremony.py`.
 
+**Runner git identity (headless, unsigned) — must be `--global`.** Both write jobs run a
+`Configure git identity (headless, unsigned)` step that sets `user.name`, `user.email`, and
+`commit.gpgsign false` via `git config --global` (`release-train.yml:466-478` propose,
+`675-687` ceremony). Cross-repo `propose` commits inside freshly-cloned **sibling** checkouts; a
+repo-local `git config` on the juniper-ml checkout alone leaves those clones with
+`Author identity unknown` (first cross-repo pilot failure, run 30040138774; fixed juniper-ml#705).
+The hosted runner is ephemeral, so `--global` is still job-scoped. `propose.py` also passes
+`-c commit.gpgsign=false` on its commit so a YubiKey-resident signing config never reaches a headless
+run. The detect job must not configure identity (it never commits).
+
 ## 8. Known limitations (accepted)
 
 1. **Degraded no-App mode (in-repo only).** When `RELEASE_TRAIN_APP_ID` is unset, `propose`/`ceremony`
@@ -315,9 +325,13 @@ carve-out and its negative case are pinned by `tests/test_release_train_ceremony
    when recovering by hand, **cut a Release** (or delete Release + tag together, §5.3) — never push a
    bare `juniper-<pkg>-v*` tag, which would trigger the tag/`release`-driven publish workflow against a
    tag the Release did not create.
-4. **Cross-repo pilot is owner-triggered.** No cross-repo write has run live from this automation yet;
-   the ceremony's live cross-repo path is exercised only under owner-initiated dispatch. Hermetic tests
-   + `--dry-run` cover the logic (`tests/test_release_train_ceremony.py`).
+4. **Cross-repo pilot is owner-triggered.** The first live cross-repo `propose` dispatch
+   (run 30040138774, `packages=juniper-cascor-worker`) failed at the commit step with
+   `Author identity unknown` — **nothing was pushed** (worker repo stayed clean). Fixed by
+   juniper-ml#705 (`git config --global` on both write jobs; §7). A successful cross-repo write
+   (propose PR opened in a sibling, or ceremony cutting a sibling Release) still needs an owner
+   re-dispatch to prove. Hermetic tests + `--dry-run` cover the logic
+   (`tests/test_release_train_ceremony.py`).
 5. **Archive-PR signature gate (RESOLVED 2026-07-23).** The juniper-ml ruleset's `required_signatures`
    rule evaluates a PR's source commits, so the exempt archive PR only auto-merges if its commit is
    signed. It now is: the archive branch + commit are created through the GitHub API (`git/refs` POST +
@@ -327,6 +341,13 @@ carve-out and its negative case are pinned by `tests/test_release_train_ceremony
    / ml#707). Owner one-click is now only the degraded/manual fallback (e.g. `allow_auto_merge` off). No
    security-posture change — the PyPI deploy still waits at the owner-gated `pypi` environment (Gate 2).
    The **live proof** (an archive PR auto-merging with zero clicks) rides the next real ceremony dispatch.
+6. **Sibling `Author identity unknown` (RESOLVED 2026-07-23, ml#705).** A red `propose` /
+   `ceremony` job that dies at `git commit` inside a sibling clone with
+   `Author identity unknown` / `Please tell me who you are` means the write job's identity step
+   regressed to **repo-local** `git config` (or was removed). Confirm both write jobs still use
+   `git config --global user.name|user.email|commit.gpgsign` (`release-train.yml:473-478`,
+   `682-687`). Nothing is pushed when this fires — safe to re-dispatch after the workflow fix.
+   Structural pin: juniper-ml#718 (`tests/test_release_train_workflow_guard.py` invariant `(g)`).
 
 ## 9. Quick reference
 
@@ -358,7 +379,8 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   (ml#701 / juniper-ml#710).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
 - Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
-- Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
+- Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary
+  rehearsal + write-job `--global` git identity, ml#705 / #718),
   `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
   `tests/test_release_train_registry.py` (`VersionDunderLockstepTest`, ml#701).
 - Release convention (cut a Release, archive notes centrally): repo `AGENTS.md` "Publishing" +
