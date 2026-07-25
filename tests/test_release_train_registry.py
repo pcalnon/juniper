@@ -17,6 +17,12 @@ Two tiers:
    semantics (skip when siblings are absent; skip local runs unless
    ``JUNIPER_DRIFT_TEST_FORCE_LOCAL=1``) because local sibling trees can lag origin/main.
 
+3. **Static-package version==dunder lockstep gate (ALWAYS runs)** -- every in-repo package
+   with BOTH a static ``[project].version`` and a ``_version.py`` ``__version__`` must keep
+   them equal, train or no train (the ml#701 stale-dunder class: ci-tools 0.7.0 / service-core
+   0.5.0 shipped wheels whose ``__version__`` lied; service-core sat undetected for five days
+   because no generic gate existed). Dynamic packages are exempt -- their dunder IS the source.
+
 ``prompts/**`` / ``util/**`` are not pre-commit-lint-gated, so this unittest is the gate.
 
 Run: python3 -m unittest -v tests/test_release_train_registry.py
@@ -84,6 +90,22 @@ def _project_name(pyproject: Path) -> "str | None":
             return None
     for line in pyproject.read_text(encoding="utf-8", errors="replace").splitlines():
         m = re.match(r'^\s*name\s*=\s*"([^"]+)"', line)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _project_version(pyproject: Path) -> "str | None":
+    if tomllib is not None:
+        try:
+            with pyproject.open("rb") as handle:
+                data = tomllib.load(handle)
+            version = data.get("project", {}).get("version")
+            return version if isinstance(version, str) else None
+        except (OSError, ValueError):
+            return None
+    for line in pyproject.read_text(encoding="utf-8", errors="replace").splitlines():
+        m = re.match(r'^\s*version\s*=\s*"([^"]+)"', line)
         if m:
             return m.group(1)
     return None
@@ -231,6 +253,39 @@ class RegistryInRepoResolutionTest(unittest.TestCase):
         found = {_project_name(pp) for pp in _in_repo_pyprojects(REPO_ROOT)}
         in_repo_registered = {p["pypi_name"] for p in self.packages if p["repo"] == "juniper-ml"}
         self.assertEqual(found, in_repo_registered, f"in-repo pyprojects {sorted(found)} != registered juniper-ml packages {sorted(in_repo_registered)}")
+
+
+class VersionDunderLockstepTest(unittest.TestCase):
+    """The generic pyproject==dunder lockstep gate (ml#701 design S3.3) -- always-on, train or no train.
+
+    Every in-repo package with BOTH a static ``[project].version`` and a ``_version.py``
+    ``__version__`` must keep the two equal: the static release path used to bump only pyproject,
+    shipping wheels whose dunder lied (ci-tools 0.7.0, caught only by its own consumer gates;
+    service-core 0.5.0, silent for five days because no gate existed -- the hole this class closes).
+    Dynamic packages are exempt (their dunder IS the version source). The ci-tools consumer-side
+    gates (test_coverage_gap_mapper_drift / test_env_drift_check_drift) stay as belt-and-braces."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.packages = _load_raw()
+
+    def test_static_in_repo_pyproject_version_equals_dunder(self):
+        eligible = 0
+        for pkg in self.packages:
+            if pkg["repo"] != "juniper-ml" or pkg["version_source"] != "static":
+                continue
+            base = REPO_ROOT if pkg["path"] == "." else REPO_ROOT / pkg["path"]
+            dunder = base / pkg["pypi_name"].replace("-", "_") / "_version.py"
+            if not dunder.is_file():
+                continue  # static-without-dunder (the meta-package itself): nothing to lock
+            eligible += 1
+            with self.subTest(pkg=pkg["pypi_name"]):
+                pyver = _project_version(base / "pyproject.toml")
+                self.assertIsNotNone(pyver, f"{pkg['pypi_name']}: no static [project].version in {base / 'pyproject.toml'}")
+                m = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', dunder.read_text(encoding="utf-8"), re.MULTILINE)
+                self.assertIsNotNone(m, f"{dunder}: no __version__ assignment")
+                self.assertEqual(pyver, m.group(1), f"{pkg['pypi_name']}: pyproject [project].version {pyver!r} != {dunder.relative_to(REPO_ROOT)} __version__ {m.group(1)!r} -- the ml#701 stale-dunder class; bump both in lockstep (propose.py does this automatically since ml#701's implementation)")
+        self.assertEqual(eligible, 5, f"expected exactly the 5 static-with-dunder in-repo packages (ci-tools, config-tools, doc-tools, observability, service-core), found {eligible} -- registry or tree drifted; update this count deliberately")
 
 
 class RegistryCrossRepoResolutionTest(unittest.TestCase):

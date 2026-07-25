@@ -102,7 +102,7 @@ def _manifest_pkg(**over) -> dict:
     return base
 
 
-def _write_pkg(repo_root: Path, path: str, *, name: str, version: str, changelog: str = "", dynamic: bool = False, import_pkg: str = "") -> None:
+def _write_pkg(repo_root: Path, path: str, *, name: str, version: str, changelog: str = "", dynamic: bool = False, import_pkg: str = "", dunder: bool = False) -> None:
     pkg_dir = repo_root if path == "." else repo_root / path.rstrip("/")
     pkg_dir.mkdir(parents=True, exist_ok=True)
     if dynamic:
@@ -112,6 +112,11 @@ def _write_pkg(repo_root: Path, path: str, *, name: str, version: str, changelog
         (pkg_dir / ip / "_version.py").write_text(f'"""Version."""\n__version__ = "{version}"\n')
     else:
         (pkg_dir / "pyproject.toml").write_text(f'[project]\nname = "{name}"\nversion = "{version}"\ndescription = "x"\n')
+        if dunder:
+            # the ml#701 static-with-dunder shape: all five in-repo static packages also ship one.
+            ip = import_pkg or name.replace("-", "_")
+            (pkg_dir / ip).mkdir(parents=True, exist_ok=True)
+            (pkg_dir / ip / "_version.py").write_text(f'"""Version."""\n__version__ = "{version}"\n')
     if changelog:
         (pkg_dir / "CHANGELOG.md").write_text(changelog)
 
@@ -451,6 +456,63 @@ class BuildProposalTest(unittest.TestCase):
         vedit = next(e for e in prop.edits if e.path == vpath)
         self.assertIn('__version__ = "0.4.0"', vedit.new_text)
         self.assertNotIn('__version__ = "0.3.0"', vedit.new_text)
+
+    def test_static_with_dunder_bumps_both_files_in_lockstep(self):
+        # ml#701: a static-version package that ALSO ships a _version.py dunder must have BOTH files
+        # bumped in ONE proposal -- the ci-tools 0.7.0 / service-core 0.5.0 stale-dunder class (the
+        # shipped wheel's metadata was right while its __version__ lied).
+        _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog=_CHANGELOG, dunder=True)
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        paths = {e.path for e in prop.edits}
+        self.assertIn("juniper-thing/pyproject.toml", paths)
+        self.assertIn("juniper-thing/juniper_thing/_version.py", paths)
+        vedit = next(e for e in prop.edits if e.path == "juniper-thing/pyproject.toml")
+        self.assertIn('version = "0.5.0"', vedit.new_text)
+        dedit = next(e for e in prop.edits if e.path == "juniper-thing/juniper_thing/_version.py")
+        self.assertIn('__version__ = "0.5.0"', dedit.new_text)
+        self.assertNotIn('__version__ = "0.4.0"', dedit.new_text)
+        # the co-change is NAMED in the proposal body and the S5.4 checklist (like the AGENTS.md one)
+        self.assertIn("juniper-thing/juniper_thing/_version.py", prop.pr_body or "")
+        self.assertIn("Lockstep `__version__` dunder co-change", prop.pr_body or "")
+        self.assertTrue(any("_version.py" in item and "included in this PR" in item for item in prop.co_change_checklist))
+
+    def test_static_without_dunder_emits_no_phantom_version_py_edit(self):
+        # a static package with NO _version.py gets exactly the pyproject bump -- no phantom edit,
+        # no dunder checklist item, no body mention.
+        _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog=_CHANGELOG)
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        self.assertEqual([e.path for e in prop.edits if e.path.endswith("_version.py")], [])
+        self.assertFalse(any("_version.py" in item for item in prop.co_change_checklist))
+        self.assertNotIn("Lockstep `__version__` dunder co-change", prop.pr_body or "")
+
+    def test_dynamic_package_version_py_path_is_unchanged_by_lockstep(self):
+        # the dynamic path is UNTOUCHED by ml#701: exactly one _version.py edit (the bump itself),
+        # no pyproject edit, and no dunder co-change surfacing.
+        _write_pkg(self.repo_root, "juniper-model-core/", name="juniper-model-core", version="0.3.0", changelog=_CHANGELOG, dynamic=True, import_pkg="juniper_model_core")
+        entry = _entry(pypi_name="juniper-model-core", path="juniper-model-core/", version_source="dynamic", tag_pattern="juniper-model-core-v*", archive_name="RELEASE_NOTES_juniper-model-core_v{version}.md", ship_paths=["juniper-model-core/juniper_model_core/"])
+        pkg = _manifest_pkg(pypi_name="juniper-model-core", released_version="0.3.0", declared_version="0.3.0", proposed_version="0.4.0")
+        prop = pr.build_proposal(entry, pkg, self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        version_py_edits = [e.path for e in prop.edits if e.path.endswith("_version.py")]
+        self.assertEqual(version_py_edits, ["juniper-model-core/juniper_model_core/_version.py"])
+        self.assertNotIn("juniper-model-core/pyproject.toml", {e.path for e in prop.edits})
+        self.assertFalse(any("_version.py" in item for item in prop.co_change_checklist))
+        self.assertNotIn("Lockstep `__version__` dunder co-change", prop.pr_body or "")
+
+    def test_static_with_unparseable_dunder_flags_required_manual(self):
+        # a present-but-unparseable dunder is never guessed at: no edit, checklist REQUIRED-manual
+        # (the sibling-AGENTS.md unexpected-header precedent).
+        _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog=_CHANGELOG, dunder=True)
+        (self.repo_root / "juniper-thing" / "juniper_thing" / "_version.py").write_text('"""No dunder assignment here."""\nVERSION = (0, 4, 0)\n')
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        self.assertEqual([e.path for e in prop.edits if e.path.endswith("_version.py")], [])
+        self.assertTrue(any("_version.py" in item and "REQUIRED" in item for item in prop.co_change_checklist))
 
     def test_meta_package_co_changes_agents_md(self):
         _write_pkg(self.repo_root, ".", name="juniper-ml", version="0.6.0", changelog=_CHANGELOG)
