@@ -352,6 +352,43 @@ class ChangelogMoveTest(unittest.TestCase):
 
 
 class VersionEditTest(unittest.TestCase):
+    def test_dunder_file_rel_joins_path_and_import_package(self):
+        entry = _entry(path="juniper-ci-tools/", pypi_name="juniper-ci-tools", ship_paths=["juniper-ci-tools/juniper_ci_tools/"])
+        self.assertEqual(pr.dunder_file_rel(entry), "juniper-ci-tools/juniper_ci_tools/_version.py")
+        # path="." must not leave a leading "./" that would desync from sources.read_file keys
+        meta = _entry(pypi_name="juniper-ml", path=".", ship_paths=[])
+        self.assertEqual(pr.dunder_file_rel(meta), "juniper_ml/_version.py")
+
+    def test_dunder_cochange_rel_ignores_dynamic_edits0_and_finds_later(self):
+        # dynamic: edits[0] IS the _version.py bump -- never a "co-change"
+        dyn = pr.Proposal(pypi_name="juniper-model-core", repo="juniper-ml", from_version="0.3.0", to_version="0.4.0", bump="minor")
+        dyn.edits = [pr.FileEdit(path="juniper-model-core/juniper_model_core/_version.py", old_text="a", new_text="b")]
+        self.assertIsNone(pr.dunder_cochange_rel(dyn))
+        # static-with-dunder: the lockstep edit is later than edits[0]
+        static = pr.Proposal(pypi_name="juniper-thing", repo="juniper-ml", from_version="0.4.0", to_version="0.5.0", bump="minor")
+        static.edits = [
+            pr.FileEdit(path="juniper-thing/pyproject.toml", old_text="a", new_text="b"),
+            pr.FileEdit(path="juniper-thing/juniper_thing/_version.py", old_text="c", new_text="d"),
+            pr.FileEdit(path="juniper-thing/CHANGELOG.md", old_text="e", new_text="f"),
+        ]
+        self.assertEqual(pr.dunder_cochange_rel(static), "juniper-thing/juniper_thing/_version.py")
+        # no later _version.py -> None (static-without-dunder)
+        bare = pr.Proposal(pypi_name="juniper-thing", repo="juniper-ml", from_version="0.4.0", to_version="0.5.0", bump="minor")
+        bare.edits = [
+            pr.FileEdit(path="juniper-thing/pyproject.toml", old_text="a", new_text="b"),
+            pr.FileEdit(path="juniper-thing/CHANGELOG.md", old_text="e", new_text="f"),
+        ]
+        self.assertIsNone(pr.dunder_cochange_rel(bare))
+
+    def test_co_change_checklist_dunder_states(self):
+        entry = _entry()
+        included = pr._co_change_checklist(entry, "minor", [], False, [], dunder_rel="pkg/_version.py", dunder_edited=True)
+        self.assertTrue(any("included in this PR" in item and "_version.py" in item for item in included))
+        required = pr._co_change_checklist(entry, "minor", [], False, [], dunder_rel="pkg/_version.py", dunder_edited=False)
+        self.assertTrue(any("REQUIRED" in item and "_version.py" in item for item in required))
+        absent = pr._co_change_checklist(entry, "minor", [], False, [])
+        self.assertFalse(any("_version.py" in item for item in absent))
+
     def test_set_pyproject_version(self):
         text = '[build-system]\nrequires = ["setuptools"]\n\n[project]\nname = "x"\nversion = "0.4.0"\n'
         new_text, old = pr.set_pyproject_version(text, "0.5.0")
@@ -513,6 +550,45 @@ class BuildProposalTest(unittest.TestCase):
         self.assertFalse(prop.skipped, prop.skipped_reason)
         self.assertEqual([e.path for e in prop.edits if e.path.endswith("_version.py")], [])
         self.assertTrue(any("_version.py" in item and "REQUIRED" in item for item in prop.co_change_checklist))
+        # body must NOT claim a lockstep co-change was performed when no edit landed
+        self.assertNotIn("Lockstep `__version__` dunder co-change", prop.pr_body or "")
+
+    def test_static_dunder_already_at_target_is_silent_success(self):
+        # if the dunder is already at the proposed version (partial heal / re-entry), do NOT emit a
+        # phantom edit and do NOT flag REQUIRED-manual -- that false alarm is worse than silence.
+        _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog=_CHANGELOG, dunder=True)
+        (self.repo_root / "juniper-thing" / "juniper_thing" / "_version.py").write_text('"""Version."""\n__version__ = "0.5.0"\n')
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        self.assertEqual([e.path for e in prop.edits if e.path.endswith("_version.py")], [])
+        self.assertFalse(any("_version.py" in item and "REQUIRED" in item for item in prop.co_change_checklist))
+        self.assertNotIn("Lockstep `__version__` dunder co-change", prop.pr_body or "")
+
+    def test_static_with_single_quoted_dunder_bumps_in_lockstep(self):
+        # set_dynamic_version accepts either quote style; the lockstep path must not silently skip
+        # a single-quoted assignment (would re-create the stale-dunder class for that shape).
+        _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog=_CHANGELOG, dunder=True)
+        (self.repo_root / "juniper-thing" / "juniper_thing" / "_version.py").write_text("'''Version.'''\n__version__ = '0.4.0'\n")
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        dedit = next(e for e in prop.edits if e.path.endswith("_version.py"))
+        self.assertIn("__version__ = '0.5.0'", dedit.new_text)
+        self.assertNotIn("__version__ = '0.4.0'", dedit.new_text)
+
+    def test_static_dunder_edit_precedes_changelog_in_edits(self):
+        # dunder_cochange_rel scans edits[1:] for the first *_version.py; the lockstep FileEdit must
+        # land immediately after the pyproject bump (edits[0]) and before CHANGELOG / other co-changes.
+        _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog=_CHANGELOG, dunder=True)
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        self.assertGreaterEqual(len(prop.edits), 3)
+        self.assertEqual(prop.edits[0].path, "juniper-thing/pyproject.toml")
+        self.assertEqual(prop.edits[1].path, "juniper-thing/juniper_thing/_version.py")
+        self.assertEqual(prop.edits[2].path, "juniper-thing/CHANGELOG.md")
+        self.assertEqual(pr.dunder_cochange_rel(prop), "juniper-thing/juniper_thing/_version.py")
 
     def test_meta_package_co_changes_agents_md(self):
         _write_pkg(self.repo_root, ".", name="juniper-ml", version="0.6.0", changelog=_CHANGELOG)
