@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.0
+**Version**: 1.2.1
 **Last Updated**: 2026-07-25
 
 ---
@@ -327,6 +327,15 @@ carve-out and its negative case are pinned by `tests/test_release_train_ceremony
    / ml#707). Owner one-click is now only the degraded/manual fallback (e.g. `allow_auto_merge` off). No
    security-posture change — the PyPI deploy still waits at the owner-gated `pypi` environment (Gate 2).
    The **live proof** (an archive PR auto-merging with zero clicks) rides the next real ceremony dispatch.
+6. **Summary / Slack `<<'PY'` late-failure class (RESOLVED #708 + #723).** Detect / propose / ceremony
+   step-summary and Slack payload steps embed Python via `python - <<'PY' … PY`. A duplicated or missing
+   `PY` terminator (run 30051952226 / ml#708) or a syntax-broken heredoc body (ml#723) fails **after**
+   the real work finishes — the job goes red even though Gate 1/2 side effects already landed. Operator
+   response: treat the run's proposal / archive / Release / `PENDING_PYPI_APPROVAL` outcomes as
+   authoritative; fix the YAML and re-run only if a summary/Slack signal is still needed. Developers
+   editing those blocks must keep openers and terminators 1:1 and keep each body `compile()`-clean —
+   pinned by `HeredocBalanceTest` + `HeredocCompileTest` in `tests/test_release_train_workflow_guard.py`
+   (four bodies today: detect summary, detect Slack, propose summary, ceremony summary).
 
 ## 9. Quick reference
 
@@ -358,7 +367,8 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   (ml#701 / juniper-ml#710).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
 - Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
-- Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
+- Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal +
+  `HeredocBalanceTest` / `HeredocCompileTest` for every `<<'PY'` block — ml#708 / ml#723),
   `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
   `tests/test_release_train_registry.py` (`VersionDunderLockstepTest`, ml#701).
 - Release convention (cut a Release, archive notes centrally): repo `AGENTS.md` "Publishing" +

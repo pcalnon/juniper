@@ -198,6 +198,8 @@ Meta-package publish flow: build + `twine check`, TestPyPI upload with attestati
 
 **Static-package version lockstep (ml#701):** all five in-repo static packages (ci-tools, config-tools, doc-tools, observability, service-core) also ship `<import>/_version.py`. Hand-bumps and release-train proposals must move `[project].version` and `__version__` together — a pyproject-only bump ships a wheel whose `__version__` lies. Always-on gate: `tests/test_release_train_registry.py` (`VersionDunderLockstepTest`). The train's `propose.py` emits the dunder co-change automatically (juniper-ml#710).
 
+**Release-train `<<'PY'` heredocs (ml#708 / ml#723):** when editing `.github/workflows/release-train.yml` summary or Slack steps, keep each `python - <<'PY'` opener paired with exactly one `PY` terminator and keep the body syntactically valid Python. A stray terminator (exit 127) or `SyntaxError` fails the job only after propose/ceremony work finishes. Gate: `tests/test_release_train_workflow_guard.py` (`HeredocBalanceTest` + `HeredocCompileTest`; pin expects 4 bodies).
+
 ---
 
 ## Environment Variables
