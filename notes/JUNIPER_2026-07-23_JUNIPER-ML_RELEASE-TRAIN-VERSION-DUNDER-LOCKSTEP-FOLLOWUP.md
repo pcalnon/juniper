@@ -58,11 +58,26 @@ Option A (design of record) landed in [juniper-ml#710](https://github.com/pcalno
 | Acceptance (§4) | Where it landed |
 |---|---|
 | Static-with-dunder proposal bumps `pyproject.toml` **and** `_version.py` together; body names the co-change | `util/release_train/propose.py` step 3a (`dunder_file_rel` / `dunder_cochange_rel`; auto-detect by file presence, no registry field); hermetic shapes in `tests/test_release_train_propose.py` |
-| Hermetic propose tests cover the §3.2 shapes (+ unparseable → REQUIRED-manual) | `tests/test_release_train_propose.py` (both-bumped / no-phantom / dynamic-unchanged / unparseable-REQUIRED-manual) |
-| Generic pyproject==dunder gate in CI | `tests/test_release_train_registry.py` `VersionDunderLockstepTest` (always-on; hard-pins eligible count at 5; dynamic exempt) |
-| Docs / plan inventory mention the dunder artifact | Plan §5.4 atomicity co-changes; `propose.py` module docstring; AGENTS.md; operator runbook Gate 1 review table |
+| Hermetic propose tests cover the §3.2 shapes (+ unparseable → REQUIRED-manual) | `tests/test_release_train_propose.py` (both-bumped / no-phantom / dynamic-unchanged / unparseable-REQUIRED-manual); edge cases in juniper-ml#712 |
+| Generic pyproject==dunder gate in CI | `tests/test_release_train_registry.py` `VersionDunderLockstepTest` (always-on; hard-pins eligible count at 5; dynamic exempt; #712 adds synthetic bite-proof + path agreement with `propose.dunder_file_rel`) |
+| Docs / plan inventory mention the dunder artifact | Plan §5.4 atomicity co-changes; `propose.py` module docstring; AGENTS.md; operator runbook Gate 1 review table (juniper-ml#711; re-entry nuance below) |
 
-**Operator surface:** when reviewing a Gate 1 proposal for a static-with-dunder package, expect both files in the diff (or a REQUIRED-manual checklist item if the dunder is unparseable). See the release-train
+**Operator surface:** when reviewing a Gate 1 proposal for a static-with-dunder package, expect both
+files in the diff, **or** a REQUIRED-manual checklist item if the dunder is unparseable, **or** a
+pyproject-only diff with no dunder checklist when `__version__` already equals the proposed
+`to_version` (partial heal / re-entry — silent success after #712). See the release-train
 [operator runbook](JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2.
+
+### 6.1 Coverage follow-up (juniper-ml#712)
+
+[juniper-ml#712](https://github.com/pcalnon/juniper-ml/pull/712) hardens the hermetic edge cases #710's
+happy path missed and fixes one checklist correctness bug found while writing them:
+
+| Shape / fix | Contract |
+|---|---|
+| Already-at-target dunder | No phantom `_version.py` edit; **no** REQUIRED-manual checklist line (pre-#712 falsely REQUIRED'd a correct dunder) |
+| Unparseable dunder | Checklist REQUIRED; PR body must **not** claim a lockstep co-change landed |
+| Single-quoted `__version__ = '…'` | Still bumps (quote-style skip would recreate the stale-dunder class) |
+| Edit ordering | Dunder `FileEdit` is `edits[1]` before CHANGELOG so `dunder_cochange_rel` stays correct |
 
 **Still available later (Option B, §3.4):** flipping all five static packages to `dynamic = ["version"]` would dissolve the class structurally; not required once Option A + the always-on gate are in place.

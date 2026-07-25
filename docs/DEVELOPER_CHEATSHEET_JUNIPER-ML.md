@@ -198,6 +198,8 @@ Meta-package publish flow: build + `twine check`, TestPyPI upload with attestati
 
 **Static-package version lockstep (ml#701):** all five in-repo static packages (ci-tools, config-tools, doc-tools, observability, service-core) also ship `<import>/_version.py`. Hand-bumps and release-train proposals must move `[project].version` and `__version__` together — a pyproject-only bump ships a wheel whose `__version__` lies. Always-on gate: `tests/test_release_train_registry.py` (`VersionDunderLockstepTest`). The train's `propose.py` emits the dunder co-change automatically (juniper-ml#710).
 
+**Re-entry caveat (juniper-ml#712):** if `__version__` already equals the proposed version, the train leaves the dunder alone and does **not** checklist REQUIRED-manual. Confirm the match before treating a pyproject-only proposal as the old failure class.
+
 ---
 
 ## Environment Variables

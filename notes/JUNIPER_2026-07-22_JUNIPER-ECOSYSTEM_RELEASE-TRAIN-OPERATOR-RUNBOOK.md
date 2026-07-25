@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.0
+**Version**: 1.2.1
 **Last Updated**: 2026-07-25
 
 ---
@@ -118,10 +118,15 @@ When reviewing a Gate 1 proposal for one of those packages, expect:
 
 | Signal in the proposal PR | Meaning | Operator action |
 |---|---|---|
-| Diff edits **both** `pyproject.toml` `[project].version` **and** `<import>/_version.py` | Normal lockstep co-change (`propose.py` step 3a; auto-detected by file presence, no registry field) | Merge when the rest of the proposal looks right |
+| Diff edits **both** `pyproject.toml` `[project].version` **and** `<import>/_version.py` | Normal lockstep co-change (`propose.py` step 3a; auto-detected by file presence, no registry field). Single- and double-quoted `__version__ = …` both parse. | Merge when the rest of the proposal looks right |
 | Body names a lockstep `__version__` dunder co-change + checklist "included in this PR" | Train already applied the dunder edit | No extra manual edit |
-| Checklist item **REQUIRED** (`__version__` assignment not found) | File exists but is unparseable — train left it alone (AGENTS.md-header precedent) | Edit `__version__` by hand in the same PR before merge |
-| Diff touches **only** `pyproject.toml` for a static-with-dunder package | Pre-#710 / stale train / bug — the old failure class | Do **not** merge as-is; add the dunder bump (or re-dispatch `propose` after #710) |
+| Checklist item **REQUIRED** (`__version__` assignment not found); body does **not** claim a lockstep co-change | File exists but is unparseable — train left it alone (AGENTS.md-header precedent) | Edit `__version__` by hand in the same PR before merge |
+| Diff touches **only** `pyproject.toml`, **no** dunder checklist item, and checkout `__version__` already equals the proposed `to_version` | Already-at-target / partial heal / re-entry (juniper-ml#712) — silent success; train must **not** false-flag REQUIRED-manual | Confirm the dunder really matches the proposed version, then merge when the rest looks right |
+| Diff touches **only** `pyproject.toml` **and** checkout `__version__` is still at `from_version` (or any other mismatch) | Pre-#710 / stale train / bug — the old failure class | Do **not** merge as-is; add the dunder bump (or re-dispatch `propose` after #710/#712) |
+
+**Pitfall:** a pyproject-only diff is no longer automatically rejectable. Distinguish re-entry (dunder
+already correct → OK) from the stale-dunder class (dunder still behind → block). After #712, an
+already-correct dunder produces neither a `_version.py` edit nor a checklist line.
 
 Always-on CI gate (train or no train; lands with juniper-ml#710): `tests/test_release_train_registry.py`
 (`VersionDunderLockstepTest`) asserts pyproject == dunder for every in-repo static-with-dunder package.
@@ -355,7 +360,7 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   §12 phased plan (steps 1.3/2.2/4.1/4.3).
 - Static-with-dunder lockstep design + implementation record:
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
-  (ml#701 / juniper-ml#710).
+  (ml#701 / juniper-ml#710; edge-case coverage + already-at-target checklist fix juniper-ml#712).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
 - Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
