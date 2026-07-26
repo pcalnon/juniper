@@ -950,6 +950,67 @@ class WakeTheClaudeSecurityTests(unittest.TestCase):
             for arg in args:
                 self.assertNotEqual(arg, "--model claude-sonnet-4-6", "model flag and value must be separate arguments")
 
+    def test_invalid_model_fails_without_invoking_claude(self) -> None:
+        """validate_model must reject unknown names before launching claude (usage exit 1)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            invocations_log, env = self._install_fake_claude(temp_dir)
+            result = self._run_script(
+                ["--resume", VALID_UUID, "--model", "not-a-real-model", "--prompt", "hello"],
+                cwd=temp_dir,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            combined_output = result.stdout + result.stderr
+            self.assertEqual(combined_output.count("usage: wake_the_claude.bash"), 1)
+            invocations = self._wait_for_invocations(invocations_log, timeout_seconds=SHORT_INVOCATION_WAIT_TIMEOUT)
+            self.assertEqual(invocations, [])
+
+    def test_model_flag_without_value_fails_without_invoking_claude(self) -> None:
+        """--model with no following value must fail early and never launch claude."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            invocations_log, env = self._install_fake_claude(temp_dir)
+            result = self._run_script(
+                ["--resume", VALID_UUID, "--model"],
+                cwd=temp_dir,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            combined_output = result.stdout + result.stderr
+            self.assertEqual(combined_output.count("usage: wake_the_claude.bash"), 1)
+            invocations = self._wait_for_invocations(invocations_log, timeout_seconds=SHORT_INVOCATION_WAIT_TIMEOUT)
+            self.assertEqual(invocations, [])
+
+    def test_model_alias_case_insensitive_is_accepted(self) -> None:
+        """validate_model lowercases input so OPUS matches the opus alias allowlist entry."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            invocations_log, env = self._install_fake_claude(temp_dir)
+            result = self._run_script(
+                ["--resume", VALID_UUID, "--model", "OPUS", "--prompt", "hello"],
+                cwd=temp_dir,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            invocations = self._wait_for_invocations(invocations_log)
+            self.assertTrue(invocations)
+            args = self._extract_args(invocations[-1])
+            self.assertIn("--model", args)
+            self.assertIn("OPUS", args)
+
+    def test_invalid_effort_fails_without_invoking_claude(self) -> None:
+        """Invalid --effort values must fail before launching claude (usage exit 1)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            invocations_log, env = self._install_fake_claude(temp_dir)
+            result = self._run_script(
+                ["--resume", VALID_UUID, "--effort", "ultra", "--prompt", "hello"],
+                cwd=temp_dir,
+                env=env,
+            )
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            combined_output = result.stdout + result.stderr
+            self.assertEqual(combined_output.count("usage: wake_the_claude.bash"), 1)
+            invocations = self._wait_for_invocations(invocations_log, timeout_seconds=SHORT_INVOCATION_WAIT_TIMEOUT)
+            self.assertEqual(invocations, [])
+
     def test_prompt_with_glob_characters_is_not_expanded(self) -> None:
         """HIGH: Verify glob characters in prompt text are not expanded to filenames."""
         with tempfile.TemporaryDirectory() as temp_dir:
