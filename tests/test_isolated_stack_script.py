@@ -294,10 +294,7 @@ class TestPortPid(unittest.TestCase):
         # Real ss -tlnp lines embed users:(("proc",pid=N,fd=F)); port_pid must
         # take the first pid= token (head -n1) and ignore later listeners.
         result = self._run_port_pid(
-            ss_script=(
-                'echo \'LISTEN 0 128 127.0.0.1:65101 0.0.0.0:* users:(("python",pid=424242,fd=3))\'\n'
-                'echo \'LISTEN 0 128 127.0.0.1:65101 0.0.0.0:* users:(("python",pid=999999,fd=4))\'\n'
-            ),
+            ss_script=("echo 'LISTEN 0 128 127.0.0.1:65101 0.0.0.0:* users:((\"python\",pid=424242,fd=3))'\n" "echo 'LISTEN 0 128 127.0.0.1:65101 0.0.0.0:* users:((\"python\",pid=999999,fd=4))'\n"),
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertEqual(result.stdout.strip(), "PID=424242")
@@ -319,11 +316,7 @@ class TestStopPort(unittest.TestCase):
 
     def _spawn_detached(self, inner_bash: str) -> int:
         """Start a session-leader child reparented to init (zombie-safe kill -0)."""
-        launcher = (
-            "setsid bash -c "
-            + repr(inner_bash)
-            + " </dev/null >/dev/null 2>&1 & echo $!"
-        )
+        launcher = "setsid bash -c " + repr(inner_bash) + " </dev/null >/dev/null 2>&1 & echo $!"
         result = subprocess.run(
             ["/bin/bash", "-c", launcher],
             capture_output=True,
@@ -385,7 +378,7 @@ class TestStopPort(unittest.TestCase):
         pid = self._spawn_detached("exec sleep 60")
         try:
             result = self._run_stop_port(
-                ss_script=f'echo \'LISTEN 0 128 127.0.0.1:65111 0.0.0.0:* users:(("sleep",pid={pid},fd=3))\'\n',
+                ss_script=f"echo 'LISTEN 0 128 127.0.0.1:65111 0.0.0.0:* users:((\"sleep\",pid={pid},fd=3))'\n",
                 port="65111",
                 name="juniper-data",
             )
@@ -415,7 +408,7 @@ class TestStopPort(unittest.TestCase):
         # Kill path must go through port_pid (not a hard-coded pidfile-only stop).
         stop_body = _extract_function("stop_port")
         self.assertIn('pid="$(port_pid "${port}")"', stop_body)
-        self.assertIn("kill \"${pid}\"", stop_body)
+        self.assertIn('kill "${pid}"', stop_body)
 
 
 class TestLiveDown(unittest.TestCase):
