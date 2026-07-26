@@ -126,6 +126,10 @@ jobs:
           echo "║       juniper-ml - Python Regression Tests                 ║"
           echo "╚════════════════════════════════════════════════════════════╝"
           python3 -m unittest -v tests/test_wake_the_claude.py
+          # claude_interactive.bash (`claudey`): DEBUG-forced
+          # --dangerously-skip-permissions + inverted TRUE/FALSE opt-in
+          # convention vs the older default_interactive launcher.
+          python3 -m unittest -v tests/test_claude_interactive.py
           # Env-repr safety: lint gate forbidding raw os.environ-derived
           # subprocess env mappings in tests/ (secret-leak class; the
           # RedactedEnv wrapper in tests/redacted_env.py is the fix).
