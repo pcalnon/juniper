@@ -513,9 +513,7 @@ class LocalGitCompareTest(unittest.TestCase):
 
         pkg = work / "juniper-thing" / "juniper_thing"
         pkg.mkdir(parents=True)
-        (work / "juniper-thing" / "pyproject.toml").write_text(
-            '[project]\nname = "juniper-thing"\nversion = "0.4.0"\n', encoding="utf-8"
-        )
+        (work / "juniper-thing" / "pyproject.toml").write_text('[project]\nname = "juniper-thing"\nversion = "0.4.0"\n', encoding="utf-8")
         (pkg / "keep.py").write_text("def keep():\n    return 1\n", encoding="utf-8")
         (pkg / "doomed.py").write_text("def doomed():\n    return 0\n", encoding="utf-8")
         (pkg / "renamed_src.py").write_text("def moved():\n    return 2\n", encoding="utf-8")
