@@ -152,24 +152,7 @@ class TestSystemdModeBehavioral(unittest.TestCase):
         systemctl_log.write_text("")
         fail_list = " ".join(sorted(fail_units or ()))
         systemctl = stub_bin / "systemctl"
-        systemctl.write_text(
-            "#!/usr/bin/env bash\n"
-            "set -euo pipefail\n"
-            f'printf "%s\\n" "$*" >>"{systemctl_log}"\n'
-            'if [[ "${1:-}" == "--user" ]]; then shift; fi\n'
-            'cmd="${1:-}"\n'
-            'unit="${2:-}"\n'
-            f'fail_units="{fail_list}"\n'
-            'case "${cmd}" in\n'
-            "  stop)\n"
-            '    for bad in ${fail_units}; do\n'
-            '      if [[ "${unit}" == "${bad}" ]]; then exit 1; fi\n'
-            "    done\n"
-            "    exit 0\n"
-            "    ;;\n"
-            "  *) exit 0 ;;\n"
-            "esac\n"
-        )
+        systemctl.write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "%s\\n" "$*" >>"{systemctl_log}"\n' 'if [[ "${1:-}" == "--user" ]]; then shift; fi\n' 'cmd="${1:-}"\n' 'unit="${2:-}"\n' f'fail_units="{fail_list}"\n' 'case "${cmd}" in\n' "  stop)\n" "    for bad in ${fail_units}; do\n" '      if [[ "${unit}" == "${bad}" ]]; then exit 1; fi\n' "    done\n" "    exit 0\n" "    ;;\n" "  *) exit 0 ;;\n" "esac\n")
         systemctl.chmod(0o755)
         return stub_bin, systemctl_log
 

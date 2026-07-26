@@ -479,21 +479,7 @@ class TestSystemdModeBehavioral(unittest.TestCase):
         systemctl_log.write_text("")
 
         systemctl = stub_bin / "systemctl"
-        systemctl.write_text(
-            "#!/usr/bin/env bash\n"
-            "set -euo pipefail\n"
-            f'printf "%s\\n" "$*" >>"{systemctl_log}"\n'
-            'args=("$@")\n'
-            'if [[ "${1:-}" == "--user" ]]; then shift; fi\n'
-            'cmd="${1:-}"\n'
-            'case "${cmd}" in\n'
-            "  start) exit 0 ;;\n"
-            f"  is-active) exit {is_active_exit} ;;\n"
-            "  status) exit 0 ;;\n"
-            "  stop) exit 0 ;;\n"
-            "  *) exit 0 ;;\n"
-            "esac\n"
-        )
+        systemctl.write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "%s\\n" "$*" >>"{systemctl_log}"\n' 'args=("$@")\n' 'if [[ "${1:-}" == "--user" ]]; then shift; fi\n' 'cmd="${1:-}"\n' 'case "${cmd}" in\n' "  start) exit 0 ;;\n" f"  is-active) exit {is_active_exit} ;;\n" "  status) exit 0 ;;\n" "  stop) exit 0 ;;\n" "  *) exit 0 ;;\n" "esac\n")
         systemctl.chmod(0o755)
 
         sleep = stub_bin / "sleep"
