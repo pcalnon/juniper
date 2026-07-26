@@ -510,6 +510,7 @@ class LocalGitCompareTest(unittest.TestCase):
         self._git(work, "config", "user.email", "tests@example.invalid")
         self._git(work, "config", "user.name", "Test User")
         self._git(work, "config", "commit.gpgsign", "false")
+        self._git(work, "config", "tag.gpgSign", "false")
 
         pkg = work / "juniper-thing" / "juniper_thing"
         pkg.mkdir(parents=True)
