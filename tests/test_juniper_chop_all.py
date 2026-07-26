@@ -56,11 +56,7 @@ def _write_fake_pgrep(bin_dir: Path, lines: list[str]) -> None:
     payload = bin_dir / "pgrep_lines.txt"
     payload.write_text("\n".join(lines) + ("\n" if lines else ""))
     pgrep_path = bin_dir / "pgrep"
-    pgrep_path.write_text(
-        "#!/bin/bash\n"
-        "set -euo pipefail\n"
-        f'cat -- "{payload}"\n'
-    )
+    pgrep_path.write_text("#!/bin/bash\n" "set -euo pipefail\n" f'cat -- "{payload}"\n')
     pgrep_path.chmod(0o755)
 
 
