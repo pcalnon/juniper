@@ -3,14 +3,21 @@ Tests for util/worktree_cleanup.bash
 
 Validates argument parsing, dry-run output, and error handling for the
 worktree cleanup script. Most tests use --dry-run mode or validate argument
-validation failures. Phase 6/7 ``pull --ff-only`` warn-and-skip cases drive a
-real fixture repo via ``JUNIPER_ML_MAIN_REPO`` without running the full cleanup
-pipeline.
+validation failures. Phase 3 existing-PR reuse / non-main parent cases drive a
+real fixture repo (via JUNIPER_ML_MAIN_REPO) with a fake ``gh`` on PATH —
+without the full cleanup pipeline.
+
+Open coverage ownership (do not collide):
+  * #747 / #753 — Phase 1 dirty / push / Phase 2 collision
+  * #755 — Phase 3 no-ahead skip + ahead→create (helpers ``_p3_*`` / ``_run_phase3``)
+  * this file — Phase 3 existing-PR reuse + non-main parent merge→PR
+    (helpers ``_p3r_*`` / ``_run_phase3_reuse``; name-isolated from #755)
 """
 
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -35,7 +42,8 @@ def run_script(*args: str, cwd: str | None = None) -> subprocess.CompletedProces
     )
 
 
-def _run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _p3r_run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """git helper for Phase 3 reuse/non-main fixtures (name-isolated from open #755 ``_p3_*``)."""
     return subprocess.run(
         ["git", "-C", str(cwd), *args],
         capture_output=True,
@@ -45,102 +53,94 @@ def _run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedP
     )
 
 
-def _init_fixture_repo(path: Path) -> None:
-    """Bare-bones git repo on main, ready for Phase 6/7 fixture setup."""
+def _p3r_init_repo(path: Path) -> None:
+    """Bare-bones git repo with main + origin/main, ready for phase sourcing."""
     path.mkdir(parents=True, exist_ok=True)
-    _run_git(path, "init", "-q", "-b", "main")
-    _run_git(path, "config", "user.email", "tests@example.invalid")
-    _run_git(path, "config", "user.name", "Test User")
-    _run_git(path, "config", "commit.gpgsign", "false")
+    _p3r_run_git(path, "init", "-q", "-b", "main")
+    _p3r_run_git(path, "config", "user.email", "tests@example.invalid")
+    _p3r_run_git(path, "config", "user.name", "Test User")
+    _p3r_run_git(path, "config", "commit.gpgsign", "false")
     (path / "README.md").write_text("# test\n")
-    _run_git(path, "add", "README.md")
-    _run_git(path, "commit", "-q", "-m", "initial")
+    _p3r_run_git(path, "add", "README.md")
+    _p3r_run_git(path, "commit", "-q", "-m", "initial")
+    _p3r_run_git(path, "update-ref", "refs/remotes/origin/main", "HEAD")
 
 
-def _prepare_ff_divergent_repo(tmp: Path) -> Path:
-    """Return a MAIN_REPO on main whose ``pull --ff-only origin main`` cannot FF.
+def _p3r_attach_bare_origin(repo: Path, remote: Path) -> None:
+    """Clone ``repo`` to a bare remote and wire ``origin`` so push/fetch work offline."""
+    _p3r_run_git(repo, "clone", "--bare", "-q", str(repo), str(remote))
+    _p3r_run_git(repo, "remote", "add", "origin", str(remote))
 
-    Local main and origin/main each have a unique commit (siblings), so
-    ``--ff-only`` refuses. Models a primary checkout that drifted during a
-    concurrent push to origin/main.
+
+def _p3r_install_fake_gh(bin_dir: Path, log_path: Path, *, list_stdout: str = "") -> Path:
+    """Install a recording fake ``gh``.
+
+    ``list_stdout`` is printed for ``gh pr list`` (empty = no open PR; a bare
+    number like ``42`` simulates ``--jq .[0].number`` finding an existing PR).
+    Real ``gh`` prints nothing for an empty list — never ``[]`` — because
+    phase_3 treats any non-empty value as an existing PR number.
     """
-    main_repo = tmp / "main-repo"
-    remote = tmp / "remote.git"
-    side = tmp / "side-clone"
-    _init_fixture_repo(main_repo)
-    _run_git(main_repo, "clone", "--bare", "-q", str(main_repo), str(remote))
-    _run_git(main_repo, "remote", "add", "origin", str(remote))
-
-    # Remote-only tip via a side clone (keeps main_repo's object db clean until
-    # fetch/pull).
-    subprocess.run(
-        ["git", "clone", "-q", str(remote), str(side)],
-        capture_output=True,
-        text=True,
-        timeout=SCRIPT_TIMEOUT_SECONDS,
-        check=True,
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    gh = bin_dir / "gh"
+    # Escape for embedding in the generated bash script.
+    list_payload = list_stdout.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
+    gh.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f'printf "%s\\n" "$*" >> "{log_path}"\n'
+        'if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then\n'
+        f'  printf "%s" "{list_payload}"\n'
+        "  exit 0\n"
+        "fi\n"
+        'if [[ "${1:-}" == "pr" && "${2:-}" == "create" ]]; then\n'
+        '  echo "https://example.invalid/pull/1"\n'
+        "  exit 0\n"
+        "fi\n"
+        'echo "unexpected gh invocation: $*" >&2\n'
+        "exit 99\n"
     )
-    _run_git(side, "config", "user.email", "tests@example.invalid")
-    _run_git(side, "config", "user.name", "Test User")
-    _run_git(side, "config", "commit.gpgsign", "false")
-    (side / "remote-only.txt").write_text("remote\n")
-    _run_git(side, "add", "remote-only.txt")
-    _run_git(side, "commit", "-q", "-m", "remote-only")
-    _run_git(side, "push", "-q", "origin", "main")
-
-    # Local-only tip on MAIN_REPO main → diverged from origin/main.
-    (main_repo / "local-only.txt").write_text("local\n")
-    _run_git(main_repo, "add", "local-only.txt")
-    _run_git(main_repo, "commit", "-q", "-m", "local-only")
-    return main_repo
+    gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
+    return gh
 
 
-def _run_phase6(main_repo: Path, new_worktree: Path, new_branch: str) -> subprocess.CompletedProcess[str]:
-    """Source worktree_cleanup.bash (skipping main) and call phase_6 only."""
+def _run_phase3_reuse(
+    main_repo: Path,
+    old_branch: str,
+    *,
+    path_prefix: str,
+    parent_branch: str = "main",
+) -> subprocess.CompletedProcess[str]:
+    """Source the script and invoke ``phase_3_merge_and_pr`` (not dry-run).
+
+    OLD_BRANCH / PARENT_BRANCH / SKIP_PR / DRY_RUN must be assigned *after*
+    sourcing — the script body resets those globals. ``path_prefix`` must put
+    the fake ``gh`` ahead of any real one. Name-isolated from open #755's
+    ``_run_phase3``.
+    """
     driver = r"""
 set -euo pipefail
 export JUNIPER_ML_MAIN_REPO="$1"
 SCRIPT_PATH="$2"
 # shellcheck disable=SC1090
 source <(sed '/^main "/d' "${SCRIPT_PATH}")
-NEW_WORKTREE="$3"
-NEW_BRANCH="$4"
+OLD_BRANCH="$3"
+PARENT_BRANCH="$4"
+SKIP_PR="${FALSE}"
 DRY_RUN="${FALSE}"
-phase_6_sync_main
+phase_3_merge_and_pr
 """
-    env = RedactedEnv(os.environ)
+    env = RedactedEnv(os.environ, PATH=f"{path_prefix}:{os.environ.get('PATH', '')}")
     return subprocess.run(
         [
             "bash",
             "-c",
             driver,
-            "phase6-driver",
+            "phase3-reuse-driver",
             str(main_repo),
             str(SCRIPT_PATH),
-            str(new_worktree),
-            new_branch,
+            old_branch,
+            parent_branch,
         ],
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=SCRIPT_TIMEOUT_SECONDS,
-    )
-
-
-def _run_phase7(main_repo: Path) -> subprocess.CompletedProcess[str]:
-    """Source worktree_cleanup.bash (skipping main) and call phase_7 only."""
-    driver = r"""
-set -euo pipefail
-export JUNIPER_ML_MAIN_REPO="$1"
-SCRIPT_PATH="$2"
-# shellcheck disable=SC1090
-source <(sed '/^main "/d' "${SCRIPT_PATH}")
-DRY_RUN="${FALSE}"
-phase_7_restore_main_checkout
-"""
-    env = RedactedEnv(os.environ)
-    return subprocess.run(
-        ["bash", "-c", driver, "phase7-driver", str(main_repo), str(SCRIPT_PATH)],
         capture_output=True,
         text=True,
         env=env,
@@ -433,56 +433,113 @@ class TestSyncToMain(unittest.TestCase):
             self.assertLess(remove_pos, sync_pos, "sync to main must run after the old worktree is removed")
 
 
-class TestPhasePullFfOnlyWarnSkip(unittest.TestCase):
-    """Hermetic coverage for Phase 6/7 ``pull --ff-only`` warn-and-skip.
+class TestPhase3ReuseAndNonMainBehavioral(unittest.TestCase):
+    """Hermetic Phase 3 existing-PR reuse + non-main parent merge→PR arm.
 
-    Dry-run only pins the preview text. Open #731 covers Phase 7 dirty-tree /
-    checkout-refusal; these cases pin the remaining best-effort pull failure
-    path — a regression that treats non-ffable history as fatal aborts cleanup
-    after the old worktree is already gone.
+    Open #755 covers no-ahead skip and ahead→create against ``main``. This class
+    owns the leftover edges: a non-empty ``gh pr list`` must suppress
+    ``gh pr create``, and a non-``main`` parent must merge locally then open the
+    PR for the *parent* head (not the feature branch).
     """
 
-    def test_phase7_pull_ff_only_failure_warns_and_skips(self) -> None:
-        """Diverged MAIN_REPO main must warn-and-skip — never exit non-zero."""
-        with tempfile.TemporaryDirectory() as tmp:
-            main_repo = _prepare_ff_divergent_repo(Path(tmp))
-            before = _run_git(main_repo, "rev-parse", "HEAD").stdout.strip()
-
-            result = _run_phase7(main_repo)
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("Could not fast-forward MAIN_REPO main", result.stderr)
-            self.assertIn("skipping", result.stderr.lower())
-
-            after_branch = _run_git(main_repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-            after_sha = _run_git(main_repo, "rev-parse", "HEAD").stdout.strip()
-            self.assertEqual(after_branch, "main")
-            self.assertEqual(after_sha, before)
-            self.assertTrue((main_repo / "local-only.txt").exists())
-            self.assertFalse((main_repo / "remote-only.txt").exists())
-
-    def test_phase6_pull_ff_only_failure_warns_and_skips(self) -> None:
-        """Diverged continuity worktree must warn-and-skip — never abort cleanup."""
+    def test_existing_open_pr_skips_create(self) -> None:
+        """Non-empty ``gh pr list`` stdout is treated as an existing PR number — never create."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            main_repo = _prepare_ff_divergent_repo(root)
-            new_worktree = root / "continuity-worktree"
-            new_branch = "worktree-cleanup-ff-fail"
-            # Continuity branch tip shares the diverged local main; pull of
-            # origin/main into it cannot fast-forward.
-            _run_git(main_repo, "worktree", "add", "-q", "-b", new_branch, str(new_worktree), "main")
-            before = _run_git(new_worktree, "rev-parse", "HEAD").stdout.strip()
+            main_repo = root / "main-repo"
+            remote = root / "remote.git"
+            gh_log = root / "gh.log"
+            bin_dir = root / "bin"
+            _p3r_init_repo(main_repo)
+            _p3r_attach_bare_origin(main_repo, remote)
+            _p3r_run_git(main_repo, "push", "-q", "origin", "main")
+            _p3r_run_git(main_repo, "checkout", "-q", "-b", "feature/reuse-pr")
+            (main_repo / "more.txt").write_text("ahead\n")
+            _p3r_run_git(main_repo, "add", "more.txt")
+            _p3r_run_git(main_repo, "commit", "-q", "-m", "ahead for reuse")
+            _p3r_run_git(main_repo, "push", "-u", "-q", "origin", "feature/reuse-pr")
+            _p3r_run_git(main_repo, "fetch", "-q", "origin")
+            _p3r_install_fake_gh(bin_dir, gh_log, list_stdout="42")
 
-            result = _run_phase6(main_repo, new_worktree, new_branch)
+            result = _run_phase3_reuse(main_repo, "feature/reuse-pr", path_prefix=str(bin_dir))
             self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn(f"Could not fast-forward '{new_branch}' to origin/main", result.stderr)
-            self.assertIn("skipping", result.stderr.lower())
+            self.assertIn("PR #42 already exists", result.stderr)
+            self.assertTrue(gh_log.exists(), msg=result.stderr)
+            logged = gh_log.read_text()
+            self.assertIn("pr list", logged)
+            self.assertNotIn("pr create", logged)
+            self.assertIn("--head feature/reuse-pr", logged)
 
-            after_branch = _run_git(new_worktree, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-            after_sha = _run_git(new_worktree, "rev-parse", "HEAD").stdout.strip()
-            self.assertEqual(after_branch, new_branch)
-            self.assertEqual(after_sha, before)
-            self.assertTrue((new_worktree / "local-only.txt").exists())
-            self.assertFalse((new_worktree / "remote-only.txt").exists())
+    def test_non_main_parent_merges_then_creates_pr_for_parent(self) -> None:
+        """Parent != main: merge feature → parent, push parent, ``gh pr create --head <parent>``."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            main_repo = root / "main-repo"
+            remote = root / "remote.git"
+            gh_log = root / "gh.log"
+            bin_dir = root / "bin"
+            _p3r_init_repo(main_repo)
+            _p3r_attach_bare_origin(main_repo, remote)
+            _p3r_run_git(main_repo, "push", "-q", "origin", "main")
+            # Parent branch on remote + local tracking ref.
+            _p3r_run_git(main_repo, "checkout", "-q", "-b", "develop")
+            (main_repo / "develop.txt").write_text("develop base\n")
+            _p3r_run_git(main_repo, "add", "develop.txt")
+            _p3r_run_git(main_repo, "commit", "-q", "-m", "develop base")
+            _p3r_run_git(main_repo, "push", "-u", "-q", "origin", "develop")
+            # Feature ahead of develop (and therefore of origin/develop).
+            _p3r_run_git(main_repo, "checkout", "-q", "-b", "feature/onto-develop")
+            (main_repo / "feature.txt").write_text("feature work\n")
+            _p3r_run_git(main_repo, "add", "feature.txt")
+            _p3r_run_git(main_repo, "commit", "-q", "-m", "feature onto develop")
+            _p3r_run_git(main_repo, "push", "-u", "-q", "origin", "feature/onto-develop")
+            _p3r_run_git(main_repo, "fetch", "-q", "origin")
+            # Leave HEAD on main so phase_3's checkout develop is a real switch.
+            _p3r_run_git(main_repo, "checkout", "-q", "main")
+            _p3r_install_fake_gh(bin_dir, gh_log, list_stdout="")
+
+            result = _run_phase3_reuse(
+                main_repo,
+                "feature/onto-develop",
+                path_prefix=str(bin_dir),
+                parent_branch="develop",
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("Merging feature/onto-develop into develop", result.stderr)
+            self.assertIn("Creating PR: develop → main", result.stderr)
+            self.assertTrue(gh_log.exists(), msg=result.stderr)
+            logged = gh_log.read_text()
+            self.assertIn("pr list", logged)
+            self.assertIn("pr create", logged)
+            self.assertIn("--head develop", logged)
+            self.assertIn("--base main", logged)
+            self.assertNotIn("--head feature/onto-develop", logged)
+            # Parent tip on the bare remote must now include the feature commit.
+            tip = _p3r_run_git(remote, "log", "-1", "--oneline", "develop")
+            self.assertIn("feature onto develop", tip.stdout)
+            # Working tree ends on the parent after the merge arm.
+            head = _p3r_run_git(main_repo, "rev-parse", "--abbrev-ref", "HEAD")
+            self.assertEqual(head.stdout.strip(), "develop")
+
+    def test_dry_run_non_main_parent_previews_merge_then_parent_pr(self) -> None:
+        """Dry-run (no --skip-pr) for a non-main parent must preview merge + parent→main PR."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_script(
+                "--old-worktree",
+                tmpdir,
+                "--old-branch",
+                "feature/onto-develop",
+                "--parent-branch",
+                "develop",
+                "--dry-run",
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("[DRY-RUN]", result.stderr)
+            self.assertIn("merge feature/onto-develop", result.stderr)
+            self.assertIn("push origin develop", result.stderr)
+            self.assertIn("gh pr create", result.stderr)
+            self.assertIn("--head develop", result.stderr)
+            self.assertNotIn("--head feature/onto-develop", result.stderr)
 
 
 if __name__ == "__main__":
