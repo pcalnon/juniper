@@ -252,6 +252,12 @@ exempt archive path). Meta (`juniper-ml`) never gets a follow-on. Operator table
 green) → `HALT_PUBLISH` with a note only — **no** GitHub issue. Open the publish run; do not wait for
 an issue. Details: operator runbook §4.1.
 
+**Ceremony re-entry (`RESUME_MONITOR`).** If a Release tag already exists, re-dispatching
+`mode=ceremony` only monitors the publish run — it does **not** re-open the archive PR or re-cut the
+Release. Step summary shows **resume-monitor**; `plan_state` stays `RESUME_MONITOR` while `state` is
+the monitor verdict. TestPyPI failure on resume still HALTs + files an issue (no re-cut). Distinct from
+`ALREADY_RELEASED` (PyPI already serves the target). Operator details: runbook §3.3 / §5.5.
+
 ---
 
 ## Environment Variables

@@ -256,6 +256,15 @@ monitors the triggered publish run.
   no issue). Do not expect a GitHub issue for the latter.
 - **Gate 2 is yours**: the publish workflow's `pypi`-environment deploy job waits for the owner to
   approve. The train never approves it (§7). Approve it in the run's environment-review UI when ready.
+- **Re-entry is a named plan state, not a full re-ceremony.** When the Release tag already exists,
+  `plan_ceremony` sets `plan.state = RESUME_MONITOR` and the action list is **only** `monitor_publish`
+  (`ceremony.py:892-897`). Execute keeps `plan_state=RESUME_MONITOR` while `state` becomes the monitor
+  verdict (`PENDING_PYPI_APPROVAL` / `HALTED` / …) — so the ceremony step summary buckets it under
+  **resume-monitor**, not a new ceremony (`ceremony.py:980-983`, `release-train.yml:775-789`). A
+  TestPyPI failure on resume still HALTs and files `testpypi-verify-failed` **without** re-opening the
+  archive PR or re-cutting the Release (`execute_ceremony` monitor branch, `ceremony.py:1016-1024`;
+  coverage: juniper-ml#726). Distinct from `ALREADY_RELEASED` (PyPI already serves the target — pure
+  no-op, `ceremony.py:861-866`). See §5.5.
 
 **Archive-lane failure edges (signed API path — do not invent a sha).** The happy path above is the
 common case. When a ceremony fails *inside* `open_archive_pr` / `create_branch` / `create_signed_commit`
@@ -387,10 +396,20 @@ branch); the dup-guard means a corrected re-dispatch will open a fresh one rathe
 **PyPI and TestPyPI files are immutable**, and the publish steps use `skip-existing: true`
 (plan §8 "Idempotent re-entry", citing `publish-service-core.yml:139,185`). Consequences for recovery:
 
-- A **partial run is safe to re-enter**: a re-run re-computes state from PyPI/Release truth. If PyPI
-  already serves the target version the ceremony is a no-op (`ALREADY_RELEASED`); if the Release tag
-  already exists it resumes at the monitor (never re-cutting, never duplicating the archive PR)
-  (`ceremony.py:53-56`).
+- A **partial run is safe to re-enter**: a re-run re-computes state from PyPI/Release truth
+  (`ceremony.py:plan_ceremony`). Operator-visible plan states:
+
+  | Truth on re-entry | `plan.state` | Execute does | Step-summary bucket |
+  |---|---|---|---|
+  | PyPI already serves `target` | `ALREADY_RELEASED` | nothing (idempotent no-op) | already-released / DONE |
+  | Release tag exists, PyPI not yet | `RESUME_MONITOR` | **only** `monitor_publish` — no `open_archive_pr` / `enable_automerge` / `create_release` | resume-monitor / RESUME |
+  | Neither | `CEREMONY_PLANNED` | full archive → auto-merge → cut Release → monitor | ceremony / CEREMONY |
+
+  `plan_state` stays at the classification while `state` becomes the monitor verdict
+  (`ceremony.py:980-983`). On `RESUME_MONITOR` + `HALT_TESTPYPI`, the train files the dedup issue and
+  stops **without** re-cutting (`ceremony.py:1016-1024`; juniper-ml#726). Do **not** delete a healthy
+  Release just to "start over" when you only need Gate 2 or another monitor poll — re-dispatch
+  `mode=ceremony` (§3.3).
 - You **cannot** "un-publish" a version by overwriting it — if a bad version reaches PyPI, **yank** it on
   PyPI and ship a fixed higher version. The train will then see the yank and classify accordingly.
 - Only **one train runs at a time** (`concurrency: group: release-train, cancel-in-progress: false`,
