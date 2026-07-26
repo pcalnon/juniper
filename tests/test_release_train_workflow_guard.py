@@ -25,6 +25,11 @@ PyYAML and asserting:
   (f) **Phase 4.3 off-quiesce** -- ``mode=off`` runs nothing beyond mode resolution: every detect-job step
       other than the mode resolver is gated on the resolved mode (``!= 'off'`` for the work steps, the one
       ``== 'off'`` quiesce step), and both write jobs are unreachable (their ``if`` requires a non-off mode);
+  (g) **Cross-repo headless git identity (ml#705)** -- EACH write job configures ``user.name`` /
+      ``user.email`` / ``commit.gpgsign`` with ``git config --global`` (NOT bare repo-local ``git config``).
+      Cross-repo propose/ceremony commits inside freshly-cloned sibling checkouts; a repo-local identity
+      on the juniper-ml checkout alone leaves siblings with ``Author identity unknown`` (first cross-repo
+      pilot failure, run 30040138774). The detect job must never configure identity (it never commits).
   (h) **Phase 4.1 mint-scope / clone-list lockstep** -- both write jobs' App-token ``repositories:`` lists
       equal the registry's publishing-repo set (R7 least-privilege; a drift either widens the token or
       silently drops a sibling), the two mint lists are identical, and ``env.ECOSYSTEM_REPOS`` equals
@@ -37,7 +42,9 @@ hermetically (the "run the real thing, not a reimplementation" idiom): ``ModeRes
 the ``id: mode`` step's shell and runs it over the whole mode matrix (incl. ``ceremony`` now valid + the
 dispatch-input > repo-variable precedence), and ``CeremonySummaryRehearsalTest`` extracts the ceremony
 step-summary Python and runs it over a synthetic ``ceremony-output.txt`` (proving it renders
-ceremonies/resumes/HALTs/PENDING_PYPI_APPROVAL and the degraded-issue line).
+ceremonies/resumes/HALTs/PENDING_PYPI_APPROVAL and the degraded-issue line). ``HeredocBalanceTest`` +
+``HeredocCompileTest`` pin every ``<<'PY'`` opener/terminator pair and that each heredoc body compiles
+(catching the late-failure class #708's balance lint alone cannot see).
 
 Companion to ``tests/test_release_train_propose.py`` / ``tests/test_release_train_ceremony.py``. Neither
 ``util/`` nor the workflow YAML is pre-commit-lint-gated for these properties, so this unittest IS the gate.
@@ -371,6 +378,56 @@ class ReleaseTrainWorkflowGuardTest(unittest.TestCase):
                 )
                 self.assertIsNotNone(match, f"{job} APP_TOKEN if/then/else block not found")
                 self.assertIn("--cross-repo", match.group(1), f"{job} must append --cross-repo inside the APP_TOKEN-present branch")
+    # (g) Cross-repo headless git identity must be --global (ml#705 / run 30040138774) -------------
+    def _identity_steps(self, job):
+        """Steps whose name marks the headless git-identity configuration (both write jobs share the name)."""
+        return [s for s in self._job_steps(job) if "Configure git identity" in str(s.get("name", ""))]
+
+    def test_write_jobs_configure_git_identity_globally(self):
+        """Pin ``git config --global`` for user.name / user.email / commit.gpgsign on EVERY write job.
+
+        A bare ``git config user.*`` (repo-local) is the #705 failure class: it succeeds on the
+        juniper-ml checkout and then every sibling clone dies with ``Author identity unknown``.
+        """
+        # Repo-local forms that would reintroduce the bug (must NOT appear in the identity step).
+        local_only = (
+            re.compile(r"(?m)^\s*git\s+config\s+user\.name\b"),
+            re.compile(r"(?m)^\s*git\s+config\s+user\.email\b"),
+            re.compile(r"(?m)^\s*git\s+config\s+commit\.gpgsign\b"),
+        )
+        required_global = (
+            "git config --global user.name",
+            "git config --global user.email",
+            "git config --global commit.gpgsign",
+        )
+        for job in WRITE_JOBS:
+            with self.subTest(job=job):
+                steps = self._identity_steps(job)
+                self.assertEqual(
+                    len(steps),
+                    1,
+                    f"the {job} job must have exactly one 'Configure git identity' step " f"(cross-repo sibling commits need a job-scoped global identity).",
+                )
+                run = str(steps[0].get("run", ""))
+                for needle in required_global:
+                    self.assertIn(
+                        needle,
+                        run,
+                        f"{job} identity step must use `{needle}` -- repo-local config does not " f"propagate into freshly-cloned sibling checkouts (ml#705).",
+                    )
+                for pat in local_only:
+                    self.assertIsNone(
+                        pat.search(run),
+                        f"{job} identity step must not use repo-local `{pat.pattern}` " f"(would reintroduce Author-identity-unknown on sibling checkouts).",
+                    )
+
+    def test_detect_job_does_not_configure_git_identity(self):
+        # detect is read-only and never commits; an identity step there would be dead / misleading.
+        self.assertEqual(
+            self._identity_steps("detect"),
+            [],
+            "the detect job must not configure git identity (it never commits; write-jobs only).",
+        )
 
 
 # ── YAML-extraction rehearsal 1: the mode-resolution matrix (the real shell, run hermetically) ──
@@ -540,6 +597,22 @@ class CeremonySummaryRehearsalTest(unittest.TestCase):
         self.assertIn("produced no output", md)
 
 
+# Matches `python - <<'PY'` and the Slack redirect form `python - <<'PY' > slack-payload.json`.
+_PY_HEREDOC_OPENER = re.compile(r"<<'PY'(?:\s*>\s*\S+)?\n")
+
+
+def _iter_py_heredoc_bodies(run: str):
+    """Yield ``(opener_match, body)`` for every ``<<'PY'…`` heredoc in a workflow ``run:`` script."""
+    for match in _PY_HEREDOC_OPENER.finditer(run):
+        after = run[match.end() :]
+        body_lines = []
+        for line in after.splitlines():
+            if line.strip() == "PY" and "<<" not in line:
+                break
+            body_lines.append(line)
+        yield match, "\n".join(body_lines) + ("\n" if body_lines else "")
+
+
 class HeredocBalanceTest(unittest.TestCase):
     """Every ``run:`` script's ``<<'PY'`` heredocs must have exactly one terminator each.
 
@@ -563,6 +636,56 @@ class HeredocBalanceTest(unittest.TestCase):
                 if openers != terminators:
                     problems.append(f"{jname} / {step.get('name')!r}: {openers} <<'PY' opener(s) vs {terminators} PY terminator line(s)")
         self.assertEqual(problems, [], "unbalanced PY heredoc(s) in release-train.yml -- a stray terminator executes as a shell command (exit 127, the run-30051952226 class): " + "; ".join(problems))
+
+
+class HeredocCompileTest(unittest.TestCase):
+    """Every ``<<'PY'`` heredoc body in ``release-train.yml`` must compile as Python.
+
+    Balance alone (#708) does not catch a syntax-broken summary / Slack payload body — bash still
+    launches ``python -``, then the step fails mid-run after the real work finished (the same
+    late-failure class as run-30051952226, just with ``SyntaxError`` instead of exit 127). The
+    YAML-extraction rehearsals only exercise two of the four heredocs; this lint compiles ALL of
+    them (incl. the Slack redirect form ``<<'PY' > slack-payload.json``).
+    """
+
+    def test_every_py_heredoc_body_compiles(self):
+        workflow_path = _find_repo_root(Path(__file__).resolve().parent) / ".github" / "workflows" / WORKFLOW_NAME
+        wf = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        compiled = 0
+        problems = []
+        for jname, job in (wf.get("jobs") or {}).items():
+            for step in job.get("steps") or []:
+                run = step.get("run") or ""
+                if "<<'PY'" not in run:
+                    continue
+                step_name = step.get("name") or "<unnamed>"
+                bodies = list(_iter_py_heredoc_bodies(run))
+                if not bodies:
+                    problems.append(f"{jname} / {step_name!r}: saw <<'PY' but extracted zero bodies")
+                    continue
+                for idx, (_match, body) in enumerate(bodies, 1):
+                    if not body.strip():
+                        problems.append(f"{jname} / {step_name!r} heredoc#{idx}: empty body")
+                        continue
+                    try:
+                        compile(body, f"{WORKFLOW_NAME}:{jname}:{step_name}:heredoc{idx}", "exec")
+                    except SyntaxError as exc:
+                        problems.append(f"{jname} / {step_name!r} heredoc#{idx}: {exc}")
+                    else:
+                        compiled += 1
+        self.assertEqual(
+            problems,
+            [],
+            "PY heredoc body(ies) in release-train.yml failed to compile -- a SyntaxError would " "fail the step only after the real work finished (late-failure class): " + "; ".join(problems),
+        )
+        # Pin the known set so a deleted heredoc (or a new uncompiled one that the opener regex
+        # misses) cannot silently shrink coverage. Today: detect summary, detect Slack, propose
+        # summary, ceremony summary.
+        self.assertEqual(
+            compiled,
+            4,
+            f"expected to compile 4 PY heredoc bodies in {WORKFLOW_NAME}; got {compiled} " f"(update this pin when intentionally adding/removing a <<'PY' block).",
+        )
 
 
 if __name__ == "__main__":

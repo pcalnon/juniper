@@ -18,13 +18,26 @@
 #
 # Run with --dry-run to print what would happen without acting.
 # Default is to apply.
+#
+# Ignored-content guard: by default a worktree containing GITIGNORED files
+# (caches, logs, decrypted secrets) is skipped even when otherwise SAFE --
+# ignored content is deleted with the worktree and may be precious (the
+# decrypted-secrets class). Pass --include-ignored to sweep such worktrees
+# anyway; tracked/untracked dirt is ALWAYS a hard skip regardless.
 # Convention: ad-hoc one-shot script, lives under util/ad-hoc/ per
 # CLAUDE.md "Script placement". Companion to worktree_sweep_survey.bash.
 
 set -euo pipefail
 
 DRY_RUN=0
-if [[ "${1-}" == "--dry-run" ]]; then DRY_RUN=1; fi
+INCLUDE_IGNORED=0
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=1 ;;
+        --include-ignored) INCLUDE_IGNORED=1 ;;
+        *) echo "unknown flag: $arg" >&2; exit 2 ;;
+    esac
+done
 
 JUNIPER_BASE="${JUNIPER_WORKTREE_SWEEP_REPO_BASE:-/home/pcalnon/Development/python/Juniper}"
 WORKTREES_ROOT="${JUNIPER_WORKTREE_SWEEP_ROOT:-${JUNIPER_BASE}/worktrees}"
@@ -108,8 +121,12 @@ while IFS=$'\t' read -r status repo_key branch wt_name _extra; do
         echo "skipped (branch mismatch: row=$branch current=$current_branch): $wt_name"
         continue
     fi
-    if [[ -n "$(git -C "$wt" status --porcelain --ignored 2>/dev/null)" ]]; then
+    if [[ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]]; then
         echo "skipped (no longer safe; dirty): $wt_name"
+        continue
+    fi
+    if (( ! INCLUDE_IGNORED )) && [[ -n "$(git -C "$wt" status --porcelain --ignored 2>/dev/null)" ]]; then
+        echo "skipped (ignored files present; rerun with --include-ignored to sweep them): $wt_name"
         continue
     fi
     ahead=$(git -C "$wt" rev-list --count "origin/main..HEAD" 2>/dev/null || echo "?")
