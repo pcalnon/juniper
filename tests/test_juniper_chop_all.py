@@ -195,11 +195,7 @@ class TestGracefulStop(unittest.TestCase):
         ``kill -0`` keeps succeeding — a false "survived SIGKILL". Launch
         under a short-lived ``setsid`` shell so init reaps the exit.
         """
-        launcher = (
-            "setsid bash -c "
-            + repr(inner_bash)
-            + " </dev/null >/dev/null 2>&1 & echo $!"
-        )
+        launcher = "setsid bash -c " + repr(inner_bash) + " </dev/null >/dev/null 2>&1 & echo $!"
         result = subprocess.run(
             ["bash", "-c", launcher],
             capture_output=True,
@@ -245,9 +241,7 @@ class TestGracefulStop(unittest.TestCase):
     def test_sigterm_ignore_escalates_to_sigkill(self) -> None:
         # Single-process SIGTERM ignore (exec would drop a bash ``trap``).
         # timeout=1 keeps the wait loop to a single second before escalate.
-        pid = self._spawn_detached(
-            "exec python3 -c 'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'"
-        )
+        pid = self._spawn_detached("exec python3 -c 'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'")
         try:
             result = self._run_graceful_stop(pid, "juniper-cascor", 1)
             self.assertEqual(result.returncode, 0, msg=result.stderr)
