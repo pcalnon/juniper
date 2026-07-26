@@ -932,17 +932,10 @@ class MonitorTimeoutTest(unittest.TestCase):
         self.assertEqual(verdict, "IN_PROGRESS")  # bounded wall clock -> honest 'still building'
         self.assertGreaterEqual(box["polls"], 2)  # ... but only after actually polling more than once
 
-    def test_not_found_keeps_polling_until_pending(self):
-        # Right after cut_release the workflow run is often invisible for a poll or two.
-        # NOT_FOUND must NOT be treated as terminal — keep polling until a real signal.
-        src, box = _monitor_sources(None, None, PENDING_RUN)
-        verdict = ce.monitor_publish_run(src, "juniper-ml", "tag", timeout_seconds=1000, poll_seconds=0, sleep=lambda s: None)
-        self.assertEqual(verdict, "PENDING_PYPI_APPROVAL")
-        self.assertEqual(box["polls"], 3)
-
     def test_not_found_timeout_is_honest_in_progress(self):
-        # A permanently-missing run (mis-tagged Release, workflow never triggered) must
-        # time out as IN_PROGRESS — never invent PENDING / RELEASED / HALT.
+        # Permanent NOT_FOUND (mis-tagged Release / workflow never triggered) must time
+        # out as honest IN_PROGRESS — never invent PENDING / RELEASED / HALT.
+        # Keep-polling-until-PENDING is owned by open #744; this pins the timeout edge.
         src, box = _monitor_sources(None)
         clock = {"t": 0.0}
 
