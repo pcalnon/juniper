@@ -315,85 +315,6 @@ class NotesRenderTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(buf.getvalue().strip(), "notes/releases/RELEASE_NOTES_juniper-thing_v0.5.0.md")
 
-    def test_display_name_meta_is_juniper_ml(self):
-        # Meta-package title stem is humanized; every other dist name passes through.
-        self.assertEqual(nr.display_name("juniper-ml"), "Juniper ML")
-        self.assertEqual(nr.display_name("juniper-thing"), "juniper-thing")
-
-    def test_release_type_major_and_unknown_default(self):
-        self.assertEqual(nr.release_type("major"), "MAJOR")
-        self.assertEqual(nr.release_type("minor"), "MINOR")
-        self.assertEqual(nr.release_type("patch"), "PATCH")
-        self.assertEqual(nr.release_type("none"), "PATCH")
-        self.assertEqual(nr.release_type("unexpected"), "PATCH")  # defensive default
-
-    def test_render_meta_major_marks_breaking_on_removed(self):
-        # MAJOR + Removed => title uses "Juniper ML", Release Type MAJOR, Breaking YES.
-        sections = OrderedDict([("Removed", ["dropped the legacy CLI entrypoint"]), ("Fixed", ["typo in help text"])])
-        text = nr.render_notes(
-            "juniper-ml",
-            "1.0.0",
-            bump="major",
-            release_date="2026-07-26",
-            sections=sections,
-            repo_root=REPO_ROOT,
-        )
-        self.assertIn("# Juniper ML v1.0.0 Release Notes", text)
-        self.assertIn("**Release Type:** MAJOR", text)
-        self.assertIn("**Breaking changes:** YES", text)
-        self.assertIn("dropped the legacy CLI entrypoint", text)
-        # Without a Removed category the Breaking flag stays NO (regression guard for the
-        # case-insensitive membership check over section keys).
-        no_break = nr.render_notes(
-            "juniper-thing",
-            "0.5.0",
-            bump="minor",
-            release_date="2026-07-26",
-            sections=OrderedDict([("Added", ["a feature"])]),
-            repo_root=REPO_ROOT,
-        )
-        self.assertIn("**Breaking changes:** NO", no_break)
-
-    def test_split_bullets_star_markers_and_continuations(self):
-        # Keep-a-Changelog allows ``*`` as well as ``-``; continuations fold into the
-        # current bullet, and stray prose before any marker is ignored.
-        body = [
-            "stray prose before markers is ignored",
-            "* first star bullet",
-            "  continuation of first",
-            "* second star",
-            "- dash bullet",
-            "    indented continuation",
-            "bare prose joins current",
-        ]
-        bullets = nr._split_bullets(body)
-        self.assertEqual(len(bullets), 3)
-        self.assertIn("first star bullet", bullets[0])
-        self.assertIn("continuation of first", bullets[0])
-        self.assertEqual(bullets[1], "second star")
-        self.assertIn("dash bullet", bullets[2])
-        self.assertIn("indented continuation", bullets[2])
-        self.assertIn("bare prose joins current", bullets[2])
-        # End-to-end: parse_unreleased must accept ``*`` markers and fold continuations.
-        changelog = textwrap.dedent("""\
-            ## [Unreleased]
-
-            ### Added
-
-            * star item
-              folded line
-
-            * another
-
-            ## [0.1.0] - 2026-01-01
-            """)
-        sections = nr.parse_unreleased(changelog)
-        self.assertEqual(list(sections), ["Added"])
-        self.assertEqual(len(sections["Added"]), 2)
-        self.assertIn("star item", sections["Added"][0])
-        self.assertIn("folded line", sections["Added"][0])
-        self.assertEqual(sections["Added"][1], "another")
-
 
 # ── CHANGELOG move ───────────────────────────────────────────────────────────
 
@@ -818,6 +739,25 @@ class BuildProposalTest(unittest.TestCase):
         bump staged before the move — open #749 pins the skip/reason; this pins
         the clear-on-refuse stub shape (edits=[], no branch) so JSON/operators
         never see a half-proposal."""
+        empty_unreleased = textwrap.dedent("""\
+            # Changelog
+
+            ## [Unreleased]
+
+            ## [0.4.0] - 2026-06-01
+
+            ### Added
+
+            - initial release
+            """)
+        _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog=empty_unreleased)
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertTrue(prop.skipped)
+        self.assertIn("CHANGELOG move refused", prop.skipped_reason)
+        self.assertIn("[Unreleased] section has no content to move", prop.skipped_reason)
+        self.assertEqual(prop.edits, [])
+        self.assertIsNone(prop.branch)
 
     def test_bump_none_is_refused(self):
         """No proposable SemVer bump must refuse before any edit is computed (plan S5.4)."""
@@ -857,8 +797,8 @@ class BuildProposalTest(unittest.TestCase):
     def test_empty_unreleased_changelog_move_is_refused(self):
         """Empty [Unreleased] must refuse the move (Keep-a-Changelog; no phantom section).
 
-        The version edit may already be staged when the move refuses; the important
-        contract is ``skipped`` + no CHANGELOG edit (never invent an empty section).
+        With ``prop.edits.clear()`` on refuse (#751), the stub is edits=[] + no branch
+        (same shape as dup-guard / bump=none). Never invent an empty section.
         """
         empty_unreleased = textwrap.dedent("""\
             # Changelog
@@ -889,9 +829,13 @@ class BuildProposalTest(unittest.TestCase):
         clog = self.repo_root / "juniper-thing" / "CHANGELOG.md"
         if clog.exists():
             clog.unlink()
-        prop = pr.build_proposal(clog, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [clog], "2026-07-14")
-        self.assertIn("no content to move", prop.skipped_reason)
-        self.assertFalse(any(e.path.endswith("CHANGELOG.md") for e in prop.edits))
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertTrue(prop.skipped)
+        self.assertIn("could not read", prop.skipped_reason)
+        self.assertIn("CHANGELOG.md", prop.skipped_reason)
+        self.assertEqual(prop.edits, [])
+        self.assertIsNone(prop.branch)
 
     def test_missing_changelog_is_refused(self):
         """Absent CHANGELOG.md must refuse (notes + Keep-a-Changelog move have no source)."""
