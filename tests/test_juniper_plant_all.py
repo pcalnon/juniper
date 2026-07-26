@@ -13,10 +13,10 @@ Validates the script-level invariants introduced in the 2026-05-07 audit:
 
 Where possible, tests inspect the script as text — running the full script
 under unittest is impractical because it source-activates conda, allocates
-ports, and launches four long-lived background services. The single
-end-to-end smoke test exercises only the pre-flight failure path against a
-synthetic JUNIPER_PROJECT_DIR / JUNIPER_CONDA_DIR layout, asserting the
-script exits before any service is launched.
+ports, and launches four long-lived background services. Pre-flight failure
+smokes exercise the nohup path against a synthetic JUNIPER_PROJECT_DIR /
+JUNIPER_CONDA_DIR layout. ``TestSystemdModeBehavioral`` is a separate
+full-script PATH-stub lane for the pre-preflight ``USE_SYSTEMD=1`` arm.
 """
 
 from __future__ import annotations
