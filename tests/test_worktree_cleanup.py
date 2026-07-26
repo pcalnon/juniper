@@ -44,8 +44,12 @@ def _run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedP
     )
 
 
-def _init_git_repo(path: Path, *, branch: str = "feature/dirty-phase1") -> None:
-    """Minimal git repo on ``branch`` (not necessarily main) for Phase 1 fixtures."""
+def _init_phase1_repo(path: Path, *, branch: str = "feature/dirty-phase1") -> None:
+    """Minimal git repo on ``branch`` for Phase 1 dirty-porcelain fixtures.
+
+    Named distinctly from open #731's ``_init_fixture_repo`` (Phase 7) so both
+    can land without a helper-name clash; ``_run_git`` is intentionally identical.
+    """
     path.mkdir(parents=True, exist_ok=True)
     _run_git(path, "init", "-q", "-b", branch)
     _run_git(path, "config", "user.email", "tests@example.invalid")
@@ -373,7 +377,7 @@ class TestPhase1DirtyTree(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             old_wt = Path(tmp) / "old-worktree"
             branch = "feature/dirty-phase1"
-            _init_git_repo(old_wt, branch=branch)
+            _init_phase1_repo(old_wt, branch=branch)
             (old_wt / "WIP.txt").write_text("uncommitted\n")
 
             result = _run_phase1(old_wt, branch)

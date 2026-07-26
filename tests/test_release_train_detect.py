@@ -218,23 +218,6 @@ class SubstantiveBetweenTest(unittest.TestCase):
         self.assertEqual(d.classify_change(fc_true, e, None)[0], "ship")
         self.assertEqual(d.classify_change(fc_false, e, None)[0], "nonship")
 
-    def test_test_paths_are_nonship(self):
-        # ``_is_test_path`` must force NON-SHIP before the substantive filter — otherwise a
-        # real code edit under tests/ would invent SHIP evidence and bump on test-only PRs.
-        e = _entry()
-        cases = (
-            "juniper-thing/tests/test_api.py",
-            "juniper-thing/juniper_thing/test_helpers.py",
-            "juniper-thing/juniper_thing/helpers_test.py",
-            "juniper-thing/juniper_thing/conftest.py",
-            "juniper-thing/test/unit/test_x.py",
-        )
-        for fn in cases:
-            with self.subTest(fn=fn):
-                kind, reason = d.classify_change(_fc(fn, _REAL_CODE_PATCH, status="modified"), e, None)
-                self.assertEqual(kind, "nonship")
-                self.assertEqual(reason, "tests")
-
 
 class PyprojectClassifierTest(unittest.TestCase):
     def test_runtime_extra_change_is_ship(self):

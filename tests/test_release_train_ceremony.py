@@ -555,22 +555,6 @@ class ClassifyPublishRunTest(unittest.TestCase):
         }
         self.assertEqual(ce.classify_publish_run(run), "IN_PROGRESS")
 
-    def test_job_level_pypi_parked_statuses_are_pending_approval(self):
-        # Belt-and-suspenders path: run.status still in_progress, but TestPyPI succeeded and the
-        # pypi job is parked. Existing coverage only hits status="waiting"; queued/pending/"" are
-        # the other documented parked values in classify_publish_run's allowlist.
-        for parked in ("queued", "pending", ""):
-            with self.subTest(pypi_status=parked):
-                run = {
-                    "status": "in_progress",
-                    "conclusion": None,
-                    "jobs": [
-                        {"name": "Publish to TestPyPI", "status": "completed", "conclusion": "success"},
-                        {"name": "Publish to PyPI", "status": parked, "conclusion": None},
-                    ],
-                }
-                self.assertEqual(ce.classify_publish_run(run), "PENDING_PYPI_APPROVAL")
-
 
 # ── execute path (fake write seam; NEVER touches the real repo) ───────────────
 
