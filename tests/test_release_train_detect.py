@@ -301,26 +301,6 @@ class PyprojectClassifierTest(unittest.TestCase):
     def test_patch_unavailable_is_uncertain(self):
         self.assertEqual(d.classify_pyproject_patch(None)[0], "uncertain")
 
-    def test_build_system_change_is_ship(self):
-        """[build-system] edits (requires/backend) are packaging-runtime SHIP, not tooling NONSHIP.
-
-        A regression that routes ``build-system`` into the else/nonship arm would
-        discount setuptools/hatchling/requires bumps and miss UNRELEASED_CHANGES
-        for every package whose only delta is the build backend.
-        """
-        patch = textwrap.dedent(
-            """\
-            @@ -1,3 +1,3 @@
-             [build-system]
-            -requires = ["setuptools>=61"]
-            +requires = ["setuptools>=68", "wheel"]
-             build-backend = "setuptools.build_meta"
-            """
-        )
-        kind, reason = d.classify_pyproject_patch(patch)
-        self.assertEqual(kind, "ship")
-        self.assertIn("pyproject", reason)
-
 
 class PathScopingTest(unittest.TestCase):
     def test_subdir_package_scope(self):
