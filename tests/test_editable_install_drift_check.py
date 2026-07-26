@@ -183,6 +183,17 @@ class DriftCheckTest(unittest.TestCase):
         self.assertIsNone(found)
         self.assertEqual(candidates, [])
 
+    def test_discover_canonical_ambiguous_returns_none(self) -> None:
+        # Two non-worktree checkouts with the same [project].name must refuse
+        # a unique canonical — picking candidates[0] would re-point orphans at
+        # the wrong tree.
+        alt = self.eco / "forks" / "juniper-data-alt"
+        alt.mkdir(parents=True)
+        (alt / "pyproject.toml").write_text('[project]\nname = "juniper-data"\nversion = "0.6.0"\n')
+        found, candidates = mod.discover_canonical("juniper-data", self.eco)
+        self.assertIsNone(found)
+        self.assertEqual(sorted(candidates), sorted([self.canonical, alt]))
+
     def test_fix_dry_run_resolves_orphan_to_canonical(self) -> None:
         write_editable(self.site_packages("JuniperX"), "juniper-data", str(self.gone_plain))
         code, out = self.run_main("--fix", "--dry-run", "--json")
@@ -202,6 +213,24 @@ class DriftCheckTest(unittest.TestCase):
         fix = json.loads(out)["fix"]
         self.assertEqual(fix[0]["action"], "SKIP")
         self.assertFalse(fix[0]["resolvable"])
+
+    def test_fix_skips_when_canonical_ambiguous(self) -> None:
+        # Duplicate non-worktree sources → SKIP with an ambiguous reason (not
+        # candidates[0]). Empty-candidates SKIP is covered separately above.
+        alt = self.eco / "mirrors" / "juniper-data-mirror"
+        alt.mkdir(parents=True)
+        (alt / "pyproject.toml").write_text('[project]\nname = "juniper-data"\nversion = "0.6.0"\n')
+        write_editable(self.site_packages("JuniperX"), "juniper-data", str(self.gone_plain))
+        code, out = self.run_main("--fix", "--dry-run", "--json")
+        fix = json.loads(out)["fix"]
+        self.assertEqual(len(fix), 1)
+        self.assertEqual(fix[0]["action"], "SKIP")
+        self.assertFalse(fix[0]["resolvable"])
+        self.assertIsNone(fix[0]["canonical"])
+        self.assertIn("ambiguous", fix[0]["reason"])
+        self.assertEqual(len(fix[0]["candidates"]), 2)
+        # dry-run never repairs; orphan remains -> exit 1.
+        self.assertEqual(code, 1)
 
 
 if __name__ == "__main__":
