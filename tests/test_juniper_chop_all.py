@@ -187,63 +187,88 @@ class TestGracefulStop(unittest.TestCase):
             timeout=GRACEFUL_STOP_TIMEOUT_SECONDS,
         )
 
-    def _spawn(self, argv: list[str]) -> subprocess.Popen[bytes]:
-        # start_new_session so a stray SIGTERM to the test runner never
-        # takes the child with it before graceful_stop runs.
-        return subprocess.Popen(
-            argv,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+    def _spawn_detached(self, inner_bash: str) -> int:
+        """Start a session-leader child reparented to init.
 
-    def _reap(self, proc: subprocess.Popen[bytes]) -> None:
-        if proc.poll() is not None:
-            return
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        try:
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            pass
+        ``graceful_stop`` polls ``kill -0`` after SIGTERM/SIGKILL. If the
+        test process remains the parent, a dead child stays a zombie and
+        ``kill -0`` keeps succeeding — a false "survived SIGKILL". Launch
+        under a short-lived ``setsid`` shell so init reaps the exit.
+        """
+        launcher = (
+            "setsid bash -c "
+            + repr(inner_bash)
+            + " </dev/null >/dev/null 2>&1 & echo $!"
+        )
+        result = subprocess.run(
+            ["bash", "-c", launcher],
+            capture_output=True,
+            text=True,
+            timeout=SCRIPT_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        pid = int(result.stdout.strip().splitlines()[-1])
+        # Brief settle so the session leader is fully up before we signal it.
+        time.sleep(0.15)
+        self.assertTrue(Path(f"/proc/{pid}").exists(), f"detached pid {pid} missing")
+        return pid
+
+    def _force_kill(self, pid: int) -> None:
+        # Prefer process-group kill (setsid leader) so any accidental child
+        # does not leak past the test; fall back to the single pid.
+        for kill_target in (lambda: os.killpg(pid, signal.SIGKILL), lambda: os.kill(pid, signal.SIGKILL)):
+            try:
+                kill_target()
+                break
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                continue
+        for _ in range(20):
+            if not Path(f"/proc/{pid}").exists():
+                return
+            time.sleep(0.05)
 
     def test_cooperative_process_stops_on_sigterm(self) -> None:
         # Default sleep exits on SIGTERM — must take the graceful arm, never SIGKILL.
-        proc = self._spawn(["sleep", "60"])
+        pid = self._spawn_detached("exec sleep 60")
         try:
-            time.sleep(0.1)
-            result = self._run_graceful_stop(proc.pid, "juniper-data", 5)
+            result = self._run_graceful_stop(pid, "juniper-data", 5)
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("STATUS=0", result.stdout)
             self.assertIn("stopped gracefully", result.stdout)
             self.assertNotIn("sending SIGKILL", result.stdout)
-            self.assertIsNotNone(proc.wait(timeout=2))
+            self.assertFalse(Path(f"/proc/{pid}").exists())
         finally:
-            self._reap(proc)
+            self._force_kill(pid)
 
     def test_sigterm_ignore_escalates_to_sigkill(self) -> None:
-        # trap '' TERM models a hung uvicorn/worker that ignores SIGTERM.
+        # Single-process SIGTERM ignore (exec would drop a bash ``trap``).
         # timeout=1 keeps the wait loop to a single second before escalate.
-        proc = self._spawn(["bash", "-c", 'trap "" TERM; exec sleep 60'])
+        pid = self._spawn_detached(
+            "exec python3 -c 'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'"
+        )
         try:
-            time.sleep(0.1)
-            result = self._run_graceful_stop(proc.pid, "juniper-cascor", 1)
+            result = self._run_graceful_stop(pid, "juniper-cascor", 1)
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("STATUS=0", result.stdout)
             self.assertIn("sending SIGKILL", result.stdout)
             self.assertIn("killed with SIGKILL", result.stdout)
-            self.assertIsNotNone(proc.wait(timeout=2))
+            self.assertFalse(Path(f"/proc/{pid}").exists())
         finally:
-            self._reap(proc)
+            self._force_kill(pid)
 
     def test_already_exited_pid_is_not_a_failure(self) -> None:
         # Stale pidfile entry whose process is gone: SIGTERM fails → return 0
         # so STOP_FAILURES stays 0 and the pidfile can still be cleared.
-        proc = self._spawn(["sleep", "60"])
-        pid = proc.pid
-        self._reap(proc)
+        pid = self._spawn_detached("exec sleep 60")
+        self._force_kill(pid)
+        # Confirm init reaped before we assert the already-exited arm.
+        for _ in range(40):
+            if not Path(f"/proc/{pid}").exists():
+                break
+            time.sleep(0.05)
+        self.assertFalse(Path(f"/proc/{pid}").exists(), f"pid {pid} still in /proc")
         result = self._run_graceful_stop(pid, "juniper-canopy", 2)
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("STATUS=0", result.stdout)
@@ -252,16 +277,16 @@ class TestGracefulStop(unittest.TestCase):
 
     def test_stop_failures_wire_preserves_pidfile(self) -> None:
         # Drift guard: graceful_stop failure must bump STOP_FAILURES and the
-        # summary path must preserve the pidfile (not rm it) on failures > 0.
+        # summary path must preserve the pidfile (not clear it) on failures > 0.
         self.assertIn(
             'if ! graceful_stop "${JUNIPER_APPLICATION_PID}" "${JUNIPER_APPLICATION_NAME}"; then',
             SCRIPT_TEXT,
         )
         self.assertIn("STOP_FAILURES=$(( STOP_FAILURES + 1 ))", SCRIPT_TEXT)
         self.assertIn("PID file preserved at ${JUNIPER_PROJECT_PID_FILE}", SCRIPT_TEXT)
-        # Success path still removes the pidfile — regression would leave
-        # plant unable to start next time.
-        self.assertIn('rm -f "${JUNIPER_PROJECT_PID_FILE}"', SCRIPT_TEXT)
+        # Success path truncates the pidfile — regression would leave a
+        # stale JuniperProject.pid and confuse the next plant/chop cycle.
+        self.assertIn(': > "${JUNIPER_PROJECT_PID_FILE}"', SCRIPT_TEXT)
 
 
 if __name__ == "__main__":
