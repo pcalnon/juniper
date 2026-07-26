@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.1
+**Version**: 1.2.2
 **Last Updated**: 2026-07-26
 
 ---
@@ -134,6 +134,33 @@ gh workflow run release-train.yml -f mode=propose -f packages=juniper-observabil
   PRs in their own repos; on the degraded no-App path only juniper-ml packages are proposed and siblings
   are skipped with a clear reason.
 
+#### Reading the propose step summary
+
+After a `mode=propose` run, open the job's GitHub **step summary** (not only the log). `propose.py`
+prints one machine line per package (`propose.py` execute loop):
+
+| Line prefix | Meaning |
+|---|---|
+| `opened: <pypi_name> (<repo>) -- <url>` | a standard-gated proposal PR was opened |
+| `skip: <pypi_name> (<repo>) -- <reason>` | no PR (dup-guard, no-App sibling skip, empty URL, …) |
+
+The workflow's "Render propose step summary" step (`release-train.yml:539-568`) buckets those lines into
+operator-facing markdown:
+
+| Summary signal | What it means | Operator action |
+|---|---|---|
+| `N proposal PR(s) opened, M skipped.` | count of `opened:` / `skip:` lines | Follow the **Opened** links for Gate 1 review |
+| `### Opened (standard-gated -- owner reviews & merges)` | each opened package + PR URL | Review / merge (Gate 1); never auto-merged |
+| `### Skipped` | each skip reason (e.g. duplicate open PR, `--cross-repo required…`) | Expected on re-dispatch / no-App path — do **not** re-open by hand |
+| `**propose.py produced no output**` | `propose-output.txt` empty / missing | Treat as a crash — read the run log; do **not** assume zero eligible packages |
+| Counts `0` / `0` **without** the crash banner | non-empty no-op output (e.g. no `UNRELEASED_CHANGES`) | Healthy idle — nothing to propose |
+
+The summary footer always reminds Gate-1 framing: App-minted PRs get normal CI + sibling-repo targeting;
+the degraded no-App path skips siblings and may need a close/reopen (or empty commit) to start checks
+(`release-train.yml:565`). Hermetic pin of the renderer: `ProposeSummaryRehearsalTest` in
+`tests/test_release_train_workflow_guard.py` (juniper-ml#730) — YAML-extraction twin of
+`CeremonySummaryRehearsalTest`.
+
 #### Gate 1 review — static `_version.py` dunder lockstep (ml#701 / juniper-ml#710)
 
 All five in-repo **static** packages (`juniper-ci-tools`, `juniper-config-tools`, `juniper-doc-tools`,
@@ -222,6 +249,20 @@ monitors the triggered publish run.
   owner admin one-click — 2026-07-23 run 30051952226 / ml#707; the API commit removes that block with no
   security-posture change.) **Owner one-click is now only the degraded/manual fallback** — e.g. if
   `allow_auto_merge` is off (a graceful degrade, not a HALT) or the auto-merge never lands.
+- **Archive PR reuse / already-on-main (idempotent re-entry).** Before cutting a Release the planner
+  inspects juniper-ml (central archive, plan §10.2) for an open PR on the archive branch and for the
+  notes file already on `main` (`ceremony.py:902-914`):
+
+  | Truth | Plan actions | Execute contract |
+  |---|---|---|
+  | Open archive PR already exists | `enable_auto_merge` → `cut_release` → `monitor_publish` (**no** `open_archive_pr`) | Must **not** open a duplicate exempt PR. `enable_automerge` receives `pr_ref or plan.archive_branch` so a reused plan (no fresh `pr_url`) still arms `--auto` against the **branch** (`ceremony.py:1008`). |
+  | Archive file already on `main` | `cut_release` → `monitor_publish` only | **No** archive-PR / auto-merge seam calls — only `create_release` (+ monitor). |
+  | Neither | full happy path: open → auto-merge → cut → monitor | Fresh signed archive PR as in the bullet above. |
+
+  Re-dispatching `ceremony` while an archive PR is still open (or after it merged to `main` but before
+  the Release exists) is therefore safe — do **not** close a healthy open archive PR to "start over".
+  Hermetic execute pins: juniper-ml#730 (`ExecuteTest` open-PR reuse + archive-already-on-main).
+  (Release-already-cut → `RESUME_MONITOR` is the sibling re-entry; see §5.5 / juniper-ml#726.)
 - The monitor polls a bounded ~15-minute wall clock (`--monitor-timeout 900`,
   `release-train.yml:732-740`; `DEFAULT_MONITOR_TIMEOUT_SECONDS`, `ceremony.py:137`) until the run parks at
   the owner-gated `pypi` environment — GitHub reports that as run status `waiting`, which the train
@@ -331,10 +372,12 @@ branch); the dup-guard means a corrected re-dispatch will open a fresh one rathe
 **PyPI and TestPyPI files are immutable**, and the publish steps use `skip-existing: true`
 (plan §8 "Idempotent re-entry", citing `publish-service-core.yml:139,185`). Consequences for recovery:
 
-- A **partial run is safe to re-enter**: a re-run re-computes state from PyPI/Release truth. If PyPI
-  already serves the target version the ceremony is a no-op (`ALREADY_RELEASED`); if the Release tag
-  already exists it resumes at the monitor (never re-cutting, never duplicating the archive PR)
-  (`ceremony.py:53-56`).
+- A **partial run is safe to re-enter**: a re-run re-computes state from PyPI/Release/archive truth. If
+  PyPI already serves the target version the ceremony is a no-op (`ALREADY_RELEASED`); if the Release
+  tag already exists it resumes at the monitor (never re-cutting, never duplicating the archive PR);
+  if the archive PR is still open it **reuses** it (arms `--auto` on the archive branch, then cuts);
+  if the notes file is already on `main` it skips the archive PR entirely and only cuts the Release
+  (`ceremony.py:71-74`, `902-914`, `1008`; §3.3).
 - You **cannot** "un-publish" a version by overwriting it — if a bad version reaches PyPI, **yank** it on
   PyPI and ship a fixed higher version. The train will then see the yank and classify accordingly.
 - Only **one train runs at a time** (`concurrency: group: release-train, cancel-in-progress: false`,
@@ -472,9 +515,10 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   (ml#701 / juniper-ml#710; edge-case coverage + already-at-target checklist fix juniper-ml#712).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
 - Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
-- Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary
-  rehearsal + write-job `--global` git identity, ml#705 / #718),
-  `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
+- Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + ceremony **and**
+  propose summary rehearsals + write-job `--global` git identity, ml#705 / #718 / #730),
+  `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation + execute archive-PR reuse /
+  already-on-main, #730),
   `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701),
   `tests/test_release_train_propose.py` (sibling/meta AGENTS.md step-5/5a shapes — worker#140 / ml#706 / #720).
 - Static `_version.py` lockstep (Gate 1 review):
