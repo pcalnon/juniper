@@ -30,6 +30,12 @@ PyYAML and asserting:
       Cross-repo propose/ceremony commits inside freshly-cloned sibling checkouts; a repo-local identity
       on the juniper-ml checkout alone leaves siblings with ``Author identity unknown`` (first cross-repo
       pilot failure, run 30040138774). The detect job must never configure identity (it never commits).
+  (h) **Phase 4.1 mint-scope / clone-list lockstep** -- both write jobs' App-token ``repositories:`` lists
+      equal the registry's publishing-repo set (R7 least-privilege; a drift either widens the token or
+      silently drops a sibling), the two mint lists are identical, and ``env.ECOSYSTEM_REPOS`` equals
+      that set minus ``juniper-ml`` (the checkout itself). Also pins the operator ``packages`` dispatch
+      charset reject + the ``APP_TOKEN`` → ``--cross-repo`` capability gate on both write jobs' run scripts
+      (a regression that always passes ``--cross-repo`` breaks the no-App degraded path).
 
 Beyond the structural pins, two **YAML-extraction rehearsals** execute the actual workflow snippets
 hermetically (the "run the real thing, not a reimplementation" idiom): ``ModeResolutionMatrixTest`` extracts
@@ -274,6 +280,104 @@ class ReleaseTrainWorkflowGuardTest(unittest.TestCase):
         for job in WRITE_JOBS:
             cond = str(self.doc["jobs"][job].get("if", ""))
             self.assertNotIn("off", cond, f"{job} `if` should gate on its own non-off mode, never run on off.")
+
+    # (h) Phase 4.1: mint repositories / ECOSYSTEM_REPOS lockstep with registry.yaml --------------
+    def _registry_publishing_repos(self) -> frozenset[str]:
+        """Unique ``repo`` values from ``util/release_train/registry.yaml`` (the S4.1 source of truth)."""
+        self.repo_root = _find_repo_root(Path(__file__).resolve().parent)
+        registry_path = self.repo_root / "util" / "release_train" / "registry.yaml"
+        data = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
+        packages = data.get("packages") or []
+        repos = {str(pkg["repo"]) for pkg in packages if isinstance(pkg, dict) and pkg.get("repo")}
+        self.assertGreaterEqual(len(repos), 2, "registry.yaml must resolve to a non-trivial publishing-repo set")
+        return frozenset(repos)
+
+    @staticmethod
+    def _multiline_repo_list(block: str) -> frozenset[str]:
+        return frozenset(line.strip() for line in (block or "").splitlines() if line.strip())
+
+    def _mint_repositories(self, job: str) -> frozenset[str]:
+        mint = self._mint_steps(job)[0]
+        repos_block = (mint.get("with") or {}).get("repositories")
+        self.assertIsInstance(repos_block, str, f"{job} mint step must declare a multiline repositories: block")
+        return self._multiline_repo_list(repos_block)
+
+    def test_mint_repositories_lockstep_with_registry(self):
+        """App-token scope must be exactly the registry's publishing repos (R7 least-privilege)."""
+        expected = self._registry_publishing_repos()
+        propose_repos = self._mint_repositories("propose")
+        ceremony_repos = self._mint_repositories("ceremony")
+        self.assertEqual(
+            propose_repos,
+            expected,
+            "propose mint repositories: must equal registry.yaml's publishing-repo set " f"(extra={sorted(propose_repos - expected)}, missing={sorted(expected - propose_repos)}).",
+        )
+        self.assertEqual(
+            ceremony_repos,
+            expected,
+            "ceremony mint repositories: must equal registry.yaml's publishing-repo set " f"(extra={sorted(ceremony_repos - expected)}, missing={sorted(expected - ceremony_repos)}).",
+        )
+        self.assertEqual(
+            propose_repos,
+            ceremony_repos,
+            "propose and ceremony mint repositories: lists must be identical (one R7 scope, two write jobs).",
+        )
+
+    def test_ecosystem_repos_are_registry_siblings(self):
+        """``ECOSYSTEM_REPOS`` clones the sibling publishing repos; juniper-ml is the checkout itself."""
+        expected_siblings = self._registry_publishing_repos() - {"juniper-ml"}
+        ecosystem_block = (self.doc.get("env") or {}).get("ECOSYSTEM_REPOS")
+        self.assertIsInstance(ecosystem_block, str, "workflow env.ECOSYSTEM_REPOS must be a multiline string")
+        ecosystem = self._multiline_repo_list(ecosystem_block)
+        self.assertEqual(
+            ecosystem,
+            expected_siblings,
+            "env.ECOSYSTEM_REPOS must equal registry publishing repos minus juniper-ml " f"(extra={sorted(ecosystem - expected_siblings)}, missing={sorted(expected_siblings - ecosystem)}).",
+        )
+        self.assertNotIn("juniper-ml", ecosystem, "juniper-ml is the workflow checkout, not an ECOSYSTEM_REPOS clone")
+        self.assertNotIn("juniper-deploy", ecosystem, "juniper-deploy hosts no PyPI package and must not be cloned")
+
+    def _write_job_run_scripts(self, job: str) -> str:
+        """Concatenate every ``run:`` script body in a write job (for structural pin searches)."""
+        return "\n".join(str(step.get("run") or "") for step in self._job_steps(job))
+
+    def test_packages_input_charset_reject_present_on_both_write_jobs(self):
+        """Operator ``packages`` dispatch must reject non-pypi-name tokens before shelling them out."""
+        # The live gate: ``[[ ! "$tok" =~ ^[a-z0-9][a-z0-9-]*$ ]]`` + ``exit 2`` + ``::error::``.
+        charset_needle = r"^[a-z0-9][a-z0-9-]*$"
+        for job in WRITE_JOBS:
+            with self.subTest(job=job):
+                blob = self._write_job_run_scripts(job)
+                self.assertIn(
+                    charset_needle,
+                    blob,
+                    f"{job} must validate every packages-input token against the pypi-name charset " "(reject ../x / UPPER / ;rm rather than shelling garbage into propose.py/ceremony.py).",
+                )
+                self.assertIn("exit 2", blob, f"{job} packages-input reject path must exit 2")
+                self.assertIn("::error::", blob, f"{job} packages-input reject path must emit ::error::")
+                self.assertIn("PACKAGES_INPUT", blob, f"{job} must read the packages dispatch input")
+
+    def test_cross_repo_flag_gated_on_app_token_on_both_write_jobs(self):
+        """``--cross-repo`` must be capability-gated on a minted APP_TOKEN (degraded path stays in-repo)."""
+        for job in WRITE_JOBS:
+            with self.subTest(job=job):
+                blob = self._write_job_run_scripts(job)
+                self.assertIn("--cross-repo", blob, f"{job} must know about --cross-repo")
+                # The gate: only append --cross-repo when APP_TOKEN is non-empty (minted).
+                self.assertRegex(
+                    blob,
+                    r'if\s+\[\s+-n\s+"\$\{APP_TOKEN:-\}"\s*\]',
+                    f"{job} must gate --cross-repo on a non-empty APP_TOKEN " "(unconditional --cross-repo breaks the no-App degraded GITHUB_TOKEN path).",
+                )
+                # Sanity: the flag is added inside that branch, not as a bare always-on argv.
+                # Extract the APP_TOKEN if-block (best-effort; structural, not a shell parser).
+                match = re.search(
+                    r'if\s+\[\s+-n\s+"\$\{APP_TOKEN:-\}"\s*\]\s*;\s*then(.*?)else',
+                    blob,
+                    flags=re.DOTALL,
+                )
+                self.assertIsNotNone(match, f"{job} APP_TOKEN if/then/else block not found")
+                self.assertIn("--cross-repo", match.group(1), f"{job} must append --cross-repo inside the APP_TOKEN-present branch")
 
     # (g) Cross-repo headless git identity must be --global (ml#705 / run 30040138774) -------------
     def _identity_steps(self, job):
