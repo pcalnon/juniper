@@ -36,6 +36,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+import unittest.mock
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -181,6 +182,23 @@ class SubstantiveHunkTest(unittest.TestCase):
     def test_patch_unavailable_is_uncertain(self):
         self.assertIsNone(d.has_substantive_hunk(None, None))
 
+    def test_whitespace_only_patch_is_discounted(self):
+        # Every +/- body line strips empty -> False (the whitespace-only short-circuit).
+        patch = "@@ -1,1 +1,1 @@\n-   \n+  \t\n"
+        self.assertIs(d.has_substantive_hunk(patch, "x = 1\n"), False)
+
+    def test_pure_code_deletion_is_substantive_with_file(self):
+        # No added lines + file_text present -> `_removed_codeish` (delete of real code = SHIP).
+        patch = "@@ -1,2 +0,0 @@\n-def doomed():\n-    return 0\n"
+        file_text = "import os\n"  # HEAD after the deletion
+        self.assertIs(d.has_substantive_hunk(patch, file_text), True)
+
+    def test_pure_comment_deletion_is_discounted_with_file(self):
+        # Pure deletion of comment-only lines must NOT force SHIP (notes-rename residue class).
+        patch = "@@ -1,1 +0,0 @@\n-# see notes/OLD_NAME.md for the migration\n"
+        file_text = "x = 1\n"
+        self.assertIs(d.has_substantive_hunk(patch, file_text), False)
+
 
 class SubstantiveBetweenTest(unittest.TestCase):
     """The alignment-free base-vs-head code-line test used by the path-scoped fallback."""
@@ -267,6 +285,23 @@ class PathScopingTest(unittest.TestCase):
         self.assertFalse(d.in_scope("notes/x.md", e))
 
 
+class CommitClassesTest(unittest.TestCase):
+    """``commit_classes`` had zero direct unit hits; SemVer only injected ``{"feat"}`` by hand."""
+
+    def test_feat_and_fix_conventional_types(self):
+        self.assertEqual(d.commit_classes(["feat: add x", "fix(core): y", "chore: z"]), {"feat", "fix"})
+
+    def test_bang_suffix_is_breaking(self):
+        self.assertEqual(d.commit_classes(["feat!: drop legacy api"]), {"feat", "breaking"})
+
+    def test_breaking_change_footer(self):
+        self.assertEqual(d.commit_classes(["chore: tidy\n\nBREAKING CHANGE: remove flag"]), {"breaking"})
+
+    def test_feature_alias_and_empty(self):
+        self.assertEqual(d.commit_classes(["feature(api): expose"]), {"feat"})
+        self.assertEqual(d.commit_classes(["", "not conventional"]), set())
+
+
 class SemVerAndChangelogTest(unittest.TestCase):
     def test_semver_feature_is_minor(self):
         bump, ver = d.propose_semver("0.4.0", ["Added"], set())
@@ -280,6 +315,16 @@ class SemVerAndChangelogTest(unittest.TestCase):
 
     def test_semver_commit_class_feat(self):
         self.assertEqual(d.propose_semver("0.4.0", [], {"feat"})[0], "minor")
+
+    def test_semver_security_is_patch(self):
+        # Security is in FIX_CATEGORIES (not FEATURE) -- a Security-only Unreleased must patch.
+        self.assertEqual(d.propose_semver("0.4.0", ["Security"], set())[0], "patch")
+
+    def test_semver_changed_is_minor(self):
+        self.assertEqual(d.propose_semver("0.4.0", ["Changed"], set())[0], "minor")
+
+    def test_semver_breaking_commit_class_is_minor_pre_1_0(self):
+        self.assertEqual(d.propose_semver("0.4.0", [], {"breaking"})[0], "minor")
 
     def test_semver_none_when_empty(self):
         self.assertEqual(d.propose_semver("0.4.0", [], set()), ("none", None))
@@ -480,6 +525,33 @@ _MINI_REGISTRY = textwrap.dedent("""\
         ship_paths: ["juniper-thing/juniper_thing/"]
         exclude_paths: []
     """)
+
+
+class LocalGitCompareCopyTest(unittest.TestCase):
+    """``local_git_compare`` short-circuits Copy (``C``) as inherently substantive.
+
+    Open #741 covers A/D/R via a real git fixture but never emits ``C`` (``git diff
+    --name-status`` without ``-C``/``--find-copies``). Inject synthetic name-status so the
+    ``st in ("A","D","R","C")`` branch cannot silently drop Copy.
+    """
+
+    def test_copy_status_is_inherently_substantive(self):
+        def fake_git(repo_dir, *args):
+            if args[:2] == ("diff", "--name-status"):
+                return "C085\tjuniper-thing/juniper_thing/keep.py\tjuniper-thing/juniper_thing/keep_copy.py\n"
+            if args[0] == "log":
+                return "feat: duplicate helper module\n"
+            return ""
+
+        with unittest.mock.patch.object(d, "_git_text", side_effect=fake_git):
+            comp = d.local_git_compare(_entry(), "juniper-thing-v0.4.0", "main", Path("/tmp/unused"), fetch=False)
+
+        self.assertTrue(comp.ok, comp.error)
+        self.assertEqual(len(comp.files), 1)
+        fc = comp.files[0]
+        self.assertEqual(fc.filename, "juniper-thing/juniper_thing/keep_copy.py")
+        self.assertEqual(fc.status[:1], "C")
+        self.assertIs(fc.substantive, True)
 
 
 class CliExitCodeTest(unittest.TestCase):
