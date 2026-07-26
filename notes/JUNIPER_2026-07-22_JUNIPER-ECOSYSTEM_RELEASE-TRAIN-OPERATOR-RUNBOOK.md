@@ -249,23 +249,22 @@ monitors the triggered publish run.
   `release-train.yml:732-740`; `DEFAULT_MONITOR_TIMEOUT_SECONDS`, `ceremony.py:137`) until the run parks at
   the owner-gated `pypi` environment — GitHub reports that as run status `waiting`, which the train
   reports as **`PENDING_PYPI_APPROVAL`** (`ceremony.py:531`). **That terminal state is SUCCESS for the
-  train** (plan §5.1). Terminal monitor returns are only
-  `PENDING_PYPI_APPROVAL` / `RELEASED` / `HALT_TESTPYPI` / `HALT_PUBLISH`
-  (`monitor_publish_run`, `ceremony.py:938-941`).
-  - **`NOT_FOUND` is not terminal.** Right after `gh release create`, the publish workflow is often
-    invisible for a poll or two (`classify_publish_run(None) -> NOT_FOUND`, `ceremony.py:505`). The
-    monitor **keeps polling** — it must never stamp `NOT_FOUND` onto the ceremony result (that would
-    skip waiting for Gate 2). Coverage: `MonitorTimeoutTest` in `tests/test_release_train_ceremony.py`
-    (juniper-ml#744 / #745 / #747).
-  - **Timeout → honest `IN_PROGRESS`.** If the wall clock elapses while the run is still building *or*
-    still permanently missing (mis-tagged Release / workflow never triggered), the monitor returns
-    **`IN_PROGRESS`** — never invents `PENDING_PYPI_APPROVAL` / `RELEASED` / a HALT
-    (`ceremony.py:941`). Re-run ceremony mode to resume (idempotent). Operator check when you see
-    `IN_PROGRESS` with no publish run: confirm the Release tag matched the workflow's `on:` filter and
-    that the publish workflow actually fired (`gh run list --repo pcalnon/<owning-repo>`); fix the tag /
-    workflow trigger, then re-run — do not approve a phantom Gate 2.
+  train** (plan §5.1). If the run is still building at timeout it reports `IN_PROGRESS` (honest; re-run
+  ceremony mode to resume — it is idempotent).
+- Two **failure** terminals are distinct (§4): `HALT_TESTPYPI` (TestPyPI job failed → dedup issue) vs
+  `HALT_PUBLISH` (run completed `failure`/`cancelled`/`timed_out` after TestPyPI succeeded → note only,
+  no issue). Do not expect a GitHub issue for the latter.
 - **Gate 2 is yours**: the publish workflow's `pypi`-environment deploy job waits for the owner to
   approve. The train never approves it (§7). Approve it in the run's environment-review UI when ready.
+- **Re-entry is a named plan state, not a full re-ceremony.** When the Release tag already exists,
+  `plan_ceremony` sets `plan.state = RESUME_MONITOR` and the action list is **only** `monitor_publish`
+  (`ceremony.py:892-897`). Execute keeps `plan_state=RESUME_MONITOR` while `state` becomes the monitor
+  verdict (`PENDING_PYPI_APPROVAL` / `HALTED` / …) — so the ceremony step summary buckets it under
+  **resume-monitor**, not a new ceremony (`ceremony.py:980-983`, `release-train.yml:775-789`). A
+  TestPyPI failure on resume still HALTs and files `testpypi-verify-failed` **without** re-opening the
+  archive PR or re-cutting the Release (`execute_ceremony` monitor branch, `ceremony.py:1016-1024`;
+  coverage: juniper-ml#726). Distinct from `ALREADY_RELEASED` (PyPI already serves the target — pure
+  no-op, `ceremony.py:861-866`). See §5.5.
 
 **Archive-lane failure edges (signed API path — do not invent a sha).** The happy path above is the
 common case. When a ceremony fails *inside* `open_archive_pr` / `create_branch` / `create_signed_commit`
@@ -302,12 +301,12 @@ Neither gate is ever a release-train identity action (plan §9.3; enforced in co
 
 ## 4. The §8 "nothing unexpected" HALT catalog
 
-Each precondition is checked **per package** before the ceremony proceeds; **any failure → HALT that
+Each **precondition** is checked **per package** before the ceremony proceeds; **any failure → HALT that
 package, open/update a deduplicated GitHub issue, never proceed** — and a halt on one package does not
 block the others (plan §8; `ceremony.py:22-31`). A HALT is a **normal green outcome** of the run (it does
-not turn the run red); it is surfaced in the ceremony step summary, a dedup issue, and Slack. The
-`ceremony.py` exit is `1` when any package HALTED (owner attention), `2` only on an invocation error
-(`ceremony.py:71-72`).
+not turn the run red); it is surfaced in the ceremony step summary, a dedup issue (when one is filed),
+and Slack. The `ceremony.py` exit is `1` when any package HALTED (owner attention), `2` only on an
+invocation error (`ceremony.py:71-72`).
 
 | `reason_key` | Trigger | Code | Operator response |
 |---|---|---|---|
@@ -315,16 +314,37 @@ not turn the run red); it is surfaced in the ceremony step summary, a dedup issu
 | `declared-lt-released-anomaly` | declared version < the version PyPI already serves (yank/rollback) | `ceremony.py:724` | Investigate the PyPI yank/rollback manually; do NOT release. Reconcile the declared version. |
 | `pypi-truth-missing` | manifest said released, but PyPI now returns no version | `ceremony.py:726` | A first-publish/yank a human must resolve — confirm the trusted-publisher config (procedure §3.3) before re-running. |
 | `changelog-section-missing` | no non-empty `CHANGELOG [<version>]` section to source the notes | `ceremony.py:741` | The proposal PR (Gate 1) should have created it — merge the proposal first, or add the section, then re-run. |
+| `notes-render-failed` | `notes_render.render_notes` raises `OSError` while building the final archive body from `CHANGELOG [<version>]` (missing/unreadable `notes/templates/TEMPLATE_RELEASE_NOTES.md`, or the security template when a `Security` category is present) | `ceremony.py:887-890` | Distinct from `changelog-section-missing`. Restore the template under ceremony `--repo-root` (juniper-ml), confirm CI can read it, re-run — no Release was cut. Coverage: juniper-ml#741. |
 | `missing-declared-version` | manifest has no `declared_version` for a `BUMPED_NOT_RELEASED` pkg | `ceremony.py:711` | A malformed manifest — re-run detection (`report` mode) to regenerate it. |
 | `not-in-registry` | package is `BUMPED_NOT_RELEASED` in the manifest but absent from `registry.yaml` | `ceremony.py` (`_plans_for`) | Add the package to `util/release_train/registry.yaml` (registry lint gates it). |
-| `testpypi-verify-failed` | (during the monitor) the publish workflow's TestPyPI install-verify failed before Gate 2 | `ceremony.py:876` | The run is not healthy — inspect the publish run's TestPyPI job; fix and re-cut is idempotent. |
+| `testpypi-verify-failed` | (during the monitor) `classify_publish_run` → `HALT_TESTPYPI`: a job whose name contains `testpypi` concluded `failure` | `ceremony.py:514-515`, `1018-1023` | The run is not healthy — inspect the publish run's TestPyPI job; fix and re-cut is idempotent. A dedup issue **is** filed. |
+
+### 4.1 Monitor terminals after the Release is cut
+
+After the archive PR + Release succeed, `monitor_publish` maps the publish workflow via
+`classify_publish_run` (`ceremony.py:497-532`) and `execute_ceremony` handles the two failure classes
+**asymmetrically** (`ceremony.py:1016-1028`; pinned by `tests/test_release_train_ceremony.py`):
+
+| Terminal | Classifier trigger | Dedup issue? | Operator response |
+|---|---|---|---|
+| `HALT_TESTPYPI` | any `*testpypi*` job `conclusion=failure` | **Yes** — `reason_key=testpypi-verify-failed` via `upsert_halt_issue` | Inspect TestPyPI install-verify; fix; re-cut (idempotent). |
+| `HALT_PUBLISH` | run `status=completed` and `conclusion` in `{failure, cancelled, timed_out}` **and** TestPyPI did **not** fail (so this is post-TestPyPI) | **No** — note only: `"the publish run failed before the pypi gate."` | Open the publish run UI; diagnose the non-TestPyPI failure (cancelled deploy, timed-out job, etc.). Do **not** wait for a GitHub issue. Archive + Release were already cut — re-entry resumes at the monitor and must not re-cut. |
+| `PENDING_PYPI_APPROVAL` | run `waiting` / TestPyPI ok + pypi job parked | n/a (success for the train) | Approve Gate 2 when ready (§3.3). |
+| `RELEASED` | run completed `success` (both gates done) | n/a | Owner already approved; nothing to do. |
+
+**Why the asymmetry.** `testpypi-verify-failed` is a named, recoverable §8 class with a stable
+`reason_key` for dedup. A generic post-TestPyPI failure has no single reason key worth filing — the
+step-summary note + Slack + the publish-run URL are the signal. Looking for a missing issue is the
+wrong recovery path.
 
 **HALT-issue degradation (Phase 4.3).** Filing the dedup issue is **best-effort**: if the `gh issue`
 API itself fails — most plausibly the cross-repo App token lacking the **Issues** permission — the
 upsert degrades gracefully to a loud log line + a step-summary flag (`halt_issue_failed`), and the
 package stays HALTED without crashing the run (`ceremony.py:_file_halt_issue`, `801`). When you see
 "HALT issue could NOT be filed" in the ceremony step summary, **file the issue manually** (or grant the
-App the Issues permission — §8). The HALT itself is still surfaced in the summary and Slack.
+App the Issues permission — §8). The HALT itself is still surfaced in the summary and Slack. This
+degradation path applies only when the code *attempts* an upsert (`HALT_TESTPYPI` + precondition HALTs)
+— not to `HALT_PUBLISH`.
 
 ## 5. Rollback procedures
 
@@ -377,10 +397,20 @@ branch); the dup-guard means a corrected re-dispatch will open a fresh one rathe
 **PyPI and TestPyPI files are immutable**, and the publish steps use `skip-existing: true`
 (plan §8 "Idempotent re-entry", citing `publish-service-core.yml:139,185`). Consequences for recovery:
 
-- A **partial run is safe to re-enter**: a re-run re-computes state from PyPI/Release truth. If PyPI
-  already serves the target version the ceremony is a no-op (`ALREADY_RELEASED`); if the Release tag
-  already exists it resumes at the monitor (never re-cutting, never duplicating the archive PR)
-  (`ceremony.py:53-56`).
+- A **partial run is safe to re-enter**: a re-run re-computes state from PyPI/Release truth
+  (`ceremony.py:plan_ceremony`). Operator-visible plan states:
+
+  | Truth on re-entry | `plan.state` | Execute does | Step-summary bucket |
+  |---|---|---|---|
+  | PyPI already serves `target` | `ALREADY_RELEASED` | nothing (idempotent no-op) | already-released / DONE |
+  | Release tag exists, PyPI not yet | `RESUME_MONITOR` | **only** `monitor_publish` — no `open_archive_pr` / `enable_automerge` / `create_release` | resume-monitor / RESUME |
+  | Neither | `CEREMONY_PLANNED` | full archive → auto-merge → cut Release → monitor | ceremony / CEREMONY |
+
+  `plan_state` stays at the classification while `state` becomes the monitor verdict
+  (`ceremony.py:980-983`). On `RESUME_MONITOR` + `HALT_TESTPYPI`, the train files the dedup issue and
+  stops **without** re-cutting (`ceremony.py:1016-1024`; juniper-ml#726). Do **not** delete a healthy
+  Release just to "start over" when you only need Gate 2 or another monitor poll — re-dispatch
+  `mode=ceremony` (§3.3).
 - You **cannot** "un-publish" a version by overwriting it — if a bad version reaches PyPI, **yank** it on
   PyPI and ship a fixed higher version. The train will then see the yank and classify accordingly.
 - Only **one train runs at a time** (`concurrency: group: release-train, cancel-in-progress: false`,
