@@ -30,8 +30,10 @@ Covers (task acceptance list):
     `origin/<base>`, unresolvable existing-branch tip, non-422 ref-create transport errors, and a
     malformed createCommitOnBranch payload returning an empty oid rather than crashing
   * `--dry-run` writes NOTHING (a git-tracked repo_root's `git status` stays clean)
-  * the execute happy path (PENDING_PYPI_APPROVAL), the auto-merge graceful-degrade, and the pure
-    helpers (classify_publish_run, changelog_version_section, infer_bump, release_tag)
+  * the execute happy path (PENDING_PYPI_APPROVAL), the auto-merge graceful-degrade, execute-time
+    open-PR reuse (no re-open; automerge on archive branch) and archive-already-on-main (release
+    only), and the pure helpers (classify_publish_run, changelog_version_section, infer_bump,
+    release_tag)
 
 Run: python3 -m unittest -v tests/test_release_train_ceremony.py
 
@@ -556,6 +558,26 @@ class ClassifyPublishRunTest(unittest.TestCase):
         }
         self.assertEqual(ce.classify_publish_run(run), "PENDING_PYPI_APPROVAL")
 
+    def test_job_level_queued_pending_empty_statuses_park_at_gate(self):
+        """Belt-and-suspenders job-level park: TestPyPI ok + pypi job in {queued,pending,\"\"}.
+
+        The run top-level may still be ``in_progress`` before GitHub flips it to ``waiting``;
+        misclassifying these as ``IN_PROGRESS`` keeps the ceremony polling forever past Gate 2.
+        ``waiting`` is covered above; these three siblings share the allowlist in
+        ``classify_publish_run``.
+        """
+        for pypi_status in ("queued", "pending", ""):
+            with self.subTest(pypi_status=pypi_status):
+                run = {
+                    "status": "in_progress",
+                    "conclusion": None,
+                    "jobs": [
+                        {"name": "Publish to TestPyPI", "status": "completed", "conclusion": "success"},
+                        {"name": "Publish to PyPI", "status": pypi_status, "conclusion": None},
+                    ],
+                }
+                self.assertEqual(ce.classify_publish_run(run), "PENDING_PYPI_APPROVAL")
+
     def test_testpypi_failure_halts(self):
         run = {
             "status": "completed",
@@ -1001,6 +1023,22 @@ class MonitorTimeoutTest(unittest.TestCase):
         verdict = ce.monitor_publish_run(src, "juniper-ml", "tag", timeout_seconds=30, poll_seconds=1, sleep=lambda s: None, monotonic=monotonic)
         self.assertEqual(verdict, "IN_PROGRESS")  # bounded wall clock -> honest 'still building'
         self.assertGreaterEqual(box["polls"], 2)  # ... but only after actually polling more than once
+
+    def test_not_found_timeout_is_honest_in_progress(self):
+        # Permanent NOT_FOUND (mis-tagged Release / workflow never triggered) must time
+        # out as honest IN_PROGRESS — never invent PENDING / RELEASED / HALT.
+        # Keep-polling-until-PENDING is owned by open #744; this pins the timeout edge.
+        src, box = _monitor_sources(None)
+        clock = {"t": 0.0}
+
+        def monotonic():
+            v = clock["t"]
+            clock["t"] += 20.0
+            return v
+
+        verdict = ce.monitor_publish_run(src, "juniper-ml", "tag", timeout_seconds=30, poll_seconds=1, sleep=lambda s: None, monotonic=monotonic)
+        self.assertEqual(verdict, "IN_PROGRESS")
+        self.assertGreaterEqual(box["polls"], 2)
 
     def test_monitor_timeout_flag_default_and_override(self):
         self.assertEqual(ce.parse_args(["--manifest", "m.json"]).monitor_timeout, ce.DEFAULT_MONITOR_TIMEOUT_SECONDS)
