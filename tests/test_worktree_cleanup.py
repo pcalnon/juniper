@@ -76,8 +76,8 @@ def _p3_install_fake_gh(bin_dir: Path, log_path: Path) -> Path:
         "set -euo pipefail\n"
         f'printf "%s\\n" "$*" >> "{log_path}"\n'
         'if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then\n'
-        '  # empty list -> jq .[0].number yields nothing; phase_3 treats as no existing PR\n'
-        '  echo "[]"\n'
+        '  # Real gh applies --jq .[0].number; empty list prints nothing (not "[]").\n'
+        '  # A non-empty "[]" would be treated as an existing PR number.\n'
         "  exit 0\n"
         "fi\n"
         'if [[ "${1:-}" == "pr" && "${2:-}" == "create" ]]; then\n'
