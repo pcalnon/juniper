@@ -15,6 +15,7 @@
 - [Extras Reference](#extras-reference)
 - [Ecosystem Compatibility](#ecosystem-compatibility)
 - [Host Orchestration Utilities](#host-orchestration-utilities)
+- [Pytest Orphan Reaper](#pytest-orphan-reaper)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
@@ -174,6 +175,58 @@ Troubleshooting:
 | `juniper-cascor` never reaches `/v1/health` | Inspect `juniper-cascor/logs/juniper-cascor_*.log`. Prefer the default `JuniperCascor1` env; the legacy `JuniperCascor` Python 3.14 / torch layout is a known health-startup trap. See [`notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md`](../notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md). |
 | Worker startup says binary missing | Activate the worker env and install the package: `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` completed successfully in `nohup` mode and check the PID path printed at startup. In non-standard layouts, rerun shutdown with `JUNIPER_PROJECT_DIR` set to that same project root. If using systemd mode, stop with `util/juniper_chop_all.bash --systemd` instead. |
+
+---
+
+## Pytest Orphan Reaper
+
+`util/reap_pytest_orphans.bash` kills multiprocessing forkserver / worker children left behind when a Juniper pytest session is SIGKILL'd before teardown (OOM, closed terminal, `kill -9`). Orphans can hold hundreds of MB RSS for many minutes until the forkserver notices the dead parent.
+
+```bash
+util/reap_pytest_orphans.bash --dry-run          # list WOULD REAP / summary; never kill
+util/reap_pytest_orphans.bash --dry-run --verbose  # also print KEEP (live parent)
+util/reap_pytest_orphans.bash                    # SIGKILL confirmed orphans
+```
+
+| Flag / env | Purpose |
+|------------|---------|
+| `--dry-run` | Print `WOULD REAP` lines + dry-run summary; no kill |
+| `--verbose` | Also print `KEEP` for live-parent candidates |
+| `JUNIPER_REAP_PROC_ROOT` | Override `/proc` (tests only) |
+| `JUNIPER_REAP_KILL_CMD` | Override `kill` (tests only) |
+
+Exit `0` on success (including zero candidates / zero reaps). Exit `2` on unknown arguments.
+
+### Candidate filter (false-positive gate)
+
+Candidates come from `ps -eo pid=,user=,cmd=` and must match **all** of:
+
+1. **Current user only** — `$2 == $(id -un)` (never other users' Juniper sessions).
+2. **Python** — cmdline contains `python`.
+3. **Juniper path marker** — cmdline matches `JuniperC[a-z0-9]+` (e.g. `JuniperCascor1`, `JuniperCanopy1`) **or** `Juniper/worktrees/`.
+
+Plain `python -m pytest` under `/usr/bin` or a non-`JuniperC*` env is **not** a candidate. Empty candidate set prints `No Juniper python processes found.` and exits `0`.
+
+### Orphan decision and SKIPPED races
+
+For each candidate the script reads `PPid:` from `${PROC_ROOT}/${pid}/status` and reaps only when the parent is PID `1`, the user's `systemd --user`, or a missing `/proc/<ppid>`. Live parents are kept (printed only with `--verbose`).
+
+`SKIPPED` increments (never WOULD REAP / kill) when:
+
+- `/proc/<pid>` disappeared between `ps` and inspection (ps→gone race), or
+- status is missing / has no `PPid:` line.
+
+Summary line shape: `… reaped, … kept (live parent), … skipped.` (dry-run prefixes `would be`).
+
+Hermetic pins for the awk exclusions and SKIPPED arms: open coverage [juniper-ml#784](https://github.com/pcalnon/juniper-ml/pull/784) (`tests/test_reap_pytest_orphans.py`).
+
+Troubleshooting:
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Expected orphan not listed | Confirm cmdline still contains `JuniperC*` or `Juniper/worktrees/` and the process is owned by your user; re-run with `--dry-run --verbose`. |
+| `… skipped` without WOULD REAP | Process raced away or `/proc/<pid>/status` lacked `PPid:` — safe no-op; re-run if RSS is still high. |
+| Fear of killing a live pytest | Prefer `--dry-run` first; KEEP means a live parent was detected. Loosening the awk user/`JuniperC*`/worktrees gate is the false-positive class. |
 
 ---
 

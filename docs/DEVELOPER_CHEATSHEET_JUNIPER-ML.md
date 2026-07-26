@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.5
-**Date**: 2026-06-04
+**Version**: 1.0.6
+**Date**: 2026-07-26
 **Project**: juniper-ml
 
 ---
@@ -24,6 +24,7 @@
 | `util/juniper_plant_all.bash`                          | Start the host-level Juniper stack with health gates |
 | `util/get_cascor_status.bash`                          | Query host-mode cascor status (`CASCOR_HOST` / `CASCOR_PORT`, default `localhost:8201`) |
 | `util/juniper_chop_all.bash`                           | Stop the host-level stack from `JuniperProject.pid` |
+| `util/reap_pytest_orphans.bash --dry-run`              | List orphaned Juniper pytest multiprocessing children (never kill); drop `--dry-run` to SIGKILL |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -260,6 +261,7 @@ Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while 
 | Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`; keep the default `JuniperCascor1` env unless a replacement is known-good. |
 | Worker binary missing | Run `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` finished in `nohup` mode and rerun with `JUNIPER_PROJECT_DIR` set to the same project root; for systemd mode, stop with `util/juniper_chop_all.bash --systemd`. |
+| High RSS after a killed pytest / OOM | `util/reap_pytest_orphans.bash --dry-run` then live reap. Candidates are current-user + `python` + (`JuniperC*` or `Juniper/worktrees/`) only; `SKIPPED` means ps→gone or missing `PPid:` (never kill). See [REFERENCE — Pytest Orphan Reaper](REFERENCE.md#pytest-orphan-reaper). |
 
 ## Quick Reference Tables
 
@@ -286,6 +288,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-06-04
-**Version:** 1.0.5
+**Last Updated:** 2026-07-26
+**Version:** 1.0.6
 **Maintainer:** Paul Calnon
