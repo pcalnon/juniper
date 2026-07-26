@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.1
+**Version**: 1.2.2
 **Last Updated**: 2026-07-26
 
 ---
@@ -371,14 +371,25 @@ through `ceremony.py:_assert_gh_allowed` (`197`), which permits **exactly**
 `environment` / `deployment` / `review` / `--admin` token (`GH_FORBIDDEN_TOKENS`, `ceremony.py:177`), a
 bare `pr merge` without `--auto`, or a `release create --verify-tag`. `api` **stays forbidden for the
 general surface**; the sole carve-out is those two archive-lane calls, dispatched to the sibling
-assertion `_assert_api_allowed` (`ceremony.py:283`) which accepts ONLY a `git/refs` POST creating a
-`refs/heads/*` ref or a `createCommitOnBranch` body with `repoWithOwner` bound — every other `gh api`
-(a different path, a different mutation, a non-POST ref write, an out-of-allowlist repo) raises
-`SeamViolation`. Every `--repo` — and both archive-lane calls' repo bind — is bounded to the 8
-publishing repos. **The identity is never a `pypi` environment reviewer and never approves/mutates a
-deployment** — PyPI approval stays owner-only (Gate 2). The workflow-level `contents: read` plus the two
-mode-gated write jobs are pinned by `tests/test_release_train_workflow_guard.py`; the archive-lane api
-carve-out and its negative case are pinned by `tests/test_release_train_ceremony.py`.
+assertion `_assert_api_allowed` (`ceremony.py:283`) which accepts ONLY a `git/refs` POST with an
+**explicit** `ref=refs/heads/*` field — missing or empty `ref=` is also a `SeamViolation` (juniper-ml#770;
+pre-#770 only rejected a *present* non-heads value and deferred an omitted `ref=` to the live GitHub API) —
+or a `createCommitOnBranch` body with `repoWithOwner` bound. Every other `gh api` (a different path, a
+different mutation, a non-POST ref write, an out-of-allowlist repo) raises `SeamViolation`. Every `--repo`
+— and both archive-lane calls' repo bind — is bounded to the 8 publishing repos. **The identity is never
+a `pypi` environment reviewer and never approves/mutates a deployment** — PyPI approval stays owner-only
+(Gate 2). The workflow-level `contents: read` plus the two mode-gated write jobs are pinned by
+`tests/test_release_train_workflow_guard.py`; the archive-lane api carve-out and its negative cases
+(including missing/empty `ref=`) are pinned by `tests/test_release_train_ceremony.py`.
+
+#### R7 archive-lane `ref=` contract (juniper-ml#770)
+
+A ceremony log matching `archive-branch ref create must target refs/heads/*, got ref=None` (or `ref=''`)
+is a **code** `SeamViolation` from `_assert_api_allowed` — not an auth/network blip and not an operator
+recovery path. Do **not** hand-craft a `gh api …/git/refs` POST to "fix" it. Confirm juniper-ml#770 is on
+the train's checkout, then re-dispatch `ceremony`; if it still fires, the call site omitted `ref=` (file a
+bug — the happy path always passes `ref=refs/heads/release-notes/…`). Hermetic pin:
+`tests/test_release_train_ceremony.py` (`test_assert_api_allowed_rejects_refs_post_without_ref_field`).
 
 **Runner git identity (headless, unsigned) — must be `--global`.** Both write jobs run a
 `Configure git identity (headless, unsigned)` step that sets `user.name`, `user.email`, and
@@ -474,7 +485,8 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
 - Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary
   rehearsal + write-job `--global` git identity, ml#705 / #718),
-  `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
+  `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation + R7 archive-lane missing/empty
+  `ref=` SeamViolation; juniper-ml#770),
   `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701),
   `tests/test_release_train_propose.py` (sibling/meta AGENTS.md step-5/5a shapes — worker#140 / ml#706 / #720).
 - Static `_version.py` lockstep (Gate 1 review):
