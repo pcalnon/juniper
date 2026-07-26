@@ -38,6 +38,7 @@ import textwrap
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 UTIL_DIR = Path(__file__).resolve().parents[1] / "util" / "release_train"
 sys.path.insert(0, str(UTIL_DIR))
@@ -181,6 +182,25 @@ class SubstantiveHunkTest(unittest.TestCase):
     def test_patch_unavailable_is_uncertain(self):
         self.assertIsNone(d.has_substantive_hunk(None, None))
 
+    def test_whitespace_only_hunk_is_discounted(self):
+        # Empty / space-only +/- lines are stripped before the comment/code checks.
+        # A regression that treats them as ship floods UNRELEASED_CHANGES with noise.
+        patch = "@@ -1,1 +1,1 @@\n-    \n+\t  "
+        self.assertIs(d.has_substantive_hunk(patch, "x = 1\n"), False)
+        self.assertIs(d.has_substantive_hunk(patch, None), False)
+
+    def test_pure_code_deletion_is_substantive(self):
+        # No '+' lines -> _removed_codeish path. Deleting a real statement must SHIP.
+        patch = "@@ -10,2 +10,1 @@\n def handler():\n-    return old_validation()"
+        file_text = "\n".join(["header"] * 9 + ["def handler():"]) + "\n"
+        self.assertIs(d.has_substantive_hunk(patch, file_text), True)
+
+    def test_pure_comment_deletion_is_discounted(self):
+        # All changed content is comment -> discount before the deletion path.
+        patch = "@@ -10,2 +10,1 @@\n def handler():\n-    # see notes/OLD.md"
+        file_text = "\n".join(["header"] * 9 + ["def handler():"]) + "\n"
+        self.assertIs(d.has_substantive_hunk(patch, file_text), False)
+
 
 class SubstantiveBetweenTest(unittest.TestCase):
     """The alignment-free base-vs-head code-line test used by the path-scoped fallback."""
@@ -217,6 +237,38 @@ class SubstantiveBetweenTest(unittest.TestCase):
         fc_false = d.FileChange("juniper-thing/juniper_thing/m.py", "modified", None, cumulative=False, substantive=False)
         self.assertEqual(d.classify_change(fc_true, e, None)[0], "ship")
         self.assertEqual(d.classify_change(fc_false, e, None)[0], "nonship")
+
+
+class LocalGitCompareCopyTest(unittest.TestCase):
+    """Copy (``C``) short-circuit in ``local_git_compare`` (plan S4.2 / 300-file fallback).
+
+    Open #741 owns A/D/R via a real git fixture; Copy is rarer (``git cp`` / similarity)
+    but shares the same inherently-substantive branch. Mock ``_git_text`` so this stays
+    hermetic and merge-orthogonal to that fixture class.
+    """
+
+    def test_copy_status_is_inherently_substantive(self):
+        e = _entry()
+        name_status = "C075\tjuniper-thing/juniper_thing/old.py\tjuniper-thing/juniper_thing/new.py\n"
+
+        def fake_git(repo_dir, *args):
+            if args[:2] == ("diff", "--name-status"):
+                return name_status
+            if args[:1] == ("log",) or (args and args[0] == "log"):
+                return "copy helper into new module\n"
+            # Must not reach show / substantive_between for C — blow up if we do.
+            raise AssertionError(f"unexpected _git_text args for Copy short-circuit: {args!r}")
+
+        with mock.patch.object(d, "_git_text", side_effect=fake_git):
+            with mock.patch.object(d, "substantive_between", side_effect=AssertionError("C must not blob-compare")):
+                result = d.local_git_compare(e, "juniper-thing-v0.1.0", "main", Path("/tmp/unused"), fetch=False)
+
+        self.assertTrue(result.ok)
+        self.assertEqual(len(result.files), 1)
+        fc = result.files[0]
+        self.assertEqual(fc.filename, "juniper-thing/juniper_thing/new.py")
+        self.assertTrue(fc.status.startswith("C"))
+        self.assertIs(fc.substantive, True)
 
 
 class PyprojectClassifierTest(unittest.TestCase):
@@ -284,6 +336,17 @@ class SemVerAndChangelogTest(unittest.TestCase):
     def test_semver_none_when_empty(self):
         self.assertEqual(d.propose_semver("0.4.0", [], set()), ("none", None))
 
+    def test_semver_security_is_patch(self):
+        # Keep-a-Changelog Security is in FIX_CATEGORIES (patch), not FEATURE.
+        self.assertEqual(d.propose_semver("0.4.1", ["Security"], set()), ("patch", "0.4.2"))
+
+    def test_semver_changed_is_minor(self):
+        # Changed is a FEATURE category (pre-1.0 minor), distinct from Fixed/Security.
+        self.assertEqual(d.propose_semver("0.4.0", ["Changed"], set()), ("minor", "0.5.0"))
+
+    def test_semver_breaking_commit_class_is_minor_pre_1_0(self):
+        self.assertEqual(d.propose_semver("0.4.0", [], {"breaking"})[0], "minor")
+
     def test_changelog_conflict_up_to_date_but_added(self):
         msg = d.changelog_conflict(d.UP_TO_DATE, ["Added"])
         self.assertIsNotNone(msg)
@@ -295,6 +358,23 @@ class SemVerAndChangelogTest(unittest.TestCase):
     def test_no_conflict_when_aligned(self):
         self.assertIsNone(d.changelog_conflict(d.UNRELEASED_CHANGES, ["Added"]))
         self.assertIsNone(d.changelog_conflict(d.UP_TO_DATE, []))
+
+
+class CommitClassesTest(unittest.TestCase):
+    """Conventional-commit class extraction feeding propose_semver (plan S6)."""
+
+    def test_feat_bang_is_feat_and_breaking(self):
+        self.assertEqual(d.commit_classes(["feat!: drop legacy pin path"]), {"feat", "breaking"})
+
+    def test_breaking_change_footer_is_breaking(self):
+        msg = "fix: tighten seam\n\nBREAKING CHANGE: callers must pass allowed_repos"
+        self.assertEqual(d.commit_classes([msg]), {"fix", "breaking"})
+
+    def test_plain_fix_is_fix_only(self):
+        self.assertEqual(d.commit_classes(["fix(release-train): discount whitespace hunks"]), {"fix"})
+
+    def test_unconventional_message_is_empty(self):
+        self.assertEqual(d.commit_classes(["Added more docs"]), set())
 
 
 class ChangelogReaderTest(unittest.TestCase):
