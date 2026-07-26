@@ -4,8 +4,8 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.0
-**Last Updated**: 2026-07-25
+**Version**: 1.2.1
+**Last Updated**: 2026-07-26
 
 ---
 
@@ -159,6 +159,9 @@ monitors the triggered publish run.
   reports as **`PENDING_PYPI_APPROVAL`** (`ceremony.py:531`). **That terminal state is SUCCESS for the
   train** (plan §5.1). If the run is still building at timeout it reports `IN_PROGRESS` (honest; re-run
   ceremony mode to resume — it is idempotent).
+- Two **failure** terminals are distinct (§4): `HALT_TESTPYPI` (TestPyPI job failed → dedup issue) vs
+  `HALT_PUBLISH` (run completed `failure`/`cancelled`/`timed_out` after TestPyPI succeeded → note only,
+  no issue). Do not expect a GitHub issue for the latter.
 - **Gate 2 is yours**: the publish workflow's `pypi`-environment deploy job waits for the owner to
   approve. The train never approves it (§7). Approve it in the run's environment-review UI when ready.
 
@@ -174,12 +177,12 @@ Neither gate is ever a release-train identity action (plan §9.3; enforced in co
 
 ## 4. The §8 "nothing unexpected" HALT catalog
 
-Each precondition is checked **per package** before the ceremony proceeds; **any failure → HALT that
+Each **precondition** is checked **per package** before the ceremony proceeds; **any failure → HALT that
 package, open/update a deduplicated GitHub issue, never proceed** — and a halt on one package does not
 block the others (plan §8; `ceremony.py:22-31`). A HALT is a **normal green outcome** of the run (it does
-not turn the run red); it is surfaced in the ceremony step summary, a dedup issue, and Slack. The
-`ceremony.py` exit is `1` when any package HALTED (owner attention), `2` only on an invocation error
-(`ceremony.py:71-72`).
+not turn the run red); it is surfaced in the ceremony step summary, a dedup issue (when one is filed),
+and Slack. The `ceremony.py` exit is `1` when any package HALTED (owner attention), `2` only on an
+invocation error (`ceremony.py:71-72`).
 
 | `reason_key` | Trigger | Code | Operator response |
 |---|---|---|---|
@@ -189,14 +192,34 @@ not turn the run red); it is surfaced in the ceremony step summary, a dedup issu
 | `changelog-section-missing` | no non-empty `CHANGELOG [<version>]` section to source the notes | `ceremony.py:741` | The proposal PR (Gate 1) should have created it — merge the proposal first, or add the section, then re-run. |
 | `missing-declared-version` | manifest has no `declared_version` for a `BUMPED_NOT_RELEASED` pkg | `ceremony.py:711` | A malformed manifest — re-run detection (`report` mode) to regenerate it. |
 | `not-in-registry` | package is `BUMPED_NOT_RELEASED` in the manifest but absent from `registry.yaml` | `ceremony.py` (`_plans_for`) | Add the package to `util/release_train/registry.yaml` (registry lint gates it). |
-| `testpypi-verify-failed` | (during the monitor) the publish workflow's TestPyPI install-verify failed before Gate 2 | `ceremony.py:876` | The run is not healthy — inspect the publish run's TestPyPI job; fix and re-cut is idempotent. |
+| `testpypi-verify-failed` | (during the monitor) `classify_publish_run` → `HALT_TESTPYPI`: a job whose name contains `testpypi` concluded `failure` | `ceremony.py:514-515`, `1018-1023` | The run is not healthy — inspect the publish run's TestPyPI job; fix and re-cut is idempotent. A dedup issue **is** filed. |
+
+### 4.1 Monitor terminals after the Release is cut
+
+After the archive PR + Release succeed, `monitor_publish` maps the publish workflow via
+`classify_publish_run` (`ceremony.py:497-532`) and `execute_ceremony` handles the two failure classes
+**asymmetrically** (`ceremony.py:1016-1028`; pinned by `tests/test_release_train_ceremony.py`):
+
+| Terminal | Classifier trigger | Dedup issue? | Operator response |
+|---|---|---|---|
+| `HALT_TESTPYPI` | any `*testpypi*` job `conclusion=failure` | **Yes** — `reason_key=testpypi-verify-failed` via `upsert_halt_issue` | Inspect TestPyPI install-verify; fix; re-cut (idempotent). |
+| `HALT_PUBLISH` | run `status=completed` and `conclusion` in `{failure, cancelled, timed_out}` **and** TestPyPI did **not** fail (so this is post-TestPyPI) | **No** — note only: `"the publish run failed before the pypi gate."` | Open the publish run UI; diagnose the non-TestPyPI failure (cancelled deploy, timed-out job, etc.). Do **not** wait for a GitHub issue. Archive + Release were already cut — re-entry resumes at the monitor and must not re-cut. |
+| `PENDING_PYPI_APPROVAL` | run `waiting` / TestPyPI ok + pypi job parked | n/a (success for the train) | Approve Gate 2 when ready (§3.3). |
+| `RELEASED` | run completed `success` (both gates done) | n/a | Owner already approved; nothing to do. |
+
+**Why the asymmetry.** `testpypi-verify-failed` is a named, recoverable §8 class with a stable
+`reason_key` for dedup. A generic post-TestPyPI failure has no single reason key worth filing — the
+step-summary note + Slack + the publish-run URL are the signal. Looking for a missing issue is the
+wrong recovery path.
 
 **HALT-issue degradation (Phase 4.3).** Filing the dedup issue is **best-effort**: if the `gh issue`
 API itself fails — most plausibly the cross-repo App token lacking the **Issues** permission — the
 upsert degrades gracefully to a loud log line + a step-summary flag (`halt_issue_failed`), and the
 package stays HALTED without crashing the run (`ceremony.py:_file_halt_issue`, `801`). When you see
 "HALT issue could NOT be filed" in the ceremony step summary, **file the issue manually** (or grant the
-App the Issues permission — §8). The HALT itself is still surfaced in the summary and Slack.
+App the Issues permission — §8). The HALT itself is still surfaced in the summary and Slack. This
+degradation path applies only when the code *attempts* an upsert (`HALT_TESTPYPI` + precondition HALTs)
+— not to `HALT_PUBLISH`.
 
 ## 5. Rollback procedures
 
@@ -329,6 +352,10 @@ carve-out and its negative case are pinned by `tests/test_release_train_ceremony
    / ml#707). Owner one-click is now only the degraded/manual fallback (e.g. `allow_auto_merge` off). No
    security-posture change — the PyPI deploy still waits at the owner-gated `pypi` environment (Gate 2).
    The **live proof** (an archive PR auto-merging with zero clicks) rides the next real ceremony dispatch.
+6. **`HALT_PUBLISH` has no dedup issue.** A post-TestPyPI publish-run failure (`failure` / `cancelled` /
+   `timed_out`) HALTs with a step-summary note only — `upsert_halt_issue` is deliberately not called
+   (§4.1; `ceremony.py:1025-1028`). Do not treat a missing GitHub issue as a train bug; open the publish
+   run. Coverage: juniper-ml#737.
 
 ## 9. Quick reference
 

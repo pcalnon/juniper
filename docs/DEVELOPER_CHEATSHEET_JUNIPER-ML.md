@@ -211,6 +211,11 @@ Meta-package publish flow: build + `twine check`, TestPyPI upload with attestati
 fails CI if they drift. Manual releases must keep the same pair equal. Operator review checklist:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2.
 
+**Ceremony monitor: `HALT_TESTPYPI` vs `HALT_PUBLISH`.** TestPyPI job failure → `HALT_TESTPYPI` and a
+`testpypi-verify-failed` dedup issue. A later run `failure`/`cancelled`/`timed_out` (TestPyPI already
+green) → `HALT_PUBLISH` with a note only — **no** GitHub issue. Open the publish run; do not wait for
+an issue. Details: operator runbook §4.1.
+
 ---
 
 ## Environment Variables
