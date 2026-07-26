@@ -37,7 +37,7 @@ Mode is resolved once by the detect job's `id: mode` step (`release-train.yml:16
 |---|---|---|---|
 | **`off`** | nothing beyond mode resolution | **nothing** — detection is skipped, both write jobs unreachable | quiesce step `release-train.yml:182-190` |
 | **`report`** (default) | detect job only | **nothing** to GitHub/PyPI — only a step-summary table + the `release-manifest.json` run artifact + a non-blocking Slack post | detect job, workflow-level `contents: read` (`release-train.yml:139`) |
-| **`propose`** | detect + **propose** job | opens **standard-gated** release-proposal PRs (version bump + CHANGELOG move + drafted notes + pin / `_version.py` dunder co-changes); **no** Releases, **no** (Test)PyPI | `propose` job `if: needs.detect.outputs.mode == 'propose'` (`release-train.yml:382`) |
+| **`propose`** | detect + **propose** job | opens **standard-gated** release-proposal PRs (version bump + sibling/meta `AGENTS.md` **Version** co-change + CHANGELOG move + drafted notes + pin / `_version.py` dunder co-changes); **no** Releases, **no** (Test)PyPI | `propose` job `if: needs.detect.outputs.mode == 'propose'` (`release-train.yml:382`) |
 | **`ceremony`** | detect + **ceremony** job | for `BUMPED_NOT_RELEASED` packages: opens the add-only notes-archive PR (central in juniper-ml, via a **GitHub-signed API commit** → auto-merges hands-free), enables `--auto`, **cuts the Release** on the owning repo, monitors its publish run to `PENDING_PYPI_APPROVAL`; **never** touches (Test)PyPI | `ceremony` job `if: needs.detect.outputs.mode == 'ceremony'` (`release-train.yml:587`) |
 
 Notes:
@@ -129,6 +129,32 @@ When reviewing a Gate 1 proposal for a static in-repo package, confirm:
 
 Dynamic packages (model-core + the three recurrence packages) are unchanged: the version bump *is*
 the `_version.py` edit, so there is no separate lockstep co-change to look for.
+
+#### Gate 1 review: sibling-repo `AGENTS.md` **Version** co-change (worker#140 / ml#706)
+
+Every sibling repo's `AGENTS.md` `**Version**:` header tracks that repo's **primary** package
+(`pypi_name == repo` in `util/release_train/registry.yaml`). Their CI runs the portable
+`tests/test_agents_md_version_drift.py` lint, so a proposal that bumps `pyproject.toml` but leaves the
+header stale fails Documentation Links — the [worker#140](https://github.com/pcalnon/juniper-cascor-worker/pull/140)
+pilot class, fixed in juniper-ml#706 (`propose.py` step 5a).
+
+When reviewing a Gate 1 proposal opened **in a sibling repo** for that repo's primary package, expect:
+
+| Signal in the proposal PR | Meaning | Operator action |
+|---|---|---|
+| Diff edits `AGENTS.md` `**Version**:` in lockstep with the version bump | Normal step-5a co-change (header was at the from-version) | Merge when the rest of the proposal looks right |
+| Checklist names "Sibling AGENTS.md **Version** header bump (included in this PR)" | Train already applied the header edit | No extra manual edit |
+| Checklist item **REQUIRED** (header absent or not at the expected from-version) | Train left the file alone — never clobbers an unexpected value | Verify / edit `**Version**:` by hand in the same PR before merge |
+| Diff bumps the package version but **omits** `AGENTS.md` for a primary sibling package | Pre-#706 / stale train / bug | Do **not** merge as-is; bump the header (or re-dispatch `propose` after #706) |
+
+**Does not apply when:** the bumped package is a **sub-package** hosted in a sibling (`pypi_name != repo`,
+e.g. `juniper-cascor-model` in `juniper-cascor`) — the host header tracks the primary, so step 5a never
+touches it. The meta-package (`juniper-ml`) uses the older step-5 AGENTS.md path, not this sibling rule.
+
+Hermetic coverage: `tests/test_release_train_propose.py`
+(`test_sibling_primary_package_co_changes_agents_md` /
+`test_sibling_subpackage_never_touches_host_agents_md` /
+`test_sibling_agents_md_unexpected_header_left_untouched`).
 
 ### 3.3 Dispatching `ceremony` against specific packages (drives toward Gate 2)
 
@@ -362,7 +388,8 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
 - Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
   `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
-  `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701).
+  `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701),
+  `tests/test_release_train_propose.py` (sibling AGENTS.md step-5a shapes, worker#140 / ml#706).
 - Static `_version.py` lockstep (Gate 1 review):
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
   (implemented by juniper-ml#710).
