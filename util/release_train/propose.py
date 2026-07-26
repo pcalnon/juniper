@@ -1079,11 +1079,16 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
         candidate = dunder_file_rel(entry)
         dtext = sources.read_file(entry, candidate)
         if dtext is not None:
-            dunder_rel = candidate
             new_dtext, dold = set_dynamic_version(dtext, to_version)
-            if dold is not None and new_dtext != dtext:
+            if dold is None:
+                # present-but-unparseable → REQUIRED-manual (never guess at the assignment)
+                dunder_rel = candidate
+            elif new_dtext != dtext:
+                dunder_rel = candidate
                 prop.edits.append(FileEdit(path=dunder_rel, old_text=dtext, new_text=new_dtext))
                 dunder_edited = True
+            # else: already at to_version (partial heal / re-entry) — silent success; do NOT flag
+            # REQUIRED-manual for a dunder that is already correct.
 
     # 4. CHANGELOG move (+ source the notes bullets from the same text).
     clog_rel = _changelog_rel(entry)
