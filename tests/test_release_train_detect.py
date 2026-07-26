@@ -38,6 +38,7 @@ import textwrap
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 UTIL_DIR = Path(__file__).resolve().parents[1] / "util" / "release_train"
 sys.path.insert(0, str(UTIL_DIR))
@@ -217,6 +218,61 @@ class SubstantiveBetweenTest(unittest.TestCase):
         fc_false = d.FileChange("juniper-thing/juniper_thing/m.py", "modified", None, cumulative=False, substantive=False)
         self.assertEqual(d.classify_change(fc_true, e, None)[0], "ship")
         self.assertEqual(d.classify_change(fc_false, e, None)[0], "nonship")
+
+    def test_test_paths_are_nonship_even_with_code_hunks(self):
+        """``_is_test_path`` must discount tests/ before the substantive-hunk filter (S4.2).
+
+        A regression that ships on ``tests/test_*.py`` / ``conftest.py`` / ``*_test.py``
+        would propose SemVer bumps for test-only diffs.
+        """
+        e = _entry()
+        cases = (
+            "juniper-thing/tests/test_mod.py",
+            "juniper-thing/test/test_mod.py",
+            "juniper-thing/juniper_thing/test_helper.py",
+            "juniper-thing/juniper_thing/conftest.py",
+            "juniper-thing/juniper_thing/mod_test.py",
+        )
+        for fn in cases:
+            with self.subTest(fn=fn):
+                kind, reason = d.classify_change(_fc(fn, _REAL_CODE_PATCH), e, None)
+                self.assertEqual(kind, "nonship")
+                self.assertEqual(reason, "tests")
+                self.assertTrue(d._is_test_path(fn))
+
+    def test_production_module_is_not_a_test_path(self):
+        self.assertFalse(d._is_test_path("juniper-thing/juniper_thing/mod.py"))
+        self.assertFalse(d._is_test_path("juniper-thing/juniper_thing/testing_utils.py"))
+
+
+class LocalGitCompareCopyShortCircuitTest(unittest.TestCase):
+    """Pin the ``C`` (copy) arm of the A/D/R/C inherent-substantive short-circuit.
+
+    #741 covers A/D/R via a real git fixture; default ``git diff --name-status`` does not
+    emit ``C`` without ``--find-copies``, so this hermetic mock pins the status arm that a
+    real-repo fixture cannot reliably produce.
+    """
+
+    def test_copy_status_is_inherently_substantive(self):
+        entry = _entry()
+        name_status = "C100\tjuniper-thing/juniper_thing/src.py\tjuniper-thing/juniper_thing/copied.py\n"
+        log_msgs = "feat: copy helper module\n"
+
+        def fake_git(repo_dir, *args, **kwargs):
+            joined = " ".join(args)
+            if "diff" in args and "--name-status" in args:
+                return name_status
+            if "log" in args:
+                return log_msgs
+            return None
+
+        with patch.object(d, "_git_text", side_effect=fake_git):
+            comp = d.local_git_compare(entry, "juniper-thing-v0.4.0", "main", Path("/tmp"), fetch=False)
+        self.assertTrue(comp.ok, comp.error)
+        by_name = {fc.filename: fc for fc in comp.files}
+        copied = by_name["juniper-thing/juniper_thing/copied.py"]
+        self.assertEqual(copied.status[:1], "C")
+        self.assertIs(copied.substantive, True)
 
 
 class PyprojectClassifierTest(unittest.TestCase):
