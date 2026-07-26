@@ -352,10 +352,11 @@ carve-out and its negative case are pinned by `tests/test_release_train_ceremony
    / ml#707). Owner one-click is now only the degraded/manual fallback (e.g. `allow_auto_merge` off). No
    security-posture change — the PyPI deploy still waits at the owner-gated `pypi` environment (Gate 2).
    The **live proof** (an archive PR auto-merging with zero clicks) rides the next real ceremony dispatch.
-6. **`HALT_PUBLISH` has no dedup issue.** A post-TestPyPI publish-run failure (`failure` / `cancelled` /
+7. **`HALT_PUBLISH` has no dedup issue.** A post-TestPyPI publish-run failure (`failure` / `cancelled` /
    `timed_out`) HALTs with a step-summary note only — `upsert_halt_issue` is deliberately not called
    (§4.1; `ceremony.py:1025-1028`). Do not treat a missing GitHub issue as a train bug; open the publish
-   run. Coverage: juniper-ml#737.
+   run. Numbered **7** so it stays merge-orthogonal with open #725's heredoc pitfall **6**. Coverage:
+   juniper-ml#737.
 
 ## 9. Quick reference
 
