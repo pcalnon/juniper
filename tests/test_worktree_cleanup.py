@@ -36,7 +36,8 @@ def run_script(*args: str, cwd: str | None = None) -> subprocess.CompletedProces
     )
 
 
-def _run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _p3r_run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """git helper for Phase 3 reuse/non-main fixtures (name-isolated from open #755 ``_p3_*``)."""
     return subprocess.run(
         ["git", "-C", str(cwd), *args],
         capture_output=True,
@@ -49,13 +50,14 @@ def _run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedP
 def _init_fixture_repo(path: Path) -> None:
     """Bare-bones git repo with main + a bare origin remote."""
     path.mkdir(parents=True, exist_ok=True)
-    _run_git(path, "init", "-q", "-b", "main")
-    _run_git(path, "config", "user.email", "tests@example.invalid")
-    _run_git(path, "config", "user.name", "Test User")
-    _run_git(path, "config", "commit.gpgsign", "false")
+    _p3r_run_git(path, "init", "-q", "-b", "main")
+    _p3r_run_git(path, "config", "user.email", "tests@example.invalid")
+    _p3r_run_git(path, "config", "user.name", "Test User")
+    _p3r_run_git(path, "config", "commit.gpgsign", "false")
     (path / "README.md").write_text("# test\n")
-    _run_git(path, "add", "README.md")
-    _run_git(path, "commit", "-q", "-m", "initial")
+    _p3r_run_git(path, "add", "README.md")
+    _p3r_run_git(path, "commit", "-q", "-m", "initial")
+    _p3r_run_git(path, "update-ref", "refs/remotes/origin/main", "HEAD")
 
 
 def _install_fake_gh(bin_dir: Path, log_path: Path, open_pr_count: str) -> None:
