@@ -207,9 +207,7 @@ class ResolveSiteDirsTest(unittest.TestCase):
         self.root = Path(self._tmp.name)
         self.repo = self.root / "repo"
         self.repo.mkdir()
-        (self.repo / "pyproject.toml").write_text(
-            '[project]\nname = "juniper-thing"\ndependencies = ["juniper-data-client>=0.4.1"]\n'
-        )
+        (self.repo / "pyproject.toml").write_text('[project]\nname = "juniper-thing"\ndependencies = ["juniper-data-client>=0.4.1"]\n')
         self.conda = self.root / "miniforge3"
         self.conda.mkdir()
 
