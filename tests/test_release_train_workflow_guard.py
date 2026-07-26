@@ -517,8 +517,7 @@ class HeredocCompileTest(unittest.TestCase):
         self.assertEqual(
             problems,
             [],
-            "PY heredoc body(ies) in release-train.yml failed to compile -- a SyntaxError would "
-            "fail the step only after the real work finished (late-failure class): " + "; ".join(problems),
+            "PY heredoc body(ies) in release-train.yml failed to compile -- a SyntaxError would " "fail the step only after the real work finished (late-failure class): " + "; ".join(problems),
         )
         # Pin the known set so a deleted heredoc (or a new uncompiled one that the opener regex
         # misses) cannot silently shrink coverage. Today: detect summary, detect Slack, propose
@@ -526,8 +525,7 @@ class HeredocCompileTest(unittest.TestCase):
         self.assertEqual(
             compiled,
             4,
-            f"expected to compile 4 PY heredoc bodies in {WORKFLOW_NAME}; got {compiled} "
-            f"(update this pin when intentionally adding/removing a <<'PY' block).",
+            f"expected to compile 4 PY heredoc bodies in {WORKFLOW_NAME}; got {compiled} " f"(update this pin when intentionally adding/removing a <<'PY' block).",
         )
 
 
