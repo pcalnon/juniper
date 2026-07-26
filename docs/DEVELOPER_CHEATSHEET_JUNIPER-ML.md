@@ -162,6 +162,10 @@ git worktree add "$WORKTREE_DIR" "$BRANCH_NAME" && cd "$WORKTREE_DIR"
 
 **Automated**: `util/worktree_cleanup.bash --old-worktree "$DIR" --old-branch "$BRANCH" --parent-branch main`
 
+**Phase 3 PR reuse / non-main parent (juniper-ml#759):** if `gh pr list` already finds an open PR for the head Phase 3 would open, the script logs `PR #<n> already exists` and never calls `gh pr create`.
+With `--parent-branch` ≠ `main`, Phase 3 merges the feature into the parent, pushes the parent, then opens `parent → main` (not `feature → main`).
+Dry-run previews that merge/push/PR sequence. Full table: cleanup procedure V2 § "PR Already Exists for Branch (script Phase 3)".
+
 **Batch stale sweep** (centralized `…/Juniper/worktrees/` pool): survey → dry-run apply → apply. Survey treats gitignored debris as clean; apply still skips ignored-only `SAFE` rows unless you pass `--include-ignored` after review (decrypted-secrets class). Full contract: cleanup procedure V2 § "Batch Stale-Worktree Sweep".
 
 ```bash
