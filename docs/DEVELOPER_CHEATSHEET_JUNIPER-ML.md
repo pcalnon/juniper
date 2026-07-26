@@ -211,6 +211,13 @@ Meta-package publish flow: build + `twine check`, TestPyPI upload with attestati
 fails CI if they drift. Manual releases must keep the same pair equal. Operator review checklist:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2.
 
+**Sibling / meta AGENTS.md Version (worker#140 / ml#706 / #720):** when hand-bumping a sibling repo's
+**primary** package (`pypi_name` equals the repo name) or the meta-package, move `AGENTS.md`
+`**Version**:` with the version file — CI embeds the portable `test_agents_md_version_drift` lint.
+Release-train `propose.py` steps 5/5a do this automatically; already-at-target is silent success
+(no false `REQUIRED`); absent / missing-header surfaces `REQUIRED` (never invents). Sub-packages
+hosted in a sibling never touch the host header.
+
 ---
 
 ## Environment Variables
