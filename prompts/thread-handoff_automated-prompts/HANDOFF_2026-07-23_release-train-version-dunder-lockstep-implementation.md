@@ -18,12 +18,16 @@ Every `file:line` below was verified 2026-07-23 at juniper-ml main `69efc9c` and
 
 ### Item 0 — Decision gate (ask ONLY if the owner is present at dispatch; otherwise default to Option A)
 
-The doc names two paths. **Option A (design of record — DEFAULT)**: teach `propose.py` to emit the dunder as a lockstep `FileEdit` + hermetic tests + a generic gate. **Option B (alternative the owner may weigh)**: flip the five static packages to `dynamic = ["version"]`, dissolving the class — but note B is heavier than it reads: each package needs `[tool.setuptools.dynamic]` version wiring, `util/release_train/registry.yaml` `version_source` flips for five entries, and `tests/test_release_train_registry.py`'s dynamic-version-set assertions move. Implement A unless the owner explicitly picks B.
+The doc names two paths.
+**Option A (design of record — DEFAULT)**: teach `propose.py` to emit the dunder as a lockstep `FileEdit` + hermetic tests + a generic gate.
+**Option B (alternative the owner may weigh)**: flip the five static packages to `dynamic = ["version"]`, dissolving the class — but note B is heavier than it reads: each package needs `[tool.setuptools.dynamic]` version wiring, `util/release_train/registry.yaml` `version_source` flips for five entries, and `tests/test_release_train_registry.py`'s dynamic-version-set assertions move.
+Implement A unless the owner explicitly picks B.
 
 ### Item 1 — propose.py lockstep FileEdit (Option A)
 
 - Anchors (@ `69efc9c`; re-verify): version-edit section comment `util/release_train/propose.py:279`; `_version_py_relpath(entry)` at `:285` (computes `<entry.path>/<import_package>/_version.py`); `set_pyproject_version` at `:289`; `set_dynamic_version` at `:308`; the either/or apply site at `:1033-1035` (`dynamic` -> `set_dynamic_version`, else `set_pyproject_version`).
-- Change: in the static branch, after the pyproject edit, `sources.read_file(entry, _version_py_relpath(entry))`; when the file exists, apply `set_dynamic_version` to it and append the `FileEdit` — auto-detection by file presence, **no new registry field** (doc §3.1). Surface the co-change in the proposal body / co-change checklist the same way the `AGENTS.md` co-change is surfaced (see `_co_change_checklist` and the S5.4 patterns nearby; the ml#661 in-repo co-change block at `propose.py:693-717` is the style precedent).
+- Change: in the static branch, after the pyproject edit, `sources.read_file(entry, _version_py_relpath(entry))`; when the file exists, apply `set_dynamic_version` to it and append the `FileEdit` — auto-detection by file presence, **no new registry field** (doc §3.1).
+Surface the co-change in the proposal body / co-change checklist the same way the `AGENTS.md` co-change is surfaced (see `_co_change_checklist` and the S5.4 patterns nearby; the ml#661 in-repo co-change block at `propose.py:693-717` is the style precedent).
 - Respect the module's hermetic-seams style: all file access goes through the injected `sources` seam; no direct filesystem reads in the new code path.
 
 ### Item 2 — hermetic propose tests
@@ -76,4 +80,8 @@ If any package prints `DRIFT`, a release landed between handoffs — heal it in 
 
 ## Validation record
 
-Drafted 2026-07-23 by the origin session immediately after ml#701/#702 merged, from first-hand grounding: the propose.py anchors, the five-package dunder inventory, and the baseline-clean check were probed directly at `69efc9c` and spot-rechecked at `17c9975`; the concurrency, signing, worktree, and test-registration gotchas were all exercised live during the preceding arcs (SEC-F01 adoption, env-repr redaction, codeql fleet fix, ci-tools 0.7.0 unblock). No independent validator pass was run on this prompt — its anchors are one day old at most; the re-verify-at-HEAD doctrine above is the compensating control.
+Drafted 2026-07-23 by the origin session immediately after ml#701/#702 merged, from first-hand grounding: the propose.py anchors, the five-package dunder inventory, and the baseline-clean check were probed directly at `69efc9c` and spot-rechecked at `17c9975`; the concurrency, signing, worktree, and test-registration gotchas were all exercised live during the preceding arcs (SEC-F01 adoption, env-repr redaction, codeql fleet fix, ci-tools 0.7.0 unblock).
+No independent validator pass was run on this prompt — its anchors are one day old at most; the re-verify-at-HEAD doctrine above is the compensating control.
+
+---
+/apps/juniper-release-train

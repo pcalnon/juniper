@@ -76,8 +76,13 @@ for wt in "$WORKTREES_ROOT"/*/; do
         branch="(detached: $(git -C "$wt" rev-parse --short HEAD 2>/dev/null || echo '?'))"
     fi
 
-    # Dirty?
-    if [[ -n "$(git -C "$wt" status --porcelain --ignored 2>/dev/null)" ]]; then
+    # Dirty? Plain --porcelain only: tracked modifications and untracked files
+    # are dirt; GITIGNORED debris (caches, logs, decrypted secrets) is NOT --
+    # every aged worktree accumulates it, and counting it made SAFE unreachable
+    # in practice (2026-07-25 triage: 23/25 stale worktrees misclassified DIRTY).
+    # The apply script still guards ignored content at removal time (default
+    # skip; explicit --include-ignored to sweep it).
+    if [[ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]]; then
         printf "%s\t%s\t%s\t%s\n" "DIRTY" "$repo_key" "$branch" "$name"
         continue
     fi
