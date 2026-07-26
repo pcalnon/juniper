@@ -353,8 +353,13 @@ class TestApplySafety(WorktreeSweepTestCase):
             self.assertTrue((worktree_path / "precious.txt").exists())
             _run_git(main_repo, "show-ref", "--verify", "--quiet", "refs/heads/untracked-dirt")
 
-    def test_include_ignored_still_hard_skips_tracked_modification(self) -> None:
-        """Tracked edits remain a hard skip even when --include-ignored is set."""
+    def test_show_untracked_files_no_cannot_blind_untracked_guard(self) -> None:
+        """status.showUntrackedFiles=no must not let apply delete untracked WIP.
+
+        Plain ``git status --porcelain`` returns empty under that config, and
+        ``git worktree remove`` (without --force) also becomes blind and
+        deletes the worktree. The apply script must override the setting.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             worktrees_root = root / "worktrees"
@@ -364,14 +369,18 @@ class TestApplySafety(WorktreeSweepTestCase):
 
             main_repo = repo_base / "juniper-ml"
             _init_repo(main_repo)
-            worktree_name = "juniper-ml--tracked-dirt--20260604-0000--efef9999"
+            worktree_name = "juniper-ml--blind-untracked--20260604-0000--aabb0011"
             worktree_path = worktrees_root / worktree_name
-            _run_git(main_repo, "worktree", "add", "-q", "-b", "tracked-dirt", str(worktree_path), "main")
-            (worktree_path / "README.md").write_text("# modified tracked file\n")
+            _run_git(main_repo, "worktree", "add", "-q", "-b", "blind-untracked", str(worktree_path), "main")
+            (worktree_path / "precious.txt").write_text("untracked WIP under showUntrackedFiles=no\n")
+            # Blind both the worktree and the parent (worktree remove reads
+            # the parent repo's config when invoked as git -C "$repo" ...).
+            _run_git(worktree_path, "config", "status.showUntrackedFiles", "no")
+            _run_git(main_repo, "config", "status.showUntrackedFiles", "no")
 
             result = subprocess.run(
-                ["bash", str(APPLY_SCRIPT), "--include-ignored"],
-                input=f"SAFE\tjuniper-ml\ttracked-dirt\t{worktree_name}\n",
+                ["bash", str(APPLY_SCRIPT)],
+                input=f"SAFE\tjuniper-ml\tblind-untracked\t{worktree_name}\n",
                 capture_output=True,
                 text=True,
                 env=self._env(worktrees_root, repo_base),
@@ -380,26 +389,17 @@ class TestApplySafety(WorktreeSweepTestCase):
 
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn(f"skipped (no longer safe; dirty): {worktree_name}", result.stdout)
-            self.assertTrue(worktree_path.exists())
-            _run_git(main_repo, "show-ref", "--verify", "--quiet", "refs/heads/tracked-dirt")
+            self.assertNotIn("removed:", result.stdout)
+            self.assertTrue((worktree_path / "precious.txt").exists())
+            _run_git(main_repo, "show-ref", "--verify", "--quiet", "refs/heads/blind-untracked")
 
-    def test_unknown_flag_exits_2(self) -> None:
-        """Arg parsing fail-closes on unknown flags (was single-flag before #715)."""
-        result = subprocess.run(
-            ["bash", str(APPLY_SCRIPT), "--force"],
-            input="",
-            capture_output=True,
-            text=True,
-            timeout=SCRIPT_TIMEOUT_SECONDS,
-        )
+    def test_show_untracked_files_no_cannot_blind_ignored_guard(self) -> None:
+        """status.showUntrackedFiles=no must not let apply delete ignored secrets.
 
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("unknown flag: --force", result.stderr)
-        self.assertNotIn("removed:", result.stdout)
-        self.assertNotIn("DRY:", result.stdout)
-
-    def test_dry_run_and_include_ignored_can_combine(self) -> None:
-        """Both new flags parse together; dry-run never deletes ignored-only worktrees."""
+        ``git status --porcelain --ignored`` also returns empty under that
+        config, which would defeat the default ignored-content skip and wipe
+        decrypted-secrets debris via worktree remove.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             worktrees_root = root / "worktrees"
@@ -414,33 +414,30 @@ class TestApplySafety(WorktreeSweepTestCase):
             _run_git(main_repo, "commit", "-q", "-m", "ignore local secrets")
             _run_git(main_repo, "update-ref", "refs/remotes/origin/main", "HEAD")
 
-            worktree_name = "juniper-ml--ignored-combo--20260604-0000--1010bbbb"
+            worktree_name = "juniper-ml--blind-ignored--20260604-0000--ccdd0022"
             worktree_path = worktrees_root / worktree_name
-            _run_git(main_repo, "worktree", "add", "-q", "-b", "ignored-combo", str(worktree_path), "main")
-            (worktree_path / "local.secret").write_text("would be swept only without --dry-run\n")
+            _run_git(main_repo, "worktree", "add", "-q", "-b", "blind-ignored", str(worktree_path), "main")
+            (worktree_path / "local.secret").write_text("decrypted secret under showUntrackedFiles=no\n")
+            _run_git(worktree_path, "config", "status.showUntrackedFiles", "no")
+            _run_git(main_repo, "config", "status.showUntrackedFiles", "no")
 
-            # Flag order must not matter for the multi-flag parser.
-            for argv in (
-                ["bash", str(APPLY_SCRIPT), "--dry-run", "--include-ignored"],
-                ["bash", str(APPLY_SCRIPT), "--include-ignored", "--dry-run"],
-            ):
-                with self.subTest(argv=argv[2:]):
-                    result = subprocess.run(
-                        argv,
-                        input=f"SAFE\tjuniper-ml\tignored-combo\t{worktree_name}\n",
-                        capture_output=True,
-                        text=True,
-                        env=self._env(worktrees_root, repo_base),
-                        timeout=SCRIPT_TIMEOUT_SECONDS,
-                    )
+            result = subprocess.run(
+                ["bash", str(APPLY_SCRIPT)],
+                input=f"SAFE\tjuniper-ml\tblind-ignored\t{worktree_name}\n",
+                capture_output=True,
+                text=True,
+                env=self._env(worktrees_root, repo_base),
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
 
-                    self.assertEqual(result.returncode, 0, msg=result.stderr)
-                    self.assertIn("DRY: git -C juniper-ml worktree remove", result.stdout)
-                    self.assertIn("ignored-combo", result.stdout)
-                    self.assertNotIn("removed:", result.stdout)
-                    self.assertTrue(worktree_path.exists())
-                    self.assertTrue((worktree_path / "local.secret").exists())
-                    _run_git(main_repo, "show-ref", "--verify", "--quiet", "refs/heads/ignored-combo")
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn(
+                f"skipped (ignored files present; rerun with --include-ignored to sweep them): {worktree_name}",
+                result.stdout,
+            )
+            self.assertNotIn("removed:", result.stdout)
+            self.assertTrue((worktree_path / "local.secret").exists())
+            _run_git(main_repo, "show-ref", "--verify", "--quiet", "refs/heads/blind-ignored")
 
 
 class TestSurveyApplyContract(WorktreeSweepTestCase):

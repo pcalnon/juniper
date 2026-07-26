@@ -127,24 +127,11 @@ while IFS=$'\t' read -r status repo_key branch wt_name _extra; do
         echo "skipped (branch mismatch: row=$branch current=$current_branch): $wt_name"
         continue
     fi
-<<<<<<< HEAD
     if [[ -n "$(git -C "$wt" status --porcelain -unormal 2>/dev/null)" ]]; then
         echo "skipped (no longer safe; dirty): $wt_name"
         continue
     fi
     if (( ! INCLUDE_IGNORED )) && [[ -n "$(git -C "$wt" status --porcelain --ignored -unormal 2>/dev/null)" ]]; then
-=======
-    # -c status.showUntrackedFiles=normal: local/global "no" blinds both
-    # plain porcelain and --ignored (empty output even when files exist),
-    # which would let us call worktree remove on precious untracked/ignored
-    # debris. Override at the call site so the dirty + ignored guards stay
-    # honest regardless of caller config.
-    if [[ -n "$(git -C "$wt" -c status.showUntrackedFiles=normal status --porcelain 2>/dev/null)" ]]; then
-        echo "skipped (no longer safe; dirty): $wt_name"
-        continue
-    fi
-    if (( ! INCLUDE_IGNORED )) && [[ -n "$(git -C "$wt" -c status.showUntrackedFiles=normal status --porcelain --ignored 2>/dev/null)" ]]; then
->>>>>>> 28b97fa (fix(ad-hoc): worktree sweep must not go blind under showUntrackedFiles=no)
         echo "skipped (ignored files present; rerun with --include-ignored to sweep them): $wt_name"
         continue
     fi
