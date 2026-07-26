@@ -212,6 +212,8 @@ Always-on gate: `tests/test_release_train_registry.py` (`VersionDunderLockstepTe
 If `__version__` is already at the proposed version (re-entry / partial heal), step 3a stays silent instead of false-flagging REQUIRED (juniper-ml#712).
 Gate 1 review table: release-train operator runbook §3.2.
 
+**Re-entry caveat (juniper-ml#712):** if `__version__` already equals the proposed version, the train leaves the dunder alone and does **not** checklist REQUIRED-manual. Confirm the match before treating a pyproject-only proposal as the old failure class.
+
 ---
 
 ## Environment Variables
