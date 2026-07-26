@@ -93,4 +93,18 @@ discovered during that probe and healed in juniper-ml#702.
 | Docs in #710 | plan §5.4 atomicity inventory; AGENTS.md propose/test bullets; CHANGELOG |
 | Operator guidance | Gate 1 review checklist in [`JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2 |
 
-**Operator takeaway:** when reviewing a Gate 1 proposal for any of the five static in-repo packages, both `pyproject.toml` and `<import>/_version.py` must move together (or the checklist must honestly say REQUIRED-manual). See the runbook §3.2 subsection.
+**Operator takeaway:** when reviewing a Gate 1 proposal for any of the five static in-repo packages, expect both `pyproject.toml` and `<import>/_version.py` to move together, **or** a REQUIRED-manual checklist item if the dunder is unparseable, **or** a pyproject-only diff with no dunder checklist when `__version__` already equals the proposed `to_version` (partial heal / re-entry — silent success after #712). See the runbook §3.2 subsection.
+
+### 6.1 Coverage hardening + checklist correctness (juniper-ml#712)
+
+[juniper-ml#712](https://github.com/pcalnon/juniper-ml/pull/712) layers the edge cases #710's happy-path shapes missed, plus a tiny checklist fix found while writing them:
+
+| Edge case | Intended step-3a / checklist behavior | Why it matters |
+|---|---|---|
+| `__version__` already equals `to_version` (partial heal / re-entry) | No phantom edit; **no** checklist item; body does not claim a lockstep co-change | #710 set `dunder_rel` whenever the file existed, so already-correct dunders false-flagged **REQUIRED-manual** |
+| Present-but-unparseable dunder | No edit; checklist **REQUIRED**; body does **not** claim a co-change landed | Operators must hand-edit; body must not lie about the diff |
+| Single-quoted `__version__ = '…'` | Bumped in lockstep (same as double-quoted) | Quote-style skip would recreate the stale-dunder class |
+| Edit ordering | Dunder `FileEdit` is `edits[1]` (after pyproject, before CHANGELOG) | Keeps `dunder_cochange_rel` honest |
+| Registry gate comparator | Synthetic bite-proof (service-core 0.5.0 class) + path agreement with `propose.dunder_file_rel` | Gate fails closed in CI without a live red package |
+
+Hermetic homes: `tests/test_release_train_propose.py` (edge + helper shapes) and `tests/test_release_train_registry.py` (comparator + path lockstep).
