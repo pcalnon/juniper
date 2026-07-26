@@ -221,6 +221,14 @@ Release-train `propose.py` steps 5/5a do this automatically; already-at-target i
 (no false `REQUIRED`); absent / missing-header surfaces `REQUIRED` (never invents). Sub-packages
 hosted in a sibling never touch the host header.
 
+**Release-train detect / ceremony edges (monitor `NOT_FOUND`, SHIP filter, SemVer).** Ceremony
+`monitor_publish_run` keeps polling when the publish run is briefly invisible (`NOT_FOUND`); a
+timeout while still building *or* permanently missing reports honest `IN_PROGRESS` (never invents
+`PENDING` / `RELEASED` / HALT) — re-run ceremony after confirming the publish workflow fired.
+Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `local_git_compare` treats
+`.py` A/D/R/**C** as inherently substantive. Operator tables:
+[`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
+
 ---
 
 ## Environment Variables
