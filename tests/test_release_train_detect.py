@@ -451,9 +451,7 @@ class ClassificationTest(unittest.TestCase):
     def _dup_filename_compare(self, *patches: "str | None") -> None:
         """Same in-scope .py appears once per commit (path-scoped multi-commit compare)."""
         (self.repo_root / "juniper-thing" / "juniper_thing").mkdir(parents=True, exist_ok=True)
-        (self.repo_root / "juniper-thing" / "juniper_thing" / "mod.py").write_text(
-            "\n".join(["h"] * 9 + ["def handler():", "    return new_validation()"]) + "\n"
-        )
+        (self.repo_root / "juniper-thing" / "juniper_thing" / "mod.py").write_text("\n".join(["h"] * 9 + ["def handler():", "    return new_validation()"]) + "\n")
         self.fake.compares[("juniper-ml", "juniper-thing-v0.4.0", "main")] = d.CompareResult(
             files=[_fc("juniper-thing/juniper_thing/mod.py", p) for p in patches],
             commits=["chore: notes rename", "feat: validation"],
