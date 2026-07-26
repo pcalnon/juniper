@@ -448,6 +448,52 @@ class ClassificationTest(unittest.TestCase):
         self.assertTrue(rec.hygiene["tag_only"])
         self.assertTrue(rec.hygiene["notes_missing"])  # no notes/releases/ archive on the synthetic tree
 
+    def test_ship_uncertain_when_compare_truncated_without_ship_evidence(self):
+        # Cap-blind under-ship: truncated compare with nothing in view must NOT stay UP_TO_DATE.
+        # Orthogonal to the live-sources 300-file -> local_git_compare fallback (#729), which
+        # rewrites the CompareResult with truncated=False; this pins classify_package's own arm.
+        e = self._pkg("0.4.0")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self.fake.compares[("juniper-ml", "juniper-thing-v0.4.0", "main")] = d.CompareResult(
+            files=[],
+            commits=[],
+            truncated=True,
+            ok=True,
+        )
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.SHIP_UNCERTAIN)
+        self.assertTrue(any("300-file cap" in n and "--local-git" in n for n in rec.notes), rec.notes)
+
+    def test_ship_uncertain_when_declared_version_unreadable(self):
+        # PyPI present but checkout has no parseable declared version -> early SHIP_UNCERTAIN
+        # (must not invent BUMPED_NOT_RELEASED / UP_TO_DATE, and must not proceed to tag/compare).
+        e = _entry(repo="juniper-ml", path="juniper-thing/")
+        (self.repo_root / "juniper-thing").mkdir(parents=True, exist_ok=True)
+        # Intentionally omit pyproject.toml / _version.py so read_declared_version returns None.
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.SHIP_UNCERTAIN)
+        self.assertIsNone(rec.declared_version)
+        self.assertIsNone(rec.diff_base_tag)
+        self.assertTrue(any("could not read declared version from the checkout" in n for n in rec.notes), rec.notes)
+
+    def test_ship_uncertain_when_compare_not_ok(self):
+        # Soft-fail compare (missing tag/checkout, transport) must surface as SHIP_UNCERTAIN + error
+        # note -- not UP_TO_DATE and not an uncaught exception that exit-2s the detect job.
+        e = self._pkg("0.4.0")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self.fake.compares[("juniper-ml", "juniper-thing-v0.4.0", "main")] = d.CompareResult(
+            files=[],
+            commits=[],
+            ok=False,
+            error="compare juniper-thing-v0.4.0...main not found",
+        )
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.SHIP_UNCERTAIN)
+        self.assertIn("compare juniper-thing-v0.4.0...main not found", rec.notes)
+
 
 class ManifestShapeTest(unittest.TestCase):
     def test_manifest_json_shape(self):
