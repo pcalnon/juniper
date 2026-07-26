@@ -64,6 +64,23 @@ def _extract_data_up_fn(name: str) -> str:
     return match.group(0)
 
 
+def _read_marker_when_written(path: Path, timeout_seconds: float = 10.0) -> str:
+    """Read a marker file written asynchronously by a nohup-backgrounded launch stub.
+
+    The ``*_up`` arms background the launcher and return as soon as the (stubbed,
+    instant) health probe passes, so the stub may not have written its marker yet
+    when the harness returns -- poll briefly instead of asserting on a snapshot race.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if path.exists():
+            text = path.read_text()
+            if text.strip():
+                return text
+        time.sleep(0.025)
+    raise AssertionError(f"marker file {path} not written within {timeout_seconds}s")
+
+
 def _run(*args: str, env_extra: "dict[str, str] | None" = None) -> subprocess.CompletedProcess:
     env = RedactedEnv(os.environ)
     if env_extra:
@@ -311,14 +328,14 @@ class TestDataUpLive(unittest.TestCase):
             'mkdir -p "$dest/bin"\n'
             'printf "VENV_CREATED:%s\\n" "$dest" >>"$marker_dir/venv.log"\n'
             # activate: put this venv's bin first; provide deactivate for data_up.
-            "cat >\"$dest/bin/activate\" <<ACT\n"
-            "_OLD_VIRTUAL_PATH=\"\\$PATH\"\n"
-            "VIRTUAL_ENV=\"$dest\"\n"
+            'cat >"$dest/bin/activate" <<ACT\n'
+            '_OLD_VIRTUAL_PATH="\\$PATH"\n'
+            'VIRTUAL_ENV="$dest"\n'
             "export VIRTUAL_ENV\n"
-            "PATH=\"\\$VIRTUAL_ENV/bin:\\$PATH\"\n"
+            'PATH="\\$VIRTUAL_ENV/bin:\\$PATH"\n'
             "export PATH\n"
             "deactivate() {\n"
-            "  PATH=\"\\$_OLD_VIRTUAL_PATH\"\n"
+            '  PATH="\\$_OLD_VIRTUAL_PATH"\n'
             "  export PATH\n"
             "  unset VIRTUAL_ENV\n"
             "  unset -f deactivate 2>/dev/null || true\n"
@@ -373,12 +390,7 @@ class TestDataUpLive(unittest.TestCase):
             'log() { echo "[${SCRIPT_NAME}] $*"; }\n'
             'banner() { echo ""; echo "[${SCRIPT_NAME}] === $* ==="; }\n'
             'announce() { echo "[${SCRIPT_NAME}] \\$ $*"; }\n'
-            'is_dry() { [[ "${DRY_RUN}" == "1" ]]; }\n'
-            + _extract_data_up_fn("require_cmd")
-            + _extract_data_up_fn("ensure_dir")
-            + _extract_data_up_fn("wait_for_health")
-            + _extract_data_up_fn("data_up")
-            + "data_up\n"
+            'is_dry() { [[ "${DRY_RUN}" == "1" ]]; }\n' + _extract_data_up_fn("require_cmd") + _extract_data_up_fn("ensure_dir") + _extract_data_up_fn("wait_for_health") + _extract_data_up_fn("data_up") + "data_up\n"
         )
         env = RedactedEnv(os.environ)
         env["PATH"] = path if path is not None else (str(bin_dir) + os.pathsep + "/usr/bin:/bin")
@@ -427,8 +439,8 @@ class TestDataUpLive(unittest.TestCase):
                 self.assertTrue(pid_path.exists(), "data_up must write juniper-data.pid")
                 child_pid = int(pid_path.read_text().strip())
                 self.assertTrue(Path(f"/proc/{child_pid}").exists(), f"pid {child_pid} not live")
-                self.assertEqual((marker_dir / "python.env").read_text().strip(), "PYTHON_GIL=0")
-                py_args = (marker_dir / "python.args").read_text()
+                self.assertEqual(_read_marker_when_written(marker_dir / "python.env").strip(), "PYTHON_GIL=0")
+                py_args = _read_marker_when_written(marker_dir / "python.args")
                 self.assertIn("-m", py_args)
                 self.assertIn("juniper_data", py_args)
                 self.assertIn("--port", py_args)
@@ -452,38 +464,13 @@ class TestDataUpLive(unittest.TestCase):
             # the stub would create — data_up must NOT call python3.14 -m venv.
             data_venv = run_dir / ".venv-data"
             (data_venv / "bin").mkdir(parents=True)
-            (data_venv / "bin" / "activate").write_text(
-                "_OLD_VIRTUAL_PATH=\"$PATH\"\n"
-                f'VIRTUAL_ENV="{data_venv}"\n'
-                "export VIRTUAL_ENV\n"
-                'PATH="$VIRTUAL_ENV/bin:$PATH"\n'
-                "export PATH\n"
-                "deactivate() {\n"
-                '  PATH="$_OLD_VIRTUAL_PATH"\n'
-                "  export PATH\n"
-                "  unset VIRTUAL_ENV\n"
-                "  unset -f deactivate 2>/dev/null || true\n"
-                "}\n"
-            )
-            (data_venv / "bin" / "pip").write_text(
-                "#!/usr/bin/env bash\n"
-                f'printf "%s\\n" "$@" >>"{marker_dir}/pip.log"\n'
-                "exit 0\n"
-            )
+            (data_venv / "bin" / "activate").write_text('_OLD_VIRTUAL_PATH="$PATH"\n' f'VIRTUAL_ENV="{data_venv}"\n' "export VIRTUAL_ENV\n" 'PATH="$VIRTUAL_ENV/bin:$PATH"\n' "export PATH\n" "deactivate() {\n" '  PATH="$_OLD_VIRTUAL_PATH"\n' "  export PATH\n" "  unset VIRTUAL_ENV\n" "  unset -f deactivate 2>/dev/null || true\n" "}\n")
+            (data_venv / "bin" / "pip").write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" >>"{marker_dir}/pip.log"\n' "exit 0\n")
             (data_venv / "bin" / "pip").chmod(0o755)
-            (data_venv / "bin" / "python").write_text(
-                "#!/usr/bin/env bash\n"
-                f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env"\n'
-                f'printf "%s\\n" "$@" >"{marker_dir}/python.args"\n'
-                "exec sleep 60\n"
-            )
+            (data_venv / "bin" / "python").write_text("#!/usr/bin/env bash\n" f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env"\n' f'printf "%s\\n" "$@" >"{marker_dir}/python.args"\n' "exec sleep 60\n")
             (data_venv / "bin" / "python").chmod(0o755)
             # python3.14 stub that FAILS if -m venv is invoked (proves skip).
-            (bin_dir / "python3.14").write_text(
-                "#!/usr/bin/env bash\n"
-                f'echo "VENV_SHOULD_NOT_RUN" >>"{marker_dir}/venv.log"\n'
-                "exit 99\n"
-            )
+            (bin_dir / "python3.14").write_text("#!/usr/bin/env bash\n" f'echo "VENV_SHOULD_NOT_RUN" >>"{marker_dir}/venv.log"\n' "exit 99\n")
             (bin_dir / "python3.14").chmod(0o755)
             self._write_curl_ok(bin_dir)
 
@@ -504,7 +491,7 @@ class TestDataUpLive(unittest.TestCase):
                 self.assertTrue((marker_dir / "pip.log").exists(), "pip install must still run")
                 self.assertTrue(pid_path.exists())
                 child_pid = int(pid_path.read_text().strip())
-                self.assertEqual((marker_dir / "python.env").read_text().strip(), "PYTHON_GIL=0")
+                self.assertEqual(_read_marker_when_written(marker_dir / "python.env").strip(), "PYTHON_GIL=0")
             finally:
                 if child_pid is not None:
                     self._force_kill(child_pid)
