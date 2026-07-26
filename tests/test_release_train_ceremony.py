@@ -23,10 +23,14 @@ Covers (task acceptance list):
     creates the branch via a `git/refs` POST + adds the single file via a `createCommitOnBranch` GraphQL
     mutation (no `git commit`/`push`/`switch -c` argv), the base64 content round-trips, `expectedHeadOid`
     is threaded, branch-exists re-entry reuses/re-commits/HALTs, and the `_assert_api_allowed` carve-out
-    accepts EXACTLY those two calls (bound to the 8 repos) while a stray `gh api` still raises SeamViolation
+    accepts EXACTLY those two calls (bound to the 8 repos) while a stray `gh api` still raises SeamViolation;
+    plus the failure edges that must HALT (not invent a sha / not commit onto a ghost tip): unresolvable
+    `origin/<base>`, unresolvable existing-branch tip, non-422 ref-create transport errors, and a
+    malformed createCommitOnBranch payload returning an empty oid rather than crashing
   * `--dry-run` writes NOTHING (a git-tracked repo_root's `git status` stays clean)
-  * the execute happy path (PENDING_PYPI_APPROVAL), the auto-merge graceful-degrade, and the pure
-    helpers (classify_publish_run, changelog_version_section, infer_bump, release_tag)
+  * the execute happy path (PENDING_PYPI_APPROVAL), the auto-merge graceful-degrade, execute-time
+    RESUME_MONITOR re-entry (no re-open / no re-cut), and the pure helpers
+    (classify_publish_run, changelog_version_section, infer_bump, release_tag)
 
 Run: python3 -m unittest -v tests/test_release_train_ceremony.py
 
@@ -223,6 +227,15 @@ class PureHelperTest(unittest.TestCase):
         self.assertIsNone(ce.writable_repo_skip_reason("juniper-ml"))
         self.assertIn("cross-repo", ce.writable_repo_skip_reason("juniper-cascor"))
 
+    def test_api_field_splits_on_first_equals_only(self):
+        # base64 contents carry ``=`` padding; gh splits on the FIRST ``=`` only -- so must ``_api_field``.
+        padded = base64.b64encode(b"notes body\n").decode("ascii")  # ends with ``=`` / ``==``
+        self.assertTrue(padded.endswith("="))
+        args = ["api", "graphql", "-f", f"contents={padded}", "-f", "repoWithOwner=pcalnon/juniper-ml"]
+        self.assertEqual(ce._api_field(args, "contents"), padded)
+        self.assertEqual(ce._api_field(args, "repoWithOwner"), "pcalnon/juniper-ml")
+        self.assertIsNone(ce._api_field(args, "missing"))
+
 
 # ── S9.3 seam-surface invariant (CODE half) ──────────────────────────────────
 
@@ -318,6 +331,8 @@ class GhSurfaceInvariantTest(unittest.TestCase):
             ["api", "graphql", "-f", "query=mutation { addStar(input: {}) { clientMutationId } }", "-f", "repoWithOwner=pcalnon/juniper-ml"],  # a different mutation
             ["api", "graphql", "-f", f"query={ce._CREATE_COMMIT_ON_BRANCH_MUTATION}", "-f", "repoWithOwner=pcalnon/juniper-evil"],  # createCommit to a repo outside the 8
             ["api", "graphql", "-f", f"query={ce._CREATE_COMMIT_ON_BRANCH_MUTATION}"],  # createCommit with no repoWithOwner bound
+            # a forbidden token riding an otherwise-sanctioned refs POST (defence-in-depth in _assert_api_allowed)
+            ["api", "repos/pcalnon/juniper-ml/git/refs", "-X", "POST", "-f", "ref=refs/heads/x", "-f", "sha=a", "secrets"],
         ]
         for bad in strays:
             with self.assertRaises(ce.SeamViolation, msg=bad):
@@ -510,6 +525,26 @@ class ClassifyPublishRunTest(unittest.TestCase):
         }
         self.assertEqual(ce.classify_publish_run(run), "PENDING_PYPI_APPROVAL")
 
+    def test_job_level_queued_pending_empty_statuses_park_at_gate(self):
+        """Belt-and-suspenders job-level park: TestPyPI ok + pypi job in {queued,pending,\"\"}.
+
+        The run top-level may still be ``in_progress`` before GitHub flips it to ``waiting``;
+        misclassifying these as ``IN_PROGRESS`` keeps the ceremony polling forever past Gate 2.
+        ``waiting`` is covered above; these three siblings share the allowlist in
+        ``classify_publish_run``.
+        """
+        for pypi_status in ("queued", "pending", ""):
+            with self.subTest(pypi_status=pypi_status):
+                run = {
+                    "status": "in_progress",
+                    "conclusion": None,
+                    "jobs": [
+                        {"name": "Publish to TestPyPI", "status": "completed", "conclusion": "success"},
+                        {"name": "Publish to PyPI", "status": pypi_status, "conclusion": None},
+                    ],
+                }
+                self.assertEqual(ce.classify_publish_run(run), "PENDING_PYPI_APPROVAL")
+
     def test_testpypi_failure_halts(self):
         run = {
             "status": "completed",
@@ -594,6 +629,36 @@ class ExecuteTest(unittest.TestCase):
         self.assertEqual(result["state"], "HALTED")
         self.assertIn("issue_url", result)
         self.assertTrue(any(c[0] == "upsert_halt_issue" for c in rec.calls))
+
+    def test_execute_resume_monitor_does_not_reopen_archive_or_release(self):
+        """Release already cut -> RESUME_MONITOR execute must only monitor (plan S8 last row).
+
+        Planner coverage already pins the action list; this pins the execute seam so a regression
+        that re-opens the archive PR or re-cuts the Release on re-entry fails in CI.
+        """
+        rec, src = self._mk(release_cut=True, run_status=PENDING_RUN)
+        plan = ce.plan_ceremony(_entry(), _manifest_pkg(), src, REPO_ROOT, REPO_ROOT.parent, "2026-07-17")
+        self.assertEqual(plan.state, "RESUME_MONITOR")
+        self.assertEqual(plan.action_kinds, ["monitor_publish"])
+        result = ce.execute_ceremony(plan, src, monitor_kwargs={"timeout_seconds": 0, "sleep": lambda s: None})
+        self.assertEqual(result["plan_state"], "RESUME_MONITOR")
+        self.assertEqual(result["state"], "PENDING_PYPI_APPROVAL")
+        self.assertIsNone(result["pr_url"])
+        self.assertIsNone(result["release_url"])
+        self.assertEqual(rec.calls, [])  # no open_archive_pr / enable_automerge / create_release / halt
+
+    def test_execute_resume_monitor_testpypi_failure_files_issue_without_recut(self):
+        """RESUME_MONITOR + TestPyPI failure HALTs and files the issue without re-cutting anything."""
+        rec, src = self._mk(release_cut=True, run_status=FAILED_TESTPYPI_RUN)
+        plan = ce.plan_ceremony(_entry(), _manifest_pkg(), src, REPO_ROOT, REPO_ROOT.parent, "2026-07-17")
+        self.assertEqual(plan.state, "RESUME_MONITOR")
+        result = ce.execute_ceremony(plan, src, monitor_kwargs={"timeout_seconds": 0, "sleep": lambda s: None})
+        self.assertEqual(result["plan_state"], "RESUME_MONITOR")
+        self.assertEqual(result["state"], "HALTED")
+        self.assertIsNone(result["pr_url"])
+        self.assertIsNone(result["release_url"])
+        kinds = [c[0] for c in rec.calls]
+        self.assertEqual(kinds, ["upsert_halt_issue"])
 
 
 # ── CLI: dry-run writes nothing + exit codes ─────────────────────────────────
@@ -690,14 +755,22 @@ class _ApiLaneRecorder:
     raise the idempotent "Reference already exists (HTTP 422)" SourceError, then ``existing_tip`` /
     ``existing_parent`` drive the git-read reuse inspection. ``git``: ``rev-parse origin/<base>`` ->
     ``BASE_SHA``; ``rev-parse FETCH_HEAD`` -> ``existing_tip``; ``rev-parse <tip>^`` -> ``existing_parent``;
-    everything else (``fetch``, ...) succeeds empty. No git WRITE is ever expected."""
+    everything else (``fetch``, ...) succeeds empty. No git WRITE is ever expected.
 
-    def __init__(self, *, branch_exists=False, existing_tip=None, existing_parent=None):
+    Failure-injection knobs (the archive-lane HALT edges):
+      * ``base_sha=""`` -- ``rev-parse origin/<base>`` yields empty (open_archive_pr must SourceError).
+      * ``refs_error`` -- non-None SourceError from the refs POST (must re-raise unless 422/already-exists).
+      * ``graphql_payload`` -- override the createCommitOnBranch response body (malformed -> empty oid)."""
+
+    def __init__(self, *, branch_exists=False, existing_tip=None, existing_parent=None, base_sha=BASE_SHA, refs_error=None, graphql_payload=None):
         self.gh_calls = []
         self.git_calls = []
         self._branch_exists = branch_exists
         self._tip = existing_tip
         self._parent = existing_parent
+        self._base_sha = base_sha
+        self._refs_error = refs_error
+        self._graphql_payload = graphql_payload
 
     def gh(self, args, timeout=90):
         self.gh_calls.append(list(args))
@@ -705,10 +778,14 @@ class _ApiLaneRecorder:
         if pair in (("pr", "list"), ("run", "list")):
             return "[]"
         if args[0] == "api" and args[1].endswith("/git/refs"):
+            if self._refs_error is not None:
+                raise self._refs_error
             if self._branch_exists:
                 raise ce.SourceError("gh failed (api repos): HTTP 422: Reference already exists")
-            return json.dumps({"ref": "refs/heads/x", "object": {"sha": BASE_SHA}})
+            return json.dumps({"ref": "refs/heads/x", "object": {"sha": self._base_sha or BASE_SHA}})
         if pair == ("api", "graphql"):
+            if self._graphql_payload is not None:
+                return self._graphql_payload
             return json.dumps({"data": {"createCommitOnBranch": {"commit": {"oid": "c0ffee", "url": "u"}}}})
         return "https://github.com/pcalnon/juniper-ml/pull/1"
 
@@ -720,7 +797,7 @@ class _ApiLaneRecorder:
                 return f"{self._tip}\n" if self._tip else "\n"
             if spec.endswith("^"):
                 return f"{self._parent}\n" if self._parent else "\n"
-            return f"{BASE_SHA}\n"  # rev-parse origin/<base>
+            return f"{self._base_sha}\n" if self._base_sha else "\n"  # rev-parse origin/<base>
         return ""
 
 
@@ -809,6 +886,48 @@ class ArchiveLaneApiCommitTest(unittest.TestCase):
         oid = src.create_signed_commit("juniper-ml", "release-notes/x", "msg", "notes/releases/RELEASE_NOTES_x.md", base64.b64encode(b"body").decode("ascii"), BASE_SHA)
         self.assertEqual(oid, "c0ffee")  # the createCommitOnBranch commit oid
 
+    def test_open_archive_pr_halts_when_base_sha_unresolvable(self):
+        # empty ``rev-parse origin/<base>`` must SourceError BEFORE inventing a sha or issuing the refs POST
+        rec = _ApiLaneRecorder(base_sha="")
+        with self.assertRaises(ce.SourceError) as ctx:
+            self._open(rec)
+        self.assertIn("could not resolve origin/main", str(ctx.exception))
+        self.assertFalse(any(a[0] == "api" for a in rec.gh_calls), "no archive api call without a resolved base")
+
+    def test_create_branch_halts_when_existing_tip_unresolvable(self):
+        # branch-exists re-entry with an empty FETCH_HEAD tip: HALT, never commit onto a ghost tip
+        rec = _ApiLaneRecorder(branch_exists=True, existing_tip=None)
+        src = ce.make_live_sources("pcalnon", self.tmp, self.tmp.parent, allowed_repos=frozenset({"pcalnon/juniper-ml"}), gh=rec.gh, git=rec.git)
+        with self.assertRaises(ce.SourceError) as ctx:
+            src.create_branch("juniper-ml", "release-notes/x", BASE_SHA)
+        self.assertIn("tip could not be resolved", str(ctx.exception))
+        self.assertFalse(any(a[:2] == ["api", "graphql"] for a in rec.gh_calls))
+
+    def test_create_branch_rethrows_non_idempotent_ref_errors(self):
+        # auth/transport failures on the refs POST are NOT the 422 already-exists path -- re-raise as-is
+        rec = _ApiLaneRecorder(refs_error=ce.SourceError("gh failed (api repos): HTTP 401: Bad credentials"))
+        src = ce.make_live_sources("pcalnon", self.tmp, self.tmp.parent, allowed_repos=frozenset({"pcalnon/juniper-ml"}), gh=rec.gh, git=rec.git)
+        with self.assertRaises(ce.SourceError) as ctx:
+            src.create_branch("juniper-ml", "release-notes/x", BASE_SHA)
+        self.assertIn("401", str(ctx.exception))
+        self.assertFalse(any(a[0] == "rev-parse" and a[1] == "FETCH_HEAD" for a in rec.git_calls), "must not fall into tip-inspection on a non-422 refs error")
+
+    def test_create_signed_commit_returns_empty_oid_on_malformed_graphql_payload(self):
+        # best-effort oid extraction: malformed / missing oid must return "" (never raise) so the caller
+        # still proceeds to ``gh pr create`` (the PR URL is what operators need; oid is log-only)
+        payloads = (
+            "{not-json",  # ValueError from json.loads
+            "",  # empty stdout -> {}
+            json.dumps({"data": {}}),  # mutation key absent
+            json.dumps({"data": {"createCommitOnBranch": {"commit": {}}}}),  # oid absent
+        )
+        for payload in payloads:
+            with self.subTest(payload=payload[:40]):
+                rec = _ApiLaneRecorder(graphql_payload=payload)
+                src = ce.make_live_sources("pcalnon", self.tmp, self.tmp.parent, allowed_repos=frozenset({"pcalnon/juniper-ml"}), gh=rec.gh, git=rec.git)
+                oid = src.create_signed_commit("juniper-ml", "release-notes/x", "msg", "notes/releases/RELEASE_NOTES_x.md", base64.b64encode(b"body").decode("ascii"), BASE_SHA)
+                self.assertEqual(oid, "")
+
 
 # ── defect fix 2: bounded monitor -> PENDING_PYPI_APPROVAL / honest IN_PROGRESS ──
 
@@ -863,6 +982,22 @@ class MonitorTimeoutTest(unittest.TestCase):
         verdict = ce.monitor_publish_run(src, "juniper-ml", "tag", timeout_seconds=30, poll_seconds=1, sleep=lambda s: None, monotonic=monotonic)
         self.assertEqual(verdict, "IN_PROGRESS")  # bounded wall clock -> honest 'still building'
         self.assertGreaterEqual(box["polls"], 2)  # ... but only after actually polling more than once
+
+    def test_not_found_timeout_is_honest_in_progress(self):
+        # Permanent NOT_FOUND (mis-tagged Release / workflow never triggered) must time
+        # out as honest IN_PROGRESS — never invent PENDING / RELEASED / HALT.
+        # Keep-polling-until-PENDING is owned by open #744; this pins the timeout edge.
+        src, box = _monitor_sources(None)
+        clock = {"t": 0.0}
+
+        def monotonic():
+            v = clock["t"]
+            clock["t"] += 20.0
+            return v
+
+        verdict = ce.monitor_publish_run(src, "juniper-ml", "tag", timeout_seconds=30, poll_seconds=1, sleep=lambda s: None, monotonic=monotonic)
+        self.assertEqual(verdict, "IN_PROGRESS")
+        self.assertGreaterEqual(box["polls"], 2)
 
     def test_monitor_timeout_flag_default_and_override(self):
         self.assertEqual(ce.parse_args(["--manifest", "m.json"]).monitor_timeout, ce.DEFAULT_MONITOR_TIMEOUT_SECONDS)

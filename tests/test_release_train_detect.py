@@ -221,6 +221,63 @@ class SubstantiveBetweenTest(unittest.TestCase):
         self.assertEqual(d.classify_change(fc_true, e, None)[0], "ship")
         self.assertEqual(d.classify_change(fc_false, e, None)[0], "nonship")
 
+    def test_test_paths_are_nonship_even_with_code_hunks(self):
+        """``_is_test_path`` must discount tests/ before the substantive-hunk filter (S4.2).
+
+        A regression that ships on ``tests/test_*.py`` / ``conftest.py`` / ``*_test.py``
+        would propose SemVer bumps for test-only diffs.
+        """
+        e = _entry()
+        cases = (
+            "juniper-thing/tests/test_mod.py",
+            "juniper-thing/test/test_mod.py",
+            "juniper-thing/juniper_thing/test_helper.py",
+            "juniper-thing/juniper_thing/conftest.py",
+            "juniper-thing/juniper_thing/mod_test.py",
+        )
+        for fn in cases:
+            with self.subTest(fn=fn):
+                kind, reason = d.classify_change(_fc(fn, _REAL_CODE_PATCH), e, None)
+                self.assertEqual(kind, "nonship")
+                self.assertEqual(reason, "tests")
+                self.assertTrue(d._is_test_path(fn))
+
+    def test_production_module_is_not_a_test_path(self):
+        self.assertFalse(d._is_test_path("juniper-thing/juniper_thing/mod.py"))
+        self.assertFalse(d._is_test_path("juniper-thing/juniper_thing/testing_utils.py"))
+
+
+class LocalGitCompareCopyTest(unittest.TestCase):
+    """Copy (``C``) short-circuit in ``local_git_compare`` (plan S4.2 / 300-file fallback).
+
+    Open #741 owns A/D/R via a real git fixture; Copy is rarer (``git cp`` / similarity)
+    but shares the same inherently-substantive branch. Mock ``_git_text`` so this stays
+    hermetic and merge-orthogonal to that fixture class.
+    """
+
+    def test_copy_status_is_inherently_substantive(self):
+        e = _entry()
+        name_status = "C075\tjuniper-thing/juniper_thing/old.py\tjuniper-thing/juniper_thing/new.py\n"
+
+        def fake_git(repo_dir, *args):
+            if args[:2] == ("diff", "--name-status"):
+                return name_status
+            if args[:1] == ("log",) or (args and args[0] == "log"):
+                return "copy helper into new module\n"
+            # Must not reach show / substantive_between for C — blow up if we do.
+            raise AssertionError(f"unexpected _git_text args for Copy short-circuit: {args!r}")
+
+        with mock.patch.object(d, "_git_text", side_effect=fake_git):
+            with mock.patch.object(d, "substantive_between", side_effect=AssertionError("C must not blob-compare")):
+                result = d.local_git_compare(e, "juniper-thing-v0.1.0", "main", Path("/tmp/unused"), fetch=False)
+
+        self.assertTrue(result.ok)
+        self.assertEqual(len(result.files), 1)
+        fc = result.files[0]
+        self.assertEqual(fc.filename, "juniper-thing/juniper_thing/new.py")
+        self.assertTrue(fc.status.startswith("C"))
+        self.assertIs(fc.substantive, True)
+
 
 class PyprojectClassifierTest(unittest.TestCase):
     def test_runtime_extra_change_is_ship(self):
