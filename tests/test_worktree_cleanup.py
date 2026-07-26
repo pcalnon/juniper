@@ -2,15 +2,20 @@
 Tests for util/worktree_cleanup.bash
 
 Validates argument parsing, dry-run output, and error handling for the
-worktree cleanup script. Does NOT execute actual git operations — all tests
-use --dry-run mode or validate argument validation failures.
+worktree cleanup script. Most tests use --dry-run mode or validate argument
+validation failures. Phase 1 dirty-tree coverage drives a real fixture repo
+(non-dry-run) so the porcelain exit-1 gate is exercised.
 """
+
+from __future__ import annotations
 
 import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+
+from tests.redacted_env import RedactedEnv
 
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "util" / "worktree_cleanup.bash"
 
@@ -25,6 +30,49 @@ def run_script(*args: str, cwd: str | None = None) -> subprocess.CompletedProces
         capture_output=True,
         text=True,
         cwd=cwd,
+        timeout=SCRIPT_TIMEOUT_SECONDS,
+    )
+
+
+def _run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(cwd), *args],
+        capture_output=True,
+        text=True,
+        timeout=SCRIPT_TIMEOUT_SECONDS,
+        check=check,
+    )
+
+
+def _init_git_repo(path: Path, *, branch: str = "feature/dirty-phase1") -> None:
+    """Minimal git repo on ``branch`` (not necessarily main) for Phase 1 fixtures."""
+    path.mkdir(parents=True, exist_ok=True)
+    _run_git(path, "init", "-q", "-b", branch)
+    _run_git(path, "config", "user.email", "tests@example.invalid")
+    _run_git(path, "config", "user.name", "Test User")
+    _run_git(path, "config", "commit.gpgsign", "false")
+    (path / "README.md").write_text("# test\n")
+    _run_git(path, "add", "README.md")
+    _run_git(path, "commit", "-q", "-m", "initial")
+
+
+def _run_phase1(old_worktree: Path, old_branch: str) -> subprocess.CompletedProcess[str]:
+    """Source worktree_cleanup.bash (skipping main) and call phase_1 only (live, not dry-run)."""
+    driver = r"""
+set -euo pipefail
+SCRIPT_PATH="$1"
+# shellcheck disable=SC1090
+source <(sed '/^main "/d' "${SCRIPT_PATH}")
+OLD_WORKTREE="$2"
+OLD_BRANCH="$3"
+phase_1_save_and_push
+"""
+    env = RedactedEnv(os.environ)
+    return subprocess.run(
+        ["bash", "-c", driver, "phase1-driver", str(SCRIPT_PATH), str(old_worktree), old_branch],
+        capture_output=True,
+        text=True,
+        env=env,
         timeout=SCRIPT_TIMEOUT_SECONDS,
     )
 
@@ -312,6 +360,30 @@ class TestSyncToMain(unittest.TestCase):
             self.assertGreater(remove_pos, -1, "worktree remove not found in dry-run output")
             self.assertGreater(sync_pos, -1, "sync (pull --ff-only origin main) not found")
             self.assertLess(remove_pos, sync_pos, "sync to main must run after the old worktree is removed")
+
+
+class TestPhase1DirtyTree(unittest.TestCase):
+    """Hermetic Phase 1 gate: dirty porcelain must hard-fail before any push.
+
+    Dry-run skips the porcelain check entirely. Open #731/#742 cover Phase 6/7
+    dirty / pull-ff edges; Phase 1's exit-1 "Commit or stash" path had zero hits.
+    """
+
+    def test_dirty_worktree_exits_1_with_commit_or_stash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            old_wt = Path(tmp) / "old-worktree"
+            branch = "feature/dirty-phase1"
+            _init_git_repo(old_wt, branch=branch)
+            (old_wt / "WIP.txt").write_text("uncommitted\n")
+
+            result = _run_phase1(old_wt, branch)
+            self.assertEqual(result.returncode, 1, msg=result.stderr)
+            self.assertIn("uncommitted changes", result.stderr.lower())
+            self.assertIn("Commit or stash changes before running cleanup", result.stderr)
+            # Must not reach a push attempt.
+            self.assertNotIn("Pushing", result.stderr)
+            self.assertNotIn("push origin", result.stderr)
+            self.assertTrue((old_wt / "WIP.txt").exists())
 
 
 if __name__ == "__main__":

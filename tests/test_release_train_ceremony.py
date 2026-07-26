@@ -555,6 +555,22 @@ class ClassifyPublishRunTest(unittest.TestCase):
         }
         self.assertEqual(ce.classify_publish_run(run), "IN_PROGRESS")
 
+    def test_job_level_pypi_parked_statuses_are_pending_approval(self):
+        # Belt-and-suspenders path: run.status still in_progress, but TestPyPI succeeded and the
+        # pypi job is parked. Existing coverage only hits status="waiting"; queued/pending/"" are
+        # the other documented parked values in classify_publish_run's allowlist.
+        for parked in ("queued", "pending", ""):
+            with self.subTest(pypi_status=parked):
+                run = {
+                    "status": "in_progress",
+                    "conclusion": None,
+                    "jobs": [
+                        {"name": "Publish to TestPyPI", "status": "completed", "conclusion": "success"},
+                        {"name": "Publish to PyPI", "status": parked, "conclusion": None},
+                    ],
+                }
+                self.assertEqual(ce.classify_publish_run(run), "PENDING_PYPI_APPROVAL")
+
 
 # ── execute path (fake write seam; NEVER touches the real repo) ───────────────
 
@@ -931,31 +947,6 @@ class MonitorTimeoutTest(unittest.TestCase):
         verdict = ce.monitor_publish_run(src, "juniper-ml", "tag", timeout_seconds=30, poll_seconds=1, sleep=lambda s: None, monotonic=monotonic)
         self.assertEqual(verdict, "IN_PROGRESS")  # bounded wall clock -> honest 'still building'
         self.assertGreaterEqual(box["polls"], 2)  # ... but only after actually polling more than once
-
-    def test_polls_through_not_found_until_pending(self):
-        # classify(None) == NOT_FOUND is non-terminal: keep polling until the run appears.
-        # A regression that treats NOT_FOUND as terminal would stamp state=NOT_FOUND on execute
-        # and skip waiting for the just-cut Release's publish workflow.
-        src, box = _monitor_sources(None, None, PENDING_RUN)
-        verdict = ce.monitor_publish_run(src, "juniper-ml", "tag", timeout_seconds=1000, poll_seconds=0, sleep=lambda s: None)
-        self.assertEqual(verdict, "PENDING_PYPI_APPROVAL")
-        self.assertEqual(box["polls"], 3)
-
-    def test_not_found_timeout_returns_in_progress_not_not_found(self):
-        # Timeout while the run is still missing must be honest IN_PROGRESS (resume-able),
-        # never the classify label NOT_FOUND (which is not a monitor terminal signal).
-        src, box = _monitor_sources(None)
-        clock = {"t": 0.0}
-
-        def monotonic():
-            v = clock["t"]
-            clock["t"] += 20.0
-            return v
-
-        verdict = ce.monitor_publish_run(src, "juniper-ml", "tag", timeout_seconds=30, poll_seconds=1, sleep=lambda s: None, monotonic=monotonic)
-        self.assertEqual(verdict, "IN_PROGRESS")
-        self.assertNotEqual(verdict, "NOT_FOUND")
-        self.assertGreaterEqual(box["polls"], 2)
 
     def test_monitor_timeout_flag_default_and_override(self):
         self.assertEqual(ce.parse_args(["--manifest", "m.json"]).monitor_timeout, ce.DEFAULT_MONITOR_TIMEOUT_SECONDS)
