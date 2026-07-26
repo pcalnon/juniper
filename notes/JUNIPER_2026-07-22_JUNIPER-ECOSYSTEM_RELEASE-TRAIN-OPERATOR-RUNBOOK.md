@@ -4,8 +4,8 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.1
-**Last Updated**: 2026-07-25
+**Version**: 1.2.2
+**Last Updated**: 2026-07-26
 
 ---
 
@@ -133,6 +133,23 @@ Always-on CI gate (train or no train; lands with juniper-ml#710): `tests/test_re
 Dynamic packages (`juniper-model-core` + the three recurrence packages) are exempt — their `_version.py`
 **is** the version source. Manual hand-bumps outside the train must still move both files together.
 
+#### Manifest / registry miss + `--execute` seam gates
+
+Orthogonal to `build_proposal` refusal stubs (coverage juniper-ml#749): these are `propose.main` /
+`execute_proposal` gates **before** a proposal is built or written. A registry miss must **skip**, not
+abort the whole propose job mid-loop; a miswired `--execute` seam must hard-fail before any partial
+write.
+
+| Signal | Cause | Operator response |
+|---|---|---|
+| Dry-run / JSON `skipped_reason="package not in registry.yaml"`; summary counts a skip | A proposable manifest package's `pypi_name` is absent from `registry.yaml` (`propose.py:1415-1418`). Loop continues for remaining packages. | Add the package to `util/release_train/registry.yaml` (registry lint) or drop the stale manifest entry; re-run `report` then `propose`. Ceremony's parallel for `BUMPED_NOT_RELEASED` is the `not-in-registry` HALT (§4). |
+| `--package` / dispatch `packages=` names an unknown `pypi_name` → exit 2 | Invocation error before the loop (`propose.py:1388-1392`) — not a skip stub | Fix the `packages=` input against `registry.yaml` |
+| `--execute` exits 2: `execute mode needs write_file/run_git/open_pr seam members` | Live seam missing a write member (`execute_proposal` / `execute_follow_on`, `propose.py:1319-1320`, `896`) | Workflow / wiring bug — re-dispatch the GitHub Actions job; do not hand-run `--execute` without live sources |
+| `skip: …` / empty URL; no branch, commit, or PR | `prop.skipped` or `branch is None` → `execute_proposal` returns `""` and issues **zero** write/git/pr calls (`propose.py:1321-1322`) | Expected for registry-miss / refusal stubs; read the printed skip reason |
+
+Coverage (hermetic): juniper-ml#764 —
+`CliTest.test_manifest_package_absent_from_registry_is_skipped` + `ExecuteProposalSeamTest`.
+
 ### 3.3 Dispatching `ceremony` against specific packages (drives toward Gate 2)
 
 ```bash
@@ -191,7 +208,7 @@ not turn the run red); it is surfaced in the ceremony step summary, a dedup issu
 | `pypi-truth-missing` | manifest said released, but PyPI now returns no version | `ceremony.py:726` | A first-publish/yank a human must resolve — confirm the trusted-publisher config (procedure §3.3) before re-running. |
 | `changelog-section-missing` | no non-empty `CHANGELOG [<version>]` section to source the notes | `ceremony.py:741` | The proposal PR (Gate 1) should have created it — merge the proposal first, or add the section, then re-run. |
 | `missing-declared-version` | manifest has no `declared_version` for a `BUMPED_NOT_RELEASED` pkg | `ceremony.py:711` | A malformed manifest — re-run detection (`report` mode) to regenerate it. |
-| `not-in-registry` | package is `BUMPED_NOT_RELEASED` in the manifest but absent from `registry.yaml` | `ceremony.py` (`_plans_for`) | Add the package to `util/release_train/registry.yaml` (registry lint gates it). |
+| `not-in-registry` | package is `BUMPED_NOT_RELEASED` in the manifest but absent from `registry.yaml` | `ceremony.py` (`_plans_for` / `ceremony.py:1152`) | Add the package to `util/release_train/registry.yaml` (registry lint gates it). Propose's parallel for `UNRELEASED_CHANGES` is a **skip stub** (`skipped_reason="package not in registry.yaml"`, §3.2) — not a HALT. |
 | `testpypi-verify-failed` | (during the monitor) the publish workflow's TestPyPI install-verify failed before Gate 2 | `ceremony.py:876` | The run is not healthy — inspect the publish run's TestPyPI job; fix and re-cut is idempotent. |
 
 **HALT-issue degradation (Phase 4.3).** Filing the dedup issue is **best-effort**: if the `gh issue`
@@ -363,6 +380,8 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   (ml#701 / juniper-ml#710; edge-case coverage + already-at-target checklist fix juniper-ml#712).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
 - Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
+- Propose CLI registry-miss skip + `--execute` seam gates (operator §3.2): juniper-ml#764
+  (`CliTest.test_manifest_package_absent_from_registry_is_skipped` + `ExecuteProposalSeamTest`).
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
   `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
   `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701).

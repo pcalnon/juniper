@@ -214,6 +214,12 @@ Gate 1 review table: release-train operator runbook §3.2.
 
 **Re-entry caveat (juniper-ml#712):** if `__version__` already equals the proposed version, the train leaves the dunder alone and does **not** checklist REQUIRED-manual. Confirm the match before treating a pyproject-only proposal as the old failure class.
 
+**Release-train propose registry miss / execute seams (juniper-ml#764):** a proposable manifest package
+absent from `registry.yaml` becomes a skip stub (`skipped_reason="package not in registry.yaml"`) —
+the propose job does not crash mid-loop. `--execute` hard-fails (exit 2) if the write/git/pr seam is
+missing; skipped or branchless proposals issue zero write calls. Ceremony's parallel for
+`BUMPED_NOT_RELEASED` is the `not-in-registry` HALT. Operator table: release-train runbook §3.2.
+
 ---
 
 ## Environment Variables
