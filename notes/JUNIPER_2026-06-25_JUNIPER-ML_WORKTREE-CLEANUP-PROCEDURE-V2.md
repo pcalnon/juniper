@@ -2,7 +2,7 @@
 
 **Purpose**: Standardized procedure for completing work in a worktree, merging, creating PRs, and transitioning to a new worktree — without trapping the Claude Code session in an invalid CWD
 **Project**: juniper-ml
-**Last Updated**: 2026-06-25
+**Last Updated**: 2026-07-26
 
 ---
 
@@ -357,6 +357,40 @@ cd "$NEW_WORKTREE"
 Use `--skip-remote-delete` when a PR was created, since the remote branch is needed for the PR. The PR merge process (on GitHub) will handle remote branch cleanup.
 
 See `util/worktree_cleanup.bash --help` for full options and `--dry-run` support.
+
+### Phase 4 remote-branch deletion (script)
+
+`phase_4_cleanup` always removes the old worktree and deletes the **local** branch. Whether it also
+runs `git push origin --delete "${OLD_BRANCH}"` is decided in this order
+(`util/worktree_cleanup.bash`, `phase_4_cleanup`; post-juniper-ml#739 fail-closed query):
+
+| Condition | Remote-delete behavior | Consults `gh`? |
+|-----------|------------------------|----------------|
+| `--skip-remote-delete` set | Skip; log `Skipping remote branch deletion (--skip-remote-delete)` | **No** |
+| `--dry-run` (flag unset) | Print `[DRY-RUN] git -C … push origin --delete …` only | **No** |
+| Live + `gh` query fails / non-numeric result | Warn-and-skip; remote branch **kept** | **Yes** — fail-closed |
+| Live + open PR for `OLD_BRANCH` | Warn-and-skip; remote branch **kept** (log `PR is open for branch … — skipping remote branch deletion`) | **Yes** — `gh pr list --repo pcalnon/juniper-ml --head "${OLD_BRANCH}" --state open` |
+| Live + proven zero open PRs | Delete remote branch (warn if it is already gone) | **Yes** |
+
+**Why the open-PR auto-skip exists.** Deleting the remote head under an open PR breaks the PR and
+drops the backup branch Phase 1 just pushed. Prefer explicit `--skip-remote-delete` when you know a
+PR is open (no `gh` call; clearer intent). Rely on the auto-skip when cleaning up without that flag —
+it is the protective default, not a substitute for checking PR state before a force-delete.
+
+**Fail-closed on indeterminate `gh` (juniper-ml#739).** A non-zero `gh` exit or a non-numeric
+`--jq 'length'` result skips `push --delete` (warns with the exit status / unexpected result). The
+pre-#739 `|| echo "0"` path treated auth/network failure as "0 open PRs" and could delete the remote
+head under a live PR — that class is closed. Local worktree + local branch are still removed either way.
+
+**Constraints / pitfalls:**
+
+- The open-PR probe is hard-wired to `--repo pcalnon/juniper-ml`. Cleaning a sibling-repo worktree with
+  this script will not see that sibling's open PRs; use `--skip-remote-delete` (or delete the remote
+  branch yourself after merge).
+- Prefer `--skip-remote-delete` when you intentionally want no `gh` call (known-open PR, offline, or
+  sibling-repo cleanup). Fail-closed skip still leaves the remote branch for a later delete after merge.
+- Hermetic coverage: open-PR / no-PR / flag paths in juniper-ml#738; `gh` hard-fail + non-numeric
+  result in juniper-ml#739 (`tests/test_worktree_cleanup.py` Phase 4 remote-delete guards).
 
 ---
 
