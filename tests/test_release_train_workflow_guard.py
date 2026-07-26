@@ -36,7 +36,9 @@ hermetically (the "run the real thing, not a reimplementation" idiom): ``ModeRes
 the ``id: mode`` step's shell and runs it over the whole mode matrix (incl. ``ceremony`` now valid + the
 dispatch-input > repo-variable precedence), and ``CeremonySummaryRehearsalTest`` extracts the ceremony
 step-summary Python and runs it over a synthetic ``ceremony-output.txt`` (proving it renders
-ceremonies/resumes/HALTs/PENDING_PYPI_APPROVAL and the degraded-issue line).
+ceremonies/resumes/HALTs/PENDING_PYPI_APPROVAL and the degraded-issue line). ``HeredocBalanceTest`` +
+``HeredocCompileTest`` pin every ``<<'PY'`` opener/terminator pair and that each heredoc body compiles
+(catching the late-failure class #708's balance lint alone cannot see).
 
 Companion to ``tests/test_release_train_propose.py`` / ``tests/test_release_train_ceremony.py``. Neither
 ``util/`` nor the workflow YAML is pre-commit-lint-gated for these properties, so this unittest IS the gate.
@@ -492,6 +494,22 @@ class CeremonySummaryRehearsalTest(unittest.TestCase):
         self.assertIn("produced no output", md)
 
 
+# Matches `python - <<'PY'` and the Slack redirect form `python - <<'PY' > slack-payload.json`.
+_PY_HEREDOC_OPENER = re.compile(r"<<'PY'(?:\s*>\s*\S+)?\n")
+
+
+def _iter_py_heredoc_bodies(run: str):
+    """Yield ``(opener_match, body)`` for every ``<<'PY'…`` heredoc in a workflow ``run:`` script."""
+    for match in _PY_HEREDOC_OPENER.finditer(run):
+        after = run[match.end() :]
+        body_lines = []
+        for line in after.splitlines():
+            if line.strip() == "PY" and "<<" not in line:
+                break
+            body_lines.append(line)
+        yield match, "\n".join(body_lines) + ("\n" if body_lines else "")
+
+
 class HeredocBalanceTest(unittest.TestCase):
     """Every ``run:`` script's ``<<'PY'`` heredocs must have exactly one terminator each.
 
@@ -515,6 +533,56 @@ class HeredocBalanceTest(unittest.TestCase):
                 if openers != terminators:
                     problems.append(f"{jname} / {step.get('name')!r}: {openers} <<'PY' opener(s) vs {terminators} PY terminator line(s)")
         self.assertEqual(problems, [], "unbalanced PY heredoc(s) in release-train.yml -- a stray terminator executes as a shell command (exit 127, the run-30051952226 class): " + "; ".join(problems))
+
+
+class HeredocCompileTest(unittest.TestCase):
+    """Every ``<<'PY'`` heredoc body in ``release-train.yml`` must compile as Python.
+
+    Balance alone (#708) does not catch a syntax-broken summary / Slack payload body — bash still
+    launches ``python -``, then the step fails mid-run after the real work finished (the same
+    late-failure class as run-30051952226, just with ``SyntaxError`` instead of exit 127). The
+    YAML-extraction rehearsals only exercise two of the four heredocs; this lint compiles ALL of
+    them (incl. the Slack redirect form ``<<'PY' > slack-payload.json``).
+    """
+
+    def test_every_py_heredoc_body_compiles(self):
+        workflow_path = _find_repo_root(Path(__file__).resolve().parent) / ".github" / "workflows" / WORKFLOW_NAME
+        wf = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        compiled = 0
+        problems = []
+        for jname, job in (wf.get("jobs") or {}).items():
+            for step in job.get("steps") or []:
+                run = step.get("run") or ""
+                if "<<'PY'" not in run:
+                    continue
+                step_name = step.get("name") or "<unnamed>"
+                bodies = list(_iter_py_heredoc_bodies(run))
+                if not bodies:
+                    problems.append(f"{jname} / {step_name!r}: saw <<'PY' but extracted zero bodies")
+                    continue
+                for idx, (_match, body) in enumerate(bodies, 1):
+                    if not body.strip():
+                        problems.append(f"{jname} / {step_name!r} heredoc#{idx}: empty body")
+                        continue
+                    try:
+                        compile(body, f"{WORKFLOW_NAME}:{jname}:{step_name}:heredoc{idx}", "exec")
+                    except SyntaxError as exc:
+                        problems.append(f"{jname} / {step_name!r} heredoc#{idx}: {exc}")
+                    else:
+                        compiled += 1
+        self.assertEqual(
+            problems,
+            [],
+            "PY heredoc body(ies) in release-train.yml failed to compile -- a SyntaxError would " "fail the step only after the real work finished (late-failure class): " + "; ".join(problems),
+        )
+        # Pin the known set so a deleted heredoc (or a new uncompiled one that the opener regex
+        # misses) cannot silently shrink coverage. Today: detect summary, detect Slack, propose
+        # summary, ceremony summary.
+        self.assertEqual(
+            compiled,
+            4,
+            f"expected to compile 4 PY heredoc bodies in {WORKFLOW_NAME}; got {compiled} " f"(update this pin when intentionally adding/removing a <<'PY' block).",
+        )
 
 
 if __name__ == "__main__":
