@@ -681,7 +681,8 @@ class ProposeSummaryRehearsalTest(unittest.TestCase):
         md = self._render("")
         self.assertIn("produced no output", md)
         self.assertIn("0 proposal PR(s) opened, 0 skipped.", md)
-        
+
+
 # Matches `python - <<'PY'` and the Slack redirect form `python - <<'PY' > slack-payload.json`.
 _PY_HEREDOC_OPENER = re.compile(r"<<'PY'(?:\s*>\s*\S+)?\n")
 

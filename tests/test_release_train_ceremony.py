@@ -666,7 +666,7 @@ class ExecuteTest(unittest.TestCase):
         self.assertEqual(kinds, ["create_release"])
         self.assertNotIn("open_archive_pr", kinds)
         self.assertNotIn("enable_automerge", kinds)
-        
+
     def test_execute_resume_monitor_does_not_reopen_archive_or_release(self):
         """Release already cut -> RESUME_MONITOR execute must only monitor (plan S8 last row).
 
