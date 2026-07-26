@@ -42,6 +42,7 @@ python3 -m unittest -v tests/test_env_repr_safety.py
 python3 -m unittest -v tests/test_worktree_cleanup.py
 python3 -m unittest -v tests/test_worktree_sweep_scripts.py
 python3 -m unittest -v tests/test_reap_pytest_orphans.py
+python3 -m unittest -v tests/test_kill_helpers.py
 python3 -m unittest -v tests/test_requirements_drift_check.py
 python3 -m unittest -v tests/test_editable_install_drift_check.py
 python3 -m unittest -v tests/test_env_floor_drift_check.py
@@ -232,6 +233,7 @@ juniper-ml/
 │   ├── test_worktree_cleanup.py          # Worktree cleanup script tests (225 lines)
 │   ├── test_worktree_sweep_scripts.py    # Ad-hoc sweep script safety/contract tests
 │   ├── test_reap_pytest_orphans.py       # Orphan pytest process reaper tests
+│   ├── test_kill_helpers.py              # Emergency kill helpers: process-filter / kill-path (hermetic PATH stubs)
 │   ├── test_requirements_drift_check.py  # Requirements snapshot drift checker tests
 │   ├── test_editable_install_drift_check.py # Editable-install drift checker tests (orphaned / worktree-pinned)
 │   ├── test_env_floor_drift_check.py     # Lint/behavioural: util/env_floor_drift_check.py floor-drift (I-2; synthetic dist-info)
@@ -374,6 +376,7 @@ juniper-ml/
 - `tests/test_worktree_cleanup.py` -- Tests for `util/worktree_cleanup.bash` argument parsing, dry-run, and error handling
 - `tests/test_worktree_sweep_scripts.py` -- Tests for `util/ad-hoc/worktree_sweep_*.bash`: survey/apply row compatibility, `SAFE`-only removal, and unknown-repo skips
 - `tests/test_reap_pytest_orphans.py` -- Tests for `util/reap_pytest_orphans.bash` dry-run, live-parent safety, orphan detection, and isolated kill invocation
+- `tests/test_kill_helpers.py` -- Hermetic process-filter / kill-path tests for `util/kill_all_pythons.bash` and `util/juniper_worker_kill.bash` (PATH-stubbed `ps`/`sudo`/`kill`; bash `kill` builtin disabled; never touches live PIDs)
 - `tests/test_requirements_drift_check.py` -- Tests for `util/requirements_drift_check.py`: structural range validation, BAD_PATH / BAD_RANGE classification, `--ecosystem-root` rewriting, CLI exit codes, JSON output
 - `tests/test_editable_install_drift_check.py` -- Tests for `util/editable_install_drift_check.py`: FRESH / WORKTREE_PINNED / ORPHANED classification, `*-DEPRECATED` env exclusion, `--env` filtering, dedup across interpreter trees, CLI exit codes (0/1/2), JSON output, and `--fix --dry-run` canonical-source resolution (synthetic conda-dir fixture; no real pip)
 - `tests/test_env_floor_drift_check.py` -- Tests for `util/env_floor_drift_check.py` (I-2): floor parsing (juniper-* `>=` bound; skips non-juniper/floorless/self-ref; dedup-highest), numeric version compare (`0.10.0 > 0.9.0`), OK/BELOW_FLOOR/MISSING classification, exit codes (0/1/2, `--strict`), `--json` -- via a synthetic site-packages fixture (no real pip/conda); also asserts no hardcoded env name. Sole gate (`util/` not lint-gated); real-env scan is manual-verify.
