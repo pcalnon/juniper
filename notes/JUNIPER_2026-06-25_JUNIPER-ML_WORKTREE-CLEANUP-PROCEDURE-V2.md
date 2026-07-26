@@ -354,9 +354,35 @@ cd "$NEW_WORKTREE"
 
 **Important**: The script outputs the new worktree path to stdout. The caller MUST `cd` to that path after the script completes. The script cannot change the caller's CWD because it runs in a subshell.
 
-Use `--skip-remote-delete` when a PR was created, since the remote branch is needed for the PR. The PR merge process (on GitHub) will handle remote branch cleanup.
-
 See `util/worktree_cleanup.bash --help` for full options and `--dry-run` support.
+
+### Phase 4 remote-branch deletion (script)
+
+`phase_4_cleanup` always removes the old worktree and deletes the **local** branch. Whether it also
+runs `git push origin --delete "${OLD_BRANCH}"` is decided in this order
+(`util/worktree_cleanup.bash`, `phase_4_cleanup`):
+
+| Condition | Remote-delete behavior | Consults `gh`? |
+|-----------|------------------------|----------------|
+| `--skip-remote-delete` set | Skip; log `Skipping remote branch deletion (--skip-remote-delete)` | **No** |
+| `--dry-run` (flag unset) | Print `[DRY-RUN] git -C … push origin --delete …` only | **No** |
+| Live + open PR for `OLD_BRANCH` | Warn-and-skip; remote branch **kept** (log `PR is open for branch … — skipping remote branch deletion`) | **Yes** — `gh pr list --repo pcalnon/juniper-ml --head "${OLD_BRANCH}" --state open` |
+| Live + no open PR | Delete remote branch (warn if it is already gone) | **Yes** |
+
+**Why the open-PR auto-skip exists.** Deleting the remote head under an open PR breaks the PR and
+drops the backup branch Phase 1 just pushed. Prefer explicit `--skip-remote-delete` when you know a
+PR is open (no `gh` call; clearer intent). Rely on the auto-skip when cleaning up without that flag —
+it is the protective default, not a substitute for checking PR state before a force-delete.
+
+**Constraints / pitfalls:**
+
+- The open-PR probe is hard-wired to `--repo pcalnon/juniper-ml`. Cleaning a sibling-repo worktree with
+  this script will not see that sibling's open PRs; use `--skip-remote-delete` (or delete the remote
+  branch yourself after merge).
+- A `gh` failure is treated as "0 open PRs" (`|| echo "0"`), so a broken/`gh`-missing PATH can still
+  delete the remote branch. Use `--skip-remote-delete` when `gh` auth is uncertain.
+- Hermetic coverage for the live open-PR / no-PR / flag paths belongs in
+  `tests/test_worktree_cleanup.py` (Phase 4 remote-delete guard; juniper-ml#738).
 
 ---
 
@@ -381,23 +407,37 @@ Use the ad-hoc sweep pair only when cleaning the centralized Juniper worktree po
 - `util/ad-hoc/worktree_sweep_survey.bash` prints a tab-separated report: `STATUS`, `REPO`, `BRANCH`, `WORKTREE`.
 - `util/ad-hoc/worktree_sweep_apply.bash` reads that report from stdin and acts only on `SAFE` rows.
 - `DIRTY`, `ACTIVE`, `BROKEN`, unknown-repo, missing-directory, non-worktree, and no-longer-safe rows are skipped.
-- Apply revalidates every `SAFE` row immediately before removal: the target directory must still be a git worktree, have a clean working tree, and have `rev-list --count origin/main..HEAD == 0`.
+- Apply revalidates every `SAFE` row immediately before removal: the target directory must still be a git worktree, have a clean working tree (tracked/untracked only), and have `rev-list --count origin/main..HEAD == 0`.
+
+**Dirt vs gitignored debris (ml#715 / coverage ml#716).** Survey classifies dirt with plain `git status --porcelain` — tracked modifications and untracked files only. GITIGNORED debris (caches, logs, decrypted secrets) does **not** make a worktree `DIRTY`; ignored-only trees with `ahead == 0` classify as `SAFE`. Apply keeps a separate ignored-content guard at removal time because deleting a worktree also deletes that debris, which may be precious (the decrypted-secrets class):
+
+| Apply mode | Ignored-only SAFE row | Tracked/untracked dirt |
+|------------|----------------------|------------------------|
+| Default | Skipped (`ignored files present; rerun with --include-ignored…`) | Hard skip (always) |
+| `--include-ignored` | Removed | Hard skip (always) |
+| `--dry-run --include-ignored` (either flag order) | Prints `DRY:…` only; never deletes | Hard skip (always) |
+
+Unknown apply flags print `unknown flag: …` on stderr and exit `2` (fail-closed). Contract pins: `tests/test_worktree_sweep_scripts.py`.
 
 Recommended operator flow:
 
 ```bash
 bash util/ad-hoc/worktree_sweep_survey.bash > /tmp/juniper-worktree-sweep.tsv
+# Review SAFE rows; expect aged worktrees with only caches/logs to be SAFE, not DIRTY.
 bash util/ad-hoc/worktree_sweep_apply.bash --dry-run < /tmp/juniper-worktree-sweep.tsv
+# Default: skips ignored-only SAFE rows (protective).
 bash util/ad-hoc/worktree_sweep_apply.bash < /tmp/juniper-worktree-sweep.tsv
+# After confirming no precious ignored content remains in those trees:
+bash util/ad-hoc/worktree_sweep_apply.bash --include-ignored < /tmp/juniper-worktree-sweep.tsv
 ```
 
 Status meanings:
 
 | Status | Meaning | Action |
 |--------|---------|--------|
-| `SAFE` | Clean worktree whose `HEAD` has no commits beyond the parent repo's `origin/main`. | Eligible for `worktree remove`, local branch deletion, and final `worktree prune`. |
-| `ACTIVE` | Clean worktree with commits not in `origin/main`. | Leave for manual ownership/PR triage. |
-| `DIRTY` | Worktree has uncommitted changes. | Never remove in the sweep. |
+| `SAFE` | No tracked/untracked dirt; `HEAD` has no commits beyond the parent repo's `origin/main`. Ignored debris alone still yields `SAFE`. | Eligible for apply (default still skips if ignored files are present; pass `--include-ignored` after review). |
+| `ACTIVE` | Clean (tracked/untracked) worktree with commits not in `origin/main`. | Leave for manual ownership/PR triage. |
+| `DIRTY` | Tracked modifications or untracked files (`git status --porcelain`). | Never remove in the sweep. |
 | `BROKEN` | The script could not resolve repo, branch, `HEAD`, or `origin/main` state. | Manual git triage required. |
 
 For tests or unusual local layouts, set both overrides so the scripts do not assume the default Juniper checkout paths:
