@@ -7,7 +7,6 @@
 **Version**: 0.6.0
 **Last Updated**: 2026-07-26
 
-
 ---
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
