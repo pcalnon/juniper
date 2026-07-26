@@ -239,6 +239,11 @@ exempt archive path). Meta (`juniper-ml`) never gets a follow-on. Operator table
 [release-train runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2
 “Phase 4.2”.
 
+**Ceremony monitor: `HALT_TESTPYPI` vs `HALT_PUBLISH`.** TestPyPI job failure → `HALT_TESTPYPI` and a
+`testpypi-verify-failed` dedup issue. A later run `failure`/`cancelled`/`timed_out` (TestPyPI already
+green) → `HALT_PUBLISH` with a note only — **no** GitHub issue. Open the publish run; do not wait for
+an issue. Details: operator runbook §4.1.
+
 ---
 
 ## Environment Variables
