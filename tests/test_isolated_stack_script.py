@@ -35,6 +35,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -56,6 +57,23 @@ def _extract_isolated_fn(name: str) -> str:
     if match is None:
         raise AssertionError(f"{name} function not found in isolated_stack.bash")
     return match.group(0)
+
+
+def _read_marker_when_written(path: Path, timeout_seconds: float = 10.0) -> str:
+    """Read a marker file written asynchronously by a nohup-backgrounded launch stub.
+
+    The ``*_up`` arms background the launcher and return as soon as the (stubbed,
+    instant) health probe passes, so the stub may not have written its marker yet
+    when the harness returns -- poll briefly instead of asserting on a snapshot race.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if path.exists():
+            text = path.read_text()
+            if text.strip():
+                return text
+        time.sleep(0.025)
+    raise AssertionError(f"marker file {path} not written within {timeout_seconds}s")
 
 
 def _run(*args: str, env_extra: "dict[str, str] | None" = None) -> subprocess.CompletedProcess:
@@ -287,8 +305,7 @@ class _CondaServiceUpHarness(unittest.TestCase):
         if with_conda_sh:
             conda_sh.parent.mkdir(parents=True, exist_ok=True)
             # activate prepends stub_bin so uvicorn/python resolve to our stubs.
-            conda_sh.write_text(
-                f"""#!/usr/bin/env bash
+            conda_sh.write_text(f"""#!/usr/bin/env bash
 conda() {{
     if [[ "${{1-}}" == "activate" ]]; then
         printf 'conda activate %s\\n' "${{2-}}" >>"{conda_log}"
@@ -299,8 +316,7 @@ conda() {{
     echo "unexpected conda invocation: $*" >&2
     return 2
 }}
-"""
-            )
+""")
 
         curl = stub_bin / "curl"
         curl.write_text("#!/usr/bin/env bash\nexit 0\n")
@@ -409,9 +425,7 @@ class TestCascorUp(_CondaServiceUpHarness):
             root = Path(tmp)
             run_dir = root / "run"
             src_dir = root / "project" / "juniper-cascor" / "src"
-            stub_bin, conda_dir, conda_log, launch_log, env_log = self._stage_conda_and_stubs(
-                root, launch_name="uvicorn"
-            )
+            stub_bin, conda_dir, conda_log, launch_log, env_log = self._stage_conda_and_stubs(root, launch_name="uvicorn")
             result = self._run_up(
                 fn_name="cascor_up",
                 stub_bin=stub_bin,
@@ -427,7 +441,7 @@ class TestCascorUp(_CondaServiceUpHarness):
             self.assertIn("juniper-cascor is healthy", result.stdout)
             self.assertIn("conda activate JuniperCascor1", conda_log.read_text())
 
-            launch = launch_log.read_text()
+            launch = _read_marker_when_written(launch_log)
             self.assertIn("api.app:create_app", launch)
             self.assertIn("--factory", launch)
             self.assertIn("--host", launch)
@@ -435,7 +449,7 @@ class TestCascorUp(_CondaServiceUpHarness):
             self.assertIn("--port", launch)
             self.assertIn("65202", launch)
 
-            env_text = env_log.read_text()
+            env_text = _read_marker_when_written(env_log)
             # Empty LD_LIBRARY_PATH (not unset) — rust_mudgeon libtorch guard.
             self.assertIn("LD_LIBRARY_PATH=\n", env_text)
             self.assertIn("JUNIPER_DATA_URL=http://127.0.0.1:65101", env_text)
@@ -453,9 +467,7 @@ class TestCascorUp(_CondaServiceUpHarness):
             root = Path(tmp)
             run_dir = root / "run"
             src_dir = root / "project" / "juniper-cascor" / "src"
-            stub_bin, conda_dir, _conda_log, launch_log, _env_log = self._stage_conda_and_stubs(
-                root, with_conda_sh=False, launch_name="uvicorn"
-            )
+            stub_bin, conda_dir, _conda_log, launch_log, _env_log = self._stage_conda_and_stubs(root, with_conda_sh=False, launch_name="uvicorn")
             result = self._run_up(
                 fn_name="cascor_up",
                 stub_bin=stub_bin,
@@ -485,9 +497,7 @@ class TestCanopyUp(_CondaServiceUpHarness):
             root = Path(tmp)
             run_dir = root / "run"
             src_dir = root / "project" / "juniper-canopy" / "src"
-            stub_bin, conda_dir, conda_log, launch_log, env_log = self._stage_conda_and_stubs(
-                root, launch_name="python"
-            )
+            stub_bin, conda_dir, conda_log, launch_log, env_log = self._stage_conda_and_stubs(root, launch_name="python")
             result = self._run_up(
                 fn_name="canopy_up",
                 stub_bin=stub_bin,
@@ -503,10 +513,10 @@ class TestCanopyUp(_CondaServiceUpHarness):
             self.assertIn("juniper-canopy is healthy", result.stdout)
             self.assertIn("conda activate JuniperCanopy1", conda_log.read_text())
 
-            launch = launch_log.read_text()
+            launch = _read_marker_when_written(launch_log)
             self.assertIn("main.py", launch)
 
-            env_text = env_log.read_text()
+            env_text = _read_marker_when_written(env_log)
             self.assertIn("JUNIPER_CANOPY_DEMO_MODE=0", env_text)
             self.assertIn("JUNIPER_CANOPY_PORT=65051", env_text)
             self.assertIn(
@@ -531,9 +541,7 @@ class TestCanopyUp(_CondaServiceUpHarness):
             root = Path(tmp)
             run_dir = root / "run"
             src_dir = root / "project" / "juniper-canopy" / "src"
-            stub_bin, conda_dir, _conda_log, launch_log, _env_log = self._stage_conda_and_stubs(
-                root, with_conda_sh=False, launch_name="python"
-            )
+            stub_bin, conda_dir, _conda_log, launch_log, _env_log = self._stage_conda_and_stubs(root, with_conda_sh=False, launch_name="python")
             result = self._run_up(
                 fn_name="canopy_up",
                 stub_bin=stub_bin,
