@@ -211,6 +211,10 @@ Meta-package publish flow: build + `twine check`, TestPyPI upload with attestati
 fails CI if they drift. Manual releases must keep the same pair equal. Operator review checklist:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2.
 
+**Re-entry caveat (juniper-ml#712):** if `__version__` already equals the proposed version, step 3a
+stays silent (no `_version.py` edit, no REQUIRED-manual checklist). Confirm the match before treating
+a pyproject-only proposal as the old stale-dunder failure class.
+
 ---
 
 ## Environment Variables

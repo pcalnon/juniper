@@ -4,8 +4,8 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.0
-**Last Updated**: 2026-07-25
+**Version**: 1.2.1
+**Last Updated**: 2026-07-26
 
 ---
 
@@ -116,16 +116,29 @@ presence (no registry field) and bumps it in the same proposal (`build_proposal`
 
 When reviewing a Gate 1 proposal for a static in-repo package, confirm:
 
-1. **Both files move together** — `pyproject.toml` `[project].version` **and**
+1. **Both files move together (happy path)** — `pyproject.toml` `[project].version` **and**
    `<import>/_version.py` `__version__` in the Files-changed list (or the PR body's
-   `### Version bump` names the lockstep dunder co-change).
-2. **Checklist is honest** — if the co-change checklist says the dunder bump is
-   `REQUIRED (... edit manually)`, the auto-edit could not parse `__version__ = "..."`; fix it in the
-   proposal before merge (same pattern as a missing AGENTS.md header edit).
-3. **CI gate** — `tests/test_release_train_registry.py::VersionDunderLockstepTest` (ships with
+   `### Version bump` names the lockstep dunder co-change). Single- or double-quoted
+   `__version__ = …` both parse (`propose.py` `set_dynamic_version`).
+2. **Already-at-target / re-entry (juniper-ml#712)** — a **pyproject-only** version diff with
+   **no** dunder checklist item is valid when checkout `__version__` already equals the proposed
+   `to_version` (partial heal / re-entry). Step 3a leaves a correct dunder alone and must **not**
+   false-flag REQUIRED-manual. Confirm the match, then merge when the rest looks right.
+3. **Checklist is honest (unparseable)** — if the co-change checklist says the dunder bump is
+   `REQUIRED (... edit manually)` and the body does **not** claim a lockstep co-change, the file
+   exists but is unparseable; hand-edit `__version__` in the same PR before merge (AGENTS.md-header
+   precedent).
+4. **Stale dunder still behind** — pyproject-only while checkout `__version__` is still at
+   `from_version` (or any other mismatch) is the pre-#710 / stale-train failure class. Do **not**
+   merge as-is; add the dunder bump or re-dispatch `propose` after #710/#712.
+5. **CI gate** — `tests/test_release_train_registry.py::VersionDunderLockstepTest` (ships with
    juniper-ml#710) asserts pyproject == dunder for every in-repo static-with-dunder package
    (dynamic packages are exempt — their dunder *is* the source). A red
    `VersionDunderLockstepTest` means do not merge.
+
+**Pitfall:** a pyproject-only diff is no longer automatically rejectable. Distinguish re-entry
+(dunder already correct → OK) from the stale-dunder class (dunder still behind → block). After #712,
+an already-correct dunder produces neither a `_version.py` edit nor a checklist line.
 
 Dynamic packages (model-core + the three recurrence packages) are unchanged: the version bump *is*
 the `_version.py` edit, so there is no separate lockstep co-change to look for.
@@ -357,14 +370,14 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   §12 phased plan (steps 1.3/2.2/4.1/4.3).
 - Static-with-dunder lockstep design + implementation record:
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
-  (ml#701 / juniper-ml#710).
+  (ml#701 / juniper-ml#710; edge-case coverage + already-at-target checklist fix juniper-ml#712).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
 - Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
   `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
   `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701).
-- Static `_version.py` lockstep (Gate 1 review):
+- Static `_version.py` lockstep (Gate 1 review, incl. re-entry / unparseable edges):
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
-  (implemented by juniper-ml#710).
+  §6 / §6.1 (implemented by juniper-ml#710; hardened by juniper-ml#712).
 - Release convention (cut a Release, archive notes centrally): repo `AGENTS.md` "Publishing" +
   [`JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md`](JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md) §11.
