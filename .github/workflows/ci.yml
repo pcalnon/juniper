@@ -136,6 +136,11 @@ jobs:
           # `CI -- juniper-doc-tools` workflow.
           python3 -m unittest -v tests/test_worktree_cleanup.py
           python3 -m unittest -v tests/test_worktree_sweep_scripts.py
+          # tests/test_worktree_wipeout_close.py: pre-destroy gates for
+          # util/worktree_wipeout.bash (missing→1 / invalid→2) and
+          # util/worktree_close.bash (not-found vs matched remove). Hermetic
+          # tempfile git fixtures; util/ is not pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_worktree_wipeout_close.py
           python3 -m unittest -v tests/test_reap_pytest_orphans.py
           python3 -m unittest -v tests/test_editable_install_drift_check.py
           # tests/test_env_floor_drift_check.py: gap-I-2 floor-drift checker --
