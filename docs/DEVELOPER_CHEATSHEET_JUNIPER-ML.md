@@ -214,6 +214,15 @@ Gate 1 review table: release-train operator runbook §3.2.
 
 **Re-entry caveat (juniper-ml#712):** if `__version__` already equals the proposed version, the train leaves the dunder alone and does **not** checklist REQUIRED-manual. Confirm the match before treating a pyproject-only proposal as the old failure class.
 
+**Gate 1 notes draft (`notes_render`, coverage juniper-ml#756):** meta-package title must read `# Juniper ML v…` (not `# juniper-ml v…`);
+`Release Type` maps `major`→MAJOR / `minor`→MINOR / `patch|none|unknown`→PATCH;
+`Breaking changes` is YES only when Unreleased has a `Removed` category;
+Keep-a-Changelog accepts `*` as well as `-` (continuations fold).
+Operator table: release-train runbook §3.2.
+
+**Daily hygiene cleared:** `TAG_ONLY=0` + `NOTES_MISSING=0` with no `release-hygiene (tag_only) unavailable:` note means each counted package has a GitHub Release **and** a central `notes/releases/` archive for the released version (orthogonal to "needs deploy").
+`released_upload` is the earliest PyPI upload ISO (or `None`). Operator note: release-train runbook §3.1.
+
 ---
 
 ## Environment Variables
