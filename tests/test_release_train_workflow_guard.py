@@ -25,20 +25,17 @@ PyYAML and asserting:
   (f) **Phase 4.3 off-quiesce** -- ``mode=off`` runs nothing beyond mode resolution: every detect-job step
       other than the mode resolver is gated on the resolved mode (``!= 'off'`` for the work steps, the one
       ``== 'off'`` quiesce step), and both write jobs are unreachable (their ``if`` requires a non-off mode);
-<<<<<<< HEAD
   (g) **Cross-repo headless git identity (ml#705)** -- EACH write job configures ``user.name`` /
       ``user.email`` / ``commit.gpgsign`` with ``git config --global`` (NOT bare repo-local ``git config``).
       Cross-repo propose/ceremony commits inside freshly-cloned sibling checkouts; a repo-local identity
       on the juniper-ml checkout alone leaves siblings with ``Author identity unknown`` (first cross-repo
       pilot failure, run 30040138774). The detect job must never configure identity (it never commits).
-=======
   (h) **Phase 4.1 mint-scope / clone-list lockstep** -- both write jobs' App-token ``repositories:`` lists
       equal the registry's publishing-repo set (R7 least-privilege; a drift either widens the token or
       silently drops a sibling), the two mint lists are identical, and ``env.ECOSYSTEM_REPOS`` equals
       that set minus ``juniper-ml`` (the checkout itself). Also pins the operator ``packages`` dispatch
       charset reject + the ``APP_TOKEN`` → ``--cross-repo`` capability gate on both write jobs' run scripts
       (a regression that always passes ``--cross-repo`` breaks the no-App degraded path).
->>>>>>> 65ca94e (test(release-train): pin App mint repos + ECOSYSTEM_REPOS to registry (R7))
 
 Beyond the structural pins, three **YAML-extraction rehearsals** execute the actual workflow snippets
 hermetically (the "run the real thing, not a reimplementation" idiom): ``ModeResolutionMatrixTest`` extracts
@@ -433,6 +430,57 @@ class ReleaseTrainWorkflowGuardTest(unittest.TestCase):
                 )
                 self.assertIsNotNone(match, f"{job} APP_TOKEN if/then/else block not found")
                 self.assertIn("--cross-repo", match.group(1), f"{job} must append --cross-repo inside the APP_TOKEN-present branch")
+
+    # (g) Cross-repo headless git identity must be --global (ml#705 / run 30040138774) -------------
+    def _identity_steps(self, job):
+        """Steps whose name marks the headless git-identity configuration (both write jobs share the name)."""
+        return [s for s in self._job_steps(job) if "Configure git identity" in str(s.get("name", ""))]
+
+    def test_write_jobs_configure_git_identity_globally(self):
+        """Pin ``git config --global`` for user.name / user.email / commit.gpgsign on EVERY write job.
+
+        A bare ``git config user.*`` (repo-local) is the #705 failure class: it succeeds on the
+        juniper-ml checkout and then every sibling clone dies with ``Author identity unknown``.
+        """
+        # Repo-local forms that would reintroduce the bug (must NOT appear in the identity step).
+        local_only = (
+            re.compile(r"(?m)^\s*git\s+config\s+user\.name\b"),
+            re.compile(r"(?m)^\s*git\s+config\s+user\.email\b"),
+            re.compile(r"(?m)^\s*git\s+config\s+commit\.gpgsign\b"),
+        )
+        required_global = (
+            "git config --global user.name",
+            "git config --global user.email",
+            "git config --global commit.gpgsign",
+        )
+        for job in WRITE_JOBS:
+            with self.subTest(job=job):
+                steps = self._identity_steps(job)
+                self.assertEqual(
+                    len(steps),
+                    1,
+                    f"the {job} job must have exactly one 'Configure git identity' step " f"(cross-repo sibling commits need a job-scoped global identity).",
+                )
+                run = str(steps[0].get("run", ""))
+                for needle in required_global:
+                    self.assertIn(
+                        needle,
+                        run,
+                        f"{job} identity step must use `{needle}` -- repo-local config does not " f"propagate into freshly-cloned sibling checkouts (ml#705).",
+                    )
+                for pat in local_only:
+                    self.assertIsNone(
+                        pat.search(run),
+                        f"{job} identity step must not use repo-local `{pat.pattern}` " f"(would reintroduce Author-identity-unknown on sibling checkouts).",
+                    )
+
+    def test_detect_job_does_not_configure_git_identity(self):
+        # detect is read-only and never commits; an identity step there would be dead / misleading.
+        self.assertEqual(
+            self._identity_steps("detect"),
+            [],
+            "the detect job must not configure git identity (it never commits; write-jobs only).",
+        )
 
 
 # ── YAML-extraction rehearsal 1: the mode-resolution matrix (the real shell, run hermetically) ──
