@@ -748,7 +748,93 @@ class CeremonySummaryRehearsalTest(unittest.TestCase):
         self.assertIn("produced no output", md)
 
 
-# ── YAML-extraction rehearsal 3: packages dispatch charset + --cross-repo capability gate ──
+# ── YAML-extraction rehearsal 3: the propose step summary (the real Python, run hermetically) ──
+
+
+PROPOSE_OUTPUT_FIXTURE = "\n".join(
+    [
+        "opened: juniper-observability (juniper-ml) -- https://github.com/pcalnon/juniper-ml/pull/1",
+        "opened: juniper-ci-tools (juniper-ml) -- https://github.com/pcalnon/juniper-ml/pull/2",
+        "skip: juniper-cascor (juniper-cascor) -- --cross-repo required for sibling packages (no App token)",
+        "skip: juniper-thing (juniper-ml) -- duplicate open proposal PR #99",
+        "",
+    ]
+)
+
+
+class ProposeSummaryRehearsalTest(unittest.TestCase):
+    """Extract the propose job's step-summary Python and run it over a synthetic ``propose-output.txt``,
+    proving the ACTUAL renderer buckets ``opened:`` / ``skip:`` lines and surfaces the empty-output
+    crash banner -- the operator-facing deliverable of propose mode (plan S12 step 2.2).
+
+    Ceremony already has ``CeremonySummaryRehearsalTest``; without this twin, a propose-summary edit that
+    stops parsing ``opened:`` / ``skip:`` (or drops the empty-output banner) is invisible to CI until a
+    live propose run misreports how many PRs opened.
+    """
+
+    py_body: str  # the extracted propose-summary Python heredoc body (set in setUpClass)
+
+    @classmethod
+    def setUpClass(cls):
+        repo_root = _find_repo_root(Path(__file__).resolve().parent)
+        wf = repo_root / ".github" / "workflows" / WORKFLOW_NAME
+        if not wf.is_file():
+            raise unittest.SkipTest(f"{WORKFLOW_NAME} not present at {wf}")
+        doc = yaml.safe_load(wf.read_text(encoding="utf-8"))
+        step = next((s for s in doc["jobs"]["propose"]["steps"] if s.get("name") == "Render propose step summary"), None)
+        if step is None or "run" not in step:
+            raise unittest.SkipTest("could not locate the propose job's summary step")
+        run = step["run"]
+        if "<<'PY'\n" not in run:
+            raise unittest.SkipTest("propose summary step is not a `python - <<'PY'` heredoc")
+        after = run.split("<<'PY'\n", 1)[1]
+        body_lines = []
+        for line in after.splitlines():
+            if line.strip() == "PY":
+                break
+            body_lines.append(line)
+        cls.py_body = "\n".join(body_lines)
+
+    def _render(self, output_text: str) -> str:
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td)
+            (ws / "propose-output.txt").write_text(output_text, encoding="utf-8")
+            summary = ws / "step_summary.md"
+            summary.write_text("", encoding="utf-8")
+            env = RedactedEnv(os.environ, GITHUB_WORKSPACE=str(ws), GITHUB_STEP_SUMMARY=str(summary))
+            proc = subprocess.run([sys.executable, "-c", self.py_body], capture_output=True, text=True, env=env, check=False)  # nosec B603 - the workflow's own python body
+            self.assertEqual(proc.returncode, 0, f"summary renderer failed: {proc.stderr}")
+            return summary.read_text(encoding="utf-8")
+
+    def test_renders_opened_and_skipped_buckets(self):
+        md = self._render(PROPOSE_OUTPUT_FIXTURE)
+        self.assertIn("Release train -- propose mode", md)
+        self.assertIn("2 proposal PR(s) opened, 2 skipped.", md)
+        self.assertIn("### Opened (standard-gated -- owner reviews & merges)", md)
+        self.assertIn("juniper-observability", md)
+        self.assertIn("juniper-ci-tools", md)
+        self.assertIn("### Skipped", md)
+        self.assertIn("juniper-cascor", md)
+        self.assertIn("duplicate open proposal PR #99", md)
+        # Gate-1 framing (App vs degraded no-App path) must stay visible to operators.
+        self.assertIn("standard-gated", md)
+        self.assertIn("GitHub App", md)
+
+    def test_no_opened_or_skipped_is_clean_zero_counts(self):
+        md = self._render("propose-run: no UNRELEASED_CHANGES packages -- nothing to propose.\n")
+        self.assertIn("0 proposal PR(s) opened, 0 skipped.", md)
+        self.assertNotIn("### Opened", md)
+        self.assertNotIn("### Skipped", md)
+        self.assertNotIn("produced no output", md)  # non-empty output -> not the crash banner
+
+    def test_truly_empty_output_shows_crash_banner(self):
+        md = self._render("")
+        self.assertIn("produced no output", md)
+        self.assertIn("0 proposal PR(s) opened, 0 skipped.", md)
+
+
+# Matches `python - <<'PY'` and the Slack redirect form `python - <<'PY' > slack-payload.json`.
+_PY_HEREDOC_OPENER = re.compile(r"<<'PY'(?:\s*>\s*\S+)?\n")
 
 
 _PACKAGES_STEP_NAMES = {

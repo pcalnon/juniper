@@ -29,8 +29,9 @@ Covers (task acceptance list):
     malformed createCommitOnBranch payload returning an empty oid rather than crashing
   * `--dry-run` writes NOTHING (a git-tracked repo_root's `git status` stays clean)
   * the execute happy path (PENDING_PYPI_APPROVAL), the auto-merge graceful-degrade, execute-time
-    RESUME_MONITOR re-entry (no re-open / no re-cut), and the pure helpers
-    (classify_publish_run, changelog_version_section, infer_bump, release_tag)
+    open-PR reuse (no re-open; automerge on archive branch) and archive-already-on-main (release
+    only), and the pure helpers (classify_publish_run, changelog_version_section, infer_bump,
+    release_tag)
 
 Run: python3 -m unittest -v tests/test_release_train_ceremony.py
 
@@ -629,6 +630,42 @@ class ExecuteTest(unittest.TestCase):
         self.assertEqual(result["state"], "HALTED")
         self.assertIn("issue_url", result)
         self.assertTrue(any(c[0] == "upsert_halt_issue" for c in rec.calls))
+
+    def test_execute_open_archive_pr_reuse_skips_open_and_enables_automerge_on_branch(self):
+        """Planner already pins open-PR reuse; execute must NOT re-open the archive PR and must
+        enable auto-merge against the archive *branch* when no fresh ``pr_url`` was produced
+        (``pr_ref or plan.archive_branch``). A regression that re-opens duplicates the exempt PR;
+        a regression that passes ``None`` to enable_automerge breaks the auto-merge seam."""
+        existing = [{"number": 900, "headRefName": "release-notes/juniper-service-core-v0.5.0", "title": "x"}]
+        rec, src = self._mk(run_status=PENDING_RUN, open_prs=existing)
+        plan = ce.plan_ceremony(_entry(), _manifest_pkg(), src, REPO_ROOT, REPO_ROOT.parent, "2026-07-17")
+        self.assertEqual(plan.action_kinds, ["enable_auto_merge", "cut_release", "monitor_publish"])
+        result = ce.execute_ceremony(plan, src, monitor_kwargs={"timeout_seconds": 0, "sleep": lambda s: None})
+        self.assertEqual(result["state"], "PENDING_PYPI_APPROVAL")
+        self.assertIsNone(result["pr_url"])  # reused -- no new open
+        self.assertIsNotNone(result["release_url"])
+        kinds = [c[0] for c in rec.calls]
+        self.assertEqual(kinds, ["enable_automerge", "create_release"])
+        self.assertNotIn("open_archive_pr", kinds)
+        # enable_automerge must receive the archive branch (not None) when pr_ref is unset
+        automerge_call = next(c for c in rec.calls if c[0] == "enable_automerge")
+        self.assertEqual(automerge_call[2], plan.archive_branch)
+
+    def test_execute_archive_already_on_main_skips_pr_and_cuts_release(self):
+        """Archive file already on main -> execute must cut the Release with NO archive-PR /
+        auto-merge seam calls. Planner pins the action list; without execute coverage a bug that
+        ignores ``plan.actions`` and always opens would re-introduce a duplicate notes PR."""
+        rec, src = self._mk(run_status=PENDING_RUN, on_main=True)
+        plan = ce.plan_ceremony(_entry(), _manifest_pkg(), src, REPO_ROOT, REPO_ROOT.parent, "2026-07-17")
+        self.assertEqual(plan.action_kinds, ["cut_release", "monitor_publish"])
+        result = ce.execute_ceremony(plan, src, monitor_kwargs={"timeout_seconds": 0, "sleep": lambda s: None})
+        self.assertEqual(result["state"], "PENDING_PYPI_APPROVAL")
+        self.assertIsNone(result["pr_url"])
+        self.assertIsNotNone(result["release_url"])
+        kinds = [c[0] for c in rec.calls]
+        self.assertEqual(kinds, ["create_release"])
+        self.assertNotIn("open_archive_pr", kinds)
+        self.assertNotIn("enable_automerge", kinds)
 
     def test_execute_resume_monitor_does_not_reopen_archive_or_release(self):
         """Release already cut -> RESUME_MONITOR execute must only monitor (plan S8 last row).
