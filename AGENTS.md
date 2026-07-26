@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.6.0
-**Last Updated**: 2026-07-25
+**Last Updated**: 2026-07-26
 
 ---
 
@@ -404,7 +404,7 @@ juniper-ml/
   - Also home of the always-on `VersionDunderLockstepTest` (ml#701): every in-repo static-version package with a `_version.py` must keep `[project].version` == `__version__` (dynamic packages exempt -- their dunder IS the source); the ci-tools 0.7.0 / service-core 0.5.0 stale-dunder class.
 - `tests/test_release_train_detect.py` -- Hermetic tests for `util/release_train/detect.py` (plan §4.2/4.3); no network / gh / pip (sources injected). Covers each classification, static/dynamic version reads, tag resolution, the substantive-hunk filter (discount comment/docstring/link; catch real code), path-scoping (subdir vs cascor repo-minus-subpkgs), CHANGELOG conflict surfacing, SemVer, manifest JSON shape, and exit codes 0/1/2. `util/` is not lint-gated, so this unittest is the gate.
 - `tests/test_release_train_propose.py` -- Hermetic tests for `util/release_train/propose.py` + `notes_render.py` (Phase 2.1); no network / gh / repo writes. Covers a dry-run proposal for a static- and a dynamic-version package, the CHANGELOG move, notes render vs the template skeleton + the `RELEASE_NOTES_<pkg>_v<version>.md` convention, dup-guard suppression, the `changelog_conflict` refusal, and that a dry-run writes nothing. `util/` is not lint-gated, so this is the gate.
-  - ml#701 dunder-lockstep shapes: static-with-dunder bumps BOTH files; static-without-dunder emits no phantom `_version.py` edit; the dynamic path is unchanged; a present-but-unparseable dunder is flagged REQUIRED-manual in the checklist.
+  - ml#701 dunder-lockstep shapes: static-with-dunder bumps BOTH files; static-without-dunder emits no phantom `_version.py` edit; the dynamic path is unchanged; a present-but-unparseable dunder is flagged REQUIRED-manual in the checklist; already-at-target (partial heal / re-entry) is silent success (no REQUIRED false alarm; juniper-ml#712); single-quoted `__version__` still bumps.
 - `tests/test_release_train_archive_guard.py` -- Hermetic tests for `archive_guard.py` (Phase 3.1, §7.2); no network/git/gh. Drives the four-rule classifier with synthetic `git diff --name-status` sets + the CLI (`--name-status-file`) against the real `registry.yaml`: a pure notes-add PASSES, a non-archive PR SKIPs, and modify/delete/out-of-path/bad-name/mixed diffs each FAIL; plus filename convention, parsing, exit codes 0/1/2. The gate for `util/`.
 - `tests/test_release_train_ceremony.py` -- Hermetic tests for `ceremony.py` (Phase 3.2, plan §7/§8/§9.3); no network/gh/git/writes. Covers every §8 precondition HALT (main-CI / anomaly / missing-CHANGELOG / TestPyPI-verify), the happy-path exact action sequence, dup-guard/idempotent re-entry, the R7 gh-surface invariant (live seam issues only the allowlisted verbs + the 2 archive api calls -- `git/refs` POST + `createCommitOnBranch`), and a dry-run leaving `git status` clean. The gate for `util/`.
 - `tests/test_agents_md_version_drift.py` -- Lint test pinning `AGENTS.md`'s `**Version**:` header to `pyproject.toml`'s `[project].version`. Added after juniper-ml#295 bumped pyproject 0.4.1→0.5.0 but left AGENTS.md at 0.4.0 for ~6 days (fixed in juniper-ml#304); this lint makes the drift impossible to ship. Intentionally portable: auto-locates the repo root, so the module can be dropped into any Juniper repo's `tests/` (skips loudly if AGENTS.md has no canonical header).

@@ -644,6 +644,68 @@ class BuildProposalTest(unittest.TestCase):
         self.assertNotIn("AGENTS.md", {e.path for e in prop.edits})
         self.assertTrue(any("Sibling AGENTS.md" in item and "REQUIRED" in item for item in prop.co_change_checklist))
 
+    def test_sibling_agents_md_absent_flags_required_manual(self):
+        # Missing AGENTS.md must not crash the proposal; surface REQUIRED so the owner notices
+        # before the portable version-drift lint fails the opened PR (worker#140 class).
+        sib_root = self.eco / "juniper-worker"
+        _write_pkg(sib_root, ".", name="juniper-worker", version="0.4.0", changelog=_CHANGELOG)
+        self.assertFalse((sib_root / "AGENTS.md").exists())
+        entry = _entry(pypi_name="juniper-worker", repo="juniper-worker", path=".", tag_pattern="juniper-worker-v*", archive_name="RELEASE_NOTES_juniper-worker_v{version}.md", ship_paths=[])
+        pkg = _manifest_pkg(pypi_name="juniper-worker", released_version="0.4.0", declared_version="0.4.0", proposed_version="0.5.0")
+        prop = pr.build_proposal(entry, pkg, self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        self.assertNotIn("AGENTS.md", {e.path for e in prop.edits})
+        self.assertTrue(any("Sibling AGENTS.md" in item and "REQUIRED" in item for item in prop.co_change_checklist))
+
+    def test_sibling_agents_md_already_at_target_is_silent_success(self):
+        # Header already at to_version (partial heal / re-entry) must not false-flag REQUIRED —
+        # the portable lint is already satisfied; same silent-success class as the ml#701 dunder fix.
+        sib_root = self.eco / "juniper-worker"
+        _write_pkg(sib_root, ".", name="juniper-worker", version="0.4.0", changelog=_CHANGELOG)
+        (sib_root / "AGENTS.md").write_text("# AGENTS\n\n**Version**: 0.5.0\n**Author**: Paul\n")
+        entry = _entry(pypi_name="juniper-worker", repo="juniper-worker", path=".", tag_pattern="juniper-worker-v*", archive_name="RELEASE_NOTES_juniper-worker_v{version}.md", ship_paths=[])
+        pkg = _manifest_pkg(pypi_name="juniper-worker", released_version="0.4.0", declared_version="0.4.0", proposed_version="0.5.0")
+        prop = pr.build_proposal(entry, pkg, self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        self.assertNotIn("AGENTS.md", {e.path for e in prop.edits})
+        self.assertFalse(any("Sibling AGENTS.md" in item and "REQUIRED" in item for item in prop.co_change_checklist))
+        self.assertFalse(any("Sibling AGENTS.md" in item for item in prop.co_change_checklist))
+
+    def test_sibling_agents_md_missing_version_header_flags_required(self):
+        # AGENTS.md present but without a **Version** line: never invent a header; REQUIRED-manual.
+        sib_root = self.eco / "juniper-worker"
+        _write_pkg(sib_root, ".", name="juniper-worker", version="0.4.0", changelog=_CHANGELOG)
+        (sib_root / "AGENTS.md").write_text("# AGENTS\n\n**Author**: Paul\n")
+        entry = _entry(pypi_name="juniper-worker", repo="juniper-worker", path=".", tag_pattern="juniper-worker-v*", archive_name="RELEASE_NOTES_juniper-worker_v{version}.md", ship_paths=[])
+        pkg = _manifest_pkg(pypi_name="juniper-worker", released_version="0.4.0", declared_version="0.4.0", proposed_version="0.5.0")
+        prop = pr.build_proposal(entry, pkg, self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        self.assertNotIn("AGENTS.md", {e.path for e in prop.edits})
+        self.assertTrue(any("Sibling AGENTS.md" in item and "REQUIRED" in item for item in prop.co_change_checklist))
+
+    def test_meta_agents_md_already_at_target_is_silent_success(self):
+        # Meta AGENTS.md already at to_version must not false-REQUIRED (partial heal / re-entry).
+        _write_pkg(self.repo_root, ".", name="juniper-ml", version="0.6.0", changelog=_CHANGELOG)
+        (self.repo_root / "AGENTS.md").write_text("# AGENTS\n\n**Version**: 0.7.0\n**Author**: Paul\n")
+        entry = _entry(pypi_name="juniper-ml", path=".", tag_pattern="v*", archive_name="RELEASE_NOTES_v{version}.md", ship_paths=[])
+        pkg = _manifest_pkg(pypi_name="juniper-ml", released_version="0.6.0", declared_version="0.6.0", proposed_version="0.7.0")
+        prop = pr.build_proposal(entry, pkg, self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        self.assertNotIn("AGENTS.md", {e.path for e in prop.edits})
+        self.assertFalse(any("AGENTS.md **Version**" in item and "REQUIRED" in item for item in prop.co_change_checklist))
+        self.assertFalse(any("AGENTS.md **Version** header bump" in item for item in prop.co_change_checklist))
+
+    def test_meta_agents_md_absent_flags_required_manual(self):
+        # Meta bump with no AGENTS.md: proposal proceeds, checklist REQUIRED (drift lint would fail).
+        _write_pkg(self.repo_root, ".", name="juniper-ml", version="0.6.0", changelog=_CHANGELOG)
+        self.assertFalse((self.repo_root / "AGENTS.md").exists())
+        entry = _entry(pypi_name="juniper-ml", path=".", tag_pattern="v*", archive_name="RELEASE_NOTES_v{version}.md", ship_paths=[])
+        pkg = _manifest_pkg(pypi_name="juniper-ml", released_version="0.6.0", declared_version="0.6.0", proposed_version="0.7.0")
+        prop = pr.build_proposal(entry, pkg, self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        self.assertNotIn("AGENTS.md", {e.path for e in prop.edits})
+        self.assertTrue(any("AGENTS.md **Version**" in item and "REQUIRED" in item for item in prop.co_change_checklist))
+
     def test_minor_bump_emits_propagation_checklist_item(self):
         _write_pkg(self.repo_root, "juniper-model-core/", name="juniper-model-core", version="0.3.0", changelog=_CHANGELOG, dynamic=True, import_pkg="juniper_model_core")
         mc = _entry(pypi_name="juniper-model-core", path="juniper-model-core/", version_source="dynamic")
