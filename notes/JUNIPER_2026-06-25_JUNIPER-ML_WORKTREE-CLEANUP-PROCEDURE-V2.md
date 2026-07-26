@@ -383,12 +383,14 @@ Use the ad-hoc sweep pair only when cleaning the centralized Juniper worktree po
 - `DIRTY`, `ACTIVE`, `BROKEN`, unknown-repo, missing-directory, non-worktree, and no-longer-safe rows are skipped.
 - Apply revalidates every `SAFE` row immediately before removal: the target directory must still be a git worktree, have a clean working tree (tracked/untracked only), and have `rev-list --count origin/main..HEAD == 0`.
 
-**Dirt vs gitignored debris (ml#715).** Survey classifies dirt with plain `git status --porcelain` — tracked modifications and untracked files only. GITIGNORED debris (caches, logs, decrypted secrets) does **not** make a worktree `DIRTY`; ignored-only trees with `ahead == 0` classify as `SAFE`. Apply keeps a separate ignored-content guard at removal time because deleting a worktree also deletes that debris, which may be precious (the decrypted-secrets class):
+**Dirt vs gitignored debris (ml#715).** Survey classifies dirt with `git status --porcelain` — tracked modifications and untracked files only. GITIGNORED debris (caches, logs, decrypted secrets) does **not** make a worktree `DIRTY`; ignored-only trees with `ahead == 0` classify as `SAFE`. Apply keeps a separate ignored-content guard at removal time because deleting a worktree also deletes that debris, which may be precious (the decrypted-secrets class):
 
 | Apply mode | Ignored-only SAFE row | Tracked/untracked dirt |
 |------------|----------------------|------------------------|
 | Default | Skipped (`ignored files present; rerun with --include-ignored…`) | Hard skip (always) |
 | `--include-ignored` | Removed | Hard skip (always) |
+
+**`status.showUntrackedFiles=no` must not blind the sweep (ml#734 / ml#735).** Plain `git status --porcelain` / `--ignored` return empty under that config even when untracked or ignored files exist, and `git worktree remove` (without `--force`) can silently delete those trees. Survey and apply therefore force `status.showUntrackedFiles=normal` on every dirt / ignored / `worktree remove` call site so the guards stay fail-closed. Without that override, default apply can delete decrypted-secrets debris and untracked WIP. Contract pins: `tests/test_worktree_sweep_scripts.py` (`test_show_untracked_files_no_*` / `test_ignored_guard_not_blinded_by_show_untracked_files_no`).
 
 Unknown apply flags exit `2`. Pair with `tests/test_worktree_sweep_scripts.py` for the contract pins.
 
