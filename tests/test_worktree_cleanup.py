@@ -71,22 +71,7 @@ def _p3_install_fake_gh(bin_dir: Path, log_path: Path) -> Path:
     """Install a recording fake ``gh`` that succeeds for ``pr list`` / ``pr create``."""
     bin_dir.mkdir(parents=True, exist_ok=True)
     gh = bin_dir / "gh"
-    gh.write_text(
-        "#!/usr/bin/env bash\n"
-        "set -euo pipefail\n"
-        f'printf "%s\\n" "$*" >> "{log_path}"\n'
-        'if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then\n'
-        '  # Real gh applies --jq .[0].number; empty list prints nothing (not "[]").\n'
-        '  # A non-empty "[]" would be treated as an existing PR number.\n'
-        "  exit 0\n"
-        "fi\n"
-        'if [[ "${1:-}" == "pr" && "${2:-}" == "create" ]]; then\n'
-        '  echo "https://example.invalid/pull/1"\n'
-        "  exit 0\n"
-        "fi\n"
-        'echo "unexpected gh invocation: $*" >&2\n'
-        "exit 99\n"
-    )
+    gh.write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "%s\\n" "$*" >> "{log_path}"\n' 'if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then\n' '  # Real gh applies --jq .[0].number; empty list prints nothing (not "[]").\n' '  # A non-empty "[]" would be treated as an existing PR number.\n' "  exit 0\n" "fi\n" 'if [[ "${1:-}" == "pr" && "${2:-}" == "create" ]]; then\n' '  echo "https://example.invalid/pull/1"\n' "  exit 0\n" "fi\n" 'echo "unexpected gh invocation: $*" >&2\n' "exit 99\n")
     gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
     return gh
 
