@@ -719,6 +719,24 @@ class BuildProposalTest(unittest.TestCase):
         self.assertIn("CHANGELOG move refused", prop.skipped_reason)
         self.assertIn("[Unreleased] section has no content to move", prop.skipped_reason)
         self.assertEqual(prop.edits, [])
+        self.assertIsNone(prop.branch)
+
+    def test_unreadable_changelog_is_refused_without_half_edits(self):
+        """Missing CHANGELOG after the version bump is staged must still refuse with
+        an empty edits list (same clear-on-refuse contract as move_unreleased)."""
+        _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog="")
+        # _write_pkg only writes CHANGELOG when truthy; ensure the version file exists
+        # but CHANGELOG.md does not.
+        clog = self.repo_root / "juniper-thing" / "CHANGELOG.md"
+        if clog.exists():
+            clog.unlink()
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertTrue(prop.skipped)
+        self.assertIn("could not read", prop.skipped_reason)
+        self.assertIn("CHANGELOG.md", prop.skipped_reason)
+        self.assertEqual(prop.edits, [])
+        self.assertIsNone(prop.branch)
 
 
 # ── in-repo meta consumer-pin co-changes: pure helpers (plan S5.4; ml#657 RK-11 gap) ─────
