@@ -3,8 +3,9 @@ Tests for util/worktree_cleanup.bash
 
 Validates argument parsing, dry-run output, and error handling for the
 worktree cleanup script. Most tests use --dry-run mode or validate argument
-validation failures. Phase 1 dirty-tree coverage drives a real fixture repo
-(non-dry-run) so the porcelain exit-1 gate is exercised.
+validation failures. Phase 7 behavioral cases (F-6 dirty-tree / checkout-refusal)
+drive a real fixture repo via JUNIPER_ML_MAIN_REPO without running the full
+cleanup pipeline.
 """
 
 from __future__ import annotations
@@ -44,36 +45,39 @@ def _run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedP
     )
 
 
-def _init_phase1_repo(path: Path, *, branch: str = "feature/dirty-phase1") -> None:
-    """Minimal git repo on ``branch`` for Phase 1 dirty-porcelain fixtures.
-
-    Named distinctly from open #731's ``_init_fixture_repo`` (Phase 7) so both
-    can land without a helper-name clash; ``_run_git`` is intentionally identical.
-    """
+def _init_fixture_repo(path: Path) -> None:
+    """Bare-bones git repo with main + origin/main, ready for Phase 7."""
     path.mkdir(parents=True, exist_ok=True)
-    _run_git(path, "init", "-q", "-b", branch)
+    _run_git(path, "init", "-q", "-b", "main")
     _run_git(path, "config", "user.email", "tests@example.invalid")
     _run_git(path, "config", "user.name", "Test User")
     _run_git(path, "config", "commit.gpgsign", "false")
     (path / "README.md").write_text("# test\n")
     _run_git(path, "add", "README.md")
     _run_git(path, "commit", "-q", "-m", "initial")
+    _run_git(path, "update-ref", "refs/remotes/origin/main", "HEAD")
 
 
-def _run_phase1(old_worktree: Path, old_branch: str) -> subprocess.CompletedProcess[str]:
-    """Source worktree_cleanup.bash (skipping main) and call phase_1 only (live, not dry-run)."""
+def _run_phase7(main_repo: Path) -> subprocess.CompletedProcess[str]:
+    """Source worktree_cleanup.bash (skipping main) and call phase_7 only.
+
+    Uses JUNIPER_ML_MAIN_REPO so the fixture is the primary checkout under test.
+    DRY_RUN stays at the script default (not dry-run) so the dirty-tree /
+    checkout-refusal gates actually execute.
+    """
+    # Strip the trailing `main "${@}"` so sourcing defines helpers without running
+    # the full cleanup. MAIN_REPO is resolved at source time from the env override.
     driver = r"""
 set -euo pipefail
-SCRIPT_PATH="$1"
+export JUNIPER_ML_MAIN_REPO="$1"
+SCRIPT_PATH="$2"
 # shellcheck disable=SC1090
 source <(sed '/^main "/d' "${SCRIPT_PATH}")
-OLD_WORKTREE="$2"
-OLD_BRANCH="$3"
-phase_1_save_and_push
+phase_7_restore_main_checkout
 """
     env = RedactedEnv(os.environ)
     return subprocess.run(
-        ["bash", "-c", driver, "phase1-driver", str(SCRIPT_PATH), str(old_worktree), old_branch],
+        ["bash", "-c", driver, "phase7-driver", str(main_repo), str(SCRIPT_PATH)],
         capture_output=True,
         text=True,
         env=env,
@@ -366,28 +370,75 @@ class TestSyncToMain(unittest.TestCase):
             self.assertLess(remove_pos, sync_pos, "sync to main must run after the old worktree is removed")
 
 
-class TestPhase1DirtyTree(unittest.TestCase):
-    """Hermetic Phase 1 gate: dirty porcelain must hard-fail before any push.
+class TestPhase7Behavioral(unittest.TestCase):
+    """Hermetic behavioral gates for Phase 7 (F-6 stale-checkout class).
 
-    Dry-run skips the porcelain check entirely. Open #731/#742 cover Phase 6/7
-    dirty / pull-ff edges; Phase 1's exit-1 "Commit or stash" path had zero hits.
+    Dry-run only proves the preview text. These cases drive a real fixture via
+    JUNIPER_ML_MAIN_REPO so a regression that clobbers dirty work, invents a
+    checkout onto a worktree-held main, or treats a refuse as fatal fails here.
     """
 
-    def test_dirty_worktree_exits_1_with_commit_or_stash(self) -> None:
+    def test_dirty_tree_skips_checkout_and_leaves_branch(self) -> None:
+        """Dirty primary checkout must warn-and-skip — never clobber uncommitted work."""
         with tempfile.TemporaryDirectory() as tmp:
-            old_wt = Path(tmp) / "old-worktree"
-            branch = "feature/dirty-phase1"
-            _init_phase1_repo(old_wt, branch=branch)
-            (old_wt / "WIP.txt").write_text("uncommitted\n")
+            main_repo = Path(tmp) / "main-repo"
+            _init_fixture_repo(main_repo)
+            _run_git(main_repo, "checkout", "-q", "-b", "release/stale-branch")
+            (main_repo / "WIP.txt").write_text("uncommitted\n")
 
-            result = _run_phase1(old_wt, branch)
-            self.assertEqual(result.returncode, 1, msg=result.stderr)
-            self.assertIn("uncommitted changes", result.stderr.lower())
-            self.assertIn("Commit or stash changes before running cleanup", result.stderr)
-            # Must not reach a push attempt.
-            self.assertNotIn("Pushing", result.stderr)
-            self.assertNotIn("push origin", result.stderr)
-            self.assertTrue((old_wt / "WIP.txt").exists())
+            before = _run_git(main_repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+            self.assertEqual(before, "release/stale-branch")
+
+            result = _run_phase7(main_repo)
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("MAIN_REPO tree is dirty", result.stderr)
+            self.assertIn("leaving checkout on 'release/stale-branch'", result.stderr)
+            self.assertNotIn("Checking out main", result.stderr)
+            self.assertNotIn("Running: git -C", result.stderr)
+
+            after = _run_git(main_repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+            self.assertEqual(after, "release/stale-branch")
+            self.assertTrue((main_repo / "WIP.txt").exists())
+
+    def test_checkout_refusal_warns_and_skips_without_failing(self) -> None:
+        """When main is held by another worktree, checkout refusal is warn-and-skip (exit 0)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            main_repo = root / "main-repo"
+            other_wt = root / "other-worktree"
+            _init_fixture_repo(main_repo)
+            # Leave main first, then hold it in a sibling worktree so a later
+            # checkout main in MAIN_REPO refuses (git forbids dual checkouts).
+            _run_git(main_repo, "checkout", "-q", "-b", "release/held-main")
+            _run_git(main_repo, "worktree", "add", "-q", str(other_wt), "main")
+
+            result = _run_phase7(main_repo)
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("checking out main", result.stderr.lower())
+            self.assertIn("Could not check out main in MAIN_REPO", result.stderr)
+            self.assertIn("skipping", result.stderr.lower())
+
+            after = _run_git(main_repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+            self.assertEqual(after, "release/held-main")
+
+    def test_clean_non_main_restores_to_main(self) -> None:
+        """Clean stale non-main branch is the happy path: checkout main + ff-only pull."""
+        with tempfile.TemporaryDirectory() as tmp:
+            main_repo = Path(tmp) / "main-repo"
+            _init_fixture_repo(main_repo)
+            # Bare remote so `pull --ff-only origin main` has somewhere to talk to.
+            remote = Path(tmp) / "remote.git"
+            _run_git(main_repo, "clone", "--bare", "-q", str(main_repo), str(remote))
+            _run_git(main_repo, "remote", "add", "origin", str(remote))
+            _run_git(main_repo, "checkout", "-q", "-b", "release/stale-clean")
+
+            result = _run_phase7(main_repo)
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("checking out main", result.stderr.lower())
+            self.assertIn("pull --ff-only origin main", result.stderr)
+
+            after = _run_git(main_repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+            self.assertEqual(after, "main")
 
 
 if __name__ == "__main__":
