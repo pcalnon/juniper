@@ -239,6 +239,46 @@ class PyprojectClassifierTest(unittest.TestCase):
     def test_patch_unavailable_is_uncertain(self):
         self.assertEqual(d.classify_pyproject_patch(None)[0], "uncertain")
 
+    def test_build_system_change_is_ship(self):
+        # [build-system] requires/backend edits must SHIP — packaging changes affect
+        # every install and must not be discounted as tooling (audit S7.5 / detect.py:707-708).
+        patch = (
+            "@@ -1,3 +1,3 @@\n"
+            " [build-system]\n"
+            '-requires = ["setuptools>=61"]\n'
+            '+requires = ["setuptools>=68", "wheel"]\n'
+            ' build-backend = "setuptools.build_meta"\n'
+        )
+        kind, reason = d.classify_pyproject_patch(patch)
+        self.assertEqual(kind, "ship", reason)
+        self.assertIn("runtime", reason)
+
+    def test_build_system_via_hunk_trailer_is_ship(self):
+        # GitHub often puts the section only in the @@ trailer (no body [build-system]
+        # context line). That arm must still classify as ship — otherwise local-git /
+        # truncated compares silently UP_TO_DATE packaging changes.
+        patch = (
+            "@@ -1,2 +1,2 @@ [build-system]\n"
+            '-requires = ["setuptools>=61"]\n'
+            '+requires = ["hatchling"]\n'
+        )
+        self.assertEqual(d.classify_pyproject_patch(patch)[0], "ship")
+
+    def test_build_system_ship_wins_over_tool_hunk(self):
+        # Mixed patch: [build-system] + [tool.*] must still SHIP — found_ship dominates
+        # nonship tooling so a build backend bump is never thinned by a ruff tweak.
+        patch = (
+            "@@ -1,2 +1,2 @@\n"
+            " [build-system]\n"
+            '-requires = ["setuptools>=61"]\n'
+            '+requires = ["setuptools>=68"]\n'
+            "@@ -80,2 +80,3 @@\n"
+            " [tool.ruff]\n"
+            " line-length = 512\n"
+            '+target-version = "py312"\n'
+        )
+        self.assertEqual(d.classify_pyproject_patch(patch)[0], "ship")
+
 
 class PathScopingTest(unittest.TestCase):
     def test_subdir_package_scope(self):
