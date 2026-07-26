@@ -27,6 +27,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 UTIL_DIR = Path(__file__).resolve().parents[1] / "util"
 sys.path.insert(0, str(UTIL_DIR))
@@ -182,6 +183,73 @@ class InvocationErrorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "pyproject.toml").write_text('[project]\nname = "x"\ndependencies = ["juniper-data>=0.6.0"]\n')
             self.assertEqual(self.run_main("--repo-root", d, "--site-packages", str(Path(d) / "nope")), 2)
+
+
+class InstalledVersionsTest(unittest.TestCase):
+    """Direct coverage for installed_juniper_versions (multi-site / malformed).
+
+    ClassificationCliTest always feeds a single synthetic site-packages dir via
+    --site-packages, so the highest-across-dirs and skip-malformed arms never ran.
+    """
+
+    def test_keeps_highest_across_site_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sp_old = root / "old"
+            sp_new = root / "new"
+            sp_old.mkdir()
+            sp_new.mkdir()
+            write_dist(sp_old, "juniper-data-client", "0.3.0")
+            write_dist(sp_new, "juniper-data-client", "0.4.1")
+            write_dist(sp_old, "juniper-observability", "0.2.0")
+            # Later lower version must not clobber an earlier higher one.
+            write_dist(sp_new, "juniper-observability", "0.1.9")
+
+            found = mod.installed_juniper_versions([sp_old, sp_new])
+
+            self.assertEqual(found["juniper-data-client"], "0.4.1")
+            self.assertEqual(found["juniper-observability"], "0.2.0")
+
+    def test_skips_malformed_metadata_and_non_juniper(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sp = Path(tmp) / "sp"
+            sp.mkdir()
+            write_dist(sp, "juniper-data-client", "0.4.1")
+            write_dist(sp, "requests", "2.31.0")
+
+            # Name present, Version missing -> skip (would poison classify if kept).
+            bad = sp / "juniper_cascor_client-0.5.0.dist-info"
+            bad.mkdir()
+            (bad / "METADATA").write_text("Metadata-Version: 2.1\nName: juniper-cascor-client\n\nbody\n")
+
+            # Unreadable METADATA -> OSError in _read_name_version -> skip.
+            # Mock read_text (chmod 000 is a no-op for root in many CI images).
+            unread = sp / "juniper_observability-0.2.0.dist-info"
+            unread.mkdir()
+            meta = unread / "METADATA"
+            meta.write_text("Metadata-Version: 2.1\nName: juniper-observability\nVersion: 0.2.0\n\n")
+            real_read = Path.read_text
+
+            def _read_text(self: Path, *args, **kwargs):
+                if self == meta:
+                    raise OSError("permission denied")
+                return real_read(self, *args, **kwargs)
+
+            with mock.patch.object(Path, "read_text", _read_text):
+                found = mod.installed_juniper_versions([sp])
+
+            self.assertEqual(found, {"juniper-data-client": "0.4.1"})
+            self.assertNotIn("juniper-cascor-client", found)
+            self.assertNotIn("juniper-observability", found)
+            self.assertNotIn("requests", found)
+
+    def test_normalizes_underscore_dist_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sp = Path(tmp) / "sp"
+            sp.mkdir()
+            write_dist(sp, "juniper_data_client", "0.4.2")
+            found = mod.installed_juniper_versions([sp])
+            self.assertEqual(found["juniper-data-client"], "0.4.2")
 
 
 class NoHardcodedEnvNameTest(unittest.TestCase):
