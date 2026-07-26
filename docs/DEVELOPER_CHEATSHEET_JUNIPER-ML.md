@@ -239,10 +239,15 @@ hosted in a sibling never touch the host header.
 | `JUNIPER_WORKER_HEALTH_PORT`   | `8210`             | Host stack cascor-worker health listener port           |
 | `JUNIPER_PROJECT_DIR`          | `~/Development/python/Juniper` | Project root honored by `util/juniper_chop_all.bash`; `plant_all` derives the root from its script location |
 | `HEALTH_CHECK_TIMEOUT`         | `60`               | Seconds `util/juniper_plant_all.bash` waits for each service health gate |
+| `SIGTERM_TIMEOUT`              | `15`               | Seconds `util/juniper_chop_all.bash` waits after SIGTERM before SIGKILL |
 | `CASCOR_HOST`                  | `localhost`        | CasCor query-helper target host for `util/get_cascor_*.bash` |
 | `CASCOR_PORT`                  | `8201`             | CasCor query-helper target port for `util/get_cascor_*.bash` |
 
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
+
+Tip: `chop_all` `validate_pid` (JR-ML-SEC-045 / [#777](https://github.com/pcalnon/juniper-ml/pull/777)) must accept each pidfile row before SIGTERM — token match (case-fold, strip `-`/`_`) so plant's `JuniperCascor1`/`JuniperCanopy1` `server.py`/`main.py` cmdlines pass; reused/wrong PIDs skip (no signal).
+
+Tip: `graceful_stop` ([#778](https://github.com/pcalnon/juniper-ml/pull/778)): SIGTERM→`SIGTERM_TIMEOUT`→SIGKILL; already-exited is success; `STOP_FAILURES>0` preserves the pidfile. Full contract: [REFERENCE — Host Orchestration](REFERENCE.md#host-orchestration-utilities).
 
 ### Host Stack Troubleshooting
 
@@ -252,6 +257,8 @@ Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while 
 | Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`; keep the default `JuniperCascor1` env unless a replacement is known-good. |
 | Worker binary missing | Run `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` finished in `nohup` mode and rerun with `JUNIPER_PROJECT_DIR` set to the same project root; for systemd mode, stop with `util/juniper_chop_all.bash --systemd`. |
+| `chop_all` skips cascor/canopy but ports still listen | Pre-[#777](https://github.com/pcalnon/juniper-ml/pull/777) literal substring false-reject — stop PIDs via `ss -tlnp` manually; do not re-plant onto a live listener. |
+| `chop_all` preserves pidfile / `STOP_FAILURES` | A stop returned 1 (survived SIGKILL). Inspect pidfile + cmdline before escalating by hand. |
 
 ## Quick Reference Tables
 
