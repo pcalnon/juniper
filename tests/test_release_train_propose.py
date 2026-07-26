@@ -739,6 +739,7 @@ class BuildProposalTest(unittest.TestCase):
         bump staged before the move — open #749 pins the skip/reason; this pins
         the clear-on-refuse stub shape (edits=[], no branch) so JSON/operators
         never see a half-proposal."""
+
     def test_bump_none_is_refused(self):
         """No proposable SemVer bump must refuse before any edit is computed (plan S5.4)."""
         _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog=_CHANGELOG)
