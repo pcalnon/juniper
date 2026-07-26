@@ -3,8 +3,9 @@ Tests for util/worktree_cleanup.bash
 
 Validates argument parsing, dry-run output, and error handling for the
 worktree cleanup script. Most tests use --dry-run mode or validate argument
-validation failures. Phase 1 / Phase 2 behavioral cases drive a real fixture
-repo (via JUNIPER_ML_MAIN_REPO) without running the full cleanup pipeline.
+validation failures. Phase 1 push/no-push and Phase 2 collision cases drive a
+real fixture repo (via JUNIPER_ML_MAIN_REPO) without the full cleanup pipeline.
+(Phase 1 dirty hard-fail is owned by open coverage PR #747.)
 """
 
 from __future__ import annotations
@@ -63,10 +64,11 @@ def _attach_bare_origin(repo: Path, remote: Path) -> None:
     _run_git(repo, "remote", "add", "origin", str(remote))
 
 
-def _run_phase1(main_repo: Path, old_worktree: Path, old_branch: str) -> subprocess.CompletedProcess[str]:
+def _run_phase1_push(main_repo: Path, old_worktree: Path, old_branch: str) -> subprocess.CompletedProcess[str]:
     """Source the script and invoke ``phase_1_save_and_push`` (not dry-run).
 
-    OLD_* must be assigned *after* sourcing — the script body resets those globals.
+    Named distinctly from open #747's ``_run_phase1`` (dirty-only fixture). OLD_*
+    must be assigned *after* sourcing — the script body resets those globals.
     """
     driver = r"""
 set -euo pipefail
@@ -80,7 +82,7 @@ phase_1_save_and_push
 """
     env = RedactedEnv(os.environ)
     return subprocess.run(
-        ["bash", "-c", driver, "phase1-driver", str(main_repo), str(SCRIPT_PATH), str(old_worktree), old_branch],
+        ["bash", "-c", driver, "phase1-push-driver", str(main_repo), str(SCRIPT_PATH), str(old_worktree), old_branch],
         capture_output=True,
         text=True,
         env=env,
@@ -88,7 +90,7 @@ phase_1_save_and_push
     )
 
 
-def _run_phase2(main_repo: Path, new_worktree: Path, new_branch: str) -> subprocess.CompletedProcess[str]:
+def _run_phase2_create(main_repo: Path, new_worktree: Path, new_branch: str) -> subprocess.CompletedProcess[str]:
     """Source the script and invoke ``phase_2_create_new_worktree`` (not dry-run).
 
     NEW_* must be assigned *after* sourcing — the script body resets those globals.
@@ -398,37 +400,13 @@ class TestSyncToMain(unittest.TestCase):
             self.assertLess(remove_pos, sync_pos, "sync to main must run after the old worktree is removed")
 
 
-class TestPhase1Behavioral(unittest.TestCase):
-    """Hermetic behavioral gates for Phase 1 (save & push).
+class TestPhase1PushBehavioral(unittest.TestCase):
+    """Hermetic Phase 1 push/no-push gates (clean-tree arms).
 
-    Dry-run only previews ``status``/``push``. These cases drive a real fixture so a
-    regression that cleans up over a dirty tree (losing WIP) or invents a push when
-    the branch is already synced fails here. Orthogonal to Phase 7 dirty-tree
-    (warn-and-skip on MAIN_REPO) — Phase 1 must hard-fail on the *old* worktree.
+    Dry-run only previews ``status``/``push``. Open #747 owns the dirty hard-fail;
+    these cases pin the three clean-tree branches that actually talk to ``origin``
+    so a regression that pushes when synced (or skips when ahead / untracked) fails.
     """
-
-    def test_dirty_old_worktree_exits_without_push(self) -> None:
-        """Uncommitted changes in the old worktree must abort cleanup before any push."""
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            main_repo = root / "main-repo"
-            _init_fixture_repo(main_repo)
-            _attach_bare_origin(main_repo, root / "remote.git")
-            _run_git(main_repo, "checkout", "-q", "-b", "feature/dirty-cleanup")
-            (main_repo / "WIP.txt").write_text("do not lose me\n")
-
-            tip_before = _run_git(main_repo, "rev-parse", "HEAD").stdout.strip()
-            result = _run_phase1(main_repo, main_repo, "feature/dirty-cleanup")
-
-            self.assertEqual(result.returncode, 1, msg=result.stderr)
-            self.assertIn("Old worktree has uncommitted changes", result.stderr)
-            self.assertIn("Commit or stash changes before running cleanup", result.stderr)
-            self.assertNotIn("Running: git", result.stderr)
-            self.assertNotIn("Pushing", result.stderr)
-            # Tip unchanged; WIP preserved.
-            tip_after = _run_git(main_repo, "rev-parse", "HEAD").stdout.strip()
-            self.assertEqual(tip_after, tip_before)
-            self.assertTrue((main_repo / "WIP.txt").exists())
 
     def test_clean_up_to_date_branch_skips_push(self) -> None:
         """Clean branch already matching its upstream must not push."""
@@ -440,7 +418,7 @@ class TestPhase1Behavioral(unittest.TestCase):
             _run_git(main_repo, "checkout", "-q", "-b", "feature/synced")
             _run_git(main_repo, "push", "-u", "-q", "origin", "feature/synced")
 
-            result = _run_phase1(main_repo, main_repo, "feature/synced")
+            result = _run_phase1_push(main_repo, main_repo, "feature/synced")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("Old worktree is clean", result.stderr)
             self.assertIn("Branch is up to date with remote", result.stderr)
@@ -462,7 +440,7 @@ class TestPhase1Behavioral(unittest.TestCase):
             _run_git(main_repo, "commit", "-q", "-m", "ahead commit")
             local_tip = _run_git(main_repo, "rev-parse", "HEAD").stdout.strip()
 
-            result = _run_phase1(main_repo, main_repo, "feature/ahead")
+            result = _run_phase1_push(main_repo, main_repo, "feature/ahead")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("Pushing 1 commit(s) to remote", result.stderr)
             self.assertIn("push origin feature/ahead", result.stderr)
@@ -481,7 +459,7 @@ class TestPhase1Behavioral(unittest.TestCase):
             _run_git(main_repo, "checkout", "-q", "-b", "feature/no-upstream")
             local_tip = _run_git(main_repo, "rev-parse", "HEAD").stdout.strip()
 
-            result = _run_phase1(main_repo, main_repo, "feature/no-upstream")
+            result = _run_phase1_push(main_repo, main_repo, "feature/no-upstream")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("No remote tracking branch — pushing to origin", result.stderr)
             self.assertIn("push -u origin feature/no-upstream", result.stderr)
@@ -505,14 +483,14 @@ class TestPhase2Behavioral(unittest.TestCase):
             new_wt = root / "already-there"
             _init_fixture_repo(main_repo)
             _attach_bare_origin(main_repo, root / "remote.git")
-            # Push main so ``fetch origin`` + ``worktree add … origin/main`` have a tip;
-            # the collision check runs after fetch and must fire before add.
+            # Push main so ``fetch origin`` has a tip; the collision check runs after
+            # fetch and must fire before ``worktree add``.
             _run_git(main_repo, "push", "-q", "origin", "main")
             new_wt.mkdir()
             marker = new_wt / "KEEP.txt"
             marker.write_text("preexisting\n")
 
-            result = _run_phase2(main_repo, new_wt, "worktree-collision")
+            result = _run_phase2_create(main_repo, new_wt, "worktree-collision")
             self.assertEqual(result.returncode, 1, msg=result.stderr)
             self.assertIn("New worktree directory already exists", result.stderr)
             self.assertTrue(marker.exists())
