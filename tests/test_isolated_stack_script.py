@@ -434,10 +434,7 @@ class TestProbeHealth(unittest.TestCase):
         # probe_health uses curl -w '%{http_code}'; stub prints the code on stdout.
         result = self._run_probe(
             curl_script="echo 200\n",
-            ss_script=(
-                'echo \'LISTEN 0 128 127.0.0.1:65101 0.0.0.0:* '
-                'users:(("python",pid=424242,fd=3))\'\n'
-            ),
+            ss_script=("echo 'LISTEN 0 128 127.0.0.1:65101 0.0.0.0:* " 'users:(("python",pid=424242,fd=3))\'\n'),
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("juniper-data: health=200 port=65101 pid=424242", result.stdout)
