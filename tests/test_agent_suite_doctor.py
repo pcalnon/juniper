@@ -128,9 +128,7 @@ class DoctorDiscoveryCheckTest(unittest.TestCase):
             _marker(root)
             _write_fake_discovery_cli(
                 root,
-                "import sys\n"
-                "print('boom-stderr', file=sys.stderr)\n"
-                "sys.exit(3)\n",
+                "import sys\n" "print('boom-stderr', file=sys.stderr)\n" "sys.exit(3)\n",
             )
             name, status, reason = self.mod.check_discovery(root)
             self.assertEqual(name, "discovery")
@@ -155,8 +153,7 @@ class DoctorDiscoveryCheckTest(unittest.TestCase):
             # schema_version present but provenance.head_sha absent -> fail-closed
             _write_fake_discovery_cli(
                 root,
-                "import json\n"
-                "print(json.dumps({'schema_version': 1, 'provenance': {}}))\n",
+                "import json\n" "print(json.dumps({'schema_version': 1, 'provenance': {}}))\n",
             )
             name, status, reason = self.mod.check_discovery(root)
             self.assertEqual(name, "discovery")
@@ -170,11 +167,7 @@ class DoctorDiscoveryCheckTest(unittest.TestCase):
             _marker(root)
             _write_fake_discovery_cli(
                 root,
-                "import json\n"
-                "print(json.dumps({\n"
-                "  'schema_version': 1,\n"
-                "  'provenance': {'head_sha': 'abc123'},\n"
-                "}))\n",
+                "import json\n" "print(json.dumps({\n" "  'schema_version': 1,\n" "  'provenance': {'head_sha': 'abc123'},\n" "}))\n",
             )
             name, status, reason = self.mod.check_discovery(root)
             self.assertEqual(name, "discovery")
