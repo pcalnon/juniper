@@ -383,14 +383,15 @@ Use the ad-hoc sweep pair only when cleaning the centralized Juniper worktree po
 - `DIRTY`, `ACTIVE`, `BROKEN`, unknown-repo, missing-directory, non-worktree, and no-longer-safe rows are skipped.
 - Apply revalidates every `SAFE` row immediately before removal: the target directory must still be a git worktree, have a clean working tree (tracked/untracked only), and have `rev-list --count origin/main..HEAD == 0`.
 
-**Dirt vs gitignored debris (ml#715).** Survey classifies dirt with plain `git status --porcelain` — tracked modifications and untracked files only. GITIGNORED debris (caches, logs, decrypted secrets) does **not** make a worktree `DIRTY`; ignored-only trees with `ahead == 0` classify as `SAFE`. Apply keeps a separate ignored-content guard at removal time because deleting a worktree also deletes that debris, which may be precious (the decrypted-secrets class):
+**Dirt vs gitignored debris (ml#715 / coverage ml#716).** Survey classifies dirt with plain `git status --porcelain` — tracked modifications and untracked files only. GITIGNORED debris (caches, logs, decrypted secrets) does **not** make a worktree `DIRTY`; ignored-only trees with `ahead == 0` classify as `SAFE`. Apply keeps a separate ignored-content guard at removal time because deleting a worktree also deletes that debris, which may be precious (the decrypted-secrets class):
 
 | Apply mode | Ignored-only SAFE row | Tracked/untracked dirt |
 |------------|----------------------|------------------------|
 | Default | Skipped (`ignored files present; rerun with --include-ignored…`) | Hard skip (always) |
 | `--include-ignored` | Removed | Hard skip (always) |
+| `--dry-run --include-ignored` (either flag order) | Prints `DRY:…` only; never deletes | Hard skip (always) |
 
-Unknown apply flags exit `2`. Pair with `tests/test_worktree_sweep_scripts.py` for the contract pins.
+Unknown apply flags print `unknown flag: …` on stderr and exit `2` (fail-closed). Contract pins: `tests/test_worktree_sweep_scripts.py`.
 
 Recommended operator flow:
 
