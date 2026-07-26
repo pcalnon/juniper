@@ -244,6 +244,29 @@ monitors the triggered publish run.
 - **Gate 2 is yours**: the publish workflow's `pypi`-environment deploy job waits for the owner to
   approve. The train never approves it (§7). Approve it in the run's environment-review UI when ready.
 
+**Archive-lane failure edges (signed API path — do not invent a sha).** The happy path above is the
+common case. When a ceremony fails *inside* `open_archive_pr` / `create_branch` / `create_signed_commit`
+(`ceremony.py:688-765`), treat these as **hard stops that must never invent a base sha or commit onto a
+ghost tip** (pinned by `tests/test_release_train_ceremony.py` / juniper-ml#714). They surface as
+`SourceError` (or `SeamViolation` for R7 code bugs) and stop that package's ceremony before a bad
+archive commit lands:
+
+| Symptom in the ceremony log | Cause | Operator response |
+|---|---|---|
+| `could not resolve origin/<base> … to base the archive branch on` | `git rev-parse origin/<base>` returned empty after fetch (`open_archive_pr`, `ceremony.py:758-760`) — **no** `git/refs` POST and **no** GraphQL commit are issued | Confirm the juniper-ml checkout has a freshened `origin/main` (clone depth / fetch failure). Re-run ceremony once the ref resolves; never hand-push an archive branch at a guessed sha. |
+| `gh failed (api repos): HTTP 401` (or any non-422 refs error) | Branch-create POST failed for auth/transport; `create_branch` re-raises and **does not** enter tip-inspection (`ceremony.py:703-705`) | Check the App / `GITHUB_TOKEN` credentials and `contents: write` on juniper-ml. A 401 is **not** the idempotent "branch already exists" path. |
+| `archive branch … exists on origin but its tip could not be resolved` | 422/already-exists re-entry, but `FETCH_HEAD` tip was empty (`ceremony.py:708-710`) — HALT rather than commit onto a ghost tip | Inspect `release-notes/<pkg>-v<ver>` on origin; delete or reset the branch by hand if it is corrupted, then re-run. |
+| `archive branch … exists but diverged from base …` | Branch tip is neither `origin/<base>` nor a single archive commit atop it (`ceremony.py:716`) | Human resolve: close/delete the stray branch (or the open archive PR) so re-entry can recreate a clean one-commit branch. |
+| Signed commit returns empty oid / PR still opens | Malformed or empty `createCommitOnBranch` GraphQL payload — oid extraction is best-effort and returns `""` without raising (`ceremony.py:743-747`); `gh pr create` still runs | Inspect the archive PR tip commit; if the file is missing, close the PR + delete the branch and re-run. Do not treat an empty oid alone as success proof. |
+
+**Idempotent re-entry (expected shapes).** When the archive branch already exists (HTTP 422 /
+"already exists"), `create_branch` reuses it only in two safe shapes (`ceremony.py:692-716`): tip ==
+`origin/<base>` (commit onto it) or tip's parent == base (single archive commit already present — skip
+re-commit). Anything else is the diverged HALT above. Forbidden tokens (`environment` / `deployment` /
+`review` / …) riding an otherwise-sanctioned `git/refs` POST or `createCommitOnBranch` call still raise
+`SeamViolation` (`_assert_api_allowed`, `ceremony.py:297-299`) — that is a **code** bug, not an operator
+recovery path.
+
 ### 3.4 The two owner gates (never automated)
 
 | Gate | What it guards | Who | Where |
