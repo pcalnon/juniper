@@ -332,6 +332,8 @@ class TestWaitForHealth(unittest.TestCase):
             harness = f"""
                 set -euo pipefail
                 SCRIPT_NAME="isolated_stack.bash"
+                # Timeout ERROR line interpolates LOG_DIR under nounset.
+                LOG_DIR="/tmp/isolated-stack-health-fixture"
                 log() {{ echo "[${{SCRIPT_NAME}}] $*"; }}
                 {_extract_wait_for_health()}
                 set +e
@@ -364,7 +366,8 @@ class TestWaitForHealth(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("STATUS=1", result.stdout)
         self.assertIn("failed to become healthy within 2s", result.stdout)
-        self.assertNotIn("is healthy", result.stdout)
+        # Success arm logs "is healthy (took Ns)" — must not appear on timeout.
+        self.assertNotIn("is healthy (took", result.stdout)
 
     def test_data_cascor_canopy_up_wire_wait_for_health(self) -> None:
         # Drift guard: each bring-up path must gate on wait_for_health (not a
