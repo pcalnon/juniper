@@ -810,6 +810,7 @@ class BuildProposalTest(unittest.TestCase):
         clog = self.repo_root / "juniper-thing" / "CHANGELOG.md"
         if clog.exists():
             clog.unlink()
+        prop = pr.build_proposal(clog, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [clog], "2026-07-14")
         self.assertIn("no content to move", prop.skipped_reason)
         self.assertFalse(any(e.path.endswith("CHANGELOG.md") for e in prop.edits))
 
