@@ -219,11 +219,44 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             worker_bin.write_text("#!/usr/bin/env bash\nexit 0\n")
             worker_bin.chmod(0o755)
 
+    def _stage_cmd_stubs(self, root: Path) -> Path:
+        """Stub ``curl`` + ``ss`` so preflight is hermetic without iproute2.
+
+        Cloud / minimal images often lack ``ss``; without stubs the smoke
+        cases abort at the command check and never reach the worker-binary
+        / conda-env arms they intend to pin.
+        """
+        stub_bin = root / "path-stubs"
+        stub_bin.mkdir(parents=True, exist_ok=True)
+        for name in ("curl", "ss"):
+            stub = stub_bin / name
+            stub.write_text("#!/usr/bin/env bash\nexit 0\n")
+            stub.chmod(0o755)
+        return stub_bin
+
+    def _preflight_env(self, *, project_dir: Path, conda_dir: Path, stub_bin: Path, ports: tuple[str, str, str, str]) -> RedactedEnv:
+        env = RedactedEnv(os.environ)
+        env["JUNIPER_PROJECT_DIR"] = str(project_dir)
+        env["JUNIPER_CONDA_DIR"] = str(conda_dir)
+        env["JUNIPER_DATA_PORT"] = ports[0]
+        env["JUNIPER_CASCOR_PORT"] = ports[1]
+        env["JUNIPER_CANOPY_PORT"] = ports[2]
+        env["JUNIPER_WORKER_HEALTH_PORT"] = ports[3]
+        env["PATH"] = (
+            str(stub_bin)
+            + os.pathsep
+            + env.get("PATH", "")
+            + os.pathsep
+            + str(conda_dir / "envs" / "JuniperData" / "bin")
+        )
+        return env
+
     def test_missing_worker_binary_aborts_preflight(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project_dir = root / "Juniper"
             conda_dir = root / "miniforge3"
+            stub_bin = self._stage_cmd_stubs(root)
 
             for sub in ("juniper-data", "juniper-cascor/src", "juniper-canopy/src", "juniper-cascor-worker"):
                 (project_dir / sub).mkdir(parents=True, exist_ok=True)
@@ -242,17 +275,15 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             ):
                 self._make_env(conda_dir, env_name, with_worker_bin=with_bin)
 
-            env = RedactedEnv(os.environ)
-            env["JUNIPER_PROJECT_DIR"] = str(project_dir)
-            env["JUNIPER_CONDA_DIR"] = str(conda_dir)
-            env["JUNIPER_DATA_PORT"] = "65010"
-            env["JUNIPER_CASCOR_PORT"] = "65011"
-            env["JUNIPER_CANOPY_PORT"] = "65012"
-            env["JUNIPER_WORKER_HEALTH_PORT"] = "65013"
-            env["PATH"] = env.get("PATH", "") + os.pathsep + str(conda_dir / "envs" / "JuniperData" / "bin")
+            env = self._preflight_env(
+                project_dir=project_dir,
+                conda_dir=conda_dir,
+                stub_bin=stub_bin,
+                ports=("65010", "65011", "65012", "65013"),
+            )
 
             result = subprocess.run(
-                ["bash", str(SCRIPT_PATH)],
+                ["/bin/bash", str(SCRIPT_PATH)],
                 capture_output=True,
                 text=True,
                 env=env,
@@ -277,6 +308,7 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             root = Path(tmp)
             project_dir = root / "Juniper"
             conda_dir = root / "miniforge3"
+            stub_bin = self._stage_cmd_stubs(root)
 
             for sub in ("juniper-data", "juniper-cascor/src", "juniper-canopy/src", "juniper-cascor-worker"):
                 (project_dir / sub).mkdir(parents=True, exist_ok=True)
@@ -290,17 +322,15 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             for env_name in ("JuniperData", "JuniperCanopy1"):
                 self._make_env(conda_dir, env_name, with_worker_bin=False)
 
-            env = RedactedEnv(os.environ)
-            env["JUNIPER_PROJECT_DIR"] = str(project_dir)
-            env["JUNIPER_CONDA_DIR"] = str(conda_dir)
-            env["JUNIPER_DATA_PORT"] = "65020"
-            env["JUNIPER_CASCOR_PORT"] = "65021"
-            env["JUNIPER_CANOPY_PORT"] = "65022"
-            env["JUNIPER_WORKER_HEALTH_PORT"] = "65023"
-            env["PATH"] = env.get("PATH", "") + os.pathsep + str(conda_dir / "envs" / "JuniperData" / "bin")
+            env = self._preflight_env(
+                project_dir=project_dir,
+                conda_dir=conda_dir,
+                stub_bin=stub_bin,
+                ports=("65020", "65021", "65022", "65023"),
+            )
 
             result = subprocess.run(
-                ["bash", str(SCRIPT_PATH)],
+                ["/bin/bash", str(SCRIPT_PATH)],
                 capture_output=True,
                 text=True,
                 env=env,
@@ -322,6 +352,7 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             root = Path(tmp)
             project_dir = root / "Juniper"
             conda_dir = root / "miniforge3"
+            stub_bin = self._stage_cmd_stubs(root)
 
             for sub in ("juniper-data", "juniper-cascor/src", "juniper-canopy/src", "juniper-cascor-worker"):
                 (project_dir / sub).mkdir(parents=True, exist_ok=True)
@@ -335,18 +366,16 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             for env_name in ("JuniperData", "JuniperCascor1", "JuniperCanopy1", "CustomWorkerEnv"):
                 self._make_env(conda_dir, env_name, with_worker_bin=False)
 
-            env = RedactedEnv(os.environ)
-            env["JUNIPER_PROJECT_DIR"] = str(project_dir)
-            env["JUNIPER_CONDA_DIR"] = str(conda_dir)
+            env = self._preflight_env(
+                project_dir=project_dir,
+                conda_dir=conda_dir,
+                stub_bin=stub_bin,
+                ports=("65030", "65031", "65032", "65033"),
+            )
             env["JUNIPER_WORKER_CONDA"] = "CustomWorkerEnv"
-            env["JUNIPER_DATA_PORT"] = "65030"
-            env["JUNIPER_CASCOR_PORT"] = "65031"
-            env["JUNIPER_CANOPY_PORT"] = "65032"
-            env["JUNIPER_WORKER_HEALTH_PORT"] = "65033"
-            env["PATH"] = env.get("PATH", "") + os.pathsep + str(conda_dir / "envs" / "JuniperData" / "bin")
 
             result = subprocess.run(
-                ["bash", str(SCRIPT_PATH)],
+                ["/bin/bash", str(SCRIPT_PATH)],
                 capture_output=True,
                 text=True,
                 env=env,
