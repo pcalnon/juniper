@@ -24,6 +24,9 @@
 # ignored content is deleted with the worktree and may be precious (the
 # decrypted-secrets class). Pass --include-ignored to sweep such worktrees
 # anyway; tracked/untracked dirt is ALWAYS a hard skip regardless.
+# Both porcelain probes force -unormal so status.showUntrackedFiles=no cannot
+# blind the dirt / ignored guards (git worktree remove succeeds on ignored-
+# only debris; a false-negative here is silent secret deletion).
 # Convention: ad-hoc one-shot script, lives under util/ad-hoc/ per
 # CLAUDE.md "Script placement". Companion to worktree_sweep_survey.bash.
 
