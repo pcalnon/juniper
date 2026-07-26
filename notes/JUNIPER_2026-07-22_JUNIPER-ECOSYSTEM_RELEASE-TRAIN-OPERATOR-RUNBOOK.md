@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.1
+**Version**: 1.2.2
 **Last Updated**: 2026-07-26
 
 ---
@@ -119,6 +119,20 @@ When reviewing a Gate 1 PR, a `Security`-only Unreleased section should propose 
 a `Changed` section should propose **minor**. A mismatch means the detector/SemVer path drifted —
 re-run `report` mode before merging a hand-edited bump.
 
+#### Hygiene cleared (healthy path)
+
+The step-summary footer `hygiene: TAG_ONLY=…, NOTES_MISSING=…` (`detect.py:996-999`) is **convention
+debt**, not a deploy trigger. When a package is `UP_TO_DATE` **and** both bits are false, the detector
+found a matching GitHub Release for `diff_base_tag` **and** a central
+`notes/releases/RELEASE_NOTES_<pypi>_v<released>.md` archive (`detect.py:967-969`, `notes_missing` at
+`detect.py:879-882`; coverage juniper-ml#756). That is the healthy clear — do **not** confuse it with a
+quiet `TAG_ONLY=0` that still carries a `release-hygiene (tag_only) unavailable:` note. A `list_releases`
+`SourceError` sets `hygiene.tag_only = None` (falsy → not counted in `TAG_ONLY=`) while still evaluating
+`notes_missing` (`detect.py:971-973`); re-check Releases when gh recovers.
+
+`released_upload` in the manifest is the **earliest** PyPI `upload_time_iso_8601` for the released
+version (`detect.py:_upload_time`); missing/empty upload times → `None` (never invent a timestamp).
+
 ### 3.2 Dispatching `propose` against specific packages (Gate 1)
 
 ```bash
@@ -198,6 +212,28 @@ touches it.
 
 Hermetic coverage: `tests/test_release_train_propose.py` (happy-path shapes in juniper-ml#706;
 re-entry / absent / missing-header edges in juniper-ml#720).
+
+#### Gate 1 review — notes draft (`notes_render`)
+
+`propose` attaches a **DRAFT** release-notes file rendered from CHANGELOG `[Unreleased]`
+(`notes_render.render_notes`; plan §10.1). Review these header signals before merge — a wrong draft
+still archives at ceremony time:
+
+| Signal in the drafted notes | Expected | Source |
+|---|---|---|
+| Title `# … vX.Y.Z Release Notes` | Meta-package → **`# Juniper ML v…`** (not `# juniper-ml v…`); every other dist keeps its `pypi_name` | `display_name` (`notes_render.py:93-95`) |
+| `**Release Type:** …` | `major` → **MAJOR**, `minor` → **MINOR**, `patch`/`none`/unknown → **PATCH** | `release_type` / `_RELEASE_TYPE` (`notes_render.py:52`, `89-90`) |
+| `**Breaking changes:** …` | **YES** only when a Keep-a-Changelog **`Removed`** category is present (case-insensitive); otherwise **NO** | `notes_render.py:239` |
+| Bullets under What's New | Both `-` and `*` markers; indented / bare continuations fold into the current bullet; stray prose before any marker is ignored | `_split_bullets` (`notes_render.py:101-120`) / `parse_unreleased` |
+
+**Pitfalls:**
+
+- A meta proposal titled `# juniper-ml …` means `display_name` drifted — fix before ceremony archives it.
+- A MAJOR bump labeled PATCH (or Breaking stuck at NO despite a `### Removed` section) means the
+  bump→`release_type` map or the Removed membership check drifted.
+- Prefer `-` in hand-edited CHANGELOG, but do not reject a proposal solely because Unreleased used `*`.
+
+Coverage pins: `tests/test_release_train_propose.py` (juniper-ml#756).
 
 ### 3.3 Dispatching `ceremony` against specific packages (drives toward Gate 2)
 
@@ -441,7 +477,7 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
   (ml#701 / juniper-ml#710; edge-case coverage + already-at-target checklist fix juniper-ml#712).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
-- Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
+- Engines: `util/release_train/detect.py`, `propose.py`, `notes_render.py`, `ceremony.py`, `registry.yaml`.
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
   `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
   `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701),
@@ -449,5 +485,7 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
 - Static `_version.py` lockstep (Gate 1 review):
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
   §6 / §6.1 (implemented by juniper-ml#710; hardened by juniper-ml#712).
+- Notes-draft + healthy-hygiene operator edges (Gate 1 title/MAJOR/Breaking; `TAG_ONLY`/`NOTES_MISSING`
+  clear when Release + archive exist): coverage juniper-ml#756; this runbook §3.1 / §3.2.
 - Release convention (cut a Release, archive notes centrally): repo `AGENTS.md` "Publishing" +
   [`JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md`](JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md) §11.
