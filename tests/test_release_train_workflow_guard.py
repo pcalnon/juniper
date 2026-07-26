@@ -301,22 +301,19 @@ class ReleaseTrainWorkflowGuardTest(unittest.TestCase):
                 self.assertEqual(
                     len(steps),
                     1,
-                    f"the {job} job must have exactly one 'Configure git identity' step "
-                    f"(cross-repo sibling commits need a job-scoped global identity).",
+                    f"the {job} job must have exactly one 'Configure git identity' step " f"(cross-repo sibling commits need a job-scoped global identity).",
                 )
                 run = str(steps[0].get("run", ""))
                 for needle in required_global:
                     self.assertIn(
                         needle,
                         run,
-                        f"{job} identity step must use `{needle}` -- repo-local config does not "
-                        f"propagate into freshly-cloned sibling checkouts (ml#705).",
+                        f"{job} identity step must use `{needle}` -- repo-local config does not " f"propagate into freshly-cloned sibling checkouts (ml#705).",
                     )
                 for pat in local_only:
                     self.assertIsNone(
                         pat.search(run),
-                        f"{job} identity step must not use repo-local `{pat.pattern}` "
-                        f"(would reintroduce Author-identity-unknown on sibling checkouts).",
+                        f"{job} identity step must not use repo-local `{pat.pattern}` " f"(would reintroduce Author-identity-unknown on sibling checkouts).",
                     )
 
     def test_detect_job_does_not_configure_git_identity(self):
