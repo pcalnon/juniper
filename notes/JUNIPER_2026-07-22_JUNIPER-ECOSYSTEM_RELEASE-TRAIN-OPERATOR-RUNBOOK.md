@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.1
+**Version**: 1.2.2
 **Last Updated**: 2026-07-26
 
 ---
@@ -119,6 +119,24 @@ When reviewing a Gate 1 PR, a `Security`-only Unreleased section should propose 
 a `Changed` section should propose **minor**. A mismatch means the detector/SemVer path drifted —
 re-run `report` mode before merging a hand-edited bump.
 
+#### Live `gh compare` 300-file fallback (SemVer)
+
+GitHub's compare API caps the `files` array at **300**. Live detect (`make_live_sources().compare`,
+`detect.py:362-373`) must not leave busy subdir packages with a thinned path-scoped window:
+
+| Condition | Behavior |
+|---|---|
+| `len(files) >= 300` | Fall back to path-scoped `local_git_compare` (cap-free). When that local compare succeeds **and** the remote payload had commits, **keep the remote commit first-lines** for the SemVer signal (`detect.py:368-371`) — local commit messages are discarded. |
+| Below 300 | Use the `gh` payload as-is — `local_git_compare` is **not** called. |
+| Compare missing / not found | Return error (`ok=False`) — **no** local fallback. |
+| Cap hit but local compare fails | Surface the local error (never invent an empty `UP_TO_DATE`). |
+
+Full-history sibling clones exist so this fallback has tags + history (`release-train.yml` detect
+checkout note). A residual detector note `compare diff hit the 300-file cap with no ship evidence in
+view…` (`detect.py:954-957`) means ship evidence was still absent after the fallback window — re-run
+locally with `--local-git` or inspect the path-scoped diff by hand. Coverage pin: open
+juniper-ml#729 `LiveCompareCapFallbackTest`.
+
 ### 3.2 Dispatching `propose` against specific packages (Gate 1)
 
 ```bash
@@ -126,13 +144,32 @@ re-run `report` mode before merging a hand-edited bump.
 gh workflow run release-train.yml -f mode=propose -f packages=juniper-observability
 ```
 
-- The `packages` input is whitespace/comma-separated `pypi_name`s, validated against the pypi-name
-  charset (`release-train.yml`, the propose run step's parser). Empty = all eligible.
+- The `packages` input is whitespace/comma-separated `pypi_name`s with a hard charset reject (see
+  below). Empty = all eligible.
 - The resulting PRs are **standard-gated**: the owner reviews and merges them. This is **Gate 1** (the
   version bump only ships with owner approval; plan §5.3).
-- **In-repo pilot vs cross-repo**: with the GitHub App token minted (§7 below) sibling-repo packages get
-  PRs in their own repos; on the degraded no-App path only juniper-ml packages are proposed and siblings
+- **In-repo pilot vs cross-repo**: `--cross-repo` is emitted **only** when the App token is non-empty
+  (see below / §7). On the degraded no-App path only juniper-ml packages are proposed and siblings
   are skipped with a clear reason.
+
+#### `packages` dispatch charset + `--cross-repo` gate
+
+Both write jobs (`propose` and `ceremony`) share the same shell prefix **before** python runs
+(`release-train.yml:494-519` propose; `:703-727` ceremony). Structural substring pins alone can miss a
+weakened regex or a reordered `APP_TOKEN` gate — open juniper-ml#729 `PackagesInputRehearsalTest`
+extracts and *runs* the real prefix.
+
+| Input / condition | Result |
+|---|---|
+| Empty `packages` | No `--package` filter → all eligible (`package filter: <all eligible packages>`) |
+| Comma- or whitespace-separated tokens | Equivalent — `juniper-observability, juniper-ci-tools` → two `--package` args |
+| Token matching `^[a-z0-9][a-z0-9-]*$` | Accepted (lowercase letters, digits, hyphens; e.g. `juniper-observability`) |
+| Garbage token (`Juniper-Observability`, `juniper_observability`, `../x`, `a;rm …`) | Job exits **2** with `::error::invalid package token …` **before** `propose.py` / `ceremony.py` runs |
+| `APP_TOKEN` non-empty (App mint succeeded) | `--cross-repo` appended (Phase 4.1) |
+| `APP_TOKEN` empty (`RELEASE_TRAIN_APP_ID` unset) | No `--cross-repo`; siblings skipped — degraded in-repo path (§7) |
+
+**Pitfall:** Title Case, underscores, path fragments, and shell metacharacters fail the write job hard
+(exit ≥ 2). Fix the dispatch input and re-run — do not treat it as a python / §8 HALT failure.
 
 #### Gate 1 review — static `_version.py` dunder lockstep (ml#701 / juniper-ml#710)
 
@@ -205,6 +242,9 @@ re-entry / absent / missing-header edges in juniper-ml#720).
 # Run the exempt-archive + Release ceremony for BUMPED_NOT_RELEASED packages.
 gh workflow run release-train.yml -f mode=ceremony -f packages=juniper-observability
 ```
+
+The `packages` / `--cross-repo` shell contract is **identical** to §3.2 (same charset reject +
+`APP_TOKEN` gate; `release-train.yml:703-727`).
 
 For each `BUMPED_NOT_RELEASED` package the ceremony (`ceremony.py:1-45`): runs the §8 preconditions,
 builds the central notes file, opens the **add-only** archive PR (always in juniper-ml — the central

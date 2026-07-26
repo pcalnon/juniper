@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.5
-**Date**: 2026-06-04
+**Version**: 1.0.6
+**Date**: 2026-07-26
 **Project**: juniper-ml
 
 ---
@@ -226,8 +226,15 @@ hosted in a sibling never touch the host header.
 timeout while still building *or* permanently missing reports honest `IN_PROGRESS` (never invents
 `PENDING` / `RELEASED` / HALT) — re-run ceremony after confirming the publish workflow fired.
 Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `local_git_compare` treats
-`.py` A/D/R/**C** as inherently substantive. Operator tables:
+`.py` A/D/R/**C** as inherently substantive. Live `gh compare` at the **300-file** cap falls back to
+`local_git_compare` and **keeps remote commit first-lines** for SemVer (`detect.py:368-371`; pin
+juniper-ml#729). Operator tables:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
+
+**Release-train `packages` dispatch + `--cross-repo`.** Both write jobs reject garbage
+`packages` tokens (`Juniper-Observability`, underscores, `../`, `;`) with exit **2** + `::error::`
+before python runs; empty = all eligible; commas ≡ whitespace. `--cross-repo` only when `APP_TOKEN`
+is non-empty. Runbook §3.2; pin juniper-ml#729 `PackagesInputRehearsalTest`.
 
 **Release-train write-job git identity (ml#705):** when editing `.github/workflows/release-train.yml`, keep both `propose` and `ceremony` identity steps on `git config --global user.name|user.email|commit.gpgsign` (never bare repo-local `git config`). Cross-repo commits land in freshly-cloned sibling checkouts; a juniper-ml-only identity leaves them with `Author identity unknown` (run 30040138774). Operator detail: runbook §7 / §8.7.
 
@@ -288,6 +295,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-06-04
-**Version:** 1.0.5
+**Last Updated:** 2026-07-26
+**Version:** 1.0.6
 **Maintainer:** Paul Calnon
