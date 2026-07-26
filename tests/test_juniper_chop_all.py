@@ -187,9 +187,7 @@ class TestValidatePid(unittest.TestCase):
     def _add_proc(self, proc_root: Path, pid: int, cmdline_parts: list[str]) -> None:
         process_dir = proc_root / str(pid)
         process_dir.mkdir(parents=True)
-        (process_dir / "cmdline").write_bytes(
-            b"\0".join(part.encode("utf-8") for part in cmdline_parts) + b"\0"
-        )
+        (process_dir / "cmdline").write_bytes(b"\0".join(part.encode("utf-8") for part in cmdline_parts) + b"\0")
 
     def test_matching_underscore_module_path_is_accepted(self) -> None:
         # plant launches uvicorn juniper_data... while pidfile key is juniper-data.
@@ -272,7 +270,7 @@ class TestValidatePid(unittest.TestCase):
     def test_script_wires_proc_root_override(self) -> None:
         # Drift guard: the live function must honour JUNIPER_CHOP_PROC_ROOT.
         self.assertIn("JUNIPER_CHOP_PROC_ROOT", SCRIPT_TEXT)
-        self.assertIn('${JUNIPER_CHOP_PROC_ROOT:-/proc}', SCRIPT_TEXT)
+        self.assertIn("${JUNIPER_CHOP_PROC_ROOT:-/proc}", SCRIPT_TEXT)
 
 
 if __name__ == "__main__":
