@@ -108,27 +108,28 @@ gh workflow run release-train.yml -f mode=propose -f packages=juniper-observabil
 #### Gate 1 review — static `_version.py` dunder lockstep (ml#701 / juniper-ml#710)
 
 All five in-repo **static** packages (`juniper-ci-tools`, `juniper-config-tools`, `juniper-doc-tools`,
-`juniper-observability`, `juniper-service-core`) also ship `<import>/_version.py` `__version__`. A
-pyproject-only bump used to ship wheels whose metadata was right while `__version__` lied (ci-tools
-0.7.0 / service-core 0.5.0). As of juniper-ml#710, `propose.py` auto-detects that dunder by file
-presence (no registry field) and bumps it in the same proposal (`build_proposal` step 3a; design
-[`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)).
+`juniper-observability`, `juniper-service-core`) also ship a `_version.py` `__version__` dunder. A
+pyproject-only bump ships a wheel whose metadata is right while `__version__` lies (ci-tools 0.7.0 /
+service-core 0.5.0; design
+[`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md);
+implementation juniper-ml#710).
 
-When reviewing a Gate 1 proposal for a static in-repo package, confirm:
+When reviewing a Gate 1 proposal for one of those packages, expect:
 
-1. **Both files move together** — `pyproject.toml` `[project].version` **and**
-   `<import>/_version.py` `__version__` in the Files-changed list (or the PR body's
-   `### Version bump` names the lockstep dunder co-change).
-2. **Checklist is honest** — if the co-change checklist says the dunder bump is
-   `REQUIRED (... edit manually)`, the auto-edit could not parse `__version__ = "..."`; fix it in the
-   proposal before merge (same pattern as a missing AGENTS.md header edit).
-3. **CI gate** — `tests/test_release_train_registry.py::VersionDunderLockstepTest` (ships with
-   juniper-ml#710) asserts pyproject == dunder for every in-repo static-with-dunder package
-   (dynamic packages are exempt — their dunder *is* the source). A red
-   `VersionDunderLockstepTest` means do not merge.
+| Signal in the proposal PR | Meaning | Operator action |
+|---|---|---|
+| Diff edits **both** `pyproject.toml` `[project].version` **and** `<import>/_version.py` | Normal lockstep co-change (`propose.py` step 3a; auto-detected by file presence, no registry field). Single- or double-quoted `__version__` both count. | Merge when the rest of the proposal looks right |
+| Body names a lockstep `__version__` dunder co-change + checklist "included in this PR" | Train already applied the dunder edit | No extra manual edit |
+| Checklist item **REQUIRED** (`__version__` assignment not found); body does **not** claim a lockstep co-change | File exists but is unparseable — train left it alone (AGENTS.md-header precedent) | Edit `__version__` by hand in the same PR before merge |
+| Diff touches **only** `pyproject.toml` for version; **no** dunder checklist item; `__version__` already equals `to_version` | Partial heal / re-entry — step 3a left a correct dunder alone (silent success; juniper-ml#712) | Confirm the dunder is already at the proposed version, then merge |
+| Diff touches **only** `pyproject.toml` for version; dunder still at `from_version` (or missing) | Pre-#710 / stale train / bug — the old failure class | Do **not** merge as-is; add the dunder bump (or re-dispatch `propose`) |
 
-Dynamic packages (model-core + the three recurrence packages) are unchanged: the version bump *is*
-the `_version.py` edit, so there is no separate lockstep co-change to look for.
+**Pitfall (pre-#712 only):** if a proposal still shows checklist **REQUIRED** while `__version__` already equals the proposed version, that is a false alarm from the #710 checklist shape — do **not** "fix" a correct dunder; merge after confirming, or re-dispatch `propose` once #712 is on main.
+
+Always-on CI gate (train or no train; lands with juniper-ml#710): `tests/test_release_train_registry.py`
+(`VersionDunderLockstepTest`) asserts pyproject == dunder for every in-repo static-with-dunder package.
+Dynamic packages (`juniper-model-core` + the three recurrence packages) are exempt — their `_version.py`
+**is** the version source. Manual hand-bumps outside the train must still move both files together.
 
 ### 3.3 Dispatching `ceremony` against specific packages (drives toward Gate 2)
 
@@ -357,7 +358,7 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   §12 phased plan (steps 1.3/2.2/4.1/4.3).
 - Static-with-dunder lockstep design + implementation record:
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
-  (ml#701 / juniper-ml#710).
+  (ml#701 / juniper-ml#710; edge-case coverage + already-at-target checklist fix juniper-ml#712).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
 - Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
