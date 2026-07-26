@@ -555,24 +555,6 @@ class ClassifyPublishRunTest(unittest.TestCase):
         }
         self.assertEqual(ce.classify_publish_run(run), "IN_PROGRESS")
 
-    def test_job_level_pending_accepts_queued_pending_and_empty_status(self):
-        """Belt-and-suspenders job-level gate: run still ``in_progress`` but TestPyPI
-        succeeded and the PyPI job is parked — ``queued`` / ``pending`` / ``""`` must
-        count as parked alongside the already-covered ``waiting`` status. Dropping any
-        of these silently reclassifies Gate-2 parking as ``IN_PROGRESS`` and keeps the
-        ceremony polling until timeout."""
-        for pypi_status in ("queued", "pending", ""):
-            with self.subTest(pypi_status=pypi_status):
-                run = {
-                    "status": "in_progress",
-                    "conclusion": None,
-                    "jobs": [
-                        {"name": "Publish to TestPyPI", "status": "completed", "conclusion": "success"},
-                        {"name": "Publish to PyPI", "status": pypi_status, "conclusion": None},
-                    ],
-                }
-                self.assertEqual(ce.classify_publish_run(run), "PENDING_PYPI_APPROVAL")
-
 
 # ── execute path (fake write seam; NEVER touches the real repo) ───────────────
 

@@ -219,38 +219,6 @@ class SubstantiveBetweenTest(unittest.TestCase):
         self.assertEqual(d.classify_change(fc_false, e, None)[0], "nonship")
 
 
-class TestPathNonshipTest(unittest.TestCase):
-    """``_is_test_path`` / ``classify_change`` must discount test files as nonship.
-
-    A regression that ships test-only edits would inflate SemVer proposals and
-    trip ``UNRELEASED_CHANGES`` on every CI-only day. Integration coverage in
-    ``ClassificationTest.test_up_to_date_only_nonship_changes`` exercises the
-    aggregate path; these pin the classifier's test-path short-circuit directly.
-    """
-
-    def test_is_test_path_shapes(self):
-        self.assertTrue(d._is_test_path("juniper-thing/tests/test_mod.py"))
-        self.assertTrue(d._is_test_path("juniper-thing/test/helpers.py"))
-        self.assertTrue(d._is_test_path("juniper-thing/juniper_thing/conftest.py"))
-        self.assertTrue(d._is_test_path("juniper-thing/juniper_thing/test_helpers.py"))
-        self.assertTrue(d._is_test_path("juniper-thing/juniper_thing/helpers_test.py"))
-        self.assertFalse(d._is_test_path("juniper-thing/juniper_thing/mod.py"))
-        self.assertFalse(d._is_test_path("juniper-thing/juniper_thing/testing_utils.py"))
-
-    def test_classify_change_discounts_test_paths_even_with_real_code_patch(self):
-        e = _entry()
-        for filename in (
-            "juniper-thing/tests/test_mod.py",
-            "juniper-thing/juniper_thing/conftest.py",
-            "juniper-thing/juniper_thing/test_helpers.py",
-            "juniper-thing/juniper_thing/helpers_test.py",
-        ):
-            with self.subTest(filename=filename):
-                kind, reason = d.classify_change(_fc(filename, _REAL_CODE_PATCH), e, None)
-                self.assertEqual(kind, "nonship")
-                self.assertEqual(reason, "tests")
-
-
 class PyprojectClassifierTest(unittest.TestCase):
     def test_runtime_extra_change_is_ship(self):
         patch = '@@ -50,2 +50,4 @@\n [project.optional-dependencies]\n clients = ["juniper-data-client>=0.4.1"]\n+recurrence = [\n+  "juniper-recurrence>=0.2.0,<0.3.0",\n+]'

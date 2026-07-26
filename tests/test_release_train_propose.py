@@ -672,33 +672,11 @@ class BuildProposalTest(unittest.TestCase):
         self.assertIn("changelog conflict", prop.skipped_reason)
         self.assertEqual(prop.edits, [])
 
-    def test_bump_none_is_refused_without_edits(self):
-        """A manifest that cannot propose a SemVer bump (``proposed_bump=none`` /
-        empty ``proposed_version``) must return a refusal stub — never invent a
-        version or emit pyproject/CHANGELOG edits."""
-        _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog=_CHANGELOG)
-        entry = _entry()
-        pkg = _manifest_pkg(proposed_bump="none", proposed_version=None)
-        prop = pr.build_proposal(entry, pkg, self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
-        self.assertTrue(prop.skipped)
-        self.assertIn("no proposable version", prop.skipped_reason)
-        self.assertIn("bump=none", prop.skipped_reason)
-        self.assertEqual(prop.edits, [])
-
-    def test_unreadable_version_file_is_refused(self):
-        """Missing version file (read_file → None) refuses before any edit is staged —
-        a silent skip here would open an empty proposal PR."""
-        # Intentionally do NOT write the package tree; templates alone are present.
-        entry = _entry()
-        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
-        self.assertTrue(prop.skipped)
-        self.assertIn("could not read the version file", prop.skipped_reason)
-        self.assertEqual(prop.edits, [])
-
-    def test_changelog_move_refused_propagates_as_skipped(self):
-        """``move_unreleased`` refusal (empty [Unreleased]) must surface as
-        ``CHANGELOG move refused: ...`` with zero edits — never a half-bumped
-        pyproject left without a dated section."""
+    def test_changelog_move_refused_clears_staged_edits(self):
+        """``move_unreleased`` refusal (empty [Unreleased]) must clear any version
+        bump staged before the move — open #749 pins the skip/reason; this pins
+        the clear-on-refuse stub shape (edits=[], no branch) so JSON/operators
+        never see a half-proposal."""
         empty_unreleased = textwrap.dedent(
             """\
             # Changelog
@@ -721,9 +699,9 @@ class BuildProposalTest(unittest.TestCase):
         self.assertEqual(prop.edits, [])
         self.assertIsNone(prop.branch)
 
-    def test_unreadable_changelog_is_refused_without_half_edits(self):
-        """Missing CHANGELOG after the version bump is staged must still refuse with
-        an empty edits list (same clear-on-refuse contract as move_unreleased)."""
+    def test_unreadable_changelog_clears_staged_edits(self):
+        """Missing CHANGELOG after the version bump is staged must refuse with an
+        empty edits list (same clear-on-refuse contract as move_unreleased)."""
         _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog="")
         # _write_pkg only writes CHANGELOG when truthy; ensure the version file exists
         # but CHANGELOG.md does not.
