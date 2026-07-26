@@ -477,9 +477,7 @@ class TestSafeCondaActivate(unittest.TestCase):
         # are not interpreted as Python format fields.
         harness = (
             "set -euo pipefail\n"
-            f'export PATH="{bin_dir}:/usr/bin:/bin"\n'
-            + _extract_safe_conda_activate()
-            + 'safe_conda_activate "JuniperCanopy1"\n'
+            f'export PATH="{bin_dir}:/usr/bin:/bin"\n' + _extract_safe_conda_activate() + 'safe_conda_activate "JuniperCanopy1"\n'
             "case $- in\n"
             '  *u*) echo "NOUNSET_ON" ;;\n'
             '  *) echo "NOUNSET_OFF"; exit 1 ;;\n'
@@ -505,12 +503,7 @@ class TestSafeCondaActivate(unittest.TestCase):
             bin_dir.mkdir()
             conda = bin_dir / "conda"
             # Mimic ADDR2LINE class: activate scripts reference unset vars.
-            conda.write_text(
-                "#!/bin/bash\n"
-                'if [[ "$1" == "activate" ]]; then\n'
-                '  : "${ADDR2LINE}"\n'
-                "fi\n"
-            )
+            conda.write_text("#!/bin/bash\n" 'if [[ "$1" == "activate" ]]; then\n' '  : "${ADDR2LINE}"\n' "fi\n")
             conda.chmod(0o755)
             result = self._run_activate(bin_dir)
             self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
