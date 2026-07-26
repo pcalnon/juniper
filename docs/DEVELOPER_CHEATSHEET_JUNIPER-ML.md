@@ -261,6 +261,8 @@ Release. Step summary shows **resume-monitor**; `plan_state` stays `RESUME_MONIT
 the monitor verdict. TestPyPI failure on resume still HALTs + files an issue (no re-cut). Distinct from
 `ALREADY_RELEASED` (PyPI already serves the target). Operator details: runbook §3.3 / §5.5.
 
+**Ceremony `notes-render-failed` HALT.** After a non-empty `CHANGELOG [<version>]` is found, ceremony still HALTs if `notes_render.render_notes` raises `OSError` (typically a missing template under `--repo-root`). Distinct from `changelog-section-missing`. Restore `notes/templates/TEMPLATE_RELEASE_NOTES.md` (or the security template) and re-run — no Release was cut. See operator runbook §4.
+
 ---
 
 ## Environment Variables
