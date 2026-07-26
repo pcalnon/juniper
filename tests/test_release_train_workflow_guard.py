@@ -339,6 +339,7 @@ class ReleaseTrainWorkflowGuardTest(unittest.TestCase):
     # (h) Phase 4.1: mint repositories / ECOSYSTEM_REPOS lockstep with registry.yaml --------------
     def _registry_publishing_repos(self) -> frozenset[str]:
         """Unique ``repo`` values from ``util/release_train/registry.yaml`` (the S4.1 source of truth)."""
+        self.repo_root = _find_repo_root(Path(__file__).resolve().parent)
         registry_path = self.repo_root / "util" / "release_train" / "registry.yaml"
         data = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
         packages = data.get("packages") or []
@@ -364,14 +365,12 @@ class ReleaseTrainWorkflowGuardTest(unittest.TestCase):
         self.assertEqual(
             propose_repos,
             expected,
-            "propose mint repositories: must equal registry.yaml's publishing-repo set "
-            f"(extra={sorted(propose_repos - expected)}, missing={sorted(expected - propose_repos)}).",
+            "propose mint repositories: must equal registry.yaml's publishing-repo set " f"(extra={sorted(propose_repos - expected)}, missing={sorted(expected - propose_repos)}).",
         )
         self.assertEqual(
             ceremony_repos,
             expected,
-            "ceremony mint repositories: must equal registry.yaml's publishing-repo set "
-            f"(extra={sorted(ceremony_repos - expected)}, missing={sorted(expected - ceremony_repos)}).",
+            "ceremony mint repositories: must equal registry.yaml's publishing-repo set " f"(extra={sorted(ceremony_repos - expected)}, missing={sorted(expected - ceremony_repos)}).",
         )
         self.assertEqual(
             propose_repos,
@@ -388,8 +387,7 @@ class ReleaseTrainWorkflowGuardTest(unittest.TestCase):
         self.assertEqual(
             ecosystem,
             expected_siblings,
-            "env.ECOSYSTEM_REPOS must equal registry publishing repos minus juniper-ml "
-            f"(extra={sorted(ecosystem - expected_siblings)}, missing={sorted(expected_siblings - ecosystem)}).",
+            "env.ECOSYSTEM_REPOS must equal registry publishing repos minus juniper-ml " f"(extra={sorted(ecosystem - expected_siblings)}, missing={sorted(expected_siblings - ecosystem)}).",
         )
         self.assertNotIn("juniper-ml", ecosystem, "juniper-ml is the workflow checkout, not an ECOSYSTEM_REPOS clone")
         self.assertNotIn("juniper-deploy", ecosystem, "juniper-deploy hosts no PyPI package and must not be cloned")
@@ -408,8 +406,7 @@ class ReleaseTrainWorkflowGuardTest(unittest.TestCase):
                 self.assertIn(
                     charset_needle,
                     blob,
-                    f"{job} must validate every packages-input token against the pypi-name charset "
-                    "(reject ../x / UPPER / ;rm rather than shelling garbage into propose.py/ceremony.py).",
+                    f"{job} must validate every packages-input token against the pypi-name charset " "(reject ../x / UPPER / ;rm rather than shelling garbage into propose.py/ceremony.py).",
                 )
                 self.assertIn("exit 2", blob, f"{job} packages-input reject path must exit 2")
                 self.assertIn("::error::", blob, f"{job} packages-input reject path must emit ::error::")
@@ -425,8 +422,7 @@ class ReleaseTrainWorkflowGuardTest(unittest.TestCase):
                 self.assertRegex(
                     blob,
                     r'if\s+\[\s+-n\s+"\$\{APP_TOKEN:-\}"\s*\]',
-                    f"{job} must gate --cross-repo on a non-empty APP_TOKEN "
-                    "(unconditional --cross-repo breaks the no-App degraded GITHUB_TOKEN path).",
+                    f"{job} must gate --cross-repo on a non-empty APP_TOKEN " "(unconditional --cross-repo breaks the no-App degraded GITHUB_TOKEN path).",
                 )
                 # Sanity: the flag is added inside that branch, not as a bare always-on argv.
                 # Extract the APP_TOKEN if-block (best-effort; structural, not a shell parser).
