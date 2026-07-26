@@ -214,8 +214,9 @@ jobs:
           # fallback, unresolved stays UNRESOLVED, input bundle not mutated. Stdlib only.
           python3 -m unittest -v tests/test_symbol_overlay.py
           # tests/test_generated_prompt_index.py: util/generated_prompt_index.py (P4) -- indexes
-          # prompts/generated/ by the emit-name convention + a SAFETY-gated prune (no delete
-          # without --yes; .gitkeep/non-convention files never touched; dir read from conventions.yaml).
+          # prompts/generated/ by the emit-name convention + a SAFETY-gated prune/archive (no
+          # delete/move without --yes; .gitkeep/non-convention files never touched; dir read from
+          # conventions.yaml).
           python3 -m unittest -v tests/test_generated_prompt_index.py
           # tests/test_thread_handoff_archive.py: drift guard for the archived handoff prompt
           # filename convention and top-level note references to archived handoff prompts.
