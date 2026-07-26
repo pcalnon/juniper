@@ -110,7 +110,7 @@ gh workflow run release-train.yml -f mode=propose -f packages=juniper-observabil
 `build_proposal` returns a **skipped** stub (`skipped_reason` set; no PR opened) when inputs are
 unusable — it never invents a shippable bump or an empty CHANGELOG section (`propose.py:1029-1107`).
 `execute_proposal` already no-ops on `skipped`, so these are dry-run / JSON / step-summary signals.
-Coverage: open juniper-ml#749 (`BuildProposalTest` refusal cases).
+Coverage: juniper-ml#749 (`BuildProposalTest` refusal cases).
 
 | `skipped_reason` contains | Cause | Operator response |
 |---|---|---|
