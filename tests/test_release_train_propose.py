@@ -677,8 +677,7 @@ class BuildProposalTest(unittest.TestCase):
         bump staged before the move — open #749 pins the skip/reason; this pins
         the clear-on-refuse stub shape (edits=[], no branch) so JSON/operators
         never see a half-proposal."""
-        empty_unreleased = textwrap.dedent(
-            """\
+        empty_unreleased = textwrap.dedent("""\
             # Changelog
 
             ## [Unreleased]
@@ -688,8 +687,7 @@ class BuildProposalTest(unittest.TestCase):
             ### Added
 
             - initial release
-            """
-        )
+            """)
         _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog=empty_unreleased)
         entry = _entry()
         prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
