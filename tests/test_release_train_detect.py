@@ -642,9 +642,7 @@ class LiveCompareCapFallbackTest(unittest.TestCase):
             truncated=False,
             ok=True,
         )
-        with mock.patch.object(d, "_gh_json_single", return_value={"files": remote_files, "commits": remote_commits}) as gh, mock.patch.object(
-            d, "local_git_compare", return_value=local
-        ) as local_cmp:
+        with mock.patch.object(d, "_gh_json_single", return_value={"files": remote_files, "commits": remote_commits}) as gh, mock.patch.object(d, "local_git_compare", return_value=local) as local_cmp:
             result = self.sources.compare(self.entry, "juniper-thing-v0.4.0", "main")
         gh.assert_called_once()
         local_cmp.assert_called_once_with(self.entry, "juniper-thing-v0.4.0", "main", self.repo_root)
@@ -656,9 +654,7 @@ class LiveCompareCapFallbackTest(unittest.TestCase):
     def test_below_300_uses_gh_payload_without_local_fallback(self):
         remote_files = [{"filename": f"f{i}.py", "status": "modified", "patch": "@@ -1 +1 @@\n-a\n+b"} for i in range(299)]
         remote_commits = [{"commit": {"message": "chore: under the cap"}}]
-        with mock.patch.object(d, "_gh_json_single", return_value={"files": remote_files, "commits": remote_commits}), mock.patch.object(
-            d, "local_git_compare"
-        ) as local_cmp:
+        with mock.patch.object(d, "_gh_json_single", return_value={"files": remote_files, "commits": remote_commits}), mock.patch.object(d, "local_git_compare") as local_cmp:
             result = self.sources.compare(self.entry, "juniper-thing-v0.4.0", "main")
         local_cmp.assert_not_called()
         self.assertTrue(result.ok)
@@ -676,9 +672,7 @@ class LiveCompareCapFallbackTest(unittest.TestCase):
     def test_local_fallback_failure_is_returned_when_cap_hit(self):
         remote_files = [{"filename": f"f{i}.py", "status": "modified"} for i in range(300)]
         failed = d.CompareResult(files=[], commits=[], ok=False, error="local diff failed")
-        with mock.patch.object(d, "_gh_json_single", return_value={"files": remote_files, "commits": []}), mock.patch.object(
-            d, "local_git_compare", return_value=failed
-        ):
+        with mock.patch.object(d, "_gh_json_single", return_value={"files": remote_files, "commits": []}), mock.patch.object(d, "local_git_compare", return_value=failed):
             result = self.sources.compare(self.entry, "juniper-thing-v0.4.0", "main")
         self.assertFalse(result.ok)
         self.assertEqual(result.error, "local diff failed")
