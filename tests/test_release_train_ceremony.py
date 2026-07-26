@@ -28,8 +28,9 @@ Covers (task acceptance list):
     `origin/<base>`, unresolvable existing-branch tip, non-422 ref-create transport errors, and a
     malformed createCommitOnBranch payload returning an empty oid rather than crashing
   * `--dry-run` writes NOTHING (a git-tracked repo_root's `git status` stays clean)
-  * the execute happy path (PENDING_PYPI_APPROVAL), the auto-merge graceful-degrade, and the pure
-    helpers (classify_publish_run, changelog_version_section, infer_bump, release_tag)
+  * the execute happy path (PENDING_PYPI_APPROVAL), the auto-merge graceful-degrade, execute-time
+    RESUME_MONITOR re-entry (no re-open / no re-cut), and the pure helpers
+    (classify_publish_run, changelog_version_section, infer_bump, release_tag)
 
 Run: python3 -m unittest -v tests/test_release_train_ceremony.py
 
@@ -628,6 +629,36 @@ class ExecuteTest(unittest.TestCase):
         self.assertEqual(result["state"], "HALTED")
         self.assertIn("issue_url", result)
         self.assertTrue(any(c[0] == "upsert_halt_issue" for c in rec.calls))
+
+    def test_execute_resume_monitor_does_not_reopen_archive_or_release(self):
+        """Release already cut -> RESUME_MONITOR execute must only monitor (plan S8 last row).
+
+        Planner coverage already pins the action list; this pins the execute seam so a regression
+        that re-opens the archive PR or re-cuts the Release on re-entry fails in CI.
+        """
+        rec, src = self._mk(release_cut=True, run_status=PENDING_RUN)
+        plan = ce.plan_ceremony(_entry(), _manifest_pkg(), src, REPO_ROOT, REPO_ROOT.parent, "2026-07-17")
+        self.assertEqual(plan.state, "RESUME_MONITOR")
+        self.assertEqual(plan.action_kinds, ["monitor_publish"])
+        result = ce.execute_ceremony(plan, src, monitor_kwargs={"timeout_seconds": 0, "sleep": lambda s: None})
+        self.assertEqual(result["plan_state"], "RESUME_MONITOR")
+        self.assertEqual(result["state"], "PENDING_PYPI_APPROVAL")
+        self.assertIsNone(result["pr_url"])
+        self.assertIsNone(result["release_url"])
+        self.assertEqual(rec.calls, [])  # no open_archive_pr / enable_automerge / create_release / halt
+
+    def test_execute_resume_monitor_testpypi_failure_files_issue_without_recut(self):
+        """RESUME_MONITOR + TestPyPI failure HALTs and files the issue without re-cutting anything."""
+        rec, src = self._mk(release_cut=True, run_status=FAILED_TESTPYPI_RUN)
+        plan = ce.plan_ceremony(_entry(), _manifest_pkg(), src, REPO_ROOT, REPO_ROOT.parent, "2026-07-17")
+        self.assertEqual(plan.state, "RESUME_MONITOR")
+        result = ce.execute_ceremony(plan, src, monitor_kwargs={"timeout_seconds": 0, "sleep": lambda s: None})
+        self.assertEqual(result["plan_state"], "RESUME_MONITOR")
+        self.assertEqual(result["state"], "HALTED")
+        self.assertIsNone(result["pr_url"])
+        self.assertIsNone(result["release_url"])
+        kinds = [c[0] for c in rec.calls]
+        self.assertEqual(kinds, ["upsert_halt_issue"])
 
 
 # ── CLI: dry-run writes nothing + exit codes ─────────────────────────────────
