@@ -37,6 +37,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -109,6 +110,18 @@ def _project_version(pyproject: Path) -> "str | None":
         if m:
             return m.group(1)
     return None
+
+
+def _dunder_version(text: str) -> "str | None":
+    """Extract ``__version__`` from a ``_version.py`` body (same regex the live gate uses)."""
+    m = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', text, re.MULTILINE)
+    return m.group(1) if m else None
+
+
+def _versions_in_lockstep(pyver: "str | None", dunder_text: str) -> bool:
+    """True when a static ``[project].version`` equals the dunder (the ml#701 comparator)."""
+    dver = _dunder_version(dunder_text)
+    return pyver is not None and dver is not None and pyver == dver
 
 
 def _has_project_table(pyproject: Path) -> bool:
@@ -269,6 +282,24 @@ class VersionDunderLockstepTest(unittest.TestCase):
     def setUpClass(cls):
         cls.packages = _load_raw()
 
+    def test_project_version_reads_static_assignment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pp = Path(tmp) / "pyproject.toml"
+            pp.write_text('[project]\nname = "juniper-x"\nversion = "0.5.0"\ndescription = "x"\n', encoding="utf-8")
+            self.assertEqual(_project_version(pp), "0.5.0")
+            dyn = Path(tmp) / "dynamic.toml"
+            dyn.write_text('[project]\nname = "juniper-x"\ndynamic = ["version"]\n', encoding="utf-8")
+            self.assertIsNone(_project_version(dyn))
+
+    def test_lockstep_comparator_bites_on_synthetic_drift(self):
+        # Synthetic negative (service-core 0.5.0 class): pyproject ahead of dunder must NOT lockstep.
+        self.assertFalse(_versions_in_lockstep("0.5.0", '"""v."""\n__version__ = "0.4.0"\n'))
+        self.assertTrue(_versions_in_lockstep("0.5.0", '"""v."""\n__version__ = "0.5.0"\n'))
+        self.assertFalse(_versions_in_lockstep("0.5.0", '"""No dunder."""\nVERSION = (0, 5, 0)\n'))
+        self.assertFalse(_versions_in_lockstep(None, '__version__ = "0.5.0"\n'))
+        # single quotes are accepted (same regex as the live gate)
+        self.assertTrue(_versions_in_lockstep("0.1.1", "__version__ = '0.1.1'\n"))
+
     def test_static_in_repo_pyproject_version_equals_dunder(self):
         eligible = 0
         for pkg in self.packages:
@@ -282,10 +313,38 @@ class VersionDunderLockstepTest(unittest.TestCase):
             with self.subTest(pkg=pkg["pypi_name"]):
                 pyver = _project_version(base / "pyproject.toml")
                 self.assertIsNotNone(pyver, f"{pkg['pypi_name']}: no static [project].version in {base / 'pyproject.toml'}")
-                m = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', dunder.read_text(encoding="utf-8"), re.MULTILINE)
-                self.assertIsNotNone(m, f"{dunder}: no __version__ assignment")
-                self.assertEqual(pyver, m.group(1), f"{pkg['pypi_name']}: pyproject [project].version {pyver!r} != {dunder.relative_to(REPO_ROOT)} __version__ {m.group(1)!r} -- the ml#701 stale-dunder class; bump both in lockstep (propose.py does this automatically since ml#701's implementation)")
+                dtext = dunder.read_text(encoding="utf-8")
+                self.assertTrue(
+                    _versions_in_lockstep(pyver, dtext),
+                    f"{pkg['pypi_name']}: pyproject [project].version {pyver!r} != {dunder.relative_to(REPO_ROOT)} __version__ {_dunder_version(dtext)!r} -- the ml#701 stale-dunder class; bump both in lockstep (propose.py does this automatically since ml#701's implementation)",
+                )
         self.assertEqual(eligible, 5, f"expected exactly the 5 static-with-dunder in-repo packages (ci-tools, config-tools, doc-tools, observability, service-core), found {eligible} -- registry or tree drifted; update this count deliberately")
+
+    def test_gate_dunder_path_matches_propose_dunder_file_rel(self):
+        # the gate derives the dunder path from pypi_name; propose.py uses PackageEntry.import_package
+        # (also pypi_name with '-' -> '_'). Keep them identical so a rename cannot split the two.
+        sys.path.insert(0, str(REPO_ROOT / "util" / "release_train"))
+        import detect as detect_mod  # noqa: PLC0415
+        import propose as propose_mod  # noqa: PLC0415
+
+        entries = {e.pypi_name: e for e in detect_mod.load_registry()}
+        checked = 0
+        for pkg in self.packages:
+            if pkg["repo"] != "juniper-ml" or pkg["version_source"] != "static":
+                continue
+            base = REPO_ROOT if pkg["path"] == "." else REPO_ROOT / pkg["path"]
+            gate_path = base / pkg["pypi_name"].replace("-", "_") / "_version.py"
+            if not gate_path.is_file():
+                continue
+            entry = entries[pkg["pypi_name"]]
+            propose_rel = propose_mod.dunder_file_rel(entry)
+            self.assertEqual(
+                (REPO_ROOT / propose_rel).resolve(),
+                gate_path.resolve(),
+                f"{pkg['pypi_name']}: gate path {gate_path} != propose dunder_file_rel {propose_rel}",
+            )
+            checked += 1
+        self.assertEqual(checked, 5)
 
 
 class RegistryCrossRepoResolutionTest(unittest.TestCase):
