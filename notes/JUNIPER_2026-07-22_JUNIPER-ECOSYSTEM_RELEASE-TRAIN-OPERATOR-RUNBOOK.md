@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.1
+**Version**: 1.2.2
 **Last Updated**: 2026-07-26
 
 ---
@@ -118,6 +118,47 @@ Keep-a-Changelog categories + conventional-commit classes map to the proposed bu
 When reviewing a Gate 1 PR, a `Security`-only Unreleased section should propose **patch**, not minor;
 a `Changed` section should propose **minor**. A mismatch means the detector/SemVer path drifted —
 re-run `report` mode before merging a hand-edited bump.
+
+#### When you see `SHIP_UNCERTAIN` (soft-fail — do not treat as up-to-date)
+
+`SHIP_UNCERTAIN` is an **action** classification (`ACTION_CLASSIFICATIONS`, `detect.py:98`): the daily
+report and Slack "Needs release action" count include it, and exit 1 is expected. It means the detector
+**could not prove** ship or no-ship — never invent `UP_TO_DATE` / `BUMPED_NOT_RELEASED` from a soft fail
+(`classify_package`, `detect.py:899-973`). Read the per-package note lines under the step summary (also in
+`release-manifest.json` → `packages[].notes`).
+
+| Note / signal | Cause | Operator action |
+|---|---|---|
+| `could not read declared version from the checkout` | Missing/unparseable `pyproject.toml` / `_version.py` for that package path (`detect.py:899-902`) | Fix the checkout (sibling clone missing? wrong `path:` in `registry.yaml`?) and re-run `report`. |
+| `no tag under '<pattern>' matches released <ver>` | Released version has no matching git tag (`detect.py:917-920`) | Cut/restore the Release+tag convention (never bare-tag; §8 item 3), then re-run. |
+| `compare … not found` / `compare unavailable` / other `comp.error` | Soft-fail compare (`comp.ok=False`, `detect.py:923-926`) — missing base/head, transport | Confirm the tag exists on the owning repo and `gh` auth; re-run. Do **not** hand-propose from a quiet report. |
+| `compare diff hit the 300-file cap with no ship evidence in view; page or re-run (--local-git)` | Truncated compare window, no ship file in view (`detect.py:954-957`) | Live detect already falls back to `local_git_compare` past the 300-file cap (`make_live_sources`, `detect.py:360-372`; pin in juniper-ml#729). If you still see this note, re-run locally with `--local-git` or inspect the package path-scoped diff by hand. |
+| `ship_uncertain` file rows in the manifest (no truncated note) | Patch unavailable / ambiguous hunks (`detect.py:952-955`, patch-unavailable → uncertain) | Open the listed files; decide ship vs discount; prefer a CHANGELOG corroboration before `propose`. |
+
+`SHIP_UNCERTAIN` can still carry a `proposed_bump` / `proposed_version` when SemVer inputs are available
+(`detect.py:963-964`) — treat that as a **hint**, not a Gate 1 mandate, until the uncertainty is cleared.
+
+#### Hygiene degrade: `tag_only=None` / unavailable (orthogonal to "needs deploy")
+
+The table footer `hygiene: TAG_ONLY=…, NOTES_MISSING=…` (`detect.py:996-999`) counts packages whose
+last released version lacks a GitHub Release (`tag_only`) or a central `notes/releases/` archive
+(`notes_missing`). Both are **convention debt**, not deploy triggers. (Healthy clear —
+`TAG_ONLY=0` + `NOTES_MISSING=0` with no unavailable note — means Release + archive exist; see the
+sibling hygiene-cleared guidance when present.)
+
+- **True `tag_only`**: tag exists but no GitHub Release for it — restore the Release ceremony (§8 item 3 /
+  plan §12 step 0.4); do not push a bare tag.
+- **`tag_only` unavailable** (`None`): `list_releases` raised `SourceError` (gh blip). The detector keeps
+  the package classification (often `UP_TO_DATE`), sets `hygiene.tag_only = None` (falsy → **not** counted
+  in `TAG_ONLY=`), still evaluates `notes_missing`, and appends
+  `release-hygiene (tag_only) unavailable: …` (`detect.py:971-973`; coverage juniper-ml#761). **Do not**
+  treat a quiet `TAG_ONLY=0` plus that note as "hygiene cleared" — re-check Releases when gh recovers.
+  A regression that re-raises would exit 2 the whole detect job; inventing `tag_only=True` would spam false
+  TAG_ONLY on every blip.
+- **Offline `--local-git`**: `make_local_git_sources.list_releases` must **raise** `SourceError` (open
+  juniper-ml#773) so hygiene takes the `tag_only=None` path above. Returning `set()` falsely marks every
+  package TAG_ONLY (`diff_base_tag not in set()` is always True). Until #773 lands, prefer live detect
+  (or ignore `TAG_ONLY=` under `--local-git`).
 
 ### 3.2 Dispatching `propose` against specific packages (Gate 1)
 

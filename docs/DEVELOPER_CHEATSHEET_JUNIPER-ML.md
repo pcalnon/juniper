@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.5
-**Date**: 2026-06-04
+**Version**: 1.0.6
+**Date**: 2026-07-26
 **Project**: juniper-ml
 
 ---
@@ -228,6 +228,14 @@ timeout while still building *or* permanently missing reports honest `IN_PROGRES
 Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `local_git_compare` treats
 `.py` A/D/R/**C** as inherently substantive. Operator tables:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
+
+**Daily detect `SHIP_UNCERTAIN` / hygiene:** `SHIP_UNCERTAIN` means the detector could not prove ship or
+no-ship (missing declared version, missing tag, soft-fail compare, 300-file truncated empty window, or
+uncertain hunks) — it is an action classification (exit 1), never a silent `UP_TO_DATE`.
+Hygiene `TAG_ONLY=` counts only truthy `tag_only`; a `list_releases` blip sets `tag_only=None` and notes
+`release-hygiene (tag_only) unavailable:` without failing the job. Offline `--local-git` must raise
+`SourceError` for releases (open [#773](https://github.com/pcalnon/juniper-ml/pull/773)), not return
+`set()` (false TAG_ONLY on every package). Operator tables: runbook §3.1.
 
 ---
 
