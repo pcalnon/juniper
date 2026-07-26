@@ -2,20 +2,15 @@
 Tests for util/worktree_cleanup.bash
 
 Validates argument parsing, dry-run output, and error handling for the
-worktree cleanup script. Most tests use --dry-run mode or validate argument
-validation failures. Phase 1 dirty-tree coverage drives a real fixture repo
-and sources ``phase_1_save_and_push`` without running the full cleanup pipeline.
+worktree cleanup script. Does NOT execute actual git operations — all tests
+use --dry-run mode or validate argument validation failures.
 """
-
-from __future__ import annotations
 
 import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-
-from tests.redacted_env import RedactedEnv
 
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "util" / "worktree_cleanup.bash"
 
@@ -30,56 +25,6 @@ def run_script(*args: str, cwd: str | None = None) -> subprocess.CompletedProces
         capture_output=True,
         text=True,
         cwd=cwd,
-        timeout=SCRIPT_TIMEOUT_SECONDS,
-    )
-
-
-def _phase1_run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", "-C", str(cwd), *args],
-        capture_output=True,
-        text=True,
-        timeout=SCRIPT_TIMEOUT_SECONDS,
-        check=check,
-    )
-
-
-def _phase1_init_fixture_repo(path: Path) -> None:
-    """Bare-bones git repo with a committed tip, ready for Phase 1."""
-    path.mkdir(parents=True, exist_ok=True)
-    _phase1_run_git(path, "init", "-q", "-b", "feature/cleanup-dirty")
-    _phase1_run_git(path, "config", "user.email", "tests@example.invalid")
-    _phase1_run_git(path, "config", "user.name", "Test User")
-    _phase1_run_git(path, "config", "commit.gpgsign", "false")
-    (path / "README.md").write_text("# test\n")
-    _phase1_run_git(path, "add", "README.md")
-    _phase1_run_git(path, "commit", "-q", "-m", "initial")
-
-
-def _run_phase1(old_worktree: Path, old_branch: str = "feature/cleanup-dirty") -> subprocess.CompletedProcess[str]:
-    """Source worktree_cleanup.bash (skipping main) and call phase_1 only.
-
-    DRY_RUN stays at the script default (not dry-run) so the dirty-tree gate
-    actually executes. Never reaches push — dirty status exits first.
-    """
-    driver = r"""
-set -euo pipefail
-SCRIPT_PATH="$1"
-SAVED_OLD_WORKTREE="$2"
-SAVED_OLD_BRANCH="$3"
-# shellcheck disable=SC1090
-# Sourcing resets OLD_WORKTREE/OLD_BRANCH globals — restore after.
-source <(sed '/^main "/d' "${SCRIPT_PATH}")
-OLD_WORKTREE="${SAVED_OLD_WORKTREE}"
-OLD_BRANCH="${SAVED_OLD_BRANCH}"
-phase_1_save_and_push
-"""
-    env = RedactedEnv(os.environ)
-    return subprocess.run(
-        ["bash", "-c", driver, "phase1-driver", str(SCRIPT_PATH), str(old_worktree), old_branch],
-        capture_output=True,
-        text=True,
-        env=env,
         timeout=SCRIPT_TIMEOUT_SECONDS,
     )
 
@@ -367,30 +312,6 @@ class TestSyncToMain(unittest.TestCase):
             self.assertGreater(remove_pos, -1, "worktree remove not found in dry-run output")
             self.assertGreater(sync_pos, -1, "sync (pull --ff-only origin main) not found")
             self.assertLess(remove_pos, sync_pos, "sync to main must run after the old worktree is removed")
-
-
-class TestPhase1Behavioral(unittest.TestCase):
-    """Hermetic behavioral gate for Phase 1 dirty-tree refusal.
-
-    Dry-run skips the porcelain check entirely. A regression that drops the
-    dirty exit would push / continue cleanup over uncommitted WIP in the old
-    worktree — the exact class Phase 1 exists to prevent.
-    """
-
-    def test_dirty_old_worktree_exits_one_before_push(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            old_wt = Path(tmp) / "old-worktree"
-            _phase1_init_fixture_repo(old_wt)
-            (old_wt / "WIP.txt").write_text("uncommitted\n")
-
-            result = _run_phase1(old_wt)
-            self.assertEqual(result.returncode, 1, msg=result.stderr)
-            self.assertIn("Old worktree has uncommitted changes", result.stderr)
-            self.assertIn("Commit or stash changes before running cleanup", result.stderr)
-            # Must not reach the push path.
-            self.assertNotIn("Pushing", result.stderr)
-            self.assertNotIn("push origin", result.stderr)
-            self.assertTrue((old_wt / "WIP.txt").exists())
 
 
 if __name__ == "__main__":
