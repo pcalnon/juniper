@@ -354,9 +354,35 @@ cd "$NEW_WORKTREE"
 
 **Important**: The script outputs the new worktree path to stdout. The caller MUST `cd` to that path after the script completes. The script cannot change the caller's CWD because it runs in a subshell.
 
-Use `--skip-remote-delete` when a PR was created, since the remote branch is needed for the PR. The PR merge process (on GitHub) will handle remote branch cleanup.
-
 See `util/worktree_cleanup.bash --help` for full options and `--dry-run` support.
+
+### Phase 4 remote-branch deletion (script)
+
+`phase_4_cleanup` always removes the old worktree and deletes the **local** branch. Whether it also
+runs `git push origin --delete "${OLD_BRANCH}"` is decided in this order
+(`util/worktree_cleanup.bash`, `phase_4_cleanup`):
+
+| Condition | Remote-delete behavior | Consults `gh`? |
+|-----------|------------------------|----------------|
+| `--skip-remote-delete` set | Skip; log `Skipping remote branch deletion (--skip-remote-delete)` | **No** |
+| `--dry-run` (flag unset) | Print `[DRY-RUN] git -C … push origin --delete …` only | **No** |
+| Live + open PR for `OLD_BRANCH` | Warn-and-skip; remote branch **kept** (log `PR is open for branch … — skipping remote branch deletion`) | **Yes** — `gh pr list --repo pcalnon/juniper-ml --head "${OLD_BRANCH}" --state open` |
+| Live + no open PR | Delete remote branch (warn if it is already gone) | **Yes** |
+
+**Why the open-PR auto-skip exists.** Deleting the remote head under an open PR breaks the PR and
+drops the backup branch Phase 1 just pushed. Prefer explicit `--skip-remote-delete` when you know a
+PR is open (no `gh` call; clearer intent). Rely on the auto-skip when cleaning up without that flag —
+it is the protective default, not a substitute for checking PR state before a force-delete.
+
+**Constraints / pitfalls:**
+
+- The open-PR probe is hard-wired to `--repo pcalnon/juniper-ml`. Cleaning a sibling-repo worktree with
+  this script will not see that sibling's open PRs; use `--skip-remote-delete` (or delete the remote
+  branch yourself after merge).
+- A `gh` failure is treated as "0 open PRs" (`|| echo "0"`), so a broken/`gh`-missing PATH can still
+  delete the remote branch. Use `--skip-remote-delete` when `gh` auth is uncertain.
+- Hermetic coverage for the live open-PR / no-PR / flag paths belongs in
+  `tests/test_worktree_cleanup.py` (Phase 4 remote-delete guard; juniper-ml#738).
 
 ---
 
