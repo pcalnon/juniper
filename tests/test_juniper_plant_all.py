@@ -242,13 +242,7 @@ class TestPreflightFailureSmoke(unittest.TestCase):
         env["JUNIPER_CASCOR_PORT"] = ports[1]
         env["JUNIPER_CANOPY_PORT"] = ports[2]
         env["JUNIPER_WORKER_HEALTH_PORT"] = ports[3]
-        env["PATH"] = (
-            str(stub_bin)
-            + os.pathsep
-            + env.get("PATH", "")
-            + os.pathsep
-            + str(conda_dir / "envs" / "JuniperData" / "bin")
-        )
+        env["PATH"] = str(stub_bin) + os.pathsep + env.get("PATH", "") + os.pathsep + str(conda_dir / "envs" / "JuniperData" / "bin")
         return env
 
     def test_missing_worker_binary_aborts_preflight(self) -> None:
@@ -514,11 +508,7 @@ class TestCleanupOnFailure(unittest.TestCase):
         ``kill -0`` keeps succeeding — a false "survived SIGKILL". Launch
         under a short-lived ``setsid`` shell so init reaps the exit.
         """
-        launcher = (
-            "setsid bash -c "
-            + repr(inner_bash)
-            + " </dev/null >/dev/null 2>&1 & echo $!"
-        )
+        launcher = "setsid bash -c " + repr(inner_bash) + " </dev/null >/dev/null 2>&1 & echo $!"
         result = subprocess.run(
             ["/bin/bash", "-c", launcher],
             capture_output=True,
@@ -594,9 +584,7 @@ class TestCleanupOnFailure(unittest.TestCase):
             self._force_kill(pid)
 
     def test_sigterm_ignore_escalates_to_sigkill(self) -> None:
-        pid = self._spawn_detached(
-            "exec python3 -c 'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'"
-        )
+        pid = self._spawn_detached("exec python3 -c 'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'")
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 pid_file = Path(tmp) / "JuniperProject.pid"
