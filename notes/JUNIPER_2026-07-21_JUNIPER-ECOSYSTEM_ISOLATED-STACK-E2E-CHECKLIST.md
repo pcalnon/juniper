@@ -65,10 +65,18 @@ source .venv-data/bin/activate
 pip install -e '/home/pcalnon/Development/python/Juniper/juniper-data[api]' prometheus_client juniper-observability
 # For the MNIST checks (D2 / I-5) add the [mnist] extra (pulls Hugging Face datasets[vision]):
 #   pip install -e '/home/pcalnon/Development/python/Juniper/juniper-data[api,mnist]'
-python -m juniper_data --host 127.0.0.1 --port 8101   # (background it / separate shell)
+# PYTHON_GIL=0 matches util/isolated_stack.bash data_up (free-threading python3.14).
+PYTHON_GIL=0 python -m juniper_data --host 127.0.0.1 --port 8101   # (background it / separate shell)
 ```
 
 Health gate: `curl -sf http://127.0.0.1:8101/v1/health` returns 200.
+
+When using [`util/isolated_stack.bash`](../util/isolated_stack.bash) instead of the hand recipe: `data_up`
+requires `python3.14` on `PATH` (aborts before side effects if missing), creates
+`${JUNIPER_E2E_RUN_DIR:-/tmp/juniper-e2e}/.venv-data` only when absent, always re-runs the pip install above
+(extras from `JUNIPER_E2E_DATA_EXTRAS`, default `api`), launches with `PYTHON_GIL=0`, writes `juniper-data.pid`,
+then health-gates. Prefer `--up` / `--dry-run --up` over hand-rolling when the helper is available — see
+[`docs/REFERENCE.md` Isolated Stack — `data_up`](../docs/REFERENCE.md#dedicated-data-venv-bring-up-data_up).
 
 ### 3.2 juniper-cascor on 8202 (JuniperCascor1)
 
@@ -387,7 +395,7 @@ checklist above is the primary deliverable. Surface:
 
 ```text
 util/isolated_stack.bash --up        # bring the trio up (data venv + cascor + canopy) with the §3/§4 env
-util/isolated_stack.bash --status    # probe the three /v1/health + /api/health endpoints; list listening ports
+util/isolated_stack.bash --status    # probe the three /v1/health endpoints; list listening ports
 util/isolated_stack.bash --down      # stop the trio by port and clean run + snapshot artifacts (§7)
 util/isolated_stack.bash --dry-run --up   # PRINT every command without executing (safe when the ports are in use)
 util/isolated_stack.bash --help
@@ -398,8 +406,9 @@ Ports default to 8101 / 8202 / 8051 and are overridable via `JUNIPER_E2E_DATA_PO
 `JUNIPER_E2E_*_CONDA` path/env overrides — see the script header). Prefer `--dry-run` to preview the exact
 commands before a live bring-up, and never run `--up` against ports the operator's stack already owns.
 
-Operator contract (nounset restore after conda activate, kill-by-port `--down`, hard-coded 2s health poll /
-`JUNIPER_E2E_HEALTH_TIMEOUT`): [`docs/REFERENCE.md` Isolated Stack E2E Utilities](../docs/REFERENCE.md#isolated-stack-e2e-utilities).
+Operator contract (`data_up` dedicated venv / `PYTHON_GIL=0` / pidfile, nounset restore after conda activate,
+kill-by-port `--down`, hard-coded 2s health poll / `JUNIPER_E2E_HEALTH_TIMEOUT`):
+[`docs/REFERENCE.md` Isolated Stack E2E Utilities](../docs/REFERENCE.md#isolated-stack-e2e-utilities).
 `--status` probes `http://127.0.0.1:<port>/v1/health` for all three services (not a separate canopy `/api/health`).
 
 ---
