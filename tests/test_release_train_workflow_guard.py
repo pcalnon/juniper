@@ -750,10 +750,7 @@ class DetectorExitContractRehearsalTest(unittest.TestCase):
             # Stub `python` (the workflow invokes bare `python`, not `python3`).
             stub = bin_dir / "python"
             stub.write_text(
-                "#!/bin/bash\n"
-                f"# stub: emit a tiny JSON manifest on stdout (shell redirects to the artifact), then exit {py_exit}\n"
-                "echo '{\"packages\":[]}'\n"
-                f"exit {py_exit}\n",
+                "#!/bin/bash\n" f"# stub: emit a tiny JSON manifest on stdout (shell redirects to the artifact), then exit {py_exit}\n" "echo '{\"packages\":[]}'\n" f"exit {py_exit}\n",
                 encoding="utf-8",
             )
             stub.chmod(0o755)

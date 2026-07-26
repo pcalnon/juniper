@@ -1033,9 +1033,7 @@ class MonitorTimeoutTest(unittest.TestCase):
         # otherwise the ceremony exits before Gate-2 PENDING_PYPI_APPROVAL and never parks.
         src, box = _monitor_sources(None, None, PENDING_RUN)
         sleeps = []
-        verdict = ce.monitor_publish_run(
-            src, "juniper-ml", "tag", timeout_seconds=1000, poll_seconds=7, sleep=sleeps.append
-        )
+        verdict = ce.monitor_publish_run(src, "juniper-ml", "tag", timeout_seconds=1000, poll_seconds=7, sleep=sleeps.append)
         self.assertEqual(verdict, "PENDING_PYPI_APPROVAL")
         self.assertEqual(box["polls"], 3)  # two NOT_FOUND polls, then PENDING
         self.assertEqual(sleeps, [7, 7])  # slept between non-terminal polls only
