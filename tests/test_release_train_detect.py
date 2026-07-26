@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -506,6 +508,48 @@ class ClassificationTest(unittest.TestCase):
         self.assertTrue(rec.hygiene["tag_only"])
         self.assertTrue(rec.hygiene["notes_missing"])  # no notes/releases/ archive on the synthetic tree
 
+    def test_hygiene_source_error_sets_tag_only_none(self):
+        """list_releases SourceError must degrade tag_only to None — not abort or invent True.
+
+        Open #756 covers the healthy arm (Release + archive clear both flags). The
+        unhealthy arm is ``test_hygiene_flags``. This pins the transport-failure
+        degrade: a gh/releases blip must leave classify UP_TO_DATE, set
+        ``tag_only=None`` (so the daily TAG_ONLY count stays quiet — ``None`` is
+        falsy), keep evaluating ``notes_missing`` independently, and append the
+        unavailable note. Re-raising would exit 2 the whole detect job; defaulting
+        ``tag_only`` to True would spam false TAG_ONLY on every blip.
+        """
+        e = self._pkg("0.4.0")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self.fake.compares[("juniper-ml", "juniper-thing-v0.4.0", "main")] = d.CompareResult(files=[], commits=[])
+        # Archive present: proves notes_missing stays independently False under the degrade.
+        archive_dir = self.repo_root / "notes" / "releases"
+        archive_dir.mkdir(parents=True)
+        (archive_dir / "RELEASE_NOTES_juniper-thing_v0.4.0.md").write_text("# notes\n")
+
+        def boom_releases(_repo: str) -> set:
+            raise d.SourceError("gh api timed out: releases")
+
+        sources = d.Sources(
+            pypi_json=lambda name: self.fake.pypi.get(name),
+            list_tags=lambda repo: list(self.fake.tags.get(repo, [])),
+            list_releases=boom_releases,
+            compare=lambda entry, base, head: self.fake.compares.get(
+                (entry.repo, base, head),
+                d.CompareResult(files=[], commits=[], ok=False, error="no compare"),
+            ),
+            read_file=self.fake.read_file,
+        )
+        rec = d.classify_package(e, sources, self.repo_root, self.eco)
+        self.assertEqual(rec.classification, d.UP_TO_DATE)
+        self.assertIsNone(rec.hygiene["tag_only"])
+        self.assertFalse(rec.hygiene["notes_missing"])
+        self.assertTrue(
+            any("release-hygiene (tag_only) unavailable" in n for n in rec.notes),
+            msg=rec.notes,
+        )
+
 
 class ManifestShapeTest(unittest.TestCase):
     def test_manifest_json_shape(self):
@@ -540,7 +584,90 @@ _MINI_REGISTRY = textwrap.dedent("""\
     """)
 
 
+class LocalGitCompareTest(unittest.TestCase):
+    """Hermetic coverage for ``local_git_compare``'s A/D/R/C short-circuit (plan S4.2).
+
+    #729 pins the 300-file fallback seam that *calls* ``local_git_compare``; this class drives
+    the body: add/delete/rename/copy of a ``.py`` module must be ``substantive=True`` without
+    consulting ``substantive_between`` (which would need both blob sides and can miss a delete).
+    """
+
+    def _git(self, cwd: Path, *args: str) -> None:
+        subprocess.run(  # nosec B603,B607
+            ["git", "-C", str(cwd), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def _build_repo(self) -> Path:
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
+        bare = root / "bare.git"
+        work = root / "work"
+        subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True, capture_output=True)  # nosec B603,B607
+        subprocess.run(["git", "clone", "-q", str(bare), str(work)], check=True, capture_output=True)  # nosec B603,B607
+        self._git(work, "config", "user.email", "tests@example.invalid")
+        self._git(work, "config", "user.name", "Test User")
+        self._git(work, "config", "commit.gpgsign", "false")
+        self._git(work, "config", "tag.gpgSign", "false")
+
+        pkg = work / "juniper-thing" / "juniper_thing"
+        pkg.mkdir(parents=True)
+        (work / "juniper-thing" / "pyproject.toml").write_text('[project]\nname = "juniper-thing"\nversion = "0.4.0"\n', encoding="utf-8")
+        (pkg / "keep.py").write_text("def keep():\n    return 1\n", encoding="utf-8")
+        (pkg / "doomed.py").write_text("def doomed():\n    return 0\n", encoding="utf-8")
+        (pkg / "renamed_src.py").write_text("def moved():\n    return 2\n", encoding="utf-8")
+        self._git(work, "add", "-A")
+        self._git(work, "commit", "-q", "-m", "base")
+        self._git(work, "tag", "juniper-thing-v0.4.0")
+        self._git(work, "push", "-q", "origin", "HEAD:main")
+        self._git(work, "push", "-q", "origin", "--tags")
+
+        # HEAD changes: Add / Delete / Rename (inherently substantive) + comment-only Modify
+        # (must still go through substantive_between and land as False).
+        (pkg / "brand_new.py").write_text("def brand_new():\n    return 3\n", encoding="utf-8")
+        (pkg / "doomed.py").unlink()
+        self._git(work, "mv", "juniper-thing/juniper_thing/renamed_src.py", "juniper-thing/juniper_thing/renamed_dst.py")
+        (pkg / "keep.py").write_text("def keep():\n    return 1  # see notes/NEW.md\n", encoding="utf-8")
+        self._git(work, "add", "-A")
+        self._git(work, "commit", "-q", "-m", "feat: add delete rename and comment tweak")
+        self._git(work, "push", "-q", "origin", "HEAD:main")
+        return work
+
+    def test_add_delete_rename_are_inherently_substantive(self):
+        work = self._build_repo()
+        entry = _entry()
+        comp = d.local_git_compare(entry, "juniper-thing-v0.4.0", "main", work, fetch=False)
+        self.assertTrue(comp.ok, comp.error)
+        by_name = {fc.filename: fc for fc in comp.files}
+
+        added = by_name["juniper-thing/juniper_thing/brand_new.py"]
+        self.assertEqual(added.status[:1], "A")
+        self.assertIs(added.substantive, True)
+
+        deleted = by_name["juniper-thing/juniper_thing/doomed.py"]
+        self.assertEqual(deleted.status[:1], "D")
+        self.assertIs(deleted.substantive, True)
+
+        renamed = by_name["juniper-thing/juniper_thing/renamed_dst.py"]
+        self.assertEqual(renamed.status[:1], "R")
+        self.assertIs(renamed.substantive, True)
+
+        # Comment-only modify is NOT short-circuited; substantive_between discounts it.
+        modified = by_name["juniper-thing/juniper_thing/keep.py"]
+        self.assertEqual(modified.status[:1], "M")
+        self.assertIs(modified.substantive, False)
+
+    def test_missing_base_tag_returns_not_ok(self):
+        work = self._build_repo()
+        comp = d.local_git_compare(_entry(), "juniper-thing-v9.9.9", "main", work, fetch=False)
+        self.assertFalse(comp.ok)
+        self.assertIn("failed", (comp.error or "").lower())
+
+
 class CliExitCodeTest(unittest.TestCase):
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)

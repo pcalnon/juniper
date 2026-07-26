@@ -162,6 +162,11 @@ git worktree add "$WORKTREE_DIR" "$BRANCH_NAME" && cd "$WORKTREE_DIR"
 
 **Automated**: `util/worktree_cleanup.bash --old-worktree "$DIR" --old-branch "$BRANCH" --parent-branch main`
 
+**Phase 4 remote delete:** Prefer `--skip-remote-delete` when a PR is still open (never calls `gh`).
+Without the flag, the live path auto-skips `push --delete` if `gh pr list --repo pcalnon/juniper-ml --head "$OLD_BRANCH" --state open` returns a positive length **or** if the `gh` query fails / returns a non-numeric result (fail-closed; juniper-ml#739).
+Local worktree + local branch are still removed. Hard-wired to `juniper-ml` — use the flag for sibling-repo cleanups.
+See procedure V2 § "Phase 4 remote-branch deletion (script)".
+
 **Batch stale sweep** (centralized `…/Juniper/worktrees/` pool): survey → dry-run apply → apply. Survey treats gitignored debris as clean; apply still skips ignored-only `SAFE` rows unless you pass `--include-ignored` after review (decrypted-secrets class). Full contract: cleanup procedure V2 § "Batch Stale-Worktree Sweep".
 
 ```bash
@@ -228,6 +233,35 @@ timeout while still building *or* permanently missing reports honest `IN_PROGRES
 Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `local_git_compare` treats
 `.py` A/D/R/**C** as inherently substantive. Operator tables:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
+
+**Release-train write-job git identity (ml#705):** when editing `.github/workflows/release-train.yml`, keep both `propose` and `ceremony` identity steps on `git config --global user.name|user.email|commit.gpgsign` (never bare repo-local `git config`). Cross-repo commits land in freshly-cloned sibling checkouts; a juniper-ml-only identity leaves them with `Author identity unknown` (run 30040138774). Operator detail: runbook §7 / §8.7.
+
+**Ceremony signed-archive failure edges (ml#709 / #714):** if a `ceremony` run dies inside
+`open_archive_pr`, do **not** invent a base sha or hand-push an archive branch. Unresolvable
+`origin/<base>`, non-422 refs errors (e.g. HTTP 401), and unresolvable existing tips are hard stops;
+only tip-at-base or single-commit-atop-base are safe re-entry shapes. Operator table:
+[`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.3.
+
+**Phase 4.2 propose ordering + follow-ons.** Empty `packages=` propose runs process eligible packages
+**upstream-first** (registry `depends_on` DAG). A pre-1.0 MINOR/MAJOR that escapes a consumer
+`<next-minor` ceiling also opens a separate standard-gated PR
+`deps/<upstream>-ceiling-<new-ceiling>` in the **consumer** repo (pin ceiling only; never on the
+exempt archive path). Meta (`juniper-ml`) never gets a follow-on. Operator table:
+[release-train runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2
+“Phase 4.2”.
+
+**Ceremony monitor: `HALT_TESTPYPI` vs `HALT_PUBLISH`.** TestPyPI job failure → `HALT_TESTPYPI` and a
+`testpypi-verify-failed` dedup issue. A later run `failure`/`cancelled`/`timed_out` (TestPyPI already
+green) → `HALT_PUBLISH` with a note only — **no** GitHub issue. Open the publish run; do not wait for
+an issue. Details: operator runbook §4.1.
+
+**Ceremony re-entry (`RESUME_MONITOR`).** If a Release tag already exists, re-dispatching
+`mode=ceremony` only monitors the publish run — it does **not** re-open the archive PR or re-cut the
+Release. Step summary shows **resume-monitor**; `plan_state` stays `RESUME_MONITOR` while `state` is
+the monitor verdict. TestPyPI failure on resume still HALTs + files an issue (no re-cut). Distinct from
+`ALREADY_RELEASED` (PyPI already serves the target). Operator details: runbook §3.3 / §5.5.
+
+**Ceremony `notes-render-failed` HALT.** After a non-empty `CHANGELOG [<version>]` is found, ceremony still HALTs if `notes_render.render_notes` raises `OSError` (typically a missing template under `--repo-root`). Distinct from `changelog-section-missing`. Restore `notes/templates/TEMPLATE_RELEASE_NOTES.md` (or the security template) and re-run — no Release was cut. See operator runbook §4.
 
 ---
 
