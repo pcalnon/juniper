@@ -563,6 +563,37 @@ class TestSurveyApplyContract(WorktreeSweepTestCase):
             self.assertIn(f"worktree remove {worktrees_root / worktree_name}", apply.stdout)
             self.assertIn("branch -D safe-sweep", apply.stdout)
 
+    def test_survey_show_untracked_files_no_still_marks_untracked_dirty(self) -> None:
+        """Survey must not classify untracked WIP as SAFE under showUntrackedFiles=no."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            worktrees_root = root / "worktrees"
+            repo_base = root / "repos"
+            worktrees_root.mkdir()
+            repo_base.mkdir()
+
+            for repo_key in REPO_KEYS:
+                _init_repo(repo_base / repo_key)
+
+            main_repo = repo_base / "juniper-ml"
+            worktree_name = "juniper-ml--blind-survey--20260604-0000--eeff0033"
+            worktree_path = worktrees_root / worktree_name
+            _run_git(main_repo, "worktree", "add", "-q", "-b", "blind-survey", str(worktree_path), "main")
+            (worktree_path / "precious.txt").write_text("untracked WIP under showUntrackedFiles=no\n")
+            _run_git(worktree_path, "config", "status.showUntrackedFiles", "no")
+
+            survey = subprocess.run(
+                ["bash", str(SURVEY_SCRIPT)],
+                capture_output=True,
+                text=True,
+                env=self._env(worktrees_root, repo_base),
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+
+            self.assertEqual(survey.returncode, 0, msg=survey.stderr)
+            data_rows = [line for line in survey.stdout.splitlines() if line and not line.startswith("#")]
+            self.assertEqual(data_rows, [f"DIRTY\tjuniper-ml\tblind-survey\t{worktree_name}"])
+
 
 if __name__ == "__main__":
     unittest.main()
