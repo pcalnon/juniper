@@ -24,6 +24,9 @@
 # ignored content is deleted with the worktree and may be precious (the
 # decrypted-secrets class). Pass --include-ignored to sweep such worktrees
 # anyway; tracked/untracked dirt is ALWAYS a hard skip regardless.
+# Both porcelain probes force -unormal so status.showUntrackedFiles=no cannot
+# blind the dirt / ignored guards (git worktree remove succeeds on ignored-
+# only debris; a false-negative here is silent secret deletion).
 # Convention: ad-hoc one-shot script, lives under util/ad-hoc/ per
 # CLAUDE.md "Script placement". Companion to worktree_sweep_survey.bash.
 
@@ -121,11 +124,11 @@ while IFS=$'\t' read -r status repo_key branch wt_name _extra; do
         echo "skipped (branch mismatch: row=$branch current=$current_branch): $wt_name"
         continue
     fi
-    if [[ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]]; then
+    if [[ -n "$(git -C "$wt" status --porcelain -unormal 2>/dev/null)" ]]; then
         echo "skipped (no longer safe; dirty): $wt_name"
         continue
     fi
-    if (( ! INCLUDE_IGNORED )) && [[ -n "$(git -C "$wt" status --porcelain --ignored 2>/dev/null)" ]]; then
+    if (( ! INCLUDE_IGNORED )) && [[ -n "$(git -C "$wt" status --porcelain --ignored -unormal 2>/dev/null)" ]]; then
         echo "skipped (ignored files present; rerun with --include-ignored to sweep them): $wt_name"
         continue
     fi
