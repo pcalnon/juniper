@@ -401,8 +401,6 @@ bash util/ad-hoc/worktree_sweep_survey.bash > /tmp/juniper-worktree-sweep.tsv
 bash util/ad-hoc/worktree_sweep_apply.bash --dry-run < /tmp/juniper-worktree-sweep.tsv
 # Default: skips ignored-only SAFE rows (protective).
 bash util/ad-hoc/worktree_sweep_apply.bash < /tmp/juniper-worktree-sweep.tsv
-# Preview ignored-only removals without deleting (flags are order-independent):
-bash util/ad-hoc/worktree_sweep_apply.bash --dry-run --include-ignored < /tmp/juniper-worktree-sweep.tsv
 # After confirming no precious ignored content remains in those trees:
 bash util/ad-hoc/worktree_sweep_apply.bash --include-ignored < /tmp/juniper-worktree-sweep.tsv
 ```
