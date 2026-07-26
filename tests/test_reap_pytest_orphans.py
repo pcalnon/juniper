@@ -257,13 +257,7 @@ class TestReapPytestOrphans(unittest.TestCase):
             process_dir.mkdir()
             # Status without PPid: — the awk extract yields empty → SKIPPED.
             (process_dir / "status").write_text("Name:\tpython\n", encoding="utf-8")
-            (process_dir / "cmdline").write_bytes(
-                b"\0".join(
-                    part.encode("utf-8")
-                    for part in ["/opt/conda/envs/JuniperCaa/bin/python", "-m", "pytest"]
-                )
-                + b"\0"
-            )
+            (process_dir / "cmdline").write_bytes(b"\0".join(part.encode("utf-8") for part in ["/opt/conda/envs/JuniperCaa/bin/python", "-m", "pytest"]) + b"\0")
 
             result = run_script(fixture, "--dry-run")
 
