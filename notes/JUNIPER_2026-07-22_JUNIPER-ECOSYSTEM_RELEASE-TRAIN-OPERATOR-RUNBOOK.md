@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.1
+**Version**: 1.2.2
 **Last Updated**: 2026-07-26
 
 ---
@@ -222,6 +222,40 @@ monitors the triggered publish run.
   owner admin one-click — 2026-07-23 run 30051952226 / ml#707; the API commit removes that block with no
   security-posture change.) **Owner one-click is now only the degraded/manual fallback** — e.g. if
   `allow_auto_merge` is off (a graceful degrade, not a HALT) or the auto-merge never lands.
+
+#### Archive-guard triage (required check `Release-Train Archive Guard`)
+
+The ceremony arms `--auto` behind `ci.yml`'s PR-only `release-train-archive-guard` lane, which runs
+`util/release_train/archive_guard.py` over the PR's `git diff --name-status` (plan §7.2). Verdicts
+(`archive_guard.py:100-108`, `174-217`):
+
+| Verdict | CI outcome | Meaning | Operator action |
+|---|---|---|---|
+| `SKIP` | pass | Diff does **not** touch `notes/releases/` — not an archive PR | None. Normal PRs always SKIP so the required check never blocks them. |
+| `OK` | pass | Pure `A` adds of well-formed `notes/releases/RELEASE_NOTES_*.md`; all four rules hold | Auto-merge proceeds (with the signed archive commit, above). |
+| `FAIL` | fail (exit 1) | One or more rule violations | The PR **falls back to the standard owner gate** and **never auto-merges** (`archive_guard.py:271`). Fix or close; do not force-merge a dirty archive PR onto the exempt path. |
+
+`touches_releases` inspects **every** path on a change — including **both** sides of a rename/copy
+(`archive_guard.py:169-171`). That is the load-bearing contract against destination-only blindness:
+a rename **out** of `notes/releases/` is still an archive PR and must **FAIL**, never SKIP. Non-add
+statuses that FAIL as archive PRs (pinned by juniper-ml#754 coverage):
+
+| Diff shape | Why it is still an archive PR | Typical violations |
+|---|---|---|
+| `R notes/releases/X.md → docs/moved.md` (rename-OUT) | Source path is under `notes/releases/` | rule1 (add-only) + rule4 (single-purpose) |
+| `C` (Copy) into `notes/releases/` | Status letter is not `A` (git may emit `C075`) | rule1 (+ rule4 if the copy source is out of path) |
+| `T` (Typechange) on an archive path | Non-add mutation of an existing archive file | rule1 |
+| `M` / `D` / rename-IN / mixed with non-archive paths | Classic non-add or multi-purpose | rule1 and/or rule2/rule3/rule4 |
+
+**Do not** try to clear a FAIL by renaming the notes file out of `notes/releases/` hoping for SKIP —
+both rename paths count, so that still FAILs. Close the PR (or land a pure-`A` follow-up) and let
+ceremony re-open a single-file Add. Local smoke:
+
+```bash
+# Against a PR tip (or any base...head range)
+python util/release_train/archive_guard.py --base origin/main --head HEAD --json
+```
+
 - The monitor polls a bounded ~15-minute wall clock (`--monitor-timeout 900`,
   `release-train.yml:732-740`; `DEFAULT_MONITOR_TIMEOUT_SECONDS`, `ceremony.py:137`) until the run parks at
   the owner-gated `pypi` environment — GitHub reports that as run status `waiting`, which the train
@@ -441,9 +475,11 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
   (ml#701 / juniper-ml#710; edge-case coverage + already-at-target checklist fix juniper-ml#712).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
-- Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
+- Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`,
+  `archive_guard.py` (exempt notes-archive structural guard; operator triage §3.3).
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
   `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
+  `tests/test_release_train_archive_guard.py` (add-only / rename-out / Copy / Typechange; plan §7.2),
   `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701),
   `tests/test_release_train_propose.py` (sibling/meta AGENTS.md step-5/5a shapes — worker#140 / ml#706 / #720).
 - Static `_version.py` lockstep (Gate 1 review):
