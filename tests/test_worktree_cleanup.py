@@ -3,9 +3,9 @@ Tests for util/worktree_cleanup.bash
 
 Validates argument parsing, dry-run output, and error handling for the
 worktree cleanup script. Most tests use --dry-run mode or validate argument
-validation failures. Phase 7 behavioral cases (F-6 dirty-tree / checkout-refusal)
-drive a real fixture repo via JUNIPER_ML_MAIN_REPO without running the full
-cleanup pipeline.
+validation failures. Phase 6/7 ``pull --ff-only`` warn-and-skip cases drive a
+real fixture repo via ``JUNIPER_ML_MAIN_REPO`` without running the full cleanup
+pipeline.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def _run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedP
 
 
 def _init_fixture_repo(path: Path) -> None:
-    """Bare-bones git repo with main + origin/main, ready for Phase 7."""
+    """Bare-bones git repo on main, ready for Phase 6/7 fixture setup."""
     path.mkdir(parents=True, exist_ok=True)
     _run_git(path, "init", "-q", "-b", "main")
     _run_git(path, "config", "user.email", "tests@example.invalid")
@@ -55,24 +55,87 @@ def _init_fixture_repo(path: Path) -> None:
     (path / "README.md").write_text("# test\n")
     _run_git(path, "add", "README.md")
     _run_git(path, "commit", "-q", "-m", "initial")
-    _run_git(path, "update-ref", "refs/remotes/origin/main", "HEAD")
 
 
-def _run_phase7(main_repo: Path) -> subprocess.CompletedProcess[str]:
-    """Source worktree_cleanup.bash (skipping main) and call phase_7 only.
+def _prepare_ff_divergent_repo(tmp: Path) -> Path:
+    """Return a MAIN_REPO on main whose ``pull --ff-only origin main`` cannot FF.
 
-    Uses JUNIPER_ML_MAIN_REPO so the fixture is the primary checkout under test.
-    DRY_RUN stays at the script default (not dry-run) so the dirty-tree /
-    checkout-refusal gates actually execute.
+    Local main and origin/main each have a unique commit (siblings), so
+    ``--ff-only`` refuses. Models a primary checkout that drifted during a
+    concurrent push to origin/main.
     """
-    # Strip the trailing `main "${@}"` so sourcing defines helpers without running
-    # the full cleanup. MAIN_REPO is resolved at source time from the env override.
+    main_repo = tmp / "main-repo"
+    remote = tmp / "remote.git"
+    side = tmp / "side-clone"
+    _init_fixture_repo(main_repo)
+    _run_git(main_repo, "clone", "--bare", "-q", str(main_repo), str(remote))
+    _run_git(main_repo, "remote", "add", "origin", str(remote))
+
+    # Remote-only tip via a side clone (keeps main_repo's object db clean until
+    # fetch/pull).
+    subprocess.run(
+        ["git", "clone", "-q", str(remote), str(side)],
+        capture_output=True,
+        text=True,
+        timeout=SCRIPT_TIMEOUT_SECONDS,
+        check=True,
+    )
+    _run_git(side, "config", "user.email", "tests@example.invalid")
+    _run_git(side, "config", "user.name", "Test User")
+    _run_git(side, "config", "commit.gpgsign", "false")
+    (side / "remote-only.txt").write_text("remote\n")
+    _run_git(side, "add", "remote-only.txt")
+    _run_git(side, "commit", "-q", "-m", "remote-only")
+    _run_git(side, "push", "-q", "origin", "main")
+
+    # Local-only tip on MAIN_REPO main → diverged from origin/main.
+    (main_repo / "local-only.txt").write_text("local\n")
+    _run_git(main_repo, "add", "local-only.txt")
+    _run_git(main_repo, "commit", "-q", "-m", "local-only")
+    return main_repo
+
+
+def _run_phase6(main_repo: Path, new_worktree: Path, new_branch: str) -> subprocess.CompletedProcess[str]:
+    """Source worktree_cleanup.bash (skipping main) and call phase_6 only."""
     driver = r"""
 set -euo pipefail
 export JUNIPER_ML_MAIN_REPO="$1"
 SCRIPT_PATH="$2"
 # shellcheck disable=SC1090
 source <(sed '/^main "/d' "${SCRIPT_PATH}")
+NEW_WORKTREE="$3"
+NEW_BRANCH="$4"
+DRY_RUN="${FALSE}"
+phase_6_sync_main
+"""
+    env = RedactedEnv(os.environ)
+    return subprocess.run(
+        [
+            "bash",
+            "-c",
+            driver,
+            "phase6-driver",
+            str(main_repo),
+            str(SCRIPT_PATH),
+            str(new_worktree),
+            new_branch,
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=SCRIPT_TIMEOUT_SECONDS,
+    )
+
+
+def _run_phase7(main_repo: Path) -> subprocess.CompletedProcess[str]:
+    """Source worktree_cleanup.bash (skipping main) and call phase_7 only."""
+    driver = r"""
+set -euo pipefail
+export JUNIPER_ML_MAIN_REPO="$1"
+SCRIPT_PATH="$2"
+# shellcheck disable=SC1090
+source <(sed '/^main "/d' "${SCRIPT_PATH}")
+DRY_RUN="${FALSE}"
 phase_7_restore_main_checkout
 """
     env = RedactedEnv(os.environ)
@@ -370,75 +433,56 @@ class TestSyncToMain(unittest.TestCase):
             self.assertLess(remove_pos, sync_pos, "sync to main must run after the old worktree is removed")
 
 
-class TestPhase7Behavioral(unittest.TestCase):
-    """Hermetic behavioral gates for Phase 7 (F-6 stale-checkout class).
+class TestPhasePullFfOnlyWarnSkip(unittest.TestCase):
+    """Hermetic coverage for Phase 6/7 ``pull --ff-only`` warn-and-skip.
 
-    Dry-run only proves the preview text. These cases drive a real fixture via
-    JUNIPER_ML_MAIN_REPO so a regression that clobbers dirty work, invents a
-    checkout onto a worktree-held main, or treats a refuse as fatal fails here.
+    Dry-run only pins the preview text. Open #731 covers Phase 7 dirty-tree /
+    checkout-refusal; these cases pin the remaining best-effort pull failure
+    path — a regression that treats non-ffable history as fatal aborts cleanup
+    after the old worktree is already gone.
     """
 
-    def test_dirty_tree_skips_checkout_and_leaves_branch(self) -> None:
-        """Dirty primary checkout must warn-and-skip — never clobber uncommitted work."""
+    def test_phase7_pull_ff_only_failure_warns_and_skips(self) -> None:
+        """Diverged MAIN_REPO main must warn-and-skip — never exit non-zero."""
         with tempfile.TemporaryDirectory() as tmp:
-            main_repo = Path(tmp) / "main-repo"
-            _init_fixture_repo(main_repo)
-            _run_git(main_repo, "checkout", "-q", "-b", "release/stale-branch")
-            (main_repo / "WIP.txt").write_text("uncommitted\n")
-
-            before = _run_git(main_repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-            self.assertEqual(before, "release/stale-branch")
+            main_repo = _prepare_ff_divergent_repo(Path(tmp))
+            before = _run_git(main_repo, "rev-parse", "HEAD").stdout.strip()
 
             result = _run_phase7(main_repo)
             self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("MAIN_REPO tree is dirty", result.stderr)
-            self.assertIn("leaving checkout on 'release/stale-branch'", result.stderr)
-            self.assertNotIn("Checking out main", result.stderr)
-            self.assertNotIn("Running: git -C", result.stderr)
-
-            after = _run_git(main_repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-            self.assertEqual(after, "release/stale-branch")
-            self.assertTrue((main_repo / "WIP.txt").exists())
-
-    def test_checkout_refusal_warns_and_skips_without_failing(self) -> None:
-        """When main is held by another worktree, checkout refusal is warn-and-skip (exit 0)."""
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            main_repo = root / "main-repo"
-            other_wt = root / "other-worktree"
-            _init_fixture_repo(main_repo)
-            # Leave main first, then hold it in a sibling worktree so a later
-            # checkout main in MAIN_REPO refuses (git forbids dual checkouts).
-            _run_git(main_repo, "checkout", "-q", "-b", "release/held-main")
-            _run_git(main_repo, "worktree", "add", "-q", str(other_wt), "main")
-
-            result = _run_phase7(main_repo)
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("checking out main", result.stderr.lower())
-            self.assertIn("Could not check out main in MAIN_REPO", result.stderr)
+            self.assertIn("Could not fast-forward MAIN_REPO main", result.stderr)
             self.assertIn("skipping", result.stderr.lower())
 
-            after = _run_git(main_repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-            self.assertEqual(after, "release/held-main")
+            after_branch = _run_git(main_repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+            after_sha = _run_git(main_repo, "rev-parse", "HEAD").stdout.strip()
+            self.assertEqual(after_branch, "main")
+            self.assertEqual(after_sha, before)
+            self.assertTrue((main_repo / "local-only.txt").exists())
+            self.assertFalse((main_repo / "remote-only.txt").exists())
 
-    def test_clean_non_main_restores_to_main(self) -> None:
-        """Clean stale non-main branch is the happy path: checkout main + ff-only pull."""
+    def test_phase6_pull_ff_only_failure_warns_and_skips(self) -> None:
+        """Diverged continuity worktree must warn-and-skip — never abort cleanup."""
         with tempfile.TemporaryDirectory() as tmp:
-            main_repo = Path(tmp) / "main-repo"
-            _init_fixture_repo(main_repo)
-            # Bare remote so `pull --ff-only origin main` has somewhere to talk to.
-            remote = Path(tmp) / "remote.git"
-            _run_git(main_repo, "clone", "--bare", "-q", str(main_repo), str(remote))
-            _run_git(main_repo, "remote", "add", "origin", str(remote))
-            _run_git(main_repo, "checkout", "-q", "-b", "release/stale-clean")
+            root = Path(tmp)
+            main_repo = _prepare_ff_divergent_repo(root)
+            new_worktree = root / "continuity-worktree"
+            new_branch = "worktree-cleanup-ff-fail"
+            # Continuity branch tip shares the diverged local main; pull of
+            # origin/main into it cannot fast-forward.
+            _run_git(main_repo, "worktree", "add", "-q", "-b", new_branch, str(new_worktree), "main")
+            before = _run_git(new_worktree, "rev-parse", "HEAD").stdout.strip()
 
-            result = _run_phase7(main_repo)
+            result = _run_phase6(main_repo, new_worktree, new_branch)
             self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("checking out main", result.stderr.lower())
-            self.assertIn("pull --ff-only origin main", result.stderr)
+            self.assertIn(f"Could not fast-forward '{new_branch}' to origin/main", result.stderr)
+            self.assertIn("skipping", result.stderr.lower())
 
-            after = _run_git(main_repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-            self.assertEqual(after, "main")
+            after_branch = _run_git(new_worktree, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+            after_sha = _run_git(new_worktree, "rev-parse", "HEAD").stdout.strip()
+            self.assertEqual(after_branch, new_branch)
+            self.assertEqual(after_sha, before)
+            self.assertTrue((new_worktree / "local-only.txt").exists())
+            self.assertFalse((new_worktree / "remote-only.txt").exists())
 
 
 if __name__ == "__main__":
