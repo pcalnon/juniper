@@ -105,25 +105,19 @@ class HasMergedPrTest(unittest.TestCase):
             self.assertFalse(cleanup._has_merged_pr("pcalnon/juniper-ml", "worktree-x"))
 
     def test_invalid_json_is_false(self) -> None:
-        fake = mock.Mock(
-            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout="not-json{", stderr="")
-        )
+        fake = mock.Mock(return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout="not-json{", stderr=""))
         with mock.patch.object(cleanup, "_run", fake):
             self.assertFalse(cleanup._has_merged_pr("pcalnon/juniper-ml", "worktree-x"))
 
     def test_merged_state_is_true(self) -> None:
         payload = json.dumps([{"state": "MERGED", "number": 1}, {"state": "OPEN", "number": 2}])
-        fake = mock.Mock(
-            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout=payload, stderr="")
-        )
+        fake = mock.Mock(return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout=payload, stderr=""))
         with mock.patch.object(cleanup, "_run", fake):
             self.assertTrue(cleanup._has_merged_pr("pcalnon/juniper-ml", "worktree-x"))
 
     def test_open_only_is_false(self) -> None:
         payload = json.dumps([{"state": "OPEN", "number": 3}])
-        fake = mock.Mock(
-            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout=payload, stderr="")
-        )
+        fake = mock.Mock(return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout=payload, stderr=""))
         with mock.patch.object(cleanup, "_run", fake):
             self.assertFalse(cleanup._has_merged_pr("pcalnon/juniper-ml", "worktree-x"))
 
