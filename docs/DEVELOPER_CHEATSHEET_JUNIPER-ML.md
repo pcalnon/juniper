@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.5
-**Date**: 2026-06-04
+**Version**: 1.0.6
+**Date**: 2026-07-26
 **Project**: juniper-ml
 
 ---
@@ -24,6 +24,7 @@
 | `util/juniper_plant_all.bash`                          | Start the host-level Juniper stack with health gates |
 | `util/get_cascor_status.bash`                          | Query host-mode cascor status (`CASCOR_HOST` / `CASCOR_PORT`, default `localhost:8201`) |
 | `util/juniper_chop_all.bash`                           | Stop the host-level stack from `JuniperProject.pid` |
+| `util/isolated_stack.bash --up` / `--down` / `--status` | Throwaway E2E trio on 8101/8202/8051 (use `--dry-run` to preview) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -251,8 +252,19 @@ Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `lo
 | `HEALTH_CHECK_TIMEOUT`         | `60`               | Seconds `util/juniper_plant_all.bash` waits for each service health gate |
 | `CASCOR_HOST`                  | `localhost`        | CasCor query-helper target host for `util/get_cascor_*.bash` |
 | `CASCOR_PORT`                  | `8201`             | CasCor query-helper target port for `util/get_cascor_*.bash` |
+| `JUNIPER_E2E_DATA_PORT`        | `8101`             | Isolated-stack juniper-data port (`util/isolated_stack.bash`) |
+| `JUNIPER_E2E_CASCOR_PORT`      | `8202`             | Isolated-stack juniper-cascor port |
+| `JUNIPER_E2E_CANOPY_PORT`      | `8051`             | Isolated-stack juniper-canopy port |
+| `JUNIPER_E2E_HEALTH_TIMEOUT`   | `60`               | Per-service health wait for isolated `--up` |
+| `JUNIPER_E2E_RUN_DIR`          | `/tmp/juniper-e2e` | Scratch dir for data venv / logs / pidfiles |
+| `JUNIPER_E2E_DATA_EXTRAS`      | `api`              | juniper-data pip extras (`api,mnist` for D2/I-5) |
+| `JUNIPER_E2E_CONDA_DIR`        | `/opt/miniforge3`  | Conda root for isolated cascor/canopy activate |
 
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
+
+Tip: isolated `cascor_up` must empty `LD_LIBRARY_PATH` and set the control-WS allowlist to canopy's origin; `canopy_up` must set `DEMO_MODE=0` and matching `CASCOR_WS_ORIGIN` — dropping any of those is the libtorch / 403 / demo failure class.
+
+Full contract: [REFERENCE — Isolated Stack E2E](REFERENCE.md#isolated-stack-e2e-utilities).
 
 ### Host Stack Troubleshooting
 
@@ -262,6 +274,9 @@ Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while 
 | Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`; keep the default `JuniperCascor1` env unless a replacement is known-good. |
 | Worker binary missing | Run `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` finished in `nohup` mode and rerun with `JUNIPER_PROJECT_DIR` set to the same project root; for systemd mode, stop with `util/juniper_chop_all.bash --systemd`. |
+| Isolated cascor wrong-torch / crash | Confirm `--dry-run --up` shows emptied `LD_LIBRARY_PATH=`; prefer `JuniperCascor1`. |
+| Isolated control-WS `403` / reconnect churn | Cascor allowlist + canopy Origin must both be `http://127.0.0.1:<CANOPY_PORT>` (checklist §4). |
+| Isolated `--up` says `conda not found` | Set `JUNIPER_E2E_CONDA_DIR` so `…/etc/profile.d/conda.sh` exists; no pidfiles should be written. |
 
 ## Quick Reference Tables
 
@@ -273,6 +288,14 @@ Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while 
 | juniper-cascor-worker | 8210      | `GET /v1/health/ready`    | JuniperCascor1  | 3.13   |
 
 `juniper-cascor` still commonly exposes service/container port `8200`; host-mode utilities and Docker's published port use `8201`.
+
+Isolated E2E trio (never overlap these with the host ports above):
+
+| Service        | E2E Port | Health           | Runtime                         |
+|----------------|----------|------------------|---------------------------------|
+| juniper-data   | 8101     | `GET /v1/health` | dedicated `python3.14` venv     |
+| juniper-cascor | 8202     | `GET /v1/health` | `JuniperCascor1` + empty `LD_LIBRARY_PATH` |
+| juniper-canopy | 8051     | `GET /v1/health` | `JuniperCanopy1`, `DEMO_MODE=0` |
 
 Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `juniper_data_*`, `juniper_cascor_*`, `juniper_canopy_*`
 
@@ -288,6 +311,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-06-04
-**Version:** 1.0.5
+**Last Updated:** 2026-07-26
+**Version:** 1.0.6
 **Maintainer:** Paul Calnon

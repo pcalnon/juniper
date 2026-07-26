@@ -387,11 +387,17 @@ checklist above is the primary deliverable. Surface:
 
 ```text
 util/isolated_stack.bash --up        # bring the trio up (data venv + cascor + canopy) with the §3/§4 env
-util/isolated_stack.bash --status    # probe the three /v1/health + /api/health endpoints; list listening ports
+util/isolated_stack.bash --status    # probe the three /v1/health endpoints; list listening ports
 util/isolated_stack.bash --down      # stop the trio by port and clean run + snapshot artifacts (§7)
 util/isolated_stack.bash --dry-run --up   # PRINT every command without executing (safe when the ports are in use)
 util/isolated_stack.bash --help
 ```
+
+`--status` probes `http://127.0.0.1:<port>/v1/health` for all three services (not a separate canopy `/api/health`).
+Live `cascor_up` / `canopy_up` compose (emptied `LD_LIBRARY_PATH`, Origin/allowlist pair, `DEMO_MODE=0`, pid
+writes, missing-`conda.sh` abort) is pinned in
+[`docs/REFERENCE.md` — Isolated Stack E2E](../docs/REFERENCE.md#isolated-stack-e2e-utilities) and covered by
+`tests/test_isolated_stack_script.py` (`TestCascorUp` / `TestCanopyUp`).
 
 Ports default to 8101 / 8202 / 8051 and are overridable via `JUNIPER_E2E_DATA_PORT` / `JUNIPER_E2E_CASCOR_PORT` /
 `JUNIPER_E2E_CANOPY_PORT` (plus `JUNIPER_E2E_DATA_EXTRAS=api,mnist` for the MNIST checks and `JUNIPER_E2E_*_DIR` /
