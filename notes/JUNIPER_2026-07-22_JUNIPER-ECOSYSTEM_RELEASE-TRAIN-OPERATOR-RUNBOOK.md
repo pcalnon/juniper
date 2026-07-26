@@ -4,8 +4,8 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.0
-**Last Updated**: 2026-07-25
+**Version**: 1.2.1
+**Last Updated**: 2026-07-26
 
 ---
 
@@ -105,6 +105,29 @@ gh workflow run release-train.yml -f mode=propose -f packages=juniper-observabil
   PRs in their own repos; on the degraded no-App path only juniper-ml packages are proposed and siblings
   are skipped with a clear reason.
 
+#### When propose skips (refusal stubs)
+
+`build_proposal` returns a **skipped** stub (`skipped_reason` set; no PR opened) when inputs are
+unusable — it never invents a shippable bump or an empty CHANGELOG section (`propose.py:1029-1107`).
+`execute_proposal` already no-ops on `skipped`, so these are dry-run / JSON / step-summary signals.
+Coverage: open juniper-ml#749 (`BuildProposalTest` refusal cases).
+
+| `skipped_reason` contains | Cause | Operator response |
+|---|---|---|
+| `dup-guard: open release PR already exists` | Concurrent / prior proposal still open | Review / merge / close the existing PR; do not force a second |
+| `changelog conflict -- refuse to auto-author` | Detector flagged Unreleased vs ship evidence mismatch | Fix CHANGELOG or ship evidence by hand; re-run `report` then `propose` |
+| `no proposable version` (`bump=none` / missing `proposed_version`) | SemVer inputs empty (often test/docs-only tip → no ship) | Confirm detect did not invent `UNRELEASED_CHANGES`; no Gate 1 PR expected |
+| `could not read the version file` | Missing `pyproject.toml` / `_version.py` for the package path | Restore the version file on `main`; re-run propose |
+| `could not locate the version assignment` | File present but assignment unparseable | Fix the version assignment syntax; re-run propose |
+| `CHANGELOG move refused` (`no content to move` / missing Unreleased heading) | Empty or missing `## [Unreleased]` body | Add real Unreleased bullets (or drop the false `UNRELEASED_CHANGES`); never invent an empty section |
+| `could not read …/CHANGELOG.md` | CHANGELOG missing after version staging | Restore CHANGELOG; re-run propose |
+
+**Upstream of propose — test paths never ship.** `classify_change` discounts `_is_test_path` matches
+(`tests/` / `test/` path segments, `test_*.py`, `*_test.py`, `conftest.py`) as `nonship` **before** the
+substantive-hunk filter (`detect.py:658-663`, `735-736`). A tip that only touches tests will not become
+`UNRELEASED_CHANGES` and therefore will not open a Gate 1 PR — even if the hunks look like "real code".
+Coverage: juniper-ml#749 (`test_test_paths_are_nonship_even_with_code_hunks`).
+
 #### Gate 1 review — static `_version.py` dunder lockstep (ml#701 / juniper-ml#710)
 
 All five in-repo **static** packages (`juniper-ci-tools`, `juniper-config-tools`, `juniper-doc-tools`,
@@ -156,10 +179,16 @@ monitors the triggered publish run.
   `allow_auto_merge` is off (a graceful degrade, not a HALT) or the auto-merge never lands.
 - The monitor polls a bounded ~15-minute wall clock (`--monitor-timeout 900`,
   `release-train.yml:733`; `DEFAULT_MONITOR_TIMEOUT_SECONDS`, `ceremony.py:137`) until the run parks at
-  the owner-gated `pypi` environment — GitHub reports that as run status `waiting`, which the train
-  reports as **`PENDING_PYPI_APPROVAL`** (`ceremony.py:531`). **That terminal state is SUCCESS for the
-  train** (plan §5.1). If the run is still building at timeout it reports `IN_PROGRESS` (honest; re-run
-  ceremony mode to resume — it is idempotent).
+  the owner-gated `pypi` environment. **`PENDING_PYPI_APPROVAL`** is SUCCESS for the train (plan §5.1;
+  `ceremony.py:526-531`) when either:
+  - the **run** top-level `status` is `waiting`, **or**
+  - TestPyPI jobs all succeeded **and** every non-TestPyPI `*pypi*` job has `status` in
+    `{waiting, queued, pending, ""}` (belt-and-suspenders: the run may still show `in_progress` before
+    GitHub flips it to `waiting`). Misclassifying `queued` / `pending` / `""` as `IN_PROGRESS` would
+    keep ceremony polling past Gate 2. Coverage: juniper-ml#749
+    (`test_job_level_queued_pending_empty_statuses_park_at_gate`).
+  If the run is still building at timeout it reports `IN_PROGRESS` (honest; re-run ceremony mode to
+  resume — it is idempotent).
 - **Gate 2 is yours**: the publish workflow's `pypi`-environment deploy job waits for the owner to
   approve. The train never approves it (§7). Approve it in the run's environment-review UI when ready.
 
