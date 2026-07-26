@@ -38,6 +38,7 @@ import textwrap
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 UTIL_DIR = Path(__file__).resolve().parents[1] / "util" / "release_train"
 sys.path.insert(0, str(UTIL_DIR))
@@ -217,6 +218,38 @@ class SubstantiveBetweenTest(unittest.TestCase):
         fc_false = d.FileChange("juniper-thing/juniper_thing/m.py", "modified", None, cumulative=False, substantive=False)
         self.assertEqual(d.classify_change(fc_true, e, None)[0], "ship")
         self.assertEqual(d.classify_change(fc_false, e, None)[0], "nonship")
+
+
+class LocalGitCompareCopyTest(unittest.TestCase):
+    """Copy (``C``) short-circuit in ``local_git_compare`` (plan S4.2 / 300-file fallback).
+
+    Open #741 owns A/D/R via a real git fixture; Copy is rarer (``git cp`` / similarity)
+    but shares the same inherently-substantive branch. Mock ``_git_text`` so this stays
+    hermetic and merge-orthogonal to that fixture class.
+    """
+
+    def test_copy_status_is_inherently_substantive(self):
+        e = _entry()
+        name_status = "C075\tjuniper-thing/juniper_thing/old.py\tjuniper-thing/juniper_thing/new.py\n"
+
+        def fake_git(repo_dir, *args):
+            if args[:2] == ("diff", "--name-status"):
+                return name_status
+            if args[:1] == ("log",) or (args and args[0] == "log"):
+                return "copy helper into new module\n"
+            # Must not reach show / substantive_between for C — blow up if we do.
+            raise AssertionError(f"unexpected _git_text args for Copy short-circuit: {args!r}")
+
+        with mock.patch.object(d, "_git_text", side_effect=fake_git):
+            with mock.patch.object(d, "substantive_between", side_effect=AssertionError("C must not blob-compare")):
+                result = d.local_git_compare(e, "juniper-thing-v0.1.0", "main", Path("/tmp/unused"), fetch=False)
+
+        self.assertTrue(result.ok)
+        self.assertEqual(len(result.files), 1)
+        fc = result.files[0]
+        self.assertEqual(fc.filename, "juniper-thing/juniper_thing/new.py")
+        self.assertTrue(fc.status.startswith("C"))
+        self.assertIs(fc.substantive, True)
 
 
 class PyprojectClassifierTest(unittest.TestCase):

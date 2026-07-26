@@ -214,9 +214,12 @@ Gate 1 review table: release-train operator runbook §3.2.
 
 **Re-entry caveat (juniper-ml#712):** if `__version__` already equals the proposed version, the train leaves the dunder alone and does **not** checklist REQUIRED-manual. Confirm the match before treating a pyproject-only proposal as the old failure class.
 
-**Re-entry caveat (juniper-ml#712):** if `__version__` already equals the proposed version, step 3a
-stays silent (no `_version.py` edit, no REQUIRED-manual checklist). Confirm the match before treating
-a pyproject-only proposal as the old stale-dunder failure class.
+**Sibling / meta AGENTS.md Version (worker#140 / ml#706 / #720):** when hand-bumping a sibling repo's
+**primary** package (`pypi_name` equals the repo name) or the meta-package, move `AGENTS.md`
+`**Version**:` with the version file — CI embeds the portable `test_agents_md_version_drift` lint.
+Release-train `propose.py` steps 5/5a do this automatically; already-at-target is silent success
+(no false `REQUIRED`); absent / missing-header surfaces `REQUIRED` (never invents). Sub-packages
+hosted in a sibling never touch the host header.
 
 ---
 
