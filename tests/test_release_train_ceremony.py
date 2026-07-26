@@ -494,6 +494,23 @@ class PreconditionHaltTest(unittest.TestCase):
         # manifest said released 0.4.0 but PyPI now returns nothing.
         self._assert_halt(_plan(pypi_version=None), "pypi-truth-missing")
 
+    def test_notes_render_failed_halts(self):
+        # S8: if the release-notes template cannot be read (OSError), the planner HALTs with
+        # notes-render-failed -- the only precondition HALT that was untested. A missing template
+        # must not crash plan_ceremony or silently skip notes.
+        empty = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(empty, ignore_errors=True))
+        plan = ce.plan_ceremony(
+            _entry(),
+            _manifest_pkg(),
+            _sources(),
+            empty,  # no notes/templates/TEMPLATE_RELEASE_NOTES.md -> FileNotFoundError
+            empty.parent,
+            "2026-07-17",
+        )
+        self._assert_halt(plan, "notes-render-failed")
+        self.assertIn("could not render the release notes template", plan.halt_reason)
+
     def test_halt_issue_title_keyed_on_pkg_and_reason(self):
         plan = _plan(main_ci="failure")
         self.assertEqual(plan.issue["title"], "[release-train] HALT: juniper-service-core -- main-ci-not-green")
@@ -644,12 +661,12 @@ FAILED_TESTPYPI_RUN = {
         {"name": "publish-testpypi", "status": "completed", "conclusion": "failure"},
     ],
 }
-FAILED_PUBLISH_RUN = {
+RELEASED_RUN = {
     "status": "completed",
-    "conclusion": "failure",
+    "conclusion": "success",
     "jobs": [
         {"name": "publish-testpypi", "status": "completed", "conclusion": "success"},
-        {"name": "publish-pypi", "status": "completed", "conclusion": "failure"},
+        {"name": "publish-pypi", "status": "completed", "conclusion": "success"},
     ],
 }
 
@@ -687,17 +704,16 @@ class ExecuteTest(unittest.TestCase):
         self.assertIn("issue_url", result)
         self.assertTrue(any(c[0] == "upsert_halt_issue" for c in rec.calls))
 
-    def test_execute_halt_publish_halts_without_filing_issue(self):
-        # Post-TestPyPI run failure: package HALTs with an operator note, but does NOT file a
-        # testpypi-verify-failed dedup issue (that path is reserved for HALT_TESTPYPI).
-        rec, src = self._mk(run_status=FAILED_PUBLISH_RUN)
+    def test_execute_both_gates_done_is_released(self):
+        # Owner already approved Gate 2: classify_publish_run -> RELEASED must surface as the
+        # execute final state (not HALTED / PENDING / IN_PROGRESS). No halt issue; archive+Release
+        # already cut before the monitor returns.
+        rec, src = self._mk(run_status=RELEASED_RUN)
         plan = ce.plan_ceremony(_entry(), _manifest_pkg(), src, REPO_ROOT, REPO_ROOT.parent, "2026-07-17")
         result = ce.execute_ceremony(plan, src, monitor_kwargs={"timeout_seconds": 0, "sleep": lambda s: None})
-        self.assertEqual(result["state"], "HALTED")
-        self.assertTrue(any("failed before the pypi gate" in n for n in result["notes"]))
+        self.assertEqual(result["state"], "RELEASED")
         self.assertNotIn("issue_url", result)
         self.assertFalse(any(c[0] == "upsert_halt_issue" for c in rec.calls))
-        # Archive + Release were already cut before the monitor; HALT_PUBLISH must not re-cut.
         kinds = [c[0] for c in rec.calls]
         self.assertEqual(kinds, ["open_archive_pr", "enable_automerge", "create_release"])
 
