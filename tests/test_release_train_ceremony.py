@@ -226,6 +226,27 @@ class PureHelperTest(unittest.TestCase):
         self.assertIsNone(ce.writable_repo_skip_reason("juniper-ml"))
         self.assertIn("cross-repo", ce.writable_repo_skip_reason("juniper-cascor"))
 
+    def test_find_open_archive_pr_matches_head_ref_only(self):
+        """Idempotency helper: reuse the open PR whose head IS the archive branch.
+
+        Execute-path reuse is covered elsewhere; this pins the pure matcher so a
+        wrong-key / first-match / None-input regression cannot silently open a
+        duplicate archive PR (plan S7 dup-guard).
+        """
+        branch = "release-notes/juniper-service-core-v0.5.0"
+        match = {"number": 42, "headRefName": branch, "url": "https://example.invalid/42"}
+        other = {"number": 7, "headRefName": "release-notes/other-v1.0.0"}
+        # first matching headRefName wins; unrelated heads ignored
+        self.assertIs(ce.find_open_archive_pr([other, match], branch), match)
+        self.assertIsNone(ce.find_open_archive_pr([other], branch))
+        self.assertIsNone(ce.find_open_archive_pr([], branch))
+        self.assertIsNone(ce.find_open_archive_pr(None, branch))
+        # tolerate sparse / empty entries from a flaky gh JSON seam
+        self.assertIsNone(ce.find_open_archive_pr([None, {}, {"headRefName": ""}], branch))
+        # must not match on title / number alone
+        decoy = {"number": 42, "title": branch, "headRefName": "release-notes/decoy-v0.5.0"}
+        self.assertIsNone(ce.find_open_archive_pr([decoy], branch))
+
     def test_api_field_splits_on_first_equals_only(self):
         # base64 contents carry ``=`` padding; gh splits on the FIRST ``=`` only -- so must ``_api_field``.
         padded = base64.b64encode(b"notes body\n").decode("ascii")  # ends with ``=`` / ``==``
