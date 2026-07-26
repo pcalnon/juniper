@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.5
+**Version**: 1.0.6
 **Date**: 2026-06-04
 **Project**: juniper-ml
 
@@ -229,6 +229,12 @@ Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `lo
 `.py` A/D/R/**C** as inherently substantive. Operator tables:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
 
+**Ceremony `notes-render-failed` + execute `RELEASED` (juniper-ml#741).** Missing/unreadable
+`notes/templates/TEMPLATE_RELEASE_NOTES.md` (or the security template) → §8 HALT
+`notes-render-failed` (restore template, re-run; never invent archive body). Publish run
+`completed`+`success` → execute final state `RELEASED` (both gates done; no halt issue) — not
+plan-time `ALREADY_RELEASED`. Runbook §3.3 / §4.
+
 ---
 
 ## Environment Variables
@@ -286,6 +292,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-06-04
-**Version:** 1.0.5
+**Last Updated:** 2026-07-26
+**Version:** 1.0.6
 **Maintainer:** Paul Calnon

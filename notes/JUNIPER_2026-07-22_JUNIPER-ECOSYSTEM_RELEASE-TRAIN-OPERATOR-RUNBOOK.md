@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.1
+**Version**: 1.2.2
 **Last Updated**: 2026-07-26
 
 ---
@@ -241,8 +241,20 @@ monitors the triggered publish run.
     `IN_PROGRESS` with no publish run: confirm the Release tag matched the workflow's `on:` filter and
     that the publish workflow actually fired (`gh run list --repo pcalnon/<owning-repo>`); fix the tag /
     workflow trigger, then re-run — do not approve a phantom Gate 2.
+  - **`RELEASED` = both gates already done (not a HALT).** When the publish run's top-level status is
+    `completed` with conclusion `success`, `classify_publish_run` returns **`RELEASED`**
+    (`ceremony.py:519-521`) — Gate 2 was already approved and the PyPI job finished. `execute_ceremony`
+    surfaces that as the package final state (`result["state"] = verdict`, `ceremony.py:1029`) and does
+    **not** file a halt issue (coverage: `ExecuteTest.test_execute_both_gates_done_is_released`,
+    juniper-ml#741). Treat step-summary / Slack `RELEASED` as **done** — do not re-approve Gate 2 and do
+    not expect a `testpypi-verify-failed` / `HALT_PUBLISH` issue.
+  - **Do not confuse `RELEASED` with `ALREADY_RELEASED`.** `ALREADY_RELEASED` is a **plan-time** no-op
+    when live PyPI already serves the target version before any archive/Release actions
+    (`ceremony.py:863-866`). `RELEASED` is a **monitor-time** terminal after the ceremony cut (or resumed)
+    a Release and watched the publish workflow finish successfully.
 - **Gate 2 is yours**: the publish workflow's `pypi`-environment deploy job waits for the owner to
   approve. The train never approves it (§7). Approve it in the run's environment-review UI when ready.
+  If the monitor already returned `RELEASED`, Gate 2 was approved earlier — no further click.
 
 ### 3.4 The two owner gates (never automated)
 
@@ -269,6 +281,7 @@ not turn the run red); it is surfaced in the ceremony step summary, a dedup issu
 | `declared-lt-released-anomaly` | declared version < the version PyPI already serves (yank/rollback) | `ceremony.py:724` | Investigate the PyPI yank/rollback manually; do NOT release. Reconcile the declared version. |
 | `pypi-truth-missing` | manifest said released, but PyPI now returns no version | `ceremony.py:726` | A first-publish/yank a human must resolve — confirm the trusted-publisher config (procedure §3.3) before re-running. |
 | `changelog-section-missing` | no non-empty `CHANGELOG [<version>]` section to source the notes | `ceremony.py:741` | The proposal PR (Gate 1) should have created it — merge the proposal first, or add the section, then re-run. |
+| `notes-render-failed` | `notes_render.render_notes` raises `OSError` (missing/unreadable `notes/templates/TEMPLATE_RELEASE_NOTES.md` or the security template) while building the central archive content | `ceremony.py:887-890` | Restore the template under `notes/templates/` in the **central** juniper-ml checkout the ceremony uses as `repo_root`; do not invent archive body by hand. Re-run ceremony — it re-plans from CHANGELOG truth (coverage: `PreconditionHaltTest.test_notes_render_failed_halts`, juniper-ml#741). |
 | `missing-declared-version` | manifest has no `declared_version` for a `BUMPED_NOT_RELEASED` pkg | `ceremony.py:711` | A malformed manifest — re-run detection (`report` mode) to regenerate it. |
 | `not-in-registry` | package is `BUMPED_NOT_RELEASED` in the manifest but absent from `registry.yaml` | `ceremony.py` (`_plans_for`) | Add the package to `util/release_train/registry.yaml` (registry lint gates it). |
 | `testpypi-verify-failed` | (during the monitor) the publish workflow's TestPyPI install-verify failed before Gate 2 | `ceremony.py:876` | The run is not healthy — inspect the publish run's TestPyPI job; fix and re-cut is idempotent. |
