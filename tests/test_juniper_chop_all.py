@@ -216,10 +216,7 @@ class TestMissingOrEmptyPidfileWire(unittest.TestCase):
         # them would hide a cleanup failure and still look like a clean abort.
         self.assertIn("ERROR: PID file not found:", SCRIPT_TEXT)
         self.assertIn("ERROR: PID file is empty:", SCRIPT_TEXT)
-        early_call = (
-            'orphaned_worker_cleanup "${KILL_WORKERS}" '
-            '"${WORKER_SEARCH_TERM}" "${SIGTERM_TIMEOUT}"'
-        )
+        early_call = 'orphaned_worker_cleanup "${KILL_WORKERS}" ' '"${WORKER_SEARCH_TERM}" "${SIGTERM_TIMEOUT}"'
         soft_call = early_call + " || true"
         self.assertGreaterEqual(SCRIPT_TEXT.count(early_call), 3)
         # Exactly one soft call (post-stop); the two early sites stay hard.
