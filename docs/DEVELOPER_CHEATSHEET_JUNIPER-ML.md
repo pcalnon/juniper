@@ -162,6 +162,14 @@ git worktree add "$WORKTREE_DIR" "$BRANCH_NAME" && cd "$WORKTREE_DIR"
 
 **Automated**: `util/worktree_cleanup.bash --old-worktree "$DIR" --old-branch "$BRANCH" --parent-branch main`
 
+**Batch stale sweep** (centralized `…/Juniper/worktrees/` pool): survey → dry-run apply → apply. Survey treats gitignored debris as clean; apply still skips ignored-only `SAFE` rows unless you pass `--include-ignored` after review (decrypted-secrets class). Full contract: cleanup procedure V2 § "Batch Stale-Worktree Sweep".
+
+```bash
+bash util/ad-hoc/worktree_sweep_survey.bash > /tmp/juniper-worktree-sweep.tsv
+bash util/ad-hoc/worktree_sweep_apply.bash --dry-run < /tmp/juniper-worktree-sweep.tsv
+bash util/ad-hoc/worktree_sweep_apply.bash --include-ignored < /tmp/juniper-worktree-sweep.tsv
+```
+
 ---
 
 ## Data Contract
@@ -196,7 +204,12 @@ Meta-package publish flow: build + `twine check`, TestPyPI upload with attestati
 
 `juniper-observability` publish flow: build from `juniper-observability/`, TestPyPI upload with `verbose: true`, retry install verification to tolerate index lag, then PyPI upload. The workflow reads the version from `juniper-observability/pyproject.toml`; keep it aligned with `juniper-observability/juniper_observability/_version.py`.
 
-**Sibling-repo AGENTS.md Version (worker#140 / ml#706):** when hand-bumping a sibling repo's **primary** package (`pypi_name` equals the repo name), move `AGENTS.md` `**Version**:` with the version file — that repo's CI embeds the portable `test_agents_md_version_drift` lint. Release-train `propose.py` step 5a does this automatically; sub-packages hosted in a sibling never touch the host header.
+**Static `_version.py` lockstep (ml#701 / juniper-ml#710).** All five in-repo static packages
+(ci-tools, config-tools, doc-tools, observability, service-core) ship both `[project].version` and
+`<import>/_version.py` `__version__`. Release-train `propose` bumps both in one Gate 1 PR
+(auto-detected by file presence); `tests/test_release_train_registry.py::VersionDunderLockstepTest`
+fails CI if they drift. Manual releases must keep the same pair equal. Operator review checklist:
+[`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2.
 
 ---
 
