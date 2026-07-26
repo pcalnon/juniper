@@ -221,6 +221,10 @@ Release-train `propose.py` steps 5/5a do this automatically; already-at-target i
 (no false `REQUIRED`); absent / missing-header surfaces `REQUIRED` (never invents). Sub-packages
 hosted in a sibling never touch the host header.
 
+**R7 archive-lane `ref=` (juniper-ml#770):** a ceremony `SeamViolation` with `ref=None` / `ref=''` means
+the `git/refs` POST omitted a heads ref — fail-closed code bug, not an auth blip. Do not hand-POST a
+ref. Re-dispatch after #770; see runbook §7.
+
 ---
 
 ## Environment Variables
