@@ -41,6 +41,17 @@ def run_script(*args: str, cwd: str | None = None) -> subprocess.CompletedProces
     )
 
 
+def _run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """git helper for the Phase 4 remote-delete guard fixtures (restored after a merge dropped it)."""
+    return subprocess.run(
+        ["git", "-C", str(cwd), *args],
+        capture_output=True,
+        text=True,
+        timeout=SCRIPT_TIMEOUT_SECONDS,
+        check=check,
+    )
+
+
 def _p3r_run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     """git helper for Phase 3 reuse/non-main fixtures (name-isolated from open #755 ``_p3_*``)."""
     return subprocess.run(
@@ -159,17 +170,7 @@ def _install_fake_gh(bin_dir: Path, log_path: Path, open_pr_count: str) -> None:
     """Install a PATH-first ``gh`` that returns open-PR length and logs argv."""
     bin_dir.mkdir(parents=True, exist_ok=True)
     gh_path = bin_dir / "gh"
-    gh_path.write_text(
-        "#!/usr/bin/env bash\n"
-        "set -euo pipefail\n"
-        f'echo "$*" >> "{log_path}"\n'
-        'if [[ "${1-}" == "pr" && "${2-}" == "list" ]]; then\n'
-        f'  echo "{open_pr_count}"\n'
-        "  exit 0\n"
-        "fi\n"
-        'echo "unexpected gh invocation: $*" >&2\n'
-        "exit 1\n"
-    )
+    gh_path.write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" f'echo "$*" >> "{log_path}"\n' 'if [[ "${1-}" == "pr" && "${2-}" == "list" ]]; then\n' f'  echo "{open_pr_count}"\n' "  exit 0\n" "fi\n" 'echo "unexpected gh invocation: $*" >&2\n' "exit 1\n")
     gh_path.chmod(gh_path.stat().st_mode | stat.S_IXUSR)
 
 
