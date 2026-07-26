@@ -231,6 +231,12 @@ Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `lo
 
 **Release-train write-job git identity (ml#705):** when editing `.github/workflows/release-train.yml`, keep both `propose` and `ceremony` identity steps on `git config --global user.name|user.email|commit.gpgsign` (never bare repo-local `git config`). Cross-repo commits land in freshly-cloned sibling checkouts; a juniper-ml-only identity leaves them with `Author identity unknown` (run 30040138774). Operator detail: runbook §7 / §8.7.
 
+**Ceremony signed-archive failure edges (ml#709 / #714):** if a `ceremony` run dies inside
+`open_archive_pr`, do **not** invent a base sha or hand-push an archive branch. Unresolvable
+`origin/<base>`, non-422 refs errors (e.g. HTTP 401), and unresolvable existing tips are hard stops;
+only tip-at-base or single-commit-atop-base are safe re-entry shapes. Operator table:
+[`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.3.
+
 ---
 
 ## Environment Variables
