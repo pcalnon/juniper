@@ -244,9 +244,7 @@ class DriftCheckTest(unittest.TestCase):
     def test_run_fix_reports_called_process_error(self) -> None:
         """pip failure must become action=ERROR with truncated stderr, not raise."""
         plan = self._resolvable_plan()
-        exc = subprocess.CalledProcessError(
-            1, ["pip"], stderr="Could not find a version that satisfies the requirement\n"
-        )
+        exc = subprocess.CalledProcessError(1, ["pip"], stderr="Could not find a version that satisfies the requirement\n")
         with mock.patch.object(mod.subprocess, "run", side_effect=exc):
             results = mod.run_fix(plan, self.conda, dry_run=False)
 
