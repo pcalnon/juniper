@@ -221,6 +221,12 @@ Release-train `propose.py` steps 5/5a do this automatically; already-at-target i
 (no false `REQUIRED`); absent / missing-header surfaces `REQUIRED` (never invents). Sub-packages
 hosted in a sibling never touch the host header.
 
+**Propose CHANGELOG refuse clears staged edits (juniper-ml#751):** `build_proposal` stages the version
+(and optional dunder) bump before the CHANGELOG move. Empty / missing Unreleased or a missing CHANGELOG
+clears those edits so the skipped stub is `edits=[]` + `skipped_reason` (same shape as dup-guard /
+`bump=none`) — do not treat leftover version edits in dry-run JSON as a Gate 1 candidate.
+Operator table: release-train runbook §3.2.
+
 ---
 
 ## Environment Variables
