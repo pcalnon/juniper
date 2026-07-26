@@ -949,6 +949,18 @@ class PackagesInputRehearsalTest(unittest.TestCase):
                 self.assertRegex(proc.stdout, r"ARGS:--package juniper-observability\|CROSS:$")
 
 
+def _iter_py_heredoc_bodies(run: str):
+    """Yield ``(opener_match, body)`` for every ``<<'PY'…`` heredoc in a workflow ``run:`` script."""
+    for match in _PY_HEREDOC_OPENER.finditer(run):
+        after = run[match.end() :]
+        body_lines = []
+        for line in after.splitlines():
+            if line.strip() == "PY" and "<<" not in line:
+                break
+            body_lines.append(line)
+        yield match, "\n".join(body_lines) + ("\n" if body_lines else "")
+
+
 class HeredocBalanceTest(unittest.TestCase):
     """Every ``run:`` script's ``<<'PY'`` heredocs must have exactly one terminator each.
 
