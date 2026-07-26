@@ -441,6 +441,7 @@ run. The detect job must not configure identity (it never commits).
    `git config --global user.name|user.email|commit.gpgsign` (`release-train.yml:473-478`,
    `682-687`). Nothing is pushed when this fires — safe to re-dispatch after the workflow fix.
    Structural pin: juniper-ml#718 (`tests/test_release_train_workflow_guard.py` invariant `(g)`).
+   (Numbered **#7** so open docs PR #725 can keep heredoc late-failure as §8 **#6**.)
 
 ## 9. Quick reference
 
