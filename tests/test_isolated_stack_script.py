@@ -43,9 +43,10 @@ SCRIPT_TIMEOUT_SECONDS = 15
 
 def _extract_activate_conda_function() -> str:
     """Pull the live ``activate_conda`` body from the script (avoids harness drift)."""
+    live = SCRIPT_PATH.read_text()
     match = re.search(
         r"^activate_conda\(\) \{.*?\n\}\n",
-        SCRIPT_TEXT,
+        live,
         flags=re.MULTILINE | re.DOTALL,
     )
     if match is None:
