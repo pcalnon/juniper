@@ -22,6 +22,7 @@ script exits before any service is launched.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -32,6 +33,19 @@ from tests.redacted_env import RedactedEnv
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "util" / "juniper_plant_all.bash"
 SCRIPT_TEXT = SCRIPT_PATH.read_text()
 SCRIPT_TIMEOUT_SECONDS = 15
+
+
+def _extract_safe_conda_activate() -> str:
+    """Pull the live ``safe_conda_activate`` body (avoids harness drift)."""
+    live = SCRIPT_PATH.read_text()
+    match = re.search(
+        r"^safe_conda_activate\(\) \{.*?\n\}\n",
+        live,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("safe_conda_activate function not found in juniper_plant_all.bash")
+    return match.group(0)
 
 
 class TestSyntax(unittest.TestCase):
@@ -445,6 +459,72 @@ class TestPidFileFormat(unittest.TestCase):
         # Plant must not still emit the legacy "name: pid" format.
         self.assertNotIn('echo "juniper-data:', SCRIPT_TEXT)
         self.assertNotIn('echo "juniper-cascor:', SCRIPT_TEXT)
+
+
+class TestSafeCondaActivate(unittest.TestCase):
+    """``safe_conda_activate`` nounset contract (ADDR2LINE class).
+
+    Conda activate scripts (e.g. activate-binutils_linux-64.sh) reference
+    unset vars like ADDR2LINE. The wrapper must disable nounset for the
+    activate call only and restore it afterward — the same one-character
+    ``set +u``/``set -u`` restore bug that bit isolated-stack (#785). Host-mode
+    plant calls this before every service; a broken restore silently disables
+    ``set -u`` for the rest of bring-up.
+    """
+
+    def _run_activate(self, bin_dir: Path) -> subprocess.CompletedProcess:
+        # Concatenate (do not f-string) so bash `${...}` braces in the extract
+        # are not interpreted as Python format fields.
+        harness = (
+            "set -euo pipefail\n"
+            f'export PATH="{bin_dir}:/usr/bin:/bin"\n'
+            + _extract_safe_conda_activate()
+            + 'safe_conda_activate "JuniperCanopy1"\n'
+            "case $- in\n"
+            '  *u*) echo "NOUNSET_ON" ;;\n'
+            '  *) echo "NOUNSET_OFF"; exit 1 ;;\n'
+            "esac\n"
+            # Prove nounset is actually enforced (not just a stale $- flag bit).
+            'if (echo "${__plant_safe_conda_definitely_unset__}") >/dev/null 2>&1; then\n'
+            '  echo "NOUNSET_INEFFECTIVE"\n'
+            "  exit 1\n"
+            "fi\n"
+            'echo "OK"\n'
+        )
+        return subprocess.run(
+            ["/bin/bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            env=RedactedEnv(os.environ),
+            timeout=SCRIPT_TIMEOUT_SECONDS,
+        )
+
+    def test_restores_nounset_after_activate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            conda = bin_dir / "conda"
+            # Mimic ADDR2LINE class: activate scripts reference unset vars.
+            conda.write_text(
+                "#!/bin/bash\n"
+                'if [[ "$1" == "activate" ]]; then\n'
+                '  : "${ADDR2LINE}"\n'
+                "fi\n"
+            )
+            conda.chmod(0o755)
+            result = self._run_activate(bin_dir)
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("NOUNSET_ON", result.stdout)
+            self.assertIn("OK", result.stdout)
+
+    def test_restore_arm_is_set_minus_u(self) -> None:
+        # Static pin: the pre/post pair must be +u then -u (not +u/+u).
+        body = _extract_safe_conda_activate()
+        self.assertRegex(
+            body,
+            r"set \+u\n\s*conda activate[^\n]+\n\s*set -u\n",
+            msg="safe_conda_activate must restore nounset with set -u after conda activate",
+        )
 
 
 if __name__ == "__main__":
