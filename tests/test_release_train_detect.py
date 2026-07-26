@@ -306,11 +306,7 @@ class PyprojectClassifierTest(unittest.TestCase):
         # context line). That arm must still classify as ship — otherwise truncated /
         # compare patches silently UP_TO_DATE packaging changes (detect.py:676-681 + 707-708).
         # Body-marker + mixed-tool cases owned by concurrent #774 — keep only this arm.
-        patch = (
-            "@@ -1,2 +1,2 @@ [build-system]\n"
-            '-requires = ["setuptools>=61"]\n'
-            '+requires = ["hatchling"]\n'
-        )
+        patch = "@@ -1,2 +1,2 @@ [build-system]\n" '-requires = ["setuptools>=61"]\n' '+requires = ["hatchling"]\n'
         self.assertEqual(d.classify_pyproject_patch(patch)[0], "ship")
 
 
