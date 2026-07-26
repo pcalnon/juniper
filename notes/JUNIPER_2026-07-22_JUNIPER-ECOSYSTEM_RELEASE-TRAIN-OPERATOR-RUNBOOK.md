@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 1.2.1
-**Last Updated**: 2026-07-25
+**Last Updated**: 2026-07-26
 
 ---
 
@@ -90,6 +90,35 @@ release-worthy CHANGELOG changes not yet in a proposal), `BUMPED_NOT_RELEASED` (
 NORMAL green outcome** — only a hard source error (exit ≥ 2) fails the run (`release-train.yml`, detect
 step; plan §11).
 
+#### Detect SHIP filter + SemVer (why a package shows `UNRELEASED_CHANGES`)
+
+The detector's proposed bump feeds Gate 1. Two internals decide whether code ships and which SemVer
+bucket `propose` suggests (`detect.py:has_substantive_hunk`, `local_git_compare`, `propose_semver`;
+plan §4.2 / §6):
+
+| Signal | Ships? | Notes |
+|---|---|---|
+| Whitespace-only hunk | **No** | Empty / space-only `+/-` lines are stripped before comment/code checks (`has_substantive_hunk`). |
+| Pure comment / docstring / link edit | **No** | Notes-rename residue class — discounted. |
+| Pure **code** deletion (with `file_text`) | **Yes** | `_removed_codeish` path; deleting a real statement must not thin SemVer. |
+| Add / delete / rename / **copy** of a `.py` module (`A`/`D`/`R`/`C` in `local_git_compare`) | **Yes** | Inherently substantive — no blob compare (`detect.py:334-335`). Copy (`C075`) is rarer than A/D/R (needs copy detection) but shares the same short-circuit; do not expect a module copy to fall through to `SHIP_UNCERTAIN`. |
+| Patch unavailable | **Uncertain** | Surfaces as `SHIP_UNCERTAIN`, not a silent `UP_TO_DATE`. |
+
+Keep-a-Changelog categories + conventional-commit classes map to the proposed bump
+(`FEATURE_CATEGORIES` / `FIX_CATEGORIES` / `BREAKING_CATEGORIES`, `detect.py:107-109`;
+`propose_semver`, `detect.py:804-815`; pre-1.0 policy plan §6):
+
+| Input | Proposed bump (pre-1.0) |
+|---|---|
+| `### Security` or `### Fixed` (or `fix:` commits) | **patch** |
+| `### Added` / `### Changed` / `### Deprecated` (or `feat:` commits) | **minor** |
+| `### Removed`, `feat!` / `fix!`, or a `BREAKING CHANGE` footer | **minor** (breaking is not major pre-1.0) |
+| No release-worthy cats/classes | **none** |
+
+When reviewing a Gate 1 PR, a `Security`-only Unreleased section should propose **patch**, not minor;
+a `Changed` section should propose **minor**. A mismatch means the detector/SemVer path drifted —
+re-run `report` mode before merging a hand-edited bump.
+
 ### 3.2 Dispatching `propose` against specific packages (Gate 1)
 
 ```bash
@@ -116,16 +145,29 @@ presence (no registry field) and bumps it in the same proposal (`build_proposal`
 
 When reviewing a Gate 1 proposal for a static in-repo package, confirm:
 
-1. **Both files move together** — `pyproject.toml` `[project].version` **and**
+1. **Both files move together (happy path)** — `pyproject.toml` `[project].version` **and**
    `<import>/_version.py` `__version__` in the Files-changed list (or the PR body's
-   `### Version bump` names the lockstep dunder co-change).
-2. **Checklist is honest** — if the co-change checklist says the dunder bump is
-   `REQUIRED (... edit manually)`, the auto-edit could not parse `__version__ = "..."`; fix it in the
-   proposal before merge (same pattern as a missing AGENTS.md header edit).
-3. **CI gate** — `tests/test_release_train_registry.py::VersionDunderLockstepTest` (ships with
+   `### Version bump` names the lockstep dunder co-change). Single- or double-quoted
+   `__version__ = …` both parse (`propose.py` `set_dynamic_version`).
+2. **Already-at-target / re-entry (juniper-ml#712)** — a **pyproject-only** version diff with
+   **no** dunder checklist item is valid when checkout `__version__` already equals the proposed
+   `to_version` (partial heal / re-entry). Step 3a leaves a correct dunder alone and must **not**
+   false-flag REQUIRED-manual. Confirm the match, then merge when the rest looks right.
+3. **Checklist is honest (unparseable)** — if the co-change checklist says the dunder bump is
+   `REQUIRED (... edit manually)` and the body does **not** claim a lockstep co-change, the file
+   exists but is unparseable; hand-edit `__version__` in the same PR before merge (AGENTS.md-header
+   precedent).
+4. **Stale dunder still behind** — pyproject-only while checkout `__version__` is still at
+   `from_version` (or any other mismatch) is the pre-#710 / stale-train failure class. Do **not**
+   merge as-is; add the dunder bump or re-dispatch `propose` after #710/#712.
+5. **CI gate** — `tests/test_release_train_registry.py::VersionDunderLockstepTest` (ships with
    juniper-ml#710) asserts pyproject == dunder for every in-repo static-with-dunder package
    (dynamic packages are exempt — their dunder *is* the source). A red
    `VersionDunderLockstepTest` means do not merge.
+
+**Pitfall:** a pyproject-only diff is no longer automatically rejectable. Distinguish re-entry
+(dunder already correct → OK) from the stale-dunder class (dunder still behind → block). After #712,
+an already-correct dunder produces neither a `_version.py` edit nor a checklist line.
 
 Dynamic packages (model-core + the three recurrence packages) are unchanged: the version bump *is*
 the `_version.py` edit, so there is no separate lockstep co-change to look for.
@@ -204,13 +246,49 @@ monitors the triggered publish run.
   security-posture change.) **Owner one-click is now only the degraded/manual fallback** — e.g. if
   `allow_auto_merge` is off (a graceful degrade, not a HALT) or the auto-merge never lands.
 - The monitor polls a bounded ~15-minute wall clock (`--monitor-timeout 900`,
-  `release-train.yml:733`; `DEFAULT_MONITOR_TIMEOUT_SECONDS`, `ceremony.py:137`) until the run parks at
+  `release-train.yml:732-740`; `DEFAULT_MONITOR_TIMEOUT_SECONDS`, `ceremony.py:137`) until the run parks at
   the owner-gated `pypi` environment — GitHub reports that as run status `waiting`, which the train
   reports as **`PENDING_PYPI_APPROVAL`** (`ceremony.py:531`). **That terminal state is SUCCESS for the
-  train** (plan §5.1). If the run is still building at timeout it reports `IN_PROGRESS` (honest; re-run
-  ceremony mode to resume — it is idempotent).
+  train** (plan §5.1). Terminal monitor returns are only
+  `PENDING_PYPI_APPROVAL` / `RELEASED` / `HALT_TESTPYPI` / `HALT_PUBLISH`
+  (`monitor_publish_run`, `ceremony.py:938-941`).
+  - **`NOT_FOUND` is not terminal.** Right after `gh release create`, the publish workflow is often
+    invisible for a poll or two (`classify_publish_run(None) -> NOT_FOUND`, `ceremony.py:505`). The
+    monitor **keeps polling** — it must never stamp `NOT_FOUND` onto the ceremony result (that would
+    skip waiting for Gate 2). Coverage: `MonitorTimeoutTest` in `tests/test_release_train_ceremony.py`
+    (juniper-ml#744 / #745 / #747).
+  - **Timeout → honest `IN_PROGRESS`.** If the wall clock elapses while the run is still building *or*
+    still permanently missing (mis-tagged Release / workflow never triggered), the monitor returns
+    **`IN_PROGRESS`** — never invents `PENDING_PYPI_APPROVAL` / `RELEASED` / a HALT
+    (`ceremony.py:941`). Re-run ceremony mode to resume (idempotent). Operator check when you see
+    `IN_PROGRESS` with no publish run: confirm the Release tag matched the workflow's `on:` filter and
+    that the publish workflow actually fired (`gh run list --repo pcalnon/<owning-repo>`); fix the tag /
+    workflow trigger, then re-run — do not approve a phantom Gate 2.
 - **Gate 2 is yours**: the publish workflow's `pypi`-environment deploy job waits for the owner to
   approve. The train never approves it (§7). Approve it in the run's environment-review UI when ready.
+
+**Archive-lane failure edges (signed API path — do not invent a sha).** The happy path above is the
+common case. When a ceremony fails *inside* `open_archive_pr` / `create_branch` / `create_signed_commit`
+(`ceremony.py:688-765`), treat these as **hard stops that must never invent a base sha or commit onto a
+ghost tip** (pinned by `tests/test_release_train_ceremony.py` / juniper-ml#714). They surface as
+`SourceError` (or `SeamViolation` for R7 code bugs) and stop that package's ceremony before a bad
+archive commit lands:
+
+| Symptom in the ceremony log | Cause | Operator response |
+|---|---|---|
+| `could not resolve origin/<base> … to base the archive branch on` | `git rev-parse origin/<base>` returned empty after fetch (`open_archive_pr`, `ceremony.py:758-760`) — **no** `git/refs` POST and **no** GraphQL commit are issued | Confirm the juniper-ml checkout has a freshened `origin/main` (clone depth / fetch failure). Re-run ceremony once the ref resolves; never hand-push an archive branch at a guessed sha. |
+| `gh failed (api repos): HTTP 401` (or any non-422 refs error) | Branch-create POST failed for auth/transport; `create_branch` re-raises and **does not** enter tip-inspection (`ceremony.py:703-705`) | Check the App / `GITHUB_TOKEN` credentials and `contents: write` on juniper-ml. A 401 is **not** the idempotent "branch already exists" path. |
+| `archive branch … exists on origin but its tip could not be resolved` | 422/already-exists re-entry, but `FETCH_HEAD` tip was empty (`ceremony.py:708-710`) — HALT rather than commit onto a ghost tip | Inspect `release-notes/<pkg>-v<ver>` on origin; delete or reset the branch by hand if it is corrupted, then re-run. |
+| `archive branch … exists but diverged from base …` | Branch tip is neither `origin/<base>` nor a single archive commit atop it (`ceremony.py:716`) | Human resolve: close/delete the stray branch (or the open archive PR) so re-entry can recreate a clean one-commit branch. |
+| Signed commit returns empty oid / PR still opens | Malformed or empty `createCommitOnBranch` GraphQL payload — oid extraction is best-effort and returns `""` without raising (`ceremony.py:743-747`); `gh pr create` still runs | Inspect the archive PR tip commit; if the file is missing, close the PR + delete the branch and re-run. Do not treat an empty oid alone as success proof. |
+
+**Idempotent re-entry (expected shapes).** When the archive branch already exists (HTTP 422 /
+"already exists"), `create_branch` reuses it only in two safe shapes (`ceremony.py:692-716`): tip ==
+`origin/<base>` (commit onto it) or tip's parent == base (single archive commit already present — skip
+re-commit). Anything else is the diverged HALT above. Forbidden tokens (`environment` / `deployment` /
+`review` / …) riding an otherwise-sanctioned `git/refs` POST or `createCommitOnBranch` call still raise
+`SeamViolation` (`_assert_api_allowed`, `ceremony.py:297-299`) — that is a **code** bug, not an operator
+recovery path.
 
 ### 3.4 The two owner gates (never automated)
 
@@ -348,6 +426,16 @@ deployment** — PyPI approval stays owner-only (Gate 2). The workflow-level `co
 mode-gated write jobs are pinned by `tests/test_release_train_workflow_guard.py`; the archive-lane api
 carve-out and its negative case are pinned by `tests/test_release_train_ceremony.py`.
 
+**Runner git identity (headless, unsigned) — must be `--global`.** Both write jobs run a
+`Configure git identity (headless, unsigned)` step that sets `user.name`, `user.email`, and
+`commit.gpgsign false` via `git config --global` (`release-train.yml:466-478` propose,
+`675-687` ceremony). Cross-repo `propose` commits inside freshly-cloned **sibling** checkouts; a
+repo-local `git config` on the juniper-ml checkout alone leaves those clones with
+`Author identity unknown` (first cross-repo pilot failure, run 30040138774; fixed juniper-ml#705).
+The hosted runner is ephemeral, so `--global` is still job-scoped. `propose.py` also passes
+`-c commit.gpgsign=false` on its commit so a YubiKey-resident signing config never reaches a headless
+run. The detect job must not configure identity (it never commits).
+
 ## 8. Known limitations (accepted)
 
 1. **Degraded no-App mode (in-repo only).** When `RELEASE_TRAIN_APP_ID` is unset, `propose`/`ceremony`
@@ -367,9 +455,13 @@ carve-out and its negative case are pinned by `tests/test_release_train_ceremony
    when recovering by hand, **cut a Release** (or delete Release + tag together, §5.3) — never push a
    bare `juniper-<pkg>-v*` tag, which would trigger the tag/`release`-driven publish workflow against a
    tag the Release did not create.
-4. **Cross-repo pilot is owner-triggered.** No cross-repo write has run live from this automation yet;
-   the ceremony's live cross-repo path is exercised only under owner-initiated dispatch. Hermetic tests
-   + `--dry-run` cover the logic (`tests/test_release_train_ceremony.py`).
+4. **Cross-repo pilot is owner-triggered.** The first live cross-repo `propose` dispatch
+   (run 30040138774, `packages=juniper-cascor-worker`) failed at the commit step with
+   `Author identity unknown` — **nothing was pushed** (worker repo stayed clean). Fixed by
+   juniper-ml#705 (`git config --global` on both write jobs; §7). A successful cross-repo write
+   (propose PR opened in a sibling, or ceremony cutting a sibling Release) still needs an owner
+   re-dispatch to prove. Hermetic tests + `--dry-run` cover the logic
+   (`tests/test_release_train_ceremony.py`).
 5. **Archive-PR signature gate (RESOLVED 2026-07-23).** The juniper-ml ruleset's `required_signatures`
    rule evaluates a PR's source commits, so the exempt archive PR only auto-merges if its commit is
    signed. It now is: the archive branch + commit are created through the GitHub API (`git/refs` POST +
@@ -379,6 +471,22 @@ carve-out and its negative case are pinned by `tests/test_release_train_ceremony
    / ml#707). Owner one-click is now only the degraded/manual fallback (e.g. `allow_auto_merge` off). No
    security-posture change — the PyPI deploy still waits at the owner-gated `pypi` environment (Gate 2).
    The **live proof** (an archive PR auto-merging with zero clicks) rides the next real ceremony dispatch.
+6. **Summary / Slack `<<'PY'` late-failure class (RESOLVED #708 + #723).** Detect / propose / ceremony
+   step-summary and Slack payload steps embed Python via `python - <<'PY' … PY`. A duplicated or missing
+   `PY` terminator (run 30051952226 / ml#708) or a syntax-broken heredoc body (ml#723) fails **after**
+   the real work finishes — the job goes red even though Gate 1/2 side effects already landed. Operator
+   response: treat the run's proposal / archive / Release / `PENDING_PYPI_APPROVAL` outcomes as
+   authoritative; fix the YAML and re-run only if a summary/Slack signal is still needed. Developers
+   editing those blocks must keep openers and terminators 1:1 and keep each body `compile()`-clean —
+   pinned by `HeredocBalanceTest` + `HeredocCompileTest` in `tests/test_release_train_workflow_guard.py`
+   (four bodies today: detect summary, detect Slack, propose summary, ceremony summary).
+7. **Sibling `Author identity unknown` (RESOLVED 2026-07-23, ml#705).** A red `propose` /
+   `ceremony` job that dies at `git commit` inside a sibling clone with
+   `Author identity unknown` / `Please tell me who you are` means the write job's identity step
+   regressed to **repo-local** `git config` (or was removed). Confirm both write jobs still use
+   `git config --global user.name|user.email|commit.gpgsign` (`release-train.yml:473-478`,
+   `682-687`). Nothing is pushed when this fires — safe to re-dispatch after the workflow fix.
+   Structural pin: juniper-ml#718 (`tests/test_release_train_workflow_guard.py` invariant `(g)`).
 
 ## 9. Quick reference
 
@@ -407,7 +515,7 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   §12 phased plan (steps 1.3/2.2/4.1/4.3).
 - Static-with-dunder lockstep design + implementation record:
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
-  (ml#701 / juniper-ml#710).
+  (ml#701 / juniper-ml#710; edge-case coverage + already-at-target checklist fix juniper-ml#712).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
 - Engines: `util/release_train/detect.py`, `propose.py` (incl. Phase 4.2 topo order + follow-ons),
   `ceremony.py`, `registry.yaml`.
@@ -417,6 +525,6 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701).
 - Static `_version.py` lockstep (Gate 1 review):
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
-  (implemented by juniper-ml#710).
+  §6 / §6.1 (implemented by juniper-ml#710; hardened by juniper-ml#712).
 - Release convention (cut a Release, archive notes centrally): repo `AGENTS.md` "Publishing" +
   [`JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md`](JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md) §11.
