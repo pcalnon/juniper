@@ -524,6 +524,26 @@ class ClassifyPublishRunTest(unittest.TestCase):
         }
         self.assertEqual(ce.classify_publish_run(run), "PENDING_PYPI_APPROVAL")
 
+    def test_job_level_queued_pending_empty_statuses_park_at_gate(self):
+        """Belt-and-suspenders job-level park: TestPyPI ok + pypi job in {queued,pending,\"\"}.
+
+        The run top-level may still be ``in_progress`` before GitHub flips it to ``waiting``;
+        misclassifying these as ``IN_PROGRESS`` keeps the ceremony polling forever past Gate 2.
+        ``waiting`` is covered above; these three siblings share the allowlist in
+        ``classify_publish_run``.
+        """
+        for pypi_status in ("queued", "pending", ""):
+            with self.subTest(pypi_status=pypi_status):
+                run = {
+                    "status": "in_progress",
+                    "conclusion": None,
+                    "jobs": [
+                        {"name": "Publish to TestPyPI", "status": "completed", "conclusion": "success"},
+                        {"name": "Publish to PyPI", "status": pypi_status, "conclusion": None},
+                    ],
+                }
+                self.assertEqual(ce.classify_publish_run(run), "PENDING_PYPI_APPROVAL")
+
     def test_testpypi_failure_halts(self):
         run = {
             "status": "completed",

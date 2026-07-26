@@ -734,6 +734,76 @@ class BuildProposalTest(unittest.TestCase):
         self.assertIn("changelog conflict", prop.skipped_reason)
         self.assertEqual(prop.edits, [])
 
+    def test_bump_none_is_refused(self):
+        """No proposable SemVer bump must refuse before any edit is computed (plan S5.4)."""
+        _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog=_CHANGELOG)
+        entry = _entry()
+        pkg = _manifest_pkg(proposed_bump="none", proposed_version=None)
+        prop = pr.build_proposal(entry, pkg, self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertTrue(prop.skipped)
+        self.assertIn("no proposable version", prop.skipped_reason)
+        self.assertIn("bump=none", prop.skipped_reason)
+        self.assertEqual(prop.edits, [])
+
+    def test_unreadable_version_file_is_refused(self):
+        """Missing pyproject / _version.py must refuse (cannot invent a bump target)."""
+        # CHANGELOG alone -- version file absent so read_file returns None.
+        pkg_dir = self.repo_root / "juniper-thing"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "CHANGELOG.md").write_text(_CHANGELOG)
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertTrue(prop.skipped)
+        self.assertIn("could not read the version file", prop.skipped_reason)
+        self.assertEqual(prop.edits, [])
+
+    def test_unparseable_version_assignment_is_refused(self):
+        """A present version file without a locatable assignment must refuse (not invent a rewrite)."""
+        pkg_dir = self.repo_root / "juniper-thing"
+        pkg_dir.mkdir(parents=True)
+        (pkg_dir / "pyproject.toml").write_text('[project]\nname = "juniper-thing"\ndescription = "no version key"\n')
+        (pkg_dir / "CHANGELOG.md").write_text(_CHANGELOG)
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertTrue(prop.skipped)
+        self.assertIn("could not locate the version assignment", prop.skipped_reason)
+        self.assertEqual(prop.edits, [])
+
+    def test_empty_unreleased_changelog_move_is_refused(self):
+        """Empty [Unreleased] must refuse the move (Keep-a-Changelog; no phantom section).
+
+        The version edit may already be staged when the move refuses; the important
+        contract is ``skipped`` + no CHANGELOG edit (never invent an empty section).
+        """
+        empty_unreleased = textwrap.dedent("""\
+            # Changelog
+
+            ## [Unreleased]
+
+            ## [0.4.0] - 2026-06-01
+
+            ### Added
+
+            - initial release
+            """)
+        _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog=empty_unreleased)
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertTrue(prop.skipped)
+        self.assertIn("CHANGELOG move refused", prop.skipped_reason)
+        self.assertIn("no content to move", prop.skipped_reason)
+        self.assertFalse(any(e.path.endswith("CHANGELOG.md") for e in prop.edits))
+
+    def test_missing_changelog_is_refused(self):
+        """Absent CHANGELOG.md must refuse (notes + Keep-a-Changelog move have no source)."""
+        _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog="")
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertTrue(prop.skipped)
+        self.assertIn("could not read", prop.skipped_reason)
+        self.assertIn("CHANGELOG.md", prop.skipped_reason)
+        self.assertFalse(any(e.path.endswith("CHANGELOG.md") for e in prop.edits))
+
 
 # ── in-repo meta consumer-pin co-changes: pure helpers (plan S5.4; ml#657 RK-11 gap) ─────
 
