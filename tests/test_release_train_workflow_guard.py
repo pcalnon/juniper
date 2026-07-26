@@ -378,6 +378,7 @@ class ReleaseTrainWorkflowGuardTest(unittest.TestCase):
                 )
                 self.assertIsNotNone(match, f"{job} APP_TOKEN if/then/else block not found")
                 self.assertIn("--cross-repo", match.group(1), f"{job} must append --cross-repo inside the APP_TOKEN-present branch")
+
     # (g) Cross-repo headless git identity must be --global (ml#705 / run 30040138774) -------------
     def _identity_steps(self, job):
         """Steps whose name marks the headless git-identity configuration (both write jobs share the name)."""
