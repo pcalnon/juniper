@@ -273,9 +273,7 @@ class TestActivateCondaNounset(unittest.TestCase):
         harness = (
             "set -euo pipefail\n"
             "log() { :; }\n"
-            f'CONDA_SH="{conda_sh}"\n'
-            + _extract_activate_conda_function()
-            + 'activate_conda "JuniperCascor1"\n'
+            f'CONDA_SH="{conda_sh}"\n' + _extract_activate_conda_function() + 'activate_conda "JuniperCascor1"\n'
             "case $- in\n"
             '  *u*) echo "NOUNSET_ON" ;;\n'
             '  *) echo "NOUNSET_OFF"; exit 1 ;;\n'
@@ -299,27 +297,14 @@ class TestActivateCondaNounset(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             conda_sh = Path(tmp) / "conda.sh"
             # Mimic plant's ADDR2LINE class: activate scripts reference unset vars.
-            conda_sh.write_text(
-                "#!/usr/bin/env bash\n"
-                "conda() {\n"
-                '  if [[ "$1" == "activate" ]]; then\n'
-                '    : "${ADDR2LINE}"\n'
-                "  fi\n"
-                "}\n"
-            )
+            conda_sh.write_text("#!/usr/bin/env bash\n" "conda() {\n" '  if [[ "$1" == "activate" ]]; then\n' '    : "${ADDR2LINE}"\n' "  fi\n" "}\n")
             result = self._run_activate(conda_sh)
             self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
             self.assertIn("NOUNSET_ON", result.stdout)
             self.assertIn("OK", result.stdout)
 
     def test_missing_conda_sh_errors(self) -> None:
-        harness = (
-            "set -euo pipefail\n"
-            'log() { echo "$*"; }\n'
-            'CONDA_SH="/nonexistent/conda.sh"\n'
-            + _extract_activate_conda_function()
-            + 'activate_conda "JuniperCascor1"\n'
-        )
+        harness = "set -euo pipefail\n" 'log() { echo "$*"; }\n' 'CONDA_SH="/nonexistent/conda.sh"\n' + _extract_activate_conda_function() + 'activate_conda "JuniperCascor1"\n'
         result = subprocess.run(
             ["/bin/bash", "-c", harness],
             capture_output=True,
