@@ -362,6 +362,9 @@ juniper-ml/
 - `util/juniper_plant_all.bash` -- Starts all Juniper ecosystem services. `JUNIPER_CASCOR_HOST` defaults to `localhost` and `JUNIPER_CASCOR_PORT` defaults to `8201`; both can be overridden via the environment (e.g. `JUNIPER_CASCOR_HOST=remote.example.com JUNIPER_CASCOR_PORT=8201 util/juniper_plant_all.bash`).
 - `util/juniper_chop_all.bash` -- Stops all Juniper ecosystem services
 - `util/isolated_stack.bash` -- Brings up / tears down the isolated training-runtime E2E trio (data 8101 dedicated `python3.14` venv, cascor 8202 `JuniperCascor1`, canopy 8051 `JuniperCanopy1` service mode) with the documented env (control-WS origin pair, `JUNIPER_DATA_URL`, `LD_LIBRARY_PATH=`); `--up`/`--down`/`--status`/`--dry-run`, ports 8101/8202/8051 (`JUNIPER_E2E_*` overrides), `--dry-run` starts nothing. See [E2E checklist](notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md).
+  - Nounset (juniper-ml#785): `activate_conda` must `set -u` after `conda activate` (matching plant `safe_conda_activate`); pre-#785 left `set +u` so live `--up` ran without nounset after cascor/canopy activate.
+  - Teardown: `--down` is kill-by-port via `port_pid`/`stop_port` (`ss` first `pid=`), canopy→cascor→data, then RUN_DIR + `snapshot_*` cleanup — not `JuniperProject.pid`. Empty/`ss` soft-fail is a noop; `--dry-run` never kills.
+  - Health: `wait_for_health` polls `/v1/health` every 2s until `JUNIPER_E2E_HEALTH_TIMEOUT` (default 60); `--status` `probe_health` reports code + pid and does not fail the script. Operator details: [`docs/REFERENCE.md` Isolated Stack E2E](docs/REFERENCE.md#isolated-stack-e2e-utilities).
 - `util/get_cascor_*.bash` -- Cascor REST API query utilities (status, metrics, history, network, topology). These helpers read legacy `CASCOR_HOST` and `CASCOR_PORT` environment variables (with `localhost` / `8201` defaults). Do not confuse them with the `JUNIPER_CASCOR_*` variables used by `util/juniper_plant_all.bash`.
 
 ### Tests
