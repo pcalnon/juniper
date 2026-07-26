@@ -162,7 +162,9 @@ git worktree add "$WORKTREE_DIR" "$BRANCH_NAME" && cd "$WORKTREE_DIR"
 
 **Automated**: `util/worktree_cleanup.bash --old-worktree "$DIR" --old-branch "$BRANCH" --parent-branch main`
 
-**Batch stale sweep** (centralized `…/Juniper/worktrees/` pool): survey → dry-run apply → apply. Survey treats gitignored debris as clean; apply still skips ignored-only `SAFE` rows unless you pass `--include-ignored` after review (decrypted-secrets class). Full contract: cleanup procedure V2 § "Batch Stale-Worktree Sweep".
+**Batch stale sweep** (centralized `…/Juniper/worktrees/` pool): survey → dry-run apply → apply. Survey treats gitignored debris as clean; apply still skips ignored-only `SAFE` rows unless you pass `--include-ignored` after review (decrypted-secrets class).
+
+Porcelain probes and `worktree remove` force `status.showUntrackedFiles=normal` so a local/global `no` cannot hide untracked WIP or ignored secrets (ml#734 / ml#735). Full contract: cleanup procedure V2 § "Batch Stale-Worktree Sweep".
 
 ```bash
 bash util/ad-hoc/worktree_sweep_survey.bash > /tmp/juniper-worktree-sweep.tsv
@@ -204,12 +206,57 @@ Meta-package publish flow: build + `twine check`, TestPyPI upload with attestati
 
 `juniper-observability` publish flow: build from `juniper-observability/`, TestPyPI upload with `verbose: true`, retry install verification to tolerate index lag, then PyPI upload. The workflow reads the version from `juniper-observability/pyproject.toml`; keep it aligned with `juniper-observability/juniper_observability/_version.py`.
 
-**Static `_version.py` lockstep (ml#701 / juniper-ml#710).** All five in-repo static packages
-(ci-tools, config-tools, doc-tools, observability, service-core) ship both `[project].version` and
-`<import>/_version.py` `__version__`. Release-train `propose` bumps both in one Gate 1 PR
-(auto-detected by file presence); `tests/test_release_train_registry.py::VersionDunderLockstepTest`
-fails CI if they drift. Manual releases must keep the same pair equal. Operator review checklist:
-[`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2.
+**Static-package version lockstep (ml#701):** all five in-repo static packages (ci-tools, config-tools, doc-tools, observability, service-core) also ship `<import>/_version.py`.
+Hand-bumps and release-train proposals must move `[project].version` and `__version__` together — a pyproject-only bump ships a wheel whose `__version__` lies.
+Always-on gate: `tests/test_release_train_registry.py` (`VersionDunderLockstepTest`).
+
+`propose.py` emits the dunder co-change automatically (juniper-ml#710).
+If `__version__` is already at the proposed version (re-entry / partial heal), step 3a stays silent instead of false-flagging REQUIRED (juniper-ml#712).
+Gate 1 review table: release-train operator runbook §3.2.
+
+**Re-entry caveat (juniper-ml#712):** if `__version__` already equals the proposed version, the train leaves the dunder alone and does **not** checklist REQUIRED-manual. Confirm the match before treating a pyproject-only proposal as the old failure class.
+
+**Sibling / meta AGENTS.md Version (worker#140 / ml#706 / #720):** when hand-bumping a sibling repo's
+**primary** package (`pypi_name` equals the repo name) or the meta-package, move `AGENTS.md`
+`**Version**:` with the version file — CI embeds the portable `test_agents_md_version_drift` lint.
+Release-train `propose.py` steps 5/5a do this automatically; already-at-target is silent success
+(no false `REQUIRED`); absent / missing-header surfaces `REQUIRED` (never invents). Sub-packages
+hosted in a sibling never touch the host header.
+
+**Release-train detect / ceremony edges (monitor `NOT_FOUND`, SHIP filter, SemVer).** Ceremony
+`monitor_publish_run` keeps polling when the publish run is briefly invisible (`NOT_FOUND`); a
+timeout while still building *or* permanently missing reports honest `IN_PROGRESS` (never invents
+`PENDING` / `RELEASED` / HALT) — re-run ceremony after confirming the publish workflow fired.
+Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `local_git_compare` treats
+`.py` A/D/R/**C** as inherently substantive. Operator tables:
+[`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
+
+**Release-train write-job git identity (ml#705):** when editing `.github/workflows/release-train.yml`, keep both `propose` and `ceremony` identity steps on `git config --global user.name|user.email|commit.gpgsign` (never bare repo-local `git config`). Cross-repo commits land in freshly-cloned sibling checkouts; a juniper-ml-only identity leaves them with `Author identity unknown` (run 30040138774). Operator detail: runbook §7 / §8.7.
+
+**Ceremony signed-archive failure edges (ml#709 / #714):** if a `ceremony` run dies inside
+`open_archive_pr`, do **not** invent a base sha or hand-push an archive branch. Unresolvable
+`origin/<base>`, non-422 refs errors (e.g. HTTP 401), and unresolvable existing tips are hard stops;
+only tip-at-base or single-commit-atop-base are safe re-entry shapes. Operator table:
+[`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.3.
+
+**Phase 4.2 propose ordering + follow-ons.** Empty `packages=` propose runs process eligible packages
+**upstream-first** (registry `depends_on` DAG). A pre-1.0 MINOR/MAJOR that escapes a consumer
+`<next-minor` ceiling also opens a separate standard-gated PR
+`deps/<upstream>-ceiling-<new-ceiling>` in the **consumer** repo (pin ceiling only; never on the
+exempt archive path). Meta (`juniper-ml`) never gets a follow-on. Operator table:
+[release-train runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2
+“Phase 4.2”.
+
+**Ceremony monitor: `HALT_TESTPYPI` vs `HALT_PUBLISH`.** TestPyPI job failure → `HALT_TESTPYPI` and a
+`testpypi-verify-failed` dedup issue. A later run `failure`/`cancelled`/`timed_out` (TestPyPI already
+green) → `HALT_PUBLISH` with a note only — **no** GitHub issue. Open the publish run; do not wait for
+an issue. Details: operator runbook §4.1.
+
+**Ceremony re-entry (`RESUME_MONITOR`).** If a Release tag already exists, re-dispatching
+`mode=ceremony` only monitors the publish run — it does **not** re-open the archive PR or re-cut the
+Release. Step summary shows **resume-monitor**; `plan_state` stays `RESUME_MONITOR` while `state` is
+the monitor verdict. TestPyPI failure on resume still HALTs + files an issue (no re-cut). Distinct from
+`ALREADY_RELEASED` (PyPI already serves the target). Operator details: runbook §3.3 / §5.5.
 
 **Ceremony `notes-render-failed` HALT.** After a non-empty `CHANGELOG [<version>]` is found, ceremony still HALTs if `notes_render.render_notes` raises `OSError` (typically a missing template under `--repo-root`). Distinct from `changelog-section-missing`. Restore `notes/templates/TEMPLATE_RELEASE_NOTES.md` (or the security template) and re-run — no Release was cut. See operator runbook §4.
 
