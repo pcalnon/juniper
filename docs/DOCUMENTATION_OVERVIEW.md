@@ -2,9 +2,9 @@
 
 ## Navigation Guide to juniper-ml Documentation
 
-**Version:** 0.2.3
+**Version:** 0.2.4
 **Status:** Active
-**Last Updated:** June 5, 2026
+**Last Updated:** 2026-07-25
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -22,16 +22,20 @@
 
 ### I Want To
 
-| Goal                                    | Document                                                                 | Location               |
-|-----------------------------------------|--------------------------------------------------------------------------|------------------------|
-| **Install Juniper packages**            | [QUICK_START.md](QUICK_START.md)                                         | docs/                  |
-| **See extras and version info**         | [REFERENCE.md](REFERENCE.md)                                             | docs/                  |
-| **Run the local host stack**            | [REFERENCE.md](REFERENCE.md#host-orchestration-utilities)                | docs/                  |
-| **Quick-reference dev tasks**           | [DEVELOPER_CHEATSHEET_JUNIPER-ML.md](DEVELOPER_CHEATSHEET_JUNIPER-ML.md) | docs/                  |
-| **Understand the project**              | [README.md](../README.md)                                                | Root                   |
-| **Use shared observability primitives** | [juniper-observability README](../juniper-observability/README.md)       | juniper-observability/ |
-| **See development conventions**         | [AGENTS.md](../AGENTS.md)                                                | Root                   |
-| **See version history**                 | [CHANGELOG.md](../CHANGELOG.md)                                          | Root                   |
+| Goal                                    | Document                                                                                                                         | Location |
+|-----------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|----------|
+| **Install Juniper packages**            | [QUICK_START.md](QUICK_START.md)                                                                                                 | docs/    |
+| **See extras and version info**         | [REFERENCE.md](REFERENCE.md)                                                                                                     | docs/    |
+| **Run the local host stack**            | [REFERENCE.md](REFERENCE.md#host-orchestration-utilities)                                                                        | docs/    |
+| **Run the isolated E2E trio**           | [Isolated-stack E2E checklist](../notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md)                   | notes/   |
+| **Quick-reference dev tasks**           | [DEVELOPER_CHEATSHEET_JUNIPER-ML.md](DEVELOPER_CHEATSHEET_JUNIPER-ML.md)                                                         | docs/    |
+| **Operate the PyPI release train**      | [Release-train operator runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md)                 | notes/   |
+| **Cut a GitHub Release / archive notes**| [PyPI publish procedure](../notes/JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md)                                 | notes/   |
+| **Create or clean a worktree**          | [Worktree setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) / [cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md) | notes/ |
+| **Understand the project**              | [README.md](../README.md)                                                                                                        | Root     |
+| **Use shared observability primitives** | [juniper-observability README](../juniper-observability/README.md)                                                               | juniper-observability/ |
+| **See development conventions**         | [AGENTS.md](../AGENTS.md)                                                                                                        | Root     |
+| **See version history**                 | [CHANGELOG.md](../CHANGELOG.md)                                                                                                  | Root     |
 
 ---
 
@@ -39,12 +43,12 @@
 
 ### docs/ Directory
 
-| File                                   | Lines | Type       | Purpose                                                                 |
-|----------------------------------------|-------|------------|-------------------------------------------------------------------------|
-| **DOCUMENTATION_OVERVIEW.md**          | ~90   | Overview   | This file -- navigation index                                           |
-| **QUICK_START.md**                     | ~90   | Tutorial   | Install Juniper packages in under a minute                              |
-| **REFERENCE.md**                       | ~280  | Reference  | Complete extras, compatibility, host-stack operations, package, and release-workflow reference |
-| **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | ~260  | Cheatsheet | Quick-reference card for common development and host-stack tasks        |
+| File                                   | Type       | Purpose                                                                                          |
+|----------------------------------------|------------|--------------------------------------------------------------------------------------------------|
+| **DOCUMENTATION_OVERVIEW.md**          | Overview   | This file -- navigation index                                                                    |
+| **QUICK_START.md**                     | Tutorial   | Install Juniper packages in under a minute                                                       |
+| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack ops, sibling packages, and release-workflow reference          |
+| **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development and host-stack tasks                                 |
 
 > The deprecated monolithic cheatsheet (`DEVELOPER_CHEATSHEET-ORIGINAL.md`)
 > was relocated to `notes/history/` in 2026-04 and consolidated into
@@ -53,46 +57,60 @@
 
 ### Root Directory
 
-| File             | Lines | Type     | Purpose                                     |
-|------------------|-------|----------|---------------------------------------------|
-| **README.md**    | ~58   | Overview | PyPI landing page and installation examples |
-| **AGENTS.md**    | ~200  | Guide    | Development conventions and worktree setup  |
-| **CHANGELOG.md** | ~40   | History  | Version history and release notes           |
+| File             | Type     | Purpose                                                              |
+|------------------|----------|----------------------------------------------------------------------|
+| **README.md**    | Overview | PyPI landing page and installation examples                          |
+| **AGENTS.md**    | Guide    | Conventions, worktree/handoff rules, CI surfaces, release-train summary |
+| **CHANGELOG.md** | History  | Version history and release notes                                    |
 
-### juniper-observability/ Subpackage
+### In-repo published subpackages
 
-| File               | Type             | Purpose                                                                       |
-|--------------------|------------------|-------------------------------------------------------------------------------|
-| **README.md**      | Package guide    | Public surface, install extras, design link, and independent release workflow |
-| **CHANGELOG.md**   | Package history  | Version history for `juniper-observability` releases                          |
-| **pyproject.toml** | Package metadata | Dependencies, extras, package version, and pytest/ruff configuration          |
+| Path                     | Purpose                                                                 |
+|--------------------------|-------------------------------------------------------------------------|
+| `juniper-observability/` | Shared Prometheus / middleware / logging helpers (`juniper-observability`) |
+| `juniper-doc-tools/`     | Markdown link validator (`juniper-check-doc-links`)                     |
+| `juniper-ci-tools/`      | Dep-docs generator + coverage-gap / env-drift CLIs                      |
+| `juniper-config-tools/`  | Env-prefix migration helpers (stdlib-only)                              |
+| `juniper-model-core/`    | Model-core conformance kit + crossval layer                             |
+| `juniper-service-core/`  | Shared FastAPI service-tier primitives                                  |
+
+Each subpackage has its own `README.md`, `CHANGELOG.md`, and `pyproject.toml`.
 
 ### notes/ Directory (Selected Runbooks)
 
-| File                                          | Lines | Type             | Purpose                                                                                       |
-|-----------------------------------------------|-------|------------------|-----------------------------------------------------------------------------------------------|
-| **CANOPY_EXTERNAL_CASCOR_PLAN.md**            | ~470  | Integration Plan | Cross-repo plan for connecting juniper-canopy to an externally running juniper-cascor service |
-| **JUNIPER_2026-03-15_JUNIPER-ECOSYSTEM_DOCUMENTATION-AUDIT-SUMMARY.md** | ~100  | Summary          | Status and outcomes of ecosystem-wide documentation audit/upgrade work                        |
+| File                                                                                          | Type        | Purpose                                                                                          |
+|-----------------------------------------------------------------------------------------------|-------------|--------------------------------------------------------------------------------------------------|
+| **JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md**                     | Runbook     | Modes (`off`/`report`/`propose`/`ceremony`), Gate 1/2 review, HALTs, App-token setup             |
+| **JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md**                             | Procedure   | Cut a GitHub Release + archive `notes/releases/` (mandatory for every PyPI deploy)               |
+| **JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md**                                  | Procedure   | Create an isolated git worktree for task work                                                    |
+| **JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md**                             | Procedure   | Merge/cleanup after a task (CWD-safe); includes batch stale-worktree sweep                       |
+| **JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md**                       | Checklist   | Dedicated data/cascor/canopy E2E trio via `util/isolated_stack.bash`                             |
+| **JUNIPER_2026-02-23_JUNIPER-ML_THREAD-HANDOFF-PROCEDURE.md**                                  | Procedure   | Thread handoff instead of compaction                                                             |
+
+Full naming rules for `notes/`: [`JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md`](../notes/JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md).
 
 ---
 
 ## Ecosystem Context
 
-`juniper-ml` is a meta-package that provides a single `pip install` entry point for the Juniper ecosystem. The root package contains no importable Python code -- only optional dependency groups that install the actual servers, client libraries, worker, and shared tooling packages.
+`juniper-ml` is a meta-package that provides a single `pip install` entry point for the Juniper ecosystem. The root package contains no importable Python code -- only optional dependency groups that install the actual servers, client libraries, worker, shared tooling, and recurrence packages.
 
-This repository also houses the independent `juniper-observability` and `juniper-doc-tools` subpackages, which use their own version tags and publish workflows. Since `juniper-ml` 0.5.0 `juniper-observability` and `juniper-doc-tools` are aggregated under the `[tools]` and `[all]` extras; they can also still be installed directly when callers only want the individual library without the full meta-package.
+This repository also houses six independently published subpackages under `juniper-*/`. Since `juniper-ml` 0.5.0 they are aggregated under the `[tools]` and `[all]` extras (plus `[doc-tools]` as a back-compat alias); they can also be installed directly when callers only want one library.
 
 ### What It Installs
 
 ```bash
-juniper-ml[clients] ──installs──> juniper-data-client, juniper-cascor-client
-juniper-ml[worker]  ──installs──> juniper-cascor-worker
-juniper-ml[servers] ──installs──> juniper-canopy, juniper-cascor, juniper-data
-juniper-ml[tools]   ──installs──> juniper-ci-tools, juniper-doc-tools, juniper-observability
-juniper-ml[all]     ──installs──> all packages from clients + worker + servers + tools
-juniper-observability ─direct install also supported──> shared observability primitives
-juniper-doc-tools     ─direct install also supported──> markdown link validator
+juniper-ml[clients]    ──> juniper-data-client, juniper-cascor-client
+juniper-ml[worker]     ──> juniper-cascor-worker
+juniper-ml[servers]    ──> juniper-canopy, juniper-cascor, juniper-data
+juniper-ml[tools]      ──> juniper-ci-tools, juniper-config-tools, juniper-doc-tools,
+                           juniper-model-core, juniper-observability, juniper-service-core
+juniper-ml[doc-tools]  ──> juniper-doc-tools  (back-compat alias)
+juniper-ml[recurrence] ──> juniper-recurrence-model, juniper-recurrence, juniper-recurrence-client
+juniper-ml[all]        ──> clients + worker + servers + tools + recurrence
 ```
+
+Exact floors and ranges: [`REFERENCE.md`](REFERENCE.md#extras-reference) and `pyproject.toml`.
 
 ### Compatibility
 
@@ -110,14 +128,17 @@ juniper-doc-tools     ─direct install also supported──> markdown link vali
 - **juniper-cascor-client** -- [Docs](https://github.com/pcalnon/juniper-cascor-client) (HTTP/WS client for juniper-cascor)
 - **juniper-cascor-worker** -- [Docs](https://github.com/pcalnon/juniper-cascor-worker) (distributed training worker)
 - **juniper-observability** -- [Local docs](../juniper-observability/README.md) (shared health, logging, middleware, Prometheus, and Sentry primitives)
+- **juniper-doc-tools** -- [Local docs](../juniper-doc-tools/README.md) (markdown link validator)
+- **juniper-ci-tools** -- [Local docs](../juniper-ci-tools/README.md) (dep-docs / coverage-gap / env-drift CLIs)
 
 ### Upstream Services
 
 - **juniper-data** -- [Dataset Service](https://github.com/pcalnon/juniper-data)
 - **juniper-cascor** -- [Training Service](https://github.com/pcalnon/juniper-cascor)
+- **juniper-canopy** -- [Dashboard / control surface](https://github.com/pcalnon/juniper-canopy)
 
 ---
 
-**Last Updated:** June 5, 2026
-**Version:** 0.2.3
+**Last Updated:** 2026-07-25
+**Version:** 0.2.4
 **Maintainer:** Paul Calnon
