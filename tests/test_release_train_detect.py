@@ -17,6 +17,8 @@ Covers (task acceptance list):
   * SemVer proposal derivation (pre-1.0: breaking/feature => MINOR, fix => PATCH)
   * release-manifest JSON shape
   * CLI exit codes 0 / 1 / 2
+  * live-sources ``gh compare`` 300-file cap -> ``local_git_compare`` fallback
+    (keeps remote commit messages for SemVer)
 
 ``util/`` is not pre-commit-lint-gated, so this unittest IS the gate (the
 ``env_floor_drift_check`` precedent). Imported via the house ``sys.path.insert`` idiom.
@@ -32,6 +34,8 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -141,6 +145,11 @@ class VersionAndBumpTest(unittest.TestCase):
         self.assertEqual(d.bump_version("0.4.1", "patch"), "0.4.2")
         self.assertIsNone(d.bump_version("0.4.0", "none"))
 
+    def test_bump_version_major(self):
+        # Direct major bump (propose_semver maps pre-1.0 breaking -> minor; major still exists for callers).
+        self.assertEqual(d.bump_version("0.4.0", "major"), "1.0.0")
+        self.assertEqual(d.bump_version("1.2.3", "major"), "2.0.0")
+
 
 class TagResolutionTest(unittest.TestCase):
     def test_prefers_tag_equal_to_released_version(self):
@@ -181,6 +190,22 @@ class SubstantiveHunkTest(unittest.TestCase):
 
     def test_patch_unavailable_is_uncertain(self):
         self.assertIsNone(d.has_substantive_hunk(None, None))
+
+    def test_whitespace_only_hunk_is_discounted(self):
+        # Blank +/- lines (no strip content) must not spuriously SHIP.
+        patch = "@@ -1,2 +1,2 @@\n-\n+\n "
+        self.assertIs(d.has_substantive_hunk(patch, None), False)
+
+    def test_pure_code_deletion_is_substantive_with_file(self):
+        # Pure deletion (no '+' lines) takes the _removed_codeish path when file_text is present.
+        file_text = "\n".join(["header"] * 9 + ["def gone():", "    return 1"]) + "\n"
+        patch = "@@ -10,2 +9,0 @@\n-def gone():\n-    return 1"
+        self.assertIs(d.has_substantive_hunk(patch, file_text), True)
+
+    def test_pure_comment_deletion_is_discounted_with_file(self):
+        file_text = "\n".join(["header"] * 9 + ["x = 1"]) + "\n"
+        patch = "@@ -10,1 +9,0 @@\n-# see notes/OLD.md"
+        self.assertIs(d.has_substantive_hunk(patch, file_text), False)
 
 
 class SubstantiveBetweenTest(unittest.TestCase):
@@ -286,6 +311,19 @@ class PyprojectClassifierTest(unittest.TestCase):
         patch = '@@ -2,1 +2,1 @@\n [project]\n-version = "0.4.0"\n+version = "0.5.0"'
         self.assertEqual(d.classify_pyproject_patch(patch)[0], "ship")
 
+    def test_build_system_change_is_ship(self):
+        # Body-marker [build-system] requires bump must SHIP (detect.py:707-708).
+        # #772 owns only the @@-trailer form; this pins the body-context arm.
+        patch = "@@ -1,2 +1,2 @@\n [build-system]\n" '-requires = ["setuptools>=61"]\n' '+requires = ["setuptools>=68"]'
+        kind, reason = d.classify_pyproject_patch(patch)
+        self.assertEqual(kind, "ship")
+        self.assertIn("runtime", reason)
+
+    def test_build_system_ship_wins_over_tooling_hunk(self):
+        # Mixed patch: build-system + [tool.*]. found_ship must win (detect.py:711-712).
+        patch = "@@ -1,2 +1,2 @@\n [build-system]\n" '-requires = ["setuptools>=61"]\n' '+requires = ["setuptools>=68"]\n' "@@ -80,2 +80,3 @@\n [tool.pytest.ini_options]\n" ' minversion = "8.0"\n' '+addopts = "--strict-config"'
+        self.assertEqual(d.classify_pyproject_patch(patch)[0], "ship")
+
     def test_pytest_config_is_nonship(self):
         patch = '@@ -80,2 +80,3 @@\n [tool.pytest.ini_options]\n minversion = "8.0"\n+addopts = "--strict-config"'
         self.assertEqual(d.classify_pyproject_patch(patch)[0], "nonship")
@@ -296,6 +334,14 @@ class PyprojectClassifierTest(unittest.TestCase):
 
     def test_patch_unavailable_is_uncertain(self):
         self.assertEqual(d.classify_pyproject_patch(None)[0], "uncertain")
+
+    def test_build_system_via_hunk_trailer_is_ship(self):
+        # GitHub often puts the section only in the @@ trailer (no body [build-system]
+        # context line). That arm must still classify as ship — otherwise truncated /
+        # compare patches silently UP_TO_DATE packaging changes (detect.py:676-681 + 707-708).
+        # Body-marker + mixed-tool cases owned by concurrent #774 — keep only this arm.
+        patch = "@@ -1,2 +1,2 @@ [build-system]\n" '-requires = ["setuptools>=61"]\n' '+requires = ["hatchling"]\n'
+        self.assertEqual(d.classify_pyproject_patch(patch)[0], "ship")
 
 
 class PathScopingTest(unittest.TestCase):
@@ -333,11 +379,23 @@ class SemVerAndChangelogTest(unittest.TestCase):
     def test_semver_fix_is_patch(self):
         self.assertEqual(d.propose_semver("0.4.1", ["Fixed"], set())[0], "patch")
 
+    def test_semver_security_is_patch(self):
+        # FIX_CATEGORIES includes Security — a security bullet must not fall through to "none".
+        self.assertEqual(d.propose_semver("0.4.1", ["Security"], set())[0], "patch")
+
+    def test_semver_changed_is_minor(self):
+        # FEATURE_CATEGORIES includes Changed / Deprecated (Keep-a-Changelog non-Added feature class).
+        self.assertEqual(d.propose_semver("0.4.0", ["Changed"], set())[0], "minor")
+        self.assertEqual(d.propose_semver("0.4.0", ["Deprecated"], set())[0], "minor")
+
     def test_semver_breaking_is_minor_pre_1_0(self):
         self.assertEqual(d.propose_semver("0.4.0", ["Removed"], set())[0], "minor")
 
     def test_semver_commit_class_feat(self):
         self.assertEqual(d.propose_semver("0.4.0", [], {"feat"})[0], "minor")
+
+    def test_semver_commit_class_breaking_is_minor_pre_1_0(self):
+        self.assertEqual(d.propose_semver("0.4.0", [], {"breaking"})[0], "minor")
 
     def test_semver_none_when_empty(self):
         self.assertEqual(d.propose_semver("0.4.0", [], set()), ("none", None))
@@ -353,6 +411,21 @@ class SemVerAndChangelogTest(unittest.TestCase):
     def test_no_conflict_when_aligned(self):
         self.assertIsNone(d.changelog_conflict(d.UNRELEASED_CHANGES, ["Added"]))
         self.assertIsNone(d.changelog_conflict(d.UP_TO_DATE, []))
+
+
+class CommitClassesTest(unittest.TestCase):
+    def test_feat_and_fix_conventional(self):
+        self.assertEqual(d.commit_classes(["feat: add x", "fix(api): y"]), {"feat", "fix"})
+
+    def test_feat_bang_is_breaking(self):
+        self.assertEqual(d.commit_classes(["feat!: drop legacy flag"]), {"feat", "breaking"})
+
+    def test_breaking_change_footer(self):
+        msg = "fix: harden parser\n\nBREAKING CHANGE: callers must pass mode="
+        self.assertEqual(d.commit_classes([msg]), {"fix", "breaking"})
+
+    def test_chore_alone_is_empty(self):
+        self.assertEqual(d.commit_classes(["chore: touch docs", "docs: typo"]), set())
 
 
 class ChangelogReaderTest(unittest.TestCase):
@@ -506,6 +579,140 @@ class ClassificationTest(unittest.TestCase):
         self.assertTrue(rec.hygiene["tag_only"])
         self.assertTrue(rec.hygiene["notes_missing"])  # no notes/releases/ archive on the synthetic tree
 
+    def test_local_git_list_releases_raises_source_error(self):
+        """make_local_git_sources.list_releases must raise — empty set → false TAG_ONLY.
+
+        Docstring contract: releases are unknown offline, so TAG_ONLY is unavailable.
+        Returning ``set()`` made ``diff_base_tag not in releases`` always True and
+        inflated the daily TAG_ONLY hygiene count under ``--local-git``.
+        """
+        sources = d.make_local_git_sources("pcalnon", self.repo_root, self.eco)
+        with self.assertRaises(d.SourceError) as ctx:
+            sources.list_releases("juniper-ml")
+        msg = str(ctx.exception).lower()
+        self.assertIn("unknown offline", msg)
+        self.assertIn("--local-git", msg)
+
+    def test_local_git_hygiene_tag_only_unavailable_not_false_positive(self):
+        """Wire the real local-git list_releases into classify_package → tag_only=None.
+
+        Orthogonal to #761 (injected boom_releases SourceError): this pins the
+        production ``make_local_git_sources`` seam so a silent empty-set regress
+        cannot reintroduce false TAG_ONLY under ``--local-git``.
+        """
+        e = self._pkg("0.4.0")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self.fake.releases["juniper-ml"] = {"juniper-thing-v0.4.0"}  # would clear tag_only if used
+        self.fake.compares[("juniper-ml", "juniper-thing-v0.4.0", "main")] = d.CompareResult(files=[], commits=[])
+        local = d.make_local_git_sources("pcalnon", self.repo_root, self.eco)
+        base = self.fake.build()
+        sources = d.Sources(
+            pypi_json=base.pypi_json,
+            list_tags=base.list_tags,
+            list_releases=local.list_releases,
+            compare=base.compare,
+            read_file=base.read_file,
+        )
+        rec = d.classify_package(e, sources, self.repo_root, self.eco)
+        self.assertIsNone(rec.hygiene["tag_only"])
+        self.assertTrue(
+            any("release-hygiene (tag_only) unavailable" in n for n in rec.notes),
+            msg=f"expected unavailable note, got {rec.notes!r}",
+        )
+        # notes_missing is orthogonal and still evaluated
+        self.assertTrue(rec.hygiene["notes_missing"])
+
+    def test_ship_uncertain_when_compare_truncated_without_ship_evidence(self):
+        # Cap-blind under-ship: truncated compare with nothing in view must NOT stay UP_TO_DATE.
+        # Orthogonal to the live-sources 300-file -> local_git_compare fallback (#729), which
+        # rewrites the CompareResult with truncated=False; this pins classify_package's own arm.
+        e = self._pkg("0.4.0")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self.fake.compares[("juniper-ml", "juniper-thing-v0.4.0", "main")] = d.CompareResult(
+            files=[],
+            commits=[],
+            truncated=True,
+            ok=True,
+        )
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.SHIP_UNCERTAIN)
+        self.assertTrue(any("300-file cap" in n and "--local-git" in n for n in rec.notes), rec.notes)
+
+    def test_ship_uncertain_when_declared_version_unreadable(self):
+        # PyPI present but checkout has no parseable declared version -> early SHIP_UNCERTAIN
+        # (must not invent BUMPED_NOT_RELEASED / UP_TO_DATE, and must not proceed to tag/compare).
+        e = _entry(repo="juniper-ml", path="juniper-thing/")
+        (self.repo_root / "juniper-thing").mkdir(parents=True, exist_ok=True)
+        # Intentionally omit pyproject.toml / _version.py so read_declared_version returns None.
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.SHIP_UNCERTAIN)
+        self.assertIsNone(rec.declared_version)
+        self.assertIsNone(rec.diff_base_tag)
+        self.assertTrue(any("could not read declared version from the checkout" in n for n in rec.notes), rec.notes)
+
+    def test_ship_uncertain_when_compare_not_ok(self):
+        # Soft-fail compare (missing tag/checkout, transport) must surface as SHIP_UNCERTAIN + error
+        # note -- not UP_TO_DATE and not an uncaught exception that exit-2s the detect job.
+        e = self._pkg("0.4.0")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self.fake.compares[("juniper-ml", "juniper-thing-v0.4.0", "main")] = d.CompareResult(
+            files=[],
+            commits=[],
+            ok=False,
+            error="compare juniper-thing-v0.4.0...main not found",
+        )
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.SHIP_UNCERTAIN)
+        self.assertIn("compare juniper-thing-v0.4.0...main not found", rec.notes)
+
+    def _dup_filename_compare(self, *patches: "str | None") -> None:
+        """Same in-scope .py appears once per commit (path-scoped multi-commit compare)."""
+        (self.repo_root / "juniper-thing" / "juniper_thing").mkdir(parents=True, exist_ok=True)
+        (self.repo_root / "juniper-thing" / "juniper_thing" / "mod.py").write_text("\n".join(["h"] * 9 + ["def handler():", "    return new_validation()"]) + "\n")
+        self.fake.compares[("juniper-ml", "juniper-thing-v0.4.0", "main")] = d.CompareResult(
+            files=[_fc("juniper-thing/juniper_thing/mod.py", p) for p in patches],
+            commits=["chore: notes rename", "feat: validation"],
+        )
+
+    def test_strongest_verdict_wins_over_later_nonship(self):
+        # ship then comment-only for the same filename: a last-wins bug would UP_TO_DATE.
+        e = self._pkg("0.4.0", changelog="## [Unreleased]\n### Added\n- validation\n")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self._dup_filename_compare(_REAL_CODE_PATCH, _COMMENT_ONLY_PATCH)
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.UNRELEASED_CHANGES)
+        self.assertEqual(len(rec.ship_evidence), 1)
+        self.assertEqual(rec.ship_evidence[0]["file"], "juniper-thing/juniper_thing/mod.py")
+        self.assertEqual(rec.nonship_discounted, [])
+
+    def test_strongest_verdict_wins_when_nonship_comes_first(self):
+        # comment-only then ship: first-wins would leave nonship and miss the release.
+        e = self._pkg("0.4.0", changelog="## [Unreleased]\n### Added\n- validation\n")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self._dup_filename_compare(_COMMENT_ONLY_PATCH, _REAL_CODE_PATCH)
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.UNRELEASED_CHANGES)
+        self.assertEqual(len(rec.ship_evidence), 1)
+        self.assertEqual(rec.nonship_discounted, [])
+
+    def test_uncertain_verdict_wins_over_later_nonship(self):
+        # patch-unavailable then comment-only: nonship must not erase SHIP_UNCERTAIN.
+        e = self._pkg("0.4.0")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self._dup_filename_compare(None, _COMMENT_ONLY_PATCH)
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.SHIP_UNCERTAIN)
+        self.assertEqual(len(rec.ship_uncertain), 1)
+        self.assertEqual(rec.nonship_discounted, [])
+        self.assertEqual(rec.ship_evidence, [])
+
 
 class ManifestShapeTest(unittest.TestCase):
     def test_manifest_json_shape(self):
@@ -540,7 +747,90 @@ _MINI_REGISTRY = textwrap.dedent("""\
     """)
 
 
+class LocalGitCompareTest(unittest.TestCase):
+    """Hermetic coverage for ``local_git_compare``'s A/D/R/C short-circuit (plan S4.2).
+
+    #729 pins the 300-file fallback seam that *calls* ``local_git_compare``; this class drives
+    the body: add/delete/rename/copy of a ``.py`` module must be ``substantive=True`` without
+    consulting ``substantive_between`` (which would need both blob sides and can miss a delete).
+    """
+
+    def _git(self, cwd: Path, *args: str) -> None:
+        subprocess.run(  # nosec B603,B607
+            ["git", "-C", str(cwd), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def _build_repo(self) -> Path:
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
+        bare = root / "bare.git"
+        work = root / "work"
+        subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True, capture_output=True)  # nosec B603,B607
+        subprocess.run(["git", "clone", "-q", str(bare), str(work)], check=True, capture_output=True)  # nosec B603,B607
+        self._git(work, "config", "user.email", "tests@example.invalid")
+        self._git(work, "config", "user.name", "Test User")
+        self._git(work, "config", "commit.gpgsign", "false")
+        self._git(work, "config", "tag.gpgSign", "false")
+
+        pkg = work / "juniper-thing" / "juniper_thing"
+        pkg.mkdir(parents=True)
+        (work / "juniper-thing" / "pyproject.toml").write_text('[project]\nname = "juniper-thing"\nversion = "0.4.0"\n', encoding="utf-8")
+        (pkg / "keep.py").write_text("def keep():\n    return 1\n", encoding="utf-8")
+        (pkg / "doomed.py").write_text("def doomed():\n    return 0\n", encoding="utf-8")
+        (pkg / "renamed_src.py").write_text("def moved():\n    return 2\n", encoding="utf-8")
+        self._git(work, "add", "-A")
+        self._git(work, "commit", "-q", "-m", "base")
+        self._git(work, "tag", "juniper-thing-v0.4.0")
+        self._git(work, "push", "-q", "origin", "HEAD:main")
+        self._git(work, "push", "-q", "origin", "--tags")
+
+        # HEAD changes: Add / Delete / Rename (inherently substantive) + comment-only Modify
+        # (must still go through substantive_between and land as False).
+        (pkg / "brand_new.py").write_text("def brand_new():\n    return 3\n", encoding="utf-8")
+        (pkg / "doomed.py").unlink()
+        self._git(work, "mv", "juniper-thing/juniper_thing/renamed_src.py", "juniper-thing/juniper_thing/renamed_dst.py")
+        (pkg / "keep.py").write_text("def keep():\n    return 1  # see notes/NEW.md\n", encoding="utf-8")
+        self._git(work, "add", "-A")
+        self._git(work, "commit", "-q", "-m", "feat: add delete rename and comment tweak")
+        self._git(work, "push", "-q", "origin", "HEAD:main")
+        return work
+
+    def test_add_delete_rename_are_inherently_substantive(self):
+        work = self._build_repo()
+        entry = _entry()
+        comp = d.local_git_compare(entry, "juniper-thing-v0.4.0", "main", work, fetch=False)
+        self.assertTrue(comp.ok, comp.error)
+        by_name = {fc.filename: fc for fc in comp.files}
+
+        added = by_name["juniper-thing/juniper_thing/brand_new.py"]
+        self.assertEqual(added.status[:1], "A")
+        self.assertIs(added.substantive, True)
+
+        deleted = by_name["juniper-thing/juniper_thing/doomed.py"]
+        self.assertEqual(deleted.status[:1], "D")
+        self.assertIs(deleted.substantive, True)
+
+        renamed = by_name["juniper-thing/juniper_thing/renamed_dst.py"]
+        self.assertEqual(renamed.status[:1], "R")
+        self.assertIs(renamed.substantive, True)
+
+        # Comment-only modify is NOT short-circuited; substantive_between discounts it.
+        modified = by_name["juniper-thing/juniper_thing/keep.py"]
+        self.assertEqual(modified.status[:1], "M")
+        self.assertIs(modified.substantive, False)
+
+    def test_missing_base_tag_returns_not_ok(self):
+        work = self._build_repo()
+        comp = d.local_git_compare(_entry(), "juniper-thing-v9.9.9", "main", work, fetch=False)
+        self.assertFalse(comp.ok)
+        self.assertIn("failed", (comp.error or "").lower())
+
+
 class CliExitCodeTest(unittest.TestCase):
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
@@ -605,6 +895,75 @@ class CliExitCodeTest(unittest.TestCase):
         with redirect_stdout(buf):
             code = d.main(["--repo-root", str(self.repo_root), "--registry", str(self.registry), "--package", "nope"], sources=self.fake.build())
         self.assertEqual(code, 2)
+
+
+# ── live-sources compare: 300-file gh-compare cap -> local_git_compare fallback ──
+
+
+class LiveCompareCapFallbackTest(unittest.TestCase):
+    """Pin ``make_live_sources().compare`` falling back to ``local_git_compare`` at the 300-file cap.
+
+    ClassificationTest covers patch-unavailable / no-tag ``SHIP_UNCERTAIN``, but the live-sources
+    auto-fallback that preserves remote commit messages when ``gh compare`` hits GitHub's 300-file
+    array cap was untested -- a regression there would silently thin path-scoped diffs for busy
+    subdir packages (the exact class ``local_git_compare`` exists to fix).
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.repo_root = self.root / "juniper-ml"
+        self.repo_root.mkdir()
+        self.eco = self.root
+        self.entry = _entry(repo="juniper-ml", path="juniper-thing/")
+        self.sources = d.make_live_sources("pcalnon", self.repo_root, self.eco)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_at_300_files_falls_back_to_local_git_and_keeps_remote_commits(self):
+        remote_files = [{"filename": f"f{i}.py", "status": "modified", "patch": None} for i in range(300)]
+        remote_commits = [{"commit": {"message": "feat: keep me\n\nbody"}}, {"commit": {"message": "fix: also keep"}}]
+        local = d.CompareResult(
+            files=[_fc("juniper-thing/juniper_thing/mod.py", _REAL_CODE_PATCH)],
+            commits=["local-only-msg-must-be-replaced"],
+            truncated=False,
+            ok=True,
+        )
+        with mock.patch.object(d, "_gh_json_single", return_value={"files": remote_files, "commits": remote_commits}) as gh, mock.patch.object(d, "local_git_compare", return_value=local) as local_cmp:
+            result = self.sources.compare(self.entry, "juniper-thing-v0.4.0", "main")
+        gh.assert_called_once()
+        local_cmp.assert_called_once_with(self.entry, "juniper-thing-v0.4.0", "main", self.repo_root)
+        self.assertTrue(result.ok)
+        self.assertEqual(result.files, local.files)
+        # remote commit first-lines preserved for the SemVer signal (local msgs discarded when remote present)
+        self.assertEqual(result.commits, ["feat: keep me", "fix: also keep"])
+
+    def test_below_300_uses_gh_payload_without_local_fallback(self):
+        remote_files = [{"filename": f"f{i}.py", "status": "modified", "patch": "@@ -1 +1 @@\n-a\n+b"} for i in range(299)]
+        remote_commits = [{"commit": {"message": "chore: under the cap"}}]
+        with mock.patch.object(d, "_gh_json_single", return_value={"files": remote_files, "commits": remote_commits}), mock.patch.object(d, "local_git_compare") as local_cmp:
+            result = self.sources.compare(self.entry, "juniper-thing-v0.4.0", "main")
+        local_cmp.assert_not_called()
+        self.assertTrue(result.ok)
+        self.assertEqual(len(result.files), 299)
+        self.assertEqual(result.commits, ["chore: under the cap"])
+        self.assertFalse(result.truncated)
+
+    def test_gh_compare_missing_returns_error_without_local_fallback(self):
+        with mock.patch.object(d, "_gh_json_single", return_value=None), mock.patch.object(d, "local_git_compare") as local_cmp:
+            result = self.sources.compare(self.entry, "missing-tag", "main")
+        local_cmp.assert_not_called()
+        self.assertFalse(result.ok)
+        self.assertIn("not found", result.error or "")
+
+    def test_local_fallback_failure_is_returned_when_cap_hit(self):
+        remote_files = [{"filename": f"f{i}.py", "status": "modified"} for i in range(300)]
+        failed = d.CompareResult(files=[], commits=[], ok=False, error="local diff failed")
+        with mock.patch.object(d, "_gh_json_single", return_value={"files": remote_files, "commits": []}), mock.patch.object(d, "local_git_compare", return_value=failed):
+            result = self.sources.compare(self.entry, "juniper-thing-v0.4.0", "main")
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error, "local diff failed")
 
 
 if __name__ == "__main__":
