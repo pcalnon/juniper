@@ -3,14 +3,9 @@ Tests for util/worktree_cleanup.bash
 
 Validates argument parsing, dry-run output, and error handling for the
 worktree cleanup script. Most tests use --dry-run mode or validate argument
-
-validation failures. Phase 4 remote-delete cases drive a real fixture repo via JUNIPER_ML_MAIN_REPO + a fake ``gh`` on PATH so the open-PR skip guard is exercised without running the full cleanup pipeline.
-
-Open coverage ownership (do not collide):
-  * #747 / #753 — Phase 1 dirty / push / Phase 2 collision
-  * #755 — Phase 3 no-ahead skip + ahead→create (helpers ``_p3_*`` / ``_run_phase3``)
-  * this file — Phase 3 existing-PR reuse + non-main parent merge→PR
-    (helpers ``_p3r_*`` / ``_run_phase3_reuse``; name-isolated from #755)
+validation failures. Phase 4 remote-delete cases drive a real fixture repo
+via JUNIPER_ML_MAIN_REPO + a fake ``gh`` on PATH so the open-PR skip guard
+is exercised without running the full cleanup pipeline.
 """
 
 from __future__ import annotations
@@ -63,18 +58,89 @@ def _p3r_run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.Comple
     )
 
 
-def _run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _p3r_init_repo(path: Path) -> None:
+    """Bare-bones git repo with main + origin/main, ready for phase sourcing."""
+    path.mkdir(parents=True, exist_ok=True)
+    _p3r_run_git(path, "init", "-q", "-b", "main")
+    _p3r_run_git(path, "config", "user.email", "tests@example.invalid")
+    _p3r_run_git(path, "config", "user.name", "Test User")
+    _p3r_run_git(path, "config", "commit.gpgsign", "false")
+    (path / "README.md").write_text("# test\n")
+    _p3r_run_git(path, "add", "README.md")
+    _p3r_run_git(path, "commit", "-q", "-m", "initial")
+    _p3r_run_git(path, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+
+def _p3r_attach_bare_origin(repo: Path, remote: Path) -> None:
+    """Clone ``repo`` to a bare remote and wire ``origin`` so push/fetch work offline."""
+    _p3r_run_git(repo, "clone", "--bare", "-q", str(repo), str(remote))
+    _p3r_run_git(repo, "remote", "add", "origin", str(remote))
+
+
+def _p3r_install_fake_gh(bin_dir: Path, log_path: Path, *, list_stdout: str = "") -> Path:
+    """Install a recording fake ``gh``.
+
+    ``list_stdout`` is printed for ``gh pr list`` (empty = no open PR; a bare
+    number like ``42`` simulates ``--jq .[0].number`` finding an existing PR).
+    Real ``gh`` prints nothing for an empty list — never ``[]`` — because
+    phase_3 treats any non-empty value as an existing PR number.
+    """
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    gh = bin_dir / "gh"
+    # Escape for embedding in the generated bash script.
+    list_payload = list_stdout.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
+    gh.write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "%s\\n" "$*" >> "{log_path}"\n' 'if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then\n' f'  printf "%s" "{list_payload}"\n' "  exit 0\n" "fi\n" 'if [[ "${1:-}" == "pr" && "${2:-}" == "create" ]]; then\n' '  echo "https://example.invalid/pull/1"\n' "  exit 0\n" "fi\n" 'echo "unexpected gh invocation: $*" >&2\n' "exit 99\n")
+    gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
+    return gh
+
+
+def _run_phase3_reuse(
+    main_repo: Path,
+    old_branch: str,
+    *,
+    path_prefix: str,
+    parent_branch: str = "main",
+) -> subprocess.CompletedProcess[str]:
+    """Source the script and invoke ``phase_3_merge_and_pr`` (not dry-run).
+
+    OLD_BRANCH / PARENT_BRANCH / SKIP_PR / DRY_RUN must be assigned *after*
+    sourcing — the script body resets those globals. ``path_prefix`` must put
+    the fake ``gh`` ahead of any real one. Name-isolated from open #755's
+    ``_run_phase3``.
+    """
+    driver = r"""
+set -euo pipefail
+export JUNIPER_ML_MAIN_REPO="$1"
+SCRIPT_PATH="$2"
+# shellcheck disable=SC1090
+source <(sed '/^main "/d' "${SCRIPT_PATH}")
+OLD_BRANCH="$3"
+PARENT_BRANCH="$4"
+SKIP_PR="${FALSE}"
+DRY_RUN="${FALSE}"
+phase_3_merge_and_pr
+"""
+    env = RedactedEnv(os.environ, PATH=f"{path_prefix}:{os.environ.get('PATH', '')}")
     return subprocess.run(
-        ["git", "-C", str(cwd), *args],
+        [
+            "bash",
+            "-c",
+            driver,
+            "phase3-reuse-driver",
+            str(main_repo),
+            str(SCRIPT_PATH),
+            old_branch,
+            parent_branch,
+        ],
         capture_output=True,
         text=True,
+        env=env,
         timeout=SCRIPT_TIMEOUT_SECONDS,
-        check=check,
     )
 
 
-def _p3r_init_repo(path: Path) -> None:
-    """Bare-bones git repo with main + origin/main, ready for phase sourcing."""
+def _init_fixture_repo(path: Path) -> None:
+    """Bare-bones git repo with main + a bare origin remote."""
     path.mkdir(parents=True, exist_ok=True)
     _p3r_run_git(path, "init", "-q", "-b", "main")
     _p3r_run_git(path, "config", "user.email", "tests@example.invalid")
@@ -89,12 +155,13 @@ def _p3r_init_repo(path: Path) -> None:
 def _install_fake_gh(bin_dir: Path, log_path: Path, *, open_pr_count: str | None, exit_code: int = 0) -> None:
     """Install a PATH-first ``gh`` that logs argv and returns open-PR length or fails."""
     bin_dir.mkdir(parents=True, exist_ok=True)
-    gh = bin_dir / "gh"
-    # Escape for embedding in the generated bash script.
-    list_payload = list_stdout.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
-    gh.write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "%s\\n" "$*" >> "{log_path}"\n' 'if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then\n' f'  printf "%s" "{list_payload}"\n' "  exit 0\n" "fi\n" 'if [[ "${1:-}" == "pr" && "${2:-}" == "create" ]]; then\n' '  echo "https://example.invalid/pull/1"\n' "  exit 0\n" "fi\n" 'echo "unexpected gh invocation: $*" >&2\n' "exit 99\n")
-    gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
-    return gh
+    gh_path = bin_dir / "gh"
+    if exit_code != 0:
+        body = "#!/usr/bin/env bash\n" "set -euo pipefail\n" f'echo "$*" >> "{log_path}"\n' 'echo "fake gh hard-fail" >&2\n' f"exit {exit_code}\n"
+    else:
+        body = "#!/usr/bin/env bash\n" "set -euo pipefail\n" f'echo "$*" >> "{log_path}"\n' 'if [[ "${1-}" == "pr" && "${2-}" == "list" ]]; then\n' f'  echo "{open_pr_count}"\n' "  exit 0\n" "fi\n" 'echo "unexpected gh invocation: $*" >&2\n' "exit 1\n"
+    gh_path.write_text(body)
+    gh_path.chmod(gh_path.stat().st_mode | stat.S_IXUSR)
 
 
 def _run_phase4(
@@ -112,69 +179,6 @@ export JUNIPER_ML_MAIN_REPO="$1"
 SCRIPT_PATH="$2"
 # shellcheck disable=SC1090
 source <(sed '/^main "/d' "${SCRIPT_PATH}")
-OLD_WORKTREE="$3"
-OLD_BRANCH="$4"
-# Script uses TRUE=0 / FALSE=1 (exit-status style).
-if [[ "$5" == "1" ]]; then
-    SKIP_REMOTE_DELETE="${TRUE}"
-else
-    SKIP_REMOTE_DELETE="${FALSE}"
-fi
-DRY_RUN="${FALSE}"
-phase_4_cleanup
-"""
-    env = RedactedEnv(os.environ)
-    if gh_bin is not None:
-        env["PATH"] = f"{gh_bin}{os.pathsep}{env.get('PATH', '')}"
-    return subprocess.run(
-        [
-            "bash",
-            "-c",
-            driver,
-            "phase4-driver",
-            str(main_repo),
-            str(SCRIPT_PATH),
-            str(old_worktree),
-            old_branch,
-            "1" if skip_remote_delete else "0",
-        ],
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=SCRIPT_TIMEOUT_SECONDS,
-    )
-
-
-def _init_fixture_repo(path: Path) -> None:
-    """Bare-bones git repo with main + a bare origin remote."""
-    path.mkdir(parents=True, exist_ok=True)
-    _run_git(path, "init", "-q", "-b", "main")
-    _run_git(path, "config", "user.email", "tests@example.invalid")
-    _run_git(path, "config", "user.name", "Test User")
-    _run_git(path, "config", "commit.gpgsign", "false")
-    (path / "README.md").write_text("# test\n")
-    _run_git(path, "add", "README.md")
-    _run_git(path, "commit", "-q", "-m", "initial")
-
-
-def _install_fake_gh(bin_dir: Path, log_path: Path, open_pr_count: str) -> None:
-    """Install a PATH-first ``gh`` that returns open-PR length and logs argv."""
-    bin_dir.mkdir(parents=True, exist_ok=True)
-    gh_path = bin_dir / "gh"
-    gh_path.write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" f'echo "$*" >> "{log_path}"\n' 'if [[ "${1-}" == "pr" && "${2-}" == "list" ]]; then\n' f'  echo "{open_pr_count}"\n' "  exit 0\n" "fi\n" 'echo "unexpected gh invocation: $*" >&2\n' "exit 1\n")
-    gh_path.chmod(gh_path.stat().st_mode | stat.S_IXUSR)
-
-
-def _run_phase4(
-    *,
-    main_repo: Path,
-    old_worktree: Path,
-    old_branch: str,
-    skip_remote_delete: bool,
-    gh_bin: Path | None,
-) -> subprocess.CompletedProcess[str]:
-    """Source worktree_cleanup.bash (skipping main) and call phase_4_cleanup only."""
-    driver = r"""
 OLD_WORKTREE="$3"
 OLD_BRANCH="$4"
 # Script uses TRUE=0 / FALSE=1 (exit-status style).
@@ -785,104 +789,6 @@ class TestPhase3ReuseAndNonMainBehavioral(unittest.TestCase):
             self.assertIn("gh pr create", result.stderr)
             self.assertIn("--head develop", result.stderr)
             self.assertNotIn("--head feature/onto-develop", result.stderr)
-
-
-class TestPhase4RemoteDeleteGuard(unittest.TestCase):
-    """Hermetic behavioral gates for Phase 4's open-PR remote-delete skip.
-
-    Dry-run only proves the ``--skip-remote-delete`` flag text and the
-    ``[DRY-RUN] … push origin --delete`` preview. The live ``gh pr list`` →
-    skip ``push --delete`` guard (protective when a PR is still open) was
-    untested — a regression that deletes the remote head under an open PR
-    breaks the PR and loses the backup branch.
-    """
-
-    def test_open_pr_skips_remote_delete(self) -> None:
-        """Open PR for OLD_BRANCH → warn-and-skip; remote branch stays."""
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            branch = "feature/phase4-open-pr"
-            main_repo, old_worktree, _remote = _prepare_phase4_fixture(root, branch)
-            gh_bin = root / "bin"
-            gh_log = root / "gh.log"
-            _install_fake_gh(gh_bin, gh_log, open_pr_count="1")
-
-            before = _run_git(main_repo, "ls-remote", "--heads", "origin", branch).stdout
-            self.assertIn(branch, before)
-
-            result = _run_phase4(
-                main_repo=main_repo,
-                old_worktree=old_worktree,
-                old_branch=branch,
-                skip_remote_delete=False,
-                gh_bin=gh_bin,
-            )
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn(f"PR is open for branch '{branch}'", result.stderr)
-            self.assertIn("skipping remote branch deletion", result.stderr.lower())
-            self.assertNotIn(f"Deleting remote branch: {branch}", result.stderr)
-            self.assertFalse(old_worktree.exists())
-            self.assertNotEqual(
-                _run_git(main_repo, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}", check=False).returncode,
-                0,
-            )
-            after = _run_git(main_repo, "ls-remote", "--heads", "origin", branch).stdout
-            self.assertIn(branch, after)
-            self.assertTrue(gh_log.exists())
-            self.assertIn("pr list", gh_log.read_text())
-            self.assertIn(f"--head {branch}", gh_log.read_text())
-
-    def test_no_open_pr_deletes_remote_branch(self) -> None:
-        """No open PR → remote branch is deleted (the complementary shape)."""
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            branch = "feature/phase4-no-pr"
-            main_repo, old_worktree, _remote = _prepare_phase4_fixture(root, branch)
-            gh_bin = root / "bin"
-            gh_log = root / "gh.log"
-            _install_fake_gh(gh_bin, gh_log, open_pr_count="0")
-
-            result = _run_phase4(
-                main_repo=main_repo,
-                old_worktree=old_worktree,
-                old_branch=branch,
-                skip_remote_delete=False,
-                gh_bin=gh_bin,
-            )
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn(f"Deleting remote branch: {branch}", result.stderr)
-            self.assertNotIn("PR is open", result.stderr)
-            self.assertFalse(old_worktree.exists())
-            after = _run_git(main_repo, "ls-remote", "--heads", "origin", branch).stdout
-            self.assertEqual(after.strip(), "")
-            self.assertIn("pr list", gh_log.read_text())
-
-    def test_skip_remote_delete_flag_skips_gh_and_push(self) -> None:
-        """``--skip-remote-delete`` must not consult gh or push --delete (live path)."""
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            branch = "feature/phase4-flag-skip"
-            main_repo, old_worktree, _remote = _prepare_phase4_fixture(root, branch)
-            gh_bin = root / "bin"
-            gh_log = root / "gh.log"
-            # If gh is consulted, return a non-zero length so a buggy path would skip
-            # for the wrong reason — the flag path must never call gh at all.
-            _install_fake_gh(gh_bin, gh_log, open_pr_count="9")
-
-            result = _run_phase4(
-                main_repo=main_repo,
-                old_worktree=old_worktree,
-                old_branch=branch,
-                skip_remote_delete=True,
-                gh_bin=gh_bin,
-            )
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("Skipping remote branch deletion (--skip-remote-delete)", result.stderr)
-            self.assertNotIn("PR is open", result.stderr)
-            self.assertNotIn(f"Deleting remote branch: {branch}", result.stderr)
-            after = _run_git(main_repo, "ls-remote", "--heads", "origin", branch).stdout
-            self.assertIn(branch, after)
-            self.assertFalse(gh_log.exists(), msg="gh must not be invoked when --skip-remote-delete is set")
 
 
 if __name__ == "__main__":

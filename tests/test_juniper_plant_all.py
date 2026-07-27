@@ -10,24 +10,20 @@ Validates the script-level invariants introduced in the 2026-05-07 audit:
   CASCOR_SERVICE_URL legacy alias).
 - Pre-flight aborts if the juniper-cascor-worker binary is missing from the
   JuniperCascor conda env.
-- ``cleanup_on_failure`` SIGTERM→SIGKILL escalate + pidfile remove (JR-ML-SEC-042).
-- ``wait_for_health`` success / timeout arms (hermetic curl stub).
-- ``check_port_available`` busy-port reject + ss-missing fail-open.
+- ``wait_for_health`` clamps a zero/invalid poll interval (avoids busy-loop).
 
 Where possible, tests inspect the script as text — running the full script
 under unittest is impractical because it source-activates conda, allocates
-ports, and launches four long-lived background services. The single
-end-to-end smoke test exercises only the pre-flight failure path against a
-synthetic JUNIPER_PROJECT_DIR / JUNIPER_CONDA_DIR layout, asserting the
-script exits before any service is launched. Behavioral pins for cleanup /
-health / port helpers extract the live function bodies into a harness.
+ports, and launches four long-lived background services. Pre-flight failure
+smokes exercise the nohup path against a synthetic JUNIPER_PROJECT_DIR /
+JUNIPER_CONDA_DIR layout. ``TestSystemdModeBehavioral`` is a separate
+full-script PATH-stub lane for the pre-preflight ``USE_SYSTEMD=1`` arm.
 """
 
 from __future__ import annotations
 
 import os
 import re
-import signal
 import subprocess
 import tempfile
 import time
@@ -67,6 +63,19 @@ def _extract_validate_conda_env() -> str:
     )
     if match is None:
         raise AssertionError("validate_conda_env function not found in juniper_plant_all.bash")
+    return match.group(0)
+
+
+def _extract_safe_conda_activate() -> str:
+    """Pull the live ``safe_conda_activate`` body (avoids harness drift)."""
+    live = SCRIPT_PATH.read_text()
+    match = re.search(
+        r"^safe_conda_activate\(\) \{.*?\n\}\n",
+        live,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("safe_conda_activate function not found in juniper_plant_all.bash")
     return match.group(0)
 
 
@@ -506,252 +515,186 @@ class TestPidFileFormat(unittest.TestCase):
         self.assertNotIn('echo "juniper-cascor:', SCRIPT_TEXT)
 
 
-class TestCleanupOnFailure(unittest.TestCase):
-    """Behavioral pins for ``cleanup_on_failure`` (JR-ML-SEC-042).
+class TestSystemdModeBehavioral(unittest.TestCase):
+    """Full-script PATH-stub coverage for the ``USE_SYSTEMD=1`` / ``--systemd`` branch.
 
-    A mid-plant health failure must SIGTERM then SIGKILL every PID in
-    ``STARTED_PIDS`` and remove the project pidfile — otherwise a partial
-    plant leaves orphaned services that confuse the next chop/plant cycle.
-    Extracted from the live script; ``sleep`` is stubbed so CI does not wait
-    the production 3s settle (kill logic is what we pin).
+    The systemd arm runs *before* preflight (no conda / nohup / pidfile), so a
+    hermetic ``systemctl`` + ``curl`` + ``sleep`` stub PATH is enough. This is
+    the only live exercise of start order, the missing-curl abort, the worker
+    healthy-but-inactive WARNING, and the documented gap that ``cleanup_on_failure``
+    does not ``systemctl stop`` units started in this mode (``STARTED_PIDS`` stays
+    empty). Static text pins elsewhere only assert the worker health URL shape.
     """
 
-    def _spawn_detached(self, inner_bash: str) -> int:
-        """Start a session-leader child reparented to init.
+    _EXPECTED_START_ORDER = (
+        "juniper-data.service",
+        "juniper-cascor.service",
+        "juniper-canopy.service",
+        "juniper-cascor-worker.service",
+    )
 
-        ``cleanup_on_failure`` polls ``kill -0`` after SIGTERM/SIGKILL. If the
-        test process remains the parent, a dead child stays a zombie and
-        ``kill -0`` keeps succeeding — a false "survived SIGKILL". Launch
-        under a short-lived ``setsid`` shell so init reaps the exit.
-        """
-        launcher = "setsid bash -c " + repr(inner_bash) + " </dev/null >/dev/null 2>&1 & echo $!"
-        result = subprocess.run(
-            ["/bin/bash", "-c", launcher],
-            capture_output=True,
-            text=True,
-            timeout=SCRIPT_TIMEOUT_SECONDS,
-        )
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        pid = int(result.stdout.strip().splitlines()[-1])
-        time.sleep(0.15)
-        self.assertTrue(Path(f"/proc/{pid}").exists(), f"detached pid {pid} missing")
-        return pid
+    def _stage_stubs(
+        self,
+        root: Path,
+        *,
+        with_curl: bool = True,
+        curl_exit: int = 0,
+        is_active_exit: int = 0,
+    ) -> tuple[Path, Path]:
+        stub_bin = root / "path-stubs"
+        stub_bin.mkdir(parents=True, exist_ok=True)
+        systemctl_log = root / "systemctl.log"
+        systemctl_log.write_text("")
 
-    def _force_kill(self, pid: int) -> None:
-        for kill_target in (lambda: os.killpg(pid, signal.SIGKILL), lambda: os.kill(pid, signal.SIGKILL)):
-            try:
-                kill_target()
-                break
-            except ProcessLookupError:
-                return
-            except PermissionError:
-                continue
-        for _ in range(20):
-            if not Path(f"/proc/{pid}").exists():
-                return
-            time.sleep(0.05)
+        systemctl = stub_bin / "systemctl"
+        systemctl.write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "%s\\n" "$*" >>"{systemctl_log}"\n' 'args=("$@")\n' 'if [[ "${1:-}" == "--user" ]]; then shift; fi\n' 'cmd="${1:-}"\n' 'case "${cmd}" in\n' "  start) exit 0 ;;\n" f"  is-active) exit {is_active_exit} ;;\n" "  status) exit 0 ;;\n" "  stop) exit 0 ;;\n" "  *) exit 0 ;;\n" "esac\n")
+        systemctl.chmod(0o755)
 
-    def _run_cleanup(self, pids: list[int], pid_file: Path) -> subprocess.CompletedProcess[str]:
-        pid_array = " ".join(str(p) for p in pids)
-        harness = f"""
-            set -euo pipefail
-            JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
-            JUNIPER_PROJECT_PID_FILE="$1"
-            STARTED_PIDS=({pid_array})
-            # Production settles 3s between SIGTERM and SIGKILL; shorten for CI
-            # but keep a real delay so cooperative children can exit before the
-            # SIGKILL arm (a no-op sleep falsely escalates every PID).
-            sleep() {{ command sleep 0.2; }}
-            {_extract_function("cleanup_on_failure")}
-            cleanup_on_failure
-        """
+        sleep = stub_bin / "sleep"
+        sleep.write_text("#!/usr/bin/env bash\nexit 0\n")
+        sleep.chmod(0o755)
+
+        if with_curl:
+            curl = stub_bin / "curl"
+            curl.write_text(f"#!/usr/bin/env bash\nexit {curl_exit}\n")
+            curl.chmod(0o755)
+
+        return stub_bin, systemctl_log
+
+    def _systemd_env(self, stub_bin: Path, *, include_usr_bin: bool = True) -> RedactedEnv:
         env = RedactedEnv(os.environ)
+        env["USE_SYSTEMD"] = "1"
+        env["HEALTH_CHECK_TIMEOUT"] = "1"
+        env["HEALTH_CHECK_INTERVAL"] = "1"
+        env["JUNIPER_DATA_PORT"] = "65040"
+        env["JUNIPER_CASCOR_PORT"] = "65041"
+        env["JUNIPER_CANOPY_PORT"] = "65042"
+        env["JUNIPER_WORKER_HEALTH_PORT"] = "65043"
+        # Prefer stubs; keep a minimal host PATH for bash helpers when needed.
+        # Missing-curl cases omit /usr/bin so a host curl cannot mask the gap.
+        if include_usr_bin:
+            env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+        else:
+            env["PATH"] = str(stub_bin) + os.pathsep + "/bin"
+        return env
+
+    def _run_plant(
+        self,
+        env: RedactedEnv,
+        *,
+        args: list[str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        cmd = ["/bin/bash", str(SCRIPT_PATH)]
+        if args:
+            cmd.extend(args)
         return subprocess.run(
-            ["/bin/bash", "-c", harness, "_", str(pid_file)],
+            cmd,
             capture_output=True,
             text=True,
             env=env,
-            timeout=CLEANUP_TIMEOUT_SECONDS,
+            timeout=SCRIPT_TIMEOUT_SECONDS,
         )
 
-    def test_empty_started_pids_removes_pidfile_and_exits_1(self) -> None:
+    def _started_units(self, log: Path) -> list[str]:
+        starts: list[str] = []
+        for line in log.read_text().splitlines():
+            parts = line.split()
+            if "--user" in parts and "start" in parts:
+                # ``systemctl --user start <unit>``
+                try:
+                    idx = parts.index("start")
+                    starts.append(parts[idx + 1])
+                except (ValueError, IndexError):
+                    continue
+        return starts
+
+    def test_happy_path_starts_units_in_dependency_order(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            pid_file = Path(tmp) / "JuniperProject.pid"
-            pid_file.write_text("juniper-data=1\n")
-            result = self._run_cleanup([], pid_file)
-            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
-            self.assertIn("Cleaning up started Juniper Project services", result.stdout)
-            self.assertIn("Cleanup complete", result.stdout)
-            self.assertFalse(pid_file.exists(), "pidfile must be removed on failure cleanup")
+            root = Path(tmp)
+            stub_bin, systemctl_log = self._stage_stubs(root)
+            env = self._systemd_env(stub_bin)
+            result = self._run_plant(env)
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, msg=combined)
+            self.assertIn("Starting services via systemd", combined)
+            self.assertIn("All Juniper services started via systemd", combined)
+            self.assertNotIn("=== Pre-flight Checks ===", combined)
+            self.assertNotIn("nohup", combined)
+            starts = self._started_units(systemctl_log)
+            self.assertEqual(starts, list(self._EXPECTED_START_ORDER))
+            self.assertIn("http://localhost:65040/v1/health", combined)
+            self.assertIn("http://127.0.0.1:65043/v1/health/ready", combined)
 
-    def test_cooperative_process_stops_on_sigterm(self) -> None:
-        pid = self._spawn_detached("exec sleep 60")
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                pid_file = Path(tmp) / "JuniperProject.pid"
-                pid_file.write_text(f"juniper-data={pid}\n")
-                result = self._run_cleanup([pid], pid_file)
-                self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
-                self.assertIn(f"Sending SIGTERM to PID {pid}", result.stdout)
-                self.assertNotIn("Sending SIGKILL", result.stdout)
-                self.assertFalse(pid_file.exists())
-                self.assertFalse(Path(f"/proc/{pid}").exists())
-        finally:
-            self._force_kill(pid)
-
-    def test_sigterm_ignore_escalates_to_sigkill(self) -> None:
-        pid = self._spawn_detached("exec python3 -c 'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'")
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                pid_file = Path(tmp) / "JuniperProject.pid"
-                pid_file.write_text(f"juniper-cascor={pid}\n")
-                result = self._run_cleanup([pid], pid_file)
-                self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
-                self.assertIn(f"Sending SIGTERM to PID {pid}", result.stdout)
-                self.assertIn(f"Sending SIGKILL to PID {pid}", result.stdout)
-                self.assertFalse(pid_file.exists())
-                self.assertFalse(Path(f"/proc/{pid}").exists())
-        finally:
-            self._force_kill(pid)
-
-    def test_err_trap_and_started_pids_wire(self) -> None:
-        # Drift guards: ERR trap + STARTED_PIDS append after each launch.
-        self.assertIn("trap cleanup_on_failure ERR", SCRIPT_TEXT)
-        self.assertIn('STARTED_PIDS+=("${JUNIPER_DATA_PID}")', SCRIPT_TEXT)
-        self.assertIn('STARTED_PIDS+=("${JUNIPER_CASCOR_PID}")', SCRIPT_TEXT)
-        self.assertIn('STARTED_PIDS+=("${JUNIPER_CANOPY_PID}")', SCRIPT_TEXT)
-        self.assertIn('STARTED_PIDS+=("${JUNIPER_WORKER_PID}")', SCRIPT_TEXT)
-
-
-class TestWaitForHealth(unittest.TestCase):
-    """Behavioral pins for ``wait_for_health`` success / timeout arms."""
-
-    def _run_wait(
-        self,
-        *,
-        curl_script: str,
-        timeout: int = 2,
-        interval: int = 1,
-    ) -> subprocess.CompletedProcess[str]:
+    def test_systemd_flag_enters_branch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            bin_dir = Path(tmp) / "bin"
-            bin_dir.mkdir()
-            curl = bin_dir / "curl"
-            curl.write_text("#!/usr/bin/env bash\n" + curl_script)
-            curl.chmod(0o755)
-            harness = f"""
-                set -euo pipefail
-                JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
-                HEALTH_CHECK_TIMEOUT=60
-                HEALTH_CHECK_INTERVAL=2
-                # Stub settle sleeps; elapsed arithmetic still advances.
-                sleep() {{ :; }}
-                {_extract_function("wait_for_health")}
-                set +e
-                wait_for_health "juniper-data" "http://127.0.0.1:9/v1/health" "{timeout}" "{interval}"
-                status=$?
-                set -e
-                echo "STATUS=${{status}}"
-                exit 0
-            """
-            env = RedactedEnv(os.environ)
-            env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
-            return subprocess.run(
-                ["/bin/bash", "-c", harness],
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=SCRIPT_TIMEOUT_SECONDS,
+            root = Path(tmp)
+            stub_bin, systemctl_log = self._stage_stubs(root)
+            env = self._systemd_env(stub_bin)
+            del env["USE_SYSTEMD"]
+            result = self._run_plant(env, args=["--systemd"])
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, msg=combined)
+            self.assertEqual(self._started_units(systemctl_log), list(self._EXPECTED_START_ORDER))
+
+    def test_missing_curl_aborts_before_systemctl_start(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub_bin, systemctl_log = self._stage_stubs(root, with_curl=False)
+            # This image ships curl in both /bin and /usr/bin, so a restricted
+            # host PATH still finds it. Symlink only the early-script helpers
+            # the launcher needs before the curl gate (no curl symlink).
+            host_tools = root / "host-tools"
+            host_tools.mkdir()
+            for name in ("realpath", "basename", "dirname", "date"):
+                for base in (Path("/usr/bin"), Path("/bin")):
+                    src = base / name
+                    if src.exists():
+                        (host_tools / name).symlink_to(src)
+                        break
+            env = self._systemd_env(stub_bin, include_usr_bin=False)
+            env["PATH"] = str(stub_bin) + os.pathsep + str(host_tools)
+            result = self._run_plant(env)
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 1, msg=combined)
+            self.assertIn("'curl' not found in PATH", combined)
+            self.assertEqual(self._started_units(systemctl_log), [])
+            self.assertNotIn("Starting juniper-data", combined)
+
+    def test_worker_healthy_but_inactive_emits_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub_bin, systemctl_log = self._stage_stubs(root, is_active_exit=1)
+            env = self._systemd_env(stub_bin)
+            result = self._run_plant(env)
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, msg=combined)
+            self.assertIn(
+                "WARNING: juniper-cascor-worker reports healthy but systemd unit not active",
+                combined,
             )
+            log_text = systemctl_log.read_text()
+            self.assertIn("is-active juniper-cascor-worker.service", log_text)
+            self.assertIn("status juniper-cascor-worker.service --no-pager", log_text)
 
-    def test_healthy_endpoint_returns_zero(self) -> None:
-        result = self._run_wait(curl_script="exit 0\n")
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("STATUS=0", result.stdout)
-        self.assertIn("juniper-data is healthy", result.stdout)
+    def test_health_timeout_does_not_systemctl_stop(self) -> None:
+        """systemd starts are not tracked in STARTED_PIDS — cleanup cannot stop them.
 
-    def test_unhealthy_endpoint_times_out(self) -> None:
-        result = self._run_wait(curl_script="exit 22\n", timeout=2, interval=1)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("STATUS=1", result.stdout)
-        self.assertIn("failed to become healthy within 2s", result.stdout)
-
-
-class TestCheckPortAvailable(unittest.TestCase):
-    """Behavioral pins for ``check_port_available`` busy / ss-missing arms."""
-
-    def _run_check(self, *, ss_script: str, port: str = "65099") -> subprocess.CompletedProcess[str]:
+        Pins the blast-radius gap: a mid-plant health failure still exits 1 via
+        the ERR trap / cleanup_on_failure, but must not invent a ``systemctl stop``
+        (operators must stop units manually / via chop --systemd).
+        """
         with tempfile.TemporaryDirectory() as tmp:
-            bin_dir = Path(tmp) / "bin"
-            bin_dir.mkdir()
-            ss = bin_dir / "ss"
-            ss.write_text("#!/usr/bin/env bash\n" + ss_script)
-            ss.chmod(0o755)
-            harness = f"""
-                set -euo pipefail
-                JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
-                {_extract_function("check_port_available")}
-                set +e
-                check_port_available "{port}" "juniper-data"
-                status=$?
-                set -e
-                echo "STATUS=${{status}}"
-                exit 0
-            """
-            env = RedactedEnv(os.environ)
-            # Stub bin first so ``ss`` is ours; keep /usr/bin for ``grep``.
-            env["PATH"] = str(bin_dir) + os.pathsep + "/usr/bin:/bin"
-            return subprocess.run(
-                ["/bin/bash", "-c", harness],
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=SCRIPT_TIMEOUT_SECONDS,
-            )
-
-    def test_busy_port_returns_one(self) -> None:
-        result = self._run_check(ss_script='echo "LISTEN 0 128 127.0.0.1:65099 0.0.0.0:*"\n')
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("STATUS=1", result.stdout)
-        self.assertIn("Port 65099 is already in use", result.stdout)
-
-    def test_free_port_returns_zero(self) -> None:
-        result = self._run_check(ss_script='echo "LISTEN 0 128 127.0.0.1:1 0.0.0.0:*"\n')
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("STATUS=0", result.stdout)
-        self.assertIn("Port 65099 is available", result.stdout)
-
-    def test_ss_missing_fail_open(self) -> None:
-        # If ``ss`` is absent, the pipeline yields empty stdout and the helper
-        # treats the port as free (fail-open). Pre-flight ``for cmd in curl ss``
-        # is the real gate; this pins the helper's own degrade path.
-        with tempfile.TemporaryDirectory() as tmp:
-            empty_bin = Path(tmp) / "empty"
-            empty_bin.mkdir()
-            harness = f"""
-                set -euo pipefail
-                JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
-                {_extract_function("check_port_available")}
-                set +e
-                check_port_available "65099" "juniper-data"
-                status=$?
-                set -e
-                echo "STATUS=${{status}}"
-                exit 0
-            """
-            env = RedactedEnv(os.environ)
-            # Empty stub dir first — ``ss`` resolves as missing; keep grep.
-            env["PATH"] = str(empty_bin) + os.pathsep + "/usr/bin:/bin"
-            result = subprocess.run(
-                ["/bin/bash", "-c", harness],
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=SCRIPT_TIMEOUT_SECONDS,
-            )
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("STATUS=0", result.stdout)
-            self.assertIn("Port 65099 is available", result.stdout)
+            root = Path(tmp)
+            stub_bin, systemctl_log = self._stage_stubs(root, curl_exit=22)
+            env = self._systemd_env(stub_bin)
+            result = self._run_plant(env)
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 1, msg=combined)
+            self.assertIn("failed to become healthy within 1s", combined)
+            self.assertIn("Cleaning up started Juniper Project services", combined)
+            # data was started before the first health wait failed
+            self.assertEqual(self._started_units(systemctl_log), ["juniper-data.service"])
+            self.assertNotIn(" stop ", f" {systemctl_log.read_text()} ")
 
 
 if __name__ == "__main__":

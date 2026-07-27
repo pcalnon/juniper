@@ -12,8 +12,6 @@ Covers (task acceptance list, plan S7.2):
   * a PURE notes-add diff PASSES (meta form + sub-package form)
   * a non-archive PR (no notes/releases/ path) SKIPs -- the guard never blocks a normal PR
   * MODIFY, DELETE, OUT-OF-PATH, BAD-NAME, and MIXED diffs each FAIL (the four synthetic negatives)
-  * rename-OUT of notes/releases/, Copy (C) into releases/, and Typechange (T) each FAIL as archive
-    PRs (never SKIP) -- pins the both-sides ``touches_releases`` + rule1 non-A contract
   * slash-in-basename nested under notes/releases/ (ARCHIVE_PATH_RE match + ``/`` in basename) FAILs
     rule2 flat-archive — distinct from a non-matching ``notes/releases/<dir>/...`` path
   * the fallback semantic: a FAIL merely fails the check (exit 1), no side effect

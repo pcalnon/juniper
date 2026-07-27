@@ -8,20 +8,19 @@ Validates the parser / grep changes introduced in Pass 2 of the
   `name: pid` format (backward-compatibility window).
 - Worker-cleanup grep no longer matches arbitrary processes that happen
   to contain `cascor` and `worker` separated by other tokens.
-- ``validate_pid`` rejects stale / wrong-process PIDs by matching
-  ``/proc/<pid>/cmdline`` against the pidfile service name (D-05 /
-  JR-ML-SEC-045) — hermetic via ``JUNIPER_CHOP_PROC_ROOT``.
+- Missing / empty JuniperProject.pid still invokes orphaned_worker_cleanup
+  then exits 1 (full-script smoke against a synthetic project dir).
 
 Where running the full chop script is impractical (requires root, a real
 pid file, and a live process), tests run a self-contained extract of the
-parser / validate_pid block in a subshell. Static-text assertions guard
-the grep tightening change.
+parser block in a subshell — except the pidfile-absent/empty wire, which
+is reachable hermetically with KILL_WORKERS=0 (cleanup short-circuits).
+Static-text assertions guard the grep tightening change.
 """
 
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 import tempfile
 import unittest
@@ -32,39 +31,7 @@ from tests.redacted_env import RedactedEnv
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "util" / "juniper_chop_all.bash"
 SCRIPT_TEXT = SCRIPT_PATH.read_text()
 SCRIPT_TIMEOUT_SECONDS = 10
-GRACEFUL_STOP_TIMEOUT_SECONDS = 20
-
-
-def _extract_graceful_stop_function() -> str:
-    """Pull the live ``graceful_stop`` body from the script (avoids harness drift)."""
-    match = re.search(
-        r"^function graceful_stop\(\) \{.*?\n\}\n",
-        SCRIPT_TEXT,
-        flags=re.MULTILINE | re.DOTALL,
-    )
-    if match is None:
-        raise AssertionError("graceful_stop function not found in juniper_chop_all.bash")
-    return match.group(0)
-
-
-def _extract_validate_pid_function() -> str:
-    """Pull ``_chop_normalize_token`` + ``validate_pid`` from the script (avoids harness drift)."""
-    # validate_pid depends on the normalize helper; extract both in source order.
-    helper = re.search(
-        r"^function _chop_normalize_token\(\) \{.*?\n\}\n",
-        SCRIPT_TEXT,
-        flags=re.MULTILINE | re.DOTALL,
-    )
-    match = re.search(
-        r"^function validate_pid\(\) \{.*?\n\}\n",
-        SCRIPT_TEXT,
-        flags=re.MULTILINE | re.DOTALL,
-    )
-    if helper is None:
-        raise AssertionError("_chop_normalize_token function not found in juniper_chop_all.bash")
-    if match is None:
-        raise AssertionError("validate_pid function not found in juniper_chop_all.bash")
-    return helper.group(0) + match.group(0)
+PIDFILE_WIRE_TIMEOUT_SECONDS = 15
 
 
 class TestSyntax(unittest.TestCase):
@@ -289,175 +256,84 @@ class TestIntentionalEchoDuplicatesPreserved(unittest.TestCase):
         self.assertGreaterEqual(count, 2, "intentional duplicate echo lines were removed")
 
 
-class TestValidatePid(unittest.TestCase):
-    """D-05 / JR-ML-SEC-045: cmdline must match the pidfile service name.
+class TestMissingOrEmptyPidfileWire(unittest.TestCase):
+    """Full-script pin: missing/empty pidfile → orphaned_worker_cleanup → exit 1.
 
-    A reused PID pointing at an unrelated process must return 1 so chop never
-    SIGTERM/SIGKILLs the wrong process. Hermetic via ``JUNIPER_CHOP_PROC_ROOT``.
+    Orthogonal to open #778 (graceful_stop escalate) and #791
+    (orphaned_worker_cleanup kill-path filter). Those extract functions;
+    this exercises the two early call sites that must still run cleanup
+    before aborting when plant never wrote a usable JuniperProject.pid.
     """
 
-    def _run_validate_pid(self, proc_root: Path, pid: str, expected_name: str) -> subprocess.CompletedProcess[str]:
-        harness = f"""
-            set -euo pipefail
-            JUNIPER_SCRIPT_NAME="juniper_chop_all.bash"
-            JUNIPER_CHOP_PROC_ROOT="{proc_root}"
-            {_extract_validate_pid_function()}
-            set +e
-            validate_pid "$1" "$2"
-            status=$?
-            set -e
-            echo "STATUS=${{status}}"
-            exit 0
-        """
-        env = RedactedEnv(os.environ)
-        return subprocess.run(
-            ["bash", "-c", harness, "_", pid, expected_name],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=GRACEFUL_STOP_TIMEOUT_SECONDS,
+    def _run_chop(self, *, create_empty_pidfile: bool) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "Juniper"
+            ml_dir = project_dir / "juniper-ml"
+            ml_dir.mkdir(parents=True, exist_ok=True)
+            if create_empty_pidfile:
+                (ml_dir / "JuniperProject.pid").write_text("")
+
+            env = RedactedEnv(os.environ)
+            env["JUNIPER_PROJECT_DIR"] = str(project_dir)
+            # Keep cleanup on the short-circuit arm (no pgrep / live PIDs).
+            env["KILL_WORKERS"] = "0"
+            env["USE_SYSTEMD"] = "0"
+            # Absolute bash + minimal PATH (memory: plant/chop PATH stubs).
+            env["PATH"] = "/usr/bin:/bin"
+
+            return subprocess.run(
+                ["/bin/bash", str(SCRIPT_PATH)],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=PIDFILE_WIRE_TIMEOUT_SECONDS,
+            )
+
+    def test_missing_pidfile_runs_cleanup_then_exits_1(self) -> None:
+        result = self._run_chop(create_empty_pidfile=False)
+        combined = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, msg=combined)
+        self.assertIn("ERROR: PID file not found", combined)
+        self.assertIn("No services to stop. Was juniper_plant_all.bash run?", combined)
+        # Prove the early call site invoked cleanup (KILL_WORKERS=0 short-circuit).
+        self.assertIn(
+            "KILL_WORKERS flag to Optionally clean up orphaned worker processes: 0",
+            combined,
         )
-
-    def _spawn_detached(self, inner_bash: str) -> int:
-        """Start a session-leader child reparented to init.
-
-        ``graceful_stop`` polls ``kill -0`` after SIGTERM/SIGKILL. If the
-        test process remains the parent, a dead child stays a zombie and
-        ``kill -0`` keeps succeeding — a false "survived SIGKILL". Launch
-        under a short-lived ``setsid`` shell so init reaps the exit.
-        """
-        launcher = "setsid bash -c " + repr(inner_bash) + " </dev/null >/dev/null 2>&1 & echo $!"
-        result = subprocess.run(
-            ["bash", "-c", launcher],
-            capture_output=True,
-            text=True,
-            timeout=SCRIPT_TIMEOUT_SECONDS,
+        self.assertIn(
+            "KILL_WORKERS flag is not set to 1. No orphaned worker processes cleanup",
+            combined,
         )
+        # Must not reach the service-stop loop.
+        self.assertNotIn("=== Stopping Juniper Services ===", combined)
 
-    def _add_proc(self, proc_root: Path, pid: int, cmdline_parts: list[str]) -> None:
-        process_dir = proc_root / str(pid)
-        process_dir.mkdir(parents=True)
-        (process_dir / "cmdline").write_bytes(b"\0".join(part.encode("utf-8") for part in cmdline_parts) + b"\0")
+    def test_empty_pidfile_runs_cleanup_then_exits_1(self) -> None:
+        result = self._run_chop(create_empty_pidfile=True)
+        combined = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, msg=combined)
+        self.assertIn("ERROR: PID file is empty", combined)
+        self.assertIn("No services to stop. Was juniper_plant_all.bash run?", combined)
+        self.assertIn(
+            "KILL_WORKERS flag to Optionally clean up orphaned worker processes: 0",
+            combined,
+        )
+        self.assertIn(
+            "KILL_WORKERS flag is not set to 1. No orphaned worker processes cleanup",
+            combined,
+        )
+        self.assertNotIn("=== Stopping Juniper Services ===", combined)
 
-    def test_matching_underscore_module_path_is_accepted(self) -> None:
-        # plant launches uvicorn juniper_data... while pidfile key is juniper-data.
-        with tempfile.TemporaryDirectory() as tmpdir:
-            proc_root = Path(tmpdir) / "proc"
-            self._add_proc(
-                proc_root,
-                4242,
-                ["/opt/conda/envs/JuniperData1/bin/python", "-m", "uvicorn", "juniper_data.api.app:get_app"],
-            )
-            result = self._run_validate_pid(proc_root, "4242", "juniper-data")
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("STATUS=0", result.stdout)
-
-    def test_plant_cascor_conda_env_cmdline_is_accepted(self) -> None:
-        # plant: nohup "$JUNIPER_CASCOR_PYTHON" server.py  (relative module; token is JuniperCascor1).
-        # Literal juniper-cascor / juniper_cascor substring matching false-rejects this and
-        # leaves cascor running while chop clears the PID file.
-        with tempfile.TemporaryDirectory() as tmpdir:
-            proc_root = Path(tmpdir) / "proc"
-            self._add_proc(
-                proc_root,
-                4343,
-                ["/opt/miniforge3/envs/JuniperCascor1/bin/python", "server.py"],
-            )
-            result = self._run_validate_pid(proc_root, "4343", "juniper-cascor")
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("STATUS=0", result.stdout)
-
-    def test_sigterm_ignore_escalates_to_sigkill(self) -> None:
-        # Single-process SIGTERM ignore (exec would drop a bash ``trap``).
-        # timeout=1 keeps the wait loop to a single second before escalate.
-        pid = self._spawn_detached("exec python3 -c 'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'")
-        try:
-            result = self._run_graceful_stop(pid, "juniper-cascor", 1)
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("STATUS=0", result.stdout)
-
-    def test_plant_canopy_conda_env_cmdline_is_accepted(self) -> None:
-        # plant: nohup "$JUNIPER_CANOPY_PYTHON" main.py under JuniperCanopy1.
-        with tempfile.TemporaryDirectory() as tmpdir:
-            proc_root = Path(tmpdir) / "proc"
-            self._add_proc(
-                proc_root,
-                4545,
-                ["/opt/miniforge3/envs/JuniperCanopy1/bin/python", "main.py"],
-            )
-            result = self._run_validate_pid(proc_root, "4545", "juniper-canopy")
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("STATUS=0", result.stdout)
-
-    def test_hyphenated_binary_name_is_accepted(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            proc_root = Path(tmpdir) / "proc"
-            self._add_proc(
-                proc_root,
-                5151,
-                ["/opt/conda/envs/JuniperCascor1/bin/juniper-cascor-worker", "--health-port", "8210"],
-            )
-            result = self._run_validate_pid(proc_root, "5151", "juniper-cascor-worker")
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("STATUS=0", result.stdout)
-
-    def test_unrelated_cmdline_is_rejected(self) -> None:
-        # Stale PID reused by sshd — must NOT return 0 (would kill the wrong process).
-        with tempfile.TemporaryDirectory() as tmpdir:
-            proc_root = Path(tmpdir) / "proc"
-            self._add_proc(proc_root, 6060, ["/usr/sbin/sshd", "-D"])
-            result = self._run_validate_pid(proc_root, "6060", "juniper-canopy")
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("STATUS=1", result.stdout)
-            self.assertIn("does not match expected service", result.stdout)
-
-    def test_cascor_does_not_match_worker_cmdline(self) -> None:
-        # juniper-cascor substring would otherwise match juniper_cascor_worker.
-        with tempfile.TemporaryDirectory() as tmpdir:
-            proc_root = Path(tmpdir) / "proc"
-            self._add_proc(
-                proc_root,
-                7070,
-                ["/opt/conda/envs/JuniperCascor1/bin/python", "-m", "juniper_cascor_worker"],
-            )
-            result = self._run_validate_pid(proc_root, "7070", "juniper-cascor")
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("STATUS=1", result.stdout)
-            self.assertIn("looks like a worker", result.stdout)
-
-    def test_missing_proc_entry_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            proc_root = Path(tmpdir) / "proc"
-            proc_root.mkdir()
-            result = self._run_validate_pid(proc_root, "99999", "juniper-data")
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("STATUS=1", result.stdout)
-            self.assertIn("is not running", result.stdout)
-
-    def test_non_numeric_pid_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            proc_root = Path(tmpdir) / "proc"
-            proc_root.mkdir()
-            result = self._run_validate_pid(proc_root, "not-a-pid", "juniper-data")
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("STATUS=1", result.stdout)
-            self.assertIn("Invalid PID", result.stdout)
-
-    def test_empty_cmdline_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            proc_root = Path(tmpdir) / "proc"
-            process_dir = proc_root / "8080"
-            process_dir.mkdir(parents=True)
-            (process_dir / "cmdline").write_bytes(b"")
-            result = self._run_validate_pid(proc_root, "8080", "juniper-data")
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("STATUS=1", result.stdout)
-            self.assertIn("empty/unreadable cmdline", result.stdout)
-
-    def test_script_wires_proc_root_override(self) -> None:
-        # Drift guard: the live function must honour JUNIPER_CHOP_PROC_ROOT.
-        self.assertIn("JUNIPER_CHOP_PROC_ROOT", SCRIPT_TEXT)
-        self.assertIn('${JUNIPER_CHOP_PROC_ROOT:-/proc}', SCRIPT_TEXT)
+    def test_early_pidfile_cleanup_call_sites_are_not_softened(self) -> None:
+        # Drift guard: the missing/empty arms must call cleanup without
+        # `|| true` (unlike the post-stop site owned by #791). Softening
+        # them would hide a cleanup failure and still look like a clean abort.
+        self.assertIn("ERROR: PID file not found:", SCRIPT_TEXT)
+        self.assertIn("ERROR: PID file is empty:", SCRIPT_TEXT)
+        early_call = 'orphaned_worker_cleanup "${KILL_WORKERS}" ' '"${WORKER_SEARCH_TERM}" "${SIGTERM_TIMEOUT}"'
+        soft_call = early_call + " || true"
+        self.assertGreaterEqual(SCRIPT_TEXT.count(early_call), 3)
+        # Exactly one soft call (post-stop); the two early sites stay hard.
+        self.assertEqual(SCRIPT_TEXT.count(soft_call), 1)
 
 
 if __name__ == "__main__":
