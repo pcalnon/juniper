@@ -10,20 +10,24 @@ Validates the script-level invariants introduced in the 2026-05-07 audit:
   CASCOR_SERVICE_URL legacy alias).
 - Pre-flight aborts if the juniper-cascor-worker binary is missing from the
   JuniperCascor conda env.
+- ``wait_for_health`` clamps a zero/invalid poll interval (avoids busy-loop).
 
 Where possible, tests inspect the script as text — running the full script
 under unittest is impractical because it source-activates conda, allocates
 ports, and launches four long-lived background services. The single
 end-to-end smoke test exercises only the pre-flight failure path against a
 synthetic JUNIPER_PROJECT_DIR / JUNIPER_CONDA_DIR layout, asserting the
-script exits before any service is launched.
+script exits before any service is launched. Behavioral pins for cleanup /
+health / port helpers extract the live function bodies into a harness.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -32,6 +36,48 @@ from tests.redacted_env import RedactedEnv
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "util" / "juniper_plant_all.bash"
 SCRIPT_TEXT = SCRIPT_PATH.read_text()
 SCRIPT_TIMEOUT_SECONDS = 15
+CLEANUP_TIMEOUT_SECONDS = 20
+
+
+def _extract_function(name: str) -> str:
+    """Pull a live ``function <name>() { ... }`` body (avoids harness drift)."""
+    match = re.search(
+        rf"^function {re.escape(name)}\(\) \{{.*?\n\}}\n",
+        SCRIPT_TEXT,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError(f"{name} function not found in juniper_plant_all.bash")
+    return match.group(0)
+
+
+def _extract_validate_conda_env() -> str:
+    """Pull the live ``function validate_conda_env() { ... }`` body (no harness drift).
+
+    Named distinctly from concurrent coverage PRs' generic ``_extract_function``
+    helpers so a merge cannot silently alias the wrong extractor.
+    """
+    match = re.search(
+        r"^function validate_conda_env\(\) \{.*?\n\}\n",
+        SCRIPT_TEXT,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("validate_conda_env function not found in juniper_plant_all.bash")
+    return match.group(0)
+
+
+def _extract_safe_conda_activate() -> str:
+    """Pull the live ``safe_conda_activate`` body (avoids harness drift)."""
+    live = SCRIPT_PATH.read_text()
+    match = re.search(
+        r"^safe_conda_activate\(\) \{.*?\n\}\n",
+        live,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("safe_conda_activate function not found in juniper_plant_all.bash")
+    return match.group(0)
 
 
 class TestSyntax(unittest.TestCase):
@@ -199,11 +245,38 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             worker_bin.write_text("#!/usr/bin/env bash\nexit 0\n")
             worker_bin.chmod(0o755)
 
+    def _stage_cmd_stubs(self, root: Path) -> Path:
+        """Stub ``curl`` + ``ss`` so preflight is hermetic without iproute2.
+
+        Cloud / minimal images often lack ``ss``; without stubs the smoke
+        cases abort at the command check and never reach the worker-binary
+        / conda-env arms they intend to pin.
+        """
+        stub_bin = root / "path-stubs"
+        stub_bin.mkdir(parents=True, exist_ok=True)
+        for name in ("curl", "ss"):
+            stub = stub_bin / name
+            stub.write_text("#!/usr/bin/env bash\nexit 0\n")
+            stub.chmod(0o755)
+        return stub_bin
+
+    def _preflight_env(self, *, project_dir: Path, conda_dir: Path, stub_bin: Path, ports: tuple[str, str, str, str]) -> RedactedEnv:
+        env = RedactedEnv(os.environ)
+        env["JUNIPER_PROJECT_DIR"] = str(project_dir)
+        env["JUNIPER_CONDA_DIR"] = str(conda_dir)
+        env["JUNIPER_DATA_PORT"] = ports[0]
+        env["JUNIPER_CASCOR_PORT"] = ports[1]
+        env["JUNIPER_CANOPY_PORT"] = ports[2]
+        env["JUNIPER_WORKER_HEALTH_PORT"] = ports[3]
+        env["PATH"] = str(stub_bin) + os.pathsep + env.get("PATH", "") + os.pathsep + str(conda_dir / "envs" / "JuniperData" / "bin")
+        return env
+
     def test_missing_worker_binary_aborts_preflight(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project_dir = root / "Juniper"
             conda_dir = root / "miniforge3"
+            stub_bin = self._stage_cmd_stubs(root)
 
             for sub in ("juniper-data", "juniper-cascor/src", "juniper-canopy/src", "juniper-cascor-worker"):
                 (project_dir / sub).mkdir(parents=True, exist_ok=True)
@@ -222,17 +295,15 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             ):
                 self._make_env(conda_dir, env_name, with_worker_bin=with_bin)
 
-            env = RedactedEnv(os.environ)
-            env["JUNIPER_PROJECT_DIR"] = str(project_dir)
-            env["JUNIPER_CONDA_DIR"] = str(conda_dir)
-            env["JUNIPER_DATA_PORT"] = "65010"
-            env["JUNIPER_CASCOR_PORT"] = "65011"
-            env["JUNIPER_CANOPY_PORT"] = "65012"
-            env["JUNIPER_WORKER_HEALTH_PORT"] = "65013"
-            env["PATH"] = env.get("PATH", "") + os.pathsep + str(conda_dir / "envs" / "JuniperData" / "bin")
+            env = self._preflight_env(
+                project_dir=project_dir,
+                conda_dir=conda_dir,
+                stub_bin=stub_bin,
+                ports=("65010", "65011", "65012", "65013"),
+            )
 
             result = subprocess.run(
-                ["bash", str(SCRIPT_PATH)],
+                ["/bin/bash", str(SCRIPT_PATH)],
                 capture_output=True,
                 text=True,
                 env=env,
@@ -257,6 +328,7 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             root = Path(tmp)
             project_dir = root / "Juniper"
             conda_dir = root / "miniforge3"
+            stub_bin = self._stage_cmd_stubs(root)
 
             for sub in ("juniper-data", "juniper-cascor/src", "juniper-canopy/src", "juniper-cascor-worker"):
                 (project_dir / sub).mkdir(parents=True, exist_ok=True)
@@ -270,17 +342,15 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             for env_name in ("JuniperData", "JuniperCanopy1"):
                 self._make_env(conda_dir, env_name, with_worker_bin=False)
 
-            env = RedactedEnv(os.environ)
-            env["JUNIPER_PROJECT_DIR"] = str(project_dir)
-            env["JUNIPER_CONDA_DIR"] = str(conda_dir)
-            env["JUNIPER_DATA_PORT"] = "65020"
-            env["JUNIPER_CASCOR_PORT"] = "65021"
-            env["JUNIPER_CANOPY_PORT"] = "65022"
-            env["JUNIPER_WORKER_HEALTH_PORT"] = "65023"
-            env["PATH"] = env.get("PATH", "") + os.pathsep + str(conda_dir / "envs" / "JuniperData" / "bin")
+            env = self._preflight_env(
+                project_dir=project_dir,
+                conda_dir=conda_dir,
+                stub_bin=stub_bin,
+                ports=("65020", "65021", "65022", "65023"),
+            )
 
             result = subprocess.run(
-                ["bash", str(SCRIPT_PATH)],
+                ["/bin/bash", str(SCRIPT_PATH)],
                 capture_output=True,
                 text=True,
                 env=env,
@@ -302,6 +372,7 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             root = Path(tmp)
             project_dir = root / "Juniper"
             conda_dir = root / "miniforge3"
+            stub_bin = self._stage_cmd_stubs(root)
 
             for sub in ("juniper-data", "juniper-cascor/src", "juniper-canopy/src", "juniper-cascor-worker"):
                 (project_dir / sub).mkdir(parents=True, exist_ok=True)
@@ -315,18 +386,16 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             for env_name in ("JuniperData", "JuniperCascor1", "JuniperCanopy1", "CustomWorkerEnv"):
                 self._make_env(conda_dir, env_name, with_worker_bin=False)
 
-            env = RedactedEnv(os.environ)
-            env["JUNIPER_PROJECT_DIR"] = str(project_dir)
-            env["JUNIPER_CONDA_DIR"] = str(conda_dir)
+            env = self._preflight_env(
+                project_dir=project_dir,
+                conda_dir=conda_dir,
+                stub_bin=stub_bin,
+                ports=("65030", "65031", "65032", "65033"),
+            )
             env["JUNIPER_WORKER_CONDA"] = "CustomWorkerEnv"
-            env["JUNIPER_DATA_PORT"] = "65030"
-            env["JUNIPER_CASCOR_PORT"] = "65031"
-            env["JUNIPER_CANOPY_PORT"] = "65032"
-            env["JUNIPER_WORKER_HEALTH_PORT"] = "65033"
-            env["PATH"] = env.get("PATH", "") + os.pathsep + str(conda_dir / "envs" / "JuniperData" / "bin")
 
             result = subprocess.run(
-                ["bash", str(SCRIPT_PATH)],
+                ["/bin/bash", str(SCRIPT_PATH)],
                 capture_output=True,
                 text=True,
                 env=env,
@@ -445,6 +514,65 @@ class TestPidFileFormat(unittest.TestCase):
         # Plant must not still emit the legacy "name: pid" format.
         self.assertNotIn('echo "juniper-data:', SCRIPT_TEXT)
         self.assertNotIn('echo "juniper-cascor:', SCRIPT_TEXT)
+
+
+class TestSafeCondaActivate(unittest.TestCase):
+    """``safe_conda_activate`` nounset contract (ADDR2LINE class).
+
+    Conda activate scripts (e.g. activate-binutils_linux-64.sh) reference
+    unset vars like ADDR2LINE. The wrapper must disable nounset for the
+    activate call only and restore it afterward — the same one-character
+    ``set +u``/``set -u`` restore bug that bit isolated-stack (#785). Host-mode
+    plant calls this before every service; a broken restore silently disables
+    ``set -u`` for the rest of bring-up.
+    """
+
+    def _run_activate(self, bin_dir: Path) -> subprocess.CompletedProcess:
+        # Concatenate (do not f-string) so bash `${...}` braces in the extract
+        # are not interpreted as Python format fields.
+        harness = (
+            "set -euo pipefail\n"
+            f'export PATH="{bin_dir}:/usr/bin:/bin"\n' + _extract_safe_conda_activate() + 'safe_conda_activate "JuniperCanopy1"\n'
+            "case $- in\n"
+            '  *u*) echo "NOUNSET_ON" ;;\n'
+            '  *) echo "NOUNSET_OFF"; exit 1 ;;\n'
+            "esac\n"
+            # Prove nounset is actually enforced (not just a stale $- flag bit).
+            'if (echo "${__plant_safe_conda_definitely_unset__}") >/dev/null 2>&1; then\n'
+            '  echo "NOUNSET_INEFFECTIVE"\n'
+            "  exit 1\n"
+            "fi\n"
+            'echo "OK"\n'
+        )
+        return subprocess.run(
+            ["/bin/bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            env=RedactedEnv(os.environ),
+            timeout=SCRIPT_TIMEOUT_SECONDS,
+        )
+
+    def test_restores_nounset_after_activate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            conda = bin_dir / "conda"
+            # Mimic ADDR2LINE class: activate scripts reference unset vars.
+            conda.write_text("#!/bin/bash\n" 'if [[ "$1" == "activate" ]]; then\n' '  : "${ADDR2LINE}"\n' "fi\n")
+            conda.chmod(0o755)
+            result = self._run_activate(bin_dir)
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("NOUNSET_ON", result.stdout)
+            self.assertIn("OK", result.stdout)
+
+    def test_restore_arm_is_set_minus_u(self) -> None:
+        # Static pin: the pre/post pair must be +u then -u (not +u/+u).
+        body = _extract_safe_conda_activate()
+        self.assertRegex(
+            body,
+            r"set \+u\n\s*conda activate[^\n]+\n\s*set -u\n",
+            msg="safe_conda_activate must restore nounset with set -u after conda activate",
+        )
 
 
 if __name__ == "__main__":
