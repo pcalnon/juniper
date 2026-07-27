@@ -314,6 +314,10 @@ Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while 
 
 Tip: a mid-plant health failure trips `cleanup_on_failure` (SIGTERM→3s→SIGKILL on `STARTED_PIDS`, then always removes `JuniperProject.pid`). Re-plant only after confirming ports are free with `ss -tlnp` — `chop_all` will not see a pidfile from a failed plant. Full contract: [REFERENCE — Host Orchestration](REFERENCE.md#host-orchestration-utilities).
 
+Tip: `plant_all` `safe_conda_activate` must restore nounset with `set -u` after `conda activate` (ADDR2LINE class). A `set +u`/`set +u` pair silently disables `set -u` for the rest of host bring-up — same bug class as isolated-stack [#785](https://github.com/pcalnon/juniper-ml/pull/785). Coverage: [#795](https://github.com/pcalnon/juniper-ml/pull/795).
+
+Tip: `python util/editable_install_drift_check.py --fix --dry-run --json` SKIPs when two non-worktree trees share a `[project].name` (`reason` contains `ambiguous`; never `candidates[0]`). Resolve the duplicate checkout, then re-run. Coverage: [#795](https://github.com/pcalnon/juniper-ml/pull/795). Full contract: [REFERENCE — Editable Install Drift](REFERENCE.md#editable-install-drift-check).
+
 ### Host Stack Troubleshooting
 
 | Symptom | Fast Check |

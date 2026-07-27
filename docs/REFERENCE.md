@@ -16,6 +16,7 @@
 - [Ecosystem Compatibility](#ecosystem-compatibility)
 - [Host Orchestration Utilities](#host-orchestration-utilities)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
+- [Editable Install Drift Check](#editable-install-drift-check)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
@@ -183,6 +184,27 @@ Troubleshooting:
 | `juniper-cascor` never reaches `/v1/health` | Inspect `juniper-cascor/logs/juniper-cascor_*.log`. Prefer the default `JuniperCascor1` env; the legacy `JuniperCascor` Python 3.14 / torch layout is a known health-startup trap. See [`notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md`](../notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md). |
 | Worker startup says binary missing | Activate the worker env and install the package: `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` completed successfully in `nohup` mode and check the PID path printed at startup. A failed plant removes the pidfile on purpose. In non-standard layouts, rerun shutdown with `JUNIPER_PROJECT_DIR` set to that same project root. If using systemd mode, stop with `util/juniper_chop_all.bash --systemd` instead. |
+
+---
+
+## Editable Install Drift Check
+
+`util/editable_install_drift_check.py` scans conda envs for `juniper-*` editables (via `*.dist-info/direct_url.json`), classifies each as `FRESH` / `WORKTREE_PINNED` / `ORPHANED`, and optionally re-points orphans with `--fix` (preview with `--dry-run`). Exit `1` on any `ORPHANED` finding.
+
+#### Ambiguous canonical `--fix` SKIP
+
+`--fix` resolves a unique canonical source under the ecosystem root via `discover_canonical(pkg_name, ecosystem_root)`:
+
+- Exactly one non-worktree checkout whose `[project].name` matches → that path is the canonical.
+- Zero matches → `action=SKIP`, reason `no canonical source found`.
+- Two or more matches → `action=SKIP`, reason contains `ambiguous`, `canonical=null`, and `candidates` lists every match. The tool **must not** pick `candidates[0]` — auto-picking the first tree would re-point an orphaned editable at the wrong fork/mirror.
+
+```bash
+# Preview repairs (never writes). Ambiguous packages stay SKIP in the JSON "fix" array.
+python util/editable_install_drift_check.py --fix --dry-run --json
+```
+
+Coverage: open juniper-ml#795 (`tests/test_editable_install_drift_check.py` — `test_discover_canonical_ambiguous_returns_none`, `test_fix_skips_when_canonical_ambiguous`).
 
 ---
 
