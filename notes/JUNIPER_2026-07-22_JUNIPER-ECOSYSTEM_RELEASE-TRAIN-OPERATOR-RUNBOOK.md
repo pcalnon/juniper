@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.3
+**Version**: 1.2.2
 **Last Updated**: 2026-07-26
 
 ---
@@ -637,10 +637,11 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
   (ml#701 / juniper-ml#710; edge-case coverage + already-at-target checklist fix juniper-ml#712).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
-- Engines: `util/release_train/detect.py`, `propose.py`, `notes_render.py`, `ceremony.py`, `registry.yaml`.
+- Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`,
+  `archive_guard.py` (exempt notes-archive structural guard; operator triage §3.3).
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
-  `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation + R7 archive-lane missing/empty
-  `ref=` SeamViolation; juniper-ml#770),
+  `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
+  `tests/test_release_train_archive_guard.py` (add-only / rename-out / Copy / Typechange; plan §7.2),
   `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701),
   `tests/test_release_train_propose.py` (sibling/meta AGENTS.md step-5/5a shapes — worker#140 / ml#706 / #720;
   CHANGELOG refuse clear-on-refuse stub shape — juniper-ml#751).
