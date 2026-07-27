@@ -37,16 +37,18 @@ PyYAML and asserting:
       charset reject + the ``APP_TOKEN`` → ``--cross-repo`` capability gate on both write jobs' run scripts
       (a regression that always passes ``--cross-repo`` breaks the no-App degraded path).
 
-Beyond the structural pins, four **YAML-extraction rehearsals** execute the actual workflow snippets
+Beyond the structural pins, five **YAML-extraction rehearsals** execute the actual workflow snippets
 hermetically (the "run the real thing, not a reimplementation" idiom): ``ModeResolutionMatrixTest`` extracts
 the ``id: mode`` step's shell and runs it over the whole mode matrix (incl. ``ceremony`` now valid + the
 dispatch-input > repo-variable precedence), ``CeremonySummaryRehearsalTest`` extracts the ceremony
 step-summary Python and runs it over a synthetic ``ceremony-output.txt`` (proving it renders
 ceremonies/resumes/HALTs/PENDING_PYPI_APPROVAL and the degraded-issue line), ``ProposeSummaryRehearsalTest``
 extracts the propose step-summary Python and runs it over a synthetic ``propose-output.txt`` (proving
-opened:/skip: lines bucket into the operator-facing step summary), and ``DetectorExitContractRehearsalTest``
+opened:/skip: lines bucket into the operator-facing step summary), ``DetectorExitContractRehearsalTest``
 extracts the detect job's ``Run release-train detector`` shell and proves exit 0/1 stay green while
-exit >= 2 fails the step (detect.py's report-only contract).
+exit >= 2 fails the step (detect.py's report-only contract), and ``PackagesInputRehearsalTest`` extracts
+the write-job ``packages`` / ``--cross-repo`` shell prefix and *runs* it (charset reject exit 2 +
+App-token capability gate) -- complementary to the structural mint/ECOSYSTEM_REPOS / packages string pins.
 
 Companion to ``tests/test_release_train_propose.py`` / ``tests/test_release_train_ceremony.py``. Neither
 ``util/`` nor the workflow YAML is pre-commit-lint-gated for these properties, so this unittest IS the gate.
@@ -432,6 +434,10 @@ class ReleaseTrainWorkflowGuardTest(unittest.TestCase):
             "the detect job must not configure git identity (it never commits; write-jobs only).",
         )
 
+    # (h) Phase 4.1: mint repositories / ECOSYSTEM_REPOS lockstep with registry.yaml --------------
+
+    # (g) Cross-repo headless git identity must be --global (ml#705 / run 30040138774) -------------
+
 
 # ── YAML-extraction rehearsal 1: the mode-resolution matrix (the real shell, run hermetically) ──
 
@@ -687,6 +693,118 @@ class ProposeSummaryRehearsalTest(unittest.TestCase):
 
 # Matches `python - <<'PY'` and the Slack redirect form `python - <<'PY' > slack-payload.json`.
 _PY_HEREDOC_OPENER = re.compile(r"<<'PY'(?:\s*>\s*\S+)?\n")
+
+
+_PACKAGES_STEP_NAMES = {
+    "propose": "Open release-proposal PRs (propose.py --execute)",
+    "ceremony": "Run the ceremony (ceremony.py --execute)",
+}
+
+
+def _extract_packages_prefix(run: str) -> str:
+    """Take the write-job run script up to (not including) the ``rc=0`` / python invocation.
+
+    The prefix owns the ``packages`` charset reject and the App-token ``--cross-repo`` gate; the
+    remainder shells out to propose.py / ceremony.py and is covered by their hermetic suites.
+    Append a deterministic ARGS line so the rehearsal can assert resolved flags without a fake python.
+    """
+    lines = run.splitlines()
+    kept = []
+    for line in lines:
+        if re.match(r"^\s*rc=0\s*$", line):
+            break
+        kept.append(line)
+    kept.append('echo "ARGS:${pkg_args[*]}|CROSS:${cross_repo_args[*]}"')
+    return "\n".join(kept) + "\n"
+
+
+class PackagesInputRehearsalTest(unittest.TestCase):
+    """Extract each write job's ``packages`` / ``--cross-repo`` shell prefix and *run* it.
+
+    Complementary to the structural string pins (charset needle / APP_TOKEN ``if`` present): this
+    rehearses the ACTUAL shell so a drifted regex or a reordered gate that still "contains" the
+    substrings cannot silently accept garbage or always pass ``--cross-repo``.
+
+    Pins (a) garbage ``packages`` tokens exit 2 with ``::error::`` before any python runs,
+    (b) empty input means no ``--package`` filter, (c) commas and whitespace are equivalent,
+    (d) ``--cross-repo`` is emitted ONLY when ``APP_TOKEN`` is non-empty (Phase 4.1 capability gate).
+    """
+
+    prefixes: dict  # job -> extracted shell prefix
+
+    @classmethod
+    def setUpClass(cls):
+        repo_root = _find_repo_root(Path(__file__).resolve().parent)
+        wf_path = repo_root / ".github" / "workflows" / WORKFLOW_NAME
+        if not wf_path.is_file():
+            raise unittest.SkipTest(f"{WORKFLOW_NAME} not present at {wf_path}")
+        doc = yaml.safe_load(wf_path.read_text(encoding="utf-8"))
+        cls.prefixes = {}
+        for job, step_name in _PACKAGES_STEP_NAMES.items():
+            step = next((s for s in (doc["jobs"][job].get("steps") or []) if s.get("name") == step_name), None)
+            if step is None or "run" not in step:
+                raise unittest.SkipTest(f"could not locate {job} step {step_name!r}")
+            run = step["run"]
+            if "PACKAGES_INPUT" not in (step.get("env") or {}):
+                raise unittest.SkipTest(f"{job} step must bind PACKAGES_INPUT from inputs.packages")
+            if "pkg_args" not in run or "cross_repo_args" not in run:
+                raise unittest.SkipTest(f"{job} step lacks packages/cross-repo parsing")
+            cls.prefixes[job] = _extract_packages_prefix(run)
+
+    def _run(self, job: str, packages_input: str, app_token: str = "") -> "subprocess.CompletedProcess":  # nosec B107 - test stand-in token, not a credential
+        with tempfile.TemporaryDirectory() as td:
+            script_path = Path(td) / "packages.sh"
+            script_path.write_text(self.prefixes[job], encoding="utf-8")
+            env = RedactedEnv(os.environ, PACKAGES_INPUT=packages_input, APP_TOKEN=app_token)
+            return subprocess.run(["bash", str(script_path)], capture_output=True, text=True, env=env, check=False)  # nosec B603,B607 - workflow's own shell prefix
+
+    def test_both_write_jobs_share_packages_charset_and_cross_repo_gate(self):
+        # structural: the charset regex + APP_TOKEN gate exist in BOTH write-job prefixes (drift of one
+        # job alone would let garbage through propose while ceremony rejects, or vice versa).
+        for job, prefix in self.prefixes.items():
+            with self.subTest(job=job):
+                self.assertIn("^[a-z0-9][a-z0-9-]*$", prefix)
+                self.assertIn('if [ -n "${APP_TOKEN:-}" ]', prefix)
+                self.assertIn("--cross-repo", prefix)
+
+    def test_empty_packages_means_all_eligible(self):
+        for job in WRITE_JOBS:
+            with self.subTest(job=job):
+                proc = self._run(job, "")
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIn("package filter: <all eligible packages>", proc.stdout)
+                self.assertIn("ARGS:|CROSS:", proc.stdout)  # no --package, no --cross-repo
+
+    def test_comma_and_whitespace_separated_tokens(self):
+        for job in WRITE_JOBS:
+            with self.subTest(job=job):
+                proc = self._run(job, "juniper-observability, juniper-ci-tools")
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIn("--package juniper-observability", proc.stdout)
+                self.assertIn("--package juniper-ci-tools", proc.stdout)
+                self.assertRegex(proc.stdout, r"ARGS:--package juniper-observability --package juniper-ci-tools\|CROSS:")
+
+    def test_invalid_token_exits_2_with_error_annotation(self):
+        for job in WRITE_JOBS:
+            for garbage in ("Juniper-Observability", "../evil", "juniper_observability", "a;rm -rf /"):
+                with self.subTest(job=job, tok=garbage):
+                    proc = self._run(job, garbage)
+                    self.assertEqual(proc.returncode, 2, f"expected exit 2 for {garbage!r}; got {proc.returncode}: {proc.stdout}{proc.stderr}")
+                    self.assertIn("::error::invalid package token", proc.stdout + proc.stderr)
+                    self.assertNotIn("ARGS:", proc.stdout)  # never reached the stub echo
+
+    def test_cross_repo_only_when_app_token_nonempty(self):
+        for job in WRITE_JOBS:
+            with self.subTest(job=job, token="present"):  # nosec B106 - subTest label, not a credential
+                proc = self._run(job, "juniper-observability", app_token="minted-token")  # nosec B106 - fake token exercising the APP_TOKEN gate
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIn("cross-repo", proc.stdout.lower())
+                self.assertRegex(proc.stdout, r"ARGS:--package juniper-observability\|CROSS:--cross-repo")
+            with self.subTest(job=job, token="absent"):  # nosec B106 - subTest label, not a credential
+                proc = self._run(job, "juniper-observability", app_token="")  # nosec B106 - empty token exercising the degraded path
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertIn("degraded", proc.stdout.lower())
+                self.assertRegex(proc.stdout, r"ARGS:--package juniper-observability\|CROSS:$")
 
 
 def _iter_py_heredoc_bodies(run: str):
