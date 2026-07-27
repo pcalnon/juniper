@@ -133,6 +133,119 @@ class TestSystemdModePreserved(unittest.TestCase):
         )
 
 
+class TestSystemdModeBehavioral(unittest.TestCase):
+    """Full-script PATH-stub coverage for chop's ``USE_SYSTEMD=1`` / ``--systemd`` branch.
+
+    The systemd arm exits before the pidfile parser and ``orphaned_worker_cleanup``,
+    so a hermetic ``systemctl`` stub is enough. Pins reverse stop order, soft-fail
+    continue-on-error, and that successful systemd teardown never falls through to
+    the pidfile path (static text pins alone cannot prove the early ``exit 0``).
+    """
+
+    _EXPECTED_STOP_ORDER = (
+        "juniper-cascor-worker.service",
+        "juniper-canopy.service",
+        "juniper-cascor.service",
+        "juniper-data.service",
+    )
+
+    def _stage_systemctl(self, root: Path, *, fail_units: set[str] | None = None) -> tuple[Path, Path]:
+        stub_bin = root / "path-stubs"
+        stub_bin.mkdir(parents=True, exist_ok=True)
+        systemctl_log = root / "systemctl.log"
+        systemctl_log.write_text("")
+        fail_list = " ".join(sorted(fail_units or ()))
+        systemctl = stub_bin / "systemctl"
+        systemctl.write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "%s\\n" "$*" >>"{systemctl_log}"\n' 'if [[ "${1:-}" == "--user" ]]; then shift; fi\n' 'cmd="${1:-}"\n' 'unit="${2:-}"\n' f'fail_units="{fail_list}"\n' 'case "${cmd}" in\n' "  stop)\n" "    for bad in ${fail_units}; do\n" '      if [[ "${unit}" == "${bad}" ]]; then exit 1; fi\n' "    done\n" "    exit 0\n" "    ;;\n" "  *) exit 0 ;;\n" "esac\n")
+        systemctl.chmod(0o755)
+        return stub_bin, systemctl_log
+
+    def _chop_env(self, stub_bin: Path) -> RedactedEnv:
+        env = RedactedEnv(os.environ)
+        env["USE_SYSTEMD"] = "1"
+        env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+        return env
+
+    def _run_chop(
+        self,
+        env: RedactedEnv,
+        *,
+        args: list[str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        cmd = ["/bin/bash", str(SCRIPT_PATH)]
+        if args:
+            cmd.extend(args)
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=SCRIPT_TIMEOUT_SECONDS,
+        )
+
+    def _stopped_units(self, log: Path) -> list[str]:
+        stops: list[str] = []
+        for line in log.read_text().splitlines():
+            parts = line.split()
+            if "--user" in parts and "stop" in parts:
+                try:
+                    idx = parts.index("stop")
+                    stops.append(parts[idx + 1])
+                except (ValueError, IndexError):
+                    continue
+        return stops
+
+    def test_happy_path_stops_units_in_reverse_dependency_order(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub_bin, systemctl_log = self._stage_systemctl(root)
+            env = self._chop_env(stub_bin)
+            result = self._run_chop(env)
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, msg=combined)
+            self.assertIn("Stopping services via systemd", combined)
+            self.assertIn("All Juniper services stopped via systemd", combined)
+            self.assertNotIn("Stopping services via pidfile", combined)
+            self.assertEqual(self._stopped_units(systemctl_log), list(self._EXPECTED_STOP_ORDER))
+            for unit_name in (
+                "juniper-cascor-worker",
+                "juniper-canopy",
+                "juniper-cascor",
+                "juniper-data",
+            ):
+                self.assertIn(f"{unit_name} stopped.", combined)
+
+    def test_systemd_flag_enters_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub_bin, systemctl_log = self._stage_systemctl(root)
+            env = self._chop_env(stub_bin)
+            del env["USE_SYSTEMD"]
+            result = self._run_chop(env, args=["--systemd"])
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, msg=combined)
+            self.assertEqual(self._stopped_units(systemctl_log), list(self._EXPECTED_STOP_ORDER))
+            self.assertNotIn("Stopping services via pidfile", combined)
+
+    def test_stop_failure_soft_fails_and_continues(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub_bin, systemctl_log = self._stage_systemctl(
+                root,
+                fail_units={"juniper-canopy.service"},
+            )
+            env = self._chop_env(stub_bin)
+            result = self._run_chop(env)
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, msg=combined)
+            self.assertIn("juniper-canopy was not running or failed to stop.", combined)
+            self.assertIn("juniper-cascor-worker stopped.", combined)
+            self.assertIn("juniper-data stopped.", combined)
+            # All four stops were still attempted in reverse order.
+            self.assertEqual(self._stopped_units(systemctl_log), list(self._EXPECTED_STOP_ORDER))
+            self.assertNotIn("Stopping services via pidfile", combined)
+
+
 class TestIntentionalEchoDuplicatesPreserved(unittest.TestCase):
     """Per memory `feedback_chop_all_echo_debug`, duplicate echo lines around
     SIGTERM_TIMEOUT / KILL_WORKERS are intentional placeholders. The audit
