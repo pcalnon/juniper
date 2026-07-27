@@ -98,6 +98,83 @@ class DoctorUnitTest(unittest.TestCase):
             self.assertEqual(skill[0], self.mod.FAIL)
 
 
+def _write_fake_discovery_cli(root: Path, body: str) -> Path:
+    """Install a hermetic ``util/prompt_discovery/cli.py`` under *root*."""
+    cli = root / "util" / "prompt_discovery" / "cli.py"
+    cli.parent.mkdir(parents=True, exist_ok=True)
+    cli.write_text(body, encoding="utf-8")
+    return cli
+
+
+class DoctorDiscoveryCheckTest(unittest.TestCase):
+    """Pin ``check_discovery`` fail-closed arms (existing suite tests skip via ``no_discovery``)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load()
+
+    def test_missing_cli_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _marker(root)
+            name, status, reason = self.mod.check_discovery(root)
+            self.assertEqual(name, "discovery")
+            self.assertEqual(status, self.mod.FAIL)
+            self.assertIn("missing", reason)
+
+    def test_nonzero_exit_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _marker(root)
+            _write_fake_discovery_cli(
+                root,
+                "import sys\n" "print('boom-stderr', file=sys.stderr)\n" "sys.exit(3)\n",
+            )
+            name, status, reason = self.mod.check_discovery(root)
+            self.assertEqual(name, "discovery")
+            self.assertEqual(status, self.mod.FAIL)
+            self.assertIn("exited 3", reason)
+            self.assertIn("boom-stderr", reason)
+
+    def test_invalid_json_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _marker(root)
+            _write_fake_discovery_cli(root, "print('not-json')\n")
+            name, status, reason = self.mod.check_discovery(root)
+            self.assertEqual(name, "discovery")
+            self.assertEqual(status, self.mod.FAIL)
+            self.assertIn("not valid JSON", reason)
+
+    def test_missing_schema_or_provenance_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _marker(root)
+            # schema_version present but provenance.head_sha absent -> fail-closed
+            _write_fake_discovery_cli(
+                root,
+                "import json\n" "print(json.dumps({'schema_version': 1, 'provenance': {}}))\n",
+            )
+            name, status, reason = self.mod.check_discovery(root)
+            self.assertEqual(name, "discovery")
+            self.assertEqual(status, self.mod.FAIL)
+            self.assertIn("schema_version", reason)
+            self.assertIn("provenance.head_sha", reason)
+
+    def test_well_formed_bundle_ok(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _marker(root)
+            _write_fake_discovery_cli(
+                root,
+                "import json\n" "print(json.dumps({\n" "  'schema_version': 1,\n" "  'provenance': {'head_sha': 'abc123'},\n" "}))\n",
+            )
+            name, status, reason = self.mod.check_discovery(root)
+            self.assertEqual(name, "discovery")
+            self.assertEqual(status, self.mod.OK)
+            self.assertIn("well-formed", reason)
+
+
 class DoctorCliTest(unittest.TestCase):
     def _run(self, *args, env_extra=None):
         env = RedactedEnv(os.environ)
