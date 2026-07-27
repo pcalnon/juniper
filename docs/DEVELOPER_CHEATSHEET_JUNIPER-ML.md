@@ -217,7 +217,6 @@ Always-on gate: `tests/test_release_train_registry.py` (`VersionDunderLockstepTe
 If `__version__` is already at the proposed version (re-entry / partial heal), step 3a stays silent instead of false-flagging REQUIRED (juniper-ml#712).
 Gate 1 review table: release-train operator runbook §3.2.
 
-<<<<<<< HEAD
 **Re-entry caveat (juniper-ml#712):** if `__version__` already equals the proposed version, the train leaves the dunder alone and does **not** checklist REQUIRED-manual. Confirm the match before treating a pyproject-only proposal as the old failure class.
 
 **Sibling / meta AGENTS.md Version (worker#140 / ml#706 / #720):** when hand-bumping a sibling repo's
@@ -265,13 +264,16 @@ the monitor verdict. TestPyPI failure on resume still HALTs + files an issue (no
 clears those edits so the skipped stub is `edits=[]` + `skipped_reason` (same shape as dup-guard /
 `bump=none`) — do not treat leftover version edits in dry-run JSON as a Gate 1 candidate.
 Operator table: release-train runbook §3.2.
-=======
+
 **Archive-guard FAIL triage:** the exempt notes-archive PR's required check (`Release-Train Archive Guard`)
 PASSes only on pure `A` adds under `notes/releases/RELEASE_NOTES_*.md`.
 Rename-OUT, Copy (`C`), and Typechange (`T`) are still archive PRs (`touches_releases` checks both rename/copy paths) and FAIL — they never SKIP.
 A FAIL drops the PR back to the standard owner gate (no auto-merge).
 Operator tables: [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.3.
->>>>>>> 4471d50 (docs(release-train): archive-guard rename-out/Copy/Typechange operator triage)
+
+**Daily detect `SHIP_UNCERTAIN` / hygiene:** `SHIP_UNCERTAIN` means the detector could not prove ship or no-ship (missing declared version, missing tag, soft-fail compare, 300-file truncated empty window, or uncertain hunks) — it is an action classification (exit 1), never a silent `UP_TO_DATE`.
+Hygiene `TAG_ONLY=` counts only truthy `tag_only`; a `list_releases` blip sets `tag_only=None` and notes `release-hygiene (tag_only) unavailable:` without failing the job.
+Operator tables: [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1.
 
 ---
 
