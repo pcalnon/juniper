@@ -316,7 +316,10 @@ def _assert_api_allowed(args: list, allowed_repos: "frozenset[str] | None") -> N
     if not _api_is_post(args):
         raise SeamViolation(f"gh api {sub} must be a POST (the archive-branch ref create); got {args!r}")
     ref = _api_field(args, "ref")
-    if ref is not None and not ref.startswith("refs/heads/"):
+    # Require an explicit refs/heads/* field -- a missing `ref=` previously slipped through
+    # (only a present-but-wrong value was rejected), which weakened the archive-lane "heads only"
+    # invariant the docstring and R7 surface advertise.
+    if ref is None or not ref.startswith("refs/heads/"):
         raise SeamViolation(f"archive-branch ref create must target refs/heads/*, got ref={ref!r}")
 
 
