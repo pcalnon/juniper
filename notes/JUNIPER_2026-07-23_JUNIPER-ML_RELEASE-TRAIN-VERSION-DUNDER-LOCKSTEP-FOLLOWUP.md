@@ -93,6 +93,8 @@ discovered during that probe and healed in juniper-ml#702.
 | Docs in #710 | plan §5.4 atomicity inventory; AGENTS.md propose/test bullets; CHANGELOG |
 | Operator guidance | Gate 1 review checklist in [`JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2 |
 
+**Operator takeaway:** when reviewing a Gate 1 proposal for any of the five static in-repo packages, expect both `pyproject.toml` and `<import>/_version.py` to move together, **or** a REQUIRED-manual checklist item if the dunder is unparseable, **or** a pyproject-only diff with no dunder checklist when `__version__` already equals the proposed `to_version` (partial heal / re-entry — silent success after #712). See the runbook §3.2 subsection.
+
 ### 6.1 Coverage hardening + checklist correctness (juniper-ml#712)
 
 [juniper-ml#712](https://github.com/pcalnon/juniper-ml/pull/712) layers the edge cases #710's happy-path shapes missed, plus a tiny checklist fix found while writing them:
@@ -106,5 +108,3 @@ discovered during that probe and healed in juniper-ml#702.
 | Registry gate comparator | Synthetic bite-proof (service-core 0.5.0 class) + path agreement with `propose.dunder_file_rel` | Gate fails closed in CI without a live red package |
 
 Hermetic homes: `tests/test_release_train_propose.py` (edge + helper shapes) and `tests/test_release_train_registry.py` (comparator + path lockstep).
-
-**Still available later (Option B, §3.4):** flipping all five static packages to `dynamic = ["version"]` would dissolve the class structurally; not required once Option A + the always-on gate are in place.
