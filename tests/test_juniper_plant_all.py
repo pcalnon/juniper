@@ -522,23 +522,40 @@ class TestWaitForHealthIntervalGuard(unittest.TestCase):
             harness = f"""
                 set -euo pipefail
                 JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
-                JUNIPER_CONDA_DIR="$1"
-                {_extract_validate_conda_env()}
+                HEALTH_CHECK_TIMEOUT=60
+                HEALTH_CHECK_INTERVAL=2
+                # Stub settle sleeps; elapsed arithmetic still advances.
+                sleep() {{ :; }}
+                {_extract_function("wait_for_health")}
                 set +e
-                validate_conda_env "{env_name}"
+                wait_for_health "juniper-data" "http://127.0.0.1:9/v1/health" "{timeout}" "{interval}"
                 status=$?
                 set -e
                 echo "STATUS=${{status}}"
                 exit 0
             """
             env = RedactedEnv(os.environ)
+            env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
             return subprocess.run(
-                ["/bin/bash", "-c", harness, "_", str(conda_dir)],
+                ["/bin/bash", "-c", harness],
                 capture_output=True,
                 text=True,
                 env=env,
                 timeout=SCRIPT_TIMEOUT_SECONDS,
             )
+
+    def test_zero_interval_clamps_and_times_out(self) -> None:
+        result = self._run_wait(interval="0", timeout=2)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("clamping to 1s", result.stdout)
+        self.assertIn("failed to become healthy within 2s", result.stdout)
+
+    def test_non_numeric_interval_clamps_and_times_out(self) -> None:
+        result = self._run_wait(interval="fast", timeout=2)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("clamping to 1s", result.stdout)
 
 
 class TestValidateCondaEnv(unittest.TestCase):
@@ -579,19 +596,6 @@ class TestValidateCondaEnv(unittest.TestCase):
                 env=env,
                 timeout=SCRIPT_TIMEOUT_SECONDS,
             )
-
-    def test_zero_interval_clamps_and_times_out(self) -> None:
-        result = self._run_wait(interval="0", timeout=2)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("STATUS=1", result.stdout)
-        self.assertIn("clamping to 1s", result.stdout)
-        self.assertIn("failed to become healthy within 2s", result.stdout)
-
-    def test_non_numeric_interval_clamps_and_times_out(self) -> None:
-        result = self._run_wait(interval="fast", timeout=2)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("STATUS=1", result.stdout)
-        self.assertIn("clamping to 1s", result.stdout)
 
     def test_missing_env_directory_returns_one(self) -> None:
         def stage(conda_dir: Path) -> str:
