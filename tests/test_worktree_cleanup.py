@@ -639,6 +639,9 @@ class TestPhase4RemoteDeleteGuard(unittest.TestCase):
             gh_log = root / "gh.log"
             _install_fake_gh(gh_bin, gh_log, open_pr_count="1")
 
+            before = _run_git(main_repo, "ls-remote", "--heads", "origin", branch).stdout
+            self.assertIn(branch, before)
+
             result = _run_phase4(
                 main_repo=main_repo,
                 old_worktree=old_worktree,
@@ -650,11 +653,19 @@ class TestPhase4RemoteDeleteGuard(unittest.TestCase):
             self.assertIn(f"PR is open for branch '{branch}'", result.stderr)
             self.assertIn("skipping remote branch deletion", result.stderr.lower())
             self.assertNotIn(f"Deleting remote branch: {branch}", result.stderr)
+            self.assertFalse(old_worktree.exists())
+            self.assertNotEqual(
+                _run_git(main_repo, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}", check=False).returncode,
+                0,
+            )
             after = _run_git(main_repo, "ls-remote", "--heads", "origin", branch).stdout
             self.assertIn(branch, after)
+            self.assertTrue(gh_log.exists())
+            self.assertIn("pr list", gh_log.read_text())
+            self.assertIn(f"--head {branch}", gh_log.read_text())
 
     def test_no_open_pr_deletes_remote_branch(self) -> None:
-        """Proven-zero open PRs → remote branch is deleted (complementary shape)."""
+        """No open PR → remote branch is deleted (the complementary shape)."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             branch = "feature/phase4-no-pr"
@@ -673,9 +684,37 @@ class TestPhase4RemoteDeleteGuard(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn(f"Deleting remote branch: {branch}", result.stderr)
             self.assertNotIn("PR is open", result.stderr)
-            self.assertNotIn("Could not query open PRs", result.stderr)
+            self.assertFalse(old_worktree.exists())
             after = _run_git(main_repo, "ls-remote", "--heads", "origin", branch).stdout
             self.assertEqual(after.strip(), "")
+            self.assertIn("pr list", gh_log.read_text())
+
+    def test_skip_remote_delete_flag_skips_gh_and_push(self) -> None:
+        """``--skip-remote-delete`` must not consult gh or push --delete (live path)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            branch = "feature/phase4-flag-skip"
+            main_repo, old_worktree, _remote = _prepare_phase4_fixture(root, branch)
+            gh_bin = root / "bin"
+            gh_log = root / "gh.log"
+            # If gh is consulted, return a non-zero length so a buggy path would skip
+            # for the wrong reason — the flag path must never call gh at all.
+            _install_fake_gh(gh_bin, gh_log, open_pr_count="9")
+
+            result = _run_phase4(
+                main_repo=main_repo,
+                old_worktree=old_worktree,
+                old_branch=branch,
+                skip_remote_delete=True,
+                gh_bin=gh_bin,
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("Skipping remote branch deletion (--skip-remote-delete)", result.stderr)
+            self.assertNotIn("PR is open", result.stderr)
+            self.assertNotIn(f"Deleting remote branch: {branch}", result.stderr)
+            after = _run_git(main_repo, "ls-remote", "--heads", "origin", branch).stdout
+            self.assertIn(branch, after)
+            self.assertFalse(gh_log.exists(), msg="gh must not be invoked when --skip-remote-delete is set")
 
 
 if __name__ == "__main__":
