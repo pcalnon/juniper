@@ -16,21 +16,23 @@ python3.14 venv, and real ports (8101/8202/8051), so — as with
 - the ``--dry-run`` contract behaviourally: every action prints its commands
   with the configured ports expanded and touches NOTHING (no process, no
   filesystem), and the CLI rejects bad invocations;
-- ``wait_for_health`` / ``probe_health`` live arms (hermetic ``curl`` / ``ss``
-  stubs) — the bring-up gate and ``--status`` reporter that prior dry-run
-  tests never exercised.
+- ``data_up`` live compose (hermetic ``python3.14`` / ``pip`` / ``curl`` stubs)
+  — venv create, editable install, ``PYTHON_GIL=0`` nohup launch, pid write,
+  and health gate. Orthogonal to open coverage on ``activate_conda`` /
+  ``port_pid`` / ``wait_for_health`` helpers.
 
 ``--dry-run`` short-circuits before any filesystem or process side effect, so
 those behavioural tests are fully hermetic — no real repos, conda, or network.
 ``JUNIPER_E2E_PROJECT_DIR`` / ``JUNIPER_E2E_RUN_DIR`` pin paths deterministically.
-The health cases extract live function bodies and stub ``curl``/``ss`` on
-``PATH`` (keep ``/usr/bin:/bin`` for ``grep``/``cut``/``head``).
+The ``data_up`` cases extract the live function body and stub tools on ``PATH``
+(keep ``/usr/bin:/bin`` for ``nohup`` / ``sleep`` / coreutils).
 """
 
 from __future__ import annotations
 
 import os
 import re
+import signal
 import subprocess
 import tempfile
 import time
@@ -42,48 +44,41 @@ from tests.redacted_env import RedactedEnv
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "util" / "isolated_stack.bash"
 SCRIPT_TEXT = SCRIPT_PATH.read_text()
 SCRIPT_TIMEOUT_SECONDS = 15
-# wait_for_health sleeps 2s per poll; a 2s timeout needs one sleep → keep headroom.
-HEALTH_HELPER_TIMEOUT_SECONDS = 20
+# data_up launches a short-lived stubbed nohup child; keep headroom for mkdir/pip/health.
+DATA_UP_TIMEOUT_SECONDS = 25
 
 
-def _extract_wait_for_health() -> str:
-    """Pull the live ``wait_for_health() { ... }`` body (no harness drift).
+def _extract_data_up_fn(name: str) -> str:
+    """Pull a live ``<name>() { ... }`` body for ``data_up`` harnesses.
 
     Named distinctly from concurrent coverage PRs' generic ``_extract_function``
-    helpers so a merge cannot silently alias the wrong extractor.
+    / health-specific extractors so a merge cannot silently alias the wrong helper.
     """
     match = re.search(
-        r"^wait_for_health\(\) \{.*?\n\}\n",
+        rf"^{re.escape(name)}\(\) \{{.*?\n\}}\n",
         SCRIPT_TEXT,
         flags=re.MULTILINE | re.DOTALL,
     )
     if match is None:
-        raise AssertionError("wait_for_health function not found in isolated_stack.bash")
+        raise AssertionError(f"{name} function not found in isolated_stack.bash")
     return match.group(0)
 
 
-def _extract_probe_health() -> str:
-    """Pull the live ``probe_health() { ... }`` body (no harness drift)."""
-    match = re.search(
-        r"^probe_health\(\) \{.*?\n\}\n",
-        SCRIPT_TEXT,
-        flags=re.MULTILINE | re.DOTALL,
-    )
-    if match is None:
-        raise AssertionError("probe_health function not found in isolated_stack.bash")
-    return match.group(0)
+def _read_marker_when_written(path: Path, timeout_seconds: float = 10.0) -> str:
+    """Read a marker file written asynchronously by a nohup-backgrounded launch stub.
 
-
-def _extract_port_pid_for_probe() -> str:
-    """Pull ``port_pid`` for ``probe_health`` harnesses (distinct from #786's extractor)."""
-    match = re.search(
-        r"^port_pid\(\) \{.*?\n\}\n",
-        SCRIPT_TEXT,
-        flags=re.MULTILINE | re.DOTALL,
-    )
-    if match is None:
-        raise AssertionError("port_pid function not found in isolated_stack.bash")
-    return match.group(0)
+    The ``*_up`` arms background the launcher and return as soon as the (stubbed,
+    instant) health probe passes, so the stub may not have written its marker yet
+    when the harness returns -- poll briefly instead of asserting on a snapshot race.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if path.exists():
+            text = path.read_text()
+            if text.strip():
+                return text
+        time.sleep(0.025)
+    raise AssertionError(f"marker file {path} not written within {timeout_seconds}s")
 
 
 def _run(*args: str, env_extra: "dict[str, str] | None" = None) -> subprocess.CompletedProcess:
@@ -291,184 +286,251 @@ class TestDryRunDown(unittest.TestCase):
             self.assertFalse(run_dir.exists(), "dry-run --down must not create/remove anything on disk")
 
 
-class TestDryRunStatus(unittest.TestCase):
-    """``--dry-run --status`` announces probes and never curls or reads ss."""
+class TestDataUpLive(unittest.TestCase):
+    """Behavioral pins for live ``data_up`` compose (venv / install / pid / GIL).
 
-    def test_dry_status_exit_zero_and_announces_all_three(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            run_dir = Path(tmp) / "run"
-            result = _run(
-                "--dry-run",
-                "--status",
-                env_extra={
-                    "JUNIPER_E2E_PROJECT_DIR": "/opt/juniper-e2e-fixture",
-                    "JUNIPER_E2E_RUN_DIR": str(run_dir),
-                },
-            )
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("juniper-data", result.stdout)
-            self.assertIn("juniper-cascor", result.stdout)
-            self.assertIn("juniper-canopy", result.stdout)
-            # Dry-run short-circuits before the health= log line.
-            self.assertNotIn("health=", result.stdout)
-            self.assertFalse(run_dir.exists(), "dry-run --status must not create the scratch run dir")
-
-
-class TestWaitForHealth(unittest.TestCase):
-    """Behavioral pins for ``wait_for_health`` success / timeout arms.
-
-    Live ``--up`` gates each service on this helper; a regression that skips the
-    curl success arm or never times out leaves a partial trio hung (or proceeds
-    against a dead endpoint). Extracted from the live script with a PATH-stubbed
-    ``curl`` — no real network.
+    ``data_up`` is the only dedicated-venv bring-up for the isolated E2E trio. A
+    regression that skips venv create, drops ``PYTHON_GIL=0``, forgets the pid
+    file, or bypasses the health gate leaves checklist runs pointing at a dead
+    or free-threaded-wrong data service. Extracted from the live script with
+    PATH-stubbed ``python3.14`` / ``curl`` — no real python3.14, pip, or network.
+    Orthogonal to open #785 (activate_conda), #786 (port_pid/stop_port), #793
+    (wait_for_health/probe_health helpers).
     """
 
-    def _run_wait(self, *, curl_script: str, timeout: int = 2) -> subprocess.CompletedProcess[str]:
-        with tempfile.TemporaryDirectory() as tmp:
-            bin_dir = Path(tmp) / "bin"
-            bin_dir.mkdir()
-            curl = bin_dir / "curl"
-            curl.write_text("#!/usr/bin/env bash\n" + curl_script)
-            curl.chmod(0o755)
-            harness = f"""
-                set -euo pipefail
-                SCRIPT_NAME="isolated_stack.bash"
-                # Timeout ERROR line interpolates LOG_DIR under nounset.
-                LOG_DIR="/tmp/isolated-stack-health-fixture"
-                log() {{ echo "[${{SCRIPT_NAME}}] $*"; }}
-                {_extract_wait_for_health()}
-                set +e
-                wait_for_health "juniper-data" "http://127.0.0.1:9/v1/health" "{timeout}"
-                status=$?
-                set -e
-                echo "STATUS=${{status}}"
-                exit 0
-            """
-            env = RedactedEnv(os.environ)
-            env["PATH"] = str(bin_dir) + os.pathsep + "/usr/bin:/bin"
-            return subprocess.run(
-                ["/bin/bash", "-c", harness],
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=HEALTH_HELPER_TIMEOUT_SECONDS,
-            )
+    def _force_kill(self, pid: int) -> None:
+        for kill_target in (lambda: os.killpg(pid, signal.SIGKILL), lambda: os.kill(pid, signal.SIGKILL)):
+            try:
+                kill_target()
+                break
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                continue
+        for _ in range(20):
+            if not Path(f"/proc/{pid}").exists():
+                return
+            time.sleep(0.05)
 
-    def test_healthy_curl_returns_zero(self) -> None:
-        result = self._run_wait(curl_script="exit 0\n", timeout=2)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("STATUS=0", result.stdout)
-        self.assertIn("juniper-data is healthy", result.stdout)
-        self.assertNotIn("failed to become healthy", result.stdout)
-
-    def test_persistent_failure_times_out(self) -> None:
-        # timeout=2 with sleep 2 → one failed poll then the elapsed>=timeout arm.
-        result = self._run_wait(curl_script="exit 22\n", timeout=2)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("STATUS=1", result.stdout)
-        self.assertIn("failed to become healthy within 2s", result.stdout)
-        # Success arm logs "is healthy (took Ns)" — must not appear on timeout.
-        self.assertNotIn("is healthy (took", result.stdout)
-
-    def test_data_cascor_canopy_up_wire_wait_for_health(self) -> None:
-        # Drift guard: each bring-up path must gate on wait_for_health (not a
-        # fire-and-forget nohup).
-        self.assertIn(
-            'wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health"',
-            SCRIPT_TEXT,
+    def _write_python314_stub(self, bin_dir: Path, marker_dir: Path) -> None:
+        """Stub ``python3.14 -m venv DEST`` that builds a minimal activatable venv."""
+        # The stub's body is a shell script written to disk; marker_dir is interpolated.
+        stub = bin_dir / "python3.14"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            'if [[ "${1:-}" != "-m" || "${2:-}" != "venv" || -z "${3:-}" ]]; then\n'
+            '  echo "unexpected python3.14 invocation: $*" >&2\n'
+            "  exit 2\n"
+            "fi\n"
+            'dest="$3"\n'
+            f'marker_dir="{marker_dir}"\n'
+            'mkdir -p "$dest/bin"\n'
+            'printf "VENV_CREATED:%s\\n" "$dest" >>"$marker_dir/venv.log"\n'
+            # activate: put this venv's bin first; provide deactivate for data_up.
+            'cat >"$dest/bin/activate" <<ACT\n'
+            '_OLD_VIRTUAL_PATH="\\$PATH"\n'
+            'VIRTUAL_ENV="$dest"\n'
+            "export VIRTUAL_ENV\n"
+            'PATH="\\$VIRTUAL_ENV/bin:\\$PATH"\n'
+            "export PATH\n"
+            "deactivate() {\n"
+            '  PATH="\\$_OLD_VIRTUAL_PATH"\n'
+            "  export PATH\n"
+            "  unset VIRTUAL_ENV\n"
+            "  unset -f deactivate 2>/dev/null || true\n"
+            "}\n"
+            "ACT\n"
+            # pip: record install argv (editable + extras + metrics deps).
+            "cat >\"$dest/bin/pip\" <<'PIP'\n"
+            "#!/usr/bin/env bash\n"
+            f'printf "%s\\n" "$@" >>"{marker_dir}/pip.log"\n'
+            "exit 0\n"
+            "PIP\n"
+            # python: record PYTHON_GIL + argv, then sleep so the pidfile stays live.
+            "cat >\"$dest/bin/python\" <<'PY'\n"
+            "#!/usr/bin/env bash\n"
+            f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env"\n'
+            f'printf "%s\\n" "$@" >"{marker_dir}/python.args"\n'
+            "exec sleep 60\n"
+            "PY\n"
+            'chmod 755 "$dest/bin/pip" "$dest/bin/python"\n'
         )
-        self.assertIn(
-            'wait_for_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health"',
-            SCRIPT_TEXT,
-        )
-        self.assertIn(
-            'wait_for_health "juniper-canopy" "http://127.0.0.1:${CANOPY_PORT}/v1/health"',
-            SCRIPT_TEXT,
-        )
+        stub.chmod(0o755)
 
+    def _write_curl_ok(self, bin_dir: Path) -> None:
+        curl = bin_dir / "curl"
+        curl.write_text("#!/usr/bin/env bash\nexit 0\n")
+        curl.chmod(0o755)
 
-class TestProbeHealth(unittest.TestCase):
-    """Behavioral pins for ``probe_health`` live status arms.
-
-    ``--status`` is the operator's only hermetic liveness check for the isolated
-    trio; a regression that drops the curl code or ``port_pid`` field reports
-    healthy when nothing listens (or vice versa). PATH-stubbed ``curl`` + ``ss``.
-    """
-
-    def _run_probe(
+    def _run_data_up(
         self,
         *,
-        curl_script: str,
-        ss_script: str,
-        dry_run: int = 0,
-        port: str = "65101",
+        run_dir: Path,
+        data_dir: Path,
+        marker_dir: Path,
+        bin_dir: Path,
+        data_extras: str = "api",
+        data_port: str = "65301",
+        path: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
+        # Concatenate (do not f-string) so bash `${...}` braces in the extract
+        # are not interpreted as Python format fields.
+        harness = (
+            "set -euo pipefail\n"
+            'SCRIPT_NAME="isolated_stack.bash"\n'
+            "DRY_RUN=0\n"
+            f'RUN_DIR="{run_dir}"\n'
+            f'DATA_VENV="{run_dir}/.venv-data"\n'
+            f'LOG_DIR="{run_dir}/logs"\n'
+            f'DATA_DIR="{data_dir}"\n'
+            f'DATA_EXTRAS="{data_extras}"\n'
+            f'DATA_PORT="{data_port}"\n'
+            "HEALTH_TIMEOUT=4\n"
+            'log() { echo "[${SCRIPT_NAME}] $*"; }\n'
+            'banner() { echo ""; echo "[${SCRIPT_NAME}] === $* ==="; }\n'
+            'announce() { echo "[${SCRIPT_NAME}] \\$ $*"; }\n'
+            'is_dry() { [[ "${DRY_RUN}" == "1" ]]; }\n' + _extract_data_up_fn("require_cmd") + _extract_data_up_fn("ensure_dir") + _extract_data_up_fn("wait_for_health") + _extract_data_up_fn("data_up") + "data_up\n"
+        )
+        env = RedactedEnv(os.environ)
+        env["PATH"] = path if path is not None else (str(bin_dir) + os.pathsep + "/usr/bin:/bin")
+        return subprocess.run(
+            ["/bin/bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=DATA_UP_TIMEOUT_SECONDS,
+        )
+
+    def test_creates_venv_installs_launches_with_gil_and_pid(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            bin_dir = Path(tmp) / "bin"
+            root = Path(tmp)
+            run_dir = root / "run"
+            data_dir = root / "juniper-data"
+            marker_dir = root / "markers"
+            bin_dir = root / "bin"
+            data_dir.mkdir()
+            marker_dir.mkdir()
             bin_dir.mkdir()
-            (bin_dir / "curl").write_text("#!/usr/bin/env bash\n" + curl_script)
-            (bin_dir / "curl").chmod(0o755)
-            (bin_dir / "ss").write_text("#!/usr/bin/env bash\n" + ss_script)
-            (bin_dir / "ss").chmod(0o755)
-            harness = f"""
-                set -euo pipefail
-                SCRIPT_NAME="isolated_stack.bash"
-                DRY_RUN="{dry_run}"
-                log() {{ echo "[${{SCRIPT_NAME}}] $*"; }}
-                announce() {{ echo "[${{SCRIPT_NAME}}] \\$ $*"; }}
-                is_dry() {{ [[ "${{DRY_RUN}}" == "1" ]]; }}
-                {_extract_port_pid_for_probe()}
-                {_extract_probe_health()}
-                probe_health "juniper-data" "http://127.0.0.1:{port}/v1/health" "{port}"
-            """
-            env = RedactedEnv(os.environ)
-            env["PATH"] = str(bin_dir) + os.pathsep + "/usr/bin:/bin"
-            return subprocess.run(
-                ["/bin/bash", "-c", harness],
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=SCRIPT_TIMEOUT_SECONDS,
+            self._write_python314_stub(bin_dir, marker_dir)
+            self._write_curl_ok(bin_dir)
+
+            result = self._run_data_up(
+                run_dir=run_dir,
+                data_dir=data_dir,
+                marker_dir=marker_dir,
+                bin_dir=bin_dir,
+                data_extras="api,mnist",
+                data_port="65301",
             )
+            pid_path = run_dir / "juniper-data.pid"
+            child_pid: int | None = None
+            try:
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertIn("juniper-data is healthy", result.stdout)
+                self.assertTrue((marker_dir / "venv.log").exists(), "python3.14 -m venv must run")
+                self.assertIn(str(run_dir / ".venv-data"), (marker_dir / "venv.log").read_text())
+                # pip stub logs each argv on its own line (printf '%s\n' "$@").
+                pip_log = (marker_dir / "pip.log").read_text().splitlines()
+                self.assertIn("-e", pip_log)
+                self.assertIn(f"{data_dir}[api,mnist]", pip_log)
+                self.assertIn("prometheus_client", pip_log)
+                self.assertIn("juniper-observability", pip_log)
+                self.assertTrue(pid_path.exists(), "data_up must write juniper-data.pid")
+                child_pid = int(pid_path.read_text().strip())
+                self.assertTrue(Path(f"/proc/{child_pid}").exists(), f"pid {child_pid} not live")
+                self.assertEqual(_read_marker_when_written(marker_dir / "python.env").strip(), "PYTHON_GIL=0")
+                py_args = _read_marker_when_written(marker_dir / "python.args")
+                self.assertIn("-m", py_args)
+                self.assertIn("juniper_data", py_args)
+                self.assertIn("--port", py_args)
+                self.assertIn("65301", py_args)
+                self.assertTrue((run_dir / "logs").is_dir(), "LOG_DIR must be created")
+            finally:
+                if child_pid is not None:
+                    self._force_kill(child_pid)
 
-    def test_reports_http_code_and_listening_pid(self) -> None:
-        # probe_health uses curl -w '%{http_code}'; stub prints the code on stdout.
-        result = self._run_probe(
-            curl_script="echo 200\n",
-            ss_script=("echo 'LISTEN 0 128 127.0.0.1:65101 0.0.0.0:* " 'users:(("python",pid=424242,fd=3))\'\n'),
-        )
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("juniper-data: health=200 port=65101 pid=424242", result.stdout)
-
-    def test_curl_failure_reports_000_and_pid_none(self) -> None:
-        # ``|| true`` + empty code → default 000; empty port_pid → pid=none.
-        result = self._run_probe(curl_script="exit 7\n", ss_script="exit 0\n")
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("juniper-data: health=000 port=65101 pid=none", result.stdout)
-
-    def test_dry_run_short_circuits_before_curl(self) -> None:
-        # Marker file proves curl was never executed under DRY_RUN=1.
+    def test_skips_venv_create_when_venv_already_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            marker = Path(tmp) / "curl_ran"
-            curl_script = f'echo ran >"{marker}"\necho 200\n'
-            result = self._run_probe(curl_script=curl_script, ss_script="exit 0\n", dry_run=1)
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertFalse(marker.exists(), "dry-run probe_health must not invoke curl")
-            self.assertNotIn("health=", result.stdout)
+            root = Path(tmp)
+            run_dir = root / "run"
+            data_dir = root / "juniper-data"
+            marker_dir = root / "markers"
+            bin_dir = root / "bin"
+            data_dir.mkdir()
+            marker_dir.mkdir()
+            bin_dir.mkdir()
+            # Pre-seed an existing venv with the same activate/pip/python shape
+            # the stub would create — data_up must NOT call python3.14 -m venv.
+            data_venv = run_dir / ".venv-data"
+            (data_venv / "bin").mkdir(parents=True)
+            (data_venv / "bin" / "activate").write_text('_OLD_VIRTUAL_PATH="$PATH"\n' f'VIRTUAL_ENV="{data_venv}"\n' "export VIRTUAL_ENV\n" 'PATH="$VIRTUAL_ENV/bin:$PATH"\n' "export PATH\n" "deactivate() {\n" '  PATH="$_OLD_VIRTUAL_PATH"\n' "  export PATH\n" "  unset VIRTUAL_ENV\n" "  unset -f deactivate 2>/dev/null || true\n" "}\n")
+            (data_venv / "bin" / "pip").write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" >>"{marker_dir}/pip.log"\n' "exit 0\n")
+            (data_venv / "bin" / "pip").chmod(0o755)
+            (data_venv / "bin" / "python").write_text("#!/usr/bin/env bash\n" f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env"\n' f'printf "%s\\n" "$@" >"{marker_dir}/python.args"\n' "exec sleep 60\n")
+            (data_venv / "bin" / "python").chmod(0o755)
+            # python3.14 stub that FAILS if -m venv is invoked (proves skip).
+            (bin_dir / "python3.14").write_text("#!/usr/bin/env bash\n" f'echo "VENV_SHOULD_NOT_RUN" >>"{marker_dir}/venv.log"\n' "exit 99\n")
+            (bin_dir / "python3.14").chmod(0o755)
+            self._write_curl_ok(bin_dir)
 
-    def test_do_status_wires_probe_health_for_all_three_services(self) -> None:
-        self.assertIn(
-            'probe_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health" "${DATA_PORT}"',
-            SCRIPT_TEXT,
+            result = self._run_data_up(
+                run_dir=run_dir,
+                data_dir=data_dir,
+                marker_dir=marker_dir,
+                bin_dir=bin_dir,
+            )
+            pid_path = run_dir / "juniper-data.pid"
+            child_pid: int | None = None
+            try:
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertFalse(
+                    (marker_dir / "venv.log").exists(),
+                    "existing DATA_VENV must skip python3.14 -m venv",
+                )
+                self.assertTrue((marker_dir / "pip.log").exists(), "pip install must still run")
+                self.assertTrue(pid_path.exists())
+                child_pid = int(pid_path.read_text().strip())
+                self.assertEqual(_read_marker_when_written(marker_dir / "python.env").strip(), "PYTHON_GIL=0")
+            finally:
+                if child_pid is not None:
+                    self._force_kill(child_pid)
+
+    def test_missing_python314_aborts_before_venv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            data_dir = root / "juniper-data"
+            marker_dir = root / "markers"
+            bin_dir = root / "bin"
+            data_dir.mkdir()
+            marker_dir.mkdir()
+            bin_dir.mkdir()
+            # Stub-only PATH (no host python3.14 leak): require_cmd must fail.
+            result = self._run_data_up(
+                run_dir=run_dir,
+                data_dir=data_dir,
+                marker_dir=marker_dir,
+                bin_dir=bin_dir,
+                path=str(bin_dir),
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("required command 'python3.14' not found", result.stdout + result.stderr)
+            self.assertFalse((run_dir / ".venv-data").exists())
+            self.assertFalse((run_dir / "juniper-data.pid").exists())
+
+    def test_do_up_wires_data_up_first(self) -> None:
+        # Drift guard: --up must compose data → cascor → canopy (data_up first).
+        do_up = _extract_data_up_fn("do_up")
+        self.assertRegex(
+            do_up,
+            r"data_up\n\s*cascor_up\n\s*canopy_up\n",
+            msg="do_up must call data_up before cascor_up/canopy_up",
         )
-        self.assertIn(
-            'probe_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health" "${CASCOR_PORT}"',
-            SCRIPT_TEXT,
-        )
-        self.assertIn(
-            'probe_health "juniper-canopy" "http://127.0.0.1:${CANOPY_PORT}/v1/health" "${CANOPY_PORT}"',
-            SCRIPT_TEXT,
-        )
+        data_up = _extract_data_up_fn("data_up")
+        self.assertIn("PYTHON_GIL=0", data_up)
+        self.assertIn('echo "$!" >"${RUN_DIR}/juniper-data.pid"', data_up)
+        self.assertIn('python3.14 -m venv "${DATA_VENV}"', data_up)
 
 
 if __name__ == "__main__":
