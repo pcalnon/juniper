@@ -671,6 +671,16 @@ The hosted runner is ephemeral, so `--global` is still job-scoped. `propose.py` 
 `-c commit.gpgsign=false` on its commit so a YubiKey-resident signing config never reaches a headless
 run. The detect job must not configure identity (it never commits).
 
+**Runner git identity (headless, unsigned) — must be `--global`.** Both write jobs run a
+`Configure git identity (headless, unsigned)` step that sets `user.name`, `user.email`, and
+`commit.gpgsign false` via `git config --global` (`release-train.yml:466-478` propose,
+`675-687` ceremony). Cross-repo `propose` commits inside freshly-cloned **sibling** checkouts; a
+repo-local `git config` on the juniper-ml checkout alone leaves those clones with
+`Author identity unknown` (first cross-repo pilot failure, run 30040138774; fixed juniper-ml#705).
+The hosted runner is ephemeral, so `--global` is still job-scoped. `propose.py` also passes
+`-c commit.gpgsign=false` on its commit so a YubiKey-resident signing config never reaches a headless
+run. The detect job must not configure identity (it never commits).
+
 ## 8. Known limitations (accepted)
 
 1. **Degraded no-App mode (in-repo only).** When `RELEASE_TRAIN_APP_ID` is unset, `propose`/`ceremony`
@@ -752,8 +762,10 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
   (ml#701 / juniper-ml#710; edge-case coverage + already-at-target checklist fix juniper-ml#712).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
-- Engines: `util/release_train/detect.py`, `propose.py`, `notes_render.py`, `ceremony.py`, `registry.yaml`.
-- Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
+- Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
+- Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary
+  rehearsal + write-job `--global` git identity, ml#705 / #718 + `HeredocBalanceTest` /
+  `HeredocCompileTest` for every `<<'PY'` block — ml#708 / ml#723),
   `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
   `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701),
   `tests/test_release_train_propose.py` (sibling/meta AGENTS.md step-5/5a shapes — worker#140 / ml#706 / #720;
