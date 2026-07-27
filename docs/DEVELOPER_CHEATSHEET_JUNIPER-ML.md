@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
 **Version**: 1.0.6
-**Date**: 2026-07-26
+**Date**: 2026-06-04
 **Project**: juniper-ml
 
 ---
@@ -242,10 +242,11 @@ Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `lo
 juniper-ml#729). Operator tables:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
 
-**Release-train `packages` dispatch + `--cross-repo`.** Both write jobs reject garbage
-`packages` tokens (`Juniper-Observability`, underscores, `../`, `;`) with exit **2** + `::error::`
-before python runs; empty = all eligible; commas ≡ whitespace. `--cross-repo` only when `APP_TOKEN`
-is non-empty. Runbook §3.2; pin juniper-ml#729 `PackagesInputRehearsalTest`.
+**Ceremony `notes-render-failed` + execute `RELEASED` (juniper-ml#741).** Missing/unreadable
+`notes/templates/TEMPLATE_RELEASE_NOTES.md` (or the security template) → §8 HALT
+`notes-render-failed` (restore template, re-run; never invent archive body). Publish run
+`completed`+`success` → execute final state `RELEASED` (both gates done; no halt issue) — not
+plan-time `ALREADY_RELEASED`. Runbook §3.3 / §4.
 
 ---
 
