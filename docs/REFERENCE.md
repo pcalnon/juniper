@@ -16,6 +16,7 @@
 - [Ecosystem Compatibility](#ecosystem-compatibility)
 - [Host Orchestration Utilities](#host-orchestration-utilities)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
+- [Editable Install Drift Check](#editable-install-drift-check)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
@@ -180,6 +181,19 @@ Failure / health / port contract (`nohup` mode):
 
 Post-[#782](https://github.com/pcalnon/juniper-ml/pull/782): if the interval is not a positive integer (`^[1-9][0-9]*$`), plant logs `WARNING: invalid health-check interval … clamping to 1s` and uses `1`. Prefer the default `2`. Do **not** set `HEALTH_CHECK_INTERVAL=0` to "poll as fast as possible" — that was the busy-loop class. Coverage: `tests/test_juniper_plant_all.py` (`TestWaitForHealth`).
 
+#### Conda activate nounset (`safe_conda_activate`)
+
+Host-mode `plant_all` runs under `set -euo pipefail`. Each service activate goes through `safe_conda_activate`, which temporarily disables nounset because conda activation scripts (for example `activate-binutils_linux-64.sh`) may reference unset variables such as `ADDR2LINE`.
+
+**Contract:** `set +u` → `conda activate <env>` → `set -u`. The restore arm must be `set -u` (not a second `set +u`). A one-character restore mistake silently leaves nounset off for the rest of bring-up — the same class that bit `util/isolated_stack.bash` before [#785](https://github.com/pcalnon/juniper-ml/pull/785). Isolated-stack's `activate_conda` must match this plant contract.
+
+```bash
+# Confirm the plant restore arm (expect: set +u / conda activate / set -u)
+rg -n -A3 '^safe_conda_activate' util/juniper_plant_all.bash
+```
+
+Coverage: open juniper-ml#795 (`tests/test_juniper_plant_all.py` — `TestSafeCondaActivate`).
+
 Troubleshooting:
 
 | Symptom | Check / Fix |
@@ -215,6 +229,27 @@ KILL_WORKERS=1 JUNIPER_PROJECT_DIR=/path/to/Juniper util/juniper_chop_all.bash
 ```
 
 Coverage: open juniper-ml#798 (`tests/test_juniper_chop_all.py` — missing/empty → cleanup → exit 1; early sites stay hard).
+
+---
+
+## Editable Install Drift Check
+
+`util/editable_install_drift_check.py` scans conda envs for `juniper-*` editables (via `*.dist-info/direct_url.json`), classifies each as `FRESH` / `WORKTREE_PINNED` / `ORPHANED`, and optionally re-points orphans with `--fix` (preview with `--dry-run`). Exit `1` on any `ORPHANED` finding.
+
+#### Ambiguous canonical `--fix` SKIP
+
+`--fix` resolves a unique canonical source under the ecosystem root via `discover_canonical(pkg_name, ecosystem_root)`:
+
+- Exactly one non-worktree checkout whose `[project].name` matches → that path is the canonical.
+- Zero matches → `action=SKIP`, reason `no canonical source found`.
+- Two or more matches → `action=SKIP`, reason contains `ambiguous`, `canonical=null`, and `candidates` lists every match. The tool **must not** pick `candidates[0]` — auto-picking the first tree would re-point an orphaned editable at the wrong fork/mirror.
+
+```bash
+# Preview repairs (never writes). Ambiguous packages stay SKIP in the JSON "fix" array.
+python util/editable_install_drift_check.py --fix --dry-run --json
+```
+
+Coverage: open juniper-ml#795 (`tests/test_editable_install_drift_check.py` — `test_discover_canonical_ambiguous_returns_none`, `test_fix_skips_when_canonical_ambiguous`).
 
 ---
 

@@ -240,11 +240,11 @@ Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `lo
 `.py` A/D/R/**C** as inherently substantive. Operator tables:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
 
-**Archive-guard FAIL triage:** the exempt notes-archive PR's required check (`Release-Train Archive Guard`)
-PASSes only on pure `A` adds under `notes/releases/RELEASE_NOTES_*.md`.
-Rename-OUT, Copy (`C`), and Typechange (`T`) are still archive PRs (`touches_releases` checks both rename/copy paths) and FAIL — they never SKIP.
-A FAIL drops the PR back to the standard owner gate (no auto-merge).
-Operator tables: [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.3.
+**Ceremony re-entry (`RESUME_MONITOR`).** If a Release tag already exists, re-dispatching
+`mode=ceremony` only monitors the publish run — it does **not** re-open the archive PR or re-cut the
+Release. Step summary shows **resume-monitor**; `plan_state` stays `RESUME_MONITOR` while `state` is
+the monitor verdict. TestPyPI failure on resume still HALTs + files an issue (no re-cut). Distinct from
+`ALREADY_RELEASED` (PyPI already serves the target). Operator details: runbook §3.3 / §5.5.
 
 ---
 
@@ -277,6 +277,10 @@ Operator tables: [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPER
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
 
 Tip: missing **or** empty (zero-byte) `JuniperProject.pid` → `chop_all` still calls `orphaned_worker_cleanup`, then `exit 1`, and never enters the service-stop loop. Early cleanup sites are hard (no `|| true`); post-pidfile cleanup is soft. Default `KILL_WORKERS=0` only logs the short-circuit — use `KILL_WORKERS=1` when orphaned workers may be the only leftovers. See [`REFERENCE.md`](REFERENCE.md#missing--empty-juniperprojectpid-early-wire).
+
+Tip: `plant_all` `safe_conda_activate` must restore nounset with `set -u` after `conda activate` (ADDR2LINE class). A `set +u`/`set +u` pair silently disables `set -u` for the rest of host bring-up — same bug class as isolated-stack [#785](https://github.com/pcalnon/juniper-ml/pull/785). Coverage: [#795](https://github.com/pcalnon/juniper-ml/pull/795).
+
+Tip: `python util/editable_install_drift_check.py --fix --dry-run --json` SKIPs when two non-worktree trees share a `[project].name` (`reason` contains `ambiguous`; never `candidates[0]`). Resolve the duplicate checkout, then re-run. Coverage: [#795](https://github.com/pcalnon/juniper-ml/pull/795). Full contract: [REFERENCE — Editable Install Drift](REFERENCE.md#editable-install-drift-check).
 
 ### Host Stack Troubleshooting
 
