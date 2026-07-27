@@ -135,6 +135,7 @@ jobs:
           # in juniper-doc-tools/tests/, exercised by the dedicated
           # `CI -- juniper-doc-tools` workflow.
           python3 -m unittest -v tests/test_worktree_cleanup.py
+          python3 -m unittest -v tests/test_worktree_activate.py
           python3 -m unittest -v tests/test_worktree_sweep_scripts.py
           # util/cleanup_open_worktrees.bash + util/remove_stale_worktrees.bash:
           # destructive path-filter / skip-missing-.claude gates. Hermetic fixture

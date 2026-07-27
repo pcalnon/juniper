@@ -398,6 +398,10 @@ Ports default to 8101 / 8202 / 8051 and are overridable via `JUNIPER_E2E_DATA_PO
 `JUNIPER_E2E_*_CONDA` path/env overrides — see the script header). Prefer `--dry-run` to preview the exact
 commands before a live bring-up, and never run `--up` against ports the operator's stack already owns.
 
+Operator contract (nounset restore after conda activate, kill-by-port `--down`, hard-coded 2s health poll /
+`JUNIPER_E2E_HEALTH_TIMEOUT`): [`docs/REFERENCE.md` Isolated Stack E2E Utilities](../docs/REFERENCE.md#isolated-stack-e2e-utilities).
+`--status` probes `http://127.0.0.1:<port>/v1/health` for all three services (not a separate canopy `/api/health`).
+
 ---
 
 *Derived from [`JUNIPER_2026-07-11_JUNIPER-CANOPY_TRAINING-RUNTIME-DEFECTS-PLAN.md`](JUNIPER_2026-07-11_JUNIPER-CANOPY_TRAINING-RUNTIME-DEFECTS-PLAN.md)

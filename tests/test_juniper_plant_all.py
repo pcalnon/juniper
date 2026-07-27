@@ -10,20 +10,23 @@ Validates the script-level invariants introduced in the 2026-05-07 audit:
   CASCOR_SERVICE_URL legacy alias).
 - Pre-flight aborts if the juniper-cascor-worker binary is missing from the
   JuniperCascor conda env.
+- ``wait_for_health`` clamps a zero/invalid poll interval (avoids busy-loop).
 
 Where possible, tests inspect the script as text — running the full script
 under unittest is impractical because it source-activates conda, allocates
-ports, and launches four long-lived background services. The single
-end-to-end smoke test exercises only the pre-flight failure path against a
-synthetic JUNIPER_PROJECT_DIR / JUNIPER_CONDA_DIR layout, asserting the
-script exits before any service is launched.
+ports, and launches four long-lived background services. Pre-flight failure
+smokes exercise the nohup path against a synthetic JUNIPER_PROJECT_DIR /
+JUNIPER_CONDA_DIR layout. ``TestSystemdModeBehavioral`` is a separate
+full-script PATH-stub lane for the pre-preflight ``USE_SYSTEMD=1`` arm.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -32,6 +35,48 @@ from tests.redacted_env import RedactedEnv
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "util" / "juniper_plant_all.bash"
 SCRIPT_TEXT = SCRIPT_PATH.read_text()
 SCRIPT_TIMEOUT_SECONDS = 15
+CLEANUP_TIMEOUT_SECONDS = 20
+
+
+def _extract_function(name: str) -> str:
+    """Pull a live ``function <name>() { ... }`` body (avoids harness drift)."""
+    match = re.search(
+        rf"^function {re.escape(name)}\(\) \{{.*?\n\}}\n",
+        SCRIPT_TEXT,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError(f"{name} function not found in juniper_plant_all.bash")
+    return match.group(0)
+
+
+def _extract_validate_conda_env() -> str:
+    """Pull the live ``function validate_conda_env() { ... }`` body (no harness drift).
+
+    Named distinctly from concurrent coverage PRs' generic ``_extract_function``
+    helpers so a merge cannot silently alias the wrong extractor.
+    """
+    match = re.search(
+        r"^function validate_conda_env\(\) \{.*?\n\}\n",
+        SCRIPT_TEXT,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("validate_conda_env function not found in juniper_plant_all.bash")
+    return match.group(0)
+
+
+def _extract_safe_conda_activate() -> str:
+    """Pull the live ``safe_conda_activate`` body (avoids harness drift)."""
+    live = SCRIPT_PATH.read_text()
+    match = re.search(
+        r"^safe_conda_activate\(\) \{.*?\n\}\n",
+        live,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("safe_conda_activate function not found in juniper_plant_all.bash")
+    return match.group(0)
 
 
 class TestSyntax(unittest.TestCase):
@@ -199,11 +244,38 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             worker_bin.write_text("#!/usr/bin/env bash\nexit 0\n")
             worker_bin.chmod(0o755)
 
+    def _stage_cmd_stubs(self, root: Path) -> Path:
+        """Stub ``curl`` + ``ss`` so preflight is hermetic without iproute2.
+
+        Cloud / minimal images often lack ``ss``; without stubs the smoke
+        cases abort at the command check and never reach the worker-binary
+        / conda-env arms they intend to pin.
+        """
+        stub_bin = root / "path-stubs"
+        stub_bin.mkdir(parents=True, exist_ok=True)
+        for name in ("curl", "ss"):
+            stub = stub_bin / name
+            stub.write_text("#!/usr/bin/env bash\nexit 0\n")
+            stub.chmod(0o755)
+        return stub_bin
+
+    def _preflight_env(self, *, project_dir: Path, conda_dir: Path, stub_bin: Path, ports: tuple[str, str, str, str]) -> RedactedEnv:
+        env = RedactedEnv(os.environ)
+        env["JUNIPER_PROJECT_DIR"] = str(project_dir)
+        env["JUNIPER_CONDA_DIR"] = str(conda_dir)
+        env["JUNIPER_DATA_PORT"] = ports[0]
+        env["JUNIPER_CASCOR_PORT"] = ports[1]
+        env["JUNIPER_CANOPY_PORT"] = ports[2]
+        env["JUNIPER_WORKER_HEALTH_PORT"] = ports[3]
+        env["PATH"] = str(stub_bin) + os.pathsep + env.get("PATH", "") + os.pathsep + str(conda_dir / "envs" / "JuniperData" / "bin")
+        return env
+
     def test_missing_worker_binary_aborts_preflight(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project_dir = root / "Juniper"
             conda_dir = root / "miniforge3"
+            stub_bin = self._stage_cmd_stubs(root)
 
             for sub in ("juniper-data", "juniper-cascor/src", "juniper-canopy/src", "juniper-cascor-worker"):
                 (project_dir / sub).mkdir(parents=True, exist_ok=True)
@@ -222,17 +294,15 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             ):
                 self._make_env(conda_dir, env_name, with_worker_bin=with_bin)
 
-            env = RedactedEnv(os.environ)
-            env["JUNIPER_PROJECT_DIR"] = str(project_dir)
-            env["JUNIPER_CONDA_DIR"] = str(conda_dir)
-            env["JUNIPER_DATA_PORT"] = "65010"
-            env["JUNIPER_CASCOR_PORT"] = "65011"
-            env["JUNIPER_CANOPY_PORT"] = "65012"
-            env["JUNIPER_WORKER_HEALTH_PORT"] = "65013"
-            env["PATH"] = env.get("PATH", "") + os.pathsep + str(conda_dir / "envs" / "JuniperData" / "bin")
+            env = self._preflight_env(
+                project_dir=project_dir,
+                conda_dir=conda_dir,
+                stub_bin=stub_bin,
+                ports=("65010", "65011", "65012", "65013"),
+            )
 
             result = subprocess.run(
-                ["bash", str(SCRIPT_PATH)],
+                ["/bin/bash", str(SCRIPT_PATH)],
                 capture_output=True,
                 text=True,
                 env=env,
@@ -257,6 +327,7 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             root = Path(tmp)
             project_dir = root / "Juniper"
             conda_dir = root / "miniforge3"
+            stub_bin = self._stage_cmd_stubs(root)
 
             for sub in ("juniper-data", "juniper-cascor/src", "juniper-canopy/src", "juniper-cascor-worker"):
                 (project_dir / sub).mkdir(parents=True, exist_ok=True)
@@ -270,17 +341,15 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             for env_name in ("JuniperData", "JuniperCanopy1"):
                 self._make_env(conda_dir, env_name, with_worker_bin=False)
 
-            env = RedactedEnv(os.environ)
-            env["JUNIPER_PROJECT_DIR"] = str(project_dir)
-            env["JUNIPER_CONDA_DIR"] = str(conda_dir)
-            env["JUNIPER_DATA_PORT"] = "65020"
-            env["JUNIPER_CASCOR_PORT"] = "65021"
-            env["JUNIPER_CANOPY_PORT"] = "65022"
-            env["JUNIPER_WORKER_HEALTH_PORT"] = "65023"
-            env["PATH"] = env.get("PATH", "") + os.pathsep + str(conda_dir / "envs" / "JuniperData" / "bin")
+            env = self._preflight_env(
+                project_dir=project_dir,
+                conda_dir=conda_dir,
+                stub_bin=stub_bin,
+                ports=("65020", "65021", "65022", "65023"),
+            )
 
             result = subprocess.run(
-                ["bash", str(SCRIPT_PATH)],
+                ["/bin/bash", str(SCRIPT_PATH)],
                 capture_output=True,
                 text=True,
                 env=env,
@@ -302,6 +371,7 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             root = Path(tmp)
             project_dir = root / "Juniper"
             conda_dir = root / "miniforge3"
+            stub_bin = self._stage_cmd_stubs(root)
 
             for sub in ("juniper-data", "juniper-cascor/src", "juniper-canopy/src", "juniper-cascor-worker"):
                 (project_dir / sub).mkdir(parents=True, exist_ok=True)
@@ -315,18 +385,16 @@ class TestPreflightFailureSmoke(unittest.TestCase):
             for env_name in ("JuniperData", "JuniperCascor1", "JuniperCanopy1", "CustomWorkerEnv"):
                 self._make_env(conda_dir, env_name, with_worker_bin=False)
 
-            env = RedactedEnv(os.environ)
-            env["JUNIPER_PROJECT_DIR"] = str(project_dir)
-            env["JUNIPER_CONDA_DIR"] = str(conda_dir)
+            env = self._preflight_env(
+                project_dir=project_dir,
+                conda_dir=conda_dir,
+                stub_bin=stub_bin,
+                ports=("65030", "65031", "65032", "65033"),
+            )
             env["JUNIPER_WORKER_CONDA"] = "CustomWorkerEnv"
-            env["JUNIPER_DATA_PORT"] = "65030"
-            env["JUNIPER_CASCOR_PORT"] = "65031"
-            env["JUNIPER_CANOPY_PORT"] = "65032"
-            env["JUNIPER_WORKER_HEALTH_PORT"] = "65033"
-            env["PATH"] = env.get("PATH", "") + os.pathsep + str(conda_dir / "envs" / "JuniperData" / "bin")
 
             result = subprocess.run(
-                ["bash", str(SCRIPT_PATH)],
+                ["/bin/bash", str(SCRIPT_PATH)],
                 capture_output=True,
                 text=True,
                 env=env,
@@ -445,6 +513,188 @@ class TestPidFileFormat(unittest.TestCase):
         # Plant must not still emit the legacy "name: pid" format.
         self.assertNotIn('echo "juniper-data:', SCRIPT_TEXT)
         self.assertNotIn('echo "juniper-cascor:', SCRIPT_TEXT)
+
+
+class TestSystemdModeBehavioral(unittest.TestCase):
+    """Full-script PATH-stub coverage for the ``USE_SYSTEMD=1`` / ``--systemd`` branch.
+
+    The systemd arm runs *before* preflight (no conda / nohup / pidfile), so a
+    hermetic ``systemctl`` + ``curl`` + ``sleep`` stub PATH is enough. This is
+    the only live exercise of start order, the missing-curl abort, the worker
+    healthy-but-inactive WARNING, and the documented gap that ``cleanup_on_failure``
+    does not ``systemctl stop`` units started in this mode (``STARTED_PIDS`` stays
+    empty). Static text pins elsewhere only assert the worker health URL shape.
+    """
+
+    _EXPECTED_START_ORDER = (
+        "juniper-data.service",
+        "juniper-cascor.service",
+        "juniper-canopy.service",
+        "juniper-cascor-worker.service",
+    )
+
+    def _stage_stubs(
+        self,
+        root: Path,
+        *,
+        with_curl: bool = True,
+        curl_exit: int = 0,
+        is_active_exit: int = 0,
+    ) -> tuple[Path, Path]:
+        stub_bin = root / "path-stubs"
+        stub_bin.mkdir(parents=True, exist_ok=True)
+        systemctl_log = root / "systemctl.log"
+        systemctl_log.write_text("")
+
+        systemctl = stub_bin / "systemctl"
+        systemctl.write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "%s\\n" "$*" >>"{systemctl_log}"\n' 'args=("$@")\n' 'if [[ "${1:-}" == "--user" ]]; then shift; fi\n' 'cmd="${1:-}"\n' 'case "${cmd}" in\n' "  start) exit 0 ;;\n" f"  is-active) exit {is_active_exit} ;;\n" "  status) exit 0 ;;\n" "  stop) exit 0 ;;\n" "  *) exit 0 ;;\n" "esac\n")
+        systemctl.chmod(0o755)
+
+        sleep = stub_bin / "sleep"
+        sleep.write_text("#!/usr/bin/env bash\nexit 0\n")
+        sleep.chmod(0o755)
+
+        if with_curl:
+            curl = stub_bin / "curl"
+            curl.write_text(f"#!/usr/bin/env bash\nexit {curl_exit}\n")
+            curl.chmod(0o755)
+
+        return stub_bin, systemctl_log
+
+    def _systemd_env(self, stub_bin: Path, *, include_usr_bin: bool = True) -> RedactedEnv:
+        env = RedactedEnv(os.environ)
+        env["USE_SYSTEMD"] = "1"
+        env["HEALTH_CHECK_TIMEOUT"] = "1"
+        env["HEALTH_CHECK_INTERVAL"] = "1"
+        env["JUNIPER_DATA_PORT"] = "65040"
+        env["JUNIPER_CASCOR_PORT"] = "65041"
+        env["JUNIPER_CANOPY_PORT"] = "65042"
+        env["JUNIPER_WORKER_HEALTH_PORT"] = "65043"
+        # Prefer stubs; keep a minimal host PATH for bash helpers when needed.
+        # Missing-curl cases omit /usr/bin so a host curl cannot mask the gap.
+        if include_usr_bin:
+            env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+        else:
+            env["PATH"] = str(stub_bin) + os.pathsep + "/bin"
+        return env
+
+    def _run_plant(
+        self,
+        env: RedactedEnv,
+        *,
+        args: list[str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        cmd = ["/bin/bash", str(SCRIPT_PATH)]
+        if args:
+            cmd.extend(args)
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=SCRIPT_TIMEOUT_SECONDS,
+        )
+
+    def _started_units(self, log: Path) -> list[str]:
+        starts: list[str] = []
+        for line in log.read_text().splitlines():
+            parts = line.split()
+            if "--user" in parts and "start" in parts:
+                # ``systemctl --user start <unit>``
+                try:
+                    idx = parts.index("start")
+                    starts.append(parts[idx + 1])
+                except (ValueError, IndexError):
+                    continue
+        return starts
+
+    def test_happy_path_starts_units_in_dependency_order(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub_bin, systemctl_log = self._stage_stubs(root)
+            env = self._systemd_env(stub_bin)
+            result = self._run_plant(env)
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, msg=combined)
+            self.assertIn("Starting services via systemd", combined)
+            self.assertIn("All Juniper services started via systemd", combined)
+            self.assertNotIn("=== Pre-flight Checks ===", combined)
+            self.assertNotIn("nohup", combined)
+            starts = self._started_units(systemctl_log)
+            self.assertEqual(starts, list(self._EXPECTED_START_ORDER))
+            self.assertIn("http://localhost:65040/v1/health", combined)
+            self.assertIn("http://127.0.0.1:65043/v1/health/ready", combined)
+
+    def test_systemd_flag_enters_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub_bin, systemctl_log = self._stage_stubs(root)
+            env = self._systemd_env(stub_bin)
+            del env["USE_SYSTEMD"]
+            result = self._run_plant(env, args=["--systemd"])
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, msg=combined)
+            self.assertEqual(self._started_units(systemctl_log), list(self._EXPECTED_START_ORDER))
+
+    def test_missing_curl_aborts_before_systemctl_start(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub_bin, systemctl_log = self._stage_stubs(root, with_curl=False)
+            # This image ships curl in both /bin and /usr/bin, so a restricted
+            # host PATH still finds it. Symlink only the early-script helpers
+            # the launcher needs before the curl gate (no curl symlink).
+            host_tools = root / "host-tools"
+            host_tools.mkdir()
+            for name in ("realpath", "basename", "dirname", "date"):
+                for base in (Path("/usr/bin"), Path("/bin")):
+                    src = base / name
+                    if src.exists():
+                        (host_tools / name).symlink_to(src)
+                        break
+            env = self._systemd_env(stub_bin, include_usr_bin=False)
+            env["PATH"] = str(stub_bin) + os.pathsep + str(host_tools)
+            result = self._run_plant(env)
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 1, msg=combined)
+            self.assertIn("'curl' not found in PATH", combined)
+            self.assertEqual(self._started_units(systemctl_log), [])
+            self.assertNotIn("Starting juniper-data", combined)
+
+    def test_worker_healthy_but_inactive_emits_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub_bin, systemctl_log = self._stage_stubs(root, is_active_exit=1)
+            env = self._systemd_env(stub_bin)
+            result = self._run_plant(env)
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, msg=combined)
+            self.assertIn(
+                "WARNING: juniper-cascor-worker reports healthy but systemd unit not active",
+                combined,
+            )
+            log_text = systemctl_log.read_text()
+            self.assertIn("is-active juniper-cascor-worker.service", log_text)
+            self.assertIn("status juniper-cascor-worker.service --no-pager", log_text)
+
+    def test_health_timeout_does_not_systemctl_stop(self) -> None:
+        """systemd starts are not tracked in STARTED_PIDS — cleanup cannot stop them.
+
+        Pins the blast-radius gap: a mid-plant health failure still exits 1 via
+        the ERR trap / cleanup_on_failure, but must not invent a ``systemctl stop``
+        (operators must stop units manually / via chop --systemd).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub_bin, systemctl_log = self._stage_stubs(root, curl_exit=22)
+            env = self._systemd_env(stub_bin)
+            result = self._run_plant(env)
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 1, msg=combined)
+            self.assertIn("failed to become healthy within 1s", combined)
+            self.assertIn("Cleaning up started Juniper Project services", combined)
+            # data was started before the first health wait failed
+            self.assertEqual(self._started_units(systemctl_log), ["juniper-data.service"])
+            self.assertNotIn(" stop ", f" {systemctl_log.read_text()} ")
 
 
 if __name__ == "__main__":
