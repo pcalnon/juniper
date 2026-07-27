@@ -359,8 +359,6 @@ cd "$NEW_WORKTREE"
 
 **Important**: The script outputs the new worktree path to stdout. The caller MUST `cd` to that path after the script completes. The script cannot change the caller's CWD because it runs in a subshell.
 
-Use `--skip-remote-delete` when a PR was created, since the remote branch is needed for the PR. The PR merge process (on GitHub) will handle remote branch cleanup.
-
 See `util/worktree_cleanup.bash --help` for full options and `--dry-run` support.
 
 ### Phase 1 dirty-tree + push gates (script)
@@ -416,13 +414,29 @@ juniper-ml#753 (`TestPhase2Behavioral.test_existing_new_worktree_dir_exits_witho
 
 ## Edge Cases
 
-### PR Already Exists for Branch
+### PR Already Exists for Branch (script Phase 3)
 
-Check before creating:
+Manual check before creating:
 
 ```bash
 gh pr list --head "$OLD_BRANCH" --state open
 ```
+
+`util/worktree_cleanup.bash` `phase_3_merge_and_pr` already does this for the **head it will open**:
+
+| Parent | Ahead of parent? | Open PR for head? | Script action |
+|---|---|---|---|
+| `main` | yes (`origin/main..origin/$OLD_BRANCH` > 0) | yes (`gh pr list --head $OLD_BRANCH`) | Log `PR #<n> already exists` — **never** `gh pr create` |
+| `main` | yes | no | `gh pr create --base main --head $OLD_BRANCH` |
+| not `main` | yes | yes (`--head $PARENT_BRANCH`) | Log existing — **never** create (reuse parent→main PR) |
+| not `main` | yes | no | Merge `$OLD_BRANCH` → `$PARENT_BRANCH`, push parent, then `gh pr create --base main --head $PARENT_BRANCH` |
+| any | no (ahead == 0) | n/a | Warn and skip PR entirely |
+
+**Pitfalls (script):**
+
+- Any non-empty `gh pr list … --jq '.[0].number'` stdout is treated as an existing PR number — a real empty list prints nothing (not `[]`). Coverage: juniper-ml#759 (`test_existing_open_pr_skips_create`).
+- Non-`main` parent: the PR head is the **parent**, not the feature branch. Dry-run previews `merge` + `push origin $PARENT` + `gh pr create --head $PARENT` (never `--head $OLD_BRANCH`). Coverage: juniper-ml#759 (`test_non_main_parent_merges_then_creates_pr_for_parent`, dry-run companion).
+- Open #755 owns the `main`-parent ahead-skip / ahead→create happy path; do not re-document those shapes here as unowned.
 
 ### Multiple Worktrees Needing Cleanup
 
@@ -437,12 +451,15 @@ Use the ad-hoc sweep pair only when cleaning the centralized Juniper worktree po
 - `DIRTY`, `ACTIVE`, `BROKEN`, unknown-repo, missing-directory, non-worktree, and no-longer-safe rows are skipped.
 - Apply revalidates every `SAFE` row immediately before removal: the target directory must still be a git worktree, have a clean working tree (tracked/untracked only), and have `rev-list --count origin/main..HEAD == 0`.
 
-**Dirt vs gitignored debris (ml#715).** Survey classifies dirt with plain `git status --porcelain` — tracked modifications and untracked files only. GITIGNORED debris (caches, logs, decrypted secrets) does **not** make a worktree `DIRTY`; ignored-only trees with `ahead == 0` classify as `SAFE`. Apply keeps a separate ignored-content guard at removal time because deleting a worktree also deletes that debris, which may be precious (the decrypted-secrets class):
+**Dirt vs gitignored debris (ml#715).** Survey classifies dirt with `git status --porcelain` — tracked modifications and untracked files only. GITIGNORED debris (caches, logs, decrypted secrets) does **not** make a worktree `DIRTY`; ignored-only trees with `ahead == 0` classify as `SAFE`. Apply keeps a separate ignored-content guard at removal time because deleting a worktree also deletes that debris, which may be precious (the decrypted-secrets class):
 
 | Apply mode | Ignored-only SAFE row | Tracked/untracked dirt |
 |------------|----------------------|------------------------|
 | Default | Skipped (`ignored files present; rerun with --include-ignored…`) | Hard skip (always) |
 | `--include-ignored` | Removed | Hard skip (always) |
+| `--dry-run --include-ignored` (either flag order) | Prints `DRY:…` only; never deletes | Hard skip (always) |
+
+**`status.showUntrackedFiles=no` must not blind the sweep (ml#734 / ml#735).** Plain `git status --porcelain` / `--ignored` return empty under that config even when untracked or ignored files exist, and `git worktree remove` (without `--force`) can silently delete those trees. Survey and apply therefore force `status.showUntrackedFiles=normal` on every dirt / ignored / `worktree remove` call site so the guards stay fail-closed. Without that override, default apply can delete decrypted-secrets debris and untracked WIP. Contract pins: `tests/test_worktree_sweep_scripts.py` (`test_show_untracked_files_no_*` / `test_ignored_guard_not_blinded_by_show_untracked_files_no`).
 
 Unknown apply flags exit `2`. Pair with `tests/test_worktree_sweep_scripts.py` for the contract pins.
 
