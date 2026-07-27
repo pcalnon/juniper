@@ -218,13 +218,11 @@ Gate 1 review table: release-train operator runbook §3.2.
 
 **Re-entry caveat (juniper-ml#712):** if `__version__` already equals the proposed version, the train leaves the dunder alone and does **not** checklist REQUIRED-manual. Confirm the match before treating a pyproject-only proposal as the old failure class.
 
-**Release-train detect / ceremony edges (monitor `NOT_FOUND`, SHIP filter, SemVer).** Ceremony
-`monitor_publish_run` keeps polling when the publish run is briefly invisible (`NOT_FOUND`); a
-timeout while still building *or* permanently missing reports honest `IN_PROGRESS` (never invents
-`PENDING` / `RELEASED` / HALT) — re-run ceremony after confirming the publish workflow fired.
-Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `local_git_compare` treats
-`.py` A/D/R/**C** as inherently substantive. Operator tables:
-[`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
+**Release-train propose registry miss / execute seams (juniper-ml#764):** a proposable manifest package
+absent from `registry.yaml` becomes a skip stub (`skipped_reason="package not in registry.yaml"`) —
+the propose job does not crash mid-loop. `--execute` hard-fails (exit 2) if the write/git/pr seam is
+missing; skipped or branchless proposals issue zero write calls. Ceremony's parallel for
+`BUMPED_NOT_RELEASED` is the `not-in-registry` HALT. Operator table: release-train runbook §3.2.
 
 ---
 

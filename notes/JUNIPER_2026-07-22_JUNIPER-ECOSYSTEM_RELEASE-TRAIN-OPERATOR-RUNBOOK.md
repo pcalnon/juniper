@@ -251,6 +251,23 @@ Hermetic pins: `tests/test_release_train_propose.py` (topological order over the
 cycle → exit 2; escaped / within-range / floor-only / extras-form pins; degraded skip; per-repo
 dup-guard; dry-run writes nothing).
 
+#### Manifest / registry miss + `--execute` seam gates
+
+Orthogonal to `build_proposal` refusal stubs (coverage juniper-ml#749): these are `propose.main` /
+`execute_proposal` gates **before** a proposal is built or written. A registry miss must **skip**, not
+abort the whole propose job mid-loop; a miswired `--execute` seam must hard-fail before any partial
+write.
+
+| Signal | Cause | Operator response |
+|---|---|---|
+| Dry-run / JSON `skipped_reason="package not in registry.yaml"`; summary counts a skip | A proposable manifest package's `pypi_name` is absent from `registry.yaml` (`propose.py:1415-1418`). Loop continues for remaining packages. | Add the package to `util/release_train/registry.yaml` (registry lint) or drop the stale manifest entry; re-run `report` then `propose`. Ceremony's parallel for `BUMPED_NOT_RELEASED` is the `not-in-registry` HALT (§4). |
+| `--package` / dispatch `packages=` names an unknown `pypi_name` → exit 2 | Invocation error before the loop (`propose.py:1388-1392`) — not a skip stub | Fix the `packages=` input against `registry.yaml` |
+| `--execute` exits 2: `execute mode needs write_file/run_git/open_pr seam members` | Live seam missing a write member (`execute_proposal` / `execute_follow_on`, `propose.py:1319-1320`, `896`) | Workflow / wiring bug — re-dispatch the GitHub Actions job; do not hand-run `--execute` without live sources |
+| `skip: …` / empty URL; no branch, commit, or PR | `prop.skipped` or `branch is None` → `execute_proposal` returns `""` and issues **zero** write/git/pr calls (`propose.py:1321-1322`) | Expected for registry-miss / refusal stubs; read the printed skip reason |
+
+Coverage (hermetic): juniper-ml#764 —
+`CliTest.test_manifest_package_absent_from_registry_is_skipped` + `ExecuteProposalSeamTest`.
+
 ### 3.3 Dispatching `ceremony` against specific packages (drives toward Gate 2)
 
 ```bash
@@ -389,26 +406,8 @@ invocation error (`ceremony.py:71-72`).
 | `changelog-section-missing` | no non-empty `CHANGELOG [<version>]` section to source the notes | `ceremony.py:741` | The proposal PR (Gate 1) should have created it — merge the proposal first, or add the section, then re-run. |
 | `notes-render-failed` | `notes_render.render_notes` raises `OSError` while building the final archive body from `CHANGELOG [<version>]` (missing/unreadable `notes/templates/TEMPLATE_RELEASE_NOTES.md`, or the security template when a `Security` category is present) | `ceremony.py:887-890` | Distinct from `changelog-section-missing`. Restore the template under ceremony `--repo-root` (juniper-ml), confirm CI can read it, re-run — no Release was cut. Coverage: juniper-ml#741. |
 | `missing-declared-version` | manifest has no `declared_version` for a `BUMPED_NOT_RELEASED` pkg | `ceremony.py:711` | A malformed manifest — re-run detection (`report` mode) to regenerate it. |
-| `not-in-registry` | package is `BUMPED_NOT_RELEASED` in the manifest but absent from `registry.yaml` | `ceremony.py` (`_plans_for`) | Add the package to `util/release_train/registry.yaml` (registry lint gates it). |
-| `testpypi-verify-failed` | (during the monitor) `classify_publish_run` → `HALT_TESTPYPI`: a job whose name contains `testpypi` concluded `failure` | `ceremony.py:514-515`, `1018-1023` | The run is not healthy — inspect the publish run's TestPyPI job; fix and re-cut is idempotent. A dedup issue **is** filed. |
-
-### 4.1 Monitor terminals after the Release is cut
-
-After the archive PR + Release succeed, `monitor_publish` maps the publish workflow via
-`classify_publish_run` (`ceremony.py:497-532`) and `execute_ceremony` handles the two failure classes
-**asymmetrically** (`ceremony.py:1016-1028`; pinned by `tests/test_release_train_ceremony.py`):
-
-| Terminal | Classifier trigger | Dedup issue? | Operator response |
-|---|---|---|---|
-| `HALT_TESTPYPI` | any `*testpypi*` job `conclusion=failure` | **Yes** — `reason_key=testpypi-verify-failed` via `upsert_halt_issue` | Inspect TestPyPI install-verify; fix; re-cut (idempotent). |
-| `HALT_PUBLISH` | run `status=completed` and `conclusion` in `{failure, cancelled, timed_out}` **and** TestPyPI did **not** fail (so this is post-TestPyPI) | **No** — note only: `"the publish run failed before the pypi gate."` | Open the publish run UI; diagnose the non-TestPyPI failure (cancelled deploy, timed-out job, etc.). Do **not** wait for a GitHub issue. Archive + Release were already cut — re-entry resumes at the monitor and must not re-cut. |
-| `PENDING_PYPI_APPROVAL` | run `waiting` / TestPyPI ok + pypi job parked | n/a (success for the train) | Approve Gate 2 when ready (§3.3). |
-| `RELEASED` | run completed `success` (both gates done) | n/a | Owner already approved; nothing to do. |
-
-**Why the asymmetry.** `testpypi-verify-failed` is a named, recoverable §8 class with a stable
-`reason_key` for dedup. A generic post-TestPyPI failure has no single reason key worth filing — the
-step-summary note + Slack + the publish-run URL are the signal. Looking for a missing issue is the
-wrong recovery path.
+| `not-in-registry` | package is `BUMPED_NOT_RELEASED` in the manifest but absent from `registry.yaml` | `ceremony.py` (`_plans_for` / `ceremony.py:1152`) | Add the package to `util/release_train/registry.yaml` (registry lint gates it). Propose's parallel for `UNRELEASED_CHANGES` is a **skip stub** (`skipped_reason="package not in registry.yaml"`, §3.2) — not a HALT. |
+| `testpypi-verify-failed` | (during the monitor) the publish workflow's TestPyPI install-verify failed before Gate 2 | `ceremony.py:876` | The run is not healthy — inspect the publish run's TestPyPI job; fix and re-cut is idempotent. |
 
 **HALT-issue degradation (Phase 4.3).** Filing the dedup issue is **best-effort**: if the `gh issue`
 API itself fails — most plausibly the cross-repo App token lacking the **Issues** permission — the
@@ -620,8 +619,9 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
   (ml#701 / juniper-ml#710; edge-case coverage + already-at-target checklist fix juniper-ml#712).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
-- Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`,
-  `archive_guard.py` (exempt notes-archive structural guard; operator triage §3.3).
+- Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
+- Propose CLI registry-miss skip + `--execute` seam gates (operator §3.2): juniper-ml#764
+  (`CliTest.test_manifest_package_absent_from_registry_is_skipped` + `ExecuteProposalSeamTest`).
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
   `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
   `tests/test_release_train_archive_guard.py` (add-only / rename-out / Copy / Typechange; plan §7.2),
