@@ -352,6 +352,7 @@ class GhSurfaceInvariantTest(unittest.TestCase):
             ["api", "repos/someone-else/juniper-ml/git/refs", "-X", "POST", "-f", "ref=refs/heads/x", "-f", "sha=a"],  # wrong owner
             ["api", "repos/pcalnon/juniper-ml/git/refs", "-f", "ref=refs/heads/x", "-f", "sha=a"],  # missing POST method
             ["api", "repos/pcalnon/juniper-ml/git/refs", "-X", "POST", "-f", "ref=refs/tags/v1", "-f", "sha=a"],  # a TAG ref, not heads/*
+            ["api", "repos/pcalnon/juniper-ml/git/refs", "-X", "POST", "-f", "sha=a"],  # POST without a ref= field (must not pass)
             ["api", "graphql", "-f", "query=mutation { addStar(input: {}) { clientMutationId } }", "-f", "repoWithOwner=pcalnon/juniper-ml"],  # a different mutation
             ["api", "graphql", "-f", f"query={ce._CREATE_COMMIT_ON_BRANCH_MUTATION}", "-f", "repoWithOwner=pcalnon/juniper-evil"],  # createCommit to a repo outside the 8
             ["api", "graphql", "-f", f"query={ce._CREATE_COMMIT_ON_BRANCH_MUTATION}"],  # createCommit with no repoWithOwner bound
@@ -361,6 +362,34 @@ class GhSurfaceInvariantTest(unittest.TestCase):
         for bad in strays:
             with self.assertRaises(ce.SeamViolation, msg=bad):
                 ce._assert_gh_allowed(bad, allowed)
+
+    def test_assert_api_allowed_rejects_refs_post_without_ref_field(self):
+        """R7 archive-lane: a git/refs POST with no ``ref=`` must SeamViolation (not silently allow).
+
+        Pre-fix the guard only rejected a *present* non-heads ref; omitting ``ref=`` entirely
+        passed the allowlist and deferred failure to the live GitHub API. That weakened the
+        documented ``ref=refs/heads/*`` invariant for the signed-archive branch create.
+        """
+        allowed = frozenset({"pcalnon/juniper-ml"})
+        missing_ref = [
+            "api",
+            "repos/pcalnon/juniper-ml/git/refs",
+            "-X",
+            "POST",
+            "-f",
+            "sha=abc123",
+        ]
+        with self.assertRaises(ce.SeamViolation) as ctx:
+            ce._assert_gh_allowed(missing_ref, allowed)
+        self.assertIn("refs/heads/", str(ctx.exception))
+        self.assertIn("ref=None", str(ctx.exception))
+        # Empty ref= is also not a heads/* target (defence against ref=).
+        with self.assertRaises(ce.SeamViolation) as ctx_empty:
+            ce._assert_gh_allowed(
+                ["api", "repos/pcalnon/juniper-ml/git/refs", "-X", "POST", "-f", "ref=", "-f", "sha=a"],
+                allowed,
+            )
+        self.assertIn("ref=''", str(ctx_empty.exception))
 
 
 # ── S9.3 seam-surface invariant (LIVE seam, recording gh) ────────────────────
@@ -1047,6 +1076,17 @@ class MonitorTimeoutTest(unittest.TestCase):
         verdict = ce.monitor_publish_run(src, "juniper-ml", "tag", timeout_seconds=1000, poll_seconds=0, sleep=lambda s: None)
         self.assertEqual(verdict, "PENDING_PYPI_APPROVAL")
         self.assertEqual(box["polls"], 3)  # did not give up while the run was still building
+
+    def test_not_found_is_not_terminal_keeps_polling(self):
+        # Right after `gh release create` the publish workflow often has not registered yet
+        # (classify_publish_run(None) -> NOT_FOUND). NOT_FOUND must NOT be treated as terminal —
+        # otherwise the ceremony exits before Gate-2 PENDING_PYPI_APPROVAL and never parks.
+        src, box = _monitor_sources(None, None, PENDING_RUN)
+        sleeps = []
+        verdict = ce.monitor_publish_run(src, "juniper-ml", "tag", timeout_seconds=1000, poll_seconds=7, sleep=sleeps.append)
+        self.assertEqual(verdict, "PENDING_PYPI_APPROVAL")
+        self.assertEqual(box["polls"], 3)  # two NOT_FOUND polls, then PENDING
+        self.assertEqual(sleeps, [7, 7])  # slept between non-terminal polls only
 
     def test_honest_in_progress_on_timeout(self):
         src, box = _monitor_sources(BUILDING_RUN)  # never reaches the gate

@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.5
-**Date**: 2026-06-04
+**Version**: 1.0.6
+**Date**: 2026-07-26
 **Project**: juniper-ml
 
 ---
@@ -24,6 +24,7 @@
 | `util/juniper_plant_all.bash`                          | Start the host-level Juniper stack with health gates |
 | `util/get_cascor_status.bash`                          | Query host-mode cascor status (`CASCOR_HOST` / `CASCOR_PORT`, default `localhost:8201`) |
 | `util/juniper_chop_all.bash`                           | Stop the host-level stack from `JuniperProject.pid` |
+| `util/isolated_stack.bash --up` / `--down` / `--status` | Throwaway E2E trio on 8101/8202/8051 (use `--dry-run` to preview) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -162,10 +163,9 @@ git worktree add "$WORKTREE_DIR" "$BRANCH_NAME" && cd "$WORKTREE_DIR"
 
 **Automated**: `util/worktree_cleanup.bash --old-worktree "$DIR" --old-branch "$BRANCH" --parent-branch main`
 
-**Phase 4 remote delete:** Prefer `--skip-remote-delete` when a PR is still open (never calls `gh`).
-Without the flag, the live path auto-skips `push --delete` if `gh pr list --repo pcalnon/juniper-ml --head "$OLD_BRANCH" --state open` returns a positive length **or** if the `gh` query fails / returns a non-numeric result (fail-closed; juniper-ml#739).
-Local worktree + local branch are still removed. Hard-wired to `juniper-ml` — use the flag for sibling-repo cleanups.
-See procedure V2 § "Phase 4 remote-branch deletion (script)".
+**Phase 1 dirty gate:** Live cleanup hard-fails (`exit 1`, `Commit or stash changes before running cleanup`) when `git status --porcelain` in the old worktree is non-empty — it never reaches `git push`.
+`--dry-run` skips the porcelain check (always pretends clean). Commit or stash, then re-run.
+See procedure V2 § "Phase 1 dirty-tree + push gates (script)".
 
 **Batch stale sweep** (centralized `…/Juniper/worktrees/` pool): survey → dry-run apply → apply. Survey treats gitignored debris as clean; apply still skips ignored-only `SAFE` rows unless you pass `--include-ignored` after review (decrypted-secrets class). Full contract: cleanup procedure V2 § "Batch Stale-Worktree Sweep".
 
@@ -226,42 +226,32 @@ Release-train `propose.py` steps 5/5a do this automatically; already-at-target i
 (no false `REQUIRED`); absent / missing-header surfaces `REQUIRED` (never invents). Sub-packages
 hosted in a sibling never touch the host header.
 
+**Propose CHANGELOG refuse clears staged edits (juniper-ml#751):** `build_proposal` stages the version
+(and optional dunder) bump before the CHANGELOG move. Empty / missing Unreleased or a missing CHANGELOG
+clears those edits so the skipped stub is `edits=[]` + `skipped_reason` (same shape as dup-guard /
+`bump=none`) — do not treat leftover version edits in dry-run JSON as a Gate 1 candidate.
+Operator table: release-train runbook §3.2.
+
 **Release-train detect / ceremony edges (monitor `NOT_FOUND`, SHIP filter, SemVer).** Ceremony
 `monitor_publish_run` keeps polling when the publish run is briefly invisible (`NOT_FOUND`); a
 timeout while still building *or* permanently missing reports honest `IN_PROGRESS` (never invents
 `PENDING` / `RELEASED` / HALT) — re-run ceremony after confirming the publish workflow fired.
 Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `local_git_compare` treats
-`.py` A/D/R/**C** as inherently substantive. Operator tables:
+`.py` A/D/R/**C** as inherently substantive. Live `gh compare` at the **300-file** cap falls back to
+`local_git_compare` and **keeps remote commit first-lines** for SemVer (`detect.py:368-371`; pin
+juniper-ml#729). Operator tables:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
+
+**Release-train `packages` dispatch + `--cross-repo`.** Both write jobs reject garbage
+`packages` tokens (`Juniper-Observability`, underscores, `../`, `;`) with exit **2** + `::error::`
+before python runs; empty = all eligible; commas ≡ whitespace. `--cross-repo` only when `APP_TOKEN`
+is non-empty. Runbook §3.2; pin juniper-ml#729 `PackagesInputRehearsalTest`.
 
 **Release-train write-job git identity (ml#705):** when editing `.github/workflows/release-train.yml`, keep both `propose` and `ceremony` identity steps on `git config --global user.name|user.email|commit.gpgsign` (never bare repo-local `git config`). Cross-repo commits land in freshly-cloned sibling checkouts; a juniper-ml-only identity leaves them with `Author identity unknown` (run 30040138774). Operator detail: runbook §7 / §8.7.
 
-**Ceremony signed-archive failure edges (ml#709 / #714):** if a `ceremony` run dies inside
-`open_archive_pr`, do **not** invent a base sha or hand-push an archive branch. Unresolvable
-`origin/<base>`, non-422 refs errors (e.g. HTTP 401), and unresolvable existing tips are hard stops;
-only tip-at-base or single-commit-atop-base are safe re-entry shapes. Operator table:
-[`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.3.
-
-**Phase 4.2 propose ordering + follow-ons.** Empty `packages=` propose runs process eligible packages
-**upstream-first** (registry `depends_on` DAG). A pre-1.0 MINOR/MAJOR that escapes a consumer
-`<next-minor` ceiling also opens a separate standard-gated PR
-`deps/<upstream>-ceiling-<new-ceiling>` in the **consumer** repo (pin ceiling only; never on the
-exempt archive path). Meta (`juniper-ml`) never gets a follow-on. Operator table:
-[release-train runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.2
-“Phase 4.2”.
-
-**Ceremony monitor: `HALT_TESTPYPI` vs `HALT_PUBLISH`.** TestPyPI job failure → `HALT_TESTPYPI` and a
-`testpypi-verify-failed` dedup issue. A later run `failure`/`cancelled`/`timed_out` (TestPyPI already
-green) → `HALT_PUBLISH` with a note only — **no** GitHub issue. Open the publish run; do not wait for
-an issue. Details: operator runbook §4.1.
-
-**Ceremony re-entry (`RESUME_MONITOR`).** If a Release tag already exists, re-dispatching
-`mode=ceremony` only monitors the publish run — it does **not** re-open the archive PR or re-cut the
-Release. Step summary shows **resume-monitor**; `plan_state` stays `RESUME_MONITOR` while `state` is
-the monitor verdict. TestPyPI failure on resume still HALTs + files an issue (no re-cut). Distinct from
-`ALREADY_RELEASED` (PyPI already serves the target). Operator details: runbook §3.3 / §5.5.
-
-**Ceremony `notes-render-failed` HALT.** After a non-empty `CHANGELOG [<version>]` is found, ceremony still HALTs if `notes_render.render_notes` raises `OSError` (typically a missing template under `--repo-root`). Distinct from `changelog-section-missing`. Restore `notes/templates/TEMPLATE_RELEASE_NOTES.md` (or the security template) and re-run — no Release was cut. See operator runbook §4.
+**R7 archive-lane `ref=` (juniper-ml#770):** a ceremony `SeamViolation` with `ref=None` / `ref=''` means
+the `git/refs` POST omitted a heads ref — fail-closed code bug, not an auth blip. Do not hand-POST a
+ref. Re-dispatch after #770; see runbook §7.
 
 ---
 
@@ -275,25 +265,45 @@ the monitor verdict. TestPyPI failure on resume still HALTs + files an issue (no
 | `CLAUDE_SKIP_PERMISSIONS`      | `0`                | Add `--dangerously-skip-permissions` to default wrapper |
 | `JUNIPER_CASCOR_HOST`          | `localhost`        | Host stack cascor bind host for `util/juniper_plant_all.bash` |
 | `JUNIPER_CASCOR_PORT`          | `8201`             | Host stack cascor listen port for `util/juniper_plant_all.bash` |
-| `JUNIPER_DATA_HOST`            | `0.0.0.0`          | Host stack data-service bind host for `util/juniper_plant_all.bash` |
+| `JUNIPER_DATA_HOST`            | `127.0.0.1`        | Host stack data-service bind host for `util/juniper_plant_all.bash` (loopback default; set `0.0.0.0` to expose) |
 | `JUNIPER_DATA_PORT`            | `8100`             | Host stack data-service listen port for `util/juniper_plant_all.bash` |
 | `JUNIPER_WORKER_HEALTH_HOST`   | `127.0.0.1`        | Host stack cascor-worker health listener bind host           |
 | `JUNIPER_WORKER_HEALTH_PORT`   | `8210`             | Host stack cascor-worker health listener port           |
 | `JUNIPER_PROJECT_DIR`          | `~/Development/python/Juniper` | Project root honored by `util/juniper_chop_all.bash`; `plant_all` derives the root from its script location |
 | `HEALTH_CHECK_TIMEOUT`         | `60`               | Seconds `util/juniper_plant_all.bash` waits for each service health gate |
+| `JUNIPER_E2E_DATA_PORT`        | `8101`             | Isolated-stack juniper-data port (`util/isolated_stack.bash`) |
+| `JUNIPER_E2E_CASCOR_PORT`      | `8202`             | Isolated-stack juniper-cascor port |
+| `JUNIPER_E2E_CANOPY_PORT`      | `8051`             | Isolated-stack juniper-canopy port |
+| `JUNIPER_E2E_HEALTH_TIMEOUT`   | `60`               | Per-service health wait for isolated `--up` (2s poll; not `HEALTH_CHECK_INTERVAL`) |
+| `JUNIPER_E2E_RUN_DIR`          | `/tmp/juniper-e2e` | Scratch dir for data venv / logs / pidfiles |
+| `JUNIPER_E2E_DATA_EXTRAS`      | `api`              | juniper-data pip extras (`api,mnist` for D2/I-5) |
 | `CASCOR_HOST`                  | `localhost`        | CasCor query-helper target host for `util/get_cascor_*.bash` |
 | `CASCOR_PORT`                  | `8201`             | CasCor query-helper target port for `util/get_cascor_*.bash` |
 
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
+
+Tip: `util/isolated_stack.bash` is kill-by-port (not `JuniperProject.pid`). After `--down`, confirm `ss -tlnH 'sport = :8101 or sport = :8202 or sport = :8051'` is empty.
+Post-[#785](https://github.com/pcalnon/juniper-ml/pull/785), `activate_conda` restores `set -u` after conda activate (pre-fix left nounset off for the rest of `--up`).
+Full contract: [REFERENCE — Isolated Stack E2E](REFERENCE.md#isolated-stack-e2e-utilities).
+
+Tip: `plant_all` `safe_conda_activate` must restore nounset with `set -u` after `conda activate` (ADDR2LINE class). A `set +u`/`set +u` pair silently disables `set -u` for the rest of host bring-up — same bug class as isolated-stack [#785](https://github.com/pcalnon/juniper-ml/pull/785). Coverage: [#795](https://github.com/pcalnon/juniper-ml/pull/795).
+
+Tip: `python util/editable_install_drift_check.py --fix --dry-run --json` SKIPs when two non-worktree trees share a `[project].name` (`reason` contains `ambiguous`; never `candidates[0]`). Resolve the duplicate checkout, then re-run. Coverage: [#795](https://github.com/pcalnon/juniper-ml/pull/795). Full contract: [REFERENCE — Editable Install Drift](REFERENCE.md#editable-install-drift-check).
 
 ### Host Stack Troubleshooting
 
 | Symptom | Fast Check |
 |---------|------------|
 | Startup exits before launching services | Check the preflight output for missing `curl`, `ss`, conda, sibling repo directories, or occupied ports. |
+| Mid-plant abort / health timeout | Service log under that repo's `logs/`; pidfile is already removed — free leftover listeners with `ss -tlnp` before re-planting. |
 | Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`; keep the default `JuniperCascor1` env unless a replacement is known-good. |
 | Worker binary missing | Run `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` finished in `nohup` mode and rerun with `JUNIPER_PROJECT_DIR` set to the same project root; for systemd mode, stop with `util/juniper_chop_all.bash --systemd`. |
+| Isolated `--up` unset-var / odd conda failure | Need #785 nounset restore; check `JUNIPER_E2E_CONDA_DIR`. |
+| Isolated ports still busy after `--down` | Re-run `--down` or kill the `pid=` from `ss -tlnpH`; `--dry-run` never kills. |
+| Isolated health timeout | Inspect `/tmp/juniper-e2e/logs/*.log` (or `$JUNIPER_E2E_RUN_DIR/logs`); raise `JUNIPER_E2E_HEALTH_TIMEOUT` only after fixing the service. |
+| Mid-plant unset-var / odd conda failure | Confirm `safe_conda_activate` ends with `set -u` (`rg -n -A3 '^safe_conda_activate' util/juniper_plant_all.bash`). |
+| `--fix` JSON shows `ambiguous` SKIP | Two checkouts share the package name — remove/rename the extra tree; do not hand-pick `candidates[0]`. |
 
 ## Quick Reference Tables
 
@@ -303,6 +313,14 @@ Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while 
 | juniper-cascor        | 8201      | `GET /v1/health`          | JuniperCascor1  | 3.13   |
 | juniper-canopy        | 8050      | `GET /v1/health`          | JuniperCanopy1  | 3.13   |
 | juniper-cascor-worker | 8210      | `GET /v1/health/ready`    | JuniperCascor1  | 3.13   |
+
+Isolated E2E trio (never overlap these with the host ports above):
+
+| Service        | E2E Port | Health           | Runtime                         |
+|----------------|----------|------------------|---------------------------------|
+| juniper-data   | 8101     | `GET /v1/health` | dedicated `python3.14` venv     |
+| juniper-cascor | 8202     | `GET /v1/health` | `JuniperCascor1`                |
+| juniper-canopy | 8051     | `GET /v1/health` | `JuniperCanopy1` (service mode) |
 
 `juniper-cascor` still commonly exposes service/container port `8200`; host-mode utilities and Docker's published port use `8201`.
 
@@ -320,6 +338,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-06-04
-**Version:** 1.0.5
+**Last Updated:** 2026-07-26
+**Version:** 1.0.6
 **Maintainer:** Paul Calnon
