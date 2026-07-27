@@ -223,7 +223,6 @@ Gate 1 review table: release-train operator runbook §3.2.
 
 **Re-entry caveat (juniper-ml#712):** if `__version__` already equals the proposed version, the train leaves the dunder alone and does **not** checklist REQUIRED-manual. Confirm the match before treating a pyproject-only proposal as the old failure class.
 
-<<<<<<< HEAD
 **Sibling / meta AGENTS.md Version (worker#140 / ml#706 / #720):** when hand-bumping a sibling repo's
 **primary** package (`pypi_name` equals the repo name) or the meta-package, move `AGENTS.md`
 `**Version**:` with the version file — CI embeds the portable `test_agents_md_version_drift` lint.
@@ -282,16 +281,6 @@ Operator tables: [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPER
 Detect discounts `tests/` / `test_*.py` / `conftest.py` / `*_test.py` as nonship before the hunk filter (test-only tips stay out of Gate 1).
 Ceremony `PENDING_PYPI_APPROVAL` also parks when TestPyPI succeeded and the pypi job is `queued` / `pending` / `""` (run may still be `in_progress`).
 Operator tables: release-train runbook §3.2 (refusals + test-path) and §3.3 (job-level park).
-=======
-**Gate 1 notes draft (`notes_render`, coverage juniper-ml#756):** meta-package title must read `# Juniper ML v…` (not `# juniper-ml v…`);
-`Release Type` maps `major`→MAJOR / `minor`→MINOR / `patch|none|unknown`→PATCH;
-`Breaking changes` is YES only when Unreleased has a `Removed` category;
-Keep-a-Changelog accepts `*` as well as `-` (continuations fold).
-Operator table: release-train runbook §3.2.
-
-**Daily hygiene cleared:** `TAG_ONLY=0` + `NOTES_MISSING=0` with no `release-hygiene (tag_only) unavailable:` note means each counted package has a GitHub Release **and** a central `notes/releases/` archive for the released version (orthogonal to "needs deploy").
-`released_upload` is the earliest PyPI upload ISO (or `None`). Operator note: release-train runbook §3.1.
->>>>>>> ae9765f (docs(release-train): notes_render Gate 1 + healthy hygiene operator guidance)
 
 ---
 

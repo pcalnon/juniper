@@ -4,11 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-<<<<<<< HEAD
 **Version**: 1.2.3
-=======
-**Version**: 1.2.2
->>>>>>> ae9765f (docs(release-train): notes_render Gate 1 + healthy hygiene operator guidance)
 **Last Updated**: 2026-07-26
 
 ---
@@ -94,7 +90,6 @@ release-worthy CHANGELOG changes not yet in a proposal), `BUMPED_NOT_RELEASED` (
 NORMAL green outcome** — only a hard source error (exit ≥ 2) fails the run (`release-train.yml`, detect
 step; plan §11).
 
-<<<<<<< HEAD
 #### Detect SHIP filter + SemVer (why a package shows `UNRELEASED_CHANGES`)
 
 The detector's proposed bump feeds Gate 1. Two internals decide whether code ships and which SemVer
@@ -158,21 +153,6 @@ last released version lacks a GitHub Release (`tag_only`) or a central `notes/re
   treat a quiet `TAG_ONLY=0` plus that note as "hygiene cleared" — re-check Releases when gh recovers.
   A regression that re-raises would exit 2 the whole detect job; inventing `tag_only=True` would spam false
   TAG_ONLY on every blip.
-=======
-#### Hygiene cleared (healthy path)
-
-The step-summary footer `hygiene: TAG_ONLY=…, NOTES_MISSING=…` (`detect.py:996-999`) is **convention
-debt**, not a deploy trigger. When a package is `UP_TO_DATE` **and** both bits are false, the detector
-found a matching GitHub Release for `diff_base_tag` **and** a central
-`notes/releases/RELEASE_NOTES_<pypi>_v<released>.md` archive (`detect.py:967-969`, `notes_missing` at
-`detect.py:879-882`; coverage juniper-ml#756). That is the healthy clear — do **not** confuse it with a
-quiet `TAG_ONLY=0` that still carries a `release-hygiene (tag_only) unavailable:` note. A `list_releases`
-`SourceError` sets `hygiene.tag_only = None` (falsy → not counted in `TAG_ONLY=`) while still evaluating
-`notes_missing` (`detect.py:971-973`); re-check Releases when gh recovers.
-
-`released_upload` in the manifest is the **earliest** PyPI `upload_time_iso_8601` for the released
-version (`detect.py:_upload_time`); missing/empty upload times → `None` (never invent a timestamp).
->>>>>>> ae9765f (docs(release-train): notes_render Gate 1 + healthy hygiene operator guidance)
 
 ### 3.2 Dispatching `propose` against specific packages (Gate 1)
 
@@ -736,13 +716,9 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
   (ml#701 / juniper-ml#710; edge-case coverage + already-at-target checklist fix juniper-ml#712).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
-<<<<<<< HEAD
 - Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
 - Propose CLI registry-miss skip + `--execute` seam gates (operator §3.2): juniper-ml#764
   (`CliTest.test_manifest_package_absent_from_registry_is_skipped` + `ExecuteProposalSeamTest`).
-=======
-- Engines: `util/release_train/detect.py`, `propose.py`, `notes_render.py`, `ceremony.py`, `registry.yaml`.
->>>>>>> ae9765f (docs(release-train): notes_render Gate 1 + healthy hygiene operator guidance)
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
   `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
   `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701),
@@ -750,12 +726,6 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   CHANGELOG refuse clear-on-refuse stub shape — juniper-ml#751).
 - Static `_version.py` lockstep (Gate 1 review):
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
-<<<<<<< HEAD
   §6 / §6.1 (implemented by juniper-ml#710; hardened by juniper-ml#712).
-=======
-  (implemented by juniper-ml#710).
-- Notes-draft + healthy-hygiene operator edges (Gate 1 title/MAJOR/Breaking; `TAG_ONLY`/`NOTES_MISSING`
-  clear when Release + archive exist): coverage juniper-ml#756; this runbook §3.1 / §3.2.
->>>>>>> ae9765f (docs(release-train): notes_render Gate 1 + healthy hygiene operator guidance)
 - Release convention (cut a Release, archive notes centrally): repo `AGENTS.md` "Publishing" +
   [`JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md`](JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md) §11.
