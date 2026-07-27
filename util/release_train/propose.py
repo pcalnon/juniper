@@ -1099,10 +1099,16 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
     if clog_text is not None:
         moved, reason = move_unreleased(clog_text, to_version, date)
         if reason is not None:
+            # Drop any version/dunder edits staged above so a refusal stub matches the
+            # dup-guard / bump=none shape (edits=[], skipped_reason set). execute_proposal
+            # already guards on ``skipped``, but a half-staged pyproject bump here trained
+            # operators to treat leftover edits as harmless — clear them.
+            prop.edits.clear()
             prop.skipped_reason = f"CHANGELOG move refused: {reason}"
             return prop
         prop.edits.append(FileEdit(path=clog_rel, old_text=clog_text, new_text=moved))
     else:
+        prop.edits.clear()
         prop.skipped_reason = f"could not read {clog_rel}"
         return prop
 
