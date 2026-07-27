@@ -173,14 +173,11 @@ Failure / health / port contract (`nohup` mode):
 - `wait_for_health` polls `curl -sf` every `HEALTH_CHECK_INTERVAL` seconds (default `2`) until success or `HEALTH_CHECK_TIMEOUT` (default `60`). Timeout returns 1 and trips the ERR cleanup above; it does not hang forever.
 - `check_port_available` rejects a busy port (exit 1). If `ss` is missing or unusable when the helper runs, it **fail-opens** (treats the port as free). The `nohup` preflight still hard-requires `ss`, so normal host-mode plant never relies on that fail-open; hermetic tests and any out-of-band caller of the helper can.
 
-Shutdown contract (`nohup` chop — JR-ML-SEC-045):
+#### Health-check interval clamp (juniper-ml#782)
 
-- For each pidfile row, `validate_pid` must accept the PID before `graceful_stop` runs. A reject skips that service (does **not** bump `STOP_FAILURES`) and never sends signals — so a false reject can clear the pidfile while leaving the process running.
-- Post-[#777](https://github.com/pcalnon/juniper-ml/pull/777): matching is a case-folded, hyphen/underscore-stripped token check against `/proc/<pid>/cmdline` (override root: `JUNIPER_CHOP_PROC_ROOT`, tests only). That accepts plant's host-mode cascor/canopy launches (`python server.py` / `python main.py` under `JuniperCascor1` / `JuniperCanopy1`) and module paths like `juniper_data` for pidfile key `juniper-data`.
-- `juniper-cascor` must not match a worker cmdline: normalized `junipercascor` is a prefix of `junipercascorworker`, so chop also rejects when the expected name is `juniper-cascor` and the cmdline contains `worker`.
-- Pre-[#777](https://github.com/pcalnon/juniper-ml/pull/777) on `main`, `validate_pid` logged cmdline but always returned 0 (reused PID could receive SIGTERM/SIGKILL). An intermediate literal `juniper-cascor` / `juniper_cascor` substring check ([#774](https://github.com/pcalnon/juniper-ml/pull/774)) closed the reuse hole but false-rejected plant cascor/canopy — prefer the [#777](https://github.com/pcalnon/juniper-ml/pull/777) token match.
-- `graceful_stop` ([#778](https://github.com/pcalnon/juniper-ml/pull/778) coverage; production already on `main`): SIGTERM → wait up to `SIGTERM_TIMEOUT` (default `15`) → SIGKILL. Already-exited / failed SIGTERM delivery returns 0 (not a stop failure). Surviving SIGKILL returns 1 and bumps `STOP_FAILURES`.
-- After the loop: `STOP_FAILURES > 0` preserves `JuniperProject.pid` and exits 1; otherwise chop truncates the pidfile. Inspect preserved pidfile rows and `/proc/<pid>/cmdline` before re-sending signals by hand.
+`wait_for_health` polls `curl -sf` and advances `elapsed` by the poll interval each loop (default `HEALTH_CHECK_INTERVAL=2`, timeout `HEALTH_CHECK_TIMEOUT=60`). An interval `<= 0` never advances `elapsed` (`sleep 0` is a no-op) and busy-loops forever — including `HEALTH_CHECK_INTERVAL=0` or a zero/invalid 4th argument.
+
+Post-[#782](https://github.com/pcalnon/juniper-ml/pull/782): if the interval is not a positive integer (`^[1-9][0-9]*$`), plant logs `WARNING: invalid health-check interval … clamping to 1s` and uses `1`. Prefer the default `2`. Do **not** set `HEALTH_CHECK_INTERVAL=0` to "poll as fast as possible" — that was the busy-loop class. Coverage: `tests/test_juniper_plant_all.py` (`TestWaitForHealth`).
 
 Troubleshooting:
 
@@ -191,9 +188,7 @@ Troubleshooting:
 | `juniper-cascor` never reaches `/v1/health` | Inspect `juniper-cascor/logs/juniper-cascor_*.log`. Prefer the default `JuniperCascor1` env; the legacy `JuniperCascor` Python 3.14 / torch layout is a known health-startup trap. See [`notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md`](../notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md). |
 | Worker startup says binary missing | Activate the worker env and install the package: `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` completed successfully in `nohup` mode and check the PID path printed at startup. In non-standard layouts, rerun shutdown with `JUNIPER_PROJECT_DIR` set to that same project root. If using systemd mode, stop with `util/juniper_chop_all.bash --systemd` instead. |
-| `chop_all` skips cascor/canopy (`does not match expected service`) but ports still listen | Pre-[#777](https://github.com/pcalnon/juniper-ml/pull/777) literal substring matcher false-rejects plant's `server.py` / `main.py` under `JuniperCascor1` / `JuniperCanopy1`. Merge/upgrade to the token matcher; until then stop those PIDs manually (`ss -tlnp` → `kill`) — do not re-plant onto a live listener. |
-| `chop_all` warns PID file preserved / `STOP_FAILURES` | A service survived SIGKILL (or stop returned 1). Inspect the preserved pidfile + cmdline; escalate manually. Do not assume the pidfile was cleared. |
-| `chop_all` warns stale / wrong-process PID and skips | Expected after [#777](https://github.com/pcalnon/juniper-ml/pull/777): reused PIDs are not signaled. Confirm the real service with `ss -tlnp` / fresh `plant_all` if needed. |
+| Plant logs `invalid health-check interval … clamping to 1s` / appears stuck before health | `HEALTH_CHECK_INTERVAL` (or the 4th `wait_for_health` arg) was `0`/empty/non-integer. Unset it or set a positive integer (default `2`). Pre-#782, `0` busy-looped forever. |
 
 ---
 
