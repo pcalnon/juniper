@@ -17,7 +17,7 @@ Covers (task acceptance list, plan S7.2):
   * the fallback semantic: a FAIL merely fails the check (exit 1), no side effect
   * filename convention (rule 3): meta bare-`v` vs `<pkg>_v`, the meta wrong-form reject, unknown
     package + non-semver rejects
-  * parse_name_status (rename two-path form, similarity score stripped, blank/short lines ignored)
+  * parse_name_status (rename/copy two-path form, similarity score stripped, blank/short lines ignored)
   * CLI exit codes 0 (SKIP/OK) / 1 (FAIL) / 2 (no diff source) and the --json shape
 
 Run: python3 -m unittest -v tests/test_release_train_archive_guard.py
@@ -111,6 +111,14 @@ class ParseNameStatusTest(unittest.TestCase):
         self.assertEqual(changes[0].status, "R")  # leading letter only
         self.assertEqual(changes[0].paths, ["notes/releases/old.md", "notes/releases/new.md"])
         self.assertEqual(changes[0].path, "notes/releases/new.md")
+
+    def test_copy_two_paths_and_score_stripped(self):
+        # git may emit C075 under --find-copies; status letter only, both paths retained.
+        changes = ag.parse_name_status(f"C075\tdocs/template.md\t{GOOD_SUB}\n")
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0].status, "C")
+        self.assertEqual(changes[0].paths, ["docs/template.md", GOOD_SUB])
+        self.assertEqual(changes[0].path, GOOD_SUB)
 
     def test_blank_and_short_lines_ignored(self):
         changes = ag.parse_name_status("\n   \nA\tnotes/releases/x.md\ngarbage-no-tab\n")
@@ -218,6 +226,32 @@ class ClassifyDiffTest(unittest.TestCase):
     def test_rename_into_releases_fails(self):
         res = ag.classify_diff(_changes(("R", "notes/foo.md", GOOD_SUB)), self.KNOWN)
         self.assertEqual(res.verdict, "FAIL")
+        self.assertTrue(any(v.startswith("rule1") for v in res.violations), res.violations)
+
+    def test_rename_out_of_releases_fails_not_skips(self):
+        # Regression class: if touches_releases() only inspected the destination path, a rename
+        # OUT of notes/releases/ would SKIP (pass) and the exempt auto-merge gate would miss it.
+        # Both sides of a rename must count; source under releases/ => archive PR => FAIL rule1.
+        res = ag.classify_diff(_changes(("R", GOOD_META, "docs/moved.md")), self.KNOWN)
+        self.assertEqual(res.verdict, "FAIL")
+        self.assertTrue(res.is_archive_pr)
+        self.assertFalse(res.passed)
+        self.assertTrue(any(v.startswith("rule1") for v in res.violations), res.violations)
+        self.assertTrue(any(v.startswith("rule4") for v in res.violations), res.violations)
+
+    def test_copy_into_releases_fails(self):
+        # Rule 1 explicitly rejects Copy (C) -- only pure Adds may pass the exempt gate.
+        res = ag.classify_diff(_changes(("C", "docs/template.md", GOOD_SUB)), self.KNOWN)
+        self.assertEqual(res.verdict, "FAIL")
+        self.assertTrue(res.is_archive_pr)
+        self.assertTrue(any(v.startswith("rule1") for v in res.violations), res.violations)
+        self.assertTrue(any(v.startswith("rule4") for v in res.violations), res.violations)
+
+    def test_typechange_archive_file_fails(self):
+        # Typechange (T) is a non-add mutation of an existing archive path -- must FAIL, never SKIP.
+        res = ag.classify_diff(_changes(("T", GOOD_SUB)), self.KNOWN)
+        self.assertEqual(res.verdict, "FAIL")
+        self.assertTrue(res.is_archive_pr)
         self.assertTrue(any(v.startswith("rule1") for v in res.violations), res.violations)
 
 
