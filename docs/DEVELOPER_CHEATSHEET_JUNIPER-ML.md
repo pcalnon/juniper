@@ -218,11 +218,14 @@ Gate 1 review table: release-train operator runbook §3.2.
 
 **Re-entry caveat (juniper-ml#712):** if `__version__` already equals the proposed version, the train leaves the dunder alone and does **not** checklist REQUIRED-manual. Confirm the match before treating a pyproject-only proposal as the old failure class.
 
-**Release-train propose registry miss / execute seams (juniper-ml#764):** a proposable manifest package
-absent from `registry.yaml` becomes a skip stub (`skipped_reason="package not in registry.yaml"`) —
-the propose job does not crash mid-loop. `--execute` hard-fails (exit 2) if the write/git/pr seam is
-missing; skipped or branchless proposals issue zero write calls. Ceremony's parallel for
-`BUMPED_NOT_RELEASED` is the `not-in-registry` HALT. Operator table: release-train runbook §3.2.
+**Gate 1 notes draft (`notes_render`, coverage juniper-ml#756):** meta-package title must read `# Juniper ML v…` (not `# juniper-ml v…`);
+`Release Type` maps `major`→MAJOR / `minor`→MINOR / `patch|none|unknown`→PATCH;
+`Breaking changes` is YES only when Unreleased has a `Removed` category;
+Keep-a-Changelog accepts `*` as well as `-` (continuations fold).
+Operator table: release-train runbook §3.2.
+
+**Daily hygiene cleared:** `TAG_ONLY=0` + `NOTES_MISSING=0` with no `release-hygiene (tag_only) unavailable:` note means each counted package has a GitHub Release **and** a central `notes/releases/` archive for the released version (orthogonal to "needs deploy").
+`released_upload` is the earliest PyPI upload ISO (or `None`). Operator note: release-train runbook §3.1.
 
 ---
 
