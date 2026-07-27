@@ -48,15 +48,23 @@ def _extract_graceful_stop_function() -> str:
 
 
 def _extract_validate_pid_function() -> str:
-    """Pull the live ``validate_pid`` body from the script (avoids harness drift)."""
+    """Pull ``_chop_normalize_token`` + ``validate_pid`` from the script (avoids harness drift)."""
+    # validate_pid depends on the normalize helper; extract both in source order.
+    helper = re.search(
+        r"^function _chop_normalize_token\(\) \{.*?\n\}\n",
+        SCRIPT_TEXT,
+        flags=re.MULTILINE | re.DOTALL,
+    )
     match = re.search(
         r"^function validate_pid\(\) \{.*?\n\}\n",
         SCRIPT_TEXT,
         flags=re.MULTILINE | re.DOTALL,
     )
+    if helper is None:
+        raise AssertionError("_chop_normalize_token function not found in juniper_chop_all.bash")
     if match is None:
         raise AssertionError("validate_pid function not found in juniper_chop_all.bash")
-    return match.group(0)
+    return helper.group(0) + match.group(0)
 
 
 class TestSyntax(unittest.TestCase):
