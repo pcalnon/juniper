@@ -1,8 +1,8 @@
-"""Tests for util/generated_prompt_index.py (index + safety-gated prune of prompts/generated/).
+"""Tests for util/generated_prompt_index.py (index + safety-gated prune/archive of prompts/generated/).
 
-Emphasis on the destructive-path SAFETY: ``--prune`` without ``--yes`` (or under ``--dry-run``)
-deletes nothing, and ``.gitkeep`` / non-convention files are never candidates. Also: name
-parsing, ``.gitkeep`` ignored, and that the generated-dir location is read from
+Emphasis on the destructive-path SAFETY: ``--prune`` / ``--archive`` without ``--yes`` (or under
+``--dry-run``) deletes/moves nothing, and ``.gitkeep`` / non-convention files are never candidates.
+Also: name parsing, ``.gitkeep`` ignored, and that the generated-dir location is read from
 ``conventions.yaml`` (authoritative, not hard-coded).
 
 util/ is not a package; importlib-loaded. Location-agnostic.
@@ -117,6 +117,40 @@ class CliTest(unittest.TestCase):
             self.assertFalse((gen / _OLD).exists(), "stale convention file should be pruned with --yes")
             self.assertTrue((gen / ".gitkeep").exists(), ".gitkeep must never be pruned")
             self.assertTrue((gen / "hand-placed-notes.md").exists(), "non-convention file must never be pruned")
+
+    def test_archive_without_yes_moves_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            gen = _mk_repo(root)
+            archive = root / "archive_out"
+            proc = self._run(root, "--older-than", "1", "--archive", str(archive))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertTrue((gen / _OLD).exists(), "archive without --yes must NOT move")
+            self.assertFalse(archive.exists(), "preview must not create the archive dir")
+            self.assertIn("would-archive", proc.stdout)
+
+    def test_archive_dry_run_overrides_yes(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            gen = _mk_repo(root)
+            archive = root / "archive_out"
+            proc = self._run(root, "--older-than", "1", "--archive", str(archive), "--yes", "--dry-run")
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertTrue((gen / _OLD).exists(), "--dry-run must override --yes for archive")
+            self.assertFalse(archive.exists(), "--dry-run must not create the archive dir")
+
+    def test_archive_with_yes_moves_only_convention_stale(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            gen = _mk_repo(root)
+            archive = root / "archive_out"
+            proc = self._run(root, "--older-than", "1", "--archive", str(archive), "--yes")
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertFalse((gen / _OLD).exists(), "stale convention file should leave generated/")
+            self.assertTrue((archive / _OLD).exists(), "stale convention file should land in archive DIR")
+            self.assertEqual((archive / _OLD).read_text(encoding="utf-8"), "# old prompt\n")
+            self.assertTrue((gen / ".gitkeep").exists(), ".gitkeep must never be archived")
+            self.assertTrue((gen / "hand-placed-notes.md").exists(), "non-convention file must never be archived")
 
     def test_location_read_from_conventions(self):
         with tempfile.TemporaryDirectory() as d:
