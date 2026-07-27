@@ -24,6 +24,9 @@
 # ignored content is deleted with the worktree and may be precious (the
 # decrypted-secrets class). Pass --include-ignored to sweep such worktrees
 # anyway; tracked/untracked dirt is ALWAYS a hard skip regardless.
+# Both porcelain probes force -unormal so status.showUntrackedFiles=no cannot
+# blind the dirt / ignored guards (git worktree remove succeeds on ignored-
+# only debris; a false-negative here is silent secret deletion).
 # Convention: ad-hoc one-shot script, lives under util/ad-hoc/ per
 # CLAUDE.md "Script placement". Companion to worktree_sweep_survey.bash.
 
@@ -69,7 +72,10 @@ remove_worktree() {
     fi
     # Run from /tmp to avoid the CWD-trap if the caller is inside the wt.
     pushd /tmp >/dev/null
-    if git -C "$repo" worktree remove "$wt" 2>/dev/null; then
+    # Force untracked visibility: git worktree remove consults
+    # status.showUntrackedFiles, and with that set to "no" it silently
+    # deletes worktrees that contain untracked WIP (git 2.43 observed).
+    if git -C "$repo" -c status.showUntrackedFiles=normal worktree remove "$wt" 2>/dev/null; then
         if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
             git -C "$repo" branch -D "$branch" >/dev/null 2>&1 || \
                 echo "    warning: branch -D $branch failed (not a fast-forward?)"
@@ -121,11 +127,16 @@ while IFS=$'\t' read -r status repo_key branch wt_name _extra; do
         echo "skipped (branch mismatch: row=$branch current=$current_branch): $wt_name"
         continue
     fi
-    if [[ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]]; then
+    # -c status.showUntrackedFiles=normal: local/global "no" blinds both
+    # plain porcelain and --ignored (empty output even when files exist),
+    # which would let us call worktree remove on precious untracked/ignored
+    # debris. Override at the call site so the dirty + ignored guards stay
+    # honest regardless of caller config.
+    if [[ -n "$(git -C "$wt" -c status.showUntrackedFiles=normal status --porcelain 2>/dev/null)" ]]; then
         echo "skipped (no longer safe; dirty): $wt_name"
         continue
     fi
-    if (( ! INCLUDE_IGNORED )) && [[ -n "$(git -C "$wt" status --porcelain --ignored 2>/dev/null)" ]]; then
+    if (( ! INCLUDE_IGNORED )) && [[ -n "$(git -C "$wt" -c status.showUntrackedFiles=normal status --porcelain --ignored 2>/dev/null)" ]]; then
         echo "skipped (ignored files present; rerun with --include-ignored to sweep them): $wt_name"
         continue
     fi

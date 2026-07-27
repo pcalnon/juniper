@@ -401,7 +401,11 @@ def make_local_git_sources(owner: str, repo_root: Path, ecosystem_root: Path) ->
         return [t for t in out.splitlines() if t.strip()]
 
     def list_releases(repo: str) -> set:
-        return set()  # unknown offline
+        # Must raise (not return set()): an empty set makes
+        # ``diff_base_tag not in releases`` always True → false TAG_ONLY for every
+        # package under --local-git. classify_package catches SourceError and sets
+        # tag_only=None ("unavailable"), matching this docstring.
+        raise SourceError(f"releases unknown offline (--local-git); cannot evaluate TAG_ONLY for {repo}")
 
     def compare(entry: PackageEntry, base: str, head: str) -> CompareResult:
         return local_git_compare(entry, base, head, _repo_dir(entry.repo))
