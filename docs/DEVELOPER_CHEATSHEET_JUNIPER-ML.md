@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
 **Version**: 1.0.6
-**Date**: 2026-07-26
+**Date**: 2026-06-04
 **Project**: juniper-ml
 
 ---
@@ -238,14 +238,16 @@ Operator table: release-train runbook §3.2.
 timeout while still building *or* permanently missing reports honest `IN_PROGRESS` (never invents
 `PENDING` / `RELEASED` / HALT) — re-run ceremony after confirming the publish workflow fired.
 Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `local_git_compare` treats
-`.py` A/D/R/**C** as inherently substantive. Operator tables:
+`.py` A/D/R/**C** as inherently substantive. Live `gh compare` at the **300-file** cap falls back to
+`local_git_compare` and **keeps remote commit first-lines** for SemVer (`detect.py:368-371`; pin
+juniper-ml#729). Operator tables:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
 
-**Ceremony re-entry (`RESUME_MONITOR`).** If a Release tag already exists, re-dispatching
-`mode=ceremony` only monitors the publish run — it does **not** re-open the archive PR or re-cut the
-Release. Step summary shows **resume-monitor**; `plan_state` stays `RESUME_MONITOR` while `state` is
-the monitor verdict. TestPyPI failure on resume still HALTs + files an issue (no re-cut). Distinct from
-`ALREADY_RELEASED` (PyPI already serves the target). Operator details: runbook §3.3 / §5.5.
+**Ceremony `notes-render-failed` + execute `RELEASED` (juniper-ml#741).** Missing/unreadable
+`notes/templates/TEMPLATE_RELEASE_NOTES.md` (or the security template) → §8 HALT
+`notes-render-failed` (restore template, re-run; never invent archive body). Publish run
+`completed`+`success` → execute final state `RELEASED` (both gates done; no halt issue) — not
+plan-time `ALREADY_RELEASED`. Runbook §3.3 / §4.
 
 ---
 
@@ -264,6 +266,7 @@ the monitor verdict. TestPyPI failure on resume still HALTs + files an issue (no
 | `JUNIPER_WORKER_HEALTH_HOST`   | `127.0.0.1`        | Host stack cascor-worker health listener bind host           |
 | `JUNIPER_WORKER_HEALTH_PORT`   | `8210`             | Host stack cascor-worker health listener port           |
 | `JUNIPER_PROJECT_DIR`          | `~/Development/python/Juniper` | Project root honored by `util/juniper_chop_all.bash`; `plant_all` derives the root from its script location |
+| `KILL_WORKERS`                 | `0`                | Set to `1` so `chop_all` also runs `orphaned_worker_cleanup` (incl. on missing/empty pidfile abort); ignored under `--systemd` |
 | `HEALTH_CHECK_TIMEOUT`         | `60`               | Seconds `util/juniper_plant_all.bash` waits for each service health gate |
 | `USE_SYSTEMD`                  | `0`                | `1` or `--systemd`: plant/chop via `systemctl --user` (no `JuniperProject.pid`) |
 | `CASCOR_HOST`                  | `localhost`        | CasCor query-helper target host for `util/get_cascor_*.bash` |
@@ -278,6 +281,8 @@ Tip: systemd chop soft-fails per unit and always exits `0` without touching the 
 Tip: `plant_all` `safe_conda_activate` must restore nounset with `set -u` after `conda activate` (ADDR2LINE class). A `set +u`/`set +u` pair silently disables `set -u` for the rest of host bring-up — same bug class as isolated-stack [#785](https://github.com/pcalnon/juniper-ml/pull/785). Coverage: [#795](https://github.com/pcalnon/juniper-ml/pull/795).
 
 Tip: `python util/editable_install_drift_check.py --fix --dry-run --json` SKIPs when two non-worktree trees share a `[project].name` (`reason` contains `ambiguous`; never `candidates[0]`). Resolve the duplicate checkout, then re-run. Coverage: [#795](https://github.com/pcalnon/juniper-ml/pull/795). Full contract: [REFERENCE — Editable Install Drift](REFERENCE.md#editable-install-drift-check).
+
+Tip: missing **or** empty (zero-byte) `JuniperProject.pid` → `chop_all` still calls `orphaned_worker_cleanup`, then `exit 1`, and never enters the service-stop loop. Early cleanup sites are hard (no `|| true`); post-pidfile cleanup is soft. Default `KILL_WORKERS=0` only logs the short-circuit — use `KILL_WORKERS=1` when orphaned workers may be the only leftovers. See [`REFERENCE.md`](REFERENCE.md#missing--empty-juniperprojectpid-early-wire).
 
 ### Host Stack Troubleshooting
 

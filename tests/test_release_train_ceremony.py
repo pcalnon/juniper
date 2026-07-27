@@ -230,6 +230,27 @@ class PureHelperTest(unittest.TestCase):
         self.assertIsNone(ce.writable_repo_skip_reason("juniper-ml"))
         self.assertIn("cross-repo", ce.writable_repo_skip_reason("juniper-cascor"))
 
+    def test_find_open_archive_pr_matches_head_ref_only(self):
+        """Idempotency helper: reuse the open PR whose head IS the archive branch.
+
+        Execute-path reuse is covered elsewhere; this pins the pure matcher so a
+        wrong-key / first-match / None-input regression cannot silently open a
+        duplicate archive PR (plan S7 dup-guard).
+        """
+        branch = "release-notes/juniper-service-core-v0.5.0"
+        match = {"number": 42, "headRefName": branch, "url": "https://example.invalid/42"}
+        other = {"number": 7, "headRefName": "release-notes/other-v1.0.0"}
+        # first matching headRefName wins; unrelated heads ignored
+        self.assertIs(ce.find_open_archive_pr([other, match], branch), match)
+        self.assertIsNone(ce.find_open_archive_pr([other], branch))
+        self.assertIsNone(ce.find_open_archive_pr([], branch))
+        self.assertIsNone(ce.find_open_archive_pr(None, branch))
+        # tolerate sparse / empty entries from a flaky gh JSON seam
+        self.assertIsNone(ce.find_open_archive_pr([None, {}, {"headRefName": ""}], branch))
+        # must not match on title / number alone
+        decoy = {"number": 42, "title": branch, "headRefName": "release-notes/decoy-v0.5.0"}
+        self.assertIsNone(ce.find_open_archive_pr([decoy], branch))
+
     def test_api_field_splits_on_first_equals_only(self):
         # base64 contents carry ``=`` padding; gh splits on the FIRST ``=`` only -- so must ``_api_field``.
         padded = base64.b64encode(b"notes body\n").decode("ascii")  # ends with ``=`` / ``==``
@@ -1055,6 +1076,17 @@ class MonitorTimeoutTest(unittest.TestCase):
         verdict = ce.monitor_publish_run(src, "juniper-ml", "tag", timeout_seconds=1000, poll_seconds=0, sleep=lambda s: None)
         self.assertEqual(verdict, "PENDING_PYPI_APPROVAL")
         self.assertEqual(box["polls"], 3)  # did not give up while the run was still building
+
+    def test_not_found_is_not_terminal_keeps_polling(self):
+        # Right after `gh release create` the publish workflow often has not registered yet
+        # (classify_publish_run(None) -> NOT_FOUND). NOT_FOUND must NOT be treated as terminal —
+        # otherwise the ceremony exits before Gate-2 PENDING_PYPI_APPROVAL and never parks.
+        src, box = _monitor_sources(None, None, PENDING_RUN)
+        sleeps = []
+        verdict = ce.monitor_publish_run(src, "juniper-ml", "tag", timeout_seconds=1000, poll_seconds=7, sleep=sleeps.append)
+        self.assertEqual(verdict, "PENDING_PYPI_APPROVAL")
+        self.assertEqual(box["polls"], 3)  # two NOT_FOUND polls, then PENDING
+        self.assertEqual(sleeps, [7, 7])  # slept between non-terminal polls only
 
     def test_honest_in_progress_on_timeout(self):
         src, box = _monitor_sources(BUILDING_RUN)  # never reaches the gate
