@@ -90,34 +90,19 @@ release-worthy CHANGELOG changes not yet in a proposal), `BUMPED_NOT_RELEASED` (
 NORMAL green outcome** — only a hard source error (exit ≥ 2) fails the run (`release-train.yml`, detect
 step; plan §11).
 
-#### Detect SHIP filter + SemVer (why a package shows `UNRELEASED_CHANGES`)
+#### Hygiene cleared (healthy path)
 
-The detector's proposed bump feeds Gate 1. Two internals decide whether code ships and which SemVer
-bucket `propose` suggests (`detect.py:has_substantive_hunk`, `local_git_compare`, `propose_semver`;
-plan §4.2 / §6):
+The step-summary footer `hygiene: TAG_ONLY=…, NOTES_MISSING=…` (`detect.py:996-999`) is **convention
+debt**, not a deploy trigger. When a package is `UP_TO_DATE` **and** both bits are false, the detector
+found a matching GitHub Release for `diff_base_tag` **and** a central
+`notes/releases/RELEASE_NOTES_<pypi>_v<released>.md` archive (`detect.py:967-969`, `notes_missing` at
+`detect.py:879-882`; coverage juniper-ml#756). That is the healthy clear — do **not** confuse it with a
+quiet `TAG_ONLY=0` that still carries a `release-hygiene (tag_only) unavailable:` note. A `list_releases`
+`SourceError` sets `hygiene.tag_only = None` (falsy → not counted in `TAG_ONLY=`) while still evaluating
+`notes_missing` (`detect.py:971-973`); re-check Releases when gh recovers.
 
-| Signal | Ships? | Notes |
-|---|---|---|
-| Whitespace-only hunk | **No** | Empty / space-only `+/-` lines are stripped before comment/code checks (`has_substantive_hunk`). |
-| Pure comment / docstring / link edit | **No** | Notes-rename residue class — discounted. |
-| Pure **code** deletion (with `file_text`) | **Yes** | `_removed_codeish` path; deleting a real statement must not thin SemVer. |
-| Add / delete / rename / **copy** of a `.py` module (`A`/`D`/`R`/`C` in `local_git_compare`) | **Yes** | Inherently substantive — no blob compare (`detect.py:334-335`). Copy (`C075`) is rarer than A/D/R (needs copy detection) but shares the same short-circuit; do not expect a module copy to fall through to `SHIP_UNCERTAIN`. |
-| Patch unavailable | **Uncertain** | Surfaces as `SHIP_UNCERTAIN`, not a silent `UP_TO_DATE`. |
-
-Keep-a-Changelog categories + conventional-commit classes map to the proposed bump
-(`FEATURE_CATEGORIES` / `FIX_CATEGORIES` / `BREAKING_CATEGORIES`, `detect.py:107-109`;
-`propose_semver`, `detect.py:804-815`; pre-1.0 policy plan §6):
-
-| Input | Proposed bump (pre-1.0) |
-|---|---|
-| `### Security` or `### Fixed` (or `fix:` commits) | **patch** |
-| `### Added` / `### Changed` / `### Deprecated` (or `feat:` commits) | **minor** |
-| `### Removed`, `feat!` / `fix!`, or a `BREAKING CHANGE` footer | **minor** (breaking is not major pre-1.0) |
-| No release-worthy cats/classes | **none** |
-
-When reviewing a Gate 1 PR, a `Security`-only Unreleased section should propose **patch**, not minor;
-a `Changed` section should propose **minor**. A mismatch means the detector/SemVer path drifted —
-re-run `report` mode before merging a hand-edited bump.
+`released_upload` in the manifest is the **earliest** PyPI `upload_time_iso_8601` for the released
+version (`detect.py:_upload_time`); missing/empty upload times → `None` (never invent a timestamp).
 
 #### When you see `SHIP_UNCERTAIN` (soft-fail — do not treat as up-to-date)
 
@@ -433,30 +418,7 @@ python util/release_train/archive_guard.py --base origin/main --head HEAD --json
   TestPyPI failure on resume still HALTs and files `testpypi-verify-failed` **without** re-opening the
   archive PR or re-cutting the Release (`execute_ceremony` monitor branch, `ceremony.py:1016-1024`;
   coverage: juniper-ml#726). Distinct from `ALREADY_RELEASED` (PyPI already serves the target — pure
-  no-op, `ceremony.py:861-866`). See §5.5.
-
-**Archive-lane failure edges (signed API path — do not invent a sha).** The happy path above is the
-common case. When a ceremony fails *inside* `open_archive_pr` / `create_branch` / `create_signed_commit`
-(`ceremony.py:688-765`), treat these as **hard stops that must never invent a base sha or commit onto a
-ghost tip** (pinned by `tests/test_release_train_ceremony.py` / juniper-ml#714). They surface as
-`SourceError` (or `SeamViolation` for R7 code bugs) and stop that package's ceremony before a bad
-archive commit lands:
-
-| Symptom in the ceremony log | Cause | Operator response |
-|---|---|---|
-| `could not resolve origin/<base> … to base the archive branch on` | `git rev-parse origin/<base>` returned empty after fetch (`open_archive_pr`, `ceremony.py:758-760`) — **no** `git/refs` POST and **no** GraphQL commit are issued | Confirm the juniper-ml checkout has a freshened `origin/main` (clone depth / fetch failure). Re-run ceremony once the ref resolves; never hand-push an archive branch at a guessed sha. |
-| `gh failed (api repos): HTTP 401` (or any non-422 refs error) | Branch-create POST failed for auth/transport; `create_branch` re-raises and **does not** enter tip-inspection (`ceremony.py:703-705`) | Check the App / `GITHUB_TOKEN` credentials and `contents: write` on juniper-ml. A 401 is **not** the idempotent "branch already exists" path. |
-| `archive branch … exists on origin but its tip could not be resolved` | 422/already-exists re-entry, but `FETCH_HEAD` tip was empty (`ceremony.py:708-710`) — HALT rather than commit onto a ghost tip | Inspect `release-notes/<pkg>-v<ver>` on origin; delete or reset the branch by hand if it is corrupted, then re-run. |
-| `archive branch … exists but diverged from base …` | Branch tip is neither `origin/<base>` nor a single archive commit atop it (`ceremony.py:716`) | Human resolve: close/delete the stray branch (or the open archive PR) so re-entry can recreate a clean one-commit branch. |
-| Signed commit returns empty oid / PR still opens | Malformed or empty `createCommitOnBranch` GraphQL payload — oid extraction is best-effort and returns `""` without raising (`ceremony.py:743-747`); `gh pr create` still runs | Inspect the archive PR tip commit; if the file is missing, close the PR + delete the branch and re-run. Do not treat an empty oid alone as success proof. |
-
-**Idempotent re-entry (expected shapes).** When the archive branch already exists (HTTP 422 /
-"already exists"), `create_branch` reuses it only in two safe shapes (`ceremony.py:692-716`): tip ==
-`origin/<base>` (commit onto it) or tip's parent == base (single archive commit already present — skip
-re-commit). Anything else is the diverged HALT above. Forbidden tokens (`environment` / `deployment` /
-`review` / …) riding an otherwise-sanctioned `git/refs` POST or `createCommitOnBranch` call still raise
-`SeamViolation` (`_assert_api_allowed`, `ceremony.py:297-299`) — that is a **code** bug, not an operator
-recovery path.
+  no-op, `ceremony.py:864-866`). See §5.5.
 
 ### 3.4 The two owner gates (never automated)
 
@@ -485,26 +447,8 @@ invocation error (`ceremony.py:71-72`).
 | `changelog-section-missing` | no non-empty `CHANGELOG [<version>]` section to source the notes | `ceremony.py:741` | The proposal PR (Gate 1) should have created it — merge the proposal first, or add the section, then re-run. |
 | `notes-render-failed` | `notes_render.render_notes` raises `OSError` while building the final archive body from `CHANGELOG [<version>]` (missing/unreadable `notes/templates/TEMPLATE_RELEASE_NOTES.md`, or the security template when a `Security` category is present) | `ceremony.py:887-890` | Distinct from `changelog-section-missing`. Restore the template under ceremony `--repo-root` (juniper-ml), confirm CI can read it, re-run — no Release was cut. Coverage: juniper-ml#741. |
 | `missing-declared-version` | manifest has no `declared_version` for a `BUMPED_NOT_RELEASED` pkg | `ceremony.py:711` | A malformed manifest — re-run detection (`report` mode) to regenerate it. |
-| `not-in-registry` | package is `BUMPED_NOT_RELEASED` in the manifest but absent from `registry.yaml` | `ceremony.py` (`_plans_for`) | Add the package to `util/release_train/registry.yaml` (registry lint gates it). |
-| `testpypi-verify-failed` | (during the monitor) `classify_publish_run` → `HALT_TESTPYPI`: a job whose name contains `testpypi` concluded `failure` | `ceremony.py:514-515`, `1018-1023` | The run is not healthy — inspect the publish run's TestPyPI job; fix and re-cut is idempotent. A dedup issue **is** filed. |
-
-### 4.1 Monitor terminals after the Release is cut
-
-After the archive PR + Release succeed, `monitor_publish` maps the publish workflow via
-`classify_publish_run` (`ceremony.py:497-532`) and `execute_ceremony` handles the two failure classes
-**asymmetrically** (`ceremony.py:1016-1028`; pinned by `tests/test_release_train_ceremony.py`):
-
-| Terminal | Classifier trigger | Dedup issue? | Operator response |
-|---|---|---|---|
-| `HALT_TESTPYPI` | any `*testpypi*` job `conclusion=failure` | **Yes** — `reason_key=testpypi-verify-failed` via `upsert_halt_issue` | Inspect TestPyPI install-verify; fix; re-cut (idempotent). |
-| `HALT_PUBLISH` | run `status=completed` and `conclusion` in `{failure, cancelled, timed_out}` **and** TestPyPI did **not** fail (so this is post-TestPyPI) | **No** — note only: `"the publish run failed before the pypi gate."` | Open the publish run UI; diagnose the non-TestPyPI failure (cancelled deploy, timed-out job, etc.). Do **not** wait for a GitHub issue. Archive + Release were already cut — re-entry resumes at the monitor and must not re-cut. |
-| `PENDING_PYPI_APPROVAL` | run `waiting` / TestPyPI ok + pypi job parked | n/a (success for the train) | Approve Gate 2 when ready (§3.3). |
-| `RELEASED` | run completed `success` (both gates done) | n/a | Owner already approved; nothing to do. |
-
-**Why the asymmetry.** `testpypi-verify-failed` is a named, recoverable §8 class with a stable
-`reason_key` for dedup. A generic post-TestPyPI failure has no single reason key worth filing — the
-step-summary note + Slack + the publish-run URL are the signal. Looking for a missing issue is the
-wrong recovery path.
+| `not-in-registry` | package is `BUMPED_NOT_RELEASED` in the manifest but absent from `registry.yaml` | `ceremony.py` (`_plans_for` / `ceremony.py:1152`) | Add the package to `util/release_train/registry.yaml` (registry lint gates it). Propose's parallel for `UNRELEASED_CHANGES` is a **skip stub** (`skipped_reason="package not in registry.yaml"`, §3.2) — not a HALT. |
+| `testpypi-verify-failed` | (during the monitor) the publish workflow's TestPyPI install-verify failed before Gate 2 | `ceremony.py:876` | The run is not healthy — inspect the publish run's TestPyPI job; fix and re-cut is idempotent. |
 
 **HALT-issue degradation (Phase 4.3).** Filing the dedup issue is **best-effort**: if the `gh issue`
 API itself fails — most plausibly the cross-repo App token lacking the **Issues** permission — the
@@ -616,14 +560,25 @@ through `ceremony.py:_assert_gh_allowed` (`197`), which permits **exactly**
 `environment` / `deployment` / `review` / `--admin` token (`GH_FORBIDDEN_TOKENS`, `ceremony.py:177`), a
 bare `pr merge` without `--auto`, or a `release create --verify-tag`. `api` **stays forbidden for the
 general surface**; the sole carve-out is those two archive-lane calls, dispatched to the sibling
-assertion `_assert_api_allowed` (`ceremony.py:283`) which accepts ONLY a `git/refs` POST creating a
-`refs/heads/*` ref or a `createCommitOnBranch` body with `repoWithOwner` bound — every other `gh api`
-(a different path, a different mutation, a non-POST ref write, an out-of-allowlist repo) raises
-`SeamViolation`. Every `--repo` — and both archive-lane calls' repo bind — is bounded to the 8
-publishing repos. **The identity is never a `pypi` environment reviewer and never approves/mutates a
-deployment** — PyPI approval stays owner-only (Gate 2). The workflow-level `contents: read` plus the two
-mode-gated write jobs are pinned by `tests/test_release_train_workflow_guard.py`; the archive-lane api
-carve-out and its negative case are pinned by `tests/test_release_train_ceremony.py`.
+assertion `_assert_api_allowed` (`ceremony.py:283`) which accepts ONLY a `git/refs` POST with an
+**explicit** `ref=refs/heads/*` field — missing or empty `ref=` is also a `SeamViolation` (juniper-ml#770;
+pre-#770 only rejected a *present* non-heads value and deferred an omitted `ref=` to the live GitHub API) —
+or a `createCommitOnBranch` body with `repoWithOwner` bound. Every other `gh api` (a different path, a
+different mutation, a non-POST ref write, an out-of-allowlist repo) raises `SeamViolation`. Every `--repo`
+— and both archive-lane calls' repo bind — is bounded to the 8 publishing repos. **The identity is never
+a `pypi` environment reviewer and never approves/mutates a deployment** — PyPI approval stays owner-only
+(Gate 2). The workflow-level `contents: read` plus the two mode-gated write jobs are pinned by
+`tests/test_release_train_workflow_guard.py`; the archive-lane api carve-out and its negative cases
+(including missing/empty `ref=`) are pinned by `tests/test_release_train_ceremony.py`.
+
+#### R7 archive-lane `ref=` contract (juniper-ml#770)
+
+A ceremony log matching `archive-branch ref create must target refs/heads/*, got ref=None` (or `ref=''`)
+is a **code** `SeamViolation` from `_assert_api_allowed` — not an auth/network blip and not an operator
+recovery path. Do **not** hand-craft a `gh api …/git/refs` POST to "fix" it. Confirm juniper-ml#770 is on
+the train's checkout, then re-dispatch `ceremony`; if it still fires, the call site omitted `ref=` (file a
+bug — the happy path always passes `ref=refs/heads/release-notes/…`). Hermetic pin:
+`tests/test_release_train_ceremony.py` (`test_assert_api_allowed_rejects_refs_post_without_ref_field`).
 
 **Runner git identity (headless, unsigned) — must be `--global`.** Both write jobs run a
 `Configure git identity (headless, unsigned)` step that sets `user.name`, `user.email`, and
@@ -726,6 +681,8 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   CHANGELOG refuse clear-on-refuse stub shape — juniper-ml#751).
 - Static `_version.py` lockstep (Gate 1 review):
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
-  §6 / §6.1 (implemented by juniper-ml#710; hardened by juniper-ml#712).
+  (implemented by juniper-ml#710).
+- Notes-draft + healthy-hygiene operator edges (Gate 1 title/MAJOR/Breaking; `TAG_ONLY`/`NOTES_MISSING`
+  clear when Release + archive exist): coverage juniper-ml#756; this runbook §3.1 / §3.2.
 - Release convention (cut a Release, archive notes centrally): repo `AGENTS.md` "Publishing" +
   [`JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md`](JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md) §11.

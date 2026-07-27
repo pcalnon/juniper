@@ -361,39 +361,54 @@ cd "$NEW_WORKTREE"
 
 See `util/worktree_cleanup.bash --help` for full options and `--dry-run` support.
 
-### Phase 4 remote-branch deletion (script)
+### Phase 1 dirty-tree + push gates (script)
 
-`phase_4_cleanup` always removes the old worktree and deletes the **local** branch. Whether it also
-runs `git push origin --delete "${OLD_BRANCH}"` is decided in this order
-(`util/worktree_cleanup.bash`, `phase_4_cleanup`; post-juniper-ml#739 fail-closed query):
+`phase_1_save_and_push` (`util/worktree_cleanup.bash` ~213–252) runs **before** any
+continuity worktree, PR, or cleanup step. Decision order:
 
-| Condition | Remote-delete behavior | Consults `gh`? |
-|-----------|------------------------|----------------|
-| `--skip-remote-delete` set | Skip; log `Skipping remote branch deletion (--skip-remote-delete)` | **No** |
-| `--dry-run` (flag unset) | Print `[DRY-RUN] git -C … push origin --delete …` only | **No** |
-| Live + `gh` query fails / non-numeric result | Warn-and-skip; remote branch **kept** | **Yes** — fail-closed |
-| Live + open PR for `OLD_BRANCH` | Warn-and-skip; remote branch **kept** (log `PR is open for branch … — skipping remote branch deletion`) | **Yes** — `gh pr list --repo pcalnon/juniper-ml --head "${OLD_BRANCH}" --state open` |
-| Live + proven zero open PRs | Delete remote branch (warn if it is already gone) | **Yes** |
+| Condition | Script action | Reaches `git push`? |
+|-----------|---------------|---------------------|
+| `--dry-run` | Prints `[DRY-RUN] status --porcelain` + `[DRY-RUN] push …`; logs `Old worktree is clean (dry-run — skipped check)`; returns 0 | **No** (preview only) |
+| Live + non-empty `git -C "$OLD_WORKTREE" status --porcelain` | Warns with the porcelain lines; `log_error "Commit or stash changes before running cleanup"`; **`exit 1`** | **No** — hard stop |
+| Live + clean + upstream set + `rev-list --count upstream..branch > 0` | `Pushing N commit(s) to remote` → `git push origin "$OLD_BRANCH"` | **Yes** |
+| Live + clean + upstream set + ahead == 0 | `Branch is up to date with remote` (no push) | **No** |
+| Live + clean + no upstream (`@{upstream}` missing) | `No remote tracking branch — pushing to origin` → `git push -u origin "$OLD_BRANCH"` | **Yes** (`-u`) |
 
-**Why the open-PR auto-skip exists.** Deleting the remote head under an open PR breaks the PR and
-drops the backup branch Phase 1 just pushed. Prefer explicit `--skip-remote-delete` when you know a
-PR is open (no `gh` call; clearer intent). Rely on the auto-skip when cleaning up without that flag —
-it is the protective default, not a substitute for checking PR state before a force-delete.
+**Why the dirty gate is fatal.** Phase 1 is the backup push for the branch about to be
+removed. Pushing (or pretending the tree is clean) while WIP remains would either
+lose uncommitted work on `worktree remove` or push a tip that does not match the
+operator's working tree. The script never auto-commits or stashes — the operator
+must make the tree clean, then re-run.
 
-**Fail-closed on indeterminate `gh` (juniper-ml#739).** A non-zero `gh` exit or a non-numeric
-`--jq 'length'` result skips `push --delete` (warns with the exit status / unexpected result). The
-pre-#739 `|| echo "0"` path treated auth/network failure as "0 open PRs" and could delete the remote
-head under a live PR — that class is closed. Local worktree + local branch are still removed either way.
+**Dry-run caveat.** `--dry-run` **skips** the porcelain check entirely (it always
+claims clean). A dry-run that prints a push line is **not** proof the live tree is
+clean — run without `--dry-run` (or `git status --porcelain` in the old worktree)
+before treating Phase 1 as satisfied.
 
 **Constraints / pitfalls:**
 
-- The open-PR probe is hard-wired to `--repo pcalnon/juniper-ml`. Cleaning a sibling-repo worktree with
-  this script will not see that sibling's open PRs; use `--skip-remote-delete` (or delete the remote
-  branch yourself after merge).
-- Prefer `--skip-remote-delete` when you intentionally want no `gh` call (known-open PR, offline, or
-  sibling-repo cleanup). Fail-closed skip still leaves the remote branch for a later delete after merge.
-- Hermetic coverage: open-PR / no-PR / flag paths in juniper-ml#738; `gh` hard-fail + non-numeric
-  result in juniper-ml#739 (`tests/test_worktree_cleanup.py` Phase 4 remote-delete guards).
+- Dirty means any non-empty porcelain (tracked mods **or** untracked files). The
+  script does not distinguish them.
+- Exit 1 aborts the whole orchestrator — Phases 2–7 never run. Fix the tree, then
+  re-invoke; do not hand-roll Phase 4 while Phase 1 failed.
+- Hermetic coverage: dirty → exit 1 / no push in juniper-ml#747
+  (`TestPhase1DirtyTree`); clean push / skip / `-u` arms in open juniper-ml#753
+  (`TestPhase1PushBehavioral`).
+
+### Phase 2 continuity-path collision (script)
+
+`phase_2_create_new_worktree` (`util/worktree_cleanup.bash` ~273–302) generates
+`NEW_WORKTREE` / `NEW_BRANCH` (unless passed), `fetch`es `origin`, then **refuses
+to clobber** an existing path:
+
+```text
+New worktree directory already exists: <NEW_WORKTREE>
+```
+
+→ `exit 1` before `git worktree add`. Pre-existing contents are left untouched
+(no reuse, no `rm -rf`). Pass `--new-worktree` / `--new-branch` to a free path, or
+remove the colliding directory only when you intend to. Hermetic coverage: open
+juniper-ml#753 (`TestPhase2Behavioral.test_existing_new_worktree_dir_exits_without_clobber`).
 
 ---
 

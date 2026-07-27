@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.5
-**Date**: 2026-06-04
+**Version**: 1.0.6
+**Date**: 2026-07-26
 **Project**: juniper-ml
 
 ---
@@ -24,6 +24,7 @@
 | `util/juniper_plant_all.bash`                          | Start the host-level Juniper stack with health gates |
 | `util/get_cascor_status.bash`                          | Query host-mode cascor status (`CASCOR_HOST` / `CASCOR_PORT`, default `localhost:8201`) |
 | `util/juniper_chop_all.bash`                           | Stop the host-level stack from `JuniperProject.pid` |
+| `util/isolated_stack.bash --up` / `--down` / `--status` | Throwaway E2E trio on 8101/8202/8051 (use `--dry-run` to preview) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -162,10 +163,9 @@ git worktree add "$WORKTREE_DIR" "$BRANCH_NAME" && cd "$WORKTREE_DIR"
 
 **Automated**: `util/worktree_cleanup.bash --old-worktree "$DIR" --old-branch "$BRANCH" --parent-branch main`
 
-**Phase 4 remote delete:** Prefer `--skip-remote-delete` when a PR is still open (never calls `gh`).
-Without the flag, the live path auto-skips `push --delete` if `gh pr list --repo pcalnon/juniper-ml --head "$OLD_BRANCH" --state open` returns a positive length **or** if the `gh` query fails / returns a non-numeric result (fail-closed; juniper-ml#739).
-Local worktree + local branch are still removed. Hard-wired to `juniper-ml` — use the flag for sibling-repo cleanups.
-See procedure V2 § "Phase 4 remote-branch deletion (script)".
+**Phase 1 dirty gate:** Live cleanup hard-fails (`exit 1`, `Commit or stash changes before running cleanup`) when `git status --porcelain` in the old worktree is non-empty — it never reaches `git push`.
+`--dry-run` skips the porcelain check (always pretends clean). Commit or stash, then re-run.
+See procedure V2 § "Phase 1 dirty-tree + push gates (script)".
 
 **Phase 3 PR reuse / non-main parent (juniper-ml#759):** if `gh pr list` already finds an open PR for the head Phase 3 would open, the script logs `PR #<n> already exists` and never calls `gh pr create`.
 With `--parent-branch` ≠ `main`, Phase 3 merges the feature into the parent, pushes the parent, then opens `parent → main` (not `feature → main`).
@@ -229,6 +229,12 @@ Gate 1 review table: release-train operator runbook §3.2.
 Release-train `propose.py` steps 5/5a do this automatically; already-at-target is silent success
 (no false `REQUIRED`); absent / missing-header surfaces `REQUIRED` (never invents). Sub-packages
 hosted in a sibling never touch the host header.
+
+**Propose CHANGELOG refuse clears staged edits (juniper-ml#751):** `build_proposal` stages the version
+(and optional dunder) bump before the CHANGELOG move. Empty / missing Unreleased or a missing CHANGELOG
+clears those edits so the skipped stub is `edits=[]` + `skipped_reason` (same shape as dup-guard /
+`bump=none`) — do not treat leftover version edits in dry-run JSON as a Gate 1 candidate.
+Operator table: release-train runbook §3.2.
 
 **Release-train detect / ceremony edges (monitor `NOT_FOUND`, SHIP filter, SemVer).** Ceremony
 `monitor_publish_run` keeps polling when the publish run is briefly invisible (`NOT_FOUND`); a
@@ -327,6 +333,14 @@ Tip: a mid-plant health failure trips `cleanup_on_failure` (SIGTERM→3s→SIGKI
 | juniper-canopy        | 8050      | `GET /v1/health`          | JuniperCanopy1  | 3.13   |
 | juniper-cascor-worker | 8210      | `GET /v1/health/ready`    | JuniperCascor1  | 3.13   |
 
+Isolated E2E trio (never overlap these with the host ports above):
+
+| Service        | E2E Port | Health           | Runtime                         |
+|----------------|----------|------------------|---------------------------------|
+| juniper-data   | 8101     | `GET /v1/health` | dedicated `python3.14` venv     |
+| juniper-cascor | 8202     | `GET /v1/health` | `JuniperCascor1`                |
+| juniper-canopy | 8051     | `GET /v1/health` | `JuniperCanopy1` (service mode) |
+
 `juniper-cascor` still commonly exposes service/container port `8200`; host-mode utilities and Docker's published port use `8201`.
 
 Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `juniper_data_*`, `juniper_cascor_*`, `juniper_canopy_*`
@@ -343,6 +357,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-06-04
-**Version:** 1.0.5
+**Last Updated:** 2026-07-26
+**Version:** 1.0.6
 **Maintainer:** Paul Calnon

@@ -379,6 +379,9 @@ juniper-ml/
   - Operator details: [`docs/REFERENCE.md` Host Orchestration](docs/REFERENCE.md#host-orchestration-utilities). Tests: `tests/test_juniper_plant_all.py` (`TestCleanupOnFailure` / `TestWaitForHealth` / `TestCheckPortAvailable`).
 - `util/juniper_chop_all.bash` -- Stops all Juniper ecosystem services
 - `util/isolated_stack.bash` -- Brings up / tears down the isolated training-runtime E2E trio (data 8101 dedicated `python3.14` venv, cascor 8202 `JuniperCascor1`, canopy 8051 `JuniperCanopy1` service mode) with the documented env (control-WS origin pair, `JUNIPER_DATA_URL`, `LD_LIBRARY_PATH=`); `--up`/`--down`/`--status`/`--dry-run`, ports 8101/8202/8051 (`JUNIPER_E2E_*` overrides), `--dry-run` starts nothing. See [E2E checklist](notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md).
+  - Nounset (juniper-ml#785): `activate_conda` must `set -u` after `conda activate` (matching plant `safe_conda_activate`); pre-#785 left `set +u` so live `--up` ran without nounset after cascor/canopy activate.
+  - Teardown: `--down` is kill-by-port via `port_pid`/`stop_port` (`ss` first `pid=`), canopy→cascor→data, then RUN_DIR + `snapshot_*` cleanup — not `JuniperProject.pid`. Empty/`ss` soft-fail is a noop; `--dry-run` never kills.
+  - Health: `wait_for_health` polls `/v1/health` every 2s until `JUNIPER_E2E_HEALTH_TIMEOUT` (default 60); `--status` `probe_health` reports code + pid and does not fail the script. Operator details: [`docs/REFERENCE.md` Isolated Stack E2E](docs/REFERENCE.md#isolated-stack-e2e-utilities).
 - `util/get_cascor_*.bash` -- Cascor REST API query utilities (status, metrics, history, network, topology). These helpers read legacy `CASCOR_HOST` and `CASCOR_PORT` environment variables (with `localhost` / `8201` defaults). Do not confuse them with the `JUNIPER_CASCOR_*` variables used by `util/juniper_plant_all.bash`.
 
 ### Tests
@@ -427,7 +430,6 @@ juniper-ml/
   - Soft-fail pins: truncated-without-ship / unreadable-declared / compare-not-ok → `SHIP_UNCERTAIN` (juniper-ml#763); hygiene `SourceError` → `tag_only=None` (juniper-ml#761).
 - `tests/test_release_train_propose.py` -- Hermetic tests for `util/release_train/propose.py` + `notes_render.py` (Phase 2.1); no network / gh / repo writes. Covers a dry-run proposal for a static- and a dynamic-version package, the CHANGELOG move, notes render vs the template skeleton + the `RELEASE_NOTES_<pkg>_v<version>.md` convention, dup-guard suppression, the `changelog_conflict` refusal, and that a dry-run writes nothing. `util/` is not lint-gated, so this is the gate.
   - ml#701 dunder-lockstep shapes: static-with-dunder bumps BOTH files; static-without-dunder emits no phantom `_version.py` edit; the dynamic path is unchanged; a present-but-unparseable dunder is flagged REQUIRED-manual in the checklist.
-  - ml#701 / #712 edges: already-at-target (partial heal / re-entry) is silent success (no REQUIRED false alarm); single-quoted `__version__` still bumps.
   - Sibling/meta AGENTS.md shapes (ml#706 / #720): primary co-change; sub-package host skip; unexpected header REQUIRED; already-at-target silent; absent / missing-Version REQUIRED.
   - CHANGELOG refuse clear-on-refuse (juniper-ml#751): empty Unreleased / missing CHANGELOG stubs assert `edits=[]` + `branch is None` after the staged version bump is cleared.
   - Also pins test-path nonship (`_is_test_path` / `classify_change`) so `tests/` / `test_*.py` / `conftest.py` / `*_test.py` never invent `UNRELEASED_CHANGES` even with code hunks (juniper-ml#749).

@@ -4,7 +4,7 @@
 
 **Version:** 0.6.0
 **Status:** Active
-**Last Updated:** 2026-07-25
+**Last Updated:** 2026-07-26
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -15,6 +15,7 @@
 - [Extras Reference](#extras-reference)
 - [Ecosystem Compatibility](#ecosystem-compatibility)
 - [Host Orchestration Utilities](#host-orchestration-utilities)
+- [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
