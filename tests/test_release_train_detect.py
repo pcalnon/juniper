@@ -299,6 +299,14 @@ class PyprojectClassifierTest(unittest.TestCase):
     def test_patch_unavailable_is_uncertain(self):
         self.assertEqual(d.classify_pyproject_patch(None)[0], "uncertain")
 
+    def test_build_system_via_hunk_trailer_is_ship(self):
+        # GitHub often puts the section only in the @@ trailer (no body [build-system]
+        # context line). That arm must still classify as ship — otherwise truncated /
+        # compare patches silently UP_TO_DATE packaging changes (detect.py:676-681 + 707-708).
+        # Body-marker + mixed-tool cases owned by concurrent #774 — keep only this arm.
+        patch = "@@ -1,2 +1,2 @@ [build-system]\n" '-requires = ["setuptools>=61"]\n' '+requires = ["hatchling"]\n'
+        self.assertEqual(d.classify_pyproject_patch(patch)[0], "ship")
+
 
 class PathScopingTest(unittest.TestCase):
     def test_subdir_package_scope(self):
