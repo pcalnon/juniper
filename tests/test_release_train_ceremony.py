@@ -1056,6 +1056,17 @@ class MonitorTimeoutTest(unittest.TestCase):
         self.assertEqual(verdict, "PENDING_PYPI_APPROVAL")
         self.assertEqual(box["polls"], 3)  # did not give up while the run was still building
 
+    def test_not_found_is_not_terminal_keeps_polling(self):
+        # Right after `gh release create` the publish workflow often has not registered yet
+        # (classify_publish_run(None) -> NOT_FOUND). NOT_FOUND must NOT be treated as terminal —
+        # otherwise the ceremony exits before Gate-2 PENDING_PYPI_APPROVAL and never parks.
+        src, box = _monitor_sources(None, None, PENDING_RUN)
+        sleeps = []
+        verdict = ce.monitor_publish_run(src, "juniper-ml", "tag", timeout_seconds=1000, poll_seconds=7, sleep=sleeps.append)
+        self.assertEqual(verdict, "PENDING_PYPI_APPROVAL")
+        self.assertEqual(box["polls"], 3)  # two NOT_FOUND polls, then PENDING
+        self.assertEqual(sleeps, [7, 7])  # slept between non-terminal polls only
+
     def test_honest_in_progress_on_timeout(self):
         src, box = _monitor_sources(BUILDING_RUN)  # never reaches the gate
         clock = {"t": 0.0}

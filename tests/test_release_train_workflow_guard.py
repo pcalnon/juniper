@@ -37,7 +37,7 @@ PyYAML and asserting:
       charset reject + the ``APP_TOKEN`` → ``--cross-repo`` capability gate on both write jobs' run scripts
       (a regression that always passes ``--cross-repo`` breaks the no-App degraded path).
 
-Beyond the structural pins, three **YAML-extraction rehearsals** execute the actual workflow snippets
+Beyond the structural pins, four **YAML-extraction rehearsals** execute the actual workflow snippets
 hermetically (the "run the real thing, not a reimplementation" idiom): ``ModeResolutionMatrixTest`` extracts
 the ``id: mode`` step's shell and runs it over the whole mode matrix (incl. ``ceremony`` now valid + the
 dispatch-input > repo-variable precedence), ``CeremonySummaryRehearsalTest`` extracts the ceremony
@@ -889,6 +889,84 @@ class HeredocCompileTest(unittest.TestCase):
             4,
             f"expected to compile 4 PY heredoc bodies in {WORKFLOW_NAME}; got {compiled} " f"(update this pin when intentionally adding/removing a <<'PY' block).",
         )
+
+
+# ── YAML-extraction rehearsal 4: detector exit contract (0/1 green, >=2 fails) ──
+
+
+class DetectorExitContractRehearsalTest(unittest.TestCase):
+    """Extract the detect job's ``Run release-train detector`` shell and prove the ACTUAL exit contract:
+    detect.py exit 0 (all quiet) and 1 (action needed — a NORMAL report outcome) must leave the step
+    green; only exit >= 2 (hard source/registry error) fails the job.
+
+    A regression that tightens the gate to ``-ge 1`` / drops ``|| rc=$?`` turns every actionable daily
+    train red. Hermetic: stub ``python`` on PATH; no network / real detect.py."""
+
+    script: str
+
+    @classmethod
+    def setUpClass(cls):
+        repo_root = _find_repo_root(Path(__file__).resolve().parent)
+        wf = repo_root / ".github" / "workflows" / WORKFLOW_NAME
+        if not wf.is_file():
+            raise unittest.SkipTest(f"{WORKFLOW_NAME} not present at {wf}")
+        doc = yaml.safe_load(wf.read_text(encoding="utf-8"))
+        step = next(
+            (s for s in doc["jobs"]["detect"]["steps"] if s.get("id") == "detect" or (s.get("name") or "").startswith("Run release-train detector")),
+            None,
+        )
+        if step is None or "run" not in step:
+            raise unittest.SkipTest("could not locate the detect job's detector run step")
+        cls.script = step["run"]
+
+    def _run_with_python_exit(self, py_exit: int):
+        """Return (proc, gh_output_text). Reads GITHUB_OUTPUT before the temp dir is reaped."""
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bin_dir = td_path / "bin"
+            bin_dir.mkdir()
+            # Stub `python` (the workflow invokes bare `python`, not `python3`).
+            stub = bin_dir / "python"
+            stub.write_text(
+                "#!/bin/bash\n" f"# stub: emit a tiny JSON manifest on stdout (shell redirects to the artifact), then exit {py_exit}\n" "echo '{\"packages\":[]}'\n" f"exit {py_exit}\n",
+                encoding="utf-8",
+            )
+            stub.chmod(0o755)
+            script_path = td_path / "detect.sh"
+            script_path.write_text(self.script, encoding="utf-8")
+            gh_out = td_path / "gh_output"
+            gh_out.write_text("", encoding="utf-8")
+            # working-directory: juniper-ml — create a fake tree so relative paths resolve.
+            fake_ml = td_path / "juniper-ml"
+            fake_ml.mkdir()
+            (fake_ml / "util" / "release_train").mkdir(parents=True)
+            (fake_ml / "util" / "release_train" / "detect.py").write_text("# stub path only\n", encoding="utf-8")
+            env = RedactedEnv(os.environ)
+            env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+            env["GITHUB_OUTPUT"] = str(gh_out)
+            env["GITHUB_WORKSPACE"] = str(td_path)
+            proc = subprocess.run(  # nosec B603,B607 - workflow's own shell, fixed argv
+                ["bash", str(script_path)],
+                capture_output=True,
+                text=True,
+                env=env,
+                cwd=str(fake_ml),
+                check=False,
+            )
+            return proc, gh_out.read_text(encoding="utf-8")
+
+    def test_exit_0_and_1_are_green(self):
+        for code in (0, 1):
+            with self.subTest(py_exit=code):
+                proc, written = self._run_with_python_exit(code)
+                self.assertEqual(proc.returncode, 0, f"detector shell must stay green on detect.py exit {code}; stderr:\n{proc.stderr}\nstdout:\n{proc.stdout}")
+                self.assertIn(f"exit-code={code}", written)
+
+    def test_exit_2_fails_the_step(self):
+        proc, written = self._run_with_python_exit(2)
+        self.assertEqual(proc.returncode, 2, f"hard detector failure must fail the step; stderr:\n{proc.stderr}\nstdout:\n{proc.stdout}")
+        self.assertIn("::error::", proc.stdout + proc.stderr)
+        self.assertIn("exit-code=2", written)
 
 
 if __name__ == "__main__":

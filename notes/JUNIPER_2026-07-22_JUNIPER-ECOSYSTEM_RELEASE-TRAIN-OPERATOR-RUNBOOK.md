@@ -146,36 +146,32 @@ last released version lacks a GitHub Release (`tag_only`) or a central `notes/re
 gh workflow run release-train.yml -f mode=propose -f packages=juniper-observability
 ```
 
-- The `packages` input is whitespace/comma-separated `pypi_name`s, validated against the pypi-name
-  charset (`release-train.yml`, the propose run step's parser). Empty = all eligible.
+- The `packages` input is whitespace/comma-separated `pypi_name`s with a hard charset reject (see
+  below). Empty = all eligible.
 - The resulting PRs are **standard-gated**: the owner reviews and merges them. This is **Gate 1** (the
   version bump only ships with owner approval; plan §5.3).
-- **In-repo pilot vs cross-repo**: with the GitHub App token minted (§7 below) sibling-repo packages get
-  PRs in their own repos; on the degraded no-App path only juniper-ml packages are proposed and siblings
+- **In-repo pilot vs cross-repo**: `--cross-repo` is emitted **only** when the App token is non-empty
+  (see below / §7). On the degraded no-App path only juniper-ml packages are proposed and siblings
   are skipped with a clear reason.
 
-#### When propose skips (refusal stubs)
+#### `packages` dispatch charset + `--cross-repo` gate
 
-`build_proposal` returns a **skipped** stub (`skipped_reason` set; no PR opened) when inputs are
-unusable — it never invents a shippable bump or an empty CHANGELOG section (`propose.py:1029-1107`).
-`execute_proposal` already no-ops on `skipped`, so these are dry-run / JSON / step-summary signals.
-Coverage: juniper-ml#749 (`BuildProposalTest` refusal cases).
+Both write jobs (`propose` and `ceremony`) share the same shell prefix **before** python runs
+(`release-train.yml:494-519` propose; `:703-727` ceremony). Structural substring pins alone can miss a
+weakened regex or a reordered `APP_TOKEN` gate — open juniper-ml#729 `PackagesInputRehearsalTest`
+extracts and *runs* the real prefix.
 
-| `skipped_reason` contains | Cause | Operator response |
-|---|---|---|
-| `dup-guard: open release PR already exists` | Concurrent / prior proposal still open | Review / merge / close the existing PR; do not force a second |
-| `changelog conflict -- refuse to auto-author` | Detector flagged Unreleased vs ship evidence mismatch | Fix CHANGELOG or ship evidence by hand; re-run `report` then `propose` |
-| `no proposable version` (`bump=none` / missing `proposed_version`) | SemVer inputs empty (often test/docs-only tip → no ship) | Confirm detect did not invent `UNRELEASED_CHANGES`; no Gate 1 PR expected |
-| `could not read the version file` | Missing `pyproject.toml` / `_version.py` for the package path | Restore the version file on `main`; re-run propose |
-| `could not locate the version assignment` | File present but assignment unparseable | Fix the version assignment syntax; re-run propose |
-| `CHANGELOG move refused` (`no content to move` / missing Unreleased heading) | Empty or missing `## [Unreleased]` body | Add real Unreleased bullets (or drop the false `UNRELEASED_CHANGES`); never invent an empty section |
-| `could not read …/CHANGELOG.md` | CHANGELOG missing after version staging | Restore CHANGELOG; re-run propose |
+| Input / condition | Result |
+|---|---|
+| Empty `packages` | No `--package` filter → all eligible (`package filter: <all eligible packages>`) |
+| Comma- or whitespace-separated tokens | Equivalent — `juniper-observability, juniper-ci-tools` → two `--package` args |
+| Token matching `^[a-z0-9][a-z0-9-]*$` | Accepted (lowercase letters, digits, hyphens; e.g. `juniper-observability`) |
+| Garbage token (`Juniper-Observability`, `juniper_observability`, `../x`, `a;rm …`) | Job exits **2** with `::error::invalid package token …` **before** `propose.py` / `ceremony.py` runs |
+| `APP_TOKEN` non-empty (App mint succeeded) | `--cross-repo` appended (Phase 4.1) |
+| `APP_TOKEN` empty (`RELEASE_TRAIN_APP_ID` unset) | No `--cross-repo`; siblings skipped — degraded in-repo path (§7) |
 
-**Upstream of propose — test paths never ship.** `classify_change` discounts `_is_test_path` matches
-(`tests/` / `test/` path segments, `test_*.py`, `*_test.py`, `conftest.py`) as `nonship` **before** the
-substantive-hunk filter (`detect.py:658-663`, `735-736`). A tip that only touches tests will not become
-`UNRELEASED_CHANGES` and therefore will not open a Gate 1 PR — even if the hunks look like "real code".
-Coverage: juniper-ml#749 (`test_test_paths_are_nonship_even_with_code_hunks`).
+**Pitfall:** Title Case, underscores, path fragments, and shell metacharacters fail the write job hard
+(exit ≥ 2). Fix the dispatch input and re-run — do not treat it as a python / §8 HALT failure.
 
 #### Gate 1 review — static `_version.py` dunder lockstep (ml#701 / juniper-ml#710)
 
@@ -333,6 +329,9 @@ Coverage pins: `tests/test_release_train_propose.py` (juniper-ml#756).
 # Run the exempt-archive + Release ceremony for BUMPED_NOT_RELEASED packages.
 gh workflow run release-train.yml -f mode=ceremony -f packages=juniper-observability
 ```
+
+The `packages` / `--cross-repo` shell contract is **identical** to §3.2 (same charset reject +
+`APP_TOKEN` gate; `release-train.yml:703-727`).
 
 For each `BUMPED_NOT_RELEASED` package the ceremony (`ceremony.py:1-45`): runs the §8 preconditions,
 builds the central notes file, opens the **add-only** archive PR (always in juniper-ml — the central
