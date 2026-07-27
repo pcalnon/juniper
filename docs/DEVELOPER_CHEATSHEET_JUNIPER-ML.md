@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
 **Version**: 1.0.6
-**Date**: 2026-07-26
+**Date**: 2026-06-04
 **Project**: juniper-ml
 
 ---
@@ -242,16 +242,11 @@ Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `lo
 juniper-ml#729). Operator tables:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
 
-**Release-train `packages` dispatch + `--cross-repo`.** Both write jobs reject garbage
-`packages` tokens (`Juniper-Observability`, underscores, `../`, `;`) with exit **2** + `::error::`
-before python runs; empty = all eligible; commas ≡ whitespace. `--cross-repo` only when `APP_TOKEN`
-is non-empty. Runbook §3.2; pin juniper-ml#729 `PackagesInputRehearsalTest`.
-
-**Release-train write-job git identity (ml#705):** when editing `.github/workflows/release-train.yml`, keep both `propose` and `ceremony` identity steps on `git config --global user.name|user.email|commit.gpgsign` (never bare repo-local `git config`). Cross-repo commits land in freshly-cloned sibling checkouts; a juniper-ml-only identity leaves them with `Author identity unknown` (run 30040138774). Operator detail: runbook §7 / §8.7.
-
-**R7 archive-lane `ref=` (juniper-ml#770):** a ceremony `SeamViolation` with `ref=None` / `ref=''` means
-the `git/refs` POST omitted a heads ref — fail-closed code bug, not an auth blip. Do not hand-POST a
-ref. Re-dispatch after #770; see runbook §7.
+**Ceremony `notes-render-failed` + execute `RELEASED` (juniper-ml#741).** Missing/unreadable
+`notes/templates/TEMPLATE_RELEASE_NOTES.md` (or the security template) → §8 HALT
+`notes-render-failed` (restore template, re-run; never invent archive body). Publish run
+`completed`+`success` → execute final state `RELEASED` (both gates done; no halt issue) — not
+plan-time `ALREADY_RELEASED`. Runbook §3.3 / §4.
 
 ---
 
@@ -270,6 +265,7 @@ ref. Re-dispatch after #770; see runbook §7.
 | `JUNIPER_WORKER_HEALTH_HOST`   | `127.0.0.1`        | Host stack cascor-worker health listener bind host           |
 | `JUNIPER_WORKER_HEALTH_PORT`   | `8210`             | Host stack cascor-worker health listener port           |
 | `JUNIPER_PROJECT_DIR`          | `~/Development/python/Juniper` | Project root honored by `util/juniper_chop_all.bash`; `plant_all` derives the root from its script location |
+| `KILL_WORKERS`                 | `0`                | Set to `1` so `chop_all` also runs `orphaned_worker_cleanup` (incl. on missing/empty pidfile abort); ignored under `--systemd` |
 | `HEALTH_CHECK_TIMEOUT`         | `60`               | Seconds `util/juniper_plant_all.bash` waits for each service health gate |
 | `JUNIPER_E2E_DATA_PORT`        | `8101`             | Isolated-stack juniper-data port (`util/isolated_stack.bash`) |
 | `JUNIPER_E2E_CASCOR_PORT`      | `8202`             | Isolated-stack juniper-cascor port |
@@ -285,6 +281,8 @@ ref. Re-dispatch after #770; see runbook §7.
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
 
 Tip: after a crashed Juniper pytest session, run `util/reap_pytest_orphans.bash --dry-run` first. The awk gate keeps only current-user python whose cmdline has `JuniperC*` or `Juniper/worktrees/`; `skipped` is a ps→gone / missing-`PPid:` race, not a kill. See [REFERENCE.md § Pytest Orphan Reaper](REFERENCE.md#pytest-orphan-reaper).
+
+Tip: missing **or** empty (zero-byte) `JuniperProject.pid` → `chop_all` still calls `orphaned_worker_cleanup`, then `exit 1`, and never enters the service-stop loop. Early cleanup sites are hard (no `|| true`); post-pidfile cleanup is soft. Default `KILL_WORKERS=0` only logs the short-circuit — use `KILL_WORKERS=1` when orphaned workers may be the only leftovers. See [`REFERENCE.md`](REFERENCE.md#missing--empty-juniperprojectpid-early-wire).
 
 ### Host Stack Troubleshooting
 
