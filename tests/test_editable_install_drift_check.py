@@ -4,7 +4,8 @@
 Builds a synthetic conda directory (envs/<E>/lib/pythonX/site-packages with
 ``*.dist-info/direct_url.json`` files) plus a synthetic ecosystem root, then
 asserts classification, environment selection, exit codes, JSON output, and the
-``--fix`` plan. ``--dry-run`` is used so no real ``pip`` is invoked.
+``--fix`` plan. ``--dry-run`` covers the plan shape; live ``run_fix`` is
+exercised with a mocked ``subprocess.run`` so no real ``pip`` is invoked.
 
 Run: python3 -m unittest -v tests/test_editable_install_drift_check.py
 
@@ -17,11 +18,13 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 UTIL_DIR = Path(__file__).resolve().parents[1] / "util"
 sys.path.insert(0, str(UTIL_DIR))
