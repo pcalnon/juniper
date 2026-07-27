@@ -315,6 +315,85 @@ class NotesRenderTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(buf.getvalue().strip(), "notes/releases/RELEASE_NOTES_juniper-thing_v0.5.0.md")
 
+    def test_display_name_meta_is_juniper_ml(self):
+        # Meta-package title stem is humanized; every other dist name passes through.
+        self.assertEqual(nr.display_name("juniper-ml"), "Juniper ML")
+        self.assertEqual(nr.display_name("juniper-thing"), "juniper-thing")
+
+    def test_release_type_major_and_unknown_default(self):
+        self.assertEqual(nr.release_type("major"), "MAJOR")
+        self.assertEqual(nr.release_type("minor"), "MINOR")
+        self.assertEqual(nr.release_type("patch"), "PATCH")
+        self.assertEqual(nr.release_type("none"), "PATCH")
+        self.assertEqual(nr.release_type("unexpected"), "PATCH")  # defensive default
+
+    def test_render_meta_major_marks_breaking_on_removed(self):
+        # MAJOR + Removed => title uses "Juniper ML", Release Type MAJOR, Breaking YES.
+        sections = OrderedDict([("Removed", ["dropped the legacy CLI entrypoint"]), ("Fixed", ["typo in help text"])])
+        text = nr.render_notes(
+            "juniper-ml",
+            "1.0.0",
+            bump="major",
+            release_date="2026-07-26",
+            sections=sections,
+            repo_root=REPO_ROOT,
+        )
+        self.assertIn("# Juniper ML v1.0.0 Release Notes", text)
+        self.assertIn("**Release Type:** MAJOR", text)
+        self.assertIn("**Breaking changes:** YES", text)
+        self.assertIn("dropped the legacy CLI entrypoint", text)
+        # Without a Removed category the Breaking flag stays NO (regression guard for the
+        # case-insensitive membership check over section keys).
+        no_break = nr.render_notes(
+            "juniper-thing",
+            "0.5.0",
+            bump="minor",
+            release_date="2026-07-26",
+            sections=OrderedDict([("Added", ["a feature"])]),
+            repo_root=REPO_ROOT,
+        )
+        self.assertIn("**Breaking changes:** NO", no_break)
+
+    def test_split_bullets_star_markers_and_continuations(self):
+        # Keep-a-Changelog allows ``*`` as well as ``-``; continuations fold into the
+        # current bullet, and stray prose before any marker is ignored.
+        body = [
+            "stray prose before markers is ignored",
+            "* first star bullet",
+            "  continuation of first",
+            "* second star",
+            "- dash bullet",
+            "    indented continuation",
+            "bare prose joins current",
+        ]
+        bullets = nr._split_bullets(body)
+        self.assertEqual(len(bullets), 3)
+        self.assertIn("first star bullet", bullets[0])
+        self.assertIn("continuation of first", bullets[0])
+        self.assertEqual(bullets[1], "second star")
+        self.assertIn("dash bullet", bullets[2])
+        self.assertIn("indented continuation", bullets[2])
+        self.assertIn("bare prose joins current", bullets[2])
+        # End-to-end: parse_unreleased must accept ``*`` markers and fold continuations.
+        changelog = textwrap.dedent("""\
+            ## [Unreleased]
+
+            ### Added
+
+            * star item
+              folded line
+
+            * another
+
+            ## [0.1.0] - 2026-01-01
+            """)
+        sections = nr.parse_unreleased(changelog)
+        self.assertEqual(list(sections), ["Added"])
+        self.assertEqual(len(sections["Added"]), 2)
+        self.assertIn("star item", sections["Added"][0])
+        self.assertIn("folded line", sections["Added"][0])
+        self.assertEqual(sections["Added"][1], "another")
+
 
 # ── CHANGELOG move ───────────────────────────────────────────────────────────
 
