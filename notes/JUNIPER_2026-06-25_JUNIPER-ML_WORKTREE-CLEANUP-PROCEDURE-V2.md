@@ -45,12 +45,17 @@ cd "$OLD_WORKTREE_DIR"
 git status
 ```
 
-**GATE**: Working tree must be clean. If dirty, commit remaining changes:
+**GATE**: Working tree must be clean. If dirty, commit or stash remaining changes
+before any push (manual or scripted):
 
 ```bash
 git add <files>
 git commit -m "<final commit message>"
+# or: git stash push -u -m "pre-cleanup"
 ```
+
+The automated script (`phase_1_save_and_push`) hard-fails here — see
+[Phase 1 dirty-tree + push gates (script)](#phase-1-dirty-tree--push-gates-script).
 
 ### Step 2: Push Worktree Branch to Remote
 
