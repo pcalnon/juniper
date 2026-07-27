@@ -43,7 +43,7 @@ python3 -m unittest -v tests/test_worktree_cleanup.py
 python3 -m unittest -v tests/test_worktree_sweep_scripts.py
 python3 -m unittest -v tests/test_cleanup_session_worktrees.py
 python3 -m unittest -v tests/test_reap_pytest_orphans.py
-python3 -m unittest -v tests/test_check_conda_env_torch.py
+python3 -m unittest -v tests/test_kill_helpers.py
 python3 -m unittest -v tests/test_requirements_drift_check.py
 python3 -m unittest -v tests/test_editable_install_drift_check.py
 python3 -m unittest -v tests/test_env_floor_drift_check.py
@@ -235,7 +235,7 @@ juniper-ml/
 │   ├── test_worktree_sweep_scripts.py    # Ad-hoc sweep script safety/contract tests
 │   ├── test_cleanup_session_worktrees.py # Session .claude/worktrees cleaner (merged-PR fail-closed + dry-run)
 │   ├── test_reap_pytest_orphans.py       # Orphan pytest process reaper tests
-│   ├── test_check_conda_env_torch.py     # Hermetic P-5 torch._C shadow diagnostic exit matrix (0/1/2/3/4)
+│   ├── test_kill_helpers.py              # Emergency kill helpers: process-filter / kill-path (hermetic PATH stubs)
 │   ├── test_requirements_drift_check.py  # Requirements snapshot drift checker tests
 │   ├── test_editable_install_drift_check.py # Editable-install drift checker tests (orphaned / worktree-pinned)
 │   ├── test_env_floor_drift_check.py     # Lint/behavioural: util/env_floor_drift_check.py floor-drift (I-2; synthetic dist-info)
@@ -401,6 +401,7 @@ juniper-ml/
 - `tests/test_worktree_sweep_scripts.py` -- Tests for `util/ad-hoc/worktree_sweep_*.bash`: survey/apply row compatibility, `SAFE`-only removal, and unknown-repo skips
 - `tests/test_cleanup_session_worktrees.py` -- Hermetic tests for `scripts/cleanup_session_worktrees.py`: `_has_merged_pr` fail-closed (gh fail / bad JSON), dirty/unmerged/detached keeps, self-cwd skip, and `--dry-run` remove of main-ancestor / MERGED-PR clean tips
 - `tests/test_reap_pytest_orphans.py` -- Tests for `util/reap_pytest_orphans.bash` dry-run, live-parent safety, orphan detection, and isolated kill invocation
+- `tests/test_kill_helpers.py` -- Hermetic process-filter / kill-path tests for `util/kill_all_pythons.bash` and `util/juniper_worker_kill.bash` (PATH-stubbed `ps`/`sudo`/`kill`; bash `kill` builtin disabled; never touches live PIDs)
 - `tests/test_requirements_drift_check.py` -- Tests for `util/requirements_drift_check.py`: structural range validation, BAD_PATH / BAD_RANGE classification, `--ecosystem-root` rewriting, CLI exit codes, JSON output
 - `tests/test_editable_install_drift_check.py` -- Tests for `util/editable_install_drift_check.py`: FRESH / WORKTREE_PINNED / ORPHANED classification, `*-DEPRECATED` env exclusion, `--env` filtering, dedup across interpreter trees, CLI exit codes (0/1/2), JSON output, and `--fix --dry-run` canonical-source resolution (synthetic conda-dir fixture; no real pip)
   - Live `run_fix` (open #802): mocked `subprocess.run` covers `FIXED` on success, `ERROR` on `CalledProcessError`, and `ERROR` then `FIXED` when the first item raises `OSError` (plan continues).

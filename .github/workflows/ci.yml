@@ -143,6 +143,10 @@ jobs:
           # tempfile git fixtures; util/ is not pre-commit-lint-gated.
           python3 -m unittest -v tests/test_worktree_wipeout_close.py
           python3 -m unittest -v tests/test_reap_pytest_orphans.py
+          # tests/test_kill_helpers.py: hermetic process-filter / kill-path coverage for
+          # util/kill_all_pythons.bash and util/juniper_worker_kill.bash (PATH-stubbed
+          # ps/sudo/kill; bash kill builtin disabled). util/ is not pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_kill_helpers.py
           python3 -m unittest -v tests/test_editable_install_drift_check.py
           # tests/test_env_floor_drift_check.py: gap-I-2 floor-drift checker --
           # installed juniper-* (dist-info METADATA) vs the target repo's pyproject
