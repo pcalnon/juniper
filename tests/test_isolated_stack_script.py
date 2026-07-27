@@ -317,6 +317,10 @@ class TestPortPid(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertEqual(result.stdout.strip(), "PID=")
 
+    def _write_curl_ok(self, bin_dir: Path) -> None:
+        curl = bin_dir / "curl"
+        curl.write_text("#!/usr/bin/env bash\nexit 0\n")
+        curl.chmod(0o755)
 
 class TestStopPort(unittest.TestCase):
     """Behavioral pins for ``stop_port`` kill-by-port / nothing-listening arms.
@@ -358,7 +362,13 @@ class TestStopPort(unittest.TestCase):
 
     def _run_stop_port(self, *, ss_script: str, port: str, name: str) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as tmp:
-            bin_dir = Path(tmp) / "bin"
+            root = Path(tmp)
+            run_dir = root / "run"
+            data_dir = root / "juniper-data"
+            marker_dir = root / "markers"
+            bin_dir = root / "bin"
+            data_dir.mkdir()
+            marker_dir.mkdir()
             bin_dir.mkdir()
             ss = bin_dir / "ss"
             ss.write_text("#!/usr/bin/env bash\n" + ss_script)
