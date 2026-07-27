@@ -797,8 +797,8 @@ class PackagesInputRehearsalTest(unittest.TestCase):
                 self.assertEqual(proc.returncode, 0, proc.stderr)
                 self.assertIn("cross-repo", proc.stdout.lower())
                 self.assertRegex(proc.stdout, r"ARGS:--package juniper-observability\|CROSS:--cross-repo")
-            with self.subTest(job=job, token="absent"):
-                proc = self._run(job, "juniper-observability", app_token="")
+            with self.subTest(job=job, token="absent"):  # nosec B106 - subTest label, not a credential
+                proc = self._run(job, "juniper-observability", app_token="")  # nosec B106 - empty token exercising the degraded path
                 self.assertEqual(proc.returncode, 0, proc.stderr)
                 self.assertIn("degraded", proc.stdout.lower())
                 self.assertRegex(proc.stdout, r"ARGS:--package juniper-observability\|CROSS:$")
