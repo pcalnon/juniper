@@ -37,15 +37,18 @@ PyYAML and asserting:
       charset reject + the ``APP_TOKEN`` → ``--cross-repo`` capability gate on both write jobs' run scripts
       (a regression that always passes ``--cross-repo`` breaks the no-App degraded path).
 
-Beyond the structural pins, four **YAML-extraction rehearsals** execute the actual workflow snippets
+Beyond the structural pins, five **YAML-extraction rehearsals** execute the actual workflow snippets
 hermetically (the "run the real thing, not a reimplementation" idiom): ``ModeResolutionMatrixTest`` extracts
 the ``id: mode`` step's shell and runs it over the whole mode matrix (incl. ``ceremony`` now valid + the
 dispatch-input > repo-variable precedence), ``CeremonySummaryRehearsalTest`` extracts the ceremony
 step-summary Python and runs it over a synthetic ``ceremony-output.txt`` (proving it renders
-ceremonies/resumes/HALTs/PENDING_PYPI_APPROVAL and the degraded-issue line), and
-``PackagesInputRehearsalTest`` extracts the write-job ``packages`` / ``--cross-repo`` shell prefix and
-*runs* it (charset reject exit 2 + App-token capability gate) -- complementary to the structural
-mint/ECOSYSTEM_REPOS / packages string pins.
+ceremonies/resumes/HALTs/PENDING_PYPI_APPROVAL and the degraded-issue line), ``ProposeSummaryRehearsalTest``
+extracts the propose step-summary Python and runs it over a synthetic ``propose-output.txt`` (proving
+opened:/skip: lines bucket into the operator-facing step summary), ``DetectorExitContractRehearsalTest``
+extracts the detect job's ``Run release-train detector`` shell and proves exit 0/1 stay green while
+exit >= 2 fails the step (detect.py's report-only contract), and ``PackagesInputRehearsalTest`` extracts
+the write-job ``packages`` / ``--cross-repo`` shell prefix and *runs* it (charset reject exit 2 +
+App-token capability gate) -- complementary to the structural mint/ECOSYSTEM_REPOS / packages string pins.
 
 Companion to ``tests/test_release_train_propose.py`` / ``tests/test_release_train_ceremony.py``. Neither
 ``util/`` nor the workflow YAML is pre-commit-lint-gated for these properties, so this unittest IS the gate.
