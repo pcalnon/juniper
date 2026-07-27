@@ -219,14 +219,12 @@ Gate 1 review table: release-train operator runbook §3.2.
 
 **Re-entry caveat (juniper-ml#712):** if `__version__` already equals the proposed version, the train leaves the dunder alone and does **not** checklist REQUIRED-manual. Confirm the match before treating a pyproject-only proposal as the old failure class.
 
-**Gate 1 notes draft (`notes_render`, coverage juniper-ml#756):** meta-package title must read `# Juniper ML v…` (not `# juniper-ml v…`);
-`Release Type` maps `major`→MAJOR / `minor`→MINOR / `patch|none|unknown`→PATCH;
-`Breaking changes` is YES only when Unreleased has a `Removed` category;
-Keep-a-Changelog accepts `*` as well as `-` (continuations fold).
-Operator table: release-train runbook §3.2.
-
-**Daily hygiene cleared:** `TAG_ONLY=0` + `NOTES_MISSING=0` with no `release-hygiene (tag_only) unavailable:` note means each counted package has a GitHub Release **and** a central `notes/releases/` archive for the released version (orthogonal to "needs deploy").
-`released_upload` is the earliest PyPI upload ISO (or `None`). Operator note: release-train runbook §3.1.
+**Sibling / meta AGENTS.md Version (worker#140 / ml#706 / #720):** when hand-bumping a sibling repo's
+**primary** package (`pypi_name` equals the repo name) or the meta-package, move `AGENTS.md`
+`**Version**:` with the version file — CI embeds the portable `test_agents_md_version_drift` lint.
+Release-train `propose.py` steps 5/5a do this automatically; already-at-target is silent success
+(no false `REQUIRED`); absent / missing-header surfaces `REQUIRED` (never invents). Sub-packages
+hosted in a sibling never touch the host header.
 
 **Propose CHANGELOG refuse clears staged edits (juniper-ml#751):** `build_proposal` stages the version
 (and optional dunder) bump before the CHANGELOG move. Empty / missing Unreleased or a missing CHANGELOG
@@ -234,9 +232,13 @@ clears those edits so the skipped stub is `edits=[]` + `skipped_reason` (same sh
 `bump=none`) — do not treat leftover version edits in dry-run JSON as a Gate 1 candidate.
 Operator table: release-train runbook §3.2.
 
-**R7 archive-lane `ref=` (juniper-ml#770):** a ceremony `SeamViolation` with `ref=None` / `ref=''` means
-the `git/refs` POST omitted a heads ref — fail-closed code bug, not an auth blip. Do not hand-POST a
-ref. Re-dispatch after #770; see runbook §7.
+**Release-train detect / ceremony edges (monitor `NOT_FOUND`, SHIP filter, SemVer).** Ceremony
+`monitor_publish_run` keeps polling when the publish run is briefly invisible (`NOT_FOUND`); a
+timeout while still building *or* permanently missing reports honest `IN_PROGRESS` (never invents
+`PENDING` / `RELEASED` / HALT) — re-run ceremony after confirming the publish workflow fired.
+Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `local_git_compare` treats
+`.py` A/D/R/**C** as inherently substantive. Operator tables:
+[`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
 
 **Archive-guard FAIL triage:** the exempt notes-archive PR's required check (`Release-Train Archive Guard`)
 PASSes only on pure `A` adds under `notes/releases/RELEASE_NOTES_*.md`.
