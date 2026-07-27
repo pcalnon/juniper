@@ -394,13 +394,29 @@ head under a live PR — that class is closed. Local worktree + local branch are
 
 ## Edge Cases
 
-### PR Already Exists for Branch
+### PR Already Exists for Branch (script Phase 3)
 
-Check before creating:
+Manual check before creating:
 
 ```bash
 gh pr list --head "$OLD_BRANCH" --state open
 ```
+
+`util/worktree_cleanup.bash` `phase_3_merge_and_pr` already does this for the **head it will open**:
+
+| Parent | Ahead of parent? | Open PR for head? | Script action |
+|---|---|---|---|
+| `main` | yes (`origin/main..origin/$OLD_BRANCH` > 0) | yes (`gh pr list --head $OLD_BRANCH`) | Log `PR #<n> already exists` — **never** `gh pr create` |
+| `main` | yes | no | `gh pr create --base main --head $OLD_BRANCH` |
+| not `main` | yes | yes (`--head $PARENT_BRANCH`) | Log existing — **never** create (reuse parent→main PR) |
+| not `main` | yes | no | Merge `$OLD_BRANCH` → `$PARENT_BRANCH`, push parent, then `gh pr create --base main --head $PARENT_BRANCH` |
+| any | no (ahead == 0) | n/a | Warn and skip PR entirely |
+
+**Pitfalls (script):**
+
+- Any non-empty `gh pr list … --jq '.[0].number'` stdout is treated as an existing PR number — a real empty list prints nothing (not `[]`). Coverage: juniper-ml#759 (`test_existing_open_pr_skips_create`).
+- Non-`main` parent: the PR head is the **parent**, not the feature branch. Dry-run previews `merge` + `push origin $PARENT` + `gh pr create --head $PARENT` (never `--head $OLD_BRANCH`). Coverage: juniper-ml#759 (`test_non_main_parent_merges_then_creates_pr_for_parent`, dry-run companion).
+- Open #755 owns the `main`-parent ahead-skip / ahead→create happy path; do not re-document those shapes here as unowned.
 
 ### Multiple Worktrees Needing Cleanup
 
