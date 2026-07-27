@@ -354,9 +354,41 @@ cd "$NEW_WORKTREE"
 
 **Important**: The script outputs the new worktree path to stdout. The caller MUST `cd` to that path after the script completes. The script cannot change the caller's CWD because it runs in a subshell.
 
-Use `--skip-remote-delete` when a PR was created, since the remote branch is needed for the PR. The PR merge process (on GitHub) will handle remote branch cleanup.
-
 See `util/worktree_cleanup.bash --help` for full options and `--dry-run` support.
+
+### Phase 4 remote-branch deletion (script)
+
+`phase_4_cleanup` always removes the old worktree and deletes the **local** branch. Whether it also
+runs `git push origin --delete "${OLD_BRANCH}"` is decided in this order
+(`util/worktree_cleanup.bash`, `phase_4_cleanup`; post-juniper-ml#739 fail-closed query):
+
+| Condition | Remote-delete behavior | Consults `gh`? |
+|-----------|------------------------|----------------|
+| `--skip-remote-delete` set | Skip; log `Skipping remote branch deletion (--skip-remote-delete)` | **No** |
+| `--dry-run` (flag unset) | Print `[DRY-RUN] git -C … push origin --delete …` only | **No** |
+| Live + `gh` query fails / non-numeric result | Warn-and-skip; remote branch **kept** | **Yes** — fail-closed |
+| Live + open PR for `OLD_BRANCH` | Warn-and-skip; remote branch **kept** (log `PR is open for branch … — skipping remote branch deletion`) | **Yes** — `gh pr list --repo pcalnon/juniper-ml --head "${OLD_BRANCH}" --state open` |
+| Live + proven zero open PRs | Delete remote branch (warn if it is already gone) | **Yes** |
+
+**Why the open-PR auto-skip exists.** Deleting the remote head under an open PR breaks the PR and
+drops the backup branch Phase 1 just pushed. Prefer explicit `--skip-remote-delete` when you know a
+PR is open (no `gh` call; clearer intent). Rely on the auto-skip when cleaning up without that flag —
+it is the protective default, not a substitute for checking PR state before a force-delete.
+
+**Fail-closed on indeterminate `gh` (juniper-ml#739).** A non-zero `gh` exit or a non-numeric
+`--jq 'length'` result skips `push --delete` (warns with the exit status / unexpected result). The
+pre-#739 `|| echo "0"` path treated auth/network failure as "0 open PRs" and could delete the remote
+head under a live PR — that class is closed. Local worktree + local branch are still removed either way.
+
+**Constraints / pitfalls:**
+
+- The open-PR probe is hard-wired to `--repo pcalnon/juniper-ml`. Cleaning a sibling-repo worktree with
+  this script will not see that sibling's open PRs; use `--skip-remote-delete` (or delete the remote
+  branch yourself after merge).
+- Prefer `--skip-remote-delete` when you intentionally want no `gh` call (known-open PR, offline, or
+  sibling-repo cleanup). Fail-closed skip still leaves the remote branch for a later delete after merge.
+- Hermetic coverage: open-PR / no-PR / flag paths in juniper-ml#738; `gh` hard-fail + non-numeric
+  result in juniper-ml#739 (`tests/test_worktree_cleanup.py` Phase 4 remote-delete guards).
 
 ---
 
@@ -399,12 +431,15 @@ Use the ad-hoc sweep pair only when cleaning the centralized Juniper worktree po
 - `DIRTY`, `ACTIVE`, `BROKEN`, unknown-repo, missing-directory, non-worktree, and no-longer-safe rows are skipped.
 - Apply revalidates every `SAFE` row immediately before removal: the target directory must still be a git worktree, have a clean working tree (tracked/untracked only), and have `rev-list --count origin/main..HEAD == 0`.
 
-**Dirt vs gitignored debris (ml#715).** Survey classifies dirt with plain `git status --porcelain` — tracked modifications and untracked files only. GITIGNORED debris (caches, logs, decrypted secrets) does **not** make a worktree `DIRTY`; ignored-only trees with `ahead == 0` classify as `SAFE`. Apply keeps a separate ignored-content guard at removal time because deleting a worktree also deletes that debris, which may be precious (the decrypted-secrets class):
+**Dirt vs gitignored debris (ml#715).** Survey classifies dirt with `git status --porcelain` — tracked modifications and untracked files only. GITIGNORED debris (caches, logs, decrypted secrets) does **not** make a worktree `DIRTY`; ignored-only trees with `ahead == 0` classify as `SAFE`. Apply keeps a separate ignored-content guard at removal time because deleting a worktree also deletes that debris, which may be precious (the decrypted-secrets class):
 
 | Apply mode | Ignored-only SAFE row | Tracked/untracked dirt |
 |------------|----------------------|------------------------|
 | Default | Skipped (`ignored files present; rerun with --include-ignored…`) | Hard skip (always) |
 | `--include-ignored` | Removed | Hard skip (always) |
+| `--dry-run --include-ignored` (either flag order) | Prints `DRY:…` only; never deletes | Hard skip (always) |
+
+**`status.showUntrackedFiles=no` must not blind the sweep (ml#734 / ml#735).** Plain `git status --porcelain` / `--ignored` return empty under that config even when untracked or ignored files exist, and `git worktree remove` (without `--force`) can silently delete those trees. Survey and apply therefore force `status.showUntrackedFiles=normal` on every dirt / ignored / `worktree remove` call site so the guards stay fail-closed. Without that override, default apply can delete decrypted-secrets debris and untracked WIP. Contract pins: `tests/test_worktree_sweep_scripts.py` (`test_show_untracked_files_no_*` / `test_ignored_guard_not_blinded_by_show_untracked_files_no`).
 
 Unknown apply flags exit `2`. Pair with `tests/test_worktree_sweep_scripts.py` for the contract pins.
 
