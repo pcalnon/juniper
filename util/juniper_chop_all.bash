@@ -121,10 +121,21 @@ echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] === Stopping services via pidfile ==="
 # Utility Functions
 ###########################################################################################################################################################################################################
 
+# Collapse service-name punctuation/case so conda env paths like
+# .../envs/JuniperCascor1/bin/python match pidfile key juniper-cascor.
+# Plant launches cascor/canopy as `python server.py` / `python main.py` (relative
+# module names) — the only stable token in cmdline is often the conda env name.
+function _chop_normalize_token() {
+    local s="${1,,}"
+    s="${s//-/}"
+    s="${s//_/}"
+    printf '%s' "${s}"
+}
+
 # Validate that a PID belongs to the expected Juniper service by checking
 # ${JUNIPER_CHOP_PROC_ROOT:-/proc}/<pid>/cmdline (D-05 / JR-ML-SEC-045).
 # Rejects non-numeric PIDs, missing /proc entries, empty cmdline, and cmdline
-# that does not contain the pidfile service name (hyphen or underscore form).
+# that does not contain the pidfile service name (hyphen/underscore/case-folded).
 # Without the name match, a reused PID would receive SIGTERM/SIGKILL.
 function validate_pid() {
     local pid="$1"
@@ -149,16 +160,20 @@ function validate_pid() {
     fi
     echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] PID ${pid} cmdline: ${cmdline:0:200}"
 
-    # Plant launches modules as juniper_data / juniper_cascor (underscores) while the
-    # pidfile keys use hyphens (juniper-data). Accept either form as a substring.
-    local expected_alt="${expected_name//-/_}"
-    if [[ "${cmdline}" != *"${expected_name}"* && "${cmdline}" != *"${expected_alt}"* ]]; then
+    # Match hyphen, underscore, and conda-env forms (JuniperCascor1 / juniper_data).
+    # Literal substring alone rejects plant's cascor/canopy launches
+    # (`python server.py` / `python main.py` under JuniperCascor1/JuniperCanopy1).
+    local expected_norm cmdline_norm
+    expected_norm="$(_chop_normalize_token "${expected_name}")"
+    cmdline_norm="$(_chop_normalize_token "${cmdline}")"
+    if [[ -z "${expected_norm}" || "${cmdline_norm}" != *"${expected_norm}"* ]]; then
         echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] WARNING: PID ${pid} cmdline does not match expected service '${expected_name}' — skipping (stale PID / wrong process)"
         return 1
     fi
 
-    # juniper-cascor must not match a worker cmdline that contains juniper_cascor_worker.
-    if [[ "${expected_name}" == "juniper-cascor" && "${cmdline}" == *worker* ]]; then
+    # juniper-cascor must not match a worker cmdline that contains juniper_cascor_worker
+    # (normalized token junipercascor is a prefix of junipercascorworker).
+    if [[ "${expected_name}" == "juniper-cascor" && "${cmdline_norm}" == *worker* ]]; then
         echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] WARNING: PID ${pid} looks like a worker, not juniper-cascor — skipping"
         return 1
     fi
