@@ -227,6 +227,12 @@ Operator table: release-train runbook §3.2.
 **Daily hygiene cleared:** `TAG_ONLY=0` + `NOTES_MISSING=0` with no `release-hygiene (tag_only) unavailable:` note means each counted package has a GitHub Release **and** a central `notes/releases/` archive for the released version (orthogonal to "needs deploy").
 `released_upload` is the earliest PyPI upload ISO (or `None`). Operator note: release-train runbook §3.1.
 
+**Propose CHANGELOG refuse clears staged edits (juniper-ml#751):** `build_proposal` stages the version
+(and optional dunder) bump before the CHANGELOG move. Empty / missing Unreleased or a missing CHANGELOG
+clears those edits so the skipped stub is `edits=[]` + `skipped_reason` (same shape as dup-guard /
+`bump=none`) — do not treat leftover version edits in dry-run JSON as a Gate 1 candidate.
+Operator table: release-train runbook §3.2.
+
 ---
 
 ## Environment Variables
