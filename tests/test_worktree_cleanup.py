@@ -152,7 +152,7 @@ phase_3_merge_and_pr
         env=env,
         timeout=SCRIPT_TIMEOUT_SECONDS,
     )
-  
+
 
 def _init_fixture_repo(path: Path) -> None:
     """Bare-bones git repo with main + a bare origin remote."""
