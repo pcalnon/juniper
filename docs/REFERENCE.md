@@ -4,7 +4,7 @@
 
 **Version:** 0.6.0
 **Status:** Active
-**Last Updated:** 2026-07-25
+**Last Updated:** 2026-07-26
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -15,6 +15,7 @@
 - [Extras Reference](#extras-reference)
 - [Ecosystem Compatibility](#ecosystem-compatibility)
 - [Host Orchestration Utilities](#host-orchestration-utilities)
+- [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
@@ -213,6 +214,63 @@ Coverage: open juniper-ml#791 (`tests/test_juniper_chop_all.py` — `TestOrphane
 
 ---
 
+## Isolated Stack E2E Utilities
+
+`util/isolated_stack.bash` brings up a **throwaway** data / cascor / canopy trio on non-default ports so the training-runtime E2E checklist can run without touching the operator host stack (`8100` / `8201` / `8050`) or the deploy Docker stack. The primary recipe is [`notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md`](../notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md); this section is the operator contract for the helper.
+
+| Utility | Purpose | Key Overrides |
+|---------|---------|---------------|
+| `util/isolated_stack.bash --up` | Create the data venv, then launch data → cascor → canopy (health-gated) | `JUNIPER_E2E_DATA_PORT`, `JUNIPER_E2E_CASCOR_PORT`, `JUNIPER_E2E_CANOPY_PORT`, `JUNIPER_E2E_HEALTH_TIMEOUT`, `JUNIPER_E2E_DATA_EXTRAS`, `JUNIPER_E2E_RUN_DIR`, `JUNIPER_E2E_*_CONDA` / `*_DIR` |
+| `util/isolated_stack.bash --down` | Kill-by-port teardown + clean run / snapshot artifacts | same port / `RUN_DIR` / project overrides |
+| `util/isolated_stack.bash --status` | Probe each `/v1/health` and report listening PID | same |
+| `util/isolated_stack.bash --dry-run …` | Print every command; execute nothing (safe when ports are busy) | same |
+
+Defaults: data `8101` (dedicated `python3.14` venv), cascor `8202` (`JuniperCascor1`), canopy `8051` (`JuniperCanopy1` service mode). Scratch under `${TMPDIR:-/tmp}/juniper-e2e`. Exactly one of `--up` / `--down` / `--status` is required (misuse exits `2`).
+
+```bash
+util/isolated_stack.bash --dry-run --up   # preview only
+util/isolated_stack.bash --up
+util/isolated_stack.bash --status
+util/isolated_stack.bash --down
+```
+
+#### Nounset after `activate_conda` (juniper-ml#785)
+
+The script runs under `set -euo pipefail`. Cascor/canopy bring-up calls `activate_conda`, which temporarily `set +u` around `conda activate` because conda activation scripts may reference unset vars (e.g. `ADDR2LINE`) — the same class as plant's `safe_conda_activate`.
+
+**Contract:** restore nounset with `set -u` immediately after `conda activate` so later unset expansions still fail. Pre-[#785](https://github.com/pcalnon/juniper-ml/pull/785) the restore arm was a second `set +u`, so live `--up` continued **without** nounset after every cascor/canopy activate. If a mid-`--up` failure looks like a silent missing-env typo that plant would have caught, confirm #785 is present (`rg -n 'set -u' util/isolated_stack.bash` inside `activate_conda`).
+
+#### Kill-by-port teardown (`port_pid` / `stop_port`)
+
+`--down` does **not** use `JuniperProject.pid`. It stops canopy → cascor → data via `stop_port`, which asks `ss -tlnpH "sport = :<port>"` for the first `pid=N` (`port_pid`), then `kill`s that PID.
+
+Soft-fail when `ss` is missing, exits nonzero, or reports no `pid=` (logs "nothing listening"; not a failure). `--dry-run --down` announces the kill line but never kills. After stop, live mode removes `${RUN_DIR}/data`, the data venv, `*.pid`, and `snapshot_*` under cascor/canopy `src/snapshots/` (non-matching snapshot names are left alone).
+
+Orphaned listeners on `8101`/`8202`/`8051` after a broken teardown collide with the next `--up` — prefer `--down`, then `ss -tlnH 'sport = :8101 or sport = :8202 or sport = :8051'` (should print nothing).
+
+Coverage: `tests/test_isolated_stack_script.py` (`TestPortPid` / `TestStopPort` / `TestLiveDown` in juniper-ml#786/#788).
+
+#### Health wait / status probe
+
+- `wait_for_health` (live `--up` only): polls `curl -sf` every **2s** (hard-coded; not plant's `HEALTH_CHECK_INTERVAL`) until success or `JUNIPER_E2E_HEALTH_TIMEOUT` (default `60`). Timeout logs `ERROR: … see ${LOG_DIR}` and returns `1` (aborts `--up` under `set -e`).
+- `probe_health` (`--status`): reports HTTP code (or `000` on curl failure) plus `port_pid`; never fails the script on an unhealthy service.
+- Health URLs are always `http://127.0.0.1:<port>/v1/health` for all three services.
+
+Coverage: `tests/test_isolated_stack_script.py` (`TestWaitForHealth` / `TestProbeHealth` in juniper-ml#793).
+
+Troubleshooting:
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| `--up` dies with unset-variable / odd conda activate noise | Need #785 nounset restore; also confirm `JUNIPER_E2E_CONDA_DIR` points at a real `conda.sh`. |
+| Ports still busy after `--down` | Confirm `ss` is on `PATH` and can see user processes; re-run `--down` or kill the `pid=` from `ss -tlnpH` manually. |
+| Health timeout mid-`--up` | Inspect `${JUNIPER_E2E_RUN_DIR:-/tmp/juniper-e2e}/logs/*.log`; raise `JUNIPER_E2E_HEALTH_TIMEOUT` only after fixing the service, not as a silent hang workaround. |
+| Control-WS `403` / reconnect churn | Cascor allowlist + canopy Origin must both be canopy's origin (`http://127.0.0.1:<CANOPY_PORT>`). See checklist §4. |
+
+Do **not** point isolated ports at the host stack or run `--up` on ports `plant_all` already owns.
+
+---
+
 ## Sibling Packages
 
 ### juniper-observability
@@ -324,10 +382,10 @@ These variables are consumed by Juniper packages documented in this repository. 
 > These are not set by juniper-ml itself — they are consumed by the installed sub-packages.
 > `CASCOR_SERVICE_URL` defaults to the cascor service/container port (`8200`). The host-level stack and `util/get_cascor_*.bash` helpers target the host-facing port (`8201`) unless overridden.
 
-Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities).
+Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities) and the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities).
 
 ---
 
-**Last Updated:** July 26, 2026
+**Last Updated:** 2026-07-26
 **Version:** 0.6.0
 **Maintainer:** Paul Calnon
