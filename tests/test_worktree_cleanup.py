@@ -84,21 +84,7 @@ def _p3r_install_fake_gh(bin_dir: Path, log_path: Path, *, list_stdout: str = ""
     gh = bin_dir / "gh"
     # Escape for embedding in the generated bash script.
     list_payload = list_stdout.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
-    gh.write_text(
-        "#!/usr/bin/env bash\n"
-        "set -euo pipefail\n"
-        f'printf "%s\\n" "$*" >> "{log_path}"\n'
-        'if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then\n'
-        f'  printf "%s" "{list_payload}"\n'
-        "  exit 0\n"
-        "fi\n"
-        'if [[ "${1:-}" == "pr" && "${2:-}" == "create" ]]; then\n'
-        '  echo "https://example.invalid/pull/1"\n'
-        "  exit 0\n"
-        "fi\n"
-        'echo "unexpected gh invocation: $*" >&2\n'
-        "exit 99\n"
-    )
+    gh.write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "%s\\n" "$*" >> "{log_path}"\n' 'if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then\n' f'  printf "%s" "{list_payload}"\n' "  exit 0\n" "fi\n" 'if [[ "${1:-}" == "pr" && "${2:-}" == "create" ]]; then\n' '  echo "https://example.invalid/pull/1"\n' "  exit 0\n" "fi\n" 'echo "unexpected gh invocation: $*" >&2\n' "exit 99\n")
     gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
     return gh
 
