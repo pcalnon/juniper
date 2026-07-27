@@ -11,6 +11,7 @@
 #   SIGTERM_TIMEOUT         — Seconds to wait after SIGTERM before SIGKILL (default: 15)
 #   KILL_WORKERS            — Set to "1" to also kill orphaned cascor worker processes (default: 0)
 #   USE_SYSTEMD             — Set to "1" to use systemctl instead of PID files (default: 0)
+#   JUNIPER_CHOP_PROC_ROOT  — Override /proc root for validate_pid (tests only; default: /proc)
 #
 # Flags:
 #   --systemd               — Same as USE_SYSTEMD=1
@@ -120,25 +121,63 @@ echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] === Stopping services via pidfile ==="
 # Utility Functions
 ###########################################################################################################################################################################################################
 
-# Validate that a PID belongs to a Juniper process by checking /proc/<pid>/cmdline
+# Collapse service-name punctuation/case so conda env paths like
+# .../envs/JuniperCascor1/bin/python match pidfile key juniper-cascor.
+# Plant launches cascor/canopy as `python server.py` / `python main.py` (relative
+# module names) — the only stable token in cmdline is often the conda env name.
+function _chop_normalize_token() {
+    local s="${1,,}"
+    s="${s//-/}"
+    s="${s//_/}"
+    printf '%s' "${s}"
+}
+
+# Validate that a PID belongs to the expected Juniper service by checking
+# ${JUNIPER_CHOP_PROC_ROOT:-/proc}/<pid>/cmdline (D-05 / JR-ML-SEC-045).
+# Rejects non-numeric PIDs, missing /proc entries, empty cmdline, and cmdline
+# that does not contain the pidfile service name (hyphen/underscore/case-folded).
+# Without the name match, a reused PID would receive SIGTERM/SIGKILL.
 function validate_pid() {
     local pid="$1"
     local expected_name="$2"
+    local proc_root="${JUNIPER_CHOP_PROC_ROOT:-/proc}"
 
     if ! [[ "${pid}" =~ ^[0-9]+$ ]]; then
         echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] WARNING: Invalid PID '${pid}' for ${expected_name} — skipping"
         return 1
     fi
 
-    if [[ ! -d "/proc/${pid}" ]]; then
+    if [[ ! -d "${proc_root}/${pid}" ]]; then
         echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] WARNING: PID ${pid} (${expected_name}) is not running — already stopped or stale PID"
         return 1
     fi
 
     local cmdline
-    # cmdline="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || echo "")"
-    cmdline="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || echo "Failed to read cmdline for PID ${pid}" )"
+    cmdline="$(tr '\0' ' ' < "${proc_root}/${pid}/cmdline" 2>/dev/null || echo "")"
+    if [[ -z "${cmdline// }" ]]; then
+        echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] WARNING: PID ${pid} (${expected_name}) has empty/unreadable cmdline — skipping"
+        return 1
+    fi
     echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] PID ${pid} cmdline: ${cmdline:0:200}"
+
+    # Match hyphen, underscore, and conda-env forms (JuniperCascor1 / juniper_data).
+    # Literal substring alone rejects plant's cascor/canopy launches
+    # (`python server.py` / `python main.py` under JuniperCascor1/JuniperCanopy1).
+    local expected_norm cmdline_norm
+    expected_norm="$(_chop_normalize_token "${expected_name}")"
+    cmdline_norm="$(_chop_normalize_token "${cmdline}")"
+    if [[ -z "${expected_norm}" || "${cmdline_norm}" != *"${expected_norm}"* ]]; then
+        echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] WARNING: PID ${pid} cmdline does not match expected service '${expected_name}' — skipping (stale PID / wrong process)"
+        return 1
+    fi
+
+    # juniper-cascor must not match a worker cmdline that contains juniper_cascor_worker
+    # (normalized token junipercascor is a prefix of junipercascorworker).
+    if [[ "${expected_name}" == "juniper-cascor" && "${cmdline_norm}" == *worker* ]]; then
+        echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] WARNING: PID ${pid} looks like a worker, not juniper-cascor — skipping"
+        return 1
+    fi
+
     return 0
 }
 
