@@ -17,6 +17,9 @@
 #   util/check_conda_env_torch.bash JuniperCanopy
 #   util/check_conda_env_torch.bash JuniperCascor1
 #
+# Environment:
+#   JUNIPER_CONDA_DIR — conda/miniforge root (default: /opt/miniforge3)
+#
 set -u
 
 ENV_NAME="${1:-}"
@@ -25,7 +28,9 @@ if [[ -z "$ENV_NAME" ]]; then
     exit 1
 fi
 
-ENV_PATH="/opt/miniforge3/envs/$ENV_NAME"
+# Override for hermetic tests / non-default installs (matches plant/isolated JUNIPER_*_CONDA_DIR pattern).
+CONDA_DIR="${JUNIPER_CONDA_DIR:-/opt/miniforge3}"
+ENV_PATH="${CONDA_DIR}/envs/$ENV_NAME"
 PYTHON="$ENV_PATH/bin/python"
 
 if [[ ! -x "$PYTHON" ]]; then
