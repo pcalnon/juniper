@@ -306,11 +306,7 @@ class TestValidatePid(unittest.TestCase):
     def test_script_wires_proc_root_override(self) -> None:
         # Drift guard: the live function must honour JUNIPER_CHOP_PROC_ROOT.
         self.assertIn("JUNIPER_CHOP_PROC_ROOT", SCRIPT_TEXT)
-<<<<<<< HEAD
-        self.assertIn("${JUNIPER_CHOP_PROC_ROOT:-/proc}", SCRIPT_TEXT)
-=======
         self.assertIn('${JUNIPER_CHOP_PROC_ROOT:-/proc}', SCRIPT_TEXT)
->>>>>>> 2b8f4ee (fix(chop): match plant cascor/canopy cmdlines in validate_pid)
 
 
 if __name__ == "__main__":
