@@ -140,6 +140,61 @@ view…` (`detect.py:954-957`) means ship evidence was still absent after the fa
 locally with `--local-git` or inspect the path-scoped diff by hand. Coverage pin: open
 juniper-ml#729 `LiveCompareCapFallbackTest`.
 
+#### Hygiene cleared (healthy path)
+
+The step-summary footer `hygiene: TAG_ONLY=…, NOTES_MISSING=…` (`detect.py:996-999`) is **convention
+debt**, not a deploy trigger. When a package is `UP_TO_DATE` **and** both bits are false, the detector
+found a matching GitHub Release for `diff_base_tag` **and** a central
+`notes/releases/RELEASE_NOTES_<pypi>_v<released>.md` archive (`detect.py:967-969`, `notes_missing` at
+`detect.py:879-882`; coverage juniper-ml#756). That is the healthy clear — do **not** confuse it with a
+quiet `TAG_ONLY=0` that still carries a `release-hygiene (tag_only) unavailable:` note. A `list_releases`
+`SourceError` sets `hygiene.tag_only = None` (falsy → not counted in `TAG_ONLY=`) while still evaluating
+`notes_missing` (`detect.py:971-973`); re-check Releases when gh recovers.
+
+`released_upload` in the manifest is the **earliest** PyPI `upload_time_iso_8601` for the released
+version (`detect.py:_upload_time`); missing/empty upload times → `None` (never invent a timestamp).
+
+#### When you see `SHIP_UNCERTAIN` (soft-fail — do not treat as up-to-date)
+
+`SHIP_UNCERTAIN` is an **action** classification (`ACTION_CLASSIFICATIONS`, `detect.py:98`): the daily
+report and Slack "Needs release action" count include it, and exit 1 is expected. It means the detector
+**could not prove** ship or no-ship — never invent `UP_TO_DATE` / `BUMPED_NOT_RELEASED` from a soft fail
+(`classify_package`, `detect.py:899-973`). Read the per-package note lines under the step summary (also in
+`release-manifest.json` → `packages[].notes`).
+
+| Note / signal | Cause | Operator action |
+|---|---|---|
+| `could not read declared version from the checkout` | Missing/unparseable `pyproject.toml` / `_version.py` for that package path (`detect.py:899-902`) | Fix the checkout (sibling clone missing? wrong `path:` in `registry.yaml`?) and re-run `report`. |
+| `no tag under '<pattern>' matches released <ver>` | Released version has no matching git tag (`detect.py:917-920`) | Cut/restore the Release+tag convention (never bare-tag; §8 item 3), then re-run. |
+| `compare … not found` / `compare unavailable` / other `comp.error` | Soft-fail compare (`comp.ok=False`, `detect.py:923-926`) — missing base/head, transport | Confirm the tag exists on the owning repo and `gh` auth; re-run. Do **not** hand-propose from a quiet report. |
+| `compare diff hit the 300-file cap with no ship evidence in view; page or re-run (--local-git)` | Truncated compare window, no ship file in view (`detect.py:954-957`) | Live detect already falls back to `local_git_compare` past the 300-file cap (`make_live_sources`, `detect.py:360-372`; pin in juniper-ml#729). If you still see this note, re-run locally with `--local-git` or inspect the package path-scoped diff by hand. |
+| `ship_uncertain` file rows in the manifest (no truncated note) | Patch unavailable / ambiguous hunks (`detect.py:952-955`, patch-unavailable → uncertain) | Open the listed files; decide ship vs discount; prefer a CHANGELOG corroboration before `propose`. |
+
+`SHIP_UNCERTAIN` can still carry a `proposed_bump` / `proposed_version` when SemVer inputs are available
+(`detect.py:963-964`) — treat that as a **hint**, not a Gate 1 mandate, until the uncertainty is cleared.
+
+#### Hygiene degrade: `tag_only=None` / unavailable (orthogonal to "needs deploy")
+
+The table footer `hygiene: TAG_ONLY=…, NOTES_MISSING=…` (`detect.py:996-999`) counts packages whose
+last released version lacks a GitHub Release (`tag_only`) or a central `notes/releases/` archive
+(`notes_missing`). Both are **convention debt**, not deploy triggers. (Healthy clear —
+`TAG_ONLY=0` + `NOTES_MISSING=0` with no unavailable note — means Release + archive exist; see the
+sibling hygiene-cleared guidance when present.)
+
+- **True `tag_only`**: tag exists but no GitHub Release for it — restore the Release ceremony (§8 item 3 /
+  plan §12 step 0.4); do not push a bare tag.
+- **`tag_only` unavailable** (`None`): `list_releases` raised `SourceError` (gh blip). The detector keeps
+  the package classification (often `UP_TO_DATE`), sets `hygiene.tag_only = None` (falsy → **not** counted
+  in `TAG_ONLY=`), still evaluates `notes_missing`, and appends
+  `release-hygiene (tag_only) unavailable: …` (`detect.py:971-973`; coverage juniper-ml#761). **Do not**
+  treat a quiet `TAG_ONLY=0` plus that note as "hygiene cleared" — re-check Releases when gh recovers.
+  A regression that re-raises would exit 2 the whole detect job; inventing `tag_only=True` would spam false
+  TAG_ONLY on every blip.
+- **Offline `--local-git`**: `make_local_git_sources.list_releases` must **raise** `SourceError` (open
+  juniper-ml#773) so hygiene takes the `tag_only=None` path above. Returning `set()` falsely marks every
+  package TAG_ONLY (`diff_base_tag not in set()` is always True). Until #773 lands, prefer live detect
+  (or ignore `TAG_ONLY=` under `--local-git`).
+
 ### 3.2 Dispatching `propose` against specific packages (Gate 1)
 
 ```bash
@@ -329,6 +384,28 @@ learned to ignore them — #751 makes the stub shape honest. Full refusal-reason
 Hermetic coverage: `tests/test_release_train_propose.py`
 (`BuildProposalTest.test_changelog_move_refused_clears_staged_edits`,
 `test_unreadable_changelog_clears_staged_edits`).
+
+#### Gate 1 review — notes draft (`notes_render`)
+
+`propose` attaches a **DRAFT** release-notes file rendered from CHANGELOG `[Unreleased]`
+(`notes_render.render_notes`; plan §10.1). Review these header signals before merge — a wrong draft
+still archives at ceremony time:
+
+| Signal in the drafted notes | Expected | Source |
+|---|---|---|
+| Title `# … vX.Y.Z Release Notes` | Meta-package → **`# Juniper ML v…`** (not `# juniper-ml v…`); every other dist keeps its `pypi_name` | `display_name` (`notes_render.py:93-95`) |
+| `**Release Type:** …` | `major` → **MAJOR**, `minor` → **MINOR**, `patch`/`none`/unknown → **PATCH** | `release_type` / `_RELEASE_TYPE` (`notes_render.py:52`, `89-90`) |
+| `**Breaking changes:** …` | **YES** only when a Keep-a-Changelog **`Removed`** category is present (case-insensitive); otherwise **NO** | `notes_render.py:239` |
+| Bullets under What's New | Both `-` and `*` markers; indented / bare continuations fold into the current bullet; stray prose before any marker is ignored | `_split_bullets` (`notes_render.py:101-120`) / `parse_unreleased` |
+
+**Pitfalls:**
+
+- A meta proposal titled `# juniper-ml …` means `display_name` drifted — fix before ceremony archives it.
+- A MAJOR bump labeled PATCH (or Breaking stuck at NO despite a `### Removed` section) means the
+  bump→`release_type` map or the Removed membership check drifted.
+- Prefer `-` in hand-edited CHANGELOG, but do not reject a proposal solely because Unreleased used `*`.
+
+Coverage pins: `tests/test_release_train_propose.py` (juniper-ml#756).
 
 ### 3.3 Dispatching `ceremony` against specific packages (drives toward Gate 2)
 
@@ -594,6 +671,16 @@ The hosted runner is ephemeral, so `--global` is still job-scoped. `propose.py` 
 `-c commit.gpgsign=false` on its commit so a YubiKey-resident signing config never reaches a headless
 run. The detect job must not configure identity (it never commits).
 
+**Runner git identity (headless, unsigned) — must be `--global`.** Both write jobs run a
+`Configure git identity (headless, unsigned)` step that sets `user.name`, `user.email`, and
+`commit.gpgsign false` via `git config --global` (`release-train.yml:466-478` propose,
+`675-687` ceremony). Cross-repo `propose` commits inside freshly-cloned **sibling** checkouts; a
+repo-local `git config` on the juniper-ml checkout alone leaves those clones with
+`Author identity unknown` (first cross-repo pilot failure, run 30040138774; fixed juniper-ml#705).
+The hosted runner is ephemeral, so `--global` is still job-scoped. `propose.py` also passes
+`-c commit.gpgsign=false` on its commit so a YubiKey-resident signing config never reaches a headless
+run. The detect job must not configure identity (it never commits).
+
 ## 8. Known limitations (accepted)
 
 1. **Degraded no-App mode (in-repo only).** When `RELEASE_TRAIN_APP_ID` is unset, `propose`/`ceremony`
@@ -677,15 +764,15 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
 - Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary
-  rehearsal + write-job `--global` git identity, ml#705 / #718),
-  `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation + R7 archive-lane missing/empty
-  `ref=` SeamViolation; juniper-ml#770),
+  rehearsal + write-job `--global` git identity, ml#705 / #718 + `HeredocBalanceTest` /
+  `HeredocCompileTest` for every `<<'PY'` block — ml#708 / ml#723),
+  `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
   `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701),
   `tests/test_release_train_propose.py` (sibling/meta AGENTS.md step-5/5a shapes — worker#140 / ml#706 / #720;
   CHANGELOG refuse clear-on-refuse stub shape — juniper-ml#751).
 - Static `_version.py` lockstep (Gate 1 review):
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
-  (implemented by juniper-ml#710).
+  §6 / §6.1 (implemented by juniper-ml#710; hardened by juniper-ml#712).
 - Notes-draft + healthy-hygiene operator edges (Gate 1 title/MAJOR/Breaking; `TAG_ONLY`/`NOTES_MISSING`
   clear when Release + archive exist): coverage juniper-ml#756; this runbook §3.1 / §3.2.
 - Release convention (cut a Release, archive notes centrally): repo `AGENTS.md` "Publishing" +

@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
 **Version**: 1.0.6
-**Date**: 2026-06-04
+**Date**: 2026-07-26
 **Project**: juniper-ml
 
 ---
@@ -243,11 +243,15 @@ Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `lo
 juniper-ml#729). Operator tables:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
 
-**Ceremony `notes-render-failed` + execute `RELEASED` (juniper-ml#741).** Missing/unreadable
-`notes/templates/TEMPLATE_RELEASE_NOTES.md` (or the security template) → §8 HALT
-`notes-render-failed` (restore template, re-run; never invent archive body). Publish run
-`completed`+`success` → execute final state `RELEASED` (both gates done; no halt issue) — not
-plan-time `ALREADY_RELEASED`. Runbook §3.3 / §4.
+**Daily detect `SHIP_UNCERTAIN` / hygiene:** `SHIP_UNCERTAIN` means the detector could not prove ship or
+no-ship (missing declared version, missing tag, soft-fail compare, 300-file truncated empty window, or
+uncertain hunks) — it is an action classification (exit 1), never a silent `UP_TO_DATE`.
+Hygiene `TAG_ONLY=` counts only truthy `tag_only`; a `list_releases` blip sets `tag_only=None` and notes
+`release-hygiene (tag_only) unavailable:` without failing the job. Offline `--local-git` must raise
+`SourceError` for releases (open [#773](https://github.com/pcalnon/juniper-ml/pull/773)), not return
+`set()` (false TAG_ONLY on every package). Operator tables: runbook §3.1.
+
+**Release-train write-job git identity (ml#705):** when editing `.github/workflows/release-train.yml`, keep both `propose` and `ceremony` identity steps on `git config --global user.name|user.email|commit.gpgsign` (never bare repo-local `git config`). Cross-repo commits land in freshly-cloned sibling checkouts; a juniper-ml-only identity leaves them with `Author identity unknown` (run 30040138774). Operator detail: runbook §7 / §8.7.
 
 ---
 
@@ -271,6 +275,13 @@ plan-time `ALREADY_RELEASED`. Runbook §3.3 / §4.
 | `USE_SYSTEMD`                  | `0`                | `1` or `--systemd`: plant/chop via `systemctl --user` (no `JuniperProject.pid`) |
 | `CASCOR_HOST`                  | `localhost`        | CasCor query-helper target host for `util/get_cascor_*.bash` |
 | `CASCOR_PORT`                  | `8201`             | CasCor query-helper target port for `util/get_cascor_*.bash` |
+| `JUNIPER_E2E_DATA_PORT`        | `8101`             | Isolated-stack juniper-data port (`util/isolated_stack.bash`) |
+| `JUNIPER_E2E_CASCOR_PORT`      | `8202`             | Isolated-stack juniper-cascor port |
+| `JUNIPER_E2E_CANOPY_PORT`      | `8051`             | Isolated-stack juniper-canopy port |
+| `JUNIPER_E2E_HEALTH_TIMEOUT`   | `60`               | Per-service health wait for isolated `--up` |
+| `JUNIPER_E2E_RUN_DIR`          | `/tmp/juniper-e2e` | Scratch dir for data venv / logs / pidfiles |
+| `JUNIPER_E2E_DATA_EXTRAS`      | `api`              | juniper-data pip extras (`api,mnist` for D2/I-5) |
+| `JUNIPER_E2E_CONDA_DIR`        | `/opt/miniforge3`  | Conda root for isolated cascor/canopy activate |
 
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
 
@@ -280,9 +291,7 @@ Tip: systemd chop soft-fails per unit and always exits `0` without touching the 
 
 Tip: `plant_all` `safe_conda_activate` must restore nounset with `set -u` after `conda activate` (ADDR2LINE class). A `set +u`/`set +u` pair silently disables `set -u` for the rest of host bring-up — same bug class as isolated-stack [#785](https://github.com/pcalnon/juniper-ml/pull/785). Coverage: [#795](https://github.com/pcalnon/juniper-ml/pull/795).
 
-Tip: `python util/editable_install_drift_check.py --fix --dry-run --json` SKIPs when two non-worktree trees share a `[project].name` (`reason` contains `ambiguous`; never `candidates[0]`). Resolve the duplicate checkout, then re-run. Coverage: [#795](https://github.com/pcalnon/juniper-ml/pull/795). Full contract: [REFERENCE — Editable Install Drift](REFERENCE.md#editable-install-drift-check).
-
-Tip: missing **or** empty (zero-byte) `JuniperProject.pid` → `chop_all` still calls `orphaned_worker_cleanup`, then `exit 1`, and never enters the service-stop loop. Early cleanup sites are hard (no `|| true`); post-pidfile cleanup is soft. Default `KILL_WORKERS=0` only logs the short-circuit — use `KILL_WORKERS=1` when orphaned workers may be the only leftovers. See [`REFERENCE.md`](REFERENCE.md#missing--empty-juniperprojectpid-early-wire).
+Full contract: [REFERENCE — Isolated Stack E2E](REFERENCE.md#isolated-stack-e2e-utilities).
 
 ### Host Stack Troubleshooting
 
@@ -315,6 +324,14 @@ Isolated E2E trio (never overlap these with the host ports above):
 | juniper-canopy | 8051     | `GET /v1/health` | `JuniperCanopy1` (service mode) |
 
 `juniper-cascor` still commonly exposes service/container port `8200`; host-mode utilities and Docker's published port use `8201`.
+
+Isolated E2E trio (never overlap these with the host ports above):
+
+| Service        | E2E Port | Health           | Runtime                         |
+|----------------|----------|------------------|---------------------------------|
+| juniper-data   | 8101     | `GET /v1/health` | dedicated `python3.14` venv     |
+| juniper-cascor | 8202     | `GET /v1/health` | `JuniperCascor1` + empty `LD_LIBRARY_PATH` |
+| juniper-canopy | 8051     | `GET /v1/health` | `JuniperCanopy1`, `DEMO_MODE=0` |
 
 Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `juniper_data_*`, `juniper_cascor_*`, `juniper_canopy_*`
 

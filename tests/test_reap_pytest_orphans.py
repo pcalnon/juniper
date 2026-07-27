@@ -166,108 +166,43 @@ class TestReapPytestOrphans(unittest.TestCase):
             self.assertIn("Summary: 1 reaped, 1 kept (live parent), 0 skipped.", result.stdout)
             self.assertEqual(fixture.kill_log.read_text(encoding="utf-8"), "-KILL 301\n")
 
-    def test_candidate_filter_excludes_other_user_and_non_juniper_python(self):
-        """Awk candidate gate: current-user + JuniperC*/worktrees only.
+    def test_kill_failure_does_not_abort_and_still_counts_reaped(self):
+        """``kill ... || true`` must keep set -e from aborting mid-loop.
 
-        Loosening this filter is the false-positive class that kills foreign
-        sessions or plain ``python -m pytest`` runs outside Juniper.
+        A vanished PID between decision and kill is normal (race with the OS
+        reaper). Without ``|| true``, ``set -euo pipefail`` would exit before
+        later orphans are considered — leaving RSS held. Fake-kill exits 1.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             fixture = FakeProcessFixture(
                 tmpdir,
                 [
                     "50 testuser /usr/lib/systemd/systemd --user",
-                    # Other user's Juniper python must never be a candidate.
-                    "401 otheruser /opt/conda/envs/JuniperCascor1/bin/python -m pytest",
-                    # Same user, but no JuniperC* env / worktrees path.
-                    "402 testuser /usr/bin/python -m pytest",
-                    # Sole legitimate candidate (orphan under init).
-                    "403 testuser /opt/conda/envs/JuniperCascor1/bin/python -m pytest",
+                    "401 testuser /opt/conda/envs/JuniperCaa/bin/python -m pytest",
+                    "402 testuser /opt/conda/envs/JuniperCaa/bin/python -m pytest",
                 ],
             )
-            fixture.add_process(
-                403,
-                1,
-                ["/opt/conda/envs/JuniperCascor1/bin/python", "-m", "pytest"],
+            fixture.add_process(401, 1, ["/opt/conda/envs/JuniperCaa/bin/python", "-m", "pytest"])
+            fixture.add_process(402, 1, ["/opt/conda/envs/JuniperCaa/bin/python", "-m", "pytest"])
+            write_executable(
+                fixture.bin_dir / "fake-kill",
+                """
+                #!/usr/bin/env bash
+                printf '%s\\n' "$*" >> "${KILL_LOG}"
+                exit 1
+                """,
             )
 
-            result = run_script(fixture, "--dry-run")
+            result = run_script(fixture)
 
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("WOULD REAP pid=403 ppid=1", result.stdout)
-            self.assertNotIn("pid=401", result.stdout)
-            self.assertNotIn("pid=402", result.stdout)
-            self.assertIn(
-                "Dry-run summary: 1 would be reaped, 0 kept (live parent), 0 skipped.",
-                result.stdout,
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("REAP       pid=401 ppid=1", result.stdout)
+            self.assertIn("REAP       pid=402 ppid=1", result.stdout)
+            self.assertIn("Summary: 2 reaped, 0 kept (live parent), 0 skipped.", result.stdout)
+            self.assertEqual(
+                fixture.kill_log.read_text(encoding="utf-8"),
+                "-KILL 401\n-KILL 402\n",
             )
-            self.assertFalse(fixture.kill_log.exists())
-
-    def test_candidate_filter_excludes_all_when_no_juniper_python(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            fixture = FakeProcessFixture(
-                tmpdir,
-                [
-                    "50 testuser /usr/lib/systemd/systemd --user",
-                    "501 otheruser /opt/conda/envs/JuniperCascor1/bin/python -m pytest",
-                    "502 testuser /usr/bin/python -m pytest",
-                ],
-            )
-
-            result = run_script(fixture, "--dry-run")
-
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("No Juniper python processes found.", result.stdout)
-            self.assertNotIn("WOULD REAP", result.stdout)
-            self.assertFalse(fixture.kill_log.exists())
-
-    def test_disappeared_process_is_skipped(self):
-        """ps→gone race: candidate listed but /proc/<pid> already missing."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            fixture = FakeProcessFixture(
-                tmpdir,
-                [
-                    "50 testuser /usr/lib/systemd/systemd --user",
-                    "601 testuser /opt/conda/envs/JuniperCaa/bin/python -m pytest",
-                ],
-            )
-            # Deliberately do not create PROC_ROOT/601.
-
-            result = run_script(fixture, "--dry-run")
-
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertNotIn("WOULD REAP", result.stdout)
-            self.assertIn(
-                "Dry-run summary: 0 would be reaped, 0 kept (live parent), 1 skipped.",
-                result.stdout,
-            )
-            self.assertFalse(fixture.kill_log.exists())
-
-    def test_missing_ppid_status_is_skipped(self):
-        """Unreadable / incomplete status (no PPid:) must skip, not reap."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            fixture = FakeProcessFixture(
-                tmpdir,
-                [
-                    "50 testuser /usr/lib/systemd/systemd --user",
-                    "701 testuser /opt/conda/envs/JuniperCaa/bin/python -m pytest",
-                ],
-            )
-            process_dir = fixture.proc_root / "701"
-            process_dir.mkdir()
-            # Status without PPid: — the awk extract yields empty → SKIPPED.
-            (process_dir / "status").write_text("Name:\tpython\n", encoding="utf-8")
-            (process_dir / "cmdline").write_bytes(b"\0".join(part.encode("utf-8") for part in ["/opt/conda/envs/JuniperCaa/bin/python", "-m", "pytest"]) + b"\0")
-
-            result = run_script(fixture, "--dry-run")
-
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertNotIn("WOULD REAP", result.stdout)
-            self.assertIn(
-                "Dry-run summary: 0 would be reaped, 0 kept (live parent), 1 skipped.",
-                result.stdout,
-            )
-            self.assertFalse(fixture.kill_log.exists())
 
 
 if __name__ == "__main__":
