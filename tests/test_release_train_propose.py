@@ -813,6 +813,31 @@ class BuildProposalTest(unittest.TestCase):
         self.assertIn("changelog conflict", prop.skipped_reason)
         self.assertEqual(prop.edits, [])
 
+    def test_changelog_move_refused_clears_staged_edits(self):
+        """``move_unreleased`` refusal (empty [Unreleased]) must clear any version
+        bump staged before the move — open #749 pins the skip/reason; this pins
+        the clear-on-refuse stub shape (edits=[], no branch) so JSON/operators
+        never see a half-proposal."""
+        empty_unreleased = textwrap.dedent("""\
+            # Changelog
+
+            ## [Unreleased]
+
+            ## [0.4.0] - 2026-06-01
+
+            ### Added
+
+            - initial release
+            """)
+        _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog=empty_unreleased)
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertTrue(prop.skipped)
+        self.assertIn("CHANGELOG move refused", prop.skipped_reason)
+        self.assertIn("[Unreleased] section has no content to move", prop.skipped_reason)
+        self.assertEqual(prop.edits, [])
+        self.assertIsNone(prop.branch)
+
     def test_bump_none_is_refused(self):
         """No proposable SemVer bump must refuse before any edit is computed (plan S5.4)."""
         _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog=_CHANGELOG)
@@ -851,8 +876,8 @@ class BuildProposalTest(unittest.TestCase):
     def test_empty_unreleased_changelog_move_is_refused(self):
         """Empty [Unreleased] must refuse the move (Keep-a-Changelog; no phantom section).
 
-        The version edit may already be staged when the move refuses; the important
-        contract is ``skipped`` + no CHANGELOG edit (never invent an empty section).
+        With ``prop.edits.clear()`` on refuse (#751), the stub is edits=[] + no branch
+        (same shape as dup-guard / bump=none). Never invent an empty section.
         """
         empty_unreleased = textwrap.dedent("""\
             # Changelog
@@ -870,8 +895,26 @@ class BuildProposalTest(unittest.TestCase):
         prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
         self.assertTrue(prop.skipped)
         self.assertIn("CHANGELOG move refused", prop.skipped_reason)
-        self.assertIn("no content to move", prop.skipped_reason)
-        self.assertFalse(any(e.path.endswith("CHANGELOG.md") for e in prop.edits))
+        self.assertIn("[Unreleased] section has no content to move", prop.skipped_reason)
+        self.assertEqual(prop.edits, [])
+        self.assertIsNone(prop.branch)
+
+    def test_unreadable_changelog_clears_staged_edits(self):
+        """Missing CHANGELOG after the version bump is staged must refuse with an
+        empty edits list (same clear-on-refuse contract as move_unreleased)."""
+        _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog="")
+        # _write_pkg only writes CHANGELOG when truthy; ensure the version file exists
+        # but CHANGELOG.md does not.
+        clog = self.repo_root / "juniper-thing" / "CHANGELOG.md"
+        if clog.exists():
+            clog.unlink()
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertTrue(prop.skipped)
+        self.assertIn("could not read", prop.skipped_reason)
+        self.assertIn("CHANGELOG.md", prop.skipped_reason)
+        self.assertEqual(prop.edits, [])
+        self.assertIsNone(prop.branch)
 
     def test_missing_changelog_is_refused(self):
         """Absent CHANGELOG.md must refuse (notes + Keep-a-Changelog move have no source)."""
@@ -881,6 +924,8 @@ class BuildProposalTest(unittest.TestCase):
         self.assertTrue(prop.skipped)
         self.assertIn("could not read", prop.skipped_reason)
         self.assertIn("CHANGELOG.md", prop.skipped_reason)
+        self.assertEqual(prop.edits, [])
+        self.assertIsNone(prop.branch)
         self.assertFalse(any(e.path.endswith("CHANGELOG.md") for e in prop.edits))
 
 
@@ -1180,6 +1225,33 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("DRY-RUN", out)
         self.assertEqual(before, _sha_tree(self.repo_root))
+
+    def test_manifest_package_absent_from_registry_is_skipped(self):
+        """A proposable manifest package missing from registry.yaml must skip, not crash.
+
+        Orthogonal to ``--package`` unknown (exit 2 before the loop) and to
+        ``build_proposal`` refusals (#749): this is the CLI ``main()`` path that
+        never calls ``build_proposal`` when the registry lookup misses.
+        """
+        self.manifest.write_text(
+            json.dumps(
+                {
+                    "packages": [
+                        _manifest_pkg(),
+                        _manifest_pkg(pypi_name="juniper-ghost", repo="juniper-ghost"),
+                    ]
+                }
+            )
+        )
+        code, out = self._run("--json")
+        self.assertEqual(code, 0)
+        payload = json.loads(out)
+        by_name = {p["pypi_name"]: p for p in payload["proposals"]}
+        self.assertIn("juniper-thing", by_name)
+        self.assertIsNone(by_name["juniper-thing"].get("skipped_reason"))
+        self.assertEqual(by_name["juniper-ghost"]["skipped_reason"], "package not in registry.yaml")
+        self.assertEqual(payload["summary"]["proposed"], 1)
+        self.assertEqual(payload["summary"]["skipped"], 1)
 
 
 # ── execute path: cross-repo guard + headless-commit gpgsign landmine (Phase 2.2) ────
@@ -1695,6 +1767,83 @@ class CliOrderingAndCycleTest(unittest.TestCase):
         self.assertEqual(code, 0, buf.getvalue())
         order = [p["pypi_name"] for p in json.loads(buf.getvalue())["proposals"]]
         self.assertEqual(order, ["juniper-upp", "juniper-down"], "upstream juniper-upp must be proposed before its consumer despite manifest order")
+
+
+class ExecuteProposalSeamTest(unittest.TestCase):
+    """Direct ``execute_proposal`` gates: missing write seam + skipped/branchless no-ops.
+
+    Open #749 covers ``build_proposal`` refusal stubs; #730 covers ceremony archive
+    execute + the propose *step-summary* rehearsal. These pin the function's own
+    early exits so ``--execute`` never partial-writes on a miswired seam and never
+    opens a PR for a skipped/branchless stub.
+    """
+
+    def _recording_sources(self) -> "tuple[pr.ProposeSources, dict]":
+        calls: dict = {"write": [], "git": [], "pr": []}
+
+        def open_pr(repo, base, head, title, body):
+            calls["pr"].append((repo, base, head))
+            return f"https://example.invalid/{repo}/pull/1"
+
+        sources = pr.ProposeSources(
+            read_file=lambda _entry, _filename: None,
+            list_open_prs=lambda _repo: [],
+            write_file=lambda repo, path, content: calls["write"].append((repo, path)),
+            run_git=lambda repo, args: calls["git"].append((repo, list(args))),
+            open_pr=open_pr,
+        )
+        return sources, calls
+
+    def test_execute_proposal_raises_when_write_seam_missing(self):
+        prop = pr.Proposal(
+            pypi_name="juniper-thing",
+            repo="juniper-ml",
+            from_version="0.4.0",
+            to_version="0.5.0",
+            bump="minor",
+            branch="release/juniper-thing-v0.5.0",
+        )
+        prop.edits.append(pr.FileEdit(path="pyproject.toml", old_text="a", new_text="b"))
+        dry_sources = pr.ProposeSources(
+            read_file=lambda _entry, _filename: None,
+            list_open_prs=lambda _repo: [],
+        )
+        with self.assertRaises(pr.SourceError) as ctx:
+            pr.execute_proposal(prop, dry_sources, "main")
+        self.assertIn("execute mode needs", str(ctx.exception))
+
+    def test_execute_proposal_skipped_returns_empty_without_writes(self):
+        sources, calls = self._recording_sources()
+        prop = pr.Proposal(
+            pypi_name="juniper-thing",
+            repo="juniper-ml",
+            from_version="0.4.0",
+            to_version="0.5.0",
+            bump="minor",
+            branch="release/juniper-thing-v0.5.0",
+            skipped_reason="dup-guard: open release PR already exists (#9 release/juniper-thing-v0.5.0)",
+        )
+        prop.edits.append(pr.FileEdit(path="pyproject.toml", old_text="a", new_text="b"))
+        self.assertEqual(pr.execute_proposal(prop, sources, "main"), "")
+        self.assertEqual(calls["write"], [])
+        self.assertEqual(calls["git"], [])
+        self.assertEqual(calls["pr"], [])
+
+    def test_execute_proposal_missing_branch_returns_empty_without_writes(self):
+        sources, calls = self._recording_sources()
+        prop = pr.Proposal(
+            pypi_name="juniper-thing",
+            repo="juniper-ml",
+            from_version="0.4.0",
+            to_version="0.5.0",
+            bump="minor",
+            branch=None,
+        )
+        prop.edits.append(pr.FileEdit(path="pyproject.toml", old_text="a", new_text="b"))
+        self.assertEqual(pr.execute_proposal(prop, sources, "main"), "")
+        self.assertEqual(calls["write"], [])
+        self.assertEqual(calls["git"], [])
+        self.assertEqual(calls["pr"], [])
 
 
 if __name__ == "__main__":

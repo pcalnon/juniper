@@ -331,6 +331,7 @@ class GhSurfaceInvariantTest(unittest.TestCase):
             ["api", "repos/someone-else/juniper-ml/git/refs", "-X", "POST", "-f", "ref=refs/heads/x", "-f", "sha=a"],  # wrong owner
             ["api", "repos/pcalnon/juniper-ml/git/refs", "-f", "ref=refs/heads/x", "-f", "sha=a"],  # missing POST method
             ["api", "repos/pcalnon/juniper-ml/git/refs", "-X", "POST", "-f", "ref=refs/tags/v1", "-f", "sha=a"],  # a TAG ref, not heads/*
+            ["api", "repos/pcalnon/juniper-ml/git/refs", "-X", "POST", "-f", "sha=a"],  # POST without a ref= field (must not pass)
             ["api", "graphql", "-f", "query=mutation { addStar(input: {}) { clientMutationId } }", "-f", "repoWithOwner=pcalnon/juniper-ml"],  # a different mutation
             ["api", "graphql", "-f", f"query={ce._CREATE_COMMIT_ON_BRANCH_MUTATION}", "-f", "repoWithOwner=pcalnon/juniper-evil"],  # createCommit to a repo outside the 8
             ["api", "graphql", "-f", f"query={ce._CREATE_COMMIT_ON_BRANCH_MUTATION}"],  # createCommit with no repoWithOwner bound
@@ -340,6 +341,34 @@ class GhSurfaceInvariantTest(unittest.TestCase):
         for bad in strays:
             with self.assertRaises(ce.SeamViolation, msg=bad):
                 ce._assert_gh_allowed(bad, allowed)
+
+    def test_assert_api_allowed_rejects_refs_post_without_ref_field(self):
+        """R7 archive-lane: a git/refs POST with no ``ref=`` must SeamViolation (not silently allow).
+
+        Pre-fix the guard only rejected a *present* non-heads ref; omitting ``ref=`` entirely
+        passed the allowlist and deferred failure to the live GitHub API. That weakened the
+        documented ``ref=refs/heads/*`` invariant for the signed-archive branch create.
+        """
+        allowed = frozenset({"pcalnon/juniper-ml"})
+        missing_ref = [
+            "api",
+            "repos/pcalnon/juniper-ml/git/refs",
+            "-X",
+            "POST",
+            "-f",
+            "sha=abc123",
+        ]
+        with self.assertRaises(ce.SeamViolation) as ctx:
+            ce._assert_gh_allowed(missing_ref, allowed)
+        self.assertIn("refs/heads/", str(ctx.exception))
+        self.assertIn("ref=None", str(ctx.exception))
+        # Empty ref= is also not a heads/* target (defence against ref=).
+        with self.assertRaises(ce.SeamViolation) as ctx_empty:
+            ce._assert_gh_allowed(
+                ["api", "repos/pcalnon/juniper-ml/git/refs", "-X", "POST", "-f", "ref=", "-f", "sha=a"],
+                allowed,
+            )
+        self.assertIn("ref=''", str(ctx_empty.exception))
 
 
 # ── S9.3 seam-surface invariant (LIVE seam, recording gh) ────────────────────
