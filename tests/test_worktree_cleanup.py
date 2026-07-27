@@ -78,10 +78,10 @@ def _p3_install_fake_gh(bin_dir: Path, log_path: Path) -> Path:
 
 def _run_phase3(
     main_repo: Path,
+    old_worktree: Path,
     old_branch: str,
-    *,
-    path_prefix: str,
-    parent_branch: str = "main",
+    skip_remote_delete: bool,
+    gh_bin: Path | None,
 ) -> subprocess.CompletedProcess[str]:
     """Source the script and invoke ``phase_3_merge_and_pr`` (not dry-run).
 
@@ -95,13 +95,20 @@ export JUNIPER_ML_MAIN_REPO="$1"
 SCRIPT_PATH="$2"
 # shellcheck disable=SC1090
 source <(sed '/^main "/d' "${SCRIPT_PATH}")
-OLD_BRANCH="$3"
-PARENT_BRANCH="$4"
-SKIP_PR="${FALSE}"
+OLD_WORKTREE="$3"
+OLD_BRANCH="$4"
+# Script uses TRUE=0 / FALSE=1 (exit-status style).
+if [[ "$5" == "1" ]]; then
+    SKIP_REMOTE_DELETE="${TRUE}"
+else
+    SKIP_REMOTE_DELETE="${FALSE}"
+fi
 DRY_RUN="${FALSE}"
-phase_3_merge_and_pr
+phase_4_cleanup
 """
-    env = RedactedEnv(os.environ, PATH=f"{path_prefix}:{os.environ.get('PATH', '')}")
+    env = RedactedEnv(os.environ)
+    if gh_bin is not None:
+        env["PATH"] = f"{gh_bin}{os.pathsep}{env.get('PATH', '')}"
     return subprocess.run(
         [
             "bash",
@@ -110,14 +117,31 @@ phase_3_merge_and_pr
             "phase3-driver",
             str(main_repo),
             str(SCRIPT_PATH),
+            str(old_worktree),
             old_branch,
-            parent_branch,
+            "1" if skip_remote_delete else "0",
         ],
         capture_output=True,
         text=True,
         env=env,
         timeout=SCRIPT_TIMEOUT_SECONDS,
     )
+
+
+def _prepare_phase4_fixture(tmp: Path, branch: str = "feature/phase4-victim") -> tuple[Path, Path, Path]:
+    """Return (main_repo, old_worktree, bare_remote) with ``branch`` on the remote."""
+    main_repo = tmp / "main-repo"
+    old_worktree = tmp / "old-worktree"
+    remote = tmp / "remote.git"
+    _init_fixture_repo(main_repo)
+    _run_git(main_repo, "clone", "--bare", "-q", str(main_repo), str(remote))
+    _run_git(main_repo, "remote", "add", "origin", str(remote))
+    _run_git(main_repo, "checkout", "-q", "-b", branch)
+    _run_git(main_repo, "push", "-q", "-u", "origin", branch)
+    # Hold the branch in a worktree; leave MAIN_REPO on main so remove/delete can proceed.
+    _run_git(main_repo, "checkout", "-q", "main")
+    _run_git(main_repo, "worktree", "add", "-q", str(old_worktree), branch)
+    return main_repo, old_worktree, remote
 
 
 class TestArgumentParsing(unittest.TestCase):
@@ -418,8 +442,9 @@ class TestPhase3Behavioral(unittest.TestCase):
         """Branch tip equal to origin/main must warn-and-skip — never invoke gh."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            main_repo = root / "main-repo"
-            remote = root / "remote.git"
+            branch = "feature/phase4-open-pr"
+            main_repo, old_worktree, _remote = _prepare_phase4_fixture(root, branch)
+            gh_bin = root / "bin"
             gh_log = root / "gh.log"
             bin_dir = root / "bin"
             _p3_init_repo(main_repo)
@@ -440,8 +465,9 @@ class TestPhase3Behavioral(unittest.TestCase):
         """Branch with commits ahead of origin/main must call ``gh pr create``."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            main_repo = root / "main-repo"
-            remote = root / "remote.git"
+            branch = "feature/phase4-no-pr"
+            main_repo, old_worktree, _remote = _prepare_phase4_fixture(root, branch)
+            gh_bin = root / "bin"
             gh_log = root / "gh.log"
             bin_dir = root / "bin"
             _p3_init_repo(main_repo)
