@@ -12,8 +12,8 @@ Covers (task acceptance list, plan S7.2):
   * a PURE notes-add diff PASSES (meta form + sub-package form)
   * a non-archive PR (no notes/releases/ path) SKIPs -- the guard never blocks a normal PR
   * MODIFY, DELETE, OUT-OF-PATH, BAD-NAME, and MIXED diffs each FAIL (the four synthetic negatives)
-  * rename-OUT of notes/releases/, Copy (C) into releases/, and Typechange (T) each FAIL as archive
-    PRs (never SKIP) -- pins the both-sides ``touches_releases`` + rule1 non-A contract
+  * slash-in-basename nested under notes/releases/ (ARCHIVE_PATH_RE match + ``/`` in basename) FAILs
+    rule2 flat-archive — distinct from a non-matching ``notes/releases/<dir>/...`` path
   * the fallback semantic: a FAIL merely fails the check (exit 1), no side effect
   * filename convention (rule 3): meta bare-`v` vs `<pkg>_v`, the meta wrong-form reject, unknown
     package + non-semver rejects
@@ -174,6 +174,34 @@ class ClassifyDiffTest(unittest.TestCase):
         res = ag.classify_diff(_changes(("A", nested)), self.KNOWN)
         self.assertEqual(res.verdict, "FAIL")
         self.assertTrue(any(v.startswith("rule2") for v in res.violations), res.violations)
+        # This shape fails ARCHIVE_PATH_RE first (``archive/`` precedes RELEASE_NOTES_), so it
+        # never exercises the slash-in-basename flatness arm — see the next case.
+        self.assertFalse(
+            any("nested under notes/releases/" in v for v in res.violations),
+            res.violations,
+        )
+
+    def test_slash_in_basename_nested_archive_path_fails(self):
+        # ARCHIVE_PATH_RE is ``^notes/releases/RELEASE_NOTES_.*\\.md$`` — the ``.*`` admits a
+        # slash. A path that still matches the regex but nests under notes/releases/ must hit the
+        # dedicated flatness check (archive_guard.py rule2 ``"/" in basename``), not only the
+        # non-matching-prefix arm covered by test_out_of_path_within_releases_fails.
+        nested = "notes/releases/RELEASE_NOTES_juniper-service-core/v0.5.0.md"
+        self.assertIsNotNone(ag.ARCHIVE_PATH_RE.match(nested), nested)
+        basename = nested[len(ag.RELEASES_PREFIX) :]
+        self.assertIn("/", basename)
+        res = ag.classify_diff(_changes(("A", nested)), self.KNOWN)
+        self.assertEqual(res.verdict, "FAIL")
+        self.assertTrue(res.is_archive_pr)
+        self.assertFalse(res.passed)
+        nested_violations = [v for v in res.violations if "nested under notes/releases/" in v]
+        self.assertEqual(len(nested_violations), 1, res.violations)
+        self.assertTrue(nested_violations[0].startswith("rule2"), nested_violations[0])
+        # Matched ARCHIVE_PATH_RE, so rule4 (out-of-scope non-match) must not be the sole signal.
+        self.assertFalse(
+            any(v.startswith("rule4") for v in res.violations),
+            res.violations,
+        )
 
     def test_bad_name_fails(self):
         bad = "notes/releases/RELEASE_NOTES_juniper-nonesuch_v1.0.0.md"  # unregistered package
