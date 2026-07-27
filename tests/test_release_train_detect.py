@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -286,6 +288,19 @@ class PyprojectClassifierTest(unittest.TestCase):
         patch = '@@ -2,1 +2,1 @@\n [project]\n-version = "0.4.0"\n+version = "0.5.0"'
         self.assertEqual(d.classify_pyproject_patch(patch)[0], "ship")
 
+    def test_build_system_change_is_ship(self):
+        # Body-marker [build-system] requires bump must SHIP (detect.py:707-708).
+        # #772 owns only the @@-trailer form; this pins the body-context arm.
+        patch = "@@ -1,2 +1,2 @@\n [build-system]\n" '-requires = ["setuptools>=61"]\n' '+requires = ["setuptools>=68"]'
+        kind, reason = d.classify_pyproject_patch(patch)
+        self.assertEqual(kind, "ship")
+        self.assertIn("runtime", reason)
+
+    def test_build_system_ship_wins_over_tooling_hunk(self):
+        # Mixed patch: build-system + [tool.*]. found_ship must win (detect.py:711-712).
+        patch = "@@ -1,2 +1,2 @@\n [build-system]\n" '-requires = ["setuptools>=61"]\n' '+requires = ["setuptools>=68"]\n' "@@ -80,2 +80,3 @@\n [tool.pytest.ini_options]\n" ' minversion = "8.0"\n' '+addopts = "--strict-config"'
+        self.assertEqual(d.classify_pyproject_patch(patch)[0], "ship")
+
     def test_pytest_config_is_nonship(self):
         patch = '@@ -80,2 +80,3 @@\n [tool.pytest.ini_options]\n minversion = "8.0"\n+addopts = "--strict-config"'
         self.assertEqual(d.classify_pyproject_patch(patch)[0], "nonship")
@@ -296,6 +311,14 @@ class PyprojectClassifierTest(unittest.TestCase):
 
     def test_patch_unavailable_is_uncertain(self):
         self.assertEqual(d.classify_pyproject_patch(None)[0], "uncertain")
+
+    def test_build_system_via_hunk_trailer_is_ship(self):
+        # GitHub often puts the section only in the @@ trailer (no body [build-system]
+        # context line). That arm must still classify as ship — otherwise truncated /
+        # compare patches silently UP_TO_DATE packaging changes (detect.py:676-681 + 707-708).
+        # Body-marker + mixed-tool cases owned by concurrent #774 — keep only this arm.
+        patch = "@@ -1,2 +1,2 @@ [build-system]\n" '-requires = ["setuptools>=61"]\n' '+requires = ["hatchling"]\n'
+        self.assertEqual(d.classify_pyproject_patch(patch)[0], "ship")
 
 
 class PathScopingTest(unittest.TestCase):
@@ -506,6 +529,50 @@ class ClassificationTest(unittest.TestCase):
         self.assertTrue(rec.hygiene["tag_only"])
         self.assertTrue(rec.hygiene["notes_missing"])  # no notes/releases/ archive on the synthetic tree
 
+    def test_local_git_list_releases_raises_source_error(self):
+        """make_local_git_sources.list_releases must raise — empty set → false TAG_ONLY.
+
+        Docstring contract: releases are unknown offline, so TAG_ONLY is unavailable.
+        Returning ``set()`` made ``diff_base_tag not in releases`` always True and
+        inflated the daily TAG_ONLY hygiene count under ``--local-git``.
+        """
+        sources = d.make_local_git_sources("pcalnon", self.repo_root, self.eco)
+        with self.assertRaises(d.SourceError) as ctx:
+            sources.list_releases("juniper-ml")
+        msg = str(ctx.exception).lower()
+        self.assertIn("unknown offline", msg)
+        self.assertIn("--local-git", msg)
+
+    def test_local_git_hygiene_tag_only_unavailable_not_false_positive(self):
+        """Wire the real local-git list_releases into classify_package → tag_only=None.
+
+        Orthogonal to #761 (injected boom_releases SourceError): this pins the
+        production ``make_local_git_sources`` seam so a silent empty-set regress
+        cannot reintroduce false TAG_ONLY under ``--local-git``.
+        """
+        e = self._pkg("0.4.0")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self.fake.releases["juniper-ml"] = {"juniper-thing-v0.4.0"}  # would clear tag_only if used
+        self.fake.compares[("juniper-ml", "juniper-thing-v0.4.0", "main")] = d.CompareResult(files=[], commits=[])
+        local = d.make_local_git_sources("pcalnon", self.repo_root, self.eco)
+        base = self.fake.build()
+        sources = d.Sources(
+            pypi_json=base.pypi_json,
+            list_tags=base.list_tags,
+            list_releases=local.list_releases,
+            compare=base.compare,
+            read_file=base.read_file,
+        )
+        rec = d.classify_package(e, sources, self.repo_root, self.eco)
+        self.assertIsNone(rec.hygiene["tag_only"])
+        self.assertTrue(
+            any("release-hygiene (tag_only) unavailable" in n for n in rec.notes),
+            msg=f"expected unavailable note, got {rec.notes!r}",
+        )
+        # notes_missing is orthogonal and still evaluated
+        self.assertTrue(rec.hygiene["notes_missing"])
+
 
 class ManifestShapeTest(unittest.TestCase):
     def test_manifest_json_shape(self):
@@ -540,7 +607,90 @@ _MINI_REGISTRY = textwrap.dedent("""\
     """)
 
 
+class LocalGitCompareTest(unittest.TestCase):
+    """Hermetic coverage for ``local_git_compare``'s A/D/R/C short-circuit (plan S4.2).
+
+    #729 pins the 300-file fallback seam that *calls* ``local_git_compare``; this class drives
+    the body: add/delete/rename/copy of a ``.py`` module must be ``substantive=True`` without
+    consulting ``substantive_between`` (which would need both blob sides and can miss a delete).
+    """
+
+    def _git(self, cwd: Path, *args: str) -> None:
+        subprocess.run(  # nosec B603,B607
+            ["git", "-C", str(cwd), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def _build_repo(self) -> Path:
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
+        bare = root / "bare.git"
+        work = root / "work"
+        subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True, capture_output=True)  # nosec B603,B607
+        subprocess.run(["git", "clone", "-q", str(bare), str(work)], check=True, capture_output=True)  # nosec B603,B607
+        self._git(work, "config", "user.email", "tests@example.invalid")
+        self._git(work, "config", "user.name", "Test User")
+        self._git(work, "config", "commit.gpgsign", "false")
+        self._git(work, "config", "tag.gpgSign", "false")
+
+        pkg = work / "juniper-thing" / "juniper_thing"
+        pkg.mkdir(parents=True)
+        (work / "juniper-thing" / "pyproject.toml").write_text('[project]\nname = "juniper-thing"\nversion = "0.4.0"\n', encoding="utf-8")
+        (pkg / "keep.py").write_text("def keep():\n    return 1\n", encoding="utf-8")
+        (pkg / "doomed.py").write_text("def doomed():\n    return 0\n", encoding="utf-8")
+        (pkg / "renamed_src.py").write_text("def moved():\n    return 2\n", encoding="utf-8")
+        self._git(work, "add", "-A")
+        self._git(work, "commit", "-q", "-m", "base")
+        self._git(work, "tag", "juniper-thing-v0.4.0")
+        self._git(work, "push", "-q", "origin", "HEAD:main")
+        self._git(work, "push", "-q", "origin", "--tags")
+
+        # HEAD changes: Add / Delete / Rename (inherently substantive) + comment-only Modify
+        # (must still go through substantive_between and land as False).
+        (pkg / "brand_new.py").write_text("def brand_new():\n    return 3\n", encoding="utf-8")
+        (pkg / "doomed.py").unlink()
+        self._git(work, "mv", "juniper-thing/juniper_thing/renamed_src.py", "juniper-thing/juniper_thing/renamed_dst.py")
+        (pkg / "keep.py").write_text("def keep():\n    return 1  # see notes/NEW.md\n", encoding="utf-8")
+        self._git(work, "add", "-A")
+        self._git(work, "commit", "-q", "-m", "feat: add delete rename and comment tweak")
+        self._git(work, "push", "-q", "origin", "HEAD:main")
+        return work
+
+    def test_add_delete_rename_are_inherently_substantive(self):
+        work = self._build_repo()
+        entry = _entry()
+        comp = d.local_git_compare(entry, "juniper-thing-v0.4.0", "main", work, fetch=False)
+        self.assertTrue(comp.ok, comp.error)
+        by_name = {fc.filename: fc for fc in comp.files}
+
+        added = by_name["juniper-thing/juniper_thing/brand_new.py"]
+        self.assertEqual(added.status[:1], "A")
+        self.assertIs(added.substantive, True)
+
+        deleted = by_name["juniper-thing/juniper_thing/doomed.py"]
+        self.assertEqual(deleted.status[:1], "D")
+        self.assertIs(deleted.substantive, True)
+
+        renamed = by_name["juniper-thing/juniper_thing/renamed_dst.py"]
+        self.assertEqual(renamed.status[:1], "R")
+        self.assertIs(renamed.substantive, True)
+
+        # Comment-only modify is NOT short-circuited; substantive_between discounts it.
+        modified = by_name["juniper-thing/juniper_thing/keep.py"]
+        self.assertEqual(modified.status[:1], "M")
+        self.assertIs(modified.substantive, False)
+
+    def test_missing_base_tag_returns_not_ok(self):
+        work = self._build_repo()
+        comp = d.local_git_compare(_entry(), "juniper-thing-v9.9.9", "main", work, fetch=False)
+        self.assertFalse(comp.ok)
+        self.assertIn("failed", (comp.error or "").lower())
+
+
 class CliExitCodeTest(unittest.TestCase):
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)

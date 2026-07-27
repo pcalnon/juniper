@@ -15,18 +15,25 @@ python3.14 venv, and real ports (8101/8202/8051), so — as with
   the checklist promises);
 - the ``--dry-run`` contract behaviourally: every action prints its commands
   with the configured ports expanded and touches NOTHING (no process, no
-  filesystem), and the CLI rejects bad invocations.
+  filesystem), and the CLI rejects bad invocations;
+- ``wait_for_health`` / ``probe_health`` live arms (hermetic ``curl`` / ``ss``
+  stubs) — the bring-up gate and ``--status`` reporter that prior dry-run
+  tests never exercised.
 
 ``--dry-run`` short-circuits before any filesystem or process side effect, so
-these behavioural tests are fully hermetic — no real repos, conda, or network.
+those behavioural tests are fully hermetic — no real repos, conda, or network.
 ``JUNIPER_E2E_PROJECT_DIR`` / ``JUNIPER_E2E_RUN_DIR`` pin paths deterministically.
+The health cases extract live function bodies and stub ``curl``/``ss`` on
+``PATH`` (keep ``/usr/bin:/bin`` for ``grep``/``cut``/``head``).
 """
 
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -35,6 +42,48 @@ from tests.redacted_env import RedactedEnv
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "util" / "isolated_stack.bash"
 SCRIPT_TEXT = SCRIPT_PATH.read_text()
 SCRIPT_TIMEOUT_SECONDS = 15
+# wait_for_health sleeps 2s per poll; a 2s timeout needs one sleep → keep headroom.
+HEALTH_HELPER_TIMEOUT_SECONDS = 20
+
+
+def _extract_wait_for_health() -> str:
+    """Pull the live ``wait_for_health() { ... }`` body (no harness drift).
+
+    Named distinctly from concurrent coverage PRs' generic ``_extract_function``
+    helpers so a merge cannot silently alias the wrong extractor.
+    """
+    match = re.search(
+        r"^wait_for_health\(\) \{.*?\n\}\n",
+        SCRIPT_TEXT,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("wait_for_health function not found in isolated_stack.bash")
+    return match.group(0)
+
+
+def _extract_probe_health() -> str:
+    """Pull the live ``probe_health() { ... }`` body (no harness drift)."""
+    match = re.search(
+        r"^probe_health\(\) \{.*?\n\}\n",
+        SCRIPT_TEXT,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("probe_health function not found in isolated_stack.bash")
+    return match.group(0)
+
+
+def _extract_port_pid_for_probe() -> str:
+    """Pull ``port_pid`` for ``probe_health`` harnesses (distinct from #786's extractor)."""
+    match = re.search(
+        r"^port_pid\(\) \{.*?\n\}\n",
+        SCRIPT_TEXT,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("port_pid function not found in isolated_stack.bash")
+    return match.group(0)
 
 
 def _run(*args: str, env_extra: "dict[str, str] | None" = None) -> subprocess.CompletedProcess:
@@ -42,7 +91,7 @@ def _run(*args: str, env_extra: "dict[str, str] | None" = None) -> subprocess.Co
     if env_extra:
         env.update(env_extra)
     return subprocess.run(
-        ["bash", str(SCRIPT_PATH), *args],
+        ["/bin/bash", str(SCRIPT_PATH), *args],
         capture_output=True,
         text=True,
         env=env,
@@ -240,6 +289,186 @@ class TestDryRunDown(unittest.TestCase):
             self.assertIn("stop juniper-canopy on 8051", result.stdout)
             self.assertIn("snapshot_*", result.stdout)
             self.assertFalse(run_dir.exists(), "dry-run --down must not create/remove anything on disk")
+
+
+class TestDryRunStatus(unittest.TestCase):
+    """``--dry-run --status`` announces probes and never curls or reads ss."""
+
+    def test_dry_status_exit_zero_and_announces_all_three(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run"
+            result = _run(
+                "--dry-run",
+                "--status",
+                env_extra={
+                    "JUNIPER_E2E_PROJECT_DIR": "/opt/juniper-e2e-fixture",
+                    "JUNIPER_E2E_RUN_DIR": str(run_dir),
+                },
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("juniper-data", result.stdout)
+            self.assertIn("juniper-cascor", result.stdout)
+            self.assertIn("juniper-canopy", result.stdout)
+            # Dry-run short-circuits before the health= log line.
+            self.assertNotIn("health=", result.stdout)
+            self.assertFalse(run_dir.exists(), "dry-run --status must not create the scratch run dir")
+
+
+class TestWaitForHealth(unittest.TestCase):
+    """Behavioral pins for ``wait_for_health`` success / timeout arms.
+
+    Live ``--up`` gates each service on this helper; a regression that skips the
+    curl success arm or never times out leaves a partial trio hung (or proceeds
+    against a dead endpoint). Extracted from the live script with a PATH-stubbed
+    ``curl`` — no real network.
+    """
+
+    def _run_wait(self, *, curl_script: str, timeout: int = 2) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            curl = bin_dir / "curl"
+            curl.write_text("#!/usr/bin/env bash\n" + curl_script)
+            curl.chmod(0o755)
+            harness = f"""
+                set -euo pipefail
+                SCRIPT_NAME="isolated_stack.bash"
+                # Timeout ERROR line interpolates LOG_DIR under nounset.
+                LOG_DIR="/tmp/isolated-stack-health-fixture"
+                log() {{ echo "[${{SCRIPT_NAME}}] $*"; }}
+                {_extract_wait_for_health()}
+                set +e
+                wait_for_health "juniper-data" "http://127.0.0.1:9/v1/health" "{timeout}"
+                status=$?
+                set -e
+                echo "STATUS=${{status}}"
+                exit 0
+            """
+            env = RedactedEnv(os.environ)
+            env["PATH"] = str(bin_dir) + os.pathsep + "/usr/bin:/bin"
+            return subprocess.run(
+                ["/bin/bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=HEALTH_HELPER_TIMEOUT_SECONDS,
+            )
+
+    def test_healthy_curl_returns_zero(self) -> None:
+        result = self._run_wait(curl_script="exit 0\n", timeout=2)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=0", result.stdout)
+        self.assertIn("juniper-data is healthy", result.stdout)
+        self.assertNotIn("failed to become healthy", result.stdout)
+
+    def test_persistent_failure_times_out(self) -> None:
+        # timeout=2 with sleep 2 → one failed poll then the elapsed>=timeout arm.
+        result = self._run_wait(curl_script="exit 22\n", timeout=2)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("failed to become healthy within 2s", result.stdout)
+        # Success arm logs "is healthy (took Ns)" — must not appear on timeout.
+        self.assertNotIn("is healthy (took", result.stdout)
+
+    def test_data_cascor_canopy_up_wire_wait_for_health(self) -> None:
+        # Drift guard: each bring-up path must gate on wait_for_health (not a
+        # fire-and-forget nohup).
+        self.assertIn(
+            'wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health"',
+            SCRIPT_TEXT,
+        )
+        self.assertIn(
+            'wait_for_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health"',
+            SCRIPT_TEXT,
+        )
+        self.assertIn(
+            'wait_for_health "juniper-canopy" "http://127.0.0.1:${CANOPY_PORT}/v1/health"',
+            SCRIPT_TEXT,
+        )
+
+
+class TestProbeHealth(unittest.TestCase):
+    """Behavioral pins for ``probe_health`` live status arms.
+
+    ``--status`` is the operator's only hermetic liveness check for the isolated
+    trio; a regression that drops the curl code or ``port_pid`` field reports
+    healthy when nothing listens (or vice versa). PATH-stubbed ``curl`` + ``ss``.
+    """
+
+    def _run_probe(
+        self,
+        *,
+        curl_script: str,
+        ss_script: str,
+        dry_run: int = 0,
+        port: str = "65101",
+    ) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "curl").write_text("#!/usr/bin/env bash\n" + curl_script)
+            (bin_dir / "curl").chmod(0o755)
+            (bin_dir / "ss").write_text("#!/usr/bin/env bash\n" + ss_script)
+            (bin_dir / "ss").chmod(0o755)
+            harness = f"""
+                set -euo pipefail
+                SCRIPT_NAME="isolated_stack.bash"
+                DRY_RUN="{dry_run}"
+                log() {{ echo "[${{SCRIPT_NAME}}] $*"; }}
+                announce() {{ echo "[${{SCRIPT_NAME}}] \\$ $*"; }}
+                is_dry() {{ [[ "${{DRY_RUN}}" == "1" ]]; }}
+                {_extract_port_pid_for_probe()}
+                {_extract_probe_health()}
+                probe_health "juniper-data" "http://127.0.0.1:{port}/v1/health" "{port}"
+            """
+            env = RedactedEnv(os.environ)
+            env["PATH"] = str(bin_dir) + os.pathsep + "/usr/bin:/bin"
+            return subprocess.run(
+                ["/bin/bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+
+    def test_reports_http_code_and_listening_pid(self) -> None:
+        # probe_health uses curl -w '%{http_code}'; stub prints the code on stdout.
+        result = self._run_probe(
+            curl_script="echo 200\n",
+            ss_script=("echo 'LISTEN 0 128 127.0.0.1:65101 0.0.0.0:* " 'users:(("python",pid=424242,fd=3))\'\n'),
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("juniper-data: health=200 port=65101 pid=424242", result.stdout)
+
+    def test_curl_failure_reports_000_and_pid_none(self) -> None:
+        # ``|| true`` + empty code → default 000; empty port_pid → pid=none.
+        result = self._run_probe(curl_script="exit 7\n", ss_script="exit 0\n")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("juniper-data: health=000 port=65101 pid=none", result.stdout)
+
+    def test_dry_run_short_circuits_before_curl(self) -> None:
+        # Marker file proves curl was never executed under DRY_RUN=1.
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "curl_ran"
+            curl_script = f'echo ran >"{marker}"\necho 200\n'
+            result = self._run_probe(curl_script=curl_script, ss_script="exit 0\n", dry_run=1)
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertFalse(marker.exists(), "dry-run probe_health must not invoke curl")
+            self.assertNotIn("health=", result.stdout)
+
+    def test_do_status_wires_probe_health_for_all_three_services(self) -> None:
+        self.assertIn(
+            'probe_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health" "${DATA_PORT}"',
+            SCRIPT_TEXT,
+        )
+        self.assertIn(
+            'probe_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health" "${CASCOR_PORT}"',
+            SCRIPT_TEXT,
+        )
+        self.assertIn(
+            'probe_health "juniper-canopy" "http://127.0.0.1:${CANOPY_PORT}/v1/health" "${CANOPY_PORT}"',
+            SCRIPT_TEXT,
+        )
 
 
 if __name__ == "__main__":

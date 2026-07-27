@@ -10,7 +10,9 @@ NO network, NO real gh, NO real git, NO repo writes: every external effect runs 
 Covers (task acceptance list):
   * every S8 precondition HALT (main CI not green; declared<released anomaly; missing declared
     version; not-in-registry; missing CHANGELOG [<version>] section; TestPyPI-verify failure in the
-    monitor)
+    monitor) plus post-TestPyPI ``HALT_PUBLISH`` (run failure/cancelled/timed_out after TestPyPI
+    success -- HALTs without filing a dedup issue) and the live-seam ``upsert_halt_issue`` edit-
+    existing dedup branch
   * the happy path's EXACT action sequence (open_archive_pr -> enable_auto_merge -> cut_release ->
     monitor_publish)
   * dup-guard / idempotent re-entry (already-released no-op; Release already cut -> resume-monitor;
@@ -29,8 +31,9 @@ Covers (task acceptance list):
     malformed createCommitOnBranch payload returning an empty oid rather than crashing
   * `--dry-run` writes NOTHING (a git-tracked repo_root's `git status` stays clean)
   * the execute happy path (PENDING_PYPI_APPROVAL), the auto-merge graceful-degrade, execute-time
-    RESUME_MONITOR re-entry (no re-open / no re-cut), and the pure helpers
-    (classify_publish_run, changelog_version_section, infer_bump, release_tag)
+    open-PR reuse (no re-open; automerge on archive branch) and archive-already-on-main (release
+    only), and the pure helpers (classify_publish_run, changelog_version_section, infer_bump,
+    release_tag)
 
 Run: python3 -m unittest -v tests/test_release_train_ceremony.py
 
@@ -328,6 +331,7 @@ class GhSurfaceInvariantTest(unittest.TestCase):
             ["api", "repos/someone-else/juniper-ml/git/refs", "-X", "POST", "-f", "ref=refs/heads/x", "-f", "sha=a"],  # wrong owner
             ["api", "repos/pcalnon/juniper-ml/git/refs", "-f", "ref=refs/heads/x", "-f", "sha=a"],  # missing POST method
             ["api", "repos/pcalnon/juniper-ml/git/refs", "-X", "POST", "-f", "ref=refs/tags/v1", "-f", "sha=a"],  # a TAG ref, not heads/*
+            ["api", "repos/pcalnon/juniper-ml/git/refs", "-X", "POST", "-f", "sha=a"],  # POST without a ref= field (must not pass)
             ["api", "graphql", "-f", "query=mutation { addStar(input: {}) { clientMutationId } }", "-f", "repoWithOwner=pcalnon/juniper-ml"],  # a different mutation
             ["api", "graphql", "-f", f"query={ce._CREATE_COMMIT_ON_BRANCH_MUTATION}", "-f", "repoWithOwner=pcalnon/juniper-evil"],  # createCommit to a repo outside the 8
             ["api", "graphql", "-f", f"query={ce._CREATE_COMMIT_ON_BRANCH_MUTATION}"],  # createCommit with no repoWithOwner bound
@@ -337,6 +341,34 @@ class GhSurfaceInvariantTest(unittest.TestCase):
         for bad in strays:
             with self.assertRaises(ce.SeamViolation, msg=bad):
                 ce._assert_gh_allowed(bad, allowed)
+
+    def test_assert_api_allowed_rejects_refs_post_without_ref_field(self):
+        """R7 archive-lane: a git/refs POST with no ``ref=`` must SeamViolation (not silently allow).
+
+        Pre-fix the guard only rejected a *present* non-heads ref; omitting ``ref=`` entirely
+        passed the allowlist and deferred failure to the live GitHub API. That weakened the
+        documented ``ref=refs/heads/*`` invariant for the signed-archive branch create.
+        """
+        allowed = frozenset({"pcalnon/juniper-ml"})
+        missing_ref = [
+            "api",
+            "repos/pcalnon/juniper-ml/git/refs",
+            "-X",
+            "POST",
+            "-f",
+            "sha=abc123",
+        ]
+        with self.assertRaises(ce.SeamViolation) as ctx:
+            ce._assert_gh_allowed(missing_ref, allowed)
+        self.assertIn("refs/heads/", str(ctx.exception))
+        self.assertIn("ref=None", str(ctx.exception))
+        # Empty ref= is also not a heads/* target (defence against ref=).
+        with self.assertRaises(ce.SeamViolation) as ctx_empty:
+            ce._assert_gh_allowed(
+                ["api", "repos/pcalnon/juniper-ml/git/refs", "-X", "POST", "-f", "ref=", "-f", "sha=a"],
+                allowed,
+            )
+        self.assertIn("ref=''", str(ctx_empty.exception))
 
 
 # ── S9.3 seam-surface invariant (LIVE seam, recording gh) ────────────────────
@@ -416,6 +448,36 @@ class LiveSeamSurfaceTest(unittest.TestCase):
         self.assertTrue(any(a[:2] == ["issue", "list"] for a in self.gh_calls))
         self.assertTrue(any(a[:2] in (["issue", "create"], ["issue", "edit"]) for a in self.gh_calls))
 
+    def test_upsert_halt_issue_edits_existing_open_issue_instead_of_creating(self):
+        # Plan §8 dedup: when `issue list` finds an open HALT issue, the seam MUST `issue edit`
+        # that number and must NOT spam a duplicate `issue create` on ceremony re-entry.
+        existing_number = "42"
+
+        def gh(args, timeout=90):
+            self.gh_calls.append(list(args))
+            if args[:2] == ["issue", "list"]:
+                return existing_number
+            if args[:2] == ["issue", "edit"]:
+                return f"https://github.com/pcalnon/juniper-ml/issues/{existing_number}"
+            if args[:2] == ["issue", "create"]:
+                return "https://github.com/pcalnon/juniper-ml/issues/999"
+            return self._rec_gh(args, timeout=timeout)
+
+        self.gh_calls = []
+        src = ce.make_live_sources("pcalnon", self.tmp, self.tmp.parent, gh=gh, git=self._rec_git)
+        url = src.upsert_halt_issue(
+            "juniper-ml",
+            "[release-train] HALT: juniper-service-core -- main-ci-not-green",
+            "updated body",
+        )
+        self.assertIn(f"/issues/{existing_number}", url)
+        edits = [a for a in self.gh_calls if a[:2] == ["issue", "edit"]]
+        creates = [a for a in self.gh_calls if a[:2] == ["issue", "create"]]
+        self.assertEqual(len(edits), 1, self.gh_calls)
+        self.assertEqual(edits[0][2], existing_number)
+        self.assertIn("--body", edits[0])
+        self.assertEqual(creates, [], self.gh_calls)
+
     def test_archive_lane_issues_the_two_signed_commit_api_calls(self):
         # driving open_archive_pr composes the branch-ref REST create + the createCommitOnBranch signed
         # commit -- the ONLY two `gh api` calls the ceremony ever builds.
@@ -460,6 +522,23 @@ class PreconditionHaltTest(unittest.TestCase):
     def test_pypi_truth_missing_halts(self):
         # manifest said released 0.4.0 but PyPI now returns nothing.
         self._assert_halt(_plan(pypi_version=None), "pypi-truth-missing")
+
+    def test_notes_render_failed_halts(self):
+        # S8: if the release-notes template cannot be read (OSError), the planner HALTs with
+        # notes-render-failed -- the only precondition HALT that was untested. A missing template
+        # must not crash plan_ceremony or silently skip notes.
+        empty = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(empty, ignore_errors=True))
+        plan = ce.plan_ceremony(
+            _entry(),
+            _manifest_pkg(),
+            _sources(),
+            empty,  # no notes/templates/TEMPLATE_RELEASE_NOTES.md -> FileNotFoundError
+            empty.parent,
+            "2026-07-17",
+        )
+        self._assert_halt(plan, "notes-render-failed")
+        self.assertIn("could not render the release notes template", plan.halt_reason)
 
     def test_halt_issue_title_keyed_on_pkg_and_reason(self):
         plan = _plan(main_ci="failure")
@@ -555,6 +634,22 @@ class ClassifyPublishRunTest(unittest.TestCase):
         }
         self.assertEqual(ce.classify_publish_run(run), "HALT_TESTPYPI")
 
+    def test_post_testpypi_run_failure_is_halt_publish_not_halt_testpypi(self):
+        # TestPyPI succeeded; the run still completed as failure (e.g. a later job / cancelled /
+        # timed_out). Must NOT be misclassified as HALT_TESTPYPI (which files a dedup issue) or as
+        # PENDING/RELEASED (which would leave a broken deploy green).
+        for conclusion in ("failure", "cancelled", "timed_out"):
+            with self.subTest(conclusion=conclusion):
+                run = {
+                    "status": "completed",
+                    "conclusion": conclusion,
+                    "jobs": [
+                        {"name": "publish-testpypi", "status": "completed", "conclusion": "success"},
+                        {"name": "publish-pypi", "status": "completed", "conclusion": "failure"},
+                    ],
+                }
+                self.assertEqual(ce.classify_publish_run(run), "HALT_PUBLISH")
+
     def test_both_gates_done_is_released(self):
         run = {
             "status": "completed",
@@ -595,6 +690,14 @@ FAILED_TESTPYPI_RUN = {
         {"name": "publish-testpypi", "status": "completed", "conclusion": "failure"},
     ],
 }
+RELEASED_RUN = {
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+        {"name": "publish-testpypi", "status": "completed", "conclusion": "success"},
+        {"name": "publish-pypi", "status": "completed", "conclusion": "success"},
+    ],
+}
 
 
 class ExecuteTest(unittest.TestCase):
@@ -630,35 +733,18 @@ class ExecuteTest(unittest.TestCase):
         self.assertIn("issue_url", result)
         self.assertTrue(any(c[0] == "upsert_halt_issue" for c in rec.calls))
 
-    def test_execute_resume_monitor_does_not_reopen_archive_or_release(self):
-        """Release already cut -> RESUME_MONITOR execute must only monitor (plan S8 last row).
-
-        Planner coverage already pins the action list; this pins the execute seam so a regression
-        that re-opens the archive PR or re-cuts the Release on re-entry fails in CI.
-        """
-        rec, src = self._mk(release_cut=True, run_status=PENDING_RUN)
+    def test_execute_both_gates_done_is_released(self):
+        # Owner already approved Gate 2: classify_publish_run -> RELEASED must surface as the
+        # execute final state (not HALTED / PENDING / IN_PROGRESS). No halt issue; archive+Release
+        # already cut before the monitor returns.
+        rec, src = self._mk(run_status=RELEASED_RUN)
         plan = ce.plan_ceremony(_entry(), _manifest_pkg(), src, REPO_ROOT, REPO_ROOT.parent, "2026-07-17")
-        self.assertEqual(plan.state, "RESUME_MONITOR")
-        self.assertEqual(plan.action_kinds, ["monitor_publish"])
         result = ce.execute_ceremony(plan, src, monitor_kwargs={"timeout_seconds": 0, "sleep": lambda s: None})
-        self.assertEqual(result["plan_state"], "RESUME_MONITOR")
-        self.assertEqual(result["state"], "PENDING_PYPI_APPROVAL")
-        self.assertIsNone(result["pr_url"])
-        self.assertIsNone(result["release_url"])
-        self.assertEqual(rec.calls, [])  # no open_archive_pr / enable_automerge / create_release / halt
-
-    def test_execute_resume_monitor_testpypi_failure_files_issue_without_recut(self):
-        """RESUME_MONITOR + TestPyPI failure HALTs and files the issue without re-cutting anything."""
-        rec, src = self._mk(release_cut=True, run_status=FAILED_TESTPYPI_RUN)
-        plan = ce.plan_ceremony(_entry(), _manifest_pkg(), src, REPO_ROOT, REPO_ROOT.parent, "2026-07-17")
-        self.assertEqual(plan.state, "RESUME_MONITOR")
-        result = ce.execute_ceremony(plan, src, monitor_kwargs={"timeout_seconds": 0, "sleep": lambda s: None})
-        self.assertEqual(result["plan_state"], "RESUME_MONITOR")
-        self.assertEqual(result["state"], "HALTED")
-        self.assertIsNone(result["pr_url"])
-        self.assertIsNone(result["release_url"])
+        self.assertEqual(result["state"], "RELEASED")
+        self.assertNotIn("issue_url", result)
+        self.assertFalse(any(c[0] == "upsert_halt_issue" for c in rec.calls))
         kinds = [c[0] for c in rec.calls]
-        self.assertEqual(kinds, ["upsert_halt_issue"])
+        self.assertEqual(kinds, ["open_archive_pr", "enable_automerge", "create_release"])
 
 
 # ── CLI: dry-run writes nothing + exit codes ─────────────────────────────────
