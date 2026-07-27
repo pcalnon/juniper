@@ -748,7 +748,7 @@ class PackagesInputRehearsalTest(unittest.TestCase):
                 raise unittest.SkipTest(f"{job} step lacks packages/cross-repo parsing")
             cls.prefixes[job] = _extract_packages_prefix(run)
 
-    def _run(self, job: str, packages_input: str, app_token: str = "") -> "subprocess.CompletedProcess":
+    def _run(self, job: str, packages_input: str, app_token: str = "") -> "subprocess.CompletedProcess":  # nosec B107 - test stand-in token, not a credential
         with tempfile.TemporaryDirectory() as td:
             script_path = Path(td) / "packages.sh"
             script_path.write_text(self.prefixes[job], encoding="utf-8")
@@ -792,8 +792,8 @@ class PackagesInputRehearsalTest(unittest.TestCase):
 
     def test_cross_repo_only_when_app_token_nonempty(self):
         for job in WRITE_JOBS:
-            with self.subTest(job=job, token="present"):
-                proc = self._run(job, "juniper-observability", app_token="minted-token")
+            with self.subTest(job=job, token="present"):  # nosec B106 - subTest label, not a credential
+                proc = self._run(job, "juniper-observability", app_token="minted-token")  # nosec B106 - fake token exercising the APP_TOKEN gate
                 self.assertEqual(proc.returncode, 0, proc.stderr)
                 self.assertIn("cross-repo", proc.stdout.lower())
                 self.assertRegex(proc.stdout, r"ARGS:--package juniper-observability\|CROSS:--cross-repo")
