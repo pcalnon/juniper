@@ -301,6 +301,26 @@ class PyprojectClassifierTest(unittest.TestCase):
     def test_patch_unavailable_is_uncertain(self):
         self.assertEqual(d.classify_pyproject_patch(None)[0], "uncertain")
 
+    def test_build_system_change_is_ship(self):
+        """[build-system] edits (requires/backend) are packaging-runtime SHIP, not tooling NONSHIP.
+
+        A regression that routes ``build-system`` into the else/nonship arm would
+        discount setuptools/hatchling/requires bumps and miss UNRELEASED_CHANGES
+        for every package whose only delta is the build backend.
+        """
+        patch = textwrap.dedent(
+            """\
+            @@ -1,3 +1,3 @@
+             [build-system]
+            -requires = ["setuptools>=61"]
+            +requires = ["setuptools>=68", "wheel"]
+             build-backend = "setuptools.build_meta"
+            """
+        )
+        kind, reason = d.classify_pyproject_patch(patch)
+        self.assertEqual(kind, "ship")
+        self.assertIn("pyproject", reason)
+
 
 class PathScopingTest(unittest.TestCase):
     def test_subdir_package_scope(self):
@@ -520,6 +540,50 @@ class ClassificationTest(unittest.TestCase):
         falsy), keep evaluating ``notes_missing`` independently, and append the
         unavailable note. Re-raising would exit 2 the whole detect job; defaulting
         ``tag_only`` to True would spam false TAG_ONLY on every blip.
+        """
+        e = self._pkg("0.4.0")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self.fake.releases["juniper-ml"] = {"juniper-thing-v0.4.0"}  # would clear tag_only if used
+        self.fake.compares[("juniper-ml", "juniper-thing-v0.4.0", "main")] = d.CompareResult(files=[], commits=[])
+        local = d.make_local_git_sources("pcalnon", self.repo_root, self.eco)
+        base = self.fake.build()
+        sources = d.Sources(
+            pypi_json=base.pypi_json,
+            list_tags=base.list_tags,
+            list_releases=local.list_releases,
+            compare=base.compare,
+            read_file=base.read_file,
+        )
+        rec = d.classify_package(e, sources, self.repo_root, self.eco)
+        self.assertIsNone(rec.hygiene["tag_only"])
+        self.assertTrue(
+            any("release-hygiene (tag_only) unavailable" in n for n in rec.notes),
+            msg=f"expected unavailable note, got {rec.notes!r}",
+        )
+        # notes_missing is orthogonal and still evaluated
+        self.assertTrue(rec.hygiene["notes_missing"])
+
+    def test_local_git_list_releases_raises_source_error(self):
+        """make_local_git_sources.list_releases must raise — empty set → false TAG_ONLY.
+
+        Docstring contract: releases are unknown offline, so TAG_ONLY is unavailable.
+        Returning ``set()`` made ``diff_base_tag not in releases`` always True and
+        inflated the daily TAG_ONLY hygiene count under ``--local-git``.
+        """
+        sources = d.make_local_git_sources("pcalnon", self.repo_root, self.eco)
+        with self.assertRaises(d.SourceError) as ctx:
+            sources.list_releases("juniper-ml")
+        msg = str(ctx.exception).lower()
+        self.assertIn("unknown offline", msg)
+        self.assertIn("--local-git", msg)
+
+    def test_local_git_hygiene_tag_only_unavailable_not_false_positive(self):
+        """Wire the real local-git list_releases into classify_package → tag_only=None.
+
+        Orthogonal to #761 (injected boom_releases SourceError): this pins the
+        production ``make_local_git_sources`` seam so a silent empty-set regress
+        cannot reintroduce false TAG_ONLY under ``--local-git``.
         """
         e = self._pkg("0.4.0")
         self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
