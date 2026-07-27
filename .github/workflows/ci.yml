@@ -135,7 +135,12 @@ jobs:
           # in juniper-doc-tools/tests/, exercised by the dedicated
           # `CI -- juniper-doc-tools` workflow.
           python3 -m unittest -v tests/test_worktree_cleanup.py
+          python3 -m unittest -v tests/test_worktree_activate.py
           python3 -m unittest -v tests/test_worktree_sweep_scripts.py
+          # util/cleanup_open_worktrees.bash + util/remove_stale_worktrees.bash:
+          # destructive path-filter / skip-missing-.claude gates. Hermetic fixture
+          # repos only; util/ is not pre-commit-gated so this unittest is the gate.
+          python3 -m unittest -v tests/test_cleanup_open_remove_stale_worktrees.py
           python3 -m unittest -v tests/test_reap_pytest_orphans.py
           python3 -m unittest -v tests/test_editable_install_drift_check.py
           # tests/test_env_floor_drift_check.py: gap-I-2 floor-drift checker --
