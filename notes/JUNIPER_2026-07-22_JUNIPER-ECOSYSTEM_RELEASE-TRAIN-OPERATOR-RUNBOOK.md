@@ -369,6 +369,21 @@ python util/release_train/archive_guard.py --base origin/main --head HEAD --json
 - Two **failure** terminals are distinct (§4): `HALT_TESTPYPI` (TestPyPI job failed → dedup issue) vs
   `HALT_PUBLISH` (run completed `failure`/`cancelled`/`timed_out` after TestPyPI succeeded → note only,
   no issue). Do not expect a GitHub issue for the latter.
+  train** (plan §5.1). Terminal monitor returns are only
+  `PENDING_PYPI_APPROVAL` / `RELEASED` / `HALT_TESTPYPI` / `HALT_PUBLISH`
+  (`monitor_publish_run`, `ceremony.py:938-941`).
+  - **`NOT_FOUND` is not terminal.** Right after `gh release create`, the publish workflow is often
+    invisible for a poll or two (`classify_publish_run(None) -> NOT_FOUND`, `ceremony.py:505`). The
+    monitor **keeps polling** — it must never stamp `NOT_FOUND` onto the ceremony result (that would
+    skip waiting for Gate 2). Coverage: `MonitorTimeoutTest` in `tests/test_release_train_ceremony.py`
+    (juniper-ml#744 / #745 / #747).
+  - **Timeout → honest `IN_PROGRESS`.** If the wall clock elapses while the run is still building *or*
+    still permanently missing (mis-tagged Release / workflow never triggered), the monitor returns
+    **`IN_PROGRESS`** — never invents `PENDING_PYPI_APPROVAL` / `RELEASED` / a HALT
+    (`ceremony.py:941`). Re-run ceremony mode to resume (idempotent). Operator check when you see
+    `IN_PROGRESS` with no publish run: confirm the Release tag matched the workflow's `on:` filter and
+    that the publish workflow actually fired (`gh run list --repo pcalnon/<owning-repo>`); fix the tag /
+    workflow trigger, then re-run — do not approve a phantom Gate 2.
 - **Gate 2 is yours**: the publish workflow's `pypi`-environment deploy job waits for the owner to
   approve. The train never approves it (§7). Approve it in the run's environment-review UI when ready.
 - **Re-entry is a named plan state, not a full re-ceremony.** When the Release tag already exists,
