@@ -122,6 +122,24 @@ view…` (`detect.py:954-957`) means ship evidence was still absent after the fa
 locally with `--local-git` or inspect the path-scoped diff by hand. Coverage pin: open
 juniper-ml#729 `LiveCompareCapFallbackTest`.
 
+#### Live `gh compare` 300-file fallback (SemVer)
+
+GitHub's compare API caps the `files` array at **300**. Live detect (`make_live_sources().compare`,
+`detect.py:362-373`) must not leave busy subdir packages with a thinned path-scoped window:
+
+| Condition | Behavior |
+|---|---|
+| `len(files) >= 300` | Fall back to path-scoped `local_git_compare` (cap-free). When that local compare succeeds **and** the remote payload had commits, **keep the remote commit first-lines** for the SemVer signal (`detect.py:368-371`) — local commit messages are discarded. |
+| Below 300 | Use the `gh` payload as-is — `local_git_compare` is **not** called. |
+| Compare missing / not found | Return error (`ok=False`) — **no** local fallback. |
+| Cap hit but local compare fails | Surface the local error (never invent an empty `UP_TO_DATE`). |
+
+Full-history sibling clones exist so this fallback has tags + history (`release-train.yml` detect
+checkout note). A residual detector note `compare diff hit the 300-file cap with no ship evidence in
+view…` (`detect.py:954-957`) means ship evidence was still absent after the fallback window — re-run
+locally with `--local-git` or inspect the path-scoped diff by hand. Coverage pin: open
+juniper-ml#729 `LiveCompareCapFallbackTest`.
+
 ### 3.2 Dispatching `propose` against specific packages (Gate 1)
 
 ```bash
@@ -140,7 +158,7 @@ gh workflow run release-train.yml -f mode=propose -f packages=juniper-observabil
 #### `packages` dispatch charset + `--cross-repo` gate
 
 Both write jobs (`propose` and `ceremony`) share the same shell prefix **before** python runs
-(`release-train.yml:494-519` propose; `:703-727` ceremony). Structural substring pins alone can miss a
+(`release-train.yml:494-519` propose; `:706-731` ceremony). Structural substring pins alone can miss a
 weakened regex or a reordered `APP_TOKEN` gate — open juniper-ml#729 `PackagesInputRehearsalTest`
 extracts and *runs* the real prefix.
 
@@ -320,7 +338,7 @@ gh workflow run release-train.yml -f mode=ceremony -f packages=juniper-observabi
 ```
 
 The `packages` / `--cross-repo` shell contract is **identical** to §3.2 (same charset reject +
-`APP_TOKEN` gate; `release-train.yml:703-727`).
+`APP_TOKEN` gate; `release-train.yml:706-731`).
 
 For each `BUMPED_NOT_RELEASED` package the ceremony (`ceremony.py:1-45`): runs the §8 preconditions,
 builds the central notes file, opens the **add-only** archive PR (always in juniper-ml — the central
