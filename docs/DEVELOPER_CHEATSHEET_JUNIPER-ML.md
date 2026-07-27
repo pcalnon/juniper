@@ -240,11 +240,11 @@ Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `lo
 `.py` A/D/R/**C** as inherently substantive. Operator tables:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
 
-**Archive-guard FAIL triage:** the exempt notes-archive PR's required check (`Release-Train Archive Guard`)
-PASSes only on pure `A` adds under `notes/releases/RELEASE_NOTES_*.md`.
-Rename-OUT, Copy (`C`), and Typechange (`T`) are still archive PRs (`touches_releases` checks both rename/copy paths) and FAIL — they never SKIP.
-A FAIL drops the PR back to the standard owner gate (no auto-merge).
-Operator tables: [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.3.
+**Ceremony re-entry (`RESUME_MONITOR`).** If a Release tag already exists, re-dispatching
+`mode=ceremony` only monitors the publish run — it does **not** re-open the archive PR or re-cut the
+Release. Step summary shows **resume-monitor**; `plan_state` stays `RESUME_MONITOR` while `state` is
+the monitor verdict. TestPyPI failure on resume still HALTs + files an issue (no re-cut). Distinct from
+`ALREADY_RELEASED` (PyPI already serves the target). Operator details: runbook §3.3 / §5.5.
 
 ---
 
