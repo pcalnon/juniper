@@ -47,6 +47,18 @@ def _extract_graceful_stop_function() -> str:
     return match.group(0)
 
 
+def _extract_validate_pid_function() -> str:
+    """Pull the live ``validate_pid`` body from the script (avoids harness drift)."""
+    match = re.search(
+        r"^function validate_pid\(\) \{.*?\n\}\n",
+        SCRIPT_TEXT,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("validate_pid function not found in juniper_chop_all.bash")
+    return match.group(0)
+
+
 class TestSyntax(unittest.TestCase):
     def test_bash_syntax(self) -> None:
         result = subprocess.run(
