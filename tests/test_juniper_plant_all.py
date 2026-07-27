@@ -51,6 +51,22 @@ def _extract_function(name: str) -> str:
     return match.group(0)
 
 
+def _extract_validate_conda_env() -> str:
+    """Pull the live ``function validate_conda_env() { ... }`` body (no harness drift).
+
+    Named distinctly from concurrent coverage PRs' generic ``_extract_function``
+    helpers so a merge cannot silently alias the wrong extractor.
+    """
+    match = re.search(
+        r"^function validate_conda_env\(\) \{.*?\n\}\n",
+        SCRIPT_TEXT,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("validate_conda_env function not found in juniper_plant_all.bash")
+    return match.group(0)
+
+
 class TestSyntax(unittest.TestCase):
     """The script must pass `bash -n` cleanly."""
 
@@ -506,22 +522,57 @@ class TestWaitForHealthIntervalGuard(unittest.TestCase):
             harness = f"""
                 set -euo pipefail
                 JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
-                HEALTH_CHECK_TIMEOUT=60
-                HEALTH_CHECK_INTERVAL=2
-                # Stub settle sleeps; elapsed arithmetic still advances.
-                sleep() {{ :; }}
-                {_extract_function("wait_for_health")}
+                JUNIPER_CONDA_DIR="$1"
+                {_extract_validate_conda_env()}
                 set +e
-                wait_for_health "juniper-data" "http://127.0.0.1:9/v1/health" "{timeout}" "{interval}"
+                validate_conda_env "{env_name}"
                 status=$?
                 set -e
                 echo "STATUS=${{status}}"
                 exit 0
             """
             env = RedactedEnv(os.environ)
-            env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
             return subprocess.run(
-                ["/bin/bash", "-c", harness],
+                ["/bin/bash", "-c", harness, "_", str(conda_dir)],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )            
+            
+class TestValidateCondaEnv(unittest.TestCase):
+    """Behavioral pins for ``validate_conda_env`` missing-dir / non-exec arms.
+
+    Preflight smoke stages every env with an executable stub ``python`` so it
+    never reaches the ``! -x`` arm. A broken or non-executable ``bin/python``
+    would otherwise let plant proceed into conda activate / launch against a
+    dead env — large blast radius across all four services.
+    """
+
+    def _run_validate(self, *, stage) -> subprocess.CompletedProcess:
+        """Run extracted ``validate_conda_env`` against a synthetic conda tree.
+
+        ``stage(conda_dir)`` prepares ``envs/<name>/...`` under the temp root.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            conda_dir = Path(tmp) / "miniforge3"
+            conda_dir.mkdir()
+            env_name = stage(conda_dir)
+            harness = f"""
+                set -euo pipefail
+                JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
+                JUNIPER_CONDA_DIR="$1"
+                {_extract_validate_conda_env()}
+                set +e
+                validate_conda_env "{env_name}"
+                status=$?
+                set -e
+                echo "STATUS=${{status}}"
+                exit 0
+            """
+            env = RedactedEnv(os.environ)
+            return subprocess.run(
+                ["/bin/bash", "-c", harness, "_", str(conda_dir)],
                 capture_output=True,
                 text=True,
                 env=env,
@@ -540,6 +591,64 @@ class TestWaitForHealthIntervalGuard(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("STATUS=1", result.stdout)
         self.assertIn("clamping to 1s", result.stdout)
+        
+    def test_missing_env_directory_returns_one(self) -> None:
+        def stage(conda_dir: Path) -> str:
+            (conda_dir / "envs").mkdir()
+            return "MissingEnv"
+
+        result = self._run_validate(stage=stage)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("Conda environment 'MissingEnv' not found", result.stdout)
+        self.assertNotIn("Python binary not found", result.stdout)
+
+    def test_missing_python_binary_returns_one(self) -> None:
+        def stage(conda_dir: Path) -> str:
+            (conda_dir / "envs" / "BrokenEnv" / "bin").mkdir(parents=True)
+            return "BrokenEnv"
+
+        result = self._run_validate(stage=stage)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("Python binary not found or not executable", result.stdout)
+        self.assertIn("envs/BrokenEnv/bin/python", result.stdout)
+
+    def test_non_executable_python_returns_one(self) -> None:
+        def stage(conda_dir: Path) -> str:
+            bin_dir = conda_dir / "envs" / "NonExecEnv" / "bin"
+            bin_dir.mkdir(parents=True)
+            python = bin_dir / "python"
+            python.write_text("#!/usr/bin/env bash\nexit 0\n")
+            python.chmod(0o644)  # present but not executable — the ! -x arm
+            return "NonExecEnv"
+
+        result = self._run_validate(stage=stage)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("Python binary not found or not executable", result.stdout)
+        self.assertIn("envs/NonExecEnv/bin/python", result.stdout)
+
+    def test_executable_python_returns_zero(self) -> None:
+        def stage(conda_dir: Path) -> str:
+            bin_dir = conda_dir / "envs" / "GoodEnv" / "bin"
+            bin_dir.mkdir(parents=True)
+            python = bin_dir / "python"
+            python.write_text("#!/usr/bin/env bash\nexit 0\n")
+            python.chmod(0o755)
+            return "GoodEnv"
+
+        result = self._run_validate(stage=stage)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=0", result.stdout)
+        self.assertIn("Conda environment 'GoodEnv' validated", result.stdout)
+
+    def test_preflight_validates_all_four_envs(self) -> None:
+        # Drift guard: plant must validate data/cascor/canopy/worker, not just worker.
+        self.assertIn('validate_conda_env "${JUNIPER_DATA_CONDA}"', SCRIPT_TEXT)
+        self.assertIn('validate_conda_env "${JUNIPER_CASCOR_CONDA}"', SCRIPT_TEXT)
+        self.assertIn('validate_conda_env "${JUNIPER_CANOPY_CONDA}"', SCRIPT_TEXT)
+        self.assertIn('validate_conda_env "${JUNIPER_WORKER_CONDA}"', SCRIPT_TEXT)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.2
+**Version**: 1.2.3
 **Last Updated**: 2026-07-26
 
 ---
@@ -251,6 +251,29 @@ still archives at ceremony time:
 - Prefer `-` in hand-edited CHANGELOG, but do not reject a proposal solely because Unreleased used `*`.
 
 Coverage pins: `tests/test_release_train_propose.py` (juniper-ml#756).
+
+#### CHANGELOG refuse clears staged edits (juniper-ml#751)
+
+`build_proposal` stages the version bump (and optional static `_version.py` dunder) **before** the
+CHANGELOG `[Unreleased]` → `[<version>]` move (`propose.py` steps 3 / 3a / 4). When step 4 refuses —
+empty / missing Unreleased body (`CHANGELOG move refused: …`) or a missing CHANGELOG
+(`could not read …/CHANGELOG.md`) — juniper-ml#751 clears any edits already staged
+(`prop.edits.clear()`) so the skipped stub matches the dup-guard / `bump=none` shape:
+`edits=[]`, `branch=None`, `skipped_reason` set (`propose.py` ~1099–1110 after #751).
+
+| Signal (dry-run / `--json` / step summary) | Meaning | Operator response |
+|---|---|---|
+| `skip:` + `CHANGELOG move refused` / `could not read …/CHANGELOG.md` **and** `edits=[]` | Honest refusal stub (post-#751) | Fix Unreleased bullets or restore CHANGELOG; re-run `report` then `propose` |
+| Same `skipped_reason` **but** `edits` still lists a pyproject / dunder bump | Pre-#751 half-proposal — `execute_proposal` still no-ops on `skipped`, but JSON looks shippable | Do **not** treat leftover edits as a Gate 1 candidate; upgrade train past #751, then re-run |
+
+**Why this matters:** `execute_proposal` already guards on `prop.skipped` (`propose.py` ~1310), so a
+half-staged stub never opened a PR. Operators reading dry-run JSON still saw leftover version edits and
+learned to ignore them — #751 makes the stub shape honest. Full refusal-reason catalog (including
+`bump=none` / unreadable version): open docs PR juniper-ml#768 (coverage #749) when merged.
+
+Hermetic coverage: `tests/test_release_train_propose.py`
+(`BuildProposalTest.test_changelog_move_refused_clears_staged_edits`,
+`test_unreadable_changelog_clears_staged_edits`).
 
 ### 3.3 Dispatching `ceremony` against specific packages (drives toward Gate 2)
 
@@ -606,8 +629,9 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
 - Engines: `util/release_train/detect.py`, `propose.py`, `notes_render.py`, `ceremony.py`, `registry.yaml`.
 - Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
   `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
-  `tests/test_release_train_archive_guard.py` (add-only / rename-out / Copy / Typechange; plan §7.2),
-  `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701).
+  `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701),
+  `tests/test_release_train_propose.py` (sibling/meta AGENTS.md step-5/5a shapes — worker#140 / ml#706 / #720;
+  CHANGELOG refuse clear-on-refuse stub shape — juniper-ml#751).
 - Static `_version.py` lockstep (Gate 1 review):
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
   (implemented by juniper-ml#710).
