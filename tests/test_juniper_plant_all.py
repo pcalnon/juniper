@@ -10,9 +10,7 @@ Validates the script-level invariants introduced in the 2026-05-07 audit:
   CASCOR_SERVICE_URL legacy alias).
 - Pre-flight aborts if the juniper-cascor-worker binary is missing from the
   JuniperCascor conda env.
-- ``cleanup_on_failure`` SIGTERM→SIGKILL escalate + pidfile remove (JR-ML-SEC-042).
-- ``wait_for_health`` success / timeout arms (hermetic curl stub).
-- ``check_port_available`` busy-port reject + ss-missing fail-open.
+- ``wait_for_health`` clamps a zero/invalid poll interval (avoids busy-loop).
 
 Where possible, tests inspect the script as text — running the full script
 under unittest is impractical because it source-activates conda, allocates
@@ -503,6 +501,61 @@ class TestPidFileFormat(unittest.TestCase):
         # Plant must not still emit the legacy "name: pid" format.
         self.assertNotIn('echo "juniper-data:', SCRIPT_TEXT)
         self.assertNotIn('echo "juniper-cascor:', SCRIPT_TEXT)
+
+
+class TestWaitForHealthIntervalGuard(unittest.TestCase):
+    """``HEALTH_CHECK_INTERVAL=0`` must not busy-loop forever.
+
+    ``wait_for_health`` advances ``elapsed`` by ``interval`` each poll. A zero
+    (or non-positive / non-numeric) interval leaves ``elapsed`` stuck at 0 while
+    ``sleep 0`` returns immediately — an infinite curl hammer that never hits
+    the timeout arm and leaves a partial plant hung until the operator kills it.
+    """
+
+    def _run_wait(self, *, interval: str, timeout: int = 2) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            curl = bin_dir / "curl"
+            curl.write_text("#!/usr/bin/env bash\nexit 22\n")
+            curl.chmod(0o755)
+            harness = f"""
+                set -euo pipefail
+                JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
+                HEALTH_CHECK_TIMEOUT=60
+                HEALTH_CHECK_INTERVAL=2
+                # Stub settle sleeps; elapsed arithmetic still advances.
+                sleep() {{ :; }}
+                {_extract_function("wait_for_health")}
+                set +e
+                wait_for_health "juniper-data" "http://127.0.0.1:9/v1/health" "{timeout}" "{interval}"
+                status=$?
+                set -e
+                echo "STATUS=${{status}}"
+                exit 0
+            """
+            env = RedactedEnv(os.environ)
+            env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+            return subprocess.run(
+                ["/bin/bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+
+    def test_zero_interval_clamps_and_times_out(self) -> None:
+        result = self._run_wait(interval="0", timeout=2)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("clamping to 1s", result.stdout)
+        self.assertIn("failed to become healthy within 2s", result.stdout)
+
+    def test_non_numeric_interval_clamps_and_times_out(self) -> None:
+        result = self._run_wait(interval="fast", timeout=2)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("clamping to 1s", result.stdout)
 
 
 class TestValidateCondaEnv(unittest.TestCase):
