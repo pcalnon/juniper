@@ -24,7 +24,7 @@
 | `util/juniper_plant_all.bash`                          | Start the host-level Juniper stack with health gates |
 | `util/get_cascor_status.bash`                          | Query host-mode cascor status (`CASCOR_HOST` / `CASCOR_PORT`, default `localhost:8201`) |
 | `util/juniper_chop_all.bash`                           | Stop the host-level stack from `JuniperProject.pid` |
-| `util/isolated_stack.bash --up` / `--down` / `--status` | Throwaway E2E trio on 8101/8202/8051 (use `--dry-run` to preview) |
+| `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -289,9 +289,7 @@ Hygiene `TAG_ONLY=` counts only truthy `tag_only`; a `list_releases` blip sets `
 
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
 
-Tip: isolated `cascor_up` must empty `LD_LIBRARY_PATH` and set the control-WS allowlist to canopy's origin; `canopy_up` must set `DEMO_MODE=0` and matching `CASCOR_WS_ORIGIN` — dropping any of those is the libtorch / 403 / demo failure class.
-
-Full contract: [REFERENCE — Isolated Stack E2E](REFERENCE.md#isolated-stack-e2e-utilities).
+Tip: before `/template-agent`, run `python util/agent_suite_doctor.py` (not `--no-discovery`). Discovery fail-closed: missing CLI, nonzero exit, non-JSON, or missing `schema_version`/`provenance.head_sha` → `FAIL`. See [REFERENCE.md § Agent Suite Doctor](REFERENCE.md#agent-suite-doctor).
 
 ### Host Stack Troubleshooting
 
@@ -302,9 +300,7 @@ Full contract: [REFERENCE — Isolated Stack E2E](REFERENCE.md#isolated-stack-e2
 | Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`; keep the default `JuniperCascor1` env unless a replacement is known-good. |
 | Worker binary missing | Run `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` finished in `nohup` mode and rerun with `JUNIPER_PROJECT_DIR` set to the same project root; for systemd mode, stop with `util/juniper_chop_all.bash --systemd`. |
-| Isolated cascor wrong-torch / crash | Confirm `--dry-run --up` shows emptied `LD_LIBRARY_PATH=`; prefer `JuniperCascor1`. |
-| Isolated control-WS `403` / reconnect churn | Cascor allowlist + canopy Origin must both be `http://127.0.0.1:<CANOPY_PORT>` (checklist §4). |
-| Isolated `--up` says `conda not found` | Set `JUNIPER_E2E_CONDA_DIR` so `…/etc/profile.d/conda.sh` exists; no pidfiles should be written. |
+| Doctor green but Template Agent grounding dead | Re-run without `--no-discovery`; fix `util/prompt_discovery/cli.py` until it emits `schema_version` + `provenance.head_sha`. |
 
 ## Quick Reference Tables
 
