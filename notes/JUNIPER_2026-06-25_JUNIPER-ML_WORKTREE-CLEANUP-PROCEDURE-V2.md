@@ -2,7 +2,7 @@
 
 **Purpose**: Standardized procedure for completing work in a worktree, merging, creating PRs, and transitioning to a new worktree — without trapping the Claude Code session in an invalid CWD
 **Project**: juniper-ml
-**Last Updated**: 2026-06-25
+**Last Updated**: 2026-07-26
 
 ---
 
@@ -45,12 +45,17 @@ cd "$OLD_WORKTREE_DIR"
 git status
 ```
 
-**GATE**: Working tree must be clean. If dirty, commit remaining changes:
+**GATE**: Working tree must be clean. If dirty, commit or stash remaining changes
+before any push (manual or scripted):
 
 ```bash
 git add <files>
 git commit -m "<final commit message>"
+# or: git stash push -u -m "pre-cleanup"
 ```
+
+The automated script (`phase_1_save_and_push`) hard-fails here — see
+[Phase 1 dirty-tree + push gates (script)](#phase-1-dirty-tree--push-gates-script).
 
 ### Step 2: Push Worktree Branch to Remote
 
@@ -354,21 +359,84 @@ cd "$NEW_WORKTREE"
 
 **Important**: The script outputs the new worktree path to stdout. The caller MUST `cd` to that path after the script completes. The script cannot change the caller's CWD because it runs in a subshell.
 
-Use `--skip-remote-delete` when a PR was created, since the remote branch is needed for the PR. The PR merge process (on GitHub) will handle remote branch cleanup.
-
 See `util/worktree_cleanup.bash --help` for full options and `--dry-run` support.
+
+### Phase 1 dirty-tree + push gates (script)
+
+`phase_1_save_and_push` (`util/worktree_cleanup.bash` ~213–252) runs **before** any
+continuity worktree, PR, or cleanup step. Decision order:
+
+| Condition | Script action | Reaches `git push`? |
+|-----------|---------------|---------------------|
+| `--dry-run` | Prints `[DRY-RUN] status --porcelain` + `[DRY-RUN] push …`; logs `Old worktree is clean (dry-run — skipped check)`; returns 0 | **No** (preview only) |
+| Live + non-empty `git -C "$OLD_WORKTREE" status --porcelain` | Warns with the porcelain lines; `log_error "Commit or stash changes before running cleanup"`; **`exit 1`** | **No** — hard stop |
+| Live + clean + upstream set + `rev-list --count upstream..branch > 0` | `Pushing N commit(s) to remote` → `git push origin "$OLD_BRANCH"` | **Yes** |
+| Live + clean + upstream set + ahead == 0 | `Branch is up to date with remote` (no push) | **No** |
+| Live + clean + no upstream (`@{upstream}` missing) | `No remote tracking branch — pushing to origin` → `git push -u origin "$OLD_BRANCH"` | **Yes** (`-u`) |
+
+**Why the dirty gate is fatal.** Phase 1 is the backup push for the branch about to be
+removed. Pushing (or pretending the tree is clean) while WIP remains would either
+lose uncommitted work on `worktree remove` or push a tip that does not match the
+operator's working tree. The script never auto-commits or stashes — the operator
+must make the tree clean, then re-run.
+
+**Dry-run caveat.** `--dry-run` **skips** the porcelain check entirely (it always
+claims clean). A dry-run that prints a push line is **not** proof the live tree is
+clean — run without `--dry-run` (or `git status --porcelain` in the old worktree)
+before treating Phase 1 as satisfied.
+
+**Constraints / pitfalls:**
+
+- Dirty means any non-empty porcelain (tracked mods **or** untracked files). The
+  script does not distinguish them.
+- Exit 1 aborts the whole orchestrator — Phases 2–7 never run. Fix the tree, then
+  re-invoke; do not hand-roll Phase 4 while Phase 1 failed.
+- Hermetic coverage: dirty → exit 1 / no push in juniper-ml#747
+  (`TestPhase1DirtyTree`); clean push / skip / `-u` arms in open juniper-ml#753
+  (`TestPhase1PushBehavioral`).
+
+### Phase 2 continuity-path collision (script)
+
+`phase_2_create_new_worktree` (`util/worktree_cleanup.bash` ~273–302) generates
+`NEW_WORKTREE` / `NEW_BRANCH` (unless passed), `fetch`es `origin`, then **refuses
+to clobber** an existing path:
+
+```text
+New worktree directory already exists: <NEW_WORKTREE>
+```
+
+→ `exit 1` before `git worktree add`. Pre-existing contents are left untouched
+(no reuse, no `rm -rf`). Pass `--new-worktree` / `--new-branch` to a free path, or
+remove the colliding directory only when you intend to. Hermetic coverage: open
+juniper-ml#753 (`TestPhase2Behavioral.test_existing_new_worktree_dir_exits_without_clobber`).
 
 ---
 
 ## Edge Cases
 
-### PR Already Exists for Branch
+### PR Already Exists for Branch (script Phase 3)
 
-Check before creating:
+Manual check before creating:
 
 ```bash
 gh pr list --head "$OLD_BRANCH" --state open
 ```
+
+`util/worktree_cleanup.bash` `phase_3_merge_and_pr` already does this for the **head it will open**:
+
+| Parent | Ahead of parent? | Open PR for head? | Script action |
+|---|---|---|---|
+| `main` | yes (`origin/main..origin/$OLD_BRANCH` > 0) | yes (`gh pr list --head $OLD_BRANCH`) | Log `PR #<n> already exists` — **never** `gh pr create` |
+| `main` | yes | no | `gh pr create --base main --head $OLD_BRANCH` |
+| not `main` | yes | yes (`--head $PARENT_BRANCH`) | Log existing — **never** create (reuse parent→main PR) |
+| not `main` | yes | no | Merge `$OLD_BRANCH` → `$PARENT_BRANCH`, push parent, then `gh pr create --base main --head $PARENT_BRANCH` |
+| any | no (ahead == 0) | n/a | Warn and skip PR entirely |
+
+**Pitfalls (script):**
+
+- Any non-empty `gh pr list … --jq '.[0].number'` stdout is treated as an existing PR number — a real empty list prints nothing (not `[]`). Coverage: juniper-ml#759 (`test_existing_open_pr_skips_create`).
+- Non-`main` parent: the PR head is the **parent**, not the feature branch. Dry-run previews `merge` + `push origin $PARENT` + `gh pr create --head $PARENT` (never `--head $OLD_BRANCH`). Coverage: juniper-ml#759 (`test_non_main_parent_merges_then_creates_pr_for_parent`, dry-run companion).
+- Open #755 owns the `main`-parent ahead-skip / ahead→create happy path; do not re-document those shapes here as unowned.
 
 ### Multiple Worktrees Needing Cleanup
 
@@ -383,12 +451,15 @@ Use the ad-hoc sweep pair only when cleaning the centralized Juniper worktree po
 - `DIRTY`, `ACTIVE`, `BROKEN`, unknown-repo, missing-directory, non-worktree, and no-longer-safe rows are skipped.
 - Apply revalidates every `SAFE` row immediately before removal: the target directory must still be a git worktree, have a clean working tree (tracked/untracked only), and have `rev-list --count origin/main..HEAD == 0`.
 
-**Dirt vs gitignored debris (ml#715).** Survey classifies dirt with plain `git status --porcelain` — tracked modifications and untracked files only. GITIGNORED debris (caches, logs, decrypted secrets) does **not** make a worktree `DIRTY`; ignored-only trees with `ahead == 0` classify as `SAFE`. Apply keeps a separate ignored-content guard at removal time because deleting a worktree also deletes that debris, which may be precious (the decrypted-secrets class):
+**Dirt vs gitignored debris (ml#715).** Survey classifies dirt with `git status --porcelain` — tracked modifications and untracked files only. GITIGNORED debris (caches, logs, decrypted secrets) does **not** make a worktree `DIRTY`; ignored-only trees with `ahead == 0` classify as `SAFE`. Apply keeps a separate ignored-content guard at removal time because deleting a worktree also deletes that debris, which may be precious (the decrypted-secrets class):
 
 | Apply mode | Ignored-only SAFE row | Tracked/untracked dirt |
 |------------|----------------------|------------------------|
 | Default | Skipped (`ignored files present; rerun with --include-ignored…`) | Hard skip (always) |
 | `--include-ignored` | Removed | Hard skip (always) |
+| `--dry-run --include-ignored` (either flag order) | Prints `DRY:…` only; never deletes | Hard skip (always) |
+
+**`status.showUntrackedFiles=no` must not blind the sweep (ml#734 / ml#735).** Plain `git status --porcelain` / `--ignored` return empty under that config even when untracked or ignored files exist, and `git worktree remove` (without `--force`) can silently delete those trees. Survey and apply therefore force `status.showUntrackedFiles=normal` on every dirt / ignored / `worktree remove` call site so the guards stay fail-closed. Without that override, default apply can delete decrypted-secrets debris and untracked WIP. Contract pins: `tests/test_worktree_sweep_scripts.py` (`test_show_untracked_files_no_*` / `test_ignored_guard_not_blinded_by_show_untracked_files_no`).
 
 Unknown apply flags exit `2`. Pair with `tests/test_worktree_sweep_scripts.py` for the contract pins.
 
