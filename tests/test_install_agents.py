@@ -3,8 +3,8 @@
 The mirror symlinks `.claude/{agents,skills}/*` into `~/.claude` so the suite is available
 cross-repo (design D-6). These tests drive the script against a SYNTHETIC source repo and a
 throwaway target dir (via the `JUNIPER_ML_REPO_ROOT` / `JUNIPER_CLAUDE_HOME` overrides) and
-assert it is idempotent, reversible, `--dry-run`-safe, and never clobbers or removes a file
-it does not own.
+assert it is idempotent, reversible, `--dry-run`-safe, never clobbers or removes a file
+it does not own, and retargets stale symlinks (old-worktree repair via ``ln -sfn``).
 
 Location-agnostic: discovers the repo root by walking up for `.github/workflows/`.
 """
@@ -106,6 +106,67 @@ class InstallAgentsTest(unittest.TestCase):
         self.assertFalse(clash.is_symlink())
         self.assertEqual(clash.read_text(encoding="utf-8"), "preexisting\n")
         self.assertIn("refusing to clobber", proc.stdout)
+
+    def test_install_relinks_stale_symlink(self):
+        """Stale symlink (e.g. old worktree) must be retargeted with ln -sfn.
+
+        After a checkout move, ~/.claude agents/skills often still point at the
+        previous path. The relink arm is the repair path — a regression that
+        treats any existing symlink as already-ok leaves the suite pointing at
+        deleted worktrees.
+        """
+        (self.tgt / "agents").mkdir(parents=True)
+        (self.tgt / "skills").mkdir(parents=True)
+        stale_agent_target = self.tgt / "stale-elsewhere" / "sample-agent.md"
+        stale_skill_target = self.tgt / "stale-elsewhere" / "sample-skill"
+        stale_agent_target.parent.mkdir(parents=True)
+        stale_agent_target.write_text("stale\n", encoding="utf-8")
+        stale_skill_target.mkdir()
+        agent_link = self.tgt / "agents" / "sample-agent.md"
+        skill_link = self.tgt / "skills" / "sample-skill"
+        agent_link.symlink_to(stale_agent_target)
+        skill_link.symlink_to(stale_skill_target)
+
+        proc = self._run()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("relink:", proc.stdout)
+        self.assertTrue(agent_link.is_symlink())
+        self.assertTrue(skill_link.is_symlink())
+        expected_agent = str(self.src / ".claude" / "agents" / "sample-agent.md")
+        expected_skill = str(self.src / ".claude" / "skills" / "sample-skill")
+        self.assertEqual(os.readlink(agent_link), expected_agent)
+        self.assertEqual(os.readlink(skill_link), expected_skill)
+
+    def test_dry_run_relink_leaves_stale_symlink(self):
+        """``--dry-run`` must log relink intent but not rewrite the stale link."""
+        (self.tgt / "agents").mkdir(parents=True)
+        stale = self.tgt / "old-worktree" / "sample-agent.md"
+        stale.parent.mkdir(parents=True)
+        stale.write_text("stale\n", encoding="utf-8")
+        agent_link = self.tgt / "agents" / "sample-agent.md"
+        agent_link.symlink_to(stale)
+
+        proc = self._run("--dry-run")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("relink:", proc.stdout)
+        self.assertEqual(os.readlink(agent_link), str(stale))
+
+    def test_reverse_skips_foreign_symlink(self):
+        """``--reverse`` must not remove a symlink that does not point into this repo."""
+        (self.tgt / "agents").mkdir(parents=True)
+        foreign_target = self.tgt / "other-repo" / "foreign-agent.md"
+        foreign_target.parent.mkdir(parents=True)
+        foreign_target.write_text("foreign\n", encoding="utf-8")
+        foreign_link = self.tgt / "agents" / "foreign-agent.md"
+        foreign_link.symlink_to(foreign_target)
+
+        self._run()  # also installs owned links
+        proc = self._run("--reverse")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("skip (not ours)", proc.stdout)
+        self.assertTrue(foreign_link.is_symlink(), "reverse must leave foreign symlinks")
+        self.assertEqual(os.readlink(foreign_link), str(foreign_target))
+        self.assertFalse((self.tgt / "agents" / "sample-agent.md").exists())
 
 
 if __name__ == "__main__":
