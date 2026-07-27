@@ -303,6 +303,23 @@ Hermetic coverage: `tests/test_release_train_propose.py`
 (`BuildProposalTest.test_changelog_move_refused_clears_staged_edits`,
 `test_unreadable_changelog_clears_staged_edits`).
 
+#### Manifest / registry miss + `--execute` seam gates
+
+Orthogonal to `build_proposal` refusal stubs (coverage juniper-ml#749): these are `propose.main` /
+`execute_proposal` gates **before** a proposal is built or written. A registry miss must **skip**, not
+abort the whole propose job mid-loop; a miswired `--execute` seam must hard-fail before any partial
+write.
+
+| Signal | Cause | Operator response |
+|---|---|---|
+| Dry-run / JSON `skipped_reason="package not in registry.yaml"`; summary counts a skip | A proposable manifest package's `pypi_name` is absent from `registry.yaml` (`propose.py:1415-1418`). Loop continues for remaining packages. | Add the package to `util/release_train/registry.yaml` (registry lint) or drop the stale manifest entry; re-run `report` then `propose`. Ceremony's parallel for `BUMPED_NOT_RELEASED` is the `not-in-registry` HALT (§4). |
+| `--package` / dispatch `packages=` names an unknown `pypi_name` → exit 2 | Invocation error before the loop (`propose.py:1388-1392`) — not a skip stub | Fix the `packages=` input against `registry.yaml` |
+| `--execute` exits 2: `execute mode needs write_file/run_git/open_pr seam members` | Live seam missing a write member (`execute_proposal` / `execute_follow_on`, `propose.py:1319-1320`, `896`) | Workflow / wiring bug — re-dispatch the GitHub Actions job; do not hand-run `--execute` without live sources |
+| `skip: …` / empty URL; no branch, commit, or PR | `prop.skipped` or `branch is None` → `execute_proposal` returns `""` and issues **zero** write/git/pr calls (`propose.py:1321-1322`) | Expected for registry-miss / refusal stubs; read the printed skip reason |
+
+Coverage (hermetic): juniper-ml#764 —
+`CliTest.test_manifest_package_absent_from_registry_is_skipped` + `ExecuteProposalSeamTest`.
+
 ### 3.3 Dispatching `ceremony` against specific packages (drives toward Gate 2)
 
 ```bash
@@ -678,7 +695,9 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   (ml#701 / juniper-ml#710; edge-case coverage + already-at-target checklist fix juniper-ml#712).
 - Orchestrator: [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
 - Engines: `util/release_train/detect.py`, `propose.py`, `ceremony.py`, `registry.yaml`.
-- Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal + `HeredocBalanceTest` / `HeredocCompileTest` for every `<<'PY'` block — ml#708 / ml#723),
+- Propose CLI registry-miss skip + `--execute` seam gates (operator §3.2): juniper-ml#764
+  (`CliTest.test_manifest_package_absent_from_registry_is_skipped` + `ExecuteProposalSeamTest`).
+- Guards: `tests/test_release_train_workflow_guard.py` (R7 boundary + mode matrix + summary rehearsal),
   `tests/test_release_train_ceremony.py` (ceremony + HALT-issue degradation),
   `tests/test_release_train_registry.py::VersionDunderLockstepTest` (static pyproject == dunder, ml#701),
   `tests/test_release_train_propose.py` (sibling/meta AGENTS.md step-5/5a shapes — worker#140 / ml#706 / #720;
