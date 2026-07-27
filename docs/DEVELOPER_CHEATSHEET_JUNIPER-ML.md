@@ -242,11 +242,14 @@ Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `lo
 juniper-ml#729). Operator tables:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
 
-**Ceremony `notes-render-failed` + execute `RELEASED` (juniper-ml#741).** Missing/unreadable
-`notes/templates/TEMPLATE_RELEASE_NOTES.md` (or the security template) → §8 HALT
-`notes-render-failed` (restore template, re-run; never invent archive body). Publish run
-`completed`+`success` → execute final state `RELEASED` (both gates done; no halt issue) — not
-plan-time `ALREADY_RELEASED`. Runbook §3.3 / §4.
+**Gate 1 notes draft (`notes_render`, coverage juniper-ml#756):** meta-package title must read `# Juniper ML v…` (not `# juniper-ml v…`);
+`Release Type` maps `major`→MAJOR / `minor`→MINOR / `patch|none|unknown`→PATCH;
+`Breaking changes` is YES only when Unreleased has a `Removed` category;
+Keep-a-Changelog accepts `*` as well as `-` (continuations fold).
+Operator table: release-train runbook §3.2.
+
+**Daily hygiene cleared:** `TAG_ONLY=0` + `NOTES_MISSING=0` with no `release-hygiene (tag_only) unavailable:` note means each counted package has a GitHub Release **and** a central `notes/releases/` archive for the released version (orthogonal to "needs deploy").
+`released_upload` is the earliest PyPI upload ISO (or `None`). Operator note: release-train runbook §3.1.
 
 ---
 
