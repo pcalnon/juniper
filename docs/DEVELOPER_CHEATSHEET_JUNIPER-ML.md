@@ -164,6 +164,10 @@ git worktree add "$WORKTREE_DIR" "$BRANCH_NAME" && cd "$WORKTREE_DIR"
 
 **Automated**: `util/worktree_cleanup.bash --old-worktree "$DIR" --old-branch "$BRANCH" --parent-branch main`
 
+**Phase 1 dirty gate:** Live cleanup hard-fails (`exit 1`, `Commit or stash changes before running cleanup`) when `git status --porcelain` in the old worktree is non-empty — it never reaches `git push`.
+`--dry-run` skips the porcelain check (always pretends clean). Commit or stash, then re-run.
+See procedure V2 § "Phase 1 dirty-tree + push gates (script)".
+
 **Batch stale sweep** (centralized `…/Juniper/worktrees/` pool): survey → dry-run apply → apply. Survey treats gitignored debris as clean; apply still skips ignored-only `SAFE` rows unless you pass `--include-ignored` after review (decrypted-secrets class). Full contract: cleanup procedure V2 § "Batch Stale-Worktree Sweep".
 
 ```bash
@@ -223,6 +227,12 @@ Release-train `propose.py` steps 5/5a do this automatically; already-at-target i
 (no false `REQUIRED`); absent / missing-header surfaces `REQUIRED` (never invents). Sub-packages
 hosted in a sibling never touch the host header.
 
+**Propose CHANGELOG refuse clears staged edits (juniper-ml#751):** `build_proposal` stages the version
+(and optional dunder) bump before the CHANGELOG move. Empty / missing Unreleased or a missing CHANGELOG
+clears those edits so the skipped stub is `edits=[]` + `skipped_reason` (same shape as dup-guard /
+`bump=none`) — do not treat leftover version edits in dry-run JSON as a Gate 1 candidate.
+Operator table: release-train runbook §3.2.
+
 **Release-train detect / ceremony edges (monitor `NOT_FOUND`, SHIP filter, SemVer).** Ceremony
 `monitor_publish_run` keeps polling when the publish run is briefly invisible (`NOT_FOUND`); a
 timeout while still building *or* permanently missing reports honest `IN_PROGRESS` (never invents
@@ -230,6 +240,12 @@ timeout while still building *or* permanently missing reports honest `IN_PROGRES
 Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `local_git_compare` treats
 `.py` A/D/R/**C** as inherently substantive. Operator tables:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
+
+**Archive-guard FAIL triage:** the exempt notes-archive PR's required check (`Release-Train Archive Guard`)
+PASSes only on pure `A` adds under `notes/releases/RELEASE_NOTES_*.md`.
+Rename-OUT, Copy (`C`), and Typechange (`T`) are still archive PRs (`touches_releases` checks both rename/copy paths) and FAIL — they never SKIP.
+A FAIL drops the PR back to the standard owner gate (no auto-merge).
+Operator tables: [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.3.
 
 ---
 
@@ -243,7 +259,7 @@ Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `lo
 | `CLAUDE_SKIP_PERMISSIONS`      | `0`                | Add `--dangerously-skip-permissions` to default wrapper |
 | `JUNIPER_CASCOR_HOST`          | `localhost`        | Host stack cascor bind host for `util/juniper_plant_all.bash` |
 | `JUNIPER_CASCOR_PORT`          | `8201`             | Host stack cascor listen port for `util/juniper_plant_all.bash` |
-| `JUNIPER_DATA_HOST`            | `0.0.0.0`          | Host stack data-service bind host for `util/juniper_plant_all.bash` |
+| `JUNIPER_DATA_HOST`            | `127.0.0.1`        | Host stack data-service bind host for `util/juniper_plant_all.bash` (loopback default; set `0.0.0.0` to expose) |
 | `JUNIPER_DATA_PORT`            | `8100`             | Host stack data-service listen port for `util/juniper_plant_all.bash` |
 | `JUNIPER_WORKER_HEALTH_HOST`   | `127.0.0.1`        | Host stack cascor-worker health listener bind host           |
 | `JUNIPER_WORKER_HEALTH_PORT`   | `8210`             | Host stack cascor-worker health listener port           |
@@ -264,6 +280,7 @@ Tip: systemd chop soft-fails per unit and always exits `0` without touching the 
 | Symptom | Fast Check |
 |---------|------------|
 | Startup exits before launching services | Check the preflight output for missing `curl`, `ss`, conda, sibling repo directories, or occupied ports. |
+| Mid-plant abort / health timeout | Service log under that repo's `logs/`; pidfile is already removed — free leftover listeners with `ss -tlnp` before re-planting. |
 | Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`; keep the default `JuniperCascor1` env unless a replacement is known-good. |
 | Worker binary missing | Run `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` finished in `nohup` mode and rerun with `JUNIPER_PROJECT_DIR` set to the same project root; for systemd mode, stop with `util/juniper_chop_all.bash --systemd`. |
@@ -279,6 +296,14 @@ Tip: systemd chop soft-fails per unit and always exits `0` without touching the 
 | juniper-cascor        | 8201      | `GET /v1/health`          | JuniperCascor1  | 3.13   |
 | juniper-canopy        | 8050      | `GET /v1/health`          | JuniperCanopy1  | 3.13   |
 | juniper-cascor-worker | 8210      | `GET /v1/health/ready`    | JuniperCascor1  | 3.13   |
+
+Isolated E2E trio (never overlap these with the host ports above):
+
+| Service        | E2E Port | Health           | Runtime                         |
+|----------------|----------|------------------|---------------------------------|
+| juniper-data   | 8101     | `GET /v1/health` | dedicated `python3.14` venv     |
+| juniper-cascor | 8202     | `GET /v1/health` | `JuniperCascor1`                |
+| juniper-canopy | 8051     | `GET /v1/health` | `JuniperCanopy1` (service mode) |
 
 `juniper-cascor` still commonly exposes service/container port `8200`; host-mode utilities and Docker's published port use `8201`.
 
@@ -296,6 +321,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-06-04
-**Version:** 1.0.5
+**Last Updated:** 2026-07-26
+**Version:** 1.0.6
 **Maintainer:** Paul Calnon

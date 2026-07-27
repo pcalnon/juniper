@@ -82,7 +82,9 @@ for wt in "$WORKTREES_ROOT"/*/; do
     # in practice (2026-07-25 triage: 23/25 stale worktrees misclassified DIRTY).
     # The apply script still guards ignored content at removal time (default
     # skip; explicit --include-ignored to sweep it).
-    if [[ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]]; then
+    # Force showUntrackedFiles=normal so a local/global "no" cannot hide
+    # real untracked dirt and misclassify the worktree as SAFE.
+    if [[ -n "$(git -C "$wt" -c status.showUntrackedFiles=normal status --porcelain 2>/dev/null)" ]]; then
         printf "%s\t%s\t%s\t%s\n" "DIRTY" "$repo_key" "$branch" "$name"
         continue
     fi
