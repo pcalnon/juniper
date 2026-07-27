@@ -15,7 +15,10 @@ python3.14 venv, and real ports (8101/8202/8051), so — as with
   the checklist promises);
 - the ``--dry-run`` contract behaviourally: every action prints its commands
   with the configured ports expanded and touches NOTHING (no process, no
-  filesystem), and the CLI rejects bad invocations.
+  filesystem), and the CLI rejects bad invocations;
+- ``activate_conda`` nounset restore (live ``--up`` cascor/canopy path) via a
+  hermetic function extract — conda activate scripts reference unset vars, so
+  nounset is disabled for the call only and must be restored afterward.
 
 ``--dry-run`` short-circuits before any filesystem or process side effect, so
 these behavioural tests are fully hermetic — no real repos, conda, or network.
@@ -25,6 +28,7 @@ these behavioural tests are fully hermetic — no real repos, conda, or network.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -35,6 +39,19 @@ from tests.redacted_env import RedactedEnv
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "util" / "isolated_stack.bash"
 SCRIPT_TEXT = SCRIPT_PATH.read_text()
 SCRIPT_TIMEOUT_SECONDS = 15
+
+
+def _extract_activate_conda_function() -> str:
+    """Pull the live ``activate_conda`` body from the script (avoids harness drift)."""
+    live = SCRIPT_PATH.read_text()
+    match = re.search(
+        r"^activate_conda\(\) \{.*?\n\}\n",
+        live,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("activate_conda function not found in isolated_stack.bash")
+    return match.group(0)
 
 
 def _run(*args: str, env_extra: "dict[str, str] | None" = None) -> subprocess.CompletedProcess:
@@ -240,6 +257,72 @@ class TestDryRunDown(unittest.TestCase):
             self.assertIn("stop juniper-canopy on 8051", result.stdout)
             self.assertIn("snapshot_*", result.stdout)
             self.assertFalse(run_dir.exists(), "dry-run --down must not create/remove anything on disk")
+
+
+class TestActivateCondaNounset(unittest.TestCase):
+    """``activate_conda`` must match plant's safe_conda_activate nounset contract.
+
+    Regression: the restore arm was ``set +u`` (same as the pre-activate arm),
+    so live ``--up`` continued with nounset disabled after every conda activate
+    — masking unset-variable mistakes for the rest of cascor/canopy bring-up.
+    """
+
+    def _run_activate(self, conda_sh: Path) -> subprocess.CompletedProcess:
+        # Concatenate (do not f-string) so bash `${...}` braces in the extract
+        # are not interpreted as Python format fields.
+        harness = (
+            "set -euo pipefail\n"
+            "log() { :; }\n"
+            f'CONDA_SH="{conda_sh}"\n' + _extract_activate_conda_function() + 'activate_conda "JuniperCascor1"\n'
+            "case $- in\n"
+            '  *u*) echo "NOUNSET_ON" ;;\n'
+            '  *) echo "NOUNSET_OFF"; exit 1 ;;\n'
+            "esac\n"
+            # Prove nounset is actually enforced (not just a stale $- flag bit).
+            'if (echo "${__isolated_stack_definitely_unset__}") >/dev/null 2>&1; then\n'
+            '  echo "NOUNSET_INEFFECTIVE"\n'
+            "  exit 1\n"
+            "fi\n"
+            'echo "OK"\n'
+        )
+        return subprocess.run(
+            ["/bin/bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            env=RedactedEnv(os.environ),
+            timeout=SCRIPT_TIMEOUT_SECONDS,
+        )
+
+    def test_restores_nounset_after_activate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            conda_sh = Path(tmp) / "conda.sh"
+            # Mimic plant's ADDR2LINE class: activate scripts reference unset vars.
+            conda_sh.write_text("#!/usr/bin/env bash\n" "conda() {\n" '  if [[ "$1" == "activate" ]]; then\n' '    : "${ADDR2LINE}"\n' "  fi\n" "}\n")
+            result = self._run_activate(conda_sh)
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("NOUNSET_ON", result.stdout)
+            self.assertIn("OK", result.stdout)
+
+    def test_missing_conda_sh_errors(self) -> None:
+        harness = "set -euo pipefail\n" 'log() { echo "$*"; }\n' 'CONDA_SH="/nonexistent/conda.sh"\n' + _extract_activate_conda_function() + 'activate_conda "JuniperCascor1"\n'
+        result = subprocess.run(
+            ["/bin/bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            env=RedactedEnv(os.environ),
+            timeout=SCRIPT_TIMEOUT_SECONDS,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("conda not found", result.stdout + result.stderr)
+
+    def test_restore_arm_is_set_minus_u(self) -> None:
+        # Static pin: the pre/post pair must be +u then -u (not +u/+u).
+        body = _extract_activate_conda_function()
+        self.assertRegex(
+            body,
+            r"set \+u\n\s*conda activate[^\n]+\n\s*set -u\n",
+            msg="activate_conda must restore nounset with set -u after conda activate",
+        )
 
 
 if __name__ == "__main__":
