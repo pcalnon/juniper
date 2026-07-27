@@ -288,6 +288,19 @@ class PyprojectClassifierTest(unittest.TestCase):
         patch = '@@ -2,1 +2,1 @@\n [project]\n-version = "0.4.0"\n+version = "0.5.0"'
         self.assertEqual(d.classify_pyproject_patch(patch)[0], "ship")
 
+    def test_build_system_change_is_ship(self):
+        # Body-marker [build-system] requires bump must SHIP (detect.py:707-708).
+        # #772 owns only the @@-trailer form; this pins the body-context arm.
+        patch = "@@ -1,2 +1,2 @@\n [build-system]\n" '-requires = ["setuptools>=61"]\n' '+requires = ["setuptools>=68"]'
+        kind, reason = d.classify_pyproject_patch(patch)
+        self.assertEqual(kind, "ship")
+        self.assertIn("runtime", reason)
+
+    def test_build_system_ship_wins_over_tooling_hunk(self):
+        # Mixed patch: build-system + [tool.*]. found_ship must win (detect.py:711-712).
+        patch = "@@ -1,2 +1,2 @@\n [build-system]\n" '-requires = ["setuptools>=61"]\n' '+requires = ["setuptools>=68"]\n' "@@ -80,2 +80,3 @@\n [tool.pytest.ini_options]\n" ' minversion = "8.0"\n' '+addopts = "--strict-config"'
+        self.assertEqual(d.classify_pyproject_patch(patch)[0], "ship")
+
     def test_pytest_config_is_nonship(self):
         patch = '@@ -80,2 +80,3 @@\n [tool.pytest.ini_options]\n minversion = "8.0"\n+addopts = "--strict-config"'
         self.assertEqual(d.classify_pyproject_patch(patch)[0], "nonship")
