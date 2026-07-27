@@ -30,15 +30,21 @@ PyYAML and asserting:
       Cross-repo propose/ceremony commits inside freshly-cloned sibling checkouts; a repo-local identity
       on the juniper-ml checkout alone leaves siblings with ``Author identity unknown`` (first cross-repo
       pilot failure, run 30040138774). The detect job must never configure identity (it never commits).
+  (h) **Phase 4.1 mint-scope / clone-list lockstep** -- both write jobs' App-token ``repositories:`` lists
+      equal the registry's publishing-repo set (R7 least-privilege; a drift either widens the token or
+      silently drops a sibling), the two mint lists are identical, and ``env.ECOSYSTEM_REPOS`` equals
+      that set minus ``juniper-ml`` (the checkout itself). Also pins the operator ``packages`` dispatch
+      charset reject + the ``APP_TOKEN`` → ``--cross-repo`` capability gate on both write jobs' run scripts
+      (a regression that always passes ``--cross-repo`` breaks the no-App degraded path).
 
-Beyond the structural pins, two **YAML-extraction rehearsals** execute the actual workflow snippets
+Beyond the structural pins, three **YAML-extraction rehearsals** execute the actual workflow snippets
 hermetically (the "run the real thing, not a reimplementation" idiom): ``ModeResolutionMatrixTest`` extracts
 the ``id: mode`` step's shell and runs it over the whole mode matrix (incl. ``ceremony`` now valid + the
-dispatch-input > repo-variable precedence), and ``CeremonySummaryRehearsalTest`` extracts the ceremony
+dispatch-input > repo-variable precedence), ``CeremonySummaryRehearsalTest`` extracts the ceremony
 step-summary Python and runs it over a synthetic ``ceremony-output.txt`` (proving it renders
-ceremonies/resumes/HALTs/PENDING_PYPI_APPROVAL and the degraded-issue line). ``HeredocBalanceTest`` +
-``HeredocCompileTest`` pin every ``<<'PY'`` opener/terminator pair and that each heredoc body compiles
-(catching the late-failure class #708's balance lint alone cannot see).
+ceremonies/resumes/HALTs/PENDING_PYPI_APPROVAL and the degraded-issue line), and
+``ProposeSummaryRehearsalTest`` extracts the propose step-summary Python and runs it over a synthetic
+``propose-output.txt`` (proving opened:/skip: lines bucket into the operator-facing step summary).
 
 Companion to ``tests/test_release_train_propose.py`` / ``tests/test_release_train_ceremony.py``. Neither
 ``util/`` nor the workflow YAML is pre-commit-lint-gated for these properties, so this unittest IS the gate.
@@ -275,6 +281,104 @@ class ReleaseTrainWorkflowGuardTest(unittest.TestCase):
             cond = str(self.doc["jobs"][job].get("if", ""))
             self.assertNotIn("off", cond, f"{job} `if` should gate on its own non-off mode, never run on off.")
 
+    # (h) Phase 4.1: mint repositories / ECOSYSTEM_REPOS lockstep with registry.yaml --------------
+    def _registry_publishing_repos(self) -> frozenset[str]:
+        """Unique ``repo`` values from ``util/release_train/registry.yaml`` (the S4.1 source of truth)."""
+        self.repo_root = _find_repo_root(Path(__file__).resolve().parent)
+        registry_path = self.repo_root / "util" / "release_train" / "registry.yaml"
+        data = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
+        packages = data.get("packages") or []
+        repos = {str(pkg["repo"]) for pkg in packages if isinstance(pkg, dict) and pkg.get("repo")}
+        self.assertGreaterEqual(len(repos), 2, "registry.yaml must resolve to a non-trivial publishing-repo set")
+        return frozenset(repos)
+
+    @staticmethod
+    def _multiline_repo_list(block: str) -> frozenset[str]:
+        return frozenset(line.strip() for line in (block or "").splitlines() if line.strip())
+
+    def _mint_repositories(self, job: str) -> frozenset[str]:
+        mint = self._mint_steps(job)[0]
+        repos_block = (mint.get("with") or {}).get("repositories")
+        self.assertIsInstance(repos_block, str, f"{job} mint step must declare a multiline repositories: block")
+        return self._multiline_repo_list(repos_block)
+
+    def test_mint_repositories_lockstep_with_registry(self):
+        """App-token scope must be exactly the registry's publishing repos (R7 least-privilege)."""
+        expected = self._registry_publishing_repos()
+        propose_repos = self._mint_repositories("propose")
+        ceremony_repos = self._mint_repositories("ceremony")
+        self.assertEqual(
+            propose_repos,
+            expected,
+            "propose mint repositories: must equal registry.yaml's publishing-repo set " f"(extra={sorted(propose_repos - expected)}, missing={sorted(expected - propose_repos)}).",
+        )
+        self.assertEqual(
+            ceremony_repos,
+            expected,
+            "ceremony mint repositories: must equal registry.yaml's publishing-repo set " f"(extra={sorted(ceremony_repos - expected)}, missing={sorted(expected - ceremony_repos)}).",
+        )
+        self.assertEqual(
+            propose_repos,
+            ceremony_repos,
+            "propose and ceremony mint repositories: lists must be identical (one R7 scope, two write jobs).",
+        )
+
+    def test_ecosystem_repos_are_registry_siblings(self):
+        """``ECOSYSTEM_REPOS`` clones the sibling publishing repos; juniper-ml is the checkout itself."""
+        expected_siblings = self._registry_publishing_repos() - {"juniper-ml"}
+        ecosystem_block = (self.doc.get("env") or {}).get("ECOSYSTEM_REPOS")
+        self.assertIsInstance(ecosystem_block, str, "workflow env.ECOSYSTEM_REPOS must be a multiline string")
+        ecosystem = self._multiline_repo_list(ecosystem_block)
+        self.assertEqual(
+            ecosystem,
+            expected_siblings,
+            "env.ECOSYSTEM_REPOS must equal registry publishing repos minus juniper-ml " f"(extra={sorted(ecosystem - expected_siblings)}, missing={sorted(expected_siblings - ecosystem)}).",
+        )
+        self.assertNotIn("juniper-ml", ecosystem, "juniper-ml is the workflow checkout, not an ECOSYSTEM_REPOS clone")
+        self.assertNotIn("juniper-deploy", ecosystem, "juniper-deploy hosts no PyPI package and must not be cloned")
+
+    def _write_job_run_scripts(self, job: str) -> str:
+        """Concatenate every ``run:`` script body in a write job (for structural pin searches)."""
+        return "\n".join(str(step.get("run") or "") for step in self._job_steps(job))
+
+    def test_packages_input_charset_reject_present_on_both_write_jobs(self):
+        """Operator ``packages`` dispatch must reject non-pypi-name tokens before shelling them out."""
+        # The live gate: ``[[ ! "$tok" =~ ^[a-z0-9][a-z0-9-]*$ ]]`` + ``exit 2`` + ``::error::``.
+        charset_needle = r"^[a-z0-9][a-z0-9-]*$"
+        for job in WRITE_JOBS:
+            with self.subTest(job=job):
+                blob = self._write_job_run_scripts(job)
+                self.assertIn(
+                    charset_needle,
+                    blob,
+                    f"{job} must validate every packages-input token against the pypi-name charset " "(reject ../x / UPPER / ;rm rather than shelling garbage into propose.py/ceremony.py).",
+                )
+                self.assertIn("exit 2", blob, f"{job} packages-input reject path must exit 2")
+                self.assertIn("::error::", blob, f"{job} packages-input reject path must emit ::error::")
+                self.assertIn("PACKAGES_INPUT", blob, f"{job} must read the packages dispatch input")
+
+    def test_cross_repo_flag_gated_on_app_token_on_both_write_jobs(self):
+        """``--cross-repo`` must be capability-gated on a minted APP_TOKEN (degraded path stays in-repo)."""
+        for job in WRITE_JOBS:
+            with self.subTest(job=job):
+                blob = self._write_job_run_scripts(job)
+                self.assertIn("--cross-repo", blob, f"{job} must know about --cross-repo")
+                # The gate: only append --cross-repo when APP_TOKEN is non-empty (minted).
+                self.assertRegex(
+                    blob,
+                    r'if\s+\[\s+-n\s+"\$\{APP_TOKEN:-\}"\s*\]',
+                    f"{job} must gate --cross-repo on a non-empty APP_TOKEN " "(unconditional --cross-repo breaks the no-App degraded GITHUB_TOKEN path).",
+                )
+                # Sanity: the flag is added inside that branch, not as a bare always-on argv.
+                # Extract the APP_TOKEN if-block (best-effort; structural, not a shell parser).
+                match = re.search(
+                    r'if\s+\[\s+-n\s+"\$\{APP_TOKEN:-\}"\s*\]\s*;\s*then(.*?)else',
+                    blob,
+                    flags=re.DOTALL,
+                )
+                self.assertIsNotNone(match, f"{job} APP_TOKEN if/then/else block not found")
+                self.assertIn("--cross-repo", match.group(1), f"{job} must append --cross-repo inside the APP_TOKEN-present branch")
+
     # (g) Cross-repo headless git identity must be --global (ml#705 / run 30040138774) -------------
     def _identity_steps(self, job):
         """Steps whose name marks the headless git-identity configuration (both write jobs share the name)."""
@@ -492,6 +596,91 @@ class CeremonySummaryRehearsalTest(unittest.TestCase):
     def test_truly_empty_output_shows_crash_banner(self):
         md = self._render("")
         self.assertIn("produced no output", md)
+
+
+# ── YAML-extraction rehearsal 3: the propose step summary (the real Python, run hermetically) ──
+
+
+PROPOSE_OUTPUT_FIXTURE = "\n".join(
+    [
+        "opened: juniper-observability (juniper-ml) -- https://github.com/pcalnon/juniper-ml/pull/1",
+        "opened: juniper-ci-tools (juniper-ml) -- https://github.com/pcalnon/juniper-ml/pull/2",
+        "skip: juniper-cascor (juniper-cascor) -- --cross-repo required for sibling packages (no App token)",
+        "skip: juniper-thing (juniper-ml) -- duplicate open proposal PR #99",
+        "",
+    ]
+)
+
+
+class ProposeSummaryRehearsalTest(unittest.TestCase):
+    """Extract the propose job's step-summary Python and run it over a synthetic ``propose-output.txt``,
+    proving the ACTUAL renderer buckets ``opened:`` / ``skip:`` lines and surfaces the empty-output
+    crash banner -- the operator-facing deliverable of propose mode (plan S12 step 2.2).
+
+    Ceremony already has ``CeremonySummaryRehearsalTest``; without this twin, a propose-summary edit that
+    stops parsing ``opened:`` / ``skip:`` (or drops the empty-output banner) is invisible to CI until a
+    live propose run misreports how many PRs opened.
+    """
+
+    py_body: str  # the extracted propose-summary Python heredoc body (set in setUpClass)
+
+    @classmethod
+    def setUpClass(cls):
+        repo_root = _find_repo_root(Path(__file__).resolve().parent)
+        wf = repo_root / ".github" / "workflows" / WORKFLOW_NAME
+        if not wf.is_file():
+            raise unittest.SkipTest(f"{WORKFLOW_NAME} not present at {wf}")
+        doc = yaml.safe_load(wf.read_text(encoding="utf-8"))
+        step = next((s for s in doc["jobs"]["propose"]["steps"] if s.get("name") == "Render propose step summary"), None)
+        if step is None or "run" not in step:
+            raise unittest.SkipTest("could not locate the propose job's summary step")
+        run = step["run"]
+        if "<<'PY'\n" not in run:
+            raise unittest.SkipTest("propose summary step is not a `python - <<'PY'` heredoc")
+        after = run.split("<<'PY'\n", 1)[1]
+        body_lines = []
+        for line in after.splitlines():
+            if line.strip() == "PY":
+                break
+            body_lines.append(line)
+        cls.py_body = "\n".join(body_lines)
+
+    def _render(self, output_text: str) -> str:
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td)
+            (ws / "propose-output.txt").write_text(output_text, encoding="utf-8")
+            summary = ws / "step_summary.md"
+            summary.write_text("", encoding="utf-8")
+            env = RedactedEnv(os.environ, GITHUB_WORKSPACE=str(ws), GITHUB_STEP_SUMMARY=str(summary))
+            proc = subprocess.run([sys.executable, "-c", self.py_body], capture_output=True, text=True, env=env, check=False)  # nosec B603 - the workflow's own python body
+            self.assertEqual(proc.returncode, 0, f"summary renderer failed: {proc.stderr}")
+            return summary.read_text(encoding="utf-8")
+
+    def test_renders_opened_and_skipped_buckets(self):
+        md = self._render(PROPOSE_OUTPUT_FIXTURE)
+        self.assertIn("Release train -- propose mode", md)
+        self.assertIn("2 proposal PR(s) opened, 2 skipped.", md)
+        self.assertIn("### Opened (standard-gated -- owner reviews & merges)", md)
+        self.assertIn("juniper-observability", md)
+        self.assertIn("juniper-ci-tools", md)
+        self.assertIn("### Skipped", md)
+        self.assertIn("juniper-cascor", md)
+        self.assertIn("duplicate open proposal PR #99", md)
+        # Gate-1 framing (App vs degraded no-App path) must stay visible to operators.
+        self.assertIn("standard-gated", md)
+        self.assertIn("GitHub App", md)
+
+    def test_no_opened_or_skipped_is_clean_zero_counts(self):
+        md = self._render("propose-run: no UNRELEASED_CHANGES packages -- nothing to propose.\n")
+        self.assertIn("0 proposal PR(s) opened, 0 skipped.", md)
+        self.assertNotIn("### Opened", md)
+        self.assertNotIn("### Skipped", md)
+        self.assertNotIn("produced no output", md)  # non-empty output -> not the crash banner
+
+    def test_truly_empty_output_shows_crash_banner(self):
+        md = self._render("")
+        self.assertIn("produced no output", md)
+        self.assertIn("0 proposal PR(s) opened, 0 skipped.", md)
 
 
 # Matches `python - <<'PY'` and the Slack redirect form `python - <<'PY' > slack-payload.json`.

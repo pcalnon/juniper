@@ -155,9 +155,11 @@ activate_conda() {
     fi
     # shellcheck source=/dev/null
     source "${CONDA_SH}"
+    # Conda activation scripts (e.g. activate-binutils_linux-64.sh) may
+    # reference unset vars like ADDR2LINE; disable nounset for the call only.
     set +u
     conda activate "${env_name}"
-    set +u
+    set -u
 }
 
 
