@@ -143,6 +143,11 @@ class VersionAndBumpTest(unittest.TestCase):
         self.assertEqual(d.bump_version("0.4.1", "patch"), "0.4.2")
         self.assertIsNone(d.bump_version("0.4.0", "none"))
 
+    def test_bump_version_major(self):
+        # Direct major bump (propose_semver maps pre-1.0 breaking -> minor; major still exists for callers).
+        self.assertEqual(d.bump_version("0.4.0", "major"), "1.0.0")
+        self.assertEqual(d.bump_version("1.2.3", "major"), "2.0.0")
+
 
 class TagResolutionTest(unittest.TestCase):
     def test_prefers_tag_equal_to_released_version(self):
@@ -183,6 +188,22 @@ class SubstantiveHunkTest(unittest.TestCase):
 
     def test_patch_unavailable_is_uncertain(self):
         self.assertIsNone(d.has_substantive_hunk(None, None))
+
+    def test_whitespace_only_hunk_is_discounted(self):
+        # Blank +/- lines (no strip content) must not spuriously SHIP.
+        patch = "@@ -1,2 +1,2 @@\n-\n+\n "
+        self.assertIs(d.has_substantive_hunk(patch, None), False)
+
+    def test_pure_code_deletion_is_substantive_with_file(self):
+        # Pure deletion (no '+' lines) takes the _removed_codeish path when file_text is present.
+        file_text = "\n".join(["header"] * 9 + ["def gone():", "    return 1"]) + "\n"
+        patch = "@@ -10,2 +9,0 @@\n-def gone():\n-    return 1"
+        self.assertIs(d.has_substantive_hunk(patch, file_text), True)
+
+    def test_pure_comment_deletion_is_discounted_with_file(self):
+        file_text = "\n".join(["header"] * 9 + ["x = 1"]) + "\n"
+        patch = "@@ -10,1 +9,0 @@\n-# see notes/OLD.md"
+        self.assertIs(d.has_substantive_hunk(patch, file_text), False)
 
 
 class SubstantiveBetweenTest(unittest.TestCase):
@@ -356,11 +377,23 @@ class SemVerAndChangelogTest(unittest.TestCase):
     def test_semver_fix_is_patch(self):
         self.assertEqual(d.propose_semver("0.4.1", ["Fixed"], set())[0], "patch")
 
+    def test_semver_security_is_patch(self):
+        # FIX_CATEGORIES includes Security — a security bullet must not fall through to "none".
+        self.assertEqual(d.propose_semver("0.4.1", ["Security"], set())[0], "patch")
+
+    def test_semver_changed_is_minor(self):
+        # FEATURE_CATEGORIES includes Changed / Deprecated (Keep-a-Changelog non-Added feature class).
+        self.assertEqual(d.propose_semver("0.4.0", ["Changed"], set())[0], "minor")
+        self.assertEqual(d.propose_semver("0.4.0", ["Deprecated"], set())[0], "minor")
+
     def test_semver_breaking_is_minor_pre_1_0(self):
         self.assertEqual(d.propose_semver("0.4.0", ["Removed"], set())[0], "minor")
 
     def test_semver_commit_class_feat(self):
         self.assertEqual(d.propose_semver("0.4.0", [], {"feat"})[0], "minor")
+
+    def test_semver_commit_class_breaking_is_minor_pre_1_0(self):
+        self.assertEqual(d.propose_semver("0.4.0", [], {"breaking"})[0], "minor")
 
     def test_semver_none_when_empty(self):
         self.assertEqual(d.propose_semver("0.4.0", [], set()), ("none", None))
@@ -376,6 +409,21 @@ class SemVerAndChangelogTest(unittest.TestCase):
     def test_no_conflict_when_aligned(self):
         self.assertIsNone(d.changelog_conflict(d.UNRELEASED_CHANGES, ["Added"]))
         self.assertIsNone(d.changelog_conflict(d.UP_TO_DATE, []))
+
+
+class CommitClassesTest(unittest.TestCase):
+    def test_feat_and_fix_conventional(self):
+        self.assertEqual(d.commit_classes(["feat: add x", "fix(api): y"]), {"feat", "fix"})
+
+    def test_feat_bang_is_breaking(self):
+        self.assertEqual(d.commit_classes(["feat!: drop legacy flag"]), {"feat", "breaking"})
+
+    def test_breaking_change_footer(self):
+        msg = "fix: harden parser\n\nBREAKING CHANGE: callers must pass mode="
+        self.assertEqual(d.commit_classes([msg]), {"fix", "breaking"})
+
+    def test_chore_alone_is_empty(self):
+        self.assertEqual(d.commit_classes(["chore: touch docs", "docs: typo"]), set())
 
 
 class ChangelogReaderTest(unittest.TestCase):
