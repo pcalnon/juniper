@@ -16,6 +16,7 @@
 - [Ecosystem Compatibility](#ecosystem-compatibility)
 - [Host Orchestration Utilities](#host-orchestration-utilities)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
+- [Editable Install Drift Check](#editable-install-drift-check)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
@@ -215,6 +216,27 @@ Troubleshooting:
 | systemd plant health timeout / partial stack | `cleanup_on_failure` did **not** stop user units. Inspect `systemctl --user status juniper-{data,cascor,canopy,cascor-worker}` and tear down with `util/juniper_chop_all.bash --systemd` (or matching `systemctl --user stop`) before re-planting. |
 | Worker WARNING: healthy but unit not active | HTTP `/v1/health/ready` passed but `is-active` failed — check `journalctl --user -u juniper-cascor-worker` / unit file; plant still exited 0. |
 | Mixed plant/chop modes | Never plant with `--systemd` and chop via pidfile (or the reverse). Match the mode used at start. |
+
+---
+
+## Editable Install Drift Check
+
+`util/editable_install_drift_check.py` scans conda envs for `juniper-*` editables (via `*.dist-info/direct_url.json`), classifies each as `FRESH` / `WORKTREE_PINNED` / `ORPHANED`, and optionally re-points orphans with `--fix` (preview with `--dry-run`). Exit `1` on any `ORPHANED` finding.
+
+#### Ambiguous canonical `--fix` SKIP
+
+`--fix` resolves a unique canonical source under the ecosystem root via `discover_canonical(pkg_name, ecosystem_root)`:
+
+- Exactly one non-worktree checkout whose `[project].name` matches → that path is the canonical.
+- Zero matches → `action=SKIP`, reason `no canonical source found`.
+- Two or more matches → `action=SKIP`, reason contains `ambiguous`, `canonical=null`, and `candidates` lists every match. The tool **must not** pick `candidates[0]` — auto-picking the first tree would re-point an orphaned editable at the wrong fork/mirror.
+
+```bash
+# Preview repairs (never writes). Ambiguous packages stay SKIP in the JSON "fix" array.
+python util/editable_install_drift_check.py --fix --dry-run --json
+```
+
+Coverage: open juniper-ml#795 (`tests/test_editable_install_drift_check.py` — `test_discover_canonical_ambiguous_returns_none`, `test_fix_skips_when_canonical_ambiguous`).
 
 ---
 
