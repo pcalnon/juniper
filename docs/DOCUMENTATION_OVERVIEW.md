@@ -2,9 +2,9 @@
 
 ## Navigation Guide to juniper-ml Documentation
 
-**Version:** 0.2.4
+**Version:** 0.2.5
 **Status:** Active
-**Last Updated:** 2026-07-25
+**Last Updated:** 2026-07-26
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -47,7 +47,7 @@
 |----------------------------------------|------------|--------------------------------------------------------------------------------------------------|
 | **DOCUMENTATION_OVERVIEW.md**          | Overview   | This file -- navigation index                                                                    |
 | **QUICK_START.md**                     | Tutorial   | Install Juniper packages in under a minute                                                       |
-| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack ops, env-floor drift, sibling packages, and release-workflow reference |
+| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack ops, agent-suite doctor, sibling packages, and release-workflow reference |
 | **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development and host-stack tasks                                 |
 
 > The deprecated monolithic cheatsheet (`DEVELOPER_CHEATSHEET-ORIGINAL.md`)
