@@ -166,6 +166,44 @@ class TestReapPytestOrphans(unittest.TestCase):
             self.assertIn("Summary: 1 reaped, 1 kept (live parent), 0 skipped.", result.stdout)
             self.assertEqual(fixture.kill_log.read_text(encoding="utf-8"), "-KILL 301\n")
 
+    def test_kill_failure_does_not_abort_and_still_counts_reaped(self):
+        """``kill ... || true`` must keep set -e from aborting mid-loop.
+
+        A vanished PID between decision and kill is normal (race with the OS
+        reaper). Without ``|| true``, ``set -euo pipefail`` would exit before
+        later orphans are considered — leaving RSS held. Fake-kill exits 1.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = FakeProcessFixture(
+                tmpdir,
+                [
+                    "50 testuser /usr/lib/systemd/systemd --user",
+                    "401 testuser /opt/conda/envs/JuniperCaa/bin/python -m pytest",
+                    "402 testuser /opt/conda/envs/JuniperCaa/bin/python -m pytest",
+                ],
+            )
+            fixture.add_process(401, 1, ["/opt/conda/envs/JuniperCaa/bin/python", "-m", "pytest"])
+            fixture.add_process(402, 1, ["/opt/conda/envs/JuniperCaa/bin/python", "-m", "pytest"])
+            write_executable(
+                fixture.bin_dir / "fake-kill",
+                """
+                #!/usr/bin/env bash
+                printf '%s\\n' "$*" >> "${KILL_LOG}"
+                exit 1
+                """,
+            )
+
+            result = run_script(fixture)
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("REAP       pid=401 ppid=1", result.stdout)
+            self.assertIn("REAP       pid=402 ppid=1", result.stdout)
+            self.assertIn("Summary: 2 reaped, 0 kept (live parent), 0 skipped.", result.stdout)
+            self.assertEqual(
+                fixture.kill_log.read_text(encoding="utf-8"),
+                "-KILL 401\n-KILL 402\n",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

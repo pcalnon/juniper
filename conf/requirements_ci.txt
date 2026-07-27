@@ -1,6 +1,47 @@
-# requirements_ci.txt - Generated 2026-07-20
-# Python: 3.12.13
-
+#####################################################################################################################################################################################################
+# Project:       Juniper
+# Application:   juniper
+# Purpose:       Juniper ML Meta-Package
+#
+# Author:        Paul Calnon
+# Version:       0.6.0
+# File Name:     requirements_ci.txt
+# File Path:     Juniper/juniper/conf/
+#
+# Date:          2025-12-06
+# Last Modified: 2026-07-27
+#
+# License:       MIT License
+# Copyright:     Copyright (c) 2024-2026 Paul Calnon
+#
+# Description:
+#     This file lists python requirements that can be installed via pip
+#
+#####################################################################################################################################################################################################
+# Notes:
+#
+#     created-by: pip 26.1.2
+#     platform: linux-64
+#     python: 3.12.13
+#
+#     This file may be used to create the Juniper Project, juniper Application environment with pip using:
+#         create:  $ pip list --format=freeze >requirements_ci.txt
+#         install: $ pip install -r requirements_ci.txt
+#
+#     Juniper Project - CI/CD Requirements (No CUDA)
+#     This is a lightweight requirements file for GitHub Actions testing.
+#     NVIDIA CUDA packages are excluded since GPU testing is not available on runners.
+#
+#####################################################################################################################################################################################################
+# References:
+#
+#####################################################################################################################################################################################################
+# TODO :
+#
+#####################################################################################################################################################################################################
+# COMPLETED:
+#
+#####################################################################################################################################################################################################
 juniper-ci-tools==0.7.0
 packaging==26.2
 pip==26.1.2
