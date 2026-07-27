@@ -32,6 +32,19 @@ from tests.redacted_env import RedactedEnv
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "util" / "juniper_chop_all.bash"
 SCRIPT_TEXT = SCRIPT_PATH.read_text()
 SCRIPT_TIMEOUT_SECONDS = 10
+GRACEFUL_STOP_TIMEOUT_SECONDS = 20
+
+
+def _extract_graceful_stop_function() -> str:
+    """Pull the live ``graceful_stop`` body from the script (avoids harness drift)."""
+    match = re.search(
+        r"^function graceful_stop\(\) \{.*?\n\}\n",
+        SCRIPT_TEXT,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("graceful_stop function not found in juniper_chop_all.bash")
+    return match.group(0)
 
 
 def _extract_validate_pid_function() -> str:
