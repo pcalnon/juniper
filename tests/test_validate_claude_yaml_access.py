@@ -5,6 +5,9 @@ Covers the happy path plus the three failure modes the script detects:
   L3a missing if-guard on the claude: job
   L3b if-guard does not reference the '@claude' literal
 
+Also covers the no-arg ``default_targets`` path: ``JUNIPER_ROOT`` sibling-repo
+scan (canonical 8 repos) and the empty-scan warning exit-0 arm.
+
 The test bodies invoke the bash script via subprocess and assert on its
 exit code + stderr/stdout. The script lives at the canonical location
 util/validate_claude_yaml_access.bash relative to this file.
@@ -12,11 +15,14 @@ util/validate_claude_yaml_access.bash relative to this file.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from textwrap import dedent
+
+from tests.redacted_env import RedactedEnv
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = REPO_ROOT / "util" / "validate_claude_yaml_access.bash"
@@ -91,6 +97,31 @@ def _run_validator(target_path: Path) -> subprocess.CompletedProcess:
         text=True,
         check=False,
     )
+
+
+def _run_validator_no_args(*, juniper_root: Path | None) -> subprocess.CompletedProcess:
+    """Drive the no-arg default_targets path with an optional JUNIPER_ROOT override."""
+    env = RedactedEnv(os.environ)
+    if juniper_root is None:
+        env.pop("JUNIPER_ROOT", None)
+    else:
+        env["JUNIPER_ROOT"] = str(juniper_root)
+    return subprocess.run(
+        ["bash", str(SCRIPT_PATH)],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=60,
+    )
+
+
+def _write_sibling_claude(juniper_root: Path, repo_name: str, body: str) -> Path:
+    wf = juniper_root / repo_name / ".github" / "workflows"
+    wf.mkdir(parents=True)
+    target = wf / "claude.yml"
+    target.write_text(body)
+    return target
 
 
 class ScriptShapeTests(unittest.TestCase):
@@ -176,6 +207,64 @@ class ValidatorBehaviorTests(unittest.TestCase):
         result = _run_validator(bogus)
         self.assertEqual(result.returncode, 2)
         self.assertIn("input does not exist", result.stderr)
+
+    def test_directory_without_claude_yml_skips_with_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            empty = Path(tmp) / "empty_repo"
+            empty.mkdir()
+            result = _run_validator(empty)
+            self.assertEqual(result.returncode, 0, msg=f"stdout={result.stdout!r} stderr={result.stderr!r}")
+            self.assertIn("no claude.yml under", result.stderr)
+            self.assertIn("nothing to do", result.stdout)
+
+
+class DefaultTargetsTests(unittest.TestCase):
+    """No-arg default_targets: JUNIPER_ROOT sibling scan + empty-scan warning."""
+
+    def test_juniper_root_scans_canonical_siblings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # Canonical names from DEFAULT_REPOS; a non-canonical dir must be ignored.
+            _write_sibling_claude(root, "juniper-ml", GOOD_YAML)
+            _write_sibling_claude(root, "juniper-canopy", GOOD_YAML)
+            _write_sibling_claude(root, "not-a-juniper-repo", BAD_TRIGGER_YAML)
+            result = _run_validator_no_args(juniper_root=root)
+            self.assertEqual(
+                result.returncode,
+                0,
+                msg=f"stdout={result.stdout!r} stderr={result.stderr!r}",
+            )
+            self.assertIn("OK", result.stdout)
+            self.assertIn("passed L2/L3 validation", result.stdout)
+            # Must not have audited the non-canonical sibling (would FAIL L2).
+            self.assertNotIn("FAIL", result.stdout)
+            self.assertNotIn("not-a-juniper-repo", result.stdout)
+
+    def test_juniper_root_aggregates_sibling_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_sibling_claude(root, "juniper-ml", GOOD_YAML)
+            _write_sibling_claude(root, "juniper-data", BAD_TRIGGER_YAML)
+            result = _run_validator_no_args(juniper_root=root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("FAIL", result.stdout)
+            self.assertIn("L2 dangerous trigger present", result.stdout)
+            self.assertIn("1 claude.yml file(s) failed validation", result.stdout)
+
+    def test_juniper_root_with_no_claude_yml_warns_and_exits_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # Empty sibling dirs — JUNIPER_ROOT is set but nothing to audit.
+            (root / "juniper-ml").mkdir()
+            (root / "juniper-canopy").mkdir()
+            result = _run_validator_no_args(juniper_root=root)
+            self.assertEqual(
+                result.returncode,
+                0,
+                msg=f"stdout={result.stdout!r} stderr={result.stderr!r}",
+            )
+            self.assertIn("contains no claude.yml under the canonical Juniper repos", result.stderr)
+            self.assertIn("nothing to do", result.stdout)
 
 
 if __name__ == "__main__":
