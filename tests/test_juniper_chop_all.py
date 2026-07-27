@@ -202,6 +202,22 @@ class TestValidatePid(unittest.TestCase):
             capture_output=True,
             text=True,
             env=env,
+            timeout=GRACEFUL_STOP_TIMEOUT_SECONDS,
+        )
+
+    def _spawn_detached(self, inner_bash: str) -> int:
+        """Start a session-leader child reparented to init.
+
+        ``graceful_stop`` polls ``kill -0`` after SIGTERM/SIGKILL. If the
+        test process remains the parent, a dead child stays a zombie and
+        ``kill -0`` keeps succeeding — a false "survived SIGKILL". Launch
+        under a short-lived ``setsid`` shell so init reaps the exit.
+        """
+        launcher = "setsid bash -c " + repr(inner_bash) + " </dev/null >/dev/null 2>&1 & echo $!"
+        result = subprocess.run(
+            ["bash", "-c", launcher],
+            capture_output=True,
+            text=True,
             timeout=SCRIPT_TIMEOUT_SECONDS,
         )
 
@@ -235,6 +251,15 @@ class TestValidatePid(unittest.TestCase):
                 ["/opt/miniforge3/envs/JuniperCascor1/bin/python", "server.py"],
             )
             result = self._run_validate_pid(proc_root, "4343", "juniper-cascor")
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("STATUS=0", result.stdout)
+
+    def test_sigterm_ignore_escalates_to_sigkill(self) -> None:
+        # Single-process SIGTERM ignore (exec would drop a bash ``trap``).
+        # timeout=1 keeps the wait loop to a single second before escalate.
+        pid = self._spawn_detached("exec python3 -c 'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'")
+        try:
+            result = self._run_graceful_stop(pid, "juniper-cascor", 1)
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("STATUS=0", result.stdout)
 
