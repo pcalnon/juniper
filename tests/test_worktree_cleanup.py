@@ -139,6 +139,89 @@ phase_3_merge_and_pr
     )
 
 
+def _p3_run_git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """git helper for Phase 3 fixtures (name-isolated from open #747/#753 helpers)."""
+    return subprocess.run(
+        ["git", "-C", str(cwd), *args],
+        capture_output=True,
+        text=True,
+        timeout=SCRIPT_TIMEOUT_SECONDS,
+        check=check,
+    )
+
+
+def _p3_init_repo(path: Path) -> None:
+    """Bare-bones git repo with main + origin/main, ready for phase sourcing."""
+    path.mkdir(parents=True, exist_ok=True)
+    _p3_run_git(path, "init", "-q", "-b", "main")
+    _p3_run_git(path, "config", "user.email", "tests@example.invalid")
+    _p3_run_git(path, "config", "user.name", "Test User")
+    _p3_run_git(path, "config", "commit.gpgsign", "false")
+    (path / "README.md").write_text("# test\n")
+    _p3_run_git(path, "add", "README.md")
+    _p3_run_git(path, "commit", "-q", "-m", "initial")
+    _p3_run_git(path, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+
+def _p3_attach_bare_origin(repo: Path, remote: Path) -> None:
+    """Clone ``repo`` to a bare remote and wire ``origin`` so push/fetch work offline."""
+    _p3_run_git(repo, "clone", "--bare", "-q", str(repo), str(remote))
+    _p3_run_git(repo, "remote", "add", "origin", str(remote))
+
+
+def _p3_install_fake_gh(bin_dir: Path, log_path: Path) -> Path:
+    """Install a recording fake ``gh`` that succeeds for ``pr list`` / ``pr create``."""
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    gh = bin_dir / "gh"
+    gh.write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "%s\\n" "$*" >> "{log_path}"\n' 'if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then\n' "  # emit nothing: gh applies --jq itself; empty output = no existing PR\n" "  exit 0\n" "fi\n" 'if [[ "${1:-}" == "pr" && "${2:-}" == "create" ]]; then\n' '  echo "https://example.invalid/pull/1"\n' "  exit 0\n" "fi\n" 'echo "unexpected gh invocation: $*" >&2\n' "exit 99\n")
+    gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
+    return gh
+
+
+def _run_phase3(
+    main_repo: Path,
+    old_branch: str,
+    *,
+    path_prefix: str,
+    parent_branch: str = "main",
+) -> subprocess.CompletedProcess[str]:
+    """Source the script and invoke ``phase_3_merge_and_pr`` (not dry-run).
+
+    OLD_BRANCH / PARENT_BRANCH / SKIP_PR / DRY_RUN must be assigned *after*
+    sourcing — the script body resets those globals. ``path_prefix`` must put
+    the fake ``gh`` ahead of any real one.
+    """
+    driver = r"""
+set -euo pipefail
+export JUNIPER_ML_MAIN_REPO="$1"
+SCRIPT_PATH="$2"
+# shellcheck disable=SC1090
+source <(sed '/^main "/d' "${SCRIPT_PATH}")
+OLD_BRANCH="$3"
+PARENT_BRANCH="$4"
+SKIP_PR="${FALSE}"
+DRY_RUN="${FALSE}"
+phase_3_merge_and_pr
+"""
+    env = RedactedEnv(os.environ, PATH=f"{path_prefix}:{os.environ.get('PATH', '')}")
+    return subprocess.run(
+        [
+            "bash",
+            "-c",
+            driver,
+            "phase3-driver",
+            str(main_repo),
+            str(SCRIPT_PATH),
+            old_branch,
+            parent_branch,
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=SCRIPT_TIMEOUT_SECONDS,
+    )
+
+
 def _init_fixture_repo(path: Path) -> None:
     """Bare-bones git repo with main + a bare origin remote."""
     path.mkdir(parents=True, exist_ok=True)
@@ -828,6 +911,67 @@ class TestPhase3ReuseAndNonMainBehavioral(unittest.TestCase):
             self.assertIn("gh pr create", result.stderr)
             self.assertIn("--head develop", result.stderr)
             self.assertNotIn("--head feature/onto-develop", result.stderr)
+
+
+class TestPhase3Behavioral(unittest.TestCase):
+    """Hermetic Phase 3 ahead-check / PR-create gates.
+
+    Dry-run only prints ``Would check commits ahead and create PR`` — it never
+    exercises the ``rev-list`` ahead==0 skip or the live ``gh pr`` path. Open
+    #747/#753 own Phase 1/2; this class owns the Phase 3 no-ahead skip and the
+    ahead→create arm (fake ``gh``, no network).
+    """
+
+    def test_no_commits_ahead_skips_pr_without_calling_gh(self) -> None:
+        """Branch tip equal to origin/main must warn-and-skip — never invoke gh."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            main_repo = root / "main-repo"
+            remote = root / "remote.git"
+            gh_log = root / "gh.log"
+            bin_dir = root / "bin"
+            _p3_init_repo(main_repo)
+            _p3_attach_bare_origin(main_repo, remote)
+            _p3_run_git(main_repo, "checkout", "-q", "-b", "feature/no-ahead")
+            _p3_run_git(main_repo, "push", "-u", "-q", "origin", "feature/no-ahead")
+            # Ensure the remote-tracking refs phase_3 reads are present.
+            _p3_run_git(main_repo, "fetch", "-q", "origin")
+            _p3_install_fake_gh(bin_dir, gh_log)
+
+            result = _run_phase3(main_repo, "feature/no-ahead", path_prefix=str(bin_dir))
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("has no commits ahead", result.stderr)
+            self.assertIn("skipping PR", result.stderr)
+            self.assertFalse(gh_log.exists(), msg="gh must not be invoked when ahead==0")
+
+    def test_commits_ahead_creates_pr_via_gh(self) -> None:
+        """Branch with commits ahead of origin/main must call ``gh pr create``."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            main_repo = root / "main-repo"
+            remote = root / "remote.git"
+            gh_log = root / "gh.log"
+            bin_dir = root / "bin"
+            _p3_init_repo(main_repo)
+            _p3_attach_bare_origin(main_repo, remote)
+            _p3_run_git(main_repo, "push", "-q", "origin", "main")
+            _p3_run_git(main_repo, "checkout", "-q", "-b", "feature/ahead-pr")
+            (main_repo / "more.txt").write_text("ahead\n")
+            _p3_run_git(main_repo, "add", "more.txt")
+            _p3_run_git(main_repo, "commit", "-q", "-m", "ahead for PR")
+            _p3_run_git(main_repo, "push", "-u", "-q", "origin", "feature/ahead-pr")
+            _p3_run_git(main_repo, "fetch", "-q", "origin")
+            _p3_install_fake_gh(bin_dir, gh_log)
+
+            result = _run_phase3(main_repo, "feature/ahead-pr", path_prefix=str(bin_dir))
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("is 1 commit(s) ahead", result.stderr)
+            self.assertTrue(gh_log.exists(), msg=result.stderr)
+            logged = gh_log.read_text()
+            self.assertIn("pr list", logged)
+            self.assertIn("pr create", logged)
+            self.assertIn("--head feature/ahead-pr", logged)
+            self.assertIn("--base main", logged)
 
 
 if __name__ == "__main__":
