@@ -20,6 +20,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 def _find_repo_root(start: Path) -> Path:
@@ -53,12 +54,14 @@ _REPO_ROOT = _find_repo_root(Path(__file__).resolve().parent)
 _PD_DIR = _REPO_ROOT / "util" / "prompt_discovery"
 sys.path.insert(0, str(_PD_DIR))
 
+import concurrency  # noqa: E402
 import conventions  # noqa: E402
 import dependency_facts  # noqa: E402
 import file_probe  # noqa: E402
 import repo_context  # noqa: E402
 import symbol_probe  # noqa: E402
 import test_status  # noqa: E402
+from _util import run as _real_run  # noqa: E402
 
 from tests.redacted_env import RedactedEnv
 
@@ -201,6 +204,78 @@ class FileProbeTest(unittest.TestCase):
     def test_no_subject_yields_no_anchors(self):
         fp = file_probe.probe(str(_REPO_ROOT), None)
         self.assertEqual(fp["anchors"], [])
+
+
+class ConcurrencyProbeTest(unittest.TestCase):
+    """Graceful degrade for ``concurrency.probe`` (design S5.6).
+
+    ``gh`` may be missing / unauthenticated / return garbage JSON in headless CI.
+    The probe must not raise or poison the bundle — ``open_prs_status`` becomes
+    ``unavailable``, and overall status stays ``ok`` when worktrees are still
+    readable (work dup-guard still has a signal).
+    """
+
+    def test_gh_unavailable_with_worktrees_keeps_overall_ok(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _git_init_repo(d)
+
+            def fake_run(cmd, cwd=None, timeout=30):
+                if cmd and cmd[0] == "gh":
+                    return 127, "", "binary not found: gh"
+                return _real_run(cmd, cwd=cwd, timeout=timeout)
+
+            with patch.object(concurrency, "run", side_effect=fake_run):
+                result = concurrency.probe(d)
+
+            self.assertEqual(result["open_prs_status"], "unavailable")
+            self.assertEqual(result["open_prs"], [])
+            self.assertTrue(result["worktrees"], "git worktree list must still populate")
+            self.assertEqual(result["status"], "ok")
+
+    def test_gh_invalid_json_degrades_prs_slice(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _git_init_repo(d)
+
+            def fake_run(cmd, cwd=None, timeout=30):
+                if cmd and cmd[0] == "gh":
+                    return 0, "not-json{", ""
+                return _real_run(cmd, cwd=cwd, timeout=timeout)
+
+            with patch.object(concurrency, "run", side_effect=fake_run):
+                result = concurrency.probe(d)
+
+            self.assertEqual(result["open_prs_status"], "unavailable")
+            self.assertEqual(result["open_prs"], [])
+            self.assertEqual(result["status"], "ok")
+
+    def test_gh_ok_parses_open_prs(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            _git_init_repo(d)
+            payload = [{"number": 42, "title": "demo", "headRefName": "feat/x"}]
+
+            def fake_run(cmd, cwd=None, timeout=30):
+                if cmd and cmd[0] == "gh":
+                    return 0, json.dumps(payload), ""
+                return _real_run(cmd, cwd=cwd, timeout=timeout)
+
+            with patch.object(concurrency, "run", side_effect=fake_run):
+                result = concurrency.probe(d)
+
+            self.assertEqual(result["open_prs_status"], "ok")
+            self.assertEqual(result["open_prs"], payload)
+            self.assertEqual(result["status"], "ok")
+
+    def test_gh_and_worktrees_both_unavailable(self) -> None:
+        def fake_run(cmd, cwd=None, timeout=30):
+            return 1, "", "fail"
+
+        with patch.object(concurrency, "run", side_effect=fake_run):
+            result = concurrency.probe("/tmp/not-a-real-repo-for-concurrency")
+
+        self.assertEqual(result["open_prs_status"], "unavailable")
+        self.assertEqual(result["open_prs"], [])
+        self.assertEqual(result["worktrees"], [])
+        self.assertEqual(result["status"], "unavailable")
 
 
 class CliBundleTest(unittest.TestCase):

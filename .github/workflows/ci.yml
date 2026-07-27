@@ -135,6 +135,7 @@ jobs:
           # in juniper-doc-tools/tests/, exercised by the dedicated
           # `CI -- juniper-doc-tools` workflow.
           python3 -m unittest -v tests/test_worktree_cleanup.py
+          python3 -m unittest -v tests/test_worktree_activate.py
           python3 -m unittest -v tests/test_worktree_sweep_scripts.py
           # tests/test_cleanup_session_worktrees.py: hermetic coverage for
           # scripts/cleanup_session_worktrees.py — _has_merged_pr fail-closed
