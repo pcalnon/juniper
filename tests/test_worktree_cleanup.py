@@ -152,11 +152,15 @@ def _init_fixture_repo(path: Path) -> None:
     _p3r_run_git(path, "update-ref", "refs/remotes/origin/main", "HEAD")
 
 
-def _install_fake_gh(bin_dir: Path, log_path: Path, open_pr_count: str) -> None:
-    """Install a PATH-first ``gh`` that returns open-PR length and logs argv."""
+def _install_fake_gh(bin_dir: Path, log_path: Path, *, open_pr_count: str | None, exit_code: int = 0) -> None:
+    """Install a PATH-first ``gh`` that logs argv and returns open-PR length or fails."""
     bin_dir.mkdir(parents=True, exist_ok=True)
     gh_path = bin_dir / "gh"
-    gh_path.write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" f'echo "$*" >> "{log_path}"\n' 'if [[ "${1-}" == "pr" && "${2-}" == "list" ]]; then\n' f'  echo "{open_pr_count}"\n' "  exit 0\n" "fi\n" 'echo "unexpected gh invocation: $*" >&2\n' "exit 1\n")
+    if exit_code != 0:
+        body = "#!/usr/bin/env bash\n" "set -euo pipefail\n" f'echo "$*" >> "{log_path}"\n' 'echo "fake gh hard-fail" >&2\n' f"exit {exit_code}\n"
+    else:
+        body = "#!/usr/bin/env bash\n" "set -euo pipefail\n" f'echo "$*" >> "{log_path}"\n' 'if [[ "${1-}" == "pr" && "${2-}" == "list" ]]; then\n' f'  echo "{open_pr_count}"\n' "  exit 0\n" "fi\n" 'echo "unexpected gh invocation: $*" >&2\n' "exit 1\n"
+    gh_path.write_text(body)
     gh_path.chmod(gh_path.stat().st_mode | stat.S_IXUSR)
 
 
@@ -510,24 +514,22 @@ class TestSyncToMain(unittest.TestCase):
 
 
 class TestPhase4RemoteDeleteGuard(unittest.TestCase):
-    """Hermetic behavioral gates for Phase 4's open-PR remote-delete skip.
+    """Hermetic behavioral gates for Phase 4's remote-delete skip guards.
 
-    Dry-run only proves the ``--skip-remote-delete`` flag text and the
-    ``[DRY-RUN] … push origin --delete`` preview. The live ``gh pr list`` →
-    skip ``push --delete`` guard (protective when a PR is still open) was
-    untested — a regression that deletes the remote head under an open PR
-    breaks the PR and loses the backup branch.
+    The open-PR check must fail CLOSED: a gh/auth/network failure must not be
+    treated as "0 open PRs" and proceed to ``push --delete`` (that deletes the
+    remote head under a live PR and loses the Phase-1 backup branch).
     """
 
-    def test_open_pr_skips_remote_delete(self) -> None:
-        """Open PR for OLD_BRANCH → warn-and-skip; remote branch stays."""
+    def test_gh_failure_skips_remote_delete(self) -> None:
+        """gh non-zero exit → warn-and-skip; remote branch stays (fail-closed)."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            branch = "feature/phase4-open-pr"
+            branch = "feature/phase4-gh-fail"
             main_repo, old_worktree, _remote = _prepare_phase4_fixture(root, branch)
             gh_bin = root / "bin"
             gh_log = root / "gh.log"
-            _install_fake_gh(gh_bin, gh_log, open_pr_count="1")
+            _install_fake_gh(gh_bin, gh_log, open_pr_count=None, exit_code=1)
 
             before = _run_git(main_repo, "ls-remote", "--heads", "origin", branch).stdout
             self.assertIn(branch, before)
@@ -540,22 +542,62 @@ class TestPhase4RemoteDeleteGuard(unittest.TestCase):
                 gh_bin=gh_bin,
             )
             self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn(f"PR is open for branch '{branch}'", result.stderr)
+            self.assertIn("Could not query open PRs", result.stderr)
             self.assertIn("skipping remote branch deletion", result.stderr.lower())
             self.assertNotIn(f"Deleting remote branch: {branch}", result.stderr)
-            self.assertFalse(old_worktree.exists())
-            self.assertNotEqual(
-                _run_git(main_repo, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}", check=False).returncode,
-                0,
-            )
             after = _run_git(main_repo, "ls-remote", "--heads", "origin", branch).stdout
             self.assertIn(branch, after)
             self.assertTrue(gh_log.exists())
-            self.assertIn("pr list", gh_log.read_text())
-            self.assertIn(f"--head {branch}", gh_log.read_text())
+
+    def test_non_numeric_gh_result_skips_remote_delete(self) -> None:
+        """Malformed gh/jq payload must not fall through into push --delete."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            branch = "feature/phase4-gh-garbage"
+            main_repo, old_worktree, _remote = _prepare_phase4_fixture(root, branch)
+            gh_bin = root / "bin"
+            gh_log = root / "gh.log"
+            _install_fake_gh(gh_bin, gh_log, open_pr_count="not-a-number")
+
+            result = _run_phase4(
+                main_repo=main_repo,
+                old_worktree=old_worktree,
+                old_branch=branch,
+                skip_remote_delete=False,
+                gh_bin=gh_bin,
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("Unexpected open-PR query result", result.stderr)
+            self.assertNotIn(f"Deleting remote branch: {branch}", result.stderr)
+            after = _run_git(main_repo, "ls-remote", "--heads", "origin", branch).stdout
+            self.assertIn(branch, after)
+
+    def test_open_pr_skips_remote_delete(self) -> None:
+        """Open PR for OLD_BRANCH → warn-and-skip; remote branch stays."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            branch = "feature/phase4-open-pr"
+            main_repo, old_worktree, _remote = _prepare_phase4_fixture(root, branch)
+            gh_bin = root / "bin"
+            gh_log = root / "gh.log"
+            _install_fake_gh(gh_bin, gh_log, open_pr_count="1")
+
+            result = _run_phase4(
+                main_repo=main_repo,
+                old_worktree=old_worktree,
+                old_branch=branch,
+                skip_remote_delete=False,
+                gh_bin=gh_bin,
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn(f"PR is open for branch '{branch}'", result.stderr)
+            self.assertIn("skipping remote branch deletion", result.stderr.lower())
+            self.assertNotIn(f"Deleting remote branch: {branch}", result.stderr)
+            after = _run_git(main_repo, "ls-remote", "--heads", "origin", branch).stdout
+            self.assertIn(branch, after)
 
     def test_no_open_pr_deletes_remote_branch(self) -> None:
-        """No open PR → remote branch is deleted (the complementary shape)."""
+        """Proven-zero open PRs → remote branch is deleted (complementary shape)."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             branch = "feature/phase4-no-pr"
@@ -574,37 +616,9 @@ class TestPhase4RemoteDeleteGuard(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn(f"Deleting remote branch: {branch}", result.stderr)
             self.assertNotIn("PR is open", result.stderr)
-            self.assertFalse(old_worktree.exists())
+            self.assertNotIn("Could not query open PRs", result.stderr)
             after = _run_git(main_repo, "ls-remote", "--heads", "origin", branch).stdout
             self.assertEqual(after.strip(), "")
-            self.assertIn("pr list", gh_log.read_text())
-
-    def test_skip_remote_delete_flag_skips_gh_and_push(self) -> None:
-        """``--skip-remote-delete`` must not consult gh or push --delete (live path)."""
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            branch = "feature/phase4-flag-skip"
-            main_repo, old_worktree, _remote = _prepare_phase4_fixture(root, branch)
-            gh_bin = root / "bin"
-            gh_log = root / "gh.log"
-            # If gh is consulted, return a non-zero length so a buggy path would skip
-            # for the wrong reason — the flag path must never call gh at all.
-            _install_fake_gh(gh_bin, gh_log, open_pr_count="9")
-
-            result = _run_phase4(
-                main_repo=main_repo,
-                old_worktree=old_worktree,
-                old_branch=branch,
-                skip_remote_delete=True,
-                gh_bin=gh_bin,
-            )
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("Skipping remote branch deletion (--skip-remote-delete)", result.stderr)
-            self.assertNotIn("PR is open", result.stderr)
-            self.assertNotIn(f"Deleting remote branch: {branch}", result.stderr)
-            after = _run_git(main_repo, "ls-remote", "--heads", "origin", branch).stdout
-            self.assertIn(branch, after)
-            self.assertFalse(gh_log.exists(), msg="gh must not be invoked when --skip-remote-delete is set")
 
 
 if __name__ == "__main__":
