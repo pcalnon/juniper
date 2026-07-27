@@ -24,16 +24,29 @@ PyYAML and asserting:
       full commit SHA (fleet convention);
   (f) **Phase 4.3 off-quiesce** -- ``mode=off`` runs nothing beyond mode resolution: every detect-job step
       other than the mode resolver is gated on the resolved mode (``!= 'off'`` for the work steps, the one
-      ``== 'off'`` quiesce step), and both write jobs are unreachable (their ``if`` requires a non-off mode).
+      ``== 'off'`` quiesce step), and both write jobs are unreachable (their ``if`` requires a non-off mode);
+  (g) **Cross-repo headless git identity (ml#705)** -- EACH write job configures ``user.name`` /
+      ``user.email`` / ``commit.gpgsign`` with ``git config --global`` (NOT bare repo-local ``git config``).
+      Cross-repo propose/ceremony commits inside freshly-cloned sibling checkouts; a repo-local identity
+      on the juniper-ml checkout alone leaves siblings with ``Author identity unknown`` (first cross-repo
+      pilot failure, run 30040138774). The detect job must never configure identity (it never commits).
+  (h) **Phase 4.1 mint-scope / clone-list lockstep** -- both write jobs' App-token ``repositories:`` lists
+      equal the registry's publishing-repo set (R7 least-privilege; a drift either widens the token or
+      silently drops a sibling), the two mint lists are identical, and ``env.ECOSYSTEM_REPOS`` equals
+      that set minus ``juniper-ml`` (the checkout itself). Also pins the operator ``packages`` dispatch
+      charset reject + the ``APP_TOKEN`` → ``--cross-repo`` capability gate on both write jobs' run scripts
+      (a regression that always passes ``--cross-repo`` breaks the no-App degraded path).
 
-Beyond the structural pins, three **YAML-extraction rehearsals** execute the actual workflow snippets
+Beyond the structural pins, four **YAML-extraction rehearsals** execute the actual workflow snippets
 hermetically (the "run the real thing, not a reimplementation" idiom): ``ModeResolutionMatrixTest`` extracts
 the ``id: mode`` step's shell and runs it over the whole mode matrix (incl. ``ceremony`` now valid + the
-dispatch-input > repo-variable precedence); ``CeremonySummaryRehearsalTest`` extracts the ceremony
+dispatch-input > repo-variable precedence), ``CeremonySummaryRehearsalTest`` extracts the ceremony
 step-summary Python and runs it over a synthetic ``ceremony-output.txt`` (proving it renders
-ceremonies/resumes/HALTs/PENDING_PYPI_APPROVAL and the degraded-issue line); and
-``DetectorExitContractRehearsalTest`` extracts the detect job's ``Run release-train detector`` shell and
-proves exit 0/1 stay green while exit >= 2 fails the step (detect.py's report-only contract).
+ceremonies/resumes/HALTs/PENDING_PYPI_APPROVAL and the degraded-issue line), ``ProposeSummaryRehearsalTest``
+extracts the propose step-summary Python and runs it over a synthetic ``propose-output.txt`` (proving
+opened:/skip: lines bucket into the operator-facing step summary), and ``DetectorExitContractRehearsalTest``
+extracts the detect job's ``Run release-train detector`` shell and proves exit 0/1 stay green while
+exit >= 2 fails the step (detect.py's report-only contract).
 
 Companion to ``tests/test_release_train_propose.py`` / ``tests/test_release_train_ceremony.py``. Neither
 ``util/`` nor the workflow YAML is pre-commit-lint-gated for these properties, so this unittest IS the gate.
@@ -713,7 +726,57 @@ class HeredocBalanceTest(unittest.TestCase):
         self.assertEqual(problems, [], "unbalanced PY heredoc(s) in release-train.yml -- a stray terminator executes as a shell command (exit 127, the run-30051952226 class): " + "; ".join(problems))
 
 
-# ── YAML-extraction rehearsal 3: detector exit contract (0/1 green, >=2 fails) ──
+class HeredocCompileTest(unittest.TestCase):
+    """Every ``<<'PY'`` heredoc body in ``release-train.yml`` must compile as Python.
+
+    Balance alone (#708) does not catch a syntax-broken summary / Slack payload body — bash still
+    launches ``python -``, then the step fails mid-run after the real work finished (the same
+    late-failure class as run-30051952226, just with ``SyntaxError`` instead of exit 127). The
+    YAML-extraction rehearsals only exercise two of the four heredocs; this lint compiles ALL of
+    them (incl. the Slack redirect form ``<<'PY' > slack-payload.json``).
+    """
+
+    def test_every_py_heredoc_body_compiles(self):
+        workflow_path = _find_repo_root(Path(__file__).resolve().parent) / ".github" / "workflows" / WORKFLOW_NAME
+        wf = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        compiled = 0
+        problems = []
+        for jname, job in (wf.get("jobs") or {}).items():
+            for step in job.get("steps") or []:
+                run = step.get("run") or ""
+                if "<<'PY'" not in run:
+                    continue
+                step_name = step.get("name") or "<unnamed>"
+                bodies = list(_iter_py_heredoc_bodies(run))
+                if not bodies:
+                    problems.append(f"{jname} / {step_name!r}: saw <<'PY' but extracted zero bodies")
+                    continue
+                for idx, (_match, body) in enumerate(bodies, 1):
+                    if not body.strip():
+                        problems.append(f"{jname} / {step_name!r} heredoc#{idx}: empty body")
+                        continue
+                    try:
+                        compile(body, f"{WORKFLOW_NAME}:{jname}:{step_name}:heredoc{idx}", "exec")
+                    except SyntaxError as exc:
+                        problems.append(f"{jname} / {step_name!r} heredoc#{idx}: {exc}")
+                    else:
+                        compiled += 1
+        self.assertEqual(
+            problems,
+            [],
+            "PY heredoc body(ies) in release-train.yml failed to compile -- a SyntaxError would " "fail the step only after the real work finished (late-failure class): " + "; ".join(problems),
+        )
+        # Pin the known set so a deleted heredoc (or a new uncompiled one that the opener regex
+        # misses) cannot silently shrink coverage. Today: detect summary, detect Slack, propose
+        # summary, ceremony summary.
+        self.assertEqual(
+            compiled,
+            4,
+            f"expected to compile 4 PY heredoc bodies in {WORKFLOW_NAME}; got {compiled} " f"(update this pin when intentionally adding/removing a <<'PY' block).",
+        )
+
+
+# ── YAML-extraction rehearsal 4: detector exit contract (0/1 green, >=2 fails) ──
 
 
 class DetectorExitContractRehearsalTest(unittest.TestCase):
