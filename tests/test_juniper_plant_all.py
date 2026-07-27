@@ -538,8 +538,9 @@ class TestWaitForHealthIntervalGuard(unittest.TestCase):
                 text=True,
                 env=env,
                 timeout=SCRIPT_TIMEOUT_SECONDS,
-            )            
-            
+            )
+
+
 class TestValidateCondaEnv(unittest.TestCase):
     """Behavioral pins for ``validate_conda_env`` missing-dir / non-exec arms.
 
@@ -591,7 +592,7 @@ class TestValidateCondaEnv(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("STATUS=1", result.stdout)
         self.assertIn("clamping to 1s", result.stdout)
-        
+
     def test_missing_env_directory_returns_one(self) -> None:
         def stage(conda_dir: Path) -> str:
             (conda_dir / "envs").mkdir()
