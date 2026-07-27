@@ -402,16 +402,25 @@ phase_4_cleanup() {
         run_cmd git -C "${MAIN_REPO}" branch -D "${OLD_BRANCH}"
     }
 
-    # Delete remote branch (unless skipped or PR is open)
+    # Delete remote branch (unless skipped or PR is open).
+    # Fail CLOSED on an indeterminate open-PR query: treating gh/auth/network
+    # failure as "0 open PRs" would delete the remote head under a live PR
+    # (backup branch loss / broken PR head). Prefer a warn-and-skip over a
+    # destructive push --delete when we cannot prove it is safe.
     if [[ "${SKIP_REMOTE_DELETE}" == "${TRUE}" ]]; then
         log_info "Skipping remote branch deletion (--skip-remote-delete)"
     elif [[ "${DRY_RUN}" == "${TRUE}" ]]; then
         echo "[DRY-RUN] git -C ${MAIN_REPO} push origin --delete ${OLD_BRANCH}" >&2
     else
-        local open_prs
-        open_prs="$(gh pr list --repo pcalnon/juniper-ml --head "${OLD_BRANCH}" --state open --json number --jq 'length' 2>/dev/null || echo "0")"
+        local open_prs=""
+        local gh_status=0
+        open_prs="$(gh pr list --repo pcalnon/juniper-ml --head "${OLD_BRANCH}" --state open --json number --jq 'length' 2>/dev/null)" || gh_status=$?
 
-        if (( open_prs > 0 )); then
+        if (( gh_status != 0 )); then
+            log_warn "Could not query open PRs for branch '${OLD_BRANCH}' (gh exit ${gh_status}) — skipping remote branch deletion"
+        elif [[ ! "${open_prs}" =~ ^[0-9]+$ ]]; then
+            log_warn "Unexpected open-PR query result for branch '${OLD_BRANCH}' — skipping remote branch deletion"
+        elif (( open_prs > 0 )); then
             log_warn "PR is open for branch '${OLD_BRANCH}' — skipping remote branch deletion"
         else
             log_info "Deleting remote branch: ${OLD_BRANCH}"
