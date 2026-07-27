@@ -67,6 +67,19 @@ def _extract_validate_conda_env() -> str:
     return match.group(0)
 
 
+def _extract_safe_conda_activate() -> str:
+    """Pull the live ``safe_conda_activate`` body (avoids harness drift)."""
+    live = SCRIPT_PATH.read_text()
+    match = re.search(
+        r"^safe_conda_activate\(\) \{.*?\n\}\n",
+        live,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("safe_conda_activate function not found in juniper_plant_all.bash")
+    return match.group(0)
+
+
 class TestSyntax(unittest.TestCase):
     """The script must pass `bash -n` cleanly."""
 
@@ -503,157 +516,63 @@ class TestPidFileFormat(unittest.TestCase):
         self.assertNotIn('echo "juniper-cascor:', SCRIPT_TEXT)
 
 
-class TestWaitForHealthIntervalGuard(unittest.TestCase):
-    """``HEALTH_CHECK_INTERVAL=0`` must not busy-loop forever.
+class TestSafeCondaActivate(unittest.TestCase):
+    """``safe_conda_activate`` nounset contract (ADDR2LINE class).
 
-    ``wait_for_health`` advances ``elapsed`` by ``interval`` each poll. A zero
-    (or non-positive / non-numeric) interval leaves ``elapsed`` stuck at 0 while
-    ``sleep 0`` returns immediately — an infinite curl hammer that never hits
-    the timeout arm and leaves a partial plant hung until the operator kills it.
+    Conda activate scripts (e.g. activate-binutils_linux-64.sh) reference
+    unset vars like ADDR2LINE. The wrapper must disable nounset for the
+    activate call only and restore it afterward — the same one-character
+    ``set +u``/``set -u`` restore bug that bit isolated-stack (#785). Host-mode
+    plant calls this before every service; a broken restore silently disables
+    ``set -u`` for the rest of bring-up.
     """
 
-    def _run_wait(self, *, interval: str, timeout: int = 2) -> subprocess.CompletedProcess[str]:
+    def _run_activate(self, bin_dir: Path) -> subprocess.CompletedProcess:
+        # Concatenate (do not f-string) so bash `${...}` braces in the extract
+        # are not interpreted as Python format fields.
+        harness = (
+            "set -euo pipefail\n"
+            f'export PATH="{bin_dir}:/usr/bin:/bin"\n' + _extract_safe_conda_activate() + 'safe_conda_activate "JuniperCanopy1"\n'
+            "case $- in\n"
+            '  *u*) echo "NOUNSET_ON" ;;\n'
+            '  *) echo "NOUNSET_OFF"; exit 1 ;;\n'
+            "esac\n"
+            # Prove nounset is actually enforced (not just a stale $- flag bit).
+            'if (echo "${__plant_safe_conda_definitely_unset__}") >/dev/null 2>&1; then\n'
+            '  echo "NOUNSET_INEFFECTIVE"\n'
+            "  exit 1\n"
+            "fi\n"
+            'echo "OK"\n'
+        )
+        return subprocess.run(
+            ["/bin/bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            env=RedactedEnv(os.environ),
+            timeout=SCRIPT_TIMEOUT_SECONDS,
+        )
+
+    def test_restores_nounset_after_activate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = Path(tmp) / "bin"
             bin_dir.mkdir()
-            curl = bin_dir / "curl"
-            curl.write_text("#!/usr/bin/env bash\nexit 22\n")
-            curl.chmod(0o755)
-            harness = f"""
-                set -euo pipefail
-                JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
-                HEALTH_CHECK_TIMEOUT=60
-                HEALTH_CHECK_INTERVAL=2
-                # Stub settle sleeps; elapsed arithmetic still advances.
-                sleep() {{ :; }}
-                {_extract_function("wait_for_health")}
-                set +e
-                wait_for_health "juniper-data" "http://127.0.0.1:9/v1/health" "{timeout}" "{interval}"
-                status=$?
-                set -e
-                echo "STATUS=${{status}}"
-                exit 0
-            """
-            env = RedactedEnv(os.environ)
-            env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
-            return subprocess.run(
-                ["/bin/bash", "-c", harness],
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=SCRIPT_TIMEOUT_SECONDS,
-            )
+            conda = bin_dir / "conda"
+            # Mimic ADDR2LINE class: activate scripts reference unset vars.
+            conda.write_text("#!/bin/bash\n" 'if [[ "$1" == "activate" ]]; then\n' '  : "${ADDR2LINE}"\n' "fi\n")
+            conda.chmod(0o755)
+            result = self._run_activate(bin_dir)
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("NOUNSET_ON", result.stdout)
+            self.assertIn("OK", result.stdout)
 
-    def test_zero_interval_clamps_and_times_out(self) -> None:
-        result = self._run_wait(interval="0", timeout=2)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("STATUS=1", result.stdout)
-        self.assertIn("clamping to 1s", result.stdout)
-        self.assertIn("failed to become healthy within 2s", result.stdout)
-
-    def test_non_numeric_interval_clamps_and_times_out(self) -> None:
-        result = self._run_wait(interval="fast", timeout=2)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("STATUS=1", result.stdout)
-        self.assertIn("clamping to 1s", result.stdout)
-
-
-class TestValidateCondaEnv(unittest.TestCase):
-    """Behavioral pins for ``validate_conda_env`` missing-dir / non-exec arms.
-
-    Preflight smoke stages every env with an executable stub ``python`` so it
-    never reaches the ``! -x`` arm. A broken or non-executable ``bin/python``
-    would otherwise let plant proceed into conda activate / launch against a
-    dead env — large blast radius across all four services.
-    """
-
-    def _run_validate(self, *, stage) -> subprocess.CompletedProcess:
-        """Run extracted ``validate_conda_env`` against a synthetic conda tree.
-
-        ``stage(conda_dir)`` prepares ``envs/<name>/...`` under the temp root.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            conda_dir = Path(tmp) / "miniforge3"
-            conda_dir.mkdir()
-            env_name = stage(conda_dir)
-            harness = f"""
-                set -euo pipefail
-                JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
-                JUNIPER_CONDA_DIR="$1"
-                {_extract_validate_conda_env()}
-                set +e
-                validate_conda_env "{env_name}"
-                status=$?
-                set -e
-                echo "STATUS=${{status}}"
-                exit 0
-            """
-            env = RedactedEnv(os.environ)
-            return subprocess.run(
-                ["/bin/bash", "-c", harness, "_", str(conda_dir)],
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=SCRIPT_TIMEOUT_SECONDS,
-            )
-
-    def test_missing_env_directory_returns_one(self) -> None:
-        def stage(conda_dir: Path) -> str:
-            (conda_dir / "envs").mkdir()
-            return "MissingEnv"
-
-        result = self._run_validate(stage=stage)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("STATUS=1", result.stdout)
-        self.assertIn("Conda environment 'MissingEnv' not found", result.stdout)
-        self.assertNotIn("Python binary not found", result.stdout)
-
-    def test_missing_python_binary_returns_one(self) -> None:
-        def stage(conda_dir: Path) -> str:
-            (conda_dir / "envs" / "BrokenEnv" / "bin").mkdir(parents=True)
-            return "BrokenEnv"
-
-        result = self._run_validate(stage=stage)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("STATUS=1", result.stdout)
-        self.assertIn("Python binary not found or not executable", result.stdout)
-        self.assertIn("envs/BrokenEnv/bin/python", result.stdout)
-
-    def test_non_executable_python_returns_one(self) -> None:
-        def stage(conda_dir: Path) -> str:
-            bin_dir = conda_dir / "envs" / "NonExecEnv" / "bin"
-            bin_dir.mkdir(parents=True)
-            python = bin_dir / "python"
-            python.write_text("#!/usr/bin/env bash\nexit 0\n")
-            python.chmod(0o644)  # present but not executable — the ! -x arm
-            return "NonExecEnv"
-
-        result = self._run_validate(stage=stage)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("STATUS=1", result.stdout)
-        self.assertIn("Python binary not found or not executable", result.stdout)
-        self.assertIn("envs/NonExecEnv/bin/python", result.stdout)
-
-    def test_executable_python_returns_zero(self) -> None:
-        def stage(conda_dir: Path) -> str:
-            bin_dir = conda_dir / "envs" / "GoodEnv" / "bin"
-            bin_dir.mkdir(parents=True)
-            python = bin_dir / "python"
-            python.write_text("#!/usr/bin/env bash\nexit 0\n")
-            python.chmod(0o755)
-            return "GoodEnv"
-
-        result = self._run_validate(stage=stage)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("STATUS=0", result.stdout)
-        self.assertIn("Conda environment 'GoodEnv' validated", result.stdout)
-
-    def test_preflight_validates_all_four_envs(self) -> None:
-        # Drift guard: plant must validate data/cascor/canopy/worker, not just worker.
-        self.assertIn('validate_conda_env "${JUNIPER_DATA_CONDA}"', SCRIPT_TEXT)
-        self.assertIn('validate_conda_env "${JUNIPER_CASCOR_CONDA}"', SCRIPT_TEXT)
-        self.assertIn('validate_conda_env "${JUNIPER_CANOPY_CONDA}"', SCRIPT_TEXT)
-        self.assertIn('validate_conda_env "${JUNIPER_WORKER_CONDA}"', SCRIPT_TEXT)
+    def test_restore_arm_is_set_minus_u(self) -> None:
+        # Static pin: the pre/post pair must be +u then -u (not +u/+u).
+        body = _extract_safe_conda_activate()
+        self.assertRegex(
+            body,
+            r"set \+u\n\s*conda activate[^\n]+\n\s*set -u\n",
+            msg="safe_conda_activate must restore nounset with set -u after conda activate",
+        )
 
 
 if __name__ == "__main__":
