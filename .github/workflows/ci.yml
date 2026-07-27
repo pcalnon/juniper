@@ -137,12 +137,16 @@ jobs:
           python3 -m unittest -v tests/test_worktree_cleanup.py
           python3 -m unittest -v tests/test_worktree_activate.py
           python3 -m unittest -v tests/test_worktree_sweep_scripts.py
-          # tests/test_worktree_wipeout_close.py: pre-destroy gates for
-          # util/worktree_wipeout.bash (missing→1 / invalid→2) and
-          # util/worktree_close.bash (not-found vs matched remove). Hermetic
-          # tempfile git fixtures; util/ is not pre-commit-lint-gated.
-          python3 -m unittest -v tests/test_worktree_wipeout_close.py
+          # tests/test_prune_git_branches_without_working_dirs.py: destructive
+          # fix/* branch prune when inferred .claude/ tree dir is missing
+          # (util/prune_git_branches_without_working_dirs.bash). Hermetic temp
+          # repo only; util/ is not pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_prune_git_branches_without_working_dirs.py
           python3 -m unittest -v tests/test_reap_pytest_orphans.py
+          # tests/test_kill_helpers.py: hermetic process-filter / kill-path coverage for
+          # util/kill_all_pythons.bash and util/juniper_worker_kill.bash (PATH-stubbed
+          # ps/sudo/kill; bash kill builtin disabled). util/ is not pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_kill_helpers.py
           python3 -m unittest -v tests/test_editable_install_drift_check.py
           # tests/test_env_floor_drift_check.py: gap-I-2 floor-drift checker --
           # installed juniper-* (dist-info METADATA) vs the target repo's pyproject
