@@ -236,8 +236,6 @@ Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `lo
 
 **Release-train write-job git identity (ml#705):** when editing `.github/workflows/release-train.yml`, keep both `propose` and `ceremony` identity steps on `git config --global user.name|user.email|commit.gpgsign` (never bare repo-local `git config`). Cross-repo commits land in freshly-cloned sibling checkouts; a juniper-ml-only identity leaves them with `Author identity unknown` (run 30040138774). Operator detail: runbook §7 / §8.7.
 
-**Release-train write-job git identity (ml#705):** when editing `.github/workflows/release-train.yml`, keep both `propose` and `ceremony` identity steps on `git config --global user.name|user.email|commit.gpgsign` (never bare repo-local `git config`). Cross-repo commits land in freshly-cloned sibling checkouts; a juniper-ml-only identity leaves them with `Author identity unknown` (run 30040138774). Operator detail: runbook §7 / §8.7.
-
 **Phase 4.2 propose ordering + follow-ons.** Empty `packages=` propose runs process eligible packages
 **upstream-first** (registry `depends_on` DAG). A pre-1.0 MINOR/MAJOR that escapes a consumer
 `<next-minor` ceiling also opens a separate standard-gated PR
@@ -274,6 +272,11 @@ Operator tables: [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPER
 **Daily detect `SHIP_UNCERTAIN` / hygiene:** `SHIP_UNCERTAIN` means the detector could not prove ship or no-ship (missing declared version, missing tag, soft-fail compare, 300-file truncated empty window, or uncertain hunks) — it is an action classification (exit 1), never a silent `UP_TO_DATE`.
 Hygiene `TAG_ONLY=` counts only truthy `tag_only`; a `list_releases` blip sets `tag_only=None` and notes `release-hygiene (tag_only) unavailable:` without failing the job.
 Operator tables: [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1.
+
+**Release-train propose skips / Gate 2 park (juniper-ml#749):** `build_proposal` refusal stubs (`bump=none`, unreadable/unparseable version, empty/missing Unreleased, missing CHANGELOG) set `skipped_reason` and open no PR — never invent a bump or empty section.
+Detect discounts `tests/` / `test_*.py` / `conftest.py` / `*_test.py` as nonship before the hunk filter (test-only tips stay out of Gate 1).
+Ceremony `PENDING_PYPI_APPROVAL` also parks when TestPyPI succeeded and the pypi job is `queued` / `pending` / `""` (run may still be `in_progress`).
+Operator tables: release-train runbook §3.2 (refusals + test-path) and §3.3 (job-level park).
 
 ---
 
