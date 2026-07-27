@@ -54,6 +54,22 @@ def _extract_function(name: str) -> str:
     return match.group(0)
 
 
+def _extract_validate_conda_env() -> str:
+    """Pull the live ``function validate_conda_env() { ... }`` body (no harness drift).
+
+    Named distinctly from concurrent coverage PRs' generic ``_extract_function``
+    helpers so a merge cannot silently alias the wrong extractor.
+    """
+    match = re.search(
+        r"^function validate_conda_env\(\) \{.*?\n\}\n",
+        SCRIPT_TEXT,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("validate_conda_env function not found in juniper_plant_all.bash")
+    return match.group(0)
+
+
 class TestSyntax(unittest.TestCase):
     """The script must pass `bash -n` cleanly."""
 
