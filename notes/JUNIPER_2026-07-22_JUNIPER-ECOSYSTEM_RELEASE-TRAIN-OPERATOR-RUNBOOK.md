@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.1
+**Version**: 1.2.2
 **Last Updated**: 2026-07-26
 
 ---
@@ -309,17 +309,24 @@ python util/release_train/archive_guard.py --base origin/main --head HEAD --json
 ```
 
 - The monitor polls a bounded ~15-minute wall clock (`--monitor-timeout 900`,
-  `release-train.yml:733`; `DEFAULT_MONITOR_TIMEOUT_SECONDS`, `ceremony.py:137`) until the run parks at
-  the owner-gated `pypi` environment. **`PENDING_PYPI_APPROVAL`** is SUCCESS for the train (plan §5.1;
-  `ceremony.py:526-531`) when either:
-  - the **run** top-level `status` is `waiting`, **or**
-  - TestPyPI jobs all succeeded **and** every non-TestPyPI `*pypi*` job has `status` in
-    `{waiting, queued, pending, ""}` (belt-and-suspenders: the run may still show `in_progress` before
-    GitHub flips it to `waiting`). Misclassifying `queued` / `pending` / `""` as `IN_PROGRESS` would
-    keep ceremony polling past Gate 2. Coverage: juniper-ml#749
-    (`test_job_level_queued_pending_empty_statuses_park_at_gate`).
-  If the run is still building at timeout it reports `IN_PROGRESS` (honest; re-run ceremony mode to
-  resume — it is idempotent).
+  `release-train.yml:732-740`; `DEFAULT_MONITOR_TIMEOUT_SECONDS`, `ceremony.py:137`) until the run parks at
+  the owner-gated `pypi` environment — GitHub reports that as run status `waiting`, which the train
+  reports as **`PENDING_PYPI_APPROVAL`** (`ceremony.py:531`). **That terminal state is SUCCESS for the
+  train** (plan §5.1). Terminal monitor returns are only
+  `PENDING_PYPI_APPROVAL` / `RELEASED` / `HALT_TESTPYPI` / `HALT_PUBLISH`
+  (`monitor_publish_run`, `ceremony.py:938-941`).
+  - **`NOT_FOUND` is not terminal.** Right after `gh release create`, the publish workflow is often
+    invisible for a poll or two (`classify_publish_run(None) -> NOT_FOUND`, `ceremony.py:505`). The
+    monitor **keeps polling** — it must never stamp `NOT_FOUND` onto the ceremony result (that would
+    skip waiting for Gate 2). Coverage: `MonitorTimeoutTest` in `tests/test_release_train_ceremony.py`
+    (juniper-ml#744 / #745 / #747).
+  - **Timeout → honest `IN_PROGRESS`.** If the wall clock elapses while the run is still building *or*
+    still permanently missing (mis-tagged Release / workflow never triggered), the monitor returns
+    **`IN_PROGRESS`** — never invents `PENDING_PYPI_APPROVAL` / `RELEASED` / a HALT
+    (`ceremony.py:941`). Re-run ceremony mode to resume (idempotent). Operator check when you see
+    `IN_PROGRESS` with no publish run: confirm the Release tag matched the workflow's `on:` filter and
+    that the publish workflow actually fired (`gh run list --repo pcalnon/<owning-repo>`); fix the tag /
+    workflow trigger, then re-run — do not approve a phantom Gate 2.
 - **Gate 2 is yours**: the publish workflow's `pypi`-environment deploy job waits for the owner to
   approve. The train never approves it (§7). Approve it in the run's environment-review UI when ready.
 - **Re-entry is a named plan state, not a full re-ceremony.** When the Release tag already exists,

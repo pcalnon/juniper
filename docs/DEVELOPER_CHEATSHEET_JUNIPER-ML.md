@@ -217,10 +217,15 @@ Always-on gate: `tests/test_release_train_registry.py` (`VersionDunderLockstepTe
 If `__version__` is already at the proposed version (re-entry / partial heal), step 3a stays silent instead of false-flagging REQUIRED (juniper-ml#712).
 Gate 1 review table: release-train operator runbook §3.2.
 
-**Release-train propose skips / Gate 2 park (juniper-ml#749):** `build_proposal` refusal stubs (`bump=none`, unreadable/unparseable version, empty/missing Unreleased, missing CHANGELOG) set `skipped_reason` and open no PR — never invent a bump or empty section.
-Detect discounts `tests/` / `test_*.py` / `conftest.py` / `*_test.py` as nonship before the hunk filter (test-only tips stay out of Gate 1).
-Ceremony `PENDING_PYPI_APPROVAL` also parks when TestPyPI succeeded and the pypi job is `queued` / `pending` / `""` (run may still be `in_progress`).
-Operator tables: release-train runbook §3.2 (refusals + test-path) and §3.3 (job-level park).
+**Re-entry caveat (juniper-ml#712):** if `__version__` already equals the proposed version, the train leaves the dunder alone and does **not** checklist REQUIRED-manual. Confirm the match before treating a pyproject-only proposal as the old failure class.
+
+**Release-train detect / ceremony edges (monitor `NOT_FOUND`, SHIP filter, SemVer).** Ceremony
+`monitor_publish_run` keeps polling when the publish run is briefly invisible (`NOT_FOUND`); a
+timeout while still building *or* permanently missing reports honest `IN_PROGRESS` (never invents
+`PENDING` / `RELEASED` / HALT) — re-run ceremony after confirming the publish workflow fired.
+Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `local_git_compare` treats
+`.py` A/D/R/**C** as inherently substantive. Operator tables:
+[`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
 
 ---
 
