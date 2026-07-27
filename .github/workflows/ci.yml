@@ -137,10 +137,12 @@ jobs:
           python3 -m unittest -v tests/test_worktree_cleanup.py
           python3 -m unittest -v tests/test_worktree_activate.py
           python3 -m unittest -v tests/test_worktree_sweep_scripts.py
-          # util/cleanup_open_worktrees.bash + util/remove_stale_worktrees.bash:
-          # destructive path-filter / skip-missing-.claude gates. Hermetic fixture
-          # repos only; util/ is not pre-commit-gated so this unittest is the gate.
-          python3 -m unittest -v tests/test_cleanup_open_remove_stale_worktrees.py
+          # tests/test_cleanup_session_worktrees.py: hermetic coverage for
+          # scripts/cleanup_session_worktrees.py — _has_merged_pr fail-closed
+          # (gh fail / bad JSON), dirty/unmerged/detached keeps, self-cwd skip,
+          # and --dry-run remove of main-ancestor / MERGED-PR clean tips.
+          # Distinct from util/worktree_cleanup.bash (V2 orchestrator).
+          python3 -m unittest -v tests/test_cleanup_session_worktrees.py
           python3 -m unittest -v tests/test_reap_pytest_orphans.py
           python3 -m unittest -v tests/test_editable_install_drift_check.py
           # tests/test_env_floor_drift_check.py: gap-I-2 floor-drift checker --
@@ -219,8 +221,9 @@ jobs:
           # fallback, unresolved stays UNRESOLVED, input bundle not mutated. Stdlib only.
           python3 -m unittest -v tests/test_symbol_overlay.py
           # tests/test_generated_prompt_index.py: util/generated_prompt_index.py (P4) -- indexes
-          # prompts/generated/ by the emit-name convention + a SAFETY-gated prune (no delete
-          # without --yes; .gitkeep/non-convention files never touched; dir read from conventions.yaml).
+          # prompts/generated/ by the emit-name convention + a SAFETY-gated prune/archive (no
+          # delete/move without --yes; .gitkeep/non-convention files never touched; dir read from
+          # conventions.yaml).
           python3 -m unittest -v tests/test_generated_prompt_index.py
           # tests/test_thread_handoff_archive.py: drift guard for the archived handoff prompt
           # filename convention and top-level note references to archived handoff prompts.
@@ -383,6 +386,10 @@ jobs:
           # unit E1). bash -n syntax + launch-line text assertions + hermetic --dry-run behavioural
           # checks (no services/conda/network; --dry-run creates no process and touches no files).
           python3 -m unittest -v tests/test_isolated_stack_script.py
+          # tests/test_check_conda_env_torch.py: hermetic P-5 torch._C shadow diagnostic
+          # (util/check_conda_env_torch.bash exit 0/1/2/3/4) via JUNIPER_CONDA_DIR + stub python.
+          # util/ is not pre-commit-lint-gated, so this unittest is the gate.
+          python3 -m unittest -v tests/test_check_conda_env_torch.py
 
       - name: Run bash regression tests
         run: |

@@ -122,6 +122,79 @@ view…` (`detect.py:954-957`) means ship evidence was still absent after the fa
 locally with `--local-git` or inspect the path-scoped diff by hand. Coverage pin: open
 juniper-ml#729 `LiveCompareCapFallbackTest`.
 
+#### Live `gh compare` 300-file fallback (SemVer)
+
+GitHub's compare API caps the `files` array at **300**. Live detect (`make_live_sources().compare`,
+`detect.py:362-373`) must not leave busy subdir packages with a thinned path-scoped window:
+
+| Condition | Behavior |
+|---|---|
+| `len(files) >= 300` | Fall back to path-scoped `local_git_compare` (cap-free). When that local compare succeeds **and** the remote payload had commits, **keep the remote commit first-lines** for the SemVer signal (`detect.py:368-371`) — local commit messages are discarded. |
+| Below 300 | Use the `gh` payload as-is — `local_git_compare` is **not** called. |
+| Compare missing / not found | Return error (`ok=False`) — **no** local fallback. |
+| Cap hit but local compare fails | Surface the local error (never invent an empty `UP_TO_DATE`). |
+
+Full-history sibling clones exist so this fallback has tags + history (`release-train.yml` detect
+checkout note). A residual detector note `compare diff hit the 300-file cap with no ship evidence in
+view…` (`detect.py:954-957`) means ship evidence was still absent after the fallback window — re-run
+locally with `--local-git` or inspect the path-scoped diff by hand. Coverage pin: open
+juniper-ml#729 `LiveCompareCapFallbackTest`.
+
+#### Hygiene cleared (healthy path)
+
+The step-summary footer `hygiene: TAG_ONLY=…, NOTES_MISSING=…` (`detect.py:996-999`) is **convention
+debt**, not a deploy trigger. When a package is `UP_TO_DATE` **and** both bits are false, the detector
+found a matching GitHub Release for `diff_base_tag` **and** a central
+`notes/releases/RELEASE_NOTES_<pypi>_v<released>.md` archive (`detect.py:967-969`, `notes_missing` at
+`detect.py:879-882`; coverage juniper-ml#756). That is the healthy clear — do **not** confuse it with a
+quiet `TAG_ONLY=0` that still carries a `release-hygiene (tag_only) unavailable:` note. A `list_releases`
+`SourceError` sets `hygiene.tag_only = None` (falsy → not counted in `TAG_ONLY=`) while still evaluating
+`notes_missing` (`detect.py:971-973`); re-check Releases when gh recovers.
+
+`released_upload` in the manifest is the **earliest** PyPI `upload_time_iso_8601` for the released
+version (`detect.py:_upload_time`); missing/empty upload times → `None` (never invent a timestamp).
+
+#### When you see `SHIP_UNCERTAIN` (soft-fail — do not treat as up-to-date)
+
+`SHIP_UNCERTAIN` is an **action** classification (`ACTION_CLASSIFICATIONS`, `detect.py:98`): the daily
+report and Slack "Needs release action" count include it, and exit 1 is expected. It means the detector
+**could not prove** ship or no-ship — never invent `UP_TO_DATE` / `BUMPED_NOT_RELEASED` from a soft fail
+(`classify_package`, `detect.py:899-973`). Read the per-package note lines under the step summary (also in
+`release-manifest.json` → `packages[].notes`).
+
+| Note / signal | Cause | Operator action |
+|---|---|---|
+| `could not read declared version from the checkout` | Missing/unparseable `pyproject.toml` / `_version.py` for that package path (`detect.py:899-902`) | Fix the checkout (sibling clone missing? wrong `path:` in `registry.yaml`?) and re-run `report`. |
+| `no tag under '<pattern>' matches released <ver>` | Released version has no matching git tag (`detect.py:917-920`) | Cut/restore the Release+tag convention (never bare-tag; §8 item 3), then re-run. |
+| `compare … not found` / `compare unavailable` / other `comp.error` | Soft-fail compare (`comp.ok=False`, `detect.py:923-926`) — missing base/head, transport | Confirm the tag exists on the owning repo and `gh` auth; re-run. Do **not** hand-propose from a quiet report. |
+| `compare diff hit the 300-file cap with no ship evidence in view; page or re-run (--local-git)` | Truncated compare window, no ship file in view (`detect.py:954-957`) | Live detect already falls back to `local_git_compare` past the 300-file cap (`make_live_sources`, `detect.py:360-372`; pin in juniper-ml#729). If you still see this note, re-run locally with `--local-git` or inspect the package path-scoped diff by hand. |
+| `ship_uncertain` file rows in the manifest (no truncated note) | Patch unavailable / ambiguous hunks (`detect.py:952-955`, patch-unavailable → uncertain) | Open the listed files; decide ship vs discount; prefer a CHANGELOG corroboration before `propose`. |
+
+`SHIP_UNCERTAIN` can still carry a `proposed_bump` / `proposed_version` when SemVer inputs are available
+(`detect.py:963-964`) — treat that as a **hint**, not a Gate 1 mandate, until the uncertainty is cleared.
+
+#### Hygiene degrade: `tag_only=None` / unavailable (orthogonal to "needs deploy")
+
+The table footer `hygiene: TAG_ONLY=…, NOTES_MISSING=…` (`detect.py:996-999`) counts packages whose
+last released version lacks a GitHub Release (`tag_only`) or a central `notes/releases/` archive
+(`notes_missing`). Both are **convention debt**, not deploy triggers. (Healthy clear —
+`TAG_ONLY=0` + `NOTES_MISSING=0` with no unavailable note — means Release + archive exist; see the
+sibling hygiene-cleared guidance when present.)
+
+- **True `tag_only`**: tag exists but no GitHub Release for it — restore the Release ceremony (§8 item 3 /
+  plan §12 step 0.4); do not push a bare tag.
+- **`tag_only` unavailable** (`None`): `list_releases` raised `SourceError` (gh blip). The detector keeps
+  the package classification (often `UP_TO_DATE`), sets `hygiene.tag_only = None` (falsy → **not** counted
+  in `TAG_ONLY=`), still evaluates `notes_missing`, and appends
+  `release-hygiene (tag_only) unavailable: …` (`detect.py:971-973`; coverage juniper-ml#761). **Do not**
+  treat a quiet `TAG_ONLY=0` plus that note as "hygiene cleared" — re-check Releases when gh recovers.
+  A regression that re-raises would exit 2 the whole detect job; inventing `tag_only=True` would spam false
+  TAG_ONLY on every blip.
+- **Offline `--local-git`**: `make_local_git_sources.list_releases` must **raise** `SourceError` (open
+  juniper-ml#773) so hygiene takes the `tag_only=None` path above. Returning `set()` falsely marks every
+  package TAG_ONLY (`diff_base_tag not in set()` is always True). Until #773 lands, prefer live detect
+  (or ignore `TAG_ONLY=` under `--local-git`).
+
 ### 3.2 Dispatching `propose` against specific packages (Gate 1)
 
 ```bash
@@ -320,6 +393,28 @@ Hermetic coverage: `tests/test_release_train_propose.py`
 (`BuildProposalTest.test_changelog_move_refused_clears_staged_edits`,
 `test_unreadable_changelog_clears_staged_edits`).
 
+#### Gate 1 review — notes draft (`notes_render`)
+
+`propose` attaches a **DRAFT** release-notes file rendered from CHANGELOG `[Unreleased]`
+(`notes_render.render_notes`; plan §10.1). Review these header signals before merge — a wrong draft
+still archives at ceremony time:
+
+| Signal in the drafted notes | Expected | Source |
+|---|---|---|
+| Title `# … vX.Y.Z Release Notes` | Meta-package → **`# Juniper ML v…`** (not `# juniper-ml v…`); every other dist keeps its `pypi_name` | `display_name` (`notes_render.py:93-95`) |
+| `**Release Type:** …` | `major` → **MAJOR**, `minor` → **MINOR**, `patch`/`none`/unknown → **PATCH** | `release_type` / `_RELEASE_TYPE` (`notes_render.py:52`, `89-90`) |
+| `**Breaking changes:** …` | **YES** only when a Keep-a-Changelog **`Removed`** category is present (case-insensitive); otherwise **NO** | `notes_render.py:239` |
+| Bullets under What's New | Both `-` and `*` markers; indented / bare continuations fold into the current bullet; stray prose before any marker is ignored | `_split_bullets` (`notes_render.py:101-120`) / `parse_unreleased` |
+
+**Pitfalls:**
+
+- A meta proposal titled `# juniper-ml …` means `display_name` drifted — fix before ceremony archives it.
+- A MAJOR bump labeled PATCH (or Breaking stuck at NO despite a `### Removed` section) means the
+  bump→`release_type` map or the Removed membership check drifted.
+- Prefer `-` in hand-edited CHANGELOG, but do not reject a proposal solely because Unreleased used `*`.
+
+Coverage pins: `tests/test_release_train_propose.py` (juniper-ml#756).
+
 ### 3.3 Dispatching `ceremony` against specific packages (drives toward Gate 2)
 
 ```bash
@@ -328,7 +423,7 @@ gh workflow run release-train.yml -f mode=ceremony -f packages=juniper-observabi
 ```
 
 The `packages` / `--cross-repo` shell contract is **identical** to §3.2 (same charset reject +
-`APP_TOKEN` gate; `release-train.yml:703-727`).
+`APP_TOKEN` gate; `release-train.yml:706-731`).
 
 For each `BUMPED_NOT_RELEASED` package the ceremony (`ceremony.py:1-45`): runs the §8 preconditions,
 builds the central notes file, opens the **add-only** archive PR (always in juniper-ml — the central
@@ -379,17 +474,20 @@ monitors the triggered publish run.
     `IN_PROGRESS` with no publish run: confirm the Release tag matched the workflow's `on:` filter and
     that the publish workflow actually fired (`gh run list --repo pcalnon/<owning-repo>`); fix the tag /
     workflow trigger, then re-run — do not approve a phantom Gate 2.
+  - **`RELEASED` = both gates already done (not a HALT).** When the publish run's top-level status is
+    `completed` with conclusion `success`, `classify_publish_run` returns **`RELEASED`**
+    (`ceremony.py:519-521`) — Gate 2 was already approved and the PyPI job finished. `execute_ceremony`
+    surfaces that as the package final state (`result["state"] = verdict`, `ceremony.py:1029`) and does
+    **not** file a halt issue (coverage: `ExecuteTest.test_execute_both_gates_done_is_released`,
+    juniper-ml#741). Treat step-summary / Slack `RELEASED` as **done** — do not re-approve Gate 2 and do
+    not expect a `testpypi-verify-failed` / `HALT_PUBLISH` issue.
+  - **Do not confuse `RELEASED` with `ALREADY_RELEASED`.** `ALREADY_RELEASED` is a **plan-time** no-op
+    when live PyPI already serves the target version before any archive/Release actions
+    (`ceremony.py:863-866`). `RELEASED` is a **monitor-time** terminal after the ceremony cut (or resumed)
+    a Release and watched the publish workflow finish successfully.
 - **Gate 2 is yours**: the publish workflow's `pypi`-environment deploy job waits for the owner to
   approve. The train never approves it (§7). Approve it in the run's environment-review UI when ready.
-- **Re-entry is a named plan state, not a full re-ceremony.** When the Release tag already exists,
-  `plan_ceremony` sets `plan.state = RESUME_MONITOR` and the action list is **only** `monitor_publish`
-  (`ceremony.py:892-897`). Execute keeps `plan_state=RESUME_MONITOR` while `state` becomes the monitor
-  verdict (`PENDING_PYPI_APPROVAL` / `HALTED` / …) — so the ceremony step summary buckets it under
-  **resume-monitor**, not a new ceremony (`ceremony.py:980-983`, `release-train.yml:775-789`). A
-  TestPyPI failure on resume still HALTs and files `testpypi-verify-failed` **without** re-opening the
-  archive PR or re-cutting the Release (`execute_ceremony` monitor branch, `ceremony.py:1016-1024`;
-  coverage: juniper-ml#726). Distinct from `ALREADY_RELEASED` (PyPI already serves the target — pure
-  no-op, `ceremony.py:864-866`). See §5.5.
+  If the monitor already returned `RELEASED`, Gate 2 was approved earlier — no further click.
 
 ### 3.4 The two owner gates (never automated)
 
@@ -416,7 +514,7 @@ invocation error (`ceremony.py:71-72`).
 | `declared-lt-released-anomaly` | declared version < the version PyPI already serves (yank/rollback) | `ceremony.py:724` | Investigate the PyPI yank/rollback manually; do NOT release. Reconcile the declared version. |
 | `pypi-truth-missing` | manifest said released, but PyPI now returns no version | `ceremony.py:726` | A first-publish/yank a human must resolve — confirm the trusted-publisher config (procedure §3.3) before re-running. |
 | `changelog-section-missing` | no non-empty `CHANGELOG [<version>]` section to source the notes | `ceremony.py:741` | The proposal PR (Gate 1) should have created it — merge the proposal first, or add the section, then re-run. |
-| `notes-render-failed` | `notes_render.render_notes` raises `OSError` while building the final archive body from `CHANGELOG [<version>]` (missing/unreadable `notes/templates/TEMPLATE_RELEASE_NOTES.md`, or the security template when a `Security` category is present) | `ceremony.py:887-890` | Distinct from `changelog-section-missing`. Restore the template under ceremony `--repo-root` (juniper-ml), confirm CI can read it, re-run — no Release was cut. Coverage: juniper-ml#741. |
+| `notes-render-failed` | `notes_render.render_notes` raises `OSError` (missing/unreadable `notes/templates/TEMPLATE_RELEASE_NOTES.md` or the security template) while building the central archive content | `ceremony.py:887-890` | Restore the template under `notes/templates/` in the **central** juniper-ml checkout the ceremony uses as `repo_root`; do not invent archive body by hand. Re-run ceremony — it re-plans from CHANGELOG truth (coverage: `PreconditionHaltTest.test_notes_render_failed_halts`, juniper-ml#741). |
 | `missing-declared-version` | manifest has no `declared_version` for a `BUMPED_NOT_RELEASED` pkg | `ceremony.py:711` | A malformed manifest — re-run detection (`report` mode) to regenerate it. |
 | `not-in-registry` | package is `BUMPED_NOT_RELEASED` in the manifest but absent from `registry.yaml` | `ceremony.py` (`_plans_for` / `ceremony.py:1152`) | Add the package to `util/release_train/registry.yaml` (registry lint gates it). Propose's parallel for `UNRELEASED_CHANGES` is a **skip stub** (`skipped_reason="package not in registry.yaml"`, §3.2) — not a HALT. |
 | `testpypi-verify-failed` | (during the monitor) the publish workflow's TestPyPI install-verify failed before Gate 2 | `ceremony.py:876` | The run is not healthy — inspect the publish run's TestPyPI job; fix and re-cut is idempotent. |
@@ -644,7 +742,7 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   CHANGELOG refuse clear-on-refuse stub shape — juniper-ml#751).
 - Static `_version.py` lockstep (Gate 1 review):
   [`JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md`](JUNIPER_2026-07-23_JUNIPER-ML_RELEASE-TRAIN-VERSION-DUNDER-LOCKSTEP-FOLLOWUP.md)
-  (implemented by juniper-ml#710).
+  §6 / §6.1 (implemented by juniper-ml#710; hardened by juniper-ml#712).
 - Notes-draft + healthy-hygiene operator edges (Gate 1 title/MAJOR/Breaking; `TAG_ONLY`/`NOTES_MISSING`
   clear when Release + archive exist): coverage juniper-ml#756; this runbook §3.1 / §3.2.
 - Release convention (cut a Release, archive notes centrally): repo `AGENTS.md` "Publishing" +

@@ -17,6 +17,8 @@ Covers (task acceptance list):
   * SemVer proposal derivation (pre-1.0: breaking/feature => MINOR, fix => PATCH)
   * release-manifest JSON shape
   * CLI exit codes 0 / 1 / 2
+  * live-sources ``gh compare`` 300-file cap -> ``local_git_compare`` fallback
+    (keeps remote commit messages for SemVer)
 
 ``util/`` is not pre-commit-lint-gated, so this unittest IS the gate (the
 ``env_floor_drift_check`` precedent). Imported via the house ``sys.path.insert`` idiom.
@@ -621,6 +623,96 @@ class ClassificationTest(unittest.TestCase):
         # notes_missing is orthogonal and still evaluated
         self.assertTrue(rec.hygiene["notes_missing"])
 
+    def test_ship_uncertain_when_compare_truncated_without_ship_evidence(self):
+        # Cap-blind under-ship: truncated compare with nothing in view must NOT stay UP_TO_DATE.
+        # Orthogonal to the live-sources 300-file -> local_git_compare fallback (#729), which
+        # rewrites the CompareResult with truncated=False; this pins classify_package's own arm.
+        e = self._pkg("0.4.0")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self.fake.compares[("juniper-ml", "juniper-thing-v0.4.0", "main")] = d.CompareResult(
+            files=[],
+            commits=[],
+            truncated=True,
+            ok=True,
+        )
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.SHIP_UNCERTAIN)
+        self.assertTrue(any("300-file cap" in n and "--local-git" in n for n in rec.notes), rec.notes)
+
+    def test_ship_uncertain_when_declared_version_unreadable(self):
+        # PyPI present but checkout has no parseable declared version -> early SHIP_UNCERTAIN
+        # (must not invent BUMPED_NOT_RELEASED / UP_TO_DATE, and must not proceed to tag/compare).
+        e = _entry(repo="juniper-ml", path="juniper-thing/")
+        (self.repo_root / "juniper-thing").mkdir(parents=True, exist_ok=True)
+        # Intentionally omit pyproject.toml / _version.py so read_declared_version returns None.
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.SHIP_UNCERTAIN)
+        self.assertIsNone(rec.declared_version)
+        self.assertIsNone(rec.diff_base_tag)
+        self.assertTrue(any("could not read declared version from the checkout" in n for n in rec.notes), rec.notes)
+
+    def test_ship_uncertain_when_compare_not_ok(self):
+        # Soft-fail compare (missing tag/checkout, transport) must surface as SHIP_UNCERTAIN + error
+        # note -- not UP_TO_DATE and not an uncaught exception that exit-2s the detect job.
+        e = self._pkg("0.4.0")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self.fake.compares[("juniper-ml", "juniper-thing-v0.4.0", "main")] = d.CompareResult(
+            files=[],
+            commits=[],
+            ok=False,
+            error="compare juniper-thing-v0.4.0...main not found",
+        )
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.SHIP_UNCERTAIN)
+        self.assertIn("compare juniper-thing-v0.4.0...main not found", rec.notes)
+
+    def _dup_filename_compare(self, *patches: "str | None") -> None:
+        """Same in-scope .py appears once per commit (path-scoped multi-commit compare)."""
+        (self.repo_root / "juniper-thing" / "juniper_thing").mkdir(parents=True, exist_ok=True)
+        (self.repo_root / "juniper-thing" / "juniper_thing" / "mod.py").write_text("\n".join(["h"] * 9 + ["def handler():", "    return new_validation()"]) + "\n")
+        self.fake.compares[("juniper-ml", "juniper-thing-v0.4.0", "main")] = d.CompareResult(
+            files=[_fc("juniper-thing/juniper_thing/mod.py", p) for p in patches],
+            commits=["chore: notes rename", "feat: validation"],
+        )
+
+    def test_strongest_verdict_wins_over_later_nonship(self):
+        # ship then comment-only for the same filename: a last-wins bug would UP_TO_DATE.
+        e = self._pkg("0.4.0", changelog="## [Unreleased]\n### Added\n- validation\n")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self._dup_filename_compare(_REAL_CODE_PATCH, _COMMENT_ONLY_PATCH)
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.UNRELEASED_CHANGES)
+        self.assertEqual(len(rec.ship_evidence), 1)
+        self.assertEqual(rec.ship_evidence[0]["file"], "juniper-thing/juniper_thing/mod.py")
+        self.assertEqual(rec.nonship_discounted, [])
+
+    def test_strongest_verdict_wins_when_nonship_comes_first(self):
+        # comment-only then ship: first-wins would leave nonship and miss the release.
+        e = self._pkg("0.4.0", changelog="## [Unreleased]\n### Added\n- validation\n")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self._dup_filename_compare(_COMMENT_ONLY_PATCH, _REAL_CODE_PATCH)
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.UNRELEASED_CHANGES)
+        self.assertEqual(len(rec.ship_evidence), 1)
+        self.assertEqual(rec.nonship_discounted, [])
+
+    def test_uncertain_verdict_wins_over_later_nonship(self):
+        # patch-unavailable then comment-only: nonship must not erase SHIP_UNCERTAIN.
+        e = self._pkg("0.4.0")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self._dup_filename_compare(None, _COMMENT_ONLY_PATCH)
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.SHIP_UNCERTAIN)
+        self.assertEqual(len(rec.ship_uncertain), 1)
+        self.assertEqual(rec.nonship_discounted, [])
+        self.assertEqual(rec.ship_evidence, [])
+
 
 class ManifestShapeTest(unittest.TestCase):
     def test_manifest_json_shape(self):
@@ -803,6 +895,75 @@ class CliExitCodeTest(unittest.TestCase):
         with redirect_stdout(buf):
             code = d.main(["--repo-root", str(self.repo_root), "--registry", str(self.registry), "--package", "nope"], sources=self.fake.build())
         self.assertEqual(code, 2)
+
+
+# ── live-sources compare: 300-file gh-compare cap -> local_git_compare fallback ──
+
+
+class LiveCompareCapFallbackTest(unittest.TestCase):
+    """Pin ``make_live_sources().compare`` falling back to ``local_git_compare`` at the 300-file cap.
+
+    ClassificationTest covers patch-unavailable / no-tag ``SHIP_UNCERTAIN``, but the live-sources
+    auto-fallback that preserves remote commit messages when ``gh compare`` hits GitHub's 300-file
+    array cap was untested -- a regression there would silently thin path-scoped diffs for busy
+    subdir packages (the exact class ``local_git_compare`` exists to fix).
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.repo_root = self.root / "juniper-ml"
+        self.repo_root.mkdir()
+        self.eco = self.root
+        self.entry = _entry(repo="juniper-ml", path="juniper-thing/")
+        self.sources = d.make_live_sources("pcalnon", self.repo_root, self.eco)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_at_300_files_falls_back_to_local_git_and_keeps_remote_commits(self):
+        remote_files = [{"filename": f"f{i}.py", "status": "modified", "patch": None} for i in range(300)]
+        remote_commits = [{"commit": {"message": "feat: keep me\n\nbody"}}, {"commit": {"message": "fix: also keep"}}]
+        local = d.CompareResult(
+            files=[_fc("juniper-thing/juniper_thing/mod.py", _REAL_CODE_PATCH)],
+            commits=["local-only-msg-must-be-replaced"],
+            truncated=False,
+            ok=True,
+        )
+        with mock.patch.object(d, "_gh_json_single", return_value={"files": remote_files, "commits": remote_commits}) as gh, mock.patch.object(d, "local_git_compare", return_value=local) as local_cmp:
+            result = self.sources.compare(self.entry, "juniper-thing-v0.4.0", "main")
+        gh.assert_called_once()
+        local_cmp.assert_called_once_with(self.entry, "juniper-thing-v0.4.0", "main", self.repo_root)
+        self.assertTrue(result.ok)
+        self.assertEqual(result.files, local.files)
+        # remote commit first-lines preserved for the SemVer signal (local msgs discarded when remote present)
+        self.assertEqual(result.commits, ["feat: keep me", "fix: also keep"])
+
+    def test_below_300_uses_gh_payload_without_local_fallback(self):
+        remote_files = [{"filename": f"f{i}.py", "status": "modified", "patch": "@@ -1 +1 @@\n-a\n+b"} for i in range(299)]
+        remote_commits = [{"commit": {"message": "chore: under the cap"}}]
+        with mock.patch.object(d, "_gh_json_single", return_value={"files": remote_files, "commits": remote_commits}), mock.patch.object(d, "local_git_compare") as local_cmp:
+            result = self.sources.compare(self.entry, "juniper-thing-v0.4.0", "main")
+        local_cmp.assert_not_called()
+        self.assertTrue(result.ok)
+        self.assertEqual(len(result.files), 299)
+        self.assertEqual(result.commits, ["chore: under the cap"])
+        self.assertFalse(result.truncated)
+
+    def test_gh_compare_missing_returns_error_without_local_fallback(self):
+        with mock.patch.object(d, "_gh_json_single", return_value=None), mock.patch.object(d, "local_git_compare") as local_cmp:
+            result = self.sources.compare(self.entry, "missing-tag", "main")
+        local_cmp.assert_not_called()
+        self.assertFalse(result.ok)
+        self.assertIn("not found", result.error or "")
+
+    def test_local_fallback_failure_is_returned_when_cap_hit(self):
+        remote_files = [{"filename": f"f{i}.py", "status": "modified"} for i in range(300)]
+        failed = d.CompareResult(files=[], commits=[], ok=False, error="local diff failed")
+        with mock.patch.object(d, "_gh_json_single", return_value={"files": remote_files, "commits": []}), mock.patch.object(d, "local_git_compare", return_value=failed):
+            result = self.sources.compare(self.entry, "juniper-thing-v0.4.0", "main")
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error, "local diff failed")
 
 
 if __name__ == "__main__":
