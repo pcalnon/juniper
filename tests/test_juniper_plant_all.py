@@ -51,18 +51,6 @@ def _extract_function(name: str) -> str:
     return match.group(0)
 
 
-def _extract_function(name: str) -> str:
-    """Pull a live ``function <name>() { ... }`` body (avoids harness drift)."""
-    match = re.search(
-        rf"^function {re.escape(name)}\(\) \{{.*?\n\}}\n",
-        SCRIPT_TEXT,
-        flags=re.MULTILINE | re.DOTALL,
-    )
-    if match is None:
-        raise AssertionError(f"{name} function not found in juniper_plant_all.bash")
-    return match.group(0)
-
-
 class TestSyntax(unittest.TestCase):
     """The script must pass `bash -n` cleanly."""
 
