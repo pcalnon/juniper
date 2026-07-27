@@ -242,14 +242,13 @@ Detector SemVer: Keep-a-Changelog `Security` → patch, `Changed` → minor; `lo
 juniper-ml#729). Operator tables:
 [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1 / §3.3.
 
-**Gate 1 notes draft (`notes_render`, coverage juniper-ml#756):** meta-package title must read `# Juniper ML v…` (not `# juniper-ml v…`);
-`Release Type` maps `major`→MAJOR / `minor`→MINOR / `patch|none|unknown`→PATCH;
-`Breaking changes` is YES only when Unreleased has a `Removed` category;
-Keep-a-Changelog accepts `*` as well as `-` (continuations fold).
-Operator table: release-train runbook §3.2.
-
-**Daily hygiene cleared:** `TAG_ONLY=0` + `NOTES_MISSING=0` with no `release-hygiene (tag_only) unavailable:` note means each counted package has a GitHub Release **and** a central `notes/releases/` archive for the released version (orthogonal to "needs deploy").
-`released_upload` is the earliest PyPI upload ISO (or `None`). Operator note: release-train runbook §3.1.
+**Daily detect `SHIP_UNCERTAIN` / hygiene:** `SHIP_UNCERTAIN` means the detector could not prove ship or
+no-ship (missing declared version, missing tag, soft-fail compare, 300-file truncated empty window, or
+uncertain hunks) — it is an action classification (exit 1), never a silent `UP_TO_DATE`.
+Hygiene `TAG_ONLY=` counts only truthy `tag_only`; a `list_releases` blip sets `tag_only=None` and notes
+`release-hygiene (tag_only) unavailable:` without failing the job. Offline `--local-git` must raise
+`SourceError` for releases (open [#773](https://github.com/pcalnon/juniper-ml/pull/773)), not return
+`set()` (false TAG_ONLY on every package). Operator tables: runbook §3.1.
 
 ---
 
