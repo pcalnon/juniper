@@ -235,6 +235,13 @@ function wait_for_health() {
     local interval="${4:-${HEALTH_CHECK_INTERVAL}}"
     local elapsed=0
 
+    # Interval <= 0 never advances elapsed (``sleep 0`` is a no-op) → busy-loop
+    # forever under HEALTH_CHECK_INTERVAL=0 / a zero 4th arg. Clamp to 1s.
+    if ! [[ "${interval}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] WARNING: invalid health-check interval '${interval}'; clamping to 1s"
+        interval=1
+    fi
+
     echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] Waiting for ${service_name} health at ${health_url} (timeout: ${timeout}s)"
 
     while (( elapsed < timeout )); do
