@@ -233,6 +233,10 @@ clears those edits so the skipped stub is `edits=[]` + `skipped_reason` (same sh
 `bump=none`) — do not treat leftover version edits in dry-run JSON as a Gate 1 candidate.
 Operator table: release-train runbook §3.2.
 
+**R7 archive-lane `ref=` (juniper-ml#770):** a ceremony `SeamViolation` with `ref=None` / `ref=''` means
+the `git/refs` POST omitted a heads ref — fail-closed code bug, not an auth blip. Do not hand-POST a
+ref. Re-dispatch after #770; see runbook §7.
+
 ---
 
 ## Environment Variables

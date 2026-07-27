@@ -137,8 +137,8 @@ Prerequisites:
 
 | Utility | Purpose | Key Overrides |
 |---------|---------|---------------|
-| `util/juniper_plant_all.bash` | Start the host-level stack with health gates | `JUNIPER_DATA_HOST`, `JUNIPER_DATA_PORT`, `JUNIPER_CASCOR_HOST`, `JUNIPER_CASCOR_PORT`, `JUNIPER_CANOPY_PORT`, `JUNIPER_WORKER_HEALTH_HOST`, `JUNIPER_WORKER_HEALTH_PORT`, `HEALTH_CHECK_TIMEOUT`, `HEALTH_CHECK_INTERVAL` |
-| `util/juniper_chop_all.bash` | Stop services from `JuniperProject.pid` | `JUNIPER_PROJECT_DIR`, `SIGTERM_TIMEOUT`, `KILL_WORKERS`, `USE_SYSTEMD` |
+| `util/juniper_plant_all.bash` | Start the host-level stack with health gates | `JUNIPER_DATA_HOST`, `JUNIPER_DATA_PORT`, `JUNIPER_CASCOR_HOST`, `JUNIPER_CASCOR_PORT`, `JUNIPER_CANOPY_PORT`, `JUNIPER_WORKER_HEALTH_HOST`, `JUNIPER_WORKER_HEALTH_PORT` |
+| `util/juniper_chop_all.bash` | Stop services from `JuniperProject.pid` | `JUNIPER_PROJECT_DIR`, `SIGTERM_TIMEOUT`, `KILL_WORKERS`, `USE_SYSTEMD` (`JUNIPER_CHOP_PROC_ROOT` is tests-only) |
 | `util/get_cascor_*.bash` | Query cascor REST endpoints from a shell | `CASCOR_HOST`, `CASCOR_PORT` |
 
 Important pitfall: the startup script uses the `JUNIPER_CASCOR_HOST` / `JUNIPER_CASCOR_PORT` names, but the `get_cascor_*.bash` query helpers intentionally use the shorter legacy `CASCOR_HOST` / `CASCOR_PORT` names. Both default to `localhost:8201` for local host-mode access.
@@ -172,6 +172,15 @@ Failure / health / port contract (`nohup` mode):
 - After each successful `nohup` launch, the PID is appended to `STARTED_PIDS`. An `ERR` trap runs `cleanup_on_failure` (JR-ML-SEC-042): SIGTERM every tracked PID, wait 3s, SIGKILL any survivors, always `rm -f` the project pidfile, then exit 1 — even when `STARTED_PIDS` is still empty (preflight / early failure).
 - `wait_for_health` polls `curl -sf` every `HEALTH_CHECK_INTERVAL` seconds (default `2`) until success or `HEALTH_CHECK_TIMEOUT` (default `60`). Timeout returns 1 and trips the ERR cleanup above; it does not hang forever.
 - `check_port_available` rejects a busy port (exit 1). If `ss` is missing or unusable when the helper runs, it **fail-opens** (treats the port as free). The `nohup` preflight still hard-requires `ss`, so normal host-mode plant never relies on that fail-open; hermetic tests and any out-of-band caller of the helper can.
+
+Shutdown contract (`nohup` chop — JR-ML-SEC-045):
+
+- For each pidfile row, `validate_pid` must accept the PID before `graceful_stop` runs. A reject skips that service (does **not** bump `STOP_FAILURES`) and never sends signals — so a false reject can clear the pidfile while leaving the process running.
+- Post-[#777](https://github.com/pcalnon/juniper-ml/pull/777): matching is a case-folded, hyphen/underscore-stripped token check against `/proc/<pid>/cmdline` (override root: `JUNIPER_CHOP_PROC_ROOT`, tests only). That accepts plant's host-mode cascor/canopy launches (`python server.py` / `python main.py` under `JuniperCascor1` / `JuniperCanopy1`) and module paths like `juniper_data` for pidfile key `juniper-data`.
+- `juniper-cascor` must not match a worker cmdline: normalized `junipercascor` is a prefix of `junipercascorworker`, so chop also rejects when the expected name is `juniper-cascor` and the cmdline contains `worker`.
+- Pre-[#777](https://github.com/pcalnon/juniper-ml/pull/777) on `main`, `validate_pid` logged cmdline but always returned 0 (reused PID could receive SIGTERM/SIGKILL). An intermediate literal `juniper-cascor` / `juniper_cascor` substring check ([#774](https://github.com/pcalnon/juniper-ml/pull/774)) closed the reuse hole but false-rejected plant cascor/canopy — prefer the [#777](https://github.com/pcalnon/juniper-ml/pull/777) token match.
+- `graceful_stop` ([#778](https://github.com/pcalnon/juniper-ml/pull/778) coverage; production already on `main`): SIGTERM → wait up to `SIGTERM_TIMEOUT` (default `15`) → SIGKILL. Already-exited / failed SIGTERM delivery returns 0 (not a stop failure). Surviving SIGKILL returns 1 and bumps `STOP_FAILURES`.
+- After the loop: `STOP_FAILURES > 0` preserves `JuniperProject.pid` and exits 1; otherwise chop truncates the pidfile. Inspect preserved pidfile rows and `/proc/<pid>/cmdline` before re-sending signals by hand.
 
 Troubleshooting:
 
