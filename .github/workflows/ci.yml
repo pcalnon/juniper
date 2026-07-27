@@ -137,13 +137,16 @@ jobs:
           python3 -m unittest -v tests/test_worktree_cleanup.py
           python3 -m unittest -v tests/test_worktree_activate.py
           python3 -m unittest -v tests/test_worktree_sweep_scripts.py
-          # tests/test_cleanup_session_worktrees.py: hermetic coverage for
-          # scripts/cleanup_session_worktrees.py — _has_merged_pr fail-closed
-          # (gh fail / bad JSON), dirty/unmerged/detached keeps, self-cwd skip,
-          # and --dry-run remove of main-ancestor / MERGED-PR clean tips.
-          # Distinct from util/worktree_cleanup.bash (V2 orchestrator).
-          python3 -m unittest -v tests/test_cleanup_session_worktrees.py
+          # tests/test_prune_git_branches_without_working_dirs.py: destructive
+          # fix/* branch prune when inferred .claude/ tree dir is missing
+          # (util/prune_git_branches_without_working_dirs.bash). Hermetic temp
+          # repo only; util/ is not pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_prune_git_branches_without_working_dirs.py
           python3 -m unittest -v tests/test_reap_pytest_orphans.py
+          # tests/test_kill_helpers.py: hermetic process-filter / kill-path coverage for
+          # util/kill_all_pythons.bash and util/juniper_worker_kill.bash (PATH-stubbed
+          # ps/sudo/kill; bash kill builtin disabled). util/ is not pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_kill_helpers.py
           python3 -m unittest -v tests/test_editable_install_drift_check.py
           # tests/test_env_floor_drift_check.py: gap-I-2 floor-drift checker --
           # installed juniper-* (dist-info METADATA) vs the target repo's pyproject
