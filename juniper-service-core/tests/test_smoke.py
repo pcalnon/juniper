@@ -15,12 +15,26 @@ from __future__ import annotations
 import subprocess
 import sys
 import textwrap
+import tomllib
+from pathlib import Path
 
 import juniper_service_core
 
+_PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
+
+
+def _declared_version() -> str:
+    """The canonical static ``[project].version`` -- never hardcode a literal here.
+
+    A hardcoded ``"0.4.0"`` sat latent-red after the ml#702 dunder heal (this
+    path-filtered CI only runs when ``juniper-service-core/**`` changes) -- the
+    ml#701 stale-version class, in test form."""
+    with _PYPROJECT.open("rb") as handle:
+        return tomllib.load(handle)["project"]["version"]
+
 
 def test_version_is_exposed_eagerly():
-    assert juniper_service_core.__version__ == "0.4.0"
+    assert juniper_service_core.__version__ == _declared_version()
 
 
 def test_lazy_public_surface_is_accessible():
@@ -63,12 +77,12 @@ def test_top_level_import_does_not_require_fastapi_or_pydantic_settings():
 
         import juniper_service_core
 
-        assert juniper_service_core.__version__ == "0.4.0"
+        assert juniper_service_core.__version__ == __EXPECTED_VERSION__
         assert "fastapi" not in sys.modules, "top-level import unexpectedly pulled fastapi"
         assert "pydantic_settings" not in sys.modules, "top-level import unexpectedly pulled pydantic_settings"
         print("DEPENDENCY_FREE_OK")
         """
-    )
+    ).replace("__EXPECTED_VERSION__", repr(_declared_version()))
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 0, f"subprocess failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
     assert "DEPENDENCY_FREE_OK" in result.stdout
