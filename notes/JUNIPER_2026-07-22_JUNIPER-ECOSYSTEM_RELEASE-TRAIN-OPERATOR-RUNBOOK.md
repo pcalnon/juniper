@@ -210,6 +210,33 @@ gh workflow run release-train.yml -f mode=propose -f packages=juniper-observabil
   (see below / §7). On the degraded no-App path only juniper-ml packages are proposed and siblings
   are skipped with a clear reason.
 
+#### Reading the propose step summary
+
+After a `mode=propose` run, open the job's GitHub **step summary** (not only the log). `propose.py`
+prints one machine line per package (`propose.py` execute loop):
+
+| Line prefix | Meaning |
+|---|---|
+| `opened: <pypi_name> (<repo>) -- <url>` | a standard-gated proposal PR was opened |
+| `skip: <pypi_name> (<repo>) -- <reason>` | no PR (dup-guard, no-App sibling skip, empty URL, …) |
+
+The workflow's "Render propose step summary" step (`release-train.yml:539-568`) buckets those lines into
+operator-facing markdown:
+
+| Summary signal | What it means | Operator action |
+|---|---|---|
+| `N proposal PR(s) opened, M skipped.` | count of `opened:` / `skip:` lines | Follow the **Opened** links for Gate 1 review |
+| `### Opened (standard-gated -- owner reviews & merges)` | each opened package + PR URL | Review / merge (Gate 1); never auto-merged |
+| `### Skipped` | each skip reason (e.g. duplicate open PR, `--cross-repo required…`) | Expected on re-dispatch / no-App path — do **not** re-open by hand |
+| `**propose.py produced no output**` | `propose-output.txt` empty / missing | Treat as a crash — read the run log; do **not** assume zero eligible packages |
+| Counts `0` / `0` **without** the crash banner | non-empty no-op output (e.g. no `UNRELEASED_CHANGES`) | Healthy idle — nothing to propose |
+
+The summary footer always reminds Gate-1 framing: App-minted PRs get normal CI + sibling-repo targeting;
+the degraded no-App path skips siblings and may need a close/reopen (or empty commit) to start checks
+(`release-train.yml:565`). Hermetic pin of the renderer: `ProposeSummaryRehearsalTest` in
+`tests/test_release_train_workflow_guard.py` (juniper-ml#730) — YAML-extraction twin of
+`CeremonySummaryRehearsalTest`.
+
 #### `packages` dispatch charset + `--cross-repo` gate
 
 Both write jobs (`propose` and `ceremony`) share the same shell prefix **before** python runs
@@ -433,6 +460,21 @@ monitors the triggered publish run.
   owner admin one-click — 2026-07-23 run 30051952226 / ml#707; the API commit removes that block with no
   security-posture change.) **Owner one-click is now only the degraded/manual fallback** — e.g. if
   `allow_auto_merge` is off (a graceful degrade, not a HALT) or the auto-merge never lands.
+
+- **Archive PR reuse / already-on-main (idempotent re-entry).** Before cutting a Release the planner
+  inspects juniper-ml (central archive, plan §10.2) for an open PR on the archive branch and for the
+  notes file already on `main` (`ceremony.py:902-914`):
+
+  | Truth | Plan actions | Execute contract |
+  |---|---|---|
+  | Open archive PR already exists | `enable_auto_merge` → `cut_release` → `monitor_publish` (**no** `open_archive_pr`) | Must **not** open a duplicate exempt PR. `enable_automerge` receives `pr_ref or plan.archive_branch` so a reused plan (no fresh `pr_url`) still arms `--auto` against the **branch** (`ceremony.py:1008`). |
+  | Archive file already on `main` | `cut_release` → `monitor_publish` only | **No** archive-PR / auto-merge seam calls — only `create_release` (+ monitor). |
+  | Neither | full happy path: open → auto-merge → cut → monitor | Fresh signed archive PR as in the bullet above. |
+
+  Re-dispatching `ceremony` while an archive PR is still open (or after it merged to `main` but before
+  the Release exists) is therefore safe — do **not** close a healthy open archive PR to "start over".
+  Hermetic execute pins: juniper-ml#730 (`ExecuteTest` open-PR reuse + archive-already-on-main).
+  (Release-already-cut → `RESUME_MONITOR` is the sibling re-entry; see §5.5 / juniper-ml#726.)
 
 #### Archive-guard triage (required check `Release-Train Archive Guard`)
 

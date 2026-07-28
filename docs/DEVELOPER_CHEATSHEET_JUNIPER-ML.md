@@ -252,6 +252,24 @@ Hygiene `TAG_ONLY=` counts only truthy `tag_only`; a `list_releases` blip sets `
 `SourceError` for releases (open [#773](https://github.com/pcalnon/juniper-ml/pull/773)), not return
 `set()` (false TAG_ONLY on every package). Operator tables: runbook §3.1.
 
+**Release-train `packages` dispatch + `--cross-repo`.** Both write jobs reject garbage
+`packages` tokens (`Juniper-Observability`, underscores, `../`, `;`) with exit **2** + `::error::`
+before python runs; empty = all eligible; commas ≡ whitespace. `--cross-repo` only when `APP_TOKEN`
+is non-empty. Runbook §3.2; pin juniper-ml#729 `PackagesInputRehearsalTest`.
+
+
+**Release-train propose step summary:** after `mode=propose`, read the job step summary — it buckets
+`propose.py`'s `opened:` / `skip:` lines into Opened / Skipped sections. An empty `propose-output.txt`
+shows `produced no output` (crash); a non-empty no-op shows `0` / `0` without that banner. Detail:
+runbook §3.2. Hermetic pin: juniper-ml#730 (`ProposeSummaryRehearsalTest`).
+
+
+**Release-train ceremony archive reuse:** re-dispatching `ceremony` while an exempt notes-archive PR is
+still open reuses it (no duplicate open; `--auto` arms on the archive **branch**). If the notes file is
+already on `main`, ceremony cuts the Release only (no archive-PR / auto-merge calls). Do not close a
+healthy open archive PR to "start over". Detail: runbook §3.3 / §5.5. Hermetic pin: juniper-ml#730.
+
+
 **Release-train write-job git identity (ml#705):** when editing `.github/workflows/release-train.yml`, keep both `propose` and `ceremony` identity steps on `git config --global user.name|user.email|commit.gpgsign` (never bare repo-local `git config`). Cross-repo commits land in freshly-cloned sibling checkouts; a juniper-ml-only identity leaves them with `Author identity unknown` (run 30040138774). Operator detail: runbook §7 / §8.7.
 
 ---
