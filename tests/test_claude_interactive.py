@@ -63,13 +63,7 @@ class ClaudeInteractiveLauncherRuntimeTests(unittest.TestCase):
         args_log = Path(temp_dir) / "claude_interactive_args.log"
         fake_wake = scripts_dir / "wake_the_claude.bash"
         fake_wake.write_text(
-            "#!/usr/bin/env bash\n"
-            "{\n"
-            '  echo "__CALL__"\n'
-            '  for arg in "$@"; do\n'
-            "    printf 'ARG=%s\\n' \"$arg\"\n"
-            "  done\n"
-            '} >> "$WTC_WRAPPER_ARGS_LOG"\n',
+            "#!/usr/bin/env bash\n" "{\n" '  echo "__CALL__"\n' '  for arg in "$@"; do\n' "    printf 'ARG=%s\\n' \"$arg\"\n" "  done\n" '} >> "$WTC_WRAPPER_ARGS_LOG"\n',
             encoding="utf-8",
         )
         fake_wake.chmod(0o755)
