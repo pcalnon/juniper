@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `juniper_ci_tools/_version.py` `__version__` healed `0.6.0` -> `0.7.0` (the ml#701 stale-dunder class, first live instance; healed in juniper-ml#684). The 0.7.0 wheel on PyPI carries correct metadata but its `__version__` dunder reports `0.6.0`; this patch release ships the corrected dunder. The release-train now bumps a static package's `_version.py` in lockstep with `pyproject.toml` (juniper-ml#710), so the class cannot recur.
+
 ## [0.7.0] - 2026-07-19
 
 ### Changed
