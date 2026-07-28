@@ -294,9 +294,10 @@ Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while 
 
 Tip: before `/template-agent`, run `python util/agent_suite_doctor.py` (not `--no-discovery`). Discovery fail-closed: missing CLI, nonzero exit, non-JSON, or missing `schema_version`/`provenance.head_sha` → `FAIL`. See [REFERENCE.md § Agent Suite Doctor](REFERENCE.md#agent-suite-doctor).
 
-Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant health failure leaves started user units running; tear down with `util/juniper_chop_all.bash --systemd` (see `docs/REFERENCE.md` § systemd mode).
-
-Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
+Tip: `util/isolated_stack.bash` is kill-by-port (not `JuniperProject.pid`). After `--down`, confirm `ss -tlnH 'sport = :8101 or sport = :8202 or sport = :8051'` is empty.
+`data_up` needs `python3.14` on `PATH`, installs into `${JUNIPER_E2E_RUN_DIR}/.venv-data`, and launches with `PYTHON_GIL=0` (existing venv skips create but still re-pips). Use `JUNIPER_E2E_DATA_EXTRAS=api,mnist` for D2/I-5.
+Post-[#785](https://github.com/pcalnon/juniper-ml/pull/785), `activate_conda` restores `set -u` after conda activate (pre-fix left nounset off for the rest of `--up`).
+Full contract: [REFERENCE — Isolated Stack E2E](REFERENCE.md#isolated-stack-e2e-utilities).
 
 ### Host Stack Troubleshooting
 
@@ -308,9 +309,11 @@ Tip: systemd chop soft-fails per unit and always exits `0` without touching the 
 | Worker binary missing | Run `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` finished in `nohup` mode and rerun with `JUNIPER_PROJECT_DIR` set to the same project root; for systemd mode, stop with `util/juniper_chop_all.bash --systemd`. |
 | Doctor green but Template Agent grounding dead | Re-run without `--no-discovery`; fix `util/prompt_discovery/cli.py` until it emits `schema_version` + `provenance.head_sha`. |
-| systemd plant: missing `curl` | Install/expose `curl`; abort is before any `systemctl start`. |
-| systemd plant partial after health timeout | Run `util/juniper_chop_all.bash --systemd` (ERR cleanup does not `systemctl stop`). |
-| Mixed `--systemd` / pidfile modes | Match plant and chop modes; systemd never writes `JuniperProject.pid`. |
+| Isolated `--up` missing `python3.14` | Put `python3.14` on `PATH`; abort is before venv/pid create. |
+| Isolated data health / GIL oddities | Confirm `PYTHON_GIL=0` in launch; check `$JUNIPER_E2E_RUN_DIR/logs/juniper-data.log`. |
+| Isolated `--up` unset-var / odd conda failure | Need #785 nounset restore; check `JUNIPER_E2E_CONDA_DIR`. |
+| Isolated ports still busy after `--down` | Re-run `--down` or kill the `pid=` from `ss -tlnpH`; `--dry-run` never kills. |
+| Isolated health timeout | Inspect `/tmp/juniper-e2e/logs/*.log` (or `$JUNIPER_E2E_RUN_DIR/logs`); raise `JUNIPER_E2E_HEALTH_TIMEOUT` only after fixing the service. |
 
 ## Quick Reference Tables
 
