@@ -24,6 +24,8 @@
 | `util/juniper_plant_all.bash`                          | Start the host-level Juniper stack with health gates |
 | `util/get_cascor_status.bash`                          | Query host-mode cascor status (`CASCOR_HOST` / `CASCOR_PORT`, default `localhost:8201`) |
 | `util/juniper_chop_all.bash`                           | Stop the host-level stack from `JuniperProject.pid` |
+| `util/juniper_plant_all.bash --systemd`                | Start via `systemctl --user` (no pidfile; curl required) |
+| `util/juniper_chop_all.bash --systemd`                 | Stop via `systemctl --user` (reverse order; soft-fail; no pidfile path) |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
@@ -270,6 +272,7 @@ Hygiene `TAG_ONLY=` counts only truthy `tag_only`; a `list_releases` blip sets `
 | `JUNIPER_WORKER_HEALTH_PORT`   | `8210`             | Host stack cascor-worker health listener port           |
 | `JUNIPER_PROJECT_DIR`          | `~/Development/python/Juniper` | Project root honored by `util/juniper_chop_all.bash`; `plant_all` derives the root from its script location |
 | `KILL_WORKERS`                 | `0`                | Set to `1` so `chop_all` also runs `orphaned_worker_cleanup` (incl. on missing/empty pidfile abort); ignored under `--systemd` |
+| `USE_SYSTEMD`                  | `0`                | `1` or `--systemd`: plant/chop via `systemctl --user` (no `JuniperProject.pid`) |
 | `HEALTH_CHECK_TIMEOUT`         | `60`               | Seconds `util/juniper_plant_all.bash` waits for each service health gate |
 | `JUNIPER_E2E_DATA_PORT`        | `8101`             | Isolated-stack juniper-data port (`util/isolated_stack.bash`) |
 | `JUNIPER_E2E_CASCOR_PORT`      | `8202`             | Isolated-stack juniper-cascor port |
@@ -291,6 +294,10 @@ Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while 
 
 Tip: before `/template-agent`, run `python util/agent_suite_doctor.py` (not `--no-discovery`). Discovery fail-closed: missing CLI, nonzero exit, non-JSON, or missing `schema_version`/`provenance.head_sha` → `FAIL`. See [REFERENCE.md § Agent Suite Doctor](REFERENCE.md#agent-suite-doctor).
 
+Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant health failure leaves started user units running; tear down with `util/juniper_chop_all.bash --systemd` (see `docs/REFERENCE.md` § systemd mode).
+
+Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
+
 ### Host Stack Troubleshooting
 
 | Symptom | Fast Check |
@@ -301,6 +308,9 @@ Tip: before `/template-agent`, run `python util/agent_suite_doctor.py` (not `--n
 | Worker binary missing | Run `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` finished in `nohup` mode and rerun with `JUNIPER_PROJECT_DIR` set to the same project root; for systemd mode, stop with `util/juniper_chop_all.bash --systemd`. |
 | Doctor green but Template Agent grounding dead | Re-run without `--no-discovery`; fix `util/prompt_discovery/cli.py` until it emits `schema_version` + `provenance.head_sha`. |
+| systemd plant: missing `curl` | Install/expose `curl`; abort is before any `systemctl start`. |
+| systemd plant partial after health timeout | Run `util/juniper_chop_all.bash --systemd` (ERR cleanup does not `systemctl stop`). |
+| Mixed `--systemd` / pidfile modes | Match plant and chop modes; systemd never writes `JuniperProject.pid`. |
 
 ## Quick Reference Tables
 

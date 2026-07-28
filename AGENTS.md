@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.6.0
-**Last Updated**: 2026-07-27
+**Last Updated**: 2026-07-28
 
 ---
 
@@ -386,11 +386,18 @@ juniper-ml/
 - Dependency-documentation generator now lives in [`juniper-ci-tools/`](juniper-ci-tools/) and is published to PyPI as `juniper-ci-tools` (Wave 4 of the dep-docs migration plan; install with `pip install juniper-ci-tools` and invoke via `juniper-generate-dep-docs`). The legacy `util/generate_dep_docs.sh` was deleted in juniper-ml#298.
 - `util/juniper_plant_all.bash` -- Starts all Juniper ecosystem services. `JUNIPER_CASCOR_HOST` defaults to `localhost` and `JUNIPER_CASCOR_PORT` defaults to `8201`; both can be overridden via the environment (e.g. `JUNIPER_CASCOR_HOST=remote.example.com JUNIPER_CASCOR_PORT=8201 util/juniper_plant_all.bash`).
   - `safe_conda_activate` nounset (juniper-ml#795 coverage): `set +u` → `conda activate` → `set -u` (ADDR2LINE class). A `+u`/`+u` restore silently disables nounset for the rest of host bring-up — isolated-stack `activate_conda` must match. Operator surface: `docs/REFERENCE.md` Host Orchestration + cheatsheet tip. Tests: `tests/test_juniper_plant_all.py` (`TestSafeCondaActivate`).
+  - `--systemd` / `USE_SYSTEMD=1` enters the user-unit arm before nohup preflight: dependency-ordered `systemctl --user start` (data→cascor→canopy→worker), `curl`-only gate (no `ss`), no `JuniperProject.pid`.
+  - Missing `curl` aborts before any start. Worker HTTP-ready + inactive unit → WARNING + `status --no-pager`, still exit 0.
+  - Mid-plant health timeout runs `cleanup_on_failure` but does **not** `systemctl stop` (systemd starts are never in `STARTED_PIDS`) — operators must chop with `--systemd`.
+  - Hermetic pins: `tests/test_juniper_plant_all.py` `TestSystemdModeBehavioral` (open juniper-ml#804). Operator detail: [`docs/REFERENCE.md`](docs/REFERENCE.md) § systemd mode.
 - `util/juniper_chop_all.bash` -- Stops all Juniper ecosystem services from `JuniperProject.pid` (`SIGTERM_TIMEOUT` default 15; `KILL_WORKERS`; `--systemd` / `USE_SYSTEMD`).
   - `orphaned_worker_cleanup` (juniper-ml#791 coverage): opt-in `KILL_WORKERS=1` (default `0`, nohup-only — ignored under systemd). `pgrep -af juniper-cascor-worker` then strict cmdline filter (`juniper-cascor-worker` / `juniper_cascor_worker` / search term; rejects over-greedy `cascor.*worker`).
   - Each match: `graceful_stop <pid> cascor-worker 5` (hard-coded 5s, not `SIGTERM_TIMEOUT`). Post-pidfile call uses `|| true` so a benign return 1 cannot abort chop under `set -e`. Operator surface: `docs/REFERENCE.md` Host Orchestration + cheatsheet. Tests: `tests/test_juniper_chop_all.py` (`TestOrphanedWorkerCleanup`).
   - Missing or empty (zero-byte) `JuniperProject.pid`: logs the matching ERROR, calls `orphaned_worker_cleanup` (honors `KILL_WORKERS`), then `exit 1` — never enters the service-stop loop (open #798).
   - Early cleanup call sites are hard (no `|| true`); the post-pidfile site is soft so a benign "nothing to clean" return cannot abort a successful chop under `set -e`.
+  - `--systemd` / `USE_SYSTEMD=1` stops units in reverse dependency order (worker→canopy→cascor→data), soft-fails per unit, and always `exit 0`.
+  - Never falls through to the pidfile parser or `orphaned_worker_cleanup` / `KILL_WORKERS`.
+  - Hermetic pins: `tests/test_juniper_chop_all.py` `TestSystemdModeBehavioral` (open juniper-ml#804). Operator detail: [`docs/REFERENCE.md`](docs/REFERENCE.md) § systemd mode.
 - `util/isolated_stack.bash` -- Brings up / tears down the isolated training-runtime E2E trio (data 8101 dedicated `python3.14` venv, cascor 8202 `JuniperCascor1`, canopy 8051 `JuniperCanopy1` service mode) with the documented env (control-WS origin pair, `JUNIPER_DATA_URL`, `LD_LIBRARY_PATH=`); `--up`/`--down`/`--status`/`--dry-run`, ports 8101/8202/8051 (`JUNIPER_E2E_*` overrides), `--dry-run` starts nothing. See [E2E checklist](notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md).
   - Live compose (juniper-ml#813): `cascor_up` empties `LD_LIBRARY_PATH`, points `JUNIPER_DATA_URL` at isolated data, sets control-WS allowlist to `CANOPY_ORIGIN`, writes `juniper-cascor.pid`, then health-gates; `canopy_up` forces `DEMO_MODE=0`, wires isolated cascor/data URLs + matching `CASCOR_WS_ORIGIN`, writes `juniper-canopy.pid`, then health-gates. Missing `conda.sh` aborts before launch/pid. Operator details: [`docs/REFERENCE.md` Isolated Stack E2E](docs/REFERENCE.md#isolated-stack-e2e-utilities).
 - `util/get_cascor_*.bash` -- Cascor REST API query utilities (status, metrics, history, network, topology). These helpers read legacy `CASCOR_HOST` and `CASCOR_PORT` environment variables (with `localhost` / `8201` defaults). Do not confuse them with the `JUNIPER_CASCOR_*` variables used by `util/juniper_plant_all.bash`.
