@@ -155,7 +155,6 @@ def main():
             probe = norm(rec["probe"])
             # transition on fp
             pres = [(c, probe in fp_norm[c]) for c in fp]
-            verdict = "?"
             detail = ""
             if pres[0][1]:
                 verdict = "PRESENT-NOW(recheck)"
