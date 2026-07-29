@@ -410,6 +410,40 @@ New worktree directory already exists: <NEW_WORKTREE>
 remove the colliding directory only when you intend to. Hermetic coverage: open
 juniper-ml#753 (`TestPhase2Behavioral.test_existing_new_worktree_dir_exits_without_clobber`).
 
+### Phase 4 remote-branch deletion (script)
+
+`phase_4_cleanup` always removes the old worktree and deletes the **local** branch. Whether it also
+runs `git push origin --delete "${OLD_BRANCH}"` is decided in this order
+(`util/worktree_cleanup.bash`, `phase_4_cleanup`; post-juniper-ml#739 fail-closed query):
+
+| Condition | Remote-delete behavior | Consults `gh`? |
+|-----------|------------------------|----------------|
+| `--skip-remote-delete` set | Skip; log `Skipping remote branch deletion (--skip-remote-delete)` | **No** |
+| `--dry-run` (flag unset) | Print `[DRY-RUN] git -C … push origin --delete …` only | **No** |
+| Live + `gh` query fails / non-numeric result | Warn-and-skip; remote branch **kept** | **Yes** — fail-closed |
+| Live + open PR for `OLD_BRANCH` | Warn-and-skip; remote branch **kept** (log `PR is open for branch … — skipping remote branch deletion`) | **Yes** — `gh pr list --repo pcalnon/juniper-ml --head "${OLD_BRANCH}" --state open` |
+| Live + proven zero open PRs | Delete remote branch (warn if it is already gone) | **Yes** |
+
+**Why the open-PR auto-skip exists.** Deleting the remote head under an open PR breaks the PR and
+drops the backup branch Phase 1 just pushed. Prefer explicit `--skip-remote-delete` when you know a
+PR is open (no `gh` call; clearer intent). Rely on the auto-skip when cleaning up without that flag —
+it is the protective default, not a substitute for checking PR state before a force-delete.
+
+**Fail-closed on indeterminate `gh` (juniper-ml#739).** A non-zero `gh` exit or a non-numeric
+`--jq 'length'` result skips `push --delete` (warns with the exit status / unexpected result). The
+pre-#739 `|| echo "0"` path treated auth/network failure as "0 open PRs" and could delete the remote
+head under a live PR — that class is closed. Local worktree + local branch are still removed either way.
+
+**Constraints / pitfalls:**
+
+- The open-PR probe is hard-wired to `--repo pcalnon/juniper-ml`. Cleaning a sibling-repo worktree with
+  this script will not see that sibling's open PRs; use `--skip-remote-delete` (or delete the remote
+  branch yourself after merge).
+- Prefer `--skip-remote-delete` when you intentionally want no `gh` call (known-open PR, offline, or
+  sibling-repo cleanup). Fail-closed skip still leaves the remote branch for a later delete after merge.
+- Hermetic coverage: open-PR / no-PR / flag paths in juniper-ml#738; `gh` hard-fail + non-numeric
+  result in juniper-ml#739 (`tests/test_worktree_cleanup.py` Phase 4 remote-delete guards).
+
 ---
 
 ## Edge Cases
@@ -451,7 +485,7 @@ Use the ad-hoc sweep pair only when cleaning the centralized Juniper worktree po
 - `DIRTY`, `ACTIVE`, `BROKEN`, unknown-repo, missing-directory, non-worktree, and no-longer-safe rows are skipped.
 - Apply revalidates every `SAFE` row immediately before removal: the target directory must still be a git worktree, have a clean working tree (tracked/untracked only), and have `rev-list --count origin/main..HEAD == 0`.
 
-**Dirt vs gitignored debris (ml#715).** Survey classifies dirt with `git status --porcelain` — tracked modifications and untracked files only. GITIGNORED debris (caches, logs, decrypted secrets) does **not** make a worktree `DIRTY`; ignored-only trees with `ahead == 0` classify as `SAFE`. Apply keeps a separate ignored-content guard at removal time because deleting a worktree also deletes that debris, which may be precious (the decrypted-secrets class):
+**Dirt vs gitignored debris (ml#715 / coverage ml#716).** Survey classifies dirt with `git status --porcelain` — tracked modifications and untracked files only. GITIGNORED debris (caches, logs, decrypted secrets) does **not** make a worktree `DIRTY`; ignored-only trees with `ahead == 0` classify as `SAFE`. Apply keeps a separate ignored-content guard at removal time because deleting a worktree also deletes that debris, which may be precious (the decrypted-secrets class):
 
 | Apply mode | Ignored-only SAFE row | Tracked/untracked dirt |
 |------------|----------------------|------------------------|

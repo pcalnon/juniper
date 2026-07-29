@@ -90,6 +90,35 @@ release-worthy CHANGELOG changes not yet in a proposal), `BUMPED_NOT_RELEASED` (
 NORMAL green outcome** — only a hard source error (exit ≥ 2) fails the run (`release-train.yml`, detect
 step; plan §11).
 
+#### Detect SHIP filter + SemVer (why a package shows `UNRELEASED_CHANGES`)
+
+The detector's proposed bump feeds Gate 1. Two internals decide whether code ships and which SemVer
+bucket `propose` suggests (`detect.py:has_substantive_hunk`, `local_git_compare`, `propose_semver`;
+plan §4.2 / §6):
+
+| Signal | Ships? | Notes |
+|---|---|---|
+| Whitespace-only hunk | **No** | Empty / space-only `+/-` lines are stripped before comment/code checks (`has_substantive_hunk`). |
+| Pure comment / docstring / link edit | **No** | Notes-rename residue class — discounted. |
+| Pure **code** deletion (with `file_text`) | **Yes** | `_removed_codeish` path; deleting a real statement must not thin SemVer. |
+| Add / delete / rename / **copy** of a `.py` module (`A`/`D`/`R`/`C` in `local_git_compare`) | **Yes** | Inherently substantive — no blob compare (`detect.py:334-335`). Copy (`C075`) is rarer than A/D/R (needs copy detection) but shares the same short-circuit; do not expect a module copy to fall through to `SHIP_UNCERTAIN`. |
+| Patch unavailable | **Uncertain** | Surfaces as `SHIP_UNCERTAIN`, not a silent `UP_TO_DATE`. |
+
+Keep-a-Changelog categories + conventional-commit classes map to the proposed bump
+(`FEATURE_CATEGORIES` / `FIX_CATEGORIES` / `BREAKING_CATEGORIES`, `detect.py:107-109`;
+`propose_semver`, `detect.py:804-815`; pre-1.0 policy plan §6):
+
+| Input | Proposed bump (pre-1.0) |
+|---|---|
+| `### Security` or `### Fixed` (or `fix:` commits) | **patch** |
+| `### Added` / `### Changed` / `### Deprecated` (or `feat:` commits) | **minor** |
+| `### Removed`, `feat!` / `fix!`, or a `BREAKING CHANGE` footer | **minor** (breaking is not major pre-1.0) |
+| No release-worthy cats/classes | **none** |
+
+When reviewing a Gate 1 PR, a `Security`-only Unreleased section should propose **patch**, not minor;
+a `Changed` section should propose **minor**. A mismatch means the detector/SemVer path drifted —
+re-run `report` mode before merging a hand-edited bump.
+
 #### Hygiene cleared (healthy path)
 
 The step-summary footer `hygiene: TAG_ONLY=…, NOTES_MISSING=…` (`detect.py:996-999`) is **convention
@@ -121,38 +150,6 @@ checkout note). A residual detector note `compare diff hit the 300-file cap with
 view…` (`detect.py:954-957`) means ship evidence was still absent after the fallback window — re-run
 locally with `--local-git` or inspect the path-scoped diff by hand. Coverage pin: open
 juniper-ml#729 `LiveCompareCapFallbackTest`.
-
-#### Live `gh compare` 300-file fallback (SemVer)
-
-GitHub's compare API caps the `files` array at **300**. Live detect (`make_live_sources().compare`,
-`detect.py:362-373`) must not leave busy subdir packages with a thinned path-scoped window:
-
-| Condition | Behavior |
-|---|---|
-| `len(files) >= 300` | Fall back to path-scoped `local_git_compare` (cap-free). When that local compare succeeds **and** the remote payload had commits, **keep the remote commit first-lines** for the SemVer signal (`detect.py:368-371`) — local commit messages are discarded. |
-| Below 300 | Use the `gh` payload as-is — `local_git_compare` is **not** called. |
-| Compare missing / not found | Return error (`ok=False`) — **no** local fallback. |
-| Cap hit but local compare fails | Surface the local error (never invent an empty `UP_TO_DATE`). |
-
-Full-history sibling clones exist so this fallback has tags + history (`release-train.yml` detect
-checkout note). A residual detector note `compare diff hit the 300-file cap with no ship evidence in
-view…` (`detect.py:954-957`) means ship evidence was still absent after the fallback window — re-run
-locally with `--local-git` or inspect the path-scoped diff by hand. Coverage pin: open
-juniper-ml#729 `LiveCompareCapFallbackTest`.
-
-#### Hygiene cleared (healthy path)
-
-The step-summary footer `hygiene: TAG_ONLY=…, NOTES_MISSING=…` (`detect.py:996-999`) is **convention
-debt**, not a deploy trigger. When a package is `UP_TO_DATE` **and** both bits are false, the detector
-found a matching GitHub Release for `diff_base_tag` **and** a central
-`notes/releases/RELEASE_NOTES_<pypi>_v<released>.md` archive (`detect.py:967-969`, `notes_missing` at
-`detect.py:879-882`; coverage juniper-ml#756). That is the healthy clear — do **not** confuse it with a
-quiet `TAG_ONLY=0` that still carries a `release-hygiene (tag_only) unavailable:` note. A `list_releases`
-`SourceError` sets `hygiene.tag_only = None` (falsy → not counted in `TAG_ONLY=`) while still evaluating
-`notes_missing` (`detect.py:971-973`); re-check Releases when gh recovers.
-
-`released_upload` in the manifest is the **earliest** PyPI `upload_time_iso_8601` for the released
-version (`detect.py:_upload_time`); missing/empty upload times → `None` (never invent a timestamp).
 
 #### When you see `SHIP_UNCERTAIN` (soft-fail — do not treat as up-to-date)
 
@@ -256,6 +253,29 @@ extracts and *runs* the real prefix.
 **Pitfall:** Title Case, underscores, path fragments, and shell metacharacters fail the write job hard
 (exit ≥ 2). Fix the dispatch input and re-run — do not treat it as a python / §8 HALT failure.
 
+#### When propose skips (refusal stubs)
+
+`build_proposal` returns a **skipped** stub (`skipped_reason` set; no PR opened) when inputs are
+unusable — it never invents a shippable bump or an empty CHANGELOG section (`propose.py:1029-1107`).
+`execute_proposal` already no-ops on `skipped`, so these are dry-run / JSON / step-summary signals.
+Coverage: juniper-ml#749 (`BuildProposalTest` refusal cases).
+
+| `skipped_reason` contains | Cause | Operator response |
+|---|---|---|
+| `dup-guard: open release PR already exists` | Concurrent / prior proposal still open | Review / merge / close the existing PR; do not force a second |
+| `changelog conflict -- refuse to auto-author` | Detector flagged Unreleased vs ship evidence mismatch | Fix CHANGELOG or ship evidence by hand; re-run `report` then `propose` |
+| `no proposable version` (`bump=none` / missing `proposed_version`) | SemVer inputs empty (often test/docs-only tip → no ship) | Confirm detect did not invent `UNRELEASED_CHANGES`; no Gate 1 PR expected |
+| `could not read the version file` | Missing `pyproject.toml` / `_version.py` for the package path | Restore the version file on `main`; re-run propose |
+| `could not locate the version assignment` | File present but assignment unparseable | Fix the version assignment syntax; re-run propose |
+| `CHANGELOG move refused` (`no content to move` / missing Unreleased heading) | Empty or missing `## [Unreleased]` body | Add real Unreleased bullets (or drop the false `UNRELEASED_CHANGES`); never invent an empty section |
+| `could not read …/CHANGELOG.md` | CHANGELOG missing after version staging | Restore CHANGELOG; re-run propose |
+
+**Upstream of propose — test paths never ship.** `classify_change` discounts `_is_test_path` matches
+(`tests/` / `test/` path segments, `test_*.py`, `*_test.py`, `conftest.py`) as `nonship` **before** the
+substantive-hunk filter (`detect.py:658-663`, `735-736`). A tip that only touches tests will not become
+`UNRELEASED_CHANGES` and therefore will not open a Gate 1 PR — even if the hunks look like "real code".
+Coverage: juniper-ml#749 (`test_test_paths_are_nonship_even_with_code_hunks`).
+
 #### Gate 1 review — static `_version.py` dunder lockstep (ml#701 / juniper-ml#710)
 
 All five in-repo **static** packages (`juniper-ci-tools`, `juniper-config-tools`, `juniper-doc-tools`,
@@ -293,6 +313,33 @@ an already-correct dunder produces neither a `_version.py` edit nor a checklist 
 
 Dynamic packages (model-core + the three recurrence packages) are unchanged: the version bump *is*
 the `_version.py` edit, so there is no separate lockstep co-change to look for.
+
+#### Gate 1 review: sibling / meta `AGENTS.md` **Version** co-change (worker#140 / ml#706 / #720)
+
+Every sibling repo's `AGENTS.md` `**Version**:` header tracks that repo's **primary** package
+(`pypi_name == repo` in `util/release_train/registry.yaml`). Their CI runs the portable
+`tests/test_agents_md_version_drift.py` lint, so a proposal that bumps `pyproject.toml` but leaves the
+header stale fails Documentation Links — the [worker#140](https://github.com/pcalnon/juniper-cascor-worker/pull/140)
+pilot class, fixed in juniper-ml#706 (`propose.py` step 5a). The meta-package (`juniper-ml`) uses the
+older step-5 path for the same header lockstep (`tests/test_agents_md_version_drift.py` in this repo).
+
+When reviewing a Gate 1 proposal for a **sibling primary** or the **meta** package, expect:
+
+| Signal in the proposal PR | Meaning | Operator action |
+|---|---|---|
+| Diff edits `AGENTS.md` `**Version**:` in lockstep with the version bump | Normal co-change (header was at the from-version) | Merge when the rest of the proposal looks right |
+| Checklist names the AGENTS.md bump as "included in this PR" | Train already applied the header edit | No extra manual edit |
+| **No** `AGENTS.md` edit **and** **no** AGENTS checklist item; checkout header already equals `to_version` | Already-at-target / partial heal / re-entry (juniper-ml#720) — silent success; same class as the ml#701 dunder re-entry fix | Confirm the header really matches the proposed version, then merge when the rest looks right |
+| Checklist item **REQUIRED**; file missing, or present without a `**Version**:` line | Train never invents a header (juniper-ml#720) | Add / restore `**Version**: <to_version>` by hand in the same PR before merge |
+| Checklist item **REQUIRED**; header present but neither from-version nor to-version | Unexpected value — train left the file alone (never clobbers) | Verify / edit `**Version**:` by hand in the same PR before merge |
+| Diff omits `AGENTS.md`, **no** checklist item, and checkout header is **not** at `to_version` | Pre-#706 / stale train / bug | Do **not** merge as-is; bump the header (or re-dispatch `propose` after #706+#720) |
+
+**Does not apply when:** the bumped package is a **sub-package** hosted in a sibling (`pypi_name != repo`,
+e.g. `juniper-cascor-model` in `juniper-cascor`) — the host header tracks the primary, so step 5a never
+touches it.
+
+Hermetic coverage: `tests/test_release_train_propose.py` (happy-path shapes in juniper-ml#706;
+re-entry / absent / missing-header edges in juniper-ml#720).
 
 #### Gate 1 — Phase 4.2 dependency order + consumer ceiling-bump follow-ons
 
@@ -389,50 +436,22 @@ Hermetic coverage: `tests/test_release_train_propose.py`
 (`BuildProposalTest.test_changelog_move_refused_clears_staged_edits`,
 `test_unreadable_changelog_clears_staged_edits`).
 
-#### CHANGELOG refuse clears staged edits (juniper-ml#751)
+#### Manifest / registry miss + `--execute` seam gates
 
-`build_proposal` stages the version bump (and optional static `_version.py` dunder) **before** the
-CHANGELOG `[Unreleased]` → `[<version>]` move (`propose.py` steps 3 / 3a / 4). When step 4 refuses —
-empty / missing Unreleased body (`CHANGELOG move refused: …`) or a missing CHANGELOG
-(`could not read …/CHANGELOG.md`) — juniper-ml#751 clears any edits already staged
-(`prop.edits.clear()`) so the skipped stub matches the dup-guard / `bump=none` shape:
-`edits=[]`, `branch=None`, `skipped_reason` set (`propose.py` ~1099–1112 after #751).
+Orthogonal to `build_proposal` refusal stubs (coverage juniper-ml#749): these are `propose.main` /
+`execute_proposal` gates **before** a proposal is built or written. A registry miss must **skip**, not
+abort the whole propose job mid-loop; a miswired `--execute` seam must hard-fail before any partial
+write.
 
-| Signal (dry-run / `--json` / step summary) | Meaning | Operator response |
+| Signal | Cause | Operator response |
 |---|---|---|
-| `skip:` + `CHANGELOG move refused` / `could not read …/CHANGELOG.md` **and** `edits=[]` | Honest refusal stub (post-#751) | Fix Unreleased bullets or restore CHANGELOG; re-run `report` then `propose` |
-| Same `skipped_reason` **but** `edits` still lists a pyproject / dunder bump | Pre-#751 half-proposal — `execute_proposal` still no-ops on `skipped`, but JSON looks shippable | Do **not** treat leftover edits as a Gate 1 candidate; upgrade train past #751, then re-run |
+| Dry-run / JSON `skipped_reason="package not in registry.yaml"`; summary counts a skip | A proposable manifest package's `pypi_name` is absent from `registry.yaml` (`propose.py:1415-1418`). Loop continues for remaining packages. | Add the package to `util/release_train/registry.yaml` (registry lint) or drop the stale manifest entry; re-run `report` then `propose`. Ceremony's parallel for `BUMPED_NOT_RELEASED` is the `not-in-registry` HALT (§4). |
+| `--package` / dispatch `packages=` names an unknown `pypi_name` → exit 2 | Invocation error before the loop (`propose.py:1388-1392`) — not a skip stub | Fix the `packages=` input against `registry.yaml` |
+| `--execute` exits 2: `execute mode needs write_file/run_git/open_pr seam members` | Live seam missing a write member (`execute_proposal` / `execute_follow_on`, `propose.py:1319-1320`, `896`) | Workflow / wiring bug — re-dispatch the GitHub Actions job; do not hand-run `--execute` without live sources |
+| `skip: …` / empty URL; no branch, commit, or PR | `prop.skipped` or `branch is None` → `execute_proposal` returns `""` and issues **zero** write/git/pr calls (`propose.py:1321-1322`) | Expected for registry-miss / refusal stubs; read the printed skip reason |
 
-**Why this matters:** `execute_proposal` already guards on `prop.skipped` (`propose.py` ~1327), so a
-half-staged stub never opened a PR. Operators reading dry-run JSON still saw leftover version edits and
-learned to ignore them — #751 makes the stub shape honest. Full refusal-reason catalog (including
-`bump=none` / unreadable version): open docs PR juniper-ml#768 (coverage #749) when merged.
-
-Hermetic coverage: `tests/test_release_train_propose.py`
-(`BuildProposalTest.test_changelog_move_refused_clears_staged_edits`,
-`test_unreadable_changelog_clears_staged_edits`).
-
-#### Gate 1 review — notes draft (`notes_render`)
-
-`propose` attaches a **DRAFT** release-notes file rendered from CHANGELOG `[Unreleased]`
-(`notes_render.render_notes`; plan §10.1). Review these header signals before merge — a wrong draft
-still archives at ceremony time:
-
-| Signal in the drafted notes | Expected | Source |
-|---|---|---|
-| Title `# … vX.Y.Z Release Notes` | Meta-package → **`# Juniper ML v…`** (not `# juniper-ml v…`); every other dist keeps its `pypi_name` | `display_name` (`notes_render.py:93-95`) |
-| `**Release Type:** …` | `major` → **MAJOR**, `minor` → **MINOR**, `patch`/`none`/unknown → **PATCH** | `release_type` / `_RELEASE_TYPE` (`notes_render.py:52`, `89-90`) |
-| `**Breaking changes:** …` | **YES** only when a Keep-a-Changelog **`Removed`** category is present (case-insensitive); otherwise **NO** | `notes_render.py:239` |
-| Bullets under What's New | Both `-` and `*` markers; indented / bare continuations fold into the current bullet; stray prose before any marker is ignored | `_split_bullets` (`notes_render.py:101-120`) / `parse_unreleased` |
-
-**Pitfalls:**
-
-- A meta proposal titled `# juniper-ml …` means `display_name` drifted — fix before ceremony archives it.
-- A MAJOR bump labeled PATCH (or Breaking stuck at NO despite a `### Removed` section) means the
-  bump→`release_type` map or the Removed membership check drifted.
-- Prefer `-` in hand-edited CHANGELOG, but do not reject a proposal solely because Unreleased used `*`.
-
-Coverage pins: `tests/test_release_train_propose.py` (juniper-ml#756).
+Coverage (hermetic): juniper-ml#764 —
+`CliTest.test_manifest_package_absent_from_registry_is_skipped` + `ExecuteProposalSeamTest`.
 
 ### 3.3 Dispatching `ceremony` against specific packages (drives toward Gate 2)
 
@@ -542,6 +561,15 @@ python util/release_train/archive_guard.py --base origin/main --head HEAD --json
 - **Gate 2 is yours**: the publish workflow's `pypi`-environment deploy job waits for the owner to
   approve. The train never approves it (§7). Approve it in the run's environment-review UI when ready.
   If the monitor already returned `RELEASED`, Gate 2 was approved earlier — no further click.
+- **Re-entry is a named plan state, not a full re-ceremony.** When the Release tag already exists,
+  `plan_ceremony` sets `plan.state = RESUME_MONITOR` and the action list is **only** `monitor_publish`
+  (`ceremony.py:892-897`). Execute keeps `plan_state=RESUME_MONITOR` while `state` becomes the monitor
+  verdict (`PENDING_PYPI_APPROVAL` / `HALTED` / …) — so the ceremony step summary buckets it under
+  **resume-monitor**, not a new ceremony (`ceremony.py:980-983`, `release-train.yml:775-789`). A
+  TestPyPI failure on resume still HALTs and files `testpypi-verify-failed` **without** re-opening the
+  archive PR or re-cutting the Release (`execute_ceremony` monitor branch, `ceremony.py:1016-1024`;
+  coverage: juniper-ml#726). Distinct from `ALREADY_RELEASED` (PyPI already serves the target — pure
+  no-op, `ceremony.py:864-866`). See §5.5.
 
 ### 3.4 The two owner gates (never automated)
 
@@ -572,6 +600,24 @@ invocation error (`ceremony.py:71-72`).
 | `missing-declared-version` | manifest has no `declared_version` for a `BUMPED_NOT_RELEASED` pkg | `ceremony.py:711` | A malformed manifest — re-run detection (`report` mode) to regenerate it. |
 | `not-in-registry` | package is `BUMPED_NOT_RELEASED` in the manifest but absent from `registry.yaml` | `ceremony.py` (`_plans_for` / `ceremony.py:1152`) | Add the package to `util/release_train/registry.yaml` (registry lint gates it). Propose's parallel for `UNRELEASED_CHANGES` is a **skip stub** (`skipped_reason="package not in registry.yaml"`, §3.2) — not a HALT. |
 | `testpypi-verify-failed` | (during the monitor) the publish workflow's TestPyPI install-verify failed before Gate 2 | `ceremony.py:876` | The run is not healthy — inspect the publish run's TestPyPI job; fix and re-cut is idempotent. |
+
+### 4.1 Monitor terminals after the Release is cut
+
+After the archive PR + Release succeed, `monitor_publish` maps the publish workflow via
+`classify_publish_run` (`ceremony.py:497-532`) and `execute_ceremony` handles the two failure classes
+**asymmetrically** (`ceremony.py:1016-1028`; pinned by `tests/test_release_train_ceremony.py`):
+
+| Terminal | Classifier trigger | Dedup issue? | Operator response |
+|---|---|---|---|
+| `HALT_TESTPYPI` | any `*testpypi*` job `conclusion=failure` | **Yes** — `reason_key=testpypi-verify-failed` via `upsert_halt_issue` | Inspect TestPyPI install-verify; fix; re-cut (idempotent). |
+| `HALT_PUBLISH` | run `status=completed` and `conclusion` in `{failure, cancelled, timed_out}` **and** TestPyPI did **not** fail (so this is post-TestPyPI) | **No** — note only: `"the publish run failed before the pypi gate."` | Open the publish run UI; diagnose the non-TestPyPI failure (cancelled deploy, timed-out job, etc.). Do **not** wait for a GitHub issue. Archive + Release were already cut — re-entry resumes at the monitor and must not re-cut. |
+| `PENDING_PYPI_APPROVAL` | run `waiting` / TestPyPI ok + pypi job parked | n/a (success for the train) | Approve Gate 2 when ready (§3.3). |
+| `RELEASED` | run completed `success` (both gates done) | n/a | Owner already approved; nothing to do. |
+
+**Why the asymmetry.** `testpypi-verify-failed` is a named, recoverable §8 class with a stable
+`reason_key` for dedup. A generic post-TestPyPI failure has no single reason key worth filing — the
+step-summary note + Slack + the publish-run URL are the signal. Looking for a missing issue is the
+wrong recovery path.
 
 **HALT-issue degradation (Phase 4.3).** Filing the dedup issue is **best-effort**: if the `gh issue`
 API itself fails — most plausibly the cross-repo App token lacking the **Issues** permission — the
