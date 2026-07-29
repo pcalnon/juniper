@@ -348,7 +348,6 @@ def main() -> int:
         ],
     with open(args.out, "w") as f:
         json.dump(out, f, indent=1)
-    json.dump(out, open(args.out, "w"), indent=1)
 
     # human summary
     total_c = sum(len(fr.candidates) for fr in reports)
