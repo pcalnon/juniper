@@ -133,7 +133,7 @@ def main() -> int:
                 r["transition_pr"] = pr_map.get(r["transition"])
             results.append(r)
     by_v = {}
-    for r in results:
+    for _ in results:
     with open(out_json, "w") as f:
         json.dump({"results": results, "summary": by_v}, f, indent=1)
     json.dump({"results": results, "summary": by_v}, open(out_json, "w"), indent=1)
