@@ -235,6 +235,72 @@ class DriftCheckTest(unittest.TestCase):
         # dry-run never repairs; orphan remains -> exit 1.
         self.assertEqual(code, 1)
 
+    def _resolvable_plan(self) -> list[dict]:
+        return [
+            {
+                "env": "JuniperX",
+                "package": "juniper-data",
+                "from": str(self.gone_plain),
+                "canonical": str(self.canonical),
+                "candidates": [str(self.canonical)],
+                "resolvable": True,
+            }
+        ]
+
+    def test_run_fix_executes_and_reports_fixed(self) -> None:
+        """Non-dry run_fix must invoke pip and mark FIXED on success.
+
+        Prior suite only covered --fix --dry-run (DRY_RUN / SKIP). The live
+        mutation path is the only branch that re-points orphaned editables.
+        """
+        plan = self._resolvable_plan()
+        with mock.patch.object(mod.subprocess, "run", return_value=mock.Mock()) as run:
+            results = mod.run_fix(plan, self.conda, dry_run=False)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["action"], "FIXED")
+        self.assertNotIn("error", results[0])
+        run.assert_called_once()
+        cmd = run.call_args.args[0]
+        self.assertEqual(cmd[0], str(mod.env_python(self.conda, "JuniperX")))
+        self.assertEqual(cmd[1:5], ["-m", "pip", "install", "-e"])
+        self.assertEqual(cmd[5], str(self.canonical))
+        self.assertIn("--force-reinstall", cmd)
+        self.assertTrue(run.call_args.kwargs.get("check"))
+
+    def test_run_fix_reports_called_process_error(self) -> None:
+        """pip failure must become action=ERROR with truncated stderr, not raise."""
+        plan = self._resolvable_plan()
+        exc = subprocess.CalledProcessError(1, ["pip"], stderr="Could not find a version that satisfies the requirement\n")
+        with mock.patch.object(mod.subprocess, "run", side_effect=exc):
+            results = mod.run_fix(plan, self.conda, dry_run=False)
+
+        self.assertEqual(results[0]["action"], "ERROR")
+        self.assertIn("Could not find a version", results[0]["error"])
+        self.assertEqual(results[0]["canonical"], str(self.canonical))
+
+    def test_run_fix_reports_oserror(self) -> None:
+        """Missing env python (OSError) must become ERROR, not abort the plan."""
+        plan = self._resolvable_plan() + [
+            {
+                "env": "JuniperY",
+                "package": "juniper-data",
+                "from": str(self.gone_plain),
+                "canonical": str(self.canonical),
+                "candidates": [str(self.canonical)],
+                "resolvable": True,
+            }
+        ]
+        with mock.patch.object(
+            mod.subprocess,
+            "run",
+            side_effect=[FileNotFoundError("python missing"), mock.Mock()],
+        ):
+            results = mod.run_fix(plan, self.conda, dry_run=False)
+
+        self.assertEqual([r["action"] for r in results], ["ERROR", "FIXED"])
+        self.assertIn("python missing", results[0]["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

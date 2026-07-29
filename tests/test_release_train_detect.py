@@ -713,6 +713,44 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(rec.nonship_discounted, [])
         self.assertEqual(rec.ship_evidence, [])
 
+    def test_hygiene_healthy_when_release_and_archive_exist(self):
+        # Complement of test_hygiene_flags: a matching GitHub Release + central notes archive
+        # must clear both hygiene bits (false positives here would spam the daily report).
+        e = self._pkg("0.4.0")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0", upload="2026-06-01T12:00:00Z")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self.fake.releases["juniper-ml"] = {"juniper-thing-v0.4.0"}
+        notes_dir = self.repo_root / "notes" / "releases"
+        notes_dir.mkdir(parents=True)
+        (notes_dir / "RELEASE_NOTES_juniper-thing_v0.4.0.md").write_text("# archive\n", encoding="utf-8")
+        self.fake.compares[("juniper-ml", "juniper-thing-v0.4.0", "main")] = d.CompareResult(files=[], commits=[])
+        rec = self._classify(e)
+        self.assertEqual(rec.classification, d.UP_TO_DATE)
+        self.assertFalse(rec.hygiene["tag_only"])
+        self.assertFalse(rec.hygiene["notes_missing"])
+        self.assertEqual(rec.released_upload, "2026-06-01T12:00:00Z")
+
+
+class UploadTimeTest(unittest.TestCase):
+    def test_picks_earliest_iso_timestamp(self):
+        pypi = {
+            "info": {"version": "0.4.0"},
+            "releases": {
+                "0.4.0": [
+                    {"upload_time_iso_8601": "2026-06-02T00:00:00Z"},
+                    {"upload_time_iso_8601": "2026-06-01T12:00:00Z"},
+                    {"upload_time_iso_8601": "2026-06-03T00:00:00Z"},
+                ]
+            },
+        }
+        self.assertEqual(d._upload_time(pypi), "2026-06-01T12:00:00Z")
+
+    def test_none_when_empty_or_missing(self):
+        self.assertIsNone(d._upload_time({"info": {"version": "0.4.0"}, "releases": {"0.4.0": [{}]}}))
+        self.assertIsNone(d._upload_time({"info": {"version": "0.4.0"}, "releases": {"0.4.0": []}}))
+        self.assertIsNone(d._upload_time({"info": {}, "releases": {}}))
+        self.assertIsNone(d._upload_time({}))
+
 
 class ManifestShapeTest(unittest.TestCase):
     def test_manifest_json_shape(self):
