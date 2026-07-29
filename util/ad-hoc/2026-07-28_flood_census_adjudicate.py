@@ -78,7 +78,8 @@ def parents(sha: str) -> list[str]:
 def census_pr_map():
     sp = ("/tmp/claude-1000/-home-pcalnon-Development-python-Juniper-juniper-ml/"
           "a75ce638-5880-486b-b2e8-88f88fc42771/scratchpad/flood_census_universe.json")
-    d = json.load(open(sp))
+    with open(sp) as f:
+        d = json.load(f)
     return {m["sha"]: m["pr"] for m in d["merges"]}
 
 
