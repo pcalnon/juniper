@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-28
+
+### Fixed
+
+- Lint-conformance fixes from the sub-package Ruff governance adoption (juniper-ml#508, audit B4/F3): explicit `strict=False` on the monotonicity check's `zip` in `juniper_model_core/validation.py` (behavior-identical), N803/N806 ignores for the ecosystem NPZ data-contract names in `pyproject.toml`, and test-suite lint fixes. Docstring references updated to the juniper-ml `notes/` naming convention (the 2026-07-04 migration). No functional changes.
+
 ## [0.3.0] - 2026-06-18
 
 ### Added
