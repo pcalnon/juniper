@@ -121,7 +121,6 @@ def main() -> int:
     screen_json = sys.argv[1]
     with open(screen_json) as f:
         data = json.load(f)
-    data = json.load(open(screen_json))
     pr_map = census_pr_map()
     results = []
     for fr in data["files"]:
