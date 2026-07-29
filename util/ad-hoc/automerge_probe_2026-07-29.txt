@@ -1,0 +1,3 @@
+Auto-merge blocker probe (2026-07-29).
+Purpose: determine which ruleset rule leaves green PRs BLOCKED for non-bypass merges (archive-lane follow-up).
+Safe to delete after the probe concludes.
