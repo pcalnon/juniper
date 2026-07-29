@@ -346,7 +346,8 @@ def main() -> int:
             }
             for fr in reports
         ],
-    }
+    with open(args.out, "w") as f:
+        json.dump(out, f, indent=1)
     json.dump(out, open(args.out, "w"), indent=1)
 
     # human summary
