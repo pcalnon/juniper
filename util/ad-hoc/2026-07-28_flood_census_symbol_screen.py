@@ -346,6 +346,7 @@ def main() -> int:
             }
             for fr in reports
         ],
+    }
     with open(args.out, "w") as f:
         json.dump(out, f, indent=1)
 
