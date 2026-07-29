@@ -64,7 +64,8 @@ def added_lines_for_commit(c, path):
 
 
 def main():
-    d = json.load(open(UNIVERSE))
+    with open(UNIVERSE) as f:
+        d = json.load(f)
     merges = d["merges"]  # newest-first
     files6 = d["doc_union_6"]
     target = sys.argv[1] if len(sys.argv) > 1 else None
