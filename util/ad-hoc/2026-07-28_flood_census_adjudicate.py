@@ -119,7 +119,8 @@ def adjudicate(path: str, symbol: str) -> dict:
 
 def main() -> int:
     screen_json = sys.argv[1]
-    out_json = sys.argv[2]
+    with open(screen_json) as f:
+        data = json.load(f)
     data = json.load(open(screen_json))
     pr_map = census_pr_map()
     results = []
@@ -134,7 +135,8 @@ def main() -> int:
             results.append(r)
     by_v = {}
     for r in results:
-        by_v[r["verdict"]] = by_v.get(r["verdict"], 0) + 1
+    with open(out_json, "w") as f:
+        json.dump({"results": results, "summary": by_v}, f, indent=1)
     json.dump({"results": results, "summary": by_v}, open(out_json, "w"), indent=1)
     print("=== adjudication summary ===")
     print("by verdict:", by_v)
