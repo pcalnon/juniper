@@ -203,7 +203,8 @@ def main() -> int:
     ap.add_argument("--out", required=True, help="JSON output path")
     args = ap.parse_args()
 
-    census = json.load(open(args.census))
+    with open(args.census) as census_file:
+        census = json.load(census_file)
     merges = census["merges"]
     idx_by_sha = {m["sha"]: i for i, m in enumerate(merges)}  # lower i == more recent
     files_by_sha = {m["sha"]: m.get("files", []) for m in merges}
