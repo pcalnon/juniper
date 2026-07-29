@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import re
+import signal
 import subprocess
 import tempfile
 import time
@@ -699,3 +700,463 @@ class TestSystemdModeBehavioral(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCheckPortAvailable(unittest.TestCase):
+    """Behavioral pins for ``check_port_available`` busy / ss-missing arms."""
+
+    def _run_check(self, *, ss_script: str, port: str = "65099") -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            ss = bin_dir / "ss"
+            ss.write_text("#!/usr/bin/env bash\n" + ss_script)
+            ss.chmod(0o755)
+            harness = f"""
+                set -euo pipefail
+                JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
+                {_extract_function("check_port_available")}
+                set +e
+                check_port_available "{port}" "juniper-data"
+                status=$?
+                set -e
+                echo "STATUS=${{status}}"
+                exit 0
+            """
+            env = RedactedEnv(os.environ)
+            # Stub bin first so ``ss`` is ours; keep /usr/bin for ``grep``.
+            env["PATH"] = str(bin_dir) + os.pathsep + "/usr/bin:/bin"
+            return subprocess.run(
+                ["/bin/bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+
+    def test_busy_port_returns_one(self) -> None:
+        result = self._run_check(ss_script='echo "LISTEN 0 128 127.0.0.1:65099 0.0.0.0:*"\n')
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("Port 65099 is already in use", result.stdout)
+
+    def test_free_port_returns_zero(self) -> None:
+        result = self._run_check(ss_script='echo "LISTEN 0 128 127.0.0.1:1 0.0.0.0:*"\n')
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=0", result.stdout)
+        self.assertIn("Port 65099 is available", result.stdout)
+
+    def test_ss_missing_fail_open(self) -> None:
+        # If ``ss`` is absent, the pipeline yields empty stdout and the helper
+        # treats the port as free (fail-open). Pre-flight ``for cmd in curl ss``
+        # is the real gate; this pins the helper's own degrade path.
+        with tempfile.TemporaryDirectory() as tmp:
+            empty_bin = Path(tmp) / "empty"
+            empty_bin.mkdir()
+            harness = f"""
+                set -euo pipefail
+                JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
+                {_extract_function("check_port_available")}
+                set +e
+                check_port_available "65099" "juniper-data"
+                status=$?
+                set -e
+                echo "STATUS=${{status}}"
+                exit 0
+            """
+            env = RedactedEnv(os.environ)
+            # Empty stub dir first — ``ss`` resolves as missing; keep grep.
+            env["PATH"] = str(empty_bin) + os.pathsep + "/usr/bin:/bin"
+            result = subprocess.run(
+                ["/bin/bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("STATUS=0", result.stdout)
+            self.assertIn("Port 65099 is available", result.stdout)
+
+
+class TestCleanupOnFailure(unittest.TestCase):
+    """Behavioral pins for ``cleanup_on_failure`` (JR-ML-SEC-042).
+
+    A mid-plant health failure must SIGTERM then SIGKILL every PID in
+    ``STARTED_PIDS`` and remove the project pidfile — otherwise a partial
+    plant leaves orphaned services that confuse the next chop/plant cycle.
+    Extracted from the live script; ``sleep`` is stubbed so CI does not wait
+    the production 3s settle (kill logic is what we pin).
+    """
+
+    def _spawn_detached(self, inner_bash: str) -> int:
+        """Start a session-leader child reparented to init.
+
+        ``cleanup_on_failure`` polls ``kill -0`` after SIGTERM/SIGKILL. If the
+        test process remains the parent, a dead child stays a zombie and
+        ``kill -0`` keeps succeeding — a false "survived SIGKILL". Launch
+        under a short-lived ``setsid`` shell so init reaps the exit.
+        """
+        launcher = "setsid bash -c " + repr(inner_bash) + " </dev/null >/dev/null 2>&1 & echo $!"
+        result = subprocess.run(
+            ["/bin/bash", "-c", launcher],
+            capture_output=True,
+            text=True,
+            timeout=SCRIPT_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        pid = int(result.stdout.strip().splitlines()[-1])
+        time.sleep(0.15)
+        self.assertTrue(Path(f"/proc/{pid}").exists(), f"detached pid {pid} missing")
+        return pid
+
+    def _force_kill(self, pid: int) -> None:
+        for kill_target in (lambda: os.killpg(pid, signal.SIGKILL), lambda: os.kill(pid, signal.SIGKILL)):
+            try:
+                kill_target()
+                break
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                continue
+        for _ in range(20):
+            if not Path(f"/proc/{pid}").exists():
+                return
+            time.sleep(0.05)
+
+    def _run_cleanup(self, pids: list[int], pid_file: Path) -> subprocess.CompletedProcess[str]:
+        pid_array = " ".join(str(p) for p in pids)
+        harness = f"""
+            set -euo pipefail
+            JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
+            JUNIPER_PROJECT_PID_FILE="$1"
+            STARTED_PIDS=({pid_array})
+            # Production settles 3s between SIGTERM and SIGKILL; shorten for CI
+            # but keep a real delay so cooperative children can exit before the
+            # SIGKILL arm (a no-op sleep falsely escalates every PID).
+            sleep() {{ command sleep 0.2; }}
+            {_extract_function("cleanup_on_failure")}
+            cleanup_on_failure
+        """
+        env = RedactedEnv(os.environ)
+        return subprocess.run(
+            ["/bin/bash", "-c", harness, "_", str(pid_file)],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=CLEANUP_TIMEOUT_SECONDS,
+        )
+
+    def test_empty_started_pids_removes_pidfile_and_exits_1(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pid_file = Path(tmp) / "JuniperProject.pid"
+            pid_file.write_text("juniper-data=1\n")
+            result = self._run_cleanup([], pid_file)
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("Cleaning up started Juniper Project services", result.stdout)
+            self.assertIn("Cleanup complete", result.stdout)
+            self.assertFalse(pid_file.exists(), "pidfile must be removed on failure cleanup")
+
+    def test_cooperative_process_stops_on_sigterm(self) -> None:
+        pid = self._spawn_detached("exec sleep 60")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                pid_file = Path(tmp) / "JuniperProject.pid"
+                pid_file.write_text(f"juniper-data={pid}\n")
+                result = self._run_cleanup([pid], pid_file)
+                self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+                self.assertIn(f"Sending SIGTERM to PID {pid}", result.stdout)
+                self.assertNotIn("Sending SIGKILL", result.stdout)
+                self.assertFalse(pid_file.exists())
+                self.assertFalse(Path(f"/proc/{pid}").exists())
+        finally:
+            self._force_kill(pid)
+
+    def test_sigterm_ignore_escalates_to_sigkill(self) -> None:
+        pid = self._spawn_detached("exec python3 -c 'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                pid_file = Path(tmp) / "JuniperProject.pid"
+                pid_file.write_text(f"juniper-cascor={pid}\n")
+                result = self._run_cleanup([pid], pid_file)
+                self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+                self.assertIn(f"Sending SIGTERM to PID {pid}", result.stdout)
+                self.assertIn(f"Sending SIGKILL to PID {pid}", result.stdout)
+                self.assertFalse(pid_file.exists())
+                self.assertFalse(Path(f"/proc/{pid}").exists())
+        finally:
+            self._force_kill(pid)
+
+    def test_err_trap_and_started_pids_wire(self) -> None:
+        # Drift guards: ERR trap + STARTED_PIDS append after each launch.
+        self.assertIn("trap cleanup_on_failure ERR", SCRIPT_TEXT)
+        self.assertIn('STARTED_PIDS+=("${JUNIPER_DATA_PID}")', SCRIPT_TEXT)
+        self.assertIn('STARTED_PIDS+=("${JUNIPER_CASCOR_PID}")', SCRIPT_TEXT)
+        self.assertIn('STARTED_PIDS+=("${JUNIPER_CANOPY_PID}")', SCRIPT_TEXT)
+        self.assertIn('STARTED_PIDS+=("${JUNIPER_WORKER_PID}")', SCRIPT_TEXT)
+
+
+class TestWaitForHealth(unittest.TestCase):
+    """Behavioral pins for ``wait_for_health`` success / timeout arms."""
+
+    def _run_wait(
+        self,
+        *,
+        curl_script: str,
+        timeout: int = 2,
+        interval: int = 1,
+    ) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            curl = bin_dir / "curl"
+            curl.write_text("#!/usr/bin/env bash\n" + curl_script)
+            curl.chmod(0o755)
+            harness = f"""
+                set -euo pipefail
+                JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
+                HEALTH_CHECK_TIMEOUT=60
+                HEALTH_CHECK_INTERVAL=2
+                # Stub settle sleeps; elapsed arithmetic still advances.
+                sleep() {{ :; }}
+                {_extract_function("wait_for_health")}
+                set +e
+                wait_for_health "juniper-data" "http://127.0.0.1:9/v1/health" "{timeout}" "{interval}"
+                status=$?
+                set -e
+                echo "STATUS=${{status}}"
+                exit 0
+            """
+            env = RedactedEnv(os.environ)
+            env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+            return subprocess.run(
+                ["/bin/bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+
+    def test_healthy_endpoint_returns_zero(self) -> None:
+        result = self._run_wait(curl_script="exit 0\n")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=0", result.stdout)
+        self.assertIn("juniper-data is healthy", result.stdout)
+
+    def test_unhealthy_endpoint_times_out(self) -> None:
+        result = self._run_wait(curl_script="exit 22\n", timeout=2, interval=1)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("failed to become healthy within 2s", result.stdout)
+
+
+class TestWaitForHealthIntervalGuard(unittest.TestCase):
+    """``HEALTH_CHECK_INTERVAL=0`` must not busy-loop forever.
+
+    ``wait_for_health`` advances ``elapsed`` by ``interval`` each poll. A zero
+    (or non-positive / non-numeric) interval leaves ``elapsed`` stuck at 0 while
+    ``sleep 0`` returns immediately — an infinite curl hammer that never hits
+    the timeout arm and leaves a partial plant hung until the operator kills it.
+    """
+
+    def _run_wait(self, *, interval: str, timeout: int = 2) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            curl = bin_dir / "curl"
+            curl.write_text("#!/usr/bin/env bash\nexit 22\n")
+            curl.chmod(0o755)
+            harness = f"""
+                set -euo pipefail
+                JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
+                HEALTH_CHECK_TIMEOUT=60
+                HEALTH_CHECK_INTERVAL=2
+                # Stub settle sleeps; elapsed arithmetic still advances.
+                sleep() {{ :; }}
+                {_extract_function("wait_for_health")}
+                set +e
+                wait_for_health "juniper-data" "http://127.0.0.1:9/v1/health" "{timeout}" "{interval}"
+                status=$?
+                set -e
+                echo "STATUS=${{status}}"
+                exit 0
+            """
+            env = RedactedEnv(os.environ)
+            env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+            return subprocess.run(
+                ["/bin/bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+
+    def test_zero_interval_clamps_and_times_out(self) -> None:
+        result = self._run_wait(interval="0", timeout=2)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("clamping to 1s", result.stdout)
+        self.assertIn("failed to become healthy within 2s", result.stdout)
+
+    def test_non_numeric_interval_clamps_and_times_out(self) -> None:
+        result = self._run_wait(interval="fast", timeout=2)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("clamping to 1s", result.stdout)
+
+
+class TestValidateCondaEnv(unittest.TestCase):
+    """Behavioral pins for ``validate_conda_env`` missing-dir / non-exec arms.
+
+    Preflight smoke stages every env with an executable stub ``python`` so it
+    never reaches the ``! -x`` arm. A broken or non-executable ``bin/python``
+    would otherwise let plant proceed into conda activate / launch against a
+    dead env — large blast radius across all four services.
+    """
+
+    def _run_validate(self, *, stage) -> subprocess.CompletedProcess:
+        """Run extracted ``validate_conda_env`` against a synthetic conda tree.
+
+        ``stage(conda_dir)`` prepares ``envs/<name>/...`` under the temp root.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            conda_dir = Path(tmp) / "miniforge3"
+            conda_dir.mkdir()
+            env_name = stage(conda_dir)
+            harness = f"""
+                set -euo pipefail
+                JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
+                JUNIPER_CONDA_DIR="$1"
+                {_extract_validate_conda_env()}
+                set +e
+                validate_conda_env "{env_name}"
+                status=$?
+                set -e
+                echo "STATUS=${{status}}"
+                exit 0
+            """
+            env = RedactedEnv(os.environ)
+            return subprocess.run(
+                ["/bin/bash", "-c", harness, "_", str(conda_dir)],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+
+    def test_missing_env_directory_returns_one(self) -> None:
+        def stage(conda_dir: Path) -> str:
+            (conda_dir / "envs").mkdir()
+            return "MissingEnv"
+
+        result = self._run_validate(stage=stage)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("Conda environment 'MissingEnv' not found", result.stdout)
+        self.assertNotIn("Python binary not found", result.stdout)
+
+    def test_missing_python_binary_returns_one(self) -> None:
+        def stage(conda_dir: Path) -> str:
+            (conda_dir / "envs" / "BrokenEnv" / "bin").mkdir(parents=True)
+            return "BrokenEnv"
+
+        result = self._run_validate(stage=stage)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("Python binary not found or not executable", result.stdout)
+        self.assertIn("envs/BrokenEnv/bin/python", result.stdout)
+
+    def test_non_executable_python_returns_one(self) -> None:
+        def stage(conda_dir: Path) -> str:
+            bin_dir = conda_dir / "envs" / "NonExecEnv" / "bin"
+            bin_dir.mkdir(parents=True)
+            python = bin_dir / "python"
+            python.write_text("#!/usr/bin/env bash\nexit 0\n")
+            python.chmod(0o644)  # present but not executable — the ! -x arm
+            return "NonExecEnv"
+
+        result = self._run_validate(stage=stage)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=1", result.stdout)
+        self.assertIn("Python binary not found or not executable", result.stdout)
+        self.assertIn("envs/NonExecEnv/bin/python", result.stdout)
+
+    def test_executable_python_returns_zero(self) -> None:
+        def stage(conda_dir: Path) -> str:
+            bin_dir = conda_dir / "envs" / "GoodEnv" / "bin"
+            bin_dir.mkdir(parents=True)
+            python = bin_dir / "python"
+            python.write_text("#!/usr/bin/env bash\nexit 0\n")
+            python.chmod(0o755)
+            return "GoodEnv"
+
+        result = self._run_validate(stage=stage)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("STATUS=0", result.stdout)
+        self.assertIn("Conda environment 'GoodEnv' validated", result.stdout)
+
+    def test_preflight_validates_all_four_envs(self) -> None:
+        # Drift guard: plant must validate data/cascor/canopy/worker, not just worker.
+        self.assertIn('validate_conda_env "${JUNIPER_DATA_CONDA}"', SCRIPT_TEXT)
+        self.assertIn('validate_conda_env "${JUNIPER_CASCOR_CONDA}"', SCRIPT_TEXT)
+        self.assertIn('validate_conda_env "${JUNIPER_CANOPY_CONDA}"', SCRIPT_TEXT)
+        self.assertIn('validate_conda_env "${JUNIPER_WORKER_CONDA}"', SCRIPT_TEXT)
+
+
+class TestSafeCondaActivate(unittest.TestCase):
+    """``safe_conda_activate`` nounset contract (ADDR2LINE class).
+
+    Conda activate scripts (e.g. activate-binutils_linux-64.sh) reference
+    unset vars like ADDR2LINE. The wrapper must disable nounset for the
+    activate call only and restore it afterward — the same one-character
+    ``set +u``/``set -u`` restore bug that bit isolated-stack (#785). Host-mode
+    plant calls this before every service; a broken restore silently disables
+    ``set -u`` for the rest of bring-up.
+    """
+
+    def _run_activate(self, bin_dir: Path) -> subprocess.CompletedProcess:
+        # Concatenate (do not f-string) so bash `${...}` braces in the extract
+        # are not interpreted as Python format fields.
+        harness = (
+            "set -euo pipefail\n"
+            f'export PATH="{bin_dir}:/usr/bin:/bin"\n' + _extract_safe_conda_activate() + 'safe_conda_activate "JuniperCanopy1"\n'
+            "case $- in\n"
+            '  *u*) echo "NOUNSET_ON" ;;\n'
+            '  *) echo "NOUNSET_OFF"; exit 1 ;;\n'
+            "esac\n"
+            # Prove nounset is actually enforced (not just a stale $- flag bit).
+            'if (echo "${__plant_safe_conda_definitely_unset__}") >/dev/null 2>&1; then\n'
+            '  echo "NOUNSET_INEFFECTIVE"\n'
+            "  exit 1\n"
+            "fi\n"
+            'echo "OK"\n'
+        )
+        return subprocess.run(
+            ["/bin/bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            env=RedactedEnv(os.environ),
+            timeout=SCRIPT_TIMEOUT_SECONDS,
+        )
+
+    def test_restores_nounset_after_activate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            conda = bin_dir / "conda"
+            # Mimic ADDR2LINE class: activate scripts reference unset vars.
+            conda.write_text("#!/bin/bash\n" 'if [[ "$1" == "activate" ]]; then\n' '  : "${ADDR2LINE}"\n' "fi\n")
+            conda.chmod(0o755)
+            result = self._run_activate(bin_dir)
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("NOUNSET_ON", result.stdout)
+            self.assertIn("OK", result.stdout)
+
+    def test_restore_arm_is_set_minus_u(self) -> None:
+        # Static pin: the pre/post pair must be +u then -u (not +u/+u).
+        body = _extract_safe_conda_activate()
+        self.assertRegex(
+            body,
+            r"set \+u\n\s*conda activate[^\n]+\n\s*set -u\n",
+            msg="safe_conda_activate must restore nounset with set -u after conda activate",
+        )
