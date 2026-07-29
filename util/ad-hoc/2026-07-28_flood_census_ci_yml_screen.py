@@ -85,7 +85,8 @@ def inventory(text: str):
 
 
 def main() -> int:
-    census = json.load(open(sys.argv[1]))
+    with open(sys.argv[1]) as f:
+        census = json.load(f)
     merges = {m["sha"]: m for m in census["merges"]}
     order = {m["sha"]: i for i, m in enumerate(census["merges"])}
     ci_merges = sorted(census["buckets"]["ci_yml_touching"], key=lambda s: order.get(s, 999))
