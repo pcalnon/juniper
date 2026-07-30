@@ -463,6 +463,13 @@ gh workflow run release-train.yml -f mode=ceremony -f packages=juniper-observabi
 The `packages` / `--cross-repo` shell contract is **identical** to §3.2 (same charset reject +
 `APP_TOKEN` gate; `release-train.yml:706-731`).
 
+Dispatch caveats (2026-07-29): `gh workflow run` can occasionally **double-fire** — the concurrency group
+(`release-train`, `cancel-in-progress: false`) makes the duplicate **queue** (it does not kill the live
+run); cancel the queued duplicate and let the first proceed. A ceremony **cancelled mid-run** is safe to
+re-dispatch as-is: the reuse / Release-exists arms below make re-entry idempotent (proven live — the
+2026-07-29 five-package batch was cancelled mid-ceremony after 3 of 5 Releases and recovered with one
+scoped re-dispatch).
+
 For each `BUMPED_NOT_RELEASED` package the ceremony (`ceremony.py:1-45`): runs the §8 preconditions,
 builds the central notes file, opens the **add-only** archive PR (always in juniper-ml — the central
 `notes/releases/` archive, plan §10.2), enables `gh pr merge --auto --squash` behind the required
@@ -479,6 +486,15 @@ monitors the triggered publish run.
   owner admin one-click — 2026-07-23 run 30051952226 / ml#707; the API commit removes that block with no
   security-posture change.) **Owner one-click is now only the degraded/manual fallback** — e.g. if
   `allow_auto_merge` is off (a graceful degrade, not a HALT) or the auto-merge never lands.
+
+- **Ruleset `code_quality` blocked the armed auto-merge (2026-07-29) — resolved via App bypass actor.**
+  The juniper-ml ruleset's `code_quality` (severity: errors) rule has **no reporting tool behind it**, so
+  it can never be satisfied and every **non-bypass** merge stays `BLOCKED` even with all required checks
+  green, a Verified commit, and a current base (archive PRs #860–#863; probe-confirmed on ml#864). The
+  release-train App (Integration `4362741`) is now a ruleset **bypass actor in `pull_request` mode**, so
+  the armed `--auto` merge completes again — this also covers the strict up-to-date policy when a
+  multi-package ceremony's serial archive PRs go stale as their siblings merge. If the `code_quality`
+  rule is ever removed (deferred until the code-signing work lands), the bypass entry can be dropped too.
 
 - **Archive PR reuse / already-on-main (idempotent re-entry).** Before cutting a Release the planner
   inspects juniper-ml (central archive, plan §10.2) for an open PR on the archive branch and for the
@@ -769,6 +785,13 @@ The hosted runner is ephemeral, so `--global` is still job-scoped. `propose.py` 
 `-c commit.gpgsign=false` on its commit so a YubiKey-resident signing config never reaches a headless
 run. The detect job must not configure identity (it never commits).
 
+
+**Ruleset bypass (2026-07-29).** Beyond the workflow-side R7 fence above, the App is a juniper-ml
+**repository-ruleset bypass actor** in `pull_request` mode — the narrowest scope that lets the armed
+archive-lane auto-merge clear the unsatisfiable `code_quality` rule (and the strict up-to-date policy on
+serial archive PRs). The bypass applies **only to merging PRs on juniper-ml**; it grants nothing on the
+`pypi` environments (Gate 2 stays owner-only) and nothing outside pull-request merges.
+
 ## 8. Known limitations (accepted)
 
 1. **Degraded no-App mode (in-repo only).** When `RELEASE_TRAIN_APP_ID` is unset, `propose`/`ceremony`
@@ -820,6 +843,15 @@ run. The detect job must not configure identity (it never commits).
    `git config --global user.name|user.email|commit.gpgsign` (`release-train.yml:473-478`,
    `682-687`). Nothing is pushed when this fires — safe to re-dispatch after the workflow fix.
    Structural pin: juniper-ml#718 (`tests/test_release_train_workflow_guard.py` invariant `(g)`).
+
+
+5. **`code_quality` ruleset rule blocks all non-bypass merges (fleet-wide).** Most repo rulesets carry a
+   `code_quality` (severity: errors) rule with **no code-quality tool reporting**, so ordinary auto-merge
+   can never complete anywhere — only bypass actors (owner-admin, or the App on juniper-ml) merge.
+   Accepted for now (option B, 2026-07-29): removal (option A) is deferred until the code-signing work is
+   configured, at which point the rule set can be revisited repo-by-repo. Related: PRs with **unsigned**
+   runner-side commits are additionally held by `required_signatures` (by design — owner YubiKey flow;
+   the archive lane avoids it via API-created, GitHub-signed commits).
 
 ## 9. Quick reference
 
