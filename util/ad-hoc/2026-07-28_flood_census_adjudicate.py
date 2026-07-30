@@ -143,12 +143,7 @@ def main() -> int:
     interesting = [r for r in results if r["verdict"] != "INTENTIONAL"]
     print(f"--- {len(interesting)} candidates NOT cleanly INTENTIONAL ---")
     for r in interesting:
-        pr = r.get("transition_pr")
-        tr = (r["transition"][:9] if r["transition"] else None)
-        print(f"[{r['verdict']}] {r['path']}::{r['symbol']}")
-        print(f"      transition={tr} pr=#{pr} is_merge={r['is_merge']} "
-              f"subject={r['subject']!r}")
-        if r["rename_targets"]:
+        pr = r.get("transition_pr")out_json
             print(f"      rename_targets={r['rename_targets']}")
     print("\n--- sample INTENTIONAL (rename/rewrite) proofs ---")
     shown = 0
