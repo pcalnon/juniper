@@ -46,10 +46,13 @@ GIT_TIMEOUT = 60
 # fixture helpers (git repos with main + origin/main + local/remote branches)
 # --------------------------------------------------------------------------- #
 
+
 def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     cp = subprocess.run(
         ["git", "-C", str(cwd), *args],
-        capture_output=True, text=True, timeout=GIT_TIMEOUT,
+        capture_output=True,
+        text=True,
+        timeout=GIT_TIMEOUT,
     )
     if check and cp.returncode != 0:
         raise AssertionError(f"git {' '.join(args)} failed ({cp.returncode}): {cp.stderr.strip()}")
@@ -108,6 +111,7 @@ class _RepoCase(unittest.TestCase):
 # the four verdict classes + true-delta discrimination
 # --------------------------------------------------------------------------- #
 
+
 class VerdictTest(_RepoCase):
     def test_merge_clean(self):
         _write(self.repo, "fileA.txt", "A0\n")
@@ -130,13 +134,13 @@ class VerdictTest(_RepoCase):
         _write(self.repo, "fileA.txt", "A0\n")
         _write(self.repo, "fileB.txt", "B0\n")
         _commit(self.repo, "c0")
-        _git(self.repo, "branch", "feat")           # feat forks at c0
+        _git(self.repo, "branch", "feat")  # feat forks at c0
         _git(self.repo, "checkout", "-q", "feat")
-        _write(self.repo, "fileA.txt", "A1\n")       # branch edits A
-        _write(self.repo, "fileC.txt", "C1\n")       # branch adds C
+        _write(self.repo, "fileA.txt", "A1\n")  # branch edits A
+        _write(self.repo, "fileC.txt", "C1\n")  # branch adds C
         _commit(self.repo, "feat work")
         _git(self.repo, "checkout", "-q", "main")
-        _write(self.repo, "fileB.txt", "B1\n")       # main edits B (branch is now stale on B)
+        _write(self.repo, "fileB.txt", "B1\n")  # main edits B (branch is now stale on B)
         _commit(self.repo, "main work")
         _publish_main(self.repo)
 
@@ -221,6 +225,7 @@ class VerdictTest(_RepoCase):
 # detached-clone-never-mutates-source
 # --------------------------------------------------------------------------- #
 
+
 class NoMutationTest(_RepoCase):
     def test_source_untouched_and_scratch_is_a_clone_not_a_worktree(self):
         _write(self.repo, "fileA.txt", "A0\n")
@@ -256,6 +261,7 @@ class NoMutationTest(_RepoCase):
 # batch cluster map + suggested merge order (pure) + fake-gh end-to-end
 # --------------------------------------------------------------------------- #
 
+
 class ClusterOrderTest(unittest.TestCase):
     def test_clusters_and_heal_first_least_colliding_order(self):
         verdicts = [
@@ -289,12 +295,7 @@ class ClusterOrderTest(unittest.TestCase):
 def _install_fake_gh(bin_dir: Path, payload_dir: Path) -> None:
     bin_dir.mkdir(parents=True, exist_ok=True)
     gh = bin_dir / "gh"
-    gh.write_text(
-        "#!/usr/bin/env bash\n"
-        'if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then cat "$GH_FAKE_DIR/list.json"; exit 0; fi\n'
-        'if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then cat "$GH_FAKE_DIR/view.json"; exit 0; fi\n'
-        'echo "unexpected gh invocation: $*" >&2\nexit 99\n'
-    )
+    gh.write_text("#!/usr/bin/env bash\n" 'if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then cat "$GH_FAKE_DIR/list.json"; exit 0; fi\n' 'if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then cat "$GH_FAKE_DIR/view.json"; exit 0; fi\n' 'echo "unexpected gh invocation: $*" >&2\nexit 99\n')
     gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
 
 
@@ -315,10 +316,14 @@ class TriageBatchGhTest(_RepoCase):
         self._two_branch_repo()
         payload = self.tmp / "gh"
         payload.mkdir()
-        (payload / "list.json").write_text(json.dumps([
-            {"number": 1, "title": "b1", "headRefName": "b1", "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"},
-            {"number": 2, "title": "b2", "headRefName": "b2", "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"},
-        ]))
+        (payload / "list.json").write_text(
+            json.dumps(
+                [
+                    {"number": 1, "title": "b1", "headRefName": "b1", "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"},
+                    {"number": 2, "title": "b2", "headRefName": "b2", "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"},
+                ]
+            )
+        )
         bindir = self.tmp / "bin"
         _install_fake_gh(bindir, payload)
         env = {"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}", "GH_FAKE_DIR": str(payload)}
@@ -338,12 +343,16 @@ class TriageBatchGhTest(_RepoCase):
 # CLI exit codes
 # --------------------------------------------------------------------------- #
 
+
 class CliExitCodeTest(_RepoCase):
     def _run_cli(self, *args: str, env_overrides=None) -> subprocess.CompletedProcess:
         env = RedactedEnv(os.environ, JUNIPER_FLEET_SKIP_PRECOMMIT="1", **(env_overrides or {}))
         return subprocess.run(
             [sys.executable, str(SCRIPT_PATH), *args],
-            capture_output=True, text=True, timeout=GIT_TIMEOUT, env=env,
+            capture_output=True,
+            text=True,
+            timeout=GIT_TIMEOUT,
+            env=env,
         )
 
     def test_no_mode_is_usage_error(self):
@@ -367,7 +376,10 @@ class CliExitCodeTest(_RepoCase):
         bindir = self.tmp / "bin"
         _install_fake_gh(bindir, payload)
         cp = self._run_cli(
-            "--batch", "--repo-root", str(self.repo), "--json",
+            "--batch",
+            "--repo-root",
+            str(self.repo),
+            "--json",
             env_overrides={"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}", "GH_FAKE_DIR": str(payload)},
         )
         self.assertEqual(cp.returncode, 0, cp.stderr)
