@@ -668,7 +668,7 @@ all-clusters subtotal) was fixed by the orchestrator post-verdict.
     - **Unblocks:** UI availability check + a `merge_group` wiring smoke-test on a scratch queued PR.
     - Source: **P1 §1/§7, P2 §5(ii), P3 §4/OQ5/OQ6.**
 
-    - Answer:
+    - Answer: i concur with recommendation.
 
 2. **ci.yml cancel-in-progress per-SHA fix (near-free, high value — flag as such).**
     - Change the main-verify concurrency from `group: ci-${{github.ref}}, cancel-in-progress: true` (rapid serial merges cancel each other → only the last is verified) to per-SHA `group: main-verify-${{github.sha}}, cancel-in-progress: false` so every merge is verified.
@@ -676,7 +676,7 @@ all-clusters subtotal) was fixed by the orchestrator post-verdict.
     - **Unblocks:** nothing (a one-stanza change).
     - Source: **P2 §3.**
 
-    - Answer:
+    - Answer: i concur with recommendation.
 
 3. **Required-review (`pull_request`) rule adoption.**
     - Options: adopt (`required_approving_review_count:1`, `dismiss_stale_reviews_on_push:true`) vs not.
@@ -685,7 +685,7 @@ all-clusters subtotal) was fixed by the orchestrator post-verdict.
     - **Unblocks:** owner commitment to review fleet diffs + accept the archive-PR auto-merge clash.
     - Source: **P1 §2.**
 
-    - Answer:
+    - Answer: i concur with recommendation for now. ultimately, the goal is automerge.
 
 4. **Bypass-actor cleanup (defense-in-depth).**
     - Remove Integration bypasses:
@@ -699,7 +699,7 @@ all-clusters subtotal) was fixed by the orchestrator post-verdict.
     - **Unblocks:** identify 1276151 (owner UI); confirm DeployKey-to-main usage; @claude scratch-PR smoke-test after removal.
     - Source: **P1 §3, P3 §4/OQ7.**
 
-    - Answer:
+    - Answer: this question will require additional research, planning, and discussion
 
 5. **Cursor dashboard asks (all verify-in-dashboard).**
     - Request:
@@ -714,7 +714,7 @@ all-clusters subtotal) was fixed by the orchestrator post-verdict.
     - **Unblocks:** the owner verifies each capability in the Cursor dashboard / GitHub App installation settings.
     - Source: **P3 §2/OQ1-OQ2, P1 §6(i), P2 §5(i).**
 
-    - Answer:
+    - Answer: let's automate this, with specific feedback where necessary
 
 6. **Blocking-option stages.**
     - Path:
@@ -723,7 +723,7 @@ all-clusters subtotal) was fixed by the orchestrator post-verdict.
     - **Unblocks:** Stage-0 calibration; OQ2 draft/target capability for Stage 2.
     - Source: **P3 §4, P1 §6(v), P2 §5(v).**
 
-    - Answer:
+    - Answer: i concur with recommendation.
 
 7. **Supervisor adoption (Stage-0 build list).**
     - Build:
@@ -739,7 +739,7 @@ all-clusters subtotal) was fixed by the orchestrator post-verdict.
     - **Unblocks:** nothing external — an in-repo owner-merged PR.
     - Source: **P3 §1.**
 
-    - Answer:
+    - Answer: i concur with recommendation
 
 8. **P2 gate build order.**
     - Order:
@@ -751,7 +751,7 @@ all-clusters subtotal) was fixed by the orchestrator post-verdict.
     - **Unblocks:** land the untracked ad-hoc census scripts in-repo first (`util/sequence_safety/`); wire each lint-test into the battery + AGENTS.md in the same PR.
     - Source: **P2 §6.**
 
-    - Answer:
+    - Answer: i concur with recommendation
 
 9. **Open-PR budget alarm.**
     - Options:
@@ -762,7 +762,7 @@ all-clusters subtotal) was fixed by the orchestrator post-verdict.
     - **Unblocks:** `SLACK_WEBHOOK_URL` present (skip-if-unset).
     - Source: **P1 §5, P2 §5(i), P3 §5(i).**
 
-    - Answer:
+    - Answer: i concur with recommendation
 
 ---
 
