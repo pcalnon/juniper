@@ -24,6 +24,9 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main]
+  # merge_group: the required "Analyze (python)" context must also report on the
+  # queued merge commit, else the merge queue stalls (flood-remediation §4 item 1).
+  merge_group:
   schedule:
     - cron: '0 6 * * 1'  # Weekly on Monday at 6 AM UTC
 
