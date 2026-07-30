@@ -271,6 +271,17 @@ jobs:
           # quick-reference; asserts every agent + template appears, --json round-trips, and
           # --markdown rows respect the 512 line-length. Stdlib + PyYAML.
           python3 -m unittest -v tests/test_agent_suite_summary.py
+          # tests/test_predict_merge.py: the Stage-0 fleet-supervisor script layer
+          # (util/fleet_triage/predict_merge.py) -- hermetic predicted-merge over synthetic
+          # bare-origin + branch fixtures: the four verdicts, TRUE-delta discrimination, the
+          # cluster map + order, detached-clone-never-mutates-source, and exit codes. util/ is
+          # not pre-commit-lint-gated, so this unittest is the gate (flood remediation §4 item 7).
+          python3 -m unittest -v tests/test_predict_merge.py
+          # tests/test_fleet_supervisor_contract.py: static contract for the read-only
+          # fleet-supervisor subagent (.claude/agents/fleet-supervisor.md) -- exact tool set
+          # {Read,Grep,Glob,Bash}, opus+max, and body wiring to predict_merge.py + all four
+          # verdict tokens + the read-only/never-push + two-key DUP-CLOSE contract.
+          python3 -m unittest -v tests/test_fleet_supervisor_contract.py
           # tests/test_requirements_drift_check.py: exercises util/requirements_drift_check.py
           # (the notes/requirements snapshot drift checker; uses the PyYAML installed above).
           # Listed in AGENTS.md's "Run all tests" but never wired into this CI list
