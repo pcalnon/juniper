@@ -58,6 +58,8 @@ python3 -m unittest -v tests/test_agent_suite_summary.py
 python3 -m unittest -v tests/test_predict_merge.py
 python3 -m unittest -v tests/test_fleet_supervisor_contract.py
 python3 -m unittest -v tests/test_workflow_script_paths.py
+python3 -m unittest -v tests/test_symbol_loss_check.py
+python3 -m unittest -v tests/test_docs_additions_check.py
 python3 -m unittest -v tests/test_doc_tools_drift.py
 python3 -m unittest -v tests/test_pyproject_extras.py
 python3 -m unittest -v tests/test_template_library_drift.py
@@ -171,6 +173,7 @@ juniper-ml/
 │   ├── dependabot.yml         # Automated dependency updates (pip + actions)
 │   └── workflows/
 │       ├── ci.yml             # Main CI pipeline (pre-commit, tests, build, docs, security)
+│       ├── main-verify.yml    # Post-merge main verification (G3: symbol/docs-loss screen + gated battery + notify)
 │       ├── publish.yml        # PyPI publishing (TestPyPI + PyPI, OIDC)
 │       ├── docs-full-check.yml# Weekly full documentation link validation (cross-repo)
 │       ├── security-scan.yml  # Weekly pip-audit security scanning
@@ -289,6 +292,7 @@ juniper-ml/
     ├── env_floor_drift_check.py          # Floor-drift checker: installed juniper-* vs target-repo pyproject floors (I-2)
     ├── release_train/                     # PyPI release-train: registry.yaml (18-package registry) + detect.py (report-only "needs deploy?" engine, Phase 1) + propose.py/notes_render.py (manifest -> proposal-PR content, dry-run, Phase 2.1) + archive_guard.py (exempt notes-archive PR structural guard, Phase 3.1) + ceremony.py (exempt-archive + Release ceremony, dry-run, Phase 3.2)
     ├── prompt_discovery/                  # Custom-agent suite (PR 4): env-discovery probes -> JSON grounding bundle (path-invoked, --repo-root)
+    ├── sequence_safety/                   # Flood-remediation gates (P2 G1/G2/G3): symbol_loss_check.py + docs_additions_check.py (AST symbol-loss + docs deletion-magnitude screens of BASE vs HEAD; path-invoked)
     ├── fleet_triage/                      # Flood §4 item 7 (Stage-0 supervisor script layer): predict_merge.py -- detached-clone predicted-merge per PR (4 verdicts, TRUE delta, cluster map + order); --pr N | --batch, exit 0/2
     ├── generated_prompt_index.py         # Custom-agent suite (P4): index + safety-gated prune of prompts/generated/
     ├── template_data_resolver.py         # Custom-agent suite (PR 6b): loads prompts/agent_templates/data/*.yaml (data-layer resolver)
@@ -384,6 +388,8 @@ juniper-ml/
   - R7 archive-lane (`_assert_api_allowed`): a `git/refs` POST must carry explicit `ref=refs/heads/*` — missing/empty `ref=` is `SeamViolation` (juniper-ml#770; pre-#770 deferred omit to the live API).
   - Execute terminal `RELEASED`: publish run `completed`+`success` (both gates done) surfaces as final state with **no** halt issue — distinct from plan-time `ALREADY_RELEASED` (PyPI already serves target). Operator guidance: runbook §3.3.
 - `util/prompt_discovery/` -- Discovery helpers for the custom-agent suite (PR 4); path-invoked (`python util/prompt_discovery/cli.py --repo-root <path>`), emits a JSON grounding bundle (closed-world facts + provenance: `head_sha`/`dirty`/`ttl_seconds`/`per_probe_status`) from seven probes (`repo_context`, `test_status`, `file_probe`, `symbol_probe`, `dependency_facts`, `conventions`, `concurrency`). Accepts `--target-repo` (cross-repo alias of `--repo-root`). A discovery failure is a hard stop (exit 2).
+- `util/sequence_safety/symbol_loss_check.py` -- Symbol-loss screen (flood P2 gate G1/G3, from census `util/ad-hoc/2026-07-28_flood_census_symbol_screen.py`). AST inventory of BASE vs HEAD (top-level `tests/*.py` + `util/**`); FAIL on a deleted (`LOST`) / gutted (`WEAKENED`) / duplicated def, with a qualified-name relocation downgrade (never a bare name — SF3) and a `Allow-Symbol-Loss:` trailer escape. `--base/--head [--files] [--json]`, exit 0/1/2. Gate: `tests/test_symbol_loss_check.py`.
+- `util/sequence_safety/docs_additions_check.py` -- Docs deletion-magnitude screen (P2 gate G2 / G3 step 4, from `util/ad-hoc/2026-07-28_docs_census_v2_c2.py`). For `AGENTS.md` + `docs/**` + `notes/**` between BASE..HEAD: FAIL on a deleted heading or a `>=N`-line deletion run (default 5, `--min-run`); WARN on small deletions / swaps / retitles; `Allow-Docs-Rewrite:` trailer escape. Same CLI / exit conventions. Gate: `tests/test_docs_additions_check.py`.
 - `util/fleet_triage/predict_merge.py` -- Deterministic predicted-merge triage for third-party fleet PRs (Stage-0 supervisor script layer; flood §4 item 7). Per PR, in a throwaway detached `git clone` under the system tempdir (never a `git worktree`, never a push), merges `origin/main` into the branch tip and on the result runs the repo-pinned fast gates + an AST symbol-loss screen + a docs additions-only screen. `--pr N | --batch [--json] [--repo-root P]`; exit 0/2. Tests: `tests/test_predict_merge.py`.
   - Emits per-PR JSON (`verdict` MERGE-CLEAN / NEEDS-UPDATE-BRANCH / DAMAGED-FIX-FIRST / CONFLICT + the TRUE changed-file delta from the merge result, NOT `gh --json files`); `--batch` builds the same-file cluster map + a restore/heal-first, least-colliding merge order. The read-only `fleet-supervisor` agent invokes it once per batch; reuses the `util/ad-hoc/2026-07-28_flood_census_symbol_screen.py` extractors until `util/sequence_safety/` lands.
 - `util/generated_prompt_index.py` -- Indexes the Template Agent's `prompts/generated/` output (P4): lists each prompt parsed by the `PROJECT_APPLICATION_SUBJECT_TASK-TYPE_YYYY-MM-DD_HHMM.md` convention, with `--older-than DAYS` + a safety-gated `--prune`/`--archive` (acts only with explicit `--yes`, never under `--dry-run`; `.gitkeep` / non-convention files never touched). The dir is read from `conventions.yaml`. Tests: `tests/test_generated_prompt_index.py`.
@@ -436,6 +442,8 @@ juniper-ml/
 - `tests/test_env_floor_drift_check.py` -- Tests for `util/env_floor_drift_check.py` (I-2): floor parsing (juniper-* `>=` bound; skips non-juniper/floorless/self-ref; dedup-highest), numeric version compare (`0.10.0 > 0.9.0`), OK/BELOW_FLOOR/MISSING classification, exit codes (0/1/2, `--strict`), `--json` -- via a synthetic site-packages fixture (no real pip/conda); also asserts no hardcoded env name. Sole gate (`util/` not lint-gated); real-env scan is manual-verify.
   - Open #796 adds `ResolveSiteDirsTest` (`--site-packages` wins, `--env` expand, ecosystem `used_by`, exit-2 reasons). Open #802 adds `InstalledVersionsTest` (highest-across-dirs, malformed/unreadable skip, underscore normalize).
 - `tests/test_workflow_script_paths.py` -- Lint test: every `python <path.py>` / `bash <path.bash>` invocation in `.github/workflows/*.yml` must reference a path that exists in the repo. Cross-repo paths (`juniper-X/...`) are skipped as runtime-resolved. Catches the failure class that broke 3 juniper-X CIs on 2026-05-18.
+- `tests/test_symbol_loss_check.py` -- Hermetic tests (synthetic git fixtures) for `util/sequence_safety/symbol_loss_check.py`: clean pass, same-file `LOST` FAIL, the SF3 bare-name masking pin, qualified-name relocation WARN, the `WEAKENED` arms (incl. the same-length-gutting blind spot), `DUPLICATED`, import/const WARN, bash LOST-FAIL / WEAKENED-WARN, the `Allow-Symbol-Loss` trailer escape + wildcard rejection, and exit codes 0/1/2. The gate for the symbol screen.
+- `tests/test_docs_additions_check.py` -- Hermetic tests for `util/sequence_safety/docs_additions_check.py`: additions-only clean pass, heading-deletion FAIL, the `>=N` consecutive-deletion FAIL, small-deletion / in-place-swap / heading-retitle WARN, scope (`AGENTS.md` + `notes/**` in, a non-`.md` file out), the `Allow-Docs-Rewrite` trailer escape (enumerated + wildcard), the tunable `--min-run`, and exit codes 0/1/2. The sole gate for the docs screen.
 - `tests/test_doc_tools_drift.py` -- Lint test (plan §5.1) for `juniper-doc-tools` pins. Extracts the `juniper-doc-tools>=X,<Y` pin from juniper-ml's own workflows and each cloned consumer repo's `ci.yml`, then asserts the range still admits the current version (read from `juniper-doc-tools/pyproject.toml`). Soft-warns on pins more than 2 minors behind; hard-fails when the upper bound excludes current.
 - `tests/test_pyproject_extras.py` -- Lint test pinning the `[project.optional-dependencies]` surface (`clients`, `worker`, `servers`, `tools`, `doc-tools`, `all`). Asserts the exact set of extras, the exact membership of each, that `[all]` aggregates every non-alias extra exactly once, and that `[project].version` is semver-ish. Added pre-0.5.0 after juniper-ml#295 introduced `[servers]` + `[tools]` without regression coverage; any future edit to extras must update the lint contract in the same PR.
   - juniper-ml's own pin check runs every PR; the cross-repo assertion auto-skips when siblings aren't on disk and additionally skips local runs by default. Set `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1` to opt in locally.
@@ -490,6 +498,7 @@ juniper-ml/
 ### CI/CD Workflows
 
 - `.github/workflows/ci.yml` -- Main CI pipeline: pre-commit hooks, unit tests, the release-train archive-guard lane (PR-only), package build, doc validation, security audit, dependency docs
+- `.github/workflows/main-verify.yml` -- Post-merge main-verification (flood P2 gate G3). On every `push:main` (per-SHA concurrency, `cancel-in-progress: false`, so a storm verifies every merge) it runs the `util/sequence_safety/` symbol + docs screens over `<merge>^1..<merge>` (`sequence-safety-report` artifact), a path-gated mirror of `ci.yml`'s battery, and a failure-only `notify` job (`issues: write`) that upserts a dedup issue + posts non-blocking Slack. The bypass-proof net.
 - `.github/workflows/publish.yml` -- PyPI publishing: TestPyPI with install verification, then PyPI (OIDC trusted publishing)
 - `.github/workflows/docs-full-check.yml` -- Weekly full documentation link validation including cross-repo checks
 - `.github/workflows/security-scan.yml` -- Weekly pip-audit dependency vulnerability scanning
