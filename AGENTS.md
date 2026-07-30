@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.0
-**Last Updated**: 2026-07-29
+**Last Updated**: 2026-07-30
 
 ---
 
@@ -488,6 +488,7 @@ juniper-ml/
   - Two opt-in write-scoped lanes gate on the resolved mode: `propose` (Phase 2.2/4.1 — standard-gated proposal PRs) and `ceremony` (Phase 4.3 — exempt archive PR + Release cut → owner-gated `pypi` Gate 2).
   - Mode switch / rollback: repo variable `RELEASE_TRAIN_MODE` (`off`|`report`|`propose`|`ceremony`, default `report`) + a dispatch `mode` override; `off` quiesces entirely.
   - Operator guide: `notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`.
+- `.github/workflows/pr-budget-alarm.yml` -- Daily (14:00 UTC) scheduled open-PR budget alarm (flood-remediation guardrail, analysis §4 item 9 / P1 §5): counts total open PRs + `cursor/`-headed PRs against repo variables `PR_BUDGET_WARN` (default 15) / `PR_BUDGET_ALARM` (default 30), always writes a step-summary table, and on breach posts to Slack via `SLACK_WEBHOOK_URL` under the non-blocking contract mirrored from `release-train.yml`. Report-only -- a breach never blocks a PR.
 - `.github/workflows/claude.yml` -- Claude Code action for issue/PR automation (@claude mentions)
 - `.github/workflows/agents-md-touch-up.yml` -- Auto-bumps `AGENTS.md`'s `**Last Updated**:` field to today's UTC date on every PR push that touches `AGENTS.md`. Idempotent (no-op when the date is already current); commits with `github-actions[bot]` authorship and `[skip ci]` so the bump itself does not re-trigger workflows. Companion to `tests/test_agents_md_header_schema.py`.
 
