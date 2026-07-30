@@ -29,14 +29,14 @@ Establish a repeatable, reproducible, concurrency-safe program for **testing, va
 
 ### 1.3 Non-goals (explicit)
 
-| Non-goal | Reason |
-|---|---|
-| **`juniper-canopy` is NOT used, at all** | The observation surface is **Grafana** plus the driver's own artifacts. Canopy is not launched, configured, or depended upon. No canopy port is allocated; no `JUNIPER_CANOPY_*` / `CANOPY_*` variable appears in any launch recipe below. |
-| Containers for cascor / recurrence / data | This program is on-host CLI only. The **only** container involvement is the pre-existing Prometheus + Grafana pair (§7), which stays dockerized. |
-| Distributed cascor workers | `juniper-cascor-worker` is out of scope; cascor's scheduler is local-first (`juniper-cascor/src/parallelism/task_distributor.py:24`), so candidate training runs in-process. Worker-mode experiments are a later phase. |
-| Model/algorithm changes | No changes to cascade-correlation or LMU numerics. This is harness, config, observability, and reporting work. |
-| Replacing the existing constants layer | The YAML layer is strictly additive: missing YAML keys fall back to the existing constants/settings defaults (§5). |
-| CI-gating the experiment runs | Experiment runs are operator-invoked. CI additions are limited to unit/lint gates for the new tooling (§10.6). |
+| Non-goal                                  | Reason                                                                                                                                                                                                                                     |
+|-------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **`juniper-canopy` is NOT used, at all**  | The observation surface is **Grafana** plus the driver's own artifacts. Canopy is not launched, configured, or depended upon. No canopy port is allocated; no `JUNIPER_CANOPY_*` / `CANOPY_*` variable appears in any launch recipe below. |
+| Containers for cascor / recurrence / data | This program is on-host CLI only. The **only** container involvement is the pre-existing Prometheus + Grafana pair (§7), which stays dockerized.                                                                                           |
+| Distributed cascor workers                | `juniper-cascor-worker` is out of scope; cascor's scheduler is local-first (`juniper-cascor/src/parallelism/task_distributor.py:24`), so candidate training runs in-process. Worker-mode experiments are a later phase.                    |
+| Model/algorithm changes                   | No changes to cascade-correlation or LMU numerics. This is harness, config, observability, and reporting work.                                                                                                                             |
+| Replacing the existing constants layer    | The YAML layer is strictly additive: missing YAML keys fall back to the existing constants/settings defaults (§5).                                                                                                                         |
+| CI-gating the experiment runs             | Experiment runs are operator-invoked. CI additions are limited to unit/lint gates for the new tooling (§10.6).                                                                                                                             |
 
 ### 1.4 Genesis
 
@@ -58,19 +58,19 @@ Corrections found during spot-checking are recorded in §2.3; the live repo wins
 
 ### 2.2 Repository state at authoring time
 
-| Repo | HEAD | Branch | Notes |
-|---|---|---|---|
-| `juniper-cascor` | `927e26b` | `main` | app version `0.6.0` (`juniper_cascor/__init__.py:3`) |
-| `juniper-recurrence` | `f23f3ba` | `main` | monorepo: app `0.2.0`, model `0.1.5`, client `0.2.0`, plus `bench/` |
-| `juniper-data` | `b4334e2` | `main` | 16 registered generators |
-| `juniper-data-client` | `bf08ef6` | `main` | |
-| `juniper-deploy` | `8657330` | `main` | sole home of Prometheus config + Grafana dashboards |
-| `juniper-ml` (this worktree) | `4927c78` | `docs/cascor-recurrence-cli-experimentation-plan` | hosts `juniper-observability/` `0.4.0`, `juniper-service-core/` |
+| Repo                         | HEAD      | Branch                                            | Notes                                                               |
+|------------------------------|-----------|---------------------------------------------------|---------------------------------------------------------------------|
+| `juniper-cascor`             | `927e26b` | `main`                                            | app version `0.6.0` (`juniper_cascor/__init__.py:3`)                |
+| `juniper-recurrence`         | `f23f3ba` | `main`                                            | monorepo: app `0.2.0`, model `0.1.5`, client `0.2.0`, plus `bench/` |
+| `juniper-data`               | `b4334e2` | `main`                                            | 16 registered generators                                            |
+| `juniper-data-client`        | `bf08ef6` | `main`                                            |                                                                     |
+| `juniper-deploy`             | `8657330` | `main`                                            | sole home of Prometheus config + Grafana dashboards                 |
+| `juniper-ml` (this worktree) | `4927c78` | `docs/cascor-recurrence-cli-experimentation-plan` | hosts `juniper-observability/` `0.4.0`, `juniper-service-core/`     |
 
 ### 2.3 Live-host environment facts (verified 2026-07-29) and corrections to the recon digests
 
 | Fact | Evidence | Correction? |
-|---|---|---|
+| --- | --- | --- |
 | Live conda envs are `JuniperCascor1`, `JuniperCanopy1`, `JuniperData`. The historic `JuniperCascor` / `JuniperCanopy` are now `JuniperCascor-DEPRECATED` / `JuniperCanopy-DEPRECATED`. | `ls /opt/miniforge3/envs/` | **Yes** — `juniper-cascor/scripts/juniper-cascor.service:30` still has `ExecStart=/opt/miniforge3/envs/JuniperCascor/bin/python server.py`, a path that no longer exists on this host. Recorded as gap **G-13**. |
 | `JuniperCascor1`: Python 3.13.13, torch 2.11.0+cu130, matplotlib 3.10.9, PyYAML 6.0.3, numpy 2.4.4, `prometheus_client`, `requests`, `httpx`, `h5py` 3.16.0. No HF `datasets`, no `yfinance`/`pandas`. | env probe | — |
 | `JuniperData`: Python 3.14.2, uvicorn 0.40.0, `juniper_data` 0.6.0 **editable** → canonical repo, matplotlib 3.10.8, PyYAML 6.0.3, **`yfinance` 1.4.1 + `pandas` 3.0.3 present**. No HF `datasets`. | env probe; `*.dist-info/direct_url.json` | **Yes** — the digest read `isolated_stack.bash:13-14` ("base install has no server") as meaning the JuniperData env cannot serve. It can: `conda activate JuniperData && python -m juniper_data` works today. |
@@ -182,7 +182,7 @@ Corrections were applied in the same change that added this record; the pre-vali
 ## 4. Gap Analysis
 
 | ID | Gap | Evidence | Severity |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **G-1** | No experiment-config file layer in either app. Hyperparameters and dataset choices are constants-file or env-only, so an experiment cannot be captured as a versionable artifact. | cascor `src/api/settings.py:124-129` (env/`.env` only) + `src/cascor_constants/`; recurrence `settings.py:38` (no `env_file`), no YAML loader | **High** |
 | **G-2** | No host→Prometheus path. A CLI-launched cascor/recurrence on an experiment port is invisible to Grafana. | five `static_configs` container targets only (`juniper-deploy/prometheus/prometheus.yml:61-126`); no `extra_hosts`/`host.docker.internal` in juniper-deploy | **High** |
 | **G-3** | cascor Prometheus metrics are **off by default**, so a naive CLI launch exports nothing. | `metrics_enabled: bool = False` (`juniper-cascor/src/api/settings.py:373`, const `:67-68`) | **High** |
@@ -473,7 +473,7 @@ python -m bench.run_benchmark        # writes bench/results/*.json + REPORT.md (
 Modeled directly on `util/isolated_stack.bash` — same shape, same `--dry-run` discipline, same health gating — but **per-run** rather than singleton, and with **no canopy service**.
 
 | Behaviour | Design | Precedent |
-|---|---|---|
+| --- | --- | --- |
 | Actions | exactly one of `--up`, `--down`, `--status`, plus optional `--dry-run`; misuse → exit 2 | `isolated_stack.bash:320-348` |
 | Run identity | `RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$(openssl rand -hex 2)"` | **PROPOSED** |
 | Run dir | `RUN_DIR="${JUNIPER_EXP_RUN_ROOT:-${HOME}/.local/state/juniper-experiments}/${RUN_ID}"` — under `$HOME`, **not** `/tmp`, so a reaped sandbox cannot destroy results | departs deliberately from `isolated_stack.bash:67` (`/tmp/juniper-e2e`) |
@@ -646,20 +646,20 @@ socat "TCP-LISTEN:${port},bind=${GATEWAY_IP},fork,reuseaddr" "TCP:127.0.0.1:${po
 
 **Prerequisite toggles (must be set, else Grafana shows nothing):**
 
-| Toggle | Required value | Default | Cite |
-|---|---|---|---|
-| `JUNIPER_CASCOR_METRICS_ENABLED` | `true` | **`false`** | `juniper-cascor/src/api/settings.py:373` |
-| `JUNIPER_RECURRENCE_METRICS_ENABLED` | `true` | `true` (already) | `juniper_recurrence/settings.py:81` |
-| recurrence `[observability]` extra installed | required | present in `JuniperCascor1` (`juniper_observability` 0.4.0) | `juniper_recurrence/app.py:107-117` |
-| `JUNIPER_DATA_METRICS_ENABLED` | `true` | disabled by default | `juniper-data/juniper_data/api/settings.py:171` |
-| metrics allowlists | **no change** — the relay presents a loopback source address | loopback already trusted everywhere | `metrics_auth.py:49`; `.env.observability:56-64` |
+| Toggle                                       | Required value                                               | Default                                                     | Cite                                             |
+|----------------------------------------------|--------------------------------------------------------------|-------------------------------------------------------------|--------------------------------------------------|
+| `JUNIPER_CASCOR_METRICS_ENABLED`             | `true`                                                       | **`false`**                                                 | `juniper-cascor/src/api/settings.py:373`         |
+| `JUNIPER_RECURRENCE_METRICS_ENABLED`         | `true`                                                       | `true` (already)                                            | `juniper_recurrence/settings.py:81`              |
+| recurrence `[observability]` extra installed | required                                                     | present in `JuniperCascor1` (`juniper_observability` 0.4.0) | `juniper_recurrence/app.py:107-117`              |
+| `JUNIPER_DATA_METRICS_ENABLED`               | `true`                                                       | disabled by default                                         | `juniper-data/juniper_data/api/settings.py:171`  |
+| metrics allowlists                           | **no change** — the relay presents a loopback source address | loopback already trusted everywhere                         | `metrics_auth.py:49`; `.env.observability:56-64` |
 
 `OPEN QUESTION Q-4` — re-scoped by validation (it is **not** an allowlist question): validate gateway-IP discovery + relay reachability end-to-end. **Answered empirically by P0.10** (run per step 0.2b against a hand-applied, uncommitted copy of the §7 overlay): the expected failure signature *without* the relay is connection-refused; success is the `juniper-host-experiments` targets turning `up == 1` in Prometheus.
 
 ### 7.4 New dashboards (PROPOSED, juniper-deploy)
 
 | Dashboard | Contents | Constraints |
-|---|---|---|
+| --- | --- | --- |
 | `grafana/provisioning/dashboards/juniper-recurrence.json` | RED row from the `juniper_recurrence_http_*` families (service-namespaced, `juniper-observability/.../middleware/prometheus.py:49-66`); rates of the 3 `juniper_recurrence_*_total` counters; `_train_last_metric` / `_crossval_last_metric` gauges; both `_last_duration_seconds` gauges; a `juniper_recurrence_build_info` table | unique integer panel ids; top-level `id: null` (`juniper-deploy/tests/test_grafana_dashboard_ids.py:33-45,54-60`) |
 | `grafana/provisioning/dashboards/juniper-experiments.json` | Templated on a `run_id` variable (`label_values(run_id)` filtered to `environment="host-experiment"`); a cascor training-progress row (the `juniper_cascor_training_*` families plus `_hidden_units_total`, `_candidate_correlation`, step-duration p50/p95); a recurrence row; a run-inventory table | same id invariants; must degrade gracefully to "No data" when no experiment is running |
 
@@ -676,7 +676,7 @@ Both land in the provisioning dir and appear in the "Juniper" folder within 30 s
 Reuse the existing plotter — `CascadeCorrelationPlotter.plot_dataset` (`juniper-cascor/src/cascor_plotter/cascor_plotter.py:76`), `.plot_decision_boundary` (`:128`), `.plot_training_history` (`:197`) — for **direct-CLI** runs, where `SpiralProblem`'s `generate_plots` flag already drives it (`src/spiral_problem/spiral_problem.py:134,349`). For **service** runs the plotter lives in a different process from the model, so the driver plots **client-side** from JSON/array payloads:
 
 | Plot | Data source | Applicability |
-|---|---|---|
+| --- | --- | --- |
 | `dataset.png` — scatter coloured by class, train/test split marked | the NPZ fetched from juniper-data (`X_full`/`y_full`) | any 2-feature classification generator |
 | `decision_boundary.png` — prediction grid + overlaid samples | `GET /v1/decision-boundary?resolution=R` (`src/api/routes/decision_boundary.py:20`) | **2-D input only** — the route documents "Requires a network with 2D input"; mnist/arc_agi/equities are excluded |
 | `training_history.png` — loss + accuracy vs epoch, hidden-unit-insertion markers | `GET /v1/metrics/history?count=N` (`src/api/routes/metrics.py:26`) | all runs |
@@ -689,7 +689,7 @@ Reuse the existing plotter — `CascadeCorrelationPlotter.plot_dataset` (`junipe
 ### 8.2 recurrence plot set (entirely new — G-5)
 
 | Plot | Data source |
-|---|---|
+| --- | --- |
 | `dataset_overview.png` — a few sampled windows of `X` with the target marked | fetched NPZ — `X_{split}` plus the target key: `y_{split}` for the synthetics (`irregular_sine`, `multi_sine`, `mackey_glass`, `delay_product`, `ar_p`), `y_reg_{split}` for `equities_seq` only (or normalize via the data-client contract helper) |
 | `dt_histogram.png` — distribution of per-step Δt plus `target_dt`; the irregularity signature | `dt_{split}` `(W,L)` and `target_dt_{split}` `(W,)` (`juniper-data/juniper_data/generators/_sequence.py:203-207,291-295`) |
 | `forecast_vs_truth.png` — predicted vs actual over the held-out window index | `POST /v1/predict` response vs the test-split target (`y_test` for the synthetics, `y_reg_test` for `equities_seq`) |
@@ -717,7 +717,7 @@ Reuse the existing plotter — `CascadeCorrelationPlotter.plot_dataset` (`junipe
 ### 9.1 Hazard → mitigation table
 
 | ID | Hazard | Evidence | Mitigation |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **H-1** | Two runs bind the same port; cascor and recurrence both have fixed defaults (8200 / 8210). | `juniper-cascor/src/api/settings.py:133`; `juniper_recurrence/settings.py:47` | Per-run allocation from the dedicated ranges in §9.3 (lockdir + `ss` probe), never the defaults. The lockdir serialises experiment launchers against each other; the residual race vs non-participating processes is detected by the service's own bind failure, which the health gate surfaces. |
 | **H-2** | An experiment recurrence on `8210` collides with the operator stack's worker health listener. | `juniper-ml/util/juniper_plant_all.bash:183` | Experiment recurrence range starts at **8260**; `8210`/`8211` are never used by this program. |
 | **H-3** | Shared `.env` cross-talk: cascor loads `.env` from CWD via pydantic-settings and `load_dotenv()`. | `src/api/settings.py:126`; `src/main.py:172` | **Process env only.** The launcher never creates, edits, or deletes any `.env`. Per-run values are exported into the child process. |
@@ -745,12 +745,12 @@ Reuse the existing plotter — `CascadeCorrelationPlotter.plot_dataset` (`junipe
 
 ### 9.3 Port-range policy (PROPOSED)
 
-| Range | Purpose | Avoids |
-|---|---|---|
-| `8110-8139` | experiment juniper-data instances | operator `8100` (`plant:111`), E2E `8101` (`isolated_stack.bash:58`) |
-| `8230-8259` | experiment juniper-cascor instances | cascor default `8200` (`settings.py:133`), operator `8201` (`plant:125`), E2E `8202` (`isolated_stack.bash:59`) |
+| Range       | Purpose                                 | Avoids                                                                                                                                    |
+|-------------|-----------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `8110-8139` | experiment juniper-data instances       | operator `8100` (`plant:111`), E2E `8101` (`isolated_stack.bash:58`)                                                                      |
+| `8230-8259` | experiment juniper-cascor instances     | cascor default `8200` (`settings.py:133`), operator `8201` (`plant:125`), E2E `8202` (`isolated_stack.bash:59`)                           |
 | `8260-8289` | experiment juniper-recurrence instances | recurrence default `8210` and deploy host `8211` (`settings.py:47`; `docker-compose.yml:535`), **and worker health `8210`** (`plant:183`) |
-| never used | `8050` / `8051` (canopy) | canopy is out of scope — the ranges deliberately leave its ports untouched |
+| never used  | `8050` / `8051` (canopy)                | canopy is out of scope — the ranges deliberately leave its ports untouched                                                                |
 
 Thirty ports per app bounds concurrent runs at 30, far above any realistic session count, and every range is contiguous and documented so an operator can `ss -tlnH 'sport >= :8110 and sport <= :8289'` to see all experiment listeners at once.
 
@@ -763,7 +763,7 @@ Five phases. Each is independently runnable; each names its exact commands, acce
 ### 10.1 P0 — Preflight (environment and plumbing truth)
 
 | Step | Command / check | Acceptance |
-|---|---|---|
+| --- | --- | --- |
 | P0.1 | `ls /opt/miniforge3/envs/` | `JuniperCascor1`, `JuniperData` present; the `-DEPRECATED` envs are not used |
 | P0.2 | `/opt/miniforge3/envs/JuniperCascor1/bin/python -c "import juniper_cascor, juniper_recurrence, torch, matplotlib, yaml"` | all import; record versions |
 | P0.3 | `/opt/miniforge3/envs/JuniperData/bin/python -c "import juniper_data, uvicorn, matplotlib, yaml, numpy, requests"` | all import (also settles the §6.3 driver-dependency claim for this env) |
@@ -781,15 +781,15 @@ Five phases. Each is independently runnable; each names its exact commands, acce
 
 ### 10.2 P1 — Smoke (one minimal run per app, per launch mode)
 
-| Step | Run | Acceptance |
-|---|---|---|
-| P1.1 | cascor **service**: spiral, `max_hidden_units: 2`, `max_iterations: 2`, `max_epochs: 50` | FSM reaches `COMPLETED`; `/v1/metrics/history` non-empty; three plots written; `manifest.json` valid |
-| P1.2 | cascor **direct CLI**: `python main.py` against the run's data instance | exit 0; plots under the CLI's own output path; exit 3 / exit 4 arms verified by unsetting `JUNIPER_DATA_URL` and by pointing at a dead port |
-| P1.3 | recurrence **service**: `irregular_sine`, `d: 8`, `n_steps: 500`, `readout: linear` | `POST /v1/train` 200 with `final_metrics`; `/v1/predict` 200; `/v1/crossval` (`n_folds: 2`) 200; five plots written |
-| P1.4 | recurrence **train CLI**: same dataset, `--out model.npz` | exit 0; metrics printed; `.npz` written and loadable |
-| P1.5 | `--dry-run` for every launcher invocation above | nothing created, started, or killed; no target file; run-root unchanged |
-| P1.6 | Grafana: open the experiments dashboard during P1.1 and P1.3 | live series for both `run_id`s; panels render (no "No data") |
-| P1.7 | Teardown | ports free (`ss` empty for the range), pidfiles gone, target file removed, no orphan python under the run's pids |
+| Step | Run                                                                                      | Acceptance                                                                                                                                  |
+|------|------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| P1.1 | cascor **service**: spiral, `max_hidden_units: 2`, `max_iterations: 2`, `max_epochs: 50` | FSM reaches `COMPLETED`; `/v1/metrics/history` non-empty; three plots written; `manifest.json` valid                                        |
+| P1.2 | cascor **direct CLI**: `python main.py` against the run's data instance                  | exit 0; plots under the CLI's own output path; exit 3 / exit 4 arms verified by unsetting `JUNIPER_DATA_URL` and by pointing at a dead port |
+| P1.3 | recurrence **service**: `irregular_sine`, `d: 8`, `n_steps: 500`, `readout: linear`      | `POST /v1/train` 200 with `final_metrics`; `/v1/predict` 200; `/v1/crossval` (`n_folds: 2`) 200; five plots written                         |
+| P1.4 | recurrence **train CLI**: same dataset, `--out model.npz`                                | exit 0; metrics printed; `.npz` written and loadable                                                                                        |
+| P1.5 | `--dry-run` for every launcher invocation above                                          | nothing created, started, or killed; no target file; run-root unchanged                                                                     |
+| P1.6 | Grafana: open the experiments dashboard during P1.1 and P1.3                             | live series for both `run_id`s; panels render (no "No data")                                                                                |
+| P1.7 | Teardown                                                                                 | ports free (`ss` empty for the range), pidfiles gone, target file removed, no orphan python under the run's pids                            |
 
 ### 10.3 P2 — Dataset-matrix functional coverage
 
@@ -798,7 +798,7 @@ Run the smallest meaningful configuration for every compatible dataset, per app,
 **cascor matrix** (2-D classification; decision boundary requires 2 input features):
 
 | Dataset | Generator + key params | Boundary plot? | Status / prerequisite |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `spiral` | `n_spirals=2, n_points_per_spiral=500, n_rotations=3, noise=0.05, seed` | Yes | Ready. Staged Literal `"spirals"` (`models/training.py:188`) aliases to `spiral` (`manager.py:3251`); also the only generator the in-process fallback handles (`routes/training.py:75`) |
 | `xor` | `n_points_per_quadrant=250, noise=0.05, margin, seed` | Yes | Ready via staging |
 | `circles` | `n_samples=1000, outer_radius, factor, noise` | Yes | Ready via staging (`"circles"` in the Literal) |
@@ -813,7 +813,7 @@ Run the smallest meaningful configuration for every compatible dataset, per app,
 **recurrence matrix** (3-D sequence regression):
 
 | Dataset | Δt character | Key params | Status / prerequisite |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `multi_sine` | regular | `n_steps, lookback, horizon, sample_dt, n_components, noise_std, seed` | Ready; a `PRIMARY_DATASETS` member (`bench/datasets.py:236`) |
 | `mackey_glass` | regular, chaotic | `+ tau, beta, gamma, n_exp, discard` | Ready; primary |
 | `irregular_sine` | genuinely non-uniform | `+ jitter, n_components, noise_std` | Ready; primary; the known-answer irregular case |
@@ -828,7 +828,7 @@ Run the smallest meaningful configuration for every compatible dataset, per app,
 ### 10.4 P3 — Acceptance / validation criteria
 
 | Class | Criterion |
-|---|---|
+| --- | --- |
 | **Correctness (cascor)** | Spiral baseline reaches test accuracy ≥ the value recorded in the P1 reference run, within tolerance; hidden units added ≤ `max_hidden_units`; the decision-boundary grid separates classes visibly. Separability sanity: `xor` and `circles` must exceed majority-class accuracy by a clear margin. |
 | **Correctness (recurrence)** | The ratified OQ-14 bands in the evaluation-design doc (§17.1), as implemented by `bench/run_benchmark.py:134-257` `evaluate_bands`, remain the scoring authority for the three `PRIMARY_DATASETS`. Service-mode runs must land inside the same bands as the offline bench for identical params — a divergence is a **service-path defect**, not a new result. Further context: the findings doc (§17.1) §3.2. |
 | **Readout spectrum** | For `delay_product`, `readout: rff` must beat `readout: linear` on r², per [`JUNIPER_2026-06-20_JUNIPER-RECURRENCE_DP3-READOUT-SPECTRUM-DESIGN.md`](JUNIPER_2026-06-20_JUNIPER-RECURRENCE_DP3-READOUT-SPECTRUM-DESIGN.md). If it does not, that is a finding to record — not a threshold to tune away. |
@@ -841,16 +841,16 @@ Run the smallest meaningful configuration for every compatible dataset, per app,
 
 ### 10.5 P4 — Experimentation runs (the point of all of this)
 
-| Study | Shape | Output |
-|---|---|---|
-| **E-A cascor cascade budget** | Sweep `max_hidden_units ∈ {4,8,16,32}` × `candidate_pool_size ∈ {4,8,16}` on spiral | accuracy / units / wall-clock surface; boundary plots per cell |
-| **E-B cascor dataset difficulty** | Fixed budget across spiral / xor / circles / moon / gaussian / checkerboard | difficulty ranking with boundary plots; feeds the perf scenarios in §12 |
-| **E-C cascor noise robustness** | `noise ∈ {0.0, 0.05, 0.1, 0.2}` on spiral and moon | accuracy-vs-noise curve |
-| **E-D recurrence d-sweep** | `d ∈ {8,16,32}` (mirrors `_D_GRID`, `bench/run_benchmark.py:31`) × the three primaries | r²-vs-d curves; direct comparability to the committed bench results |
-| **E-E recurrence readout spectrum** | `readout ∈ {linear, rff, mlp}` on `delay_product` and `irregular_sine` | capacity separation; the DP-3 claim, reproducibly |
-| **E-F recurrence irregularity** | `jitter ∈ {0.0, 0.1, 0.3, 0.5}` on `irregular_sine` | Δt-native advantage vs jitter |
-| **E-G recurrence CV scheme** | `scheme ∈ {expanding, rolling}` × `embargo ∈ {0,2,5}` | CV-stability comparison |
-| **E-H real data** | `equities` (cascor) and `equities_seq` (recurrence) | the efficient-market-ceiling sanity check the findings doc predicts |
+| Study                               | Shape                                                                                  | Output                                                                  |
+|-------------------------------------|----------------------------------------------------------------------------------------|-------------------------------------------------------------------------|
+| **E-A cascor cascade budget**       | Sweep `max_hidden_units ∈ {4,8,16,32}` × `candidate_pool_size ∈ {4,8,16}` on spiral    | accuracy / units / wall-clock surface; boundary plots per cell          |
+| **E-B cascor dataset difficulty**   | Fixed budget across spiral / xor / circles / moon / gaussian / checkerboard            | difficulty ranking with boundary plots; feeds the perf scenarios in §12 |
+| **E-C cascor noise robustness**     | `noise ∈ {0.0, 0.05, 0.1, 0.2}` on spiral and moon                                     | accuracy-vs-noise curve                                                 |
+| **E-D recurrence d-sweep**          | `d ∈ {8,16,32}` (mirrors `_D_GRID`, `bench/run_benchmark.py:31`) × the three primaries | r²-vs-d curves; direct comparability to the committed bench results     |
+| **E-E recurrence readout spectrum** | `readout ∈ {linear, rff, mlp}` on `delay_product` and `irregular_sine`                 | capacity separation; the DP-3 claim, reproducibly                       |
+| **E-F recurrence irregularity**     | `jitter ∈ {0.0, 0.1, 0.3, 0.5}` on `irregular_sine`                                    | Δt-native advantage vs jitter                                           |
+| **E-G recurrence CV scheme**        | `scheme ∈ {expanding, rolling}` × `embargo ∈ {0,2,5}`                                  | CV-stability comparison                                                 |
+| **E-H real data**                   | `equities` (cascor) and `equities_seq` (recurrence)                                    | the efficient-market-ceiling sanity check the findings doc predicts     |
 
 Each study is a **suite** in the §13 sense; P4 is where §13's automation earns its place. Until `run_suite.py` exists, each cell is a separate `run_experiment.py` invocation driven by a shell loop, sequentially.
 
@@ -861,7 +861,7 @@ Each study is a **suite** in the §13 sense; P4 is where §13's automation earns
 Following the repo's established gate pattern (`util/` is not lint-gated, so a unittest **is** the gate):
 
 | Test (PROPOSED) | Covers |
-|---|---|
+| --- | --- |
 | `tests/test_experiment_stack_script.py` | `bash -n`; launch-line text assertions (metrics flags present, `LD_LIBRARY_PATH=''`, no canopy anywhere, no `JuniperProject.pid` reference); `--dry-run` creates/starts/kills nothing; misuse exit 2; port-allocation lockdir logic with a fake `ss`; relay pids started/killed only when `outputs.grafana_bridge` is enabled; teardown kills only recorded pids. Modeled on `tests/test_isolated_stack_script.py`. |
 | `tests/test_run_experiment.py` | YAML validation (unknown key → error, missing `seed` → error, bad `schema_version` → error); precedence resolution; cascor and recurrence drive loops against a stub HTTP server (completion, `FAILED`, stall, timeout); manifest schema; plot files produced from synthetic payloads; exit-code matrix. |
 | `tests/test_experiment_config_schemas.py` | Every key in every shipped `conf/experiments/*.yaml` maps to a real field in the target app's model — a drift gate that bites when cascor or recurrence renames a setting. |
@@ -875,7 +875,7 @@ Following the repo's established gate pattern (`util/` is not lint-gated, so a u
 This table is the W-item register. W-11 and W-12 (added by the validation pass) extend it slightly beyond dataset enablement proper so that every W-item lives in exactly one table.
 
 | ID | Work item | Repo | Size | Detail |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | **W-1** | Fix the silent non-spiral dataset drop on `POST /v1/training/start` | juniper-cascor | M | `routes/training.py:75` handles only `generator == "spiral"`; every other value is ignored with no error. Either route non-spiral generators through the same juniper-data fetch path `_reload_dataset` uses (`manager.py:3356-3362`) or **reject** them with a 422 naming the staging endpoint. Silent-wrong-data is the worst of the three options. |
 | **W-2** | Add typed sequence support or an explicit rejection for 3-D datasets in cascor | juniper-cascor | M | cascor's staged Literal has no sequence generators, and its NPZ path assumes 2-D tensors (`manager.py:3367-3377`). The 3-D ingestion boundary is already designed — see [`JUNIPER_2026-06-14_JUNIPER-RECURRENCE_RECURSE-OQ4-CASCOR-3D-INGESTION-GATE.md`](JUNIPER_2026-06-14_JUNIPER-RECURRENCE_RECURSE-OQ4-CASCOR-3D-INGESTION-GATE.md). Minimum viable: a clear error naming the tier boundary. |
 | **W-3** | Extend the staged `dataset_type` Literal to `gaussian` + `checkerboard` (with typed params) | juniper-cascor | S | `models/training.py:188`; `manager.py:3289-3292` already routes "circles / moon / mnist / gaussian" through the `n_samples`-direct branch, so the translation exists — only the Literal and the typed fields are missing. `checkerboard` additionally needs `n_squares`. |
@@ -898,7 +898,7 @@ This table is the W-item register. W-11 and W-12 (added by the validation pass) 
 ### 12.1 Reuse, do not rebuild
 
 | Asset | Reuse decision |
-|---|---|
+| --- | --- |
 | cascor `src/tests/performance/` (10 modules) | The micro-benchmark and scaling layer. Invoked as `pytest tests/performance/ --run-performance -v` or with `CASCOR_BENCHMARK_MODE=1` (double gate at `src/tests/conftest.py:207,260-266`), or via `src/tests/run_tests.bash -p` (`:156`). |
 | cascor `src/tests/performance/baselines/baseline_20260526.json` | The persisted-baseline mechanism and its regression tolerances stay authoritative for micro-level work. |
 | cascor `--profile` / `--profile-memory` (`src/main.py:435-441`) + `src/profiling/{deterministic,memory}.py` | The deterministic and memory profiling entry points; the experiment stack points `--profile-output` at `$RUN_DIR/profiles`. |
@@ -914,16 +914,16 @@ This table is the W-item register. W-11 and W-12 (added by the validation pass) 
 
 ### 12.3 Scenario list (draft)
 
-| ID | Scenario | Instrument | Primary metric |
-|---|---|---|---|
-| PF-1 | cascor spiral, fixed budget, N repeats | driver + `training_step_duration` histogram | p50/p95 step duration; total wall-clock |
-| PF-2 | cascor dataset-size scaling (`n_points_per_spiral ∈ {250,500,1000,2000}`) | driver | wall-clock vs samples; memory RSS |
-| PF-3 | cascor candidate-pool scaling (`candidate_pool_size ∈ {2,4,8,16}` × `CASCOR_NUM_PROCESSES ∈ {1,2,4}`) | `tests/performance/test_concurrency_scaling.py` + driver | speedup curve; oversubscription onset |
-| PF-4 | cascor micro-benchmarks (forward, candidate, correlation, output, autograd) | existing perf suite vs `baseline_20260526.json` | per-op timings; regression % |
-| PF-5 | recurrence `d`-scaling (`d ∈ {8,16,32,64}`) | driver + `_train_last_duration_seconds` | fit time vs `d`; r² vs fit time |
-| PF-6 | recurrence dataset-size scaling (`n_steps ∈ {1000,4000,16000}`) | driver | fit time vs windows |
-| PF-7 | recurrence readout-rung cost (`linear` / `rff` / `mlp`) | driver | fit time + r² per rung (the DP-3 cost/benefit) |
-| PF-8 | two-run concurrency cost | two simultaneous runs with pinned, equal thread budgets | wall-clock inflation vs solo baseline — the empirical answer to "how many runs can this host take?" |
+| ID   | Scenario                                                                                              | Instrument                                               | Primary metric                                                                                      |
+|------|-------------------------------------------------------------------------------------------------------|----------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
+| PF-1 | cascor spiral, fixed budget, N repeats                                                                | driver + `training_step_duration` histogram              | p50/p95 step duration; total wall-clock                                                             |
+| PF-2 | cascor dataset-size scaling (`n_points_per_spiral ∈ {250,500,1000,2000}`)                             | driver                                                   | wall-clock vs samples; memory RSS                                                                   |
+| PF-3 | cascor candidate-pool scaling (`candidate_pool_size ∈ {2,4,8,16}` × `CASCOR_NUM_PROCESSES ∈ {1,2,4}`) | `tests/performance/test_concurrency_scaling.py` + driver | speedup curve; oversubscription onset                                                               |
+| PF-4 | cascor micro-benchmarks (forward, candidate, correlation, output, autograd)                           | existing perf suite vs `baseline_20260526.json`          | per-op timings; regression %                                                                        |
+| PF-5 | recurrence `d`-scaling (`d ∈ {8,16,32,64}`)                                                           | driver + `_train_last_duration_seconds`                  | fit time vs `d`; r² vs fit time                                                                     |
+| PF-6 | recurrence dataset-size scaling (`n_steps ∈ {1000,4000,16000}`)                                       | driver                                                   | fit time vs windows                                                                                 |
+| PF-7 | recurrence readout-rung cost (`linear` / `rff` / `mlp`)                                               | driver                                                   | fit time + r² per rung (the DP-3 cost/benefit)                                                      |
+| PF-8 | two-run concurrency cost                                                                              | two simultaneous runs with pinned, equal thread budgets  | wall-clock inflation vs solo baseline — the empirical answer to "how many runs can this host take?" |
 
 ### 12.4 Baseline and regression policy (draft)
 
@@ -1003,22 +1003,22 @@ run_suite.py --suite SUITE.yaml [--dry-run] [--resume SUITE_ID] [--only CELL_ID 
 
 Every run — standalone or suite cell — writes `manifest.json` containing at minimum:
 
-| Field | Source |
-|---|---|
-| `run_id`, `suite_id`, `cell_id` | launcher / suite driver |
-| `experiment.name`, `description` | the YAML |
-| `config_sha256` | SHA-256 of the resolved config bytes |
-| `config_path`, `config_copy_path` | run dir |
-| `dataset_id` + `generator` + `version` + `params` | the `POST /v1/datasets` response; the id is **content-addressed** (`juniper-data/juniper_data/core/dataset_id.py:23`) and deterministic **only because the config mandates a seed** (§5.6 rule 3) |
-| `git` — per repo: path, HEAD SHA, dirty flag | `git -C <repo> rev-parse HEAD` / `status --porcelain` for cascor, recurrence, data, data-client, deploy, juniper-ml |
-| `packages` — name → version + editable-source path | `importlib.metadata` + `direct_url.json` |
-| `python`, `platform`, `nproc`, thread budget, `CASCOR_NUM_PROCESSES` | environment probe (H-11) |
-| `seeds` — experiment seed and every derived seed | the YAML + derivation rule |
-| `ports`, `service_urls` | launcher |
-| `timings` — per-phase and total | driver |
-| `outcome` — `succeeded` \| `failed` \| `stalled` \| `timed_out` \| `torn_down_early` | driver |
-| `metrics_scraped` — bool + the Prometheus target file path | launcher + a `/api/v1/targets` confirmation |
-| `artifacts` — relative paths of every plot and result file | driver |
+| Field                                                                                | Source                                                                                                                                                                                            |
+|--------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `run_id`, `suite_id`, `cell_id`                                                      | launcher / suite driver                                                                                                                                                                           |
+| `experiment.name`, `description`                                                     | the YAML                                                                                                                                                                                          |
+| `config_sha256`                                                                      | SHA-256 of the resolved config bytes                                                                                                                                                              |
+| `config_path`, `config_copy_path`                                                    | run dir                                                                                                                                                                                           |
+| `dataset_id` + `generator` + `version` + `params`                                    | the `POST /v1/datasets` response; the id is **content-addressed** (`juniper-data/juniper_data/core/dataset_id.py:23`) and deterministic **only because the config mandates a seed** (§5.6 rule 3) |
+| `git` — per repo: path, HEAD SHA, dirty flag                                         | `git -C <repo> rev-parse HEAD` / `status --porcelain` for cascor, recurrence, data, data-client, deploy, juniper-ml                                                                               |
+| `packages` — name → version + editable-source path                                   | `importlib.metadata` + `direct_url.json`                                                                                                                                                          |
+| `python`, `platform`, `nproc`, thread budget, `CASCOR_NUM_PROCESSES`                 | environment probe (H-11)                                                                                                                                                                          |
+| `seeds` — experiment seed and every derived seed                                     | the YAML + derivation rule                                                                                                                                                                        |
+| `ports`, `service_urls`                                                              | launcher                                                                                                                                                                                          |
+| `timings` — per-phase and total                                                      | driver                                                                                                                                                                                            |
+| `outcome` — `succeeded` \| `failed` \| `stalled` \| `timed_out` \| `torn_down_early` | driver                                                                                                                                                                                            |
+| `metrics_scraped` — bool + the Prometheus target file path                           | launcher + a `/api/v1/targets` confirmation                                                                                                                                                       |
+| `artifacts` — relative paths of every plot and result file                           | driver                                                                                                                                                                                            |
 
 **The reproducibility claim, stated honestly**: given the same manifest, the same host, and clean checkouts at the recorded SHAs, a re-run reproduces the same `dataset_id` **exactly** (content-addressed + seeded) and the same metrics **within a characterised tolerance**.
 
@@ -1032,37 +1032,37 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 
 ### Wave 0 — Ground truth (no code)
 
-| # | Item | Repo | Size | Depends on |
-|---|---|---|---|---|
-| 0.1 | This plan, reviewed and ratified by the owner | juniper-ml | S | — |
-| 0.2 | Execute P0 preflight (§10.1) steps P0.1-P0.9 + P0.11-P0.12 and file the evidence | — | S | 0.1 |
-| 0.2b | Execute **P0.10** against a hand-applied, **uncommitted** copy of the §7 compose/prometheus overlay — answers Q-4 empirically (relay reachability; the without-relay control arm shows connection-refused); its evidence gates merging Wave 1.1 | — | S | 0.2 |
+| #    | Item                                                                                                                                                                                                                                            | Repo       | Size | Depends on |
+|------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------|------|------------|
+| 0.1  | This plan, reviewed and ratified by the owner                                                                                                                                                                                                   | juniper-ml | S    | —          |
+| 0.2  | Execute P0 preflight (§10.1) steps P0.1-P0.9 + P0.11-P0.12 and file the evidence                                                                                                                                                                | —          | S    | 0.1        |
+| 0.2b | Execute **P0.10** against a hand-applied, **uncommitted** copy of the §7 compose/prometheus overlay — answers Q-4 empirically (relay reachability; the without-relay control arm shows connection-refused); its evidence gates merging Wave 1.1 | —          | S    | 0.2        |
 
 ### Wave 1 — Observability bridge (unblocks every "in Grafana" requirement)
 
-| # | Item | Repo | Size | Depends on |
-|---|---|---|---|---|
-| 1.1 | Prometheus `extra_hosts` gateway mapping + `juniper-host-experiments` `file_sd_configs` job + `prometheus/targets/.gitkeep` | juniper-deploy | S | 0.2b |
-| 1.2 | `tests/test_prometheus_host_sd.py` structural gate | juniper-deploy | S | 1.1 (same PR) |
-| 1.3 | `grafana/provisioning/dashboards/juniper-recurrence.json` (closes G-4) + extend the three `juniper:http_request_duration_seconds:*` recording rules with the `juniper_recurrence_http_request_duration_seconds_bucket` series (§12.1) | juniper-deploy | M | 1.1 |
-| 1.4 | `grafana/provisioning/dashboards/juniper-experiments.json` (run-scoped, templated) | juniper-deploy | M | 1.1 |
+| #   | Item                                                                                                                                                                                                                                  | Repo           | Size | Depends on    |
+|-----|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------|------|---------------|
+| 1.1 | Prometheus `extra_hosts` gateway mapping + `juniper-host-experiments` `file_sd_configs` job + `prometheus/targets/.gitkeep`                                                                                                           | juniper-deploy | S    | 0.2b          |
+| 1.2 | `tests/test_prometheus_host_sd.py` structural gate                                                                                                                                                                                    | juniper-deploy | S    | 1.1 (same PR) |
+| 1.3 | `grafana/provisioning/dashboards/juniper-recurrence.json` (closes G-4) + extend the three `juniper:http_request_duration_seconds:*` recording rules with the `juniper_recurrence_http_request_duration_seconds_bucket` series (§12.1) | juniper-deploy | M    | 1.1           |
+| 1.4 | `grafana/provisioning/dashboards/juniper-experiments.json` (run-scoped, templated)                                                                                                                                                    | juniper-deploy | M    | 1.1           |
 
 ### Wave 2 — Launcher + driver (the usable core)
 
-| # | Item | Repo | Size | Depends on |
-|---|---|---|---|---|
-| 2.1 | `util/experiment_stack.bash` + `tests/test_experiment_stack_script.py` | juniper-ml | L | 1.1 |
-| 2.2 | `util/experiments/run_experiment.py` + `tests/test_run_experiment.py` (cascor path) | juniper-ml | L | 2.1 |
-| 2.3 | `run_experiment.py` recurrence path (train / predict / crossval) | juniper-ml | M | 2.2 |
-| 2.4 | Plotting: cascor set (§8.1) | juniper-ml | M | 2.2 |
-| 2.5 | Plotting: recurrence set (§8.2 — closes G-5) | juniper-ml | M | 2.3 |
-| 2.6 | `stats.json` + `summary.md` renderers | juniper-ml | S | 2.4, 2.5 |
-| 2.7 | `docs/REFERENCE.md` operator section + cheatsheet entries for the new tooling | juniper-ml | S | 2.6 |
+| #   | Item                                                                                | Repo       | Size | Depends on |
+|-----|-------------------------------------------------------------------------------------|------------|------|------------|
+| 2.1 | `util/experiment_stack.bash` + `tests/test_experiment_stack_script.py`              | juniper-ml | L    | 1.1        |
+| 2.2 | `util/experiments/run_experiment.py` + `tests/test_run_experiment.py` (cascor path) | juniper-ml | L    | 2.1        |
+| 2.3 | `run_experiment.py` recurrence path (train / predict / crossval)                    | juniper-ml | M    | 2.2        |
+| 2.4 | Plotting: cascor set (§8.1)                                                         | juniper-ml | M    | 2.2        |
+| 2.5 | Plotting: recurrence set (§8.2 — closes G-5)                                        | juniper-ml | M    | 2.3        |
+| 2.6 | `stats.json` + `summary.md` renderers                                               | juniper-ml | S    | 2.4, 2.5   |
+| 2.7 | `docs/REFERENCE.md` operator section + cheatsheet entries for the new tooling       | juniper-ml | S    | 2.6        |
 
 ### Wave 3 — YAML config layer
 
 | # | Item | Repo | Size | Depends on |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | 3.1 | cascor: `settings_customise_sources` + `ExperimentYamlSettingsSource` (`service:`-block projection, §5.2) + `JUNIPER_CASCOR_CONFIG_FILE` + `--config` on `server.py` (operator convenience — the experiment stack uses the uvicorn-factory CLI, §6.1) and `main.py` + unknown-key/infra-key rejection (§5.6) + tests | juniper-cascor | L | 0.1 |
 | 3.2 | cascor: `conf/experiments/` with 2-3 reference YAMLs | juniper-cascor | S | 3.1 |
 | 3.3 | recurrence: same projection mechanism + `--config` on `serve` and `train` + the PyYAML/`pydantic-settings[yaml]` dependency + tests | juniper-recurrence | L | 0.1 |
@@ -1072,21 +1072,21 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 
 ### Wave 4 — Dataset enablement (§11; independent of Waves 1-3, parallelisable)
 
-| # | Item | Repo | Size |
-|---|---|---|---|
-| 4.1 | **W-1** non-spiral silent-drop fix (highest-value correctness item in this plan) | juniper-cascor | M |
-| 4.2 | **W-3** `gaussian` + `checkerboard` staged Literal + typed params | juniper-cascor | S |
-| 4.3 | **W-5** register `ar_p` in the bench registry | juniper-recurrence | S |
-| 4.4 | **W-8** commit the `delay_product` baseline | juniper-recurrence | S |
-| 4.5 | **W-9** data-client constants + registry-derived parity gate | juniper-data-client | M |
-| 4.6 | **W-4** mnist availability pre-flight + documented install path | juniper-data / juniper-ml | S |
-| 4.7 | **W-10** on-host generator-availability matrix in `docs/REFERENCE.md` | juniper-ml | S |
-| 4.8 | **W-2** cascor 3-D ingestion: typed support or explicit rejection | juniper-cascor | M |
+| #   | Item                                                                             | Repo                      | Size |
+|-----|----------------------------------------------------------------------------------|---------------------------|------|
+| 4.1 | **W-1** non-spiral silent-drop fix (highest-value correctness item in this plan) | juniper-cascor            | M    |
+| 4.2 | **W-3** `gaussian` + `checkerboard` staged Literal + typed params                | juniper-cascor            | S    |
+| 4.3 | **W-5** register `ar_p` in the bench registry                                    | juniper-recurrence        | S    |
+| 4.4 | **W-8** commit the `delay_product` baseline                                      | juniper-recurrence        | S    |
+| 4.5 | **W-9** data-client constants + registry-derived parity gate                     | juniper-data-client       | M    |
+| 4.6 | **W-4** mnist availability pre-flight + documented install path                  | juniper-data / juniper-ml | S    |
+| 4.7 | **W-10** on-host generator-availability matrix in `docs/REFERENCE.md`            | juniper-ml                | S    |
+| 4.8 | **W-2** cascor 3-D ingestion: typed support or explicit rejection                | juniper-cascor            | M    |
 
 ### Wave 5 — Concurrency hardening (unblocks parallel suites)
 
 | # | Item | Repo | Size |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 5.1 | **W-6** `JUNIPER_CASCOR_SNAPSHOTS_DIR` (service + direct CLI) | juniper-cascor | M |
 | 5.2 | **W-7** `bench.run_benchmark --results-dir` | juniper-recurrence | S |
 | 5.3 | Drop the one-instance-per-checkout restriction in the launcher; add a two-run concurrency test. **Explicitly depends on resolving Q-6** (a per-run `JUNIPER_CASCOR_LOG_DIR`-class item): W-6/W-7 cover snapshots and bench results only, so the shared `logs/juniper_cascor.log` race (H-7) returns otherwise. Until Q-6 is resolved, 5.3 is scoped to concurrent runs in **distinct checkouts** only | juniper-ml | S |
@@ -1095,23 +1095,23 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 
 ### Wave 6 — Program execution
 
-| # | Item | Repo | Size | Depends on |
-|---|---|---|---|---|
-| 6.1 | P1 smoke, all four launch modes | — | S | 2.6, 1.4 |
-| 6.2 | P2 dataset matrix (post-Wave-4) | — | M | Wave 4 |
-| 6.3 | P3 acceptance criteria evaluated and recorded | — | M | 6.2 |
-| 6.4 | P4 experimentation studies E-A…E-H | — | L | 6.3 |
+| #   | Item                                          | Repo | Size | Depends on |
+|-----|-----------------------------------------------|------|------|------------|
+| 6.1 | P1 smoke, all four launch modes               | —    | S    | 2.6, 1.4   |
+| 6.2 | P2 dataset matrix (post-Wave-4)               | —    | M    | Wave 4     |
+| 6.3 | P3 acceptance criteria evaluated and recorded | —    | M    | 6.2        |
+| 6.4 | P4 experimentation studies E-A…E-H            | —    | L    | 6.3        |
 
 ### Wave 7 — Automation + performance (design-start follow-ons)
 
-| # | Item | Repo | Size |
-|---|---|---|---|
-| 7.1 | `util/experiments/run_suite.py` (sequential) + registry + aggregation + tests | juniper-ml | L |
-| 7.2 | `util/experiments/list_runs.py` (safety-gated) | juniper-ml | S |
-| 7.3 | Perf scenarios PF-1…PF-8 wired to the driver; Grafana perf panels for run-level rates | juniper-ml / juniper-deploy | M |
-| 7.4 | Alert-rule scoping so `environment="host-experiment"` does not page (Q-9) | juniper-deploy | S |
-| 7.5 | Bounded-parallel suite execution | juniper-ml | M |
-| 7.6 | Propose the `JR-REC-*` ID block (§16) | juniper-ml | S |
+| #   | Item                                                                                  | Repo                        | Size |
+|-----|---------------------------------------------------------------------------------------|-----------------------------|------|
+| 7.1 | `util/experiments/run_suite.py` (sequential) + registry + aggregation + tests         | juniper-ml                  | L    |
+| 7.2 | `util/experiments/list_runs.py` (safety-gated)                                        | juniper-ml                  | S    |
+| 7.3 | Perf scenarios PF-1…PF-8 wired to the driver; Grafana perf panels for run-level rates | juniper-ml / juniper-deploy | M    |
+| 7.4 | Alert-rule scoping so `environment="host-experiment"` does not page (Q-9)             | juniper-deploy              | S    |
+| 7.5 | Bounded-parallel suite execution                                                      | juniper-ml                  | M    |
+| 7.6 | Propose the `JR-REC-*` ID block (§16)                                                 | juniper-ml                  | S    |
 
 ---
 
@@ -1120,7 +1120,7 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 ### 15.1 Risks
 
 | ID | Risk | Likelihood | Impact | Mitigation |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | R-1 | A container→host scrape addressed to the bridge-gateway IP cannot reach a loopback-bound service — the kernel refuses the connection before any middleware runs (**connection refused**, not 403). | **High** (structural) | High — kills the whole Grafana story if unaddressed | The launcher-owned per-run `socat` relay (§7.3) listens on the gateway IP and forwards to loopback; P0.10 (step 0.2b) proves it end-to-end. Apps never bind non-loopback; no allowlist change (the relay's source is loopback). |
 | R-2 | `host.docker.internal:host-gateway` behaves differently across the operator's docker/podman setups. | Medium | High | P0.10 verifies empirically; the launcher discovers the gateway via `docker network inspect` (monitoring network, falling back to the default bridge); fallback is that gateway IP written directly into the target file (a one-line launcher change). |
 | R-3 | W-1's fix changes cascor's `POST /v1/training/start` behaviour for an existing consumer. | Medium | Medium | Prefer the 422-with-guidance variant, which is strictly more informative than today's silent drop, and check consumers first — canopy is out of scope for this program but not for the repo. |
@@ -1135,11 +1135,11 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 ### 15.2 Open questions (owner decisions)
 
 | ID | Question | Recommendation |
-|---|---|---|
+| --- | --- | --- |
 | **Q-1** | Should the driver emit a fully-resolved `experiment.resolved.yaml` beside the verbatim config? | Yes — dumped from the live `Settings` object, not hand-reconstructed. |
 | **Q-2** | cascor completion detection: what wall-clock budget and stall threshold? | Budget from YAML (`outputs.max_wall_seconds`, default 3600); stall = 120 s without epoch progress → `outcome: "stalled"`, exit 1. Never hang silently. |
 | **Q-3** | Prometheus target-file location: nested in the existing `:ro` mount, or a separate dir + second mount? | Nested at `./prometheus/targets/`, no second mount (Prometheus only reads; the host writes). |
-| **Q-4** | Gateway-IP discovery + relay reachability: does the launcher-owned §7.3 `socat` relay make the container→host scrape land? (Re-scoped — **not** an allowlist question.) | Answered empirically by P0.10 (step 0.2b): without the relay expect **connection refused** (a gateway-addressed connection can never land on a loopback bind); with it the `juniper-host-experiments` targets report `up == 1`. No allowlist change; never bind non-loopback (cascor's attestation guard, `src/api/settings.py:143-161`). |
+| **Q-4** | Gateway-IP discovery + relay reachability: does the launcher-owned §7.3 `socat` relay make the container→host scrape land? (Re-scoped — **not** an allowlist question.) | Answered empirically by P0.10 (step 0.2b): without the relay expect **connection refused** (a gateway-addressed connection can never land on a loopback bind); with it the `juniper-host-experiments` targets report `up == 1`. No allowlist change; never bind non-loopback (cascor's attestation guard, `src/api/settings.py:143-161`) |
 | **Q-5** | `juniper-experiments.json`: provisioned + templated, or API-generated per run? | Provisioned + templated on `run_id`. |
 | **Q-6** | Is a `JUNIPER_CASCOR_LOG_DIR` override worth a work item, or is run-dir stdout capture enough? | Defer for single-instance-per-checkout use — but note it is now a **precondition for Wave 5.3** (lifting the one-instance rule); until resolved, 5.3 is scoped to distinct checkouts (H-7). |
 | **Q-7** | Should `csv_import` be in the cascor dataset matrix, and if so with what corpus? | Defer until a corpus is defined (W-12 tracks defining it and adding the matrix row); it is the one generator whose params are entirely dataset-specific. |
