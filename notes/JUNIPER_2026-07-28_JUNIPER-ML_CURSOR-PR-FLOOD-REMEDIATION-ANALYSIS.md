@@ -89,25 +89,25 @@ tests-touching ∪ 17 util-touching merges; zero in-universe files skipped (veri
 
 Findings (verdict LOST-IN-MERGE unless noted; last-good blob = `<guilty>^1:<path>`):
 
-| file | class (methods) | guilty merge | evidence |
-|---|---|---|---|
-| tests/test_juniper_chop_all.py | TestValidatePid (10) | #778 `a0b3a192d` | `validate_pid` still in script; 0 test mentions at HEAD |
-| tests/test_juniper_chop_all.py | TestGracefulStop (4) | #791 `1a55e1310` | SIGTERM/SIGKILL suite gone |
-| tests/test_juniper_chop_all.py | TestOrphanedWorkerCleanup (7) | #798 `e92a7eed3` | KILL_WORKERS behavioral gone; AGENTS.md still documents the class |
-| tests/test_juniper_plant_all.py | TestCheckPortAvailable (3) | #788 `38daab3d3` | HEAD covers worker-port only |
-| tests/test_juniper_plant_all.py | TestCleanupOnFailure (4) | #788 `38daab3d3` | SIGTERM/pidfile suite gone |
-| tests/test_juniper_plant_all.py | TestWaitForHealth (2) | #788 `38daab3d3` | healthy/timeout behavioral gone |
-| tests/test_juniper_plant_all.py | TestValidateCondaEnv (5) | #795 `ffb363ec3` | all-envs/missing-dir/non-exec arms gone (restored during incident #5, re-lost) |
-| tests/test_juniper_plant_all.py | TestWaitForHealthIntervalGuard (2) | #795 `ffb363ec3` | interval-clamp guard gone (same re-loss) |
-| tests/test_juniper_plant_all.py | TestSafeCondaActivate (2) | #804 `4eb38611b` | #785/#795 nounset restore-test gone; AGENTS.md still documents it |
-| tests/test_isolated_stack_script.py | TestActivateCondaNounset (3) | #786 `e239e69dc` | #785 nounset restore-test gone |
-| tests/test_isolated_stack_script.py | TestLiveDown (1), TestPortPid (2), TestStopPort (3) | #793 `406dfe891` | live teardown coverage gone (`do_down`: 0 mentions) |
-| tests/test_isolated_stack_script.py | TestDryRunStatus (1), TestProbeHealth (4), TestWaitForHealth (3) | #807 `6caefd5c7` | status/health behavioral gone (#843 restored only TestDataUpLive) |
-| tests/test_editable_install_drift_check.py | DriftCheckTest run_fix tests (3) + `_resolvable_plan` | #795 `ffb363ec3` | `run_fix` exists in util; 0 `test_run_fix_*` at HEAD; #795-clobber pattern |
-| tests/test_release_train_detect.py | UploadTimeTest (2) | #761 `905e339f8` | `_upload_time` exists in detect.py; sole HEAD ref is fixture data |
-| tests/test_worktree_cleanup.py | TestPhase1DirtyTree (1) | #731 `6c090a5e9` | #747 dirty-exit-1 gate arm gone |
-| tests/test_worktree_cleanup.py | TestPhase7Behavioral (3) — ADJUDICATE | #742 `c4f089636` | live checkout-refusal/dirty-skip arms vs HEAD's dry-run-only coverage |
-| tests/test_worktree_cleanup.py | TestPhasePullFfOnlyWarnSkip (2) — ADJUDICATE | #759 `52931961e` | ff-only tokens present, no dedicated warn-skip method |
+| file                                       | class (methods)                                                  | guilty merge     | evidence                                                                       |
+|--------------------------------------------|------------------------------------------------------------------|------------------|--------------------------------------------------------------------------------|
+| tests/test_juniper_chop_all.py             | TestValidatePid (10)                                             | #778 `a0b3a192d` | `validate_pid` still in script; 0 test mentions at HEAD                        |
+| tests/test_juniper_chop_all.py             | TestGracefulStop (4)                                             | #791 `1a55e1310` | SIGTERM/SIGKILL suite gone                                                     |
+| tests/test_juniper_chop_all.py             | TestOrphanedWorkerCleanup (7)                                    | #798 `e92a7eed3` | KILL_WORKERS behavioral gone; AGENTS.md still documents the class              |
+| tests/test_juniper_plant_all.py            | TestCheckPortAvailable (3)                                       | #788 `38daab3d3` | HEAD covers worker-port only                                                   |
+| tests/test_juniper_plant_all.py            | TestCleanupOnFailure (4)                                         | #788 `38daab3d3` | SIGTERM/pidfile suite gone                                                     |
+| tests/test_juniper_plant_all.py            | TestWaitForHealth (2)                                            | #788 `38daab3d3` | healthy/timeout behavioral gone                                                |
+| tests/test_juniper_plant_all.py            | TestValidateCondaEnv (5)                                         | #795 `ffb363ec3` | all-envs/missing-dir/non-exec arms gone (restored during incident #5, re-lost) |
+| tests/test_juniper_plant_all.py            | TestWaitForHealthIntervalGuard (2)                               | #795 `ffb363ec3` | interval-clamp guard gone (same re-loss)                                       |
+| tests/test_juniper_plant_all.py            | TestSafeCondaActivate (2)                                        | #804 `4eb38611b` | #785/#795 nounset restore-test gone; AGENTS.md still documents it              |
+| tests/test_isolated_stack_script.py        | TestActivateCondaNounset (3)                                     | #786 `e239e69dc` | #785 nounset restore-test gone                                                 |
+| tests/test_isolated_stack_script.py        | TestLiveDown (1), TestPortPid (2), TestStopPort (3)              | #793 `406dfe891` | live teardown coverage gone (`do_down`: 0 mentions)                            |
+| tests/test_isolated_stack_script.py        | TestDryRunStatus (1), TestProbeHealth (4), TestWaitForHealth (3) | #807 `6caefd5c7` | status/health behavioral gone (#843 restored only TestDataUpLive)              |
+| tests/test_editable_install_drift_check.py | DriftCheckTest run_fix tests (3) + `_resolvable_plan`            | #795 `ffb363ec3` | `run_fix` exists in util; 0 `test_run_fix_*` at HEAD; #795-clobber pattern     |
+| tests/test_release_train_detect.py         | UploadTimeTest (2)                                               | #761 `905e339f8` | `_upload_time` exists in detect.py; sole HEAD ref is fixture data              |
+| tests/test_worktree_cleanup.py             | TestPhase1DirtyTree (1)                                          | #731 `6c090a5e9` | #747 dirty-exit-1 gate arm gone                                                |
+| tests/test_worktree_cleanup.py             | TestPhase7Behavioral (3) — ADJUDICATE                            | #742 `c4f089636` | live checkout-refusal/dirty-skip arms vs HEAD's dry-run-only coverage          |
+| tests/test_worktree_cleanup.py             | TestPhasePullFfOnlyWarnSkip (2) — ADJUDICATE                     | #759 `52931961e` | ff-only tokens present, no dedicated warn-skip method                          |
 
 **Adjudication corrections:** C3 (§2.4) proved C1's same-merge rename-target rule can mis-file real losses as INTENTIONAL; C4's focused re-adjudication flipped 7 more residuals to LOST (ceremony execute-seam ×3 + fixture, detect hygiene-healthy, sweep-safety ×3) and confirmed 2 covered/superseded — final Python-census totals: **20 test classes + 13 method/helper grafts into existing classes (~71 methods total across 8 test files)** (the table above plus the C3/C4 rows detailed in §2.4).
 
@@ -121,14 +121,14 @@ Clean categories: **util/ source CLEAN** (sole candidate = #709's intentional si
 Method: per file, pre-flood baseline = oldest touching merge's `^1` blob; each merge's intended additions = `git log --no-merges <M>^2 --not <M>^1` patches (branch tips are always locally reachable as `<M>^2`); expected content = baseline + all intended additions modulo later legitimate edits; every missing unit adjudicated on main's first-parent timeline (dropped at a 2-parent commit = LOST-IN-MERGE). Reverse screen: **zero pre-flood baseline headings eroded anywhere** — every loss is
 flood-added content dropped by a later union merge.
 
-| file | verdict | salient findings |
-|---|---|---|
-| AGENTS.md | 2 clusters | F-A1 ceremony signed-archive re-entry bullet (#732 → dropped @#752); **F-A2 major**: `check_conda_env_torch` shipped in code but all doc touchpoints lost incl. its run-list line (heal-adjudicated to 3 touchpoints; see §2.5) (#816 → @#817/#830) |
-| docs/DEVELOPER_CHEATSHEET_JUNIPER-ML.md | **severe** | ~19 lost clusters — release-train operator quick-ref near-wiped (tip-at-base safety, HALT states, archive-guard triage, R7 `ref=` rule, drift-check rows, …); e.g. #766 landed net +3/−45 |
-| docs/REFERENCE.md | major | F-R1 live `cascor_up`/`canopy_up` compose subsection (#827 → @#829, net +31/−49); F-R2 4 TOC rows; F-R3 two duplicated section headings (additive damage) |
-| docs/DOCUMENTATION_OVERVIEW.md | minor | 2 quick-task nav rows (#810 → @#812; #812 → @#827) |
-| notes/…RELEASE-TRAIN-OPERATOR-RUNBOOK.md | **severe** | ≥6 whole subsections (SHIP-filter/SemVer, Gate-1 sibling co-change, §4.1 monitor terminals, refusal stubs, seam gates, RESUME_MONITOR mechanics) + 4 duplicated headings |
-| notes/…WORKTREE-CLEANUP-PROCEDURE-V2.md | major | F-W1 whole Phase-4 remote-branch-deletion subsection incl. fail-closed #739 docs (#740/#760 → @#783); F-W2 #733 sweep-apply increments |
+| file                                     | verdict    | salient findings                                                                                                                                                                                                                                    |
+|------------------------------------------|------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| AGENTS.md                                | 2 clusters | F-A1 ceremony signed-archive re-entry bullet (#732 → dropped @#752); **F-A2 major**: `check_conda_env_torch` shipped in code but all doc touchpoints lost incl. its run-list line (heal-adjudicated to 3 touchpoints; see §2.5) (#816 → @#817/#830) |
+| docs/DEVELOPER_CHEATSHEET_JUNIPER-ML.md  | **severe** | ~19 lost clusters — release-train operator quick-ref near-wiped (tip-at-base safety, HALT states, archive-guard triage, R7 `ref=` rule, drift-check rows, …); e.g. #766 landed net +3/−45                                                           |
+| docs/REFERENCE.md                        | major      | F-R1 live `cascor_up`/`canopy_up` compose subsection (#827 → @#829, net +31/−49); F-R2 4 TOC rows; F-R3 two duplicated section headings (additive damage)                                                                                           |
+| docs/DOCUMENTATION_OVERVIEW.md           | minor      | 2 quick-task nav rows (#810 → @#812; #812 → @#827)                                                                                                                                                                                                  |
+| notes/…RELEASE-TRAIN-OPERATOR-RUNBOOK.md | **severe** | ≥6 whole subsections (SHIP-filter/SemVer, Gate-1 sibling co-change, §4.1 monitor terminals, refusal stubs, seam gates, RESUME_MONITOR mechanics) + 4 duplicated headings                                                                            |
+| notes/…WORKTREE-CLEANUP-PROCEDURE-V2.md  | major      | F-W1 whole Phase-4 remote-branch-deletion subsection incl. fail-closed #739 docs (#740/#760 → @#783); F-W2 #733 sweep-apply increments                                                                                                              |
 
 **RESUME_MONITOR fresh adjudication** (per the program mandate): pre-flood 0 mentions; reconstruction says current main should hold **5**; it holds **3**; the 2 missing are the `plan_ceremony`/execute state-machine lines (authored #758, re-added #805, dropped at #809's merge `6cda19ecbb`). The mid-flood "4→2" count is formally superseded.
 
@@ -405,15 +405,15 @@ today / FP low.** Kills #3.
    **G5 (ii) strict/merge-queue and (v) remove Cursor bypass are RULESET/repo-control fixes, not CI —
    escalate to owner as the true systemic remedy.**
 
-| Gate | Trigger | Incidents killed | Build cost | Run cost | False-positive risk |
-|---|---|---|---|---|---|
-| G1 symbol-loss (per-PR) | `pull_request` (merge ref) | #1,#4,#7,#755 (silent deletion); #2,#5 best-effort (mypy is primary net) | MED | LOW | MED → enumerated trailer (label enumerated or WARN-only) |
-| G2 docs additions-only | `pull_request`, docs-only PR | #6 (#801,#803) | SMALL | LOW | LOW (magnitude threshold + `docs-rewrite` label) |
-| G3 post-merge main-verify | `push:main` (+issue/Slack notify) | all classes as post-merge net (incl. docs via step 4) | MED | HIGH (battery×merges; burst→queue) | LOW (advisory notify) |
-| G4 pre-commit split | `pull_request` vs `push:main` | #3 (#759) | SMALL | LOWER than today | LOW (union-in-untouched → G3) |
-| G5(i) queue meter | `pull_request`/schedule | prevention/visibility | SMALL | LOW | n/a advisory |
-| G5(iv) fleet-PR lint | `pull_request` | best-practice | SMALL | LOW | MED (scope not machine-declared) |
-| G5(vi) supervisor artifact | `pull_request` | observability | SMALL | LOW | n/a |
+| Gate                       | Trigger                           | Incidents killed                                                         | Build cost | Run cost                           | False-positive risk                                      |
+|----------------------------|-----------------------------------|--------------------------------------------------------------------------|------------|------------------------------------|----------------------------------------------------------|
+| G1 symbol-loss (per-PR)    | `pull_request` (merge ref)        | #1,#4,#7,#755 (silent deletion); #2,#5 best-effort (mypy is primary net) | MED        | LOW                                | MED → enumerated trailer (label enumerated or WARN-only) |
+| G2 docs additions-only     | `pull_request`, docs-only PR      | #6 (#801,#803)                                                           | SMALL      | LOW                                | LOW (magnitude threshold + `docs-rewrite` label)         |
+| G3 post-merge main-verify  | `push:main` (+issue/Slack notify) | all classes as post-merge net (incl. docs via step 4)                    | MED        | HIGH (battery×merges; burst→queue) | LOW (advisory notify)                                    |
+| G4 pre-commit split        | `pull_request` vs `push:main`     | #3 (#759)                                                                | SMALL      | LOWER than today                   | LOW (union-in-untouched → G3)                            |
+| G5(i) queue meter          | `pull_request`/schedule           | prevention/visibility                                                    | SMALL      | LOW                                | n/a advisory                                             |
+| G5(iv) fleet-PR lint       | `pull_request`                    | best-practice                                                            | SMALL      | LOW                                | MED (scope not machine-declared)                         |
+| G5(vi) supervisor artifact | `pull_request`                    | observability                                                            | SMALL      | LOW                                | n/a                                                      |
 
 **Non-goals:** not enforcing merge freshness in the CI layer (that is ruleset `strict`/`merge_queue`); not
 modifying ruleset 13805432 or its bypass actors (recommended to the owner, not a CI artifact); not
@@ -580,7 +580,6 @@ Full validated text: developed under the program's validation pipeline; decision
 
 ---
 
-
 ### Cross-proposal comparison
 
 | Control / measure (source) | Layer | Incident classes addressed (with contingency markers) | Owner effort | Build cost | Dependencies / prerequisites | Standalone value |
@@ -669,51 +668,68 @@ all-clusters subtotal) was fixed by the orchestrator post-verdict.
    #801/#803/batch, O(N²) thrash. Recommendation: queue if available, else strict. **Unblocks:** UI
    availability check + a `merge_group` wiring smoke-test on a scratch queued PR. Source: **P1 §1/§7, P2
    §5(ii), P3 §4/OQ5/OQ6.**
+       - A:
+
 2. **ci.yml cancel-in-progress per-SHA fix (near-free, high value — flag as such).** Change the main-verify
    concurrency from `group: ci-${{github.ref}}, cancel-in-progress: true` (rapid serial merges cancel each
    other → only the last is verified) to per-SHA `group: main-verify-${{github.sha}}, cancel-in-progress:
    false` so every merge is verified. Recommendation: adopt — trivial, high value, ships with G3.
    **Unblocks:** nothing (a one-stanza change). Source: **P2 §3.**
+       - A:
+
 3. **Required-review (`pull_request`) rule adoption.** Options: adopt (`required_approving_review_count:1`,
    `dismiss_stale_reviews_on_push:true`) vs not. Limits: the owner cannot self-approve own PRs (falls back
    to admin bypass); it **breaks the release-train archive-PR hands-free auto-merge** (App-token author
    can't self-approve). Recommendation: P1 optional/last, only if the owner will read every fleet diff; do
    NOT remove owner bypass to give it teeth. **Unblocks:** owner commitment to review fleet diffs + accept
    the archive-PR auto-merge clash. Source: **P1 §2.**
+       - A:
+
 4. **Bypass-actor cleanup (defense-in-depth).** Remove Integration bypasses 1210556 (**cursor**), 1236702
    (**claude**), 1276151 (**identify first**), and review the **DeployKey** bypass; keep RepositoryRole 5
    (owner). Framing: defense-in-depth + hygiene, NOT a queue prerequisite; ~0 cost; after removal the
    archive PR must PASS (not bypass) the 13 checks. P3-OQ7: near-zero flood effect alone; confirm the
    1236702/1276151 peer expectations before touching. **Unblocks:** identify 1276151 (owner UI); confirm
    DeployKey-to-main usage; @claude scratch-PR smoke-test after removal. Source: **P1 §3, P3 §4/OQ7.**
+       - A:
+
 5. **Cursor dashboard asks (all verify-in-dashboard).** Request: concurrency cap (≤5), schedule cadence,
    per-class disjoint file scopes, per-run PR budget, draft-PR creation, target-branch selection; and
    confirm the automation count (3 vs 4). The only source-side throttle if Cursor supports it; none is
    assumed. **Unblocks:** the owner verifies each capability in the Cursor dashboard / GitHub App
    installation settings. Source: **P3 §2/OQ1-OQ2, P1 §6(i), P2 §5(i).**
+       - A:
+
 6. **Blocking-option stages.** Path: **advisory → strict/queue → draft-only/integration-branch → full
    mediation**, with P3's staged entry/exit criteria (Stage-0 exit: verdicts match reality across ≥2 batches
    AND no un-reported batch merged; Stage-3 terminal, revert by re-granting access). Recommendation: P3's
    Stage 0 + Stage 1 strict flip in parallel; escalate only if damage recurs (blocking costs Cursor's
    self-healing #800 + SPOF/concentration). **Unblocks:** Stage-0 calibration; OQ2 draft/target capability
    for Stage 2. Source: **P3 §4, P1 §6(v), P2 §5(v).**
+       - A:
+
 7. **Supervisor adoption (Stage-0 build list).** Build: `util/fleet_triage/predict_merge.py` +
    `.claude/agents/fleet-supervisor.md` + `tests/test_predict_merge.py` +
    `tests/test_fleet_supervisor_contract.py`, with both tests wired into the ci.yml enumerated battery AND
    AGENTS.md's run-all list, plus the AGENTS.md co-changes (agents node, `util/fleet_triage/` tree entry).
    Recommendation: P3's recommended start (read-only per OQ4). **Unblocks:** nothing external — an in-repo
    owner-merged PR. Source: **P3 §1.**
+       - A:
+
 8. **P2 gate build order.** Order: (1) **G3 + G1 module** (silent-deletion net, bypass-proof at G3);
    (2) **G4 pre-commit split** (cheap, kills the highest-blast-radius #3 class); (3) **G1 per-PR + G2 docs**
    (soak advisory, then promote in the ruleset — never via the QG `needs:`); (4) **G5 observability**.
    Recommendation: P2 §6 ranked order. **Unblocks:** land the untracked ad-hoc census scripts in-repo first
    (`util/sequence_safety/`); wire each lint-test into the battery + AGENTS.md in the same PR. Source:
    **P2 §6.**
+       - A:
+
 9. **Open-PR budget alarm.** Options: a scheduled Actions workflow (`gh pr list` count → Slack,
    non-blocking) — P1's recommendation, matching release-train.yml:325-366; the P2 G5(i) queue-meter CI-step
    variant; and the P3 supervisor batch-budget process variant. Recommendation: adopt P1's scheduled workflow
    as the near-free detector. **Unblocks:** `SLACK_WEBHOOK_URL` present (skip-if-unset). Source: **P1 §5,
    P2 §5(i), P3 §5(i).**
+       - A:
 
 ---
 
