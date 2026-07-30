@@ -427,7 +427,7 @@ uvicorn api.app:create_app --factory --host 127.0.0.1 --port 8230
 # `python server.py` remains the operator/systemd form only — server.py parses NO CLI flags
 # (src/server.py:15-25), so under it the bind would ride env, which sits BELOW YAML.
 curl -sf http://127.0.0.1:8230/v1/health
-curl -sf http://127.0.0.1:8230/metrics | head    # only non-404 because METRICS_ENABLED=true
+curl -sfL http://127.0.0.1:8230/metrics | head   # -L required: the ASGI mount 307-redirects /metrics -> /metrics/; only non-404 because METRICS_ENABLED=true
 ```
 
 `LD_LIBRARY_PATH=''` is carried over from `util/isolated_stack.bash:208` (the libtorch/python collision class); the uvicorn-factory launch form is the same one `isolated_stack.bash:211` already uses. `JUNIPER_CASCOR_METRICS_ENABLED=true` is **mandatory** — the code default is `False` (`src/api/settings.py:373`).
@@ -619,7 +619,7 @@ Keep `make obs` / `make obs-demo` exactly as-is (`juniper-deploy/Makefile:144-16
 
 Why this respects the cardinality rules: `run_id` is a **scrape-side target label**, not a per-sample label baked into application code. With `honor_labels: false` (matching every existing job, e.g. `prometheus.yml:78`) Prometheus-side labels win, so the app never has to know a run id and the closed-set discipline enforced at cascor's helper boundary (`src/api/observability.py:384-389`) is untouched.
 
-Cardinality is bounded by *concurrent* runs, and a completed run's target file is deleted at teardown, so the series go stale and age out of the active set. `environment: "host-experiment"` deliberately parallels the existing `docker` / `docker-demo` values (`prometheus.yml:82-83`; `prometheus.demo.yml:42`) so existing dashboards can be filtered by it.
+Cardinality is bounded by *concurrent* runs, and a completed run's target file is deleted at teardown, so the series go stale and age out of the active set. `environment: "host-experiment"` deliberately parallels the existing `docker` / `docker-demo` values (`prometheus.yml:82-83`; `prometheus.demo.yml:61`) so existing dashboards can be filtered by it.
 
 **Secondary, in-app identity (PROPOSED, optional).** For a run id visible even when scraping is misconfigured, add a `register_info_or_update("juniper_cascor_experiment", "Current experiment run", run_id=..., experiment=...)` call behind an env var (`juniper-observability/juniper_observability/prometheus_helpers.py:214`).
 
@@ -640,7 +640,7 @@ socat "TCP-LISTEN:${port},bind=${GATEWAY_IP},fork,reuseaddr" "TCP:127.0.0.1:${po
 - The apps stay loopback-bound — cascor's non-loopback bind attestation guard (`src/api/settings.py:143-161`) is never tripped.
 - The app-side `MetricsAuthMiddleware` sees the **relay's loopback source address**, so **no allowlist changes are needed** (`metrics_auth.py:49` loopback defaults suffice).
 - `socat` becomes a preflight-checked dependency (P0.11, §10.1).
-- Prometheus-side target files keep pointing at `host.docker.internal:<port>` (§7.2), which the PROPOSED `extra_hosts` entry resolves to that same gateway IP inside the container — exactly the address the relay listens on host-side.
+- Prometheus-side target files keep pointing at `host.docker.internal:<port>` (§7.2). The PROPOSED `extra_hosts` entry must map it to that gateway IP **explicitly** (`"host.docker.internal:<monitoring-gateway>"`): the `host-gateway` *keyword* resolves to the default-bridge gateway (172.17.0.1), not the monitoring network's — the 2026-07-30 P0 evidence run proved the explicit-IP form end-to-end (F-2).
 
 **Alternatives considered.** *(b)* Binding the services to the gateway IP / `0.0.0.0` plus attestation env flags — rejected: it weakens the loopback security posture and deliberately trips cascor's bind guard (`src/api/settings.py:143-161`). *(c)* A host-network-mode Prometheus — rejected: it breaks the existing container-DNS scrapes of the dockerized services.
 
@@ -655,6 +655,7 @@ socat "TCP-LISTEN:${port},bind=${GATEWAY_IP},fork,reuseaddr" "TCP:127.0.0.1:${po
 | metrics allowlists                           | **no change** — the relay presents a loopback source address | loopback already trusted everywhere                         | `metrics_auth.py:49`; `.env.observability:56-64` |
 
 `OPEN QUESTION Q-4` — re-scoped by validation (it is **not** an allowlist question): validate gateway-IP discovery + relay reachability end-to-end. **Answered empirically by P0.10** (run per step 0.2b against a hand-applied, uncommitted copy of the §7 overlay): the expected failure signature *without* the relay is connection-refused; success is the `juniper-host-experiments` targets turning `up == 1` in Prometheus.
+**ANSWERED 2026-07-30** — executed exactly as specified: control arm `dial tcp 172.31.0.1:<port>: connect: connection refused`, relay arm `up == 1` (2/2) with run-scoped labels flowing into PromQL; see [the P0 preflight evidence](JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md).
 
 ### 7.4 New dashboards (PROPOSED, juniper-deploy)
 
@@ -767,7 +768,7 @@ Five phases. Each is independently runnable; each names its exact commands, acce
 | P0.1 | `ls /opt/miniforge3/envs/` | `JuniperCascor1`, `JuniperData` present; the `-DEPRECATED` envs are not used |
 | P0.2 | `/opt/miniforge3/envs/JuniperCascor1/bin/python -c "import juniper_cascor, juniper_recurrence, torch, matplotlib, yaml"` | all import; record versions |
 | P0.3 | `/opt/miniforge3/envs/JuniperData/bin/python -c "import juniper_data, uvicorn, matplotlib, yaml, numpy, requests"` | all import (also settles the §6.3 driver-dependency claim for this env) |
-| P0.4 | `python util/editable_install_drift_check.py` and `python util/env_floor_drift_check.py` (juniper-ml) | no `ORPHANED`, no `BELOW_FLOOR` for the participating packages |
+| P0.4 | `python util/editable_install_drift_check.py` and `python util/env_floor_drift_check.py --env JuniperCascor1 --env JuniperData` (juniper-ml; the bare floor-check invocation exits 2 from juniper-ml — no conda env maps to it in `ecosystem.yaml`) | no `ORPHANED`, no `BELOW_FLOOR` for the participating packages |
 | P0.5 | Launch a data instance on 8110; `curl /v1/generators` | 15 of 16 `available: true`; `mnist` `false` (expected on this host, G-16) |
 | P0.6 | Launch cascor on 8230 with `JUNIPER_CASCOR_METRICS_ENABLED=true`; `curl -sf /metrics` | non-empty exposition; `juniper_cascor_build_info` present |
 | P0.7 | Same with the flag unset | `/metrics` **404s** — confirms G-3 is a real trap, not folklore |
@@ -775,9 +776,9 @@ Five phases. Each is independently runnable; each names its exact commands, acce
 | P0.9 | `make obs` in juniper-deploy; `curl -s localhost:9090/api/v1/targets` | the five container jobs are visible (baseline before any change) |
 | **P0.10** | Against a **hand-applied, uncommitted** copy of the §7 compose/prometheus overlay (step 0.2b): write a target file, start the §7.3 relay, wait `refresh_interval`, re-query `/api/v1/targets` | the `juniper-host-experiments` targets turn **`up == 1`**. Control arm: without the relay, `lastError` shows **connection refused** (a gateway-addressed scrape can never land on a loopback bind). Answers Q-4 empirically; this evidence gates merging Wave 1.1. |
 | P0.11 | `docker network inspect` the monitoring/backend networks; `command -v socat` | record the gateway IP the §7.3 relays will bind; `socat` present (relay dependency) |
-| P0.12 | `ss -tlnH 'sport >= :8110 and sport <= :8289'` before starting | empty — no stale experiment listeners |
+| P0.12 | per sub-range, before starting: `ss -tlnH 'sport >= :8110 and sport <= :8139'` (data), the same for `:8230`-`:8259` (cascor) and `:8260`-`:8289` (recurrence) | all three sub-ranges empty — the naive full 8110-8289 span also catches unrelated ambient listeners (e.g. the operator cascor on 8200) and must not be the acceptance check |
 
-**Evidence**: `p0-preflight.md` with every command's output, the recurrence bind latency, the Prometheus targets JSON, and the resolved gateway IP.
+**Evidence**: filed 2026-07-30 as [`JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md`](JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md) — every command's output, the recurrence bind latency, the Prometheus targets JSON for both P0.10 arms, and the resolved gateway IPs.
 
 ### 10.2 P1 — Smoke (one minimal run per app, per launch mode)
 
@@ -1034,9 +1035,9 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 
 | #    | Item                                                                                                                                                                                                                                            | Repo       | Size | Depends on |
 |------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------|------|------------|
-| 0.1  | This plan, reviewed and ratified by the owner                                                                                                                                                                                                   | juniper-ml | S    | —          |
-| 0.2  | Execute P0 preflight (§10.1) steps P0.1-P0.9 + P0.11-P0.12 and file the evidence                                                                                                                                                                | —          | S    | 0.1        |
-| 0.2b | Execute **P0.10** against a hand-applied, **uncommitted** copy of the §7 compose/prometheus overlay — answers Q-4 empirically (relay reachability; the without-relay control arm shows connection-refused); its evidence gates merging Wave 1.1 | —          | S    | 0.2        |
+| 0.1  | This plan, reviewed and ratified by the owner — **DONE 2026-07-30** (PR #867 merged; every Q-1…Q-12 recommendation concurred)                                                                                                                                                                                                   | juniper-ml | S    | —          |
+| 0.2  | Execute P0 preflight (§10.1) steps P0.1-P0.9 + P0.11-P0.12 and file the evidence — **DONE 2026-07-30, all PASS** ([evidence](JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md); two command-form errata folded back into §10.1)                                                                                                                                                                | —          | S    | 0.1        |
+| 0.2b | Execute **P0.10** against a hand-applied, **uncommitted** copy of the §7 compose/prometheus overlay — answers Q-4 empirically (relay reachability; the without-relay control arm shows connection-refused); its evidence gates merging Wave 1.1 — **DONE 2026-07-30**: control arm = connection refused, relay arm = `up` 2/2 with run-scoped labels; **Wave 1.1 unblocked** (evidence F-2/F-3 binding) | —          | S    | 0.2        |
 
 ### Wave 1 — Observability bridge (unblocks every "in Grafana" requirement)
 
