@@ -1,0 +1,370 @@
+---
+#####################################################################################################################################################################################################
+# Project:       Juniper
+# Application:   juniper-ml
+# File Name:     main-verify.yml
+# Author:        Paul Calnon
+# Version:       0.1.0
+#
+# Date Created:  2026-07-28
+# Last Modified: 2026-07-28
+#
+# License:       MIT License
+# Copyright:     Copyright (c) 2024-2026 Paul Calnon
+#
+# Description:
+#    Post-merge main-verification workflow (Proposal P2 gate G3; flood-remediation
+#    analysis notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md
+#    S3 / S4 item 8). Runs AFTER a merge lands on main, so it fires no matter who merged
+#    or what they bypassed -- the only gate the always-bypass actors (the owner + the
+#    Cursor App) cannot skip. This is the bypass-proof compositional-loss net: the flood
+#    damage was every-PR-green but serial same-file merges fused / deleted sibling
+#    content, and a deleted test cannot fail, so nothing per-PR saw it.
+#
+#    Three jobs:
+#      * symbol-screen -- ALWAYS runs. AST symbol-loss screen + docs deletion-magnitude
+#        screen of <merge>^1 .. <merge> (the push's first parent vs the new tip), both
+#        via util/sequence_safety/. Uploads the JSON reports as an artifact a supervisor
+#        can consume. FAILs the job on a compositional-loss finding.
+#      * battery -- the full enumerated unittest battery, path-gated: it runs only when
+#        the push touched tests/ | util/ | scripts/ | .github/ | pyproject.toml (a
+#        docs-only merge skips it). A regression that a bad merge introduced is caught
+#        here at the first bad tip.
+#      * notify -- needs both; on failure it upserts a dedup tracking issue and posts a
+#        non-blocking Slack summary, so a red main-verify is LOUD (the 2026-06-06
+#        startup-failure class: main went red unnoticed because merged PRs showed green).
+#
+# Concurrency (grounded design requirement, P2 S3):
+#    ci.yml uses group: ci-${{ github.ref }} + cancel-in-progress: true, and for main
+#    pushes github.ref is constant (refs/heads/main), so rapid serial merges CANCEL each
+#    other and only the last merge is verified. G3 MUST use a per-SHA group with
+#    cancel-in-progress: false so EVERY merge is verified during a storm (delayed by the
+#    runner cap, never dropped).
+#
+# Security Notes:
+#    - Runs on push:main + manual dispatch only (never on forks / PRs).
+#    - Workflow-level permissions are 'contents: read'; only the notify job elevates
+#      (job-level 'issues: write') and only to upsert the tracking issue (R7 pattern).
+#    - The one repo secret consumed is SLACK_WEBHOOK_URL (non-blocking notify; a missing
+#      secret skips the step and a post failure never fails the run).
+#
+# References:
+#    - notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md (S3 P2 G3 / S4 item 8)
+#    - util/sequence_safety/{symbol_loss_check,docs_additions_check}.py (+ tests/test_{symbol_loss,docs_additions}_check.py)
+#    - .github/workflows/release-train.yml (the verbatim non-blocking Slack pattern reused below)
+#####################################################################################################################################################################################################
+
+name: Post-Merge Main Verification
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Per-SHA, no-cancel: EVERY merge to main is verified even during a merge storm (P2 S3).
+# Contrast ci.yml (group: ci-${{ github.ref }} + cancel-in-progress: true), where serial
+# main pushes cancel each other so only the last merge's run survives.
+concurrency:
+  group: main-verify-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_TEST_VERSION: "3.12"
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  # symbol-screen (ALWAYS runs): the bypass-proof compositional-loss net -- AST symbol-loss
+  # screen + docs deletion-magnitude screen of <merge>^1 .. <merge>. Seconds to run (AST + git).
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  symbol-screen:
+    name: Symbol & Docs Screen
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Need <merge>^1 (github.event.before) AND the new tip -> full history.
+          fetch-depth: 0
+
+      - name: Set up Python ${{ env.PYTHON_TEST_VERSION }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_TEST_VERSION }}
+
+      - name: Run sequence-safety screens (symbol + docs)
+        env:
+          BEFORE: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          set +e  # this step handles screen exit codes manually
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║       juniper-ml - Post-Merge Sequence-Safety Screens      ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          # BASE = the push's first parent. For a standard non-ff merge push,
+          # github.event.before == <merge>^1. On a force-push / initial push it is
+          # all-zeros (or empty on dispatch) -> fall back to HEAD^1.
+          base="$BEFORE"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git rev-parse --verify -q "${base}^{commit}" >/dev/null 2>&1; then
+            base="$(git rev-parse --verify -q 'HEAD^1' || git rev-parse HEAD)"
+            echo "github.event.before unavailable (force-push / initial / dispatch) -> BASE fallback = ${base}"
+          fi
+          echo "Screening ${base} .. ${HEAD_SHA}"
+          echo ""
+          echo "--- symbol-loss screen ---"
+          # Human run to the log carries the authoritative exit code; the guarded
+          # --json run then writes the artifact (same verdicts, machine-readable).
+          python3 util/sequence_safety/symbol_loss_check.py --base "$base" --head "$HEAD_SHA"
+          src=$?
+          python3 util/sequence_safety/symbol_loss_check.py --base "$base" --head "$HEAD_SHA" --json > symbol-report.json || true
+          echo ""
+          echo "--- docs deletion-magnitude screen ---"
+          python3 util/sequence_safety/docs_additions_check.py --base "$base" --head "$HEAD_SHA"
+          drc=$?
+          python3 util/sequence_safety/docs_additions_check.py --base "$base" --head "$HEAD_SHA" --json > docs-report.json || true
+          echo ""
+          echo "symbol screen exit=${src} ; docs screen exit=${drc}"
+          if [ "${src}" -ge 2 ] || [ "${drc}" -ge 2 ]; then
+            echo "::error::sequence-safety screen invocation error (see log)"
+            exit 2
+          fi
+          if [ "${src}" -ge 1 ] || [ "${drc}" -ge 1 ]; then
+            echo "::error::post-merge compositional-loss finding(s) at ${HEAD_SHA} -- see the screens above and the sequence-safety-report artifact"
+            exit 1
+          fi
+          echo "::notice::sequence-safety screens clean at ${HEAD_SHA}"
+
+      - name: Upload sequence-safety report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sequence-safety-report
+          path: |
+            symbol-report.json
+            docs-report.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  # battery (path-gated): the full enumerated unittest battery re-run against the merged tip, so a
+  # regression a bad merge introduced is caught at the first bad main tip. Runs only when the push
+  # touched tests/ | util/ | scripts/ | .github/ | pyproject.toml -- a docs-only merge skips it
+  # (the symbol-screen job still always runs). SYNC NOTE: the battery list below MUST stay in sync
+  # with ci.yml's `tests` job enumeration (there is no pytest auto-discovery); any test added to /
+  # removed from ci.yml must be mirrored here in the same PR.
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  battery:
+    name: Regression Battery
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Detect relevant path changes
+        id: changes
+        env:
+          BEFORE: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          set +e
+          base="$BEFORE"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git rev-parse --verify -q "${base}^{commit}" >/dev/null 2>&1; then
+            base="$(git rev-parse --verify -q 'HEAD^1' || true)"
+          fi
+          if [ -z "$base" ]; then
+            echo "No resolvable base (initial / force push) -> running the battery to be safe."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only "$base" "$HEAD_SHA")"
+          echo "Changed files ${base}..${HEAD_SHA}:"
+          echo "$changed"
+          if printf '%s\n' "$changed" | grep -qE '^(tests/|util/|scripts/|\.github/|pyproject\.toml)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Relevant code/config/test paths changed -> running the battery."
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No tests/ | util/ | scripts/ | .github/ | pyproject.toml changes -> skipping the battery (P2 S3 burst-cost mitigation)."
+          fi
+
+      - name: Set up Python ${{ env.PYTHON_TEST_VERSION }}
+        if: steps.changes.outputs.run == 'true'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_TEST_VERSION }}
+
+      - name: Install test dependencies
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          python -m pip install --upgrade "pip>=26.1.1"
+          # Same two installs ci.yml's tests job performs: PyYAML (workflow/registry
+          # parsers) + packaging (env-drift dogfood's SpecifierSet/Version).
+          pip install "pyyaml>=6.0" "packaging>=22.0"
+
+      - name: Run Python regression battery
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║       juniper-ml - Post-Merge Regression Battery          ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          # MIRROR of ci.yml's `tests` job list (keep in sync -- no auto-discovery).
+          python3 -m unittest -v tests/test_wake_the_claude.py
+          python3 -m unittest -v tests/test_claude_interactive.py
+          python3 -m unittest -v tests/test_env_repr_safety.py
+          python3 -m unittest -v tests/test_worktree_cleanup.py
+          python3 -m unittest -v tests/test_worktree_activate.py
+          python3 -m unittest -v tests/test_worktree_sweep_scripts.py
+          python3 -m unittest -v tests/test_cleanup_session_worktrees.py
+          python3 -m unittest -v tests/test_cleanup_open_remove_stale_worktrees.py
+          python3 -m unittest -v tests/test_worktree_wipeout_close.py
+          python3 -m unittest -v tests/test_global_text_search.py
+          python3 -m unittest -v tests/test_prune_git_branches_without_working_dirs.py
+          python3 -m unittest -v tests/test_reap_pytest_orphans.py
+          python3 -m unittest -v tests/test_kill_helpers.py
+          python3 -m unittest -v tests/test_editable_install_drift_check.py
+          python3 -m unittest -v tests/test_env_floor_drift_check.py
+          python3 -m unittest -v tests/test_env_drift_check.py
+          python3 -m unittest -v tests/test_env_drift_check_drift.py
+          python3 -m unittest -v tests/test_release_train_registry.py
+          python3 -m unittest -v tests/test_release_train_detect.py
+          python3 -m unittest -v tests/test_release_train_propose.py
+          python3 -m unittest -v tests/test_release_train_workflow_guard.py
+          python3 -m unittest -v tests/test_release_train_archive_guard.py
+          python3 -m unittest -v tests/test_release_train_ceremony.py
+          python3 -m unittest -v tests/test_prompt_discovery.py
+          python3 -m unittest -v tests/test_symbol_overlay.py
+          python3 -m unittest -v tests/test_generated_prompt_index.py
+          python3 -m unittest -v tests/test_thread_handoff_archive.py
+          python3 -m unittest -v tests/test_install_agents.py
+          python3 -m unittest -v tests/test_agent_suite_doctor.py
+          python3 -m unittest -v tests/test_agent_suite_summary.py
+          python3 -m unittest -v tests/test_requirements_drift_check.py
+          python3 -m unittest -v tests/test_validate_claude_yaml_access.py
+          python3 -m unittest -v tests/test_workflow_script_paths.py
+          # Flood-remediation sequence-safety screens (P2 G1/G2; mirror ci.yml).
+          python3 -m unittest -v tests/test_symbol_loss_check.py
+          python3 -m unittest -v tests/test_docs_additions_check.py
+          python3 -m unittest -v tests/test_doc_tools_drift.py
+          python3 -m unittest -v tests/test_ci_tools_drift.py
+          python3 -m unittest -v tests/test_coverage_gap_mapper_drift.py
+          python3 -m unittest -v tests/test_model_core_drift.py
+          python3 -m unittest -v tests/test_service_core_drift.py
+          python3 -m unittest -v tests/test_pyproject_extras.py
+          python3 -m unittest -v tests/test_template_library_drift.py
+          python3 -m unittest -v tests/test_template_selection.py
+          python3 -m unittest -v tests/test_template_select_preview.py
+          python3 -m unittest -v tests/test_template_data_resolver.py
+          python3 -m unittest -v tests/test_scaffold_template.py
+          python3 -m unittest -v tests/test_prompt_validator_contract.py
+          python3 -m unittest -v tests/test_template_agent_skill_lint.py
+          python3 -m unittest -v tests/test_service_smoke_skill_lint.py
+          python3 -m unittest -v tests/test_ui_test_author_skill_lint.py
+          python3 -m unittest -v tests/test_agents_frontmatter.py
+          python3 -m unittest -v tests/test_agent_suite_path_drift.py
+          python3 -m unittest -v tests/test_agents_md_version_drift.py
+          python3 -m unittest -v tests/test_agents_md_header_schema.py
+          python3 -m unittest -v tests/test_agents_md_tree_drift.py
+          python3 -m unittest -v tests/test_juniper_plant_all.py
+          python3 -m unittest -v tests/test_juniper_chop_all.py
+          python3 -m unittest -v tests/test_isolated_stack_script.py
+          python3 -m unittest -v tests/test_check_conda_env_torch.py
+
+      - name: Run bash regression tests
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║       juniper-ml - Post-Merge Bash Regression Tests       ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          bash scripts/test_resume_file_safety.bash
+
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  # notify (on failure only): a red main-verify must be LOUD. Upserts a dedup tracking issue (dedup
+  # by exact title, which carries the SHA -- a re-run of the same failed SHA comments instead of
+  # opening a second issue) and posts a non-blocking Slack summary (verbatim release-train.yml
+  # pattern: a missing SLACK_WEBHOOK_URL skips the step; a post failure never fails the run).
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  notify:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: [symbol-screen, battery]
+    if: failure()
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Upsert tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SYMBOL_RESULT: ${{ needs.symbol-screen.result }}
+          BATTERY_RESULT: ${{ needs.battery.result }}
+        run: |
+          set -uo pipefail
+          title="main-verify: post-merge verification failed at ${SHA}"
+          {
+            echo "Post-merge **main-verify** failed on \`main\` at \`${SHA}\`."
+            echo ""
+            echo "| job | result |"
+            echo "|---|---|"
+            echo "| symbol-screen (symbol + docs loss) | ${SYMBOL_RESULT} |"
+            echo "| battery (regression suite) | ${BATTERY_RESULT} |"
+            echo ""
+            echo "This is the bypass-proof post-merge net (P2 G3): a compositional loss or"
+            echo "regression landed on main. Inspect the **sequence-safety-report** artifact"
+            echo "(symbol-report.json / docs-report.json) and the battery job log:"
+            echo ""
+            echo "- Run: ${RUN_URL}"
+            echo ""
+            echo "_Auto-filed by .github/workflows/main-verify.yml; re-runs of this SHA update this issue._"
+          } > issue-body.md
+          existing="$(gh issue list --repo "$REPO" --search "${title} in:title" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)"
+          if [ -n "$existing" ]; then
+            echo "Updating existing tracking issue #${existing}"
+            gh issue comment "$existing" --repo "$REPO" --body-file issue-body.md
+          else
+            echo "Opening a new tracking issue"
+            gh issue create --repo "$REPO" --title "$title" --body-file issue-body.md
+          fi
+
+      - name: Slack notification (non-blocking)
+        # Verbatim reuse of release-train.yml's non-blocking pattern: a missing secret
+        # skips the step, and a post failure never fails the run (continue-on-error).
+        continue-on-error: true
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          SYMBOL_RESULT: ${{ needs.symbol-screen.result }}
+          BATTERY_RESULT: ${{ needs.battery.result }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
+            echo "SLACK_WEBHOOK_URL secret not set -- skipping Slack notification (non-blocking by design)."
+            exit 0
+          fi
+          python - <<'PY' > slack-payload.json
+          import json
+          import os
+
+          run_url = os.environ["RUN_URL"]
+          sha = os.environ["SHA"]
+          sym = os.environ.get("SYMBOL_RESULT", "?")
+          bat = os.environ.get("BATTERY_RESULT", "?")
+          text = f"main-verify FAILED on main at {sha[:12]} -- symbol-screen: {sym}, battery: {bat}. Post-merge compositional-loss / regression net (P2 G3). Run: {run_url}"
+          print(json.dumps({"text": text}))
+          PY
+          curl -fsS -X POST -H 'Content-Type: application/json' -d @slack-payload.json "$SLACK_WEBHOOK_URL" > /dev/null
+          echo "Slack notification posted."

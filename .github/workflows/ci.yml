@@ -270,6 +270,18 @@ jobs:
           python3 -m unittest -v tests/test_requirements_drift_check.py
           python3 -m unittest -v tests/test_validate_claude_yaml_access.py
           python3 -m unittest -v tests/test_workflow_script_paths.py
+          # tests/test_symbol_loss_check.py + tests/test_docs_additions_check.py:
+          # the flood-remediation sequence-safety screens (Proposal P2 gates G1/G2,
+          # productionized from the 2026-07-28 Cursor-flood census). Hermetic git
+          # fixtures drive util/sequence_safety/{symbol_loss_check,docs_additions_check}.py
+          # (LOST/WEAKENED/DUPLICATED symbol verdicts with a qualified-name relocation
+          # downgrade + Allow-Symbol-Loss trailer escape; docs heading / >=N-line
+          # deletion magnitude with an Allow-Docs-Rewrite escape). util/ is not
+          # pre-commit-lint-gated, so these unittests are the gate. The same two
+          # screens run post-merge, unbypassably, in .github/workflows/main-verify.yml
+          # (G3) -- whose battery job mirrors THIS list and must stay in sync with it.
+          python3 -m unittest -v tests/test_symbol_loss_check.py
+          python3 -m unittest -v tests/test_docs_additions_check.py
           # tests/test_doc_tools_drift.py: the cross-repo
           # consumer-pin assertions auto-skip when siblings are not
           # cloned (per-PR mode); the helper unit tests + juniper-ml's
