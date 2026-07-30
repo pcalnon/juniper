@@ -36,11 +36,19 @@ on:
     branches:
       - main
       - develop
+  # merge_group: required so every gating context re-runs on the queued merge
+  # commit GitHub builds for the "Require merge queue" ruleset rule (flood-remediation
+  # §4 item 1 prerequisite). Without it no required context posts and the queue stalls.
+  merge_group:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Per-SHA group on push so every main merge completes its own run — rapid serial
+  # merges must NOT cancel each other, else only the last merge is verified
+  # (flood-remediation §4 item 2). pull_request / merge_group / dispatch runs still
+  # group by ref and cancel superseded runs of the same ref.
+  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 permissions:
   contents: read
@@ -446,23 +454,39 @@ jobs:
   release-train-archive-guard:
     name: Release-Train Archive Guard
     runs-on: ubuntu-latest
-    # PR-only: the exempt notes-archive PR is always a pull request. On a branch push
-    # github.base_ref is empty, so the guard is a no-op and never blocks a push.
-    if: github.event_name == 'pull_request'
+    # Runs on pull_request (the real guard) and on merge_group (a queued merge commit
+    # must re-post this required context, else the merge queue stalls — flood-remediation
+    # §4 item 1). On a branch push github.base_ref is empty, so the job is skipped and
+    # never blocks a push (unchanged behaviour; the guard is absent from the Quality Gate
+    # needs, so its skip on push does not affect that gate).
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     permissions:
       contents: read
     steps:
+      # merge_group short-circuit: this guard validates PR *content*, already checked on
+      # the PR run. A queued merge commit has no PR base_ref to diff, so it must simply
+      # report this required context green — BEFORE any base-ref diffing. The pull_request
+      # path below is byte-for-byte the pre-existing guard (each step gated to pull_request
+      # so it is skipped, not altered, on a queue run).
+      - name: Report success on merge queue (validation already ran on the PR)
+        if: github.event_name == 'merge_group'
+        run: |
+          echo "::notice::merge_group run — Release-Train Archive Guard already validated on the PR; reporting success without base-ref diffing."
+
       - name: Checkout Code
+        if: github.event_name == 'pull_request'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # need base + head history for the merge-base (three-dot) diff
 
       - name: Set up Python
+        if: github.event_name == 'pull_request'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_TEST_VERSION }}
 
       - name: Install guard dependencies
+        if: github.event_name == 'pull_request'
         run: |
           python -m pip install --upgrade "pip>=26.1.1"
           # PyYAML: archive_guard.py resolves the valid pypi_names from registry.yaml
@@ -470,6 +494,7 @@ jobs:
           pip install "pyyaml>=6.0"
 
       - name: Run archive guard
+        if: github.event_name == 'pull_request'
         run: |
           echo "╔════════════════════════════════════════════════════════════╗"
           echo "║       juniper-ml - Release-Train Archive Guard             ║"
