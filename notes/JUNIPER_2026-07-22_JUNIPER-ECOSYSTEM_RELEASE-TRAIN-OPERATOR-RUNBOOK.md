@@ -800,10 +800,13 @@ serial archive PRs). The bypass applies **only to merging PRs on juniper-ml**; i
    are acted on. Additionally, a PR opened with `GITHUB_TOKEN` does **not** auto-trigger CI (GitHub's
    recursion guard), so a proposal PR shows no checks until re-triggered (close/reopen, or push an empty
    commit). When the App token IS minted, PRs are opened by the App identity and CI runs normally.
-2. **Issues permission (HALT-issue degradation).** The App installation may not have the **Issues**
-   permission (owner-grantable later). Until then, a HALT that would file a dedup issue in a sibling repo
-   degrades to a loud log + step-summary flag and does not crash the run (§4). Operator response: file
-   the issue manually, or grant the App the Issues permission on the 8 repos.
+2. **Issues permission (HALT-issue degradation) — RETIRED 2026-07-30.** Owner-verified: the App's
+   repository permissions include **Issues: Read and write** (and were already granted pre-verification),
+   the installation carries it, and the mint steps pass no `permission-*` narrowing — so minted tokens
+   hold Issues write and the HALT-issue upsert will succeed when a HALT fires. No live HALT has yet
+   exercised the path (all ceremony runs to date were happy-path); the graceful-degradation branch
+   (loud log + `halt_issue_failed` step-summary flag, never a crash) REMAINS in the code as defense
+   against a future permission regression — if the flag ever appears, re-check the installation grant.
 3. **Tag-ref workflow gotcha (0.4 backfill).** Some legacy sub-package releases were shipped **tag-only**
    (a bare `git push <tag>`) rather than by cutting a GitHub Release — the convention now being restored
    (CLAUDE.md "Release convention"; plan §12 step 0.4). The ceremony **always cuts a Release** (never a
