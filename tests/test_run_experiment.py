@@ -737,6 +737,25 @@ class HappyPathTest(_StubTestCase):
         self.assertIn("artifacts/results/metrics_series.csv", manifest["artifacts"])
         self.assertIn("config/experiment.yaml", manifest["artifacts"])
         self.assertEqual(manifest["driver"]["wave"], rx.DRIVER_WAVE)
+
+        # SS8.3 (Wave 2.6): stats.json + summary.md written and folded into the manifest.
+        self.assertIsNone(manifest["stats_error"])
+        self.assertIn("artifacts/results/stats.json", manifest["artifacts"])
+        self.assertIn("artifacts/results/summary.md", manifest["artifacts"])
+        stats = json.loads((results / "stats.json").read_text(encoding="utf-8"))
+        self.assertEqual(stats["schema"], "juniper-experiment-stats/1")
+        self.assertEqual(stats["identity"]["run_id"], "20260730T000000Z-beef")
+        self.assertEqual(stats["dataset"]["shapes"], {"kind": "tabular", "n_train": 800, "n_test": 200, "n_features": 2, "n_classes": 2})
+        correlation = stats["cascor"]["candidate_correlation"]
+        self.assertEqual(correlation["max"], 0.87)
+        self.assertGreaterEqual(len(correlation["per_round"]), 1)
+        duration = stats["cascor"]["training_step_duration"]
+        self.assertEqual(duration["total_steps"], 3)
+        self.assertIn("per-poll mean", duration["basis"])
+        summary_text = (results / "summary.md").read_text(encoding="utf-8")
+        self.assertIn("20260730T000000Z-beef", summary_text)
+        self.assertIn("## cascor", summary_text)
+
         self.assertIn("run_experiment summary", stdout)
         self.assertIn("20260730T000000Z-beef", stdout)
 
@@ -792,6 +811,8 @@ class FailureArmsTest(_StubTestCase):
         code, _ = _invoke(config, self.run_dir, "--stall-seconds", "0.2")
         self.assertEqual(code, rx.EXIT_ACCEPTANCE)
         self.assertEqual(_manifest(self.run_dir)["outcome"], "stalled")
+        # SS8.3: stats render for every outcome, not just success.
+        self.assertTrue((self.run_dir / "artifacts" / "results" / "stats.json").is_file())
 
     def test_cli_budget_beats_yaml(self) -> None:
         self.state.increment_epochs = True
@@ -964,6 +985,16 @@ class RecurrencePathTest(_StubTestCase):
         self.assertEqual(manifest["service_urls"]["recurrence"], self.server.base_url)
         self.assertEqual(manifest["dataset"]["split"], "train")
         self.assertEqual(manifest["driver"]["wave"], rx.DRIVER_WAVE)
+
+        # SS8.3 (Wave 2.6): the recurrence stats block + summary.
+        self.assertIsNone(manifest["stats_error"])
+        stats = json.loads((results / "stats.json").read_text(encoding="utf-8"))
+        self.assertEqual(stats["recurrence"]["final_metrics"]["r2"], 0.91)
+        self.assertEqual(stats["recurrence"]["theta"]["note"], "data-driven (resolved from per-window elapsed time)")
+        self.assertEqual(stats["recurrence"]["readout"]["rung"], "linear")
+        self.assertEqual(stats["recurrence"]["crossval"]["eval_aggregate"], {"r2": 0.8})
+        self.assertIn("## recurrence", (results / "summary.md").read_text(encoding="utf-8"))
+
         self.assertIn("(recurrence)", stdout)
 
     def test_disabled_blocks_skip_phases(self) -> None:
@@ -1236,6 +1267,108 @@ class RecurrencePlotRendererUnitTest(unittest.TestCase):
         crossval = {"eval_aggregate": {"r2": 0.8}, "eval_std": {"r2": 0.05}}
         out = self.plots.render_metrics_table({"r2": 0.91, "mse": 0.01}, crossval, "t", self.tmp / "table.png")
         self.assertTrue(out.read_bytes().startswith(PNG_MAGIC))
+
+
+class StatsSummaryUnitTest(unittest.TestCase):
+    """Unit arms for stats_summary.py (SS8.3, stdlib-only): percentiles, series-derived stats, block assembly."""
+
+    def setUp(self) -> None:
+        self.stats = rx._load_sibling("stats_summary.py")
+
+    def test_percentile(self) -> None:
+        self.assertIsNone(self.stats.percentile([], 50))
+        self.assertEqual(self.stats.percentile([3.0], 95), 3.0)
+        self.assertEqual(self.stats.percentile([1.0, 2.0, 3.0, 4.0], 50), 2.5)
+        self.assertEqual(self.stats.percentile([1.0, 2.0], 100), 2.0)
+
+    def test_step_duration_stats_from_deltas(self) -> None:
+        rows = [
+            {"juniper_cascor_training_step_duration_seconds_sum": "1.0", "juniper_cascor_training_step_duration_seconds_count": "2"},
+            {"juniper_cascor_training_step_duration_seconds_sum": "2.0", "juniper_cascor_training_step_duration_seconds_count": "4"},
+            {"juniper_cascor_training_step_duration_seconds_sum": "5.0", "juniper_cascor_training_step_duration_seconds_count": "5"},
+        ]
+        result = self.stats.step_duration_stats(rows)
+        self.assertEqual(result["total_steps"], 5)
+        self.assertEqual(result["poll_samples"], 2)  # per-poll means: (1.0/2)=0.5 and (3.0/1)=3.0
+        self.assertEqual(result["p50_seconds"], 1.75)
+        self.assertEqual(result["overall_mean_seconds"], 1.0)
+
+    def test_step_duration_stats_constant_series(self) -> None:
+        rows = [{"juniper_cascor_training_step_duration_seconds_sum": "1.5", "juniper_cascor_training_step_duration_seconds_count": "3"}] * 3
+        result = self.stats.step_duration_stats(rows)
+        self.assertEqual(result["total_steps"], 3)
+        self.assertIsNone(result["p50_seconds"])
+        self.assertIn("per-poll mean", result["basis"])
+
+    def test_correlation_per_round(self) -> None:
+        rows = [
+            {"juniper_cascor_candidate_correlation": "0.5", "current_hidden_units": "0"},
+            {"juniper_cascor_candidate_correlation": "0.7", "current_hidden_units": "0"},
+            {"juniper_cascor_candidate_correlation": "0.6", "current_hidden_units": "1"},
+            {"juniper_cascor_candidate_correlation": "", "current_hidden_units": "1"},
+        ]
+        result = self.stats.correlation_per_round(rows)
+        self.assertEqual(result["per_round"], [{"hidden_units": 0, "best_correlation": 0.7}, {"hidden_units": 1, "best_correlation": 0.6}])
+        self.assertEqual(result["max"], 0.7)
+        self.assertEqual(result["samples"], 3)
+
+    def test_build_stats_sequence_shapes_and_summary(self) -> None:
+        manifest = {
+            "run_id": "r-unit",
+            "experiment": {"name": "e", "description": None},
+            "config_sha256": "x",
+            "seeds": {"experiment": 1, "dataset": 1},
+            "git": {"juniper-ml": {"head_sha": "a" * 40, "dirty": False}},
+            "packages": {"juniper-data": {"version": "0.6.0"}},
+            "timings": {"total": 1.0},
+            "outcome": "succeeded",
+            "acceptance": {"ok": True, "reasons": []},
+            "metrics_scraped": {"grafana_bridge": False, "present": False},
+            "collect_errors": [],
+            "drive_loop": {},
+            "driver": {"plots": {"skipped": []}},
+            "g6_shape_check": None,
+            "dataset": {
+                "dataset_id": "d",
+                "generator": "irregular_sine",
+                "version": "1",
+                "split": "train",
+                "params": {},
+                "meta": {"sequence": True, "n_samples": 12, "lookback": 16, "n_features": 3, "n_train": 8, "n_test": 4, "task_type": "regression"},
+            },
+        }
+        stats = self.stats.build_stats(manifest, kind="recurrence", train_summary={"final_metrics": {"r2": 0.9}}, train_config={"theta": None, "d": 8})
+        self.assertEqual(stats["dataset"]["shapes"]["kind"], "sequence")
+        self.assertEqual(stats["dataset"]["shapes"]["n_windows"], 12)
+        self.assertEqual(stats["dataset"]["shapes"]["lookback"], 16)
+        self.assertIn("data-driven", stats["recurrence"]["theta"]["note"])
+        self.assertEqual(stats["identity"]["packages"], {"juniper-data": "0.6.0"})
+        rendered = self.stats.render_summary_md(stats)
+        self.assertIn("r-unit", rendered)
+        self.assertIn("## recurrence", rendered)
+        self.assertIn("n_windows=12", rendered)
+
+    def test_degraded_notes_surface(self) -> None:
+        manifest = {
+            "run_id": "r",
+            "experiment": {"name": "e"},
+            "timings": {},
+            "outcome": "succeeded",
+            "acceptance": {"ok": False, "reasons": []},
+            "drive_loop": {"metrics_sampling_errors": 2},
+            "collect_errors": [{"artifact": "topology", "essential": "false", "error": "HTTP 500"}],
+            "driver": {"plots": {"skipped": [{"name": "eval_metrics", "reason": "disabled"}]}},
+            "g6_shape_check": {"ok": False},
+            "dataset": {"meta": {}},
+            "metrics_scraped": {},
+        }
+        stats = self.stats.build_stats(manifest, kind="cascor", series_rows=[], metrics_final={"eval_metrics": {"enabled": False}})
+        notes = stats["provenance"]["degraded_notes"]
+        self.assertTrue(any("G-3" in note for note in notes))
+        self.assertTrue(any("topology" in note for note in notes))
+        self.assertTrue(any("eval_metrics" in note for note in notes))
+        self.assertTrue(any("G-6" in note for note in notes))
+        self.assertTrue(any("eval metrics disabled" in note for note in notes))
 
 
 class SubprocessSmokeTest(unittest.TestCase):
