@@ -1,0 +1,749 @@
+"""Hermetic tests for ``util/experiments/run_experiment.py`` (Wave 2.2: the cascor service path).
+
+The SS10.6 gate for the experiment driver -- ``util/`` is not pre-commit-lint-gated
+(flake8/black scope to ``scripts``+``tests``), so this unittest is the gate. No live
+services and no network beyond a loopback stub: a scripted ``http.server`` stands in
+for BOTH the run's juniper-data and cascor (their endpoint sets are disjoint). Covers:
+
+* SS5.6 YAML validation: unknown top-level block / unknown keys per block, missing or
+  non-integer ``experiment.seed``, missing / out-of-range ``schema_version``, the rule-6
+  infra-key rejection (``service.port`` etc.), app-kind resolution (``training:`` vs
+  ``train:``; both / neither -> error), and the seed-derivation + default-tags rules;
+* the cascor drive loop against the stub: completion, ``FAILED``, the Q-2 stall detector
+  and wall-clock budget (CLI ``--max-wall-seconds`` beating YAML ``outputs.max_wall_seconds``),
+  and the F-1 arm -- the bare ``/metrics`` sampling GET follows the 307 to ``/metrics/``;
+* metrics_series.csv sampling (allowlisted families, labeled + bare exposition lines,
+  degraded-but-alive when ``/metrics`` 404s -- the G-3 metrics-disabled trap);
+* the G-6 staging path for non-spiral generators (``POST /v1/training/dataset`` with the
+  aliased ``dataset_type``, no inline ``dataset`` on start, and the post-run shape assert
+  in both its pass and mismatch arms; un-stageable generators name W-3);
+* the SS13.4 manifest schema (also written for failed / stalled / timed-out runs) and the
+  full SS6.3 exit-code matrix (0/1/2/3/4), including one subprocess arm pinning the real
+  ``sys.exit`` wiring (``RedactedEnv`` builds the subprocess env mapping).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import hashlib
+import io
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlparse
+
+import yaml
+
+from tests.redacted_env import RedactedEnv
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "util"))
+
+from experiments import run_experiment as rx  # noqa: E402  (path-invoked util import)
+
+SCRIPT_PATH = REPO_ROOT / "util" / "experiments" / "run_experiment.py"
+
+try:
+    import numpy  # noqa: F401
+
+    HAVE_NUMPY = True
+except ImportError:  # pragma: no cover - CI installs numpy; local envs all carry it
+    HAVE_NUMPY = False
+
+FAST_FLAGS = ["--poll-interval", "0.05", "--stall-seconds", "5", "--health-timeout", "2"]
+
+
+# --------------------------------------------------------------------------- #
+# scripted stub server (juniper-data + cascor roles on one loopback listener)
+# --------------------------------------------------------------------------- #
+
+
+class _ScriptedState:
+    """Mutable per-test script driving the stub's responses."""
+
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, str, dict | None]] = []
+        self.status_sequence: list[tuple[str, int, int]] = [("STARTED", 1, 0), ("STARTED", 2, 1), ("COMPLETED", 3, 2)]
+        self.status_index = 0
+        self.increment_epochs = False
+        self.auto_epoch = 0
+        self.metrics_enabled = True
+        self.redirect_hits = 0
+        self.n_features = 2
+        self.network_input_size = 2
+        self.start_status = 200
+        self.completion_reason = "max_iterations"
+        self.lock = threading.Lock()
+
+
+def _envelope(data) -> bytes:
+    return json.dumps({"status": "success", "data": data, "meta": {"timestamp": 0.0, "version": "0.6.0"}}).encode("utf-8")
+
+
+_EXPOSITION = b"""# HELP juniper_cascor_training_loss Current training loss
+# TYPE juniper_cascor_training_loss gauge
+juniper_cascor_training_loss 0.123
+juniper_cascor_training_accuracy_ratio 0.9
+juniper_cascor_hidden_units_total 2
+juniper_cascor_candidate_correlation{best="true"} 0.87
+juniper_cascor_training_step_duration_seconds_sum 1.5
+juniper_cascor_training_step_duration_seconds_count 3
+juniper_cascor_unrelated_family 99
+"""
+
+
+class _StubHandler(BaseHTTPRequestHandler):
+    server: "_StubServer"
+
+    def log_message(self, *args) -> None:  # noqa: D102 - silence the stub
+        pass
+
+    def _state(self) -> _ScriptedState:
+        return self.server.state
+
+    def _send(self, code: int, body: bytes = b"", content_type: str = "application/json", extra: dict | None = None) -> None:
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        for key, value in (extra or {}).items():
+            self.send_header(key, value)
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
+
+    def _read_body(self) -> dict | None:
+        length = int(self.headers.get("Content-Length") or 0)
+        if not length:
+            return None
+        try:
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+        except ValueError:
+            return None
+
+    def _record(self, method: str, body: dict | None = None) -> None:
+        state = self._state()
+        with state.lock:
+            state.requests.append((method, self.path.split("?", 1)[0], body))
+
+    def do_GET(self) -> None:  # noqa: N802 - http.server API
+        state = self._state()
+        path = self.path.split("?", 1)[0]
+        self._record("GET")
+        if path == "/v1/health":
+            self._send(200, json.dumps({"status": "ok"}).encode("utf-8"))
+        elif path == "/v1/generators":
+            self._send(
+                200,
+                json.dumps(
+                    [
+                        {"name": "spiral", "version": "1.2.0", "description": "", "available": True, "schema": {}},
+                        {"name": "xor", "version": "1.0.0", "description": "", "available": True, "schema": {}},
+                        {"name": "moon", "version": "1.0.0", "description": "", "available": True, "schema": {}},
+                        {"name": "gaussian", "version": "1.0.0", "description": "", "available": True, "schema": {}},
+                        {"name": "mnist", "version": "1.0.0", "description": "", "available": False, "schema": {}},
+                    ]
+                ).encode("utf-8"),
+            )
+        elif path == "/v1/training/status":
+            with state.lock:
+                if state.increment_epochs:
+                    state.auto_epoch += 1
+                    fsm, epoch, hidden = "STARTED", state.auto_epoch, 0
+                else:
+                    idx = min(state.status_index, len(state.status_sequence) - 1)
+                    fsm, epoch, hidden = state.status_sequence[idx]
+                    state.status_index += 1
+            self._send(
+                200,
+                _envelope(
+                    {
+                        "state_machine": {"status": fsm, "phase": "OUTPUT", "paused_phase": None, "has_candidate_state": False},
+                        "monitor": {"is_training": fsm == "STARTED", "current_epoch": epoch, "current_hidden_units": hidden, "current_phase": "output", "total_metrics": epoch},
+                        "training_state": {"input_size": state.network_input_size, "output_size": 1},
+                        "network_loaded": True,
+                        "training_active": fsm == "STARTED",
+                        "pending_dataset": None,
+                        "completion_reason": state.completion_reason if fsm == "COMPLETED" else None,
+                    }
+                ),
+            )
+        elif path == "/metrics":
+            if not state.metrics_enabled:
+                self._send(404, b'{"detail": "metrics disabled"}')
+                return
+            with state.lock:
+                state.redirect_hits += 1
+            self._send(307, b"", extra={"Location": "/metrics/"})
+        elif path == "/metrics/":
+            if not state.metrics_enabled:
+                self._send(404, b'{"detail": "metrics disabled"}')
+                return
+            self._send(200, _EXPOSITION, content_type="text/plain; version=0.0.4")
+        elif path == "/v1/metrics":
+            self._send(200, _envelope({"epoch": 3, "train_loss": 0.1, "train_accuracy": 0.95, "hidden_units": 2, "f1": 0.9}))
+        elif path == "/v1/metrics/history":
+            self._send(200, _envelope([{"epoch": 1, "loss": 0.5}, {"epoch": 2, "loss": 0.3}, {"epoch": 3, "loss": 0.1}]))
+        elif path == "/v1/network":
+            self._send(200, _envelope({"input_size": state.network_input_size, "output_size": 1, "hidden_units": 2, "max_hidden_units": 8, "learning_rate": 0.05, "uuid": "stub"}))
+        elif path == "/v1/network/topology":
+            self._send(200, _envelope({"nodes": [{"id": 0}], "connections": []}))
+        elif path == "/v1/decision-boundary":
+            self._send(200, _envelope({"xx": [[0.0, 1.0], [0.0, 1.0]], "yy": [[0.0, 0.0], [1.0, 1.0]], "predictions": [[0, 1], [1, 0]], "resolution": 2}))
+        else:
+            self._send(404, b'{"detail": "not found"}')
+
+    def do_POST(self) -> None:  # noqa: N802 - http.server API
+        state = self._state()
+        path = self.path.split("?", 1)[0]
+        body = self._read_body()
+        self._record("POST", body)
+        if path == "/v1/datasets":
+            generator = (body or {}).get("generator", "spiral")
+            meta = {
+                "dataset_id": "ds-stub123",
+                "generator": generator,
+                "generator_version": "1.2.0",
+                "params": (body or {}).get("params", {}),
+                "n_samples": 1000,
+                "n_features": state.n_features,
+                "task_type": "classification",
+                "n_classes": 2,
+                "n_train": 800,
+                "n_test": 200,
+            }
+            self._send(201, json.dumps({"dataset_id": "ds-stub123", "generator": generator, "meta": meta, "artifact_url": "/v1/datasets/ds-stub123/artifact"}).encode("utf-8"))
+        elif path == "/v1/training/dataset":
+            self._send(200, _envelope({"staged": body}))
+        elif path == "/v1/training/start":
+            if state.start_status == 422:
+                self._send(422, b'{"detail": "TrainingParams rejected: extra field"}')
+            else:
+                self._send(200, _envelope({"started": True}))
+        elif path == "/v1/snapshots":
+            self._send(200, _envelope({"snapshot_id": "snap-stub-1"}))
+        else:
+            self._send(404, b'{"detail": "not found"}')
+
+
+class _StubServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self) -> None:
+        super().__init__(("127.0.0.1", 0), _StubHandler)
+        self.state = _ScriptedState()
+
+    @property
+    def base_url(self) -> str:
+        return f"http://127.0.0.1:{self.server_address[1]}"
+
+
+# --------------------------------------------------------------------------- #
+# fixtures
+# --------------------------------------------------------------------------- #
+
+
+def _base_config() -> dict:
+    return {
+        "schema_version": 1,
+        "experiment": {"name": "stub-exp", "description": "hermetic stub run", "seed": 4242},
+        "dataset": {"generator": "spiral", "params": {"n_spirals": 2}},
+        "training": {"params": {"max_iterations": 2}},
+        "outputs": {"max_wall_seconds": 30},
+    }
+
+
+def _write_config(directory: Path, cfg: dict, name: str = "experiment-in.yaml") -> Path:
+    path = directory / name
+    path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def _make_run_dir(directory: Path, base_url: str, run_id: str = "20260730T000000Z-beef", grafana_bridge: bool = False) -> Path:
+    run_dir = directory / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    port = urlparse(base_url).port
+    (run_dir / "ports.json").write_text(
+        json.dumps({"run_id": run_id, "data": port, "cascor": port, "recurrence": None, "data_url": base_url, "experiment": "stub-exp", "grafana_bridge": grafana_bridge}),
+        encoding="utf-8",
+    )
+    return run_dir
+
+
+def _invoke(config: Path, run_dir: Path, *extra: str) -> tuple[int, str]:
+    stdout = io.StringIO()
+    with contextlib.redirect_stdout(stdout):
+        code = rx.main(["--config", str(config), "--run-dir", str(run_dir), *FAST_FLAGS, *extra])
+    return code, stdout.getvalue()
+
+
+def _manifest(run_dir: Path) -> dict:
+    return json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+
+
+class _StubTestCase(unittest.TestCase):
+    """Shared stub-server + tempdir scaffolding."""
+
+    def setUp(self) -> None:
+        self.server = _StubServer()
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.tmp = Path(tempfile.mkdtemp(prefix="run-experiment-test-"))
+        self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
+        self.run_dir = _make_run_dir(self.tmp, self.server.base_url)
+
+    @property
+    def state(self) -> _ScriptedState:
+        return self.server.state
+
+    def _posts(self, path: str) -> list[dict | None]:
+        return [body for method, req_path, body in self.state.requests if method == "POST" and req_path == path]
+
+
+# --------------------------------------------------------------------------- #
+# SS5.6 config validation (rule 1/2/3/6 + kind resolution)
+# --------------------------------------------------------------------------- #
+
+
+class ConfigValidationTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="run-experiment-cfg-"))
+        self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
+
+    def _load(self, cfg: dict):
+        return rx.load_config(_write_config(self.tmp, cfg))
+
+    def _assert_rejects(self, cfg: dict, fragment: str) -> None:
+        with self.assertRaises(rx.ConfigError) as ctx:
+            self._load(cfg)
+        self.assertIn(fragment, str(ctx.exception))
+
+    def test_valid_config_loads(self) -> None:
+        config = self._load(_base_config())
+        self.assertEqual(config["kind"], "cascor")
+        self.assertEqual(config["experiment"]["name"], "stub-exp")
+        self.assertEqual(config["experiment"]["seed"], 4242)
+
+    def test_unknown_top_level_block_rejected(self) -> None:
+        cfg = _base_config()
+        cfg["surprise"] = {}
+        self._assert_rejects(cfg, "unknown top-level block")
+
+    def test_unknown_experiment_key_rejected(self) -> None:
+        cfg = _base_config()
+        cfg["experiment"]["operator"] = "paul"
+        self._assert_rejects(cfg, "unknown key(s) in experiment")
+
+    def test_unknown_dataset_key_rejected(self) -> None:
+        cfg = _base_config()
+        cfg["dataset"]["split"] = "train"
+        self._assert_rejects(cfg, "unknown key(s) in dataset")
+
+    def test_unknown_training_key_rejected(self) -> None:
+        cfg = _base_config()
+        cfg["training"]["turbo"] = True
+        self._assert_rejects(cfg, "unknown key(s) in training")
+
+    def test_unknown_outputs_key_rejected(self) -> None:
+        cfg = _base_config()
+        cfg["outputs"]["frobnicate"] = 1
+        self._assert_rejects(cfg, "unknown key(s) in outputs")
+
+    def test_unknown_runtime_key_rejected(self) -> None:
+        cfg = _base_config()
+        cfg["runtime"] = {"gpu": True}
+        self._assert_rejects(cfg, "unknown key(s) in runtime")
+
+    def test_missing_schema_version_rejected(self) -> None:
+        cfg = _base_config()
+        del cfg["schema_version"]
+        self._assert_rejects(cfg, "schema_version")
+
+    def test_future_schema_version_rejected(self) -> None:
+        cfg = _base_config()
+        cfg["schema_version"] = rx.SCHEMA_VERSION_MAX + 1
+        self._assert_rejects(cfg, "schema_version")
+
+    def test_string_schema_version_rejected(self) -> None:
+        cfg = _base_config()
+        cfg["schema_version"] = "1"
+        self._assert_rejects(cfg, "schema_version")
+
+    def test_missing_seed_rejected(self) -> None:
+        cfg = _base_config()
+        del cfg["experiment"]["seed"]
+        self._assert_rejects(cfg, "experiment.seed is REQUIRED")
+
+    def test_bool_seed_rejected(self) -> None:
+        cfg = _base_config()
+        cfg["experiment"]["seed"] = True
+        self._assert_rejects(cfg, "experiment.seed")
+
+    def test_service_infra_keys_rejected(self) -> None:
+        for key in sorted(rx.SERVICE_FORBIDDEN_KEYS):
+            cfg = _base_config()
+            cfg["service"] = {key: "anything"}
+            with self.subTest(key=key):
+                self._assert_rejects(cfg, "rule 6")
+
+    def test_service_science_keys_pass(self) -> None:
+        cfg = _base_config()
+        cfg["service"] = {"log_level": "INFO", "metrics_enabled": True}
+        self.assertEqual(self._load(cfg)["kind"], "cascor")
+
+    def test_both_app_blocks_rejected(self) -> None:
+        cfg = _base_config()
+        cfg["train"] = {"d": 8}
+        self._assert_rejects(cfg, "both")
+
+    def test_neither_app_block_rejected(self) -> None:
+        cfg = _base_config()
+        del cfg["training"]
+        self._assert_rejects(cfg, "neither")
+
+    def test_missing_dataset_block_rejected(self) -> None:
+        cfg = _base_config()
+        del cfg["dataset"]
+        self._assert_rejects(cfg, "dataset")
+
+    def test_recurrence_kind_resolved(self) -> None:
+        cfg = _base_config()
+        del cfg["training"]
+        del cfg["dataset"]
+        cfg["train"] = {"d": 8}
+        self.assertEqual(self._load(cfg)["kind"], "recurrence")
+
+    def test_seed_derivation_rule(self) -> None:
+        config = self._load(_base_config())
+        self.assertEqual(config["dataset"]["params"]["seed"], 4242)
+
+    def test_explicit_dataset_seed_preserved(self) -> None:
+        cfg = _base_config()
+        cfg["dataset"]["params"]["seed"] = 7
+        config = self._load(cfg)
+        self.assertEqual(config["dataset"]["params"]["seed"], 7)
+
+    def test_default_tags_are_run_scoped(self) -> None:
+        config = self._load(_base_config())
+        self.assertEqual(config["dataset"]["tags"], ["experiment", "stub-exp"])
+
+    def test_bad_max_wall_seconds_rejected(self) -> None:
+        cfg = _base_config()
+        cfg["outputs"]["max_wall_seconds"] = -5
+        self._assert_rejects(cfg, "max_wall_seconds")
+
+
+class MetricParsingTest(unittest.TestCase):
+    def test_allowlisted_families_parsed(self) -> None:
+        samples = rx.parse_metric_samples(_EXPOSITION.decode("utf-8"))
+        self.assertEqual(samples["juniper_cascor_training_loss"], 0.123)
+        self.assertEqual(samples["juniper_cascor_candidate_correlation"], 0.87)
+        self.assertEqual(samples["juniper_cascor_training_step_duration_seconds_count"], 3.0)
+
+    def test_non_allowlisted_family_ignored(self) -> None:
+        samples = rx.parse_metric_samples("juniper_cascor_unrelated_family 99\n")
+        self.assertEqual(samples, {})
+
+    def test_last_sample_wins(self) -> None:
+        text = "juniper_cascor_training_loss 1.0\njuniper_cascor_training_loss 2.0\n"
+        self.assertEqual(rx.parse_metric_samples(text)["juniper_cascor_training_loss"], 2.0)
+
+    def test_malformed_lines_skipped(self) -> None:
+        text = "juniper_cascor_training_loss notafloat\njuniper_cascor_training_loss\n# comment\n"
+        self.assertEqual(rx.parse_metric_samples(text), {})
+
+
+class EndpointResolutionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="run-experiment-ep-"))
+        self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
+
+    def test_ports_json_resolution(self) -> None:
+        run_dir = _make_run_dir(self.tmp, "http://127.0.0.1:8110")
+        data_url, cascor_url, ports = rx.resolve_endpoints(run_dir, None, None)
+        self.assertEqual(data_url, "http://127.0.0.1:8110")
+        self.assertEqual(cascor_url, "http://127.0.0.1:8110")
+        self.assertEqual(ports["run_id"], "20260730T000000Z-beef")
+
+    def test_cli_overrides_win(self) -> None:
+        run_dir = _make_run_dir(self.tmp, "http://127.0.0.1:8110")
+        data_url, cascor_url, _ = rx.resolve_endpoints(run_dir, "http://127.0.0.1:1/", "http://127.0.0.1:2/")
+        self.assertEqual(data_url, "http://127.0.0.1:1")
+        self.assertEqual(cascor_url, "http://127.0.0.1:2")
+
+    def test_missing_everything_rejected(self) -> None:
+        run_dir = self.tmp / "empty-run"
+        run_dir.mkdir()
+        with self.assertRaises(rx.ConfigError):
+            rx.resolve_endpoints(run_dir, None, None)
+
+
+# --------------------------------------------------------------------------- #
+# drive-loop arms (completion / FAILED / stall / timeout / F-1 / G-3 degrade)
+# --------------------------------------------------------------------------- #
+
+
+class HappyPathTest(_StubTestCase):
+    def test_spiral_run_end_to_end(self) -> None:
+        config = _write_config(self.tmp, _base_config())
+        code, stdout = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS, stdout)
+
+        start_bodies = self._posts("/v1/training/start")
+        self.assertEqual(len(start_bodies), 1)
+        start = start_bodies[0]
+        self.assertTrue(start["start_fresh"])
+        self.assertEqual(start["params"], {"max_iterations": 2})
+        self.assertEqual(start["dataset"]["source"], "juniper-data")
+        self.assertEqual(start["dataset"]["url"], self.server.base_url)
+        self.assertEqual(start["dataset"]["generator"], "spiral")
+        self.assertEqual(start["dataset"]["params"]["seed"], 4242)
+        self.assertEqual(self._posts("/v1/training/dataset"), [])
+
+        dataset_bodies = self._posts("/v1/datasets")
+        self.assertEqual(len(dataset_bodies), 1)
+        self.assertEqual(dataset_bodies[0]["params"]["seed"], 4242)
+        self.assertEqual(dataset_bodies[0]["tags"], ["experiment", "stub-exp"])
+
+        # F-1: the bare /metrics GET must follow the 307 to /metrics/.
+        self.assertGreaterEqual(self.state.redirect_hits, 1)
+
+        series = (self.run_dir / "artifacts" / "results" / "metrics_series.csv").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(series[0], ",".join(rx.SERIES_CSV_COLUMNS))
+        self.assertGreaterEqual(len(series), 3)
+        correlation_col = rx.SERIES_CSV_COLUMNS.index("juniper_cascor_candidate_correlation")
+        self.assertEqual(series[1].split(",")[correlation_col], "0.87")
+
+        results = self.run_dir / "artifacts" / "results"
+        for artifact in ("metrics_final.json", "metrics_history.json", "topology.json"):
+            self.assertTrue((results / artifact).is_file(), artifact)
+        self.assertTrue((self.run_dir / "config" / "experiment.yaml").is_file())
+        self.assertTrue((self.run_dir / "logs" / "run_experiment.log").is_file())
+
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["schema"], rx.MANIFEST_SCHEMA)
+        self.assertEqual(manifest["run_id"], "20260730T000000Z-beef")
+        self.assertEqual(manifest["outcome"], "succeeded")
+        self.assertTrue(manifest["acceptance"]["ok"])
+        self.assertEqual(manifest["config_sha256"], hashlib.sha256(config.read_bytes()).hexdigest())
+        self.assertEqual(manifest["dataset"]["dataset_id"], "ds-stub123")
+        self.assertEqual(manifest["dataset"]["version"], "1.2.0")
+        self.assertEqual(manifest["seeds"], {"experiment": 4242, "dataset": 4242})
+        self.assertEqual(manifest["completion_reason"], "max_iterations")
+        self.assertIsNone(manifest["g6_shape_check"])
+        self.assertFalse(manifest["metrics_scraped"]["grafana_bridge"])
+        self.assertIn("artifacts/results/metrics_series.csv", manifest["artifacts"])
+        self.assertIn("config/experiment.yaml", manifest["artifacts"])
+        self.assertEqual(manifest["driver"]["wave"], "2.2")
+        self.assertIn("run_experiment summary", stdout)
+        self.assertIn("20260730T000000Z-beef", stdout)
+
+    @unittest.skipUnless(HAVE_NUMPY, "numpy required for the .npz decision-boundary artifact")
+    def test_decision_boundary_npz_roundtrip(self) -> None:
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        npz_path = self.run_dir / "artifacts" / "results" / "decision_boundary.npz"
+        self.assertTrue(npz_path.is_file())
+        import numpy as np
+
+        with np.load(npz_path, allow_pickle=False) as bundle:
+            self.assertIn("predictions", bundle.files)
+            self.assertEqual(bundle["predictions"].shape, (2, 2))
+
+    def test_snapshot_at_end(self) -> None:
+        cfg = _base_config()
+        cfg["outputs"]["snapshot_at_end"] = True
+        config = _write_config(self.tmp, cfg)
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        self.assertEqual(len(self._posts("/v1/snapshots")), 1)
+        self.assertEqual(_manifest(self.run_dir)["snapshot"], {"snapshot_id": "snap-stub-1"})
+
+    def test_metrics_disabled_degrades_but_completes(self) -> None:
+        # The G-3 trap: /metrics 404s when JUNIPER_CASCOR_METRICS_ENABLED is unset.
+        self.state.metrics_enabled = False
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        manifest = _manifest(self.run_dir)
+        self.assertGreaterEqual(manifest["drive_loop"]["metrics_sampling_errors"], 1)
+        series = (self.run_dir / "artifacts" / "results" / "metrics_series.csv").read_text(encoding="utf-8").splitlines()
+        self.assertGreaterEqual(len(series), 2)
+        correlation_col = rx.SERIES_CSV_COLUMNS.index("juniper_cascor_candidate_correlation")
+        self.assertEqual(series[1].split(",")[correlation_col], "")
+
+
+class FailureArmsTest(_StubTestCase):
+    def test_failed_run_exits_4(self) -> None:
+        self.state.status_sequence = [("STARTED", 1, 0), ("FAILED", 1, 0)]
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_RUN_FAILED)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "failed")
+        self.assertFalse(manifest["acceptance"]["ok"])
+
+    def test_stall_exits_1(self) -> None:
+        self.state.status_sequence = [("STARTED", 1, 0)]
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir, "--stall-seconds", "0.2")
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        self.assertEqual(_manifest(self.run_dir)["outcome"], "stalled")
+
+    def test_cli_budget_beats_yaml(self) -> None:
+        self.state.increment_epochs = True
+        cfg = _base_config()
+        cfg["outputs"]["max_wall_seconds"] = 9999
+        config = _write_config(self.tmp, cfg)
+        code, _ = _invoke(config, self.run_dir, "--max-wall-seconds", "0.3")
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "timed_out")
+        self.assertEqual(manifest["driver"]["max_wall_seconds"], 0.3)
+
+    def test_yaml_budget_honored_without_cli(self) -> None:
+        self.state.increment_epochs = True
+        cfg = _base_config()
+        cfg["outputs"]["max_wall_seconds"] = 0.3
+        config = _write_config(self.tmp, cfg)
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        self.assertEqual(_manifest(self.run_dir)["outcome"], "timed_out")
+
+    def test_start_422_exits_2(self) -> None:
+        self.state.start_status = 422
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_MISUSE)
+
+    def test_unavailable_generator_exits_2(self) -> None:
+        cfg = _base_config()
+        cfg["dataset"]["generator"] = "mnist"
+        config = _write_config(self.tmp, cfg)
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_MISUSE)
+
+    def test_unknown_generator_exits_2(self) -> None:
+        cfg = _base_config()
+        cfg["dataset"]["generator"] = "nonexistent"
+        config = _write_config(self.tmp, cfg)
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_MISUSE)
+
+
+class StagingPathTest(_StubTestCase):
+    def _xor_config(self) -> Path:
+        cfg = _base_config()
+        cfg["dataset"] = {"generator": "xor", "params": {"n_points_per_quadrant": 250}}
+        return _write_config(self.tmp, cfg)
+
+    def test_non_spiral_stages_then_starts(self) -> None:
+        code, _ = _invoke(self._xor_config(), self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        staged = self._posts("/v1/training/dataset")
+        self.assertEqual(len(staged), 1)
+        self.assertEqual(staged[0]["dataset_type"], "xor")
+        self.assertEqual(staged[0]["params"]["seed"], 4242)
+        start = self._posts("/v1/training/start")[0]
+        self.assertNotIn("dataset", start)
+        g6 = _manifest(self.run_dir)["g6_shape_check"]
+        self.assertTrue(g6["ok"])
+        self.assertEqual(g6["expected_input_size"], 2)
+
+    def test_moon_maps_to_moons_alias(self) -> None:
+        cfg = _base_config()
+        cfg["dataset"] = {"generator": "moon", "params": {"n_samples": 100}}
+        code, _ = _invoke(_write_config(self.tmp, cfg), self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        self.assertEqual(self._posts("/v1/training/dataset")[0]["dataset_type"], "moons")
+
+    def test_g6_shape_mismatch_fails_acceptance(self) -> None:
+        self.state.network_input_size = 784  # the stale-data class: network never took the new dataset
+        code, _ = _invoke(self._xor_config(), self.run_dir)
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "succeeded")
+        self.assertFalse(manifest["acceptance"]["ok"])
+        self.assertFalse(manifest["g6_shape_check"]["ok"])
+        self.assertTrue(any("G-6" in reason for reason in manifest["acceptance"]["reasons"]))
+
+    def test_unstageable_generator_exits_2_naming_w3(self) -> None:
+        cfg = _base_config()
+        cfg["dataset"] = {"generator": "gaussian", "params": {"n_classes": 3}}
+        with self.assertLogs(rx.log, level="ERROR") as logs:
+            code, _ = _invoke(_write_config(self.tmp, cfg), self.run_dir)
+        self.assertEqual(code, rx.EXIT_MISUSE)
+        self.assertTrue(any("W-3" in line for line in logs.output))
+        self.assertEqual(self._posts("/v1/training/start"), [])
+
+
+class CliArmsTest(_StubTestCase):
+    def test_recurrence_config_exits_2_naming_wave_23(self) -> None:
+        cfg = {"schema_version": 1, "experiment": {"name": "rec", "seed": 1}, "train": {"d": 8}}
+        config = _write_config(self.tmp, cfg)
+        with self.assertLogs(rx.log, level="ERROR") as logs:
+            code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_MISUSE)
+        self.assertTrue(any("Wave 2.3" in line for line in logs.output))
+
+    def test_missing_run_dir_exits_2(self) -> None:
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.tmp / "no-such-run")
+        self.assertEqual(code, rx.EXIT_MISUSE)
+
+    def test_unreachable_service_exits_3(self) -> None:
+        config = _write_config(self.tmp, _base_config())
+        dead_run = _make_run_dir(self.tmp, "http://127.0.0.1:9", run_id="20260730T000000Z-dead")
+        code, _ = _invoke(config, dead_run, "--health-timeout", "0.3")
+        self.assertEqual(code, rx.EXIT_UNREACHABLE)
+
+    def test_corrupt_ports_json_exits_2(self) -> None:
+        config = _write_config(self.tmp, _base_config())
+        (self.run_dir / "ports.json").write_text("{not json", encoding="utf-8")
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_MISUSE)
+
+
+class SubprocessSmokeTest(unittest.TestCase):
+    """One arm through the real CLI so the ``sys.exit`` wiring stays pinned."""
+
+    def test_validation_error_exits_2(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="run-experiment-sub-"))
+        self.addCleanup(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        config = _write_config(tmp, {"experiment": {"name": "x", "seed": 1}, "training": {}, "dataset": {"generator": "spiral"}})
+        run_dir = tmp / "run"
+        run_dir.mkdir()
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--config", str(config), "--run-dir", str(run_dir)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=RedactedEnv(os.environ),
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertIn("schema_version", proc.stderr)
+
+    def test_usage_error_exits_2(self) -> None:
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=RedactedEnv(os.environ),
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 2)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
