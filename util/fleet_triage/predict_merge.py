@@ -50,7 +50,6 @@ CLI: ``python util/fleet_triage/predict_merge.py --pr <N> | --batch [--json] [--
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 import shutil
@@ -78,8 +77,6 @@ _MERGE_IDENT = (
 )
 
 GateRunner = Callable[[Path, str, list], tuple]
-
-_SEED_CACHE: object = ...  # ... = not yet attempted; None = unavailable; else module
 
 
 class PredictMergeError(RuntimeError):
@@ -121,75 +118,47 @@ def _names(repo: Path, *diff_args: str) -> list:
 
 
 # --------------------------------------------------------------------------- #
-# AST symbol screen -- reuse the flood-census seed's pure extractors
+# AST symbol screen -- delegate to the permanent sequence-safety checker
 # --------------------------------------------------------------------------- #
 #
-# TODO(PR-A / P2 item 8): the AST symbol extractors are borrowed from the ad-hoc
-# flood-census seed util/ad-hoc/2026-07-28_flood_census_symbol_screen.py. Switch
-# this import to the permanent util/sequence_safety/ home once PR-A lands it (the
-# ad-hoc seed is retired when the flood census closes -- CLAUDE.md ad-hoc lifecycle).
+# util/sequence_safety/symbol_loss_check.py (landed in ml#873) is the permanent home for
+# the symbol-loss screen; predict_merge shells out to its CLI on the merged RESULT so a
+# per-PR triage screen is byte-identical to the push:main "main-verify" gate -- the same
+# LOST/WEAKENED/DUPLICATED classification, RELOCATED downgrade, and Allow-Symbol-Loss
+# commit-trailer waivers. (This replaces the ad-hoc flood-census seed
+# util/ad-hoc/2026-07-28_flood_census_symbol_screen.py, whose pure extractors were borrowed
+# before the permanent module existed; the seed stays put as a program artifact.)
 
-def _symbol_seed():
-    """Load (once) the census seed module for its pure ``py_symbols``/``bash_symbols``/``in_scope``.
-
-    Returns the module, or None if it cannot be loaded (the AST screen then degrades
-    to ``skip`` rather than crashing the report).
-    """
-    global _SEED_CACHE
-    if _SEED_CACHE is not ...:
-        return _SEED_CACHE
-    seed_path = Path(__file__).resolve().parent.parent / "ad-hoc" / "2026-07-28_flood_census_symbol_screen.py"
-    try:
-        spec = importlib.util.spec_from_file_location("_fleet_flood_census_symbol_screen", seed_path)
-        if spec is None or spec.loader is None:
-            _SEED_CACHE = None
-            return None
-        mod = importlib.util.module_from_spec(spec)
-        # Register before exec: the seed uses @dataclass, whose decorator introspects
-        # sys.modules[cls.__module__] -- absent, it raises (Python 3.13 dataclasses gotcha).
-        sys.modules[spec.name] = mod
-        spec.loader.exec_module(mod)  # __name__ != "__main__", so its main() never runs
-        _SEED_CACHE = mod
-    except Exception:  # pragma: no cover - defensive: a broken seed must not crash triage
-        _SEED_CACHE = None
-    return _SEED_CACHE
-
-
-def _symbol_keys(seed, path: str, src: str) -> Optional[set]:
-    """Symbol-id set for ``src`` (None == a .py blob that does not parse)."""
-    if path.endswith(".bash"):
-        return set(seed.bash_symbols(src).keys())
-    syms = seed.py_symbols(src)
-    return None if syms is None else set(syms.keys())
+_SYMBOL_LOSS_CHECK = Path(__file__).resolve().parent.parent / "sequence_safety" / "symbol_loss_check.py"
 
 
 def _ast_symbol_screen(clone: Path, base_ref: str, result_ref: str, changed: list) -> dict:
-    """Flag symbols present on ``base_ref`` (main) but absent in the merged ``result_ref``."""
-    seed = _symbol_seed()
-    if seed is None:
-        return {"status": "skip", "lost": [], "detail": "symbol seed unavailable"}
-    lost: list = []
-    for path in changed:
-        if not seed.in_scope(path):
-            continue
-        base_src = _blob(clone, base_ref, path)
-        if base_src is None:
-            continue  # file absent on main => nothing main-side to lose
-        base_keys = _symbol_keys(seed, path, base_src)
-        if base_keys is None:
-            continue  # main-side blob does not parse -> cannot compare (not our finding)
-        result_src = _blob(clone, result_ref, path)
-        if result_src is None:
-            for sid in sorted(base_keys):
-                lost.append({"file": path, "symbol": sid, "kind": "file-deleted"})
-            continue
-        result_keys = _symbol_keys(seed, path, result_src)
-        if result_keys is None:
-            lost.append({"file": path, "symbol": "<unparseable-after-merge>", "kind": "unparseable"})
-            continue
-        for sid in sorted(base_keys - result_keys):
-            lost.append({"file": path, "symbol": sid, "kind": "lost"})
-    return {"status": "fail" if lost else "pass", "lost": lost}
+    """Screen the merged RESULT for a silently deleted / gutted / duplicated symbol vs ``base_ref``.
+
+    Delegates to ``util/sequence_safety/symbol_loss_check.py`` -- the SAME CLI the post-merge
+    ``main-verify`` gate runs -- against the scratch clone, so a per-PR verdict matches the
+    push:main net exactly (its in-scope filter, RELOCATED downgrade, and ``Allow-Symbol-Loss``
+    commit-trailer waivers all apply). ``status`` is ``fail`` iff the checker reports an unwaived
+    FAIL (exit 1); a missing / broken checker degrades to ``skip`` rather than crashing the
+    report. ``lost`` keeps the ``{file, symbol, kind}`` shape the JSON report + human render read.
+    """
+    if not any(p.endswith((".py", ".bash")) for p in changed):
+        return {"status": "pass", "lost": []}  # nothing screenable in the delta -> skip the subprocess
+    if not _SYMBOL_LOSS_CHECK.exists():
+        return {"status": "skip", "lost": [], "detail": "symbol-loss checker unavailable"}
+    cp = _run([sys.executable, str(_SYMBOL_LOSS_CHECK), "--repo-root", str(clone), "--base", base_ref, "--head", result_ref, "--json"])
+    if cp.returncode == 2 or not cp.stdout.strip():
+        return {"status": "skip", "lost": [], "detail": (cp.stderr.strip() or "symbol-loss screen error")[-300:]}
+    try:
+        report = json.loads(cp.stdout)
+    except json.JSONDecodeError:
+        return {"status": "skip", "lost": [], "detail": "symbol-loss screen returned non-JSON"}
+    lost = [
+        {"file": f["path"], "symbol": f["symbol"], "kind": str(f.get("verdict", "lost")).lower()}
+        for f in report.get("findings", [])
+        if f.get("severity") == "FAIL"
+    ]
+    return {"status": "fail" if cp.returncode == 1 else "pass", "lost": lost}
 
 
 # --------------------------------------------------------------------------- #
