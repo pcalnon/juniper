@@ -1,4 +1,4 @@
-"""Hermetic tests for ``util/experiments/run_experiment.py`` (Wave 2.2: the cascor service path).
+"""Hermetic tests for ``util/experiments/run_experiment.py`` (Wave 2.2 cascor + Wave 2.3 recurrence paths).
 
 The SS10.6 gate for the experiment driver -- ``util/`` is not pre-commit-lint-gated
 (flake8/black scope to ``scripts``+``tests``), so this unittest is the gate. No live
@@ -19,7 +19,13 @@ for BOTH the run's juniper-data and cascor (their endpoint sets are disjoint). C
   in both its pass and mismatch arms; un-stageable generators name W-3);
 * the SS13.4 manifest schema (also written for failed / stalled / timed-out runs) and the
   full SS6.3 exit-code matrix (0/1/2/3/4), including one subprocess arm pinning the real
-  ``sys.exit`` wiring (``RedactedEnv`` builds the subprocess env mapping).
+  ``sys.exit`` wiring (``RedactedEnv`` builds the subprocess env mapping);
+* the Wave-2.3 recurrence path: SS5.5 block validation (dataset.split, train/crossval/predict
+  keys, crossval n_folds), the synchronous ``POST /v1/train`` drive (200 / 409->4 / 422->2 /
+  socket-timeout->``timed_out``), predict + crossval phases (dataset_id refs, hyperparams copied
+  into crossval, record-and-continue on failure), and the G-18 ``outputs.save_model`` re-run
+  (PATH-stubbed ``juniper-recurrence`` CLI: --dataset/--split/--out + JUNIPER_DATA_URL env;
+  missing CLI -> acceptance failure).
 """
 
 from __future__ import annotations
@@ -34,9 +40,11 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 from urllib.parse import urlparse
 
 import yaml
@@ -80,6 +88,10 @@ class _ScriptedState:
         self.network_input_size = 2
         self.start_status = 200
         self.completion_reason = "max_iterations"
+        self.train_status = 200
+        self.train_delay = 0.0
+        self.predict_status = 200
+        self.crossval_status = 200
         self.lock = threading.Lock()
 
 
@@ -138,6 +150,8 @@ class _StubHandler(BaseHTTPRequestHandler):
         self._record("GET")
         if path == "/v1/health":
             self._send(200, json.dumps({"status": "ok"}).encode("utf-8"))
+        elif path == "/v1/health/ready":
+            self._send(200, json.dumps({"status": "ready"}).encode("utf-8"))
         elif path == "/v1/generators":
             self._send(
                 200,
@@ -147,6 +161,7 @@ class _StubHandler(BaseHTTPRequestHandler):
                         {"name": "xor", "version": "1.0.0", "description": "", "available": True, "schema": {}},
                         {"name": "moon", "version": "1.0.0", "description": "", "available": True, "schema": {}},
                         {"name": "gaussian", "version": "1.0.0", "description": "", "available": True, "schema": {}},
+                        {"name": "irregular_sine", "version": "1.0.0", "description": "", "available": True, "schema": {}},
                         {"name": "mnist", "version": "1.0.0", "description": "", "available": False, "schema": {}},
                     ]
                 ).encode("utf-8"),
@@ -228,12 +243,46 @@ class _StubHandler(BaseHTTPRequestHandler):
                 self._send(200, _envelope({"started": True}))
         elif path == "/v1/snapshots":
             self._send(200, _envelope({"snapshot_id": "snap-stub-1"}))
+        elif path == "/v1/train":
+            if state.train_delay:
+                time.sleep(state.train_delay)
+            if state.train_status != 200:
+                self._send(state.train_status, json.dumps({"detail": f"train stub {state.train_status}"}).encode("utf-8"))
+            else:
+                descriptor = {"dataset_id": "ds-stub123", "name": None, "split": ((body or {}).get("dataset") or {}).get("split", "train"), "n_windows": 100, "lookback": 64, "n_features": 3, "output_dim": 1, "has_target_dt": True, "has_seq_lengths": False}
+                self._send(200, json.dumps({"final_metrics": {"r2": 0.91, "mse": 0.01}, "n_epochs": 1, "stopped_reason": "converged", "dataset": descriptor}).encode("utf-8"))
+        elif path == "/v1/predict":
+            if state.predict_status != 200:
+                self._send(state.predict_status, json.dumps({"detail": "predict stub error"}).encode("utf-8"))
+            else:
+                self._send(200, json.dumps({"predictions": [[0.1], [0.2]], "shape": [2, 1]}).encode("utf-8"))
+        elif path == "/v1/crossval":
+            if state.crossval_status != 200:
+                self._send(state.crossval_status, json.dumps({"detail": "crossval stub error"}).encode("utf-8"))
+            else:
+                descriptor = {"dataset_id": "ds-stub123", "name": None, "split": "full", "n_windows": 100, "lookback": 64, "n_features": 3, "output_dim": 1, "has_target_dt": True, "has_seq_lengths": False}
+                self._send(
+                    200,
+                    json.dumps(
+                        {
+                            "task_type": "regression",
+                            "n_folds": (body or {}).get("n_folds", 2),
+                            "folds": [{"fold": 0, "train_metrics": {"r2": 0.9}, "eval_metrics": {"r2": 0.8}, "n_epochs": 1}],
+                            "eval_aggregate": {"r2": 0.8},
+                            "eval_std": {"r2": 0.0},
+                            "dataset": descriptor,
+                        }
+                    ).encode("utf-8"),
+                )
         else:
             self._send(404, b'{"detail": "not found"}')
 
 
 class _StubServer(ThreadingHTTPServer):
     daemon_threads = True
+
+    def handle_error(self, request, client_address) -> None:  # noqa: D102 - quiet broken pipes from the timeout arm
+        pass
 
     def __init__(self) -> None:
         super().__init__(("127.0.0.1", 0), _StubHandler)
@@ -259,6 +308,18 @@ def _base_config() -> dict:
     }
 
 
+def _recurrence_config() -> dict:
+    return {
+        "schema_version": 1,
+        "experiment": {"name": "rec-exp", "description": "hermetic recurrence stub run", "seed": 777},
+        "dataset": {"generator": "irregular_sine", "split": "train", "params": {"n_steps": 500, "lookback": 64}},
+        "train": {"d": 8, "ridge": 1.0, "readout": "linear"},
+        "crossval": {"enabled": True, "n_folds": 2, "scheme": "expanding", "embargo": 2},
+        "predict": {"enabled": True, "from_dataset_split": "test"},
+        "outputs": {"max_wall_seconds": 30},
+    }
+
+
 def _write_config(directory: Path, cfg: dict, name: str = "experiment-in.yaml") -> Path:
     path = directory / name
     path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
@@ -270,7 +331,7 @@ def _make_run_dir(directory: Path, base_url: str, run_id: str = "20260730T000000
     run_dir.mkdir(parents=True, exist_ok=True)
     port = urlparse(base_url).port
     (run_dir / "ports.json").write_text(
-        json.dumps({"run_id": run_id, "data": port, "cascor": port, "recurrence": None, "data_url": base_url, "experiment": "stub-exp", "grafana_bridge": grafana_bridge}),
+        json.dumps({"run_id": run_id, "data": port, "cascor": port, "recurrence": port, "data_url": base_url, "experiment": "stub-exp", "grafana_bridge": grafana_bridge}),
         encoding="utf-8",
     )
     return run_dir
@@ -414,12 +475,61 @@ class ConfigValidationTest(unittest.TestCase):
         del cfg["dataset"]
         self._assert_rejects(cfg, "dataset")
 
-    def test_recurrence_kind_resolved(self) -> None:
-        cfg = _base_config()
-        del cfg["training"]
+    def test_recurrence_full_config_loads(self) -> None:
+        config = self._load(_recurrence_config())
+        self.assertEqual(config["kind"], "recurrence")
+        self.assertEqual(config["dataset"]["split"], "train")
+        self.assertEqual(config["dataset"]["params"]["seed"], 777)
+        self.assertEqual(config["dataset"]["tags"], ["experiment", "rec-exp"])
+        self.assertTrue(config["crossval"]["enabled"])
+        self.assertEqual(config["crossval"]["n_folds"], 2)
+        self.assertTrue(config["predict"]["enabled"])
+        self.assertEqual(config["predict"]["from_dataset_split"], "test")
+        self.assertEqual(config["train"], {"d": 8, "ridge": 1.0, "readout": "linear"})
+        self.assertFalse(config["outputs"]["save_model"])
+
+    def test_recurrence_absent_blocks_disabled(self) -> None:
+        cfg = _recurrence_config()
+        del cfg["crossval"]
+        del cfg["predict"]
+        config = self._load(cfg)
+        self.assertFalse(config["crossval"]["enabled"])
+        self.assertFalse(config["predict"]["enabled"])
+
+    def test_recurrence_unknown_train_key_rejected(self) -> None:
+        cfg = _recurrence_config()
+        cfg["train"]["turbo"] = True
+        self._assert_rejects(cfg, "unknown key(s) in train")
+
+    def test_recurrence_unknown_crossval_key_rejected(self) -> None:
+        cfg = _recurrence_config()
+        cfg["crossval"]["folds"] = 3
+        self._assert_rejects(cfg, "unknown key(s) in crossval")
+
+    def test_recurrence_unknown_predict_key_rejected(self) -> None:
+        cfg = _recurrence_config()
+        cfg["predict"]["split"] = "test"
+        self._assert_rejects(cfg, "unknown key(s) in predict")
+
+    def test_recurrence_bad_dataset_split_rejected(self) -> None:
+        cfg = _recurrence_config()
+        cfg["dataset"]["split"] = "validation"
+        self._assert_rejects(cfg, "dataset.split")
+
+    def test_recurrence_bad_predict_split_rejected(self) -> None:
+        cfg = _recurrence_config()
+        cfg["predict"]["from_dataset_split"] = "validation"
+        self._assert_rejects(cfg, "predict.from_dataset_split")
+
+    def test_recurrence_crossval_needs_n_folds(self) -> None:
+        cfg = _recurrence_config()
+        cfg["crossval"] = {"enabled": True}
+        self._assert_rejects(cfg, "n_folds")
+
+    def test_recurrence_missing_dataset_rejected(self) -> None:
+        cfg = _recurrence_config()
         del cfg["dataset"]
-        cfg["train"] = {"d": 8}
-        self.assertEqual(self._load(cfg)["kind"], "recurrence")
+        self._assert_rejects(cfg, "recurrence path")
 
     def test_seed_derivation_rule(self) -> None:
         config = self._load(_base_config())
@@ -542,7 +652,7 @@ class HappyPathTest(_StubTestCase):
         self.assertFalse(manifest["metrics_scraped"]["grafana_bridge"])
         self.assertIn("artifacts/results/metrics_series.csv", manifest["artifacts"])
         self.assertIn("config/experiment.yaml", manifest["artifacts"])
-        self.assertEqual(manifest["driver"]["wave"], "2.2")
+        self.assertEqual(manifest["driver"]["wave"], rx.DRIVER_WAVE)
         self.assertIn("run_experiment summary", stdout)
         self.assertIn("20260730T000000Z-beef", stdout)
 
@@ -687,13 +797,13 @@ class StagingPathTest(_StubTestCase):
 
 
 class CliArmsTest(_StubTestCase):
-    def test_recurrence_config_exits_2_naming_wave_23(self) -> None:
+    def test_recurrence_missing_dataset_exits_2(self) -> None:
         cfg = {"schema_version": 1, "experiment": {"name": "rec", "seed": 1}, "train": {"d": 8}}
         config = _write_config(self.tmp, cfg)
         with self.assertLogs(rx.log, level="ERROR") as logs:
             code, _ = _invoke(config, self.run_dir)
         self.assertEqual(code, rx.EXIT_MISUSE)
-        self.assertTrue(any("Wave 2.3" in line for line in logs.output))
+        self.assertTrue(any("recurrence path" in line for line in logs.output))
 
     def test_missing_run_dir_exits_2(self) -> None:
         config = _write_config(self.tmp, _base_config())
@@ -711,6 +821,151 @@ class CliArmsTest(_StubTestCase):
         (self.run_dir / "ports.json").write_text("{not json", encoding="utf-8")
         code, _ = _invoke(config, self.run_dir)
         self.assertEqual(code, rx.EXIT_MISUSE)
+
+
+class RecurrencePathTest(_StubTestCase):
+    """Wave 2.3: the recurrence drive path (synchronous train -> optional predict/crossval)."""
+
+    def _config(self, **mutate) -> Path:
+        cfg = _recurrence_config()
+        for key, value in mutate.items():
+            if value is None:
+                cfg.pop(key, None)
+            else:
+                cfg[key] = value
+        return _write_config(self.tmp, cfg)
+
+    def test_recurrence_run_end_to_end(self) -> None:
+        code, stdout = _invoke(self._config(), self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS, stdout)
+
+        train_bodies = self._posts("/v1/train")
+        self.assertEqual(len(train_bodies), 1)
+        self.assertEqual(train_bodies[0]["dataset"], {"dataset_id": "ds-stub123", "split": "train"})
+        self.assertEqual(train_bodies[0]["d"], 8)
+        self.assertEqual(train_bodies[0]["ridge"], 1.0)
+        self.assertEqual(train_bodies[0]["readout"], "linear")
+        self.assertNotIn("theta", train_bodies[0])
+
+        predict_bodies = self._posts("/v1/predict")
+        self.assertEqual(len(predict_bodies), 1)
+        self.assertEqual(predict_bodies[0]["dataset"], {"dataset_id": "ds-stub123", "split": "test"})
+
+        crossval_bodies = self._posts("/v1/crossval")
+        self.assertEqual(len(crossval_bodies), 1)
+        self.assertEqual(crossval_bodies[0]["dataset"], {"dataset_id": "ds-stub123"})
+        self.assertEqual(crossval_bodies[0]["n_folds"], 2)
+        self.assertEqual(crossval_bodies[0]["scheme"], "expanding")
+        self.assertEqual(crossval_bodies[0]["embargo"], 2)
+        self.assertEqual(crossval_bodies[0]["d"], 8)
+
+        dataset_bodies = self._posts("/v1/datasets")
+        self.assertEqual(len(dataset_bodies), 1)
+        self.assertEqual(dataset_bodies[0]["params"]["seed"], 777)
+        self.assertEqual(dataset_bodies[0]["tags"], ["experiment", "rec-exp"])
+
+        results = self.run_dir / "artifacts" / "results"
+        for artifact in ("train_response.json", "predict_response.json", "crossval_response.json"):
+            self.assertTrue((results / artifact).is_file(), artifact)
+
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "succeeded")
+        self.assertTrue(manifest["acceptance"]["ok"])
+        self.assertEqual(manifest["train"]["final_metrics"]["r2"], 0.91)
+        self.assertEqual(manifest["train"]["stopped_reason"], "converged")
+        self.assertEqual(manifest["predict"], {"shape": [2, 1]})
+        self.assertEqual(manifest["crossval"]["eval_aggregate"], {"r2": 0.8})
+        self.assertIsNone(manifest["g6_shape_check"])
+        self.assertIsNone(manifest["save_model_rerun"])
+        self.assertEqual(manifest["service_urls"]["recurrence"], self.server.base_url)
+        self.assertEqual(manifest["dataset"]["split"], "train")
+        self.assertEqual(manifest["driver"]["wave"], rx.DRIVER_WAVE)
+        self.assertIn("(recurrence)", stdout)
+
+    def test_disabled_blocks_skip_phases(self) -> None:
+        code, _ = _invoke(self._config(crossval=None, predict=None), self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        self.assertEqual(self._posts("/v1/predict"), [])
+        self.assertEqual(self._posts("/v1/crossval"), [])
+        manifest = _manifest(self.run_dir)
+        self.assertIsNone(manifest["predict"])
+        self.assertIsNone(manifest["crossval"])
+
+    def test_train_409_exits_4(self) -> None:
+        self.state.train_status = 409
+        code, _ = _invoke(self._config(), self.run_dir)
+        self.assertEqual(code, rx.EXIT_RUN_FAILED)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "failed")
+        self.assertFalse(manifest["acceptance"]["ok"])
+
+    def test_train_422_exits_2(self) -> None:
+        self.state.train_status = 422
+        code, _ = _invoke(self._config(), self.run_dir)
+        self.assertEqual(code, rx.EXIT_MISUSE)
+
+    def test_train_budget_timeout_exits_1(self) -> None:
+        # Q-2 for the synchronous train: the wall budget is the request's socket timeout.
+        self.state.train_delay = 0.6
+        code, _ = _invoke(self._config(), self.run_dir, "--max-wall-seconds", "0.2")
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "timed_out")
+        self.assertEqual(self._posts("/v1/predict"), [])
+        self.assertEqual(self._posts("/v1/crossval"), [])
+
+    def test_predict_failure_continues_to_crossval(self) -> None:
+        self.state.predict_status = 500
+        code, _ = _invoke(self._config(), self.run_dir)
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        self.assertEqual(len(self._posts("/v1/crossval")), 1)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "succeeded")
+        self.assertFalse(manifest["acceptance"]["ok"])
+        self.assertTrue(any("predict" in reason for reason in manifest["acceptance"]["reasons"]))
+        self.assertTrue((self.run_dir / "artifacts" / "results" / "crossval_response.json").is_file())
+
+    def test_save_model_rerun_invokes_cli(self) -> None:
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        capture = self.tmp / "capture"
+        capture.mkdir()
+        stub = bindir / "juniper-recurrence"
+        stub.write_text(
+            "#!/bin/bash\n" f"printf '%s\\n' \"$*\" > '{capture}/cmd.txt'\n" f"printf '%s\\n' \"$JUNIPER_DATA_URL\" > '{capture}/env.txt'\n" "prev=''\nout=''\n" 'for a in "$@"; do [ "$prev" = "--out" ] && out="$a"; prev="$a"; done\n' '[ -n "$out" ] && : > "$out"\n' "exit 0\n",
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+        cfg = _recurrence_config()
+        cfg["outputs"]["save_model"] = True
+        config = _write_config(self.tmp, cfg)
+        with mock.patch.dict(os.environ, {"PATH": f"{bindir}:{os.environ['PATH']}"}):
+            code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        cmd = (capture / "cmd.txt").read_text(encoding="utf-8")
+        self.assertIn("--dataset ds-stub123", cmd)
+        self.assertIn("--split train", cmd)
+        self.assertIn("--d 8", cmd)
+        self.assertIn("--out", cmd)
+        self.assertEqual((capture / "env.txt").read_text(encoding="utf-8").strip(), self.server.base_url)
+        manifest = _manifest(self.run_dir)
+        self.assertTrue(manifest["save_model_rerun"]["ok"])
+        self.assertTrue((self.run_dir / "artifacts" / "results" / "model.npz").is_file())
+        self.assertIn("artifacts/results/model.npz", manifest["artifacts"])
+
+    def test_save_model_missing_cli_fails_acceptance(self) -> None:
+        cfg = _recurrence_config()
+        cfg["outputs"]["save_model"] = True
+        config = _write_config(self.tmp, cfg)
+        empty_bin = self.tmp / "empty-bin"
+        empty_bin.mkdir()
+        with mock.patch.dict(os.environ, {"PATH": str(empty_bin)}):
+            code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "succeeded")
+        self.assertFalse(manifest["save_model_rerun"]["ok"])
+        self.assertTrue(any("save_model" in reason for reason in manifest["acceptance"]["reasons"]))
 
 
 class SubprocessSmokeTest(unittest.TestCase):
