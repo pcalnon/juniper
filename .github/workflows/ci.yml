@@ -440,6 +440,12 @@ jobs:
           # unit E1). bash -n syntax + launch-line text assertions + hermetic --dry-run behavioural
           # checks (no services/conda/network; --dry-run creates no process and touches no files).
           python3 -m unittest -v tests/test_isolated_stack_script.py
+          # tests/test_experiment_stack_script.py: stdlib-only contract + hermetic behavioural tests of
+          # util/experiment_stack.bash, the per-run experiment launcher (CLI experimentation plan Wave
+          # 2.1). bash -n syntax + §6.1 launch-recipe / §9.3 port-range / §7.2 target-file assertions +
+          # the F-6 listener-pid rule + --dry-run and teardown behaviour (PATH-stubbed ss/curl/docker/
+          # socat; no services, no docker, no network).
+          python3 -m unittest -v tests/test_experiment_stack_script.py
           # tests/test_check_conda_env_torch.py: hermetic P-5 torch._C shadow diagnostic
           # (util/check_conda_env_torch.bash exit 0/1/2/3/4) via JUNIPER_CONDA_DIR + stub python.
           # util/ is not pre-commit-lint-gated, so this unittest is the gate.
