@@ -102,27 +102,50 @@ class _ScriptedState:
         self.predict_status = 200
         self.crossval_status = 200
         self.eval_metrics_present = True
+        self.artifact_kind = "tabular"
         self.lock = threading.Lock()
 
 
 _ARTIFACT_CACHE: dict = {}
 
 
-def _artifact_npz_bytes() -> bytes:
-    """A tiny deterministic 2-feature classification NPZ (the /artifact body for the dataset plot)."""
-    if "npz" not in _ARTIFACT_CACHE:
+def _artifact_npz_bytes(kind: str = "tabular") -> bytes:
+    """Deterministic NPZ /artifact bodies: 2-feature classification ('tabular') or 3-D Delta-t sequence ('sequence')."""
+    if kind not in _ARTIFACT_CACHE:
         import io
 
         import numpy as np
 
         rng = np.random.default_rng(0)
-        x = rng.normal(size=(40, 2)).astype("float32")
-        labels = (x[:, 0] > 0).astype("float32")
-        one_hot = np.stack([1 - labels, labels], axis=1)
         buf = io.BytesIO()
-        np.savez(buf, X_train=x[:32], y_train=one_hot[:32], X_test=x[32:], y_test=one_hot[32:], X_full=x, y_full=one_hot)
-        _ARTIFACT_CACHE["npz"] = buf.getvalue()
-    return _ARTIFACT_CACHE["npz"]
+        if kind == "tabular":
+            x = rng.normal(size=(40, 2)).astype("float32")
+            labels = (x[:, 0] > 0).astype("float32")
+            one_hot = np.stack([1 - labels, labels], axis=1)
+            np.savez(buf, X_train=x[:32], y_train=one_hot[:32], X_test=x[32:], y_test=one_hot[32:], X_full=x, y_full=one_hot)
+        else:  # the _sequence.py contract: {X,y,dt,target_dt}_{split}; leading per-window dt is 0.0
+            x = rng.normal(size=(12, 16, 3)).astype("float32")
+            y = x[:, -1, 0].astype("float32")
+            dt = np.abs(rng.normal(1.0, 0.3, size=(12, 16))).astype("float32")
+            dt[:, 0] = 0.0
+            target_dt = np.abs(rng.normal(1.0, 0.2, size=12)).astype("float32")
+            np.savez(
+                buf,
+                X_train=x[:8],
+                y_train=y[:8],
+                dt_train=dt[:8],
+                target_dt_train=target_dt[:8],
+                X_test=x[8:],
+                y_test=y[8:],
+                dt_test=dt[8:],
+                target_dt_test=target_dt[8:],
+                X_full=x,
+                y_full=y,
+                dt_full=dt,
+                target_dt_full=target_dt,
+            )
+        _ARTIFACT_CACHE[kind] = buf.getvalue()
+    return _ARTIFACT_CACHE[kind]
 
 
 def _envelope(data) -> bytes:
@@ -256,7 +279,7 @@ class _StubHandler(BaseHTTPRequestHandler):
             self._send(200, _envelope({"x_range": [-1.0, 1.0], "y_range": [-1.0, 1.0], "resolution": 2, "grid_x": [[-1.0, 1.0], [-1.0, 1.0]], "grid_y": [[-1.0, -1.0], [1.0, 1.0]], "predictions": [[0, 1], [1, 0]]}))
         elif path.startswith("/v1/datasets/") and path.endswith("/artifact"):
             if HAVE_NUMPY:
-                self._send(200, _artifact_npz_bytes(), content_type="application/octet-stream")
+                self._send(200, _artifact_npz_bytes(state.artifact_kind), content_type="application/octet-stream")
             else:  # pragma: no cover - numpy present in CI + dev envs
                 self._send(404, b'{"detail": "numpy unavailable in stub"}')
         else:
@@ -303,7 +326,8 @@ class _StubHandler(BaseHTTPRequestHandler):
             if state.predict_status != 200:
                 self._send(state.predict_status, json.dumps({"detail": "predict stub error"}).encode("utf-8"))
             else:
-                self._send(200, json.dumps({"predictions": [[0.1], [0.2]], "shape": [2, 1]}).encode("utf-8"))
+                # 4 predictions = the sequence artifact's test-split window count (forecast plots align).
+                self._send(200, json.dumps({"predictions": [[0.1], [0.2], [0.3], [0.4]], "shape": [4, 1]}).encode("utf-8"))
         elif path == "/v1/crossval":
             if state.crossval_status != 200:
                 self._send(state.crossval_status, json.dumps({"detail": "crossval stub error"}).encode("utf-8"))
@@ -933,7 +957,7 @@ class RecurrencePathTest(_StubTestCase):
         self.assertTrue(manifest["acceptance"]["ok"])
         self.assertEqual(manifest["train"]["final_metrics"]["r2"], 0.91)
         self.assertEqual(manifest["train"]["stopped_reason"], "converged")
-        self.assertEqual(manifest["predict"], {"shape": [2, 1]})
+        self.assertEqual(manifest["predict"], {"shape": [4, 1]})
         self.assertEqual(manifest["crossval"]["eval_aggregate"], {"r2": 0.8})
         self.assertIsNone(manifest["g6_shape_check"])
         self.assertIsNone(manifest["save_model_rerun"])
@@ -1125,6 +1149,93 @@ class PlotRendererUnitTest(unittest.TestCase):
         npz = {"X_train": np.zeros((4, 3)), "y_train": np.zeros(4), "X_test": np.zeros((2, 3)), "y_test": np.zeros(2)}
         with self.assertRaises(ValueError):
             self.plots.render_dataset(npz, "t", self.tmp / "dataset.png")
+
+
+@unittest.skipUnless(HAVE_NUMPY and HAVE_MPL, "numpy + matplotlib required for the SS8.2 plot set")
+class RecurrencePlotsTest(_StubTestCase):
+    """Wave 2.5: the SS8.2 recurrence plot set (closes G-5)."""
+
+    ALL_PLOTS = ["dataset_overview", "dt_histogram", "forecast_vs_truth", "residuals", "crossval_folds", "metrics_table"]
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.state.artifact_kind = "sequence"
+
+    def _config_with_plots(self, plots: list, **mutate) -> Path:
+        cfg = _recurrence_config()
+        cfg["outputs"]["plots"] = plots
+        for key, value in mutate.items():
+            if value is None:
+                cfg.pop(key, None)
+            else:
+                cfg[key] = value
+        return _write_config(self.tmp, cfg)
+
+    def test_all_six_plots_rendered(self) -> None:
+        code, _ = _invoke(self._config_with_plots(self.ALL_PLOTS), self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        plots_dir = self.run_dir / "artifacts" / "plots"
+        for name in ("dataset_overview.png", "dt_histogram.png", "forecast_vs_truth.png", "residuals.png", "crossval_folds.png", "metrics_table.png"):
+            path = plots_dir / name
+            self.assertTrue(path.is_file(), name)
+            raw = path.read_bytes()
+            self.assertTrue(raw.startswith(PNG_MAGIC), f"{name} is not a PNG")
+            self.assertGreater(len(raw), 1500, f"{name} suspiciously small ({len(raw)} bytes)")
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["driver"]["plots"]["rendered"], self.ALL_PLOTS)
+        self.assertEqual(manifest["driver"]["plots"]["skipped"], [])
+        self.assertIn("plots", manifest["timings"])
+        self.assertIn("artifacts/plots/dt_histogram.png", manifest["artifacts"])
+
+    def test_disabled_phases_skip_their_plots(self) -> None:
+        code, _ = _invoke(self._config_with_plots(["forecast_vs_truth", "crossval_folds", "metrics_table"], crossval=None, predict=None), self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["driver"]["plots"]["rendered"], ["metrics_table"])
+        skipped = {entry["name"]: entry["reason"] for entry in manifest["driver"]["plots"]["skipped"]}
+        self.assertIn("predict phase disabled or failed", skipped["forecast_vs_truth"])
+        self.assertIn("crossval phase disabled or failed", skipped["crossval_folds"])
+
+    def test_matplotlib_unavailable_fails_acceptance(self) -> None:
+        with mock.patch.object(rx, "_load_plots_module", side_effect=ImportError("matplotlib stub-missing")):
+            code, _ = _invoke(self._config_with_plots(["dt_histogram"]), self.run_dir)
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "succeeded")
+        self.assertTrue(any("matplotlib" in reason for reason in manifest["acceptance"]["reasons"]))
+
+
+@unittest.skipUnless(HAVE_NUMPY and HAVE_MPL, "numpy + matplotlib required for the SS8.2 plot set")
+class RecurrencePlotRendererUnitTest(unittest.TestCase):
+    """Unit arms for plots_recurrence.py: key resolution + the ValueError no-data contracts."""
+
+    def setUp(self) -> None:
+        self.plots = rx._load_plots_module("plots_recurrence.py")
+        self.tmp = Path(tempfile.mkdtemp(prefix="run-experiment-rec-plots-"))
+        self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
+
+    def test_resolve_target_key_prefers_y_reg(self) -> None:
+        self.assertEqual(self.plots.resolve_target_key({"y_reg_test": 1, "y_test": 1}, "test"), "y_reg_test")
+        self.assertEqual(self.plots.resolve_target_key({"y_test": 1}, "test"), "y_test")
+        with self.assertRaises(ValueError):
+            self.plots.resolve_target_key({"X_test": 1}, "test")
+
+    def test_dt_histogram_rejects_non_dt_dataset(self) -> None:
+        with self.assertRaises(ValueError):
+            self.plots.render_dt_histogram({"X_train": [1]}, "train", "t", self.tmp / "dt.png")
+
+    def test_crossval_folds_rejects_empty(self) -> None:
+        with self.assertRaises(ValueError):
+            self.plots.render_crossval_folds({"folds": []}, "t", self.tmp / "cv.png")
+
+    def test_forecast_rejects_length_mismatch(self) -> None:
+        with self.assertRaises(ValueError):
+            self.plots.render_forecast_vs_truth([[0.1], [0.2]], [0.1, 0.2, 0.3], "t", self.tmp / "f.png")
+
+    def test_metrics_table_renders_train_and_cv_rows(self) -> None:
+        crossval = {"eval_aggregate": {"r2": 0.8}, "eval_std": {"r2": 0.05}}
+        out = self.plots.render_metrics_table({"r2": 0.91, "mse": 0.01}, crossval, "t", self.tmp / "table.png")
+        self.assertTrue(out.read_bytes().startswith(PNG_MAGIC))
 
 
 class SubprocessSmokeTest(unittest.TestCase):
