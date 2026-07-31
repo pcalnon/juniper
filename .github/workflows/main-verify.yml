@@ -4,10 +4,10 @@
 # Application:   juniper-ml
 # File Name:     main-verify.yml
 # Author:        Paul Calnon
-# Version:       0.1.0
+# Version:       0.2.0
 #
 # Date Created:  2026-07-28
-# Last Modified: 2026-07-28
+# Last Modified: 2026-07-30
 #
 # License:       MIT License
 # Copyright:     Copyright (c) 2024-2026 Paul Calnon
@@ -23,9 +23,16 @@
 #
 #    Three jobs:
 #      * symbol-screen -- ALWAYS runs. AST symbol-loss screen + docs deletion-magnitude
-#        screen of <merge>^1 .. <merge> (the push's first parent vs the new tip), both
-#        via util/sequence_safety/. Uploads the JSON reports as an artifact a supervisor
-#        can consume. FAILs the job on a compositional-loss finding.
+#        screen of BASE .. <merge>, both via util/sequence_safety/. Uploads the JSON reports
+#        as an artifact a supervisor can consume. FAILs the job on a compositional-loss
+#        finding.
+#          G3.1 CATCH-UP BASE (flood §4 item 8 / the 2026-07-30 skip incident): a quoted
+#          `[skip ci]` in three merge-commit bodies skipped main-verify entirely on
+#          ml#870/#872/#873, so those windows were never screened. BASE is therefore
+#          resolved to the head_sha of the most recent SUCCESSFUL main-verify run on main
+#          (when it is an ancestor of HEAD), so the NEXT run sweeps every skipped merge in
+#          between; it falls back to github.event.before (the push's first parent), then
+#          HEAD^1. The chosen base + reason are echoed to the step summary.
 #      * battery -- the full enumerated unittest battery, path-gated: it runs only when
 #        the push touched tests/ | util/ | scripts/ | .github/ | pyproject.toml (a
 #        docs-only merge skips it). A regression that a bad merge introduced is caught
@@ -85,6 +92,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read # G3.1: gh api reads the last successful main-verify run for the catch-up base
     steps:
       - name: Checkout Code (full history)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -97,9 +105,52 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_TEST_VERSION }}
 
+      - name: Resolve catch-up base
+        id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          # G3.1 catch-up base (flood §4 item 8 / the 2026-07-30 skip incident, ml#870/#872/#873):
+          # a quoted `[skip ci]` in a merge-commit body skips THIS workflow entirely, so a window
+          # of merges can land un-screened. Resolve BASE to the head_sha of the most recent
+          # SUCCESSFUL main-verify run on main WHEN it is an ancestor of HEAD, so the next run
+          # sweeps every merge skipped in between. Fall back to github.event.before (the push's
+          # first parent), then HEAD^1 (force-push / initial / dispatch).
+          last_ok="$(gh api "repos/${REPO}/actions/workflows/main-verify.yml/runs?status=success&branch=main&per_page=1" --jq '.workflow_runs[0].head_sha' 2>/dev/null || true)"
+          base=""
+          reason=""
+          if [ -n "$last_ok" ] && [ "$last_ok" != "null" ] \
+              && git rev-parse --verify -q "${last_ok}^{commit}" >/dev/null 2>&1 \
+              && [ "$last_ok" != "$HEAD_SHA" ] \
+              && git merge-base --is-ancestor "$last_ok" "$HEAD_SHA" 2>/dev/null; then
+            n="$(git rev-list --count "${last_ok}..${HEAD_SHA}" 2>/dev/null || echo '?')"
+            base="$last_ok"
+            reason="catch-up from ${last_ok} (${n} commits)"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
+              && git rev-parse --verify -q "${BEFORE}^{commit}" >/dev/null 2>&1; then
+            base="$BEFORE"
+            reason="event.before (${BEFORE})"
+          else
+            base="$(git rev-parse --verify -q 'HEAD^1' || git rev-parse HEAD)"
+            reason="HEAD^1 fallback (force-push / initial / dispatch)"
+          fi
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+          echo "Post-merge screen base: ${reason}"
+          {
+            echo "### Post-merge sequence-safety base (G3.1 catch-up)"
+            echo ""
+            echo "- HEAD: \`${HEAD_SHA}\`"
+            echo "- BASE: \`${base}\`"
+            echo "- reason: ${reason}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Run sequence-safety screens (symbol + docs)
         env:
-          BEFORE: ${{ github.event.before }}
+          BASE_REF: ${{ steps.base.outputs.base }}
           HEAD_SHA: ${{ github.sha }}
         run: |
           set -uo pipefail
@@ -107,13 +158,14 @@ jobs:
           echo "╔════════════════════════════════════════════════════════════╗"
           echo "║       juniper-ml - Post-Merge Sequence-Safety Screens      ║"
           echo "╚════════════════════════════════════════════════════════════╝"
-          # BASE = the push's first parent. For a standard non-ff merge push,
-          # github.event.before == <merge>^1. On a force-push / initial push it is
-          # all-zeros (or empty on dispatch) -> fall back to HEAD^1.
-          base="$BEFORE"
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git rev-parse --verify -q "${base}^{commit}" >/dev/null 2>&1; then
+          # BASE is resolved by the preceding "Resolve catch-up base" step (G3.1): the last
+          # SUCCESSFUL main-verify tip when it is an ancestor of HEAD (sweeping any [skip ci]-
+          # skipped window), else github.event.before, else HEAD^1. Defensive re-fallback here
+          # in case the step output is empty/unresolvable.
+          base="$BASE_REF"
+          if [ -z "$base" ] || ! git rev-parse --verify -q "${base}^{commit}" >/dev/null 2>&1; then
             base="$(git rev-parse --verify -q 'HEAD^1' || git rev-parse HEAD)"
-            echo "github.event.before unavailable (force-push / initial / dispatch) -> BASE fallback = ${base}"
+            echo "BASE output empty/unresolvable -> fallback = ${base}"
           fi
           echo "Screening ${base} .. ${HEAD_SHA}"
           echo ""

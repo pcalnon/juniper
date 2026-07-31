@@ -7,15 +7,22 @@
 # Version:       0.4.0
 #
 # Date Created:  2026-02-23
-# Last Modified: 2026-03-11
+# Last Modified: 2026-07-30
 #
 # License:       MIT License
 # Copyright:     Copyright (c) 2024-2026 Paul Calnon
 #
 # Description:
 #    GitHub Actions CI/CD Pipeline for juniper-ml meta-package.
-#    - Pre-commit hooks for code quality (flake8, bandit, shellcheck, yamllint, markdownlint)
+#    - Pre-commit hooks for code quality (flake8, bandit, shellcheck, yamllint, markdownlint).
+#      G4 changed-files split (flood §4 item 8 phase 2): pull_request / merge_group scope to
+#      the event's changed files (--from-ref/--to-ref); push keeps --all-files.
 #    - Regression tests (Python unittest + bash scripts)
+#    - Sequence Safety (ADVISORY, standalone): per-PR symbol-loss + docs-deletion screens
+#      (flood §4 item 8 phase 3); NOT in the Quality Gate needs -- soak-advisory per the
+#      codeql convention, with a WARN-only allow-symbol-loss / docs-rewrite label hatch.
+#    - Fleet PR Lint (ADVISORY, warnings-only): cursor/* best-practices surface to the step
+#      summary (flood §4 item 8 phase 4); never fails, never comments.
 #    - Build and validate (twine check)
 #    - Documentation link validation
 #    - Security scanning (pip-audit)
@@ -70,6 +77,12 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # G4 pre-commit changed-files split (flood-remediation §4 item 8 phase 2): the
+          # pull_request / merge_group runs scope pre-commit to the event's changed files via
+          # `--from-ref <BASE> --to-ref HEAD`, which needs the BASE commit present in the
+          # checkout -> full history. (push keeps `--all-files`, which needs no base.)
+          fetch-depth: 0
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -91,11 +104,46 @@ jobs:
             pre-commit-${{ runner.os }}-${{ matrix.python-version }}-
 
       - name: Run pre-commit hooks
+        # G4 pre-commit changed-files split (flood-remediation §4 item 8 phase 2 / Proposal
+        # P2 §4). On pull_request / merge_group, scope pre-commit to the event's changed files
+        # (`--from-ref <BASE> --to-ref HEAD`) so a union-non-clean main (two individually
+        # black-clean branches whose merge is not black-clean) no longer paints EVERY open PR
+        # red until a manual re-push (#759). On push (incl. main) keep `--all-files`: the global
+        # union check that catches union-dirt at the point it lands, reinforced UNBYPASSABLY
+        # post-merge by G3 (main-verify.yml also runs `pre-commit run --all-files`). The 3
+        # required context names -- `Pre-commit (Python 3.1x)` -- are unchanged, so this is a
+        # drop-in swap for the branch ruleset.
+        #
+        # Caveats (Proposal P2 §4):
+        #   * `pass_filenames: false` hooks (the juniper-check-doc-links local hook,
+        #     .pre-commit-config.yaml:234-263) still run GLOBALLY under `--from-ref` mode --
+        #     intended: doc-link integrity is a whole-repo property, not a changed-files one.
+        #   * changed-files-only is BLIND to a union effect in a file the PR did NOT touch
+        #     (a formatting conflict two unrelated branches create in an untouched file); that
+        #     residual is exactly what G3's post-merge `--all-files` (+ the G1 merge-ref symbol
+        #     screen) then cover, so the split loses nothing net while removing the blast radius.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
         run: |
+          set -euo pipefail
           echo "╔════════════════════════════════════════════════════════════╗"
           echo "║       juniper-ml - Pre-commit Checks                       ║"
           echo "╚════════════════════════════════════════════════════════════╝"
-          pre-commit run --all-files --show-diff-on-failure
+          if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "merge_group" ]; then
+            if [ "$EVENT_NAME" = "pull_request" ]; then base="$PR_BASE_SHA"; else base="$MG_BASE_SHA"; fi
+            echo "Changed-files scope (${EVENT_NAME}): pre-commit run --from-ref ${base} --to-ref HEAD"
+            # fetch-depth:0 already holds the base (it is an ancestor of the merge ref); fetch
+            # defensively in case the event base is not yet local.
+            if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$base" || true
+            fi
+            pre-commit run --from-ref "$base" --to-ref HEAD --show-diff-on-failure
+          else
+            echo "Full-tree scope (${EVENT_NAME}): pre-commit run --all-files"
+            pre-commit run --all-files --show-diff-on-failure
+          fi
 
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
   # Tests: Run regression tests for scripts and tooling
@@ -534,6 +582,211 @@ jobs:
           # PR's net change set (merge-base(base, HEAD)..HEAD), matching `gh pr diff`.
           git fetch --no-tags origin "${{ github.base_ref }}"
           python3 util/release_train/archive_guard.py --base FETCH_HEAD --head HEAD
+
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  # Sequence Safety (ADVISORY, standalone): the per-PR compositional-loss screen (Proposal P2 gates
+  # G1 + G2; flood-remediation §4 item 8 phase 3). Runs the AST symbol-loss screen + the docs
+  # deletion-magnitude screen over the PR's base..HEAD (the merge ref on pull_request; the queued
+  # composition on merge_group), so the silent-deletion / net-docs-deletion classes the flood shipped
+  # are visible AT REVIEW. Uploads both JSON reports as the `sequence-safety-report` artifact a
+  # supervisor consumes (P2 G5-vi).
+  #
+  # ADVISORY, NOT required (the codeql soak convention): this job is deliberately ABSENT from the
+  # Quality Gate `needs:` -- mirroring the release-train-archive-guard precedent -- for two grounded
+  # reasons. (1) It is pull_request / merge_group-only (skipped on push), and the Quality Gate is
+  # `if: always()` and treats any non-success need as fatal, so folding it into that `needs:` would
+  # fail every push:main. (2) The fleet-tuned false-positive rate is unknown; soak it as its own
+  # advisory status check first, then promote to REQUIRED directly in the branch ruleset (NEVER via
+  # the Quality-Gate `needs:`). Even promoted, the owner + Cursor App always-bypass it, so its
+  # guaranteed value is the visible red at review; enforcement is G3 (main-verify.yml).
+  #
+  # Label hatch (WARN-only, P2 SF5): the owner-applied `allow-symbol-loss` / `docs-rewrite` PR labels
+  # demote THAT screen's FAIL to WARN-only for this run (`--advisory`: exit 0 with findings still
+  # printed). A bare label is a blanket per-PR override, intentionally demoted to WARN-only; the
+  # auditable enumerated `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite:` commit trailer (parsed inside
+  # the modules, travels in git history so it also covers the post-merge G3) stays the PRIMARY waiver.
+  # Labels are read live via `gh pr view` so applying one + re-running the job takes effect with no
+  # re-push. merge_group has no PR object -> a queued merge is screened strict (no label downgrade).
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  sequence-safety:
+    name: Sequence Safety
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    permissions:
+      contents: read
+      pull-requests: read # gh pr view --json labels for the WARN-only label hatch
+    steps:
+      - name: Checkout Code (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # need base + head for the three-dot merge-base screens
+
+      - name: Set up Python ${{ env.PYTHON_TEST_VERSION }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_TEST_VERSION }}
+
+      - name: Run sequence-safety screens (symbol + docs)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          set -uo pipefail
+          set +e # this step handles the screen exit codes manually
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║       juniper-ml - Per-PR Sequence-Safety Screens         ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          if [ "$EVENT_NAME" = "pull_request" ]; then base="$PR_BASE_SHA"; else base="$MG_BASE_SHA"; fi
+          if [ -z "$base" ]; then
+            echo "::error::could not resolve a base sha for event ${EVENT_NAME}"
+            exit 2
+          fi
+          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$base" || true
+          fi
+          # Label hatch: read the PR's CURRENT labels (live via gh, so apply-label + re-run
+          # works with no push). Only meaningful on pull_request (merge_group has no PR object).
+          sym_adv=""
+          docs_adv=""
+          if [ "$EVENT_NAME" = "pull_request" ] && [ -n "$PR_NUMBER" ]; then
+            labels="$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' 2>/dev/null || true)"
+            if printf '%s\n' "$labels" | grep -qx 'allow-symbol-loss'; then sym_adv="--advisory"; echo "label allow-symbol-loss -> symbol screen ADVISORY (WARN-only)"; fi
+            if printf '%s\n' "$labels" | grep -qx 'docs-rewrite'; then docs_adv="--advisory"; echo "label docs-rewrite -> docs screen ADVISORY (WARN-only)"; fi
+          fi
+          echo "Screening ${base} .. HEAD"
+          echo ""
+          echo "--- symbol-loss screen ---"
+          # shellcheck disable=SC2086  # $sym_adv is an intentional empty-or---advisory token
+          python3 util/sequence_safety/symbol_loss_check.py --base "$base" --head HEAD $sym_adv
+          src=$?
+          # shellcheck disable=SC2086
+          python3 util/sequence_safety/symbol_loss_check.py --base "$base" --head HEAD $sym_adv --json > symbol-report.json || true
+          echo ""
+          echo "--- docs deletion-magnitude screen ---"
+          # shellcheck disable=SC2086
+          python3 util/sequence_safety/docs_additions_check.py --base "$base" --head HEAD $docs_adv
+          drc=$?
+          # shellcheck disable=SC2086
+          python3 util/sequence_safety/docs_additions_check.py --base "$base" --head HEAD $docs_adv --json > docs-report.json || true
+          echo ""
+          echo "symbol screen exit=${src} ; docs screen exit=${drc}"
+          if [ "${src}" -ge 2 ] || [ "${drc}" -ge 2 ]; then
+            echo "::error::sequence-safety screen invocation error (see log)"
+            exit 2
+          fi
+          if [ "${src}" -ge 1 ] || [ "${drc}" -ge 1 ]; then
+            echo "::error::per-PR compositional-loss finding(s) -- see the screens above and the sequence-safety-report artifact. Waive an intended removal with an Allow-Symbol-Loss / Allow-Docs-Rewrite commit trailer, or (owner) apply the allow-symbol-loss / docs-rewrite label for a WARN-only downgrade."
+            exit 1
+          fi
+          echo "::notice::sequence-safety screens clean (or waived) for this PR"
+
+      - name: Upload sequence-safety report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sequence-safety-report
+          path: |
+            symbol-report.json
+            docs-report.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  # Fleet PR Lint (ADVISORY, warnings-only, ALWAYS exit 0): a best-practices conformance surface for
+  # the Cursor automation fleet's PRs (Proposal P2 G5-iv; flood-remediation §4 item 8 phase 4). Runs
+  # ONLY on a pull_request whose head branch is `cursor/*` (the fleet's branch convention). It never
+  # fails and never comments -- every signal goes to the job step summary:
+  #   * commit count > 1            -> warn (the fleet's single-tidy-commit convention)
+  #   * changed .py not black-clean -> warn (repo-pinned black 26.3.1 --line-length 512)
+  #   * touched-file count          -> note (fan-out proxy; scope is not machine-declarable, P2 G5-iv)
+  #   * touches AGENTS.md or docs/DEVELOPER_CHEATSHEET_JUNIPER-ML.md -> hotspot note (the flood's top
+  #     same-file clusters)
+  # Advisory-only by design: it informs the owner's review, it never gates. Standalone (absent from
+  # the Quality Gate `needs:`), so its skip on a non-cursor PR / push / merge_group never affects the
+  # gate.
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  fleet-pr-lint:
+    name: Fleet PR Lint
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'cursor/')
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python ${{ env.PYTHON_TEST_VERSION }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_TEST_VERSION }}
+
+      - name: Install black (repo-pinned)
+        run: |
+          python -m pip install --upgrade "pip>=26.1.1"
+          # Match the .pre-commit-config.yaml black hook (rev 26.3.1) exactly so the advisory
+          # formatting signal never disagrees with the required pre-commit lane.
+          pip install "black==26.3.1"
+
+      - name: Fleet-PR best-practices lint (advisory, never fails)
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_COMMITS: ${{ github.event.pull_request.commits }}
+          PR_CHANGED: ${{ github.event.pull_request.changed_files }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -uo pipefail
+          set +e # advisory: never let a lint probe fail the job
+          base="$PR_BASE_SHA"
+          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$base" || true
+          fi
+          {
+            echo "## Fleet PR Lint (advisory)"
+            echo ""
+            echo "Branch \`${HEAD_REF}\` -- warnings only; this check never fails and never comments."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+          # 1) commit count (single-tidy-commit convention)
+          if [ -n "${PR_COMMITS}" ] && [ "${PR_COMMITS}" -gt 1 ] 2>/dev/null; then
+            echo "- :warning: **${PR_COMMITS} commits** on the branch -- the fleet convention is a single tidy commit (squash before merge)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- commit count: ${PR_COMMITS:-?} (ok)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # 2) changed .py black-clean (repo-pinned black --line-length 512; excludes deletions)
+          mapfile -t py_files < <(git diff --name-only --diff-filter=d "${base}...HEAD" -- '*.py' 2>/dev/null || true)
+          if [ "${#py_files[@]}" -gt 0 ]; then
+            if black --check --line-length 512 "${py_files[@]}" > black.out 2>&1; then
+              echo "- black: ${#py_files[@]} changed .py file(s) formatted (ok)." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- :warning: **black --check** reports unformatted changed .py file(s):" >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              grep -E 'would reformat|reformatted|error:' black.out >> "$GITHUB_STEP_SUMMARY" || true
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "- black: no changed .py files." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # 3) touched-file count (fan-out proxy)
+          changed_count="$(git diff --name-only "${base}...HEAD" 2>/dev/null | wc -l | tr -d ' ')"
+          echo "- touched files: ${changed_count} (payload changed_files: ${PR_CHANGED:-?})." >> "$GITHUB_STEP_SUMMARY"
+          if [ "${changed_count}" -gt 15 ] 2>/dev/null; then
+            echo "  - :warning: high fan-out (> 15 files); confirm the change stays within one declared purpose." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # 4) hotspot files (the flood's top same-file clusters)
+          changed_all="$(git diff --name-only "${base}...HEAD" 2>/dev/null || true)"
+          if printf '%s\n' "$changed_all" | grep -qx 'AGENTS.md'; then
+            echo "- :fire: touches **AGENTS.md** (a flood hotspot -- expect same-file contention with sibling fleet PRs)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if printf '%s\n' "$changed_all" | grep -qx 'docs/DEVELOPER_CHEATSHEET_JUNIPER-ML.md'; then
+            echo "- :fire: touches **docs/DEVELOPER_CHEATSHEET_JUNIPER-ML.md** (a flood hotspot)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
 
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
   # Build: Build the package and validate with twine
