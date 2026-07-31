@@ -82,6 +82,8 @@ python3 -m unittest -v tests/test_release_train_detect.py
 python3 -m unittest -v tests/test_release_train_propose.py
 python3 -m unittest -v tests/test_release_train_archive_guard.py
 python3 -m unittest -v tests/test_release_train_ceremony.py
+python3 -m unittest -v tests/test_experiment_stack_script.py
+python3 -m unittest -v tests/test_run_experiment.py
 bash scripts/test_resume_file_safety.bash
 # doc-link validator regression tests live in juniper-doc-tools/tests/
 # and run under the dedicated `CI -- juniper-doc-tools` workflow.
@@ -265,6 +267,7 @@ juniper-ml/
 │   ├── test_template_data_resolver.py    # Tests + drift gate: data layer (prompts/agent_templates/data/) + resolver
 │   ├── test_scaffold_template.py         # Behavioural: util/scaffold_template.py new-template generator (P5; drift-compliant output)
 │   ├── test_experiment_stack_script.py   # Contract + behavioural: util/experiment_stack.bash per-run launcher (§6.1 recipes, §6.4 RUN_DIR, §7.2 target file, §9.3 ranges, F-6 listener pid, dry-run + teardown; hermetic)
+│   ├── test_run_experiment.py            # Behavioural: util/experiments/run_experiment.py cascor driver (§6.3 drive loop, Q-2 stall/budget, F-1 redirect sampling, G-6 staging, §13.4 manifest, exit matrix 0-4; hermetic stub HTTP)
 │   ├── test_prompt_validator_contract.py # Lint: prompt-validator subagent frontmatter + pinned verdict schema/fixtures
 │   ├── test_template_agent_skill_lint.py # Lint: template-agent Skill frontmatter + wiring to real artifacts (PR 5)
 │   ├── test_service_smoke_skill_lint.py  # Lint: service-smoke Skill frontmatter (declared browser MCP for opt-in --ui, NO Agent) + teardown wiring (E-1 Stage 1/2)
@@ -314,6 +317,7 @@ juniper-ml/
     ├── juniper_chop_all.bash             # Stops all Juniper ecosystem services
     ├── isolated_stack.bash               # Isolated training-runtime E2E trio (data 8101 / cascor 8202 / canopy 8051): --up/--down/--status/--dry-run
     ├── experiment_stack.bash             # Per-run experiment launcher (data 8110-8139 / cascor 8230-8259 / recurrence 8260-8289): --up/--down/--status/--dry-run
+    ├── experiments/                      # Experiment driver layer (Wave 2.2): run_experiment.py single-run cascor driver (§6.3); recurrence path Wave 2.3, plots Wave 2.4
     ├── get_cascor_status.bash            # GET /v1/training/status
     ├── get_cascor_metrics.bash           # GET /v1/metrics
     ├── get_cascor_history.bash           # GET /v1/metrics/history?count=10
@@ -448,6 +452,13 @@ juniper-ml/
     `socat "TCP-LISTEN:<port>,bind=<gateway>,fork,reuseaddr" "TCP:127.0.0.1:<port>"` relay per scraped service (pids under `RUN_DIR/relays/`), and write the §7.2 target file
     to `<JUNIPER_EXP_DEPLOY_DIR>/prometheus/targets/<RUN_ID>.json` (labels `service` / `environment=host-experiment` / `run_id` / `experiment`; removed at teardown).
     Without it `--status` reports the run as UNSCRAPED.
+- `util/experiments/run_experiment.py` -- Single-run experiment driver (plan §6.3; Wave 2.2 = the cascor **service** path; the recurrence path lands in Wave 2.3, plot rendering in Wave 2.4, stats/summary renderers in Wave 2.6).
+  Path-invoked: `python util/experiments/run_experiment.py --config <yaml> --run-dir <RUN_DIR>` against a stack from `experiment_stack.bash` -- service URLs resolve from the run's `ports.json` (`--data-url` / `--cascor-url` override). Stdlib + PyYAML; numpy lazily only for the `.npz` artifact (JSON fallback); HTTP via redirect-following `urllib` GETs (F-1: bare `/metrics` 307s to `/metrics/`).
+  - Validates the §5.4 YAML (driver-owned §5.6 subset): unknown blocks/keys rejected, `schema_version` gated, `experiment.seed` REQUIRED (with the `dataset.params.seed` derivation rule + run-scoped default tags), rule-6 infra keys (`service.host/port/juniper_data_url/eval_metrics_enabled`) rejected; a `train:`-shaped (recurrence) config exits 2 until Wave 2.3.
+  - Drive: generator preflight (`GET /v1/generators` must report `available: true`), `POST /v1/datasets` (content-addressed `dataset_id` recorded), then `POST /v1/training/start` and poll `GET /v1/training/status` to `COMPLETED`/`FAILED` under the Q-2 wall-clock budget (`outputs.max_wall_seconds`, CLI `--max-wall-seconds` wins) + stall detector (no `current_epoch` progress for `--stall-seconds`, default 120 -> `outcome: "stalled"`).
+  - Non-spiral generators stage through `POST /v1/training/dataset` (alias map; gaussian/checkerboard refused until W-3) with a post-run G-6 input-width assert (mismatch = acceptance failure).
+  - Each poll samples the loopback `/metrics` allowlist (`candidate_correlation` / `hidden_units_total` / `training_loss` / `training_accuracy_ratio` / step-duration sum+count) into `artifacts/results/metrics_series.csv` -- correlation exists ONLY there, never in `/v1/metrics/history` rows; a 404 (metrics disabled, G-3) degrades sampling, not the run.
+  - Collects `metrics_final.json` / `metrics_history.json` / `topology.json` / `decision_boundary.npz` (2-D input only) + optional `POST /v1/snapshots`; ALWAYS writes the §13.4 `manifest.json` (also for stalled / timed-out / failed runs) and prints a one-screen summary. Exit codes: 0 success / 1 acceptance (stalled, timed_out, G-6 mismatch, missing essential artifact) / 2 misuse-validation / 3 unreachable / 4 FAILED-5xx. Tests: `tests/test_run_experiment.py`.
 - `util/get_cascor_*.bash` -- Cascor REST API query utilities (status, metrics, history, network, topology). These helpers read legacy `CASCOR_HOST` and `CASCOR_PORT` environment variables (with `localhost` / `8201` defaults). Do not confuse them with the `JUNIPER_CASCOR_*` variables used by `util/juniper_plant_all.bash`.
 
 ### Tests
@@ -527,6 +538,12 @@ juniper-ml/
     no listener, so kill-by-port cannot be what fired), removes the target file, releases the lockdirs, writes `teardown.json`, and preserves `artifacts/`.
   Live `cascor_up` / `canopy_up` compose pins (`TestCascorUp` / `TestCanopyUp` — fake `conda.sh` + PATH stubs; juniper-ml#813). Wired into `ci.yml` beside the `test_juniper_{plant,chop}_all.py` launcher tests.
   - Live compose coverage for `data_up` (`TestDataUpLive`: venv create/skip, pip extras, `PYTHON_GIL=0`, pidfile, missing-`python3.14` abort — juniper-ml#807).
+- `tests/test_run_experiment.py` -- Hermetic tests for `util/experiments/run_experiment.py` (CLI experimentation plan Wave 2.2, the cascor service path; `util/` is not
+  pre-commit-lint-gated, so this unittest is the gate). A scripted stub HTTP server stands in for both juniper-data and cascor (no live services): the §5.6 YAML
+  validation arms (unknown block/key, `schema_version`, mandatory `experiment.seed`, the rule-6 infra-key rejection, kind resolution incl. the Wave-2.3 recurrence
+  refusal), the drive loop (completion / `FAILED` / Q-2 stall / wall-clock budget with CLI-beats-YAML precedence), the F-1 `/metrics` 307-redirect sampling arm + the
+  G-3 404 degrade, the G-6 staging path (alias map, no inline `dataset` on start, shape-assert pass/mismatch, W-3 refusal for gaussian), `ports.json` endpoint
+  resolution, the §13.4 manifest written for every outcome, and the full 0/1/2/3/4 exit matrix incl. `RedactedEnv` subprocess arms.
 - `scripts/test.bash` -- Manual end-to-end harness for session create/resume launcher flows
 - `scripts/test_resume_file_safety.bash` -- Regression script ensuring invalid `--resume <file.txt>` input does not delete the source file
 
