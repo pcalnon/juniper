@@ -49,10 +49,19 @@ explicit ``--files`` list bypasses the scope filter (any ``.py`` / ``.bash`` pat
 CLI::
 
     python util/sequence_safety/symbol_loss_check.py --base <ref> --head <ref> \
-        [--files PATH ...] [--repo-root DIR] [--json]
+        [--files PATH ...] [--repo-root DIR] [--advisory] [--json]
 
 Exit codes: 0 = clean (no unwaived FAIL), 1 = >= 1 unwaived FAIL finding, 2 = usage /
 invocation error (bad args, unresolvable ref). WARN / RELOCATED / WAIVED never fail.
+
+Advisory mode (``--advisory``). Print every finding as usual but exit 0 even on an
+unwaived FAIL (a top-level ``advisory: true`` is recorded in the report and an ADVISORY
+note is printed; the finding severities themselves are left intact so the artifact keeps
+the ground truth for a supervisor). This is the demotion the per-PR CI job applies when
+the owner attaches the ``allow-symbol-loss`` label -- a blanket per-PR override
+deliberately downgraded to WARN-only (P2 SF5), so the auditable enumerated
+``Allow-Symbol-Loss`` commit trailer stays the primary waiver. Exit 2 (invocation error)
+is NEVER masked by ``--advisory``.
 
 Project: juniper-ml
 Sub-Project: flood-remediation sequence-safety gates
@@ -508,6 +517,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--head", required=True, help="head ref (e.g. HEAD, <merge>, github.sha)")
     ap.add_argument("--files", nargs="*", default=None, help="explicit .py/.bash files to screen (bypasses the scope filter)")
     ap.add_argument("--repo-root", default=".", help="repository root the git commands run in (default: cwd)")
+    ap.add_argument(
+        "--advisory",
+        action="store_true",
+        help="advisory mode: print findings but exit 0 even on an unwaived FAIL (the per-PR allow-symbol-loss label hatch, demoted to WARN-only; the Allow-Symbol-Loss commit trailer stays the primary enumerated waiver). Exit 2 (invocation error) is never masked.",
+    )
     ap.add_argument("--json", action="store_true", help="emit the machine-readable report to stdout")
     args = ap.parse_args(argv)
 
@@ -515,11 +529,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     if code == 2:
         print(f"ERROR: {report.get('error', 'invocation error')}", file=sys.stderr)
         return 2
+    report["advisory"] = args.advisory
     if args.json:
         print(json.dumps(report, indent=1, sort_keys=True))
     else:
         _print_human(report)
-    return code
+        if args.advisory and code == 1:
+            print("\nADVISORY (--advisory): the FAIL finding(s) above are downgraded to WARN-only for this run; exit 0. The auditable `Allow-Symbol-Loss: <qualified.symbol>` commit trailer remains the primary, enumerated waiver.")
+    return 0 if (args.advisory and code == 1) else code
 
 
 if __name__ == "__main__":

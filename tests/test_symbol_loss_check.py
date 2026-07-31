@@ -360,6 +360,68 @@ class SymbolLossCliContractTest(unittest.TestCase):
             self.assertEqual(_by_symbol(_report(explicit))["func:helper"]["verdict"], "LOST")
 
 
+class SymbolLossAdvisoryTest(unittest.TestCase):
+    """The --advisory (per-PR allow-symbol-loss label hatch) exit-0 downgrade."""
+
+    def test_advisory_downgrades_fail_to_exit_0_but_keeps_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            _write(root, "tests/test_x.py", "class TestX:\n    def keep(self):\n        return 1\n\n    def drop_me(self):\n        return 2\n")
+            _commit(root, "base")
+            _write(root, "tests/test_x.py", "class TestX:\n    def keep(self):\n        return 1\n")
+            _commit(root, "drop drop_me")
+            # Strict (no flag): the silent deletion FAILs -> exit 1 (normal FAIL unchanged).
+            strict = _run_cli(root, "--json")
+            self.assertEqual(strict.returncode, 1, msg=strict.stderr)
+            # --advisory: exit 0, but the FAIL finding is left intact in the report (ground
+            # truth preserved for the sequence-safety-report artifact) and advisory is recorded.
+            adv = _run_cli(root, "--advisory", "--json")
+            self.assertEqual(adv.returncode, 0, msg=adv.stderr)
+            report = _report(adv)
+            self.assertTrue(report["advisory"])
+            f = _by_symbol(report).get("method:TestX.drop_me")
+            self.assertIsNotNone(f, msg=adv.stdout)
+            self.assertEqual((f["verdict"], f["severity"]), ("LOST", "FAIL"))
+            self.assertEqual(report["stats"]["fail_count"], 1)
+
+    def test_advisory_human_output_prints_downgrade_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            _write(root, "util/h.py", "def gone():\n    return 1\n\n\ndef keep():\n    return 2\n")
+            _commit(root, "base")
+            _write(root, "util/h.py", "def keep():\n    return 2\n")
+            _commit(root, "drop gone")
+            adv = _run_cli(root, "--advisory")  # human (non-json) output
+            self.assertEqual(adv.returncode, 0, msg=adv.stderr)
+            self.assertIn("ADVISORY", adv.stdout)
+
+    def test_advisory_clean_diff_is_still_exit_0(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            _write(root, "tests/test_x.py", "class TestX:\n    def a(self):\n        return 1\n")
+            _commit(root, "base")
+            _write(root, "tests/test_x.py", "class TestX:\n    def a(self):\n        return 1\n\n    def b(self):\n        return 2\n")
+            _commit(root, "add method b")
+            adv = _run_cli(root, "--advisory", "--json")
+            self.assertEqual(adv.returncode, 0, msg=adv.stderr)
+            report = _report(adv)
+            self.assertTrue(report["advisory"])
+            self.assertEqual(report["stats"]["fail_count"], 0)
+
+    def test_advisory_does_not_mask_invocation_error_exit_2(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            _write(root, "tests/test_x.py", "class TestX:\n    def a(self):\n        return 1\n")
+            _commit(root, "base")
+            # An unresolvable ref is an invocation error -> exit 2 even under --advisory.
+            adv = _run_cli(root, "--advisory", base="does-not-exist", head="HEAD")
+            self.assertEqual(adv.returncode, 2, msg=adv.stdout)
+
+
 class SymbolLossHelperUnitTest(unittest.TestCase):
     """Direct unit tests for the pure helpers (importlib-loaded module)."""
 

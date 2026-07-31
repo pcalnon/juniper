@@ -291,6 +291,26 @@ class NotesRenderTest(unittest.TestCase):
         for key in nr.STANDARD_FILLED_SECTIONS:
             self.assertTrue(any(t.startswith(key) for t in titles), f"filled section {key!r} not in template titles {titles}")
 
+    def test_rewrite_relative_links_shapes(self):
+        base = "https://github.com/pcalnon/juniper-canopy/blob/v0.6.0"
+        fn = nr.rewrite_relative_links
+        # plain relative + ./-normalized + anchor-on-path preserved + markdown title kept
+        self.assertEqual(fn("[a](notes/X.md)", base), f"[a]({base}/notes/X.md)")
+        self.assertEqual(fn("[a](./notes/X.md#sec)", base), f"[a]({base}/notes/X.md#sec)")
+        self.assertEqual(fn('[a](docs/Y.md "Title")', base), f'[a]({base}/docs/Y.md "Title")')
+        # untouched classes: absolute, mailto, bare anchor, protocol-relative
+        for text in ("[a](https://x.invalid/p)", "[a](mailto:x@y.z)", "[a](#local)", "[a](//cdn.invalid/p)"):
+            self.assertEqual(fn(text, base), text)
+
+    def test_render_notes_link_base_rewrites_bullets_only_when_given(self):
+        sections = OrderedDict([("Fixed", ["a bug ([design](notes/D.md); see [abs](https://x.invalid))"])])
+        base = "https://github.com/pcalnon/juniper-canopy/blob/v0.6.0"
+        with_base = nr.render_notes("juniper-canopy", "0.6.0", bump="minor", release_date="2026-07-30", sections=sections, repo_root=REPO_ROOT, link_base=base)
+        self.assertIn(f"[design]({base}/notes/D.md)", with_base)
+        self.assertIn("[abs](https://x.invalid)", with_base)
+        without = nr.render_notes("juniper-canopy", "0.6.0", bump="minor", release_date="2026-07-30", sections=sections, repo_root=REPO_ROOT)
+        self.assertIn("[design](notes/D.md)", without)  # back-compat: no link_base, no rewrite
+
     def test_security_release_uses_security_template(self):
         sections = OrderedDict([("Security", ["patched a transitive CVE"]), ("Fixed", ["a bug"])])
         self.assertTrue(nr.is_security_release(sections))

@@ -271,6 +271,65 @@ class DocsDeletionCliContractTest(unittest.TestCase):
             self.assertEqual(cp.returncode, 2)
 
 
+class DocsDeletionAdvisoryTest(unittest.TestCase):
+    """The --advisory (per-PR docs-rewrite label hatch) exit-0 downgrade."""
+
+    def test_advisory_downgrades_fail_to_exit_0_but_keeps_findings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            _write(root, "docs/REFERENCE.md", _SECTIONED)
+            _commit(root, "base")
+            _write(root, "docs/REFERENCE.md", "# Title\n\n## Section Two\n\nkeep me\n")
+            _commit(root, "drop Section One")
+            # Strict (no flag): heading deletion FAILs -> exit 1 (normal FAIL unchanged).
+            strict = _run_cli(root, "--json")
+            self.assertEqual(strict.returncode, 1, msg=strict.stderr)
+            # --advisory: exit 0, finding left intact as FAIL, advisory recorded.
+            adv = _run_cli(root, "--advisory", "--json")
+            self.assertEqual(adv.returncode, 0, msg=adv.stderr)
+            report = _report(adv)
+            self.assertTrue(report["advisory"])
+            f = _reasons(report)["docs/REFERENCE.md"]
+            self.assertEqual((f["reason"], f["severity"]), ("heading-deletion", "FAIL"))
+            self.assertEqual(report["stats"]["fail_count"], 1)
+
+    def test_advisory_human_output_prints_downgrade_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            _write(root, "docs/REFERENCE.md", _SECTIONED)
+            _commit(root, "base")
+            _write(root, "docs/REFERENCE.md", "# Title\n\n## Section Two\n\nkeep me\n")
+            _commit(root, "drop Section One")
+            adv = _run_cli(root, "--advisory")  # human (non-json) output
+            self.assertEqual(adv.returncode, 0, msg=adv.stderr)
+            self.assertIn("ADVISORY", adv.stdout)
+
+    def test_advisory_clean_diff_is_still_exit_0(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            _write(root, "docs/REFERENCE.md", "# Title\n\nintro\n")
+            _commit(root, "base")
+            _write(root, "docs/REFERENCE.md", "# Title\n\nintro\n\n## New Section\n\nmore\n")
+            _commit(root, "add a section")
+            adv = _run_cli(root, "--advisory", "--json")
+            self.assertEqual(adv.returncode, 0, msg=adv.stderr)
+            report = _report(adv)
+            self.assertTrue(report["advisory"])
+            self.assertEqual(report["stats"]["fail_count"], 0)
+
+    def test_advisory_does_not_mask_invocation_error_exit_2(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            _write(root, "docs/REFERENCE.md", "# Title\n")
+            _commit(root, "base")
+            adv = _run_cli(root, "--advisory", base="nope", head="HEAD")
+            self.assertEqual(adv.returncode, 2, msg=adv.stdout)
+
+
 class DocsDeletionHelperUnitTest(unittest.TestCase):
     def test_in_docs_scope(self) -> None:
         self.assertTrue(_DAC.in_docs_scope("AGENTS.md"))
