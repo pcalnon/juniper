@@ -346,6 +346,55 @@ def _render_security(pypi_name: str, version: str, bump: str, date: str, section
     return "\n".join(lines) + "\n"
 
 
+# ── relative-link rewrite (central-archive correctness) ──────────────────────
+#
+# CHANGELOG bullets legitimately carry links relative to the OWNING repo's tree
+# (e.g. ``[design](notes/FOO.md)`` in juniper-canopy). Archived verbatim into
+# juniper-ml's central ``notes/releases/`` those targets 404 (the canopy v0.6.0
+# archive shipped two such links). When the caller supplies ``link_base`` —
+# ``https://github.com/<owner>/<repo>/blob/<ref>`` — every inline markdown link
+# whose target is relative (no URL scheme, not an in-page ``#`` anchor, not
+# protocol-relative ``//``) is rewritten onto that base. Absolute http(s)/
+# mailto links, bare anchors, and reference-style definitions are untouched.
+
+_REL_LINK_RE = re.compile(
+    r"""(\]\(\s*)              # the ](  opener (group 1, kept)
+        (?![a-zA-Z][a-zA-Z0-9+.-]*:)   # not scheme: (http:, https:, mailto:, ...)
+        (?!\#)                 # not a bare in-page anchor
+        (?!//)                 # not protocol-relative
+        ([^)\s]+)              # the relative target (group 2)
+        (\s+"[^"]*")?          # optional markdown title (group 3)
+        (\s*\))                # the closer (group 4, kept)
+    """,
+    re.VERBOSE,
+)
+
+
+def rewrite_relative_links(text: str, link_base: str) -> str:
+    """Rewrite relative inline-link targets in ``text`` onto ``link_base``.
+
+    ``link_base`` should be an absolute URL prefix without a trailing slash
+    (``https://github.com/<owner>/<repo>/blob/<ref>``). ``./``-prefixed targets
+    are normalized; in-page anchors on the target are preserved."""
+    base = link_base.rstrip("/")
+
+    def _sub(m: "re.Match") -> str:
+        target = m.group(2)
+        while target.startswith("./"):
+            target = target[2:]
+        title = m.group(3) or ""
+        return f"{m.group(1)}{base}/{target}{title}{m.group(4)}"
+
+    return _REL_LINK_RE.sub(_sub, text)
+
+
+def _rewrite_sections(sections: "OrderedDict[str, list]", link_base: str) -> "OrderedDict[str, list]":
+    out: "OrderedDict[str, list]" = OrderedDict()
+    for category, bullets in sections.items():
+        out[category] = [rewrite_relative_links(b, link_base) for b in bullets]
+    return out
+
+
 def render_notes(
     pypi_name: str,
     version: str,
@@ -356,6 +405,7 @@ def render_notes(
     is_security: "bool | None" = None,
     template_text: "str | None" = None,
     repo_root: "Path | None" = None,
+    link_base: "str | None" = None,
 ) -> str:
     """Render a well-formed release-notes DRAFT (markdown string) for one package+version.
 
@@ -364,6 +414,8 @@ def render_notes(
     defaults to detection from the ``sections`` categories (plan S10.1). ``template_text`` /
     ``repo_root`` let the tests inject a template offline; by default the live template is read."""
     sections = sections if sections is not None else OrderedDict()
+    if link_base:
+        sections = _rewrite_sections(sections, link_base)
     if is_security is None:
         is_security = is_security_release(sections)
     date = release_date or _today()
@@ -387,6 +439,7 @@ def parse_args(argv: "list[str] | None" = None) -> argparse.Namespace:
     p.add_argument("--security", action="store_true", help="force the security template (else auto-detected from a Security category)")
     p.add_argument("--repo-root", default=None, help="juniper-ml checkout root for template lookup (default: three parents up)")
     p.add_argument("--print-archive-name", action="store_true", help="print only the central archive relpath and exit")
+    p.add_argument("--link-base", default=None, metavar="URL", help="absolute URL prefix (https://github.com/<owner>/<repo>/blob/<ref>) to rewrite relative CHANGELOG links onto (central-archive correctness; default: no rewrite)")
     return p.parse_args(argv)
 
 
@@ -405,7 +458,7 @@ def main(argv: "list[str] | None" = None) -> int:
     is_security = True if args.security else None
     repo_root = Path(args.repo_root).resolve() if args.repo_root else None
     try:
-        text = render_notes(args.package, args.version, bump=args.bump, release_date=args.release_date, sections=sections, is_security=is_security, repo_root=repo_root)
+        text = render_notes(args.package, args.version, bump=args.bump, release_date=args.release_date, sections=sections, is_security=is_security, repo_root=repo_root, link_base=args.link_base)
     except OSError as exc:
         print(f"ERROR: cannot read release-notes template: {exc}", file=sys.stderr)
         return 2

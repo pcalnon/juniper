@@ -580,6 +580,29 @@ class HappyPathAndIdempotencyTest(unittest.TestCase):
         self.assertIn("0.5.0", plan.archive_content)
         self.assertIn("A new capability.", plan.archive_content)  # sourced from the [0.5.0] CHANGELOG section
 
+    def test_archive_content_rewrites_relative_changelog_links(self):
+        # Central-archive correctness: a CHANGELOG bullet's repo-relative link 404s once the
+        # notes are archived in juniper-ml's notes/releases/ (the canopy v0.6.0 archive shipped
+        # two). The ceremony must rewrite it onto the owning repo's tag-pinned blob URL, and
+        # leave absolute links untouched.
+        clog = textwrap.dedent("""\
+            # Changelog
+
+            ## [Unreleased]
+
+            ## [0.5.0] - 2026-07-17
+
+            ### Added
+
+            - A new capability ([design](notes/DESIGN.md), [ext](https://example.invalid/x)).
+            """)
+        plan = _plan(changelog=clog)
+        self.assertFalse(plan.halted)
+        base = f"https://github.com/{ce.DEFAULT_OWNER}/juniper-ml/blob/juniper-service-core-v0.5.0"
+        self.assertIn(f"[design]({base}/notes/DESIGN.md)", plan.archive_content)
+        self.assertNotIn("](notes/DESIGN.md)", plan.archive_content)
+        self.assertIn("[ext](https://example.invalid/x)", plan.archive_content)  # absolute untouched
+
     def test_already_released_is_noop(self):
         plan = _plan(pypi_version="0.5.0")  # PyPI already serves the target
         self.assertEqual(plan.state, "ALREADY_RELEASED")
