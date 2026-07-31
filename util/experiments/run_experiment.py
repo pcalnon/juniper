@@ -54,8 +54,17 @@ model artifact) re-runs the ``juniper-recurrence train`` CLI with ``--dataset <d
 identical hyperparameter flags + ``--out .../model.npz`` as an explicit, manifest-recorded extra step
 -- the CLI has no ``--params`` flag (``main.py``), so the ``dataset_id`` ref is the only faithful form.
 
-Wave boundaries (SS14): plot rendering is Wave 2.4 (``outputs.plots`` is validated and recorded, not
-yet rendered); ``stats.json`` + ``summary.md`` renderers are Wave 2.6.
+Plots (Wave 2.4, SS8.1): when ``outputs.plots`` requests them, the cascor path renders the SS8.1 set
+client-side from the collected payloads via ``plots_cascor.py`` (lazily loaded -- the driver stays
+importable without matplotlib): ``dataset`` (the fetched NPZ artifact; 2-feature generators only),
+``decision_boundary`` (the collected grid + sample overlay), ``training_history`` (history rows with
+hidden-unit-insertion markers), ``candidate_correlation`` (from the driver's own metrics_series.csv --
+the sole source), and ``eval_metrics`` (scalar bars). Structurally-unavailable data is a recorded
+per-plot SKIP (exit 0); a render error / failed fetch / missing matplotlib on a requested plot is an
+acceptance failure (exit 1). Recurrence plot names (SS8.2) are validated now and render in Wave 2.5.
+
+Wave boundaries (SS14): the recurrence plot set is Wave 2.5; ``stats.json`` + ``summary.md``
+renderers are Wave 2.6.
 
 Dependencies: stdlib + PyYAML; numpy is imported lazily only to write ``decision_boundary.npz`` (with a
 JSON fallback when absent). HTTP is stdlib ``urllib`` rather than ``requests`` -- lighter than the SS6.3
@@ -69,6 +78,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import importlib.util
 import json
 import logging
 import os
@@ -128,6 +138,10 @@ TRAINING_KEYS = frozenset({"start_fresh", "epochs", "params"})
 TRAIN_KEYS_RECURRENCE = frozenset({"d", "theta", "ridge", "readout", "rff_features", "rff_gamma", "mlp_hidden", "mlp_weight_decay", "mlp_lr", "mlp_max_epochs", "mlp_patience"})
 CROSSVAL_KEYS = frozenset({"enabled", "n_folds", "scheme", "embargo", "min_train"})
 PREDICT_KEYS = frozenset({"enabled", "from_dataset_split"})
+# SS8.1 / SS8.2 plot names. The cascor set renders in Wave 2.4 (plots_cascor.py); the
+# recurrence names are validated now and render in Wave 2.5.
+CASCOR_PLOT_NAMES = frozenset({"dataset", "decision_boundary", "training_history", "candidate_correlation", "eval_metrics"})
+RECURRENCE_PLOT_NAMES = frozenset({"dataset_overview", "dt_histogram", "forecast_vs_truth", "residuals", "crossval_folds", "metrics_table"})
 RUNTIME_KEYS = frozenset({"num_processes", "blas_threads", "eval_metrics_enabled"})
 OUTPUTS_KEYS = frozenset({"decision_boundary_resolution", "metrics_history_count", "plots", "snapshot_at_end", "max_wall_seconds", "grafana_bridge", "save_model"})
 # SS5.6 rule 6: infrastructure is launcher-owned; ``eval_metrics_enabled`` is process-env
@@ -156,7 +170,7 @@ EXIT_UNREACHABLE = 3
 EXIT_RUN_FAILED = 4
 
 MANIFEST_SCHEMA = "juniper-experiment-manifest/1"
-DRIVER_WAVE = "2.3"
+DRIVER_WAVE = "2.4"
 
 # SS13.4 git-provenance repos, probed relative to the ecosystem root (best-effort).
 MANIFEST_GIT_REPOS: Tuple[str, ...] = ("juniper-cascor", "juniper-recurrence", "juniper-data", "juniper-data-client", "juniper-deploy", "juniper-ml")
@@ -228,6 +242,18 @@ def _http_text(url: str, timeout: float = DEFAULT_HTTP_TIMEOUT) -> str:
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 - loopback experiment services
             return resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        raise RunFailed(f"GET {url} -> HTTP {exc.code}") from exc
+    except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
+        raise ServiceUnreachable(f"GET {url}: {exc}") from exc
+
+
+def _http_bytes(url: str, timeout: float = 60.0) -> bytes:
+    """GET a binary body (the juniper-data NPZ artifact for the dataset plot)."""
+    req = urllib.request.Request(url, headers={"Accept": "application/octet-stream"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 - loopback experiment services
+            return resp.read()
     except urllib.error.HTTPError as exc:
         raise RunFailed(f"GET {url} -> HTTP {exc.code}") from exc
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
@@ -377,6 +403,10 @@ def load_config(path: Path) -> Dict[str, Any]:
     plots = outputs_raw.get("plots", [])
     if not isinstance(plots, list):
         raise ConfigError(f"outputs.plots must be a list, got {type(plots).__name__}")
+    allowed_plots = CASCOR_PLOT_NAMES if kind == "cascor" else RECURRENCE_PLOT_NAMES
+    bad_plots = [str(name) for name in plots if name not in allowed_plots]
+    if bad_plots:
+        raise ConfigError(f"unknown plot name(s) for the {kind} path: {', '.join(bad_plots)} (allowed: {', '.join(sorted(allowed_plots))})")
     outputs = {
         "decision_boundary_resolution": outputs_raw.get("decision_boundary_resolution"),
         "metrics_history_count": history_count,
@@ -778,6 +808,7 @@ def collect_results(cascor_url: str, config: Dict[str, Any], results_dir: Path, 
         path = results_dir / "metrics_history.json"
         _write_json(path, history)
         artifacts.append(path)
+        extras["metrics_history"] = history
 
     topology = _fetch("topology", f"{cascor_url}/v1/network/topology", essential=False)
     if topology is not None:
@@ -794,6 +825,7 @@ def collect_results(cascor_url: str, config: Dict[str, Any], results_dir: Path, 
             boundary = _fetch("decision_boundary", f"{cascor_url}/v1/decision-boundary{query}", essential=False)
             if isinstance(boundary, dict):
                 artifacts.append(_write_boundary(results_dir / "decision_boundary", boundary))
+                extras["decision_boundary"] = boundary
 
     if outputs.get("snapshot_at_end"):
         try:
@@ -806,6 +838,116 @@ def collect_results(cascor_url: str, config: Dict[str, Any], results_dir: Path, 
             errors.append({"artifact": "snapshot", "essential": "false", "error": str(exc)})
 
     return artifacts, errors, extras
+
+
+def _load_plots_module():
+    """Load ``plots_cascor.py`` by file path -- deterministic under both the package import
+    (tests: ``util/`` on sys.path) and path-invocation (``python util/experiments/run_experiment.py``),
+    and an ImportError here unambiguously means matplotlib (or numpy) is unavailable."""
+    spec = importlib.util.spec_from_file_location("juniper_experiments_plots_cascor", Path(__file__).with_name("plots_cascor.py"))
+    if spec is None or spec.loader is None:  # pragma: no cover - the module ships beside this file
+        raise ImportError("cannot locate plots_cascor.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _render_cascor_plots(
+    config: Dict[str, Any],
+    plots_dir: Path,
+    series_path: Path,
+    extras: Dict[str, Any],
+    dataset_response: Dict[str, Any],
+    data_url: str,
+    title: str,
+) -> Tuple[Dict[str, Any], List[str], List[Path]]:
+    """Render the requested SS8.1 plots client-side from already-collected payloads.
+
+    Returns ``(record, acceptance_errors, written_paths)``. A plot whose data is
+    structurally unavailable (non-2-D input, eval metrics disabled, degraded sampling)
+    is a recorded SKIP, not a failure; a render exception, a failed payload fetch, or
+    missing matplotlib on a REQUESTED plot is an acceptance error.
+    """
+    requested = [str(name) for name in config["outputs"]["plots"]]
+    record: Dict[str, Any] = {"requested": requested, "rendered": [], "skipped": []}
+    errors: List[str] = []
+    written: List[Path] = []
+    if not requested:
+        return record, errors, written
+    try:
+        plots = _load_plots_module()
+    except ImportError as exc:
+        record["skipped"] = [{"name": name, "reason": "matplotlib unavailable"} for name in requested]
+        errors.append(f"plots requested but matplotlib is unavailable: {exc}")
+        return record, errors, written
+
+    meta = dataset_response.get("meta") if isinstance(dataset_response.get("meta"), dict) else {}
+    npz_data: Optional[Dict[str, Any]] = None
+
+    def _skip(name: str, reason: str) -> None:
+        record["skipped"].append({"name": name, "reason": reason})
+        log.warning("plot %s skipped: %s", name, reason)
+
+    def _done(name: str, path: Path) -> None:
+        record["rendered"].append(name)
+        written.append(path)
+        log.info("plot rendered: %s", path.name)
+
+    def _fetch_npz() -> Optional[Dict[str, Any]]:
+        raw = _http_bytes(f"{data_url}/v1/datasets/{dataset_response.get('dataset_id')}/artifact")
+        return plots.load_npz_bytes(raw)
+
+    for name in requested:
+        try:
+            if name == "dataset":
+                if meta.get("n_features") != 2:
+                    _skip(name, f"not applicable: n_features={meta.get('n_features')} (2-feature generators only)")
+                    continue
+                if npz_data is None:
+                    npz_data = _fetch_npz()
+                _done(name, plots.render_dataset(npz_data, title, plots_dir / "dataset.png"))
+            elif name == "decision_boundary":
+                boundary = extras.get("decision_boundary")
+                if not isinstance(boundary, dict):
+                    _skip(name, "decision-boundary payload unavailable (non-2-D input, or collection failed)")
+                    continue
+                if npz_data is None and meta.get("n_features") == 2:
+                    try:
+                        npz_data = _fetch_npz()
+                    except (ServiceUnreachable, RunFailed) as exc:
+                        log.warning("boundary overlay dataset fetch failed (%s) -- plotting the grid only", exc)
+                _done(name, plots.render_decision_boundary(boundary, npz_data, title, plots_dir / "decision_boundary.png"))
+            elif name == "training_history":
+                rows = extras.get("metrics_history")
+                if not isinstance(rows, list) or not rows:
+                    _skip(name, "metrics history unavailable or empty")
+                    continue
+                _done(name, plots.render_training_history(rows, title, plots_dir / "training_history.png"))
+            elif name == "candidate_correlation":
+                if not series_path.is_file():
+                    _skip(name, "metrics_series.csv missing")
+                    continue
+                with series_path.open("r", encoding="utf-8", newline="") as handle:
+                    series_rows = list(csv.DictReader(handle))
+                _done(name, plots.render_candidate_correlation(series_rows, title, plots_dir / "candidate_correlation.png"))
+            elif name == "eval_metrics":
+                metrics_final = extras.get("metrics_final")
+                if not isinstance(metrics_final, dict):
+                    _skip(name, "metrics_final unavailable")
+                    continue
+                _done(name, plots.render_eval_metrics(metrics_final, title, plots_dir / "eval_metrics.png"))
+            else:  # pragma: no cover - load_config validates plot-name membership
+                _skip(name, "unknown plot name")
+        except ValueError as exc:
+            # The renderer's no-renderable-data contract: an applicability skip, never a run failure.
+            _skip(name, str(exc))
+        except (ServiceUnreachable, RunFailed) as exc:
+            _skip(name, f"payload fetch failed: {exc}")
+            errors.append(f"plot {name}: {exc}")
+        except Exception as exc:  # noqa: BLE001 - a render bug must not kill the run's evidence
+            _skip(name, f"render error: {exc}")
+            errors.append(f"plot {name} render error: {exc}")
+    return record, errors, written
 
 
 def check_g6_shape(dataset_meta: Dict[str, Any], network_info: Optional[Dict[str, Any]], status_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -991,6 +1133,7 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
     loop_stats: Dict[str, Any] = {}
     extras: Dict[str, Any] = {}
     g6: Optional[Dict[str, Any]] = None
+    plots_record: Dict[str, Any] = {"requested": list(config["outputs"]["plots"]), "rendered": [], "skipped": []}
     exit_code = EXIT_ACCEPTANCE
     series_path = results_dir / "metrics_series.csv"
 
@@ -1041,6 +1184,13 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
             g6 = check_g6_shape(meta, extras.get("network_info"), status_data)
             if not g6["ok"]:
                 acceptance_reasons.append("G-6 shape check failed: " + str(g6["note"]))
+
+        if config["outputs"]["plots"]:
+            t0 = time.monotonic()
+            plots_record, plot_errors, plot_paths = _render_cascor_plots(config, plots_dir, series_path, extras, dataset_response, data_url, f"{experiment_name} {run_id}")
+            artifacts.extend(plot_paths)
+            _phase("plots", t0)
+            acceptance_reasons.extend(plot_errors)
 
         if outcome == "succeeded":
             essential_failures = [err for err in collect_errors if err.get("essential") == "true"]
@@ -1117,8 +1267,7 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
                 "stall_seconds": args.stall_seconds,
                 "max_wall_seconds": max_wall,
                 "metric_families": list(METRIC_FAMILIES),
-                "plots_requested": config["outputs"]["plots"],
-                "plots_note": "plot rendering lands in Wave 2.4",
+                "plots": plots_record,
             },
         }
         manifest_path = run_dir / "manifest.json"
@@ -1372,7 +1521,7 @@ def _run_recurrence(args: argparse.Namespace, config: Dict[str, Any], config_pat
                 "max_wall_seconds": max_wall,
                 "metric_families": list(METRIC_FAMILIES),
                 "plots_requested": config["outputs"]["plots"],
-                "plots_note": "plot rendering lands in Wave 2.4",
+                "plots_note": "recurrence plot rendering lands in Wave 2.5",
             },
         }
         manifest_path = run_dir / "manifest.json"

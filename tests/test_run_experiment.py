@@ -65,6 +65,15 @@ try:
 except ImportError:  # pragma: no cover - CI installs numpy; local envs all carry it
     HAVE_NUMPY = False
 
+try:
+    import matplotlib  # noqa: F401
+
+    HAVE_MPL = True
+except ImportError:  # pragma: no cover - CI installs matplotlib; local envs all carry it
+    HAVE_MPL = False
+
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
 FAST_FLAGS = ["--poll-interval", "0.05", "--stall-seconds", "5", "--health-timeout", "2"]
 
 
@@ -92,7 +101,28 @@ class _ScriptedState:
         self.train_delay = 0.0
         self.predict_status = 200
         self.crossval_status = 200
+        self.eval_metrics_present = True
         self.lock = threading.Lock()
+
+
+_ARTIFACT_CACHE: dict = {}
+
+
+def _artifact_npz_bytes() -> bytes:
+    """A tiny deterministic 2-feature classification NPZ (the /artifact body for the dataset plot)."""
+    if "npz" not in _ARTIFACT_CACHE:
+        import io
+
+        import numpy as np
+
+        rng = np.random.default_rng(0)
+        x = rng.normal(size=(40, 2)).astype("float32")
+        labels = (x[:, 0] > 0).astype("float32")
+        one_hot = np.stack([1 - labels, labels], axis=1)
+        buf = io.BytesIO()
+        np.savez(buf, X_train=x[:32], y_train=one_hot[:32], X_test=x[32:], y_test=one_hot[32:], X_full=x, y_full=one_hot)
+        _ARTIFACT_CACHE["npz"] = buf.getvalue()
+    return _ARTIFACT_CACHE["npz"]
 
 
 def _envelope(data) -> bytes:
@@ -202,15 +232,33 @@ class _StubHandler(BaseHTTPRequestHandler):
                 return
             self._send(200, _EXPOSITION, content_type="text/plain; version=0.0.4")
         elif path == "/v1/metrics":
-            self._send(200, _envelope({"epoch": 3, "train_loss": 0.1, "train_accuracy": 0.95, "hidden_units": 2, "f1": 0.9}))
+            payload = {"epoch": 3, "train_loss": 0.1, "train_accuracy": 0.95, "hidden_units": 2}
+            if state.eval_metrics_present:
+                payload.update({"f1": 0.9, "precision": 0.88, "recall": 0.91, "roc_auc": 0.97})
+            self._send(200, _envelope(payload))
         elif path == "/v1/metrics/history":
-            self._send(200, _envelope([{"epoch": 1, "loss": 0.5}, {"epoch": 2, "loss": 0.3}, {"epoch": 3, "loss": 0.1}]))
+            self._send(
+                200,
+                _envelope(
+                    [
+                        {"epoch": 1, "kind": "training_step", "loss": 0.5, "accuracy": 0.6, "hidden_units": 0},
+                        {"epoch": 2, "kind": "training_step", "loss": 0.3, "accuracy": 0.8, "hidden_units": 1},
+                        {"epoch": 3, "kind": "training_step", "loss": 0.1, "accuracy": 0.95, "hidden_units": 2},
+                    ]
+                ),
+            )
         elif path == "/v1/network":
             self._send(200, _envelope({"input_size": state.network_input_size, "output_size": 1, "hidden_units": 2, "max_hidden_units": 8, "learning_rate": 0.05, "uuid": "stub"}))
         elif path == "/v1/network/topology":
             self._send(200, _envelope({"nodes": [{"id": 0}], "connections": []}))
         elif path == "/v1/decision-boundary":
-            self._send(200, _envelope({"xx": [[0.0, 1.0], [0.0, 1.0]], "yy": [[0.0, 0.0], [1.0, 1.0]], "predictions": [[0, 1], [1, 0]], "resolution": 2}))
+            # The real payload contract (manager.get_decision_boundary, manager.py:4284-4291).
+            self._send(200, _envelope({"x_range": [-1.0, 1.0], "y_range": [-1.0, 1.0], "resolution": 2, "grid_x": [[-1.0, 1.0], [-1.0, 1.0]], "grid_y": [[-1.0, -1.0], [1.0, 1.0]], "predictions": [[0, 1], [1, 0]]}))
+        elif path.startswith("/v1/datasets/") and path.endswith("/artifact"):
+            if HAVE_NUMPY:
+                self._send(200, _artifact_npz_bytes(), content_type="application/octet-stream")
+            else:  # pragma: no cover - numpy present in CI + dev envs
+                self._send(404, b'{"detail": "numpy unavailable in stub"}')
         else:
             self._send(404, b'{"detail": "not found"}')
 
@@ -530,6 +578,18 @@ class ConfigValidationTest(unittest.TestCase):
         cfg = _recurrence_config()
         del cfg["dataset"]
         self._assert_rejects(cfg, "recurrence path")
+
+    def test_cascor_unknown_plot_name_rejected(self) -> None:
+        cfg = _base_config()
+        cfg["outputs"]["plots"] = ["dataset", "dt_histogram"]
+        self._assert_rejects(cfg, "unknown plot name(s) for the cascor path")
+
+    def test_recurrence_plot_names_validated_per_kind(self) -> None:
+        cfg = _recurrence_config()
+        cfg["outputs"]["plots"] = ["dt_histogram", "crossval_folds"]
+        self.assertEqual(self._load(cfg)["outputs"]["plots"], ["dt_histogram", "crossval_folds"])
+        cfg["outputs"]["plots"] = ["dataset"]
+        self._assert_rejects(cfg, "unknown plot name(s) for the recurrence path")
 
     def test_seed_derivation_rule(self) -> None:
         config = self._load(_base_config())
@@ -966,6 +1026,105 @@ class RecurrencePathTest(_StubTestCase):
         self.assertEqual(manifest["outcome"], "succeeded")
         self.assertFalse(manifest["save_model_rerun"]["ok"])
         self.assertTrue(any("save_model" in reason for reason in manifest["acceptance"]["reasons"]))
+
+
+@unittest.skipUnless(HAVE_NUMPY and HAVE_MPL, "numpy + matplotlib required for the SS8.1 plot set")
+class CascorPlotsTest(_StubTestCase):
+    """Wave 2.4: the SS8.1 cascor plot set rendered client-side from collected payloads."""
+
+    ALL_PLOTS = ["dataset", "decision_boundary", "training_history", "candidate_correlation", "eval_metrics"]
+
+    def _config_with_plots(self, plots: list) -> Path:
+        cfg = _base_config()
+        cfg["outputs"]["plots"] = plots
+        return _write_config(self.tmp, cfg)
+
+    def test_all_five_plots_rendered(self) -> None:
+        code, _ = _invoke(self._config_with_plots(self.ALL_PLOTS), self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        plots_dir = self.run_dir / "artifacts" / "plots"
+        for name in ("dataset.png", "decision_boundary.png", "training_history.png", "candidate_correlation.png", "eval_metrics.png"):
+            path = plots_dir / name
+            self.assertTrue(path.is_file(), name)
+            raw = path.read_bytes()
+            self.assertTrue(raw.startswith(PNG_MAGIC), f"{name} is not a PNG")
+            self.assertGreater(len(raw), 1500, f"{name} suspiciously small ({len(raw)} bytes)")
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["driver"]["plots"]["rendered"], self.ALL_PLOTS)
+        self.assertEqual(manifest["driver"]["plots"]["skipped"], [])
+        self.assertIn("plots", manifest["timings"])
+        for name in ("dataset.png", "decision_boundary.png"):
+            self.assertIn(f"artifacts/plots/{name}", manifest["artifacts"])
+
+    def test_eval_metrics_disabled_is_a_skip_not_a_failure(self) -> None:
+        self.state.eval_metrics_present = False
+        code, _ = _invoke(self._config_with_plots(["eval_metrics"]), self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["driver"]["plots"]["rendered"], [])
+        self.assertEqual(len(manifest["driver"]["plots"]["skipped"]), 1)
+        self.assertIn("eval metrics", manifest["driver"]["plots"]["skipped"][0]["reason"])
+        self.assertFalse((self.run_dir / "artifacts" / "plots" / "eval_metrics.png").exists())
+
+    def test_degraded_sampling_skips_correlation_plot(self) -> None:
+        self.state.metrics_enabled = False  # the G-3 trap: series csv has no correlation samples
+        code, _ = _invoke(self._config_with_plots(["candidate_correlation"]), self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["driver"]["plots"]["rendered"], [])
+        self.assertIn("candidate_correlation", manifest["driver"]["plots"]["skipped"][0]["reason"])
+
+    def test_matplotlib_unavailable_fails_acceptance(self) -> None:
+        with mock.patch.object(rx, "_load_plots_module", side_effect=ImportError("matplotlib stub-missing")):
+            code, _ = _invoke(self._config_with_plots(["dataset"]), self.run_dir)
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "succeeded")
+        self.assertFalse(manifest["acceptance"]["ok"])
+        self.assertTrue(any("matplotlib" in reason for reason in manifest["acceptance"]["reasons"]))
+        self.assertEqual(manifest["driver"]["plots"]["skipped"][0]["reason"], "matplotlib unavailable")
+
+    def test_no_plots_requested_renders_nothing(self) -> None:
+        code, _ = _invoke(_write_config(self.tmp, _base_config()), self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["driver"]["plots"], {"requested": [], "rendered": [], "skipped": []})
+        self.assertEqual(list((self.run_dir / "artifacts" / "plots").iterdir()), [])
+
+
+@unittest.skipUnless(HAVE_NUMPY and HAVE_MPL, "numpy + matplotlib required for the SS8.1 plot set")
+class PlotRendererUnitTest(unittest.TestCase):
+    """Unit arms for plots_cascor.py: synthetic payloads in, non-degenerate PNGs (or ValueError) out."""
+
+    def setUp(self) -> None:
+        self.plots = rx._load_plots_module()
+        self.tmp = Path(tempfile.mkdtemp(prefix="run-experiment-plots-"))
+        self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
+
+    def test_render_training_history_writes_png(self) -> None:
+        rows = [{"loss": 0.5, "accuracy": 0.6, "hidden_units": 0}, {"loss": 0.2, "accuracy": 0.9, "hidden_units": 1}]
+        out = self.plots.render_training_history(rows, "t", self.tmp / "history.png")
+        self.assertTrue(out.read_bytes().startswith(PNG_MAGIC))
+
+    def test_render_training_history_rejects_empty(self) -> None:
+        with self.assertRaises(ValueError):
+            self.plots.render_training_history([], "t", self.tmp / "history.png")
+
+    def test_render_eval_metrics_rejects_all_null(self) -> None:
+        with self.assertRaises(ValueError):
+            self.plots.render_eval_metrics({"f1": None, "precision": None}, "t", self.tmp / "eval.png")
+
+    def test_render_candidate_correlation_rejects_empty_cells(self) -> None:
+        rows = [{"ts_unix": "1.0", "juniper_cascor_candidate_correlation": "", "current_hidden_units": "0"}]
+        with self.assertRaises(ValueError):
+            self.plots.render_candidate_correlation(rows, "t", self.tmp / "corr.png")
+
+    def test_render_dataset_rejects_non_2d(self) -> None:
+        import numpy as np
+
+        npz = {"X_train": np.zeros((4, 3)), "y_train": np.zeros(4), "X_test": np.zeros((2, 3)), "y_test": np.zeros(2)}
+        with self.assertRaises(ValueError):
+            self.plots.render_dataset(npz, "t", self.tmp / "dataset.png")
 
 
 class SubprocessSmokeTest(unittest.TestCase):
