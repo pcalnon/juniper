@@ -179,6 +179,11 @@ jobs:
           # driver writes decision_boundary.npz and the tests round-trip it
           # via numpy.load (the driver itself imports numpy lazily).
           pip install "numpy>=1.26"
+          # matplotlib is required by tests/test_run_experiment.py's SS8.1
+          # plot arms (util/experiments/plots_cascor.py renders on the Agg
+          # backend; the driver loads it lazily only when outputs.plots
+          # requests something).
+          pip install "matplotlib>=3.8"
 
       - name: Run Python regression tests
         run: |
@@ -500,7 +505,8 @@ jobs:
           python3 -m unittest -v tests/test_experiment_stack_script.py
           # tests/test_run_experiment.py: hermetic tests for
           # util/experiments/run_experiment.py (CLI experimentation plan Waves
-          # 2.2+2.3, the cascor + recurrence service paths) -- §5.6/§5.5 YAML
+          # 2.2-2.4: cascor + recurrence service paths + the SS8.1 cascor
+          # plot set via plots_cascor.py) -- §5.6/§5.5 YAML
           # validation, the Q-2 drive loops (cascor poll completion/FAILED/stall/
           # budget; recurrence synchronous train + predict/crossval + G-18
           # save_model re-run) against a scripted loopback stub, the F-1 /metrics
