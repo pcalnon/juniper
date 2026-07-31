@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""run_experiment.py -- single-run experiment driver (Wave 2.2: the cascor service path).
+"""run_experiment.py -- single-run experiment driver (Wave 2.2 cascor + Wave 2.3 recurrence service paths).
 
 Project: juniper-ml
 Sub-Project: cascor + recurrence CLI test/validation/experimentation program
@@ -40,9 +40,22 @@ Exit codes (SS6.3 item 8):
   3  service unreachable (health-wait timeout or repeated connection failures)
   4  run reached FAILED / a 5xx from a service
 
-Wave boundaries (SS14): the recurrence path is Wave 2.3 (a recurrence-shaped config exits 2 with a
-pointer); plot rendering is Wave 2.4 (``outputs.plots`` is validated and recorded, not yet rendered);
-``stats.json`` + ``summary.md`` renderers are Wave 2.6.
+The recurrence path (Wave 2.3, SS6.3 step 4 *recurrence* + SS5.5): ``POST /v1/train`` is
+**synchronous** -- the response IS completion (``routers/training.py:37``), so there is no poll loop;
+the Q-2 wall-clock budget is enforced as the request's socket timeout (a timeout -> ``timed_out``,
+exit 1, distinct from connection failure). Health gate is ``/v1/health/ready``. The driver creates the
+dataset on the run's juniper-data first (content-addressed ``dataset_id`` for the SS13.4 manifest) and
+drives every phase by ``dataset_id`` ref (H-8: never a bare name). Optional ``POST /v1/predict``
+(re-refs the dataset with ``predict.from_dataset_split``, default ``test``) and ``POST /v1/crossval``
+(same LMU hyperparameters as the train block, so bench comparability holds -- SS10.4) follow; a
+predict/crossval failure is recorded and the run continues to the manifest (acceptance failure,
+exit 1) rather than dying mid-evidence. ``outputs.save_model: true`` (G-18: service mode leaves no
+model artifact) re-runs the ``juniper-recurrence train`` CLI with ``--dataset <dataset_id>`` + the
+identical hyperparameter flags + ``--out .../model.npz`` as an explicit, manifest-recorded extra step
+-- the CLI has no ``--params`` flag (``main.py``), so the ``dataset_id`` ref is the only faithful form.
+
+Wave boundaries (SS14): plot rendering is Wave 2.4 (``outputs.plots`` is validated and recorded, not
+yet rendered); ``stats.json`` + ``summary.md`` renderers are Wave 2.6.
 
 Dependencies: stdlib + PyYAML; numpy is imported lazily only to write ``decision_boundary.npz`` (with a
 JSON fallback when absent). HTTP is stdlib ``urllib`` rather than ``requests`` -- lighter than the SS6.3
@@ -101,13 +114,20 @@ METRIC_FAMILIES: Tuple[str, ...] = (
 
 SERIES_CSV_COLUMNS: Tuple[str, ...] = ("ts_unix", "fsm_status", "current_epoch", "current_hidden_units", *METRIC_FAMILIES)
 
-# SS5.6 driver-enforced YAML surface. ``train``/``crossval``/``predict`` are recognised
-# (recurrence-shaped, Wave 2.3) so kind resolution can name them; the cascor path never
-# consumes them.
+# SS5.6 driver-enforced YAML surface. ``training:`` selects the cascor path; ``train:`` (with
+# optional ``crossval:``/``predict:``) selects the recurrence path (SS5.5).
 TOP_LEVEL_BLOCKS = frozenset({"schema_version", "experiment", "service", "dataset", "training", "train", "crossval", "predict", "runtime", "outputs"})
 EXPERIMENT_KEYS = frozenset({"name", "description", "seed"})
 DATASET_KEYS_CASCOR = frozenset({"generator", "params", "persist", "tags", "ttl_seconds"})
+DATASET_KEYS_RECURRENCE = frozenset({"generator", "split", "params", "persist", "tags", "ttl_seconds"})
+RECURRENCE_SPLITS = frozenset({"train", "test", "full"})
 TRAINING_KEYS = frozenset({"start_fresh", "epochs", "params"})
+# SS5.5 train block: the LMU hyperparameters, forwarded verbatim to TrainRequest (rule 5 --
+# ranges + the readout-conditional constraints are validated by the live pydantic model; a 422
+# surfaces as exit 2 with the server's detail).
+TRAIN_KEYS_RECURRENCE = frozenset({"d", "theta", "ridge", "readout", "rff_features", "rff_gamma", "mlp_hidden", "mlp_weight_decay", "mlp_lr", "mlp_max_epochs", "mlp_patience"})
+CROSSVAL_KEYS = frozenset({"enabled", "n_folds", "scheme", "embargo", "min_train"})
+PREDICT_KEYS = frozenset({"enabled", "from_dataset_split"})
 RUNTIME_KEYS = frozenset({"num_processes", "blas_threads", "eval_metrics_enabled"})
 OUTPUTS_KEYS = frozenset({"decision_boundary_resolution", "metrics_history_count", "plots", "snapshot_at_end", "max_wall_seconds", "grafana_bridge", "save_model"})
 # SS5.6 rule 6: infrastructure is launcher-owned; ``eval_metrics_enabled`` is process-env
@@ -136,6 +156,7 @@ EXIT_UNREACHABLE = 3
 EXIT_RUN_FAILED = 4
 
 MANIFEST_SCHEMA = "juniper-experiment-manifest/1"
+DRIVER_WAVE = "2.3"
 
 # SS13.4 git-provenance repos, probed relative to the ecosystem root (best-effort).
 MANIFEST_GIT_REPOS: Tuple[str, ...] = ("juniper-cascor", "juniper-recurrence", "juniper-data", "juniper-data-client", "juniper-deploy", "juniper-ml")
@@ -151,6 +172,16 @@ class ConfigError(Exception):
 
 class ServiceUnreachable(Exception):
     """A required service could not be reached -> exit 3."""
+
+
+class RequestTimeout(ServiceUnreachable):
+    """An HTTP request hit its socket timeout.
+
+    Subclass of :class:`ServiceUnreachable` so generic handlers keep working; the
+    recurrence train call catches it FIRST -- there a timeout means the Q-2 wall-clock
+    budget expired on the synchronous ``POST /v1/train`` (-> ``timed_out``, exit 1),
+    not that the service is down.
+    """
 
 
 class RunFailed(Exception):
@@ -186,6 +217,8 @@ def _http_json(method: str, url: str, body: Optional[dict] = None, timeout: floa
             parsed = {"detail": raw[:500]}
         return exc.code, parsed
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
+        if isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError):
+            raise RequestTimeout(f"{method} {url}: timed out: {exc}") from exc
         raise ServiceUnreachable(f"{method} {url}: {exc}") from exc
 
 
@@ -351,6 +384,7 @@ def load_config(path: Path) -> Dict[str, Any]:
         "snapshot_at_end": bool(outputs_raw.get("snapshot_at_end", False)),
         "max_wall_seconds": float(max_wall),
         "grafana_bridge": bool(outputs_raw.get("grafana_bridge", False)),
+        "save_model": bool(outputs_raw.get("save_model", False)),
     }
 
     config: Dict[str, Any] = {
@@ -360,8 +394,60 @@ def load_config(path: Path) -> Dict[str, Any]:
         "raw": cfg,
     }
     if kind == "recurrence":
-        # Wave 2.3 lands the recurrence drive path; kind resolution + the shared
-        # validation above already accept the shape so 2.3 is additive.
+        dataset = _require_mapping(cfg.get("dataset"), "dataset block") if "dataset" in cfg else None
+        if dataset is None:
+            raise ConfigError("missing required block for the recurrence path: dataset")
+        _reject_unknown_keys(dataset, DATASET_KEYS_RECURRENCE, "dataset")
+        generator = dataset.get("generator")
+        if not isinstance(generator, str) or not generator.strip():
+            raise ConfigError("dataset.generator must be a non-empty string")
+        params = dict(_require_mapping(dataset.get("params", {}) or {}, "dataset.params"))
+        params.setdefault("seed", seed)
+        split = dataset.get("split", "train")
+        if split not in RECURRENCE_SPLITS:
+            raise ConfigError(f"dataset.split must be one of {sorted(RECURRENCE_SPLITS)}, got {split!r}")
+        tags = dataset.get("tags")
+        if tags is None:
+            tags = ["experiment", name.strip()]
+        if not isinstance(tags, list):
+            raise ConfigError(f"dataset.tags must be a list, got {type(tags).__name__}")
+        config["dataset"] = {
+            "generator": generator.strip(),
+            "params": params,
+            "persist": bool(dataset.get("persist", True)),
+            "tags": tags,
+            "ttl_seconds": dataset.get("ttl_seconds"),
+            "split": split,
+        }
+
+        train_block = _require_mapping(cfg.get("train", {}) or {}, "train block")
+        _reject_unknown_keys(train_block, TRAIN_KEYS_RECURRENCE, "train")
+        config["train"] = dict(train_block)
+
+        crossval_raw = _require_mapping(cfg.get("crossval", {}) or {}, "crossval block")
+        _reject_unknown_keys(crossval_raw, CROSSVAL_KEYS, "crossval")
+        crossval_enabled = bool(crossval_raw.get("enabled", True)) if "crossval" in cfg else False
+        if crossval_enabled:
+            n_folds = crossval_raw.get("n_folds")
+            if not isinstance(n_folds, int) or isinstance(n_folds, bool) or n_folds < 2:
+                raise ConfigError(f"crossval.n_folds must be an integer >= 2 when crossval is enabled, got {n_folds!r}")
+        config["crossval"] = {
+            "enabled": crossval_enabled,
+            "n_folds": crossval_raw.get("n_folds"),
+            "scheme": crossval_raw.get("scheme", "expanding"),
+            "embargo": crossval_raw.get("embargo", 0),
+            "min_train": crossval_raw.get("min_train"),
+        }
+
+        predict_raw = _require_mapping(cfg.get("predict", {}) or {}, "predict block")
+        _reject_unknown_keys(predict_raw, PREDICT_KEYS, "predict")
+        predict_split = predict_raw.get("from_dataset_split", "test")
+        if predict_split not in RECURRENCE_SPLITS:
+            raise ConfigError(f"predict.from_dataset_split must be one of {sorted(RECURRENCE_SPLITS)}, got {predict_split!r}")
+        config["predict"] = {
+            "enabled": bool(predict_raw.get("enabled", True)) if "predict" in cfg else False,
+            "from_dataset_split": predict_split,
+        }
         return config
 
     dataset = _require_mapping(cfg.get("dataset"), "dataset block") if "dataset" in cfg else None
@@ -407,8 +493,11 @@ def load_config(path: Path) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 
 
-def resolve_endpoints(run_dir: Path, data_url_arg: Optional[str], cascor_url_arg: Optional[str]) -> Tuple[str, str, Dict[str, Any]]:
-    """Resolve the juniper-data and cascor base URLs (CLI override > ports.json)."""
+def resolve_endpoints(run_dir: Path, data_url_arg: Optional[str], app_url_arg: Optional[str], kind: str = "cascor") -> Tuple[str, str, Dict[str, Any]]:
+    """Resolve the juniper-data and target-app base URLs (CLI override > ports.json).
+
+    ``kind`` selects which ports.json entry names the app: ``cascor`` or ``recurrence``.
+    """
     ports: Dict[str, Any] = {}
     ports_file = run_dir / "ports.json"
     if ports_file.is_file():
@@ -419,13 +508,14 @@ def resolve_endpoints(run_dir: Path, data_url_arg: Optional[str], cascor_url_arg
         if not isinstance(ports, dict):
             raise ConfigError(f"{ports_file} must contain a JSON object")
 
+    app_key = "cascor" if kind == "cascor" else "recurrence"
     data_url = data_url_arg or ports.get("data_url") or (f"http://127.0.0.1:{ports['data']}" if ports.get("data") else None)
-    cascor_url = cascor_url_arg or (f"http://127.0.0.1:{ports['cascor']}" if ports.get("cascor") else None)
+    app_url = app_url_arg or (f"http://127.0.0.1:{ports[app_key]}" if ports.get(app_key) else None)
     if not data_url:
         raise ConfigError(f"cannot resolve the juniper-data URL: pass --data-url or provide {ports_file} with a 'data'/'data_url' entry")
-    if not cascor_url:
-        raise ConfigError(f"cannot resolve the cascor URL: pass --cascor-url or provide {ports_file} with a 'cascor' entry")
-    return str(data_url).rstrip("/"), str(cascor_url).rstrip("/"), ports
+    if not app_url:
+        raise ConfigError(f"cannot resolve the {app_key} URL: pass --{app_key}-url or provide {ports_file} with a '{app_key}' entry")
+    return str(data_url).rstrip("/"), str(app_url).rstrip("/"), ports
 
 
 # --------------------------------------------------------------------------- #
@@ -861,13 +951,16 @@ def run(args: argparse.Namespace) -> int:
     run_dir = Path(args.run_dir).expanduser()
     config = load_config(config_path)
 
-    if config["kind"] == "recurrence":
-        raise ConfigError("this config is recurrence-shaped ('train:' block); the recurrence drive path lands in Wave 2.3 -- only the cascor path ('training:' block) is implemented")
-
     if not run_dir.is_dir():
         raise ConfigError(f"--run-dir {run_dir} does not exist (create the run with util/experiment_stack.bash --up first)")
 
-    data_url, cascor_url, ports = resolve_endpoints(run_dir, args.data_url, args.cascor_url)
+    if config["kind"] == "recurrence":
+        return _run_recurrence(args, config, config_path, run_dir)
+    return _run_cascor(args, config, config_path, run_dir)
+
+
+def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: Path, run_dir: Path) -> int:
+    data_url, cascor_url, ports = resolve_endpoints(run_dir, args.data_url, args.cascor_url, kind="cascor")
     max_wall = float(args.max_wall_seconds) if args.max_wall_seconds is not None else config["outputs"]["max_wall_seconds"]
 
     results_dir = run_dir / "artifacts" / "results"
@@ -1019,7 +1112,7 @@ def run(args: argparse.Namespace) -> int:
             "snapshot": extras.get("snapshot"),
             "artifacts": _relative_artifacts(run_dir, artifacts),
             "driver": {
-                "wave": "2.2",
+                "wave": DRIVER_WAVE,
                 "poll_interval": args.poll_interval,
                 "stall_seconds": args.stall_seconds,
                 "max_wall_seconds": max_wall,
@@ -1034,7 +1127,261 @@ def run(args: argparse.Namespace) -> int:
         except OSError as exc:
             log.error("cannot write %s: %s", manifest_path, exc)
 
-    _print_summary(run_id, experiment_name, generator, dataset_response, outcome, exit_code, acceptance_reasons, timings, loop_stats, run_dir)
+    _print_summary(run_id, experiment_name, generator, dataset_response, outcome, exit_code, acceptance_reasons, timings, loop_stats, run_dir, kind="cascor")
+    return exit_code
+
+
+def _lmu_hyperparams(train_block: Dict[str, Any]) -> Dict[str, Any]:
+    """The LMU hyperparameters actually set in the YAML ``train:`` block (unset/None omitted)."""
+    return {key: value for key, value in train_block.items() if value is not None}
+
+
+_SAVE_MODEL_FLAG_MAP = {
+    "d": "--d",
+    "theta": "--theta",
+    "ridge": "--ridge",
+    "readout": "--readout",
+    "rff_features": "--rff-features",
+    "rff_gamma": "--rff-gamma",
+    "mlp_hidden": "--mlp-hidden",
+    "mlp_weight_decay": "--mlp-weight-decay",
+    "mlp_lr": "--mlp-lr",
+    "mlp_max_epochs": "--mlp-max-epochs",
+    "mlp_patience": "--mlp-patience",
+}
+
+
+def _save_model_rerun(train_block: Dict[str, Any], dataset_id: str, split: str, data_url: str, out_path: Path) -> Dict[str, Any]:
+    """G-18: service mode leaves no model artifact, so ``outputs.save_model: true`` re-runs the
+    ``juniper-recurrence train`` CLI with ``--dataset <dataset_id>`` (the exact content-addressed
+    artifact -- the CLI has no ``--params`` flag, so a generator re-ref would silently use default
+    params), the identical hyperparameter flags, and ``--out`` into the run's results dir."""
+    cli = shutil.which("juniper-recurrence")
+    if cli is None:
+        return {"ok": False, "error": "juniper-recurrence CLI not found on PATH (outputs.save_model needs the app env active)"}
+    cmd = [cli, "train", "--dataset", str(dataset_id), "--split", str(split), "--out", str(out_path)]
+    for key, value in _lmu_hyperparams(train_block).items():
+        cmd.extend([_SAVE_MODEL_FLAG_MAP[key], str(value)])
+    env = dict(os.environ)
+    env["JUNIPER_DATA_URL"] = data_url  # the run's data instance holds the artifact
+    env["LD_LIBRARY_PATH"] = ""  # same hygiene the launcher applies to service launches
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env, check=False)  # nosec B603 - cmd built from validated config
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"ok": False, "cmd": cmd, "error": str(exc)}
+    result: Dict[str, Any] = {"ok": proc.returncode == 0, "cmd": cmd, "returncode": proc.returncode}
+    if proc.returncode != 0:
+        result["stderr_tail"] = proc.stderr[-500:]
+    return result
+
+
+def _run_recurrence(args: argparse.Namespace, config: Dict[str, Any], config_path: Path, run_dir: Path) -> int:
+    data_url, app_url, ports = resolve_endpoints(run_dir, args.data_url, args.recurrence_url, kind="recurrence")
+    max_wall = float(args.max_wall_seconds) if args.max_wall_seconds is not None else config["outputs"]["max_wall_seconds"]
+
+    results_dir = run_dir / "artifacts" / "results"
+    plots_dir = run_dir / "artifacts" / "plots"
+    config_dir = run_dir / "config"
+    for directory in (results_dir, plots_dir, config_dir):
+        directory.mkdir(parents=True, exist_ok=True)
+    config_copy = config_dir / "experiment.yaml"
+    if config_path.resolve() != config_copy.resolve():
+        shutil.copyfile(config_path, config_copy)
+    config_sha = hashlib.sha256(config_path.read_bytes()).hexdigest()
+
+    run_id = ports.get("run_id") or run_dir.name
+    experiment_name = config["experiment"]["name"]
+    dataset_cfg = config["dataset"]
+    generator = dataset_cfg["generator"]
+    log.info("run %s: experiment '%s' (recurrence, generator=%s split=%s) data=%s recurrence=%s", run_id, experiment_name, generator, dataset_cfg["split"], data_url, app_url)
+
+    timings: Dict[str, float] = {}
+    outcome = "torn_down_early"
+    acceptance_reasons: List[str] = []
+    artifacts: List[Path] = [config_copy]
+    collect_errors: List[Dict[str, str]] = []
+    dataset_response: Dict[str, Any] = {}
+    generator_entry: Dict[str, Any] = {}
+    train_summary: Optional[Dict[str, Any]] = None
+    predict_shape: Optional[List[int]] = None
+    crossval_summary: Optional[Dict[str, Any]] = None
+    save_model_rerun: Optional[Dict[str, Any]] = None
+    exit_code = EXIT_ACCEPTANCE
+
+    def _phase(name: str, t0: float) -> None:
+        timings[name] = round(time.monotonic() - t0, 3)
+
+    def _aux_phase(label: str, method_url: Tuple[str, str], body: Dict[str, Any], out_name: Optional[str]) -> Optional[Any]:
+        """Drive an optional post-train phase; failures are recorded, never fatal (the train
+        evidence already exists -- dying here would lose the manifest, the G-18 class)."""
+        t0 = time.monotonic()
+        try:
+            code, payload = _http_json(method_url[0], method_url[1], body=body, timeout=max_wall)
+        except ServiceUnreachable as exc:
+            _phase(label, t0)
+            collect_errors.append({"artifact": label, "essential": "true", "error": str(exc)})
+            acceptance_reasons.append(f"{label} failed: {exc}")
+            return None
+        _phase(label, t0)
+        if code != 200:
+            detail = f"HTTP {code}: {_detail(payload)}"
+            collect_errors.append({"artifact": label, "essential": "true", "error": detail})
+            acceptance_reasons.append(f"{label} failed: {detail}")
+            return None
+        if out_name is not None:
+            path = results_dir / out_name
+            _write_json(path, payload)
+            artifacts.append(path)
+        return payload
+
+    total_t0 = time.monotonic()
+    try:
+        t0 = time.monotonic()
+        wait_for_health(data_url, "/v1/health", args.health_timeout)
+        wait_for_health(app_url, "/v1/health/ready", args.health_timeout)
+        _phase("health_wait", t0)
+
+        t0 = time.monotonic()
+        generator_entry = preflight_generator(data_url, generator)
+        dataset_response = create_dataset(data_url, dataset_cfg)
+        _phase("dataset_create", t0)
+        dataset_id = dataset_response.get("dataset_id")
+        log.info("dataset ready: dataset_id=%s (generator %s v%s)", dataset_id, generator, generator_entry.get("version"))
+
+        hyper = _lmu_hyperparams(config["train"])
+        train_ok = False
+        t0 = time.monotonic()
+        try:
+            code, payload = _http_json("POST", f"{app_url}/v1/train", body={"dataset": {"dataset_id": dataset_id, "split": dataset_cfg["split"]}, **hyper}, timeout=max_wall)
+        except RequestTimeout as exc:
+            _phase("train", t0)
+            log.error("synchronous POST /v1/train exceeded the wall-clock budget %.1fs -- outcome: timed_out (Q-2): %s", max_wall, exc)
+            outcome = "timed_out"
+            acceptance_reasons.append("outcome: timed_out")
+        else:
+            _phase("train", t0)
+            if code == 422:
+                raise ConfigError(f"POST /v1/train rejected (422): {_detail(payload)}")
+            if code != 200:
+                raise RunFailed(f"POST /v1/train -> HTTP {code}: {_detail(payload)}")
+            train_summary = payload if isinstance(payload, dict) else {}
+            path = results_dir / "train_response.json"
+            _write_json(path, payload)
+            artifacts.append(path)
+            train_ok = True
+            log.info("train complete: n_epochs=%s stopped_reason=%s", train_summary.get("n_epochs"), train_summary.get("stopped_reason"))
+
+        if train_ok:
+            outcome = "succeeded"
+            if config["predict"]["enabled"]:
+                predict_payload = _aux_phase("predict", ("POST", f"{app_url}/v1/predict"), {"dataset": {"dataset_id": dataset_id, "split": config["predict"]["from_dataset_split"]}}, "predict_response.json")
+                if isinstance(predict_payload, dict):
+                    predict_shape = predict_payload.get("shape")
+            if config["crossval"]["enabled"]:
+                crossval_body: Dict[str, Any] = {
+                    "dataset": {"dataset_id": dataset_id},
+                    "n_folds": config["crossval"]["n_folds"],
+                    "scheme": config["crossval"]["scheme"],
+                    "embargo": config["crossval"]["embargo"],
+                    **hyper,
+                }
+                if config["crossval"]["min_train"] is not None:
+                    crossval_body["min_train"] = config["crossval"]["min_train"]
+                crossval_payload = _aux_phase("crossval", ("POST", f"{app_url}/v1/crossval"), crossval_body, "crossval_response.json")
+                if isinstance(crossval_payload, dict):
+                    crossval_summary = {key: crossval_payload.get(key) for key in ("task_type", "n_folds", "eval_aggregate", "eval_std")}
+            if config["outputs"]["save_model"]:
+                t0 = time.monotonic()
+                model_path = results_dir / "model.npz"
+                save_model_rerun = _save_model_rerun(config["train"], str(dataset_id), dataset_cfg["split"], data_url, model_path)
+                _phase("save_model", t0)
+                if save_model_rerun.get("ok"):
+                    if model_path.is_file():
+                        artifacts.append(model_path)
+                else:
+                    acceptance_reasons.append(f"save_model re-run failed: {save_model_rerun.get('error') or save_model_rerun.get('stderr_tail') or save_model_rerun.get('returncode')}")
+            exit_code = EXIT_SUCCESS if not acceptance_reasons else EXIT_ACCEPTANCE
+        else:
+            exit_code = EXIT_ACCEPTANCE
+    except KeyboardInterrupt:
+        outcome = "torn_down_early"
+        acceptance_reasons.append("interrupted")
+        exit_code = EXIT_ACCEPTANCE
+        log.error("interrupted -- writing manifest with outcome torn_down_early")
+    except RunFailed as exc:
+        outcome = "failed"
+        acceptance_reasons.append(str(exc))
+        exit_code = EXIT_RUN_FAILED
+        log.error("%s", exc)
+    except ServiceUnreachable as exc:
+        if "dataset_create" in timings:
+            outcome = "torn_down_early"
+            acceptance_reasons.append(f"service became unreachable mid-run: {exc}")
+            exit_code = EXIT_UNREACHABLE
+            log.error("%s", exc)
+        else:
+            acceptance_reasons.append(f"service unreachable during bring-up: {exc}")
+            raise
+    finally:
+        timings["total"] = round(time.monotonic() - total_t0, 3)
+        manifest = {
+            "schema": MANIFEST_SCHEMA,
+            "run_id": run_id,
+            "suite_id": None,
+            "cell_id": None,
+            "experiment": {"name": experiment_name, "description": config["experiment"]["description"]},
+            "config_sha256": config_sha,
+            "config_path": str(config_path),
+            "config_copy_path": str(config_copy),
+            "dataset": {
+                "dataset_id": dataset_response.get("dataset_id"),
+                "generator": generator,
+                "version": generator_entry.get("version") or (dataset_response.get("meta") or {}).get("generator_version"),
+                "params": config["dataset"]["params"],
+                "split": dataset_cfg["split"],
+                "meta": dataset_response.get("meta"),
+            },
+            "git": probe_git_repos(Path(args.ecosystem_root).expanduser() if args.ecosystem_root else Path(__file__).resolve().parents[2].parent),
+            "packages": probe_packages(),
+            "environment": _environment_probe(),
+            "seeds": {"experiment": config["experiment"]["seed"], "dataset": config["dataset"]["params"].get("seed")},
+            "ports": ports,
+            "service_urls": {"data": data_url, "recurrence": app_url},
+            "timings": timings,
+            "outcome": outcome,
+            "acceptance": {"ok": exit_code == EXIT_SUCCESS, "reasons": acceptance_reasons},
+            "completion_reason": None,
+            "drive_loop": {},
+            "metrics_scraped": {
+                "grafana_bridge": bool(ports.get("grafana_bridge", False)),
+                "target_file": str(run_dir / "artifacts" / "prometheus_target.json"),
+                "present": (run_dir / "artifacts" / "prometheus_target.json").is_file(),
+            },
+            "g6_shape_check": None,
+            "collect_errors": collect_errors,
+            "snapshot": None,
+            "train": None if train_summary is None else {key: train_summary.get(key) for key in ("final_metrics", "n_epochs", "stopped_reason", "dataset")},
+            "predict": None if predict_shape is None else {"shape": predict_shape},
+            "crossval": crossval_summary,
+            "save_model_rerun": save_model_rerun,
+            "artifacts": _relative_artifacts(run_dir, artifacts),
+            "driver": {
+                "wave": DRIVER_WAVE,
+                "poll_interval": args.poll_interval,
+                "stall_seconds": args.stall_seconds,
+                "max_wall_seconds": max_wall,
+                "metric_families": list(METRIC_FAMILIES),
+                "plots_requested": config["outputs"]["plots"],
+                "plots_note": "plot rendering lands in Wave 2.4",
+            },
+        }
+        manifest_path = run_dir / "manifest.json"
+        try:
+            _write_json(manifest_path, manifest)
+        except OSError as exc:
+            log.error("cannot write %s: %s", manifest_path, exc)
+
+    _print_summary(run_id, experiment_name, generator, dataset_response, outcome, exit_code, acceptance_reasons, timings, {}, run_dir, kind="recurrence")
     return exit_code
 
 
@@ -1049,11 +1396,12 @@ def _print_summary(
     timings: Dict[str, float],
     loop_stats: Dict[str, Any],
     run_dir: Path,
+    kind: str = "cascor",
 ) -> None:
     print("=" * 68)
     print(f"run_experiment summary -- {run_id}")
     print("=" * 68)
-    print(f"experiment : {experiment_name} (cascor)")
+    print(f"experiment : {experiment_name} ({kind})")
     print(f"dataset    : {generator} dataset_id={dataset_response.get('dataset_id')}")
     print(f"outcome    : {outcome}   exit={exit_code}")
     if reasons:
@@ -1069,12 +1417,13 @@ def _print_summary(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="run_experiment.py",
-        description="Drive a single experiment run against a per-run stack from util/experiment_stack.bash (Wave 2.2: cascor service path).",
+        description="Drive a single experiment run against a per-run stack from util/experiment_stack.bash (cascor + recurrence service paths).",
     )
-    parser.add_argument("--config", required=True, help="experiment YAML (SS5.4 schema)")
+    parser.add_argument("--config", required=True, help="experiment YAML (SS5.4 cascor / SS5.5 recurrence schema)")
     parser.add_argument("--run-dir", required=True, help="the launcher's RUN_DIR (SS6.4; must exist)")
     parser.add_argument("--data-url", default=None, help="juniper-data base URL (default: RUN_DIR/ports.json)")
     parser.add_argument("--cascor-url", default=None, help="cascor base URL (default: RUN_DIR/ports.json)")
+    parser.add_argument("--recurrence-url", default=None, help="recurrence base URL (default: RUN_DIR/ports.json)")
     parser.add_argument("--poll-interval", type=float, default=DEFAULT_POLL_INTERVAL, help=f"status/metrics poll interval seconds (default {DEFAULT_POLL_INTERVAL})")
     parser.add_argument("--stall-seconds", type=float, default=DEFAULT_STALL_SECONDS, help=f"Q-2 stall threshold: no current_epoch progress for this long -> outcome stalled (default {DEFAULT_STALL_SECONDS})")
     parser.add_argument("--max-wall-seconds", type=float, default=None, help=f"Q-2 wall-clock budget override (CLI > YAML outputs.max_wall_seconds > {DEFAULT_MAX_WALL_SECONDS})")

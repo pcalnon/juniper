@@ -499,11 +499,13 @@ jobs:
           # socat; no services, no docker, no network).
           python3 -m unittest -v tests/test_experiment_stack_script.py
           # tests/test_run_experiment.py: hermetic tests for
-          # util/experiments/run_experiment.py (CLI experimentation plan Wave 2.2,
-          # the cascor service path) -- §5.6 YAML validation, the Q-2 drive loop
-          # (completion/FAILED/stall/budget) against a scripted loopback stub,
-          # the F-1 /metrics 307-redirect sampling arm, the G-6 staging asserts,
-          # the §13.4 manifest, and the 0/1/2/3/4 exit matrix. No live services;
+          # util/experiments/run_experiment.py (CLI experimentation plan Waves
+          # 2.2+2.3, the cascor + recurrence service paths) -- §5.6/§5.5 YAML
+          # validation, the Q-2 drive loops (cascor poll completion/FAILED/stall/
+          # budget; recurrence synchronous train + predict/crossval + G-18
+          # save_model re-run) against a scripted loopback stub, the F-1 /metrics
+          # 307-redirect sampling arm, the G-6 staging asserts, the §13.4
+          # manifest, and the 0/1/2/3/4 exit matrix. No live services;
           # util/ is not pre-commit-lint-gated, so this unittest is the gate.
           python3 -m unittest -v tests/test_run_experiment.py
           # tests/test_check_conda_env_torch.py: hermetic P-5 torch._C shadow diagnostic
