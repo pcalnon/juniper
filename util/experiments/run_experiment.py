@@ -61,10 +61,23 @@ importable without matplotlib): ``dataset`` (the fetched NPZ artifact; 2-feature
 hidden-unit-insertion markers), ``candidate_correlation`` (from the driver's own metrics_series.csv --
 the sole source), and ``eval_metrics`` (scalar bars). Structurally-unavailable data is a recorded
 per-plot SKIP (exit 0); a render error / failed fetch / missing matplotlib on a requested plot is an
-acceptance failure (exit 1). Recurrence plot names (SS8.2) are validated now and render in Wave 2.5.
+acceptance failure (exit 1). The recurrence set (SS8.2, Wave 2.5 -- closes G-5) renders the same way
+via ``plots_recurrence.py``: ``dataset_overview`` / ``dt_histogram`` from the fetched 3-D NPZ
+(``{X,y,dt,target_dt}_{split}``; ``y_reg_{split}`` preferred when present -- the equities regression
+target), ``forecast_vs_truth`` / ``residuals`` from the predict response vs the predict split's
+target, ``crossval_folds`` from the CrossValResponse folds, and ``metrics_table``; a disabled or
+failed predict/crossval phase is a per-plot SKIP. There is deliberately no recurrence
+training-history plot (TrainResponse carries no per-epoch series -- SS8.2 note).
 
-Wave boundaries (SS14): the recurrence plot set is Wave 2.5; ``stats.json`` + ``summary.md``
-renderers are Wave 2.6.
+Stats (Wave 2.6, SS8.3): every run also writes ``artifacts/results/stats.json`` + a human-readable
+``summary.md`` via ``stats_summary.py`` (stdlib-only) -- identity / dataset-shape / outcome-timing
+blocks from the manifest, the cascor candidate-correlation-per-round and step-duration p50/p95 stats
+from the driver's own ``metrics_series.csv`` (the sole source; the duration quantiles are honestly
+labeled per-poll means -- true per-step quantiles are not recoverable from a sum/count exposition),
+the recurrence train/CV/theta/readout block, and the degraded-mode notes. Written for every outcome;
+a stats failure is recorded on the manifest (``stats_error``), never fatal.
+
+Wave boundaries (SS14): the ``docs/REFERENCE.md`` operator section is Wave 2.7.
 
 Dependencies: stdlib + PyYAML; numpy is imported lazily only to write ``decision_boundary.npz`` (with a
 JSON fallback when absent). HTTP is stdlib ``urllib`` rather than ``requests`` -- lighter than the SS6.3
@@ -170,7 +183,7 @@ EXIT_UNREACHABLE = 3
 EXIT_RUN_FAILED = 4
 
 MANIFEST_SCHEMA = "juniper-experiment-manifest/1"
-DRIVER_WAVE = "2.4"
+DRIVER_WAVE = "2.6"
 
 # SS13.4 git-provenance repos, probed relative to the ecosystem root (best-effort).
 MANIFEST_GIT_REPOS: Tuple[str, ...] = ("juniper-cascor", "juniper-recurrence", "juniper-data", "juniper-data-client", "juniper-deploy", "juniper-ml")
@@ -840,16 +853,54 @@ def collect_results(cascor_url: str, config: Dict[str, Any], results_dir: Path, 
     return artifacts, errors, extras
 
 
-def _load_plots_module():
-    """Load ``plots_cascor.py`` by file path -- deterministic under both the package import
-    (tests: ``util/`` on sys.path) and path-invocation (``python util/experiments/run_experiment.py``),
-    and an ImportError here unambiguously means matplotlib (or numpy) is unavailable."""
-    spec = importlib.util.spec_from_file_location("juniper_experiments_plots_cascor", Path(__file__).with_name("plots_cascor.py"))
-    if spec is None or spec.loader is None:  # pragma: no cover - the module ships beside this file
-        raise ImportError("cannot locate plots_cascor.py")
+def _load_sibling(filename: str):
+    """Load a sibling helper module by file path -- deterministic under both the package
+    import (tests: ``util/`` on sys.path) and path-invocation (``python util/experiments/run_experiment.py``)."""
+    spec = importlib.util.spec_from_file_location(f"juniper_experiments_{Path(filename).stem}", Path(__file__).with_name(filename))
+    if spec is None or spec.loader is None:  # pragma: no cover - the modules ship beside this file
+        raise ImportError(f"cannot locate {filename}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _load_plots_module(filename: str = "plots_cascor.py"):
+    """Plot-module loader -- kept as its OWN seam (not folded into ``_load_sibling`` call
+    sites) so tests can stub matplotlib-absence here without affecting the stdlib-only
+    SS8.3 stats loader; an ImportError unambiguously means matplotlib (or numpy) is
+    unavailable."""
+    return _load_sibling(filename)
+
+
+def _read_series_rows(series_path: Path) -> List[Dict[str, str]]:
+    """Parse the driver's own metrics_series.csv into DictReader rows (missing/unreadable -> [])."""
+    try:
+        with series_path.open("r", encoding="utf-8", newline="") as handle:
+            return list(csv.DictReader(handle))
+    except OSError:
+        return []
+
+
+def _emit_stats(manifest: Dict[str, Any], results_dir: Path, run_dir: Path, artifacts: List[Path], kind: str, **stats_inputs: Any) -> None:
+    """SS8.3 (Wave 2.6): build + write ``stats.json`` / ``summary.md`` beside the results and
+    fold them into the manifest's artifact list. Stats are stdlib-only and deterministic, so
+    a failure here is a code bug -- it is recorded on the manifest (``stats_error``) and
+    logged loudly, but never costs the manifest write itself."""
+    try:
+        stats_mod = _load_sibling("stats_summary.py")
+        stats = stats_mod.build_stats(manifest, kind=kind, **stats_inputs)
+        stats_path = results_dir / "stats.json"
+        _write_json(stats_path, stats)
+        artifacts.append(stats_path)
+        summary_path = results_dir / "summary.md"
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(stats_mod.render_summary_md(stats), encoding="utf-8")
+        artifacts.append(summary_path)
+        manifest["stats_error"] = None
+    except Exception as exc:  # noqa: BLE001 - stats must never cost the manifest
+        log.error("stats/summary rendering failed: %s", exc)
+        manifest["stats_error"] = str(exc)
+    manifest["artifacts"] = _relative_artifacts(run_dir, artifacts)
 
 
 def _render_cascor_plots(
@@ -940,6 +991,100 @@ def _render_cascor_plots(
                 _skip(name, "unknown plot name")
         except ValueError as exc:
             # The renderer's no-renderable-data contract: an applicability skip, never a run failure.
+            _skip(name, str(exc))
+        except (ServiceUnreachable, RunFailed) as exc:
+            _skip(name, f"payload fetch failed: {exc}")
+            errors.append(f"plot {name}: {exc}")
+        except Exception as exc:  # noqa: BLE001 - a render bug must not kill the run's evidence
+            _skip(name, f"render error: {exc}")
+            errors.append(f"plot {name} render error: {exc}")
+    return record, errors, written
+
+
+def _render_recurrence_plots(
+    config: Dict[str, Any],
+    plots_dir: Path,
+    dataset_response: Dict[str, Any],
+    data_url: str,
+    train_summary: Optional[Dict[str, Any]],
+    predict_payload: Optional[Dict[str, Any]],
+    crossval_payload: Optional[Dict[str, Any]],
+    title: str,
+) -> Tuple[Dict[str, Any], List[str], List[Path]]:
+    """Render the requested SS8.2 recurrence plots (Wave 2.5, closes G-5).
+
+    Same contract as :func:`_render_cascor_plots`: structurally-unavailable data (a
+    disabled/failed predict or crossval phase, a non-Delta-t artifact) is a recorded
+    SKIP; a render exception, failed artifact fetch, or missing matplotlib on a
+    REQUESTED plot is an acceptance error.
+    """
+    requested = [str(name) for name in config["outputs"]["plots"]]
+    record: Dict[str, Any] = {"requested": requested, "rendered": [], "skipped": []}
+    errors: List[str] = []
+    written: List[Path] = []
+    if not requested:
+        return record, errors, written
+    try:
+        plots = _load_plots_module("plots_recurrence.py")
+    except ImportError as exc:
+        record["skipped"] = [{"name": name, "reason": "matplotlib unavailable"} for name in requested]
+        errors.append(f"plots requested but matplotlib is unavailable: {exc}")
+        return record, errors, written
+
+    dataset_split = config["dataset"]["split"]
+    predict_split = config["predict"]["from_dataset_split"]
+    npz_data: Optional[Dict[str, Any]] = None
+
+    def _skip(name: str, reason: str) -> None:
+        record["skipped"].append({"name": name, "reason": reason})
+        log.warning("plot %s skipped: %s", name, reason)
+
+    def _done(name: str, path: Path) -> None:
+        record["rendered"].append(name)
+        written.append(path)
+        log.info("plot rendered: %s", path.name)
+
+    def _npz() -> Dict[str, Any]:
+        nonlocal npz_data
+        if npz_data is None:
+            raw = _http_bytes(f"{data_url}/v1/datasets/{dataset_response.get('dataset_id')}/artifact")
+            npz_data = plots.load_npz_bytes(raw)
+        return npz_data
+
+    for name in requested:
+        try:
+            if name == "dataset_overview":
+                _done(name, plots.render_dataset_overview(_npz(), dataset_split, title, plots_dir / "dataset_overview.png"))
+            elif name == "dt_histogram":
+                _done(name, plots.render_dt_histogram(_npz(), dataset_split, title, plots_dir / "dt_histogram.png"))
+            elif name == "forecast_vs_truth":
+                if not isinstance(predict_payload, dict):
+                    _skip(name, "predict phase disabled or failed -- no predictions to plot")
+                    continue
+                bundle = _npz()
+                y_true = bundle[plots.resolve_target_key(bundle, predict_split)]
+                _done(name, plots.render_forecast_vs_truth(predict_payload.get("predictions"), y_true, title, plots_dir / "forecast_vs_truth.png"))
+            elif name == "residuals":
+                if not isinstance(predict_payload, dict):
+                    _skip(name, "predict phase disabled or failed -- no predictions to plot")
+                    continue
+                bundle = _npz()
+                y_true = bundle[plots.resolve_target_key(bundle, predict_split)]
+                target_dt = bundle.get(f"target_dt_{predict_split}")
+                _done(name, plots.render_residuals(predict_payload.get("predictions"), y_true, target_dt, title, plots_dir / "residuals.png"))
+            elif name == "crossval_folds":
+                if not isinstance(crossval_payload, dict):
+                    _skip(name, "crossval phase disabled or failed -- no folds to plot")
+                    continue
+                _done(name, plots.render_crossval_folds(crossval_payload, title, plots_dir / "crossval_folds.png"))
+            elif name == "metrics_table":
+                if not isinstance(train_summary, dict) or not isinstance(train_summary.get("final_metrics"), dict):
+                    _skip(name, "train final_metrics unavailable")
+                    continue
+                _done(name, plots.render_metrics_table(train_summary["final_metrics"], crossval_payload, title, plots_dir / "metrics_table.png"))
+            else:  # pragma: no cover - load_config validates plot-name membership
+                _skip(name, "unknown plot name")
+        except ValueError as exc:
             _skip(name, str(exc))
         except (ServiceUnreachable, RunFailed) as exc:
             _skip(name, f"payload fetch failed: {exc}")
@@ -1270,6 +1415,7 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
                 "plots": plots_record,
             },
         }
+        _emit_stats(manifest, results_dir, run_dir, artifacts, "cascor", series_rows=_read_series_rows(series_path) if series_path.is_file() else [], metrics_final=extras.get("metrics_final"))
         manifest_path = run_dir / "manifest.json"
         try:
             _write_json(manifest_path, manifest)
@@ -1353,8 +1499,11 @@ def _run_recurrence(args: argparse.Namespace, config: Dict[str, Any], config_pat
     generator_entry: Dict[str, Any] = {}
     train_summary: Optional[Dict[str, Any]] = None
     predict_shape: Optional[List[int]] = None
+    predict_full: Optional[Dict[str, Any]] = None
     crossval_summary: Optional[Dict[str, Any]] = None
+    crossval_full: Optional[Dict[str, Any]] = None
     save_model_rerun: Optional[Dict[str, Any]] = None
+    plots_record: Dict[str, Any] = {"requested": list(config["outputs"]["plots"]), "rendered": [], "skipped": []}
     exit_code = EXIT_ACCEPTANCE
 
     def _phase(name: str, t0: float) -> None:
@@ -1426,6 +1575,7 @@ def _run_recurrence(args: argparse.Namespace, config: Dict[str, Any], config_pat
                 predict_payload = _aux_phase("predict", ("POST", f"{app_url}/v1/predict"), {"dataset": {"dataset_id": dataset_id, "split": config["predict"]["from_dataset_split"]}}, "predict_response.json")
                 if isinstance(predict_payload, dict):
                     predict_shape = predict_payload.get("shape")
+                    predict_full = predict_payload
             if config["crossval"]["enabled"]:
                 crossval_body: Dict[str, Any] = {
                     "dataset": {"dataset_id": dataset_id},
@@ -1439,6 +1589,7 @@ def _run_recurrence(args: argparse.Namespace, config: Dict[str, Any], config_pat
                 crossval_payload = _aux_phase("crossval", ("POST", f"{app_url}/v1/crossval"), crossval_body, "crossval_response.json")
                 if isinstance(crossval_payload, dict):
                     crossval_summary = {key: crossval_payload.get(key) for key in ("task_type", "n_folds", "eval_aggregate", "eval_std")}
+                    crossval_full = crossval_payload
             if config["outputs"]["save_model"]:
                 t0 = time.monotonic()
                 model_path = results_dir / "model.npz"
@@ -1449,6 +1600,13 @@ def _run_recurrence(args: argparse.Namespace, config: Dict[str, Any], config_pat
                         artifacts.append(model_path)
                 else:
                     acceptance_reasons.append(f"save_model re-run failed: {save_model_rerun.get('error') or save_model_rerun.get('stderr_tail') or save_model_rerun.get('returncode')}")
+        if config["outputs"]["plots"]:
+            t0 = time.monotonic()
+            plots_record, plot_errors, plot_paths = _render_recurrence_plots(config, plots_dir, dataset_response, data_url, train_summary, predict_full, crossval_full, f"{experiment_name} {run_id}")
+            artifacts.extend(plot_paths)
+            _phase("plots", t0)
+            acceptance_reasons.extend(plot_errors)
+        if train_ok:
             exit_code = EXIT_SUCCESS if not acceptance_reasons else EXIT_ACCEPTANCE
         else:
             exit_code = EXIT_ACCEPTANCE
@@ -1520,10 +1678,10 @@ def _run_recurrence(args: argparse.Namespace, config: Dict[str, Any], config_pat
                 "stall_seconds": args.stall_seconds,
                 "max_wall_seconds": max_wall,
                 "metric_families": list(METRIC_FAMILIES),
-                "plots_requested": config["outputs"]["plots"],
-                "plots_note": "recurrence plot rendering lands in Wave 2.5",
+                "plots": plots_record,
             },
         }
+        _emit_stats(manifest, results_dir, run_dir, artifacts, "recurrence", train_summary=train_summary, crossval=crossval_full, train_config=config["train"])
         manifest_path = run_dir / "manifest.json"
         try:
             _write_json(manifest_path, manifest)
