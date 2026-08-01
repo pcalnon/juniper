@@ -189,6 +189,24 @@ class VerdictTest(_RepoCase):
         self.assertEqual(v["gates"]["ast_symbol_screen"]["status"], "fail")
         self.assertTrue(any(item["symbol"] == "func:foo" for item in lost), lost)
 
+    def test_symbol_loss_waived_by_allow_trailer(self):
+        # Same deletion as test_damaged_symbol_loss, but the branch commit carries an
+        # ``Allow-Symbol-Loss`` trailer -> the sequence-safety screen WAIVES it, so the
+        # per-PR verdict is MERGE-CLEAN. predict_merge now delegates to the SAME
+        # util/sequence_safety/symbol_loss_check.py CLI as the push:main ``main-verify``
+        # gate, so an author-declared intentional removal is honored identically.
+        _write(self.repo, "util/mod.py", "def foo():\n    return 1\n\n\ndef bar():\n    return 2\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "waived")
+        _write(self.repo, "util/mod.py", "def bar():\n    return 2\n")  # foo intentionally removed
+        _commit(self.repo, "drop foo (intentional)\n\nAllow-Symbol-Loss: func:foo")
+
+        v = pm.simulate_merge(self.repo, "waived", run_gates=False)
+        self.assertEqual(v["gates"]["ast_symbol_screen"]["status"], "pass")
+        self.assertEqual(v["gates"]["ast_symbol_screen"]["lost"], [])
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+
     def test_damaged_docs_deletion(self):
         _write(self.repo, "notes.md", "line1\nline2\nline3\n")
         _commit(self.repo, "c0")
