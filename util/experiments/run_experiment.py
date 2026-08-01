@@ -69,7 +69,15 @@ target, ``crossval_folds`` from the CrossValResponse folds, and ``metrics_table`
 failed predict/crossval phase is a per-plot SKIP. There is deliberately no recurrence
 training-history plot (TrainResponse carries no per-epoch series -- SS8.2 note).
 
-Wave boundaries (SS14): ``stats.json`` + ``summary.md`` renderers are Wave 2.6.
+Stats (Wave 2.6, SS8.3): every run also writes ``artifacts/results/stats.json`` + a human-readable
+``summary.md`` via ``stats_summary.py`` (stdlib-only) -- identity / dataset-shape / outcome-timing
+blocks from the manifest, the cascor candidate-correlation-per-round and step-duration p50/p95 stats
+from the driver's own ``metrics_series.csv`` (the sole source; the duration quantiles are honestly
+labeled per-poll means -- true per-step quantiles are not recoverable from a sum/count exposition),
+the recurrence train/CV/theta/readout block, and the degraded-mode notes. Written for every outcome;
+a stats failure is recorded on the manifest (``stats_error``), never fatal.
+
+Wave boundaries (SS14): the ``docs/REFERENCE.md`` operator section is Wave 2.7.
 
 Dependencies: stdlib + PyYAML; numpy is imported lazily only to write ``decision_boundary.npz`` (with a
 JSON fallback when absent). HTTP is stdlib ``urllib`` rather than ``requests`` -- lighter than the SS6.3
@@ -175,7 +183,7 @@ EXIT_UNREACHABLE = 3
 EXIT_RUN_FAILED = 4
 
 MANIFEST_SCHEMA = "juniper-experiment-manifest/1"
-DRIVER_WAVE = "2.5"
+DRIVER_WAVE = "2.6"
 
 # SS13.4 git-provenance repos, probed relative to the ecosystem root (best-effort).
 MANIFEST_GIT_REPOS: Tuple[str, ...] = ("juniper-cascor", "juniper-recurrence", "juniper-data", "juniper-data-client", "juniper-deploy", "juniper-ml")
@@ -845,16 +853,54 @@ def collect_results(cascor_url: str, config: Dict[str, Any], results_dir: Path, 
     return artifacts, errors, extras
 
 
-def _load_plots_module(filename: str = "plots_cascor.py"):
-    """Load a plot-renderer module by file path -- deterministic under both the package import
-    (tests: ``util/`` on sys.path) and path-invocation (``python util/experiments/run_experiment.py``),
-    and an ImportError here unambiguously means matplotlib (or numpy) is unavailable."""
+def _load_sibling(filename: str):
+    """Load a sibling helper module by file path -- deterministic under both the package
+    import (tests: ``util/`` on sys.path) and path-invocation (``python util/experiments/run_experiment.py``)."""
     spec = importlib.util.spec_from_file_location(f"juniper_experiments_{Path(filename).stem}", Path(__file__).with_name(filename))
     if spec is None or spec.loader is None:  # pragma: no cover - the modules ship beside this file
         raise ImportError(f"cannot locate {filename}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _load_plots_module(filename: str = "plots_cascor.py"):
+    """Plot-module loader -- kept as its OWN seam (not folded into ``_load_sibling`` call
+    sites) so tests can stub matplotlib-absence here without affecting the stdlib-only
+    SS8.3 stats loader; an ImportError unambiguously means matplotlib (or numpy) is
+    unavailable."""
+    return _load_sibling(filename)
+
+
+def _read_series_rows(series_path: Path) -> List[Dict[str, str]]:
+    """Parse the driver's own metrics_series.csv into DictReader rows (missing/unreadable -> [])."""
+    try:
+        with series_path.open("r", encoding="utf-8", newline="") as handle:
+            return list(csv.DictReader(handle))
+    except OSError:
+        return []
+
+
+def _emit_stats(manifest: Dict[str, Any], results_dir: Path, run_dir: Path, artifacts: List[Path], kind: str, **stats_inputs: Any) -> None:
+    """SS8.3 (Wave 2.6): build + write ``stats.json`` / ``summary.md`` beside the results and
+    fold them into the manifest's artifact list. Stats are stdlib-only and deterministic, so
+    a failure here is a code bug -- it is recorded on the manifest (``stats_error``) and
+    logged loudly, but never costs the manifest write itself."""
+    try:
+        stats_mod = _load_sibling("stats_summary.py")
+        stats = stats_mod.build_stats(manifest, kind=kind, **stats_inputs)
+        stats_path = results_dir / "stats.json"
+        _write_json(stats_path, stats)
+        artifacts.append(stats_path)
+        summary_path = results_dir / "summary.md"
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(stats_mod.render_summary_md(stats), encoding="utf-8")
+        artifacts.append(summary_path)
+        manifest["stats_error"] = None
+    except Exception as exc:  # noqa: BLE001 - stats must never cost the manifest
+        log.error("stats/summary rendering failed: %s", exc)
+        manifest["stats_error"] = str(exc)
+    manifest["artifacts"] = _relative_artifacts(run_dir, artifacts)
 
 
 def _render_cascor_plots(
@@ -1369,6 +1415,7 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
                 "plots": plots_record,
             },
         }
+        _emit_stats(manifest, results_dir, run_dir, artifacts, "cascor", series_rows=_read_series_rows(series_path) if series_path.is_file() else [], metrics_final=extras.get("metrics_final"))
         manifest_path = run_dir / "manifest.json"
         try:
             _write_json(manifest_path, manifest)
@@ -1634,6 +1681,7 @@ def _run_recurrence(args: argparse.Namespace, config: Dict[str, Any], config_pat
                 "plots": plots_record,
             },
         }
+        _emit_stats(manifest, results_dir, run_dir, artifacts, "recurrence", train_summary=train_summary, crossval=crossval_full, train_config=config["train"])
         manifest_path = run_dir / "manifest.json"
         try:
             _write_json(manifest_path, manifest)
