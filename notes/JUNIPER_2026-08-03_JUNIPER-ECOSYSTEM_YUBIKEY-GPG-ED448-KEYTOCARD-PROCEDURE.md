@@ -11,16 +11,23 @@
 
 ## 0. Executive summary
 
-**`gpg: KEYTOCARD failed: Invalid value` is a hardware capability limit, not a procedure error.** The YubiKey 5 series — including this 5C NFC on the newest firmware line 5.7.x (5.7.4 on the attached key) — **does not implement Ed448 or X448 in its OpenPGP application**. The card's own Algorithm Information object advertises RSA 2048/3072/4096, NIST P-256/384/521, secp256k1, brainpool 256/384/512, and Curve25519 (ed25519/cv25519) — and nothing else. `keytocard` fails because gpg must first switch the target slot's algorithm attributes to the key's algorithm, and the card rejects an algorithm it does not support. No gpg flag, applet reset, or firmware update changes this; Yubico has shipped no firmware with Curve448 OpenPGP support.
+**`gpg: KEYTOCARD failed: Invalid value` is a hardware capability limit, not a procedure error.**
+The YubiKey 5 series — including this 5C NFC on the newest firmware line 5.7.x (5.7.4 on the attached key) — **does not implement Ed448 or X448 in its OpenPGP application**.
+The card's own Algorithm Information object advertises RSA 2048/3072/4096, NIST P-256/384/521, secp256k1, brainpool 256/384/512, and Curve25519 (ed25519/cv25519) — and nothing else.
+`keytocard` fails because gpg must first switch the target slot's algorithm attributes to the key's algorithm, and the card rejects an algorithm it does not support.
+No gpg flag, applet reset, or firmware update changes this; Yubico has shipped no firmware with Curve448 OpenPGP support.
 
-**The requirement set is still almost fully satisfiable.** The certification primary never moves to the card in this design — it lives offline and only manages subkeys. Only the *subkeys* must be card-compatible. The validated configuration is:
+**The requirement set is still almost fully satisfiable.**
+The certification primary never moves to the card in this design — it lives offline and only manages subkeys.
+Only the *subkeys* must be card-compatible.
+The validated configuration is:
 
-| Role | Algorithm | Lives |
-|---|---|---|
-| Certify (primary, subkey management only) | **ed448** | Offline / local ceremony dir — never on card |
-| Sign (subkey) | ed25519 | YubiKey slot 1 |
-| Encrypt (subkey) | cv25519 (X25519) | YubiKey slot 2 |
-| Authenticate (subkey) | ed25519 | YubiKey slot 3 |
+| Role                                      | Algorithm        | Lives                                        |
+|-------------------------------------------|------------------|----------------------------------------------|
+| Certify (primary, subkey management only) | **ed448**        | Offline / local ceremony dir — never on card |
+| Sign (subkey)                             | ed25519          | YubiKey slot 1                               |
+| Encrypt (subkey)                          | cv25519 (X25519) | YubiKey slot 2                               |
+| Authenticate (subkey)                     | ed25519          | YubiKey slot 3                               |
 
 This keeps the ed448 requirement where hardware permits (the certification root), keeps distinct per-role subkeys, and was proven live: subkeys transferred, card-backed signing and decryption both verified (§8). If Curve448-on-hardware is a hard requirement, the only known path is a Gnuk 2.2+ token (e.g. Nitrokey Start) — see §3.3.
 
@@ -28,12 +35,12 @@ Two secondary failure classes were also identified in the earlier attempts recor
 
 ## 1. Environment and evidence base
 
-| Component | Value | Checked |
-|---|---|---|
-| GnuPG | 2.4.8 (libgcrypt 1.11.0) | `gpg --version` |
-| YubiKey | 5C NFC, serial 24955323, **firmware 5.7.4**, OpenPGP applet spec 3.4 | `ykman info`, `ykman openpgp info` |
-| ykman | 5.7.2 | `ykman --version` |
-| pcscd | active | `systemctl is-active pcscd` |
+| Component | Value                                                                | Checked                            |
+|-----------|----------------------------------------------------------------------|------------------------------------|
+| GnuPG     | 2.4.8 (libgcrypt 1.11.0)                                             | `gpg --version`                    |
+| YubiKey   | 5C NFC, serial 24955323, **firmware 5.7.4**, OpenPGP applet spec 3.4 | `ykman info`, `ykman openpgp info` |
+| ykman     | 5.7.2                                                                | `ykman --version`                  |
+| pcscd     | active                                                               | `systemctl is-active pcscd`        |
 
 Evidence for the Curve448 verdict (three independent sources):
 
@@ -47,7 +54,9 @@ Live reproduction (§8) closed the loop: with correct passphrase and Admin PIN s
 
 ### 2.1 Layer 1 (the reported error): the card cannot hold Curve448 keys
 
-When `keytocard` moves a key, gpg/scdaemon must first set the target slot's *algorithm attributes* (OpenPGP card DOs C1/C2/C3) to match the key being written. The card validates the requested attribute against its Algorithm Information list and rejects unlisted algorithms; scdaemon surfaces the rejection as `GPG_ERR_INV_VALUE` → **`KEYTOCARD failed: Invalid value`**. This is also why the on-card `generate` path worked: it generates whatever the card supports (default rsa2048) and never has to accept a foreign algorithm.
+When `keytocard` moves a key, gpg/scdaemon must first set the target slot's *algorithm attributes* (OpenPGP card DOs C1/C2/C3) to match the key being written.
+The card validates the requested attribute against its Algorithm Information list and rejects unlisted algorithms; scdaemon surfaces the rejection as `GPG_ERR_INV_VALUE` → **`KEYTOCARD failed: Invalid value`**.
+This is also why the on-card `generate` path worked: it generates whatever the card supports (default rsa2048) and never has to accept a foreign algorithm.
 
 Consequences:
 
@@ -88,13 +97,13 @@ A fourth environmental hazard observed on this host: **three concurrent GnuPG st
 
 ### 3.1 Decision matrix
 
-| Option | Certify | Sign / Auth | Encrypt | On YubiKey? | Notes |
-|---|---|---|---|---|---|
-| **A (validated, recommended)** | ed448 (offline) | ed25519 | cv25519 | Subkeys yes, primary no (by design) | Max curve strength where hardware allows; ed25519 signatures are also the *most* interoperable EdDSA (GitHub-verifiable, ssh-ed25519) |
-| B | ed25519 | ed25519 | cv25519 | Yes | Choose if the v5-format ed448 primary's interop cost (§6) outweighs its strength; whole chain is v4 |
-| C | ed448 | ed448 | x448 | **No** — software-only | The original spec; works entirely on disk (current state of `93E8591643C507FF`); no hardware isolation |
-| D | ed448 | ed448 | x448 | Gnuk 2.2+ token | Gnuk (open firmware; Nitrokey Start) added Ed448/X448 in 2.2; different hardware, lower assurance/performance class than YubiKey |
-| E | rsa4096 | rsa4096 | rsa4096 | Yes | Maximum legacy interop; large, slow |
+| Option                         | Certify         | Sign / Auth | Encrypt | On YubiKey?                         | Notes                                                                                                                                 |
+|--------------------------------|-----------------|-------------|---------|-------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| **A (validated, recommended)** | ed448 (offline) | ed25519     | cv25519 | Subkeys yes, primary no (by design) | Max curve strength where hardware allows; ed25519 signatures are also the *most* interoperable EdDSA (GitHub-verifiable, ssh-ed25519) |
+| B                              | ed25519         | ed25519     | cv25519 | Yes                                 | Choose if the v5-format ed448 primary's interop cost (§6) outweighs its strength; whole chain is v4                                   |
+| C                              | ed448           | ed448       | x448    | **No** — software-only              | The original spec; works entirely on disk (current state of `93E8591643C507FF`); no hardware isolation                                |
+| D                              | ed448           | ed448       | x448    | Gnuk 2.2+ token                     | Gnuk (open firmware; Nitrokey Start) added Ed448/X448 in 2.2; different hardware, lower assurance/performance class than YubiKey      |
+| E                              | rsa4096         | rsa4096     | rsa4096 | Yes                                 | Maximum legacy interop; large, slow                                                                                                   |
 
 ### 3.2 Why Option A satisfies the intent
 
@@ -288,25 +297,25 @@ Order matters — do these **after** §4.1's reset and **before** handing the ke
 ## 6. Interoperability caveats
 
 | Concern | Detail |
-|---|---|
+| --- | --- |
 | **ed448 primary = v5 key format** | gpg emits ed448 keys as v5 (64-hex/32-byte fingerprint — observed live). Many parsers accept only v4. Impact is limited because *verifiers of your commits/artifacts only need the ed25519 signing subkey's signatures*, but any service that must ingest the **whole public key** (key servers, forges) may reject it. |
-| **GitHub** | GitHub's GPG support has historically excluded ed448 (the 2026-07-16 note left this as an unconfirmed deferred probe; a Forgejo tracker for curve-448 keys confirms forge-side gaps are the norm). Uploading an Option-A public key (ed448 primary) may be refused even though the signatures themselves are ed25519. If GitHub "Verified" badges are required and the upload fails, fall back to Option B (ed25519 primary) or GitHub SSH-signing. Test before committing to Option A for GitHub-verified work. |
+| **GitHub** | GitHub's GPG support has historically excluded ed448 (the 2026-07-16 note left this as an unconfirmed deferred probe; a Forgejo tracker for curve-448 keys confirms forge-side gaps are the norm). Uploading an Option-A public key (ed448 primary) may be refused even though the signatures themselves are ed25519. If GitHub "Verified" badges are required and the upload fails, fall back to Option B (ed25519 primary) or GitHub SSH-signing. Test before committing to Option A for GitHub-verified work|
 | **OpenSSH** | No ed448 key type exists in OpenSSH — another reason the auth subkey is ed25519 (`ssh-ed25519` works everywhere). |
 | **RFC 9580 (crypto-refresh) implementations** | gpg's ed448 uses the LibrePGP-lineage encoding behind `--compliance=gnupg`; RFC 9580-only stacks encode Ed448/X448 differently (dedicated v6 algorithm IDs). Cross-stack exchange of the ed448 primary may not round-trip. ed25519/cv25519 v4 material is universally understood. |
 
 ## 7. Troubleshooting
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| `KEYTOCARD failed: Invalid value` | Key algorithm not in the card's Algorithm Information list (ed448/x448 on any YubiKey) | Card-supported algorithm for card-resident subkeys (§3); Gnuk 2.2+ hardware for true 448 |
-| `Cannot create Ed448 or Curve448 key without --compliance=gnupg` | gpg 2.4.x generation gate | `compliance gnupg` in gpg.conf or `--compliance=gnupg` on the command (§2.2) |
-| Wrong-passphrase / `Bad PIN` from scripts that "should" be correct | Heredoc `$`-expansion / literal quotes mangling secrets; loopback answering both prompts with one value | §2.3 rules; interactive entry or the §9 stub |
-| `Bad PIN` interactively; counters dropping | Wrong PIN, or PIN state uncertain after failed scripted changes | Check `ykman openpgp info` counters; 0 admin retries = unblockable → `ykman openpgp reset` |
-| `cannot open '/dev/tty'` in scripted `--edit-key` | gpg wants a tty | add `--no-tty` with `--command-fd 0 --status-fd 1` |
-| `OpenPGP card not available` / card "in use" | Competing gpg-agent/scdaemon stacks or pcscd contention | §4.0 kill-others; replug; `gpgconf --kill scdaemon` then retry |
-| `keytocard` silently targets the wrong slot | Multiple (or zero) subkeys selected | Exactly one `ssb*` per operation; deselect between subkeys (§4.4) |
-| Old `ssb>` stubs for keys no longer on any card | Keyring stubs outlive `ykman openpgp reset` | `gpg --delete-secret-and-public-key <KEYID>` for retired throwaway ids |
-| On-card `generate` only makes rsa2048 with combined SC key | That is the card default and the on-card path's design | Don't use on-card generate for this design; generate locally + `keytocard` (whole point of §4) |
+| Symptom                                                            | Cause                                                                                                   | Fix                                                                                            |
+|--------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
+| `KEYTOCARD failed: Invalid value`                                  | Key algorithm not in the card's Algorithm Information list (ed448/x448 on any YubiKey)                  | Card-supported algorithm for card-resident subkeys (§3); Gnuk 2.2+ hardware for true 448       |
+| `Cannot create Ed448 or Curve448 key without --compliance=gnupg`   | gpg 2.4.x generation gate                                                                               | `compliance gnupg` in gpg.conf or `--compliance=gnupg` on the command (§2.2)                   |
+| Wrong-passphrase / `Bad PIN` from scripts that "should" be correct | Heredoc `$`-expansion / literal quotes mangling secrets; loopback answering both prompts with one value | §2.3 rules; interactive entry or the §9 stub                                                   |
+| `Bad PIN` interactively; counters dropping                         | Wrong PIN, or PIN state uncertain after failed scripted changes                                         | Check `ykman openpgp info` counters; 0 admin retries = unblockable → `ykman openpgp reset`     |
+| `cannot open '/dev/tty'` in scripted `--edit-key`                  | gpg wants a tty                                                                                         | add `--no-tty` with `--command-fd 0 --status-fd 1`                                             |
+| `OpenPGP card not available` / card "in use"                       | Competing gpg-agent/scdaemon stacks or pcscd contention                                                 | §4.0 kill-others; replug; `gpgconf --kill scdaemon` then retry                                 |
+| `keytocard` silently targets the wrong slot                        | Multiple (or zero) subkeys selected                                                                     | Exactly one `ssb*` per operation; deselect between subkeys (§4.4)                              |
+| Old `ssb>` stubs for keys no longer on any card                    | Keyring stubs outlive `ykman openpgp reset`                                                             | `gpg --delete-secret-and-public-key <KEYID>` for retired throwaway ids                         |
+| On-card `generate` only makes rsa2048 with combined SC key         | That is the card default and the on-card path's design                                                  | Don't use on-card generate for this design; generate locally + `keytocard` (whole point of §4) |
 
 ## 8. Evidence log (2026-08-03 validation run)
 

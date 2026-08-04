@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+########################################################################################################################################################################################################
 # Headless Assuan pinentry stub for scripted GnuPG smartcard testing (answers from env vars).
 #
 # Project:    juniper-ml
@@ -9,13 +10,18 @@
 # Retire when: the YubiKey GPG key-to-card procedure doc is finalized and no scripted re-validation is needed
 # Related:    notes/JUNIPER_2026-08-03_JUNIPER-ECOSYSTEM_YUBIKEY-GPG-ED448-KEYTOCARD-PROCEDURE.md
 #
-# THROWAWAY-CREDENTIAL TESTING ONLY. This defeats the entire purpose of pinentry
-# (interactive secret entry) and must never be pointed at a real keyring or a
-# live-provisioned card. It answers gpg-agent's pinentry protocol from:
-#   TEST_ADMIN_PIN   — returned when the prompt mentions "Admin"
-#   TEST_USER_PIN    — returned when the prompt mentions the card PIN / "unlock the card"
-#   TEST_PASSPHRASE  — returned for everything else (key passphrase)
-#   PINENTRY_STUB_LOG — optional path; prompt classes (never secrets) are appended
+########################################################################################################################################################################################################
+# Notes and Warnings:
+#
+# - THROWAWAY-CREDENTIAL TESTING ONLY. This defeats the entire purpose of pinentry (interactive secret entry) and must never be pointed at a real keyring or a live-provisioned card.
+# - It answers gpg-agent's pinentry protocol from:
+#
+#   - TEST_ADMIN_PIN   — returned when the prompt mentions "Admin"
+#   - TEST_USER_PIN    — returned when the prompt mentions the card PIN / "unlock the card"
+#   - TEST_PASSPHRASE  — returned for everything else (key passphrase)
+#   - PINENTRY_STUB_LOG — optional path; prompt classes (never secrets) are appended
+#
+########################################################################################################################################################################################################
 set -u
 
 LOG="${PINENTRY_STUB_LOG:-}"
@@ -24,7 +30,7 @@ log() { if [[ -n "$LOG" ]]; then printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >>"$L
 desc=""
 prompt=""
 
-printf 'OK Pleased to meet you\n'
+printf 'Pleased to meet you !\n'
 log "started (args: $*)"
 
 while IFS= read -r line; do
@@ -69,7 +75,7 @@ while IFS= read -r line; do
             ;;
         BYE)
             log "BYE"
-            printf 'OK closing connection\n'
+            printf 'Closing connection...\n'
             exit 0
             ;;
         *)

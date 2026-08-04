@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+########################################################################################################################################################################################################
 # E2E validation harness: local GPG key generation -> YubiKey keytocard (ed448 repro + ed25519 transfer).
 #
 # Project:    juniper-ml
@@ -9,26 +10,31 @@
 # Retire when: the YubiKey GPG key-to-card procedure doc is finalized and no scripted re-validation is needed
 # Related:    notes/JUNIPER_2026-08-03_JUNIPER-ECOSYSTEM_YUBIKEY-GPG-ED448-KEYTOCARD-PROCEDURE.md
 #
-# THROWAWAY-CREDENTIAL TESTING ONLY.
-#   - Operates exclusively in an isolated GNUPGHOME ($HOME/.gnupg-yktest by default;
-#     override with YKTEST_HOME). Never touches ~/.gnupg keyrings.
-#   - RESETS the OpenPGP applet of the attached YubiKey (reset-card phase) — wipes
-#     on-card OpenPGP keys and restores default PINs 123456/12345678. FIDO/PIV/OATH
-#     applets are NOT touched.
+########################################################################################################################################################################################################
+# Notes and Warnings:
+#
+# - THROWAWAY-CREDENTIAL TESTING ONLY.
+#   - Operates exclusively in an isolated GNUPGHOME ($HOME/.gnupg-yktest by default; override with YKTEST_HOME). Never touches ~/.gnupg keyrings.
+#   - RESETS the OpenPGP applet of the attached YubiKey (reset-card phase) — wipes on-card OpenPGP keys and restores default PINs 123456/12345678. FIDO/PIV/OATH applets are NOT touched.
 #   - All secrets used here are hardcoded throwaway values.
 #
-# Phases (run in order):
-#   kill-others  — stop other gpg-agent/scdaemon instances that may hold the card
-#   reset-card   — factory-reset the OpenPGP applet (ykman openpgp reset -f)
-#   gen          — create isolated GNUPGHOME + ed448[C] primary + subkeys:
-#                    1: ed25519 [S]   2: ed25519 [A]   3: cv25519 [E]   4: ed448 [S] (repro probe)
-#   repro        — attempt keytocard of the ed448 subkey (expected: KEYTOCARD failed: Invalid value)
-#   transfer     — keytocard subkeys 1/2/3 into card slots Sig/Auth/Enc + save (local -> stubs)
-#   verify       — flush PIN cache, sign+verify and encrypt+decrypt via the card, show counters
-#   status       — print card status + secret key listing
-#   clean        — kill the test home's daemons (leaves $YKTEST_HOME in place for inspection)
+# - Phases (run in order):
+#   - kill-others  — stop other gpg-agent/scdaemon instances that may hold the card
+#   - reset-card   — factory-reset the OpenPGP applet (ykman openpgp reset -f)
+#   - gen          — create isolated GNUPGHOME + ed448[C] primary + subkeys:
+#                      1: ed25519 [S]   2: ed25519 [A]   3: cv25519 [E]   4: ed448 [S] (repro probe)
+#   - repro        — attempt keytocard of the ed448 subkey (expected: KEYTOCARD failed: Invalid value)
+#   - transfer     — keytocard subkeys 1/2/3 into card slots Sig/Auth/Enc + save (local -> stubs)
+#   - verify       — flush PIN cache, sign+verify and encrypt+decrypt via the card, show counters
+#   - status       — print card status + secret key listing
+#   - clean        — kill the test home's daemons (leaves $YKTEST_HOME in place for inspection)
+########################################################################################################################################################################################################
 set -euo pipefail
 
+
+########################################################################################################################################################################################################
+# Define script constants
+########################################################################################################################################################################################################
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STUB="${SCRIPT_DIR}/2026-08-03_yubikey_test_pinentry.bash"
 TESTHOME="${YKTEST_HOME:-$HOME/.gnupg-yktest}"
@@ -45,6 +51,10 @@ EXPIRE='2y'
 GPG=(gpg --homedir "$TESTHOME")
 GPG_BATCH=(gpg --homedir "$TESTHOME" --batch --pinentry-mode loopback --passphrase "$TEST_PASSPHRASE")
 
+
+########################################################################################################################################################################################################
+# Define script Utility functions
+########################################################################################################################################################################################################
 die() { printf 'FATAL: %s\n' "$*" >&2; exit 1; }
 note() { printf '\n==== %s ====\n' "$*"; }
 
@@ -177,6 +187,9 @@ phase_clean() {
     gpgconf --homedir "$TESTHOME" --kill all 2>/dev/null || true
 }
 
+########################################################################################################################################################################################################
+# Main execution
+########################################################################################################################################################################################################
 case "${1:-}" in
     kill-others) phase_kill_others ;;
     reset-card)  phase_reset_card ;;
