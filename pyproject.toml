@@ -58,14 +58,14 @@ tools = [
 ]
 # The Δt-native recurrence stack (WS-4 / WS-4b): the closed-form variable-Δt
 # LMU regressor library, the FastAPI/CLI application that wraps it, and the HTTP
-# client for that service. All three are published to PyPI; capped inside the
-# 0.1.x range per the pre-1.0 convention so a future 0.2.x doesn't auto-adopt
-# before consumers migrate. A dedicated extra (rather than folding the app into
+# client for that service. All three are published to PyPI; ceiling-capped per
+# the pre-1.0 convention so the next minor doesn't auto-adopt before consumers
+# migrate. A dedicated extra (rather than folding the app into
 # [servers] and the model/client into [tools]/[clients]) keeps those aggregates'
 # semantics intact and lets `pip install juniper-ml[recurrence]` pull the whole stack.
 recurrence = [
-    "juniper-recurrence-model>=0.1.5,<0.2.0",
-    "juniper-recurrence>=0.2.0,<0.3.0",
+    "juniper-recurrence-model>=0.1.5,<0.3.0",
+    "juniper-recurrence>=0.2.0,<0.4.0",
     "juniper-recurrence-client>=0.2.0,<0.3.0",
 ]
 all = [

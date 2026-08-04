@@ -60,7 +60,7 @@ pip install juniper-ml[all]
 | `servers`   | `juniper-canopy>=0.5.0`, `juniper-cascor>=0.5.0`, `juniper-data>=0.6.0`                                                                                                                                      |
 | `tools`     | `juniper-ci-tools>=0.1.0`, `juniper-config-tools>=0.1.0,<0.2.0`, `juniper-doc-tools>=0.1.0,<0.2.0`, `juniper-model-core>=0.1.0,<0.2.0`, `juniper-observability>=0.2.0`, `juniper-service-core>=0.1.0,<0.2.0` |
 | `doc-tools` | `juniper-doc-tools>=0.1.0,<0.2.0` (back-compat alias for the doc-tools entry in `tools`)                                                                                                                     |
-| `recurrence`| `juniper-recurrence-model>=0.1.5,<0.2.0`, `juniper-recurrence>=0.2.0,<0.3.0`, `juniper-recurrence-client>=0.2.0,<0.3.0`                                                                                      |
+| `recurrence`| `juniper-recurrence-model>=0.1.5,<0.3.0`, `juniper-recurrence>=0.2.0,<0.4.0`, `juniper-recurrence-client>=0.2.0,<0.3.0`                                                                                      |
 | `all`       | All packages from `clients` + `worker` + `servers` + `tools` + `recurrence`                                                                                                                                  |
 
 ### Shared Observability Package

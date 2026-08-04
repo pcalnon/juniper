@@ -60,8 +60,8 @@ EXPECTED_EXTRAS = {
         "juniper-doc-tools>=0.1.0,<0.2.0",
     },
     "recurrence": {
-        "juniper-recurrence-model>=0.1.5,<0.2.0",
-        "juniper-recurrence>=0.2.0,<0.3.0",
+        "juniper-recurrence-model>=0.1.5,<0.3.0",
+        "juniper-recurrence>=0.2.0,<0.4.0",
         "juniper-recurrence-client>=0.2.0,<0.3.0",
     },
     "all": {
