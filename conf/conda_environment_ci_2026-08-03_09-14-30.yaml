@@ -4,12 +4,12 @@
 # Purpose:       Juniper ML Meta-Package
 #
 # Author:        Paul Calnon
-# Version:       0.7.0
+# Version:       0.6.0
 # Config Name:   conda_environment_ci.yaml
 # Config Path:   Juniper/juniper/conf/
 #
 # Date:          2025-12-06
-# Last Modified: 2026-08-03
+# Last Modified: 2026-07-27
 #
 # License:       MIT License
 # Copyright:     Copyright (c) 2024-2026 Paul Calnon
@@ -19,7 +19,7 @@
 #
 #####################################################################################################################################################################################################
 # Notes:
-#     created-by: conda 2026.08.03
+#     created-by: conda 2026.07.27
 #     platform: linux-64
 #     python: 3.12.13
 #
