@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -23,6 +23,7 @@
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
+- [YubiKey GPG Provisioning](#yubikey-gpg-provisioning)
 
 ---
 
@@ -707,6 +708,47 @@ Release runbooks:
 
 ---
 
+## YubiKey GPG Provisioning
+
+Operator pointer for host GPG / YubiKey 5 code-signing setup. Full validated procedure (commands, evidence, interoperability): [`notes/JUNIPER_2026-08-03_JUNIPER-ECOSYSTEM_YUBIKEY-GPG-ED448-KEYTOCARD-PROCEDURE.md`](../notes/JUNIPER_2026-08-03_JUNIPER-ECOSYSTEM_YUBIKEY-GPG-ED448-KEYTOCARD-PROCEDURE.md) (#904; pinentry stub fix #914).
+
+### Intent
+
+Juniper release-train / git signing may use a YubiKey-backed OpenPGP key. Operators hitting `gpg: KEYTOCARD failed: Invalid value` when moving an **ed448** key to the card need the hardware constraint, not another passphrase retry.
+
+### Hardware constraint (verified)
+
+YubiKey 5 series OpenPGP (incl. firmware 5.7.x) **does not implement Ed448 / X448**. `keytocard` of an ed448/x448 key fails with `Invalid value` / `SC_OP_FAILURE` even with correct passphrase + Admin PIN — the card rejects the algorithm attribute switch.
+
+Validated layout (ed448 requirement kept where hardware allows):
+
+| Role | Algorithm | Lives |
+|------|-----------|-------|
+| Certify (primary) | **ed448** | Offline / local ceremony dir — **never** on card |
+| Sign | ed25519 | YubiKey slot 1 |
+| Encrypt | cv25519 (X25519) | YubiKey slot 2 |
+| Authenticate | ed25519 | YubiKey slot 3 |
+
+### Related pitfalls
+
+| Symptom / class | Guidance |
+|-----------------|----------|
+| Cannot *create* Ed448/Curve448 under gpg 2.4.x | Need `--compliance=gnupg` (or `compliance gnupg` in ceremony `gpg.conf`) |
+| Scripted heredoc / shared loopback fd corrupts secrets | Never mix `--pinentry-mode=loopback` when a flow prompts for **both** passphrase and card PIN; use interactive or the stub harness for transfer |
+| Headless re-validation | Ad-hoc harness: `util/ad-hoc/2026-08-03_yubikey_curve448_keytocard_e2e.bash` + `util/ad-hoc/2026-08-03_yubikey_test_pinentry.bash` (**throwaway credentials only**) |
+| Stub pinentry “No pinentry” | Greeting must be Assuan `OK …` (#914); non-OK greeting → gpg-agent treats pinentry as dead |
+
+### Harness safety
+
+The pinentry stub answers Admin PIN / user PIN / passphrase from `TEST_ADMIN_PIN` / `TEST_USER_PIN` / `TEST_PASSPHRASE`. It defeats interactive secret entry — **never** point it at a real keyring or a live-provisioned card.
+
+### Related
+
+- Code-signing migration status: [`notes/JUNIPER_2026-07-16_JUNIPER-ECOSYSTEM_CODE-SIGNING-KEY-MIGRATION-STATUS.md`](../notes/JUNIPER_2026-07-16_JUNIPER-ECOSYSTEM_CODE-SIGNING-KEY-MIGRATION-STATUS.md)
+- Release-train headless commits avoid the owner’s YubiKey (`commit.gpgsign false` on propose; API-signed archive on ceremony) — see AGENTS.md / release-train runbook
+
+---
+
 ## Environment Variables
 
 These variables are consumed by Juniper packages documented in this repository. `juniper-ml` itself does not set them; they belong to the extras-installed packages.
@@ -727,6 +769,6 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 
 ---
 
-**Last Updated:** 2026-07-26
-**Version:** 0.6.0
+**Last Updated:** 2026-08-05
+**Version:** 0.6.1
 **Maintainer:** Paul Calnon
