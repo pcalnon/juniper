@@ -55,10 +55,13 @@
 | `tools`     | `juniper-ci-tools`                                                                       | `>=0.1.0`         |
 |             | `juniper-config-tools`                                                                   | `>=0.1.0,<0.2.0`  |
 |             | `juniper-doc-tools`                                                                      | `>=0.1.0,<0.2.0`  |
+|             | `juniper-model-core`                                                                     | `>=0.1.0,<0.4.0`  |
 |             | `juniper-observability`                                                                  | `>=0.2.0`         |
+|             | `juniper-service-core`                                                                   | `>=0.2.0,<0.6.0`  |
 | `doc-tools` | `juniper-doc-tools` (back-compat alias for the doc-tools entry in `tools`)               | `>=0.1.0,<0.2.0`  |
-| `recurrence`| `juniper-recurrence-model`                                                               | `>=0.1.5,<0.3.0`  |
-|             | `juniper-recurrence`                                                                     | `>=0.2.0,<0.4.0`  |
+| `recurrence`| `juniper-recurrence-model`                                                               | `>=0.1.5,<0.2.0`  |
+|             | `juniper-recurrence`                                                                     | `>=0.2.0,<0.3.0`  |
+|             | `juniper-recurrence-client`                                                              | `>=0.2.0,<0.3.0`  |
 | `all`       | All packages from `clients` + `worker` + `servers` + `tools` + `recurrence`              | --                |
 
 ### Installation Commands
@@ -67,10 +70,13 @@
 pip install juniper-ml[clients]   # Data + CasCor HTTP/WS clients
 pip install juniper-ml[worker]    # Distributed training worker
 pip install juniper-ml[servers]   # Canopy + Cascor + Data services
-pip install juniper-ml[tools]     # CI tools + doc tools + observability
+pip install juniper-ml[tools]     # CI/doc tools + model-core + observability + service-core
 pip install juniper-ml[doc-tools] # Markdown link validator only (back-compat alias)
+pip install juniper-ml[recurrence]# Δt-native LMU model + FastAPI app + HTTP client
 pip install juniper-ml[all]       # Everything
 ```
+
+> **Extras lint contract.** Any edit to `[project.optional-dependencies]` in `pyproject.toml` must co-update `tests/test_pyproject_extras.py` (`EXPECTED_EXTRAS`) in the same PR — CI fails when the pin strings drift. Keep the extras tables in `AGENTS.md`, `README.md`, `docs/QUICK_START.md`, and this section in lockstep with `pyproject.toml` (Dependabot-only pin bumps cannot update the contract; see juniper-ml#905).
 
 ### Package Descriptions
 
@@ -83,8 +89,14 @@ pip install juniper-ml[all]       # Everything
 | **juniper-cascor-client** | Synchronous HTTP + async WebSocket client for the juniper-cascor API (training)                  |
 | **juniper-cascor-worker** | Remote candidate training worker using multiprocessing IPC                                       |
 | **juniper-ci-tools**      | Dependency-documentation generator (`juniper-generate-dep-docs`) used by every Juniper repo's CI |
+| **juniper-config-tools**  | Env-prefix migration helpers (stdlib-only)                                                       |
 | **juniper-doc-tools**     | Markdown link validator (`juniper-check-doc-links`) for intra- and cross-repo docs               |
+| **juniper-model-core**    | Model-core conformance kit + crossval layer                                                      |
 | **juniper-observability** | Shared Prometheus collector helpers, structured-JSON logging, Starlette middleware               |
+| **juniper-service-core**  | Shared FastAPI service-tier primitives                                                           |
+| **juniper-recurrence-model** | Closed-form variable-Δt LMU regressor library                                                 |
+| **juniper-recurrence**    | FastAPI/CLI application wrapping the recurrence model                                            |
+| **juniper-recurrence-client** | HTTP client for the juniper-recurrence service                                               |
 
 ---
 

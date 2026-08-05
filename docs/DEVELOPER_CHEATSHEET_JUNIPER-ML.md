@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.6
-**Date**: 2026-07-26
+**Version**: 1.0.7
+**Date**: 2026-08-04
 **Project**: juniper-ml
 
 ---
@@ -14,7 +14,8 @@
 | `pip install -e ".[clients]"`                          | Install just the HTTP/WS client libraries (editable) |
 | `pip install -e ".[worker]"`                           | Install just the distributed training worker (editable) |
 | `pip install -e ".[servers]"`                          | Install just the service distributions: canopy + cascor + data (editable) |
-| `pip install -e ".[tools]"`                            | Install just shared tooling: ci-tools + doc-tools + observability (editable) |
+| `pip install -e ".[tools]"`                            | Install shared tooling: ci/doc/config tools + model-core + observability + service-core (editable) |
+| `pip install -e ".[recurrence]"`                       | Install Δt-native recurrence stack: model + FastAPI app + HTTP client (editable) |
 | `python -m build && twine check dist/*`                | Build and validate package                      |
 | `python3 -m unittest -v tests/test_wake_the_claude.py` | Run launcher regression tests                   |
 | `python3 -m unittest -v tests/test_pyproject_extras.py`| Lint pyproject.toml extras structure            |
@@ -113,9 +114,14 @@ This behavior is regression-tested in `tests/test_wake_the_claude.py`:
 
 1. **Add**: Edit `pyproject.toml`, regenerate lockfile (`uv pip compile pyproject.toml --extra all -o requirements.lock`), install
 2. **Remove**: Delete from `pyproject.toml`, remove imports, regenerate lockfile, run tests
-3. **Add optional group**: Add under `[project.optional-dependencies]`, include in `all`, update `AGENTS.md` and `README.md`
+3. **Edit optional group / pin**: Update `[project.optional-dependencies]` in `pyproject.toml` and co-update in the **same PR**:
+   - `tests/test_pyproject_extras.py` `EXPECTED_EXTRAS` (CI lint contract — pin-string drift fails Regression Tests; Dependabot-only bumps cannot update it — juniper-ml#905)
+   - Documented extras tables: `AGENTS.md`, `README.md`, `docs/QUICK_START.md`, `docs/REFERENCE.md`
+   - When adding a new extra, include it in `[all]` (except the `[doc-tools]` alias, already covered by `[tools]`)
+4. **Verify**: `python3 -m unittest -v tests/test_pyproject_extras.py`
 
-> See: per-repo `pyproject.toml` | `juniper-data/notes/DEPENDENCY_UPDATE_WORKFLOW.md`
+> Tip: Keep `tools` ceilings aligned across those tables — `juniper-model-core>=0.1.0,<0.4.0` and `juniper-service-core>=0.2.0,<0.6.0` match `pyproject.toml` / `AGENTS.md`. Stale README / QUICK_START rows were a common drift class before this tip.
+> See: per-repo `pyproject.toml` | `juniper-data/notes/DEPENDENCY_UPDATE_WORKFLOW.md` | [REFERENCE.md § Extras Reference](REFERENCE.md#extras-reference)
 
 ### Cross-Repo Version Sync
 
