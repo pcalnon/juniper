@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
+**Version**: 1.0.9
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -429,12 +429,18 @@ Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant he
 
 Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
 
+Tip: juniper-service-core — CR-024 `RequestBodyLimitMiddleware` must always stream-cap POST/PUT/PATCH (open #986 closes main's Content-Length under-declare bypass). `TLSConfig(enabled=True)` with cert XOR key raises `ValueError` (#986). `WorkerCoordinator.submit_result` rejects wrong-worker/unassigned before parse (#984). Binary attachments >100MB → `Binary frame too large` (on main). See [REFERENCE — juniper-service-core](REFERENCE.md#juniper-service-core).
+
 
 ### Host Stack Troubleshooting
 
 | Symptom | Fast Check |
 |---------|------------|
-| Startup exits before launching services | Check the preflight output for missing `curl`, `ss`, conda, sibling repo directories, or occupied ports. |
+| Startup exits before launching services | Check the preflight output for missing `curl`, `ss`, conda, sibling repo paths, or occupied ports. |
+| Large POST accepted despite body-limit middleware | Need open #986 always-stream; under-declared `Content-Length` still bypasses on main. |
+| Worker TLS enabled but no cert chain | Half-config (cert XOR key) — need #986 `ValueError`; set both paths. |
+| Wrong worker’s `task_result` accepted | Need open #984 ownership reject-before-parse. |
+| Worker `"Binary frame too large"` / no ack | Expected when attachment >100 MiB (`worker_stream` on main). |
 | Mid-plant abort / health timeout | Service log under that repo's `logs/`; pidfile is already removed — free leftover listeners with `ss -tlnp` before re-planting. |
 | Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`; keep the default `JuniperCascor1` env unless a replacement is known-good. |
 | Worker binary missing | Run `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |

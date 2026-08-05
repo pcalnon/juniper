@@ -42,12 +42,12 @@ pip install juniper-service-core
 | Health | *(mounted by `create_app`)* | `GET /v1/health` (liveness) + `GET /v1/health/ready` (readiness). |
 | Security | `APIKeyAuth`, `RateLimiter`, `build_api_key_auth`, … | `X-API-Key` authentication + rate limiting. |
 | Secrets | `get_secret` | Docker `_FILE` secret-indirection reader. |
-| Middleware | `SecurityMiddleware`, `SecurityHeadersMiddleware`, `RequestBodyLimitMiddleware` | Drop-in ASGI middleware. |
+| Middleware | `SecurityMiddleware`, `SecurityHeadersMiddleware`, `RequestBodyLimitMiddleware` | Drop-in ASGI middleware. CR-024: mutating methods must always stream-cap bodies (see meta [`docs/REFERENCE.md` § juniper-service-core](../docs/REFERENCE.md#juniper-service-core)). |
 | Launcher | `ManagedService`, `start_service`, `wait_for_health` | Subprocess service launcher (stdlib-only). |
 | Lifecycle | `TrainingLifecycle`, `ServiceLifecycleManager`, … | Drives a [`juniper-model-core`](https://github.com/pcalnon/juniper-ml) `TrainableModel` through a status FSM + a `TrainingEvent` monitor; synchronous and threaded-orchestrator bodies, with snapshots + replay. |
 | Generic routes | `build_routers`, `ResponseEnvelope`, … | Training-control, metrics, dataset, network, and snapshot HTTP routes over the injected lifecycle. |
-| WebSocket | `attach_websocket`, `training_stream_handler`, `control_stream_handler`, … | Live training + control streams, plus a worker channel (`/ws/workers`). |
-| Worker pool | `WorkerCoordinator`, `WorkerRegistry`, … | Distributed-worker registration, coordination, and task dispatch (stdlib-only foundations). |
+| WebSocket | `attach_websocket`, `training_stream_handler`, `control_stream_handler`, … | Live training + control streams, plus a worker channel (`/ws/workers`). Binary attachments over 100 MiB reject with `"Binary frame too large"`. |
+| Worker pool | `WorkerCoordinator`, `WorkerRegistry`, … | Distributed-worker registration, coordination, and task dispatch (stdlib-only foundations). `submit_result` must reject wrong-worker / unassigned envelopes before parse (open juniper-ml#984). |
 
 Import cost tracks the subsystem: `.security`, `.secrets`, `.middleware`, `.launcher`, and `.workers`
 are stdlib-/lightweight; `.lifecycle` needs `juniper-model-core`; `.routes` and `.websocket` need

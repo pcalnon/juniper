@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -22,6 +22,8 @@
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Sibling Packages](#sibling-packages)
+  - [juniper-observability](#juniper-observability)
+  - [juniper-service-core](#juniper-service-core)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
 
@@ -777,12 +779,64 @@ Publish and CI constraints:
 2. `publish-observability.yml` runs only for `juniper-observability-v*` tags or manual dispatch, builds from the subdirectory, publishes to TestPyPI, verifies installation, then publishes the same artifact to PyPI.
 3. The publish workflow uses OIDC trusted publishing, GitHub-hosted `ubuntu-latest` runners, and SHA-pinned actions. If the runner type or pinned artifact actions change, verify compatibility before tagging a release.
 
+### juniper-service-core
+
+`juniper-service-core` lives under `juniper-service-core/` and publishes independently (`juniper-service-core-v*` → `.github/workflows/publish-service-core.yml`; CI: `ci-service-core.yml`). Since `juniper-ml` 0.5.0 it is aggregated under `[tools]` / `[all]`. Model services inject lifecycle / command executors; this package owns the shared FastAPI + WebSocket + worker-pool plumbing.
+
+| Field                 | Value                                                                      |
+|-----------------------|----------------------------------------------------------------------------|
+| **PyPI Name**         | `juniper-service-core`                                                     |
+| **Current Version**   | `0.5.1` (from `juniper-service-core/pyproject.toml`)                       |
+| **Python**            | `>=3.12`                                                                   |
+| **Importable Module** | `juniper_service_core`                                                     |
+| **Package Docs**      | [`../juniper-service-core/README.md`](../juniper-service-core/README.md)   |
+| **Meta pin**          | `juniper-service-core>=0.2.0,<0.6.0` under `[tools]` / `[all]`             |
+
+#### CR-024 request body limit
+
+`RequestBodyLimitMiddleware` (`juniper_service_core.middleware`) caps mutating HTTP bodies (default **10 MiB**). Intent: `Content-Length` is an **early-reject hint only** — under-declared CL or chunked streams must still hit the cumulative stream cap (413 `Request body too large`), then cache the body on `request._body` (BUG-CC-15).
+
+| Method set | Contract |
+|------------|----------|
+| `POST` / `PUT` / `PATCH` | Always stream-read with cumulative cap |
+| Declared CL > max | Immediate 413 (no stream) |
+| Invalid CL | 400 `Invalid Content-Length header` |
+| GET / other | No stream body-cap path |
+
+**Main gap (open [#986](https://github.com/pcalnon/juniper-ml/pull/986)):** today's `main` still gates the stream behind `content_length is None`, so a small declared CL + larger real body can bypass the cap. #986 changes the gate to `request.method in ("POST", "PUT", "PATCH")` and pins the ASGI under-declare arm. Class docstring already states the always-stream rule — treat #986 as restoring code to that contract.
+
+#### TLS half-config fail-closed
+
+`TLSConfig.build_ssl_context()` (`juniper_service_core.workers.security`):
+
+| Config | Behavior |
+|--------|----------|
+| `enabled=False` | Returns `None` |
+| `enabled=True` + both `cert_file` and `key_file` | Loads chain; missing files → `FileNotFoundError` |
+| `enabled=True` + cert XOR key | Must raise `ValueError` (`incomplete cert/key pair`) — never return a bare `SSLContext` that looks TLS-enabled |
+
+**Main gap (open [#986](https://github.com/pcalnon/juniper-ml/pull/986)):** half-config currently falls through to a bare context; #986 adds the `elif self.cert_file or self.key_file` fail-closed arm.
+
+#### Worker result ownership + binary frames
+
+`WorkerCoordinator.submit_result` (`juniper_service_core.workers.coordinator`) accepts a worker result only after duplicate / unknown-task checks. **Ownership** (open [#984](https://github.com/pcalnon/juniper-ml/pull/984)): reject **before** `parse_result` when `assigned_worker_id is None` or `!= worker_id` — wrong-worker must leave the assignee busy; unassigned tasks stay pending. Without this, any connected worker can inject a collected result.
+
+`/ws/workers` binary attachments (`worker_stream.py`, **on main**): frames over `_MAX_BINARY_SIZE` (100 MiB) return error `"Binary frame too large"` and return **before** `submit_result` / `result_ack`. Coverage pins: open #984 / #985 / #986.
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Large POST/PUT/PATCH accepted despite `RequestBodyLimitMiddleware` | Confirm #986 always-stream landed; re-run `test_body_limit_rejects_underdeclared_content_length` |
+| Worker TLS “enabled” but handshake has no cert | Half-config on main — need #986 `ValueError`; set both cert and key paths |
+| Stranger worker’s `task_result` accepted / assignee freed | Ownership missing — need #984 reject-before-parse |
+| Worker attachment DoS / huge frame accepted | Confirm `worker_stream` 100 MiB gate; expect `"Binary frame too large"` and no `result_ack` |
+
 ---
 
 ## Version History
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.1   | 2026-08-05 | Documented `juniper-service-core` sibling security contracts: CR-024 body limit (#986), TLS half-config (#986), worker result ownership (#984), binary-frame cap (main) |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
 | 0.4.1   | 2026-04-28 | Added `juniper-observability` sibling package and dedicated CI/publish workflows                                                                                         |

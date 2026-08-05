@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.0
-**Last Updated**: 2026-08-04
+**Last Updated**: 2026-08-05
 
 ---
 
@@ -146,6 +146,15 @@ the canonical implementation.
 - `lazy_register_or_reuse(factory, name, *args, **kwargs)` — like `register_or_reuse` but caches the result in a module-private dict; for the lazy-init-with-`None`-sentinel pattern.
 
 Tests touching these collectors should use `juniper_observability.testing.reset_prometheus_registry`. Minimum pin: `juniper-observability>=0.2.0`. See [`notes/observability/JUNIPER_2026-05-05_JUNIPER-ML_REGISTER-OR-REUSE-HELPER-DESIGN.md`](notes/observability/JUNIPER_2026-05-05_JUNIPER-ML_REGISTER-OR-REUSE-HELPER-DESIGN.md) for the design rationale and the migration history.
+
+## Shared Service-Core Security Contracts
+
+`juniper-service-core` owns shared FastAPI middleware + the distributed worker pool. Operator surface: [`docs/REFERENCE.md` § juniper-service-core](docs/REFERENCE.md#juniper-service-core).
+
+- **CR-024 body limit** — `RequestBodyLimitMiddleware` must always stream-cap `POST`/`PUT`/`PATCH` (default 10 MiB). `Content-Length` is an early-reject hint only; under-declared CL must still 413. Open [#986](https://github.com/pcalnon/juniper-ml/pull/986) closes the `content_length is None` bypass still on `main`.
+- **TLS half-config** — `TLSConfig(enabled=True)` with cert XOR key must raise `ValueError` (never a bare `SSLContext`). Open [#986](https://github.com/pcalnon/juniper-ml/pull/986).
+- **Worker result ownership** — `WorkerCoordinator.submit_result` rejects wrong-worker / unassigned results **before** protocol parse. Open [#984](https://github.com/pcalnon/juniper-ml/pull/984).
+- **Binary frame cap** — `/ws/workers` attachments over 100 MiB return `"Binary frame too large"` before `submit_result` (already on `main`).
 
 ## Repository Structure
 
