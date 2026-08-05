@@ -346,6 +346,10 @@ jobs:
           python3 -m unittest -v tests/test_requirements_drift_check.py
           python3 -m unittest -v tests/test_validate_claude_yaml_access.py
           python3 -m unittest -v tests/test_workflow_script_paths.py
+          # tests/test_publish_testpypi_verify.py: structural + hermetic YAML-extraction
+          # gate for publish.yml's TestPyPI bare/[clients]/[tools] install verification
+          # (extras-resolution ship-silent class + TestPyPI index / no --no-deps contract).
+          python3 -m unittest -v tests/test_publish_testpypi_verify.py
           # tests/test_symbol_loss_check.py + tests/test_docs_additions_check.py:
           # the flood-remediation sequence-safety screens (Proposal P2 gates G1/G2,
           # productionized from the 2026-07-28 Cursor-flood census). Hermetic git
