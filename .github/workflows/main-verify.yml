@@ -304,6 +304,7 @@ jobs:
           python3 -m unittest -v tests/test_requirements_drift_check.py
           python3 -m unittest -v tests/test_validate_claude_yaml_access.py
           python3 -m unittest -v tests/test_workflow_script_paths.py
+          python3 -m unittest -v tests/test_publish_subpackage_workflows.py
           # Flood-remediation sequence-safety screens (P2 G1/G2; mirror ci.yml).
           python3 -m unittest -v tests/test_symbol_loss_check.py
           python3 -m unittest -v tests/test_docs_additions_check.py
