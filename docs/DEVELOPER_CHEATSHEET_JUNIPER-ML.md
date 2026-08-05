@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.7
-**Date**: 2026-08-04
+**Version**: 1.0.8
+**Date**: 2026-08-05
 **Project**: juniper-ml
 
 ---
@@ -304,6 +304,12 @@ missing; skipped or branchless proposals issue zero write calls. Ceremony's para
 `Release Type` maps `major`→MAJOR / `minor`→MINOR / `patch|none|unknown`→PATCH;
 `Breaking changes` is YES only when Unreleased has a `Removed` category;
 Keep-a-Changelog accepts `*` as well as `-` (continuations fold).
+Operator table: release-train runbook §3.2.
+
+**`link_base` CHANGELOG rewrite (juniper-ml#877):** ceremony archives use the owning repo's tag-pinned
+`blob/<tag>` URL; propose drafts use `blob/main`. Relative `[text](docs/…)` / `[text](notes/…)` links
+become absolute so centrally archived notes under `notes/releases/` do not 404 (canopy v0.6.0 class).
+Absolute / `mailto:` / `#anchor` / `//…` links stay untouched; omit `--link-base` → no rewrite.
 Operator table: release-train runbook §3.2.
 
 **Phase 4.2 propose ordering + follow-ons.** Empty `packages=` propose runs process eligible packages
