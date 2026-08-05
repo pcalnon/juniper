@@ -230,9 +230,9 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 
 Key hooks: `ruff` (juniper-data) or `black`+`isort`+`flake8` (others), `mypy`, `bandit`, `shellcheck`, `no-unencrypted-env`.
 
-> **`claude.yml` `DEFAULT_REPOS` fan-out (open #955/#956).** Weekly `docs-full-check` runs `validate_claude_yaml_access.bash` under `JUNIPER_ROOT`. The auditor iterates hard-coded `DEFAULT_REPOS` (registry publishers ∪ `juniper-deploy`), not every cloned dir — cloning `juniper-recurrence` (#940) does **not** audit it until that list includes it.
+> **`claude.yml` `DEFAULT_REPOS` fan-out (open #955/#956).** Weekly `docs-full-check` runs `validate_claude_yaml_access.bash` under `JUNIPER_ROOT`. Fan-out uses hard-coded `DEFAULT_REPOS` (registry publishers ∪ `juniper-deploy`), not every cloned dir.
 >
-> Main still omits recurrence; #955/#956 add it + a lockstep unittest. Operator surface: [REFERENCE — Claude.yml Access Validation](REFERENCE.md#claudeyml-access-validation).
+> Cloning `juniper-recurrence` (#940) does **not** audit it until that list includes it. Main still omits recurrence; #955/#956 add it + a lockstep unittest. See [REFERENCE — Claude.yml Access Validation](REFERENCE.md#claudeyml-access-validation).
 
 Meta-package publish flow: build + `twine check`, TestPyPI upload with attestations, TestPyPI install verification, then PyPI upload.
 
