@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -19,6 +19,7 @@
 - [Pytest Orphan Reaper](#pytest-orphan-reaper)
 - [Environment Floor Drift Check](#environment-floor-drift-check)
 - [Agent Suite Doctor](#agent-suite-doctor)
+- [Stale fix/* Branch Prune](#stale-fix-branch-prune)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
@@ -494,6 +495,48 @@ Troubleshooting:
 | `[FAIL] discovery ... not valid JSON` / missing `schema_version` | CLI must print one JSON object with top-level `schema_version` and `provenance.head_sha`. |
 | Doctor green but `/template-agent` grounding fails | Confirm you did **not** use `--no-discovery`; re-run without that flag. |
 | `[WARN] mirror ... not fully installed` | Optional; run `util/install_agents.bash` (or ignore unless you need the `~/.claude` mirror). |
+
+---
+
+## Stale fix/* Branch Prune
+
+`util/prune_git_branches_without_working_dirs.bash` deletes **local** `fix/*` branches whose inferred Claude session worktree directory under `.claude/` is missing. It is a narrow branch-hygiene helper — not a substitute for [`util/worktree_cleanup.bash`](../util/worktree_cleanup.bash) or the centralized `…/Juniper/worktrees/` pool sweep.
+
+```bash
+# From a repo checkout (cwd matters — tree dirs are resolved under $PWD/.claude/)
+bash util/prune_git_branches_without_working_dirs.bash       # git branch -d for stale merged fix/*
+bash util/prune_git_branches_without_working_dirs.bash -D    # force (also -F) for unmerged stale fix/*
+```
+
+| Contract | Behavior (verified) |
+|----------|---------------------|
+| Branch filter | Hard-coded `BRANCH_TYPE=fix` — only names containing `fix` are candidates; `feature/*` / `main` are never selected |
+| “Has a working dir?” | Infers `.claude/<name>` after replacing the **first** `-` in the branch name with `s/` (e.g. `fix/kept-one` → `.claude/fix/kepts/one`) |
+| Present tree dir | Logs `Valid Dir:` and runs `git status` there — **no** delete |
+| Missing tree dir | Logs `closing branch` then `git branch -d` (default) or `git branch -D` when the sole arg is `-D` / `-F` |
+| Force args | Only a single arg of exactly `-D` or `-F` enables force; other argv shapes stay on soft `-d` |
+| Open tip / linked worktree | Relies on git’s refusal — `branch -d`/`-D` will not remove the currently checked-out tip or a branch checked out in another worktree; the script does not escalate past that |
+
+Prefer this when Claude Code left orphaned local `fix/*` refs after `.claude/` session dirs were removed. Prefer `util/worktree_cleanup.bash` / the V2 cleanup procedure for centralized worktrees under `/home/…/Juniper/worktrees/`.
+
+#### Pitfalls
+
+- **Not the centralized worktree pool.** The path probe is `$PWD/.claude/…`, not `Juniper/worktrees/<repo>--…`. Running from the wrong cwd will treat every `fix/*` as “no tree” and attempt deletes.
+- **Hard-coded `fix` only.** Other prefixes (`feature`, `cursor`, `docs`, …) are commented out in the script — editing `BRANCH_TYPE` is a local fork, not an operator flag.
+- **Soft delete refuses unmerged tips.** Default `-d` leaves unmerged stale `fix/*` in place; pass `-D` / `-F` only after you intend force-delete.
+- **Destructive and interactive-noise.** The script prints `git branch` / status freely; dry-run is not supported — inspect `git branch` first.
+- **Open-branch safety is git’s, not a script allowlist.** Coverage for “current tip stays” and “linked-worktree tip stays” is the hermetic suite in `tests/test_prune_git_branches_without_working_dirs.py` (base arms on main via #831; current-tip / linked-worktree pins land with open #913).
+
+Troubleshooting:
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| `fix/*` still present after a soft run | Unmerged tip — re-run with `-D` only if you mean to discard it, or merge/rebase first |
+| Unexpected delete attempt on a live tip | Confirm you are not on that branch / it is not checked out in another worktree; git should refuse — do not hand-run `branch -D` to “finish” the prune |
+| Script closed a branch you still use under `Juniper/worktrees/` | Wrong probe surface — use worktree cleanup V2 / `worktree_cleanup.bash` for the centralized pool; this helper only understands `.claude/` layout |
+| Non-`fix` stale branches untouched | Expected — hard-coded filter |
+
+Regression gate: `python3 -m unittest -v tests/test_prune_git_branches_without_working_dirs.py`.
 
 ---
 

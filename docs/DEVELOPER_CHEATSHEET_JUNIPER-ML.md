@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.7
-**Date**: 2026-08-04
+**Version**: 1.0.9
+**Date**: 2026-08-05
 **Project**: juniper-ml
 
 ---
@@ -30,6 +30,8 @@
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `util/reap_pytest_orphans.bash --dry-run`              | List orphaned Juniper pytest multiprocessing children (no kill) |
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
+| `bash util/prune_git_branches_without_working_dirs.bash` | Delete local `fix/*` with no `.claude/` session tree (soft `-d`) |
+| `bash util/prune_git_branches_without_working_dirs.bash -D` | Same, force (`-F` alias) for unmerged stale `fix/*` |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -193,6 +195,8 @@ bash util/ad-hoc/worktree_sweep_survey.bash > /tmp/juniper-worktree-sweep.tsv
 bash util/ad-hoc/worktree_sweep_apply.bash --dry-run < /tmp/juniper-worktree-sweep.tsv
 bash util/ad-hoc/worktree_sweep_apply.bash --include-ignored < /tmp/juniper-worktree-sweep.tsv
 ```
+
+**Stale `fix/*` prune (`.claude/` layout only):** `bash util/prune_git_branches_without_working_dirs.bash` deletes local `fix/*` whose inferred `$PWD/.claude/…` tree dir is missing (first `-` in the branch name → `s/`). Hard-coded `fix` filter; no dry-run. Does **not** scan `Juniper/worktrees/` — use cleanup V2 / `worktree_cleanup.bash` for that pool. Open tip / linked-worktree tips survive via git’s `branch -d`/`-D` refusal. Full contract: [REFERENCE.md § Stale fix/* Branch Prune](REFERENCE.md#stale-fix-branch-prune).
 
 ---
 
@@ -479,6 +483,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-07-26
-**Version:** 1.0.6
+**Last Updated:** 2026-08-05
+**Version:** 1.0.9
 **Maintainer:** Paul Calnon
