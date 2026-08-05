@@ -415,7 +415,7 @@ Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant he
 
 Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
 
-Tip: flood CI gates (#869/#880) — per-PR `Sequence Safety` / `Fleet PR Lint` are **advisory** (not in Quality Gate `needs:`). Labels `allow-symbol-loss` / `docs-rewrite` only demote the PR job via `--advisory`; post-merge `main-verify` needs commit trailers. G3.1 catch-up BASE sweeps `[skip ci]` gaps. Full contract: [REFERENCE.md § Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates).
+Tip: flood CI gates (#869/#880) — per-PR `Sequence Safety` / `Fleet PR Lint` are **advisory** (not in Quality Gate `needs:`). Labels `allow-symbol-loss` / `docs-rewrite` only demote the PR job via `--advisory`; post-merge `main-verify` needs commit trailers. G4 uses `--from-ref` on PR/merge_group and `--all-files` on push. Full contract: [REFERENCE.md § Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates).
 
 
 ### Host Stack Troubleshooting
