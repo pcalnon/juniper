@@ -333,6 +333,13 @@ class TestLaunchLines(unittest.TestCase):
         bridge_up = _extract_experiment_fn("bridge_up")
         self.assertIn("require_cmd socat || return 1", bridge_up)
         self.assertIn("require_cmd docker || return 1", bridge_up)
+        # Every allocate_port site must clear HELD_LOCK_PORTS on failure (helper was dead).
+        for svc in ("juniper-data", "juniper-cascor", "juniper-recurrence"):
+            self.assertRegex(
+                do_up,
+                rf'allocate_port "{svc}".*?\|\| \{{\s*release_held_locks',
+                msg=f"{svc} allocate failure must call release_held_locks",
+            )
 
 
 class TestListenerPidRule(unittest.TestCase):
@@ -899,6 +906,51 @@ class TestConfigStaging(unittest.TestCase):
         recurrence_up = _extract_experiment_fn("recurrence_up")
         self.assertNotIn("serve --config", recurrence_up)
         self.assertIn("Wave 3.3", recurrence_up)
+
+
+class TestReleaseHeldLocksOnAllocateFail(unittest.TestCase):
+    """Mid-allocate failure must clear earlier lockdirs (release_held_locks was dead)."""
+
+    def test_second_range_exhaustion_releases_the_first_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lock_root = root / "locks"
+            lock_root.mkdir()
+            # Occupy the entire cascor range so the second allocate_port fails.
+            for port in range(8230, 8260):
+                (lock_root / f"{port}.lock").mkdir()
+            stub_bin = _stage_stub_bin(root, busy_ports=[])
+            harness = (
+                "set -euo pipefail\n"
+                'log() { echo "$*"; }\n'
+                'announce() { echo "$*"; }\n'
+                'is_dry() { return 1; }\n'
+                f'LOCK_ROOT="{lock_root}"\n'
+                "HELD_LOCK_PORTS=()\n"
+                "ALLOCATED_PORT=\"\"\n"
+                + _extract_experiment_fn("port_in_use")
+                + _extract_experiment_fn("allocate_port")
+                + _extract_experiment_fn("release_held_locks")
+                + "allocate_port juniper-data 8110 8110 || { release_held_locks; exit 1; }\n"
+                'printf "HELD_AFTER_DATA=%s\\n" "${HELD_LOCK_PORTS[*]:-}"\n'
+                "allocate_port juniper-cascor 8230 8259 || { release_held_locks; printf 'RELEASED\\n'; exit 1; }\n"
+            )
+            env = RedactedEnv(os.environ)
+            env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+            result = subprocess.run(
+                ["/bin/bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+            self.assertNotEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("RELEASED", result.stdout)
+            self.assertIn("HELD_AFTER_DATA=8110", result.stdout)
+            self.assertFalse(
+                (lock_root / "8110.lock").exists(),
+                "release_held_locks must rmdir the data lock after cascor range exhaustion",
+            )
 
 
 class TestActivateCondaOrList(unittest.TestCase):

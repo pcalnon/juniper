@@ -768,22 +768,33 @@ do_up() {
     fi
 
     # --- port allocation (§9.3) ------------------------------------------------------
+    # release_held_locks on allocate failure: a mid-range exhaustion under set -e used to
+    # exit do_up while earlier *.lock dirs stayed behind (30-port ranges starve later --up).
     if [[ -n "${SHARED_DATA_URL}" ]]; then
         DATA_URL="${SHARED_DATA_URL}"
         log "Reusing shared juniper-data at ${DATA_URL} (no per-run data instance)"
     else
-        allocate_port "juniper-data" "${DATA_PORT_MIN}" "${DATA_PORT_MAX}"
+        allocate_port "juniper-data" "${DATA_PORT_MIN}" "${DATA_PORT_MAX}" || {
+            release_held_locks
+            return 1
+        }
         DATA_PORT="${ALLOCATED_PORT}"
         DATA_URL="http://127.0.0.1:${DATA_PORT}"
         log "allocated juniper-data port ${DATA_PORT} (range ${DATA_PORT_MIN}-${DATA_PORT_MAX})"
     fi
     if (( WANT_CASCOR == 1 )); then
-        allocate_port "juniper-cascor" "${CASCOR_PORT_MIN}" "${CASCOR_PORT_MAX}"
+        allocate_port "juniper-cascor" "${CASCOR_PORT_MIN}" "${CASCOR_PORT_MAX}" || {
+            release_held_locks
+            return 1
+        }
         CASCOR_PORT="${ALLOCATED_PORT}"
         log "allocated juniper-cascor port ${CASCOR_PORT} (range ${CASCOR_PORT_MIN}-${CASCOR_PORT_MAX})"
     fi
     if (( WANT_RECURRENCE == 1 )); then
-        allocate_port "juniper-recurrence" "${RECURRENCE_PORT_MIN}" "${RECURRENCE_PORT_MAX}"
+        allocate_port "juniper-recurrence" "${RECURRENCE_PORT_MIN}" "${RECURRENCE_PORT_MAX}" || {
+            release_held_locks
+            return 1
+        }
         RECURRENCE_PORT="${ALLOCATED_PORT}"
         log "allocated juniper-recurrence port ${RECURRENCE_PORT} (range ${RECURRENCE_PORT_MIN}-${RECURRENCE_PORT_MAX})"
     fi
