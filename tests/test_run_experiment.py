@@ -1312,6 +1312,24 @@ class StatsSummaryUnitTest(unittest.TestCase):
         self.assertEqual(result["max"], 0.7)
         self.assertEqual(result["samples"], 3)
 
+    def test_to_float_soft_none_on_value_error(self) -> None:
+        """Non-numeric scraped samples must soft-None (not raise) — Prometheus label noise."""
+        self.assertIsNone(self.stats._to_float(None))
+        self.assertIsNone(self.stats._to_float(""))
+        self.assertIsNone(self.stats._to_float("   "))
+        self.assertIsNone(self.stats._to_float("n/a"))
+        self.assertIsNone(self.stats._to_float("NaNxyz"))
+        self.assertEqual(self.stats._to_float("0.5"), 0.5)
+        self.assertEqual(self.stats._to_float(2), 2.0)
+        # End-to-end: a non-numeric correlation cell is skipped, not fatal.
+        rows = [
+            {"juniper_cascor_candidate_correlation": "n/a", "current_hidden_units": "0"},
+            {"juniper_cascor_candidate_correlation": "0.4", "current_hidden_units": "0"},
+        ]
+        result = self.stats.correlation_per_round(rows)
+        self.assertEqual(result["per_round"], [{"hidden_units": 0, "best_correlation": 0.4}])
+        self.assertEqual(result["samples"], 1)
+
     def test_build_stats_sequence_shapes_and_summary(self) -> None:
         manifest = {
             "run_id": "r-unit",
