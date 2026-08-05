@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
+**Version**: 1.0.23
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -268,8 +268,10 @@ juniper-ml#729). Operator tables:
 **Daily detect `SHIP_UNCERTAIN` / hygiene:** `SHIP_UNCERTAIN` means the detector could not prove ship or
 no-ship (missing declared version, missing tag, soft-fail compare, 300-file truncated empty window, or
 uncertain hunks) — it is an action classification (exit 1), never a silent `UP_TO_DATE`.
-Hygiene `TAG_ONLY=` counts only truthy `tag_only`; a `list_releases` blip sets `tag_only=None` and notes
-`release-hygiene (tag_only) unavailable:` without failing the job. Offline `--local-git` must raise
+Hygiene `TAG_ONLY=` counts only truthy `tag_only`; a `list_releases` blip (including live Releases API
+404/`None` — open [#978](https://github.com/pcalnon/juniper-ml/pull/978)) sets `tag_only=None` and notes
+`release-hygiene (tag_only) unavailable:` without failing the job. An authenticated empty Releases list
+is genuine TAG_ONLY (`set()`); do not coerce `None` via `or []`. Offline `--local-git` must raise
 `SourceError` for releases (open [#773](https://github.com/pcalnon/juniper-ml/pull/773)), not return
 `set()` (false TAG_ONLY on every package). Operator tables: runbook §3.1.
 
@@ -501,5 +503,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 1.0.8
+**Version:** 1.0.23
 **Maintainer:** Paul Calnon

@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.3
+**Version**: 1.2.5
 **Last Updated**: 2026-08-05
 
 ---
@@ -127,8 +127,9 @@ found a matching GitHub Release for `diff_base_tag` **and** a central
 `notes/releases/RELEASE_NOTES_<pypi>_v<released>.md` archive (`detect.py:967-969`, `notes_missing` at
 `detect.py:879-882`; coverage juniper-ml#756). That is the healthy clear — do **not** confuse it with a
 quiet `TAG_ONLY=0` that still carries a `release-hygiene (tag_only) unavailable:` note. A `list_releases`
-`SourceError` sets `hygiene.tag_only = None` (falsy → not counted in `TAG_ONLY=`) while still evaluating
-`notes_missing` (`detect.py:971-973`); re-check Releases when gh recovers.
+`SourceError` (including the live Releases API 404/`None` path — open juniper-ml#978) sets
+`hygiene.tag_only = None` (falsy → not counted in `TAG_ONLY=`) while still evaluating `notes_missing`
+(`detect.py:971-973`); re-check Releases when gh recovers.
 
 `released_upload` in the manifest is the **earliest** PyPI `upload_time_iso_8601` for the released
 version (`detect.py:_upload_time`); missing/empty upload times → `None` (never invent a timestamp).
@@ -179,14 +180,23 @@ last released version lacks a GitHub Release (`tag_only`) or a central `notes/re
 sibling hygiene-cleared guidance when present.)
 
 - **True `tag_only`**: tag exists but no GitHub Release for it — restore the Release ceremony (§8 item 3 /
-  plan §12 step 0.4); do not push a bare tag.
-- **`tag_only` unavailable** (`None`): `list_releases` raised `SourceError` (gh blip). The detector keeps
-  the package classification (often `UP_TO_DATE`), sets `hygiene.tag_only = None` (falsy → **not** counted
-  in `TAG_ONLY=`), still evaluates `notes_missing`, and appends
+  plan §12 step 0.4); do not push a bare tag. On the **live** daily path, an authenticated empty Releases
+  list (`_gh_lines` → `[]`) is real data: `make_live_sources.list_releases` returns `set()` and caches it
+  (genuine TAG_ONLY signal; open juniper-ml#978
+  `test_live_list_releases_empty_list_is_genuine_tag_only_signal`).
+- **`tag_only` unavailable** (`None`): `list_releases` raised `SourceError`. The detector keeps the package
+  classification (often `UP_TO_DATE`), sets `hygiene.tag_only = None` (falsy → **not** counted in
+  `TAG_ONLY=`), still evaluates `notes_missing`, and appends
   `release-hygiene (tag_only) unavailable: …` (`detect.py:971-973`; coverage juniper-ml#761). **Do not**
   treat a quiet `TAG_ONLY=0` plus that note as "hygiene cleared" — re-check Releases when gh recovers.
   A regression that re-raises would exit 2 the whole detect job; inventing `tag_only=True` would spam false
   TAG_ONLY on every blip.
+- **Live Releases API 404 / `None`** (daily `release-train.yml` path): `_gh_lines` returns `None` on gh
+  404 / Not Found (auth gap, renamed repo, transient Not Found). `make_live_sources.list_releases` must
+  **raise** `SourceError` so classify takes the unavailable path above — **not** coerce via `or []` into
+  `set()` (that made `diff_base_tag not in releases` always True → false TAG_ONLY for every package).
+  Pins: open juniper-ml#978 `test_live_list_releases_none_raises_source_error` +
+  `test_live_hygiene_tag_only_unavailable_on_releases_404`. Same contract as the offline seam below.
 - **Offline `--local-git`**: `make_local_git_sources.list_releases` must **raise** `SourceError` (open
   juniper-ml#773) so hygiene takes the `tag_only=None` path above. Returning `set()` falsely marks every
   package TAG_ONLY (`diff_base_tag not in set()` is always True). Until #773 lands, prefer live detect
@@ -928,6 +938,8 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   §6 / §6.1 (implemented by juniper-ml#710; hardened by juniper-ml#712).
 - Notes-draft + healthy-hygiene operator edges (Gate 1 title/MAJOR/Breaking; `TAG_ONLY`/`NOTES_MISSING`
   clear when Release + archive exist): coverage juniper-ml#756; this runbook §3.1 / §3.2.
+- Live `list_releases` 404/`None` → `SourceError` (not empty-set false TAG_ONLY); authenticated empty
+  list remains genuine TAG_ONLY: open juniper-ml#978; this runbook §3.1.
 - `link_base` relative-link rewrite (central-archive correctness; canopy v0.6.0 404 class): coverage
   juniper-ml#877; this runbook §3.2 “Gate 1 review — notes draft”.
 - Release convention (cut a Release, archive notes centrally): repo `AGENTS.md` "Publishing" +
