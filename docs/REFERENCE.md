@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -24,6 +24,7 @@
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
+- [Open-PR Budget Alarm](#open-pr-budget-alarm)
 
 ---
 
@@ -842,6 +843,79 @@ Release runbooks:
 
 ---
 
+## Open-PR Budget Alarm
+
+Daily (and dispatchable) **report-only** guardrail for Cursor-fleet open-PR pile-ups. Workflow: [`.github/workflows/pr-budget-alarm.yml`](../.github/workflows/pr-budget-alarm.yml) (merged via [#870](https://github.com/pcalnon/juniper-ml/pull/870); flood analysis §4 item 9 / P1 §5).
+
+### Intent
+
+GitHub has no native “max open PRs” setting. This job is the **repo-side smoke detector**: it counts open PRs and alarms when the queue approaches a ceiling so same-file clusters do not fan out into merge damage. It is **not** a merge gate — a breach never blocks a PR and never turns the cron red.
+
+Source-side throttle (Cursor dashboard per-run caps) is a separate owner action; see [`notes/JUNIPER_2026-07-30_JUNIPER-ML_CURSOR-DASHBOARD-CONFIG-REQUESTS.md`](../notes/JUNIPER_2026-07-30_JUNIPER-ML_CURSOR-DASHBOARD-CONFIG-REQUESTS.md).
+
+### Schedule and privileges
+
+| Item | Value |
+|------|-------|
+| Cron | `0 14 * * *` (14:00 UTC daily) — offset from Monday 06:00 docs/security scans and the 13:00 UTC release train |
+| Manual | `workflow_dispatch` |
+| Permissions | `contents: read` + `pull-requests: read` only (never writes PRs/comments/labels/Releases) |
+| Concurrency | `group: pr-budget-alarm`, `cancel-in-progress: true` |
+
+```bash
+# Manual dry look at the same counts the alarm uses
+gh pr list --repo pcalnon/juniper-ml --state open --limit 500 --json number,headRefName
+gh workflow run pr-budget-alarm.yml --repo pcalnon/juniper-ml
+```
+
+### Thresholds and levels
+
+Repo variables (empty → shell defaults):
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `PR_BUDGET_WARN` | `15` | WARN when total open **or** `cursor/`-headed open PRs ≥ this |
+| `PR_BUDGET_ALARM` | `30` | ALARM when either count ≥ this |
+
+Level resolution (either metric can trip the level):
+
+1. `ALARM` if `total >= alarm` **or** `cursor >= alarm`
+2. else `WARN` if `total >= warn` **or** `cursor >= warn`
+3. else `OK`
+
+`cursor` = open PRs whose `headRefName` starts with `cursor/`.
+
+Constraint: the workflow queries with `gh pr list --limit 500`. If more than 500 PRs are open, counts understate the true queue — treat a near-ceiling reading as a soft floor, not exact cardinality.
+
+### Outputs and Slack
+
+- **Always** writes a GitHub Actions step-summary table (`total` / `cursor` / thresholds / `level`).
+- Slack fires **only** when `level != OK`, via `secrets.SLACK_WEBHOOK_URL`, under the same non-blocking Q-CHANNEL contract as `release-train.yml`:
+  - missing secret → skip (exit 0)
+  - POST failure → `continue-on-error` (run stays green)
+- Slack text is counts + run URL only (no diffs, no secrets).
+
+### Failure modes (still green)
+
+| Situation | Behavior |
+|-----------|----------|
+| `gh pr list` hard failure | `::warning::` annotation + step summary note; `level=OK` so Slack is skipped; exit 0 |
+| Budget WARN / ALARM | Step summary + optional Slack; exit 0 (report-only) |
+| Missing `SLACK_WEBHOOK_URL` on breach | Log skip; exit 0 |
+
+A later `jq` parse failure on a successful `gh` response is **not** specially downgraded (`set -euo pipefail`) — that path is expected never to fire on well-formed `gh --json` output.
+
+### Operator triage on WARN / ALARM
+
+1. Open the workflow run step summary for exact `total` / `cursor` counts.
+2. Drain or merge the oldest same-file clusters first (fleet-supervisor / `util/fleet_triage/predict_merge.py` when triaging `cursor/` fleets).
+3. Confirm Cursor dashboard per-run caps are set (companion pack above) — the alarm detects; caps throttle at source.
+4. Raise thresholds only via repo variables `PR_BUDGET_WARN` / `PR_BUDGET_ALARM` when the team deliberately accepts a larger open queue.
+
+Design-of-record: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 item 9 / P1 §5.
+
+---
+
 ## Environment Variables
 
 These variables are consumed by Juniper packages documented in this repository. `juniper-ml` itself does not set them; they belong to the extras-installed packages.
@@ -863,5 +937,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Maintainer:** Paul Calnon
