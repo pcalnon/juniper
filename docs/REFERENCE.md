@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -202,14 +202,46 @@ Post-[#782](https://github.com/pcalnon/juniper-ml/pull/782): if the interval is 
 
 Host-mode `plant_all` runs under `set -euo pipefail`. Each service activate goes through `safe_conda_activate`, which temporarily disables nounset because conda activation scripts (for example `activate-binutils_linux-64.sh`) may reference unset variables such as `ADDR2LINE`.
 
-**Contract:** `set +u` → `conda activate <env>` → `set -u`. The restore arm must be `set -u` (not a second `set +u`). A one-character restore mistake silently leaves nounset off for the rest of bring-up — the same class that bit `util/isolated_stack.bash` before [#785](https://github.com/pcalnon/juniper-ml/pull/785). Isolated-stack's `activate_conda` must match this plant contract.
+**Nounset contract:** `set +u` → `conda activate <env>` → `set -u`. The restore arm must be `set -u` (not a second `set +u`). A one-character restore mistake silently leaves nounset off for the rest of bring-up — the same class that bit `util/isolated_stack.bash` before [#785](https://github.com/pcalnon/juniper-ml/pull/785). Isolated-stack's `activate_conda` must match this plant contract.
+
+##### Fail-closed under OR-list callers (open juniper-ml#976)
+
+Bash disables `set -e` inside a function invoked as `fn || …`. Today's host plant call sites are bare (`safe_conda_activate "${ENV}"` under `set -e`), but a future absorber (`safe_conda_activate … || …`) — or any harness that OR-lists the helper — would hit this class.
+
+Pre-fix shape on main:
 
 ```bash
-# Confirm the plant restore arm (expect: set +u / conda activate / set -u)
-rg -n -A3 '^safe_conda_activate' util/juniper_plant_all.bash
+set +u
+conda activate "${env_name}"   # failure ignored under OR-list
+set -u                         # succeeds → function returns 0
 ```
 
-Coverage: open juniper-ml#795 (`tests/test_juniper_plant_all.py` — `TestSafeCondaActivate`).
+That masks activate failure as exit `0` and lets the next service launch on the **ambient PATH** (wrong interpreter / missing editable) — the same class as isolated-stack [#967](https://github.com/pcalnon/juniper-ml/pull/967) / experiment_stack OR-list absorb.
+
+**Contract (open [#976](https://github.com/pcalnon/juniper-ml/pull/976)):** both arms restore nounset, and activate failure propagates:
+
+```bash
+set +u
+if ! conda activate "${env_name}"; then
+    set -u
+    echo "ERROR: conda activate '${env_name}' failed" >&2
+    return 1
+fi
+set -u
+```
+
+```bash
+# Expect failure arm: if ! conda activate …; then / set -u / return 1
+rg -n -A12 '^safe_conda_activate' util/juniper_plant_all.bash
+```
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Mid-plant unset-variable / odd conda activate noise | Confirm `safe_conda_activate` restores with `set -u` on **both** success and failure arms. A broken restore disables nounset for later steps. |
+| Service "up" but wrong torch / ambient site-packages after a conda env rename | Need #976 fail-closed `if ! conda activate` — pre-#976 + any OR-list caller can launch ambient PATH after a failed activate. |
+| Main still has bare `conda activate` + trailing `set -u` | Confirm with the `rg` above; until #976 lands, do not OR-list `safe_conda_activate` in new callers. |
+
+Coverage: open #976 `tests/test_juniper_plant_all.py` — `TestSafeCondaActivate.test_conda_activate_failure_propagates_under_or_list` + failure/success-arm `set -u` static pins (extends open #795 nounset coverage). Distinct from open [#969](https://github.com/pcalnon/juniper-ml/pull/969) (isolated_stack `activate_conda`) and [#980](https://github.com/pcalnon/juniper-ml/pull/980) (experiment_stack `*_up` OR-list).
 
 Troubleshooting:
 
@@ -228,6 +260,7 @@ Troubleshooting:
 | Orphaned `juniper-cascor-worker` still running after chop | Pidfile stop only covers workers recorded at plant time. Opt in with `KILL_WORKERS=1 util/juniper_chop_all.bash` (nohup mode only; ignored under `--systemd`). See below. |
 | Chop logs `KILL_WORKERS flag is not set to 1` | Expected when `KILL_WORKERS` is unset/`0` (default). Benign on the post-pidfile path (`|| true`); set `KILL_WORKERS=1` only when you intend the pgrep cleanup. |
 | Mid-plant unset-variable / odd conda activate noise | Confirm `safe_conda_activate` restores with `set -u` (see above). A broken restore disables nounset for later steps, so typos that should have failed may look like unrelated mid-plant failures. |
+| Wrong env / ambient PATH after failed conda activate under OR-list | Need #976 fail-closed `if ! conda activate` — see [Fail-closed under OR-list](#fail-closed-under-or-list-callers-open-juniper-ml976). |
 
 #### Orphaned worker cleanup (`KILL_WORKERS`)
 
@@ -783,6 +816,7 @@ Publish and CI constraints:
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.1   | 2026-08-05 | Host Orchestration: fail-closed `safe_conda_activate` under OR-list callers (open juniper-ml#976; nested class beside nounset #795)                                         |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
 | 0.4.1   | 2026-04-28 | Added `juniper-observability` sibling package and dedicated CI/publish workflows                                                                                         |
@@ -863,5 +897,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Maintainer:** Paul Calnon

@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.0
-**Last Updated**: 2026-08-04
+**Last Updated**: 2026-08-05
 
 ---
 
@@ -411,6 +411,11 @@ juniper-ml/
 - Dependency-documentation generator now lives in [`juniper-ci-tools/`](juniper-ci-tools/) and is published to PyPI as `juniper-ci-tools` (Wave 4 of the dep-docs migration plan; install with `pip install juniper-ci-tools` and invoke via `juniper-generate-dep-docs`). The legacy `util/generate_dep_docs.sh` was deleted in juniper-ml#298.
 - `util/juniper_plant_all.bash` -- Starts all Juniper ecosystem services. `JUNIPER_CASCOR_HOST` defaults to `localhost` and `JUNIPER_CASCOR_PORT` defaults to `8201`; both can be overridden via the environment (e.g. `JUNIPER_CASCOR_HOST=remote.example.com JUNIPER_CASCOR_PORT=8201 util/juniper_plant_all.bash`).
   - `safe_conda_activate` nounset (juniper-ml#795 coverage): `set +u` → `conda activate` → `set -u` (ADDR2LINE class). A `+u`/`+u` restore silently disables nounset for the rest of host bring-up — isolated-stack `activate_conda` must match. Operator surface: `docs/REFERENCE.md` Host Orchestration + cheatsheet tip. Tests: `tests/test_juniper_plant_all.py` (`TestSafeCondaActivate`).
+  - Fail-closed under OR-list (open juniper-ml#976): callers may use `safe_conda_activate … || …`, which disables `set -e` for the body —
+    bare `conda activate` + trailing `set -u` would return 0 and launch the next host service on ambient PATH.
+    Need `if ! conda activate …; then set -u; return 1; fi` (both arms restore `set -u`).
+    Operator surface: [`docs/REFERENCE.md` § Fail-closed under OR-list](docs/REFERENCE.md#fail-closed-under-or-list-callers-open-juniper-ml976).
+    Coverage: open #976 `test_conda_activate_failure_propagates_under_or_list`.
   - `--systemd` / `USE_SYSTEMD=1` enters the user-unit arm before nohup preflight: dependency-ordered `systemctl --user start` (data→cascor→canopy→worker), `curl`-only gate (no `ss`), no `JuniperProject.pid`.
   - Missing `curl` aborts before any start. Worker HTTP-ready + inactive unit → WARNING + `status --no-pager`, still exit 0.
   - Mid-plant health timeout runs `cleanup_on_failure` but does **not** `systemctl stop` (systemd starts are never in `STARTED_PIDS`) — operators must chop with `--systemd`.

@@ -2,7 +2,7 @@
 
 ## Navigation Guide to juniper-ml Documentation
 
-**Version:** 0.2.6
+**Version:** 0.2.7
 **Status:** Active
 **Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -26,7 +26,8 @@
 |-----------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|----------|
 | **Install Juniper packages**            | [QUICK_START.md](QUICK_START.md)                                                                                                 | docs/    |
 | **See extras and version info**         | [REFERENCE.md](REFERENCE.md)                                                                                                     | docs/    |
-| **Run the local host stack**            | [REFERENCE.md](REFERENCE.md#host-orchestration-utilities)                                                                        | docs/    |
+| **Run the local host stack**            | [REFERENCE.md](REFERENCE.md#host-orchestration-utilities) (incl. [OR-list `safe_conda_activate`](REFERENCE.md#fail-closed-under-or-list-callers-open-juniper-ml976)) | docs/    |
+| **Debug plant wrong-env after conda fail** | [REFERENCE — Fail-closed under OR-list](REFERENCE.md#fail-closed-under-or-list-callers-open-juniper-ml976) (open #976)         | docs/    |
 | **Reap orphaned Juniper pytest children** | [REFERENCE.md](REFERENCE.md#pytest-orphan-reaper)                                                                              | docs/    |
 | **Check installed juniper-* floor drift** | [REFERENCE.md](REFERENCE.md#environment-floor-drift-check)                                                                     | docs/    |
 | **Check custom-agent suite health**     | [REFERENCE.md](REFERENCE.md#agent-suite-doctor)                                                                                  | docs/    |
@@ -145,5 +146,5 @@ Exact floors and ranges: [`REFERENCE.md`](REFERENCE.md#extras-reference) and `py
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.2.6
+**Version:** 0.2.7
 **Maintainer:** Paul Calnon

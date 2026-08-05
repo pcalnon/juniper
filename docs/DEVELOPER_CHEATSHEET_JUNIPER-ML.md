@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
+**Version**: 1.0.9
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -403,6 +403,10 @@ ref. Re-dispatch after #770; see runbook §7.
 
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
 
+Tip: `safe_conda_activate` must fail-closed under OR-list callers (`safe_conda_activate … || …`).
+Open [#976](https://github.com/pcalnon/juniper-ml/pull/976): `if ! conda activate …; then set -u; return 1; fi` so trailing `set -u` cannot mask failure as exit 0 and launch the next host service on ambient PATH (isolated-stack #967 parity).
+Confirm with `rg -n -A12 '^safe_conda_activate' util/juniper_plant_all.bash`. Full contract: [REFERENCE — Fail-closed under OR-list](REFERENCE.md#fail-closed-under-or-list-callers-open-juniper-ml976).
+
 Tip: before `/template-agent`, run `python util/agent_suite_doctor.py` (not `--no-discovery`). Discovery fail-closed: missing CLI, nonzero exit, non-JSON, or missing `schema_version`/`provenance.head_sha` → `FAIL`. See [REFERENCE.md § Agent Suite Doctor](REFERENCE.md#agent-suite-doctor).
 
 Tip: `util/isolated_stack.bash` is kill-by-port (not `JuniperProject.pid`). After `--down`, confirm `ss -tlnH 'sport = :8101 or sport = :8202 or sport = :8051'` is empty.
@@ -436,6 +440,7 @@ Tip: systemd chop soft-fails per unit and always exits `0` without touching the 
 |---------|------------|
 | Startup exits before launching services | Check the preflight output for missing `curl`, `ss`, conda, sibling repo directories, or occupied ports. |
 | Mid-plant abort / health timeout | Service log under that repo's `logs/`; pidfile is already removed — free leftover listeners with `ss -tlnp` before re-planting. |
+| Host service wrong env / ambient PATH after conda fail | Need #976 fail-closed `safe_conda_activate` under OR-list (`if ! conda activate`); see [REFERENCE](REFERENCE.md#fail-closed-under-or-list-callers-open-juniper-ml976). |
 | Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`; keep the default `JuniperCascor1` env unless a replacement is known-good. |
 | Worker binary missing | Run `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` finished in `nohup` mode and rerun with `JUNIPER_PROJECT_DIR` set to the same project root; for systemd mode, stop with `util/juniper_chop_all.bash --systemd`. |
