@@ -358,6 +358,12 @@ jobs:
           # (G3) -- whose battery job mirrors THIS list and must stay in sync with it.
           python3 -m unittest -v tests/test_symbol_loss_check.py
           python3 -m unittest -v tests/test_docs_additions_check.py
+          # tests/test_main_verify_notify_dedup.py: YAML-extraction rehearsal for
+          # main-verify.yml notify stable-title issue dedup (ml#928 / 0.3.0). Extracts
+          # the upsert shell and drives first-failure create / subsequent-SHA comment /
+          # gh-list soft-fail → create, plus structural TITLE + exact-title jq pins.
+          # Hermetic stub gh; PyYAML (installed above). Mirror in main-verify battery.
+          python3 -m unittest -v tests/test_main_verify_notify_dedup.py
           # tests/test_doc_tools_drift.py: the cross-repo
           # consumer-pin assertions auto-skip when siblings are not
           # cloned (per-PR mode); the helper unit tests + juniper-ml's
