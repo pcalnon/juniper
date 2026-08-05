@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.3
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -19,6 +19,7 @@
 - [Pytest Orphan Reaper](#pytest-orphan-reaper)
 - [Environment Floor Drift Check](#environment-floor-drift-check)
 - [Agent Suite Doctor](#agent-suite-doctor)
+- [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
@@ -497,6 +498,83 @@ Troubleshooting:
 
 ---
 
+## Fleet Triage and Sequence Safety
+
+Flood-remediation tooling for Cursor-fleet / third-party open PRs and for silent symbol / docs damage that ordinary lint cannot see. Two layers:
+
+| Layer | Path | Role |
+|-------|------|------|
+| Sequence-safety screens | `util/sequence_safety/symbol_loss_check.py`, `docs_additions_check.py` | Path-invoked BASE..HEAD screens used by CI (`sequence-safety` job, `main-verify.yml`) |
+| Predicted-merge triage | `util/fleet_triage/predict_merge.py` | Detached-clone merge of `origin/main` into a PR tip; runs fast gates + screens on the **merge RESULT** |
+| Fleet supervisor agent | `.claude/agents/fleet-supervisor.md` | Read-only adjudication over a `--batch` report (never pushes / merges / closes) |
+
+Design context: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 items 7–8.
+
+### Sequence-safety CLIs
+
+```bash
+python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --json
+python util/sequence_safety/docs_additions_check.py --base origin/main --head HEAD --json
+# WARN-only exit 0 (label hatch); exit 2 is never masked:
+python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --advisory
+```
+
+| Concern | Default scope | FAIL classes | Primary waiver |
+|---------|---------------|--------------|----------------|
+| Symbol loss | `tests/*.py` + `util/**/*.{py,bash}` | `LOST` / `WEAKENED` / `DUPLICATED` (py FAIL; bash LOST FAIL, WEAKENED/DUPLICATED WARN) | Commit trailer `Allow-Symbol-Loss: <qualified.symbol>[, …]` in BASE..HEAD |
+| Docs deletions | `AGENTS.md` + `docs/**` + `notes/**` | Deleted heading, or ≥`--min-run` (default 5) consecutive deleted lines | Commit trailer `Allow-Docs-Rewrite: <path>` (or enumerated paths) |
+
+Constraints (verified in the checkers):
+
+- Qualified symbols only (`func:name`, `method:Class.name`, …). Bare-name relocation is **not** a downgrade (SF3).
+- `Allow-Symbol-Loss: *` / blanket wildcards are **rejected** (waive nothing).
+- Per-PR labels `allow-symbol-loss` / `docs-rewrite` only demote the advisory CI job via `--advisory` (WARN-only exit 0). They are invisible to `push:main` `main-verify` — use the commit trailer for post-merge green.
+- Exit codes: `0` clean, `1` ≥1 unwaived FAIL, `2` usage / bad ref. Gates: `tests/test_symbol_loss_check.py`, `tests/test_docs_additions_check.py`.
+
+### `predict_merge.py` operator contract
+
+```bash
+python util/fleet_triage/predict_merge.py --pr 895 --json
+python util/fleet_triage/predict_merge.py --batch --json
+python util/fleet_triage/predict_merge.py --pr 895 --repo-root .
+# Skip the pre-commit battery when hooks are unavailable locally:
+JUNIPER_FLEET_SKIP_PRECOMMIT=1 python util/fleet_triage/predict_merge.py --pr 895
+```
+
+Per PR the script:
+
+1. Creates a throwaway **detached** `git clone --shared` under the system tempdir (never a worktree, never writes the source checkout, never pushes).
+2. Merges `origin/main` into the branch tip (`git merge --no-ff`, `commit.gpgsign=false`).
+3. On the RESULT: runs `pre-commit` hooks `black` / `isort` / `flake8` / `mypy` / `check-ast` on touched `.py` files; shells out to `util/sequence_safety/symbol_loss_check.py --repo-root <clone> --base <base> --head <result> --json` (same CLI as `main-verify` — juniper-ml#895 / ml#872).
+4. Runs an **inline** docs additions-only screen that flags **any** removed content line on a changed `.md` (stricter than `docs_additions_check.py`'s heading / `--min-run` gate) but honors the same `Allow-Docs-Rewrite: <path>[, …]` / `*` trailer so intentional rewrites are not forever `DAMAGED-FIX-FIRST` while post-merge `main-verify` would waive them (juniper-ml#926).
+5. Emits the **TRUE** changed-file delta from `git diff --name-only origin/main <result>` (not the stale `gh pr … --json files` list).
+
+| Verdict | Meaning |
+|---------|---------|
+| `MERGE-CLEAN` | Merge succeeds; fast gates + screens pass (including waived docs deletions) |
+| `NEEDS-UPDATE-BRANCH` | Merge succeeds; a fast gate fails (format / type / AST) |
+| `DAMAGED-FIX-FIRST` | Merge succeeds; unwaived symbol-loss or docs-deletion screen fails |
+| `CONFLICT` | Merge conflict against `origin/main` |
+| `ERROR` | `--batch` only: soft-fail row when a single PR cannot be simulated (e.g. unresolvable `origin/<headRefName>`); `true_delta=[]` and the rest of the open-PR set still runs |
+
+`--batch` also builds a same-file cluster map and a restore/heal-first, least-colliding merge order. `triage_batch` **continues** after a per-PR `PredictMergeError` (one dead branch tip must not abort the fleet report). Exit `0` always reports (even when every verdict is `DAMAGED` / `CONFLICT` / `ERROR`); exit `2` is usage / precondition only (`gh` missing, bad `--repo-root`).
+
+Degrade paths (never crash the report): missing / broken `symbol_loss_check.py`, checker exit `2`, or non-JSON stdout → symbol screen `status=skip`. A delta with no `.py`/`.bash` short-circuits the symbol subprocess. Docs screen JSON may include a `waived` list when `Allow-Docs-Rewrite` matched. Gate: `tests/test_predict_merge.py` (`Allow-Symbol-Loss` → `MERGE-CLEAN`; `Allow-Docs-Rewrite` enumerated / `*` → `MERGE-CLEAN`; wrong-path trailer still `DAMAGED`; `triage_batch` soft-`ERROR` continue).
+
+Pitfalls:
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Local run hangs on pre-commit | Set `JUNIPER_FLEET_SKIP_PRECOMMIT=1`, or ensure `pre-commit` is installed and hooks cached |
+| `DAMAGED-FIX-FIRST` after intentional symbol deletion | Add `Allow-Symbol-Loss: func:…` (qualified) on a commit in the PR range; re-run `--pr`. `Allow-Symbol-Loss: *` is **rejected** (waives nothing). |
+| `DAMAGED-FIX-FIRST` after intentional docs rewrite | Add `Allow-Docs-Rewrite: docs/REFERENCE.md` (full path or basename) or `Allow-Docs-Rewrite: *` on a commit in BASE..RESULT; re-run `--pr`. The `docs-rewrite` PR label does **not** waive fleet triage or `main-verify`. |
+| Docs trailer present but still DAMAGED | Trailer must be in `base_ref..result_ref` of the **merged** result; path token must match the changed file (or use `*`). Near-miss titles / wrong paths do not waive. |
+| Expecting docs screen == `docs_additions_check.py` | Magnitude still differs (fleet = any removed content line; CI/main-verify = heading / ≥N consecutive). Trailer contract is shared after #926. |
+| One open PR shows `ERROR` in `--batch` | Soft-fail: that tip did not resolve (deleted branch / never fetched). Fix or close that PR; other verdicts in the same report remain valid. |
+| Agent closes / merges PRs | Forbidden — `fleet-supervisor` is read-only; DUP-CLOSE needs overlap **and** owner confirmation |
+
+---
+
 ## Isolated Stack E2E Utilities
 
 `util/isolated_stack.bash` brings up a **throwaway** data / cascor / canopy trio on non-default ports so the training-runtime E2E checklist can run without touching the operator host stack (`8100` / `8201` / `8050`) or the deploy Docker stack. The primary recipe is [`notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md`](../notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md); this section is the operator contract for the helper.
@@ -648,6 +726,7 @@ Publish and CI constraints:
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.3   | 2026-08-05 | Fleet triage: document `Allow-Docs-Rewrite` on predict_merge docs screen (#926) + `--batch` soft-`ERROR` continue; supersedes open #912 trailer asymmetry |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
 | 0.4.1   | 2026-04-28 | Added `juniper-observability` sibling package and dedicated CI/publish workflows                                                                                         |
@@ -727,6 +806,6 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 
 ---
 
-**Last Updated:** 2026-07-26
-**Version:** 0.6.0
+**Last Updated:** 2026-08-05
+**Version:** 0.6.3
 **Maintainer:** Paul Calnon

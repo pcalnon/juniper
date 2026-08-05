@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.7
-**Date**: 2026-08-04
+**Version**: 1.0.16
+**Date**: 2026-08-05
 **Project**: juniper-ml
 
 ---
@@ -28,6 +28,9 @@
 | `util/juniper_plant_all.bash --systemd`                | Start via `systemctl --user` (no pidfile; curl required) |
 | `util/juniper_chop_all.bash --systemd`                 | Stop via `systemctl --user` (reverse order; soft-fail; no pidfile path) |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
+| `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
+| `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + merge order |
+| `python util/sequence_safety/symbol_loss_check.py --base ORIGIN --head HEAD` | AST symbol-loss screen (same CLI as `main-verify`) |
 | `util/reap_pytest_orphans.bash --dry-run`              | List orphaned Juniper pytest multiprocessing children (no kill) |
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
 | `./claudey`                                            | Launch default interactive Claude session       |
@@ -221,8 +224,20 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 | Publish doc-tools      | Push `juniper-doc-tools-vX.Y.Z` tag (OIDC trusted publishing)                               |
 | Doc links (CI parity)  | `juniper-check-doc-links --exclude templates --exclude history --exclude legacy --cross-repo skip` |
 | Doc links (full local) | `juniper-check-doc-links --cross-repo check`                                                |
+| Sequence-safety (local) | `python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD` (+ sibling `docs_additions_check.py`) |
+| Fleet predicted-merge  | `python util/fleet_triage/predict_merge.py --pr N` / `--batch` (exit 0 = report; 2 = misuse) |
 
 Key hooks: `ruff` (juniper-data) or `black`+`isort`+`flake8` (others), `mypy`, `bandit`, `shellcheck`, `no-unencrypted-env`.
+
+**Sequence-safety / fleet triage (juniper-ml#895 / #926):** `predict_merge` shells out to
+`util/sequence_safety/symbol_loss_check.py` on the merged RESULT (byte-identical to post-merge
+`main-verify`). Intentional symbol removals need `Allow-Symbol-Loss: <qualified.symbol>` (`*` rejected).
+Intentional docs rewrites need `Allow-Docs-Rewrite: <path>` or `*` — fleet docs screen is still
+stricter (any removed content line) but shares that trailer after #926. Per-PR labels
+`allow-symbol-loss` / `docs-rewrite` are WARN-only advisory and do **not** green fleet triage or
+`main-verify`. `--batch` soft-`ERROR`s one unresolvable tip and continues. Skip local pre-commit with
+`JUNIPER_FLEET_SKIP_PRECOMMIT=1`. Full contract:
+[REFERENCE.md § Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety).
 
 Meta-package publish flow: build + `twine check`, TestPyPI upload with attestations, TestPyPI install verification, then PyPI upload.
 
@@ -385,10 +400,13 @@ ref. Re-dispatch after #770; see runbook §7.
 | `JUNIPER_E2E_CONDA_DIR`        | `/opt/miniforge3`  | Conda root for isolated cascor/canopy activate |
 | `JUNIPER_REAP_PROC_ROOT`       | `/proc`            | Proc root for `util/reap_pytest_orphans.bash` (tests override) |
 | `JUNIPER_REAP_KILL_CMD`        | `kill`             | Kill binary for `util/reap_pytest_orphans.bash` (tests override) |
+| `JUNIPER_FLEET_SKIP_PRECOMMIT` | unset              | When set, `predict_merge` skips the pre-commit battery (screens still run) |
 
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
 
 Tip: before `/template-agent`, run `python util/agent_suite_doctor.py` (not `--no-discovery`). Discovery fail-closed: missing CLI, nonzero exit, non-JSON, or missing `schema_version`/`provenance.head_sha` → `FAIL`. See [REFERENCE.md § Agent Suite Doctor](REFERENCE.md#agent-suite-doctor).
+
+Tip: before merging a Cursor-fleet batch, run `python util/fleet_triage/predict_merge.py --batch --json`. Prefer heal/`DAMAGED-FIX-FIRST` PRs first; never treat script exit `0` as “all clean” — read each `verdict` (incl. soft-`ERROR` rows). Symbol screen matches `main-verify` (#895); docs trailers match after #926. See [REFERENCE.md § Fleet Triage](REFERENCE.md#fleet-triage-and-sequence-safety).
 
 Tip: `util/isolated_stack.bash` is kill-by-port (not `JuniperProject.pid`). After `--down`, confirm `ss -tlnH 'sport = :8101 or sport = :8202 or sport = :8051'` is empty.
 `data_up` needs `python3.14` on `PATH`, installs into `${JUNIPER_E2E_RUN_DIR}/.venv-data`, and launches with `PYTHON_GIL=0` (existing venv skips create but still re-pips). Use `JUNIPER_E2E_DATA_EXTRAS=api,mnist` for D2/I-5.
@@ -417,6 +435,10 @@ Tip: systemd chop soft-fails per unit and always exits `0` without touching the 
 
 | Symptom | Fast Check |
 |---------|------------|
+| `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` — not a damage finding. (Unresolved tip in `--batch` is soft-`ERROR`, exit 0.) |
+| `DAMAGED-FIX-FIRST` on intentional symbol delete | Add `Allow-Symbol-Loss: func:…` (qualified) on a commit in the PR; re-run `--pr`. Label alone will not green `main-verify`. |
+| `DAMAGED-FIX-FIRST` on intentional docs rewrite | Add `Allow-Docs-Rewrite: <path>` or `*` on a commit in the PR; re-run `--pr`. `docs-rewrite` label does not waive fleet triage. |
+| Local triage stuck in pre-commit | `JUNIPER_FLEET_SKIP_PRECOMMIT=1` (screens still run). |
 | Startup exits before launching services | Check the preflight output for missing `curl`, `ss`, conda, sibling repo directories, or occupied ports. |
 | Mid-plant abort / health timeout | Service log under that repo's `logs/`; pidfile is already removed — free leftover listeners with `ss -tlnp` before re-planting. |
 | Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`; keep the default `JuniperCascor1` env unless a replacement is known-good. |
@@ -479,6 +501,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-07-26
-**Version:** 1.0.6
+**Last Updated:** 2026-08-05
+**Version:** 1.0.16
 **Maintainer:** Paul Calnon
