@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.0
-**Last Updated**: 2026-08-04
+**Last Updated**: 2026-08-05
 
 ---
 
@@ -446,6 +446,11 @@ juniper-ml/
     is written by `record_listener_pid` from `ss -tlnpH "sport = :<port>"` **after** the health gate, with the process cmdline stored alongside; teardown kills pidfile-first
     and only after proving the pid is alive, owned by the current uid, and still running the recorded cmdline (SIGTERM then bounded SIGKILL), falling back to kill-by-port
     only within this run's recorded ports. `artifacts/` is never deleted.
+  - **OR-list fail-closed (open juniper-ml#973)**: `do_up` invokes `*_up || failed=1`, which disables `set -e` inside each body. Critical steps
+    (`require_env_bin` / `activate_conda` / `wait_for_health` / `record_listener_pid`) must `|| return 1` or a health-timeout with a live listener
+    false-greens `--up` and skips `teardown_run`. Mid-`allocate_port` failure calls `release_held_locks` (else prior `*.lock` dirs starve later `--up`).
+    Opt-in `bridge_up` failure after healthy services logs `grafana bridge failed — tearing the run back down` and runs `teardown_run` (not a bare `set -e` abort).
+    Coverage: `tests/test_experiment_stack_script.py` `TestDoUpPartialFailureTeardown` / `TestActivateCondaOrList` / `TestReleaseHeldLocksOnAllocateFail`.
   - Health: `wait_for_health` polls `/v1/health` (data, cascor) and `/v1/health/ready` (recurrence) every 2s until `JUNIPER_EXP_HEALTH_TIMEOUT` (default **90** — F-8 sizes it
     for a cold start; the 1.1 s warm number is not the design point).
   - Grafana bridge is **opt-in** (`--grafana-bridge`): only then does it preflight `socat`, discover the monitoring gateway by network-name **suffix**
@@ -542,6 +547,7 @@ juniper-ml/
   recipes env-set by env-set, the **F-6** listener-pid rule (no `$!` in any `*_up`; `record_listener_pid` runs after `wait_for_health`; teardown verifies uid + cmdline),
   §7.3 suffix-based `_monitoring$` gateway discovery + the exact socat relay line, the §7.2 target file rendered and parsed as JSON (four labels), and the operator-safety
   invariants (no `JuniperProject.pid`, no canopy, no repo `.env` write, no operator port).
+  Open #973 adds OR-list fail-closed pins + hermetic arms (`TestDoUpPartialFailureTeardown` health/bridge, `TestActivateCondaOrList`, `TestReleaseHeldLocksOnAllocateFail`).
   - Behavioural arms are hermetic: `JUNIPER_EXP_{RUN,LOCK}_ROOT` / `_DEPLOY_DIR` / `_CONDA_DIR` redirect every path into a tempdir and `ss`/`curl`/`docker`/`socat` are PATH
     stubs -- `--dry-run --up` prints all three launch classes with allocated ports expanded while leaving run root / lock root / targets dir non-existent; `allocate_port`
     skips locked and bound ports and fails loudly on an exhausted range; `--down` kills a self-spawned detached child through the **pidfile** path (the stubbed `ss` reports

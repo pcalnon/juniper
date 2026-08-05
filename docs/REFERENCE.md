@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.9
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -671,13 +671,39 @@ Port locks use atomic `mkdir "$LOCK_ROOT/<port>.lock"` (`JUNIPER_EXP_LOCK_ROOT`,
 
 `$!` after `( cd … && nohup <server> … & )` is the backgrounded **subshell**, not the server. No `*_up` records `$!`. After the health gate, `record_listener_pid` writes the listener from `ss -tlnpH "sport = :<port>"` plus the process cmdline. Teardown kills pidfile-first only after proving the pid is alive, owned by the current uid, and still running the recorded cmdline (SIGTERM then bounded SIGKILL); falls back to kill-by-port only within this run's recorded ports. `artifacts/` is never deleted.
 
+#### OR-list fail-closed bring-up (open juniper-ml#973)
+
+`do_up` absorbs each leg as `*_up || failed=1`. Bash disables `set -e` inside a function invoked that way, so a bare `wait_for_health` / `record_listener_pid` / `activate_conda` / `require_env_bin` that returns nonzero **does not stop the function**. Pre-fix class: health times out while an `ss` listener is already bound → `record_listener_pid` succeeds → `*_up` returns `0` → `failed` stays `0` → no `teardown_run` → orphan on `8110`–`8289` and a false-green `--up`.
+
+**Contract (open [#973](https://github.com/pcalnon/juniper-ml/pull/973); siblings [#972](https://github.com/pcalnon/juniper-ml/pull/972) / [#974](https://github.com/pcalnon/juniper-ml/pull/974)):**
+
+| Path | Fail-closed behavior |
+|------|----------------------|
+| `data_up` / `cascor_up` / `recurrence_up` | `require_env_bin`, `activate_conda`, `wait_for_health`, and `record_listener_pid` each end with `\|\| return 1` so the OR-list absorb sees a real failure |
+| `activate_conda` (when `JUNIPER_EXP_CONDA_ACTIVATE=1`) | `source … \|\| return 1`; `if ! conda activate …; then set -u; log ERROR; return 1; fi` — trailing `set -u` must not mask activate failure as exit `0` (ambient-PATH launch). Same class as isolated-stack [#967](https://github.com/pcalnon/juniper-ml/pull/967) |
+| Mid-`allocate_port` exhaustion | `allocate_port … \|\| { release_held_locks; return 1; }` — earlier `*.lock` dirs are cleared so a 30-port range does not starve later `--up` |
+| Opt-in `--grafana-bridge` after healthy services | `if ! bridge_up; then` log `ERROR: grafana bridge failed — tearing the run back down…`, call `teardown_run` (live only), `return 1`. Bare `bridge_up` under `set -e` used to abort without teardown. `bridge_up` itself pins `require_cmd socat/docker`, `relay_up`, and target writes with `\|\| return 1` |
+
+When `failed=1` after a service leg, `do_up` still logs `ERROR: bring-up failed — tearing the partial run back down…` and calls `teardown_run` (keeps `logs/` + `artifacts/`, releases lockdirs). That absorb path is separate from open docs [#968](https://github.com/pcalnon/juniper-ml/pull/968) (operator surface for `ports.json`-before-launch + auto-teardown); this section is why critical steps must return nonzero so `failed=1` actually fires.
+
+**Operator checks:**
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| `--up` exited `0` but a listener remains on `8110`–`8289` / next `--up` starves | Need #973 `\|\| return 1` pins (`rg -n 'wait_for_health.*\|\| return 1' util/experiment_stack.bash`). Pre-fix OR-list false-green. Run `--down <RUN_ID>` or kill the `ss` pid; clear stale `$JUNIPER_EXP_LOCK_ROOT/<port>.lock` |
+| `--up --grafana-bridge` dies with missing `socat`/`docker` but services still listen | Need #973 bridge teardown. Expect log `grafana bridge failed — tearing the run back down`; confirm `teardown.json` + empty ports before retry |
+| Mid-`--up` "port range exhausted" then later `--up` can't allocate | Need #973 `release_held_locks` on allocate failure. Inspect / `rmdir` stale locks under `JUNIPER_EXP_LOCK_ROOT` |
+| `JUNIPER_EXP_CONDA_ACTIVATE=1` and wrong env / ambient torch after rename | Need fail-closed `activate_conda` (`if ! conda activate`). Fix `JUNIPER_EXP_*_CONDA` / `JUNIPER_EXP_CONDA_DIR` |
+
+Coverage (open #973 tip): `tests/test_experiment_stack_script.py` — `TestLaunchLines.test_bring_up_order_is_data_cascor_recurrence` (text pins), `TestDoUpPartialFailureTeardown` (health-timeout + bridge hermetic arms), `TestActivateCondaOrList`, `TestReleaseHeldLocksOnAllocateFail`.
+
 #### Health / conda
 
 - `wait_for_health` polls every **2s** until `JUNIPER_EXP_HEALTH_TIMEOUT` (default **90** — sized for cold start; recurrence imports alone can take 10–15s).
-- Default launch uses direct env-bin paths (`${JUNIPER_EXP_CONDA_DIR}/envs/<env>/bin/...`). Set `JUNIPER_EXP_CONDA_ACTIVATE=1` only if an env grows `activate.d` hooks.
+- Default launch uses direct env-bin paths (`${JUNIPER_EXP_CONDA_DIR}/envs/<env>/bin/...`). Set `JUNIPER_EXP_CONDA_ACTIVATE=1` only if an env grows `activate.d` hooks — and only after #973's fail-closed `activate_conda` is present.
 - From a **git worktree**, set `JUNIPER_EXP_PROJECT_DIR` to the ecosystem root — the script's default derivation lands inside `worktrees/` otherwise.
 
-Coverage: `tests/test_experiment_stack_script.py`.
+Coverage: `tests/test_experiment_stack_script.py` (incl. OR-list / bridge / lock arms once #973 lands).
 
 ### Driver (`util/experiments/run_experiment.py`)
 
@@ -734,7 +760,10 @@ Coverage: `tests/test_run_experiment.py`.
 | Symptom | Check / Fix |
 |---------|-------------|
 | Misuse exit `2` on `--up` | Need exactly one action and at least one of `--cascor` / `--recurrence`. |
-| Health timeout mid-`--up` | Inspect `$RUN_DIR/logs/`; cold recurrence often needs the default `90s` — raise `JUNIPER_EXP_HEALTH_TIMEOUT` only after fixing the service. |
+| Health timeout mid-`--up` | Inspect `$RUN_DIR/logs/`; cold recurrence often needs the default `90s` — raise `JUNIPER_EXP_HEALTH_TIMEOUT` only after fixing the service. With #973, a timed-out leg must set `failed=1` and auto-`teardown_run` (not false-green). |
+| `--up` green but listeners/locks remain | Pre-#973 OR-list false-green — see [OR-list fail-closed](#or-list-fail-closed-bring-up-open-juniper-ml973). |
+| `grafana bridge failed — tearing the run back down` | Expected when `--grafana-bridge` can't preflight/relay/write after services are healthy — stack should already be torn down; install `socat`/`docker` or omit the flag. |
+| Port range exhausted / stuck `*.lock` after allocate fail | Need #973 `release_held_locks`; clear `$JUNIPER_EXP_LOCK_ROOT/<port>.lock` before retry. |
 | Worktree can't find cascor `src/` | Set `JUNIPER_EXP_PROJECT_DIR` to the real ecosystem root. |
 | Teardown killed the wrong process / left orphans | Pre-F-6 `$!` class — confirm pidfiles came from `record_listener_pid` (post-health `ss`), not shell `$!`. |
 | `--status` says UNSCRAPED | Expected without `--grafana-bridge`; opt in only when `socat` + deploy `prometheus/targets/` are available. |
@@ -863,5 +892,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.0
+**Version:** 0.6.9
 **Maintainer:** Paul Calnon
