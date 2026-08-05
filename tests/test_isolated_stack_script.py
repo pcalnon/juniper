@@ -890,13 +890,16 @@ class TestDataUpLive(unittest.TestCase):
             self.assertFalse((run_dir / "juniper-data.pid").exists())
 
     def test_do_up_wires_data_up_first(self) -> None:
-        # Drift guard: --up must compose data → cascor → canopy (data_up first).
+        # Drift guard: --up must compose data → cascor → canopy (data_up first)
+        # and absorb mid-bring-up failures into do_down (orphan-listener class).
         do_up = _extract_data_up_fn("do_up")
-        self.assertRegex(
-            do_up,
-            r"data_up\n\s*cascor_up\n\s*canopy_up\n",
-            msg="do_up must call data_up before cascor_up/canopy_up",
-        )
+        self.assertIn("data_up || failed=1", do_up)
+        self.assertIn("cascor_up || failed=1", do_up)
+        self.assertIn("canopy_up || failed=1", do_up)
+        self.assertLess(do_up.index("data_up"), do_up.index("cascor_up"))
+        self.assertLess(do_up.index("cascor_up"), do_up.index("canopy_up"))
+        self.assertIn("tearing the partial trio back down", do_up)
+        self.assertIn("do_down", do_up)
         data_up = _extract_data_up_fn("data_up")
         self.assertIn("PYTHON_GIL=0", data_up)
         self.assertIn('echo "$!" >"${RUN_DIR}/juniper-data.pid"', data_up)
@@ -1370,3 +1373,161 @@ class TestProbeHealth(unittest.TestCase):
             'probe_health "juniper-canopy" "http://127.0.0.1:${CANOPY_PORT}/v1/health" "${CANOPY_PORT}"',
             SCRIPT_TEXT,
         )
+
+
+# Full-script --up timeout: data_up compose + cascor fail-fast + do_down kill/cleanup.
+DO_UP_PARTIAL_TIMEOUT_SECONDS = 30
+
+
+class TestDoUpPartialFailureTeardown(unittest.TestCase):
+    """``do_up`` must tear a partial trio back down when a later service fails.
+
+    Pre-fix: under ``set -e``, a bare ``cascor_up`` / ``canopy_up`` failure exited
+    the script immediately and left earlier listeners orphaned on the E2E ports.
+    Mirrors experiment_stack's ``failed=1`` + teardown pattern.
+    """
+
+    def _force_kill(self, pid: int) -> None:
+        for kill_target in (lambda: os.killpg(pid, signal.SIGKILL), lambda: os.kill(pid, signal.SIGKILL)):
+            try:
+                kill_target()
+                break
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                continue
+        for _ in range(20):
+            if not Path(f"/proc/{pid}").exists():
+                return
+            time.sleep(0.05)
+
+    def test_cascor_missing_conda_tears_down_data_listener(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project_dir = root / "Juniper"
+            run_dir = root / "run"
+            listeners_dir = root / "listeners"
+            marker_dir = root / "markers"
+            stub_bin = root / "bin"
+            conda_dir = root / "conda-missing"  # no etc/profile.d/conda.sh
+            listeners_dir.mkdir()
+            marker_dir.mkdir()
+            stub_bin.mkdir()
+            conda_dir.mkdir()
+            for sub in (
+                "juniper-data",
+                "juniper-cascor/src/snapshots",
+                "juniper-canopy/src/snapshots",
+            ):
+                (project_dir / sub).mkdir(parents=True)
+
+            data_port = "65401"
+            cascor_port = "65402"
+            canopy_port = "65403"
+
+            # python3.14 -m venv: minimal activatable venv; python records listener pid then sleeps.
+            (stub_bin / "python3.14").write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                'if [[ "${1:-}" != "-m" || "${2:-}" != "venv" || -z "${3:-}" ]]; then\n'
+                '  echo "unexpected python3.14 invocation: $*" >&2\n'
+                "  exit 2\n"
+                "fi\n"
+                'dest="$3"\n'
+                f'marker_dir="{marker_dir}"\n'
+                f'listeners_dir="{listeners_dir}"\n'
+                f'data_port="{data_port}"\n'
+                'mkdir -p "$dest/bin"\n'
+                'printf "VENV_CREATED\\n" >>"$marker_dir/venv.log"\n'
+                'cat >"$dest/bin/activate" <<ACT\n'
+                '_OLD_VIRTUAL_PATH="\\$PATH"\n'
+                'VIRTUAL_ENV="$dest"\n'
+                "export VIRTUAL_ENV\n"
+                'PATH="\\$VIRTUAL_ENV/bin:\\$PATH"\n'
+                "export PATH\n"
+                "deactivate() {\n"
+                '  PATH="\\$_OLD_VIRTUAL_PATH"\n'
+                "  export PATH\n"
+                "  unset VIRTUAL_ENV\n"
+                "  unset -f deactivate 2>/dev/null || true\n"
+                "}\n"
+                "ACT\n"
+                "cat >\"$dest/bin/pip\" <<'PIP'\n"
+                "#!/usr/bin/env bash\n"
+                "exit 0\n"
+                "PIP\n"
+                "cat >\"$dest/bin/python\" <<'PY'\n"
+                "#!/usr/bin/env bash\n"
+                f'printf "%s\\n" "$$" >"{listeners_dir}/{data_port}.pid"\n'
+                "exec sleep 60\n"
+                "PY\n"
+                'chmod 755 "$dest/bin/pip" "$dest/bin/python"\n'
+            )
+            (stub_bin / "python3.14").chmod(0o755)
+            (stub_bin / "curl").write_text("#!/usr/bin/env bash\nexit 0\n")
+            (stub_bin / "curl").chmod(0o755)
+            # ss → report whichever listener file matches the queried sport port.
+            (stub_bin / "ss").write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "port=\"\"\n"
+                'for a in "$@"; do\n'
+                '  case "$a" in\n'
+                '    sport\\ =\\ :*) port="${a##*:}" ;;\n'
+                "  esac\n"
+                "done\n"
+                f'listener="{listeners_dir}/$port.pid"\n'
+                'if [[ -n "$port" && -f "$listener" ]]; then\n'
+                '  pid="$(cat "$listener")"\n'
+                '  echo "LISTEN 0 128 127.0.0.1:${port} 0.0.0.0:* users:((\\"python\\",pid=${pid},fd=3))"\n'
+                "fi\n"
+                "exit 0\n"
+            )
+            (stub_bin / "ss").chmod(0o755)
+
+            env = RedactedEnv(os.environ)
+            env["JUNIPER_E2E_PROJECT_DIR"] = str(project_dir)
+            env["JUNIPER_E2E_RUN_DIR"] = str(run_dir)
+            env["JUNIPER_E2E_CONDA_DIR"] = str(conda_dir)
+            env["JUNIPER_E2E_DATA_PORT"] = data_port
+            env["JUNIPER_E2E_CASCOR_PORT"] = cascor_port
+            env["JUNIPER_E2E_CANOPY_PORT"] = canopy_port
+            env["JUNIPER_E2E_HEALTH_TIMEOUT"] = "4"
+            env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+
+            result = subprocess.run(
+                ["/bin/bash", str(SCRIPT_PATH), "--up"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=DO_UP_PARTIAL_TIMEOUT_SECONDS,
+            )
+            child_pid: int | None = None
+            listener = listeners_dir / f"{data_port}.pid"
+            if listener.is_file():
+                try:
+                    child_pid = int(listener.read_text().strip())
+                except ValueError:
+                    child_pid = None
+            try:
+                self.assertNotEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertIn("bring-up failed — tearing the partial trio back down", result.stdout)
+                self.assertIn("conda not found at", result.stdout)
+                self.assertIn("Teardown complete", result.stdout)
+                # data_up must have launched before cascor failed.
+                self.assertTrue((marker_dir / "venv.log").exists(), "data_up must run before cascor fails")
+                # do_down clears pidfiles + venv; listener process must be killed via ss.
+                self.assertFalse((run_dir / "juniper-data.pid").exists(), "do_down must clear data pidfile")
+                self.assertFalse((run_dir / ".venv-data").exists(), "do_down must remove data venv")
+                if child_pid is not None:
+                    for _ in range(60):
+                        if not Path(f"/proc/{child_pid}").exists():
+                            break
+                        time.sleep(0.1)
+                    self.assertFalse(
+                        Path(f"/proc/{child_pid}").exists(),
+                        "partial teardown must kill the data listener",
+                    )
+            finally:
+                if child_pid is not None:
+                    self._force_kill(child_pid)
