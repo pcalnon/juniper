@@ -32,6 +32,7 @@
 | `python util/experiments/run_experiment.py --config PATH --run-dir RUN_DIR` | Drive one YAML against the run's `ports.json` (plots + stats + manifest) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
+| `python util/fleet_triage/predict_merge.py --batch --json` | Predicted-merge triage for open fleet PRs (cluster map + merge order) |
 | `util/reap_pytest_orphans.bash --dry-run`              | List orphaned Juniper pytest multiprocessing children (no kill) |
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
 | `./claudey`                                            | Launch default interactive Claude session       |
@@ -404,6 +405,8 @@ ref. Re-dispatch after #770; see runbook §7.
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
 
 Tip: before `/template-agent`, run `python util/agent_suite_doctor.py` (not `--no-discovery`). Discovery fail-closed: missing CLI, nonzero exit, non-JSON, or missing `schema_version`/`provenance.head_sha` → `FAIL`. See [REFERENCE.md § Agent Suite Doctor](REFERENCE.md#agent-suite-doctor).
+
+Tip: before merging a contested Cursor-fleet set, `git fetch origin` then `python util/fleet_triage/predict_merge.py --batch --json`. Docs-only TRUE deltas skip the pre-commit battery (`no .py files in delta`); heal PRs lead when title/branch contains `restore`/`heal`/`repair`/`fix-first`. Re-run `--pr <next>` after each merge. See [REFERENCE.md § Fleet Triage](REFERENCE.md#fleet-triage-predict_merge).
 
 Tip: `util/isolated_stack.bash` is kill-by-port (not `JuniperProject.pid`). After `--down`, confirm `ss -tlnH 'sport = :8101 or sport = :8202 or sport = :8051'` is empty.
 `data_up` needs `python3.14` on `PATH`, installs into `${JUNIPER_E2E_RUN_DIR}/.venv-data`, and launches with `PYTHON_GIL=0` (existing venv skips create but still re-pips). Use `JUNIPER_E2E_DATA_EXTRAS=api,mnist` for D2/I-5.

@@ -57,8 +57,9 @@ re-runs per merge.
    `gh --json files`. This is the collision map (the AGENTS.md ×54 / cheatsheet ×53 / runbook ×34
    pile-ups) the owner must sequence around.
 4. **(d) Compute the merge order.** Restore/heal PRs first (a deleted-content restore must land
-   before edits on the same file), then ascending same-file-cluster membership so the
-   least-colliding PRs land first and the branch-staleness churn is minimized.
+   before edits on the same file). The script’s `_is_heal` tokens are substring matches on
+   **title or branch**: `restore`, `heal`, `repair`, `fix-first`. Then ascending same-file-cluster
+   membership so the least-colliding PRs land first and the branch-staleness churn is minimized.
 5. **(e) Emit per-PR verdicts + an ordered plan** with, after each planned merge, an explicit
    "**re-run `predict_merge.py --pr <next>` before merging it**" checkpoint (see *Re-validation
    loop*).
@@ -100,8 +101,8 @@ A DUP-CLOSE recommendation requires **BOTH**:
 - **Per-PR** — one block each: `pr`, `verdict`, `mergeable`, `behind_main`, the failing gate /
   lost symbols / deleted docs sections, and the TRUE delta. Cite the script's JSON as evidence.
 - **Cluster map** — each contested file → the PRs that truly change it.
-- **Ordered merge plan** — the sequence (restore/heal first, then least-colliding), each step
-  followed by its re-validation checkpoint.
+- **Ordered merge plan** — the sequence (restore/heal/repair/fix-first first, then
+  least-colliding), each step followed by its re-validation checkpoint.
 - **DUP-CLOSE candidates** — only under the two-key rule, with the overlap evidence, flagged for
   owner confirmation.
 
