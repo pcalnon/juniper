@@ -30,7 +30,9 @@ log() { if [[ -n "$LOG" ]]; then printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >>"$L
 desc=""
 prompt=""
 
-printf 'Pleased to meet you !\n'
+# Assuan protocol: the server greeting MUST be an OK response line — gpg-agent
+# treats any non-OK greeting as a dead pinentry ("No pinentry").
+printf 'OK Pleased to meet you !\n'
 log "started (args: $*)"
 
 while IFS= read -r line; do
@@ -75,7 +77,7 @@ while IFS= read -r line; do
             ;;
         BYE)
             log "BYE"
-            printf 'Closing connection...\n'
+            printf 'OK Closing connection...\n'
             exit 0
             ;;
         *)
