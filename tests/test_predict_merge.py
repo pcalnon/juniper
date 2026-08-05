@@ -6,6 +6,8 @@ fixture repos (the ``tests/test_worktree_cleanup.py`` fixture idiom) -- no netwo
 
 * the four verdict classes -- MERGE-CLEAN, NEEDS-UPDATE-BRANCH, DAMAGED-FIX-FIRST
   (symbol-loss AND docs-deletion AND injected gate-fail), and CONFLICT;
+* the #895 ``_ast_symbol_screen`` fail-soft arms (non-screenable short-circuit, missing /
+  exit-2 / empty / non-JSON checker -> ``skip``, WARN-only not mapped, ``skip`` ≠ DAMAGED);
 * the TRUE-delta-vs-stale-file-list discrimination (delta from the merge RESULT, so a
   main-owned file the branch is merely stale on is excluded -- the #729 class);
 * the ``--batch`` cluster map + suggested merge order (restore/heal first, then ascending
@@ -355,6 +357,122 @@ class TriageBatchGhTest(_RepoCase):
         self.assertCountEqual(report["merge_order"], [1, 2])
         for v in report["prs"]:
             self.assertIn(v["verdict"], pm.SCRIPT_VERDICTS)
+
+
+# --------------------------------------------------------------------------- #
+# _ast_symbol_screen degrade arms (#895 switch to sequence_safety CLI)
+# --------------------------------------------------------------------------- #
+
+
+class AstSymbolScreenDegradeTest(unittest.TestCase):
+    """Pin the fail-soft contract of the #895 subprocess screen.
+
+    A missing / broken / non-JSON checker must ``skip`` (never crash triage), and
+    ``skip`` must never become ``DAMAGED-FIX-FIRST`` -- only ``status == \"fail\"``
+    drives that verdict. WARN-only findings must not be mapped into ``lost``.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="fleet-ast-degrade-"))
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self.tmp)], check=False))
+        # A real on-disk path so ``_SYMBOL_LOSS_CHECK.exists()`` is true without
+        # monkeypatching ``Path.exists`` (which would bleed into git/fixture helpers).
+        self.checker = self.tmp / "symbol_loss_check.py"
+        self.checker.write_text("# stub checker path for exists() only\n", encoding="utf-8")
+
+    def _screen_with_run(self, cp: subprocess.CompletedProcess, changed=None):
+        with mock.patch.object(pm, "_SYMBOL_LOSS_CHECK", self.checker):
+            with mock.patch.object(pm, "_run", return_value=cp) as run_mock:
+                out = pm._ast_symbol_screen(Path("/clone"), "base", "head", changed or ["util/mod.py"])
+        return out, run_mock
+
+    def test_non_screenable_delta_short_circuits_without_subprocess(self):
+        with mock.patch.object(pm, "_run") as run_mock:
+            out = pm._ast_symbol_screen(Path("/unused"), "base", "head", ["notes.md", "README.txt"])
+        self.assertEqual(out, {"status": "pass", "lost": []})
+        run_mock.assert_not_called()
+
+    def test_missing_checker_degrades_to_skip(self):
+        missing = self.tmp / "no-such-symbol-loss-check.py"
+        with mock.patch.object(pm, "_SYMBOL_LOSS_CHECK", missing):
+            with mock.patch.object(pm, "_run") as run_mock:
+                out = pm._ast_symbol_screen(Path("/unused"), "base", "head", ["util/mod.py"])
+        self.assertEqual(out["status"], "skip")
+        self.assertEqual(out["lost"], [])
+        self.assertIn("unavailable", out["detail"])
+        run_mock.assert_not_called()
+
+    def test_checker_exit_2_degrades_to_skip(self):
+        cp = subprocess.CompletedProcess(
+            args=["symbol_loss_check"],
+            returncode=2,
+            stdout="",
+            stderr="fatal: bad revision 'base'\n",
+        )
+        out, run_mock = self._screen_with_run(cp)
+        self.assertEqual(out["status"], "skip")
+        self.assertEqual(out["lost"], [])
+        self.assertIn("bad revision", out["detail"])
+        run_mock.assert_called_once()
+
+    def test_empty_stdout_degrades_to_skip(self):
+        cp = subprocess.CompletedProcess(args=[], returncode=0, stdout="   \n", stderr="")
+        out, _ = self._screen_with_run(cp)
+        self.assertEqual(out["status"], "skip")
+        self.assertEqual(out["lost"], [])
+        self.assertIn("symbol-loss screen error", out["detail"])
+
+    def test_non_json_stdout_degrades_to_skip(self):
+        cp = subprocess.CompletedProcess(args=[], returncode=0, stdout="not-json{\n", stderr="")
+        out, _ = self._screen_with_run(cp)
+        self.assertEqual(out["status"], "skip")
+        self.assertEqual(out["lost"], [])
+        self.assertEqual(out["detail"], "symbol-loss screen returned non-JSON")
+
+    def test_warn_only_findings_are_not_mapped_into_lost(self):
+        report = {
+            "findings": [
+                {"path": "util/mod.py", "symbol": "func:foo", "verdict": "RELOCATED", "severity": "WARN"},
+            ]
+        }
+        cp = subprocess.CompletedProcess(args=[], returncode=0, stdout=json.dumps(report), stderr="")
+        out, _ = self._screen_with_run(cp)
+        self.assertEqual(out["status"], "pass")
+        self.assertEqual(out["lost"], [])
+
+    def test_fail_findings_map_shape_and_status(self):
+        report = {
+            "findings": [
+                {"path": "util/mod.py", "symbol": "func:foo", "verdict": "LOST", "severity": "FAIL"},
+                {"path": "util/mod.py", "symbol": "func:bar", "verdict": "WEAKENED", "severity": "WARN"},
+            ]
+        }
+        cp = subprocess.CompletedProcess(args=[], returncode=1, stdout=json.dumps(report), stderr="")
+        out, _ = self._screen_with_run(cp)
+        self.assertEqual(out["status"], "fail")
+        self.assertEqual(
+            out["lost"],
+            [{"file": "util/mod.py", "symbol": "func:foo", "kind": "lost"}],
+        )
+
+    def test_skip_status_does_not_damage_merge_verdict(self):
+        # End-to-end: a .py-touching PR whose checker is unavailable must stay MERGE-CLEAN
+        # (skip ≠ fail). Regression class: treating skip as damaged would block every
+        # fleet triage batch when sequence_safety is temporarily absent.
+        repo = self.tmp / "repo"
+        _init_repo(repo)
+        _write(repo, "util/keep.py", "x = 1\n")
+        _commit(repo, "c0")
+        _publish_main(repo)
+        _git(repo, "checkout", "-q", "-b", "addpy")
+        _write(repo, "util/new.py", "def baz():\n    return 3\n")
+        _commit(repo, "add util/new.py")
+
+        missing = self.tmp / "no-such-symbol-loss-check.py"
+        with mock.patch.object(pm, "_SYMBOL_LOSS_CHECK", missing):
+            v = pm.simulate_merge(repo, "addpy", run_gates=False)
+        self.assertEqual(v["gates"]["ast_symbol_screen"]["status"], "skip")
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
 
 
 # --------------------------------------------------------------------------- #
