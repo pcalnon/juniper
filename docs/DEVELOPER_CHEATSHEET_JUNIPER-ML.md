@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
+**Version**: 1.0.9
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -429,6 +429,8 @@ Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant he
 
 Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
 
+Tip: `/ws/workers` with API-key auth enabled must close **4001** and never `accept` on a bad/missing key. Registration shape failures close **4008** (no `registration_ack`). Mid-task heartbeats ack but must not dispatch (`reg.idle` guard). Unknown lifecycle frame types become `event` via `build_frame_sink`. Coverage: open [#989](https://github.com/pcalnon/juniper-ml/pull/989). Full contract: [REFERENCE — juniper-service-core](REFERENCE.md#juniper-service-core).
+
 
 ### Host Stack Troubleshooting
 
@@ -458,6 +460,10 @@ Tip: systemd chop soft-fails per unit and always exits `0` without touching the 
 | `env_floor_drift_check` exits `2` | Resolution failed (`resolve_site_dirs`) — fix `--site-packages` / `--env` / `ecosystem.yaml` `used_by`; not a `BELOW_FLOOR`. |
 | Unexpected `BELOW_FLOOR` after upgrade | Multi-interpreter env may still hold a lower tree — tool reports the highest across site-packages; upgrade or remove the stale tree. |
 | `--fix` JSON shows `ERROR` mid-plan | Inspect `error` (stderr/`OSError`, ≤500 chars); fix env python / pip cause; re-run `--fix`. Other items may already be `FIXED`. |
+| Worker WS closes 4001 before `connection_established` | API-key auth enabled — send `X-API-Key` or disable `app.state.api_key_auth` for local. |
+| Worker WS closes 4008 after accept | Fix registration: string `worker_id` (1–64, alnum/_/-) + dict `capabilities`; server assigns the real id. |
+| Two `task_assign` while first task running | Mid-task heartbeat must not dispatch — confirm `reg.idle` guard (#989 coverage). |
+| Custom lifecycle frame never appears on `/ws/training` | Unknown/`missing` type → `event` envelope; emit `metrics`/`state`/`event` or subscribe to `event`. |
 
 ## Quick Reference Tables
 
@@ -501,5 +507,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 1.0.8
+**Version:** 1.0.9
 **Maintainer:** Paul Calnon

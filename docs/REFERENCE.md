@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -777,12 +777,62 @@ Publish and CI constraints:
 2. `publish-observability.yml` runs only for `juniper-observability-v*` tags or manual dispatch, builds from the subdirectory, publishes to TestPyPI, verifies installation, then publishes the same artifact to PyPI.
 3. The publish workflow uses OIDC trusted publishing, GitHub-hosted `ubuntu-latest` runners, and SHA-pinned actions. If the runner type or pinned artifact actions change, verify compatibility before tagging a release.
 
+### juniper-service-core
+
+`juniper-service-core` lives under `juniper-service-core/` and publishes independently (`juniper-service-core-v*` → `.github/workflows/publish-service-core.yml`; CI: `ci-service-core.yml`). Since `juniper-ml` 0.5.0 it is aggregated under `[tools]` / `[all]`. Model services inject lifecycle / command executors; this package owns the shared FastAPI + WebSocket + worker-pool plumbing.
+
+| Field                 | Value                                                                      |
+|-----------------------|----------------------------------------------------------------------------|
+| **PyPI Name**         | `juniper-service-core`                                                     |
+| **Current Version**   | `0.5.1` (from `juniper-service-core/pyproject.toml`)                       |
+| **Python**            | `>=3.12`                                                                   |
+| **Importable Module** | `juniper_service_core`                                                     |
+| **Package Docs**      | [`../juniper-service-core/README.md`](../juniper-service-core/README.md)   |
+| **Meta pin**          | `juniper-service-core>=0.2.0,<0.6.0` under `[tools]` / `[all]`             |
+
+#### `/ws/workers` auth, registration, and busy heartbeat
+
+`worker_stream_handler` (`juniper_service_core.websocket.worker_stream`) is the machine-to-machine worker channel. Intent: auth must fail closed **before** `accept`; registration shape failures must never enter the registry; a mid-task heartbeat must ack without double-dispatching.
+
+| Stage | Contract |
+|-------|----------|
+| Origin | Browser `Origin` header → close **4003** (workers are not browsers). |
+| Auth | `ws_authenticate` / `X-API-Key` when `app.state.api_key_auth` is enabled → close **4001**, **never** `accept`. Missing/bad key same. Training stream already had this pin; worker channel coverage is open [#989](https://github.com/pcalnon/juniper-ml/pull/989). |
+| Rate limit | Optional `worker_rate_limiter` → close **4029** before accept. |
+| Uninitialized pool | Missing `worker_coordinator` / `worker_registry` → close **4004**. |
+| Registration shape | After accept: `validate_worker_registration` — required string `worker_id` matching `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$`, required dict `capabilities`. Failures → error frame + close **4008**, `worker_count` stays `0`, no `registration_ack`. |
+| Identity | Client `worker_id` is untrusted `client_name` only; server assigns `worker-{uuid12}` in `registration_ack`. |
+| Busy heartbeat | Heartbeat always acks (`{"type":"heartbeat",…}`). Proactive dispatch runs **only** when `reg.idle` — a mid-task heartbeat must not assign the next pending task (double-dispatch / corrupted `active_task_id`). |
+
+**Registration pattern pitfalls:** empty id, leading hyphen, spaces, dots, or length > 64 all fail the same 4008 path. Non-string `worker_id` and non-dict `capabilities` likewise.
+
+#### Lifecycle → WebSocket unknown-frame degrade
+
+`build_frame_sink` (`juniper_service_core.websocket.bridge`) maps manager frames onto `/ws/training` envelopes:
+
+| Frame `type` | Envelope |
+|--------------|----------|
+| `metrics` / `state` / `event` | Matching builder |
+| Unknown or missing `type` | Generic **`event`** envelope (must not drop or raise) |
+
+Known types must keep their envelopes — the unknown-type fallback must not swallow `metrics`/`state`. Coverage: open [#989](https://github.com/pcalnon/juniper-ml/pull/989) (`test_build_frame_sink_unknown_type_degrades_to_event`).
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Worker connects then immediately closes 4001 | API-key auth enabled; send `X-API-Key` (or disable auth for local). Never expect `connection_established` after a failed key. |
+| Worker closes 4008 after accept | Inspect registration JSON — `worker_id` shape + `capabilities` dict; client-supplied id is display-only. |
+| Second `task_assign` while first task still running | Mid-task heartbeat dispatch regression — confirm `reg.idle` guard in `_message_loop`. |
+| Custom lifecycle frame type never reaches clients | Unknown types become `event` — subscribe to `event` or emit `metrics`/`state`/`event` explicitly. |
+
+**Sibling docs (union under this heading if they merge first):** [#988](https://github.com/pcalnon/juniper-ml/pull/988) CR-024 / TLS half-config / result ownership / binary-frame; [#990](https://github.com/pcalnon/juniper-ml/pull/990) SecurityMiddleware 429 header passthrough; [#975](https://github.com/pcalnon/juniper-ml/pull/975) Control WS log sanitize.
+
 ---
 
 ## Version History
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.1   | 2026-08-05 | Documented `juniper-service-core` `/ws/workers` auth fail-closed, registration shape (4008), busy-heartbeat idle guard, and `build_frame_sink` unknown→`event` degrade (#989) |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
 | 0.4.1   | 2026-04-28 | Added `juniper-observability` sibling package and dedicated CI/publish workflows                                                                                         |

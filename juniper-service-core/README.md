@@ -46,8 +46,10 @@ pip install juniper-service-core
 | Launcher | `ManagedService`, `start_service`, `wait_for_health` | Subprocess service launcher (stdlib-only). |
 | Lifecycle | `TrainingLifecycle`, `ServiceLifecycleManager`, … | Drives a [`juniper-model-core`](https://github.com/pcalnon/juniper-ml) `TrainableModel` through a status FSM + a `TrainingEvent` monitor; synchronous and threaded-orchestrator bodies, with snapshots + replay. |
 | Generic routes | `build_routers`, `ResponseEnvelope`, … | Training-control, metrics, dataset, network, and snapshot HTTP routes over the injected lifecycle. |
-| WebSocket | `attach_websocket`, `training_stream_handler`, `control_stream_handler`, … | Live training + control streams, plus a worker channel (`/ws/workers`). |
+| WebSocket | `attach_websocket`, `training_stream_handler`, `control_stream_handler`, … | Live training + control streams, plus a worker channel (`/ws/workers`: auth **4001** before accept; registration shape **4008**; busy-heartbeat idle guard). Unknown lifecycle frame types degrade to `event` via `build_frame_sink`. |
 | Worker pool | `WorkerCoordinator`, `WorkerRegistry`, … | Distributed-worker registration, coordination, and task dispatch (stdlib-only foundations). |
+
+Operator contracts for the worker channel and frame bridge: meta [`docs/REFERENCE.md` § juniper-service-core](../docs/REFERENCE.md#juniper-service-core).
 
 Import cost tracks the subsystem: `.security`, `.secrets`, `.middleware`, `.launcher`, and `.workers`
 are stdlib-/lightweight; `.lifecycle` needs `juniper-model-core`; `.routes` and `.websocket` need

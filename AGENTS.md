@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.0
-**Last Updated**: 2026-08-04
+**Last Updated**: 2026-08-05
 
 ---
 
@@ -146,6 +146,17 @@ the canonical implementation.
 - `lazy_register_or_reuse(factory, name, *args, **kwargs)` — like `register_or_reuse` but caches the result in a module-private dict; for the lazy-init-with-`None`-sentinel pattern.
 
 Tests touching these collectors should use `juniper_observability.testing.reset_prometheus_registry`. Minimum pin: `juniper-observability>=0.2.0`. See [`notes/observability/JUNIPER_2026-05-05_JUNIPER-ML_REGISTER-OR-REUSE-HELPER-DESIGN.md`](notes/observability/JUNIPER_2026-05-05_JUNIPER-ML_REGISTER-OR-REUSE-HELPER-DESIGN.md) for the design rationale and the migration history.
+
+## Shared Service-Core Worker Stream Contracts
+
+`juniper-service-core` owns the distributed worker WebSocket channel and the lifecycle→training broadcast bridge. Operator surface: [`docs/REFERENCE.md` § juniper-service-core](docs/REFERENCE.md#juniper-service-core).
+
+- **Auth fail-closed** — when `app.state.api_key_auth` is enabled, `/ws/workers` closes **4001** and never `accept`s on a bad/missing `X-API-Key` (`ws_authenticate`).
+- **Registration shape** — after accept, `validate_worker_registration` requires a pattern-valid string `worker_id` + dict `capabilities`; failures close **4008** with no `registration_ack`. Client id is display-only; server assigns `worker-{uuid12}`.
+- **Busy heartbeat** — heartbeat always acks; proactive dispatch runs only when `reg.idle` (mid-task heartbeat must not double-assign).
+- **Unknown frame degrade** — `build_frame_sink` maps unknown/missing lifecycle frame types to the generic `event` envelope (never drop/raise).
+
+Coverage pins: open [#989](https://github.com/pcalnon/juniper-ml/pull/989). Orthogonal to open docs [#988](https://github.com/pcalnon/juniper-ml/pull/988) (CR-024 / TLS / ownership), [#990](https://github.com/pcalnon/juniper-ml/pull/990) (HTTP 429 headers), and [#975](https://github.com/pcalnon/juniper-ml/pull/975) (Control WS sanitize) — union under sibling service-core headings if those land first.
 
 ## Repository Structure
 
