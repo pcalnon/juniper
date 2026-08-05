@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.0
-**Last Updated**: 2026-08-04
+**Last Updated**: 2026-08-05
 
 ---
 
@@ -563,6 +563,10 @@ juniper-ml/
 ### CI/CD Workflows
 
 - `.github/workflows/ci.yml` -- Main CI pipeline: pre-commit (G4 changed-files split — `pull_request` / `merge_group` use `--from-ref <BASE> --to-ref HEAD`; `push` keeps `--all-files`), unit tests, release-train archive-guard (PR-only), the two ADVISORY standalone jobs `Sequence Safety` (per-PR G1/G2 screens + `sequence-safety-report` artifact + WARN-only `allow-symbol-loss` / `docs-rewrite` label hatch) and `Fleet PR Lint` (`cursor/*`, warnings-only), build, docs, security, dependency docs.
+- `.github/workflows/ci-*.yml` -- Six in-repo shared-package CI workflows (`ci-tools` / `config-tools` / `doc-tools` / `model-core` / `observability` / `service-core`), distinct from meta `ci.yml` and from `publish-*.yml`.
+  - Path filters must include `<subdir>/**` **and** the workflow self-path; test matrices carry declared Python floors; coverage uses `--cov-fail-under` + blocking `juniper-coverage-gap-map --enforce` (ci-tools alone may `--omit` `__main__.py`).
+  - `build.needs: test` with package `working-directory`; service-core tests install sibling `juniper-model-core` from the monorepo root (no test-job WD).
+  - Operator table: [`docs/REFERENCE.md` § Shared-Package CI Workflows](docs/REFERENCE.md#shared-package-ci-workflows). Structural gate: open #949 `tests/test_subpackage_ci_workflows.py`.
 - `.github/workflows/main-verify.yml` -- Post-merge main-verification (flood P2 gate G3): on every `push:main` (per-SHA, no-cancel) it runs the `util/sequence_safety/` symbol + docs screens over `BASE..<merge>` (`sequence-safety-report`), a path-gated battery mirror, and a failure-only `notify`. G3.1 CATCH-UP BASE (flood §4 item 8 / the 2026-07-30 `[skip ci]` incident): BASE = last SUCCESSFUL main-verify tip when an ancestor of HEAD (sweeps skipped windows), else `github.event.before`, else `HEAD^1`.
 - `.github/workflows/publish.yml` -- PyPI publishing: TestPyPI with install verification, then PyPI (OIDC trusted publishing)
 - `.github/workflows/docs-full-check.yml` -- Weekly full documentation link validation including cross-repo checks

@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -24,6 +24,7 @@
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
+- [Shared-Package CI Workflows](#shared-package-ci-workflows)
 
 ---
 
@@ -773,7 +774,7 @@ Available extras:
 
 Publish and CI constraints:
 
-1. `ci-observability.yml` runs package tests on Python 3.12 and 3.13, then builds and validates the distribution.
+1. `ci-observability.yml` runs package tests on Python 3.12 and 3.13, then builds and validates the distribution (see [Shared-Package CI Workflows](#shared-package-ci-workflows) for the six-package contract).
 2. `publish-observability.yml` runs only for `juniper-observability-v*` tags or manual dispatch, builds from the subdirectory, publishes to TestPyPI, verifies installation, then publishes the same artifact to PyPI.
 3. The publish workflow uses OIDC trusted publishing, GitHub-hosted `ubuntu-latest` runners, and SHA-pinned actions. If the runner type or pinned artifact actions change, verify compatibility before tagging a release.
 
@@ -842,6 +843,54 @@ Release runbooks:
 
 ---
 
+## Shared-Package CI Workflows
+
+Each in-repo published sub-package has its own subdirectory CI under `.github/workflows/ci-<suffix>.yml`. These are **distinct** from meta `ci.yml` and from the `publish-*.yml` PyPI publishers: they are the only always-on gate for that package's pytest / coverage / wheel smoke.
+
+### Inventory (six workflows)
+
+| Workflow | Package dir | Python matrix (min) | `--cov-fail-under` | Test `working-directory` | Wheel smoke |
+|----------|-------------|---------------------|--------------------|--------------------------|-------------|
+| `ci-ci-tools.yml` | `juniper-ci-tools/` | 3.11–3.14 | 85 | package subdir | `juniper-generate-dep-docs` / `juniper-env-drift-check` / `juniper-coverage-gap-map --version` |
+| `ci-config-tools.yml` | `juniper-config-tools/` | 3.11–3.14 | 85 | package subdir | `python -m juniper_config_tools --version` |
+| `ci-doc-tools.yml` | `juniper-doc-tools/` | 3.12–3.14 | 85 | package subdir | `juniper-check-doc-links` + `python -m juniper_doc_tools --version` |
+| `ci-model-core.yml` | `juniper-model-core/` | 3.12–3.14 | 95 | package subdir | `import juniper_model_core` |
+| `ci-observability.yml` | `juniper-observability/` | 3.12–3.13 | 90 | package subdir | none (twine check only) |
+| `ci-service-core.yml` | `juniper-service-core/` | 3.12–3.13 | 80 | **none** (monorepo root) | none (twine check only) |
+
+Matrix rows are **minimum floors** — extra versions are OK. Permissions on every workflow are `contents: read` only.
+
+### Contracts that keep subdirectory CI honest
+
+| Contract | Rule | Why it matters |
+|----------|------|----------------|
+| Path filters | `push` / `pull_request` paths include `<subdir>/**` **and** `.github/workflows/ci-<suffix>.yml` | Dropping the self-path lets a broken gate land without a red check |
+| Triggers | `push` + `pull_request` on `main`, plus `workflow_dispatch` | Manual re-runs without a code change |
+| `fail-fast` | `strategy.fail-fast: false` on the test matrix | One Python version must not cancel the rest |
+| Coverage | `--cov=<import>` + `--cov-fail-under=<floor>` + `coverage.json` | Line-coverage floor per package |
+| Gap-map enforce | `juniper-coverage-gap-map --coverage-json coverage.json --enforce` | Without `--enforce` the gap-map is advisory and a gutted module ships green |
+| ci-tools omit | Only `ci-ci-tools.yml` may pass `--omit "*/__main__.py"` (C-2 shim) | Other packages must not silently adopt a broad omit |
+| Build after test | `build.needs: test`; build `working-directory` = package subdir; `python -m build` + `twine check` | A red matrix must not look like a successful wheel smoke |
+| service-core install | No test-job `working-directory`; install **sibling** `juniper-model-core` editable **before** `juniper-service-core/.[test]` | Sibling-first ordering; package-scoped WD would break the path |
+
+### Operator triage
+
+| Symptom | Check |
+|---------|-------|
+| Workflow edit never runs CI | Confirm `paths:` still lists the workflow file itself |
+| Gap-map "passes" on a hollow module | Look for a dropped `--enforce` (or a new broad `--omit`) |
+| service-core editable install fails | Confirm root-level install order: model-core then service-core |
+| Build green while tests red | Confirm `build.needs: ['test']` |
+| Matrix silently lost 3.12 | Compare against the table above / open #949 `SHARED_CI` floors |
+
+### Structural gate
+
+Open [#949](https://github.com/pcalnon/juniper-ml/pull/949) adds `tests/test_subpackage_ci_workflows.py` (YAML structural pin) and wires it into meta `ci.yml` + `main-verify.yml` battery so the suite cannot drop out of post-merge verification. Until that lands, treat the table above as the source-of-truth contract verified against the six `ci-*.yml` files on `main`.
+
+Related: meta publish / sibling publish in [Build and Release](#build-and-release); coverage-gap-map dogfood in `tests/test_coverage_gap_mapper_drift.py`.
+
+---
+
 ## Environment Variables
 
 These variables are consumed by Juniper packages documented in this repository. `juniper-ml` itself does not set them; they belong to the extras-installed packages.
@@ -863,5 +912,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Maintainer:** Paul Calnon
