@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
+**Version**: 1.0.9
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -32,6 +32,8 @@
 | `python util/experiments/run_experiment.py --config PATH --run-dir RUN_DIR` | Drive one YAML against the run's `ports.json` (plots + stats + manifest) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
+| `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
+| `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + heal-first merge order |
 | `util/reap_pytest_orphans.bash --dry-run`              | List orphaned Juniper pytest multiprocessing children (no kill) |
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
 | `./claudey`                                            | Launch default interactive Claude session       |
@@ -225,8 +227,17 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 | Publish doc-tools      | Push `juniper-doc-tools-vX.Y.Z` tag (OIDC trusted publishing)                               |
 | Doc links (CI parity)  | `juniper-check-doc-links --exclude templates --exclude history --exclude legacy --cross-repo skip` |
 | Doc links (full local) | `juniper-check-doc-links --cross-repo check`                                                |
+| Fleet predicted-merge  | `python util/fleet_triage/predict_merge.py --pr N` / `--batch` (exit 0 = report; 2 = misuse) |
 
 Key hooks: `ruff` (juniper-data) or `black`+`isort`+`flake8` (others), `mypy`, `bandit`, `shellcheck`, `no-unencrypted-env`.
+
+**Sequence-safety / fleet triage (juniper-ml#895 / #910):** `predict_merge` shells out to
+`util/sequence_safety/symbol_loss_check.py` on the merge RESULT and runs an inline docs screen that
+counts removed content `-` lines on changed `.md` only (ignores the `---` header). Docs-only deltas
+skip the pre-commit battery (`no .py files in delta`). `--batch` orders heal titles/branches first
+(`restore` / `heal` / `repair` / `fix-first`). Intentional docs rewrites stay `DAMAGED-FIX-FIRST`
+(no fleet `Allow-Docs-Rewrite` trailer yet). Skip local pre-commit with `JUNIPER_FLEET_SKIP_PRECOMMIT=1`.
+Full contract: [REFERENCE.md § Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety).
 
 Meta-package publish flow: build + `twine check`, TestPyPI upload with attestations, TestPyPI install verification, then PyPI upload.
 
@@ -394,6 +405,7 @@ ref. Re-dispatch after #770; see runbook §7.
 | `JUNIPER_EXP_CONDA_DIR`        | `/opt/miniforge3`  | Conda root for experiment direct env-bin launch |
 | `JUNIPER_REAP_PROC_ROOT`       | `/proc`            | Proc root for `util/reap_pytest_orphans.bash` (tests override) |
 | `JUNIPER_REAP_KILL_CMD`        | `kill`             | Kill binary for `util/reap_pytest_orphans.bash` (tests override) |
+| `JUNIPER_FLEET_SKIP_PRECOMMIT` | unset              | When set, `predict_merge` skips the pre-commit battery (screens still run) |
 
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
 
@@ -423,6 +435,8 @@ Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant he
 
 Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
 
+Tip: before merging a Cursor-fleet batch, run `python util/fleet_triage/predict_merge.py --batch --json`. Prefer title/branch tokens `restore`/`heal`/`repair`/`fix-first` ahead of colliding feat PRs; never treat script exit `0` as “all clean” — read each verdict. Docs-only PRs skip the pre-commit battery; new `.md` files must not trip on unified-diff `---` headers. See [REFERENCE — Fleet Triage](REFERENCE.md#fleet-triage-and-sequence-safety).
+
 
 ### Host Stack Troubleshooting
 
@@ -434,6 +448,11 @@ Tip: systemd chop soft-fails per unit and always exits `0` without touching the 
 | Worker binary missing | Run `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` finished in `nohup` mode and rerun with `JUNIPER_PROJECT_DIR` set to the same project root; for systemd mode, stop with `util/juniper_chop_all.bash --systemd`. |
 | Doctor green but Template Agent grounding dead | Re-run without `--no-discovery`; fix `util/prompt_discovery/cli.py` until it emits `schema_version` + `provenance.head_sha`. |
+| `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` — not a damage finding. (Unresolved tip in `--batch` is soft-`ERROR`, exit 0.) |
+| New `.md` falsely `DAMAGED-FIX-FIRST` | Header-counting bug class: only content `-` lines count; `---` file headers must be ignored (#910). |
+| Docs-only PR “fails” gates | No `.py` in TRUE delta → battery `skip` (`no .py files in delta`), not fail. |
+| Heal PR not first in `--batch` order | Title or branch needs `restore`/`heal`/`repair`/`fix-first` (not bare `fix`/`hotfix`). |
+| Local triage stuck in pre-commit | `JUNIPER_FLEET_SKIP_PRECOMMIT=1` (screens still run). |
 | Isolated `--up` missing `python3.14` | Put `python3.14` on `PATH`; abort is before venv/pid create. |
 | Isolated data health / GIL oddities | Confirm `PYTHON_GIL=0` in launch; check `$JUNIPER_E2E_RUN_DIR/logs/juniper-data.log`. |
 | Isolated `--up` unset-var / odd conda failure | Need #785 nounset restore; check `JUNIPER_E2E_CONDA_DIR`. |
@@ -495,5 +514,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 1.0.8
+**Version:** 1.0.9
 **Maintainer:** Paul Calnon
