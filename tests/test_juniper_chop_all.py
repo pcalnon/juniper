@@ -10,11 +10,14 @@ Validates the parser / grep changes introduced in Pass 2 of the
   to contain `cascor` and `worker` separated by other tokens.
 - Missing / empty JuniperProject.pid still invokes orphaned_worker_cleanup
   then exits 1 (full-script smoke against a synthetic project dir).
+- Non-empty pidfile full-script wire: matching cmdline → SIGTERM + truncate;
+  reused-PID cmdline mismatch → skip kill + still truncate; legacy
+  ``name: pid`` format still stops through the live loop.
 
-Where running the full chop script is impractical (requires root, a real
-pid file, and a live process), tests run a self-contained extract of the
-parser block in a subshell — except the pidfile-absent/empty wire, which
-is reachable hermetically with KILL_WORKERS=0 (cleanup short-circuits).
+Where helper isolation is clearer, tests extract ``validate_pid`` /
+``graceful_stop`` / ``orphaned_worker_cleanup``. The missing/empty and
+non-empty pidfile wires run the full script hermetically
+(``JUNIPER_PROJECT_DIR`` + ``JUNIPER_CHOP_PROC_ROOT`` + ``KILL_WORKERS=0``).
 Static-text assertions guard the grep tightening change.
 """
 
@@ -398,8 +401,167 @@ class TestMissingOrEmptyPidfileWire(unittest.TestCase):
         self.assertEqual(SCRIPT_TEXT.count(soft_call), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
+class TestNonEmptyPidfileWire(unittest.TestCase):
+    """Full-script pin: non-empty pidfile → validate → graceful_stop → summary.
+
+    The missing/empty wire (#798 / ``TestMissingOrEmptyPidfileWire``) never
+    enters the service-stop loop. Extracted ``validate_pid`` /
+    ``graceful_stop`` units pin the helpers in isolation. This class is the
+    end-to-end path that decides whether a live PID is killed and whether
+    ``JuniperProject.pid`` is truncated or preserved — the blast-radius gap
+    between those two layers.
+    """
+
+    FULL_PIDFILE_TIMEOUT_SECONDS = 25
+
+    def _spawn_detached(self, inner_bash: str) -> int:
+        launcher = "setsid bash -c " + repr(inner_bash) + " </dev/null >/dev/null 2>&1 & echo $!"
+        result = subprocess.run(
+            ["bash", "-c", launcher],
+            capture_output=True,
+            text=True,
+            timeout=SCRIPT_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        pid = int(result.stdout.strip().splitlines()[-1])
+        time.sleep(0.15)
+        self.assertTrue(Path(f"/proc/{pid}").exists(), f"detached pid {pid} missing")
+        return pid
+
+    def _force_kill(self, pid: int) -> None:
+        for kill_target in (lambda: os.killpg(pid, signal.SIGKILL), lambda: os.kill(pid, signal.SIGKILL)):
+            try:
+                kill_target()
+                break
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                continue
+        for _ in range(20):
+            if not Path(f"/proc/{pid}").exists():
+                return
+            time.sleep(0.05)
+
+    def _add_fake_proc(self, proc_root: Path, pid: int, cmdline_parts: list[str]) -> None:
+        process_dir = proc_root / str(pid)
+        process_dir.mkdir(parents=True)
+        (process_dir / "cmdline").write_bytes(
+            b"\0".join(part.encode("utf-8") for part in cmdline_parts) + b"\0"
+        )
+
+    def _run_chop(
+        self,
+        *,
+        project_dir: Path,
+        proc_root: Path,
+        pidfile_body: str,
+        sigterm_timeout: str = "3",
+    ) -> subprocess.CompletedProcess[str]:
+        ml_dir = project_dir / "juniper-ml"
+        ml_dir.mkdir(parents=True, exist_ok=True)
+        (ml_dir / "JuniperProject.pid").write_text(pidfile_body)
+
+        env = RedactedEnv(os.environ)
+        env["JUNIPER_PROJECT_DIR"] = str(project_dir)
+        env["JUNIPER_CHOP_PROC_ROOT"] = str(proc_root)
+        env["KILL_WORKERS"] = "0"
+        env["USE_SYSTEMD"] = "0"
+        env["SIGTERM_TIMEOUT"] = sigterm_timeout
+        env["PATH"] = "/usr/bin:/bin"
+
+        return subprocess.run(
+            ["/bin/bash", str(SCRIPT_PATH)],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=self.FULL_PIDFILE_TIMEOUT_SECONDS,
+        )
+
+    def test_matching_pid_stops_and_truncates_pidfile(self) -> None:
+        # Happy path: validate accepts the fake cmdline, graceful_stop SIGTERMs
+        # the real detached sleep, summary truncates JuniperProject.pid.
+        pid = self._spawn_detached("exec sleep 60")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                project_dir = Path(tmp) / "Juniper"
+                proc_root = Path(tmp) / "proc"
+                self._add_fake_proc(
+                    proc_root,
+                    pid,
+                    ["/opt/conda/envs/JuniperData1/bin/python", "-m", "uvicorn", "juniper_data.api.app:get_app"],
+                )
+                result = self._run_chop(
+                    project_dir=project_dir,
+                    proc_root=proc_root,
+                    pidfile_body=f"juniper-data={pid}\n",
+                )
+                combined = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 0, msg=combined)
+                self.assertIn("=== Stopping Juniper Services ===", combined)
+                self.assertIn("stopped gracefully", combined)
+                self.assertIn("All services stopped successfully", combined)
+                self.assertIn("Clearing PID file", combined)
+                pidfile = project_dir / "juniper-ml" / "JuniperProject.pid"
+                self.assertTrue(pidfile.exists())
+                self.assertEqual(pidfile.read_text(), "")
+                self.assertFalse(Path(f"/proc/{pid}").exists(), f"pid {pid} still alive after chop")
+        finally:
+            self._force_kill(pid)
+
+    def test_legacy_colon_pidfile_format_stops_matching_process(self) -> None:
+        # Full-script pin of the legacy ``name: pid`` parser arm (extracted
+        # TestPidParser alone cannot prove the live loop still splits on `:`).
+        pid = self._spawn_detached("exec sleep 60")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                project_dir = Path(tmp) / "Juniper"
+                proc_root = Path(tmp) / "proc"
+                self._add_fake_proc(
+                    proc_root,
+                    pid,
+                    ["/opt/miniforge3/envs/JuniperCascor1/bin/python", "server.py"],
+                )
+                result = self._run_chop(
+                    project_dir=project_dir,
+                    proc_root=proc_root,
+                    pidfile_body=f"juniper-cascor: {pid}\n",
+                )
+                combined = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 0, msg=combined)
+                self.assertIn("Clearing PID file", combined)
+                self.assertFalse(Path(f"/proc/{pid}").exists())
+        finally:
+            self._force_kill(pid)
+
+    def test_reused_pid_mismatch_skips_kill_and_still_truncates(self) -> None:
+        # D-05 end-to-end: a stale pidfile entry whose PID now belongs to an
+        # unrelated process must NOT be SIGTERM'd. validate_pid skip does not
+        # bump STOP_FAILURES, so the summary still clears the pidfile (stale
+        # entry dropped) — pin that contract so a future "preserve on skip"
+        # change is intentional.
+        pid = self._spawn_detached("exec sleep 60")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                project_dir = Path(tmp) / "Juniper"
+                proc_root = Path(tmp) / "proc"
+                self._add_fake_proc(proc_root, pid, ["/usr/sbin/sshd", "-D"])
+                result = self._run_chop(
+                    project_dir=project_dir,
+                    proc_root=proc_root,
+                    pidfile_body=f"juniper-canopy={pid}\n",
+                )
+                combined = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 0, msg=combined)
+                self.assertIn("does not match expected service", combined)
+                self.assertNotIn("Stopping juniper-canopy", combined)
+                self.assertIn("Clearing PID file", combined)
+                self.assertTrue(
+                    Path(f"/proc/{pid}").exists(),
+                    f"reused pid {pid} was killed despite cmdline mismatch",
+                )
+                self.assertEqual((project_dir / "juniper-ml" / "JuniperProject.pid").read_text(), "")
+        finally:
+            self._force_kill(pid)
 
 
 class TestValidatePid(unittest.TestCase):
@@ -833,3 +995,7 @@ class TestOrphanedWorkerCleanup(unittest.TestCase):
             'orphaned_worker_cleanup "${KILL_WORKERS}" "${WORKER_SEARCH_TERM}" "${SIGTERM_TIMEOUT}" || true',
             SCRIPT_TEXT,
         )
+
+
+if __name__ == "__main__":
+    unittest.main()
