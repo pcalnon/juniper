@@ -8,8 +8,12 @@ fixture repos (the ``tests/test_worktree_cleanup.py`` fixture idiom) -- no netwo
   (symbol-loss AND docs-deletion AND injected gate-fail), and CONFLICT;
 * the TRUE-delta-vs-stale-file-list discrimination (delta from the merge RESULT, so a
   main-owned file the branch is merely stale on is excluded -- the #729 class);
-* the ``--batch`` cluster map + suggested merge order (restore/heal first, then ascending
-  same-file-cluster membership), including a fake-``gh`` end-to-end batch;
+* the docs additions-only screen edges (``_removed_content_lines`` ``---`` header
+  exclusion; additions-only ``.md`` pass; non-``.md`` deletions ignored);
+* the fast-gate battery skip when the TRUE delta has no ``.py`` files;
+* the ``--batch`` cluster map + suggested merge order (restore/heal/repair/fix-first
+  first, then ascending same-file-cluster membership), including a fake-``gh``
+  end-to-end batch;
 * the detached-clone-never-mutates-source contract (a ``git clone`` under the system
   tempdir, never a ``git worktree`` of -- and never a write to -- the invoking checkout);
 * CLI exit codes (0 always-report / 2 usage / 2 non-git ``--repo-root``).
@@ -221,6 +225,61 @@ class VerdictTest(_RepoCase):
         self.assertEqual(v["gates"]["docs_additions_only"]["status"], "fail")
         self.assertTrue(dels and dels[0]["file"] == "notes.md", dels)
 
+    def test_docs_additions_only_markdown_is_merge_clean(self):
+        # Pure docs additions must NOT trip docs_additions_only (no `-` content lines).
+        # Regression class: counting unified-diff `---`/`+++` headers as removals would
+        # falsely DAMAGED every new `.md` file and stall the fleet merge order.
+        _write(self.repo, "notes/keep.md", "# keep\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "docadd")
+        _write(self.repo, "notes/new.md", "# new section\n\nbody\n")
+        _commit(self.repo, "add notes/new.md")
+
+        v = pm.simulate_merge(self.repo, "docadd", run_gates=False)
+        self.assertEqual(v["gates"]["docs_additions_only"]["status"], "pass")
+        self.assertEqual(v["gates"]["docs_additions_only"]["deletions"], [])
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+
+    def test_non_markdown_deletion_does_not_trip_docs_screen(self):
+        # docs_additions_only is intentionally `.md`-scoped; a .txt deletion alone must
+        # not produce DAMAGED-FIX-FIRST via that gate (symbol/gate battery own .py).
+        _write(self.repo, "plain.txt", "a\nb\nc\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "txtdel")
+        _write(self.repo, "plain.txt", "a\nc\n")  # drop b
+        _commit(self.repo, "drop a txt line")
+
+        v = pm.simulate_merge(self.repo, "txtdel", run_gates=False)
+        self.assertEqual(v["gates"]["docs_additions_only"]["status"], "pass")
+        self.assertEqual(v["gates"]["docs_additions_only"]["deletions"], [])
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+
+    def test_gate_battery_skips_when_delta_has_no_py(self):
+        # Docs-only TRUE delta must skip every pre-commit hook (never invoke the runner).
+        # Without this, a mis-wired battery could fail-closed on empty `--files` or
+        # invent flake8 damage for PRs that touch no Python.
+        _write(self.repo, "notes/seed.md", "seed\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "mdonly")
+        _write(self.repo, "notes/extra.md", "extra\n")
+        _commit(self.repo, "add notes/extra.md")
+
+        calls = []
+
+        def tracking_runner(clone, hook, files):
+            calls.append((hook, list(files)))
+            return ("fail", "must not run")
+
+        v = pm.simulate_merge(self.repo, "mdonly", gate_runner=tracking_runner)
+        self.assertEqual(calls, [], "gate_runner must not run when the delta has no .py")
+        for hook in pm.PRECOMMIT_HOOKS:
+            self.assertEqual(v["gates"][hook]["status"], "skip")
+            self.assertIn("no .py", v["gates"][hook]["detail"])
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+
     def test_damaged_injected_gate_failure(self):
         # A clean, additions-only .py PR (no symbol loss) with an injected failing gate.
         _write(self.repo, "util/keep.py", "x = 1\n")
@@ -308,6 +367,70 @@ class ClusterOrderTest(unittest.TestCase):
         clusters = pm.build_clusters(verdicts)
         order = pm.suggest_order(verdicts, clusters)
         self.assertEqual(order[0], 12, "the singleton-cluster PR should lead when no heal PR exists")
+
+    def test_is_heal_recognizes_repair_and_fix_first_tokens(self):
+        # suggest_order only auto-leads on restore/heal today in the cluster test; the
+        # other documented tokens must also promote, or a repair/fix-first PR sits
+        # behind colliding feat work and the supervisor merge order is wrong.
+        self.assertTrue(pm._is_heal({"title": "repair broken gate", "branch": "cursor/x"}))
+        self.assertTrue(pm._is_heal({"title": "feat", "branch": "cursor/fix-first-docs"}))
+        self.assertTrue(pm._is_heal({"title": "heal canopy WS", "branch": "cursor/y"}))
+        self.assertFalse(pm._is_heal({"title": "feat docs", "branch": "cursor/docs-sync"}))
+
+        verdicts = [
+            {"pr": 20, "title": "feat hot", "branch": "cursor/hot", "true_delta": ["HOT.py"]},
+            {"pr": 21, "title": "repair symbol screen", "branch": "cursor/repair-x", "true_delta": ["A.md"]},
+            {"pr": 22, "title": "feat solo", "branch": "cursor/solo", "true_delta": ["SOLO.py"]},
+            {"pr": 23, "title": "nudge", "branch": "cursor/fix-first-y", "true_delta": ["B.md"]},
+        ]
+        clusters = pm.build_clusters(verdicts)
+        order = pm.suggest_order(verdicts, clusters)
+        # Both heal PRs lead (repair title + fix-first branch); remaining ties break
+        # by PR number via _pr_key (20 before 22), not by title.
+        self.assertEqual(order[:2], [21, 23], order)
+        self.assertEqual(order[2:], [20, 22], order)
+
+
+# --------------------------------------------------------------------------- #
+# docs additions-only screen — pure unit + wiring edges
+# --------------------------------------------------------------------------- #
+
+
+class DocsAdditionsScreenUnitTest(unittest.TestCase):
+    """Pin ``_removed_content_lines`` so unified-diff headers never inflate deletions."""
+
+    def test_removed_content_lines_ignores_file_headers(self):
+        # A real unified diff always opens with `---` / `+++` headers. Those must not
+        # count as content removals — otherwise every touched `.md` (even pure adds)
+        # reports removed_lines >= 1 and the PR is falsely DAMAGED-FIX-FIRST.
+        diff = (
+            "diff --git a/notes/x.md b/notes/x.md\n"
+            "index 111..222 100644\n"
+            "--- a/notes/x.md\n"
+            "+++ b/notes/x.md\n"
+            "@@ -1,3 +1,3 @@\n"
+            " keep\n"
+            "-gone\n"
+            "+added\n"
+            " keep2\n"
+        )
+        self.assertEqual(pm._removed_content_lines(diff), 1)
+
+    def test_removed_content_lines_pure_add_is_zero(self):
+        diff = (
+            "diff --git a/notes/new.md b/notes/new.md\n"
+            "new file mode 100644\n"
+            "index 000..abc\n"
+            "--- /dev/null\n"
+            "+++ b/notes/new.md\n"
+            "@@ -0,0 +1,2 @@\n"
+            "+# title\n"
+            "+body\n"
+        )
+        self.assertEqual(pm._removed_content_lines(diff), 0)
+
+    def test_removed_content_lines_empty_diff_is_zero(self):
+        self.assertEqual(pm._removed_content_lines(""), 0)
 
 
 def _install_fake_gh(bin_dir: Path, payload_dir: Path) -> None:
