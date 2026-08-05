@@ -4,7 +4,7 @@
 
 **Version:** 0.6.0
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -19,6 +19,7 @@
 - [Pytest Orphan Reaper](#pytest-orphan-reaper)
 - [Environment Floor Drift Check](#environment-floor-drift-check)
 - [Agent Suite Doctor](#agent-suite-doctor)
+- [Fleet Triage (`predict_merge`)](#fleet-triage-predict_merge)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Sibling Packages](#sibling-packages)
@@ -495,6 +496,97 @@ Troubleshooting:
 | `[FAIL] discovery ... not valid JSON` / missing `schema_version` | CLI must print one JSON object with top-level `schema_version` and `provenance.head_sha`. |
 | Doctor green but `/template-agent` grounding fails | Confirm you did **not** use `--no-discovery`; re-run without that flag. |
 | `[WARN] mirror ... not fully installed` | Optional; run `util/install_agents.bash` (or ignore unless you need the `~/.claude` mirror). |
+
+---
+
+## Fleet Triage (`predict_merge`)
+
+`util/fleet_triage/predict_merge.py` is the **deterministic script layer** for third-party / Cursor-fleet PR triage (flood remediation Stage-0). GitHub CI runs on each branch *head*, not the merge result (`strict_required_status_checks_policy` is `false`), so a green branch can still damage `main` when it lands. This script predicts that merge locally and reports — it never pushes, merges, or closes a PR.
+
+The read-only `fleet-supervisor` agent (`.claude/agents/fleet-supervisor.md`) invokes the script once per batch, then adjudicates dup/supersession and returns an ordered plan. Operators can also run the script directly before merging a contested set.
+
+### Intent
+
+Per PR (or every open PR with `--batch`):
+
+1. Create a throwaway **detached `git clone`** under the system tempdir (never a `git worktree` of the primary checkout, never a push).
+2. Merge `origin/main` into the branch tip on that clone.
+3. On the **merge result**, run the repo-pinned fast pre-commit hooks on touched `.py` files, plus an AST symbol-loss screen and a docs additions-only screen.
+4. Emit a verdict + the **TRUE changed-file delta** from the merge result (`git diff --name-only`), not the stale `gh pr view --json files` list.
+5. With `--batch`, build a same-file cluster map and a suggested merge order.
+
+### CLI
+
+```bash
+git fetch origin   # keep origin/main and origin/<head> current first
+python util/fleet_triage/predict_merge.py --pr 910
+python util/fleet_triage/predict_merge.py --batch --json
+python util/fleet_triage/predict_merge.py --batch --repo-root /path/to/repo
+```
+
+| Flag | Effect |
+|------|--------|
+| `--pr N` | Triage one open PR (resolved via `gh`) |
+| `--batch` | Triage every open PR + cluster map + `merge_order` |
+| `--json` | Machine-readable verdict / batch report |
+| `--repo-root PATH` | Target repo (default: cwd’s git toplevel) |
+
+Exit codes: `0` always-report (DAMAGED/CONFLICT still exit 0 — this is a report); `2` usage / precondition (`gh` fail, unresolved ref, non-git `--repo-root`).
+
+Optional: set `JUNIPER_FLEET_SKIP_PRECOMMIT=1` to skip the live pre-commit battery (hooks recorded as `skip` with detail `gates disabled`). Prefer this only for offline dry-runs; do not treat a skip-all run as merge-safe.
+
+### Verdicts
+
+| Verdict | Meaning | Operator action |
+|---------|---------|-----------------|
+| `MERGE-CLEAN` | Conflict-free result; gates pass or skip cleanly; no lost symbols; docs additions-only; branch already contains `main` | Safe to merge as-is |
+| `NEEDS-UPDATE-BRANCH` | Predicted result is clean but branch is behind `main` | **Rebase** onto `main` — never a union / take-own-side merge |
+| `DAMAGED-FIX-FIRST` | Gate fail, AST symbol loss, or docs content deletion on a `.md` | Fix the branch first; do not merge |
+| `CONFLICT` | Merge does not apply | Reorder or rebase before retrying |
+
+`DUP-CLOSE` is **agent-only** (fleet-supervisor recommendation under the two-key rule: high content overlap **and** owner confirmation). The script never emits or acts on it.
+
+### Docs additions-only screen
+
+Gate key: `gates.docs_additions_only`. Scope is **changed `.md` files only**.
+
+- Counts unified-diff **content** `-` lines via `_removed_content_lines`. File headers (`---` / `+++`) are **not** removals — counting them would falsely `DAMAGED-FIX-FIRST` every new or touched markdown file.
+- Pure additions (`removed_lines == 0`) → `status: pass` (can stay `MERGE-CLEAN`).
+- Non-`.md` deletions (e.g. `.txt` / `.py`) do **not** trip this screen; symbol loss and the pre-commit battery own Python risk.
+- Any `.md` with `removed_lines > 0` → `status: fail` and contributes to `DAMAGED-FIX-FIRST`.
+
+Related CI screen (post-merge / PR advisory): `util/sequence_safety/docs_additions_check.py` — broader heading/run rules; not a substitute for this predicted-merge gate.
+
+### Fast-gate battery (no-`.py` skip)
+
+Hooks: `black`, `isort`, `flake8`, `mypy`, `check-ast` (see `PRECOMMIT_HOOKS` in the script).
+
+When the TRUE delta’s existing files include **no `.py`**, every hook is recorded as `status: skip` with detail `no .py files in delta` — the runner is **not** invoked. Docs-only / notes-only PRs must not fail-closed on an empty `--files` pre-commit invocation.
+
+### Batch merge order (heal tokens)
+
+`--batch` returns `clusters` (`path → [pr,…]` from TRUE deltas) and `merge_order`.
+
+`suggest_order` lands heal/restore work first, then ascending same-file-cluster membership (least-colliding first), then PR number. A PR is treated as heal when its **title or branch** (case-insensitive substring) contains any of:
+
+`restore` · `heal` · `repair` · `fix-first`
+
+Name restore/repair automation branches and titles with one of these tokens so they lead colliding feat PRs. Omitting them parks heal work behind contested edits and re-creates the flood merge-order failure class.
+
+After each merge the owner performs, re-run `predict_merge.py --pr <next>` (or `--batch`) on still-open same-file-cluster PRs before the next merge — the plan is advisory and goes stale as soon as `main` moves.
+
+### Troubleshooting
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Docs-only PR reports `DAMAGED-FIX-FIRST` with `docs_additions_only` fail but the PR only adds markdown | Confirm the script still ignores `---`/`+++` headers (`_removed_content_lines`); inspect `gates.docs_additions_only.deletions`. |
+| Docs-only PR shows pre-commit hooks as `fail` | Unexpected — with no `.py` in the TRUE delta, hooks must be `skip`. Re-fetch and re-run; check you are not forcing a custom `gate_runner`. |
+| Heal PR sits late in `merge_order` | Put `repair`, `fix-first`, `heal`, or `restore` in the title or branch name. |
+| `error: … is not inside a git repository` / exit `2` | Pass a real `--repo-root`; run from a git checkout. |
+| `gh` failures | Authenticate `gh`; fetch remotes; ensure the PR is open and `origin/<headRefName>` exists. |
+| Script clone / merge seems to touch your checkout | It must not — scratch clones live under the system tempdir. If the primary tree changed, stop and inspect; that is a bug. |
+
+Design-of-record: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 item 7 / P3. Regression coverage: `tests/test_predict_merge.py` (docs-screen edges, no-`.py` gate skip, heal tokens) + `tests/test_fleet_supervisor_contract.py`.
 
 ---
 
