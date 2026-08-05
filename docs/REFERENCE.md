@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -23,6 +23,7 @@
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
+- [Flood-Remediation CI Gates](#flood-remediation-ci-gates)
 
 ---
 
@@ -707,6 +708,105 @@ Release runbooks:
 
 ---
 
+## Flood-Remediation CI Gates
+
+Operator surface for the flood-remediation CI layers landed in [#869](https://github.com/pcalnon/juniper-ml/pull/869) / [#880](https://github.com/pcalnon/juniper-ml/pull/880) (Proposal P2 / flood analysis §4 items 1–2 + 8 phases 2–4). These jobs catch **serial same-file damage** that per-PR green checks miss. The CLIs they invoke live under `util/sequence_safety/`; predicted-merge triage for open fleet PRs is `util/fleet_triage/predict_merge.py` (see AGENTS.md Key Files).
+
+Design context: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md).
+
+### Workflow map
+
+| Surface | Workflow / job | When | Gate role |
+|---------|----------------|------|-----------|
+| G4 pre-commit split | `ci.yml` → `pre-commit` | every CI event | **Required** (Quality Gate) |
+| Per-PR sequence-safety | `ci.yml` → `sequence-safety` | `pull_request` + `merge_group` only | **Advisory** (absent from Quality Gate `needs:`) |
+| Fleet PR lint | `ci.yml` → `fleet-pr-lint` | `pull_request` whose head starts with `cursor/` | **Advisory** (never fails, never comments) |
+| Post-merge net | `main-verify.yml` | every `push:main` + dispatch | **Bypass-proof** (owner/Cursor App cannot skip by merging green) |
+
+Quality Gate (`required-checks`) needs exactly: `pre-commit`, `tests`, `build`, `docs`, `security`, `claude-yaml-audit`, `dependency-docs`. Folding `sequence-safety` / `fleet-pr-lint` / `release-train-archive-guard` into that `needs:` would fail every `push:main` (those jobs skip on push while the gate is `if: always()`).
+
+### Concurrency and merge queue (#869)
+
+| Workflow | Concurrency group | Cancel in progress |
+|----------|-------------------|--------------------|
+| `ci.yml` | `ci-${{ sha }}` on **push**; `ci-${{ ref }}` otherwise | `false` on push; `true` otherwise |
+| `main-verify.yml` | `main-verify-${{ sha }}` | **always `false`** |
+
+Rapid serial merges on `main` must each complete their own `ci` / `main-verify` run — a ref-keyed cancel group would drop every merge except the last.
+
+`ci.yml` also listens on `merge_group` so required contexts re-post on the queued merge commit (merge-queue ruleset prerequisite). Without it the queue stalls with no required check.
+
+### G4 — pre-commit changed-files split (#880 phase 2)
+
+```text
+pull_request / merge_group  →  pre-commit run --from-ref <BASE> --to-ref HEAD
+push (incl. main)           →  pre-commit run --all-files
+```
+
+BASE is `github.event.pull_request.base.sha` or `github.event.merge_group.base_sha`. Checkout uses `fetch-depth: 0` so BASE is present.
+
+Constraints (from the workflow comments / Proposal P2 §4):
+
+- Hooks with `pass_filenames: false` (e.g. the local `juniper-check-doc-links` hook) still run **globally** under `--from-ref`.
+- Changed-files scope is blind to a union effect in a file the PR did **not** touch; `--all-files` on push is the union check at land time.
+
+### Per-PR Sequence Safety (#880 phase 3)
+
+Runs `util/sequence_safety/symbol_loss_check.py` then `docs_additions_check.py` over `<BASE>..HEAD`, uploads `sequence-safety-report` (`symbol-report.json` + `docs-report.json`, 30-day retention).
+
+| Lever | Effect |
+|-------|--------|
+| PR label `allow-symbol-loss` / `docs-rewrite` | Adds `--advisory` for that screen only → WARN findings, exit 0. Read live via `gh pr view` (re-run job; no re-push). |
+| Commit trailer `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite:` | Primary, auditable waiver inside the modules; travels in history → also covers post-merge `main-verify`. |
+| `merge_group` event | No PR object → **strict** (label hatch unavailable). |
+
+Promote to REQUIRED later in the **branch ruleset**, never by adding the job to Quality Gate `needs:`. Soak convention mirrors CodeQL.
+
+Local repro:
+
+```bash
+python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --json
+python util/sequence_safety/docs_additions_check.py --base origin/main --head HEAD --json
+# WARN-only (label-hatch equivalent); exit 2 is never masked:
+python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --advisory
+```
+
+### Fleet PR Lint (#880 phase 4)
+
+`cursor/*` PRs only. Step-summary warnings for: commit count > 1, `black --check --line-length 512` on changed `.py`, fan-out > 15 files, and touches of hotspot files `AGENTS.md` / `docs/DEVELOPER_CHEATSHEET_JUNIPER-ML.md`. Always `exit 0`.
+
+### Post-merge main-verify (G3 + G3.1)
+
+Workflow: [`.github/workflows/main-verify.yml`](../.github/workflows/main-verify.yml). Three jobs:
+
+1. **`symbol-screen` (always)** — sequence-safety screens of `BASE..<merge>`; fails the job on unwaived FAIL; uploads `sequence-safety-report`.
+2. **`battery` (path-gated)** — mirrors `ci.yml`'s enumerated unittest list when the push touched `tests/` \| `util/` \| `scripts/` \| `.github/` \| `pyproject.toml`; docs-only merges skip the battery (symbol-screen still runs). Keep the two lists in sync in the same PR.
+3. **`notify` (on failure)** — upserts a dedup tracking issue (`main-verify: post-merge verification failed at <sha>`) and posts non-blocking Slack via `SLACK_WEBHOOK_URL` (missing secret skips; `continue-on-error`).
+
+**G3.1 CATCH-UP BASE** (the 2026-07-30 `[skip ci]` incident — ml#870/#872/#873 merge bodies skipped this workflow entirely):
+
+| Priority | BASE | When |
+|----------|------|------|
+| 1 | `head_sha` of the latest **successful** `main-verify` run on `main` | That SHA is a resolvable ancestor of HEAD and ≠ HEAD (sweeps every skipped merge in between) |
+| 2 | `github.event.before` | Non-zero and resolvable |
+| 3 | `HEAD^1` | Force-push / initial / dispatch fallback |
+
+Chosen BASE + reason land in the step summary under “Post-merge sequence-safety base (G3.1 catch-up)”.
+
+### Operator pitfalls
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Per-PR Sequence Safety red, Quality Gate green | Expected while advisory — inspect the `sequence-safety-report` artifact; waive with commit trailers (or owner label for WARN-only) |
+| Label greens Sequence Safety but `main-verify` fails after merge | Labels are PR-only; put `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite:` on a commit in the landed range |
+| Merge queue stuck with no required check | Confirm `ci.yml` still has `on.merge_group` and every required context re-posts on queue runs |
+| Rapid main merges “lost” a CI run | `ci.yml` push group must be per-SHA with cancel disabled; `main-verify` is always per-SHA / no-cancel |
+| `[skip ci]` in a merge commit body | Skips `main-verify` for that SHA; the **next** successful tip’s catch-up BASE sweeps the gap — do not rely on skip for compositionally risky merges |
+| Docs-only main merge, battery skipped | Intended; symbol-screen still ran — check that job / artifact, not the battery |
+| Red `main-verify`, no Slack | `SLACK_WEBHOOK_URL` unset or post failed (non-blocking); look for the tracking issue titled with the SHA |
+
+---
+
 ## Environment Variables
 
 These variables are consumed by Juniper packages documented in this repository. `juniper-ml` itself does not set them; they belong to the extras-installed packages.
@@ -727,6 +827,6 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 
 ---
 
-**Last Updated:** 2026-07-26
-**Version:** 0.6.0
+**Last Updated:** 2026-08-05
+**Version:** 0.6.1
 **Maintainer:** Paul Calnon
