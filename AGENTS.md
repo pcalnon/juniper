@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.0
-**Last Updated**: 2026-08-04
+**Last Updated**: 2026-08-05
 
 ---
 
@@ -491,7 +491,8 @@ juniper-ml/
 - `tests/test_workflow_script_paths.py` -- Lint test: every `python <path.py>` / `bash <path.bash>` invocation in `.github/workflows/*.yml` must reference a path that exists in the repo. Cross-repo paths (`juniper-X/...`) are skipped as runtime-resolved. Catches the failure class that broke 3 juniper-X CIs on 2026-05-18.
 - `tests/test_symbol_loss_check.py` -- Hermetic tests (synthetic git fixtures) for `util/sequence_safety/symbol_loss_check.py`: clean pass, same-file `LOST` FAIL, the SF3 bare-name masking pin, qualified-name relocation WARN, the `WEAKENED` arms (incl. the same-length-gutting blind spot), `DUPLICATED`, import/const WARN, bash LOST-FAIL / WEAKENED-WARN, the `Allow-Symbol-Loss` trailer escape + wildcard rejection, and exit codes 0/1/2. The gate for the symbol screen.
 - `tests/test_docs_additions_check.py` -- Hermetic tests for `util/sequence_safety/docs_additions_check.py`: additions-only clean pass, heading-deletion FAIL, the `>=N` consecutive-deletion FAIL, small-deletion / in-place-swap / heading-retitle WARN, scope (`AGENTS.md` + `notes/**` in, a non-`.md` file out), the `Allow-Docs-Rewrite` trailer escape (enumerated + wildcard), the tunable `--min-run`, and exit codes 0/1/2. The sole gate for the docs screen.
-- `tests/test_doc_tools_drift.py` -- Lint test (plan §5.1) for `juniper-doc-tools` pins. Extracts the `juniper-doc-tools>=X,<Y` pin from juniper-ml's own workflows and each cloned consumer repo's `ci.yml`, then asserts the range still admits the current version (read from `juniper-doc-tools/pyproject.toml`). Soft-warns on pins more than 2 minors behind; hard-fails when the upper bound excludes current.
+- `tests/test_doc_tools_drift.py` -- Lint test (plan §5.1) for `juniper-doc-tools` pins. Extracts the `juniper-doc-tools>=X,<Y` pin from juniper-ml's own workflows and each cloned consumer repo's `.github/workflows/*.{yml,yaml}` (not only `ci.yml` — siblings such as `juniper-recurrence` pin in `ci-docs.yml`), then asserts the range still admits the current version (read from `juniper-doc-tools/pyproject.toml`). Soft-warns on pins more than 2 minors behind; hard-fails when the upper bound excludes current.
+  - Open #940 adds `juniper-recurrence` to `_CONSUMER_REPOS` and the all-workflows scan so a pin in `ci-docs.yml` is not silently skipped.
 - `tests/test_pyproject_extras.py` -- Lint test pinning the `[project.optional-dependencies]` surface (`clients`, `worker`, `servers`, `tools`, `doc-tools`, `all`). Asserts the exact set of extras, the exact membership of each, that `[all]` aggregates every non-alias extra exactly once, and that `[project].version` is semver-ish. Added pre-0.5.0 after juniper-ml#295 introduced `[servers]` + `[tools]` without regression coverage; any future edit to extras must update the lint contract in the same PR.
   - juniper-ml's own pin check runs every PR; the cross-repo assertion auto-skips when siblings aren't on disk and additionally skips local runs by default. Set `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1` to opt in locally.
 - `tests/test_template_library_drift.py` -- Lint test enforcing manifest <-> template consistency for the custom-agent template library (`prompts/agent_templates/`): every registered template exists and every template is registered; each follows the canonical section skeleton in order; every `{{placeholder}}` matches the systematic convention; the `generic` fallback always matches.
@@ -611,7 +612,11 @@ Triggered on GitHub release published. Uses OIDC trusted publishing (no API toke
 
 ### Documentation Full Check (`docs-full-check.yml`)
 
-Weekly schedule (Monday 06:00 UTC) and manual dispatch. Clones all Juniper ecosystem repos and runs full cross-repo documentation link validation.
+Weekly schedule (Monday 06:00 UTC) and manual dispatch. Clones sibling repos from `env.ECOSYSTEM_REPOS` and runs full cross-repo documentation link validation (`--cross-repo check`), consumer `juniper-doc-tools` / `juniper-ci-tools` pin lint + downstream integration, and the L2/L3 `claude.yml` audit.
+
+**`ECOSYSTEM_REPOS` lockstep (open juniper-ml#940):** membership must equal registry publishing repos minus `juniper-ml` (the workflow checkout) plus `juniper-deploy` (doc/claude consumer, no PyPI package). Gate: `tests/test_docs_full_check_ecosystem.py`.
+
+Historically the clone list omitted `juniper-recurrence`, silently dropping that publishing sibling from every weekly screen — #940 restores it and pins the membership. `test_doc_tools_drift.py` walks every consumer `.github/workflows/*.{yml,yaml}` so a pin in `ci-docs.yml` (recurrence) is not skipped. Operator surface: [`docs/REFERENCE.md` § Docs Full Check](docs/REFERENCE.md#docs-full-check).
 
 ### Security Scan (`security-scan.yml`)
 

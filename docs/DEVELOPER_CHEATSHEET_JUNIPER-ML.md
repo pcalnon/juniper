@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
+**Version**: 1.0.9
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -19,6 +19,7 @@
 | `python -m build && twine check dist/*`                | Build and validate package                      |
 | `python3 -m unittest -v tests/test_wake_the_claude.py` | Run launcher regression tests                   |
 | `python3 -m unittest -v tests/test_pyproject_extras.py`| Lint pyproject.toml extras structure            |
+| `python3 -m unittest -v tests/test_docs_full_check_ecosystem.py` | Lockstep `docs-full-check.yml` `ECOSYSTEM_REPOS` vs registry (+ deploy) |
 | `bash scripts/test_resume_file_safety.bash`            | Run resume file safety regression               |
 | `pre-commit run --all-files`                           | Run all pre-commit hooks                        |
 | `juniper-check-doc-links --cross-repo skip`            | Validate doc links (CI-parity mode; install via `pip install juniper-doc-tools`) |
@@ -225,8 +226,14 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 | Publish doc-tools      | Push `juniper-doc-tools-vX.Y.Z` tag (OIDC trusted publishing)                               |
 | Doc links (CI parity)  | `juniper-check-doc-links --exclude templates --exclude history --exclude legacy --cross-repo skip` |
 | Doc links (full local) | `juniper-check-doc-links --cross-repo check`                                                |
+| Weekly docs-full-check | Monday 06:00 UTC / `workflow_dispatch` — clones `ECOSYSTEM_REPOS`, runs `--cross-repo check` + doc/ci-tools screens |
+| ECOSYSTEM_REPOS gate   | `python3 -m unittest -v tests/test_docs_full_check_ecosystem.py` (open #940)                |
 
 Key hooks: `ruff` (juniper-data) or `black`+`isort`+`flake8` (others), `mypy`, `bandit`, `shellcheck`, `no-unencrypted-env`.
+
+> **Weekly `ECOSYSTEM_REPOS` lockstep (open #940).** Clone list = registry publishing repos minus `juniper-ml`, plus `juniper-deploy`. Omitting a sibling (the historical `juniper-recurrence` gap) silently drops it from every weekly cross-repo screen — after #940 merges, `test_docs_full_check_ecosystem.py` fails CI on that class.
+>
+> `test_doc_tools_drift.py` walks every consumer workflow (`ci-docs.yml` included). Archive-guard merge-queue short-circuit: job admits `merge_group`, work steps stay `pull_request`-only, job ABSENT from Quality Gate `needs:`. Detail: [REFERENCE — Docs Full Check](REFERENCE.md#docs-full-check).
 
 Meta-package publish flow: build + `twine check`, TestPyPI upload with attestations, TestPyPI install verification, then PyPI upload.
 
@@ -501,5 +508,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 1.0.8
+**Version:** 1.0.9
 **Maintainer:** Paul Calnon

@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -24,6 +24,7 @@
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
+- [Docs Full Check](#docs-full-check)
 
 ---
 
@@ -842,6 +843,55 @@ Release runbooks:
 
 ---
 
+## Docs Full Check
+
+Weekly (Monday 06:00 UTC) + `workflow_dispatch` workflow [`.github/workflows/docs-full-check.yml`](../.github/workflows/docs-full-check.yml). It does **not** run on PRs — per-PR CI uses `--cross-repo skip`. The weekly job clones sibling checkouts and runs the screens PR CI cannot:
+
+1. `juniper-check-doc-links --cross-repo check` across the cloned workspace.
+2. Consumer `juniper-doc-tools` pin lint (`tests/test_doc_tools_drift.py`, plan §5.1).
+3. Downstream consumer doc-link integration (per-repo failure threshold).
+4. The matching `juniper-ci-tools` pin + dep-docs integration screens.
+5. `validate_claude_yaml_access.bash` in `JUNIPER_ROOT` mode (L2/L3 `claude.yml` audit across siblings).
+
+### `ECOSYSTEM_REPOS` lockstep
+
+`env.ECOSYSTEM_REPOS` is the clone list. Membership must equal:
+
+```text
+(registry.yaml unique `repo` values − {juniper-ml}) ∪ {juniper-deploy}
+```
+
+| Rule | Why |
+|------|-----|
+| Publishing siblings from `util/release_train/registry.yaml` | Source of truth for the 8 publishing repos (includes `juniper-recurrence`) |
+| Exclude `juniper-ml` | Already the workflow checkout (`path: juniper-ml`) |
+| Include `juniper-deploy` | Doc / `claude.yml` consumer with **no** PyPI package (release-train deliberately omits it) |
+
+**Historical gap (closed by open juniper-ml#940):** main's clone list historically omitted `juniper-recurrence`, so weekly cross-repo link validation, consumer pin lint, and downstream screens silently skipped that publishing sibling.
+
+Registry comments already called the omission out; #940 restores the clone + CONSUMERS entry and adds `tests/test_docs_full_check_ecosystem.py` so a one-line YAML drop fails CI.
+
+**Operator checklist when adding a publishing sibling:**
+
+1. Register the package/repo in `util/release_train/registry.yaml`.
+2. Add the repo name to `docs-full-check.yml` `env.ECOSYSTEM_REPOS` (and to the workflow's `CONSUMERS=(...)` arrays when it ships a doc-tools / ci-tools pin).
+3. Keep `_CONSUMER_REPOS` in `tests/test_doc_tools_drift.py` (and the ci-tools sibling) aligned when the sibling pins those tools.
+4. Run `python3 -m unittest -v tests/test_docs_full_check_ecosystem.py` (lands with #940).
+
+### Doc-tools pin discovery (`ci-docs.yml`)
+
+`juniper-recurrence` pins `juniper-doc-tools` in `.github/workflows/ci-docs.yml`, not `ci.yml`. After #940, `test_doc_tools_drift.py` walks **every** `*.yml` / `*.yaml` under each consumer's `.github/workflows/` so a dedicated docs workflow is not silently skipped.
+
+Soft-warn when a pin lags more than 2 minors; hard-fail when the upper bound excludes the current `juniper-doc-tools` version. Local sibling trees can lag `origin/main` — set `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1` to opt in outside CI.
+
+### Archive-guard `merge_group` short-circuit (same coverage PR)
+
+`ci.yml`'s `release-train-archive-guard` job is a required merge-queue context. On `pull_request` it runs `util/release_train/archive_guard.py`; on `merge_group` there is no `github.base_ref`, so the job **must** short-circuit to a green notice before any checkout / base-ref work, and every real work step stays `if: github.event_name == 'pull_request'`.
+
+The job stays **ABSENT** from Quality Gate `needs:` (skip-on-push must not paint `push:main` red). Gate: `tests/test_archive_guard_workflow.py` (open #940; classifier behaviour remains `tests/test_release_train_archive_guard.py`).
+
+---
+
 ## Environment Variables
 
 These variables are consumed by Juniper packages documented in this repository. `juniper-ml` itself does not set them; they belong to the extras-installed packages.
@@ -863,5 +913,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Maintainer:** Paul Calnon
