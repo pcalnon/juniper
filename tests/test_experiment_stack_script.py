@@ -25,7 +25,11 @@ pins:
 - ``allocate_port`` lockdir semantics with a stubbed ``ss``;
 - teardown behaviourally: pidfile-first (a stubbed ``ss`` reports NO listener, so
   only the pidfile path can kill the process), target-file removal, lockdir
-  release, and artifacts preserved.
+  release, and artifacts preserved;
+- OR-list false-green pins: ``*_up || failed=1`` disables set -e inside each body,
+  so ``require_env_bin`` / ``wait_for_health`` / ``record_listener_pid`` /
+  ``activate_conda`` must ``|| return 1`` (stale-listener health-fail class);
+- mid-allocate ``release_held_locks`` + Grafana ``bridge_up`` failure → ``teardown_run``.
 
 Hermetic mechanics: ``JUNIPER_EXP_RUN_ROOT`` / ``JUNIPER_EXP_LOCK_ROOT`` /
 ``JUNIPER_EXP_DEPLOY_DIR`` / ``JUNIPER_EXP_PROJECT_DIR`` redirect every path into a
@@ -844,6 +848,251 @@ class TestConfigStaging(unittest.TestCase):
         recurrence_up = _extract_experiment_fn("recurrence_up")
         self.assertNotIn("serve --config", recurrence_up)
         self.assertIn("Wave 3.3", recurrence_up)
+
+
+class TestOrListReturnPins(unittest.TestCase):
+    """``*_up || failed=1`` disables set -e — critical steps must ``|| return 1``.
+
+    Mirrors isolated_stack #963. Orthogonal to open #919's require_env_bin partial-
+    teardown behavioural arm (tests-only; did not add these production pins).
+    """
+
+    def test_do_up_absorbs_each_service_into_failed(self) -> None:
+        do_up = _extract_experiment_fn("do_up")
+        self.assertIn("data_up || failed=1", do_up)
+        self.assertIn("cascor_up || failed=1", do_up)
+        self.assertIn("recurrence_up || failed=1", do_up)
+        self.assertLess(do_up.index("data_up || failed=1"), do_up.index("cascor_up || failed=1"))
+        self.assertLess(do_up.index("cascor_up || failed=1"), do_up.index("recurrence_up || failed=1"))
+        self.assertIn("bring-up failed — tearing the partial run back down", do_up)
+
+    def test_each_up_returns_on_health_and_listener_failure(self) -> None:
+        data_up = _extract_experiment_fn("data_up")
+        cascor_up = _extract_experiment_fn("cascor_up")
+        recurrence_up = _extract_experiment_fn("recurrence_up")
+        self.assertIn('require_env_bin "${DATA_CONDA}" python || return 1', data_up)
+        self.assertIn('wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health" || return 1', data_up)
+        self.assertIn('record_listener_pid "juniper-data" "${DATA_PORT}" || return 1', data_up)
+        self.assertIn('activate_conda "${DATA_CONDA}" || return 1', data_up)
+
+        self.assertIn('require_env_bin "${CASCOR_CONDA}" uvicorn || return 1', cascor_up)
+        self.assertIn('wait_for_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health" || return 1', cascor_up)
+        self.assertIn('record_listener_pid "juniper-cascor" "${CASCOR_PORT}" || return 1', cascor_up)
+        self.assertIn('activate_conda "${CASCOR_CONDA}" || return 1', cascor_up)
+
+        self.assertIn('require_env_bin "${RECURRENCE_CONDA}" juniper-recurrence || return 1', recurrence_up)
+        self.assertIn(
+            'wait_for_health "juniper-recurrence" "http://127.0.0.1:${RECURRENCE_PORT}/v1/health/ready" || return 1',
+            recurrence_up,
+        )
+        self.assertIn('record_listener_pid "juniper-recurrence" "${RECURRENCE_PORT}" || return 1', recurrence_up)
+        self.assertIn('activate_conda "${RECURRENCE_CONDA}" || return 1', recurrence_up)
+
+    def test_do_up_releases_locks_on_allocate_failure_and_tears_down_bridge_failure(self) -> None:
+        do_up = _extract_experiment_fn("do_up")
+        # Every allocate_port site must clear HELD_LOCK_PORTS on failure (helper was dead).
+        for svc in ("juniper-data", "juniper-cascor", "juniper-recurrence"):
+            self.assertRegex(
+                do_up,
+                rf'allocate_port "{svc}".*?\|\| \{{\s*release_held_locks',
+                msg=f"{svc} allocate failure must call release_held_locks",
+            )
+        self.assertIn("if ! bridge_up; then", do_up)
+        self.assertIn("Grafana bridge failed — tearing the run back down", do_up)
+        self.assertIn('teardown_run "${RUN_ID}"', do_up)
+
+
+class TestOrListStaleListenerFalseGreen(unittest.TestCase):
+    """Health-fail + stale ss listener must set failed=1 under the OR-list pattern.
+
+    Pre-fix: wait_for_health returned 1, record_listener_pid then succeeded on a
+    leftover listener, and ``fake_up || failed=1`` left failed=0 (no teardown).
+    """
+
+    def _spawn_detached(self) -> int:
+        launcher = "setsid bash -c 'exec sleep 120' </dev/null >/dev/null 2>&1 & echo $!"
+        result = subprocess.run(["/bin/bash", "-c", launcher], capture_output=True, text=True, timeout=SCRIPT_TIMEOUT_SECONDS)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        pid = int(result.stdout.strip().splitlines()[-1])
+        time.sleep(0.2)
+        self.assertTrue(Path(f"/proc/{pid}").exists(), f"detached pid {pid} missing")
+        return pid
+
+    def _force_kill(self, pid: int) -> None:
+        for kill_target in (lambda: os.killpg(pid, signal.SIGKILL), lambda: os.kill(pid, signal.SIGKILL)):
+            try:
+                kill_target()
+                break
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                continue
+
+    def test_health_fail_with_stale_listener_sets_failed_under_or_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub_bin = root / "bin"
+            stub_bin.mkdir()
+            (stub_bin / "curl").write_text("#!/bin/bash\nexit 22\n")
+            (stub_bin / "curl").chmod(0o755)
+            pid = self._spawn_detached()
+            try:
+                (stub_bin / "ss").write_text(
+                    "#!/bin/bash\n"
+                    'want=""\n'
+                    'for arg in "$@"; do case "$arg" in *sport*) want="${arg##*:}";; esac; done\n'
+                    '[[ -n "$want" ]] || exit 0\n'
+                    f'echo "LISTEN 0 128 127.0.0.1:${{want}} 0.0.0.0:* users:((\\"python\\",pid={pid},fd=3))"\n'
+                    "exit 0\n"
+                )
+                (stub_bin / "ss").chmod(0o755)
+                run_dir = root / "run"
+                (run_dir / "logs").mkdir(parents=True)
+                # The post-launch tail of *_up under the same OR-list do_up uses —
+                # with the production ``|| return 1`` pins that close the false-green.
+                harness = (
+                    "set -euo pipefail\n"
+                    'SCRIPT_NAME="experiment_stack.bash"\n'
+                    "DRY_RUN=0\n"
+                    "HEALTH_TIMEOUT=2\n"
+                    f'RUN_DIR="{run_dir}"\n'
+                    f'LOG_DIR="{run_dir}/logs"\n'
+                    "DATA_PORT=18110\n"
+                    'log() { echo "[${SCRIPT_NAME}] $*"; }\n'
+                    'is_dry() { [[ "${DRY_RUN}" == "1" ]]; }\n'
+                    + _extract_experiment_fn("port_listener_pid")
+                    + _extract_experiment_fn("proc_cmdline")
+                    + _extract_experiment_fn("wait_for_health")
+                    + _extract_experiment_fn("record_listener_pid")
+                    + "fake_up() {\n"
+                    '  wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health" || return 1\n'
+                    '  record_listener_pid "juniper-data" "${DATA_PORT}" || return 1\n'
+                    "}\n"
+                    "failed=0\n"
+                    "fake_up || failed=1\n"
+                    'printf "FAILED=%s\\n" "${failed}"\n'
+                )
+                env = RedactedEnv(os.environ)
+                env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+                result = subprocess.run(
+                    ["/bin/bash", "-c", harness],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    timeout=SCRIPT_TIMEOUT_SECONDS,
+                )
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertIn("FAILED=1", result.stdout)
+                self.assertIn("failed to become healthy", result.stdout)
+                self.assertFalse(
+                    (run_dir / "juniper-data.pid").exists(),
+                    "OR-list must return before recording a stale listener as authoritative",
+                )
+            finally:
+                self._force_kill(pid)
+
+    def test_without_return_pins_stale_listener_false_greens(self) -> None:
+        """Negative control: the pre-fix body shape leaves failed=0 (documents the hazard)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub_bin = root / "bin"
+            stub_bin.mkdir()
+            (stub_bin / "curl").write_text("#!/bin/bash\nexit 22\n")
+            (stub_bin / "curl").chmod(0o755)
+            pid = self._spawn_detached()
+            try:
+                (stub_bin / "ss").write_text(
+                    "#!/bin/bash\n"
+                    'want=""\n'
+                    'for arg in "$@"; do case "$arg" in *sport*) want="${arg##*:}";; esac; done\n'
+                    '[[ -n "$want" ]] || exit 0\n'
+                    f'echo "LISTEN 0 128 127.0.0.1:${{want}} 0.0.0.0:* users:((\\"python\\",pid={pid},fd=3))"\n'
+                    "exit 0\n"
+                )
+                (stub_bin / "ss").chmod(0o755)
+                run_dir = root / "run"
+                (run_dir / "logs").mkdir(parents=True)
+                harness = (
+                    "set -euo pipefail\n"
+                    'SCRIPT_NAME="experiment_stack.bash"\n'
+                    "DRY_RUN=0\n"
+                    "HEALTH_TIMEOUT=2\n"
+                    f'RUN_DIR="{run_dir}"\n'
+                    f'LOG_DIR="{run_dir}/logs"\n'
+                    "DATA_PORT=18110\n"
+                    'log() { echo "[${SCRIPT_NAME}] $*"; }\n'
+                    'is_dry() { [[ "${DRY_RUN}" == "1" ]]; }\n'
+                    + _extract_experiment_fn("port_listener_pid")
+                    + _extract_experiment_fn("proc_cmdline")
+                    + _extract_experiment_fn("wait_for_health")
+                    + _extract_experiment_fn("record_listener_pid")
+                    + "fake_up() {\n"
+                    '  wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health"\n'
+                    '  record_listener_pid "juniper-data" "${DATA_PORT}"\n'
+                    "}\n"
+                    "failed=0\n"
+                    "fake_up || failed=1\n"
+                    'printf "FAILED=%s\\n" "${failed}"\n'
+                )
+                env = RedactedEnv(os.environ)
+                env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+                result = subprocess.run(
+                    ["/bin/bash", "-c", harness],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    timeout=SCRIPT_TIMEOUT_SECONDS,
+                )
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertIn("FAILED=0", result.stdout)
+                self.assertEqual((run_dir / "juniper-data.pid").read_text().strip(), str(pid))
+            finally:
+                self._force_kill(pid)
+
+
+class TestReleaseHeldLocksOnAllocateFail(unittest.TestCase):
+    """Mid-allocate failure must clear earlier lockdirs (release_held_locks was dead)."""
+
+    def test_second_range_exhaustion_releases_the_first_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lock_root = root / "locks"
+            lock_root.mkdir()
+            # Occupy the entire cascor range so the second allocate_port fails.
+            for port in range(8230, 8260):
+                (lock_root / f"{port}.lock").mkdir()
+            stub_bin = _stage_stub_bin(root, busy_ports=[])
+            harness = (
+                "set -euo pipefail\n"
+                'SCRIPT_NAME="experiment_stack.bash"\n'
+                "DRY_RUN=0\n"
+                f'LOCK_ROOT="{lock_root}"\n'
+                "HELD_LOCK_PORTS=()\n"
+                'log() { echo "[${SCRIPT_NAME}] $*"; }\n'
+                'is_dry() { [[ "${DRY_RUN}" == "1" ]]; }\n'
+                + _extract_experiment_fn("port_in_use")
+                + _extract_experiment_fn("allocate_port")
+                + _extract_experiment_fn("release_held_locks")
+                + "allocate_port juniper-data 8110 8110 || { release_held_locks; exit 1; }\n"
+                'printf "HELD_AFTER_DATA=%s\\n" "${HELD_LOCK_PORTS[*]:-}"\n'
+                "allocate_port juniper-cascor 8230 8259 || { release_held_locks; printf 'RELEASED\\n'; exit 1; }\n"
+            )
+            env = RedactedEnv(os.environ)
+            env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+            result = subprocess.run(
+                ["/bin/bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("HELD_AFTER_DATA=8110", result.stdout)
+            self.assertIn("RELEASED", result.stdout)
+            self.assertFalse(
+                (lock_root / "8110.lock").exists(),
+                "release_held_locks must rmdir the data lock after cascor range exhaustion",
+            )
 
 
 if __name__ == "__main__":
