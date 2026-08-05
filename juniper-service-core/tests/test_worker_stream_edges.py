@@ -189,7 +189,7 @@ async def test_invalid_registration_shape_closes_4008(bad_register: dict) -> Non
 
     assert ws.accepted is True  # auth/accept happen before registration validation
     assert ws.closed is not None and ws.closed[0] == 4008
-    assert reg.worker_count() == 0
+    assert reg.worker_count == 0
     assert not any(m.get("type") == "registration_ack" for m in ws.sent)
 
 
