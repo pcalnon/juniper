@@ -1181,6 +1181,13 @@ class PlotRendererUnitTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.plots.render_dataset(npz, "t", self.tmp / "dataset.png")
 
+    def test_render_decision_boundary_rejects_empty_predictions(self) -> None:
+        # Empty grid must ValueError so the driver records a per-plot SKIP (not a blank PNG).
+        boundary = {"grid_x": [], "grid_y": [], "predictions": []}
+        with self.assertRaises(ValueError) as ctx:
+            self.plots.render_decision_boundary(boundary, None, "t", self.tmp / "boundary.png")
+        self.assertIn("empty prediction grid", str(ctx.exception))
+
 
 @unittest.skipUnless(HAVE_NUMPY and HAVE_MPL, "numpy + matplotlib required for the SS8.2 plot set")
 class RecurrencePlotsTest(_StubTestCase):
@@ -1262,6 +1269,20 @@ class RecurrencePlotRendererUnitTest(unittest.TestCase):
     def test_forecast_rejects_length_mismatch(self) -> None:
         with self.assertRaises(ValueError):
             self.plots.render_forecast_vs_truth([[0.1], [0.2]], [0.1, 0.2, 0.3], "t", self.tmp / "f.png")
+
+    def test_residuals_rejects_length_mismatch(self) -> None:
+        # Same length-assert as forecast; a silent zip/truncate would invent residuals.
+        with self.assertRaises(ValueError) as ctx:
+            self.plots.render_residuals([[0.1], [0.2]], [0.1], None, "t", self.tmp / "r.png")
+        self.assertIn("prediction count", str(ctx.exception))
+
+    def test_metrics_table_rejects_empty_numeric(self) -> None:
+        # No numeric train/CV cells -> ValueError -> driver SKIP (not an empty table PNG).
+        with self.assertRaises(ValueError) as ctx:
+            self.plots.render_metrics_table({}, None, "t", self.tmp / "empty.png")
+        self.assertIn("no numeric metrics", str(ctx.exception))
+        with self.assertRaises(ValueError):
+            self.plots.render_metrics_table({"note": "x"}, {"eval_aggregate": {"msg": "y"}}, "t", self.tmp / "nonnum.png")
 
     def test_metrics_table_renders_train_and_cv_rows(self) -> None:
         crossval = {"eval_aggregate": {"r2": 0.8}, "eval_std": {"r2": 0.05}}

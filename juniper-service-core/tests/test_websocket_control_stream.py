@@ -5,12 +5,17 @@ module unit-tests the rejection gates, the command-dispatch error arms (executor
 timeout / unexpected-exception), the heartbeat ping loop, and the receive loop (idle timeout /
 oversized / malformed-JSON / pong routing) directly with fake sockets -- deterministic, no
 transport threading.
+
+Also pins ``_sanitize_for_log`` (broader than the security-module strip: drops other
+control chars) and the command-dispatch log path so a CRLF/control-char command name
+cannot forge multi-line control-plane ERROR/INFO records.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 import types
 
@@ -26,6 +31,7 @@ from juniper_service_core.websocket.control_stream import (
     _control_recv_loop,
     _get_client_ip,
     _handle_command_message,
+    _sanitize_for_log,
     control_stream_handler,
 )
 
@@ -105,6 +111,47 @@ def test_get_client_ip_returns_peer() -> None:
 
 def test_get_client_ip_unknown_without_client() -> None:
     assert _get_client_ip(ControlFakeWS(client=None)) == "unknown"
+
+
+# ----------------------------------------------------------------------------------------
+# Log sanitizer (control-char / CRLF injection)
+# ----------------------------------------------------------------------------------------
+
+
+def test_sanitize_for_log_strips_crlf_and_control_chars() -> None:
+    # Broader than control_security: also drop BEL / other C0 controls (keep tab).
+    dirty = "start\r\ninjected\x07\x1bX\tok"
+    clean = _sanitize_for_log(dirty)
+    assert "\r" not in clean
+    assert "\n" not in clean
+    assert "\x07" not in clean
+    assert "\x1b" not in clean
+    assert "\t" in clean
+    assert clean == "startinjected\tok"
+    assert _sanitize_for_log(None) == "None"
+    assert _sanitize_for_log(12) == "12"
+
+
+@pytest.mark.asyncio
+async def test_handle_command_reject_log_is_single_line(caplog) -> None:
+    # A CRLF command name that reaches the executor-reject log must stay one line.
+    class _RejectingExecutor:
+        commands = ("start\ninjected",)
+
+        def execute(self, command: str, params: dict | None) -> dict:
+            raise ValueError("bad params")
+
+    malicious = "start\ninjected"
+    ws = ControlFakeWS()
+    with caplog.at_level(logging.INFO, logger=control_stream.logger.name):
+        await _handle_command_message(ws, _RejectingExecutor(), {malicious}, {"command": malicious}, LeakyBucket())
+    assert ws.sent[-1]["data"]["status"] == "error"
+    reject_msgs = [r.getMessage() for r in caplog.records if "rejected" in r.getMessage()]
+    assert reject_msgs, "expected a command-rejected log line"
+    for msg in reject_msgs:
+        assert "\n" not in msg
+        assert "\r" not in msg
+        assert "injected" in msg
 
 
 # ----------------------------------------------------------------------------------------
