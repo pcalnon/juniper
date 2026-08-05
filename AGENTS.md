@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.0
-**Last Updated**: 2026-08-04
+**Last Updated**: 2026-08-05
 
 ---
 
@@ -442,6 +442,11 @@ juniper-ml/
   - Ports (§9.3): first free port in data `8110-8139` / cascor `8230-8259` / recurrence `8260-8289`, claimed by an atomic `mkdir "$LOCK_ROOT/<port>.lock"`
     (`JUNIPER_EXP_LOCK_ROOT`, default `${XDG_RUNTIME_DIR:-/tmp}/juniper-experiments`) plus an `ss` probe, released at teardown. The lockdir serialises experiment launchers
     against each other; the residual race vs a non-participating binder is deliberately left to surface as the service's own bind failure through the health gate (H-1).
+  - Staging failure → `release_held_locks` (open juniper-ml#979): `allocate_port` creates `*.lock` dirs before `ports.json` exists. On main, bare
+    `create_run_dir` / `stage_config` / `write_ports_json` under `set -e` can exit after allocate with no `ports.json`, so `--down` cannot recover and the
+    30-port ranges starve. Need each staging step `|| { release_held_locks; return 1; }`. Also `discover_gateway_ip || return 1` inside `bridge_up` for
+    OR-list / `if ! bridge_up` callers (empty `GATEWAY_IP` false-green). Distinct from mid-allocate release (#972–#974 / docs #980) and post-launch
+    `failed=1` → `teardown_run` (#968). Operator surface: [`docs/REFERENCE.md` § Staging failure](docs/REFERENCE.md#staging-failure--release_held_locks-open-juniper-ml979).
   - **F-6 pid rule (binding)**: `$!` after `( cd … && nohup <server> … & )` is the backgrounded **subshell**, not the server, so no `*_up` records it. Each service's pidfile
     is written by `record_listener_pid` from `ss -tlnpH "sport = :<port>"` **after** the health gate, with the process cmdline stored alongside; teardown kills pidfile-first
     and only after proving the pid is alive, owned by the current uid, and still running the recorded cmdline (SIGTERM then bounded SIGKILL), falling back to kill-by-port
@@ -548,6 +553,8 @@ juniper-ml/
     no listener, so kill-by-port cannot be what fired), removes the target file, releases the lockdirs, writes `teardown.json`, and preserves `artifacts/`.
   Live `cascor_up` / `canopy_up` compose pins (`TestCascorUp` / `TestCanopyUp` — fake `conda.sh` + PATH stubs; juniper-ml#813). Wired into `ci.yml` beside the `test_juniper_{plant,chop}_all.py` launcher tests.
   - Live compose coverage for `data_up` (`TestDataUpLive`: venv create/skip, pip extras, `PYTHON_GIL=0`, pidfile, missing-`python3.14` abort — juniper-ml#807).
+  - Staging lock release (open #979): `test_staging_failure_releases_held_port_locks` + hermetic `TestMissingConfigReleasesPortLocks` (missing `--config` leaves zero
+    `*.lock`) + `test_discover_gateway_ip_fail_closed_under_or_list_callers` (`discover_gateway_ip || return 1` in `bridge_up`).
 - `tests/test_run_experiment.py` -- Hermetic tests for `util/experiments/run_experiment.py` (CLI experimentation plan Waves 2.2-2.6: the cascor + recurrence service paths, the §8.1 + §8.2 plot sets, and the §8.3 stats/summary renderers (e2e stats assertions for both kinds + every-outcome coverage + the `StatsSummaryUnitTest` percentile/delta/grouping/degraded-notes units) --
   plot arms cover all-rendered PNGs for both kinds (sequence-NPZ stub artifact for §8.2), per-kind plot-name validation, skip-vs-acceptance semantics (eval-disabled / degraded-sampling / disabled-phase skips, matplotlib-unavailable failure), and the `plots_cascor.py` / `plots_recurrence.py` renderer units incl. the `y_reg_` target-key preference;
   `util/` is not pre-commit-lint-gated, so this unittest is the gate). A scripted stub HTTP server stands in for juniper-data, cascor, and recurrence (no live services): the

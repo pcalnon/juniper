@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -667,6 +667,43 @@ Optional flags on `--up`:
 
 Port locks use atomic `mkdir "$LOCK_ROOT/<port>.lock"` (`JUNIPER_EXP_LOCK_ROOT`, default `${XDG_RUNTIME_DIR:-/tmp}/juniper-experiments`) plus an `ss` probe. The lockdir serialises experiment launchers against each other; a foreign binder can still race — that surfaces as the service's own bind failure through the health gate.
 
+#### Staging failure → `release_held_locks` (open juniper-ml#979)
+
+`do_up` allocates ports **before** staging: `allocate_port` appends to `HELD_LOCK_PORTS` and creates `*.lock` dirs, then `create_run_dir` → `stage_config` → `write_ports_json`, then the `*_up` launches.
+
+On **main today**, those three staging steps are bare under `set -e`:
+
+```bash
+create_run_dir
+stage_config
+write_ports_json
+```
+
+A missing `--config` (or mkdir/cp / `ports.json` write failure) therefore exits `do_up` **after** locks exist and **before** `ports.json` is written. `--down` cannot recover those locks (no `ports.json`), and the in-process `HELD_LOCK_PORTS` dies with the shell — so the 30-port experiment ranges (`8110–8139` / `8230–8259` / `8260–8289`) starve later `--up` attempts until lockdirs are removed by hand (or the runtime dir is reaped).
+
+Open [#979](https://github.com/pcalnon/juniper-ml/pull/979) wires the fail-closed pattern:
+
+```bash
+create_run_dir || { release_held_locks; return 1; }
+stage_config || { release_held_locks; return 1; }
+write_ports_json || { release_held_locks; return 1; }
+```
+
+Confirm once #979 lands:
+
+```bash
+rg -n -A3 'create_run_dir \|\| \{' util/experiment_stack.bash
+ls "${JUNIPER_EXP_LOCK_ROOT:-${XDG_RUNTIME_DIR:-/tmp}/juniper-experiments}"/*.lock 2>/dev/null || echo 'no leftover locks'
+```
+
+Reproduce the pre-#979 leak (on main): `util/experiment_stack.bash --up --cascor --config /path/that/does/not/exist.yaml` — expect nonzero exit **and** leftover `*.lock` under the lock root. Post-#979 the same command must leave zero locks.
+
+Also in #979: `bridge_up` pins `discover_gateway_ip || return 1` so callers that wrap `bridge_up` in `if !` (OR-list / conditional — disables `set -e` inside the body) cannot fall through with an empty `GATEWAY_IP` into `relay_up` / target write.
+
+Distinct from open docs [#980](https://github.com/pcalnon/juniper-ml/pull/980) / code [#972](https://github.com/pcalnon/juniper-ml/pull/972)–[#974](https://github.com/pcalnon/juniper-ml/pull/974) (mid-`allocate_port` `release_held_locks` + OR-list `*_up` pins) and [#968](https://github.com/pcalnon/juniper-ml/pull/968) (post-launch `failed=1` → `teardown_run`).
+
+Coverage: open #979 `tests/test_experiment_stack_script.py` — `test_staging_failure_releases_held_port_locks`, `TestMissingConfigReleasesPortLocks`, `test_discover_gateway_ip_fail_closed_under_or_list_callers`.
+
 #### F-6 listener pid rule (binding)
 
 `$!` after `( cd … && nohup <server> … & )` is the backgrounded **subshell**, not the server. No `*_up` records `$!`. After the health gate, `record_listener_pid` writes the listener from `ss -tlnpH "sport = :<port>"` plus the process cmdline. Teardown kills pidfile-first only after proving the pid is alive, owned by the current uid, and still running the recorded cmdline (SIGTERM then bounded SIGKILL); falls back to kill-by-port only within this run's recorded ports. `artifacts/` is never deleted.
@@ -738,6 +775,9 @@ Coverage: `tests/test_run_experiment.py`.
 | Worktree can't find cascor `src/` | Set `JUNIPER_EXP_PROJECT_DIR` to the real ecosystem root. |
 | Teardown killed the wrong process / left orphans | Pre-F-6 `$!` class — confirm pidfiles came from `record_listener_pid` (post-health `ss`), not shell `$!`. |
 | `--status` says UNSCRAPED | Expected without `--grafana-bridge`; opt in only when `socat` + deploy `prometheus/targets/` are available. |
+| `--up` fails on missing/bad `--config`, then later `--up` says port range exhausted | Pre-#979 staging lock leak — see [Staging failure → release_held_locks](#staging-failure--release_held_locks-open-juniper-ml979). Until #979 lands, remove leftover `*.lock` under `JUNIPER_EXP_LOCK_ROOT` (default `${XDG_RUNTIME_DIR:-/tmp}/juniper-experiments`) after confirming no live experiment listeners on those ports. |
+| Main still has bare `create_run_dir` / `stage_config` / `write_ports_json` | Confirm with the `rg` above; do not rely on `--down` to clear locks when `ports.json` was never written. |
+| Grafana bridge binds empty / broken gateway after `if ! bridge_up` | Need #979 `discover_gateway_ip \|\| return 1` — without it OR-list callers false-green a broken bridge. |
 | Driver exit `2` on YAML | Unknown block/key, missing `experiment.seed`, or rule-6 infra key — see stderr. |
 | Driver exit `1` `stalled` / `timed_out` | Cascor: raise `--stall-seconds` / `--max-wall-seconds` only after confirming the run is still progressing; recurrence `timed_out` is the train socket budget. |
 | Missing correlation / empty plot | Correlation is only in the driver's `metrics_series.csv` (not `/v1/metrics/history`). A `/metrics` 404 degrades sampling (G-3), not the run. |
@@ -783,6 +823,7 @@ Publish and CI constraints:
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.1   | 2026-08-05 | Experiment Stack: staging-failure `release_held_locks` + `discover_gateway_ip` fail-closed (open juniper-ml#979; distinct from mid-allocate #972–#974 / docs #980)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
 | 0.4.1   | 2026-04-28 | Added `juniper-observability` sibling package and dedicated CI/publish workflows                                                                                         |

@@ -2,9 +2,9 @@
 
 ## Install Juniper Packages with juniper-ml
 
-**Version:** 0.3.1
+**Version:** 0.3.2
 **Status:** Active
-**Last Updated:** June 4, 2026
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -113,6 +113,7 @@ from juniper_cascor_worker import CandidateTrainingWorker
 - [Reference](REFERENCE.md) -- extras, compatibility, and version reference
 - [Host Orchestration Utilities](REFERENCE.md#host-orchestration-utilities) -- run services on-host with `util/juniper_plant_all.bash` and `util/juniper_chop_all.bash`
 - [Experiment Stack Utilities](REFERENCE.md#experiment-stack-utilities) -- per-run cascor/recurrence experiments via `util/experiment_stack.bash` + `run_experiment.py`
+- [Staging failure → release_held_locks](REFERENCE.md#staging-failure--release_held_locks-open-juniper-ml979) -- missing `--config` must not starve experiment port locks (open #979)
 - [juniper-observability README](../juniper-observability/README.md) -- shared observability primitives
 - [juniper-data-client Quick Start](https://github.com/pcalnon/juniper-data-client) -- dataset client usage
 - [juniper-cascor-client Quick Start](https://github.com/pcalnon/juniper-cascor-client) -- training client usage
@@ -120,6 +121,6 @@ from juniper_cascor_worker import CandidateTrainingWorker
 
 ---
 
-**Last Updated:** June 4, 2026
-**Version:** 0.3.1
+**Last Updated:** 2026-08-05
+**Version:** 0.3.2
 **Status:** Active

@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
+**Version**: 1.0.9
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -412,6 +412,10 @@ Full contract: [REFERENCE — Isolated Stack E2E](REFERENCE.md#isolated-stack-e2
 
 Tip: `util/experiment_stack.bash` is the **per-run** launcher (data `8110–8139` / cascor `8230–8259` / recurrence `8260–8289`) — not isolated-stack and not `plant_all`. Never canopy; never `JuniperProject.pid`; never repo `.env`. Pidfiles come from post-health `ss` (F-6), not `$!`. From a worktree set `JUNIPER_EXP_PROJECT_DIR`. Drive with `python util/experiments/run_experiment.py --config … --run-dir …` (exit `0`–`4`). Full contract: [REFERENCE — Experiment Stack](REFERENCE.md#experiment-stack-utilities).
 
+Tip: a missing/bad `--config` after port allocate used to leave `*.lock` dirs with no `ports.json` (pre-[#979](https://github.com/pcalnon/juniper-ml/pull/979)) — later `--up` then starves the 30-port ranges and `--down` cannot recover.
+Need staging `create_run_dir` / `stage_config` / `write_ports_json` each `\|\| { release_held_locks; return 1; }`. Until #979 lands, clear leftover locks under `JUNIPER_EXP_LOCK_ROOT` only after confirming no live listeners.
+Also #979 pins `discover_gateway_ip \|\| return 1` inside `bridge_up`. See [REFERENCE — Staging failure](REFERENCE.md#staging-failure--release_held_locks-open-juniper-ml979).
+
 Tip: orphaned cascor workers outside `JuniperProject.pid` need `KILL_WORKERS=1 util/juniper_chop_all.bash` (default `0`). Strict filter keeps `juniper-cascor-worker` / `juniper_cascor_worker` only — not the old over-greedy `cascor.*worker`. Timeout hard-coded `5s`. Full contract: [REFERENCE — Host Orchestration](REFERENCE.md#host-orchestration-utilities).
 
 Tip: never set `HEALTH_CHECK_INTERVAL=0` to "poll faster" — that busy-loops forever (`sleep 0` never advances elapsed).
@@ -448,6 +452,8 @@ Tip: systemd chop soft-fails per unit and always exits `0` without touching the 
 | Experiment `--up` misuse / exit `2` | Need one action + `--cascor` and/or `--recurrence`. |
 | Experiment health timeout | Check `$RUN_DIR/logs/`; default wait is `90s` (cold recurrence). Set `JUNIPER_EXP_PROJECT_DIR` in worktrees. |
 | Experiment teardown left listeners / wrong kill | Confirm F-6 pidfiles (`record_listener_pid` after health); `--down` keeps `artifacts/`. |
+| Experiment port range exhausted after a failed `--config` | Pre-#979 staging lock leak — clear `*.lock` under `JUNIPER_EXP_LOCK_ROOT` only with no live listeners; see [REFERENCE staging](REFERENCE.md#staging-failure--release_held_locks-open-juniper-ml979). |
+| Experiment `--down` cannot clear locks / no `ports.json` | Staging aborted before `write_ports_json` — need #979 `release_held_locks` on staging failure (not recoverable via `--down`). |
 | Driver exit `1` stalled/timed_out | Cascor stall detector / wall budget; recurrence `timed_out` = train socket budget. See `manifest.json`. |
 | `chop_all` logs `ERROR: PID file is empty` | Zero-byte pidfile is the empty arm of the same early wire (cleanup then `exit 1`). Re-plant; do not hand-create an empty file. |
 | Missing/empty pidfile but workers still up | Early wire already invoked cleanup; set `KILL_WORKERS=1` on that chop to opt into the pgrep reap before abort. |
