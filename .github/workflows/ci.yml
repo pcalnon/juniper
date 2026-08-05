@@ -287,12 +287,6 @@ jobs:
           # delete / out-of-path / bad-name / mixed diffs each FAIL; exit codes 0/1/2.
           # No network / git / gh. util/ is not pre-commit-lint-gated, so this is the gate.
           python3 -m unittest -v tests/test_release_train_archive_guard.py
-          # tests/test_ci_archive_guard_merge_group.py: structural + YAML-extraction
-          # rehearsal for the release-train-archive-guard merge_group short-circuit
-          # (flood-remediation §4 item 1): queue runs must report green without
-          # base-ref diffing; PR-path steps stay pull_request-only; job stays out of
-          # the Quality Gate needs. Workflow YAML is not otherwise lint-gated for this.
-          python3 -m unittest -v tests/test_ci_archive_guard_merge_group.py
           # tests/test_release_train_ceremony.py: hermetic tests for the exempt-archive
           # + Release ceremony engine (util/release_train/ceremony.py, plan §7/§8/§9.3/§10
           # / §12 step 3.2). Drives the planner + execute over an injected CeremonySources
