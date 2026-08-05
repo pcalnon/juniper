@@ -9,13 +9,14 @@ or transport. cascor is untouched; its real ``WorkerProtocol`` adapter is WS-6. 
 Coverage:
 
 * ``WorkerCoordinator`` -- submit / dispatch (assignment built via the protocol) / submit-result
-  (accept, reject-unknown, reject-duplicate, reject-on-parse-None) / collect (+ worker-liveness
-  early-exit) / pending-count / task-timeout reassignment / stale-worker reassignment / anomaly hook /
-  send-callback bookkeeping / cancel + shutdown.
+  (accept, reject-unknown, reject-duplicate, reject-on-parse-None, reject-wrong-worker,
+  reject-unassigned) / collect (+ worker-liveness early-exit) / pending-count / task-timeout
+  reassignment / stale-worker reassignment / anomaly hook / send-callback bookkeeping / cancel +
+  shutdown.
 * ``/ws/workers`` stream -- origin reject, uninitialised-pool reject, rate-limit reject, registration
   (server-assigned id + client_name), invalid-registration reject, registry-full reject, the full
-  register -> dispatch -> result -> collect flow, heartbeat ack + enriched-field forwarding, and a
-  binary-attachment result round-trip.
+  register -> dispatch -> result -> collect flow, heartbeat ack + enriched-field forwarding, a
+  binary-attachment result round-trip, and oversize binary-frame reject (no ``submit_result``).
 """
 
 from __future__ import annotations
@@ -241,6 +242,43 @@ def test_submit_result_rejects_on_parse_none_and_marks_failed() -> None:
     assert coord.submit_result("w1", {"task_id": tid, "ok": False}, {}) is False
     assert reg.get("w1").tasks_failed == 1
     assert coord.collect_results(timeout=0.1) == []  # nothing accepted
+
+
+def test_submit_result_rejects_wrong_worker_keeps_assignee_busy() -> None:
+    """A stranger's result must not be accepted or free the assignee (ownership footgun)."""
+    reg = WorkerRegistry()
+    reg.register("w1", {})
+    reg.register("w2", {})
+    proto = _RecordingProtocol()
+    coord = WorkerCoordinator(reg, proto)
+    (tid,) = coord.submit_tasks("r", [{"c": 0}])
+    coord.get_next_assignment("w1")  # assigned to w1
+
+    assert coord.submit_result("w2", {"task_id": tid, "success": True, "score": 0.9}, {}) is False
+    assert reg.get("w1").idle is False  # assignee still busy — complete_task was NOT called
+    assert reg.get("w1").tasks_completed == 0
+    assert reg.get("w2").tasks_completed == 0
+    assert coord.collect_results(timeout=0.1) == []  # nothing accepted
+    # Real owner can still submit after the rejected stranger attempt.
+    assert coord.submit_result("w1", {"task_id": tid, "success": True, "score": 0.5}, {}) is True
+    assert reg.get("w1").idle is True
+
+
+def test_submit_result_rejects_unassigned_task() -> None:
+    """A result for a still-queued (unassigned) task must not be accepted before dispatch."""
+    reg = WorkerRegistry()
+    reg.register("w1", {})
+    coord = WorkerCoordinator(reg, _RecordingProtocol())
+    (tid,) = coord.submit_tasks("r", [{"c": 0}])
+    # Deliberately skip get_next_assignment — assigned_worker_id stays None.
+
+    assert coord.submit_result("w1", {"task_id": tid, "success": True}, {}) is False
+    assert coord.has_pending_tasks() is True  # still queued for a real dispatch
+    assert coord._pending_tasks[tid].completed is False
+    assert reg.get("w1").tasks_completed == 0
+    # After a real assignment the owner can submit normally.
+    coord.get_next_assignment("w1")
+    assert coord.submit_result("w1", {"task_id": tid, "success": True}, {}) is True
 
 
 def test_anomaly_detector_receives_generic_score() -> None:
@@ -596,6 +634,40 @@ async def test_task_result_expecting_binary_gets_text_is_rejected() -> None:
     await worker_stream_handler(ws)
     assert any("Expected binary frame" in m.get("error", "") for m in ws.sent)
     assert coord.collect_results(timeout=0.1) == []  # nothing accepted
+
+
+@pytest.mark.asyncio
+async def test_task_result_oversized_binary_frame_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An attachment frame over ``_MAX_BINARY_SIZE`` errors out without calling submit_result."""
+    import juniper_service_core.websocket.worker_stream as worker_stream_mod
+
+    class _NeedsBlob:
+        def build_assignment(self, task):
+            return ({"type": "task_assign", "task_id": task.task_id}, [])
+
+        def result_attachments(self, msg):
+            return ["blob"]
+
+        def parse_result(self, worker_id, msg, frames):  # pragma: no cover - never reached
+            raise AssertionError("parse_result must not run after oversize reject")
+
+    monkeypatch.setattr(worker_stream_mod, "_MAX_BINARY_SIZE", 16)
+    reg = WorkerRegistry()
+    coord = WorkerCoordinator(reg, _NeedsBlob())
+    (tid,) = coord.submit_tasks("r", [{"c": 0}])
+    app = _wire_app(reg, coord)
+    ws = FakeWorkerWebSocket(
+        app=app,
+        inbound=[
+            _text(_REGISTER),
+            _text({"type": "task_result", "task_id": tid}),
+            _binary(b"x" * 17),  # one byte over the patched 16-byte cap
+        ],
+    )
+    await worker_stream_handler(ws)
+    assert any(m.get("error") == "Binary frame too large" for m in ws.sent)
+    assert not any(m.get("type") == "result_ack" for m in ws.sent)  # no submit_result path
+    assert coord.collect_results(timeout=0.1) == []
 
 
 @pytest.mark.asyncio
