@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -808,12 +808,21 @@ The `.github/workflows/publish.yml` workflow publishes the `juniper-ml` meta-pac
 gh workflow run publish.yml --repo pcalnon/juniper-ml --ref <tag>
 ```
 
+**Tag guard:** the `build` job only runs for `workflow_dispatch` or a Release whose tag starts with `v` — shared-package Releases (`juniper-<pkg>-v*`) must **not** fire the meta publisher.
+
 Release flow:
 
 1. **Build and Validate** -- checks out the tag, installs `build` and `twine`, runs `python -m build`, validates with `twine check dist/*`, and uploads the `dist/` artifact.
-2. **Publish to TestPyPI** -- downloads the artifact, publishes to TestPyPI with OIDC trusted publishing, and enables PyPI attestations.
-3. **Verify TestPyPI Install** -- installs `juniper-ml==${VERSION}` from TestPyPI with PyPI as the extra index for dependencies, then verifies the installed distribution through `importlib.metadata`.
-4. **Publish to PyPI** -- runs only after TestPyPI verification and publishes the same artifact with OIDC trusted publishing and attestations enabled.
+2. **Publish to TestPyPI** (`environment: testpypi`) -- downloads the artifact, publishes with OIDC trusted publishing + attestations.
+3. **Verify TestPyPI Install** (Gate 1) -- reads `[project].version` via `tomllib`, waits briefly for index lag, then runs **three** installs in order (each with `--index-url https://test.pypi.org/simple/` + `--extra-index-url https://pypi.org/simple/`, **never** `--no-deps`):
+   1. bare `juniper-ml==${VERSION}` → `importlib.metadata` version check
+   2. `juniper-ml[clients]==${VERSION}` → imports `juniper_data_client`, `juniper_cascor_client`
+   3. `juniper-ml[tools]==${VERSION}` → imports `juniper_ci_tools`, `juniper_doc_tools`, `juniper_observability`
+
+   Light extras only — do **not** add `[worker]` / `[servers]` / `[all]` / `[recurrence]` to this step (torch / multi-GB). A broken extras declaration that bare-install alone would miss fails here before production PyPI.
+4. **Publish to PyPI** (`environment: pypi`, `needs: testpypi`) -- same artifact + OIDC + attestations after Gate 1 succeeds.
+
+Always-on gate for the three-spec verify + tag guard + `pypi needs: testpypi`: open juniper-ml#938 (`tests/test_publish_testpypi_verify.py`).
 
 ### Independent Sibling Package Publish Pipelines
 
@@ -863,5 +872,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Maintainer:** Paul Calnon

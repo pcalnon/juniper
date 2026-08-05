@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
+**Version**: 1.0.9
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -220,15 +220,19 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 | Task                   | Command / Procedure                                                                         |
 |------------------------|---------------------------------------------------------------------------------------------|
 | Pre-commit             | `pre-commit run --all-files`                                                                |
-| Publish `juniper-ml`   | Create GitHub Release with `vX.Y.Z` tag (OIDC trusted publishing)                           |
+| Publish `juniper-ml`   | Create GitHub Release with `vX.Y.Z` tag (OIDC trusted publishing; Gate 1 = three TestPyPI installs) |
 | Publish observability  | Push `juniper-observability-vX.Y.Z` tag (OIDC trusted publishing)                           |
 | Publish doc-tools      | Push `juniper-doc-tools-vX.Y.Z` tag (OIDC trusted publishing)                               |
 | Doc links (CI parity)  | `juniper-check-doc-links --exclude templates --exclude history --exclude legacy --cross-repo skip` |
 | Doc links (full local) | `juniper-check-doc-links --cross-repo check`                                                |
+| Publish verify gate    | `python3 -m unittest -v tests.test_publish_testpypi_verify` (open #938)                     |
 
 Key hooks: `ruff` (juniper-data) or `black`+`isort`+`flake8` (others), `mypy`, `bandit`, `shellcheck`, `no-unencrypted-env`.
 
-Meta-package publish flow: build + `twine check`, TestPyPI upload with attestations, TestPyPI install verification, then PyPI upload.
+Meta-package publish flow: build + `twine check`, TestPyPI upload with attestations, then Gate 1
+TestPyPI verify (**bare → `[clients]` → `[tools]`** installs; never heavy extras / never `--no-deps`),
+then PyPI (`needs: testpypi`). Tag guard: only `v*` Releases (not `juniper-<pkg>-v*`).
+Operator detail: [REFERENCE — Meta-Package Publish](REFERENCE.md#meta-package-publish-pipeline).
 
 `juniper-observability` publish flow: build from `juniper-observability/`, TestPyPI upload with `verbose: true`, retry install verification to tolerate index lag, then PyPI upload. The workflow reads the version from `juniper-observability/pyproject.toml`; keep it aligned with `juniper-observability/juniper_observability/_version.py`.
 
@@ -501,5 +505,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 1.0.8
+**Version:** 1.0.9
 **Maintainer:** Paul Calnon

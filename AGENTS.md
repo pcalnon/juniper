@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.0
-**Last Updated**: 2026-08-04
+**Last Updated**: 2026-08-05
 
 ---
 
@@ -101,7 +101,7 @@ juniper-check-doc-links --exclude templates --exclude history --exclude legacy -
 
 ## Publishing
 
-Releases are published via GitHub Actions (`.github/workflows/publish.yml`). The workflow is triggered by a GitHub release event and publishes first to TestPyPI (with install verification), then to PyPI. Both environments use trusted publishing (OIDC, no API tokens).
+Releases are published via GitHub Actions (`.github/workflows/publish.yml`). The workflow is triggered by a GitHub release event and publishes first to TestPyPI (with Gate 1 install verification: bare → `[clients]` → `[tools]`), then to PyPI. Both environments use trusted publishing (OIDC, no API tokens).
 
 **Release convention (mandatory, all packages).** Every PyPI deploy — the meta-package and every
 shared / sub-package — is performed by **cutting a GitHub Release** (never a bare `git push <tag>`),
@@ -176,7 +176,7 @@ juniper-ml/
 │   └── workflows/
 │       ├── ci.yml             # Main CI pipeline (pre-commit, tests, build, docs, security)
 │       ├── main-verify.yml    # Post-merge main verification (G3: symbol/docs-loss screen + gated battery + notify)
-│       ├── publish.yml        # PyPI publishing (TestPyPI + PyPI, OIDC)
+│       ├── publish.yml        # Meta PyPI publish (Gate 1: bare/[clients]/[tools] TestPyPI verify → PyPI; OIDC)
 │       ├── docs-full-check.yml# Weekly full documentation link validation (cross-repo)
 │       ├── security-scan.yml  # Weekly pip-audit security scanning
 │       ├── release-train.yml  # Daily PyPI release-train detection (report-only, Phase 1)
@@ -564,7 +564,7 @@ juniper-ml/
 
 - `.github/workflows/ci.yml` -- Main CI pipeline: pre-commit (G4 changed-files split — `pull_request` / `merge_group` use `--from-ref <BASE> --to-ref HEAD`; `push` keeps `--all-files`), unit tests, release-train archive-guard (PR-only), the two ADVISORY standalone jobs `Sequence Safety` (per-PR G1/G2 screens + `sequence-safety-report` artifact + WARN-only `allow-symbol-loss` / `docs-rewrite` label hatch) and `Fleet PR Lint` (`cursor/*`, warnings-only), build, docs, security, dependency docs.
 - `.github/workflows/main-verify.yml` -- Post-merge main-verification (flood P2 gate G3): on every `push:main` (per-SHA, no-cancel) it runs the `util/sequence_safety/` symbol + docs screens over `BASE..<merge>` (`sequence-safety-report`), a path-gated battery mirror, and a failure-only `notify`. G3.1 CATCH-UP BASE (flood §4 item 8 / the 2026-07-30 `[skip ci]` incident): BASE = last SUCCESSFUL main-verify tip when an ancestor of HEAD (sweeps skipped windows), else `github.event.before`, else `HEAD^1`.
-- `.github/workflows/publish.yml` -- PyPI publishing: TestPyPI with install verification, then PyPI (OIDC trusted publishing)
+- `.github/workflows/publish.yml` -- Meta PyPI publish: TestPyPI Gate 1 verify (bare → `[clients]` → `[tools]`), then PyPI (OIDC); gate open #938 / `tests/test_publish_testpypi_verify.py`
 - `.github/workflows/docs-full-check.yml` -- Weekly full documentation link validation including cross-repo checks
 - `.github/workflows/security-scan.yml` -- Weekly pip-audit dependency vulnerability scanning
 - `.github/workflows/release-train.yml` -- Daily (13:00 UTC) PyPI release-train orchestrator.
@@ -607,7 +607,9 @@ Jobs:
 
 ### Publishing (`publish.yml`)
 
-Triggered on GitHub release published. Uses OIDC trusted publishing (no API tokens). Publishes to TestPyPI first (with install verification), then PyPI.
+Triggered on GitHub release published. Uses OIDC trusted publishing (no API tokens). Publishes to TestPyPI first, then PyPI (`pypi needs: testpypi`).
+Gate 1 verify installs `juniper-ml` bare, then `[clients]`, then `[tools]` from TestPyPI (`--extra-index-url` PyPI; never `--no-deps`; never heavy `[worker]`/`[servers]`/`[all]`/`[recurrence]`).
+Tag guard skips `juniper-<pkg>-v*` tags. Gate: open #938 / `tests/test_publish_testpypi_verify.py`. Operator surface: [`docs/REFERENCE.md`](docs/REFERENCE.md) § Meta-Package Publish Pipeline.
 
 ### Documentation Full Check (`docs-full-check.yml`)
 
