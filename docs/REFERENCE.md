@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -707,11 +707,40 @@ Kind selection from YAML shape: `training:` → cascor path; `train:` / `crossva
 | `3` | Unreachable (health-wait / connection failures) |
 | `4` | Run `FAILED` / service `5xx` |
 
-Always writes §13.4 `manifest.json` (including stalled / timed-out / failed runs). Also writes `artifacts/results/stats.json` + `summary.md` (Wave 2.6; stats failure → `stats_error` on the manifest, never fatal). Plots (Wave 2.4/2.5) render client-side when `outputs.plots` requests them — structurally unavailable data is a per-plot SKIP; render errors / missing matplotlib on a requested plot fail acceptance.
+Always writes §13.4 `manifest.json` (including stalled / timed-out / failed runs). Also writes `artifacts/results/stats.json` + `summary.md` (Wave 2.6; stats failure → `stats_error` on the manifest, never fatal). Plots (Wave 2.4/2.5) render client-side when `outputs.plots` requests them — see [Plot SKIP vs acceptance](#plot-skip-vs-acceptance-valueerror-contract) for the `ValueError` / matplotlib / fetch matrix.
 
 Cascor path polls `GET /v1/training/status` and samples loopback `/metrics` (redirect-following — bare `/metrics` 307s) into `metrics_series.csv`; candidate correlation exists **only** there. Recurrence path uses synchronous `POST /v1/train` (response IS completion; Q-2 budget = socket timeout → `timed_out`). `outputs.save_model: true` re-runs `juniper-recurrence train --dataset <dataset_id> … --out …/model.npz` (G-18).
 
-Coverage: `tests/test_run_experiment.py`.
+Coverage: `tests/test_run_experiment.py` (incl. open [#961](https://github.com/pcalnon/juniper-ml/pull/961) / [#965](https://github.com/pcalnon/juniper-ml/pull/965) ValueError→SKIP pins).
+
+#### Plot SKIP vs acceptance (`ValueError` contract)
+
+`plots_cascor.py` / `plots_recurrence.py` are lazy-loaded on the headless `Agg` backend (the driver stays importable without matplotlib; they never import cascor/torch). Every requested plot lands in `manifest["driver"]["plots"]` as `requested` / `rendered` / `skipped`.
+
+| Outcome | Driver behavior | Exit impact |
+|---------|-----------------|-------------|
+| Applicability `_skip` before calling a renderer (e.g. `n_features != 2`, missing `metrics_final`, predict/crossval disabled or failed) | Recorded SKIP only (`reason` string) | exit `0` when otherwise green |
+| Renderer raises `ValueError` (no-renderable-data contract) | Recorded SKIP only; **no** PNG written; **no** acceptance error | exit `0` |
+| Matplotlib / plot-module `ImportError` while `outputs.plots` is non-empty | Every requested name marked SKIP + acceptance error (`matplotlib unavailable`) | exit `1` |
+| Payload fetch fail (`ServiceUnreachable` / `RunFailed`) or any other render `Exception` | SKIP recorded **and** acceptance error appended | exit `1` |
+
+Concrete renderer `ValueError` triggers (not exhaustive):
+
+- **Cascor:** empty decision-boundary `predictions` grid; empty metrics-history rows; no `candidate_correlation` samples in `metrics_series.csv` (G-3 degraded sampling); no scalar eval metrics (`JUNIPER_CASCOR_EVAL_METRICS_ENABLED` off / none computed).
+- **Recurrence:** prediction vs target length mismatch (`forecast_vs_truth` / `residuals`); empty `folds` or no numeric CV metrics; empty / non-numeric `metrics_table`.
+
+Soft edges that are **not** `ValueError`:
+
+- `render_residuals`: optional `target_dt_{split}` with a length mismatch is silently omitted (2 panels); aligned lengths add the residual-vs-`target_dt` panel (3 panels). Pred/truth mismatch still hard-raises.
+- `render_crossval_folds`: empty / missing `eval_aggregate` falls back to numeric keys from `folds[0].eval_metrics` before raising.
+
+```bash
+# Inspect after a run
+jq '.driver.plots' "$RUN_DIR/manifest.json"
+ls "$RUN_DIR/artifacts/plots/"
+```
+
+Do not treat a SKIP-only `ValueError` as a blank-PNG or acceptance regression — that class is pinned by the #961 unit raises + the #965 driver e2e (`test_renderer_value_error_is_skip_not_acceptance_failure`).
 
 ### Environment overrides
 
@@ -741,6 +770,9 @@ Coverage: `tests/test_run_experiment.py`.
 | Driver exit `2` on YAML | Unknown block/key, missing `experiment.seed`, or rule-6 infra key — see stderr. |
 | Driver exit `1` `stalled` / `timed_out` | Cascor: raise `--stall-seconds` / `--max-wall-seconds` only after confirming the run is still progressing; recurrence `timed_out` is the train socket budget. |
 | Missing correlation / empty plot | Correlation is only in the driver's `metrics_series.csv` (not `/v1/metrics/history`). A `/metrics` 404 degrades sampling (G-3), not the run. |
+| Plot listed under `skipped` with a `ValueError` reason, exit `0` | Expected no-renderable-data SKIP — check payload shape / eval-metrics / sampling; not an acceptance failure. |
+| Exit `1` with `matplotlib unavailable` in acceptance reasons | Install matplotlib in the driver env, or drop `outputs.plots` from the YAML. |
+| `residuals.png` has 2 panels (no residual-vs-dt) | Optional `target_dt_*` missing or length-mismatched — pred/truth still plotted; not a SKIP. |
 | `--down` deleted results | It must not — `artifacts/` is preserved; if results are gone, check you pointed at the wrong `RUN_ROOT` or cleaned the durable home dir manually. |
 
 Do **not** point experiment ports at `plant_all` / isolated-stack ports, and do not use this launcher when you need canopy (use `isolated_stack.bash` or the host stack instead).
