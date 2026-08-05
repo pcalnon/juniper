@@ -936,11 +936,13 @@ class TestActivateCondaOrList(unittest.TestCase):
             self.assertIn("conda activate", result.stdout + result.stderr)
 
 
-class TestDoUpPartialFailureTeardown(unittest.TestCase):
+class TestDoUpHealthGateFailClosedTeardown(unittest.TestCase):
     """``do_up`` must tear a partial run back down when a later service fails health.
 
-    Without ``wait_for_health … || return 1``, OR-list ``cascor_up || failed=1`` lets
-    an unhealthy cascor still succeed via ``record_listener_pid`` finding the sleep
+    Distinct from open #919's missing-bin arm (``require_env_bin`` → last-command
+    failure). This pins the wait_for_health false-green: without
+    ``wait_for_health … || return 1``, OR-list ``cascor_up || failed=1`` lets an
+    unhealthy cascor still succeed via ``record_listener_pid`` finding the sleep
     stub's ``ss`` listener — ``failed=0``, no teardown, data listener orphaned.
     """
 
