@@ -53,6 +53,7 @@ SCRIPT_PATH = Path(__file__).resolve().parent.parent / "util" / "experiment_stac
 SCRIPT_TEXT = SCRIPT_PATH.read_text()
 SCRIPT_TIMEOUT_SECONDS = 20
 TEARDOWN_TIMEOUT_SECONDS = 45
+DO_UP_PARTIAL_TIMEOUT_SECONDS = 45
 
 
 def _strip_comment_lines(text: str) -> str:
@@ -147,11 +148,20 @@ class TestSyntax(unittest.TestCase):
 
     def test_strict_mode_and_nounset_guard(self) -> None:
         self.assertIn("set -euo pipefail", SCRIPT_TEXT)
-        # The conda nounset guard idiom: +u around activate, -u restored after
-        # (a +u/+u restore silently disables nounset for the rest of bring-up).
+        # Fail-closed activate: +u around activate, -u restored on BOTH success
+        # and failure arms (a +u/+u restore silently disables nounset; a bare
+        # ``conda activate`` failure + successful ``set -u`` masks OR-list callers).
+        body = _extract_experiment_fn("activate_conda")
+        self.assertIn("set +u", body)
         self.assertRegex(
-            _extract_experiment_fn("activate_conda"),
-            r"set \+u\n\s*conda activate[^\n]+\n\s*set -u\n",
+            body,
+            r"if ! conda activate[^\n]+; then\n\s*set -u\n",
+            msg="activate_conda failure arm must restore set -u before return 1",
+        )
+        self.assertRegex(
+            body,
+            r"fi\n\s*set -u\n\}\n",
+            msg="activate_conda success arm must restore set -u after conda activate",
         )
 
 
@@ -844,6 +854,344 @@ class TestConfigStaging(unittest.TestCase):
         recurrence_up = _extract_experiment_fn("recurrence_up")
         self.assertNotIn("serve --config", recurrence_up)
         self.assertIn("Wave 3.3", recurrence_up)
+
+
+class TestOrListFailClosedPins(unittest.TestCase):
+    """Static pins: ``*_up || failed=1`` disables set -e — critical steps must ``|| return 1``."""
+
+    def test_service_up_critical_steps_return_1(self) -> None:
+        data_up = _extract_experiment_fn("data_up")
+        cascor_up = _extract_experiment_fn("cascor_up")
+        recurrence_up = _extract_experiment_fn("recurrence_up")
+        # OR-list invocation disables set -e inside each *_up — critical steps must
+        # ``|| return 1`` or a mid-function failure false-greens via a later success.
+        self.assertIn('require_env_bin "${DATA_CONDA}" python || return 1', data_up)
+        self.assertIn(
+            'wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health" || return 1',
+            data_up,
+        )
+        self.assertIn('record_listener_pid "juniper-data" "${DATA_PORT}" || return 1', data_up)
+        self.assertIn('activate_conda "${DATA_CONDA}" || return 1', data_up)
+
+        self.assertIn('require_env_bin "${CASCOR_CONDA}" uvicorn || return 1', cascor_up)
+        self.assertIn(
+            'wait_for_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health" || return 1',
+            cascor_up,
+        )
+        self.assertIn('activate_conda "${CASCOR_CONDA}" || return 1', cascor_up)
+
+        self.assertIn('require_env_bin "${RECURRENCE_CONDA}" juniper-recurrence || return 1', recurrence_up)
+        self.assertIn(
+            'wait_for_health "juniper-recurrence" "http://127.0.0.1:${RECURRENCE_PORT}/v1/health/ready" || return 1',
+            recurrence_up,
+        )
+        self.assertIn('activate_conda "${RECURRENCE_CONDA}" || return 1', recurrence_up)
+
+    def test_bridge_up_and_do_up_teardown_on_bridge_failure(self) -> None:
+        bridge_up = _extract_experiment_fn("bridge_up")
+        do_up = _extract_experiment_fn("do_up")
+        self.assertIn("require_cmd socat || return 1", bridge_up)
+        self.assertIn("require_cmd docker || return 1", bridge_up)
+        self.assertIn("discover_gateway_ip || return 1", bridge_up)
+        self.assertIn("if ! bridge_up; then", do_up)
+        self.assertIn("Grafana bridge bring-up failed", do_up)
+        self.assertIn("teardown_run", do_up)
+
+
+class TestActivateCondaOrList(unittest.TestCase):
+    """``activate_conda`` must propagate failure under OR-list callers (#967 parity)."""
+
+    def test_conda_activate_failure_propagates_under_or_list(self) -> None:
+        """OR-list callers must still see activate failure (not a masked exit 0)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            conda_sh = Path(tmp) / "conda.sh"
+            conda_sh.write_text(
+                "#!/usr/bin/env bash\n"
+                "conda() {\n"
+                '  if [[ "$1" == "activate" ]]; then\n'
+                "    return 1\n"
+                "  fi\n"
+                "}\n"
+            )
+            harness = (
+                "set -euo pipefail\n"
+                'log() { echo "$*"; }\n'
+                f'CONDA_SH="{conda_sh}"\n'
+                + _extract_experiment_fn("activate_conda")
+                + "failed=0\n"
+                + 'activate_conda "JuniperCascor1" || failed=1\n'
+                + 'echo "failed=${failed}"\n'
+                + "if (( failed != 1 )); then exit 2; fi\n"
+            )
+            result = subprocess.run(
+                ["/bin/bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                env=RedactedEnv(os.environ),
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("failed=1", result.stdout)
+            self.assertIn("conda activate", result.stdout + result.stderr)
+
+
+class TestDoUpPartialFailureTeardown(unittest.TestCase):
+    """``do_up`` must tear a partial run back down when a later service fails health.
+
+    Without ``wait_for_health … || return 1``, OR-list ``cascor_up || failed=1`` lets
+    an unhealthy cascor still succeed via ``record_listener_pid`` finding the sleep
+    stub's ``ss`` listener — ``failed=0``, no teardown, data listener orphaned.
+    """
+
+    def _force_kill(self, pid: int) -> None:
+        for kill_target in (lambda: os.killpg(pid, signal.SIGKILL), lambda: os.kill(pid, signal.SIGKILL)):
+            try:
+                kill_target()
+                break
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                continue
+        for _ in range(20):
+            if not Path(f"/proc/{pid}").exists():
+                return
+            time.sleep(0.05)
+
+    def test_cascor_health_fail_tears_down_data_listener(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project_dir = root / "Juniper"
+            run_root = root / "runs"
+            lock_root = root / "locks"
+            deploy_dir = root / "deploy"
+            listeners_dir = root / "listeners"
+            stub_bin = root / "bin"
+            conda_dir = root / "conda"
+            listeners_dir.mkdir()
+            stub_bin.mkdir()
+            (project_dir / "juniper-cascor" / "src").mkdir(parents=True)
+
+            # First free ports in the §9.3 ranges (ss reports none busy).
+            data_port = "8110"
+            cascor_port = "8230"
+
+            # Env bins: record listener pid then sleep (ss reads the pidfile).
+            for env_name, bins, port in (
+                ("JuniperData", ("python",), data_port),
+                ("JuniperCascor1", ("uvicorn",), cascor_port),
+            ):
+                bin_dir = conda_dir / "envs" / env_name / "bin"
+                bin_dir.mkdir(parents=True)
+                for bin_name in bins:
+                    _write_stub(
+                        bin_dir / bin_name,
+                        "#!/usr/bin/env bash\n"
+                        f'printf "%s\\n" "$$" >"{listeners_dir}/{port}.pid"\n'
+                        "exec sleep 60\n",
+                    )
+
+            # curl: data health OK, cascor health always fails (unhealthy service).
+            # Without wait_for_health || return 1 this false-greens: record_listener_pid
+            # still finds the uvicorn sleep stub via ss and cascor_up returns 0.
+            _write_stub(
+                stub_bin / "curl",
+                "#!/usr/bin/env bash\n"
+                'case "$*" in\n'
+                "  *:8110*) exit 0 ;;\n"
+                "esac\n"
+                "exit 22\n",
+            )
+            _write_stub(
+                stub_bin / "ss",
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                'port=""\n'
+                'for a in "$@"; do\n'
+                '  case "$a" in\n'
+                '    sport\\ =\\ :*) port="${a##*:}" ;;\n'
+                "  esac\n"
+                "done\n"
+                f'listener="{listeners_dir}/$port.pid"\n'
+                'if [[ -n "$port" && -f "$listener" ]]; then\n'
+                '  pid="$(cat "$listener")"\n'
+                '  echo "LISTEN 0 128 127.0.0.1:${port} 0.0.0.0:* users:((\\"python\\",pid=${pid},fd=3))"\n'
+                "fi\n"
+                "exit 0\n",
+            )
+            _write_stub(stub_bin / "docker", "#!/usr/bin/env bash\nexit 0\n")
+            _write_stub(stub_bin / "socat", "#!/usr/bin/env bash\nexec sleep 60\n")
+
+            env = RedactedEnv(os.environ)
+            env["JUNIPER_EXP_PROJECT_DIR"] = str(project_dir)
+            env["JUNIPER_EXP_RUN_ROOT"] = str(run_root)
+            env["JUNIPER_EXP_LOCK_ROOT"] = str(lock_root)
+            env["JUNIPER_EXP_DEPLOY_DIR"] = str(deploy_dir)
+            env["JUNIPER_EXP_CONDA_DIR"] = str(conda_dir)
+            env["JUNIPER_EXP_HEALTH_TIMEOUT"] = "4"
+            env["JUNIPER_EXP_KILL_TIMEOUT"] = "5"
+            env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+
+            result = subprocess.run(
+                ["/bin/bash", str(SCRIPT_PATH), "--up", "--cascor"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=DO_UP_PARTIAL_TIMEOUT_SECONDS,
+            )
+            child_pids: list[int] = []
+            for port in (data_port, cascor_port):
+                listener = listeners_dir / f"{port}.pid"
+                if listener.is_file():
+                    try:
+                        child_pids.append(int(listener.read_text().strip()))
+                    except ValueError:
+                        pass
+            try:
+                self.assertNotEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertIn("bring-up failed — tearing the partial run back down", result.stdout)
+                self.assertIn("failed to become healthy", result.stdout)
+                self.assertIn("Teardown complete", result.stdout)
+                # data must have launched (listener pidfile written) before cascor failed.
+                self.assertTrue(
+                    (listeners_dir / f"{data_port}.pid").exists()
+                    or any(Path(f"/proc/{pid}").exists() for pid in child_pids),
+                    "data_up must run before cascor health fails",
+                )
+                runs = list(run_root.iterdir()) if run_root.exists() else []
+                self.assertTrue(runs, "partial run dir must exist for teardown")
+                run_dir = runs[0]
+                self.assertTrue((run_dir / "teardown.json").exists(), "teardown_run must write teardown.json")
+                self.assertFalse(
+                    (run_dir / "juniper-data.pid").exists(),
+                    "teardown must clear the data pidfile",
+                )
+                for pid in child_pids:
+                    for _ in range(60):
+                        if not Path(f"/proc/{pid}").exists():
+                            break
+                        time.sleep(0.1)
+                    self.assertFalse(
+                        Path(f"/proc/{pid}").exists(),
+                        f"partial teardown must kill listener pid {pid}",
+                    )
+            finally:
+                for pid in child_pids:
+                    self._force_kill(pid)
+
+
+class TestBridgeUpFailureTeardown(unittest.TestCase):
+    """``--grafana-bridge`` failure after services are up must tear the run down."""
+
+    def _force_kill(self, pid: int) -> None:
+        for kill_target in (lambda: os.killpg(pid, signal.SIGKILL), lambda: os.kill(pid, signal.SIGKILL)):
+            try:
+                kill_target()
+                break
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                continue
+        for _ in range(20):
+            if not Path(f"/proc/{pid}").exists():
+                return
+            time.sleep(0.05)
+
+    def test_missing_socat_tears_down_healthy_services(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project_dir = root / "Juniper"
+            run_root = root / "runs"
+            lock_root = root / "locks"
+            deploy_dir = root / "deploy"
+            listeners_dir = root / "listeners"
+            stub_bin = root / "bin"
+            conda_dir = root / "conda"
+            listeners_dir.mkdir()
+            stub_bin.mkdir()
+            (project_dir / "juniper-cascor" / "src").mkdir(parents=True)
+
+            data_port = "8110"
+            cascor_port = "8230"
+            for env_name, bins, port in (
+                ("JuniperData", ("python",), data_port),
+                ("JuniperCascor1", ("uvicorn",), cascor_port),
+            ):
+                bin_dir = conda_dir / "envs" / env_name / "bin"
+                bin_dir.mkdir(parents=True)
+                for bin_name in bins:
+                    _write_stub(
+                        bin_dir / bin_name,
+                        "#!/usr/bin/env bash\n"
+                        f'printf "%s\\n" "$$" >"{listeners_dir}/{port}.pid"\n'
+                        "exec sleep 60\n",
+                    )
+            # Health always OK so services reach the bridge step.
+            _write_stub(stub_bin / "curl", "#!/usr/bin/env bash\nexit 0\n")
+            _write_stub(
+                stub_bin / "ss",
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                'port=""\n'
+                'for a in "$@"; do\n'
+                '  case "$a" in\n'
+                '    sport\\ =\\ :*) port="${a##*:}" ;;\n'
+                "  esac\n"
+                "done\n"
+                f'listener="{listeners_dir}/$port.pid"\n'
+                'if [[ -n "$port" && -f "$listener" ]]; then\n'
+                '  pid="$(cat "$listener")"\n'
+                '  echo "LISTEN 0 128 127.0.0.1:${port} 0.0.0.0:* users:((\\"python\\",pid=${pid},fd=3))"\n'
+                "fi\n"
+                "exit 0\n",
+            )
+            _write_stub(stub_bin / "docker", "#!/usr/bin/env bash\nexit 0\n")
+            # Deliberately omit socat from PATH so require_cmd fails at bridge_up.
+
+            env = RedactedEnv(os.environ)
+            env["JUNIPER_EXP_PROJECT_DIR"] = str(project_dir)
+            env["JUNIPER_EXP_RUN_ROOT"] = str(run_root)
+            env["JUNIPER_EXP_LOCK_ROOT"] = str(lock_root)
+            env["JUNIPER_EXP_DEPLOY_DIR"] = str(deploy_dir)
+            env["JUNIPER_EXP_CONDA_DIR"] = str(conda_dir)
+            env["JUNIPER_EXP_HEALTH_TIMEOUT"] = "4"
+            env["JUNIPER_EXP_KILL_TIMEOUT"] = "5"
+            env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+
+            result = subprocess.run(
+                ["/bin/bash", str(SCRIPT_PATH), "--up", "--cascor", "--grafana-bridge"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=DO_UP_PARTIAL_TIMEOUT_SECONDS,
+            )
+            child_pids: list[int] = []
+            for port in (data_port, cascor_port):
+                listener = listeners_dir / f"{port}.pid"
+                if listener.is_file():
+                    try:
+                        child_pids.append(int(listener.read_text().strip()))
+                    except ValueError:
+                        pass
+            try:
+                self.assertNotEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertIn("Grafana bridge bring-up failed", result.stdout)
+                self.assertIn("required command 'socat' not found", result.stdout)
+                self.assertIn("Teardown complete", result.stdout)
+                runs = list(run_root.iterdir()) if run_root.exists() else []
+                self.assertTrue(runs, "run dir must exist after service bring-up")
+                self.assertTrue((runs[0] / "teardown.json").exists())
+                for pid in child_pids:
+                    for _ in range(60):
+                        if not Path(f"/proc/{pid}").exists():
+                            break
+                        time.sleep(0.1)
+                    self.assertFalse(
+                        Path(f"/proc/{pid}").exists(),
+                        f"bridge failure must tear down listener pid {pid}",
+                    )
+            finally:
+                for pid in child_pids:
+                    self._force_kill(pid)
 
 
 if __name__ == "__main__":

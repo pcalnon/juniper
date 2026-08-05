@@ -1281,6 +1281,35 @@ class StatsSummaryUnitTest(unittest.TestCase):
         self.assertEqual(self.stats.percentile([1.0, 2.0, 3.0, 4.0], 50), 2.5)
         self.assertEqual(self.stats.percentile([1.0, 2.0], 100), 2.0)
 
+    def test_to_float_soft_none_on_garbage(self) -> None:
+        # Corrupt Prometheus scrape cells must soft-skip (None), never raise —
+        # correlation_per_round / step_duration_stats rely on this for CSV rows.
+        self.assertIsNone(self.stats._to_float(None))
+        self.assertIsNone(self.stats._to_float(""))
+        self.assertIsNone(self.stats._to_float("   "))
+        self.assertIsNone(self.stats._to_float("n/a"))
+        self.assertIsNone(self.stats._to_float("not-a-number"))
+        self.assertEqual(self.stats._to_float("1.5"), 1.5)
+        self.assertEqual(self.stats._to_float(2), 2.0)
+        # One garbage count cell is skipped; a later advancing pair still yields a sample.
+        rows = [
+            {
+                "juniper_cascor_training_step_duration_seconds_sum": "1.0",
+                "juniper_cascor_training_step_duration_seconds_count": "n/a",
+            },
+            {
+                "juniper_cascor_training_step_duration_seconds_sum": "2.0",
+                "juniper_cascor_training_step_duration_seconds_count": "4",
+            },
+            {
+                "juniper_cascor_training_step_duration_seconds_sum": "5.0",
+                "juniper_cascor_training_step_duration_seconds_count": "5",
+            },
+        ]
+        result = self.stats.step_duration_stats(rows)
+        self.assertEqual(result["poll_samples"], 1)
+        self.assertEqual(result["total_steps"], 5)
+
     def test_step_duration_stats_from_deltas(self) -> None:
         rows = [
             {"juniper_cascor_training_step_duration_seconds_sum": "1.0", "juniper_cascor_training_step_duration_seconds_count": "2"},
