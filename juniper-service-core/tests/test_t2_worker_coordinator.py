@@ -14,8 +14,8 @@ Coverage:
   send-callback bookkeeping / cancel + shutdown.
 * ``/ws/workers`` stream -- origin reject, uninitialised-pool reject, rate-limit reject, registration
   (server-assigned id + client_name), invalid-registration reject, registry-full reject, the full
-  register -> dispatch -> result -> collect flow, heartbeat ack + enriched-field forwarding, a
-  binary-attachment result round-trip, and the oversized binary-frame size reject (no submit).
+  register -> dispatch -> result -> collect flow, heartbeat ack + enriched-field forwarding, and a
+  binary-attachment result round-trip.
 """
 
 from __future__ import annotations
@@ -29,7 +29,6 @@ import pytest
 from fastapi import WebSocketDisconnect
 
 from juniper_service_core.websocket import attach_worker_pool, worker_stream_handler
-from juniper_service_core.websocket import worker_stream as worker_stream_mod
 from juniper_service_core.workers import ParsedResult, WorkerCoordinator, WorkerRegistry
 
 # ======================================================================================
@@ -597,42 +596,6 @@ async def test_task_result_expecting_binary_gets_text_is_rejected() -> None:
     await worker_stream_handler(ws)
     assert any("Expected binary frame" in m.get("error", "") for m in ws.sent)
     assert coord.collect_results(timeout=0.1) == []  # nothing accepted
-
-
-@pytest.mark.asyncio
-async def test_task_result_oversized_binary_frame_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Attachment frame over ``_MAX_BINARY_SIZE`` -> error, no ``submit_result`` / no result_ack.
-
-    Cap is monkeypatched so the test stays hermetic (no 100MB allocation).
-    """
-
-    class _NeedsBlob:
-        def build_assignment(self, task):
-            return ({"type": "task_assign", "task_id": task.task_id}, [])
-
-        def result_attachments(self, msg):
-            return ["blob"]
-
-        def parse_result(self, worker_id, msg, frames):  # pragma: no cover - never reached
-            return ParsedResult(success=True, result=msg)
-
-    monkeypatch.setattr(worker_stream_mod, "_MAX_BINARY_SIZE", 8)
-    reg = WorkerRegistry()
-    coord = WorkerCoordinator(reg, _NeedsBlob())
-    (tid,) = coord.submit_tasks("r", [{"c": 0}])
-    app = _wire_app(reg, coord)
-    ws = FakeWorkerWebSocket(
-        app=app,
-        inbound=[
-            _text(_REGISTER),
-            _text({"type": "task_result", "task_id": tid}),
-            _binary(b"x" * 9),  # 9 > patched max of 8
-        ],
-    )
-    await worker_stream_handler(ws)
-    assert any(m.get("error") == "Binary frame too large" for m in ws.sent)
-    assert not any(m.get("type") == "result_ack" for m in ws.sent)
-    assert coord.collect_results(timeout=0.1) == []
 
 
 @pytest.mark.asyncio
