@@ -57,8 +57,8 @@
 |             | `juniper-doc-tools`                                                                      | `>=0.1.0,<0.2.0`  |
 |             | `juniper-observability`                                                                  | `>=0.2.0`         |
 | `doc-tools` | `juniper-doc-tools` (back-compat alias for the doc-tools entry in `tools`)               | `>=0.1.0,<0.2.0`  |
-| `recurrence`| `juniper-recurrence-model`                                                               | `>=0.1.5,<0.2.0`  |
-|             | `juniper-recurrence`                                                                     | `>=0.2.0,<0.3.0`  |
+| `recurrence`| `juniper-recurrence-model`                                                               | `>=0.1.5,<0.3.0`  |
+|             | `juniper-recurrence`                                                                     | `>=0.2.0,<0.4.0`  |
 | `all`       | All packages from `clients` + `worker` + `servers` + `tools` + `recurrence`              | --                |
 
 ### Installation Commands

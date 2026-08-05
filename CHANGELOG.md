@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `util/experiments/run_experiment.py` — single-run experiment driver for the CLI experimentation program (plan §6.3, Wave 2.2: the cascor service path). Validates the experiment YAML (§5.6 driver-owned subset incl. the mandatory `experiment.seed` and rule-6 infra-key rejection), preflights the generator, creates the dataset on the run's juniper-data (content-addressed `dataset_id`), drives `POST /v1/training/start` → polls to `COMPLETED`/`FAILED` under the Q-2 wall-clock budget + stall detector, samples the loopback `/metrics` allowlist into `metrics_series.csv` each poll (F-1 redirect-following; candidate correlation exists only there), stages non-spiral generators with a post-run G-6 shape assert, collects results (`metrics_final.json`, `metrics_history.json`, `topology.json`, `decision_boundary.npz`, optional snapshot), always writes the §13.4 `manifest.json`, and honours the documented 0–4 exit-code contract. The recurrence path lands in Wave 2.3; plot rendering in Wave 2.4.
 - `tests/test_run_experiment.py` — hermetic gate for the driver (a scripted stub HTTP server stands in for juniper-data + cascor; 50 tests across YAML validation, drive-loop outcomes, staging, manifest schema, and the exit matrix), wired into `ci.yml`, which now also installs `numpy` for the `.npz` round-trip.
 
+### Changed
+
+- Widened the `recurrence` extra's ceilings to admit the released next minors: `juniper-recurrence-model>=0.1.5,<0.3.0` (0.2.0 on PyPI) and `juniper-recurrence>=0.2.0,<0.4.0` (0.3.0 on PyPI, whose own pin admits recurrence-model 0.2.x). Supersedes dependabot #900/#901, which cannot co-update the `tests/test_pyproject_extras.py` lint contract; the contract and the extras tables in `AGENTS.md`, `README.md`, `docs/QUICK_START.md`, and `docs/REFERENCE.md` move in lockstep. `juniper-recurrence-client` stays at `<0.3.0` (no newer release).
+
 ## [0.7.0] - 2026-07-28
 
 ### Changed
