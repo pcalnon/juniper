@@ -218,6 +218,12 @@ env_bin() {
 
 # Source conda + activate an env (nounset-safe, matching juniper_plant_all.bash /
 # isolated_stack.bash). Only reached under JUNIPER_EXP_CONDA_ACTIVATE=1.
+#
+# Fail-closed on ``source`` / ``conda activate``: callers may invoke this as
+# ``activate_conda … || return 1`` (``*_up || failed=1`` absorb), which disables
+# ``set -e`` for the whole body (bash OR-list rule). A bare ``conda activate``
+# failure followed by a successful ``set -u`` would otherwise return 0 and let
+# cascor/recurrence launch on the ambient PATH.
 activate_conda() {
     local env_name="$1"
     if [[ ! -f "${CONDA_SH}" ]]; then
@@ -225,11 +231,18 @@ activate_conda() {
         return 1
     fi
     # shellcheck source=/dev/null
-    source "${CONDA_SH}"
+    source "${CONDA_SH}" || {
+        log "ERROR: failed to source conda.sh at ${CONDA_SH}"
+        return 1
+    }
     # Conda activation scripts (e.g. activate-binutils_linux-64.sh) may
     # reference unset vars like ADDR2LINE; disable nounset for the call only.
     set +u
-    conda activate "${env_name}"
+    if ! conda activate "${env_name}"; then
+        set -u
+        log "ERROR: conda activate '${env_name}' failed"
+        return 1
+    fi
     set -u
 }
 
@@ -518,14 +531,18 @@ data_up() {
     announce "cd ${RUN_DIR} && JUNIPER_DATA_STORAGE_PATH=${RUN_DIR}/data JUNIPER_DATA_METRICS_ENABLED=true JUNIPER_DATA_EQUITIES_CACHE_DIR=${RUN_DIR}/equities-cache PYTHON_GIL=0 ${python_bin} -m juniper_data --host 127.0.0.1 --port ${DATA_PORT}   # nohup -> ${LOG_DIR}/juniper-data.log"
     if is_dry; then return 0; fi
 
-    require_env_bin "${DATA_CONDA}" python
+    # Explicit ``|| return 1``: do_up invokes this as ``data_up || failed=1``, which
+    # disables ``set -e`` inside this body (bash OR-list rule). Without these pins a
+    # mid-function failure can false-green via a later success (e.g. unhealthy HTTP
+    # then ``record_listener_pid`` still finding an ``ss`` listener).
+    require_env_bin "${DATA_CONDA}" python || return 1
     ensure_dir "${LOG_DIR}"
     record_launch_env "juniper-data" \
         "JUNIPER_DATA_STORAGE_PATH=${RUN_DIR}/data" \
         "JUNIPER_DATA_METRICS_ENABLED=true" \
         "JUNIPER_DATA_EQUITIES_CACHE_DIR=${RUN_DIR}/equities-cache" \
         "PYTHON_GIL=0"
-    if [[ "${CONDA_ACTIVATE}" == "1" ]]; then activate_conda "${DATA_CONDA}"; fi
+    if [[ "${CONDA_ACTIVATE}" == "1" ]]; then activate_conda "${DATA_CONDA}" || return 1; fi
     (
         cd "${RUN_DIR}" || exit 1
         JUNIPER_DATA_STORAGE_PATH="${RUN_DIR}/data" \
@@ -535,8 +552,8 @@ data_up() {
             nohup "${python_bin}" -m juniper_data --host 127.0.0.1 --port "${DATA_PORT}" >"${LOG_DIR}/juniper-data.log" 2>&1 &
     )
     # No `$!` here on purpose — F-6. The pid is resolved from the listener below.
-    wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health"
-    record_listener_pid "juniper-data" "${DATA_PORT}"
+    wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health" || return 1
+    record_listener_pid "juniper-data" "${DATA_PORT}" || return 1
 }
 
 
@@ -551,7 +568,8 @@ cascor_up() {
     announce "cd ${CASCOR_SRC_DIR} && LD_LIBRARY_PATH= JUNIPER_CASCOR_METRICS_ENABLED=true JUNIPER_CASCOR_AUTO_START=false JUNIPER_CASCOR_AUTO_START_DATA_SERVICE=false JUNIPER_CASCOR_LOG_LEVEL=INFO JUNIPER_DATA_URL=${DATA_URL} ${config_env}${uvicorn_bin} api.app:create_app --factory --host 127.0.0.1 --port ${CASCOR_PORT}   # nohup -> ${LOG_DIR}/juniper-cascor.log"
     if is_dry; then return 0; fi
 
-    require_env_bin "${CASCOR_CONDA}" uvicorn
+    # See data_up: ``cascor_up || failed=1`` disables set -e inside this body.
+    require_env_bin "${CASCOR_CONDA}" uvicorn || return 1
     ensure_dir "${LOG_DIR}"
     record_launch_env "juniper-cascor" \
         "LD_LIBRARY_PATH=" \
@@ -561,7 +579,7 @@ cascor_up() {
         "JUNIPER_CASCOR_LOG_LEVEL=INFO" \
         "JUNIPER_DATA_URL=${DATA_URL}" \
         "JUNIPER_CASCOR_CONFIG_FILE=${CONFIG_PATH:+${RUN_DIR}/config/experiment.yaml}"
-    if [[ "${CONDA_ACTIVATE}" == "1" ]]; then activate_conda "${CASCOR_CONDA}"; fi
+    if [[ "${CONDA_ACTIVATE}" == "1" ]]; then activate_conda "${CASCOR_CONDA}" || return 1; fi
     (
         cd "${CASCOR_SRC_DIR}" || exit 1
         LD_LIBRARY_PATH='' \
@@ -574,8 +592,8 @@ cascor_up() {
             nohup "${uvicorn_bin}" api.app:create_app --factory --host 127.0.0.1 --port "${CASCOR_PORT}" >"${LOG_DIR}/juniper-cascor.log" 2>&1 &
     )
     # No `$!` here on purpose — F-6.
-    wait_for_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health"
-    record_listener_pid "juniper-cascor" "${CASCOR_PORT}"
+    wait_for_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health" || return 1
+    record_listener_pid "juniper-cascor" "${CASCOR_PORT}" || return 1
 }
 
 
@@ -589,7 +607,8 @@ recurrence_up() {
     announce "cd ${RUN_DIR} && JUNIPER_RECURRENCE_METRICS_ENABLED=true JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=false JUNIPER_DATA_URL=${DATA_URL} ${serve_bin} serve --host 127.0.0.1 --port ${RECURRENCE_PORT}   # nohup -> ${LOG_DIR}/juniper-recurrence.log"
     if is_dry; then return 0; fi
 
-    require_env_bin "${RECURRENCE_CONDA}" juniper-recurrence
+    # See data_up: ``recurrence_up || failed=1`` disables set -e inside this body.
+    require_env_bin "${RECURRENCE_CONDA}" juniper-recurrence || return 1
     ensure_dir "${LOG_DIR}"
     if [[ -n "${CONFIG_PATH}" ]]; then
         log "NOTE: juniper-recurrence serve has no --config flag yet (Wave 3.3); the YAML is staged at ${RUN_DIR}/config/experiment.yaml only"
@@ -598,7 +617,7 @@ recurrence_up() {
         "JUNIPER_RECURRENCE_METRICS_ENABLED=true" \
         "JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=false" \
         "JUNIPER_DATA_URL=${DATA_URL}"
-    if [[ "${CONDA_ACTIVATE}" == "1" ]]; then activate_conda "${RECURRENCE_CONDA}"; fi
+    if [[ "${CONDA_ACTIVATE}" == "1" ]]; then activate_conda "${RECURRENCE_CONDA}" || return 1; fi
     (
         cd "${RUN_DIR}" || exit 1
         JUNIPER_RECURRENCE_METRICS_ENABLED=true \
@@ -607,8 +626,8 @@ recurrence_up() {
             nohup "${serve_bin}" serve --host 127.0.0.1 --port "${RECURRENCE_PORT}" >"${LOG_DIR}/juniper-recurrence.log" 2>&1 &
     )
     # No `$!` here on purpose — F-6.
-    wait_for_health "juniper-recurrence" "http://127.0.0.1:${RECURRENCE_PORT}/v1/health/ready"
-    record_listener_pid "juniper-recurrence" "${RECURRENCE_PORT}"
+    wait_for_health "juniper-recurrence" "http://127.0.0.1:${RECURRENCE_PORT}/v1/health/ready" || return 1
+    record_listener_pid "juniper-recurrence" "${RECURRENCE_PORT}" || return 1
 }
 
 
@@ -680,13 +699,15 @@ render_target_file() {
 bridge_up() {
     local entry svc port
     banner "Grafana bridge (opt-in): relays + Prometheus target file"
-    require_cmd socat
-    require_cmd docker
+    # do_up invokes this as ``if ! bridge_up; then …`` which disables set -e
+    # inside this body — critical steps need explicit ``|| return 1``.
+    require_cmd socat || return 1
+    require_cmd docker || return 1
     if is_dry; then
         GATEWAY_IP="<monitoring-gateway>"
         announce "docker network ls --format '{{.Name}}' | grep -E '_monitoring\$'   # discover the monitoring network by SUFFIX"
     else
-        discover_gateway_ip
+        discover_gateway_ip || return 1
     fi
     for entry in "${SCRAPE_TARGETS[@]:-}"; do
         [[ -n "${entry}" ]] || continue
@@ -790,8 +811,18 @@ do_up() {
         return 1
     fi
 
+    # Bridge is after the service absorb: a bare ``bridge_up`` failure under
+    # ``set -e`` would abort the script without teardown and orphan healthy
+    # listeners + held port locks. Tear down on bridge failure too.
     if (( WANT_BRIDGE == 1 )); then
-        bridge_up
+        if ! bridge_up; then
+            log "ERROR: Grafana bridge bring-up failed — tearing the run back down (logs kept under ${LOG_DIR})"
+            if ! is_dry; then
+                TARGET_RUN_ID="${RUN_ID}"
+                teardown_run "${RUN_ID}"
+            fi
+            return 1
+        fi
     else
         log "Grafana bridge OFF — this run is UNSCRAPED (no relay, no target file). Re-run with --grafana-bridge to publish it."
     fi
