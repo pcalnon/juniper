@@ -405,30 +405,11 @@ class DocsAdditionsScreenUnitTest(unittest.TestCase):
         # A real unified diff always opens with `---` / `+++` headers. Those must not
         # count as content removals — otherwise every touched `.md` (even pure adds)
         # reports removed_lines >= 1 and the PR is falsely DAMAGED-FIX-FIRST.
-        diff = (
-            "diff --git a/notes/x.md b/notes/x.md\n"
-            "index 111..222 100644\n"
-            "--- a/notes/x.md\n"
-            "+++ b/notes/x.md\n"
-            "@@ -1,3 +1,3 @@\n"
-            " keep\n"
-            "-gone\n"
-            "+added\n"
-            " keep2\n"
-        )
+        diff = "diff --git a/notes/x.md b/notes/x.md\n" "index 111..222 100644\n" "--- a/notes/x.md\n" "+++ b/notes/x.md\n" "@@ -1,3 +1,3 @@\n" " keep\n" "-gone\n" "+added\n" " keep2\n"
         self.assertEqual(pm._removed_content_lines(diff), 1)
 
     def test_removed_content_lines_pure_add_is_zero(self):
-        diff = (
-            "diff --git a/notes/new.md b/notes/new.md\n"
-            "new file mode 100644\n"
-            "index 000..abc\n"
-            "--- /dev/null\n"
-            "+++ b/notes/new.md\n"
-            "@@ -0,0 +1,2 @@\n"
-            "+# title\n"
-            "+body\n"
-        )
+        diff = "diff --git a/notes/new.md b/notes/new.md\n" "new file mode 100644\n" "index 000..abc\n" "--- /dev/null\n" "+++ b/notes/new.md\n" "@@ -0,0 +1,2 @@\n" "+# title\n" "+body\n"
         self.assertEqual(pm._removed_content_lines(diff), 0)
 
     def test_removed_content_lines_empty_diff_is_zero(self):
