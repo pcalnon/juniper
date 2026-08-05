@@ -346,6 +346,16 @@ jobs:
           python3 -m unittest -v tests/test_requirements_drift_check.py
           python3 -m unittest -v tests/test_validate_claude_yaml_access.py
           python3 -m unittest -v tests/test_workflow_script_paths.py
+          # tests/test_main_verify_battery_paths.py: main-verify.yml battery
+          # path-change detector (P2 G3 burst-cost gate) -- util|tests|scripts|
+          # .github|pyproject → run; docs/notes-only → skip; unresolvable base →
+          # fail-open. YAML-extraction rehearsal IS the gate.
+          python3 -m unittest -v tests/test_main_verify_battery_paths.py
+          # tests/test_ci_quality_gate.py: Quality Gate needs: must exclude
+          # advisory/PR-only jobs (sequence-safety / fleet-pr-lint /
+          # release-train-archive-guard); security soft-fails on == failure
+          # (skipped OK). Structural + shell rehearsal IS the gate.
+          python3 -m unittest -v tests/test_ci_quality_gate.py
           # tests/test_symbol_loss_check.py + tests/test_docs_additions_check.py:
           # the flood-remediation sequence-safety screens (Proposal P2 gates G1/G2,
           # productionized from the 2026-07-28 Cursor-flood census). Hermetic git
