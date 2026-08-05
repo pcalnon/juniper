@@ -23,9 +23,11 @@ for BOTH the run's juniper-data and cascor (their endpoint sets are disjoint). C
 * the Wave-2.3 recurrence path: SS5.5 block validation (dataset.split, train/crossval/predict
   keys, crossval n_folds), the synchronous ``POST /v1/train`` drive (200 / 409->4 / 422->2 /
   socket-timeout->``timed_out``), predict + crossval phases (dataset_id refs, hyperparams copied
-  into crossval, record-and-continue on failure), and the G-18 ``outputs.save_model`` re-run
-  (PATH-stubbed ``juniper-recurrence`` CLI: --dataset/--split/--out + JUNIPER_DATA_URL env;
-  missing CLI -> acceptance failure).
+  into crossval, record-and-continue on failure — including the crossval-fail-continue arm),
+  and the G-18 ``outputs.save_model`` re-run (PATH-stubbed ``juniper-recurrence`` CLI:
+  --dataset/--split/--out + JUNIPER_DATA_URL env; missing CLI -> acceptance failure);
+* cascor essential-collect failure after COMPLETED (exit 1) and mid-drive consecutive poll
+  unreachability (exit 3, ``torn_down_early``).
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ import io
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -101,6 +104,11 @@ class _ScriptedState:
         self.train_delay = 0.0
         self.predict_status = 200
         self.crossval_status = 200
+        self.metrics_final_status = 200
+        self.metrics_history_status = 200
+        # After this many /v1/training/status responses, drop the listening socket so
+        # subsequent polls fail immediately with Connection refused (mid-drive tear-down).
+        self.status_die_after: int | None = None
         self.eval_metrics_present = True
         self.artifact_kind = "tabular"
         self.lock = threading.Lock()
@@ -221,13 +229,31 @@ class _StubHandler(BaseHTTPRequestHandler):
             )
         elif path == "/v1/training/status":
             with state.lock:
-                if state.increment_epochs:
-                    state.auto_epoch += 1
-                    fsm, epoch, hidden = "STARTED", state.auto_epoch, 0
-                else:
-                    idx = min(state.status_index, len(state.status_sequence) - 1)
-                    fsm, epoch, hidden = state.status_sequence[idx]
+                if state.status_die_after is not None and state.status_index >= state.status_die_after:
                     state.status_index += 1
+                    die = True
+                else:
+                    die = False
+                    if state.increment_epochs:
+                        state.auto_epoch += 1
+                        fsm, epoch, hidden = "STARTED", state.auto_epoch, 0
+                    else:
+                        idx = min(state.status_index, len(state.status_sequence) - 1)
+                        fsm, epoch, hidden = state.status_sequence[idx]
+                        state.status_index += 1
+            if die:
+                # Close the listening socket so the next poll fails immediately
+                # (Connection refused), not after DEFAULT_HTTP_TIMEOUT.
+                try:
+                    self.server.socket.close()
+                except OSError:
+                    pass
+                self.close_connection = True
+                try:
+                    self.connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                return
             self._send(
                 200,
                 _envelope(
@@ -255,11 +281,17 @@ class _StubHandler(BaseHTTPRequestHandler):
                 return
             self._send(200, _EXPOSITION, content_type="text/plain; version=0.0.4")
         elif path == "/v1/metrics":
+            if state.metrics_final_status != 200:
+                self._send(state.metrics_final_status, json.dumps({"detail": "metrics final stub error"}).encode("utf-8"))
+                return
             payload = {"epoch": 3, "train_loss": 0.1, "train_accuracy": 0.95, "hidden_units": 2}
             if state.eval_metrics_present:
                 payload.update({"f1": 0.9, "precision": 0.88, "recall": 0.91, "roc_auc": 0.97})
             self._send(200, _envelope(payload))
         elif path == "/v1/metrics/history":
+            if state.metrics_history_status != 200:
+                self._send(state.metrics_history_status, json.dumps({"detail": "metrics history stub error"}).encode("utf-8"))
+                return
             self._send(
                 200,
                 _envelope(
@@ -825,6 +857,37 @@ class FailureArmsTest(_StubTestCase):
         self.assertEqual(manifest["outcome"], "timed_out")
         self.assertEqual(manifest["driver"]["max_wall_seconds"], 0.3)
 
+    def test_essential_collect_failure_exits_1(self) -> None:
+        # Training COMPLETED but an essential artifact is missing -> acceptance, not green.
+        self.state.metrics_final_status = 500
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "succeeded")
+        self.assertFalse(manifest["acceptance"]["ok"])
+        self.assertTrue(
+            any("essential artifact 'metrics_final'" in reason for reason in manifest["acceptance"]["reasons"]),
+            msg=manifest["acceptance"]["reasons"],
+        )
+        self.assertFalse((self.run_dir / "artifacts" / "results" / "metrics_final.json").exists())
+
+    def test_mid_drive_unreachable_exits_3(self) -> None:
+        # After the first status poll, kill the stub listener so CONSECUTIVE_POLL_ERRORS_MAX
+        # trips -> torn_down_early + EXIT_UNREACHABLE (not a silent green).
+        self.state.status_sequence = [("STARTED", 1, 0), ("STARTED", 2, 0), ("COMPLETED", 3, 1)]
+        self.state.status_die_after = 1
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir, "--poll-interval", "0.05")
+        self.assertEqual(code, rx.EXIT_UNREACHABLE)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "torn_down_early")
+        self.assertFalse(manifest["acceptance"]["ok"])
+        self.assertTrue(
+            any("unreachable mid-run" in reason for reason in manifest["acceptance"]["reasons"]),
+            msg=manifest["acceptance"]["reasons"],
+        )
+
     def test_yaml_budget_honored_without_cli(self) -> None:
         self.state.increment_epochs = True
         cfg = _base_config()
@@ -1039,6 +1102,23 @@ class RecurrencePathTest(_StubTestCase):
         self.assertFalse(manifest["acceptance"]["ok"])
         self.assertTrue(any("predict" in reason for reason in manifest["acceptance"]["reasons"]))
         self.assertTrue((self.run_dir / "artifacts" / "results" / "crossval_response.json").is_file())
+
+    def test_crossval_failure_keeps_predict_and_fails_acceptance(self) -> None:
+        # Asymmetric sibling of predict-failure-continues: crossval 500 must not drop predict
+        # evidence, and the run must still land as acceptance failure with a written manifest.
+        self.state.crossval_status = 500
+        code, _ = _invoke(self._config(), self.run_dir)
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        self.assertEqual(len(self._posts("/v1/predict")), 1)
+        self.assertEqual(len(self._posts("/v1/crossval")), 1)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "succeeded")
+        self.assertFalse(manifest["acceptance"]["ok"])
+        self.assertTrue(any("crossval" in reason for reason in manifest["acceptance"]["reasons"]))
+        self.assertEqual(manifest["predict"], {"shape": [4, 1]})
+        self.assertIsNone(manifest["crossval"])
+        self.assertTrue((self.run_dir / "artifacts" / "results" / "predict_response.json").is_file())
+        self.assertFalse((self.run_dir / "artifacts" / "results" / "crossval_response.json").exists())
 
     def test_save_model_rerun_invokes_cli(self) -> None:
         bindir = self.tmp / "bin"
