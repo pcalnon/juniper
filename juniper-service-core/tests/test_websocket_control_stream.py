@@ -127,7 +127,8 @@ def test_sanitize_for_log_strips_crlf_and_control_chars() -> None:
     assert "\x07" not in clean
     assert "\x1b" not in clean
     assert "\t" in clean
-    assert clean == "startinjected\tok"
+    # BEL + ESC dropped; printable X and tab kept.
+    assert clean == "startinjectedX\tok"
     assert _sanitize_for_log(None) == "None"
     assert _sanitize_for_log(12) == "12"
 
