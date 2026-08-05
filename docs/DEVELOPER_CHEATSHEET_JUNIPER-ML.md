@@ -310,6 +310,12 @@ missing; skipped or branchless proposals issue zero write calls. Ceremony's para
 Keep-a-Changelog accepts `*` as well as `-` (continuations fold).
 Operator table: release-train runbook §3.2.
 
+**`link_base` CHANGELOG rewrite (juniper-ml#877):** ceremony archives use the owning repo's tag-pinned
+`blob/<tag>` URL; propose drafts use `blob/main`. Relative `[text](docs/…)` / `[text](notes/…)` links
+become absolute so centrally archived notes under `notes/releases/` do not 404 (canopy v0.6.0 class).
+Absolute / `mailto:` / `#anchor` / `//…` links stay untouched; omit `--link-base` → no rewrite.
+Operator table: release-train runbook §3.2.
+
 **Phase 4.2 propose ordering + follow-ons.** Empty `packages=` propose runs process eligible packages
 **upstream-first** (registry `depends_on` DAG). A pre-1.0 MINOR/MAJOR that escapes a consumer
 `<next-minor` ceiling also opens a separate standard-gated PR
