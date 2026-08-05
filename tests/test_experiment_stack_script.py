@@ -235,6 +235,20 @@ class TestRunDirContract(unittest.TestCase):
             msg="ports.json must be written before any launch so a partial run is still teardown-able",
         )
 
+    def test_staging_failure_releases_held_port_locks(self) -> None:
+        """Missing --config (or mkdir/cp failure) must not starve the experiment ranges.
+
+        allocate_port creates *.lock dirs before ports.json exists; a set -e exit from
+        stage_config without release_held_locks leaves locks that --down cannot recover.
+        """
+        do_up = _extract_experiment_fn("do_up")
+        for step in ("create_run_dir", "stage_config", "write_ports_json"):
+            self.assertRegex(
+                do_up,
+                rf"{step} \|\| \{{\s*release_held_locks",
+                msg=f"{step} failure must call release_held_locks (ports.json may be absent)",
+            )
+
 
 class TestLaunchLines(unittest.TestCase):
     """The §6.1 canonical recipes, env set by env set."""
@@ -361,6 +375,12 @@ class TestGrafanaBridge(unittest.TestCase):
         self.assertNotIn("require_cmd socat", do_up)
         self.assertIn("WANT_BRIDGE == 1", do_up)
         self.assertIn("UNSCRAPED", do_up)
+
+    def test_discover_gateway_ip_fail_closed_under_or_list_callers(self) -> None:
+        # Callers that wrap bridge_up in ``if !`` disable set -e inside the body;
+        # without ``|| return 1`` a discover failure falls through with GATEWAY_IP="".
+        bridge_up = _extract_experiment_fn("bridge_up")
+        self.assertIn("discover_gateway_ip || return 1", bridge_up)
 
     def test_target_file_lives_in_the_deploy_targets_dir(self) -> None:
         # F-3: prometheus/targets/ is already inside the existing :ro mount.
@@ -844,6 +864,56 @@ class TestConfigStaging(unittest.TestCase):
         recurrence_up = _extract_experiment_fn("recurrence_up")
         self.assertNotIn("serve --config", recurrence_up)
         self.assertIn("Wave 3.3", recurrence_up)
+
+
+class TestMissingConfigReleasesPortLocks(unittest.TestCase):
+    """``--up --config <missing>`` must release allocated lockdirs (not starve ranges)."""
+
+    def test_missing_config_releases_data_and_cascor_locks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lock_root = root / "locks"
+            run_root = root / "runs"
+            stub_bin = _stage_stub_bin(root, busy_ports=[])
+            conda_dir = _stage_conda_fixture(root)
+            missing = root / "does-not-exist.yaml"
+            env = RedactedEnv(os.environ)
+            env.update(
+                {
+                    "PATH": str(stub_bin) + os.pathsep + "/usr/bin:/bin",
+                    "JUNIPER_EXP_RUN_ROOT": str(run_root),
+                    "JUNIPER_EXP_LOCK_ROOT": str(lock_root),
+                    "JUNIPER_EXP_CONDA_DIR": str(conda_dir),
+                    "JUNIPER_EXP_PROJECT_DIR": str(root / "project"),
+                    "JUNIPER_EXP_DEPLOY_DIR": str(root / "deploy"),
+                    "HOME": str(root / "home"),
+                }
+            )
+            (root / "project").mkdir()
+            (root / "home").mkdir()
+            result = subprocess.run(
+                [
+                    "/bin/bash",
+                    str(SCRIPT_PATH),
+                    "--up",
+                    "--cascor",
+                    "--config",
+                    str(missing),
+                ],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+            self.assertNotEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("config file not found", result.stdout + result.stderr)
+            # Both ranges were claimed before stage_config; both locks must be gone.
+            leftover = sorted(p.name for p in lock_root.glob("*.lock")) if lock_root.exists() else []
+            self.assertEqual(
+                leftover,
+                [],
+                msg=f"staging failure must release held port locks; leftover={leftover} stdout={result.stdout}",
+            )
 
 
 if __name__ == "__main__":
