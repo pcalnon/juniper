@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.1
+**Version:** 0.6.2
 **Status:** Active
 **Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -547,21 +547,36 @@ Per PR the script:
 1. Creates a throwaway **detached** `git clone --shared` under the system tempdir (never a worktree, never writes the source checkout, never pushes).
 2. Merges `origin/main` into the branch tip (`git merge --no-ff`, `commit.gpgsign=false`).
 3. On the RESULT: runs `pre-commit` hooks `black` / `isort` / `flake8` / `mypy` / `check-ast` **only when the TRUE delta contains at least one `.py` file** — otherwise each hook is `status=skip` with detail `no .py files in delta` (docs-only / non-Python PRs do not invoke `gate_runner`).
-4. Shells out to `util/sequence_safety/symbol_loss_check.py --repo-root <clone> --base <base> --head <result> --json` (same CLI as `main-verify` — juniper-ml#895). A delta with no `.py`/`.bash` short-circuits that subprocess as `pass`.
+4. Shells out to `util/sequence_safety/symbol_loss_check.py --repo-root <clone> --base <base> --head <result> --json` (same CLI as `main-verify` — juniper-ml#895 / #908). A delta with no `.py`/`.bash` short-circuits that subprocess as `status=pass`.
 5. Runs an **inline** docs additions-only screen (stricter than `docs_additions_check.py`): for each changed **`.md`** path only, counts removed **content** lines in the unified diff — a leading `-` that is **not** the `---` file header. Non-`.md` deletions never trip this screen. There is **no** `Allow-Docs-Rewrite` trailer parity in `predict_merge` today — intentional markdown rewrites stay `DAMAGED-FIX-FIRST` even when post-merge `main-verify` would waive them.
 6. Emits the **TRUE** changed-file delta from `git diff --name-only` on the merge result (not the stale `gh pr … --json files` list).
 
-| Verdict | Meaning |
-|---------|---------|
-| `MERGE-CLEAN` | Merge succeeds; fast gates + screens pass |
-| `NEEDS-UPDATE-BRANCH` | Merge succeeds; a fast gate fails (format / type / AST) |
-| `DAMAGED-FIX-FIRST` | Merge succeeds; symbol-loss or docs-deletion screen fails |
+| Verdict | Meaning (verified in `simulate_merge`) |
+|---------|----------------------------------------|
+| `MERGE-CLEAN` | Merge succeeds; not behind main; no gate/`ast_symbol_screen`/`docs_additions_only` `status=fail` |
+| `NEEDS-UPDATE-BRANCH` | Merge succeeds; branch tip is **behind** `origin/main` (`behind_main`); screens/gates did not `fail` |
+| `DAMAGED-FIX-FIRST` | Merge succeeds; a fast-gate hook **or** symbol screen **or** docs screen reports `status=fail` |
 | `CONFLICT` | Merge conflict against `origin/main` |
 | `ERROR` | `--batch` only: soft-fail row when a single PR cannot be simulated (e.g. unresolvable `origin/<headRefName>`); `true_delta=[]` and the rest of the open-PR set still runs |
 
 `--batch` also builds a same-file cluster map and a suggested merge order. Heal-first detection (`_is_heal`) looks at the PR **title** and **branch** (case-insensitive) for any of: `restore`, `heal`, `repair`, `fix-first` — then sorts those ahead of ordinary PRs, then ascending same-file contention. `triage_batch` **continues** after a per-PR `PredictMergeError`. Exit `0` always reports (even when every verdict is `DAMAGED` / `CONFLICT` / `ERROR`); exit `2` is usage / precondition only (`gh` missing, bad `--repo-root`).
 
-Degrade paths (never crash the report): missing / broken `symbol_loss_check.py`, checker exit `2`, or non-JSON stdout → symbol screen `status=skip`. Gate: `tests/test_predict_merge.py` (incl. docs-screen header-counting / additions-only / non-`.md` arms, no-`.py` gate skip, and heal-token order — juniper-ml#910).
+### `_ast_symbol_screen` fail-soft contract (#895 / #908)
+
+Only `ast_symbol_screen.status == "fail"` contributes to `DAMAGED-FIX-FIRST`. A missing or broken checker must **not** poison the fleet report:
+
+| Condition | Screen result | Subprocess? |
+|-----------|---------------|-------------|
+| TRUE delta has no `.py` / `.bash` | `status=pass`, `lost=[]` | No (short-circuit) |
+| `symbol_loss_check.py` path missing | `status=skip`, `detail` contains `unavailable` | No |
+| Checker exit `2`, or empty stdout | `status=skip` (stderr / fallback detail, truncated) | Yes |
+| Non-JSON stdout | `status=skip`, `detail=symbol-loss screen returned non-JSON` | Yes |
+| Findings with `severity=WARN` only (e.g. `RELOCATED`) | `status=pass`, **not** mapped into `lost` | Yes |
+| Unwaived `severity=FAIL` + exit `1` | `status=fail`, `lost=[{file, symbol, kind}]` (`kind` = lowercased checker `verdict`) | Yes |
+
+**Blast-radius rule:** `skip` ≠ `fail`. Treating checker unavailability as damage would mark every `.py`-touching PR `DAMAGED-FIX-FIRST` and poison `--batch` merge order. Gate: `tests/test_predict_merge.py` → `AstSymbolScreenDegradeTest` (open [#908](https://github.com/pcalnon/juniper-ml/pull/908)); waiver happy path: `Allow-Symbol-Loss` trailer → `MERGE-CLEAN`.
+
+Docs-screen edges (juniper-ml#910): `_removed_content_lines` ignores the unified-diff `---` file header; additions-only `.md` PRs stay clean; non-`.md` deletions never trip the docs arm. Gate battery skips when the TRUE delta has no `.py` (`no .py files in delta`). Heal tokens include `repair` / `fix-first` (not only `restore` / `heal`).
 
 Pitfalls:
 
@@ -573,7 +588,10 @@ Pitfalls:
 | Non-markdown deletion looks “clean” on docs screen | Expected: only `.md` paths are screened. Symbol / gate failures still apply to code deltas. |
 | Local run hangs on pre-commit | Set `JUNIPER_FLEET_SKIP_PRECOMMIT=1`, or ensure `pre-commit` is installed and hooks cached |
 | `DAMAGED-FIX-FIRST` after intentional symbol deletion | Add `Allow-Symbol-Loss: func:…` (qualified) on a commit in the PR range; re-run `--pr`. `Allow-Symbol-Loss: *` is **rejected** (waives nothing). |
+| Trailer present but still DAMAGED | Wildcard `*` is rejected; bare names do not match; trailer must be in BASE..HEAD of the **merged** result |
 | `DAMAGED-FIX-FIRST` after intentional docs rewrite | Expected today — fleet's inline screen has no trailer waive. Land via a heal-titled PR after owner review, or accept DAMAGED until trailer parity lands. The `docs-rewrite` PR label does **not** waive fleet triage. |
+| `ast_symbol_screen.status=skip` in JSON | Checker missing / exit 2 / empty / non-JSON — **not** damage; fix the checker path or re-run with a healthy clone |
+| WARN-only findings look alarming | Only `severity=FAIL` populates `lost`; `RELOCATED` / bash `WEAKENED` WARN stay out of the damage path |
 | Expecting docs screen == `docs_additions_check.py` | Different magnitude (fleet = any removed content line on changed `.md`; CI/main-verify = heading / ≥N consecutive) **and** different waiver surface (trailer only on the sequence-safety CLI). |
 | One open PR shows `ERROR` in `--batch` | Soft-fail: that tip did not resolve (deleted branch / never fetched). Fix or close that PR; other verdicts in the same report remain valid. |
 | Agent closes / merges PRs | Forbidden — `fleet-supervisor` is read-only; DUP-CLOSE needs overlap **and** owner confirmation |
@@ -945,5 +963,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.1
+**Version:** 0.6.2
 **Maintainer:** Paul Calnon

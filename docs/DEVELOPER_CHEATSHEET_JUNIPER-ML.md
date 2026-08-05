@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.9
+**Version**: 1.0.10
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -231,13 +231,15 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 
 Key hooks: `ruff` (juniper-data) or `black`+`isort`+`flake8` (others), `mypy`, `bandit`, `shellcheck`, `no-unencrypted-env`.
 
-**Sequence-safety / fleet triage (juniper-ml#895 / #910):** `predict_merge` shells out to
-`util/sequence_safety/symbol_loss_check.py` on the merge RESULT and runs an inline docs screen that
-counts removed content `-` lines on changed `.md` only (ignores the `---` header). Docs-only deltas
-skip the pre-commit battery (`no .py files in delta`). `--batch` orders heal titles/branches first
-(`restore` / `heal` / `repair` / `fix-first`). Intentional docs rewrites stay `DAMAGED-FIX-FIRST`
-(no fleet `Allow-Docs-Rewrite` trailer yet). Skip local pre-commit with `JUNIPER_FLEET_SKIP_PRECOMMIT=1`.
-Full contract: [REFERENCE.md § Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety).
+**Sequence-safety / fleet triage (juniper-ml#895 / #908 / #910):** `predict_merge` shells out to
+`util/sequence_safety/symbol_loss_check.py` on the merge RESULT (fail-soft: checker `skip` ≠ damage).
+Inline docs screen counts removed content `-` lines on changed `.md` only (ignores the `---` header).
+Docs-only deltas skip the pre-commit battery (`no .py files in delta`). `--batch` orders heal
+titles/branches first (`restore` / `heal` / `repair` / `fix-first`). Verdicts: `NEEDS-UPDATE-BRANCH`
+means behind-main; `DAMAGED-FIX-FIRST` is gate **or** symbol **or** docs `fail`. Intentional docs
+rewrites stay `DAMAGED-FIX-FIRST` (no fleet trailer yet). Skip local pre-commit with
+`JUNIPER_FLEET_SKIP_PRECOMMIT=1`. Full contract:
+[REFERENCE.md § Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety).
 
 Meta-package publish flow: build + `twine check`, TestPyPI upload with attestations, TestPyPI install verification, then PyPI upload.
 
@@ -453,6 +455,7 @@ Tip: before merging a Cursor-fleet batch, run `python util/fleet_triage/predict_
 | Docs-only PR “fails” gates | No `.py` in TRUE delta → battery `skip` (`no .py files in delta`), not fail. |
 | Heal PR not first in `--batch` order | Title or branch needs `restore`/`heal`/`repair`/`fix-first` (not bare `fix`/`hotfix`). |
 | Local triage stuck in pre-commit | `JUNIPER_FLEET_SKIP_PRECOMMIT=1` (screens still run). |
+| `ast_symbol_screen.status=skip` in JSON | Checker missing/exit 2/non-JSON — **not** damage (#908). |
 | Isolated `--up` missing `python3.14` | Put `python3.14` on `PATH`; abort is before venv/pid create. |
 | Isolated data health / GIL oddities | Confirm `PYTHON_GIL=0` in launch; check `$JUNIPER_E2E_RUN_DIR/logs/juniper-data.log`. |
 | Isolated `--up` unset-var / odd conda failure | Need #785 nounset restore; check `JUNIPER_E2E_CONDA_DIR`. |
@@ -514,5 +517,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 1.0.9
+**Version:** 1.0.10
 **Maintainer:** Paul Calnon
