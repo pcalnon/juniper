@@ -534,7 +534,7 @@ data_up() {
     # Explicit ``|| return 1``: do_up invokes this as ``data_up || failed=1``, which
     # disables ``set -e`` inside this body (bash OR-list rule). Without these pins a
     # mid-function failure can false-green via a later success (e.g. unhealthy HTTP
-    # then ``record_listener_pid`` still finding an ``ss`` listener).
+    # then the F-6 listener pidfile write still succeeding against an ``ss`` hit).
     require_env_bin "${DATA_CONDA}" python || return 1
     ensure_dir "${LOG_DIR}"
     record_launch_env "juniper-data" \

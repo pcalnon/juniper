@@ -321,7 +321,8 @@ class TestListenerPidRule(unittest.TestCase):
 
     def test_every_service_records_its_listener_after_the_health_gate(self) -> None:
         for fn_name in ("data_up", "cascor_up", "recurrence_up"):
-            body = _extract_experiment_fn(fn_name)
+            # Code-only: prose in comments may mention the helper names out of order.
+            body = _strip_comment_lines(_extract_experiment_fn(fn_name))
             self.assertIn("record_listener_pid", body, msg=f"{fn_name} must record a listener pid")
             self.assertLess(
                 body.index("wait_for_health"),
@@ -990,25 +991,25 @@ class TestDoUpPartialFailureTeardown(unittest.TestCase):
                         "exec sleep 60\n",
                     )
 
-            # curl: data health OK, cascor health always fails (unhealthy service).
+            # curl: data health OK only once the stub has recorded its listener pid
+            # (avoids wait_for_health racing record_listener_pid); cascor always fails.
             # Without wait_for_health || return 1 this false-greens: record_listener_pid
             # still finds the uvicorn sleep stub via ss and cascor_up returns 0.
             _write_stub(
                 stub_bin / "curl",
                 "#!/usr/bin/env bash\n"
                 'case "$*" in\n'
-                "  *:8110*) exit 0 ;;\n"
+                f"  *:8110*) [[ -f '{listeners_dir}/8110.pid' ]] && exit 0; exit 22 ;;\n"
                 "esac\n"
                 "exit 22\n",
             )
             _write_stub(
                 stub_bin / "ss",
                 "#!/usr/bin/env bash\n"
-                "set -euo pipefail\n"
                 'port=""\n'
                 'for a in "$@"; do\n'
                 '  case "$a" in\n'
-                '    sport\\ =\\ :*) port="${a##*:}" ;;\n'
+                '    *sport*) port="${a##*:}" ;;\n'
                 "  esac\n"
                 "done\n"
                 f'listener="{listeners_dir}/$port.pid"\n'
@@ -1125,16 +1126,26 @@ class TestBridgeUpFailureTeardown(unittest.TestCase):
                         f'printf "%s\\n" "$$" >"{listeners_dir}/{port}.pid"\n'
                         "exec sleep 60\n",
                     )
-            # Health always OK so services reach the bridge step.
-            _write_stub(stub_bin / "curl", "#!/usr/bin/env bash\nexit 0\n")
+            # Health OK only after the stub records its listener (no race with ss).
+            _write_stub(
+                stub_bin / "curl",
+                "#!/usr/bin/env bash\n"
+                'port=""\n'
+                'case "$*" in\n'
+                "  *:8110*) port=8110 ;;\n"
+                "  *:8230*) port=8230 ;;\n"
+                "  *) exit 22 ;;\n"
+                "esac\n"
+                f'[[ -f "{listeners_dir}/$port.pid" ]] && exit 0\n'
+                "exit 22\n",
+            )
             _write_stub(
                 stub_bin / "ss",
                 "#!/usr/bin/env bash\n"
-                "set -euo pipefail\n"
                 'port=""\n'
                 'for a in "$@"; do\n'
                 '  case "$a" in\n'
-                '    sport\\ =\\ :*) port="${a##*:}" ;;\n'
+                '    *sport*) port="${a##*:}" ;;\n'
                 "  esac\n"
                 "done\n"
                 f'listener="{listeners_dir}/$port.pid"\n'
