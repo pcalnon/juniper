@@ -24,7 +24,6 @@ Created: 2026-08-05
 
 from __future__ import annotations
 
-import re
 import unittest
 from pathlib import Path
 
