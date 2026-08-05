@@ -1255,9 +1255,46 @@ class RecurrencePlotRendererUnitTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.plots.render_dt_histogram({"X_train": [1]}, "train", "t", self.tmp / "dt.png")
 
+    def test_dt_histogram_rejects_empty_dt_arrays(self) -> None:
+        # Both dt series empty after reshape → ValueError so the driver records SKIP
+        # (not a blank two-panel histogram PNG). Orthogonal to non-Δt artifact reject.
+        with self.assertRaises(ValueError) as ctx:
+            self.plots.render_dt_histogram({"dt_train": [], "target_dt_train": []}, "train", "t", self.tmp / "dt_empty.png")
+        self.assertIn("dt arrays are empty", str(ctx.exception))
+
+    def test_dataset_overview_rejects_non_3d_x(self) -> None:
+        import numpy as np
+
+        # Wrong rank / empty first axis → ValueError (driver SKIP), not a crash or blank PNG.
+        with self.assertRaises(ValueError) as ctx:
+            self.plots.render_dataset_overview(
+                {"X_train": np.zeros((4, 3)), "y_train": np.zeros(4)},
+                "train",
+                "t",
+                self.tmp / "overview.png",
+            )
+        self.assertIn("not a non-empty 3-D", str(ctx.exception))
+
+    def test_flatten_outputs_rejects_empty_target(self) -> None:
+        # Empty prediction/target arrays are the shared no-data contract for forecast/residuals.
+        with self.assertRaises(ValueError) as ctx:
+            self.plots.render_forecast_vs_truth([], [0.1], "t", self.tmp / "f_empty.png")
+        self.assertIn("predictions is empty", str(ctx.exception))
+
     def test_crossval_folds_rejects_empty(self) -> None:
         with self.assertRaises(ValueError):
             self.plots.render_crossval_folds({"folds": []}, "t", self.tmp / "cv.png")
+
+    def test_crossval_folds_rejects_no_numeric_eval_metrics(self) -> None:
+        # Folds present but neither aggregate nor fold eval_metrics carry numerics → ValueError.
+        # Complements open #965's aggregate→fold fallback when fold metrics ARE numeric.
+        with self.assertRaises(ValueError) as ctx:
+            self.plots.render_crossval_folds(
+                {"folds": [{"fold": 0, "eval_metrics": {"note": "x"}}], "eval_aggregate": {"msg": "y"}},
+                "t",
+                self.tmp / "cv_nonnum.png",
+            )
+        self.assertIn("no numeric eval metrics", str(ctx.exception))
 
     def test_forecast_rejects_length_mismatch(self) -> None:
         with self.assertRaises(ValueError):
