@@ -346,6 +346,12 @@ jobs:
           python3 -m unittest -v tests/test_requirements_drift_check.py
           python3 -m unittest -v tests/test_validate_claude_yaml_access.py
           python3 -m unittest -v tests/test_workflow_script_paths.py
+          # tests/test_ci_precommit_g4.py: YAML-extraction rehearsal for ci.yml's
+          # G4 pre-commit changed-files split (flood §4 item 8 phase 2 / #759) --
+          # pull_request / merge_group must --from-ref <BASE> --to-ref HEAD; push
+          # (and other non-PR events) keep --all-files. Workflow YAML is not
+          # otherwise lint-gated for this split, so this unittest is the gate.
+          python3 -m unittest -v tests/test_ci_precommit_g4.py
           # tests/test_symbol_loss_check.py + tests/test_docs_additions_check.py:
           # the flood-remediation sequence-safety screens (Proposal P2 gates G1/G2,
           # productionized from the 2026-07-28 Cursor-flood census). Hermetic git
@@ -358,6 +364,12 @@ jobs:
           # (G3) -- whose battery job mirrors THIS list and must stay in sync with it.
           python3 -m unittest -v tests/test_symbol_loss_check.py
           python3 -m unittest -v tests/test_docs_additions_check.py
+          # tests/test_ci_sequence_safety_hatch.py: YAML-extraction rehearsal for
+          # ci.yml's sequence-safety label hatch (P2 SF5) -- allow-symbol-loss /
+          # docs-rewrite → --advisory via grep -qx; merge_group stays strict; exit
+          # 1/2 aggregation. Complements the CLI --advisory arms above (workflow
+          # wiring the module tests cannot see).
+          python3 -m unittest -v tests/test_ci_sequence_safety_hatch.py
           # tests/test_doc_tools_drift.py: the cross-repo
           # consumer-pin assertions auto-skip when siblings are not
           # cloned (per-PR mode); the helper unit tests + juniper-ml's

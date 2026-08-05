@@ -304,9 +304,12 @@ jobs:
           python3 -m unittest -v tests/test_requirements_drift_check.py
           python3 -m unittest -v tests/test_validate_claude_yaml_access.py
           python3 -m unittest -v tests/test_workflow_script_paths.py
+          # ci.yml G4 pre-commit split + sequence-safety label hatch (mirror ci.yml).
+          python3 -m unittest -v tests/test_ci_precommit_g4.py
           # Flood-remediation sequence-safety screens (P2 G1/G2; mirror ci.yml).
           python3 -m unittest -v tests/test_symbol_loss_check.py
           python3 -m unittest -v tests/test_docs_additions_check.py
+          python3 -m unittest -v tests/test_ci_sequence_safety_hatch.py
           python3 -m unittest -v tests/test_doc_tools_drift.py
           python3 -m unittest -v tests/test_ci_tools_drift.py
           python3 -m unittest -v tests/test_coverage_gap_mapper_drift.py
