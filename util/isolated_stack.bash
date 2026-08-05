@@ -177,20 +177,23 @@ data_up() {
     announce "python -m juniper_data --host 127.0.0.1 --port ${DATA_PORT}   # nohup -> ${LOG_DIR}/juniper-data.log"
     if is_dry; then return 0; fi
 
-    require_cmd python3.14
+    # Explicit ``|| return 1``: do_up invokes this as ``data_up || failed=1``, which
+    # disables set -e for the whole body (bash OR-list rule). Without these checks a
+    # mid-function failure would fall through to a stubbed/false-green health gate.
+    require_cmd python3.14 || return 1
     ensure_dir "${RUN_DIR}"
     ensure_dir "${LOG_DIR}"
-    [[ -d "${DATA_VENV}" ]] || python3.14 -m venv "${DATA_VENV}"
+    [[ -d "${DATA_VENV}" ]] || python3.14 -m venv "${DATA_VENV}" || return 1
     # shellcheck source=/dev/null
-    source "${DATA_VENV}/bin/activate"
-    pip install -q -e "${DATA_DIR}[${DATA_EXTRAS}]" prometheus_client juniper-observability
+    source "${DATA_VENV}/bin/activate" || return 1
+    pip install -q -e "${DATA_DIR}[${DATA_EXTRAS}]" prometheus_client juniper-observability || return 1
     (
         cd "${RUN_DIR}"
         PYTHON_GIL=0 nohup python -m juniper_data --host 127.0.0.1 --port "${DATA_PORT}" >"${LOG_DIR}/juniper-data.log" 2>&1 &
         echo "$!" >"${RUN_DIR}/juniper-data.pid"
     )
     deactivate || true
-    wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health"
+    wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health" || return 1
 }
 
 
@@ -204,7 +207,8 @@ cascor_up() {
     if is_dry; then return 0; fi
 
     ensure_dir "${LOG_DIR}"
-    activate_conda "${CASCOR_CONDA}"
+    # See data_up: ``cascor_up || failed=1`` disables set -e inside this body.
+    activate_conda "${CASCOR_CONDA}" || return 1
     (
         cd "${CASCOR_SRC_DIR}"
         LD_LIBRARY_PATH='' \
@@ -213,7 +217,7 @@ cascor_up() {
             nohup uvicorn api.app:create_app --factory --host 127.0.0.1 --port "${CASCOR_PORT}" >"${LOG_DIR}/juniper-cascor.log" 2>&1 &
         echo "$!" >"${RUN_DIR}/juniper-cascor.pid"
     )
-    wait_for_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health"
+    wait_for_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health" || return 1
 }
 
 
@@ -227,7 +231,8 @@ canopy_up() {
     if is_dry; then return 0; fi
 
     ensure_dir "${LOG_DIR}"
-    activate_conda "${CANOPY_CONDA}"
+    # See data_up: ``canopy_up || failed=1`` disables set -e inside this body.
+    activate_conda "${CANOPY_CONDA}" || return 1
     (
         cd "${CANOPY_SRC_DIR}"
         JUNIPER_CANOPY_DEMO_MODE=0 \
@@ -238,7 +243,7 @@ canopy_up() {
             nohup python main.py >"${LOG_DIR}/juniper-canopy.log" 2>&1 &
         echo "$!" >"${RUN_DIR}/juniper-canopy.pid"
     )
-    wait_for_health "juniper-canopy" "http://127.0.0.1:${CANOPY_PORT}/v1/health"
+    wait_for_health "juniper-canopy" "http://127.0.0.1:${CANOPY_PORT}/v1/health" || return 1
 }
 
 

@@ -896,11 +896,20 @@ class TestDataUpLive(unittest.TestCase):
         self.assertIn("data_up || failed=1", do_up)
         self.assertIn("cascor_up || failed=1", do_up)
         self.assertIn("canopy_up || failed=1", do_up)
-        self.assertLess(do_up.index("data_up"), do_up.index("cascor_up"))
-        self.assertLess(do_up.index("cascor_up"), do_up.index("canopy_up"))
+        # Use the ``|| failed=1`` call sites (not bare names in comments).
+        self.assertLess(do_up.index("data_up || failed=1"), do_up.index("cascor_up || failed=1"))
+        self.assertLess(do_up.index("cascor_up || failed=1"), do_up.index("canopy_up || failed=1"))
         self.assertIn("tearing the partial trio back down", do_up)
         self.assertIn("do_down", do_up)
+        # OR-list invocation disables set -e inside each *_up — critical steps must
+        # ``|| return 1`` or a mid-function failure false-greens via wait_for_health.
         data_up = _extract_data_up_fn("data_up")
+        cascor_up = _extract_data_up_fn("cascor_up")
+        canopy_up = _extract_data_up_fn("canopy_up")
+        self.assertIn('activate_conda "${CASCOR_CONDA}" || return 1', cascor_up)
+        self.assertIn('activate_conda "${CANOPY_CONDA}" || return 1', canopy_up)
+        self.assertIn("require_cmd python3.14 || return 1", data_up)
+        self.assertIn('wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health" || return 1', data_up)
         self.assertIn("PYTHON_GIL=0", data_up)
         self.assertIn('echo "$!" >"${RUN_DIR}/juniper-data.pid"', data_up)
         self.assertIn('python3.14 -m venv "${DATA_VENV}"', data_up)
