@@ -59,9 +59,10 @@ def _is_truthy(value: str | None) -> bool:
 def real_keys(api_keys: Collection[str] | None) -> list[str]:
     """Return the non-blank keys among ``api_keys``.
 
-    Mirrors what makes ``APIKeyAuth`` *enabled*: an empty collection — or one holding only
-    blank/whitespace strings, as an empty secret file resolves to — is not real auth. Pure
-    and side-effect-free: the testable core of the check.
+    Same blank-filter rule as ``APIKeyAuth`` (which ignores blank/whitespace entries before
+    enabling): an empty collection — or one holding only blank/whitespace strings, as an
+    empty secret file resolves to — is not real auth. Pure and side-effect-free: the
+    testable core of the check.
     """
     if not api_keys:
         return []

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`APIKeyAuth` blank/whitespace-only configured keys no longer enable auth** — aligns with
+  `auth_posture.real_keys` so an empty/placeholder secret file cannot leave auth "enabled"
+  while accepting an empty `X-API-Key` via `compare_digest("", "")`.
+- **Control / worker WebSocket JSON-valid non-object frames fail closed** — arrays / scalars /
+  `null` no longer AttributeError on `msg.get` in the control receive loop or worker
+  registration handshake; control closes `1003` with `"Invalid control message"`, worker
+  registration closes `4008` without registering.
+
 ## [0.5.1] - 2026-07-28
 
 ### Fixed
