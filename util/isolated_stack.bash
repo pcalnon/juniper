@@ -16,6 +16,8 @@
 #
 # Flags (exactly one action, plus optional --dry-run):
 #   --up        Create the data venv, then launch data -> cascor -> canopy (health-gated).
+#               On a mid-bring-up failure, tears the partial trio back down via --down
+#               (experiment_stack do_up parity — never leave orphan listeners on 8101/8202/8051).
 #   --down      Stop the trio by port and clean run + snapshot artifacts.
 #   --status    Probe the three health endpoints and list what is listening on each port.
 #   --dry-run   PRINT every command that --up/--down/--status would run, execute nothing.
@@ -263,9 +265,24 @@ stop_port() {
 do_up() {
     banner "Bringing UP the isolated E2E trio (data ${DATA_PORT} / cascor ${CASCOR_PORT} / canopy ${CANOPY_PORT})"
     if is_dry; then log "DRY-RUN: printing commands only, launching nothing"; fi
-    data_up
-    cascor_up
-    canopy_up
+
+    # --- launches, in deterministic order data -> cascor -> canopy -----------------------
+    # Under ``set -e``, a bare ``cascor_up`` / ``canopy_up`` failure would exit the script
+    # immediately and leave earlier listeners orphaned on the E2E ports. Mirror
+    # experiment_stack.bash: absorb each failure into ``failed``, then tear down.
+    local failed=0
+    data_up || failed=1
+    if (( failed == 0 )); then cascor_up || failed=1; fi
+    if (( failed == 0 )); then canopy_up || failed=1; fi
+
+    if (( failed == 1 )); then
+        log "ERROR: bring-up failed — tearing the partial trio back down (logs kept under ${LOG_DIR})"
+        if ! is_dry; then
+            do_down
+        fi
+        return 1
+    fi
+
     banner "Isolated E2E trio is up"
     log "data   : http://127.0.0.1:${DATA_PORT}/v1/health"
     log "cascor : http://127.0.0.1:${CASCOR_PORT}/v1/health"
