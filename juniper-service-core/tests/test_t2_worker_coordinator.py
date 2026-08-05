@@ -522,6 +522,44 @@ async def test_binary_attachment_result_round_trip() -> None:
     assert results[0]["blob"] == b"tensor-bytes"  # the binary frame reached parse_result
 
 
+@pytest.mark.asyncio
+async def test_binary_frame_too_large_errors_without_accepting(monkeypatch) -> None:
+    """Oversized attachment frames must error out and never reach submit_result."""
+    from juniper_service_core.websocket import worker_stream as ws_mod
+
+    monkeypatch.setattr(ws_mod, "_MAX_BINARY_SIZE", 8)
+
+    class _BinaryProtocol:
+        def build_assignment(self, task):
+            return ({"type": "task_assign", "task_id": task.task_id}, [])
+
+        def result_attachments(self, msg):
+            return ["blob"]
+
+        def parse_result(self, worker_id, msg, frames):
+            raise AssertionError("parse_result must not run for an oversized frame")
+
+    reg = WorkerRegistry()
+    coord = WorkerCoordinator(reg, _BinaryProtocol())
+    (tid,) = coord.submit_tasks("r", [{"c": 0}])
+    app = _wire_app(reg, coord)
+
+    ws = FakeWorkerWebSocket(
+        app=app,
+        inbound=[
+            _text(_REGISTER),
+            _text({"type": "task_result", "task_id": tid}),
+            _binary(b"0123456789"),  # 10 bytes > patched max of 8
+        ],
+    )
+    await worker_stream_handler(ws)
+
+    err = next(m for m in ws.sent if m.get("type") == "error")
+    assert err["error"] == "Binary frame too large"
+    assert not any(m.get("type") == "result_ack" for m in ws.sent)
+    assert coord.collect_results(timeout=0.1) == []
+
+
 # ======================================================================================
 # /ws/workers stream -- error / edge paths (transport robustness)
 # ======================================================================================

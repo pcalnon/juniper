@@ -104,8 +104,11 @@ class RequestBodyLimitMiddleware(BaseHTTPMiddleware):
                 return JSONResponse(status_code=_HTTP_400_BAD_REQUEST, content={"detail": "Invalid Content-Length header"})
             if declared_length > self._max_bytes:
                 return JSONResponse(status_code=_HTTP_413_PAYLOAD_TOO_LARGE, content={"detail": "Request body too large"})
-        if content_length is None and request.method in ("POST", "PUT", "PATCH"):
-            # BUG-CC-15: stream-read with early abort to avoid buffering full body before size check.
+        if request.method in ("POST", "PUT", "PATCH"):
+            # CR-024 / BUG-CC-15: always stream-read mutating methods -- Content-Length
+            # is an early-reject hint only. Under-declared CL + a larger real body (or a
+            # chunked stream with no CL) must still hit the cumulative cap; skipping the
+            # stream when CL is present-and-small is the classic bypass.
             chunks: list[bytes] = []
             size = 0
             async for chunk in request.stream():
