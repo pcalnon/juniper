@@ -45,10 +45,7 @@ _INLINE_PIN_RE = re.compile(r"`(juniper-[a-z0-9-]+>=[^`]+)`")
 # Extra name in the first table column: | `tools` | … |
 _EXTRA_CELL_RE = re.compile(r"^\|\s*`([a-z0-9-]+)`\s*\|")
 # REFERENCE.md three-column row: | [`extra`| ] | `pkg` [(…)] | `>=…` |
-_REFERENCE_ROW_RE = re.compile(
-    r"^\|\s*(?:`(?P<extra>[a-z0-9-]+)`)?\s*\|\s*`(?P<pkg>juniper-[a-z0-9-]+)`"
-    r"[^|]*\|\s*`(?P<spec>[^`]+)`\s*\|"
-)
+_REFERENCE_ROW_RE = re.compile(r"^\|\s*(?:`(?P<extra>[a-z0-9-]+)`)?\s*\|\s*`(?P<pkg>juniper-[a-z0-9-]+)`" r"[^|]*\|\s*`(?P<spec>[^`]+)`\s*\|")
 
 _DOCS_INLINE_TABLES = (
     _REPO / "AGENTS.md",
@@ -102,6 +99,7 @@ def _pins_from_reference_extras_table(text: str) -> dict[str, set[str]]:
         pin = f"{match.group('pkg')}{spec}"
         found.setdefault(current, set()).add(pin)
     return found
+
 
 # The canonical extras contract. Updating pyproject.toml without updating
 # this table (or vice versa) is the failure mode this lint catches.
@@ -210,11 +208,7 @@ class ExtrasDocsLockstepTest(unittest.TestCase):
             raise unittest.SkipTest("tomllib requires Python 3.11+")
         with _PYPROJECT.open("rb") as handle:
             extras = tomllib.load(handle)["project"].get("optional-dependencies", {})
-        cls.pyproject_pins = {
-            name: set(members)
-            for name, members in extras.items()
-            if name != "all"
-        }
+        cls.pyproject_pins = {name: set(members) for name, members in extras.items() if name != "all"}
 
     def test_inline_docs_tables_match_pyproject(self) -> None:
         for path in _DOCS_INLINE_TABLES:
@@ -223,8 +217,7 @@ class ExtrasDocsLockstepTest(unittest.TestCase):
                 self.assertEqual(
                     set(documented.keys()),
                     set(self.pyproject_pins.keys()),
-                    f"{path.name}: extras set drifted from pyproject.toml; "
-                    "co-update the documented table in the same PR as the pin change",
+                    f"{path.name}: extras set drifted from pyproject.toml; " "co-update the documented table in the same PR as the pin change",
                 )
                 for extra, expected in self.pyproject_pins.items():
                     with self.subTest(doc=path.name, extra=extra):
@@ -239,8 +232,7 @@ class ExtrasDocsLockstepTest(unittest.TestCase):
         self.assertEqual(
             set(documented.keys()),
             set(self.pyproject_pins.keys()),
-            "docs/REFERENCE.md extras set drifted from pyproject.toml; "
-            "co-update the Extras Reference table in the same PR as the pin change",
+            "docs/REFERENCE.md extras set drifted from pyproject.toml; " "co-update the Extras Reference table in the same PR as the pin change",
         )
         for extra, expected in self.pyproject_pins.items():
             with self.subTest(extra=extra):
@@ -252,12 +244,7 @@ class ExtrasDocsLockstepTest(unittest.TestCase):
 
     def test_inline_parser_detects_stale_tools_ceiling(self) -> None:
         """Synthetic pin: parser must surface the README/QUICK_START drift class."""
-        stale = (
-            "| Extra | Packages |\n"
-            "|---|---|\n"
-            "| `tools` | `juniper-ci-tools>=0.1.0`, "
-            "`juniper-service-core>=0.2.0,<0.3.0` |\n"
-        )
+        stale = "| Extra | Packages |\n" "|---|---|\n" "| `tools` | `juniper-ci-tools>=0.1.0`, " "`juniper-service-core>=0.2.0,<0.3.0` |\n"
         parsed = _pins_from_inline_extras_table(stale)
         self.assertEqual(
             parsed["tools"],
