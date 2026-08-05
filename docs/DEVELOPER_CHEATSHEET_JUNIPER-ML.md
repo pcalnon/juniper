@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
+**Version**: 1.0.19
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -225,6 +225,8 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 | Publish doc-tools      | Push `juniper-doc-tools-vX.Y.Z` tag (OIDC trusted publishing)                               |
 | Doc links (CI parity)  | `juniper-check-doc-links --exclude templates --exclude history --exclude legacy --cross-repo skip` |
 | Doc links (full local) | `juniper-check-doc-links --cross-repo check`                                                |
+| Weekly security scan   | Actions → Scheduled Security Scan (`pip-audit --strict --desc on` after `pip install -e .`) |
+| Weekly lockfile refresh| Actions → Update Lockfiles (`juniper-generate-dep-docs` → PR on `chore/lockfile-update`)    |
 
 Key hooks: `ruff` (juniper-data) or `black`+`isort`+`flake8` (others), `mypy`, `bandit`, `shellcheck`, `no-unencrypted-env`.
 
@@ -417,6 +419,10 @@ Tip: after a crashed Juniper pytest session, run `util/reap_pytest_orphans.bash 
 
 Tip: `python util/editable_install_drift_check.py --fix --json` is the live mutation path (`action=FIXED` on success). `ERROR` (pip/`OSError`) truncates detail to 500 chars and continues the plan — re-scan still exits `1` while orphans remain. Preview with `--dry-run` first. Coverage: [#802](https://github.com/pcalnon/juniper-ml/pull/802). Full contract: [REFERENCE — Editable Install Drift](REFERENCE.md#editable-install-drift-check).
 
+Tip: scheduled `security-scan.yml` must keep `pip-audit --strict --desc on` (no `--skip-editable`). The per-PR `ci.yml` security job is the opposite contract (`--skip-editable`, no `--strict`) so editable meta installs do not paint every PR red. Full contract: [REFERENCE — Scheduled Security Scan](REFERENCE.md#scheduled-security-scan--lockfile-update).
+
+Tip: weekly `lockfile-update.yml` must call `juniper-generate-dep-docs` (never resurrect `util/generate_dep_docs.sh`, deleted in #298) and open `chore/lockfile-update` with labels `dependencies` + `automated`. Pin ceiling stays under `test_ci_tools_drift.py`. See [REFERENCE — Scheduled Security Scan & Lockfile Update](REFERENCE.md#scheduled-security-scan--lockfile-update).
+
 Tip: missing **or** empty (zero-byte) `JuniperProject.pid` → `chop_all` still calls `orphaned_worker_cleanup`, then `exit 1`, and never enters the service-stop loop. Early cleanup sites are hard (no `|| true`); post-pidfile cleanup is soft. Default `KILL_WORKERS=0` only logs the short-circuit — use `KILL_WORKERS=1` when orphaned workers may be the only leftovers. See [`REFERENCE.md`](REFERENCE.md#missing--empty-juniperprojectpid-early-wire).
 
 Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant health failure leaves started user units running; tear down with `util/juniper_chop_all.bash --systemd` (see `docs/REFERENCE.md` § systemd mode).
@@ -452,6 +458,10 @@ Tip: systemd chop soft-fails per unit and always exits `0` without touching the 
 | `env_floor_drift_check` exits `2` | Resolution failed (`resolve_site_dirs`) — fix `--site-packages` / `--env` / `ecosystem.yaml` `used_by`; not a `BELOW_FLOOR`. |
 | Unexpected `BELOW_FLOOR` after upgrade | Multi-interpreter env may still hold a lower tree — tool reports the highest across site-packages; upgrade or remove the stale tree. |
 | `--fix` JSON shows `ERROR` mid-plan | Inspect `error` (stderr/`OSError`, ≤500 chars); fix env python / pip cause; re-run `--fix`. Other items may already be `FIXED`. |
+| Weekly security scan green with known CVE | Audit step must stay `pip-audit --strict --desc on` — dropping `--strict` softens findings. |
+| Scheduled security scan fails after adding `--skip-editable` | That flag belongs only to per-PR `ci.yml`; remove it from `security-scan.yml`. |
+| No Monday lockfile PR | Clean tree = no-op; confirm Actions → Update Lockfiles still runs `juniper-generate-dep-docs`. |
+| `test_ci_tools_drift` red after ci-tools bump | Widen `<Y` in `lockfile-update.yml` + `ci.yml` + `docs-full-check.yml` in the same PR. |
 
 ## Quick Reference Tables
 

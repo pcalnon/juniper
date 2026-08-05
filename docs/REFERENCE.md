@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.6
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -21,6 +21,7 @@
 - [Agent Suite Doctor](#agent-suite-doctor)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
+- [Scheduled Security Scan & Lockfile Update](#scheduled-security-scan--lockfile-update)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
@@ -744,6 +745,70 @@ Coverage: `tests/test_run_experiment.py`.
 | `--down` deleted results | It must not — `artifacts/` is preserved; if results are gone, check you pointed at the wrong `RUN_ROOT` or cleaned the durable home dir manually. |
 
 Do **not** point experiment ports at `plant_all` / isolated-stack ports, and do not use this launcher when you need canopy (use `isolated_stack.bash` or the host stack instead).
+
+---
+
+## Scheduled Security Scan & Lockfile Update
+
+Operator contract for the two Monday scheduled workflows that keep dependency hygiene unattended:
+`.github/workflows/security-scan.yml` (weekly CVSS screen) and `.github/workflows/lockfile-update.yml`
+(weekly CI lockfile refresh PR). Both are distinct from the per-PR `ci.yml` `security` / `dependency-docs` jobs.
+Hermetic gates that pin these contracts live in open [#943](https://github.com/pcalnon/juniper-ml/pull/943)
+(`tests/test_security_scan_workflow.py`, `tests/test_lockfile_update_workflow.py`); until that PR merges,
+treat the workflow YAML on `main` as source of truth.
+
+### Security Scan (`security-scan.yml`)
+
+| Item | Value |
+|------|-------|
+| Triggers | Cron `0 6 * * 1` (Monday 06:00 UTC) + `workflow_dispatch` |
+| Permissions | `{contents: read}` only |
+| Python | `3.12` |
+| Install | `pip install pip-audit` then `pip install -e .` |
+| Audit | **sole** invocation: `pip-audit --strict --desc on` |
+
+**Why `--strict` here (and not in per-PR CI).** The scheduled scan must fail the run on a known CVSS finding.
+The per-PR `ci.yml` `security` job intentionally runs `pip-audit --desc on --skip-editable` and **omits** `--strict`:
+pip-audit treats a skipped editable install as a dependency-collection failure, and `--strict` would escalate that
+to a fatal error on every PR that installs the unreleased meta-package editable.
+Do **not** copy `--skip-editable` into the scheduled workflow, and do **not** drop `--strict` from it.
+
+Constraints pinned by the structural gate:
+
+1. Exactly one `pip-audit` invocation in the audit step (no soft follow-up that swallows a non-zero exit).
+2. No `--skip-editable` on the scheduled path.
+3. Workflow permissions stay read-only — this job never opens PRs or writes the tree.
+
+Manual re-run: Actions → **Scheduled Security Scan** → **Run workflow**.
+
+### Lockfile Update (`lockfile-update.yml`)
+
+| Item | Value |
+|------|-------|
+| Triggers | Cron `0 8 * * 1` (Monday 08:00 UTC) + `workflow_dispatch` |
+| Permissions | exactly `{contents: write, pull-requests: write}` |
+| Tooling | `pip install "juniper-ci-tools>=0.1.0,<0.8.0"` then `juniper-generate-dep-docs` |
+| PR open | SHA-pinned `peter-evans/create-pull-request` → branch `chore/lockfile-update` |
+| Labels | `dependencies` + `automated` |
+| Commit / title | `chore(deps): refresh CI lockfiles` |
+
+**Intent.** Regenerates `conf/requirements_ci.txt` and `conf/conda_environment_ci.yaml` via the published `juniper-generate-dep-docs` console script (Wave 2 of the dep-docs PyPI migration). The legacy `util/generate_dep_docs.sh` was deleted in juniper-ml#298 — do **not** resurrect it in this workflow. Companion pin lint: `tests/test_ci_tools_drift.py` asserts the `juniper-ci-tools>=X,<Y` range in this file (and in `ci.yml` / `docs-full-check.yml`) still admits the current ci-tools version.
+
+**Operator notes:**
+
+- A no-diff week opens no PR (`create-pull-request` is a no-op when the tree is clean).
+- Review the opened `chore/lockfile-update` PR like any Dependabot-adjacent change; it is not auto-merged.
+- Widening the ci-tools pin in this workflow must stay lockstep with `test_ci_tools_drift.py` (same PR as a ci-tools minor that would otherwise exceed the upper bound).
+
+### Troubleshooting
+
+| Symptom | Fast check |
+|---------|------------|
+| Weekly security scan green but a known CVE is open | Confirm the audit step is still `pip-audit --strict --desc on` (dropping `--strict` softens findings). |
+| Scheduled scan fails on every run after a meta-package edit | Do **not** add `--skip-editable` here — that belongs only to the per-PR `ci.yml` job. Fix the finding or accept the red until deps are patched. |
+| No lockfile PR for several Mondays | Check Actions → **Update Lockfiles**; a clean tree is expected when pins did not move. Confirm the job still calls `juniper-generate-dep-docs` (not a deleted shell script). |
+| Lockfile PR missing labels / wrong branch | Structural gate expects branch `chore/lockfile-update` and labels `dependencies` + `automated`. |
+| `test_ci_tools_drift` red after a ci-tools bump | Widen the `<Y` ceiling in `lockfile-update.yml` (and the other two own-workflow pins) in the same PR. |
 
 ---
 

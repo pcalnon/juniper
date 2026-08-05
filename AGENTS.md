@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.0
-**Last Updated**: 2026-08-04
+**Last Updated**: 2026-08-05
 
 ---
 
@@ -178,7 +178,8 @@ juniper-ml/
 │       ├── main-verify.yml    # Post-merge main verification (G3: symbol/docs-loss screen + gated battery + notify)
 │       ├── publish.yml        # PyPI publishing (TestPyPI + PyPI, OIDC)
 │       ├── docs-full-check.yml# Weekly full documentation link validation (cross-repo)
-│       ├── security-scan.yml  # Weekly pip-audit security scanning
+│       ├── security-scan.yml  # Weekly pip-audit --strict security scanning
+│       ├── lockfile-update.yml# Weekly juniper-generate-dep-docs → chore/lockfile-update PR
 │       ├── release-train.yml  # Daily PyPI release-train detection (report-only, Phase 1)
 │       └── claude.yml         # Claude Code action for issue/PR automation
 │
@@ -566,7 +567,8 @@ juniper-ml/
 - `.github/workflows/main-verify.yml` -- Post-merge main-verification (flood P2 gate G3): on every `push:main` (per-SHA, no-cancel) it runs the `util/sequence_safety/` symbol + docs screens over `BASE..<merge>` (`sequence-safety-report`), a path-gated battery mirror, and a failure-only `notify`. G3.1 CATCH-UP BASE (flood §4 item 8 / the 2026-07-30 `[skip ci]` incident): BASE = last SUCCESSFUL main-verify tip when an ancestor of HEAD (sweeps skipped windows), else `github.event.before`, else `HEAD^1`.
 - `.github/workflows/publish.yml` -- PyPI publishing: TestPyPI with install verification, then PyPI (OIDC trusted publishing)
 - `.github/workflows/docs-full-check.yml` -- Weekly full documentation link validation including cross-repo checks
-- `.github/workflows/security-scan.yml` -- Weekly pip-audit dependency vulnerability scanning
+- `.github/workflows/security-scan.yml` -- Weekly `pip-audit --strict --desc on` after `pip install -e .` (read-only; distinct from per-PR `ci.yml` security which uses `--skip-editable` and omits `--strict`). Operator surface: [docs/REFERENCE.md § Scheduled Security Scan & Lockfile Update](docs/REFERENCE.md#scheduled-security-scan--lockfile-update).
+- `.github/workflows/lockfile-update.yml` -- Weekly `juniper-generate-dep-docs` refresh; SHA-pinned `peter-evans/create-pull-request` opens `chore/lockfile-update` with labels `dependencies` + `automated` (permissions `{contents: write, pull-requests: write}`). Never resurrect deleted `util/generate_dep_docs.sh` (juniper-ml#298). Pin ceiling gated by `tests/test_ci_tools_drift.py`.
 - `.github/workflows/release-train.yml` -- Daily (13:00 UTC) PyPI release-train orchestrator.
   - The `detect` job (report path) runs `util/release_train/detect.py` over the 18-package registry and renders a step-summary table; it never writes.
   - Two opt-in write-scoped lanes gate on the resolved mode: `propose` (Phase 2.2/4.1 — standard-gated proposal PRs) and `ceremony` (Phase 4.3 — exempt archive PR + Release cut → owner-gated `pypi` Gate 2).
@@ -615,7 +617,23 @@ Weekly schedule (Monday 06:00 UTC) and manual dispatch. Clones all Juniper ecosy
 
 ### Security Scan (`security-scan.yml`)
 
-Weekly schedule (Monday 06:00 UTC) and manual dispatch. Runs `pip-audit --strict --desc on` for dependency vulnerability scanning.
+Weekly schedule (Monday 06:00 UTC) and manual dispatch. Permissions `{contents: read}`.
+Installs the meta-package editable, then runs a **sole** `pip-audit --strict --desc on` (no `--skip-editable`).
+This is the hard weekly CVSS screen — distinct from the per-PR `ci.yml` `security` job, which intentionally
+uses `--skip-editable` and omits `--strict` so an unreleased editable meta install does not fail every PR.
+Do not copy either contract onto the other path.
+Operator runbook: [docs/REFERENCE.md § Scheduled Security Scan & Lockfile Update](docs/REFERENCE.md#scheduled-security-scan--lockfile-update).
+Hermetic pin (open #943): `tests/test_security_scan_workflow.py`.
+
+### Lockfile Update (`lockfile-update.yml`)
+
+Weekly schedule (Monday 08:00 UTC) and manual dispatch.
+Installs `juniper-ci-tools` from PyPI, runs `juniper-generate-dep-docs` to regenerate
+`conf/requirements_ci.txt` + `conf/conda_environment_ci.yaml`, and opens a PR on `chore/lockfile-update`
+(labels `dependencies` + `automated`) via SHA-pinned `peter-evans/create-pull-request` when the tree changes.
+Permissions exactly `{contents: write, pull-requests: write}`.
+The legacy `util/generate_dep_docs.sh` was deleted in juniper-ml#298 — this workflow must keep the console-script path.
+Companion pin lint: `tests/test_ci_tools_drift.py`. Hermetic pin (open #943): `tests/test_lockfile_update_workflow.py`.
 
 ### Release Train (`release-train.yml`)
 
