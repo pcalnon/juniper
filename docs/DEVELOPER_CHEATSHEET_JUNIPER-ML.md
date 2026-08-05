@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
+**Version**: 1.0.20
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -272,6 +272,12 @@ Hygiene `TAG_ONLY=` counts only truthy `tag_only`; a `list_releases` blip sets `
 `release-hygiene (tag_only) unavailable:` without failing the job. Offline `--local-git` must raise
 `SourceError` for releases (open [#773](https://github.com/pcalnon/juniper-ml/pull/773)), not return
 `set()` (false TAG_ONLY on every package). Operator tables: runbook §3.1.
+
+**Detect step summary + Slack footers (open [#958](https://github.com/pcalnon/juniper-ml/pull/958)):**
+action set = `UNRELEASED_CHANGES` + `BUMPED_NOT_RELEASED` + `SHIP_UNCERTAIN`.
+Report/propose footers count that full set; **ceremony** footer counts **only** `BUMPED_NOT_RELEASED`.
+Missing/empty `release-manifest.json` → hard-fail banner (summary) / `FAILED HARD` Slack line — not a quiet clear.
+Pins: `DetectSummaryRehearsalTest` / `DetectSlackPayloadRehearsalTest`. Detail: [REFERENCE — Detect Summary & Slack](REFERENCE.md#release-train-detect-summary--slack) + runbook §3.1.
 
 **Release-train `packages` dispatch + `--cross-repo`.** Both write jobs reject garbage
 `packages` tokens (`Juniper-Observability`, underscores, `../`, `;`) with exit **2** + `::error::`

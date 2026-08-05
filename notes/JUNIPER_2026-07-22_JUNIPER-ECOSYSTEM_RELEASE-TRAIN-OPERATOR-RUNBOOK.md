@@ -4,7 +4,7 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.3
+**Version**: 1.2.4
 **Last Updated**: 2026-08-05
 
 ---
@@ -89,6 +89,36 @@ release-worthy CHANGELOG changes not yet in a proposal), `BUMPED_NOT_RELEASED` (
 **ceremonial** class), `SHIP_UNCERTAIN`, `NEVER_RELEASED`. **Detector exit 1 ("action needed") is a
 NORMAL green outcome** — only a hard source error (exit ≥ 2) fails the run (`release-train.yml`, detect
 step; plan §11).
+
+#### Detect step-summary footers + Slack hard-fail (workflow heredocs)
+
+The detect job's summary / Slack Python (`release-train.yml:270-366`) is what operators actually read
+after a daily train. Hermetic pins: open juniper-ml#958
+`DetectSummaryRehearsalTest` / `DetectSlackPayloadRehearsalTest`
+(`tests/test_release_train_workflow_guard.py`). Docs shortcut:
+[`docs/REFERENCE.md` § Release-Train Detect Summary & Slack](../docs/REFERENCE.md#release-train-detect-summary--slack).
+
+**Action set** used by report/propose footers and Slack "Needs release action" (`action_states`,
+`release-train.yml:293-294` / `:354-355`):
+
+`UNRELEASED_CHANGES` · `BUMPED_NOT_RELEASED` · `SHIP_UNCERTAIN`
+
+| Mode footer | Counts | Exact framing cue |
+|---|---|---|
+| `report` | Full action set | `_Report-only: … **N package(s) currently need release action.**_` |
+| `propose` | Full action set | `_… **propose** job opens … for the N package(s) …_` (then read the propose job summary) |
+| `ceremony` | **Only** `BUMPED_NOT_RELEASED` (`bumped`, `release-train.yml:295` / `:317-318`) | `_… **ceremony** job … for the M BUMPED_NOT_RELEASED package(s) … Gate 2_` |
+
+A report footer of N>0 with a ceremony footer of `0 BUMPED_NOT_RELEASED` is normal when the action
+packages are `UNRELEASED_CHANGES` / `SHIP_UNCERTAIN` only — do **not** expect ceremony to open archive
+PRs for those.
+
+**Hard-fail (missing / empty manifest):** summary writes
+`**Detector failed hard -- no manifest was produced.**` and **no** package table
+(`release-train.yml:284-288`); Slack posts
+`Release train: detector FAILED HARD (no manifest produced). Run: <url>`
+(`release-train.yml:362`). The step still exits 0 under `if: always()` — treat as a red detector
+outcome, never a quiet "0 need action."
 
 #### Detect SHIP filter + SemVer (why a package shows `UNRELEASED_CHANGES`)
 

@@ -648,6 +648,15 @@ When the GitHub App token is minted (the primary Phase 4.1 path) the PR is opene
 
 With the `SLACK_WEBHOOK_URL` repo secret present (owner-provisioned incoming webhook; Q-CHANNEL), each run also posts a compact summary — classification counts, packages needing action, run URL — to the Juniper Slack channel. Strictly non-blocking: a missing secret skips the step, and a post failure never fails the run.
 
+**Detect step summary / Slack footers.** Report and propose footers (and Slack "Needs release action")
+count the full action set `UNRELEASED_CHANGES` + `BUMPED_NOT_RELEASED` + `SHIP_UNCERTAIN`.
+The ceremony footer counts **only** `BUMPED_NOT_RELEASED`.
+A missing or empty `release-manifest.json` surfaces the hard-fail banner / `FAILED HARD` Slack line
+(not a quiet clear). Hermetic pins: open juniper-ml#958
+(`DetectSummaryRehearsalTest` / `DetectSlackPayloadRehearsalTest`).
+Operator detail: runbook §3.1 +
+[`docs/REFERENCE.md` § Release-Train Detect Summary & Slack](docs/REFERENCE.md#release-train-detect-summary--slack).
+
 ### Claude Code Action (`claude.yml`)
 
 Triggered by issue/PR comments and events mentioning @claude. Uses `anthropics/claude-code-action` for automated issue/PR assistance.

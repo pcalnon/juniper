@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.7
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -24,6 +24,7 @@
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
+- [Release-Train Detect Summary & Slack](#release-train-detect-summary--slack)
 
 ---
 
@@ -842,6 +843,68 @@ Release runbooks:
 
 ---
 
+## Release-Train Detect Summary & Slack
+
+Operator contract for the detect job's **Render step summary** and **Slack notification** Python heredocs
+in [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml).
+Full mode / Gate / HALT surface lives in the
+[release-train operator runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1.
+Hermetic YAML-extraction pins (open [#958](https://github.com/pcalnon/juniper-ml/pull/958)):
+`DetectSummaryRehearsalTest` / `DetectSlackPayloadRehearsalTest` in `tests/test_release_train_workflow_guard.py`.
+
+### Action set vs ceremonial class
+
+Both renderers treat these classifications as needing release action:
+
+`UNRELEASED_CHANGES` · `BUMPED_NOT_RELEASED` · `SHIP_UNCERTAIN`
+
+`BUMPED_NOT_RELEASED` alone is the **ceremonial** class (Gate 2 / ceremony job). Do not equate "needs action" with "ceremony will run."
+
+### Step-summary shape
+
+When `release-manifest.json` is present and non-empty, the summary includes:
+
+1. Title `# Release train -- <mode> mode`
+2. Package total + per-classification counts
+3. `Release hygiene: TAG_ONLY=N, NOTES_MISSING=M` (truthy `hygiene.tag_only` / `hygiene.notes_missing` only)
+4. Per-package table (`package` / `repo` / `released` / `declared` / `classification` / `proposed bump`)
+5. Collapsed `detector notes` (`packages[].notes`) when any exist
+6. A **mode-specific footer** (below)
+
+| Mode | Footer keys on | Operator reading |
+|------|----------------|------------------|
+| `report` (default) | Full action set | `_Report-only: … **N package(s) currently need release action.**_` — no write jobs ran |
+| `propose` | Full action set | `_… **propose** job opens … for the N package(s) …_` — look at the **propose** job summary for `opened:` / `skip:` |
+| `ceremony` | **Only** `BUMPED_NOT_RELEASED` | `_… **ceremony** job … for the M BUMPED_NOT_RELEASED package(s) … Gate 2_` — `UNRELEASED_CHANGES` / `SHIP_UNCERTAIN` are **not** ceremony candidates |
+
+### Hard-fail banner (missing / empty manifest)
+
+If the manifest file is absent or zero-length/whitespace, the summary writes only:
+
+`**Detector failed hard -- no manifest was produced.** See the run log.`
+
+No package table. The step still exits 0 (`if: always()`); treat this as a red detector outcome, not a quiet "0 packages need action."
+
+### Slack payload (non-blocking)
+
+`Slack notification` posts only when `SLACK_WEBHOOK_URL` is set; missing secret skips; `continue-on-error: true` so a post failure never fails the train. Compact `{"text": …}` shape:
+
+- Happy path: `Release train (<mode> mode): <total> packages -- <counts>` + optional `Needs release action: <sorted names>` + `Run: <url>`
+- Hard fail: `Release train: detector FAILED HARD (no manifest produced). Run: <url>`
+
+No secrets, diffs, or CHANGELOG bodies in the payload.
+
+### Common pitfalls
+
+| Symptom | Likely cause | What to do |
+|---------|--------------|------------|
+| Ceremony footer says `0 BUMPED_NOT_RELEASED` but report footer said N>0 | Action set includes `UNRELEASED_CHANGES` / `SHIP_UNCERTAIN` | Run `propose` for those; ceremony only after versions are bumped |
+| Slack / summary omit `SHIP_UNCERTAIN` from "needs action" | Renderer action tuple drifted | Fix `release-train.yml` action_states; pin [#958](https://github.com/pcalnon/juniper-ml/pull/958) |
+| "Detector failed hard" with green job | Manifest artifact missing after exit ≥2 or early abort | Open the detect log; do not invent a quiet clear |
+| No Slack post | Secret unset or post error | Expected non-blocking; read the GitHub step summary instead |
+
+---
+
 ## Environment Variables
 
 These variables are consumed by Juniper packages documented in this repository. `juniper-ml` itself does not set them; they belong to the extras-installed packages.
@@ -863,5 +926,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.0
+**Version:** 0.6.7
 **Maintainer:** Paul Calnon
