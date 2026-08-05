@@ -178,24 +178,31 @@ class PrBudgetAlarmRehearsalTest(unittest.TestCase):
         self.assertEqual(out.get("level"), "WARN")
         self.assertIn("**WARN**", summary)
 
-    def test_warn_on_cursor_crossing_warn(self) -> None:
-        # cursor subset alone crossing warn is enough (analysis §5).
-        out, summary, rc = self._run_count(prs=self._prs(10, 15), warn="15", alarm="30")
+    def test_cursor_count_uses_cursor_prefix(self) -> None:
+        # jq ``startswith("cursor/")`` must drive the cursor metric — a wrong filter
+        # (e.g. counting every head) would inflate cursor and false-alarm the Slack path.
+        out, summary, rc = self._run_count(prs=self._prs(20, 8), warn="15", alarm="30")
         self.assertEqual(rc, 0)
-        self.assertEqual(out.get("total"), "10")
-        self.assertEqual(out.get("cursor"), "15")
-        self.assertEqual(out.get("level"), "WARN")
+        self.assertEqual(out.get("total"), "20")
+        self.assertEqual(out.get("cursor"), "8")
+        self.assertEqual(out.get("level"), "WARN")  # total=20 >= warn=15
         self.assertIn("**WARN**", summary)
+        # Script still OR-gates the cursor metric (analysis §5); pin the comparison so a
+        # total-only rewrite cannot silently drop the cursor/ arm.
+        self.assertIn('"$cursor" -ge "$warn"', self.script)
+        self.assertIn('"$cursor" -ge "$alarm"', self.script)
 
     def test_alarm_on_total_crossing_alarm(self) -> None:
         out, summary, rc = self._run_count(prs=self._prs(30, 0), warn="15", alarm="30")
         self.assertEqual(rc, 0)
         self.assertEqual(out.get("level"), "ALARM")
+        self.assertEqual(out.get("cursor"), "0")
         self.assertIn("**ALARM**", summary)
 
-    def test_alarm_on_cursor_crossing_alarm(self) -> None:
-        out, summary, rc = self._run_count(prs=self._prs(20, 30), warn="15", alarm="30")
+    def test_alarm_when_all_open_prs_are_cursor(self) -> None:
+        out, summary, rc = self._run_count(prs=self._prs(30, 30), warn="15", alarm="30")
         self.assertEqual(rc, 0)
+        self.assertEqual(out.get("total"), "30")
         self.assertEqual(out.get("cursor"), "30")
         self.assertEqual(out.get("level"), "ALARM")
         self.assertIn("**ALARM**", summary)
