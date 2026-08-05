@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -577,6 +577,34 @@ The script runs under `set -euo pipefail`. Cascor/canopy bring-up calls `activat
 
 **Contract:** restore nounset with `set -u` immediately after `conda activate` so later unset expansions still fail. Pre-[#785](https://github.com/pcalnon/juniper-ml/pull/785) the restore arm was a second `set +u`, so live `--up` continued **without** nounset after every cascor/canopy activate. If a mid-`--up` failure looks like a silent missing-env typo that plant would have caught, confirm #785 is present (`rg -n 'set -u' util/isolated_stack.bash` inside `activate_conda`).
 
+#### Fail-closed `activate_conda` under OR-list callers (open juniper-ml#967)
+
+Bash disables `set -e` inside a function invoked as `fn || …`. Once open [#963](https://github.com/pcalnon/juniper-ml/pull/963) lands, `cascor_up` / `canopy_up` call `activate_conda … || return 1` (and `do_up` absorbs `*_up || failed=1`). On that path a bare:
+
+```bash
+set +u
+conda activate "${env_name}"   # failure ignored under OR-list
+set -u                         # succeeds → function returns 0
+```
+
+masks the activate failure as exit `0`, so the leg continues and launches `uvicorn` / `python` from the **ambient PATH** instead of hard-failing — wrong-env E2E (wrong torch/site-packages), possible false-green `/v1/health`.
+
+**Contract (open [#967](https://github.com/pcalnon/juniper-ml/pull/967)):** `activate_conda` must propagate `source` / `conda activate` failures explicitly even when OR-listed:
+
+- `source "${CONDA_SH}" || { log ERROR; return 1; }`
+- `if ! conda activate …; then set -u; log ERROR; return 1; fi` — restore nounset on the **failure** arm too
+- success arm still ends with `set -u` (#785)
+
+**Operator checks:**
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Cascor/canopy "up" but wrong torch / missing editable / odd site-packages after a conda env rename | Confirm #967 is present (`rg -n 'if ! conda activate' util/isolated_stack.bash`). Pre-#967 + OR-list callers can launch ambient PATH after a failed activate. |
+| `--up` logs `ERROR: conda activate '…' failed` and aborts the leg | Expected fail-closed path — fix `JUNIPER_E2E_CASCOR_CONDA` / `JUNIPER_E2E_CANOPY_CONDA` / `JUNIPER_E2E_CONDA_DIR`, then re-`--up`. |
+| Main still has bare `conda activate` + trailing `set -u` | Need #967 before relying on #963's `activate_conda \|\| return 1` absorb; until then prefer bare `set -e` callers or verify activate by hand. |
+
+Coverage: `tests/test_isolated_stack_script.py` `TestActivateCondaNounset.test_conda_activate_failure_propagates_under_or_list` (open #967). Distinct from open [#964](https://github.com/pcalnon/juniper-ml/pull/964) (documents #963 `do_up` → `do_down` + `*_up` `|| return 1`); this section is the nested failure class **inside** `activate_conda`.
+
 #### Kill-by-port teardown (`port_pid` / `stop_port`)
 
 `--down` does **not** use `JuniperProject.pid`. It stops canopy → cascor → data via `stop_port`, which asks `ss -tlnpH "sport = :<port>"` for the first `pid=N` (`port_pid`), then `kill`s that PID.
@@ -603,6 +631,8 @@ Troubleshooting:
 | Data health timeout / free-threading oddities | Confirm launch used `PYTHON_GIL=0`; inspect `${RUN_DIR}/logs/juniper-data.log` and that `.venv-data` was created with `python3.14`. |
 | Stale editable install in data venv | Delete `${RUN_DIR}/.venv-data` (or run `--down`) and re-`--up`, or set a fresh `JUNIPER_E2E_RUN_DIR`. Existing venv skips `python3.14 -m venv` but still re-pip-installs. |
 | `--up` dies with unset-variable / odd conda activate noise | Need #785 nounset restore; also confirm `JUNIPER_E2E_CONDA_DIR` points at a real `conda.sh`. |
+| Cascor/canopy health green but wrong env / ambient torch after rename | Need #967 fail-closed `activate_conda` under OR-list; confirm `if ! conda activate` in the function body. |
+| `--up` logs `ERROR: conda activate '…' failed` | Expected #967 path — fix conda env name / `JUNIPER_E2E_CONDA_DIR`, then retry. |
 | Ports still busy after `--down` | Confirm `ss` is on `PATH` and can see user processes; re-run `--down` or kill the `pid=` from `ss -tlnpH` manually. |
 | Health timeout mid-`--up` | Inspect `${JUNIPER_E2E_RUN_DIR:-/tmp/juniper-e2e}/logs/*.log`; raise `JUNIPER_E2E_HEALTH_TIMEOUT` only after fixing the service, not as a silent hang workaround. |
 | Cascor dies / wrong torch after `--up` | Confirm live launch emptied `LD_LIBRARY_PATH` (`--dry-run --up` shows `LD_LIBRARY_PATH=`); prefer default `JuniperCascor1`. |
@@ -783,6 +813,7 @@ Publish and CI constraints:
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.1   | 2026-08-05 | Isolated Stack: fail-closed `activate_conda` under OR-list callers (open juniper-ml#967; nested class beside #963/`\|\| return 1`)                                         |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
 | 0.4.1   | 2026-04-28 | Added `juniper-observability` sibling package and dedicated CI/publish workflows                                                                                         |
@@ -863,5 +894,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Maintainer:** Paul Calnon
