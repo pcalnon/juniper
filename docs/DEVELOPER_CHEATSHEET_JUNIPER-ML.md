@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
+**Version**: 1.0.9
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -351,6 +351,13 @@ Operator tables: [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPER
 the `git/refs` POST omitted a heads ref — fail-closed code bug, not an auth blip. Do not hand-POST a
 ref. Re-dispatch after #770; see runbook §7.
 
+**YubiKey ed448 `keytocard` (ml#904 / #914 / #947):** YubiKey 5 OpenPGP cannot hold Ed448/X448 —
+`KEYTOCARD failed: Invalid value` is a hardware limit, not a bad PIN. Keep ed448 certify offline; put
+ed25519/cv25519 subkeys on the card. Ubuntu/Debian-patched gpg needs `compliance gnupg` to *create*
+448 keys (#947 — not upstream GnuPG). Procedure:
+[notes/…YUBIKEY-GPG-ED448-KEYTOCARD-PROCEDURE.md](../notes/JUNIPER_2026-08-03_JUNIPER-ECOSYSTEM_YUBIKEY-GPG-ED448-KEYTOCARD-PROCEDURE.md).
+Pointer: [REFERENCE — YubiKey GPG Provisioning](REFERENCE.md#yubikey-gpg-provisioning).
+
 ---
 
 ## Environment Variables
@@ -423,6 +430,11 @@ Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant he
 
 Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
 
+Tip: `gpg: KEYTOCARD failed: Invalid value` for ed448 on a YubiKey 5 is expected — card has no Curve448.
+Do not burn Admin PIN retries; follow the ed25519/cv25519 subkey layout in
+[REFERENCE — YubiKey GPG](REFERENCE.md#yubikey-gpg-provisioning). Stub pinentry must greet with Assuan `OK` (#914).
+Ed448 *creation* refusal needing `--compliance=gnupg` is Ubuntu/Debian FreePG-patched gpg (#947), not upstream.
+
 
 ### Host Stack Troubleshooting
 
@@ -452,6 +464,9 @@ Tip: systemd chop soft-fails per unit and always exits `0` without touching the 
 | `env_floor_drift_check` exits `2` | Resolution failed (`resolve_site_dirs`) — fix `--site-packages` / `--env` / `ecosystem.yaml` `used_by`; not a `BELOW_FLOOR`. |
 | Unexpected `BELOW_FLOOR` after upgrade | Multi-interpreter env may still hold a lower tree — tool reports the highest across site-packages; upgrade or remove the stale tree. |
 | `--fix` JSON shows `ERROR` mid-plan | Inspect `error` (stderr/`OSError`, ≤500 chars); fix env python / pip cause; re-run `--fix`. Other items may already be `FIXED`. |
+| `KEYTOCARD failed: Invalid value` (ed448) | Hardware — YubiKey 5 OpenPGP has no Ed448; use ed25519/cv25519 subkeys. See [REFERENCE](REFERENCE.md#yubikey-gpg-provisioning). |
+| Stub pinentry “No pinentry” / dead agent | Assuan greeting must be `OK …` (#914); check `util/ad-hoc/2026-08-03_yubikey_test_pinentry.bash`. Throwaway creds only. |
+| Ed448 keygen: need `--compliance=gnupg` | Ubuntu/Debian FreePG-patched gpg (#947); upstream creates v5 silently. Use `compliance gnupg` in ceremony `gpg.conf`. |
 
 ## Quick Reference Tables
 
@@ -495,5 +510,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 1.0.8
+**Version:** 1.0.9
 **Maintainer:** Paul Calnon
