@@ -242,7 +242,10 @@ class PublishTestPyPIVerifyRehearsalTest(unittest.TestCase):
     def test_sleep_is_invoked_but_stubbed_not_blocking(self) -> None:
         # Contract: the workflow still contains `sleep 30` (index lag buffer). The
         # rehearsal must not actually wait — the PATH stub makes that hermetic.
-        self.assertRegex(self.script, r"^\s*sleep\s+30\s*$", flags=re.MULTILINE)
+        self.assertIsNotNone(
+            re.search(r"^\s*sleep\s+30\s*$", self.script, re.MULTILINE),
+            "verify shell must retain `sleep 30` (TestPyPI index-lag buffer)",
+        )
         # If sleep were not stubbed this would hang ~30s; finishing quickly is the proof.
         lines = self._run_verify()
         self.assertEqual(len(lines), 3)
