@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -625,7 +625,7 @@ This is **not** the isolated E2E trio (`util/isolated_stack.bash` on `8101`/`820
 
 | Utility | Purpose | Key overrides |
 |---------|---------|---------------|
-| `--up (--cascor \| --recurrence)` | Allocate ports, launch data → selected app(s), health-gate, write `ports.json` | `JUNIPER_EXP_*` (below) |
+| `--up (--cascor \| --recurrence)` | Allocate ports, write `ports.json`, then launch data → selected app(s) and health-gate | `JUNIPER_EXP_*` (below) |
 | `--down RUN_ID` / `--down --all-mine` | Pidfile-first teardown; release locks; keep `artifacts/` | same |
 | `--status [RUN_ID]` | Probe health / pids / scrape state (or list runs) | same |
 | `--dry-run …` | Print expanded commands; create/start/kill nothing | same |
@@ -669,7 +669,21 @@ Port locks use atomic `mkdir "$LOCK_ROOT/<port>.lock"` (`JUNIPER_EXP_LOCK_ROOT`,
 
 #### F-6 listener pid rule (binding)
 
-`$!` after `( cd … && nohup <server> … & )` is the backgrounded **subshell**, not the server. No `*_up` records `$!`. After the health gate, `record_listener_pid` writes the listener from `ss -tlnpH "sport = :<port>"` plus the process cmdline. Teardown kills pidfile-first only after proving the pid is alive, owned by the current uid, and still running the recorded cmdline (SIGTERM then bounded SIGKILL); falls back to kill-by-port only within this run's recorded ports. `artifacts/` is never deleted.
+`$!` after `( cd … && nohup <server> … & )` is the backgrounded **subshell**, not the server. No `*_up` records `$!`. After the health gate, `record_listener_pid` writes the listener from `ss -tlnpH "sport = :<port>"` plus the process cmdline. Teardown kills pidfile-first only after proving the pid is alive, owned by the current uid, and still running the recorded cmdline (SIGTERM then bounded SIGKILL).
+
+If the pidfile path refuses (pid gone, wrong uid, or cmdline no longer matches — the pid-reuse class), `stop_service` logs `pidfile path refused — falling back to the recorded port <N>` and kills via `ss` **only** on that run's recorded port. A listener still present after both attempts logs a WARNING. `artifacts/` is never deleted.
+
+#### Partial-failure teardown (`do_up` → `teardown_run`)
+
+`do_up` writes `ports.json` **before** any `*_up` launch so a half-started run is still teardown-able. Launch order is data → cascor → recurrence; the first failing leg sets `failed=1` and skips later services.
+
+On failure (live mode, not `--dry-run`):
+
+1. Logs `ERROR: bring-up failed — tearing the partial run back down (logs kept under ${LOG_DIR})`.
+2. Calls `teardown_run "${RUN_ID}"` (same path as `--down`): reverse-order `stop_service`, release port lockdirs, write `teardown.json`, keep `artifacts/` + `logs/`.
+3. Returns `1` (does **not** leave the partial listeners / locks for the operator to discover later).
+
+`--dry-run --up` never creates dirs or calls `teardown_run`. After a live partial failure, inspect `$RUN_DIR/logs/` and `$RUN_DIR/teardown.json`; re-run `--up` only after confirming the port range is free (`ss` / lockdirs under `JUNIPER_EXP_LOCK_ROOT`). Source: `util/experiment_stack.bash` `do_up` / `teardown_run`. Pidfile-refuse → port fallback coverage: open juniper-ml#923 (`TestTeardownBehaviour`).
 
 #### Health / conda
 
@@ -677,7 +691,7 @@ Port locks use atomic `mkdir "$LOCK_ROOT/<port>.lock"` (`JUNIPER_EXP_LOCK_ROOT`,
 - Default launch uses direct env-bin paths (`${JUNIPER_EXP_CONDA_DIR}/envs/<env>/bin/...`). Set `JUNIPER_EXP_CONDA_ACTIVATE=1` only if an env grows `activate.d` hooks.
 - From a **git worktree**, set `JUNIPER_EXP_PROJECT_DIR` to the ecosystem root — the script's default derivation lands inside `worktrees/` otherwise.
 
-Coverage: `tests/test_experiment_stack_script.py`.
+Coverage: `tests/test_experiment_stack_script.py` (incl. live `*_up` compose + pidfile-refuse teardown).
 
 ### Driver (`util/experiments/run_experiment.py`)
 
@@ -734,9 +748,11 @@ Coverage: `tests/test_run_experiment.py`.
 | Symptom | Check / Fix |
 |---------|-------------|
 | Misuse exit `2` on `--up` | Need exactly one action and at least one of `--cascor` / `--recurrence`. |
-| Health timeout mid-`--up` | Inspect `$RUN_DIR/logs/`; cold recurrence often needs the default `90s` — raise `JUNIPER_EXP_HEALTH_TIMEOUT` only after fixing the service. |
+| Health timeout mid-`--up` | Inspect `$RUN_DIR/logs/`; cold recurrence often needs the default `90s` — raise `JUNIPER_EXP_HEALTH_TIMEOUT` only after fixing the service. Partial bring-up should already have called `teardown_run` (see above). |
+| `bring-up failed — tearing the partial run back down` | Expected on a failed `*_up` leg — `do_up` auto-tears down. Check `$RUN_DIR/logs/` + `teardown.json`; confirm port locks released under `JUNIPER_EXP_LOCK_ROOT` before retrying. |
 | Worktree can't find cascor `src/` | Set `JUNIPER_EXP_PROJECT_DIR` to the real ecosystem root. |
 | Teardown killed the wrong process / left orphans | Pre-F-6 `$!` class — confirm pidfiles came from `record_listener_pid` (post-health `ss`), not shell `$!`. |
+| Log says `pidfile path refused — falling back to the recorded port` | Pid reuse / cmdline mismatch refused the pidfile kill; port fallback should still stop **this run's** listener. If WARNING persists, inspect `ss -tlnpH "sport = :<port>"` before reuse. |
 | `--status` says UNSCRAPED | Expected without `--grafana-bridge`; opt in only when `socat` + deploy `prometheus/targets/` are available. |
 | Driver exit `2` on YAML | Unknown block/key, missing `experiment.seed`, or rule-6 infra key — see stderr. |
 | Driver exit `1` `stalled` / `timed_out` | Cascor: raise `--stall-seconds` / `--max-wall-seconds` only after confirming the run is still progressing; recurrence `timed_out` is the train socket budget. |
@@ -783,6 +799,7 @@ Publish and CI constraints:
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
 | 0.4.1   | 2026-04-28 | Added `juniper-observability` sibling package and dedicated CI/publish workflows                                                                                         |
