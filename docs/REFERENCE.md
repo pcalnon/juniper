@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.5
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -20,6 +20,7 @@
 - [Environment Floor Drift Check](#environment-floor-drift-check)
 - [Agent Suite Doctor](#agent-suite-doctor)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
+- [CI Quality Gate & Battery Path Gate](#ci-quality-gate--battery-path-gate)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
@@ -612,6 +613,67 @@ Do **not** point isolated ports at the host stack or run `--up` on ports `plant_
 
 ---
 
+## CI Quality Gate & Battery Path Gate
+
+Operator contract for two high-blast CI seams that are easy to regress silently: the `ci.yml` **Quality Gate** (`required-checks`) and the `main-verify.yml` **battery** path-change detector. Both live only in workflow YAML; hermetic YAML-extraction rehearsals that pin the shells are in open [#937](https://github.com/pcalnon/juniper-ml/pull/937) (`tests/test_ci_quality_gate.py`, `tests/test_main_verify_battery_paths.py`). Broader flood-gate / G3.1 catch-up surface: AGENTS.md CI/CD Pipelines (`ci.yml`, `main-verify.yml`).
+
+### Quality Gate (`ci.yml` → `required-checks`)
+
+The gate job is `if: always()` and fails the workflow when any **hard** need is not `success`. Exact `needs:` membership (order matches the status log):
+
+`pre-commit`, `tests`, `build`, `docs`, `security`, `claude-yaml-audit`, `dependency-docs`
+
+**Advisory / PR-only jobs must stay ABSENT from `needs:`:**
+
+| Job | Why it cannot join `needs:` |
+|-----|-----------------------------|
+| `sequence-safety` | `pull_request` / `merge_group` only — skipped on `push:main` |
+| `fleet-pr-lint` | `cursor/*` PRs only — skipped otherwise |
+| `release-train-archive-guard` | PR-only structural guard — skipped on push |
+
+Folding any of those into Quality Gate `needs:` paints every `push:main` red: the gate treats a skipped need as fatal for hard jobs, and `if: always()` still runs. Promote advisory soak jobs to **REQUIRED** later in the **branch ruleset**, never via the QG `needs:` list (CodeQL convention).
+
+#### Security soft-fail
+
+`security` is the only need with a **soft-fail** predicate:
+
+| Job result | Hard jobs (`pre-commit`, `tests`, …) | `security` |
+|------------|--------------------------------------|------------|
+| `success` | pass | pass |
+| `failure` | gate fails | gate fails |
+| `skipped` | gate fails (`!= success`) | **pass** (`== failure` only) |
+
+The workflow comment is explicit: `# Security: failure = error, skipped = OK`. Do **not** rewrite the security arm to `!= "success"` — that turns an intentional skip into a red Quality Gate. Hard jobs correctly keep `!= "success"`.
+
+### main-verify battery path gate
+
+Post-merge `main-verify.yml` always runs `symbol-screen`. The **battery** job re-runs the enumerated unittest list from `ci.yml`'s `tests` job only when the push touches battery-relevant paths (P2 S3 burst-cost mitigation).
+
+**Relevant paths** (workflow regex — keep locked):
+
+`tests/` | `util/` | `scripts/` | `.github/` | `pyproject.toml`
+
+**Detector base resolution** (`Detect relevant path changes`):
+
+1. Start from `github.event.before`.
+2. If empty, all-zero SHA, or unresolvable → fall back to `HEAD^1`.
+3. If still no base (orphan / initial tip) → **fail-open** `run=true` (`No resolvable base (initial / force push) -> running the battery to be safe.`).
+4. Else `git diff --name-only <base> <HEAD>` → `run=true` on a relevant hit; `run=false` for docs/notes-only (and other non-matching) deltas.
+
+`symbol-screen` still always runs when the battery skips. The battery unittest list is a **manual mirror** of `ci.yml` `tests` — add/remove modules in both workflows in the same PR (see `SYNC NOTE` in `main-verify.yml`).
+
+### Operator pitfalls
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Every `push:main` Quality Gate red; advisory job "skipped" | Someone added `sequence-safety` / `fleet-pr-lint` / `release-train-archive-guard` to `required-checks.needs` — remove it; promote via ruleset instead |
+| Security job skipped → Quality Gate red | Security arm must stay `== "failure"` (not `!= "success"`) |
+| Docs-only merge, battery skipped | Expected burst-cost skip; confirm `symbol-screen` still ran |
+| Initial / force-push tip never ran battery | Detector should fail-open to `run=true` when no parent base resolves — inspect the "Detect relevant path changes" log |
+| Battery green locally but missing a new unittest on main-verify | Mirror the module into `main-verify.yml`'s battery list in the same PR as `ci.yml` |
+
+---
+
 ## Sibling Packages
 
 ### juniper-observability
@@ -727,6 +789,6 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 
 ---
 
-**Last Updated:** 2026-07-26
-**Version:** 0.6.0
+**Last Updated:** 2026-08-05
+**Version:** 0.6.5
 **Maintainer:** Paul Calnon

@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.7
-**Date**: 2026-08-04
+**Version**: 1.0.18
+**Date**: 2026-08-05
 **Project**: juniper-ml
 
 ---
@@ -412,6 +412,10 @@ Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant he
 
 Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
 
+Tip: CI Quality Gate (`ci.yml` → `required-checks`) must **not** list `sequence-safety` / `fleet-pr-lint` / `release-train-archive-guard` in `needs:` (they skip on push while the gate is `if: always()`). `security` soft-fails (`== failure` only — `skipped` stays green); other needs hard-require `success`.
+
+Tip: post-merge `main-verify` battery path-gates on `tests/`\|`util/`\|`scripts/`\|`.github/`\|`pyproject.toml` and **fail-opens** to `run=true` when no base resolves (docs/notes-only skips). Full contract: [REFERENCE.md § CI Quality Gate & Battery Path Gate](REFERENCE.md#ci-quality-gate--battery-path-gate).
+
 
 ### Host Stack Troubleshooting
 
@@ -437,6 +441,10 @@ Tip: systemd chop soft-fails per unit and always exits `0` without touching the 
 | `env_floor_drift_check` exits `2` | Resolution failed (`resolve_site_dirs`) — fix `--site-packages` / `--env` / `ecosystem.yaml` `used_by`; not a `BELOW_FLOOR`. |
 | Unexpected `BELOW_FLOOR` after upgrade | Multi-interpreter env may still hold a lower tree — tool reports the highest across site-packages; upgrade or remove the stale tree. |
 | `--fix` JSON shows `ERROR` mid-plan | Inspect `error` (stderr/`OSError`, ≤500 chars); fix env python / pip cause; re-run `--fix`. Other items may already be `FIXED`. |
+| Every `push:main` Quality Gate red; advisory job skipped | Remove that job from `required-checks.needs` — promote via branch ruleset, never QG `needs:` |
+| Security skipped → Quality Gate red | Keep security predicate `== "failure"` (not hard `!= "success"`) |
+| Docs-only main merge, no battery | Expected — path-gate skip; `symbol-screen` still always runs |
+| Initial/force-push tip skipped battery | Detector must fail-open `run=true` when base is unresolvable — check the path-change step log |
 
 ## Quick Reference Tables
 
@@ -479,6 +487,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-07-26
-**Version:** 1.0.6
+**Last Updated:** 2026-08-05
+**Version:** 1.0.18
 **Maintainer:** Paul Calnon
