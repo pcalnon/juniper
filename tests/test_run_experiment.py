@@ -1287,16 +1287,22 @@ class RecurrencePlotRendererUnitTest(unittest.TestCase):
     def test_residuals_omits_target_dt_panel_on_length_mismatch(self) -> None:
         # Misaligned target_dt must NOT raise — silently drop the residual-vs-dt panel
         # (pred/truth length mismatch is the hard ValueError; target_dt is optional).
-        preds = [[0.1], [0.2], [0.3]]
-        truth = [0.0, 0.1, 0.2]
-        out = self.plots.render_residuals(preds, truth, [1.0, 2.0], "t", self.tmp / "r_omit.png")
+        preds = [[0.1], [0.5], [0.9]]
+        truth = [0.0, 0.2, 0.4]
+        with mock.patch.object(self.plots.plt, "subplots", wraps=self.plots.plt.subplots) as spy:
+            out = self.plots.render_residuals(preds, truth, [1.0, 2.0], "t", self.tmp / "r_omit.png")
         self.assertTrue(out.read_bytes().startswith(PNG_MAGIC))
+        spy.assert_called()
+        self.assertEqual(spy.call_args.args[:2], (1, 2), "misaligned target_dt must render 2 panels")
 
     def test_residuals_includes_target_dt_panel_when_aligned(self) -> None:
-        preds = [[0.1], [0.2], [0.3]]
-        truth = [0.0, 0.1, 0.2]
-        out = self.plots.render_residuals(preds, truth, [1.0, 1.5, 2.0], "t", self.tmp / "r_dt.png")
+        preds = [[0.1], [0.5], [0.9]]
+        truth = [0.0, 0.2, 0.4]
+        with mock.patch.object(self.plots.plt, "subplots", wraps=self.plots.plt.subplots) as spy:
+            out = self.plots.render_residuals(preds, truth, [1.0, 1.5, 2.0], "t", self.tmp / "r_dt.png")
         self.assertTrue(out.read_bytes().startswith(PNG_MAGIC))
+        spy.assert_called()
+        self.assertEqual(spy.call_args.args[:2], (1, 3), "aligned target_dt must render the residual-vs-dt panel")
 
     def test_crossval_folds_falls_back_to_fold_eval_metrics(self) -> None:
         # Empty / missing eval_aggregate must still render from folds[0].eval_metrics
