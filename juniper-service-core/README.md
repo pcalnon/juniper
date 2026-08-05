@@ -46,7 +46,7 @@ pip install juniper-service-core
 | Launcher | `ManagedService`, `start_service`, `wait_for_health` | Subprocess service launcher (stdlib-only). |
 | Lifecycle | `TrainingLifecycle`, `ServiceLifecycleManager`, … | Drives a [`juniper-model-core`](https://github.com/pcalnon/juniper-ml) `TrainableModel` through a status FSM + a `TrainingEvent` monitor; synchronous and threaded-orchestrator bodies, with snapshots + replay. |
 | Generic routes | `build_routers`, `ResponseEnvelope`, … | Training-control, metrics, dataset, network, and snapshot HTTP routes over the injected lifecycle. |
-| WebSocket | `attach_websocket`, `training_stream_handler`, `control_stream_handler`, … | Live training + control streams, plus a worker channel (`/ws/workers`). |
+| WebSocket | `attach_websocket`, `training_stream_handler`, `control_stream_handler`, … | Live training + control streams, plus a worker channel (`/ws/workers`). Control-path reject logs sanitize untrusted Origin / command text via module-local `_sanitize_for_log` (CRLF / control-char → single-line; see meta [`docs/REFERENCE.md` § Control WS log sanitizer](../docs/REFERENCE.md#control-ws-log-sanitizer)). |
 | Worker pool | `WorkerCoordinator`, `WorkerRegistry`, … | Distributed-worker registration, coordination, and task dispatch (stdlib-only foundations). |
 
 Import cost tracks the subsystem: `.security`, `.secrets`, `.middleware`, `.launcher`, and `.workers`

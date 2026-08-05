@@ -2,7 +2,7 @@
 
 ## Navigation Guide to juniper-ml Documentation
 
-**Version:** 0.2.6
+**Version:** 0.2.7
 **Status:** Active
 **Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -38,6 +38,7 @@
 | **Create or clean a worktree**          | [Worktree setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) / [cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md) | notes/ |
 | **Understand the project**              | [README.md](../README.md)                                                                                                        | Root     |
 | **Use shared observability primitives** | [juniper-observability README](../juniper-observability/README.md)                                                               | juniper-observability/ |
+| **Debug control-WS log forging / sanitize** | [REFERENCE — Control WS log sanitizer](REFERENCE.md#control-ws-log-sanitizer) + [service-core README](../juniper-service-core/README.md) | docs/ + juniper-service-core/ |
 | **See development conventions**         | [AGENTS.md](../AGENTS.md)                                                                                                        | Root     |
 | **See version history**                 | [CHANGELOG.md](../CHANGELOG.md)                                                                                                  | Root     |
 
@@ -51,8 +52,8 @@
 |----------------------------------------|------------|--------------------------------------------------------------------------------------------------|
 | **DOCUMENTATION_OVERVIEW.md**          | Overview   | This file -- navigation index                                                                    |
 | **QUICK_START.md**                     | Tutorial   | Install Juniper packages in under a minute                                                       |
-| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, agent-suite doctor, sibling packages, and release-workflow reference |
-| **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, and experiment-stack tasks              |
+| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, agent-suite doctor, sibling packages (incl. service-core control-WS log sanitizer), and release-workflow reference |
+| **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, experiment-stack, and service-core control-WS tasks |
 
 > The deprecated monolithic cheatsheet (`DEVELOPER_CHEATSHEET-ORIGINAL.md`)
 > was relocated to `notes/history/` in 2026-04 and consolidated into
@@ -76,7 +77,7 @@
 | `juniper-ci-tools/`      | Dep-docs generator + coverage-gap / env-drift CLIs                      |
 | `juniper-config-tools/`  | Env-prefix migration helpers (stdlib-only)                              |
 | `juniper-model-core/`    | Model-core conformance kit + crossval layer                             |
-| `juniper-service-core/`  | Shared FastAPI service-tier primitives                                  |
+| `juniper-service-core/`  | Shared FastAPI service-tier primitives (incl. `/ws/control` log sanitizer) |
 
 Each subpackage has its own `README.md`, `CHANGELOG.md`, and `pyproject.toml`.
 
@@ -133,6 +134,7 @@ Exact floors and ranges: [`REFERENCE.md`](REFERENCE.md#extras-reference) and `py
 - **juniper-cascor-client** -- [Docs](https://github.com/pcalnon/juniper-cascor-client) (HTTP/WS client for juniper-cascor)
 - **juniper-cascor-worker** -- [Docs](https://github.com/pcalnon/juniper-cascor-worker) (distributed training worker)
 - **juniper-observability** -- [Local docs](../juniper-observability/README.md) (shared health, logging, middleware, Prometheus, and Sentry primitives)
+- **juniper-service-core** -- [Local docs](../juniper-service-core/README.md) + [Control WS log sanitizer](REFERENCE.md#control-ws-log-sanitizer) (shared FastAPI / WebSocket service tier)
 - **juniper-doc-tools** -- [Local docs](../juniper-doc-tools/README.md) (markdown link validator)
 - **juniper-ci-tools** -- [Local docs](../juniper-ci-tools/README.md) (dep-docs / coverage-gap / env-drift CLIs)
 
@@ -145,5 +147,5 @@ Exact floors and ranges: [`REFERENCE.md`](REFERENCE.md#extras-reference) and `py
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.2.6
+**Version:** 0.2.7
 **Maintainer:** Paul Calnon

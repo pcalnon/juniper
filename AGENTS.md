@@ -147,6 +147,15 @@ the canonical implementation.
 
 Tests touching these collectors should use `juniper_observability.testing.reset_prometheus_registry`. Minimum pin: `juniper-observability>=0.2.0`. See [`notes/observability/JUNIPER_2026-05-05_JUNIPER-ML_REGISTER-OR-REUSE-HELPER-DESIGN.md`](notes/observability/JUNIPER_2026-05-05_JUNIPER-ML_REGISTER-OR-REUSE-HELPER-DESIGN.md) for the design rationale and the migration history.
 
+## Shared Service-Core Control WS
+
+`juniper-service-core` owns `/ws/control` security + command dispatch. Reject logs that interpolate untrusted Origin / command text MUST go through the module-local `_sanitize_for_log` helpers so CRLF / control characters cannot forge multi-line control-plane records:
+
+- `control_security._sanitize_for_log` — strips `\r`/`\n` on allowlist-reject Origin logs.
+- `control_stream._sanitize_for_log` — strips `\r`/`\n` and other C0 controls (keeps tab) before logging command timeout / reject / unexpected-failure paths.
+
+Sanitizing does not change handshake outcomes or ack JSON. Operator surface: [`docs/REFERENCE.md` § Control WS log sanitizer](docs/REFERENCE.md#control-ws-log-sanitizer). Coverage: open juniper-ml#961.
+
 ## Repository Structure
 
 ```bash

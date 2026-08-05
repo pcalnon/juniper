@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -22,6 +22,9 @@
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Sibling Packages](#sibling-packages)
+  - [juniper-observability](#juniper-observability)
+  - [juniper-service-core](#juniper-service-core)
+  - [Control WS log sanitizer](#control-ws-log-sanitizer)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
 
@@ -777,12 +780,50 @@ Publish and CI constraints:
 2. `publish-observability.yml` runs only for `juniper-observability-v*` tags or manual dispatch, builds from the subdirectory, publishes to TestPyPI, verifies installation, then publishes the same artifact to PyPI.
 3. The publish workflow uses OIDC trusted publishing, GitHub-hosted `ubuntu-latest` runners, and SHA-pinned actions. If the runner type or pinned artifact actions change, verify compatibility before tagging a release.
 
+### juniper-service-core
+
+`juniper-service-core` lives under `juniper-service-core/` and publishes independently (`juniper-service-core-v*` → `.github/workflows/publish-service-core.yml`). Since `juniper-ml` 0.5.0 it is aggregated under `[tools]` / `[all]`. Model services (cascor cutover in progress; recurrence is the worked example) inject lifecycle/command executors; this package owns the shared FastAPI + WebSocket plumbing.
+
+| Field                 | Value                                                                      |
+|-----------------------|----------------------------------------------------------------------------|
+| **PyPI Name**         | `juniper-service-core`                                                     |
+| **Current Version**   | `0.5.1` (from `juniper-service-core/pyproject.toml`)                       |
+| **Python**            | `>=3.12`                                                                   |
+| **Importable Module** | `juniper_service_core`                                                     |
+| **Package Docs**      | [`../juniper-service-core/README.md`](../juniper-service-core/README.md)   |
+| **Meta pin**          | `juniper-service-core>=0.2.0,<0.6.0` under `[tools]` / `[all]`             |
+
+#### Control WS log sanitizer
+
+`/ws/control` logs reject untrusted client text (Origin headers, command names). Both modules keep those records **single-line** so CRLF / control characters cannot forge multi-line control-plane logs:
+
+| Module | Helper | Strip rule | Call sites |
+|--------|--------|------------|------------|
+| `juniper_service_core.websocket.control_security` | `_sanitize_for_log(str)` | Removes `\r` and `\n` only | Allowlist-reject INFO (`origin %r not in allowlist`) |
+| `juniper_service_core.websocket.control_stream` | `_sanitize_for_log(object)` | Removes `\r`/`\n`, then drops other C0 controls except tab (`\t`); `str()` of non-strings | Command timeout / reject / unexpected-failure logs (`safe_command`) |
+
+Operator constraints:
+
+- **Missing Origin is fail-closed** (reject; no sanitize path — the log has no client Origin text).
+- Sanitizing flattens log *records*; it does **not** change handshake outcomes, close codes (`4003` Origin / `4029` cooldown), or the JSON `command` echoed in acks.
+- Payload text remains visible after flattening (e.g. `injected` still appears) — only line breaks / control chars are removed.
+- Do not log raw `Origin` / `command` strings outside these helpers when writing new reject paths.
+
+Coverage: open [#961](https://github.com/pcalnon/juniper-ml/pull/961) (`test_websocket_control_security.py` / `test_websocket_control_stream.py` single-line reject pins). Behavior is already on main in the two `_sanitize_for_log` implementations above.
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Multi-line / forged INFO/ERROR after a bad Origin or command | Regression in `_sanitize_for_log` — re-run the #961 pins; never interpolate unsanitized Origin/command into logger format strings. |
+| Control WS `403` / `4003` reconnect churn (split-host) | Config, not sanitizer — set matching canopy `CASCOR_WS_ORIGIN` + cascor allowlist (isolated-stack / host plant). See [Isolated Stack E2E](#isolated-stack-e2e-utilities). |
+| IP blocked (`4029`) after many rejects | `HandshakeCooldown` (default 10 rejects / 60s → 5 min block); restart clears in-memory state. |
+
 ---
 
 ## Version History
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.1   | 2026-08-05 | Documented `juniper-service-core` sibling + Control WS `_sanitize_for_log` single-line reject contract (#961)                                                             |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
 | 0.4.1   | 2026-04-28 | Added `juniper-observability` sibling package and dedicated CI/publish workflows                                                                                         |
@@ -863,5 +904,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Maintainer:** Paul Calnon
