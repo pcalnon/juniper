@@ -2,9 +2,9 @@
 
 ## Install Juniper Packages with juniper-ml
 
-**Version:** 0.3.1
+**Version:** 0.3.2
 **Status:** Active
-**Last Updated:** June 4, 2026
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -111,6 +111,7 @@ from juniper_cascor_worker import CandidateTrainingWorker
 
 - [Documentation Overview](DOCUMENTATION_OVERVIEW.md) -- navigation index
 - [Reference](REFERENCE.md) -- extras, compatibility, and version reference
+- [SecurityMiddleware 429 JSON contract](REFERENCE.md#securitymiddleware-429-json-contract) -- shared `Retry-After` / `X-RateLimit-*` passthrough
 - [Host Orchestration Utilities](REFERENCE.md#host-orchestration-utilities) -- run services on-host with `util/juniper_plant_all.bash` and `util/juniper_chop_all.bash`
 - [Experiment Stack Utilities](REFERENCE.md#experiment-stack-utilities) -- per-run cascor/recurrence experiments via `util/experiment_stack.bash` + `run_experiment.py`
 - [juniper-observability README](../juniper-observability/README.md) -- shared observability primitives
@@ -120,6 +121,6 @@ from juniper_cascor_worker import CandidateTrainingWorker
 
 ---
 
-**Last Updated:** June 4, 2026
-**Version:** 0.3.1
+**Last Updated:** 2026-08-05
+**Version:** 0.3.2
 **Status:** Active

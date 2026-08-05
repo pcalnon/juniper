@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.0
-**Last Updated**: 2026-08-04
+**Last Updated**: 2026-08-05
 
 ---
 
@@ -146,6 +146,16 @@ the canonical implementation.
 - `lazy_register_or_reuse(factory, name, *args, **kwargs)` — like `register_or_reuse` but caches the result in a module-private dict; for the lazy-init-with-`None`-sentinel pattern.
 
 Tests touching these collectors should use `juniper_observability.testing.reset_prometheus_registry`. Minimum pin: `juniper-observability>=0.2.0`. See [`notes/observability/JUNIPER_2026-05-05_JUNIPER-ML_REGISTER-OR-REUSE-HELPER-DESIGN.md`](notes/observability/JUNIPER_2026-05-05_JUNIPER-ML_REGISTER-OR-REUSE-HELPER-DESIGN.md) for the design rationale and the migration history.
+
+## Shared Service-Core Rate-Limit Middleware
+
+`juniper-service-core`'s `SecurityMiddleware` + `RateLimiter` own the shared HTTP rate-limit surface used by model services. Operator contract: [`docs/REFERENCE.md` § SecurityMiddleware 429 JSON contract](docs/REFERENCE.md#securitymiddleware-429-json-contract).
+
+- **Auth before rate limit** — when API keys are configured, 401s never consume a token.
+- **429 header passthrough** — `RateLimiter` raises `HTTPException` with `Retry-After` + `X-RateLimit-*`; the middleware must rebuild `JSONResponse(..., headers=exc.headers)`. RateLimiter unit tests alone do not exercise that catch path (coverage: open [#985](https://github.com/pcalnon/juniper-ml/pull/985)).
+- **Exempt paths** — `/v1/health*`, `/docs`, `/openapi.json`, `/redoc`, `/metrics[/]`; WebSocket upgrades are not intercepted by `BaseHTTPMiddleware`.
+
+Orthogonal to open docs [#988](https://github.com/pcalnon/juniper-ml/pull/988) (CR-024 / TLS / worker ownership / binary-frame) and [#975](https://github.com/pcalnon/juniper-ml/pull/975) (Control WS log sanitize) — union under sibling service-core headings if those land first.
 
 ## Repository Structure
 

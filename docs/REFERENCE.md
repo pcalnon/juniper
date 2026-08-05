@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -139,6 +139,27 @@ The three services intentionally ship with **different** `rate_limit_enabled` de
 | `juniper-canopy` | `JUNIPER_CANOPY_RATE_LIMIT_ENABLED`  | `JUNIPER_CANOPY_RATE_LIMIT_REQUESTS_PER_MINUTE`   |
 
 The split-default is intentional, not an oversight: `juniper-data` is a higher-risk public-shaped surface (dataset generation, paginated reads), so it ships rate-limited by default; the other two run behind a known reverse-proxy / authenticated client surface where the rate-limit value adds operator friction during local development. Closes the documentation gap tracked in the v7 outstanding-development roadmap under CFG-08.
+
+#### SecurityMiddleware 429 JSON contract
+
+Shared HTTP auth + rate limiting live in `juniper-service-core` (`SecurityMiddleware` + `RateLimiter`). Intent: clients that hit the middleware path must still receive a JSON 429 **and** the retry headers that `RateLimiter` attaches to its `HTTPException` — dropping `Retry-After` makes well-behaved clients retry immediately.
+
+| Step | Behavior |
+|------|----------|
+| Exempt paths | `EXEMPT_PATHS` (`/v1/health*`, `/docs`, `/openapi.json`, `/redoc`, `/metrics[/]`) skip auth and rate limit. WebSocket upgrades are not intercepted by `BaseHTTPMiddleware`, so `/ws/*` is inherently exempt. |
+| Auth before rate limit | When API-key auth is enabled, `APIKeyAuth` runs first — a 401 never consumes a rate-limit token. |
+| Keying | `RateLimiter._get_key`: `key:<api_key>` when authenticated, else `ip:<client.host>` (or `ip:unknown`). |
+| Over-limit | `RateLimiter` raises `HTTPException(429)` with `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining=0`, `X-RateLimit-Reset`. |
+| Middleware catch | `SecurityMiddleware.dispatch` catches that `HTTPException` and returns `JSONResponse(status_code, {"detail": …}, headers=exc.headers)` — **headers must be preserved**. |
+| Success path | Allowed responses also get `X-RateLimit-Limit` / `Remaining` / `Reset` from `request.state`. |
+
+**Operator pitfall:** RateLimiter unit tests raise `HTTPException` directly and do **not** exercise the middleware catch path. Coverage for header passthrough is the middleware arm (open [#985](https://github.com/pcalnon/juniper-ml/pull/985) `test_security_middleware_rate_limit_429_json_preserves_retry_after`; behavior already on `main`).
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| 429 JSON body but missing `Retry-After` | Middleware catch must pass `headers=exc.headers` — do not rebuild a bare `JSONResponse` |
+| 401 after enabling rate limit only | Auth is off / keys empty → open access; enable keys separately from `rate_limit_enabled` |
+| Health / metrics suddenly 429 | Those paths are exempt — look for a proxy in front, or a non-exempt probe path |
 
 ---
 
@@ -783,6 +804,7 @@ Publish and CI constraints:
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.1   | 2026-08-05 | Documented `SecurityMiddleware` 429 JSON contract (`Retry-After` + `X-RateLimit-*` header passthrough; auth-before-limit; exempt paths)                                   |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
 | 0.4.1   | 2026-04-28 | Added `juniper-observability` sibling package and dedicated CI/publish workflows                                                                                         |

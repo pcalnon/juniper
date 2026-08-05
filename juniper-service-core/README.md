@@ -40,9 +40,9 @@ pip install juniper-service-core
 | App factory | `create_app` | Model-agnostic FastAPI app: mounts the health router, then any service-supplied routers. |
 | Settings | `SettingsBase` | `pydantic-settings` base (`service_name`, `host`, `port`, `log_level`); subclass and set your own `env_prefix`. |
 | Health | *(mounted by `create_app`)* | `GET /v1/health` (liveness) + `GET /v1/health/ready` (readiness). |
-| Security | `APIKeyAuth`, `RateLimiter`, `build_api_key_auth`, … | `X-API-Key` authentication + rate limiting. |
+| Security | `APIKeyAuth`, `RateLimiter`, `build_api_key_auth`, … | `X-API-Key` authentication + fixed-window rate limiting (`Retry-After` / `X-RateLimit-*` on 429). |
 | Secrets | `get_secret` | Docker `_FILE` secret-indirection reader. |
-| Middleware | `SecurityMiddleware`, `SecurityHeadersMiddleware`, `RequestBodyLimitMiddleware` | Drop-in ASGI middleware. |
+| Middleware | `SecurityMiddleware`, `SecurityHeadersMiddleware`, `RequestBodyLimitMiddleware` | Drop-in ASGI middleware. `SecurityMiddleware` catches auth/rate-limit `HTTPException` → `JSONResponse` **preserving** exception headers (see meta [`docs/REFERENCE.md` § SecurityMiddleware 429](../docs/REFERENCE.md#securitymiddleware-429-json-contract)). |
 | Launcher | `ManagedService`, `start_service`, `wait_for_health` | Subprocess service launcher (stdlib-only). |
 | Lifecycle | `TrainingLifecycle`, `ServiceLifecycleManager`, … | Drives a [`juniper-model-core`](https://github.com/pcalnon/juniper-ml) `TrainableModel` through a status FSM + a `TrainingEvent` monitor; synchronous and threaded-orchestrator bodies, with snapshots + replay. |
 | Generic routes | `build_routers`, `ResponseEnvelope`, … | Training-control, metrics, dataset, network, and snapshot HTTP routes over the injected lifecycle. |
