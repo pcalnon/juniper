@@ -112,6 +112,7 @@ from juniper_cascor_worker import CandidateTrainingWorker
 - [Documentation Overview](DOCUMENTATION_OVERVIEW.md) -- navigation index
 - [Reference](REFERENCE.md) -- extras, compatibility, and version reference
 - [Host Orchestration Utilities](REFERENCE.md#host-orchestration-utilities) -- run services on-host with `util/juniper_plant_all.bash` and `util/juniper_chop_all.bash`
+- [Open-PR Budget Alarm](REFERENCE.md#open-pr-budget-alarm) -- daily report-only open-PR / `cursor/` queue guardrail
 - [juniper-observability README](../juniper-observability/README.md) -- shared observability primitives
 - [juniper-data-client Quick Start](https://github.com/pcalnon/juniper-data-client) -- dataset client usage
 - [juniper-cascor-client Quick Start](https://github.com/pcalnon/juniper-cascor-client) -- training client usage
