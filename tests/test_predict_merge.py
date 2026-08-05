@@ -6,6 +6,8 @@ fixture repos (the ``tests/test_worktree_cleanup.py`` fixture idiom) -- no netwo
 
 * the four verdict classes -- MERGE-CLEAN, NEEDS-UPDATE-BRANCH, DAMAGED-FIX-FIRST
   (symbol-loss AND docs-deletion AND injected gate-fail), and CONFLICT;
+* the #895 ``_ast_symbol_screen`` fail-soft arms (non-screenable short-circuit, missing /
+  exit-2 / empty / non-JSON checker -> ``skip``, WARN-only not mapped, ``skip`` ≠ DAMAGED);
 * the TRUE-delta-vs-stale-file-list discrimination (delta from the merge RESULT, so a
   main-owned file the branch is merely stale on is excluded -- the #729 class);
 * the ``--batch`` cluster map + suggested merge order (restore/heal first, then ascending
