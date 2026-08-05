@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.7
-**Date**: 2026-08-04
+**Version**: 1.0.10
+**Date**: 2026-08-05
 **Project**: juniper-ml
 
 ---
@@ -216,6 +216,7 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 | Task                   | Command / Procedure                                                                         |
 |------------------------|---------------------------------------------------------------------------------------------|
 | Pre-commit             | `pre-commit run --all-files`                                                                |
+| Post-merge main-verify | Auto on every `push:main` (`.github/workflows/main-verify.yml`); see tip below              |
 | Publish `juniper-ml`   | Create GitHub Release with `vX.Y.Z` tag (OIDC trusted publishing)                           |
 | Publish observability  | Push `juniper-observability-vX.Y.Z` tag (OIDC trusted publishing)                           |
 | Publish doc-tools      | Push `juniper-doc-tools-vX.Y.Z` tag (OIDC trusted publishing)                               |
@@ -346,6 +347,15 @@ Operator tables: [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPER
 **R7 archive-lane `ref=` (juniper-ml#770):** a ceremony `SeamViolation` with `ref=None` / `ref=''` means
 the `git/refs` POST omitted a heads ref — fail-closed code bug, not an auth blip. Do not hand-POST a
 ref. Re-dispatch after #770; see runbook §7.
+
+**Post-merge main-verify (G3 / G3.1):** every `push:main` runs `.github/workflows/main-verify.yml`
+(per-SHA concurrency, never cancelled). `symbol-screen` always runs the sequence-safety CLIs;
+`battery` is path-gated (`tests/` \| `util/` \| `scripts/` \| `.github/` \| `pyproject.toml`);
+`notify` files a SHA-keyed issue + non-blocking Slack on failure. G3.1 BASE = last successful
+main-verify tip when it is an ancestor of HEAD (sweeps `[skip ci]` gaps), else `event.before`, else
+`HEAD^1`. PR labels `allow-symbol-loss` / `docs-rewrite` do **not** green post-merge — use
+`Allow-Symbol-Loss:` / `Allow-Docs-Rewrite:` commit trailers. Keep the battery list in lockstep with
+`ci.yml`'s `tests` job. Full contract: [REFERENCE — Post-Merge Main Verification](REFERENCE.md#post-merge-main-verification).
 
 ---
 
@@ -479,6 +489,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-07-26
-**Version:** 1.0.6
+**Last Updated:** 2026-08-05
+**Version:** 1.0.10
 **Maintainer:** Paul Calnon
