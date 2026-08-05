@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
+**Version**: 1.0.9
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -225,8 +225,14 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 | Publish doc-tools      | Push `juniper-doc-tools-vX.Y.Z` tag (OIDC trusted publishing)                               |
 | Doc links (CI parity)  | `juniper-check-doc-links --exclude templates --exclude history --exclude legacy --cross-repo skip` |
 | Doc links (full local) | `juniper-check-doc-links --cross-repo check`                                                |
+| Audit this `claude.yml`| `bash util/validate_claude_yaml_access.bash .github/workflows/claude.yml`                   |
+| Audit all siblings     | `JUNIPER_ROOT=/path/to/Juniper bash util/validate_claude_yaml_access.bash`                  |
 
 Key hooks: `ruff` (juniper-data) or `black`+`isort`+`flake8` (others), `mypy`, `bandit`, `shellcheck`, `no-unencrypted-env`.
+
+> **`claude.yml` `DEFAULT_REPOS` fan-out (open #955/#956).** Weekly `docs-full-check` runs `validate_claude_yaml_access.bash` under `JUNIPER_ROOT`. The auditor iterates hard-coded `DEFAULT_REPOS` (registry publishers ∪ `juniper-deploy`), not every cloned dir — cloning `juniper-recurrence` (#940) does **not** audit it until that list includes it.
+>
+> Main still omits recurrence; #955/#956 add it + a lockstep unittest. Operator surface: [REFERENCE — Claude.yml Access Validation](REFERENCE.md#claudeyml-access-validation).
 
 Meta-package publish flow: build + `twine check`, TestPyPI upload with attestations, TestPyPI install verification, then PyPI upload.
 

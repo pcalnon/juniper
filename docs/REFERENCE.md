@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -24,6 +24,7 @@
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
+- [Claude.yml Access Validation](#claudeyml-access-validation)
 
 ---
 
@@ -783,6 +784,7 @@ Publish and CI constraints:
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.1   | 2026-08-05 | Documented `claude.yml` access validator + `DEFAULT_REPOS` fan-out lockstep (open #955/#956; ANTHROPIC_API_KEY secret-spend class)                                        |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
 | 0.4.1   | 2026-04-28 | Added `juniper-observability` sibling package and dedicated CI/publish workflows                                                                                         |
@@ -839,6 +841,75 @@ Release runbooks:
 - [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) — daily release-train modes (`off`/`report`/`propose`/`ceremony`), Gate 1 proposal review, Gate 2 `pypi` approval, HALTs, and App-token setup. Workflow: `.github/workflows/release-train.yml`; engines: `util/release_train/{detect,propose,ceremony}.py`.
 - [`notes/releases/RELEASE_WALKTHROUGH_juniper-ml-v0.5.0_2026-05-21.md`](../notes/releases/RELEASE_WALKTHROUGH_juniper-ml-v0.5.0_2026-05-21.md) covers the expanded extras surface and the TestPyPI extras-resolution verify step.
 - [`notes/releases/RELEASE_WALKTHROUGH_juniper-ml-v0.4.1_juniper-observability-v0.1.1a_2026-04-28.md`](../notes/releases/RELEASE_WALKTHROUGH_juniper-ml-v0.4.1_juniper-observability-v0.1.1a_2026-04-28.md) remains the canonical source for the trusted-publisher prerequisite and pending-publisher gotchas.
+
+---
+
+## Claude.yml Access Validation
+
+Public Juniper repos that run [`anthropics/claude-code-action`](https://github.com/anthropics/claude-code-action) spend `ANTHROPIC_API_KEY`. A missing `@claude` job guard or a dangerous trigger (`pull_request_target` / `workflow_run`) turns drive-by events into secret spend. The structural auditor is [`util/validate_claude_yaml_access.bash`](../util/validate_claude_yaml_access.bash); the long-form procedure is [`notes/JUNIPER_2026-05-10_JUNIPER-ECOSYSTEM_ANTHROPIC-API-KEY-ACCESS-VALIDATION-WALKTHROUGH.md`](../notes/JUNIPER_2026-05-10_JUNIPER-ECOSYSTEM_ANTHROPIC-API-KEY-ACCESS-VALIDATION-WALKTHROUGH.md).
+
+### What the auditor checks (L2 / L3)
+
+| Level | Finding | Why it matters |
+|-------|---------|----------------|
+| **L2** | `on:` contains `pull_request_target:` or `workflow_run:` | Fork PRs / untrusted workflows inherit repo secrets |
+| **L3a** | `claude:` job has no job-level `if:` | Every matching event runs the action |
+| **L3b** | Job `if:` lacks `contains(..., '@claude')` | Comments / issues without `@claude` still spend the key |
+
+Exit codes: `0` clean (or no targets, with a warning), `1` finding, `2` usage / I/O.
+
+### Invocation
+
+```bash
+# This repo's live workflow (what ci.yml's claude-yaml-audit job runs)
+bash util/validate_claude_yaml_access.bash .github/workflows/claude.yml
+
+# Explicit file or directory targets
+bash util/validate_claude_yaml_access.bash path/to/claude.yml
+bash util/validate_claude_yaml_access.bash /path/to/juniper-canopy
+
+# Cross-repo fan-out (what weekly docs-full-check runs after sibling clones)
+JUNIPER_ROOT=/path/to/Juniper bash util/validate_claude_yaml_access.bash
+
+VERBOSE=1 JUNIPER_ROOT=/path/to/Juniper bash util/validate_claude_yaml_access.bash
+```
+
+With no args and no `JUNIPER_ROOT`, the script audits `juniper-ml/.github/workflows/claude.yml` relative to the script location. Missing `claude.yml` under a `JUNIPER_ROOT/<repo>/` path is skipped (`[ -f "$f" ]`) — a clone miss never invents a FAIL for that sibling.
+
+### `DEFAULT_REPOS` fan-out (orthogonal to `ECOSYSTEM_REPOS`)
+
+`JUNIPER_ROOT` mode does **not** scan every directory under the root. It iterates the hard-coded `DEFAULT_REPOS=(...)` array in the bash source. Intended membership:
+
+```text
+(unique `repo` values from util/release_train/registry.yaml) ∪ {juniper-deploy}
+```
+
+| Rule | Why |
+|------|-----|
+| Every registry publishing repo | Each sibling that can carry `claude.yml` must be audited when checked out |
+| Include `juniper-deploy` | Infra / docs consumer with `claude.yml` risk but **no** PyPI package (release-train omits it) |
+| Do **not** invent extras | Non-canonical dirs under `JUNIPER_ROOT` are ignored |
+
+**Orthogonality to weekly clones:** `docs-full-check.yml` `env.ECOSYSTEM_REPOS` decides which siblings are *cloned*. `DEFAULT_REPOS` decides which cloned checkouts the auditor actually *opens*. Restoring `juniper-recurrence` in the clone list (#940) does **not** audit its `claude.yml` unless `DEFAULT_REPOS` also lists it — the two lists must move together when a publishing sibling is added.
+
+**Historical gap (open juniper-ml#955 / #956):** main's `DEFAULT_REPOS` still omits `juniper-recurrence`, so a dangerous `claude.yml` there is silently skipped even when the checkout exists (secret-spend class). Those PRs add the sibling and pin membership with `tests/test_validate_claude_yaml_access.py` (`DefaultTargetsTests.test_default_repos_lockstep_publishing_plus_deploy` + a behavioral arm that fails on a bad recurrence workflow).
+
+### CI wiring
+
+| Surface | When | What runs |
+|---------|------|-----------|
+| `ci.yml` job `claude-yaml-audit` | Every push / PR | Validator against this repo's live `.github/workflows/claude.yml`; required by Quality Gate |
+| `ci.yml` / `main-verify.yml` tests battery | Same | `python3 -m unittest -v tests/test_validate_claude_yaml_access.py` |
+| `docs-full-check.yml` | Weekly Mon 06:00 UTC + `workflow_dispatch` | `JUNIPER_ROOT="$GITHUB_WORKSPACE" bash juniper-ml/util/validate_claude_yaml_access.bash` after sibling clones |
+
+The bash auditor covers L2/L3 structure only. Live juniper-ml `on:` event matrix + exact job `permissions` are pinned separately by open #956 (`LiveClaudeWorkflowContractTests`) — a permissions widen/narrow that still has an `@claude` guard would not trip L2/L3 alone.
+
+### Operator checklist when adding a publishing sibling
+
+1. Register the package/repo in `util/release_train/registry.yaml`.
+2. Add the repo name to `DEFAULT_REPOS` in `util/validate_claude_yaml_access.bash` (and keep it equal to registry publishers ∪ `{juniper-deploy}`).
+3. Add the repo to `docs-full-check.yml` `env.ECOSYSTEM_REPOS` so the weekly job clones it (see open docs #951 for the clone-list lockstep).
+4. Run `python3 -m unittest -v tests/test_validate_claude_yaml_access.py` (lockstep arm lands with #955/#956).
 
 ---
 

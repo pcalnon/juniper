@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.0
-**Last Updated**: 2026-08-04
+**Last Updated**: 2026-08-05
 
 ---
 
@@ -651,6 +651,10 @@ With the `SLACK_WEBHOOK_URL` repo secret present (owner-provisioned incoming web
 ### Claude Code Action (`claude.yml`)
 
 Triggered by issue/PR comments and events mentioning @claude. Uses `anthropics/claude-code-action` for automated issue/PR assistance.
+
+Public-repo `ANTHROPIC_API_KEY` safeguards are audited by `util/validate_claude_yaml_access.bash` (L2: no `pull_request_target` / `workflow_run`; L3: `claude:` job `if:` must `contains(..., '@claude')`). Per-PR: `ci.yml` job `claude-yaml-audit` (Quality Gate). Weekly: `docs-full-check.yml` runs the same script under `JUNIPER_ROOT`.
+
+`JUNIPER_ROOT` fan-out iterates hard-coded `DEFAULT_REPOS` (intended: registry publishers ∪ `juniper-deploy`), not every cloned directory — orthogonal to `ECOSYSTEM_REPOS`. Main still omits `juniper-recurrence` from `DEFAULT_REPOS` (secret-spend blind spot); open #955/#956 add it + lockstep tests. Operator surface: [`docs/REFERENCE.md` § Claude.yml Access Validation](docs/REFERENCE.md#claudeyml-access-validation).
 
 ## Pre-commit Hooks
 

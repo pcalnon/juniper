@@ -258,10 +258,14 @@ The validator lives at [`util/validate_claude_yaml_access.bash`](../util/validat
 
 - `util/validate_claude_yaml_access.bash` — defaults to `juniper-ml/.github/workflows/claude.yml`.
 - `util/validate_claude_yaml_access.bash <file-or-dir> ...` — explicit targets (a directory is resolved to `<dir>/.github/workflows/claude.yml`).
-- `JUNIPER_ROOT=/path/to/Juniper util/validate_claude_yaml_access.bash` — fans out across all 8 canonical sibling repos.
+- `JUNIPER_ROOT=/path/to/Juniper util/validate_claude_yaml_access.bash` — fans out across the hard-coded `DEFAULT_REPOS` list (intended: every `repo` in `util/release_train/registry.yaml` ∪ `{juniper-deploy}`). It does **not** scan arbitrary directories under `JUNIPER_ROOT`.
 - `VERBOSE=1` — emits per-file trace lines.
 
 Exit codes: `0` clean, `1` finding, `2` usage / I/O error.
+
+**`DEFAULT_REPOS` vs clone list.** Weekly `docs-full-check.yml` clones siblings via `env.ECOSYSTEM_REPOS`; the auditor then opens only repos named in `DEFAULT_REPOS`. Those lists are orthogonal — restoring a sibling in the clone list does not audit its `claude.yml` unless `DEFAULT_REPOS` also lists it. Operator surface: [`docs/REFERENCE.md` § Claude.yml Access Validation](../docs/REFERENCE.md#claudeyml-access-validation).
+
+**Recurrence gap (open juniper-ml#955 / #956).** Main's `DEFAULT_REPOS` still omits `juniper-recurrence`, so a dangerous workflow there is silently skipped even when the checkout exists. Those PRs add the sibling and pin membership + a behavioral fan-out arm in `tests/test_validate_claude_yaml_access.py`.
 
 ### CI integration — also SHIPPED
 
@@ -271,7 +275,7 @@ The validator's own unit tests (`tests/test_validate_claude_yaml_access.py`, 8 c
 
 ### Cross-repo coverage — ALSO SHIPPED
 
-`juniper-ml/.github/workflows/docs-full-check.yml` (weekly schedule + `workflow_dispatch`) now runs the validator across all 8 sibling repos after the existing cross-repo doc-link check. It clones the 7 siblings into `$GITHUB_WORKSPACE`, then invokes:
+`juniper-ml/.github/workflows/docs-full-check.yml` (weekly schedule + `workflow_dispatch`) now runs the validator across cloned siblings after the existing cross-repo doc-link check. It clones the `ECOSYSTEM_REPOS` list into `$GITHUB_WORKSPACE`, then invokes:
 
 ```bash
 JUNIPER_ROOT="$GITHUB_WORKSPACE" \
