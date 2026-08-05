@@ -383,9 +383,7 @@ class AstSymbolScreenDegradeTest(unittest.TestCase):
     def _screen_with_run(self, cp: subprocess.CompletedProcess, changed=None):
         with mock.patch.object(pm, "_SYMBOL_LOSS_CHECK", self.checker):
             with mock.patch.object(pm, "_run", return_value=cp) as run_mock:
-                out = pm._ast_symbol_screen(
-                    Path("/clone"), "base", "head", changed or ["util/mod.py"]
-                )
+                out = pm._ast_symbol_screen(Path("/clone"), "base", "head", changed or ["util/mod.py"])
         return out, run_mock
 
     def test_non_screenable_delta_short_circuits_without_subprocess(self):
