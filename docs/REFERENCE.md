@@ -775,25 +775,11 @@ python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD 
 
 `cursor/*` PRs only. Step-summary warnings for: commit count > 1, `black --check --line-length 512` on changed `.py`, fan-out > 15 files, and touches of hotspot files `AGENTS.md` / `docs/DEVELOPER_CHEATSHEET_JUNIPER-ML.md`. Always `exit 0`.
 
-### Post-merge main-verify (G3 + G3.1)
+### Post-merge main-verify (pointer)
 
-Workflow: [`.github/workflows/main-verify.yml`](../.github/workflows/main-verify.yml). Three jobs:
+[`.github/workflows/main-verify.yml`](../.github/workflows/main-verify.yml) is the bypass-proof G3 net (`symbol-screen` always + path-gated `battery` + failure `notify`). **G3.1** resolves BASE to the last successful main-verify tip when it is an ancestor of HEAD (sweeps `[skip ci]` gaps), else `event.before`, else `HEAD^1`. Per-PR labels never demote this job — only commit trailers do. Operator deep-dive for catch-up / notify / battery sync: AGENTS.md CI/CD Pipelines (`main-verify.yml`) and the open sibling docs PR that owns the dedicated Post-Merge Main Verification section when present.
 
-1. **`symbol-screen` (always)** — sequence-safety screens of `BASE..<merge>`; fails the job on unwaived FAIL; uploads `sequence-safety-report`.
-2. **`battery` (path-gated)** — mirrors `ci.yml`'s enumerated unittest list when the push touched `tests/` \| `util/` \| `scripts/` \| `.github/` \| `pyproject.toml`; docs-only merges skip the battery (symbol-screen still runs). Keep the two lists in sync in the same PR.
-3. **`notify` (on failure)** — upserts a dedup tracking issue (`main-verify: post-merge verification failed at <sha>`) and posts non-blocking Slack via `SLACK_WEBHOOK_URL` (missing secret skips; `continue-on-error`).
-
-**G3.1 CATCH-UP BASE** (the 2026-07-30 `[skip ci]` incident — ml#870/#872/#873 merge bodies skipped this workflow entirely):
-
-| Priority | BASE | When |
-|----------|------|------|
-| 1 | `head_sha` of the latest **successful** `main-verify` run on `main` | That SHA is a resolvable ancestor of HEAD and ≠ HEAD (sweeps every skipped merge in between) |
-| 2 | `github.event.before` | Non-zero and resolvable |
-| 3 | `HEAD^1` | Force-push / initial / dispatch fallback |
-
-Chosen BASE + reason land in the step summary under “Post-merge sequence-safety base (G3.1 catch-up)”.
-
-### Operator pitfalls
+### Operator pitfalls (ci.yml-focused)
 
 | Symptom | Check / Fix |
 |---------|-------------|
@@ -801,9 +787,7 @@ Chosen BASE + reason land in the step summary under “Post-merge sequence-safet
 | Label greens Sequence Safety but `main-verify` fails after merge | Labels are PR-only; put `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite:` on a commit in the landed range |
 | Merge queue stuck with no required check | Confirm `ci.yml` still has `on.merge_group` and every required context re-posts on queue runs |
 | Rapid main merges “lost” a CI run | `ci.yml` push group must be per-SHA with cancel disabled; `main-verify` is always per-SHA / no-cancel |
-| `[skip ci]` in a merge commit body | Skips `main-verify` for that SHA; the **next** successful tip’s catch-up BASE sweeps the gap — do not rely on skip for compositionally risky merges |
-| Docs-only main merge, battery skipped | Intended; symbol-screen still ran — check that job / artifact, not the battery |
-| Red `main-verify`, no Slack | `SLACK_WEBHOOK_URL` unset or post failed (non-blocking); look for the tracking issue titled with the SHA |
+| `pass_filenames: false` hook still red on a tiny PR | Expected under G4 — those hooks run globally even with `--from-ref` |
 
 ---
 

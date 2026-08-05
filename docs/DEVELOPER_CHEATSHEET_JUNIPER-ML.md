@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.11
+**Version**: 1.0.13
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -445,8 +445,7 @@ Tip: flood CI gates (#869/#880) — per-PR `Sequence Safety` / `Fleet PR Lint` a
 | Sequence Safety red, Quality Gate green | Advisory by design — download `sequence-safety-report`; waive with trailers or (owner) labels |
 | Label greens Sequence Safety; `main-verify` fails | Put `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite:` on a landed commit; labels are PR-only |
 | Merge queue stalled (no required check) | Confirm `ci.yml` `on.merge_group` still present; required contexts must re-post on queue |
-| `[skip ci]` merge skipped `main-verify` | Next successful tip’s G3.1 catch-up BASE sweeps the gap — check step summary “catch-up” reason |
-| Docs-only main merge, battery skipped | Expected; inspect `symbol-screen` / `sequence-safety-report`, not the battery job |
+| Tiny PR still fails global doc-link hook | G4: `pass_filenames: false` hooks still run repo-wide under `--from-ref` |
 
 ## Quick Reference Tables
 
@@ -490,5 +489,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 1.0.11
+**Version:** 1.0.13
 **Maintainer:** Paul Calnon
