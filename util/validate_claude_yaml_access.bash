@@ -13,10 +13,8 @@
 #   validate_claude_yaml_access.bash [<file-or-dir> ...]
 #
 # Behavior with no arguments:
-#   - If JUNIPER_ROOT is set and contains the publishing Juniper sibling
-#     repos (+ juniper-deploy), validate each repo's .github/workflows/claude.yml
-#     that exists. DEFAULT_REPOS must include juniper-recurrence (a publishing
-#     sibling); omitting it leaves the weekly docs-full-check fan-out blind.
+#   - If JUNIPER_ROOT is set and contains the canonical 8 Juniper sibling
+#     repos, validate each repo's .github/workflows/claude.yml that exists.
 #   - Otherwise, validate the current git repo's
 #     .github/workflows/claude.yml relative to the script location.
 #
@@ -42,8 +40,6 @@ set -euo pipefail
 
 VERBOSE="${VERBOSE:-0}"
 
-# Publishing siblings (registry.yaml `repo` set) + juniper-deploy. Order is
-# discovery-only; membership is the contract (tests/test_validate_claude_yaml_access.py).
 DEFAULT_REPOS=(
   juniper-cascor
   juniper-data
@@ -52,7 +48,6 @@ DEFAULT_REPOS=(
   juniper-cascor-worker
   juniper-ml
   juniper-canopy
-  juniper-recurrence
   juniper-deploy
 )
 

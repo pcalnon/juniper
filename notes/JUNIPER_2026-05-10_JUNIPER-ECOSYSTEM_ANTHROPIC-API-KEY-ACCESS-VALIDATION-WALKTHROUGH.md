@@ -258,7 +258,7 @@ The validator lives at [`util/validate_claude_yaml_access.bash`](../util/validat
 
 - `util/validate_claude_yaml_access.bash` — defaults to `juniper-ml/.github/workflows/claude.yml`.
 - `util/validate_claude_yaml_access.bash <file-or-dir> ...` — explicit targets (a directory is resolved to `<dir>/.github/workflows/claude.yml`).
-- `JUNIPER_ROOT=/path/to/Juniper util/validate_claude_yaml_access.bash` — fans out across the publishing sibling repos (+ `juniper-deploy`), including `juniper-recurrence`.
+- `JUNIPER_ROOT=/path/to/Juniper util/validate_claude_yaml_access.bash` — fans out across all 8 canonical sibling repos.
 - `VERBOSE=1` — emits per-file trace lines.
 
 Exit codes: `0` clean, `1` finding, `2` usage / I/O error.

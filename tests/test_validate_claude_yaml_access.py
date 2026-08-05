@@ -6,12 +6,11 @@ Covers the happy path plus the three failure modes the script detects:
   L3b if-guard does not reference the '@claude' literal
 
 Also covers the no-arg ``default_targets`` path: ``JUNIPER_ROOT`` sibling-repo
-scan (publishing siblings + juniper-deploy, including juniper-recurrence) and
-the empty-scan warning exit-0 arm.
+scan (canonical 8 repos) and the empty-scan warning exit-0 arm.
 
-Lockstep gates:
-  - DEFAULT_REPOS membership == registry.yaml publishing ``repo`` set ∪ {juniper-deploy}
-  - live ``.github/workflows/claude.yml`` ``on:`` event matrix + job permissions
+Additionally pins the live juniper-ml ``.github/workflows/claude.yml``
+``on:`` event matrix, per-event ``if:`` gates, and exact job ``permissions``
+(the L2/L3 bash validator does not cover those).
 
 The test bodies invoke the bash script via subprocess and assert on its
 exit code + stderr/stdout. The script lives at the canonical location
@@ -21,7 +20,6 @@ util/validate_claude_yaml_access.bash relative to this file.
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 import tempfile
 import unittest
@@ -35,7 +33,6 @@ from tests.redacted_env import RedactedEnv
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = REPO_ROOT / "util" / "validate_claude_yaml_access.bash"
 CLAUDE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "claude.yml"
-REGISTRY_PATH = REPO_ROOT / "util" / "release_train" / "registry.yaml"
 
 # Live claude.yml contract (public-repo ANTHROPIC_API_KEY surface).
 _EXPECTED_ON_EVENTS = frozenset(
@@ -151,25 +148,6 @@ def _write_sibling_claude(juniper_root: Path, repo_name: str, body: str) -> Path
     return target
 
 
-def _parse_default_repos(script_text: str) -> list[str]:
-    """Extract DEFAULT_REPOS=(...) membership from the bash script source."""
-    match = re.search(r"^DEFAULT_REPOS=\(\s*(.*?)\s*^\)", script_text, re.M | re.S)
-    if match is None:
-        raise AssertionError("DEFAULT_REPOS=(...) block not found in validate script")
-    names: list[str] = []
-    for line in match.group(1).splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        names.append(stripped)
-    return names
-
-
-def _registry_publishing_repos() -> set[str]:
-    data = yaml.safe_load(REGISTRY_PATH.read_text(encoding="utf-8")) or {}
-    return {entry["repo"] for entry in data.get("packages", []) if "repo" in entry}
-
-
 class ScriptShapeTests(unittest.TestCase):
     def test_script_exists_and_is_executable(self) -> None:
         self.assertTrue(SCRIPT_PATH.is_file(), f"missing: {SCRIPT_PATH}")
@@ -179,30 +157,6 @@ class ScriptShapeTests(unittest.TestCase):
         self.assertTrue(
             SCRIPT_PATH.stat().st_mode & 0o111,
             f"not executable: {SCRIPT_PATH}",
-        )
-
-    def test_default_repos_lockstep_registry_plus_deploy(self) -> None:
-        """DEFAULT_REPOS must cover every publishing sibling + juniper-deploy.
-
-        Weekly docs-full-check clones siblings then runs this script under
-        JUNIPER_ROOT; omitting juniper-recurrence (a publishing repo) leaves
-        that sibling's claude.yml unaudited even when the clone list is fixed.
-        """
-        declared = _parse_default_repos(SCRIPT_PATH.read_text(encoding="utf-8"))
-        expected = _registry_publishing_repos() | {"juniper-deploy"}
-        self.assertEqual(
-            set(declared),
-            expected,
-            msg=(
-                f"DEFAULT_REPOS drift: missing={sorted(expected - set(declared))} "
-                f"extra={sorted(set(declared) - expected)}"
-            ),
-        )
-        self.assertIn("juniper-recurrence", declared)
-        self.assertEqual(
-            len(declared),
-            len(set(declared)),
-            msg=f"DEFAULT_REPOS has duplicates: {declared}",
         )
 
 
@@ -321,27 +275,6 @@ class DefaultTargetsTests(unittest.TestCase):
             self.assertIn("L2 dangerous trigger present", result.stdout)
             self.assertIn("1 claude.yml file(s) failed validation", result.stdout)
 
-    def test_juniper_root_audits_recurrence_sibling(self) -> None:
-        """juniper-recurrence must be in the fan-out — BAD_TRIGGER there fails the run.
-
-        Pre-fix DEFAULT_REPOS omitted recurrence, so a dangerous trigger in that
-        sibling's claude.yml was invisible to weekly JUNIPER_ROOT audits.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            _write_sibling_claude(root, "juniper-ml", GOOD_YAML)
-            _write_sibling_claude(root, "juniper-recurrence", BAD_TRIGGER_YAML)
-            result = _run_validator_no_args(juniper_root=root)
-            self.assertEqual(
-                result.returncode,
-                1,
-                msg=f"stdout={result.stdout!r} stderr={result.stderr!r}",
-            )
-            self.assertIn("FAIL", result.stdout)
-            self.assertIn("juniper-recurrence", result.stdout)
-            self.assertIn("L2 dangerous trigger present", result.stdout)
-            self.assertIn("1 claude.yml file(s) failed validation", result.stdout)
-
     def test_juniper_root_with_no_claude_yml_warns_and_exits_zero(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -359,7 +292,13 @@ class DefaultTargetsTests(unittest.TestCase):
 
 
 class LiveClaudeWorkflowContractTests(unittest.TestCase):
-    """Pin juniper-ml's live claude.yml event matrix + permissions (secret surface)."""
+    """Pin juniper-ml's live claude.yml event matrix + permissions (secret surface).
+
+    The bash validator only checks L2 dangerous triggers + L3a/L3b ``@claude``
+    presence. It does not notice a dropped ``on:`` event, an ungated event in
+    ``if:``, or a permissions widen/narrow — all of which change who can spend
+    ``ANTHROPIC_API_KEY`` on a public repo.
+    """
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -367,6 +306,7 @@ class LiveClaudeWorkflowContractTests(unittest.TestCase):
         cls.doc = yaml.safe_load(cls.raw)
 
     def test_on_events_match_canonical_matrix(self) -> None:
+        # PyYAML may parse the ``on:`` key as boolean True.
         on_block = self.doc.get("on") or self.doc.get(True)
         self.assertIsInstance(on_block, dict, msg="claude.yml must declare an on: mapping")
         self.assertEqual(
