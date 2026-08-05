@@ -1032,6 +1032,73 @@ class ConsumerPinHelperTest(unittest.TestCase):
         self.assertIn("A prose pin that must NOT be edited: `juniper-service-core>=0.2.0,<0.5.0`.", fixed)
 
 
+class ApplyPinPairsExactTest(unittest.TestCase):
+    """Direct pins for ``apply_pin_pairs_exact`` — shared by meta co-change + D6 follow-on edits.
+
+    The helper is bare ``str.replace`` over exact ``old_req`` strings parsed from the same file.
+    A regression that switches to regex / partial-token replace, drops de-dup, or stops replacing
+    every occurrence would corrupt consumer pyprojects across the release-train write path.
+    """
+
+    def test_empty_pairs_is_noop(self):
+        text = 'dependencies = ["juniper-up>=0.2.0,<0.4.0"]\n'
+        self.assertEqual(pr.apply_pin_pairs_exact(text, []), text)
+
+    def test_replaces_every_occurrence_of_exact_old_req(self):
+        # Multi-extra / duplicate pin strings must all move (doc-tools sits in tools + doc-tools).
+        text = 'a = ["juniper-doc-tools>=0.1.0,<0.2.0"]\nb = ["juniper-doc-tools>=0.1.0,<0.2.0"]\n'
+        out = pr.apply_pin_pairs_exact(text, [("juniper-doc-tools>=0.1.0,<0.2.0", "juniper-doc-tools>=0.1.0,<0.3.0")])
+        self.assertEqual(out.count("juniper-doc-tools>=0.1.0,<0.3.0"), 2)
+        self.assertNotIn("juniper-doc-tools>=0.1.0,<0.2.0", out)
+
+    def test_dedups_identical_pairs_without_double_replace(self):
+        # Identical (old, new) pairs must apply once — a second pass would no-op only when
+        # old != new; if a future change made new contain old as a substring, re-applying
+        # would corrupt. De-dup is the safety valve both call sites rely on.
+        text = 'req = "juniper-up>=0.2.0,<0.4.0"\n'
+        pairs = [
+            ("juniper-up>=0.2.0,<0.4.0", "juniper-up>=0.2.0,<0.5.0"),
+            ("juniper-up>=0.2.0,<0.4.0", "juniper-up>=0.2.0,<0.5.0"),
+        ]
+        out = pr.apply_pin_pairs_exact(text, pairs)
+        self.assertEqual(out, 'req = "juniper-up>=0.2.0,<0.5.0"\n')
+        self.assertEqual(out.count("juniper-up>=0.2.0,<0.5.0"), 1)
+
+    def test_applies_distinct_pairs_in_order(self):
+        text = 'deps = ["juniper-a>=1.0.0,<2.0.0", "juniper-b>=1.0.0,<2.0.0"]\n'
+        out = pr.apply_pin_pairs_exact(
+            text,
+            [
+                ("juniper-a>=1.0.0,<2.0.0", "juniper-a>=1.0.0,<3.0.0"),
+                ("juniper-b>=1.0.0,<2.0.0", "juniper-b>=1.0.0,<3.0.0"),
+            ],
+        )
+        self.assertIn("juniper-a>=1.0.0,<3.0.0", out)
+        self.assertIn("juniper-b>=1.0.0,<3.0.0", out)
+        self.assertNotIn("<2.0.0", out)
+
+    def test_leaves_non_exact_sibling_pins_untouched(self):
+        # Prefix / longer-name siblings must not move when the exact old_req is absent as a
+        # full string (bare replace is exact-token, not package-name anchored).
+        text = (
+            'deps = ["juniper-cascor>=0.5.0,<0.6.0", "juniper-cascor-worker>=0.4.0", '
+            '"juniper-cascor-client>=0.5.0"]\n'
+        )
+        out = pr.apply_pin_pairs_exact(text, [("juniper-cascor>=0.5.0,<0.6.0", "juniper-cascor>=0.5.0,<0.7.0")])
+        self.assertIn("juniper-cascor>=0.5.0,<0.7.0", out)
+        self.assertIn("juniper-cascor-worker>=0.4.0", out)
+        self.assertIn("juniper-cascor-client>=0.5.0", out)
+        self.assertNotIn("juniper-cascor>=0.5.0,<0.6.0", out)
+
+    def test_apply_pin_edits_exact_delegates_pair_list(self):
+        cc = [
+            pr.ConsumerPinCoChange(extra="tools", old_req="juniper-x>=0.1.0,<0.2.0", new_req="juniper-x>=0.1.0,<0.3.0"),
+            pr.ConsumerPinCoChange(extra="doc-tools", old_req="juniper-x>=0.1.0,<0.2.0", new_req="juniper-x>=0.1.0,<0.3.0"),
+        ]
+        text = 'tools = ["juniper-x>=0.1.0,<0.2.0"]\ndoc = ["juniper-x>=0.1.0,<0.2.0"]\n'
+        self.assertEqual(pr.apply_pin_edits_exact(text, cc), pr.apply_pin_pairs_exact(text, [("juniper-x>=0.1.0,<0.2.0", "juniper-x>=0.1.0,<0.3.0")]))
+
+
 # ── in-repo meta consumer-pin co-changes: build_proposal integration ─────────────────────
 
 
