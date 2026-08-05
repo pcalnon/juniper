@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.2
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -24,6 +24,7 @@
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
+- [AGENTS.md Touch-Up](#agentsmd-touch-up)
 
 ---
 
@@ -842,6 +843,45 @@ Release runbooks:
 
 ---
 
+## AGENTS.md Touch-Up
+
+Auto-keeps the `**Last Updated**:` header in `AGENTS.md` aligned with the UTC date the file actually changed. Workflow: [`.github/workflows/agents-md-touch-up.yml`](../.github/workflows/agents-md-touch-up.yml). Companion schema lint: `tests/test_agents_md_header_schema.py` (presence + `YYYY-MM-DD`); version equality is a **separate** concern (`tests/test_agents_md_version_drift.py`).
+
+### Intent
+
+Contributors and agents often edit `AGENTS.md` without bumping the header date. This job rewrites only that line so the header stays honest, without asking humans to remember — and without re-firing the whole CI fleet on the bump commit.
+
+### Triggers and scope
+
+| Item | Value |
+|------|-------|
+| Events | `pull_request` types `opened` / `reopened` / `synchronize` |
+| Paths filter | `AGENTS.md` only |
+| Job `if` | `github.event.pull_request.head.repo.full_name == github.repository` (fork PRs skipped — default `GITHUB_TOKEN` is read-only there) |
+| Permissions | `{contents: write, pull-requests: read}` |
+| Concurrency | `agents-md-touch-up-<PR number>`, `cancel-in-progress: true` |
+
+### Behavior (verified against workflow YAML)
+
+1. Checkout the PR head (`fetch-depth: 0`).
+2. If `AGENTS.md` has **no** `**Last Updated**:` line → `::warning::` and **exit 0** (no commit).
+3. If the value already equals today's UTC `YYYY-MM-DD` → noop exit 0.
+4. Otherwise `sed` rewrite → commit as `github-actions[bot]` with message `chore(agents-md): bump Last Updated to <date> [skip ci]` → `git pull --rebase` against the PR head → `git push` (never `--force`).
+
+`[skip ci]` is mandatory so the bump itself does not recurse into pre-commit / tests / docs jobs. A rebase failure fails the job loudly rather than force-pushing.
+
+### Operator notes
+
+- Expect an extra bot commit on same-repo PRs that touch `AGENTS.md` with a stale date — that is success, not noise.
+- Do **not** remove `[skip ci]` from the commit message template; doing so re-triggers the CI fleet on every AGENTS.md edit.
+- Do **not** teach the job to `--force` push; concurrent tip commits must rebase or fail closed.
+- Fork / external PRs will not get the bump (by design); the author must set the date manually or a maintainer re-pushes from a same-repo branch.
+- Coverage rehearsals for the bump / noop / missing-field arms live in open [#941](https://github.com/pcalnon/juniper-ml/pull/941) (`tests/test_agents_md_touch_up.py`); until that merges, treat the workflow YAML on `main` as source of truth.
+
+Related weekly docs / archive-guard operator surface (orthogonal): open [#951](https://github.com/pcalnon/juniper-ml/pull/951) documents `docs-full-check.yml` `ECOSYSTEM_REPOS` lockstep + archive-guard `merge_group` short-circuit from coverage [#940](https://github.com/pcalnon/juniper-ml/pull/940).
+
+---
+
 ## Environment Variables
 
 These variables are consumed by Juniper packages documented in this repository. `juniper-ml` itself does not set them; they belong to the extras-installed packages.
@@ -863,5 +903,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.0
+**Version:** 0.6.2
 **Maintainer:** Paul Calnon

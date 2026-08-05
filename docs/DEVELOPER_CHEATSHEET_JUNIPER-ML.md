@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
+**Version**: 1.0.10
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -225,6 +225,7 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 | Publish doc-tools      | Push `juniper-doc-tools-vX.Y.Z` tag (OIDC trusted publishing)                               |
 | Doc links (CI parity)  | `juniper-check-doc-links --exclude templates --exclude history --exclude legacy --cross-repo skip` |
 | Doc links (full local) | `juniper-check-doc-links --cross-repo check`                                                |
+| AGENTS.md date bump    | Automatic on same-repo PRs that touch `AGENTS.md` (`agents-md-touch-up.yml`; `[skip ci]` bot commit) |
 
 Key hooks: `ruff` (juniper-data) or `black`+`isort`+`flake8` (others), `mypy`, `bandit`, `shellcheck`, `no-unencrypted-env`.
 
@@ -429,6 +430,8 @@ Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant he
 
 Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
 
+Tip: editing `AGENTS.md` on a same-repo PR triggers `agents-md-touch-up.yml` to bump `**Last Updated**:` to today's UTC date via a `github-actions[bot]` commit tagged `[skip ci]` (noop when already current; warning+exit 0 if the field is missing). Never strip `[skip ci]` or teach the job `--force`. Forks are skipped. Full contract: [REFERENCE — AGENTS.md Touch-Up](REFERENCE.md#agentsmd-touch-up).
+
 
 ### Host Stack Troubleshooting
 
@@ -458,6 +461,8 @@ Tip: systemd chop soft-fails per unit and always exits `0` without touching the 
 | `env_floor_drift_check` exits `2` | Resolution failed (`resolve_site_dirs`) — fix `--site-packages` / `--env` / `ecosystem.yaml` `used_by`; not a `BELOW_FLOOR`. |
 | Unexpected `BELOW_FLOOR` after upgrade | Multi-interpreter env may still hold a lower tree — tool reports the highest across site-packages; upgrade or remove the stale tree. |
 | `--fix` JSON shows `ERROR` mid-plan | Inspect `error` (stderr/`OSError`, ≤500 chars); fix env python / pip cause; re-run `--fix`. Other items may already be `FIXED`. |
+| Extra bot commit on an AGENTS.md PR | Expected touch-up bump with `[skip ci]`; confirm the date line only changed. See [REFERENCE — AGENTS.md Touch-Up](REFERENCE.md#agentsmd-touch-up). |
+| AGENTS.md date not auto-bumped | Fork PR (skipped), missing `**Last Updated**:` field (warning only), or date already today. |
 
 ## Quick Reference Tables
 
@@ -501,5 +506,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 1.0.8
+**Version:** 1.0.10
 **Maintainer:** Paul Calnon
