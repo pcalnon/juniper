@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -504,7 +504,7 @@ Troubleshooting:
 
 | Utility | Purpose | Key Overrides |
 |---------|---------|---------------|
-| `util/isolated_stack.bash --up` | Create the data venv, then launch data → cascor → canopy (health-gated) | `JUNIPER_E2E_DATA_PORT`, `JUNIPER_E2E_CASCOR_PORT`, `JUNIPER_E2E_CANOPY_PORT`, `JUNIPER_E2E_HEALTH_TIMEOUT`, `JUNIPER_E2E_DATA_EXTRAS`, `JUNIPER_E2E_RUN_DIR`, `JUNIPER_E2E_*_CONDA` / `*_DIR` |
+| `util/isolated_stack.bash --up` | Create the data venv, then launch data → cascor → canopy (health-gated); mid-leg failure tears the partial trio down | `JUNIPER_E2E_DATA_PORT`, `JUNIPER_E2E_CASCOR_PORT`, `JUNIPER_E2E_CANOPY_PORT`, `JUNIPER_E2E_HEALTH_TIMEOUT`, `JUNIPER_E2E_DATA_EXTRAS`, `JUNIPER_E2E_RUN_DIR`, `JUNIPER_E2E_*_CONDA` / `*_DIR` |
 | `util/isolated_stack.bash --down` | Kill-by-port teardown + clean run / snapshot artifacts | same port / `RUN_DIR` / project overrides |
 | `util/isolated_stack.bash --status` | Probe each `/v1/health` and report listening PID | same |
 | `util/isolated_stack.bash --dry-run …` | Print every command; execute nothing (safe when ports are busy) | same |
@@ -577,6 +577,20 @@ The script runs under `set -euo pipefail`. Cascor/canopy bring-up calls `activat
 
 **Contract:** restore nounset with `set -u` immediately after `conda activate` so later unset expansions still fail. Pre-[#785](https://github.com/pcalnon/juniper-ml/pull/785) the restore arm was a second `set +u`, so live `--up` continued **without** nounset after every cascor/canopy activate. If a mid-`--up` failure looks like a silent missing-env typo that plant would have caught, confirm #785 is present (`rg -n 'set -u' util/isolated_stack.bash` inside `activate_conda`).
 
+#### Partial-failure teardown (`do_up` → `do_down`)
+
+`do_up` launches **data → cascor → canopy**. Under `set -e`, a bare mid-leg failure would exit the script immediately and leave earlier listeners orphaned on `8101`/`8202`/`8051` (poisoning the next checklist run). Open [#963](https://github.com/pcalnon/juniper-ml/pull/963) mirrors `experiment_stack.bash`: absorb each failure into `failed=1`, skip later legs, then tear down.
+
+On failure (live mode, not `--dry-run`):
+
+1. Logs `ERROR: bring-up failed — tearing the partial trio back down (logs kept under ${LOG_DIR})`.
+2. Calls `do_down` (same kill-by-port + RUN_DIR / snapshot cleanup as `--down`).
+3. Returns `1` — does **not** leave the partial listeners for the operator to discover later.
+
+**OR-list / `|| return 1` constraint:** `data_up || failed=1` (and the cascor/canopy siblings) disables `set -e` inside each `*_up` body (bash OR-list rule). Critical steps — `require_cmd`, venv create, `activate_conda`, `wait_for_health` — must end with `|| return 1`, or a mid-function failure falls through to a stubbed/false-green health gate and skips `do_down`.
+
+`--dry-run --up` never launches and never calls `do_down` on the failure path. After a live partial failure, inspect `${LOG_DIR}` (kept under `JUNIPER_E2E_RUN_DIR`), confirm the ports are free with `ss -tlnH 'sport = :8101 or sport = :8202 or sport = :8051'`, then re-`--up`. Coverage: `TestDoUpPartialFailureTeardown` in `tests/test_isolated_stack_script.py` (open juniper-ml#963).
+
 #### Kill-by-port teardown (`port_pid` / `stop_port`)
 
 `--down` does **not** use `JuniperProject.pid`. It stops canopy → cascor → data via `stop_port`, which asks `ss -tlnpH "sport = :<port>"` for the first `pid=N` (`port_pid`), then `kill`s that PID.
@@ -589,7 +603,7 @@ Coverage: `tests/test_isolated_stack_script.py` (`TestPortPid` / `TestStopPort` 
 
 #### Health wait / status probe
 
-- `wait_for_health` (live `--up` only): polls `curl -sf` every **2s** (hard-coded; not plant's `HEALTH_CHECK_INTERVAL`) until success or `JUNIPER_E2E_HEALTH_TIMEOUT` (default `60`). Timeout logs `ERROR: … see ${LOG_DIR}` and returns `1` (aborts `--up` under `set -e`).
+- `wait_for_health` (live `--up` only): polls `curl -sf` every **2s** (hard-coded; not plant's `HEALTH_CHECK_INTERVAL`) until success or `JUNIPER_E2E_HEALTH_TIMEOUT` (default `60`). Timeout logs `ERROR: … see ${LOG_DIR}` and returns `1`. With open [#963](https://github.com/pcalnon/juniper-ml/pull/963), that return propagates through `*_up || failed=1` so `do_up` tears the partial trio down (pre-#963 a bare failure exited under `set -e` and could orphan earlier listeners).
 - `probe_health` (`--status`): reports HTTP code (or `000` on curl failure) plus `port_pid`; never fails the script on an unhealthy service.
 - Health URLs are always `http://127.0.0.1:<port>/v1/health` for all three services.
 
@@ -603,8 +617,9 @@ Troubleshooting:
 | Data health timeout / free-threading oddities | Confirm launch used `PYTHON_GIL=0`; inspect `${RUN_DIR}/logs/juniper-data.log` and that `.venv-data` was created with `python3.14`. |
 | Stale editable install in data venv | Delete `${RUN_DIR}/.venv-data` (or run `--down`) and re-`--up`, or set a fresh `JUNIPER_E2E_RUN_DIR`. Existing venv skips `python3.14 -m venv` but still re-pip-installs. |
 | `--up` dies with unset-variable / odd conda activate noise | Need #785 nounset restore; also confirm `JUNIPER_E2E_CONDA_DIR` points at a real `conda.sh`. |
-| Ports still busy after `--down` | Confirm `ss` is on `PATH` and can see user processes; re-run `--down` or kill the `pid=` from `ss -tlnpH` manually. |
-| Health timeout mid-`--up` | Inspect `${JUNIPER_E2E_RUN_DIR:-/tmp/juniper-e2e}/logs/*.log`; raise `JUNIPER_E2E_HEALTH_TIMEOUT` only after fixing the service, not as a silent hang workaround. |
+| `bring-up failed — tearing the partial trio back down` | Expected on a mid-`--up` leg failure (open #963) — `do_down` already ran; read `${LOG_DIR}`, confirm ports free, then retry. Pre-#963 orphans earlier listeners — run `--down` / kill-by-port manually. |
+| Ports still busy after `--down` / after a failed `--up` | Confirm `ss` is on `PATH` and can see user processes; re-run `--down` or kill the `pid=` from `ss -tlnpH` manually. |
+| Health timeout mid-`--up` | Inspect `${JUNIPER_E2E_RUN_DIR:-/tmp/juniper-e2e}/logs/*.log`; raise `JUNIPER_E2E_HEALTH_TIMEOUT` only after fixing the service, not as a silent hang workaround. With #963 the timeout should also trigger partial teardown. |
 | Cascor dies / wrong torch after `--up` | Confirm live launch emptied `LD_LIBRARY_PATH` (`--dry-run --up` shows `LD_LIBRARY_PATH=`); prefer default `JuniperCascor1`. |
 | Canopy looks "up" but training APIs are demo stubs | `JUNIPER_CANOPY_DEMO_MODE` must be `0` on the live launch line. |
 | Control-WS `403` / reconnect churn | Cascor allowlist + canopy Origin must both be canopy's origin (`http://127.0.0.1:<CANOPY_PORT>`). See checklist §4. |
@@ -783,6 +798,7 @@ Publish and CI constraints:
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.1   | 2026-08-05 | Isolated Stack: `do_up` partial-failure → `do_down` + OR-list `\|\| return 1` operator guidance (open juniper-ml#963)                                                     |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
 | 0.4.1   | 2026-04-28 | Added `juniper-observability` sibling package and dedicated CI/publish workflows                                                                                         |
@@ -863,5 +879,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Maintainer:** Paul Calnon
