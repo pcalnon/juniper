@@ -4,10 +4,10 @@
 # Application:   juniper-ml
 # File Name:     main-verify.yml
 # Author:        Paul Calnon
-# Version:       0.2.0
+# Version:       0.3.0
 #
 # Date Created:  2026-07-28
-# Last Modified: 2026-07-30
+# Last Modified: 2026-08-05
 #
 # License:       MIT License
 # Copyright:     Copyright (c) 2024-2026 Paul Calnon
@@ -341,10 +341,13 @@ jobs:
           bash scripts/test_resume_file_safety.bash
 
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
-  # notify (on failure only): a red main-verify must be LOUD. Upserts a dedup tracking issue (dedup
-  # by exact title, which carries the SHA -- a re-run of the same failed SHA comments instead of
-  # opening a second issue) and posts a non-blocking Slack summary (verbatim release-train.yml
-  # pattern: a missing SLACK_WEBHOOK_URL skips the step; a post failure never fails the run).
+  # notify (on failure only): a red main-verify must be LOUD. Upserts a STABLE-TITLE dedup tracking
+  # issue -- ONE open issue titled "main-verify: post-merge verification failing" per red streak;
+  # each subsequent failing SHA COMMENTS on it instead of opening a new issue (the old per-SHA title
+  # filed one issue per failing push -- six in the 2026-07-31..08-01 streak, ml#883/#884/#891/#892/
+  # #896/#897). NOT auto-closed on green (the owner closes it after adjudication). Also posts a
+  # non-blocking Slack summary (verbatim release-train.yml pattern: a missing SLACK_WEBHOOK_URL skips
+  # the step; a post failure never fails the run).
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
   notify:
     name: Notify on Failure
@@ -355,40 +358,65 @@ jobs:
       contents: read
       issues: write
     steps:
-      - name: Upsert tracking issue
+      - name: Upsert tracking issue (stable title, one per red streak)
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          TITLE: "main-verify: post-merge verification failing"
           SHA: ${{ github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SYMBOL_RESULT: ${{ needs.symbol-screen.result }}
           BATTERY_RESULT: ${{ needs.battery.result }}
         run: |
           set -uo pipefail
-          title="main-verify: post-merge verification failed at ${SHA}"
-          {
-            echo "Post-merge **main-verify** failed on \`main\` at \`${SHA}\`."
-            echo ""
-            echo "| job | result |"
-            echo "|---|---|"
-            echo "| symbol-screen (symbol + docs loss) | ${SYMBOL_RESULT} |"
-            echo "| battery (regression suite) | ${BATTERY_RESULT} |"
-            echo ""
-            echo "This is the bypass-proof post-merge net (P2 G3): a compositional loss or"
-            echo "regression landed on main. Inspect the **sequence-safety-report** artifact"
-            echo "(symbol-report.json / docs-report.json) and the battery job log:"
-            echo ""
-            echo "- Run: ${RUN_URL}"
-            echo ""
-            echo "_Auto-filed by .github/workflows/main-verify.yml; re-runs of this SHA update this issue._"
-          } > issue-body.md
-          existing="$(gh issue list --repo "$REPO" --search "${title} in:title" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)"
+          # STABLE-TITLE dedup (replaces the old per-SHA title): a single OPEN issue tracks a whole
+          # red streak. The first failure opens it; every subsequent failing SHA COMMENTS on it, so
+          # one streak == one issue (the old per-SHA title filed six issues in the 2026-07-31..08-01
+          # streak). Match an existing OPEN issue by EXACT title (search is a superset; jq narrows).
+          existing="$(gh issue list --repo "$REPO" --search "\"$TITLE\" in:title" --state open --json number,title --jq 'map(select(.title == env.TITLE)) | .[0].number // empty' 2>/dev/null || true)"
           if [ -n "$existing" ]; then
-            echo "Updating existing tracking issue #${existing}"
-            gh issue comment "$existing" --repo "$REPO" --body-file issue-body.md
+            # subsequent failure in the streak: comment the new failing SHA + run URL on the issue.
+            {
+              echo "Still failing at \`${SHA}\`."
+              echo ""
+              echo "| job | result |"
+              echo "|---|---|"
+              echo "| symbol-screen (symbol + docs loss) | ${SYMBOL_RESULT} |"
+              echo "| battery (regression suite) | ${BATTERY_RESULT} |"
+              echo ""
+              echo "- Run: ${RUN_URL}"
+            } > issue-comment.md
+            echo "Commenting new failing SHA on existing tracking issue #${existing}"
+            gh issue comment "$existing" --repo "$REPO" --body-file issue-comment.md
           else
-            echo "Opening a new tracking issue"
-            gh issue create --repo "$REPO" --title "$title" --body-file issue-body.md
+            # first failure of the streak: open the single stable-title tracking issue.
+            {
+              echo "Post-merge **main-verify** is failing on \`main\`."
+              echo ""
+              echo "First observed failing at \`${SHA}\`."
+              echo ""
+              echo "| job | result |"
+              echo "|---|---|"
+              echo "| symbol-screen (symbol + docs loss) | ${SYMBOL_RESULT} |"
+              echo "| battery (regression suite) | ${BATTERY_RESULT} |"
+              echo ""
+              echo "This is the bypass-proof post-merge net (P2 G3): a compositional loss or"
+              echo "regression landed on main. Inspect the **sequence-safety-report** artifact"
+              echo "(symbol-report.json / docs-report.json) and the battery job log. Subsequent"
+              echo "failures in this streak are appended here as comments:"
+              echo ""
+              echo "- First run: ${RUN_URL}"
+              echo ""
+              echo "**Remediation:** adjudicate each finding with the census technique; waive a"
+              echo "genuinely intentional symbol removal with an \`Allow-Symbol-Loss\` commit trailer"
+              echo "(an intentional docs rewrite with \`Allow-Docs-Rewrite\`), per"
+              echo "notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md."
+              echo ""
+              echo "_Auto-filed by .github/workflows/main-verify.yml. One issue per red streak; the"
+              echo "owner closes it after adjudication (NOT auto-closed on green)._"
+            } > issue-body.md
+            echo "Opening the stable-title tracking issue"
+            gh issue create --repo "$REPO" --title "$TITLE" --body-file issue-body.md
           fi
 
       - name: Slack notification (non-blocking)
