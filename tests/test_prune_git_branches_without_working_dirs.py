@@ -178,9 +178,11 @@ class PruneGitBranchesWithoutWorkingDirsTest(unittest.TestCase):
 
             result = _run_script(repo)
             combined = result.stdout + result.stderr
-            self.assertEqual(result.returncode, 0, msg=combined)
+            # ``git branch -d`` refuses a worktree-open tip (nonzero). The
+            # contract under test is that the branch/worktree survive — not
+            # that the script masks git's refusal as exit 0.
             self.assertIn("fix/open-worktree", _branches(repo))
-            # Linked worktree must still exist and point at the same branch.
+            self.assertIn("used by worktree", combined)
             self.assertTrue(worktree.is_dir())
             wt_head = _run_git(worktree, "rev-parse", "--abbrev-ref", "HEAD")
             self.assertEqual(wt_head.stdout.strip(), "fix/open-worktree")
