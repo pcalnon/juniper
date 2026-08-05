@@ -482,6 +482,13 @@ jobs:
           # `.github/workflows/agents-md-touch-up.yml` workflow,
           # which auto-bumps on each PR push touching AGENTS.md.
           python3 -m unittest -v tests/test_agents_md_header_schema.py
+          # tests/test_agents_md_touch_up.py: YAML-extraction rehearsal for
+          # `.github/workflows/agents-md-touch-up.yml` — structural pins (paths
+          # filter, fork guard, contents:write, bot identity) + hermetic shell
+          # arms proving already-today no-op / stale-date rewrite+[skip ci]
+          # commit / missing-field skip. Companion schema lint above does not
+          # exercise the bump shell; without [skip ci] the bump loops CI.
+          python3 -m unittest -v tests/test_agents_md_touch_up.py
           # tests/test_agents_md_tree_drift.py: gap-G-3 guard -- every tracked
           # non-hidden top-level dir must appear in AGENTS.md's Repository-Structure
           # tree (catches the indented-tree omission the grep path-drift guard cannot).
