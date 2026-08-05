@@ -147,8 +147,9 @@ ykman openpgp reset -f     # wipes OpenPGP applet; restores PIN 123456 / Admin P
 Use a dedicated GNUPGHOME so the ceremony is hermetic and portable to an air-gapped machine:
 
 ```bash
-export GNUPGHOME="$HOME/.gnupg/working/<CARD-NAME>"   # or a ramdisk for a live ceremony
-mkdir -m 700 -p "$GNUPGHOME"
+# export GNUPGHOME="$HOME/.gnupg/working/<CARD-NAME>"   # or a ramdisk for a live ceremony
+# mkdir -m 700 -p "$GNUPGHOME"
+export GNUPGHOME=$(mktemp -d); chmod 700 "$GNUPGHOME"
 printf 'keyid-format long\nwith-subkey-fingerprints\ncompliance gnupg\n' > "$GNUPGHOME/gpg.conf"
 ```
 
@@ -247,8 +248,9 @@ Because the local copies became stubs, restore from backup into a scratch home a
 
 ```bash
 export GNUPGHOME=$(mktemp -d); chmod 700 "$GNUPGHOME"
-printf 'compliance gnupg\n' > "$GNUPGHOME/gpg.conf"
-gpg --import <backup>/$KEYFP-Certify.key      # or -Subkeys.key for a subkeys-only load
+# printf 'compliance gnupg\n' > "$GNUPGHOME/gpg.conf"
+printf 'keyid-format long\nwith-subkey-fingerprints\ncompliance gnupg\n' > "$GNUPGHOME/gpg.conf"
+gpg --import <KEY_BACKUP_DIR>/$KEYFP-Certify.key      # or -Subkeys.key for a subkeys-only load
 gpg --edit-key $KEYFP    # → §4.4
 ```
 
