@@ -267,12 +267,15 @@ class VerdictTest(_RepoCase):
         v = pm.simulate_merge(self.repo, "rmpy", gate_runner=recording_runner)
         self.assertIn("util/doomed.py", v["true_delta"])
         # Gate battery must skip entirely (no remaining .py in changed_existing) —
-        # never invoke the runner with the deleted path.
+        # never invoke the runner with the deleted path. Symbol-loss DAMAGED from
+        # the deleted def is honest (#908 screen); the regression class is a false
+        # DAMAGED from pre-commit opening a path that no longer exists on HEAD.
         self.assertEqual(seen, [], f"gate_runner must not run when delta's only .py is deleted; got {seen}")
         for hook in pm.PRECOMMIT_HOOKS:
             self.assertEqual(v["gates"][hook]["status"], "skip")
             self.assertIn("no .py", v["gates"][hook]["detail"])
-        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+        self.assertEqual(v["gates"]["ast_symbol_screen"]["status"], "fail")
+        self.assertEqual(v["verdict"], "DAMAGED-FIX-FIRST")
 
     def test_env_skip_precommit_disables_default_gate_runner(self):
         # ``JUNIPER_FLEET_SKIP_PRECOMMIT`` is the hermetic escape when ``gate_runner``
