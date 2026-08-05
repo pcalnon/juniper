@@ -109,17 +109,23 @@ and the release notes are authored from
 [`notes/templates/TEMPLATE_RELEASE_NOTES.md`](notes/templates/TEMPLATE_RELEASE_NOTES.md) and
 **archived under `notes/releases/`** (`RELEASE_NOTES_v<version>.md` for the meta-package;
 `RELEASE_NOTES_<pkg>_v<version>.md` for a shared / sub-package). For the meta-package the Release
-event triggers `publish.yml`; for a tag-triggered shared / sub-package, cutting the Release
-**creates** the `juniper-<pkg>-v*` tag, which triggers its `publish-<pkg>.yml`. Full steps:
-[`notes/JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md` §11](notes/JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md). (This convention drifted
-during rapid concurrent refactoring — several sub-packages shipped tag-only — and is being restored.)
+event triggers `publish.yml`; for a shared / sub-package, cutting the Release creates the
+`juniper-<pkg>-v*` tag and fires its `publish-<pkg>.yml` via `release: published` (workflows
+deliberately do **not** also subscribe to `push: tags` — that double-fire raced TestPyPI in
+juniper-ml#555). Full steps:
+[`notes/JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md` §11](notes/JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md).
+Operator contracts for the six in-repo `publish-*.yml` files (tag-prefix guard, `--no-deps`
+TestPyPI-only verify, `skip-existing`):
+[`docs/REFERENCE.md` § Independent Sibling Package Publish Pipelines](docs/REFERENCE.md#independent-sibling-package-publish-pipelines).
+Gate: `tests/test_publish_subpackage_workflows.py` (open #945).
 
-The shared `juniper-observability` package is published separately from the same repo (subdirectory `juniper-observability/`) by `.github/workflows/publish-observability.yml`, triggered by tags matching `juniper-observability-v*`.
+The shared `juniper-observability` package is published from subdirectory `juniper-observability/`
+by `.github/workflows/publish-observability.yml` on Releases tagged `juniper-observability-v*`.
 
 The shared `juniper-doc-tools` package (Wave 0 scaffold, plan
 [`notes/JUNIPER_2026-05-18_JUNIPER-ML_DOC-TOOLS-PYPI-MIGRATION-PLAN.md`](notes/JUNIPER_2026-05-18_JUNIPER-ML_DOC-TOOLS-PYPI-MIGRATION-PLAN.md))
 is published from subdirectory `juniper-doc-tools/` by
-`.github/workflows/publish-doc-tools.yml`, triggered by tags matching
+`.github/workflows/publish-doc-tools.yml` on Releases tagged
 `juniper-doc-tools-v*`. It packages the markdown link validator
 (`juniper-check-doc-links` console script + `python -m juniper_doc_tools`
 module form) so that the 8 ecosystem repos can replace their inline
@@ -128,13 +134,17 @@ module form) so that the 8 ecosystem repos can replace their inline
 The shared `juniper-ci-tools` package (Wave 0 scaffold, plan
 [`notes/JUNIPER_2026-05-20_JUNIPER-ML_CI-TOOLS-PYPI-MIGRATION-PLAN.md`](notes/JUNIPER_2026-05-20_JUNIPER-ML_CI-TOOLS-PYPI-MIGRATION-PLAN.md))
 is published from subdirectory `juniper-ci-tools/` by
-`.github/workflows/publish-ci-tools.yml`, triggered by tags matching
+`.github/workflows/publish-ci-tools.yml` on Releases tagged
 `juniper-ci-tools-v*`. It packages the dependency-documentation generator
 (`juniper-generate-dep-docs` console script + `python -m juniper_ci_tools`
 module form), Python port of the legacy `scripts/generate_dep_docs.sh` that
 drifted across 8 Juniper repos. Replaces all consumer inline copies via a
 single PyPI dependency; carries the cascor 2026-05-20 awk-extraction fix as
 the canonical implementation.
+
+The remaining in-repo shared publishers follow the same Release-only pattern:
+`publish-config-tools.yml`, `publish-model-core.yml`, and `publish-service-core.yml`
+(tag prefixes `juniper-config-tools-v*` / `juniper-model-core-v*` / `juniper-service-core-v*`).
 
 ## Shared Observability Helpers
 

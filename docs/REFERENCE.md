@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -774,8 +774,8 @@ Available extras:
 Publish and CI constraints:
 
 1. `ci-observability.yml` runs package tests on Python 3.12 and 3.13, then builds and validates the distribution.
-2. `publish-observability.yml` runs only for `juniper-observability-v*` tags or manual dispatch, builds from the subdirectory, publishes to TestPyPI, verifies installation, then publishes the same artifact to PyPI.
-3. The publish workflow uses OIDC trusted publishing, GitHub-hosted `ubuntu-latest` runners, and SHA-pinned actions. If the runner type or pinned artifact actions change, verify compatibility before tagging a release.
+2. `publish-observability.yml` runs on `release: published` when the Release tag starts with `juniper-observability-v` (or on `workflow_dispatch`), builds from the subdirectory, publishes to TestPyPI, verifies installation, then publishes the same artifact to PyPI. It does **not** subscribe to `push: tags` (juniper-ml#555).
+3. The publish workflow uses OIDC trusted publishing, GitHub-hosted `ubuntu-latest` runners, and SHA-pinned actions. If the runner type or pinned artifact actions change, verify compatibility before cutting a Release.
 
 ---
 
@@ -817,19 +817,40 @@ Release flow:
 
 ### Independent Sibling Package Publish Pipelines
 
-The sibling package publish workflows are intentionally decoupled from the meta-package release tags:
+Six in-repo shared packages each ship via `.github/workflows/publish-<pkg>.yml`, intentionally decoupled from the meta-package `v*` Release. Cut a GitHub Release whose tag matches the package prefix (never a bare `git push <tag>`):
 
-| Package                 | Tag Pattern                           | Workflow                                      | Build Directory          |
-|-------------------------|---------------------------------------|-----------------------------------------------|--------------------------|
-| `juniper-ml`            | `v*` GitHub releases                  | `.github/workflows/publish.yml`               | repository root          |
-| `juniper-observability` | `juniper-observability-v*` tag pushes | `.github/workflows/publish-observability.yml` | `juniper-observability/` |
+| Package                   | Release tag prefix              | Workflow                                         | Build directory            |
+|---------------------------|---------------------------------|--------------------------------------------------|----------------------------|
+| `juniper-ml` (meta)       | `v*`                            | `.github/workflows/publish.yml`                  | repository root            |
+| `juniper-ci-tools`        | `juniper-ci-tools-v*`           | `.github/workflows/publish-ci-tools.yml`         | `juniper-ci-tools/`        |
+| `juniper-config-tools`    | `juniper-config-tools-v*`       | `.github/workflows/publish-config-tools.yml`     | `juniper-config-tools/`    |
+| `juniper-doc-tools`       | `juniper-doc-tools-v*`          | `.github/workflows/publish-doc-tools.yml`        | `juniper-doc-tools/`       |
+| `juniper-model-core`      | `juniper-model-core-v*`         | `.github/workflows/publish-model-core.yml`       | `juniper-model-core/`      |
+| `juniper-observability`   | `juniper-observability-v*`      | `.github/workflows/publish-observability.yml`    | `juniper-observability/`   |
+| `juniper-service-core`    | `juniper-service-core-v*`       | `.github/workflows/publish-service-core.yml`     | `juniper-service-core/`    |
 
-Sibling package release flow:
+Shared-package release flow (all six `publish-*.yml` files share this shape):
 
-1. **Build and Validate** -- runs `python -m build --sdist --wheel` in the package subdirectory, validates with `twine check dist/*`, and uploads that subdirectory's `dist/` artifact.
-2. **Publish to TestPyPI** -- downloads the artifact into `dist/`, publishes with `packages-dir: dist/`, `repository-url: https://test.pypi.org/legacy/`, and `verbose: true` so trusted-publisher or upload errors include the server response body.
-3. **Verify TestPyPI Install** -- sparse-checks out the package `pyproject.toml`, reads the package version, retries the TestPyPI install up to five times to tolerate index lag, then imports the package's version module.
-4. **Publish to PyPI** -- runs only after TestPyPI install verification and publishes the same artifact with `packages-dir: dist/` and `verbose: true`.
+1. **Build and Validate** -- `defaults.run.working-directory` is the package subdirectory; runs `python -m build --sdist --wheel`, `twine check dist/*`, and uploads `<pkg>-dist` from `<subdir>/dist/` (`if-no-files-found: error`).
+2. **Publish to TestPyPI** -- downloads the artifact into `dist/`, publishes with `packages-dir: dist/`, `repository-url: https://test.pypi.org/legacy/`, `verbose: true`, and `skip-existing: true`.
+3. **Verify TestPyPI Install** -- sparse-checks out the version source, installs `package==version` from TestPyPI only with `--no-deps` (five retries for index lag), then proves the install via `importlib.metadata` or a package import.
+4. **Publish to PyPI** -- runs only after TestPyPI verification; same artifact path + `skip-existing: true`.
+
+Operator contracts pinned by `tests/test_publish_subpackage_workflows.py` (open juniper-ml#945; the YAML is not pre-commit-lint-gated for these properties):
+
+| Contract | Why it matters |
+|----------|----------------|
+| **Release-only trigger** (`release: published` + `workflow_dispatch`; **no** `push: tags`) | Cutting a Release also creates the tag. Subscribing to both fired two concurrent publishes that raced the immutable TestPyPI upload (juniper-ml#555). |
+| **Build-job tag-prefix `if`** | `release: published` fires every `publish-*.yml`; `startsWith(github.event.release.tag_name, '<pkg>-v')` keeps package A's Release from publishing package B. |
+| **`--no-deps` + TestPyPI-only verify** | With `--no-deps`, an `--extra-index-url https://pypi.org/simple/` only risks resolving a squatted *target* package on production PyPI during TestPyPI index lag. Sibling verify must not add a PyPI fallback. |
+| **`skip-existing: true`** on both publish steps | Residual overlap (manual `workflow_dispatch` during a Release) is a no-op, not an immutable-upload 400. |
+| **OIDC + concurrency** | Workflow `permissions: {id-token: write, contents: read}`; `concurrency.group: publish-<suffix>-${{ github.ref_name }}` with `cancel-in-progress: false`. Environments: `testpypi` then `pypi`. |
+
+Retry a stuck publish without re-cutting a Release:
+
+```bash
+gh workflow run publish-ci-tools.yml --repo pcalnon/juniper-ml --ref juniper-ci-tools-vX.Y.Z
+```
 
 These publish workflows require GitHub Actions environments named `testpypi` and `pypi`, plus matching trusted-publisher entries on TestPyPI and PyPI for the workflow file, environment, owner, repository, and project name.
 
@@ -863,5 +884,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Maintainer:** Paul Calnon

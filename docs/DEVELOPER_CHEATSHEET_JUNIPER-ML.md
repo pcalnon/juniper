@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
+**Version**: 1.0.9
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -140,20 +140,21 @@ This behavior is regression-tested in `tests/test_wake_the_claude.py`:
 3. For juniper-ml: update extra version pins, release new meta-package version
 4. Merge order: data-client, cascor-client, cascor-worker, then juniper-ml
 
-### juniper-observability Release
+### Shared-package Release (in-repo `publish-*.yml`)
 
-`juniper-observability` is a subpackage in this repository with its own CI and publish lifecycle.
+Six subdirectory packages ship via dedicated workflows (ci-tools / config-tools / doc-tools / model-core / observability / service-core). Same shape for each:
 
 | Task | Command / Procedure |
 |------|---------------------|
-| Local package tests | `cd juniper-observability && python -m pytest --cov=juniper_observability --cov-report=term-missing --cov-fail-under=90` |
-| Local build check | `cd juniper-observability && python -m build --sdist --wheel && twine check dist/*` |
-| Publish | Push tag `juniper-observability-vX.Y.Z` to trigger `.github/workflows/publish-observability.yml` |
-| Retry publish | Use `workflow_dispatch` on `.github/workflows/publish-observability.yml` against the existing tag |
+| Local build check | `cd juniper-<pkg> && python -m build --sdist --wheel && twine check dist/*` |
+| Publish | Cut a GitHub Release whose tag is `juniper-<pkg>-vX.Y.Z` (never bare `git push <tag>`) |
+| Retry publish | `gh workflow run publish-<pkg>.yml --repo pcalnon/juniper-ml --ref juniper-<pkg>-vX.Y.Z` |
 
-Publish flow: build uploads `juniper-observability-dist` for seven days, TestPyPI downloads and publishes it with OIDC, TestPyPI install is retried for index lag, then PyPI downloads the same artifact after TestPyPI verification succeeds.
+Publish flow: subdirectory build → TestPyPI (`skip-existing`) → `--no-deps` TestPyPI-only verify (5× index-lag retry) → PyPI. Workflows subscribe to `release: published` + `workflow_dispatch` only — **not** `push: tags` (juniper-ml#555 double-publish race). Build job `if` requires `startsWith(github.event.release.tag_name, 'juniper-<pkg>-v')` so another package's Release cannot publish this one.
 
-Constraint: publish jobs currently run on GitHub-hosted `ubuntu-latest` runners with SHA-pinned artifact actions. If switching to self-hosted runners, verify compatibility with the pinned `actions/upload-artifact` and `actions/download-artifact` versions before tagging a release.
+Gate: `tests/test_publish_subpackage_workflows.py` (open #945). Operator table: [REFERENCE — Sibling publish](REFERENCE.md#independent-sibling-package-publish-pipelines).
+
+`juniper-observability` local tests: `cd juniper-observability && python -m pytest --cov=juniper_observability --cov-report=term-missing --cov-fail-under=90`. Keep `pyproject.toml` version aligned with `juniper_observability/_version.py`.
 
 ---
 
@@ -221,8 +222,8 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 |------------------------|---------------------------------------------------------------------------------------------|
 | Pre-commit             | `pre-commit run --all-files`                                                                |
 | Publish `juniper-ml`   | Create GitHub Release with `vX.Y.Z` tag (OIDC trusted publishing)                           |
-| Publish observability  | Push `juniper-observability-vX.Y.Z` tag (OIDC trusted publishing)                           |
-| Publish doc-tools      | Push `juniper-doc-tools-vX.Y.Z` tag (OIDC trusted publishing)                               |
+| Publish shared package | Create GitHub Release with `juniper-<pkg>-vX.Y.Z` tag → `publish-<pkg>.yml` (OIDC; six pkgs) |
+| Retry shared publish   | `gh workflow run publish-<pkg>.yml --ref juniper-<pkg>-vX.Y.Z`                              |
 | Doc links (CI parity)  | `juniper-check-doc-links --exclude templates --exclude history --exclude legacy --cross-repo skip` |
 | Doc links (full local) | `juniper-check-doc-links --cross-repo check`                                                |
 
@@ -230,7 +231,7 @@ Key hooks: `ruff` (juniper-data) or `black`+`isort`+`flake8` (others), `mypy`, `
 
 Meta-package publish flow: build + `twine check`, TestPyPI upload with attestations, TestPyPI install verification, then PyPI upload.
 
-`juniper-observability` publish flow: build from `juniper-observability/`, TestPyPI upload with `verbose: true`, retry install verification to tolerate index lag, then PyPI upload. The workflow reads the version from `juniper-observability/pyproject.toml`; keep it aligned with `juniper-observability/juniper_observability/_version.py`.
+Shared-package publish flow (`publish-*.yml`): subdirectory build, TestPyPI with `skip-existing`, `--no-deps` TestPyPI-only verify (no production-PyPI fallback), then PyPI. Release-only trigger (no `push: tags` — #555). Full table: [REFERENCE](REFERENCE.md#independent-sibling-package-publish-pipelines).
 
 **Static-package version lockstep (ml#701):** all five in-repo static packages (ci-tools, config-tools, doc-tools, observability, service-core) also ship `<import>/_version.py`.
 Hand-bumps and release-train proposals must move `[project].version` and `__version__` together — a pyproject-only bump ships a wheel whose `__version__` lies.
@@ -501,5 +502,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 1.0.8
+**Version:** 1.0.9
 **Maintainer:** Paul Calnon
