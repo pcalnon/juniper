@@ -79,7 +79,14 @@ pip install juniper-ml[recurrence]# Δt-native LMU model + FastAPI app + HTTP cl
 pip install juniper-ml[all]       # Everything
 ```
 
-> **Extras lint contract.** Any edit to `[project.optional-dependencies]` in `pyproject.toml` must co-update `tests/test_pyproject_extras.py` (`EXPECTED_EXTRAS`) in the same PR — CI fails when the pin strings drift. Keep the extras tables in `AGENTS.md`, `README.md`, `docs/QUICK_START.md`, and this section in lockstep with `pyproject.toml` (Dependabot-only pin bumps cannot update the contract; see juniper-ml#905).
+> **Extras lint contract (two gates).** Any edit to `[project.optional-dependencies]` in `pyproject.toml` must co-update, in the **same PR**:
+>
+> 1. `tests/test_pyproject_extras.py` `EXPECTED_EXTRAS` — schema + pin-string contract (`PyprojectExtrasTest`).
+> 2. Documented extras tables in `AGENTS.md`, `README.md`, `docs/QUICK_START.md`, and this section — pin strings must match `pyproject.toml` **exactly** (`ExtrasDocsLockstepTest`, juniper-ml#907).
+>
+> `PyprojectExtrasTest` already fails Regression Tests on `EXPECTED_EXTRAS` drift. After juniper-ml#907 merges, `ExtrasDocsLockstepTest` also fails when a docs table drifts. Dependabot-only pin bumps update neither surface; a human must co-update both (juniper-ml#905 / #907).
+>
+> **Parser constraints (lockstep gate):** inline tables (AGENTS / README / QUICK_START) must put the full pin in backticks (`juniper-foo>=X,<Y`); this REFERENCE table uses a separate pin-spec column (`` `>=X,<Y` ``). Omitting a package row or leaving a stale ceiling (the historical `service-core<0.3.0` class) is what the gate catches.
 
 ### Package Descriptions
 
