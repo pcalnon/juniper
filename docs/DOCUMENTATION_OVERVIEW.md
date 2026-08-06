@@ -2,7 +2,7 @@
 
 ## Navigation Guide to juniper-ml Documentation
 
-**Version:** 0.2.6
+**Version:** 0.2.9
 **Status:** Active
 **Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
