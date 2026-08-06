@@ -21,6 +21,7 @@
 - [Agent Suite Doctor](#agent-suite-doctor)
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
+- [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
@@ -695,6 +696,72 @@ Troubleshooting:
 Do **not** point isolated ports at the host stack or run `--up` on ports `plant_all` already owns.
 
 ---
+
+## Post-Merge Main Verification
+
+`.github/workflows/main-verify.yml` is the bypass-proof compositional-loss net (flood-remediation P2 gate G3). It runs on every `push` to `main` (plus `workflow_dispatch`) so a merge that skipped or greenwashed per-PR checks still gets screened after it lands. Design notes: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 item 8.
+
+| Job | When it runs | What it does |
+|-----|--------------|--------------|
+| `symbol-screen` | **Always** | `util/sequence_safety/symbol_loss_check.py` + `docs_additions_check.py` over `BASE..HEAD`; uploads `sequence-safety-report` (`symbol-report.json` / `docs-report.json`, 30-day retention) |
+| `battery` | Path-gated | Re-runs the enumerated unittest + bash battery from `ci.yml`'s `tests` job when the push touched `tests/` \| `util/` \| `scripts/` \| `.github/` \| `pyproject.toml`; docs-only merges skip it |
+| `notify` | On `failure()` only | Upserts a dedup GitHub issue titled `main-verify: post-merge verification failed at <SHA>` and posts a non-blocking Slack summary (`SLACK_WEBHOOK_URL`; missing secret skips) |
+
+#### Concurrency (per-SHA, no cancel)
+
+```yaml
+concurrency:
+  group: main-verify-${{ github.sha }}
+  cancel-in-progress: false
+```
+
+Contrast `ci.yml` (`group: ci-${{ github.ref }}` + `cancel-in-progress: true`): rapid serial merges to `main` cancel each other's CI runs, so only the last tip survives. Main-verify **must not** drop intermediate merges during a storm — each SHA gets its own group and is never cancelled (may queue behind the runner cap).
+
+#### G3.1 catch-up BASE
+
+A quoted `[skip ci]` in a merge-commit body can skip this workflow entirely (2026-07-30 incident on ml#870/#872/#873). The next successful run must therefore screen the skipped window, not only `HEAD^1`.
+
+BASE resolution order (written to the job step summary as “Post-merge sequence-safety base”):
+
+1. **Catch-up** — `head_sha` of the most recent **successful** `main-verify` run on `main`, when that commit is an ancestor of `HEAD` and ≠ `HEAD` → reason `catch-up from <sha> (N commits)`.
+2. Else **`github.event.before`** (the push's first parent), when resolvable and not the all-zero SHA.
+3. Else **`HEAD^1`** (force-push / initial commit / dispatch fallback).
+
+Screens then run as `python3 util/sequence_safety/{symbol_loss,docs_additions}_check.py --base <BASE> --head <HEAD>` (human log + guarded `--json` artifact). Exit `≥2` is invocation error; exit `≥1` is a compositional-loss finding.
+
+#### Waivers: trailers vs PR labels
+
+| Mechanism | Per-PR `sequence-safety` job (`ci.yml`) | Post-merge `main-verify` |
+|-----------|-----------------------------------------|--------------------------|
+| Commit trailer `Allow-Symbol-Loss: <qualified.symbol>` / `Allow-Docs-Rewrite: …` in `BASE..HEAD` | Honored by the screen CLIs | **Honored** — required for post-merge green on intentional removals |
+| PR label `allow-symbol-loss` / `docs-rewrite` | Demotes that screen to `--advisory` (WARN-only exit 0) | **Invisible** — labels never reach `push:main` |
+
+Do not expect a label hatch to green main after merge. Blanket `Allow-Symbol-Loss: *` is rejected.
+
+#### Battery sync constraint
+
+The battery job's unittest list is a **manual mirror** of `ci.yml`'s `tests` job (no pytest auto-discovery). Adding or removing a test module in `ci.yml` must update `main-verify.yml` in the same PR.
+
+#### Operator triage
+
+```bash
+# Reproduce the screens locally against the same window main-verify would use:
+python3 util/sequence_safety/symbol_loss_check.py --base <BASE> --head <HEAD>
+python3 util/sequence_safety/docs_additions_check.py --base <BASE> --head <HEAD>
+
+# Inspect the artifact from a failed run:
+gh run download <run-id> -n sequence-safety-report
+```
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Red `symbol-screen` after a “green” PR | Per-PR job may have been `--advisory` via labels, or BASE was narrower than G3.1 catch-up. Download `sequence-safety-report`; waive with a **commit trailer** on a follow-up commit, or restore the deleted symbol/docs. |
+| Suspected `[skip ci]` gap | Open the next main-verify run's step summary — look for `catch-up from <sha> (N commits)`. That run screens every merge since the last successful tip. |
+| Docs-only merge, no battery | Expected — `battery` path-gate skips; `symbol-screen` still always runs. |
+| Silent main red (no Slack) | Confirm `SLACK_WEBHOOK_URL` is set; notify is non-blocking and never fails the workflow. Tracking issue title is SHA-keyed (re-runs comment, not reopen). |
+| Battery list drift vs `ci.yml` | Keep both enumerations in lockstep in the same PR (see SYNC NOTE in `main-verify.yml`). |
+
+Related: per-PR advisory screens live in `ci.yml`'s standalone `sequence-safety` job (absent from the Quality Gate `needs:`). Fleet predicted-merge uses the same symbol CLI on a throwaway merge result (`util/fleet_triage/predict_merge.py`).
 
 ## Experiment Stack Utilities
 
