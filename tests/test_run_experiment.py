@@ -253,7 +253,8 @@ class _StubHandler(BaseHTTPRequestHandler):
                 try:
                     self.connection.shutdown(socket.SHUT_RDWR)
                 except OSError:
-                    pass
+                    # Connection may already be closed/reset during forced teardown.
+                    return
                 return
             self._send(
                 200,
