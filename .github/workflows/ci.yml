@@ -351,6 +351,12 @@ jobs:
           python3 -m unittest -v tests/test_requirements_drift_check.py
           python3 -m unittest -v tests/test_validate_claude_yaml_access.py
           python3 -m unittest -v tests/test_workflow_script_paths.py
+          # tests/test_main_verify_workflow_guard.py: structural trust-binding guard for
+          # main-verify.yml's notify job (#928 review) -- the stable-title tracking-issue
+          # dedup must bind to creator=github-actions[bot] authorship (+ exact title +
+          # .pull_request filter; label-free match, bot-applied label on create). A title
+          # alone is never a trust boundary on a public repo.
+          python3 -m unittest -v tests/test_main_verify_workflow_guard.py
           # tests/test_symbol_loss_check.py + tests/test_docs_additions_check.py:
           # the flood-remediation sequence-safety screens (Proposal P2 gates G1/G2,
           # productionized from the 2026-07-28 Cursor-flood census). Hermetic git
