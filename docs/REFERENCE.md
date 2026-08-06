@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-07-26
+**Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -19,10 +19,15 @@
 - [Pytest Orphan Reaper](#pytest-orphan-reaper)
 - [Environment Floor Drift Check](#environment-floor-drift-check)
 - [Agent Suite Doctor](#agent-suite-doctor)
+- [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
+- [Post-Merge Main Verification](#post-merge-main-verification)
+- [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
+- [YubiKey GPG Provisioning](#yubikey-gpg-provisioning)
+- [Open-PR Budget Alarm](#open-pr-budget-alarm)
 
 ---
 
@@ -59,8 +64,8 @@
 |             | `juniper-observability`                                                                  | `>=0.2.0`         |
 |             | `juniper-service-core`                                                                   | `>=0.2.0,<0.6.0`  |
 | `doc-tools` | `juniper-doc-tools` (back-compat alias for the doc-tools entry in `tools`)               | `>=0.1.0,<0.2.0`  |
-| `recurrence`| `juniper-recurrence-model`                                                               | `>=0.1.5,<0.2.0`  |
-|             | `juniper-recurrence`                                                                     | `>=0.2.0,<0.3.0`  |
+| `recurrence`| `juniper-recurrence-model`                                                               | `>=0.1.5,<0.3.0`  |
+|             | `juniper-recurrence`                                                                     | `>=0.2.0,<0.4.0`  |
 |             | `juniper-recurrence-client`                                                              | `>=0.2.0,<0.3.0`  |
 | `all`       | All packages from `clients` + `worker` + `servers` + `tools` + `recurrence`              | --                |
 
@@ -76,7 +81,14 @@ pip install juniper-ml[recurrence]# Δt-native LMU model + FastAPI app + HTTP cl
 pip install juniper-ml[all]       # Everything
 ```
 
-> **Extras lint contract.** Any edit to `[project.optional-dependencies]` in `pyproject.toml` must co-update `tests/test_pyproject_extras.py` (`EXPECTED_EXTRAS`) in the same PR — CI fails when the pin strings drift. Keep the extras tables in `AGENTS.md`, `README.md`, `docs/QUICK_START.md`, and this section in lockstep with `pyproject.toml` (Dependabot-only pin bumps cannot update the contract; see juniper-ml#905).
+> **Extras lint contract (two gates).** Any edit to `[project.optional-dependencies]` in `pyproject.toml` must co-update, in the **same PR**:
+>
+> 1. `tests/test_pyproject_extras.py` `EXPECTED_EXTRAS` — schema + pin-string contract (`PyprojectExtrasTest`).
+> 2. Documented extras tables in `AGENTS.md`, `README.md`, `docs/QUICK_START.md`, and this section — pin strings must match `pyproject.toml` **exactly** (`ExtrasDocsLockstepTest`, juniper-ml#907).
+>
+> `PyprojectExtrasTest` already fails Regression Tests on `EXPECTED_EXTRAS` drift. After juniper-ml#907 merges, `ExtrasDocsLockstepTest` also fails when a docs table drifts. Dependabot-only pin bumps update neither surface; a human must co-update both (juniper-ml#905 / #907).
+>
+> **Parser constraints (lockstep gate):** inline tables (AGENTS / README / QUICK_START) must put the full pin in backticks (`juniper-foo>=X,<Y`); this REFERENCE table uses a separate pin-spec column (`` `>=X,<Y` ``). Omitting a package row or leaving a stale ceiling (the historical `service-core<0.3.0` class) is what the gate catches.
 
 ### Package Descriptions
 
@@ -497,6 +509,79 @@ Troubleshooting:
 
 ---
 
+## Fleet Triage and Sequence Safety
+
+Flood-remediation tooling for Cursor-fleet / third-party open PRs and for silent symbol / docs damage that ordinary lint cannot see. Two layers:
+
+| Layer | Path | Role |
+|-------|------|------|
+| Sequence-safety screens | `util/sequence_safety/symbol_loss_check.py`, `docs_additions_check.py` | Path-invoked BASE..HEAD screens used by CI (`sequence-safety` job, `main-verify.yml`) |
+| Predicted-merge triage | `util/fleet_triage/predict_merge.py` | Detached-clone merge of `origin/main` into a PR tip; runs fast gates + screens on the **merge RESULT** |
+| Fleet supervisor agent | `.claude/agents/fleet-supervisor.md` | Read-only adjudication over a `--batch` report (never pushes / merges / closes) |
+
+Design context: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 items 7–8.
+
+### Sequence-safety CLIs
+
+```bash
+python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --json
+python util/sequence_safety/docs_additions_check.py --base origin/main --head HEAD --json
+# WARN-only exit 0 (label hatch); exit 2 is never masked:
+python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --advisory
+```
+
+| Concern | Default scope | FAIL classes | Primary waiver |
+|---------|---------------|--------------|----------------|
+| Symbol loss | `tests/*.py` + `util/**/*.{py,bash}` | `LOST` / `WEAKENED` / `DUPLICATED` (py FAIL; bash LOST FAIL, WEAKENED/DUPLICATED WARN) | Commit trailer `Allow-Symbol-Loss: <qualified.symbol>[, …]` in BASE..HEAD |
+| Docs deletions | `AGENTS.md` + `docs/**` + `notes/**` | Deleted heading, or ≥`--min-run` (default 5) consecutive deleted lines | Commit trailer `Allow-Docs-Rewrite: <path>` (or enumerated paths) |
+
+Constraints (verified in the checkers):
+
+- Qualified symbols only (`func:name`, `method:Class.name`, …). Bare-name relocation is **not** a downgrade (SF3).
+- `Allow-Symbol-Loss: *` / blanket wildcards are **rejected** (waive nothing).
+- Per-PR labels `allow-symbol-loss` / `docs-rewrite` only demote the advisory CI job via `--advisory` (WARN-only exit 0). They are invisible to `push:main` `main-verify` — use the commit trailer for post-merge green.
+- Exit codes: `0` clean, `1` ≥1 unwaived FAIL, `2` usage / bad ref. Gates: `tests/test_symbol_loss_check.py`, `tests/test_docs_additions_check.py`.
+
+### `predict_merge.py` operator contract
+
+```bash
+python util/fleet_triage/predict_merge.py --pr 895 --json
+python util/fleet_triage/predict_merge.py --batch --json
+python util/fleet_triage/predict_merge.py --pr 895 --repo-root .
+# Skip the pre-commit battery when hooks are unavailable locally:
+JUNIPER_FLEET_SKIP_PRECOMMIT=1 python util/fleet_triage/predict_merge.py --pr 895
+```
+
+Per PR the script:
+
+1. Creates a throwaway **detached** `git clone --shared` under the system tempdir (never a worktree, never writes the source checkout, never pushes).
+2. Merges `origin/main` into the branch tip (`git merge --no-ff`, `commit.gpgsign=false`).
+3. On the RESULT: runs `pre-commit` hooks `black` / `isort` / `flake8` / `mypy` / `check-ast` on touched `.py` files; shells out to `util/sequence_safety/symbol_loss_check.py --repo-root <clone> --base <base> --head <result> --json` (same CLI as `main-verify` — juniper-ml#895 / ml#872); runs an inline docs additions-only screen (any removed content line on a changed `.md`).
+4. Emits the **TRUE** changed-file delta from `git diff --name-only origin/main <result>` (not the stale `gh pr … --json files` list).
+
+| Verdict | Meaning |
+|---------|---------|
+| `MERGE-CLEAN` | Merge succeeds; fast gates + screens pass |
+| `NEEDS-UPDATE-BRANCH` | Merge succeeds; a fast gate fails (format / type / AST) |
+| `DAMAGED-FIX-FIRST` | Merge succeeds; symbol-loss or docs-deletion screen fails |
+| `CONFLICT` | Merge conflict against `origin/main` |
+
+`--batch` also builds a same-file cluster map and a restore/heal-first, least-colliding merge order. Exit `0` always reports (even when every verdict is `DAMAGED` / `CONFLICT`); exit `2` is usage / precondition only (`gh` missing, bad `--repo-root`, unresolved ref).
+
+Degrade paths (never crash the report): missing / broken `symbol_loss_check.py`, checker exit `2`, or non-JSON stdout → symbol screen `status=skip`. A delta with no `.py`/`.bash` short-circuits the symbol subprocess. Gate: `tests/test_predict_merge.py` (incl. `Allow-Symbol-Loss` trailer → `MERGE-CLEAN`).
+
+Pitfalls:
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Local run hangs on pre-commit | Set `JUNIPER_FLEET_SKIP_PRECOMMIT=1`, or ensure `pre-commit` is installed and hooks cached |
+| `DAMAGED-FIX-FIRST` after intentional deletion | Add `Allow-Symbol-Loss: func:…` (qualified) on a commit in the PR range; re-run `--pr` |
+| Trailer present but still DAMAGED | Wildcard `*` is rejected; bare names do not match; trailer must be in BASE..HEAD of the **merged** result |
+| Expecting docs screen == `docs_additions_check.py` | predict_merge’s docs screen is a simpler inline removed-line counter; CI / `main-verify` use the permanent `docs_additions_check.py` |
+| Agent closes / merges PRs | Forbidden — `fleet-supervisor` is read-only; DUP-CLOSE needs overlap **and** owner confirmation |
+
+---
+
 ## Isolated Stack E2E Utilities
 
 `util/isolated_stack.bash` brings up a **throwaway** data / cascor / canopy trio on non-default ports so the training-runtime E2E checklist can run without touching the operator host stack (`8100` / `8201` / `8050`) or the deploy Docker stack. The primary recipe is [`notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md`](../notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md); this section is the operator contract for the helper.
@@ -612,6 +697,206 @@ Do **not** point isolated ports at the host stack or run `--up` on ports `plant_
 
 ---
 
+## Post-Merge Main Verification
+
+`.github/workflows/main-verify.yml` is the bypass-proof compositional-loss net (flood-remediation P2 gate G3). It runs on every `push` to `main` (plus `workflow_dispatch`) so a merge that skipped or greenwashed per-PR checks still gets screened after it lands. Design notes: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 item 8.
+
+| Job | When it runs | What it does |
+|-----|--------------|--------------|
+| `symbol-screen` | **Always** | `util/sequence_safety/symbol_loss_check.py` + `docs_additions_check.py` over `BASE..HEAD`; uploads `sequence-safety-report` (`symbol-report.json` / `docs-report.json`, 30-day retention) |
+| `battery` | Path-gated | Re-runs the enumerated unittest + bash battery from `ci.yml`'s `tests` job when the push touched `tests/` \| `util/` \| `scripts/` \| `.github/` \| `pyproject.toml`; docs-only merges skip it |
+| `notify` | On `failure()` only | Upserts a dedup GitHub issue titled `main-verify: post-merge verification failed at <SHA>` and posts a non-blocking Slack summary (`SLACK_WEBHOOK_URL`; missing secret skips) |
+
+#### Concurrency (per-SHA, no cancel)
+
+```yaml
+concurrency:
+  group: main-verify-${{ github.sha }}
+  cancel-in-progress: false
+```
+
+Contrast `ci.yml` (`group: ci-${{ github.ref }}` + `cancel-in-progress: true`): rapid serial merges to `main` cancel each other's CI runs, so only the last tip survives. Main-verify **must not** drop intermediate merges during a storm — each SHA gets its own group and is never cancelled (may queue behind the runner cap).
+
+#### G3.1 catch-up BASE
+
+A quoted `[skip ci]` in a merge-commit body can skip this workflow entirely (2026-07-30 incident on ml#870/#872/#873). The next successful run must therefore screen the skipped window, not only `HEAD^1`.
+
+BASE resolution order (written to the job step summary as “Post-merge sequence-safety base”):
+
+1. **Catch-up** — `head_sha` of the most recent **successful** `main-verify` run on `main`, when that commit is an ancestor of `HEAD` and ≠ `HEAD` → reason `catch-up from <sha> (N commits)`.
+2. Else **`github.event.before`** (the push's first parent), when resolvable and not the all-zero SHA.
+3. Else **`HEAD^1`** (force-push / initial commit / dispatch fallback).
+
+Screens then run as `python3 util/sequence_safety/{symbol_loss,docs_additions}_check.py --base <BASE> --head <HEAD>` (human log + guarded `--json` artifact). Exit `≥2` is invocation error; exit `≥1` is a compositional-loss finding.
+
+#### Waivers: trailers vs PR labels
+
+| Mechanism | Per-PR `sequence-safety` job (`ci.yml`) | Post-merge `main-verify` |
+|-----------|-----------------------------------------|--------------------------|
+| Commit trailer `Allow-Symbol-Loss: <qualified.symbol>` / `Allow-Docs-Rewrite: …` in `BASE..HEAD` | Honored by the screen CLIs | **Honored** — required for post-merge green on intentional removals |
+| PR label `allow-symbol-loss` / `docs-rewrite` | Demotes that screen to `--advisory` (WARN-only exit 0) | **Invisible** — labels never reach `push:main` |
+
+Do not expect a label hatch to green main after merge. Blanket `Allow-Symbol-Loss: *` is rejected.
+
+#### Battery sync constraint
+
+The battery job's unittest list is a **manual mirror** of `ci.yml`'s `tests` job (no pytest auto-discovery). Adding or removing a test module in `ci.yml` must update `main-verify.yml` in the same PR.
+
+#### Operator triage
+
+```bash
+# Reproduce the screens locally against the same window main-verify would use:
+python3 util/sequence_safety/symbol_loss_check.py --base <BASE> --head <HEAD>
+python3 util/sequence_safety/docs_additions_check.py --base <BASE> --head <HEAD>
+
+# Inspect the artifact from a failed run:
+gh run download <run-id> -n sequence-safety-report
+```
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Red `symbol-screen` after a “green” PR | Per-PR job may have been `--advisory` via labels, or BASE was narrower than G3.1 catch-up. Download `sequence-safety-report`; waive with a **commit trailer** on a follow-up commit, or restore the deleted symbol/docs. |
+| Suspected `[skip ci]` gap | Open the next main-verify run's step summary — look for `catch-up from <sha> (N commits)`. That run screens every merge since the last successful tip. |
+| Docs-only merge, no battery | Expected — `battery` path-gate skips; `symbol-screen` still always runs. |
+| Silent main red (no Slack) | Confirm `SLACK_WEBHOOK_URL` is set; notify is non-blocking and never fails the workflow. Tracking issue title is SHA-keyed (re-runs comment, not reopen). |
+| Battery list drift vs `ci.yml` | Keep both enumerations in lockstep in the same PR (see SYNC NOTE in `main-verify.yml`). |
+
+Related: per-PR advisory screens live in `ci.yml`'s standalone `sequence-safety` job (absent from the Quality Gate `needs:`). Fleet predicted-merge uses the same symbol CLI on a throwaway merge result (`util/fleet_triage/predict_merge.py`).
+
+## Experiment Stack Utilities
+
+`util/experiment_stack.bash` + `util/experiments/run_experiment.py` are the **per-run** CLI experimentation tooling (plan Wave 2.1–2.6; this section is Wave 2.7). They bring up a throwaway juniper-data instance plus **cascor and/or recurrence** (never canopy), drive a single experiment YAML against that stack, and write plots/stats/manifest under a durable `RUN_DIR`.
+
+Primary design: [`notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md`](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md). Preflight evidence: [`notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md`](../notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md).
+
+This is **not** the isolated E2E trio (`util/isolated_stack.bash` on `8101`/`8202`/`8051`) and **not** the host stack (`plant_all` / `8100`/`8201`/`8050`).
+
+### Launcher (`util/experiment_stack.bash`)
+
+| Utility | Purpose | Key overrides |
+|---------|---------|---------------|
+| `--up (--cascor \| --recurrence)` | Allocate ports, launch data → selected app(s), health-gate, write `ports.json` | `JUNIPER_EXP_*` (below) |
+| `--down RUN_ID` / `--down --all-mine` | Pidfile-first teardown; release locks; keep `artifacts/` | same |
+| `--status [RUN_ID]` | Probe health / pids / scrape state (or list runs) | same |
+| `--dry-run …` | Print expanded commands; create/start/kill nothing | same |
+
+Port ranges (plan §9.3; disjoint from operator ports):
+
+| Service | Range | Health URL |
+|---------|-------|------------|
+| juniper-data | `8110`–`8139` | `/v1/health` |
+| juniper-cascor | `8230`–`8259` | `/v1/health` |
+| juniper-recurrence | `8260`–`8289` | `/v1/health/ready` |
+
+Never touches `8100` / `8200` / `8201` / `8210` / `8050` / `8051`. Never reads or writes `JuniperProject.pid`. Never starts canopy. Never writes a repo `.env`.
+
+```bash
+# Preview a cascor arm (no side effects)
+util/experiment_stack.bash --dry-run --up --cascor --config conf/experiments/example.yaml
+
+# Live bring-up (writes RUN_DIR under ~/.local/state/juniper-experiments/)
+util/experiment_stack.bash --up --cascor --config path/to/experiment.yaml
+util/experiment_stack.bash --up --recurrence --config path/to/experiment.yaml
+util/experiment_stack.bash --up --cascor --recurrence   # both apps + one data
+
+# Status / teardown (RUN_ID from the --up banner / RUN_DIR basename)
+util/experiment_stack.bash --status
+util/experiment_stack.bash --down <RUN_ID>
+```
+
+Optional flags on `--up`:
+
+- `--shared-data URL` — reuse an existing juniper-data instead of launching one.
+- `--config PATH` — copy YAML to `$RUN_DIR/config/experiment.yaml` and export `JUNIPER_CASCOR_CONFIG_FILE` (app-side YAML settings are Wave 3; until then the env var is staged but inert for recurrence, which has no `--config`).
+- `--experiment NAME` — Prometheus `experiment` label (default: config basename).
+- `--grafana-bridge` — **opt-in** socat relays + Prometheus target file under `JUNIPER_EXP_DEPLOY_DIR/prometheus/targets/<RUN_ID>.json`. Without it, `--status` reports UNSCRAPED.
+
+#### RUN_DIR contract (§6.4)
+
+`RUN_ID=<UTC yyyymmddThhmmssZ>-<4 hex>` under `JUNIPER_EXP_RUN_ROOT` (default `~/.local/state/juniper-experiments` — under `$HOME`, **not** `/tmp`, so a reaped sandbox cannot destroy results). Everything for the run lives inside `$RUN_DIR`: pidfiles + recorded cmdlines, `logs/`, `relays/`, `config/`, `env/launch.env`, `data/`, `equities-cache/`, `artifacts/{plots,results}/`, `ports.json`, `teardown.json`.
+
+Port locks use atomic `mkdir "$LOCK_ROOT/<port>.lock"` (`JUNIPER_EXP_LOCK_ROOT`, default `${XDG_RUNTIME_DIR:-/tmp}/juniper-experiments`) plus an `ss` probe. The lockdir serialises experiment launchers against each other; a foreign binder can still race — that surfaces as the service's own bind failure through the health gate.
+
+#### F-6 listener pid rule (binding)
+
+`$!` after `( cd … && nohup <server> … & )` is the backgrounded **subshell**, not the server. No `*_up` records `$!`. After the health gate, `record_listener_pid` writes the listener from `ss -tlnpH "sport = :<port>"` plus the process cmdline. Teardown kills pidfile-first only after proving the pid is alive, owned by the current uid, and still running the recorded cmdline (SIGTERM then bounded SIGKILL); falls back to kill-by-port only within this run's recorded ports. `artifacts/` is never deleted.
+
+#### Health / conda
+
+- `wait_for_health` polls every **2s** until `JUNIPER_EXP_HEALTH_TIMEOUT` (default **90** — sized for cold start; recurrence imports alone can take 10–15s).
+- Default launch uses direct env-bin paths (`${JUNIPER_EXP_CONDA_DIR}/envs/<env>/bin/...`). Set `JUNIPER_EXP_CONDA_ACTIVATE=1` only if an env grows `activate.d` hooks.
+- From a **git worktree**, set `JUNIPER_EXP_PROJECT_DIR` to the ecosystem root — the script's default derivation lands inside `worktrees/` otherwise.
+
+Coverage: `tests/test_experiment_stack_script.py`.
+
+### Driver (`util/experiments/run_experiment.py`)
+
+Path-invoked against a live (or already-up) stack from the launcher. Resolves service URLs from `$RUN_DIR/ports.json` unless overridden.
+
+```bash
+python util/experiments/run_experiment.py \
+  --config path/to/experiment.yaml \
+  --run-dir ~/.local/state/juniper-experiments/<RUN_ID>
+```
+
+| Flag | Role |
+|------|------|
+| `--config` / `--run-dir` | Required. YAML + launcher RUN_DIR |
+| `--data-url` / `--cascor-url` / `--recurrence-url` | Override `ports.json` |
+| `--max-wall-seconds` | Q-2 wall-clock budget (CLI > YAML `outputs.max_wall_seconds` > `3600`) |
+| `--stall-seconds` | Cascor: no `current_epoch` progress → `outcome: "stalled"` (default `120`) |
+| `--health-timeout` | Per-service health wait (default `90`, matches the launcher) |
+
+Kind selection from YAML shape: `training:` → cascor path; `train:` / `crossval:` / `predict:` → recurrence path. `experiment.seed` is required. Rule-6 infra keys (`service.host` / `port` / `juniper_data_url` / `eval_metrics_enabled`) are rejected (exit `2`).
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Success (COMPLETED + acceptance) |
+| `1` | Acceptance failure (stalled, timed_out, G-6 mismatch, missing essential artifact, predict/crossval fail) |
+| `2` | Misuse / validation (bad CLI/YAML/generator, API `422`) |
+| `3` | Unreachable (health-wait / connection failures) |
+| `4` | Run `FAILED` / service `5xx` |
+
+Always writes §13.4 `manifest.json` (including stalled / timed-out / failed runs). Also writes `artifacts/results/stats.json` + `summary.md` (Wave 2.6; stats failure → `stats_error` on the manifest, never fatal). Plots (Wave 2.4/2.5) render client-side when `outputs.plots` requests them — structurally unavailable data is a per-plot SKIP; render errors / missing matplotlib on a requested plot fail acceptance.
+
+Cascor path polls `GET /v1/training/status` and samples loopback `/metrics` (redirect-following — bare `/metrics` 307s) into `metrics_series.csv`; candidate correlation exists **only** there. Recurrence path uses synchronous `POST /v1/train` (response IS completion; Q-2 budget = socket timeout → `timed_out`). `outputs.save_model: true` re-runs `juniper-recurrence train --dataset <dataset_id> … --out …/model.npz` (G-18).
+
+Coverage: `tests/test_run_experiment.py`.
+
+### Environment overrides
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `JUNIPER_EXP_RUN_ROOT` | `~/.local/state/juniper-experiments` | Durable run root (not `/tmp`) |
+| `JUNIPER_EXP_LOCK_ROOT` | `${XDG_RUNTIME_DIR:-/tmp}/juniper-experiments` | Ephemeral port lockdirs |
+| `JUNIPER_EXP_PROJECT_DIR` | parent of juniper-ml | Ecosystem root (set this in worktrees) |
+| `JUNIPER_EXP_DEPLOY_DIR` | `<ecosystem>/juniper-deploy` | Prometheus targets dir for `--grafana-bridge` |
+| `JUNIPER_EXP_CONDA_DIR` | `/opt/miniforge3` | Conda/miniforge root |
+| `JUNIPER_EXP_DATA_CONDA` | `JuniperData` | Data env name |
+| `JUNIPER_EXP_CASCOR_CONDA` | `JuniperCascor1` | Cascor env name |
+| `JUNIPER_EXP_RECURRENCE_CONDA` | `JuniperCascor1` | Recurrence env name (same default as cascor) |
+| `JUNIPER_EXP_HEALTH_TIMEOUT` | `90` | Per-service health wait (seconds) |
+| `JUNIPER_EXP_KILL_TIMEOUT` | `10` | SIGTERM → SIGKILL grace (seconds) |
+| `JUNIPER_EXP_CONDA_ACTIVATE` | `0` | `1` = `conda activate` instead of direct env-bin |
+
+### Troubleshooting
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Misuse exit `2` on `--up` | Need exactly one action and at least one of `--cascor` / `--recurrence`. |
+| Health timeout mid-`--up` | Inspect `$RUN_DIR/logs/`; cold recurrence often needs the default `90s` — raise `JUNIPER_EXP_HEALTH_TIMEOUT` only after fixing the service. |
+| Worktree can't find cascor `src/` | Set `JUNIPER_EXP_PROJECT_DIR` to the real ecosystem root. |
+| Teardown killed the wrong process / left orphans | Pre-F-6 `$!` class — confirm pidfiles came from `record_listener_pid` (post-health `ss`), not shell `$!`. |
+| `--status` says UNSCRAPED | Expected without `--grafana-bridge`; opt in only when `socat` + deploy `prometheus/targets/` are available. |
+| Driver exit `2` on YAML | Unknown block/key, missing `experiment.seed`, or rule-6 infra key — see stderr. |
+| Driver exit `1` `stalled` / `timed_out` | Cascor: raise `--stall-seconds` / `--max-wall-seconds` only after confirming the run is still progressing; recurrence `timed_out` is the train socket budget. |
+| Missing correlation / empty plot | Correlation is only in the driver's `metrics_series.csv` (not `/v1/metrics/history`). A `/metrics` 404 degrades sampling (G-3), not the run. |
+| `--down` deleted results | It must not — `artifacts/` is preserved; if results are gone, check you pointed at the wrong `RUN_ROOT` or cleaned the durable home dir manually. |
+
+Do **not** point experiment ports at `plant_all` / isolated-stack ports, and do not use this launcher when you need canopy (use `isolated_stack.bash` or the host stack instead).
+
+---
+
 ## Sibling Packages
 
 ### juniper-observability
@@ -707,6 +992,114 @@ Release runbooks:
 
 ---
 
+## YubiKey GPG Provisioning
+
+Operator pointer for host GPG / YubiKey 5 code-signing setup. Full validated procedure (commands, evidence, interoperability): [`notes/JUNIPER_2026-08-03_JUNIPER-ECOSYSTEM_YUBIKEY-GPG-ED448-KEYTOCARD-PROCEDURE.md`](../notes/JUNIPER_2026-08-03_JUNIPER-ECOSYSTEM_YUBIKEY-GPG-ED448-KEYTOCARD-PROCEDURE.md) (#904; pinentry stub fix #914).
+
+### Intent
+
+Juniper release-train / git signing may use a YubiKey-backed OpenPGP key. Operators hitting `gpg: KEYTOCARD failed: Invalid value` when moving an **ed448** key to the card need the hardware constraint, not another passphrase retry.
+
+### Hardware constraint (verified)
+
+YubiKey 5 series OpenPGP (incl. firmware 5.7.x) **does not implement Ed448 / X448**. `keytocard` of an ed448/x448 key fails with `Invalid value` / `SC_OP_FAILURE` even with correct passphrase + Admin PIN — the card rejects the algorithm attribute switch.
+
+Validated layout (ed448 requirement kept where hardware allows):
+
+| Role | Algorithm | Lives |
+|------|-----------|-------|
+| Certify (primary) | **ed448** | Offline / local ceremony dir — **never** on card |
+| Sign | ed25519 | YubiKey slot 1 |
+| Encrypt | cv25519 (X25519) | YubiKey slot 2 |
+| Authenticate | ed25519 | YubiKey slot 3 |
+
+### Related pitfalls
+
+| Symptom / class | Guidance |
+|-----------------|----------|
+| Cannot *create* Ed448/Curve448 under gpg 2.4.x | Need `--compliance=gnupg` (or `compliance gnupg` in ceremony `gpg.conf`) |
+| Scripted heredoc / shared loopback fd corrupts secrets | Never mix `--pinentry-mode=loopback` when a flow prompts for **both** passphrase and card PIN; use interactive or the stub harness for transfer |
+| Headless re-validation | Ad-hoc harness: `util/ad-hoc/2026-08-03_yubikey_curve448_keytocard_e2e.bash` + `util/ad-hoc/2026-08-03_yubikey_test_pinentry.bash` (**throwaway credentials only**) |
+| Stub pinentry “No pinentry” | Greeting must be Assuan `OK …` (#914); non-OK greeting → gpg-agent treats pinentry as dead |
+
+### Harness safety
+
+The pinentry stub answers Admin PIN / user PIN / passphrase from `TEST_ADMIN_PIN` / `TEST_USER_PIN` / `TEST_PASSPHRASE`. It defeats interactive secret entry — **never** point it at a real keyring or a live-provisioned card.
+
+### Related
+
+- Code-signing migration status: [`notes/JUNIPER_2026-07-16_JUNIPER-ECOSYSTEM_CODE-SIGNING-KEY-MIGRATION-STATUS.md`](../notes/JUNIPER_2026-07-16_JUNIPER-ECOSYSTEM_CODE-SIGNING-KEY-MIGRATION-STATUS.md)
+- Release-train headless commits avoid the owner’s YubiKey (`commit.gpgsign false` on propose; API-signed archive on ceremony) — see AGENTS.md / release-train runbook
+
+## Open-PR Budget Alarm
+
+Daily (and dispatchable) **report-only** guardrail for Cursor-fleet open-PR pile-ups. Workflow: [`.github/workflows/pr-budget-alarm.yml`](../.github/workflows/pr-budget-alarm.yml) (merged via [#870](https://github.com/pcalnon/juniper-ml/pull/870); flood analysis §4 item 9 / P1 §5).
+
+### Intent
+
+GitHub has no native “max open PRs” setting. This job is the **repo-side smoke detector**: it counts open PRs and alarms when the queue approaches a ceiling so same-file clusters do not fan out into merge damage. It is **not** a merge gate — a breach never blocks a PR and never turns the cron red.
+
+Source-side throttle (Cursor dashboard per-run caps) is a separate owner action; see [`notes/JUNIPER_2026-07-30_JUNIPER-ML_CURSOR-DASHBOARD-CONFIG-REQUESTS.md`](../notes/JUNIPER_2026-07-30_JUNIPER-ML_CURSOR-DASHBOARD-CONFIG-REQUESTS.md).
+
+### Schedule and privileges
+
+| Item | Value |
+|------|-------|
+| Cron | `0 14 * * *` (14:00 UTC daily) — offset from Monday 06:00 docs/security scans and the 13:00 UTC release train |
+| Manual | `workflow_dispatch` |
+| Permissions | `contents: read` + `pull-requests: read` only (never writes PRs/comments/labels/Releases) |
+| Concurrency | `group: pr-budget-alarm`, `cancel-in-progress: true` |
+
+```bash
+# Manual dry look at the same counts the alarm uses
+gh pr list --repo pcalnon/juniper-ml --state open --limit 500 --json number,headRefName
+gh workflow run pr-budget-alarm.yml --repo pcalnon/juniper-ml
+```
+
+### Thresholds and levels
+
+Repo variables (empty → shell defaults):
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `PR_BUDGET_WARN` | `15` | WARN when total open **or** `cursor/`-headed open PRs ≥ this |
+| `PR_BUDGET_ALARM` | `30` | ALARM when either count ≥ this |
+
+Level resolution (either metric can trip the level):
+
+1. `ALARM` if `total >= alarm` **or** `cursor >= alarm`
+2. else `WARN` if `total >= warn` **or** `cursor >= warn`
+3. else `OK`
+
+`cursor` = open PRs whose `headRefName` starts with `cursor/`.
+
+### Outputs and Slack
+
+- **Always** writes a GitHub Actions step-summary table (`total` / `cursor` / thresholds / `level`).
+- Slack fires **only** when `level != OK`, via `secrets.SLACK_WEBHOOK_URL`, under the same non-blocking Q-CHANNEL contract as `release-train.yml`:
+  - missing secret → skip (exit 0)
+  - POST failure → `continue-on-error` (run stays green)
+- Slack text is counts + run URL only (no diffs, no secrets).
+
+### Failure modes (still green)
+
+| Situation | Behavior |
+|-----------|----------|
+| `gh pr list` / `jq` hard failure | `::warning::` annotation + step summary note; `level=OK` so Slack is skipped; exit 0 |
+| Budget WARN / ALARM | Step summary + optional Slack; exit 0 (report-only) |
+| Missing `SLACK_WEBHOOK_URL` on breach | Log skip; exit 0 |
+
+### Operator triage on WARN / ALARM
+
+1. Open the workflow run step summary for exact `total` / `cursor` counts.
+2. Drain or merge the oldest same-file clusters first (fleet-supervisor / `util/fleet_triage/predict_merge.py` when triaging `cursor/` fleets).
+3. Confirm Cursor dashboard per-run caps are set (companion pack above) — the alarm detects; caps throttle at source.
+4. Raise thresholds only via repo variables `PR_BUDGET_WARN` / `PR_BUDGET_ALARM` when the team deliberately accepts a larger open queue.
+
+Design-of-record: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 item 9 / P1 §5.
+
+---
+
 ## Environment Variables
 
 These variables are consumed by Juniper packages documented in this repository. `juniper-ml` itself does not set them; they belong to the extras-installed packages.
@@ -723,10 +1116,10 @@ These variables are consumed by Juniper packages documented in this repository. 
 > These are not set by juniper-ml itself — they are consumed by the installed sub-packages.
 > `CASCOR_SERVICE_URL` defaults to the cascor service/container port (`8200`). The host-level stack and `util/get_cascor_*.bash` helpers target the host-facing port (`8201`) unless overridden.
 
-Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities) and the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities).
+Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities), the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities), and the per-run experiment overrides in [Experiment Stack Utilities](#experiment-stack-utilities).
 
 ---
 
-**Last Updated:** 2026-07-26
-**Version:** 0.6.0
+**Last Updated:** 2026-08-05
+**Version:** 0.6.1
 **Maintainer:** Paul Calnon
