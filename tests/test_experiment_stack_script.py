@@ -25,7 +25,8 @@ pins:
 - ``allocate_port`` lockdir semantics with a stubbed ``ss``;
 - teardown behaviourally: pidfile-first (a stubbed ``ss`` reports NO listener, so
   only the pidfile path can kill the process), target-file removal, lockdir
-  release, and artifacts preserved;
+  release, artifacts preserved, and the kill-by-port fallback when the pidfile
+  path refuses a reused PID whose cmdline no longer matches.
 - live ``data_up`` / ``cascor_up`` / ``recurrence_up`` compose (F-6 listener pid
   via ``ss`` after health, §6.1 env recipes) with PATH-stubbed env bins — no real
   conda / network / docker;
@@ -861,6 +862,102 @@ class TestTeardownBehaviour(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
                 self.assertIn("cmdline changed since launch", result.stdout)
                 self.assertTrue(Path(f"/proc/{pid}").exists(), "a mismatched cmdline must NOT be killed")
+            finally:
+                self._force_kill(pid)
+
+    def test_kill_by_port_fallback_after_pidfile_cmdline_refuse(self) -> None:
+        """Pid-reuse refuse must still tear down via the recorded port's live listener.
+
+        The sibling arm above stubs ``ss`` with no listener, so the fallback is inert.
+        Here ``ss`` reports the live PID on the recorded port; ``stop_service`` must log
+        the refuse, then kill through the empty-cmdline port path (F-6 fallback).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_id = "20260730T000000Z-fbck"
+            run_root = root / "runs"
+            lock_root = root / "locks"
+            run_dir = run_root / run_id
+            (run_dir / "artifacts" / "results").mkdir(parents=True)
+            (run_dir / "logs").mkdir()
+            (lock_root / "8260.lock").mkdir(parents=True)
+            keeper = run_dir / "artifacts" / "results" / "metrics_final.json"
+            keeper.write_text("{}\n")
+            (run_dir / "ports.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": run_id,
+                        "data": None,
+                        "cascor": None,
+                        "recurrence": 8260,
+                        "data_url": None,
+                        "experiment": "smoke",
+                        "grafana_bridge": False,
+                    },
+                    indent=2,
+                )
+                + "\n"
+            )
+
+            pid = self._spawn_detached()
+            try:
+                (run_dir / "juniper-recurrence.pid").write_text(f"{pid}\n")
+                (run_dir / "juniper-recurrence.cmdline").write_text("some other process ")
+
+                stub_bin = root / "path-stubs"
+                stub_bin.mkdir(parents=True, exist_ok=True)
+                # Report the live PID only while it is still alive, so post-kill
+                # port_in_use does not false-alarm a still-bound listener.
+                _write_stub(
+                    stub_bin / "ss",
+                    "#!/usr/bin/env bash\n"
+                    f'pid="{pid}"\n'
+                    'want=""\n'
+                    'for arg in "$@"; do\n'
+                    '  case "$arg" in\n'
+                    '    *sport*) want="${arg##*:}" ;;\n'
+                    "  esac\n"
+                    "done\n"
+                    'if [[ "$want" == "8260" ]] && kill -0 "$pid" 2>/dev/null; then\n'
+                    '  echo "LISTEN 0 128 127.0.0.1:8260 0.0.0.0:* users:((\\"python\\",pid=${pid},fd=3))"\n'
+                    "fi\n"
+                    "exit 0\n",
+                )
+                _write_stub(stub_bin / "curl", "#!/usr/bin/env bash\nexit 0\n")
+                _write_stub(stub_bin / "docker", "#!/usr/bin/env bash\nexit 0\n")
+                _write_stub(stub_bin / "socat", "#!/usr/bin/env bash\nexec sleep 60\n")
+
+                env = {
+                    "JUNIPER_EXP_RUN_ROOT": str(run_root),
+                    "JUNIPER_EXP_LOCK_ROOT": str(lock_root),
+                    "JUNIPER_EXP_DEPLOY_DIR": str(root / "deploy"),
+                    "JUNIPER_EXP_KILL_TIMEOUT": "5",
+                    "PATH": str(stub_bin) + os.pathsep + "/usr/bin:/bin",
+                }
+                result = subprocess.run(
+                    ["/bin/bash", str(SCRIPT_PATH), "--down", run_id],
+                    capture_output=True,
+                    text=True,
+                    env=RedactedEnv(os.environ, **env),
+                    timeout=TEARDOWN_TIMEOUT_SECONDS,
+                )
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                out = result.stdout
+                self.assertIn("cmdline changed since launch", out)
+                self.assertIn("pidfile path refused", out)
+                self.assertIn("falling back to the recorded port 8260", out)
+                self.assertIn("(by port 8260)", out)
+
+                for _ in range(60):
+                    if not Path(f"/proc/{pid}").exists():
+                        break
+                    time.sleep(0.1)
+                self.assertFalse(
+                    Path(f"/proc/{pid}").exists(),
+                    "kill-by-port fallback must terminate the live listener after a pidfile refuse",
+                )
+                self.assertTrue(keeper.exists(), "teardown must NEVER delete artifacts/")
+                self.assertFalse((lock_root / "8260.lock").exists(), "port lockdir must still be released")
             finally:
                 self._force_kill(pid)
 
