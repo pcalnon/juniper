@@ -246,8 +246,9 @@ class _StubHandler(BaseHTTPRequestHandler):
                 # (Connection refused), not after DEFAULT_HTTP_TIMEOUT.
                 try:
                     self.server.socket.close()
-                except OSError:
-                    pass
+                except OSError as exc:
+                    # Best-effort teardown in test server: socket may already be closed.
+                    print(f"test server socket close ignored OSError: {exc}", file=sys.stderr)
                 self.close_connection = True
                 try:
                     self.connection.shutdown(socket.SHUT_RDWR)
