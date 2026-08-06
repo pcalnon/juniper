@@ -4,10 +4,10 @@
 # Application:   juniper-ml
 # File Name:     main-verify.yml
 # Author:        Paul Calnon
-# Version:       0.2.0
+# Version:       0.3.0
 #
 # Date Created:  2026-07-28
-# Last Modified: 2026-07-30
+# Last Modified: 2026-08-06
 #
 # License:       MIT License
 # Copyright:     Copyright (c) 2024-2026 Paul Calnon
@@ -52,6 +52,9 @@
 #    - Runs on push:main + manual dispatch only (never on forks / PRs).
 #    - Workflow-level permissions are 'contents: read'; only the notify job elevates
 #      (job-level 'issues: write') and only to upsert the tracking issue (R7 pattern).
+#    - The notify dedup matches ONLY issues AUTHORED by github-actions[bot] (REST creator=
+#      binding + exact-title narrow + .pull_request == null); an issue TITLE is never a
+#      trust boundary -- on a public repo anyone can pre-create the stable title (#928).
 #    - The one repo secret consumed is SLACK_WEBHOOK_URL (non-blocking notify; a missing
 #      secret skips the step and a post failure never fails the run).
 #
@@ -277,6 +280,7 @@ jobs:
           python3 -m unittest -v tests/test_worktree_cleanup.py
           python3 -m unittest -v tests/test_worktree_activate.py
           python3 -m unittest -v tests/test_worktree_sweep_scripts.py
+          python3 -m unittest -v tests/test_yubikey_test_pinentry.py
           python3 -m unittest -v tests/test_cleanup_session_worktrees.py
           python3 -m unittest -v tests/test_cleanup_open_remove_stale_worktrees.py
           python3 -m unittest -v tests/test_worktree_wipeout_close.py
@@ -310,6 +314,9 @@ jobs:
           python3 -m unittest -v tests/test_symbol_loss_check.py
           python3 -m unittest -v tests/test_docs_additions_check.py
           python3 -m unittest -v tests/test_ci_sequence_safety_hatch.py
+          python3 -m unittest -v tests/test_main_verify_workflow_guard.py
+          # Flood-remediation sequence-safety screens (P2 G1/G2; mirror ci.yml).
+          python3 -m unittest -v tests/test_main_verify_catchup_base.py
           python3 -m unittest -v tests/test_doc_tools_drift.py
           python3 -m unittest -v tests/test_ci_tools_drift.py
           python3 -m unittest -v tests/test_coverage_gap_mapper_drift.py
@@ -344,10 +351,15 @@ jobs:
           bash scripts/test_resume_file_safety.bash
 
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
-  # notify (on failure only): a red main-verify must be LOUD. Upserts a dedup tracking issue (dedup
-  # by exact title, which carries the SHA -- a re-run of the same failed SHA comments instead of
-  # opening a second issue) and posts a non-blocking Slack summary (verbatim release-train.yml
-  # pattern: a missing SLACK_WEBHOOK_URL skips the step; a post failure never fails the run).
+  # notify (on failure only): a red main-verify must be LOUD. Upserts a STABLE-TITLE dedup tracking
+  # issue -- ONE open issue titled "main-verify: post-merge verification failing" per red streak;
+  # each subsequent failing SHA COMMENTS on it instead of opening a new issue (the old per-SHA title
+  # filed one issue per failing push -- six in the 2026-07-31..08-01 streak, ml#883/#884/#891/#892/
+  # #896/#897). NOT auto-closed on green (the owner closes it after adjudication). Dedup binds to
+  # the workflow's own AUTHORSHIP (creator=github-actions[bot] + exact title), never title alone --
+  # a pre-created look-alike issue can neither capture nor suppress the tracker (#928 review). Also
+  # posts a non-blocking Slack summary (verbatim release-train.yml pattern: a missing
+  # SLACK_WEBHOOK_URL skips the step; a post failure never fails the run).
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
   notify:
     name: Notify on Failure
@@ -358,40 +370,84 @@ jobs:
       contents: read
       issues: write
     steps:
-      - name: Upsert tracking issue
+      - name: Upsert tracking issue (stable title, one per red streak)
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          TITLE: "main-verify: post-merge verification failing"
           SHA: ${{ github.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SYMBOL_RESULT: ${{ needs.symbol-screen.result }}
           BATTERY_RESULT: ${{ needs.battery.result }}
         run: |
           set -uo pipefail
-          title="main-verify: post-merge verification failed at ${SHA}"
-          {
-            echo "Post-merge **main-verify** failed on \`main\` at \`${SHA}\`."
-            echo ""
-            echo "| job | result |"
-            echo "|---|---|"
-            echo "| symbol-screen (symbol + docs loss) | ${SYMBOL_RESULT} |"
-            echo "| battery (regression suite) | ${BATTERY_RESULT} |"
-            echo ""
-            echo "This is the bypass-proof post-merge net (P2 G3): a compositional loss or"
-            echo "regression landed on main. Inspect the **sequence-safety-report** artifact"
-            echo "(symbol-report.json / docs-report.json) and the battery job log:"
-            echo ""
-            echo "- Run: ${RUN_URL}"
-            echo ""
-            echo "_Auto-filed by .github/workflows/main-verify.yml; re-runs of this SHA update this issue._"
-          } > issue-body.md
-          existing="$(gh issue list --repo "$REPO" --search "${title} in:title" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)"
+          # STABLE-TITLE dedup (replaces the old per-SHA title): a single OPEN issue tracks a whole
+          # red streak. The first failure opens it; every subsequent failing SHA COMMENTS on it, so
+          # one streak == one issue (the old per-SHA title filed six issues in the 2026-07-31..08-01
+          # streak).
+          #
+          # TRUST BOUNDARY (#928 review): a stable title is a public, forgeable string -- on this
+          # public repo any third party can pre-create an OPEN issue with the exact title and
+          # capture the tracker (suppressing the bot-owned issue on create; diverting streak
+          # comments on update). The match therefore binds to the workflow's own identity: REST
+          # creator=github-actions[bot] (unforgeable authorship) + exact-title narrow +
+          # .pull_request == null (the /issues surface includes PRs). The bot-applied `main-verify`
+          # label below is defense-in-depth for operator filtering only -- deliberately NOT part of
+          # this match, so a failed label application can never fork a streak into duplicates.
+          existing="$(gh api "repos/${REPO}/issues?state=open&creator=github-actions%5Bbot%5D&per_page=100" --jq 'map(select(.pull_request == null) | select(.title == env.TITLE)) | .[0].number // empty' 2>/dev/null || true)"
           if [ -n "$existing" ]; then
-            echo "Updating existing tracking issue #${existing}"
-            gh issue comment "$existing" --repo "$REPO" --body-file issue-body.md
+            # subsequent failure in the streak: comment the new failing SHA + run URL on the issue.
+            {
+              echo "Still failing at \`${SHA}\`."
+              echo ""
+              echo "| job | result |"
+              echo "|---|---|"
+              echo "| symbol-screen (symbol + docs loss) | ${SYMBOL_RESULT} |"
+              echo "| battery (regression suite) | ${BATTERY_RESULT} |"
+              echo ""
+              echo "- Run: ${RUN_URL}"
+            } > issue-comment.md
+            echo "Commenting new failing SHA on existing tracking issue #${existing}"
+            gh issue comment "$existing" --repo "$REPO" --body-file issue-comment.md
           else
-            echo "Opening a new tracking issue"
-            gh issue create --repo "$REPO" --title "$title" --body-file issue-body.md
+            # first failure of the streak: open the single stable-title tracking issue.
+            {
+              echo "Post-merge **main-verify** is failing on \`main\`."
+              echo ""
+              echo "First observed failing at \`${SHA}\`."
+              echo ""
+              echo "| job | result |"
+              echo "|---|---|"
+              echo "| symbol-screen (symbol + docs loss) | ${SYMBOL_RESULT} |"
+              echo "| battery (regression suite) | ${BATTERY_RESULT} |"
+              echo ""
+              echo "This is the bypass-proof post-merge net (P2 G3): a compositional loss or"
+              echo "regression landed on main. Inspect the **sequence-safety-report** artifact"
+              echo "(symbol-report.json / docs-report.json) and the battery job log. Subsequent"
+              echo "failures in this streak are appended here as comments:"
+              echo ""
+              echo "- First run: ${RUN_URL}"
+              echo ""
+              echo "**Remediation:** adjudicate each finding with the census technique; waive a"
+              echo "genuinely intentional symbol removal with an \`Allow-Symbol-Loss\` commit trailer"
+              echo "(an intentional docs rewrite with \`Allow-Docs-Rewrite\`), per"
+              echo "notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md."
+              echo ""
+              echo "_Auto-filed by .github/workflows/main-verify.yml. One issue per red streak; the"
+              echo "owner closes it after adjudication (NOT auto-closed on green)._"
+            } > issue-body.md
+            echo "Opening the stable-title tracking issue"
+            # Bot-applied `main-verify` label: ensure it exists (idempotent, never clobbers owner
+            # customization -- no --force), open the issue, then best-effort apply. The label is
+            # operator filtering / defense-in-depth, never part of the dedup match above -- but a
+            # failed CREATE must still fail this step loudly (the tracker is the point of notify).
+            gh label create main-verify --repo "$REPO" --description "Auto-filed by the main-verify post-merge net (P2 G3)" --color B60205 2>/dev/null || true
+            if new_url="$(gh issue create --repo "$REPO" --title "$TITLE" --body-file issue-body.md)"; then
+              gh issue edit "${new_url##*/}" --repo "$REPO" --add-label main-verify 2>/dev/null || true
+            else
+              echo "::error::failed to open the stable-title tracking issue"
+              exit 1
+            fi
           fi
 
       - name: Slack notification (non-blocking)
