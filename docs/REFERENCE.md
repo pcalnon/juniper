@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.1
+**Version:** 0.6.2
 **Status:** Active
 **Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -747,7 +747,22 @@ Do **not** point isolated ports at the host stack or run `--up` on ports `plant_
 |-----|--------------|--------------|
 | `symbol-screen` | **Always** | `util/sequence_safety/symbol_loss_check.py` + `docs_additions_check.py` over `BASE..HEAD`; uploads `sequence-safety-report` (`symbol-report.json` / `docs-report.json`, 30-day retention) |
 | `battery` | Path-gated | Re-runs the enumerated unittest + bash battery from `ci.yml`'s `tests` job when the push touched `tests/` \| `util/` \| `scripts/` \| `.github/` \| `pyproject.toml`; docs-only merges skip it |
-| `notify` | On `failure()` only | Upserts a dedup GitHub issue titled `main-verify: post-merge verification failed at <SHA>` and posts a non-blocking Slack summary (`SLACK_WEBHOOK_URL`; missing secret skips) |
+| `notify` | On `failure()` only | Upserts **one** open GitHub issue with the stable title `main-verify: post-merge verification failing` (comment per subsequent failing SHA) and posts a non-blocking Slack summary (`SLACK_WEBHOOK_URL`; missing secret skips) |
+
+#### Failure notify (stable-title issue dedup)
+
+Workflow header version **0.3.0** (juniper-ml#928). A red streak must stay loud without opening one issue per failing push (the 2026-07-31..08-01 streak filed six: #883 / #884 / #891 / #892 / #896 / #897).
+
+| Rule | Behavior |
+|------|----------|
+| **Stable title** | Exact string `main-verify: post-merge verification failing` (not SHA-keyed) |
+| **First failure** | `gh issue create` with that title; body names the first failing SHA, job results, run URL, and the standing remediation pointer (`Allow-Symbol-Loss` / `Allow-Docs-Rewrite` trailers; flood-remediation analysis doc) |
+| **Later failures in the streak** | Search open issues for that **exact** title; `gh issue comment` with the new SHA + run URL (no second issue) |
+| **Green path** | `notify` is `if: failure()` only — success is a no-op; the issue is **not** auto-closed |
+| **Owner close** | Close the tracking issue **after adjudication** (restore the loss, or land a trailer-waived follow-up that greens main-verify) |
+| **Slack** | Non-blocking; missing `SLACK_WEBHOOK_URL` skips; a post failure never fails the workflow |
+
+Re-runs of the **same** failing SHA still hit `failure()` and comment again if the issue remains open — that is intentional (loud until the owner closes).
 
 #### Concurrency (per-SHA, no cancel)
 
@@ -800,10 +815,12 @@ gh run download <run-id> -n sequence-safety-report
 | Red `symbol-screen` after a “green” PR | Per-PR job may have been `--advisory` via labels, or BASE was narrower than G3.1 catch-up. Download `sequence-safety-report`; waive with a **commit trailer** on a follow-up commit, or restore the deleted symbol/docs. |
 | Suspected `[skip ci]` gap | Open the next main-verify run's step summary — look for `catch-up from <sha> (N commits)`. That run screens every merge since the last successful tip. |
 | Docs-only merge, no battery | Expected — `battery` path-gate skips; `symbol-screen` still always runs. |
+| Many open “main-verify failed at \<SHA\>” issues | Pre-0.3.0 per-SHA titles. Current notify uses one stable title; close stale SHA-keyed issues after adjudication and rely on `main-verify: post-merge verification failing`. |
 | Silent main red (no Slack) | Confirm `SLACK_WEBHOOK_URL` is set; notify is non-blocking and never fails the workflow. Tracking issue title is SHA-keyed (re-runs comment, not reopen). |
+| Tracking issue still open after green | Expected — notify does not auto-close. Owner closes after adjudication. |
 | Battery list drift vs `ci.yml` | Keep both enumerations in lockstep in the same PR (see SYNC NOTE in `main-verify.yml`). |
 
-Related: per-PR advisory screens live in `ci.yml`'s standalone `sequence-safety` job (absent from the Quality Gate `needs:`). Fleet predicted-merge uses the same symbol CLI on a throwaway merge result (`util/fleet_triage/predict_merge.py`).
+Related: per-PR advisory screens live in `ci.yml`'s standalone `sequence-safety` job (absent from the Quality Gate `needs:`). Fleet predicted-merge shells out to the same symbol CLI on a throwaway merge result (`util/fleet_triage/predict_merge.py` → `util/sequence_safety/symbol_loss_check.py`; the 2026-07-28 flood-census ad-hoc screens are retired under `util/ad-hoc/retired/` with a `_RETIRED-2026-08-05` suffix).
 
 ## Experiment Stack Utilities
 
@@ -1244,5 +1261,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.1
+**Version:** 0.6.2
 **Maintainer:** Paul Calnon

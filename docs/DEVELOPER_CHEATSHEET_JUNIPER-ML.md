@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.14
+**Version**: 1.0.15
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -374,10 +374,12 @@ Operator tables: [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPER
 the `git/refs` POST omitted a heads ref — fail-closed code bug, not an auth blip. Do not hand-POST a
 ref. Re-dispatch after #770; see runbook §7.
 
-**Post-merge main-verify (G3 / G3.1):** every `push:main` runs `.github/workflows/main-verify.yml`
-(per-SHA concurrency, never cancelled). `symbol-screen` always runs the sequence-safety CLIs;
-`battery` is path-gated (`tests/` \| `util/` \| `scripts/` \| `.github/` \| `pyproject.toml`);
-`notify` files a SHA-keyed issue + non-blocking Slack on failure. G3.1 BASE = last successful
+**Post-merge main-verify (G3 / G3.1 / notify 0.3.0):** every `push:main` runs
+`.github/workflows/main-verify.yml` (per-SHA concurrency, never cancelled). `symbol-screen` always
+runs the sequence-safety CLIs; `battery` is path-gated (`tests/` \| `util/` \| `scripts/` \|
+`.github/` \| `pyproject.toml`). On failure, `notify` upserts **one** open issue titled
+`main-verify: post-merge verification failing` (later failing SHAs comment on it; not auto-closed on
+green — owner closes after adjudication) plus non-blocking Slack. G3.1 BASE = last successful
 main-verify tip when it is an ancestor of HEAD (sweeps `[skip ci]` gaps), else `event.before`, else
 `HEAD^1`. PR labels `allow-symbol-loss` / `docs-rewrite` do **not** green post-merge — use
 `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite:` commit trailers. Keep the battery list in lockstep with
@@ -556,5 +558,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 1.0.13
+**Version:** 1.0.15
 **Maintainer:** Paul Calnon
