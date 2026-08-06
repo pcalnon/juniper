@@ -2,7 +2,7 @@
 
 ## Navigation Guide to juniper-ml Documentation
 
-**Version:** 0.2.8
+**Version:** 0.2.9
 **Status:** Active
 **Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -30,10 +30,16 @@
 | **Reap orphaned Juniper pytest children** | [REFERENCE.md](REFERENCE.md#pytest-orphan-reaper)                                                                              | docs/    |
 | **Check installed juniper-* floor drift** | [REFERENCE.md](REFERENCE.md#environment-floor-drift-check)                                                                     | docs/    |
 | **Check custom-agent suite health**     | [REFERENCE.md](REFERENCE.md#agent-suite-doctor)                                                                                  | docs/    |
+| **Triage fleet PRs / sequence-safety**  | [REFERENCE.md § Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety)                                 | docs/    |
 | **Run the isolated E2E trio**           | [Isolated-stack E2E checklist](../notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md) + [REFERENCE — Isolated Stack](REFERENCE.md#isolated-stack-e2e-utilities) | notes/ + docs/ |
 | **Triage Cursor-fleet / predicted-merge PRs** | [REFERENCE — Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety)                            | docs/    |
+| **Run a per-run experiment stack**      | [REFERENCE — Experiment Stack](REFERENCE.md#experiment-stack-utilities) + [CLI experimentation plan](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md) | docs/ + notes/ |
 | **Quick-reference dev tasks**           | [DEVELOPER_CHEATSHEET_JUNIPER-ML.md](DEVELOPER_CHEATSHEET_JUNIPER-ML.md)                                                         | docs/    |
 | **Operate the PyPI release train**      | [Release-train operator runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md)                 | notes/   |
+| **Understand flood CI gates / main-verify** | [REFERENCE.md § Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates) + [flood analysis](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) | docs/ + notes/ |
+| **Triage post-merge main-verify / G3.1**| [REFERENCE — Post-Merge Main Verification](REFERENCE.md#post-merge-main-verification) (incl. stable-title failure notify)       | docs/    |
+| **Provision YubiKey GPG (ed448 caveat)** | [REFERENCE — YubiKey GPG](REFERENCE.md#yubikey-gpg-provisioning) + [keytocard procedure](../notes/JUNIPER_2026-08-03_JUNIPER-ECOSYSTEM_YUBIKEY-GPG-ED448-KEYTOCARD-PROCEDURE.md) | docs/ + notes/ |
+| **Triage an open-PR budget WARN/ALARM** | [REFERENCE — Open-PR Budget Alarm](REFERENCE.md#open-pr-budget-alarm)                                                            | docs/    |
 | **Cut a GitHub Release / archive notes**| [PyPI publish procedure](../notes/JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md)                                 | notes/   |
 | **Create or clean a worktree**          | [Worktree setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) / [cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md) | notes/ |
 | **Understand the project**              | [README.md](../README.md)                                                                                                        | Root     |
@@ -51,8 +57,8 @@
 |----------------------------------------|------------|--------------------------------------------------------------------------------------------------|
 | **DOCUMENTATION_OVERVIEW.md**          | Overview   | This file -- navigation index                                                                    |
 | **QUICK_START.md**                     | Tutorial   | Install Juniper packages in under a minute                                                       |
-| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack ops, agent-suite doctor, fleet triage / sequence-safety, sibling packages, and release-workflow reference |
-| **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development and host-stack tasks                                 |
+| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, agent-suite doctor, post-merge main-verify, YubiKey GPG pointer, fleet triage / sequence-safety, sibling packages, release-workflow, flood CI gates, and open-PR budget alarm |
+| **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, CI guardrail tasks, signing-ceremony tasks, and experiment-stack tasks              |
 
 > The deprecated monolithic cheatsheet (`DEVELOPER_CHEATSHEET-ORIGINAL.md`)
 > was relocated to `notes/history/` in 2026-04 and consolidated into
@@ -85,10 +91,14 @@ Each subpackage has its own `README.md`, `CHANGELOG.md`, and `pyproject.toml`.
 | File                                                                                          | Type        | Purpose                                                                                          |
 |-----------------------------------------------------------------------------------------------|-------------|--------------------------------------------------------------------------------------------------|
 | **JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md**                     | Runbook     | Modes (`off`/`report`/`propose`/`ceremony`), Gate 1/2 review, HALTs, App-token setup             |
+| **JUNIPER_2026-08-03_JUNIPER-ECOSYSTEM_YUBIKEY-GPG-ED448-KEYTOCARD-PROCEDURE.md**              | Procedure   | YubiKey 5 ed448 `keytocard` root cause + validated ed25519/cv25519 transfer (pointer in [REFERENCE](REFERENCE.md#yubikey-gpg-provisioning)) |
+| **JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md**                      | Analysis    | Flood remediation (§4 item 9 = open-PR budget alarm; operator surface in [REFERENCE](REFERENCE.md#open-pr-budget-alarm)) |
+| **JUNIPER_2026-07-30_JUNIPER-ML_CURSOR-DASHBOARD-CONFIG-REQUESTS.md**                          | Requests    | Source-side Cursor dashboard caps (companion to the repo budget alarm)                           |
 | **JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md**                             | Procedure   | Cut a GitHub Release + archive `notes/releases/` (mandatory for every PyPI deploy)               |
 | **JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md**                                  | Procedure   | Create an isolated git worktree for task work                                                    |
 | **JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md**                             | Procedure   | Merge/cleanup after a task (CWD-safe); includes batch stale-worktree sweep                       |
 | **JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md**                       | Checklist   | Dedicated data/cascor/canopy E2E trio via `util/isolated_stack.bash` (compose contract also in [REFERENCE](REFERENCE.md#isolated-stack-e2e-utilities)) |
+| **JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md** | Plan   | Per-run experiment stack + driver (Waves 2.1–2.7); operator contract in [REFERENCE](REFERENCE.md#experiment-stack-utilities) |
 | **JUNIPER_2026-02-23_JUNIPER-ML_THREAD-HANDOFF-PROCEDURE.md**                                  | Procedure   | Thread handoff instead of compaction                                                             |
 
 Full naming rules for `notes/`: [`JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md`](../notes/JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md).
@@ -144,5 +154,5 @@ Exact floors and ranges: [`REFERENCE.md`](REFERENCE.md#extras-reference) and `py
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.2.8
+**Version:** 0.2.9
 **Maintainer:** Paul Calnon

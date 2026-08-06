@@ -113,6 +113,11 @@ from juniper_cascor_worker import CandidateTrainingWorker
 - [Reference](REFERENCE.md) -- extras, compatibility, and version reference
 - [Host Orchestration Utilities](REFERENCE.md#host-orchestration-utilities) -- run services on-host with `util/juniper_plant_all.bash` and `util/juniper_chop_all.bash`
 - [Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety) -- `predict_merge` + `Allow-Docs-Rewrite` trailer parity (#926)
+- [Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates) -- G4 pre-commit split, advisory Sequence Safety / Fleet PR Lint, post-merge `main-verify` catch-up
+- [Post-Merge Main Verification](REFERENCE.md#post-merge-main-verification) -- G3 / G3.1 catch-up BASE, stable-title failure notify, trailers vs labels, battery path-gate
+- [YubiKey GPG Provisioning](REFERENCE.md#yubikey-gpg-provisioning) -- ed448-on-card caveat + pointer to the validated transfer procedure
+- [Open-PR Budget Alarm](REFERENCE.md#open-pr-budget-alarm) -- daily report-only open-PR / `cursor/` queue guardrail
+- [Experiment Stack Utilities](REFERENCE.md#experiment-stack-utilities) -- per-run cascor/recurrence experiments via `util/experiment_stack.bash` + `run_experiment.py`
 - [juniper-observability README](../juniper-observability/README.md) -- shared observability primitives
 - [juniper-data-client Quick Start](https://github.com/pcalnon/juniper-data-client) -- dataset client usage
 - [juniper-cascor-client Quick Start](https://github.com/pcalnon/juniper-cascor-client) -- training client usage
