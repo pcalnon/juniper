@@ -226,6 +226,62 @@ class VerdictTest(_RepoCase):
         dels = v["gates"]["docs_additions_only"]["deletions"]
         self.assertEqual(v["gates"]["docs_additions_only"]["status"], "fail")
         self.assertTrue(dels and dels[0]["file"] == "notes.md", dels)
+        self.assertEqual(v["gates"]["docs_additions_only"].get("waived"), [])
+
+    def test_docs_deletion_waived_by_allow_trailer(self):
+        # Same one-line docs deletion as test_damaged_docs_deletion, but the branch
+        # commit carries ``Allow-Docs-Rewrite: notes.md`` -- the same escape hatch
+        # sequence_safety/docs_additions_check.py honors. Without trailer parity the
+        # fleet screen would forever DAMAGED an intentional rewrite that main-verify
+        # would WAIVE (the symbol screen already has this parity via #895).
+        _write(self.repo, "notes.md", "line1\nline2\nline3\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "docwaive")
+        _write(self.repo, "notes.md", "line1\nline3\n")
+        _commit(self.repo, "drop a docs line (intentional)\n\nAllow-Docs-Rewrite: notes.md")
+
+        v = pm.simulate_merge(self.repo, "docwaive", run_gates=False)
+        screen = v["gates"]["docs_additions_only"]
+        self.assertEqual(screen["status"], "pass")
+        self.assertEqual(screen["deletions"], [])
+        self.assertTrue(
+            screen.get("waived") and screen["waived"][0]["file"] == "notes.md",
+            screen.get("waived"),
+        )
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+
+    def test_docs_deletion_wildcard_trailer_waives_all(self):
+        _write(self.repo, "notes/a.md", "# A\nkeep\n")
+        _write(self.repo, "docs/b.md", "# B\nkeep\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "wild")
+        _write(self.repo, "notes/a.md", "# A\n")
+        _write(self.repo, "docs/b.md", "# B\n")
+        _commit(self.repo, "trim both docs\n\nAllow-Docs-Rewrite: *")
+
+        v = pm.simulate_merge(self.repo, "wild", run_gates=False)
+        screen = v["gates"]["docs_additions_only"]
+        self.assertEqual(screen["status"], "pass")
+        self.assertEqual(screen["deletions"], [])
+        waived_files = {item["file"] for item in screen.get("waived", [])}
+        self.assertEqual(waived_files, {"notes/a.md", "docs/b.md"})
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+
+    def test_docs_deletion_trailer_wrong_path_still_damaged(self):
+        # A trailer for a different path must NOT silence an unwaived deletion.
+        _write(self.repo, "notes.md", "line1\nline2\nline3\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "wrongpath")
+        _write(self.repo, "notes.md", "line1\nline3\n")
+        _commit(self.repo, "drop a docs line\n\nAllow-Docs-Rewrite: other.md")
+
+        v = pm.simulate_merge(self.repo, "wrongpath", run_gates=False)
+        self.assertEqual(v["verdict"], "DAMAGED-FIX-FIRST")
+        self.assertEqual(v["gates"]["docs_additions_only"]["status"], "fail")
+        self.assertEqual(v["gates"]["docs_additions_only"].get("waived"), [])
 
     def test_docs_additions_only_markdown_is_merge_clean(self):
         # Pure docs additions must NOT trip docs_additions_only (no `-` content lines).
