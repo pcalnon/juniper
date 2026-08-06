@@ -169,8 +169,7 @@ def _stage_live_path_stubs(root: Path, listeners_dir: Path) -> Path:
     listeners_dir.mkdir(parents=True, exist_ok=True)
     _write_stub(
         stub_bin / "ss",
-        textwrap.dedent(
-            f"""\
+        textwrap.dedent(f"""\
             #!/usr/bin/env bash
             want=""
             for arg in "$@"; do
@@ -185,13 +184,11 @@ def _stage_live_path_stubs(root: Path, listeners_dir: Path) -> Path:
               echo "LISTEN 0 128 127.0.0.1:${{want}} 0.0.0.0:* users:((\\"python\\",pid=${{pid}},fd=3))"
             fi
             exit 0
-            """
-        ),
+            """),
     )
     _write_stub(
         stub_bin / "curl",
-        textwrap.dedent(
-            f"""\
+        textwrap.dedent(f"""\
             #!/usr/bin/env bash
             url=""
             for arg in "$@"; do
@@ -210,8 +207,7 @@ def _stage_live_path_stubs(root: Path, listeners_dir: Path) -> Path:
               sleep 0.1
             done
             exit 22
-            """
-        ),
+            """),
     )
     _write_stub(stub_bin / "docker", "#!/usr/bin/env bash\nexit 0\n")
     _write_stub(stub_bin / "socat", "#!/usr/bin/env bash\nexec sleep 60\n")
@@ -223,8 +219,7 @@ def _write_listening_env_bin(path: Path, *, listeners_dir: Path, marker_dir: Pat
     path.parent.mkdir(parents=True, exist_ok=True)
     _write_stub(
         path,
-        textwrap.dedent(
-            f"""\
+        textwrap.dedent(f"""\
             #!/usr/bin/env bash
             set -euo pipefail
             port=""
@@ -245,8 +240,7 @@ def _write_listening_env_bin(path: Path, *, listeners_dir: Path, marker_dir: Pat
             }} >"{marker_dir}/{label}.env"
             printf '%s\\n' "$$" >"{listeners_dir}/${{port}}.pid"
             exec sleep 60
-            """
-        ),
+            """),
     )
 
 
@@ -999,16 +993,7 @@ class _LiveUpHarness(unittest.TestCase):
             'log() { echo "[${SCRIPT_NAME}] $*"; }\n'
             'banner() { echo ""; echo "[${SCRIPT_NAME}] === $* ==="; }\n'
             'announce() { echo "[${SCRIPT_NAME}] \\$ $*"; }\n'
-            'is_dry() { [[ "${DRY_RUN}" == "1" ]]; }\n'
-            + _extract_experiment_fn("require_cmd")
-            + _extract_experiment_fn("ensure_dir")
-            + _extract_experiment_fn("env_bin")
-            + _extract_experiment_fn("require_env_bin")
-            + _extract_experiment_fn("port_listener_pid")
-            + _extract_experiment_fn("proc_cmdline")
-            + _extract_experiment_fn("wait_for_health")
-            + _extract_experiment_fn("record_listener_pid")
-            + _extract_experiment_fn("record_launch_env")
+            'is_dry() { [[ "${DRY_RUN}" == "1" ]]; }\n' + _extract_experiment_fn("require_cmd") + _extract_experiment_fn("ensure_dir") + _extract_experiment_fn("env_bin") + _extract_experiment_fn("require_env_bin") + _extract_experiment_fn("port_listener_pid") + _extract_experiment_fn("proc_cmdline") + _extract_experiment_fn("wait_for_health") + _extract_experiment_fn("record_listener_pid") + _extract_experiment_fn("record_launch_env")
         )
 
     def _run_harness(self, harness: str, *, stub_bin: Path) -> subprocess.CompletedProcess[str]:
@@ -1042,11 +1027,7 @@ class TestDataUpLive(_LiveUpHarness):
                 marker_dir=marker_dir,
                 label="data",
             )
-            harness = (
-                self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir)
-                + _extract_experiment_fn("data_up")
-                + "data_up\n"
-            )
+            harness = self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir) + _extract_experiment_fn("data_up") + "data_up\n"
             result = self._run_harness(harness, stub_bin=stub_bin)
             pid_path = run_dir / "juniper-data.pid"
             child_pid: int | None = None
@@ -1100,11 +1081,7 @@ class TestCascorUpLive(_LiveUpHarness):
                 marker_dir=marker_dir,
                 label="cascor",
             )
-            harness = (
-                self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir)
-                + _extract_experiment_fn("cascor_up")
-                + "cascor_up\n"
-            )
+            harness = self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir) + _extract_experiment_fn("cascor_up") + "cascor_up\n"
             result = self._run_harness(harness, stub_bin=stub_bin)
             pid_path = run_dir / "juniper-cascor.pid"
             child_pid: int | None = None
@@ -1137,13 +1114,7 @@ class TestCascorUpLive(_LiveUpHarness):
             (project_dir / "juniper-cascor" / "src").mkdir(parents=True)
             (conda_dir / "envs" / "JuniperCascor1" / "bin").mkdir(parents=True)
             stub_bin = _stage_live_path_stubs(root, listeners_dir)
-            harness = (
-                self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir)
-                + _extract_experiment_fn("cascor_up")
-                + "set +e\n"
-                + "cascor_up\n"
-                + "echo STATUS=$?\n"
-            )
+            harness = self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir) + _extract_experiment_fn("cascor_up") + "set +e\n" + "cascor_up\n" + "echo STATUS=$?\n"
             result = self._run_harness(harness, stub_bin=stub_bin)
             # Harness ends with `echo STATUS=$?` under `set +e`; a non-zero STATUS is the pin.
             self.assertIn("STATUS=1", result.stdout, msg=result.stderr + result.stdout)
@@ -1170,11 +1141,7 @@ class TestRecurrenceUpLive(_LiveUpHarness):
                 marker_dir=marker_dir,
                 label="recurrence",
             )
-            harness = (
-                self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir)
-                + _extract_experiment_fn("recurrence_up")
-                + "recurrence_up\n"
-            )
+            harness = self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir) + _extract_experiment_fn("recurrence_up") + "recurrence_up\n"
             result = self._run_harness(harness, stub_bin=stub_bin)
             pid_path = run_dir / "juniper-recurrence.pid"
             child_pid: int | None = None
