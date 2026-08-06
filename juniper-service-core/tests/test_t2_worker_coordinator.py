@@ -240,7 +240,58 @@ def test_submit_result_rejects_on_parse_none_and_marks_failed() -> None:
     # ok=False makes the protocol reject; the coordinator records a failed task and returns False.
     assert coord.submit_result("w1", {"task_id": tid, "ok": False}, {}) is False
     assert reg.get("w1").tasks_failed == 1
+    assert reg.get("w1").idle is True
+    assert reg.get("w1").active_task_id is None
+    # Reclaim: task must be requeued (not left with a sticky assigned_worker_id).
+    assert coord._pending_tasks[tid].assigned_worker_id is None
+    assert coord.has_pending_tasks() is True
+    assert tid in coord._unassigned_tasks
     assert coord.collect_results(timeout=0.1) == []  # nothing accepted
+
+
+def test_parse_none_requeue_does_not_let_timeout_steal_newer_assignment() -> None:
+    """parse_result None must reclaim the task; a later timeout must not clear a newer active_task_id.
+
+    Pre-fix cascade (same round, two tasks): reject t1 via parse None -> worker takes t2 ->
+    orphaned t1.assigned_worker_id still points at w1 -> timeout sweep complete_task(w1) clears
+    t2's active_task_id and leaves t2 stuck assigned. Post-fix: t1 is requeued immediately and
+    the timeout guard only frees the worker when active_task_id still matches.
+    """
+    reg = WorkerRegistry()
+    reg.register("w1", {})
+    coord = WorkerCoordinator(reg, _RecordingProtocol(), task_reassignment_timeout=1.0)
+    t1, t2 = coord.submit_tasks("r", [{"c": 0}, {"c": 1}])
+    assert coord.get_next_assignment("w1")[0]["task_id"] == t1
+    assert coord.submit_result("w1", {"task_id": t1, "ok": False}, {}) is False
+
+    # Worker is free; t1 is back on the unassigned queue ahead of (or with) t2.
+    assert reg.get("w1").idle is True
+    assert t1 in coord._unassigned_tasks
+    assert coord._pending_tasks[t1].assigned_worker_id is None
+
+    # Dispatch the next task (t1 requeued first — FIFO after append, so t2 was already waiting).
+    next_msg, _ = coord.get_next_assignment("w1")
+    next_tid = next_msg["task_id"]
+    assert next_tid in (t1, t2)
+    assert reg.get("w1").active_task_id == next_tid
+
+    # Force a timeout on a *different* orphaned assignment (simulates residual sticky state).
+    other = t2 if next_tid == t1 else t1
+    orphan = coord._pending_tasks[other]
+    orphan.assigned_worker_id = "w1"
+    orphan.dispatched_at = time.time() - 10.0
+    if other in coord._unassigned_tasks:
+        coord._unassigned_tasks.remove(other)
+
+    failed_before = reg.get("w1").tasks_failed
+    coord._check_task_timeouts()
+
+    # Newer assignment preserved; orphan requeued without a second complete_task on w1.
+    assert reg.get("w1").active_task_id == next_tid
+    assert reg.get("w1").idle is False
+    assert reg.get("w1").tasks_failed == failed_before
+    assert orphan.assigned_worker_id is None
+    assert other in coord._unassigned_tasks
 
 
 def test_anomaly_detector_receives_generic_score() -> None:
