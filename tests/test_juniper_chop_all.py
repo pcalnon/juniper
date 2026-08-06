@@ -445,9 +445,7 @@ class TestNonEmptyPidfileWire(unittest.TestCase):
     def _add_fake_proc(self, proc_root: Path, pid: int, cmdline_parts: list[str]) -> None:
         process_dir = proc_root / str(pid)
         process_dir.mkdir(parents=True)
-        (process_dir / "cmdline").write_bytes(
-            b"\0".join(part.encode("utf-8") for part in cmdline_parts) + b"\0"
-        )
+        (process_dir / "cmdline").write_bytes(b"\0".join(part.encode("utf-8") for part in cmdline_parts) + b"\0")
 
     def _run_chop(
         self,
