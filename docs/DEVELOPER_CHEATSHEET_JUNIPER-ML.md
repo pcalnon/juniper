@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.13
+**Version**: 1.0.14
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -460,6 +460,8 @@ Tip: `python util/editable_install_drift_check.py --fix --json` is the live muta
 
 Tip: missing **or** empty (zero-byte) `JuniperProject.pid` → `chop_all` still calls `orphaned_worker_cleanup`, then `exit 1`, and never enters the service-stop loop. Early cleanup sites are hard (no `|| true`); post-pidfile cleanup is soft. Default `KILL_WORKERS=0` only logs the short-circuit — use `KILL_WORKERS=1` when orphaned workers may be the only leftovers. See [`REFERENCE.md`](REFERENCE.md#missing--empty-juniperprojectpid-early-wire).
 
+Tip: non-empty `JuniperProject.pid` → `chop_all` validates each PID against `/proc/<pid>/cmdline` before SIGTERM (JR-ML-SEC-045). Accepts `name=pid` and legacy `name: pid`. Reused-PID mismatch → WARNING skip (not a stop failure); successful chop still truncates the pidfile. `STOP_FAILURES > 0` preserves it. See [`REFERENCE.md`](REFERENCE.md#non-empty-pidfile-stop-path-validate_pid).
+
 Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant health failure leaves started user units running; tear down with `util/juniper_chop_all.bash --systemd` (see `docs/REFERENCE.md` § systemd mode).
 
 Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
@@ -495,6 +497,8 @@ Tip: `gpg: KEYTOCARD failed: Invalid value` for ed448 on a YubiKey 5 is expected
 | Driver exit `1` stalled/timed_out | Cascor stall detector / wall budget; recurrence `timed_out` = train socket budget. See `manifest.json`. |
 | `chop_all` logs `ERROR: PID file is empty` | Zero-byte pidfile is the empty arm of the same early wire (cleanup then `exit 1`). Re-plant; do not hand-create an empty file. |
 | Missing/empty pidfile but workers still up | Early wire already invoked cleanup; set `KILL_WORKERS=1` on that chop to opt into the pgrep reap before abort. |
+| Chop WARNING `cmdline does not match … skipping` | Stale/reused PID — `validate_pid` refused the kill; not a stop failure. Pidfile still truncates when `STOP_FAILURES == 0`. |
+| Chop preserves pidfile after WARNING stop failures | A `graceful_stop` failed — inspect survivors (`ss -tlnp`), then re-chop or kill manually. |
 | systemd plant: missing `curl` | Install/expose `curl`; abort is before any `systemctl start`. |
 | systemd plant partial after health timeout | Run `util/juniper_chop_all.bash --systemd` (ERR cleanup does not `systemctl stop`). |
 | Mixed `--systemd` / pidfile modes | Match plant and chop modes; systemd never writes `JuniperProject.pid`. |
