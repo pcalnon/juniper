@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.2
+**Version:** 0.6.3
 **Status:** Active
 **Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -21,6 +21,7 @@
 - [Agent Suite Doctor](#agent-suite-doctor)
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
+- [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Sibling Packages](#sibling-packages)
@@ -739,6 +740,91 @@ Do **not** point isolated ports at the host stack or run `--up` on ports `plant_
 
 ---
 
+## Fleet Triage and Sequence Safety
+
+Flood-remediation tooling for Cursor-fleet / third-party open PRs and for silent symbol / docs damage that ordinary lint cannot see. Two layers:
+
+| Layer | Path | Role |
+|-------|------|------|
+| Sequence-safety screens | `util/sequence_safety/symbol_loss_check.py`, `docs_additions_check.py` | Path-invoked BASE..HEAD screens used by CI (`sequence-safety` job, `main-verify.yml`) |
+| Predicted-merge triage | `util/fleet_triage/predict_merge.py` | Detached-clone merge of `origin/main` into a PR tip; runs fast gates + screens on the **merge RESULT** |
+| Fleet supervisor agent | `.claude/agents/fleet-supervisor.md` | Read-only adjudication over a `--batch` report (never pushes / merges / closes) |
+
+Design context: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 items 7–8.
+
+### Sequence-safety CLIs
+
+```bash
+python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --json
+python util/sequence_safety/docs_additions_check.py --base origin/main --head HEAD --json
+# WARN-only exit 0 (label hatch); exit 2 is never masked:
+python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --advisory
+```
+
+| Concern | Default scope | FAIL classes | Primary waiver |
+|---------|---------------|--------------|----------------|
+| Symbol loss | `tests/*.py` + `util/**/*.{py,bash}` | `LOST` / `WEAKENED` / `DUPLICATED` (py FAIL; bash LOST FAIL, WEAKENED/DUPLICATED WARN) | Commit trailer `Allow-Symbol-Loss: <qualified.symbol>[, …]` in BASE..HEAD |
+| Docs deletions | `AGENTS.md` + `docs/**` + `notes/**` | Deleted heading, or ≥`--min-run` (default 5) consecutive deleted lines | Commit trailer `Allow-Docs-Rewrite: <path>` (or enumerated paths / `*`) |
+
+Constraints (verified in the checkers):
+
+- Qualified symbols only (`func:name`, `method:Class.name`, …). Bare-name relocation is **not** a downgrade (SF3).
+- `Allow-Symbol-Loss: *` / blanket wildcards are **rejected** (waive nothing).
+- `Allow-Docs-Rewrite: *` **is** accepted (waives every deleted `.md` in scope) — opposite of the symbol wildcard rule.
+- Per-PR labels `allow-symbol-loss` / `docs-rewrite` only demote the advisory CI job via `--advisory` (WARN-only exit 0). They are invisible to `push:main` `main-verify` — use the commit trailer for post-merge green.
+- Exit codes: `0` clean, `1` ≥1 unwaived FAIL, `2` usage / bad ref. Gates: `tests/test_symbol_loss_check.py`, `tests/test_docs_additions_check.py`.
+
+### `predict_merge.py` operator contract
+
+```bash
+python util/fleet_triage/predict_merge.py --pr 895 --json
+python util/fleet_triage/predict_merge.py --batch --json
+python util/fleet_triage/predict_merge.py --pr 895 --repo-root .
+# Skip the pre-commit battery when hooks are unavailable locally:
+JUNIPER_FLEET_SKIP_PRECOMMIT=1 python util/fleet_triage/predict_merge.py --pr 895
+```
+
+Per PR the script:
+
+1. Creates a throwaway **detached** `git clone --shared` under the system tempdir (never a worktree, never writes the source checkout, never pushes).
+2. Merges `origin/main` into the branch tip (`git merge --no-ff`, `commit.gpgsign=false`).
+3. On the RESULT: runs `pre-commit` hooks `black` / `isort` / `flake8` / `mypy` / `check-ast` on touched `.py` files; shells out to `util/sequence_safety/symbol_loss_check.py --repo-root <clone> --base <base> --head <result> --json` (same CLI as `main-verify` — juniper-ml#895 / ml#872); runs an **inline** docs additions-only screen that flags **any** removed content line on a changed `.md` (deliberately stricter than `docs_additions_check.py`'s heading / `--min-run` gate) and honors `Allow-Docs-Rewrite: <path>[, …]` / `*` trailers in `BASE..RESULT` (juniper-ml#926 — same escape hatch as sequence-safety so intentional rewrites are not forever `DAMAGED-FIX-FIRST`).
+4. Emits the **TRUE** changed-file delta from `git diff --name-only origin/main <result>` (not the stale `gh pr … --json files` list).
+
+| Verdict | Meaning |
+|---------|---------|
+| `MERGE-CLEAN` | Merge succeeds; fast gates + screens pass |
+| `NEEDS-UPDATE-BRANCH` | Merge succeeds; a fast gate fails (format / type / AST) |
+| `DAMAGED-FIX-FIRST` | Merge succeeds; symbol-loss or docs-deletion screen fails |
+| `CONFLICT` | Merge conflict against `origin/main` |
+
+`--batch` also builds a same-file cluster map and a restore/heal-first, least-colliding merge order. Exit `0` always reports (even when every verdict is `DAMAGED` / `CONFLICT`); exit `2` is usage / precondition only (`gh` missing, bad `--repo-root`, unresolved ref).
+
+Degrade paths (never crash the report): missing / broken `symbol_loss_check.py`, checker exit `2`, or non-JSON stdout → symbol screen `status=skip`. A delta with no `.py`/`.bash` short-circuits the symbol subprocess. Gate: `tests/test_predict_merge.py` (incl. `Allow-Symbol-Loss` and `Allow-Docs-Rewrite` trailer → `MERGE-CLEAN` arms).
+
+#### Docs screen vs `docs_additions_check.py` (honesty)
+
+| | `docs_additions_check.py` (CI / main-verify) | `predict_merge` inline docs screen |
+|--|---------------------------------------------|-------------------------------------|
+| Scope | `AGENTS.md` + `docs/**` + `notes/**` | Every changed `.md` in the TRUE delta |
+| FAIL threshold | Deleted heading, or ≥`N` consecutive deleted lines (default 5) | **Any** removed content line (`-` not `---`) |
+| `Allow-Docs-Rewrite` trailer | Yes (path / basename / `*`) | Yes (path / basename / `*` — juniper-ml#926) |
+| JSON | Full screen report | `deletions` + `waived` lists on the docs screen object |
+
+Do not assume trailer-less docs deletions that pass `--min-run` on main-verify will be `MERGE-CLEAN` in fleet triage — the inline screen is stricter by design.
+
+### Operator pitfalls
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Local run hangs on pre-commit | Set `JUNIPER_FLEET_SKIP_PRECOMMIT=1`, or ensure `pre-commit` is installed and hooks cached |
+| `DAMAGED-FIX-FIRST` after intentional **symbol** deletion | Add `Allow-Symbol-Loss: func:…` (qualified) on a commit in the PR range; re-run `--pr`. Wildcard `*` is rejected. |
+| `DAMAGED-FIX-FIRST` after intentional **docs** rewrite | Add `Allow-Docs-Rewrite: docs/REFERENCE.md` (or `*` / basename) on a commit in BASE..RESULT; re-run `--pr` (#926). Wrong-path trailers do not waive. |
+| Trailer present but still DAMAGED (symbols) | Wildcard `*` is rejected; bare names do not match; trailer must be in BASE..HEAD of the **merged** result |
+| Trailer present but still DAMAGED (docs) | Path must match the deleted `.md` (full path or basename); confirm the trailer commit is in `origin/main..<result>` |
+| Expecting docs screen == `docs_additions_check.py` | Same trailer escape hatch, different FAIL threshold — see honesty table above |
+| Agent closes / merges PRs | Forbidden — `fleet-supervisor` is read-only; DUP-CLOSE needs overlap **and** owner confirmation |
+
 ## Post-Merge Main Verification
 
 `.github/workflows/main-verify.yml` is the bypass-proof compositional-loss net (flood-remediation P2 gate G3). It runs on every `push` to `main` (plus `workflow_dispatch`) so a merge that skipped or greenwashed per-PR checks still gets screened after it lands. Design notes: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 item 8.
@@ -1261,5 +1347,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.2
+**Version:** 0.6.3
 **Maintainer:** Paul Calnon

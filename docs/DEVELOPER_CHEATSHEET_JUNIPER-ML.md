@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.15
-**Date**: 2026-08-05
+**Version**: 1.0.16
+**Date**: 2026-08-04
 **Project**: juniper-ml
 
 ---
@@ -37,6 +37,8 @@
 | `python util/sequence_safety/symbol_loss_check.py --base ORIGIN --head HEAD` | AST symbol-loss screen (same CLI as `main-verify`) |
 | `util/reap_pytest_orphans.bash --dry-run`              | List orphaned Juniper pytest multiprocessing children (no kill) |
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
+| `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
+| `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + merge order |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -223,6 +225,7 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 | Task                   | Command / Procedure                                                                         |
 |------------------------|---------------------------------------------------------------------------------------------|
 | Pre-commit             | `pre-commit run --all-files`                                                                |
+| Fleet predicted-merge  | `python util/fleet_triage/predict_merge.py --pr N` / `--batch` (exit 0 = report; 2 = misuse) |
 | Pre-commit (PR scope)  | `pre-commit run --from-ref <BASE> --to-ref HEAD` (matches `ci.yml` G4 on PR / merge_group)  |
 | Sequence-safety (local)| `python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD` (+ docs sibling) |
 | Post-merge main-verify | Auto on every `push:main` (`.github/workflows/main-verify.yml`); see tip below              |
@@ -374,6 +377,14 @@ Operator tables: [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPER
 the `git/refs` POST omitted a heads ref — fail-closed code bug, not an auth blip. Do not hand-POST a
 ref. Re-dispatch after #770; see runbook §7.
 
+**Sequence-safety / fleet triage (juniper-ml#895 / #926):** `predict_merge` shells out to
+`util/sequence_safety/symbol_loss_check.py` on the merge RESULT. Its docs screen stays a stricter
+any-removed-line counter (not heading/`--min-run`), but honors `Allow-Docs-Rewrite: <path>` / `*`
+trailers like `docs_additions_check.py` so intentional docs rewrites are not forever
+`DAMAGED-FIX-FIRST`. `Allow-Symbol-Loss: *` is still rejected. Exit `0` always emits a report —
+read each `verdict`. Full contract:
+[REFERENCE.md § Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety).
+
 **Post-merge main-verify (G3 / G3.1 / notify 0.3.0):** every `push:main` runs
 `.github/workflows/main-verify.yml` (per-SHA concurrency, never cancelled). `symbol-screen` always
 runs the sequence-safety CLIs; `battery` is path-gated (`tests/` \| `util/` \| `scripts/` \|
@@ -420,6 +431,7 @@ Pointer: [REFERENCE — YubiKey GPG Provisioning](REFERENCE.md#yubikey-gpg-provi
 | `JUNIPER_E2E_DATA_EXTRAS`      | `api`              | juniper-data pip extras (`api,mnist` for D2/I-5) |
 | `CASCOR_HOST`                  | `localhost`        | CasCor query-helper target host for `util/get_cascor_*.bash` |
 | `CASCOR_PORT`                  | `8201`             | CasCor query-helper target port for `util/get_cascor_*.bash` |
+| `JUNIPER_FLEET_SKIP_PRECOMMIT` | unset              | When set, `predict_merge` skips the pre-commit battery (screens still run) |
 | `JUNIPER_E2E_DATA_PORT`        | `8101`             | Isolated-stack juniper-data port (`util/isolated_stack.bash`) |
 | `JUNIPER_E2E_CASCOR_PORT`      | `8202`             | Isolated-stack juniper-cascor port |
 | `JUNIPER_E2E_CANOPY_PORT`      | `8051`             | Isolated-stack juniper-canopy port |
@@ -468,6 +480,11 @@ Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant he
 
 Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
 
+Tip: before merging a Cursor-fleet batch, run `python util/fleet_triage/predict_merge.py --batch --json`.
+Prefer heal/`DAMAGED-FIX-FIRST` PRs first; never treat script exit `0` as “all clean” — read each `verdict`.
+Symbol screen matches `main-verify` (#895). Docs screen is stricter (any removed `.md` line) but honors
+`Allow-Docs-Rewrite` trailers (#926). See [REFERENCE.md § Fleet Triage](REFERENCE.md#fleet-triage-and-sequence-safety).
+
 Tip: flood CI gates (#869/#880) — per-PR `Sequence Safety` / `Fleet PR Lint` are **advisory** (not in Quality Gate `needs:`). Labels `allow-symbol-loss` / `docs-rewrite` only demote the PR job via `--advisory`; post-merge `main-verify` needs commit trailers. G4 uses `--from-ref` on PR/merge_group and `--all-files` on push. Full contract: [REFERENCE.md § Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates).
 
 Tip: `gpg: KEYTOCARD failed: Invalid value` for ed448 on a YubiKey 5 is expected — card has no Curve448. Do not burn Admin PIN retries; follow the ed25519/cv25519 subkey layout in [REFERENCE — YubiKey GPG](REFERENCE.md#yubikey-gpg-provisioning). Stub pinentry must greet with Assuan `OK` (#914).
@@ -503,6 +520,8 @@ Tip: `gpg: KEYTOCARD failed: Invalid value` for ed448 on a YubiKey 5 is expected
 | Chop preserves pidfile after WARNING stop failures | A `graceful_stop` failed — inspect survivors (`ss -tlnp`), then re-chop or kill manually. |
 | systemd plant: missing `curl` | Install/expose `curl`; abort is before any `systemctl start`. |
 | systemd plant partial after health timeout | Run `util/juniper_chop_all.bash --systemd` (ERR cleanup does not `systemctl stop`). |
+| `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch ref — not a damage finding. |
+| Fleet `DAMAGED` on intentional docs rewrite | Add `Allow-Docs-Rewrite: <path>` or `*` in BASE..RESULT (#926); wrong-path trailers do not waive. |
 | Mixed `--systemd` / pidfile modes | Match plant and chop modes; systemd never writes `JuniperProject.pid`. |
 | Plant WARNING `invalid health-check interval` / stuck health wait | Unset `HEALTH_CHECK_INTERVAL` or set a positive integer (default `2`); `0` was a busy-loop. |
 | `env_floor_drift_check` exits `2` | Resolution failed (`resolve_site_dirs`) — fix `--site-packages` / `--env` / `ecosystem.yaml` `used_by`; not a `BELOW_FLOOR`. |
@@ -558,5 +577,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 1.0.15
+**Version:** 1.0.16
 **Maintainer:** Paul Calnon
