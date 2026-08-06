@@ -9,6 +9,8 @@ Coverage (fixture repo only — never the real checkout):
 - Force path (``-D`` / ``-F``) for unmerged stale ``fix/*``
 - Present tree dir → branch kept (status path, no delete)
 - Non-``fix`` branches never selected
+- Currently checked-out ``fix/*`` tip is not deleted
+- ``fix/*`` checked out in a linked worktree is not deleted
 """
 
 from __future__ import annotations
@@ -138,6 +140,53 @@ class PruneGitBranchesWithoutWorkingDirsTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
             self.assertNotIn("fix/force-f", _branches(repo))
             self.assertIn("Deleting Branch with --Force", result.stdout)
+
+    def test_does_not_delete_currently_checked_out_fix_branch(self) -> None:
+        # Destructive hygiene must not remove the branch the operator is on.
+        # ``git branch -d/-D`` refuses the current branch; pin that the script
+        # leaves it intact (and that a failed delete does not wipe the tip).
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            _init_repo(repo)
+            _run_git(repo, "checkout", "-q", "-b", "fix/current-tip")
+            (repo / "work.txt").write_text("on current\n")
+            _run_git(repo, "add", "work.txt")
+            _run_git(repo, "commit", "-q", "-m", "current tip work")
+
+            result = _run_script(repo)
+            combined = result.stdout + result.stderr
+            self.assertIn("fix/current-tip", _branches(repo))
+            # Current tip must still be checked out with its tip commit intact.
+            head = _run_git(repo, "rev-parse", "--abbrev-ref", "HEAD")
+            self.assertEqual(head.stdout.strip(), "fix/current-tip")
+            self.assertTrue((repo / "work.txt").exists())
+            # Standard -d against HEAD is a non-zero git failure; script must
+            # not have force-deleted past that refusal.
+            self.assertNotIn("Deleting Branch with --Force", combined)
+
+    def test_does_not_delete_fix_branch_checked_out_in_linked_worktree(self) -> None:
+        # A ``fix/*`` tip checked out in another worktree must survive a prune
+        # from the primary checkout (``git branch -d`` refuses worktree-open
+        # branches). Hermetic: linked worktree under the temp dir only.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            _init_repo(repo)
+            _run_git(repo, "branch", "fix/open-worktree")
+            worktree = Path(tmp) / "wt-open"
+            _run_git(repo, "worktree", "add", str(worktree), "fix/open-worktree")
+            self.assertIn("fix/open-worktree", _branches(repo))
+
+            result = _run_script(repo)
+            combined = result.stdout + result.stderr
+            # ``git branch -d`` refuses a worktree-open tip (nonzero). The
+            # contract under test is that the branch/worktree survive — not
+            # that the script masks git's refusal as exit 0.
+            self.assertIn("fix/open-worktree", _branches(repo))
+            self.assertIn("used by worktree", combined)
+            self.assertTrue(worktree.is_dir())
+            wt_head = _run_git(worktree, "rev-parse", "--abbrev-ref", "HEAD")
+            self.assertEqual(wt_head.stdout.strip(), "fix/open-worktree")
+            self.assertNotIn("Deleting Branch with --Force", combined)
 
 
 if __name__ == "__main__":
