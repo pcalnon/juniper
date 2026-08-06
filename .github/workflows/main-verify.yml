@@ -280,6 +280,7 @@ jobs:
           python3 -m unittest -v tests/test_worktree_cleanup.py
           python3 -m unittest -v tests/test_worktree_activate.py
           python3 -m unittest -v tests/test_worktree_sweep_scripts.py
+          python3 -m unittest -v tests/test_yubikey_test_pinentry.py
           python3 -m unittest -v tests/test_cleanup_session_worktrees.py
           python3 -m unittest -v tests/test_cleanup_open_remove_stale_worktrees.py
           python3 -m unittest -v tests/test_worktree_wipeout_close.py
