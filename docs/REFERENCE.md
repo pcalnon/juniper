@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 **Status:** Active
-**Last Updated:** 2026-08-05
+**Last Updated:** 2026-08-06
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -23,6 +23,8 @@
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Sibling Packages](#sibling-packages)
+  - [juniper-observability](#juniper-observability)
+  - [juniper-service-core](#juniper-service-core)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
 
@@ -851,12 +853,57 @@ Publish and CI constraints:
 2. `publish-observability.yml` runs only for `juniper-observability-v*` tags or manual dispatch, builds from the subdirectory, publishes to TestPyPI, verifies installation, then publishes the same artifact to PyPI.
 3. The publish workflow uses OIDC trusted publishing, GitHub-hosted `ubuntu-latest` runners, and SHA-pinned actions. If the runner type or pinned artifact actions change, verify compatibility before tagging a release.
 
+### juniper-service-core
+
+`juniper-service-core` lives under `juniper-service-core/` and publishes independently (`juniper-service-core-v*` → `.github/workflows/publish-service-core.yml`; CI: `ci-service-core.yml`). Since `juniper-ml` 0.5.0 it is aggregated under `[tools]` / `[all]`. Model services inject lifecycle / command executors; this package owns the shared FastAPI + WebSocket + worker-pool plumbing.
+
+| Field                 | Value                                                                      |
+|-----------------------|----------------------------------------------------------------------------|
+| **PyPI Name**         | `juniper-service-core`                                                     |
+| **Current Version**   | `0.5.1` (from `juniper-service-core/pyproject.toml`)                       |
+| **Python**            | `>=3.12`                                                                   |
+| **Importable Module** | `juniper_service_core`                                                     |
+| **Package Docs**      | [`../juniper-service-core/README.md`](../juniper-service-core/README.md)   |
+| **Meta pin**          | `juniper-service-core>=0.2.0,<0.6.0` under `[tools]` / `[all]`             |
+
+#### APIKeyAuth blank-key filter
+
+`APIKeyAuth` and `build_api_key_auth` must use the same blank-filter rule as `auth_posture.real_keys`: strip / ignore empty and whitespace-only configured keys before deciding whether auth is **enabled**.
+
+| Configured keys | Intended behavior | Why |
+|-----------------|-------------------|-----|
+| `None` / `[]` | Auth **disabled** (open mode) | Explicit local-dev open access |
+| `["", "  ", "\n"]` only | Auth **disabled** (open mode) | Empty/placeholder secret files resolve to blanks — not real keys |
+| `["", "real-key"]` | Auth **enabled**; only `real-key` validates | Blanks never enter the compare set |
+
+**Footgun (main today):** `APIKeyAuth([""])` still sets `enabled=True` and `validate("")` / empty `X-API-Key` can succeed via `compare_digest("", "")`. Open [#993](https://github.com/pcalnon/juniper-ml/pull/993) filters blanks before enabling so blank-only configs stay open and empty headers never authenticate.
+
+Pair with boot-time `enforce_auth_posture(..., require_auth=True)` so services that *must* have real keys fail closed at startup (blank-only counts as not configured).
+
+#### Control / worker WebSocket JSON non-object fail-closed
+
+`json.loads` succeeds for arrays / scalars / `null`, but control commands and worker registration expect a **JSON object**. Without an `isinstance(msg, dict)` gate, `msg.get(...)` raises `AttributeError` and tears down the receive / handshake path instead of a controlled reject.
+
+| Channel | Non-object payload (`[]` / `null` / `"x"` / `42` / `true`) | Close | Notes |
+|---------|------------------------------------------------------------|-------|-------|
+| `/ws/control` receive loop | Ack error `"Invalid control message"` + close | **1003** (`Malformed JSON`) | Same close code family as `JSONDecodeError`; loop must not AttributeError |
+| `/ws/workers` registration | Error frame `"Invalid registration"` + close | **4008** | Never registers (`worker_count` stays `0`); distinct from **4006** (invalid JSON text) |
+
+**Main today** still lacks the dict gate (open [#993](https://github.com/pcalnon/juniper-ml/pull/993)). Coverage pins: `test_websocket_control_json_shape_edges.py`, `test_worker_stream_json_shape_edges.py`, plus blank-key arms in `test_security.py`.
+
+| Symptom | Fast check |
+|---------|------------|
+| Empty `X-API-Key` accepted after mounting a blank secret file | Main footgun — need #993 blank filter; confirm `APIKeyAuth.enabled is False` for blank-only keys |
+| Control WS dies after sending `[]` / `null` with no ack | Missing dict gate — expect ack + close **1003** after #993 |
+| Worker handshake AttributeError / abrupt drop on `[]` | Expect close **4008** + no `registration_ack` after #993 (not 4006) |
+
 ---
 
 ## Version History
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.1   | 2026-08-06 | Documented `juniper-service-core` APIKeyAuth blank-key filter + control/worker WS JSON non-object fail-closed (open #993; main still has both footguns)                  |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
 | 0.4.1   | 2026-04-28 | Added `juniper-observability` sibling package and dedicated CI/publish workflows                                                                                         |

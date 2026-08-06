@@ -2,9 +2,9 @@
 
 ## Navigation Guide to juniper-ml Documentation
 
-**Version:** 0.2.6
+**Version:** 0.2.7
 **Status:** Active
-**Last Updated:** 2026-08-05
+**Last Updated:** 2026-08-06
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -39,6 +39,7 @@
 | **Create or clean a worktree**          | [Worktree setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) / [cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md) | notes/ |
 | **Understand the project**              | [README.md](../README.md)                                                                                                        | Root     |
 | **Use shared observability primitives** | [juniper-observability README](../juniper-observability/README.md)                                                               | juniper-observability/ |
+| **Debug blank API-key / non-object WS frames** | [REFERENCE — juniper-service-core](REFERENCE.md#juniper-service-core)                                                       | docs/    |
 | **See development conventions**         | [AGENTS.md](../AGENTS.md)                                                                                                        | Root     |
 | **See version history**                 | [CHANGELOG.md](../CHANGELOG.md)                                                                                                  | Root     |
 
@@ -52,7 +53,7 @@
 |----------------------------------------|------------|--------------------------------------------------------------------------------------------------|
 | **DOCUMENTATION_OVERVIEW.md**          | Overview   | This file -- navigation index                                                                    |
 | **QUICK_START.md**                     | Tutorial   | Install Juniper packages in under a minute                                                       |
-| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, agent-suite doctor, fleet triage / sequence-safety, sibling packages, and release-workflow reference |
+| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, agent-suite doctor, fleet triage / sequence-safety, sibling packages (incl. service-core blank-key + WS JSON shape), and release-workflow reference |
 | **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, and experiment-stack tasks              |
 
 > The deprecated monolithic cheatsheet (`DEVELOPER_CHEATSHEET-ORIGINAL.md`)

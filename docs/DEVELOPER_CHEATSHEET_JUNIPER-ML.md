@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
-**Date**: 2026-08-05
+**Version**: 1.0.9
+**Date**: 2026-08-06
 **Project**: juniper-ml
 
 ---
@@ -444,11 +444,16 @@ Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant he
 
 Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
 
+Tip: `APIKeyAuth` blank/whitespace-only keys must not enable auth (`auth_posture.real_keys` rule) — else empty `X-API-Key` can auth via `compare_digest("", "")`. Control/worker WS must reject JSON non-objects with close **1003**/**4008** (not AttributeError). Open [#993](https://github.com/pcalnon/juniper-ml/pull/993). See [REFERENCE — juniper-service-core](REFERENCE.md#juniper-service-core).
+
 
 ### Host Stack Troubleshooting
 
 | Symptom | Fast Check |
 |---------|------------|
+| Empty `X-API-Key` accepted with blank secret file | Main `APIKeyAuth` blank-key footgun — need open #993 filter; blank-only config must stay `enabled=False`. |
+| Control WS dies after `[]` / `null` with no ack | Missing dict gate — expect ack + close **1003** after #993. |
+| Worker registration AttributeError / drop on non-object JSON | Expect close **4008**, no register — open #993 (distinct from **4006** invalid JSON). |
 | `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch ref — not a damage finding. |
 | `DAMAGED-FIX-FIRST` on intentional delete | Add `Allow-Symbol-Loss: func:…` (qualified) on a commit in the PR; re-run `--pr`. Label alone will not green `main-verify`. |
 | Local triage stuck in pre-commit | `JUNIPER_FLEET_SKIP_PRECOMMIT=1` (screens still run). |

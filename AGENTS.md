@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.0
-**Last Updated**: 2026-08-05
+**Last Updated**: 2026-08-06
 
 ---
 
@@ -146,6 +146,15 @@ the canonical implementation.
 - `lazy_register_or_reuse(factory, name, *args, **kwargs)` — like `register_or_reuse` but caches the result in a module-private dict; for the lazy-init-with-`None`-sentinel pattern.
 
 Tests touching these collectors should use `juniper_observability.testing.reset_prometheus_registry`. Minimum pin: `juniper-observability>=0.2.0`. See [`notes/observability/JUNIPER_2026-05-05_JUNIPER-ML_REGISTER-OR-REUSE-HELPER-DESIGN.md`](notes/observability/JUNIPER_2026-05-05_JUNIPER-ML_REGISTER-OR-REUSE-HELPER-DESIGN.md) for the design rationale and the migration history.
+
+## Shared Service-Core Auth + WS JSON Shape
+
+`juniper-service-core` owns shared `APIKeyAuth` and the control / worker WebSocket receive paths. Operator surface: [`docs/REFERENCE.md` § juniper-service-core](docs/REFERENCE.md#juniper-service-core).
+
+- **Blank-key filter** — `APIKeyAuth` / `build_api_key_auth` must ignore blank/whitespace configured keys (same rule as `auth_posture.real_keys`) so an empty secret file cannot enable auth that accepts empty `X-API-Key` via `compare_digest("", "")`.
+- **Non-object JSON fail-closed** — control receive rejects arrays/scalars/`null` with ack + close **1003**; worker registration rejects them with close **4008** and never registers (never AttributeError on `msg.get`).
+
+Coverage: open juniper-ml#993 (`test_security.py` blank-key arms + `test_websocket_control_json_shape_edges.py` + `test_worker_stream_json_shape_edges.py`). Main still has both footguns until that PR merges.
 
 ## Repository Structure
 
