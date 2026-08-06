@@ -861,14 +861,19 @@ class TestNohupModeBehavioral(unittest.TestCase):
                 )
             finally:
                 if pidfile.is_file():
+                    import sys
+
                     for line in pidfile.read_text().splitlines():
                         if "=" in line:
                             pid = line.split("=", 1)[1].strip()
                             if pid.isdigit():
                                 try:
                                     os.kill(int(pid), signal.SIGKILL)
-                                except OSError:
-                                    pass
+                                except OSError as exc:
+                                    print(
+                                        f"non-fatal cleanup warning: failed to kill pid {pid}: {exc}",
+                                        file=sys.stderr,
+                                    )
                     pidfile.unlink(missing_ok=True)
 
     def test_mid_plant_health_failure_cleans_started_pids_and_pidfile(self) -> None:
