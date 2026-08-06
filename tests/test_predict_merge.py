@@ -6,10 +6,16 @@ fixture repos (the ``tests/test_worktree_cleanup.py`` fixture idiom) -- no netwo
 
 * the four verdict classes -- MERGE-CLEAN, NEEDS-UPDATE-BRANCH, DAMAGED-FIX-FIRST
   (symbol-loss AND docs-deletion AND injected gate-fail), and CONFLICT;
+* the #895 ``_ast_symbol_screen`` fail-soft arms (non-screenable short-circuit, missing /
+  exit-2 / empty / non-JSON checker -> ``skip``, WARN-only not mapped, ``skip`` ≠ DAMAGED);
 * the TRUE-delta-vs-stale-file-list discrimination (delta from the merge RESULT, so a
   main-owned file the branch is merely stale on is excluded -- the #729 class);
-* the ``--batch`` cluster map + suggested merge order (restore/heal first, then ascending
-  same-file-cluster membership), including a fake-``gh`` end-to-end batch;
+* the docs additions-only screen edges (``_removed_content_lines`` ``---`` header
+  exclusion; additions-only ``.md`` pass; non-``.md`` deletions ignored);
+* the fast-gate battery skip when the TRUE delta has no ``.py`` files;
+* the ``--batch`` cluster map + suggested merge order (restore/heal/repair/fix-first
+  first, then ascending same-file-cluster membership), including a fake-``gh``
+  end-to-end batch;
 * the detached-clone-never-mutates-source contract (a ``git clone`` under the system
   tempdir, never a ``git worktree`` of -- and never a write to -- the invoking checkout);
 * CLI exit codes (0 always-report / 2 usage / 2 non-git ``--repo-root``).
@@ -277,6 +283,61 @@ class VerdictTest(_RepoCase):
         self.assertEqual(v["gates"]["docs_additions_only"]["status"], "fail")
         self.assertEqual(v["gates"]["docs_additions_only"].get("waived"), [])
 
+    def test_docs_additions_only_markdown_is_merge_clean(self):
+        # Pure docs additions must NOT trip docs_additions_only (no `-` content lines).
+        # Regression class: counting unified-diff `---`/`+++` headers as removals would
+        # falsely DAMAGED every new `.md` file and stall the fleet merge order.
+        _write(self.repo, "notes/keep.md", "# keep\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "docadd")
+        _write(self.repo, "notes/new.md", "# new section\n\nbody\n")
+        _commit(self.repo, "add notes/new.md")
+
+        v = pm.simulate_merge(self.repo, "docadd", run_gates=False)
+        self.assertEqual(v["gates"]["docs_additions_only"]["status"], "pass")
+        self.assertEqual(v["gates"]["docs_additions_only"]["deletions"], [])
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+
+    def test_non_markdown_deletion_does_not_trip_docs_screen(self):
+        # docs_additions_only is intentionally `.md`-scoped; a .txt deletion alone must
+        # not produce DAMAGED-FIX-FIRST via that gate (symbol/gate battery own .py).
+        _write(self.repo, "plain.txt", "a\nb\nc\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "txtdel")
+        _write(self.repo, "plain.txt", "a\nc\n")  # drop b
+        _commit(self.repo, "drop a txt line")
+
+        v = pm.simulate_merge(self.repo, "txtdel", run_gates=False)
+        self.assertEqual(v["gates"]["docs_additions_only"]["status"], "pass")
+        self.assertEqual(v["gates"]["docs_additions_only"]["deletions"], [])
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+
+    def test_gate_battery_skips_when_delta_has_no_py(self):
+        # Docs-only TRUE delta must skip every pre-commit hook (never invoke the runner).
+        # Without this, a mis-wired battery could fail-closed on empty `--files` or
+        # invent flake8 damage for PRs that touch no Python.
+        _write(self.repo, "notes/seed.md", "seed\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "mdonly")
+        _write(self.repo, "notes/extra.md", "extra\n")
+        _commit(self.repo, "add notes/extra.md")
+
+        calls = []
+
+        def tracking_runner(clone, hook, files):
+            calls.append((hook, list(files)))
+            return ("fail", "must not run")
+
+        v = pm.simulate_merge(self.repo, "mdonly", gate_runner=tracking_runner)
+        self.assertEqual(calls, [], "gate_runner must not run when the delta has no .py")
+        for hook in pm.PRECOMMIT_HOOKS:
+            self.assertEqual(v["gates"][hook]["status"], "skip")
+            self.assertIn("no .py", v["gates"][hook]["detail"])
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+
     def test_damaged_injected_gate_failure(self):
         # A clean, additions-only .py PR (no symbol loss) with an injected failing gate.
         _write(self.repo, "util/keep.py", "x = 1\n")
@@ -365,6 +426,51 @@ class ClusterOrderTest(unittest.TestCase):
         order = pm.suggest_order(verdicts, clusters)
         self.assertEqual(order[0], 12, "the singleton-cluster PR should lead when no heal PR exists")
 
+    def test_is_heal_recognizes_repair_and_fix_first_tokens(self):
+        # suggest_order only auto-leads on restore/heal today in the cluster test; the
+        # other documented tokens must also promote, or a repair/fix-first PR sits
+        # behind colliding feat work and the supervisor merge order is wrong.
+        self.assertTrue(pm._is_heal({"title": "repair broken gate", "branch": "cursor/x"}))
+        self.assertTrue(pm._is_heal({"title": "feat", "branch": "cursor/fix-first-docs"}))
+        self.assertTrue(pm._is_heal({"title": "heal canopy WS", "branch": "cursor/y"}))
+        self.assertFalse(pm._is_heal({"title": "feat docs", "branch": "cursor/docs-sync"}))
+
+        verdicts = [
+            {"pr": 20, "title": "feat hot", "branch": "cursor/hot", "true_delta": ["HOT.py"]},
+            {"pr": 21, "title": "repair symbol screen", "branch": "cursor/repair-x", "true_delta": ["A.md"]},
+            {"pr": 22, "title": "feat solo", "branch": "cursor/solo", "true_delta": ["SOLO.py"]},
+            {"pr": 23, "title": "nudge", "branch": "cursor/fix-first-y", "true_delta": ["B.md"]},
+        ]
+        clusters = pm.build_clusters(verdicts)
+        order = pm.suggest_order(verdicts, clusters)
+        # Both heal PRs lead (repair title + fix-first branch); remaining ties break
+        # by PR number via _pr_key (20 before 22), not by title.
+        self.assertEqual(order[:2], [21, 23], order)
+        self.assertEqual(order[2:], [20, 22], order)
+
+
+# --------------------------------------------------------------------------- #
+# docs additions-only screen — pure unit + wiring edges
+# --------------------------------------------------------------------------- #
+
+
+class DocsAdditionsScreenUnitTest(unittest.TestCase):
+    """Pin ``_removed_content_lines`` so unified-diff headers never inflate deletions."""
+
+    def test_removed_content_lines_ignores_file_headers(self):
+        # A real unified diff always opens with `---` / `+++` headers. Those must not
+        # count as content removals — otherwise every touched `.md` (even pure adds)
+        # reports removed_lines >= 1 and the PR is falsely DAMAGED-FIX-FIRST.
+        diff = "diff --git a/notes/x.md b/notes/x.md\n" "index 111..222 100644\n" "--- a/notes/x.md\n" "+++ b/notes/x.md\n" "@@ -1,3 +1,3 @@\n" " keep\n" "-gone\n" "+added\n" " keep2\n"
+        self.assertEqual(pm._removed_content_lines(diff), 1)
+
+    def test_removed_content_lines_pure_add_is_zero(self):
+        diff = "diff --git a/notes/new.md b/notes/new.md\n" "new file mode 100644\n" "index 000..abc\n" "--- /dev/null\n" "+++ b/notes/new.md\n" "@@ -0,0 +1,2 @@\n" "+# title\n" "+body\n"
+        self.assertEqual(pm._removed_content_lines(diff), 0)
+
+    def test_removed_content_lines_empty_diff_is_zero(self):
+        self.assertEqual(pm._removed_content_lines(""), 0)
+
 
 def _install_fake_gh(bin_dir: Path, payload_dir: Path) -> None:
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -411,6 +517,122 @@ class TriageBatchGhTest(_RepoCase):
         self.assertCountEqual(report["merge_order"], [1, 2])
         for v in report["prs"]:
             self.assertIn(v["verdict"], pm.SCRIPT_VERDICTS)
+
+
+# --------------------------------------------------------------------------- #
+# _ast_symbol_screen degrade arms (#895 switch to sequence_safety CLI)
+# --------------------------------------------------------------------------- #
+
+
+class AstSymbolScreenDegradeTest(unittest.TestCase):
+    """Pin the fail-soft contract of the #895 subprocess screen.
+
+    A missing / broken / non-JSON checker must ``skip`` (never crash triage), and
+    ``skip`` must never become ``DAMAGED-FIX-FIRST`` -- only ``status == \"fail\"``
+    drives that verdict. WARN-only findings must not be mapped into ``lost``.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="fleet-ast-degrade-"))
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self.tmp)], check=False))
+        # A real on-disk path so ``_SYMBOL_LOSS_CHECK.exists()`` is true without
+        # monkeypatching ``Path.exists`` (which would bleed into git/fixture helpers).
+        self.checker = self.tmp / "symbol_loss_check.py"
+        self.checker.write_text("# stub checker path for exists() only\n", encoding="utf-8")
+
+    def _screen_with_run(self, cp: subprocess.CompletedProcess, changed=None):
+        with mock.patch.object(pm, "_SYMBOL_LOSS_CHECK", self.checker):
+            with mock.patch.object(pm, "_run", return_value=cp) as run_mock:
+                out = pm._ast_symbol_screen(Path("/clone"), "base", "head", changed or ["util/mod.py"])
+        return out, run_mock
+
+    def test_non_screenable_delta_short_circuits_without_subprocess(self):
+        with mock.patch.object(pm, "_run") as run_mock:
+            out = pm._ast_symbol_screen(Path("/unused"), "base", "head", ["notes.md", "README.txt"])
+        self.assertEqual(out, {"status": "pass", "lost": []})
+        run_mock.assert_not_called()
+
+    def test_missing_checker_degrades_to_skip(self):
+        missing = self.tmp / "no-such-symbol-loss-check.py"
+        with mock.patch.object(pm, "_SYMBOL_LOSS_CHECK", missing):
+            with mock.patch.object(pm, "_run") as run_mock:
+                out = pm._ast_symbol_screen(Path("/unused"), "base", "head", ["util/mod.py"])
+        self.assertEqual(out["status"], "skip")
+        self.assertEqual(out["lost"], [])
+        self.assertIn("unavailable", out["detail"])
+        run_mock.assert_not_called()
+
+    def test_checker_exit_2_degrades_to_skip(self):
+        cp = subprocess.CompletedProcess(
+            args=["symbol_loss_check"],
+            returncode=2,
+            stdout="",
+            stderr="fatal: bad revision 'base'\n",
+        )
+        out, run_mock = self._screen_with_run(cp)
+        self.assertEqual(out["status"], "skip")
+        self.assertEqual(out["lost"], [])
+        self.assertIn("bad revision", out["detail"])
+        run_mock.assert_called_once()
+
+    def test_empty_stdout_degrades_to_skip(self):
+        cp = subprocess.CompletedProcess(args=[], returncode=0, stdout="   \n", stderr="")
+        out, _ = self._screen_with_run(cp)
+        self.assertEqual(out["status"], "skip")
+        self.assertEqual(out["lost"], [])
+        self.assertIn("symbol-loss screen error", out["detail"])
+
+    def test_non_json_stdout_degrades_to_skip(self):
+        cp = subprocess.CompletedProcess(args=[], returncode=0, stdout="not-json{\n", stderr="")
+        out, _ = self._screen_with_run(cp)
+        self.assertEqual(out["status"], "skip")
+        self.assertEqual(out["lost"], [])
+        self.assertEqual(out["detail"], "symbol-loss screen returned non-JSON")
+
+    def test_warn_only_findings_are_not_mapped_into_lost(self):
+        report = {
+            "findings": [
+                {"path": "util/mod.py", "symbol": "func:foo", "verdict": "RELOCATED", "severity": "WARN"},
+            ]
+        }
+        cp = subprocess.CompletedProcess(args=[], returncode=0, stdout=json.dumps(report), stderr="")
+        out, _ = self._screen_with_run(cp)
+        self.assertEqual(out["status"], "pass")
+        self.assertEqual(out["lost"], [])
+
+    def test_fail_findings_map_shape_and_status(self):
+        report = {
+            "findings": [
+                {"path": "util/mod.py", "symbol": "func:foo", "verdict": "LOST", "severity": "FAIL"},
+                {"path": "util/mod.py", "symbol": "func:bar", "verdict": "WEAKENED", "severity": "WARN"},
+            ]
+        }
+        cp = subprocess.CompletedProcess(args=[], returncode=1, stdout=json.dumps(report), stderr="")
+        out, _ = self._screen_with_run(cp)
+        self.assertEqual(out["status"], "fail")
+        self.assertEqual(
+            out["lost"],
+            [{"file": "util/mod.py", "symbol": "func:foo", "kind": "lost"}],
+        )
+
+    def test_skip_status_does_not_damage_merge_verdict(self):
+        # End-to-end: a .py-touching PR whose checker is unavailable must stay MERGE-CLEAN
+        # (skip ≠ fail). Regression class: treating skip as damaged would block every
+        # fleet triage batch when sequence_safety is temporarily absent.
+        repo = self.tmp / "repo"
+        _init_repo(repo)
+        _write(repo, "util/keep.py", "x = 1\n")
+        _commit(repo, "c0")
+        _publish_main(repo)
+        _git(repo, "checkout", "-q", "-b", "addpy")
+        _write(repo, "util/new.py", "def baz():\n    return 3\n")
+        _commit(repo, "add util/new.py")
+
+        missing = self.tmp / "no-such-symbol-loss-check.py"
+        with mock.patch.object(pm, "_SYMBOL_LOSS_CHECK", missing):
+            v = pm.simulate_merge(repo, "addpy", run_gates=False)
+        self.assertEqual(v["gates"]["ast_symbol_screen"]["status"], "skip")
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
 
 
 # --------------------------------------------------------------------------- #
