@@ -586,7 +586,11 @@ Do not treat a `--pr` traceback / exit `2` as “the PR is damaged” — fix `g
 
 #### Deleted-`.py` gate filter + `JUNIPER_FLEET_SKIP_PRECOMMIT` (on main; pins in open #977)
 
-After a clean merge, `true_delta` is every path changed vs the base tip. The fast-gate battery receives only `changed_existing = [p for p in true_delta if _blob(HEAD, p) is not None]` — paths **deleted** on the merge RESULT are kept in `true_delta` (so the symbol screen can honestly report `LOST` → `DAMAGED-FIX-FIRST`) but are **never** handed to `pre-commit --files` (a missing path would false-DAMAGED the battery). When the only `.py` in the delta is deleted, each hook is `status=skip` with detail `no .py files in delta`.
+After a clean merge, `true_delta` is every path changed vs the base tip. The fast-gate battery receives only
+`changed_existing = [p for p in true_delta if _blob(HEAD, p) is not None]` — paths **deleted** on the merge RESULT
+are kept in `true_delta` (so the symbol screen can honestly report `LOST` → `DAMAGED-FIX-FIRST`) but are **never**
+handed to `pre-commit --files` (a missing path would false-DAMAGED the battery). When the only `.py` in the delta
+is deleted, each hook is `status=skip` with detail `no .py files in delta`.
 
 `JUNIPER_FLEET_SKIP_PRECOMMIT=1` (with the default gate runner) forces `skip_all`: every pre-commit hook is `status=skip` with detail `gates disabled (run_gates/env)`. Symbol + docs screens still run. Use it for hermetic / hook-unavailable local runs — not to silence live fleet gates in production triage.
 
