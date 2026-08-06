@@ -27,6 +27,11 @@ pins:
   only the pidfile path can kill the process), target-file removal, lockdir
   release, artifacts preserved, and the kill-by-port fallback when the pidfile
   path refuses a reused PID whose cmdline no longer matches.
+- live ``data_up`` / ``cascor_up`` / ``recurrence_up`` compose (F-6 listener pid
+  via ``ss`` after health, §6.1 env recipes) with PATH-stubbed env bins — no real
+  conda / network / docker;
+- ``do_up`` partial-failure → ``teardown_run`` (locks released, recorded data
+  listener killed) when a later service fails require_env_bin.
 
 Hermetic mechanics: ``JUNIPER_EXP_RUN_ROOT`` / ``JUNIPER_EXP_LOCK_ROOT`` /
 ``JUNIPER_EXP_DEPLOY_DIR`` / ``JUNIPER_EXP_PROJECT_DIR`` redirect every path into a
@@ -44,6 +49,7 @@ import re
 import signal
 import subprocess
 import tempfile
+import textwrap
 import time
 import unittest
 from pathlib import Path
@@ -54,6 +60,7 @@ SCRIPT_PATH = Path(__file__).resolve().parent.parent / "util" / "experiment_stac
 SCRIPT_TEXT = SCRIPT_PATH.read_text()
 SCRIPT_TIMEOUT_SECONDS = 20
 TEARDOWN_TIMEOUT_SECONDS = 45
+LIVE_UP_TIMEOUT_SECONDS = 30
 
 
 def _strip_comment_lines(text: str) -> str:
@@ -132,6 +139,110 @@ def _stage_conda_fixture(root: Path) -> Path:
         for bin_name in bins:
             _write_stub(bin_dir / bin_name, "#!/usr/bin/env bash\nexec sleep 60\n")
     return conda_dir
+
+
+def _force_kill(pid: int) -> None:
+    for kill_target in (lambda: os.killpg(pid, signal.SIGKILL), lambda: os.kill(pid, signal.SIGKILL)):
+        try:
+            kill_target()
+            break
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            continue
+    for _ in range(20):
+        if not Path(f"/proc/{pid}").exists():
+            return
+        time.sleep(0.05)
+
+
+def _stage_live_path_stubs(root: Path, listeners_dir: Path) -> Path:
+    """PATH stubs for live ``*_up``: curl waits for listener pidfile; ``ss`` reads it.
+
+    The env-bin stub registers ``$$`` under ``listeners_dir/<port>.pid`` *after* it is
+    backgrounded. ``wait_for_health`` can beat that write on the first poll if curl is
+    always-OK — then ``record_listener_pid`` fails with "no listener pid resolved via ss".
+    Curl therefore polls the pidfile (up to ~1s) before exiting 0; missing → exit 22 so
+    the health loop retries.
+    """
+    stub_bin = root / "live-path-stubs"
+    stub_bin.mkdir(parents=True, exist_ok=True)
+    listeners_dir.mkdir(parents=True, exist_ok=True)
+    _write_stub(
+        stub_bin / "ss",
+        textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            want=""
+            for arg in "$@"; do
+              case "$arg" in
+                *sport*) want="${{arg##*:}}" ;;
+              esac
+            done
+            [[ -n "$want" ]] || exit 0
+            pidfile="{listeners_dir}/$want.pid"
+            if [[ -f "$pidfile" ]]; then
+              pid="$(cat "$pidfile")"
+              echo "LISTEN 0 128 127.0.0.1:${{want}} 0.0.0.0:* users:((\\"python\\",pid=${{pid}},fd=3))"
+            fi
+            exit 0
+            """),
+    )
+    _write_stub(
+        stub_bin / "curl",
+        textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            url=""
+            for arg in "$@"; do
+              case "$arg" in
+                http://*|https://*) url="$arg" ;;
+              esac
+            done
+            # http://127.0.0.1:68110/v1/health -> 68110
+            port="$(printf '%s' "$url" | sed -n 's#.*://[^/:]*:\\([0-9][0-9]*\\)/.*#\\1#p')"
+            [[ -n "$port" ]] || exit 0
+            pidfile="{listeners_dir}/$port.pid"
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+              if [[ -f "$pidfile" ]]; then
+                exit 0
+              fi
+              sleep 0.1
+            done
+            exit 22
+            """),
+    )
+    _write_stub(stub_bin / "docker", "#!/usr/bin/env bash\nexit 0\n")
+    _write_stub(stub_bin / "socat", "#!/usr/bin/env bash\nexec sleep 60\n")
+    return stub_bin
+
+
+def _write_listening_env_bin(path: Path, *, listeners_dir: Path, marker_dir: Path, label: str) -> None:
+    """Conda env bin that registers ``$$`` for ``ss`` then sleeps (F-6 live compose)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_stub(
+        path,
+        textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            port=""
+            prev=""
+            for arg in "$@"; do
+              if [[ "$prev" == "--port" ]]; then
+                port="$arg"
+              fi
+              prev="$arg"
+            done
+            [[ -n "$port" ]] || {{ echo "missing --port in $*" >&2; exit 2; }}
+            mkdir -p "{listeners_dir}" "{marker_dir}"
+            printf '%s\\n' "$@" >"{marker_dir}/{label}.args"
+            {{
+              printf 'PWD=%s\\n' "$PWD"
+              # Prefix match for JUNIPER_* (not JUNIPER_=); keep PYTHON_GIL / LD_LIBRARY_PATH / PATH.
+              env | grep -E '^(PYTHON_GIL|LD_LIBRARY_PATH|PATH|JUNIPER_)' || true
+            }} >"{marker_dir}/{label}.env"
+            printf '%s\\n' "$$" >"{listeners_dir}/${{port}}.pid"
+            exec sleep 60
+            """),
+    )
 
 
 class TestSyntax(unittest.TestCase):
@@ -941,6 +1052,275 @@ class TestConfigStaging(unittest.TestCase):
         recurrence_up = _extract_experiment_fn("recurrence_up")
         self.assertNotIn("serve --config", recurrence_up)
         self.assertIn("Wave 3.3", recurrence_up)
+
+
+class _LiveUpHarness(unittest.TestCase):
+    """Shared helpers for live ``*_up`` compose (F-6 ss listener after health)."""
+
+    def _common_prelude(
+        self,
+        *,
+        run_dir: Path,
+        conda_dir: Path,
+        project_dir: Path,
+        data_port: str = "68110",
+        cascor_port: str = "68230",
+        recurrence_port: str = "68260",
+    ) -> str:
+        # Concatenate (do not f-string) so bash `${...}` in extracts stay literal.
+        return (
+            "set -euo pipefail\n"
+            'SCRIPT_NAME="experiment_stack.bash"\n'
+            "DRY_RUN=0\n"
+            "CONDA_ACTIVATE=0\n"
+            f'CONDA_DIR="{conda_dir}"\n'
+            f'PROJECT_DIR="{project_dir}"\n'
+            f'CASCOR_SRC_DIR="{project_dir}/juniper-cascor/src"\n'
+            f'RUN_DIR="{run_dir}"\n'
+            f'LOG_DIR="{run_dir}/logs"\n'
+            f'DATA_PORT="{data_port}"\n'
+            f'CASCOR_PORT="{cascor_port}"\n'
+            f'RECURRENCE_PORT="{recurrence_port}"\n'
+            f'DATA_URL="http://127.0.0.1:{data_port}"\n'
+            'DATA_CONDA="JuniperData"\n'
+            'CASCOR_CONDA="JuniperCascor1"\n'
+            'RECURRENCE_CONDA="JuniperCascor1"\n'
+            "HEALTH_TIMEOUT=4\n"
+            'CONFIG_PATH=""\n'
+            'log() { echo "[${SCRIPT_NAME}] $*"; }\n'
+            'banner() { echo ""; echo "[${SCRIPT_NAME}] === $* ==="; }\n'
+            'announce() { echo "[${SCRIPT_NAME}] \\$ $*"; }\n'
+            'is_dry() { [[ "${DRY_RUN}" == "1" ]]; }\n' + _extract_experiment_fn("require_cmd") + _extract_experiment_fn("ensure_dir") + _extract_experiment_fn("env_bin") + _extract_experiment_fn("require_env_bin") + _extract_experiment_fn("port_listener_pid") + _extract_experiment_fn("proc_cmdline") + _extract_experiment_fn("wait_for_health") + _extract_experiment_fn("record_listener_pid") + _extract_experiment_fn("record_launch_env")
+        )
+
+    def _run_harness(self, harness: str, *, stub_bin: Path) -> subprocess.CompletedProcess[str]:
+        env = RedactedEnv(os.environ)
+        env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+        return subprocess.run(
+            ["/bin/bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=LIVE_UP_TIMEOUT_SECONDS,
+        )
+
+
+class TestDataUpLive(_LiveUpHarness):
+    """Behavioral pins for live ``data_up`` (direct env-bin + F-6 listener pid)."""
+
+    def test_happy_path_gil_env_listener_pid_and_health(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            marker_dir = root / "markers"
+            listeners_dir = root / "listeners"
+            project_dir = root / "project"
+            conda_dir = root / "conda"
+            (project_dir / "juniper-cascor" / "src").mkdir(parents=True)
+            stub_bin = _stage_live_path_stubs(root, listeners_dir)
+            _write_listening_env_bin(
+                conda_dir / "envs" / "JuniperData" / "bin" / "python",
+                listeners_dir=listeners_dir,
+                marker_dir=marker_dir,
+                label="data",
+            )
+            harness = self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir) + _extract_experiment_fn("data_up") + "data_up\n"
+            result = self._run_harness(harness, stub_bin=stub_bin)
+            pid_path = run_dir / "juniper-data.pid"
+            child_pid: int | None = None
+            try:
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertIn("juniper-data is healthy", result.stdout)
+                self.assertTrue(pid_path.is_file(), "data_up must record listener pid via ss (F-6)")
+                child_pid = int(pid_path.read_text().strip())
+                self.assertTrue(Path(f"/proc/{child_pid}").exists())
+                self.assertEqual(
+                    child_pid,
+                    int((listeners_dir / "68110.pid").read_text().strip()),
+                    "pidfile must match the ss-reported listener, not a subshell $!",
+                )
+                env_text = (marker_dir / "data.env").read_text()
+                self.assertIn("PYTHON_GIL=0", env_text)
+                self.assertIn(f"JUNIPER_DATA_STORAGE_PATH={run_dir}/data", env_text)
+                self.assertIn(f"JUNIPER_DATA_EQUITIES_CACHE_DIR={run_dir}/equities-cache", env_text)
+                self.assertIn("JUNIPER_DATA_METRICS_ENABLED=true", env_text)
+                args = (marker_dir / "data.args").read_text()
+                self.assertIn("-m", args)
+                self.assertIn("juniper_data", args)
+                self.assertIn("--port", args)
+                self.assertIn("68110", args)
+                cmdline = (run_dir / "juniper-data.cmdline").read_text()
+                self.assertTrue(cmdline.strip(), "cmdline sidecar must be recorded for teardown")
+                launch_env = (run_dir / "env" / "launch.env").read_text()
+                self.assertIn("PYTHON_GIL=0", launch_env)
+            finally:
+                if child_pid is not None:
+                    _force_kill(child_pid)
+
+
+class TestCascorUpLive(_LiveUpHarness):
+    """Behavioral pins for live ``cascor_up`` (LD_LIBRARY_PATH='', data URL, src CWD)."""
+
+    def test_happy_path_libtorch_neutral_data_url_and_listener(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            marker_dir = root / "markers"
+            listeners_dir = root / "listeners"
+            project_dir = root / "project"
+            conda_dir = root / "conda"
+            cascor_src = project_dir / "juniper-cascor" / "src"
+            cascor_src.mkdir(parents=True)
+            stub_bin = _stage_live_path_stubs(root, listeners_dir)
+            _write_listening_env_bin(
+                conda_dir / "envs" / "JuniperCascor1" / "bin" / "uvicorn",
+                listeners_dir=listeners_dir,
+                marker_dir=marker_dir,
+                label="cascor",
+            )
+            harness = self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir) + _extract_experiment_fn("cascor_up") + "cascor_up\n"
+            result = self._run_harness(harness, stub_bin=stub_bin)
+            pid_path = run_dir / "juniper-cascor.pid"
+            child_pid: int | None = None
+            try:
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertIn("juniper-cascor is healthy", result.stdout)
+                self.assertTrue(pid_path.is_file())
+                child_pid = int(pid_path.read_text().strip())
+                env_text = (marker_dir / "cascor.env").read_text()
+                self.assertIn("LD_LIBRARY_PATH=\n", env_text)
+                self.assertIn("JUNIPER_DATA_URL=http://127.0.0.1:68110", env_text)
+                self.assertIn("JUNIPER_CASCOR_AUTO_START=false", env_text)
+                self.assertIn("JUNIPER_CASCOR_METRICS_ENABLED=true", env_text)
+                args = (marker_dir / "cascor.args").read_text()
+                self.assertIn("api.app:create_app", args)
+                self.assertIn("--factory", args)
+                self.assertIn("68230", args)
+                self.assertIn(f"PWD={cascor_src}", (marker_dir / "cascor.env").read_text())
+            finally:
+                if child_pid is not None:
+                    _force_kill(child_pid)
+
+    def test_missing_uvicorn_aborts_before_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            listeners_dir = root / "listeners"
+            project_dir = root / "project"
+            conda_dir = root / "conda"
+            (project_dir / "juniper-cascor" / "src").mkdir(parents=True)
+            (conda_dir / "envs" / "JuniperCascor1" / "bin").mkdir(parents=True)
+            stub_bin = _stage_live_path_stubs(root, listeners_dir)
+            harness = self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir) + _extract_experiment_fn("cascor_up") + "set +e\n" + "cascor_up\n" + "echo STATUS=$?\n"
+            result = self._run_harness(harness, stub_bin=stub_bin)
+            # Harness ends with `echo STATUS=$?` under `set +e`; a non-zero STATUS is the pin.
+            self.assertIn("STATUS=1", result.stdout, msg=result.stderr + result.stdout)
+            self.assertIn("uvicorn not found in conda env", result.stdout)
+            self.assertFalse((run_dir / "juniper-cascor.pid").exists())
+
+
+class TestRecurrenceUpLive(_LiveUpHarness):
+    """Behavioral pins for live ``recurrence_up`` (ready health + metrics/rate-limit env)."""
+
+    def test_happy_path_ready_health_and_listener(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            marker_dir = root / "markers"
+            listeners_dir = root / "listeners"
+            project_dir = root / "project"
+            conda_dir = root / "conda"
+            (project_dir / "juniper-cascor" / "src").mkdir(parents=True)
+            stub_bin = _stage_live_path_stubs(root, listeners_dir)
+            _write_listening_env_bin(
+                conda_dir / "envs" / "JuniperCascor1" / "bin" / "juniper-recurrence",
+                listeners_dir=listeners_dir,
+                marker_dir=marker_dir,
+                label="recurrence",
+            )
+            harness = self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir) + _extract_experiment_fn("recurrence_up") + "recurrence_up\n"
+            result = self._run_harness(harness, stub_bin=stub_bin)
+            pid_path = run_dir / "juniper-recurrence.pid"
+            child_pid: int | None = None
+            try:
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertIn("juniper-recurrence is healthy", result.stdout)
+                self.assertTrue(pid_path.is_file())
+                child_pid = int(pid_path.read_text().strip())
+                env_text = (marker_dir / "recurrence.env").read_text()
+                self.assertIn("JUNIPER_RECURRENCE_METRICS_ENABLED=true", env_text)
+                self.assertIn("JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=false", env_text)
+                self.assertIn("JUNIPER_DATA_URL=http://127.0.0.1:68110", env_text)
+                args = (marker_dir / "recurrence.args").read_text()
+                self.assertIn("serve", args)
+                self.assertIn("68260", args)
+            finally:
+                if child_pid is not None:
+                    _force_kill(child_pid)
+
+
+class TestDoUpPartialFailureTeardown(unittest.TestCase):
+    """``do_up`` must tear a partial run back down when a later service fails."""
+
+    def test_cascor_missing_bin_tears_down_data_and_releases_locks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_root = root / "runs"
+            lock_root = root / "locks"
+            deploy_dir = root / "deploy"
+            project_dir = root / "project"
+            conda_dir = root / "conda"
+            listeners_dir = root / "listeners"
+            marker_dir = root / "markers"
+            (project_dir / "juniper-cascor" / "src").mkdir(parents=True)
+            stub_bin = _stage_live_path_stubs(root, listeners_dir)
+            _write_listening_env_bin(
+                conda_dir / "envs" / "JuniperData" / "bin" / "python",
+                listeners_dir=listeners_dir,
+                marker_dir=marker_dir,
+                label="data",
+            )
+            # Cascor env exists but uvicorn is missing → require_env_bin fails after data_up.
+            (conda_dir / "envs" / "JuniperCascor1" / "bin").mkdir(parents=True)
+
+            env = RedactedEnv(
+                os.environ,
+                JUNIPER_EXP_RUN_ROOT=str(run_root),
+                JUNIPER_EXP_LOCK_ROOT=str(lock_root),
+                JUNIPER_EXP_DEPLOY_DIR=str(deploy_dir),
+                JUNIPER_EXP_PROJECT_DIR=str(project_dir),
+                JUNIPER_EXP_CONDA_DIR=str(conda_dir),
+                JUNIPER_EXP_HEALTH_TIMEOUT="4",
+                JUNIPER_EXP_KILL_TIMEOUT="5",
+                PATH=str(stub_bin) + os.pathsep + "/usr/bin:/bin",
+            )
+            result = subprocess.run(
+                ["/bin/bash", str(SCRIPT_PATH), "--up", "--cascor", "--experiment", "partial-fail"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=TEARDOWN_TIMEOUT_SECONDS,
+            )
+            self.assertNotEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("bring-up failed — tearing the partial run back down", result.stdout)
+            self.assertIn("uvicorn not found in conda env", result.stdout)
+
+            runs = list(run_root.iterdir()) if run_root.is_dir() else []
+            self.assertEqual(len(runs), 1, f"expected one partial RUN_DIR, got {runs}")
+            run_dir = runs[0]
+            self.assertTrue((run_dir / "ports.json").is_file(), "ports.json must exist before launches")
+            self.assertTrue((run_dir / "teardown.json").is_file(), "teardown_run must write teardown.json")
+            self.assertFalse((run_dir / "juniper-data.pid").exists(), "teardown must clear the data pidfile")
+            self.assertFalse((lock_root / "8110.lock").exists(), "data port lock must be released")
+            self.assertFalse((lock_root / "8230.lock").exists(), "cascor port lock must be released")
+            data_listener = listeners_dir / "8110.pid"
+            if data_listener.is_file():
+                pid = int(data_listener.read_text().strip())
+                for _ in range(60):
+                    if not Path(f"/proc/{pid}").exists():
+                        break
+                    time.sleep(0.1)
+                self.assertFalse(Path(f"/proc/{pid}").exists(), "partial teardown must kill the data listener")
 
 
 if __name__ == "__main__":
