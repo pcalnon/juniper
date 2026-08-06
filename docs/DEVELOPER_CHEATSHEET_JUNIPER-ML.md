@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
+**Version**: 1.0.9
 **Date**: 2026-08-05
 **Project**: juniper-ml
 
@@ -226,6 +226,7 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 | Publish `juniper-ml`   | Create GitHub Release with `vX.Y.Z` tag (OIDC trusted publishing)                           |
 | Publish observability  | Push `juniper-observability-vX.Y.Z` tag (OIDC trusted publishing)                           |
 | Publish doc-tools      | Push `juniper-doc-tools-vX.Y.Z` tag (OIDC trusted publishing)                               |
+| Open-PR budget alarm   | Daily 14:00 UTC `pr-budget-alarm.yml` (report-only); `gh workflow run pr-budget-alarm.yml`  |
 | Doc links (CI parity)  | `juniper-check-doc-links --exclude templates --exclude history --exclude legacy --cross-repo skip` |
 | Doc links (full local) | `juniper-check-doc-links --cross-repo check`                                                |
 | Sequence-safety (local) | `python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD` (+ sibling `docs_additions_check.py`) |
@@ -444,11 +445,15 @@ Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant he
 
 Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
 
+Tip: open-PR budget alarm (`.github/workflows/pr-budget-alarm.yml`) is **report-only** — WARN/ALARM never fails the cron or blocks merges. Thresholds are repo vars `PR_BUDGET_WARN` (default 15) / `PR_BUDGET_ALARM` (default 30); breach trips on total open **or** `cursor/`-headed count. Slack uses `SLACK_WEBHOOK_URL` (skip if unset). On WARN/ALARM, drain same-file clusters first. Full contract: [REFERENCE — Open-PR Budget Alarm](REFERENCE.md#open-pr-budget-alarm).
+
 
 ### Host Stack Troubleshooting
 
 | Symptom | Fast Check |
 |---------|------------|
+| Slack PR-budget WARN/ALARM | Open the `PR Budget Alarm` run step summary; drain oldest `cursor/` same-file clusters; confirm dashboard per-run caps. Raise thresholds only via `PR_BUDGET_WARN` / `PR_BUDGET_ALARM` repo vars. |
+| Budget alarm cron green but no Slack on breach | Confirm `SLACK_WEBHOOK_URL` is set; missing secret skips notification by design (run stays green). |
 | `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch ref — not a damage finding. |
 | `DAMAGED-FIX-FIRST` on intentional delete | Add `Allow-Symbol-Loss: func:…` (qualified) on a commit in the PR; re-run `--pr`. Label alone will not green `main-verify`. |
 | Local triage stuck in pre-commit | `JUNIPER_FLEET_SKIP_PRECOMMIT=1` (screens still run). |
