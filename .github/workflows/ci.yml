@@ -363,6 +363,12 @@ jobs:
           # (G3) -- whose battery job mirrors THIS list and must stay in sync with it.
           python3 -m unittest -v tests/test_symbol_loss_check.py
           python3 -m unittest -v tests/test_docs_additions_check.py
+          # tests/test_main_verify_catchup_base.py: YAML-extraction rehearsal for
+          # main-verify.yml G3.1 catch-up BASE (flood §4 item 8 / [skip ci] window).
+          # Extracts the workflow's Resolve catch-up base shell and drives ancestor
+          # tip / non-ancestor fallback / zero BEFORE → HEAD^1 / last_ok==HEAD /
+          # jq null — hermetic git fixture + stub gh. PyYAML (installed above).
+          python3 -m unittest -v tests/test_main_verify_catchup_base.py
           # tests/test_doc_tools_drift.py: the cross-repo
           # consumer-pin assertions auto-skip when siblings are not
           # cloned (per-PR mode); the helper unit tests + juniper-ml's
