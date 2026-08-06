@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.0
+**Version:** 0.6.10
 **Status:** Active
-**Last Updated:** 2026-08-05
+**Last Updated:** 2026-08-06
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -140,6 +140,22 @@ The three services intentionally ship with **different** `rate_limit_enabled` de
 | `juniper-canopy` | `JUNIPER_CANOPY_RATE_LIMIT_ENABLED`  | `JUNIPER_CANOPY_RATE_LIMIT_REQUESTS_PER_MINUTE`   |
 
 The split-default is intentional, not an oversight: `juniper-data` is a higher-risk public-shaped surface (dataset generation, paginated reads), so it ships rate-limited by default; the other two run behind a known reverse-proxy / authenticated client surface where the rate-limit value adds operator friction during local development. Closes the documentation gap tracked in the v7 outstanding-development roadmap under CFG-08.
+
+### Control WS LeakyBucket (`ws_control_rate_limit_per_sec`)
+
+Control-plane WebSockets (`juniper-service-core` `control_stream_handler`) build a per-connection `LeakyBucket(capacity=rate_limit, refill_rate=float(rate_limit))` from the service setting `ws_control_rate_limit_per_sec` (default `10`). When a command is denied, the ack is `rate_limited` with `data.retry_after` from `LeakyBucket.retry_after`.
+
+| Setting | Effect |
+|---------|--------|
+| `ws_control_rate_limit_per_sec > 0` (default) | Normal refill; `retry_after` ≈ seconds until one token |
+| `ws_control_rate_limit_per_sec = 0` | No refill. **After** open [#977](https://github.com/pcalnon/juniper-ml/pull/977) merges, `retry_after` returns `3600.0` (hard backoff) instead of dividing by zero |
+
+**Main today (pre-#977):** `refill_rate=0.0` makes `retry_after` raise `ZeroDivisionError` on the rate-limited ack path and can tear down the control receive loop. Do not set the limit to `0` on production hosts until #977 lands. Coverage pin: `juniper-service-core/tests/test_websocket_control_security.py` → `test_leaky_bucket_retry_after_zero_refill_does_not_divide_by_zero`.
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Control WS dies after a burst with `rate_limit=0` | Pre-#977 ZeroDivisionError class — bump `ws_control_rate_limit_per_sec` ≥ `1`, or land #977 |
+| Client sees `rate_limited` with huge `retry_after` | Expected after #977 when limit is `0` (`3600`); raise the setting if you want faster refill |
 
 ---
 
@@ -546,7 +562,7 @@ Per PR the script:
 
 1. Creates a throwaway **detached** `git clone --shared` under the system tempdir (never a worktree, never writes the source checkout, never pushes).
 2. Merges `origin/main` into the branch tip (`git merge --no-ff`, `commit.gpgsign=false`).
-3. On the RESULT: runs `pre-commit` hooks `black` / `isort` / `flake8` / `mypy` / `check-ast` on touched `.py` files; shells out to `util/sequence_safety/symbol_loss_check.py --repo-root <clone> --base <base> --head <result> --json` (same CLI as `main-verify` — juniper-ml#895 / ml#872); runs an inline docs additions-only screen (any removed content line on a changed `.md`).
+3. On the RESULT: runs `pre-commit` hooks `black` / `isort` / `flake8` / `mypy` / `check-ast` on **existing** touched `.py` files (see deleted-`.py` filter below); shells out to `util/sequence_safety/symbol_loss_check.py --repo-root <clone> --base <base> --head <result> --json` (same CLI as `main-verify` — juniper-ml#895 / ml#872); runs an inline docs additions-only screen (any removed content line on a changed `.md`).
 4. Emits the **TRUE** changed-file delta from `git diff --name-only origin/main <result>` (not the stale `gh pr … --json files` list).
 
 | Verdict | Meaning |
@@ -555,15 +571,34 @@ Per PR the script:
 | `NEEDS-UPDATE-BRANCH` | Merge succeeds; a fast gate fails (format / type / AST) |
 | `DAMAGED-FIX-FIRST` | Merge succeeds; symbol-loss or docs-deletion screen fails |
 | `CONFLICT` | Merge conflict against `origin/main` |
+| `ERROR` | `--batch` only: soft-fail row when `simulate_merge` raises (`PredictMergeError`); other PRs still run |
 
-`--batch` also builds a same-file cluster map and a restore/heal-first, least-colliding merge order. Exit `0` always reports (even when every verdict is `DAMAGED` / `CONFLICT`); exit `2` is usage / precondition only (`gh` missing, bad `--repo-root`, unresolved ref).
+`--batch` also builds a same-file cluster map and a restore/heal-first, least-colliding merge order. Exit `0` always reports for a completed `--batch` / successful `--pr` (even when every verdict is `DAMAGED` / `CONFLICT` / `ERROR`). Exit `2` is usage / precondition **or** a hard-failed single-PR `gh` resolve (see below).
 
-Degrade paths (never crash the report): missing / broken `symbol_loss_check.py`, checker exit `2`, or non-JSON stdout → symbol screen `status=skip`. A delta with no `.py`/`.bash` short-circuits the symbol subprocess. Gate: `tests/test_predict_merge.py` (incl. `Allow-Symbol-Loss` trailer → `MERGE-CLEAN`).
+#### CLI / `gh` hard-fail vs batch soft-ERROR (on main; pins in open #977)
+
+| Mode | `gh` nonzero / non-JSON | Operator effect |
+|------|-------------------------|-----------------|
+| `--pr N` / `triage_pr` | Raises `PredictMergeError` → CLI **exit `2`** | Whole run fails — no verdict JSON |
+| `--batch` / `triage_batch` | That PR becomes `verdict=ERROR` with `error=…`; loop **continues** | Rest of the open-PR set still reports |
+
+Do not treat a `--pr` traceback / exit `2` as “the PR is damaged” — fix `gh` auth, fetch the head ref, or use `--batch` when you need soft-fail across many tips. Gate: open [#977](https://github.com/pcalnon/juniper-ml/pull/977) `TriagePrGhTest` (+ batch soft-ERROR coverage in open #930).
+
+#### Deleted-`.py` gate filter + `JUNIPER_FLEET_SKIP_PRECOMMIT` (on main; pins in open #977)
+
+After a clean merge, `true_delta` is every path changed vs the base tip. The fast-gate battery receives only `changed_existing = [p for p in true_delta if _blob(HEAD, p) is not None]` — paths **deleted** on the merge RESULT are kept in `true_delta` (so the symbol screen can honestly report `LOST` → `DAMAGED-FIX-FIRST`) but are **never** handed to `pre-commit --files` (a missing path would false-DAMAGED the battery). When the only `.py` in the delta is deleted, each hook is `status=skip` with detail `no .py files in delta`.
+
+`JUNIPER_FLEET_SKIP_PRECOMMIT=1` (with the default gate runner) forces `skip_all`: every pre-commit hook is `status=skip` with detail `gates disabled (run_gates/env)`. Symbol + docs screens still run. Use it for hermetic / hook-unavailable local runs — not to silence live fleet gates in production triage.
+
+Degrade paths (never crash the report): missing / broken `symbol_loss_check.py`, checker exit `2`, or non-JSON stdout → symbol screen `status=skip`. A delta with no `.py`/`.bash` short-circuits the symbol subprocess. Gate: `tests/test_predict_merge.py` (incl. `Allow-Symbol-Loss` trailer → `MERGE-CLEAN`; open #977 deleted-py / SKIP_PRECOMMIT / `triage_pr` arms).
 
 Pitfalls:
 
 | Symptom | Check / Fix |
 |---------|-------------|
+| `--pr` exits `2` with `gh pr view failed` / `non-JSON` | Hard-fail by design — fix `gh` / fetch the branch; do not read it as `DAMAGED-FIX-FIRST` |
+| One open PR shows `ERROR` in `--batch` | Soft-fail: that tip did not resolve (deleted branch / never fetched / gh flake). Other verdicts remain valid |
+| Deleted `.py` PR looks “gate-clean” but `DAMAGED-FIX-FIRST` | Expected: battery skipped the missing path; symbol screen saw the `LOST` def. Add `Allow-Symbol-Loss: func:…` if intentional |
 | Local run hangs on pre-commit | Set `JUNIPER_FLEET_SKIP_PRECOMMIT=1`, or ensure `pre-commit` is installed and hooks cached |
 | `DAMAGED-FIX-FIRST` after intentional deletion | Add `Allow-Symbol-Loss: func:…` (qualified) on a commit in the PR range; re-run `--pr` |
 | Trailer present but still DAMAGED | Wildcard `*` is rejected; bare names do not match; trailer must be in BASE..HEAD of the **merged** result |
@@ -936,6 +971,6 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 
 ---
 
-**Last Updated:** 2026-08-05
-**Version:** 0.6.0
+**Last Updated:** 2026-08-06
+**Version:** 0.6.10
 **Maintainer:** Paul Calnon

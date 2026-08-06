@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.8
-**Date**: 2026-08-05
+**Version**: 1.0.24
+**Date**: 2026-08-06
 **Project**: juniper-ml
 
 ---
@@ -229,15 +229,17 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 | Doc links (CI parity)  | `juniper-check-doc-links --exclude templates --exclude history --exclude legacy --cross-repo skip` |
 | Doc links (full local) | `juniper-check-doc-links --cross-repo check`                                                |
 | Sequence-safety (local) | `python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD` (+ sibling `docs_additions_check.py`) |
-| Fleet predicted-merge  | `python util/fleet_triage/predict_merge.py --pr N` / `--batch` (exit 0 = report; 2 = misuse) |
+| Fleet predicted-merge  | `python util/fleet_triage/predict_merge.py --pr N` / `--batch` (exit 0 = report; 2 = misuse / `--pr` gh hard-fail) |
 
 Key hooks: `ruff` (juniper-data) or `black`+`isort`+`flake8` (others), `mypy`, `bandit`, `shellcheck`, `no-unencrypted-env`.
 
-**Sequence-safety / fleet triage (juniper-ml#895):** `predict_merge` shells out to
+**Sequence-safety / fleet triage (juniper-ml#895 / #977):** `predict_merge` shells out to
 `util/sequence_safety/symbol_loss_check.py` on the merged RESULT (byte-identical to post-merge
 `main-verify`). Intentional symbol removals need an `Allow-Symbol-Loss: <qualified.symbol>` commit
 trailer in BASE..HEAD — the per-PR `allow-symbol-loss` label is WARN-only advisory and does **not**
-green `main-verify`. Skip local pre-commit with `JUNIPER_FLEET_SKIP_PRECOMMIT=1`. Full contract:
+green `main-verify`. `--pr` hard-fails (exit `2`) on `gh` nonzero/non-JSON; `--batch` soft-`ERROR`s
+that row and continues. Deleted `.py` stays in `true_delta` but is filtered from the gate battery.
+Skip local pre-commit with `JUNIPER_FLEET_SKIP_PRECOMMIT=1`. Full contract:
 [REFERENCE.md § Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety).
 
 Meta-package publish flow: build + `twine check`, TestPyPI upload with attestations, TestPyPI install verification, then PyPI upload.
@@ -418,7 +420,9 @@ Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while 
 
 Tip: before `/template-agent`, run `python util/agent_suite_doctor.py` (not `--no-discovery`). Discovery fail-closed: missing CLI, nonzero exit, non-JSON, or missing `schema_version`/`provenance.head_sha` → `FAIL`. See [REFERENCE.md § Agent Suite Doctor](REFERENCE.md#agent-suite-doctor).
 
-Tip: before merging a Cursor-fleet batch, run `python util/fleet_triage/predict_merge.py --batch --json`. Prefer heal/`DAMAGED-FIX-FIRST` PRs first; never treat script exit `0` as “all clean” — read each `verdict`. Symbol screen matches `main-verify` (#895). See [REFERENCE.md § Fleet Triage](REFERENCE.md#fleet-triage-and-sequence-safety).
+Tip: before merging a Cursor-fleet batch, run `python util/fleet_triage/predict_merge.py --batch --json`. Prefer heal/`DAMAGED-FIX-FIRST` PRs first; never treat script exit `0` as “all clean” — read each `verdict`. `--pr` exit `2` on `gh` failure is hard-fail (not damage); deleted-`.py` gate skip is expected. Symbol screen matches `main-verify` (#895/#977). See [REFERENCE.md § Fleet Triage](REFERENCE.md#fleet-triage-and-sequence-safety).
+
+Tip: do not set control-WS `ws_control_rate_limit_per_sec=0` on hosts until [#977](https://github.com/pcalnon/juniper-ml/pull/977) lands — pre-fix `LeakyBucket.retry_after` divides by zero on the `rate_limited` ack. After #977, zero refill returns `retry_after=3600`. See [REFERENCE.md § Control WS LeakyBucket](REFERENCE.md#control-ws-leakybucket-ws_control_rate_limit_per_sec).
 
 Tip: `util/isolated_stack.bash` is kill-by-port (not `JuniperProject.pid`). After `--down`, confirm `ss -tlnH 'sport = :8101 or sport = :8202 or sport = :8051'` is empty.
 `data_up` needs `python3.14` on `PATH`, installs into `${JUNIPER_E2E_RUN_DIR}/.venv-data`, and launches with `PYTHON_GIL=0` (existing venv skips create but still re-pips). Use `JUNIPER_E2E_DATA_EXTRAS=api,mnist` for D2/I-5.
@@ -449,9 +453,12 @@ Tip: systemd chop soft-fails per unit and always exits `0` without touching the 
 
 | Symptom | Fast Check |
 |---------|------------|
-| `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch ref — not a damage finding. |
+| `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch / `--pr` `gh` hard-fail — not a damage finding. |
+| `--batch` row `verdict=ERROR` | Soft-fail for that tip only; other PRs in the report remain valid. |
 | `DAMAGED-FIX-FIRST` on intentional delete | Add `Allow-Symbol-Loss: func:…` (qualified) on a commit in the PR; re-run `--pr`. Label alone will not green `main-verify`. |
+| Deleted `.py` gate-clean but DAMAGED | Battery skipped the missing path; symbol screen saw `LOST` — expected. |
 | Local triage stuck in pre-commit | `JUNIPER_FLEET_SKIP_PRECOMMIT=1` (screens still run). |
+| Control WS dies with `rate_limit=0` | Pre-#977 ZeroDivisionError — raise `ws_control_rate_limit_per_sec` or land #977. |
 | Startup exits before launching services | Check the preflight output for missing `curl`, `ss`, conda, sibling repo directories, or occupied ports. |
 | Mid-plant abort / health timeout | Service log under that repo's `logs/`; pidfile is already removed — free leftover listeners with `ss -tlnp` before re-planting. |
 | Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`; keep the default `JuniperCascor1` env unless a replacement is known-good. |
@@ -518,6 +525,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-08-05
-**Version:** 1.0.8
+**Last Updated:** 2026-08-06
+**Version:** 1.0.24
 **Maintainer:** Paul Calnon
