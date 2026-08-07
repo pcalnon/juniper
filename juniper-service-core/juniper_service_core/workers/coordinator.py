@@ -321,7 +321,17 @@ class WorkerCoordinator:
             parsed = self._protocol.parse_result(worker_id, msg, frames)
             if parsed is None:
                 logger.warning("Result parse/validation failed for task %s from worker %s", task_id, worker_id)
+                # Free the worker AND reclaim the task. Pre-fix: complete_task cleared
+                # active_task_id but left task.assigned_worker_id set and out of
+                # _unassigned_tasks — has_pending_tasks() went False while the task was
+                # still in-flight, then a later timeout sweep called complete_task again
+                # and could steal a newer active_task_id on the same worker.
                 self._registry.complete_task(worker_id, success=False)
+                if task.assigned_worker_id == worker_id:
+                    task.assigned_worker_id = None
+                    task.dispatched_at = time.time()
+                    if task_id not in self._unassigned_tasks:
+                        self._unassigned_tasks.append(task_id)
                 return False
 
             # Anomaly detection over the generic quality score (log warnings; do not reject).
@@ -485,7 +495,14 @@ class WorkerCoordinator:
                         task.assigned_worker_id,
                         now - task.dispatched_at,
                     )
-                    self._registry.complete_task(task.assigned_worker_id, success=False)
+                    # Only free the worker when it still holds THIS task. An orphaned
+                    # assigned_worker_id (e.g. historical parse-None path) must not
+                    # clear a newer active_task_id via complete_task.
+                    assignee = task.assigned_worker_id
+                    reg = self._registry.get(assignee)
+                    if reg is not None and reg.active_task_id == task.task_id:
+                        self._registry.complete_task(assignee, success=False)
                     task.assigned_worker_id = None
                     task.dispatched_at = now
-                    self._unassigned_tasks.append(task.task_id)
+                    if task.task_id not in self._unassigned_tasks:
+                        self._unassigned_tasks.append(task.task_id)
