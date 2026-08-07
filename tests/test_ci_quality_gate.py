@@ -80,6 +80,13 @@ def _materialize(script: str, results: dict[str, str]) -> str:
 class QualityGateStructuralTest(unittest.TestCase):
     """Pin QG needs membership + security soft-fail predicate text."""
 
+    repo_root: Path
+    workflow_path: Path
+    raw: str
+    doc: dict
+    qg: dict
+    script: str
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.repo_root = _find_repo_root(Path(__file__).resolve().parent)
@@ -172,7 +179,7 @@ class QualityGateRehearsalTest(unittest.TestCase):
         cls.script = step["run"]
 
     def _all_success(self) -> dict[str, str]:
-        return {job: "success" for job in REQUIRED_NEEDS}
+        return dict.fromkeys(REQUIRED_NEEDS, "success")
 
     def _run(self, results: dict[str, str]) -> subprocess.CompletedProcess:
         materialized = _materialize(self.script, results)
