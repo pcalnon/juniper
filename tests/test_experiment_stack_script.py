@@ -910,18 +910,7 @@ class TestTeardownBehaviour(unittest.TestCase):
                 # port_in_use does not false-alarm a still-bound listener.
                 _write_stub(
                     stub_bin / "ss",
-                    "#!/usr/bin/env bash\n"
-                    f'pid="{pid}"\n'
-                    'want=""\n'
-                    'for arg in "$@"; do\n'
-                    '  case "$arg" in\n'
-                    '    *sport*) want="${arg##*:}" ;;\n'
-                    "  esac\n"
-                    "done\n"
-                    'if [[ "$want" == "8260" ]] && kill -0 "$pid" 2>/dev/null; then\n'
-                    '  echo "LISTEN 0 128 127.0.0.1:8260 0.0.0.0:* users:((\\"python\\",pid=${pid},fd=3))"\n'
-                    "fi\n"
-                    "exit 0\n",
+                    "#!/usr/bin/env bash\n" f'pid="{pid}"\n' 'want=""\n' 'for arg in "$@"; do\n' '  case "$arg" in\n' '    *sport*) want="${arg##*:}" ;;\n' "  esac\n" "done\n" 'if [[ "$want" == "8260" ]] && kill -0 "$pid" 2>/dev/null; then\n' '  echo "LISTEN 0 128 127.0.0.1:8260 0.0.0.0:* users:((\\"python\\",pid=${pid},fd=3))"\n' "fi\n" "exit 0\n",
                 )
                 _write_stub(stub_bin / "curl", "#!/usr/bin/env bash\nexit 0\n")
                 _write_stub(stub_bin / "docker", "#!/usr/bin/env bash\nexit 0\n")

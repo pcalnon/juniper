@@ -57,7 +57,7 @@ def _git(cwd: Path, *args: str) -> str:
         capture_output=True,
         text=True,
         check=False,
-        env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"},
+        env=RedactedEnv(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t"),
     )
     if proc.returncode != 0:
         raise AssertionError(f"git {' '.join(args)} failed: {proc.stderr}")
@@ -123,16 +123,14 @@ class CatchUpBaseRehearsalTest(unittest.TestCase):
             # Stub ``gh api … --jq .workflow_runs[0].head_sha`` → last_ok.
             gh = stub_bin / "gh"
             gh.write_text(
-                "#!/usr/bin/env bash\n"
-                "set -euo pipefail\n"
-                f'printf "%s\\n" "{last_ok}"\n',
+                "#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "%s\\n" "{last_ok}"\n',
                 encoding="utf-8",
             )
             gh.chmod(0o755)
 
             env = RedactedEnv(os.environ)
             env["PATH"] = str(stub_bin) + os.pathsep + env.get("PATH", "")
-            env["GH_TOKEN"] = "unused"
+            env["GH_TOKEN"] = "unused"  # nosec B105 - dummy token for the PATH-stubbed gh, never a real credential
             env["BEFORE"] = before
             env["HEAD_SHA"] = head_sha
             env["REPO"] = repo_name
