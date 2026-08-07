@@ -277,6 +277,15 @@ def test_get_key_prefers_api_key_over_ip():
     assert limiter._get_key(_bare_request(), "secret") == "key:secret"
 
 
+def test_get_key_falls_back_to_ip_unknown_when_client_missing():
+    # ASGI scopes without a client (some proxies / internal calls) must not crash;
+    # they share the ``ip:unknown`` bucket so unauthenticated traffic still rate-limits.
+    limiter = RateLimiter()
+    req = _bare_request(client=None)
+    assert limiter._get_key(req, None) == "ip:unknown"
+    assert limiter._get_key(req, "secret") == "key:secret"
+
+
 def test_check_triggers_periodic_cleanup():
     limiter = RateLimiter(requests_per_minute=5)
     limiter._CLEANUP_INTERVAL = 1  # cleanup fires on the very next check()

@@ -710,7 +710,7 @@ bridge_up() {
         GATEWAY_IP="<monitoring-gateway>"
         announce "docker network ls --format '{{.Name}}' | grep -E '_monitoring\$'   # discover the monitoring network by SUFFIX"
     else
-        discover_gateway_ip
+        discover_gateway_ip || return 1
     fi
     for entry in "${SCRAPE_TARGETS[@]:-}"; do
         [[ -n "${entry}" ]] || continue
