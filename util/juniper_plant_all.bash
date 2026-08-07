@@ -404,10 +404,21 @@ source "${CONDA}"
 # activate-binutils_linux-64.sh in JuniperCanopy) reference variables
 # like ADDR2LINE that may not be set, causing failures under set -u.
 # This wrapper temporarily disables nounset for the activation call.
+#
+# Fail-closed on ``conda activate``: a future OR-list caller
+# (``safe_conda_activate … || …``) disables ``set -e`` for the whole body
+# (bash OR-list rule). A bare ``conda activate`` failure followed by a
+# successful ``set -u`` would otherwise return 0 and let the next service
+# launch on the ambient PATH — the same class as isolated-stack #967 /
+# experiment_stack OR-list absorb.
 safe_conda_activate() {
     local env_name="$1"
     set +u
-    conda activate "${env_name}"
+    if ! conda activate "${env_name}"; then
+        set -u
+        echo "ERROR: conda activate '${env_name}' failed" >&2
+        return 1
+    fi
     set -u
 }
 

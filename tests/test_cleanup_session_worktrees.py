@@ -7,8 +7,11 @@ merged) would delete unmerged session work. Dirty / self-cwd / detached-HEAD
 keeps prevent data loss mid-session.
 
 Distinct from contested ``util/worktree_cleanup.bash`` (V2 orchestrator).
-Uses real temp git worktrees + monkeypatched ``_run`` for gh; remove arms
-stay under ``--dry-run`` so nothing is deleted.
+Policy / keep arms use real temp git worktrees + monkeypatched ``_run`` for
+gh under ``dry_run=True``. Live ``_remove_worktree`` (``dry_run=False``) is
+covered separately: unit matrix stubs every ``_run`` call; integration arms
+exercise real ``git worktree remove --force`` + ``branch -D`` while stubbing
+only ``fetch`` / ``push`` / ``gh`` (no network).
 """
 
 from __future__ import annotations
@@ -308,6 +311,211 @@ class IsSelfCwdTest(unittest.TestCase):
                 self.assertFalse(cleanup._is_self_cwd(wt))
             finally:
                 os.chdir(prev)
+
+
+class RemoveWorktreeUnitTest(unittest.TestCase):
+    """Stubbed ``_run`` matrix for live ``_remove_worktree`` (dry_run=False)."""
+
+    def _cp(self, args, *, rc: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(args=args, returncode=rc, stdout=stdout, stderr=stderr)
+
+    def test_dry_run_short_circuits_without_git(self) -> None:
+        fake = mock.Mock(side_effect=AssertionError("_run must not be called under dry_run"))
+        with mock.patch.object(cleanup, "_run", fake):
+            ok, message = cleanup._remove_worktree(Path("/repo"), Path("/wt"), "worktree-x", dry_run=True)
+        self.assertTrue(ok)
+        self.assertIn("DRY-RUN", message)
+        fake.assert_not_called()
+
+    def test_worktree_remove_failure_is_hard_fail(self) -> None:
+        def wrapper(args, cwd=None):
+            if "worktree" in args and "remove" in args:
+                return self._cp(args, rc=1, stderr="fatal: 'wt' is not a working tree\n")
+            raise AssertionError(f"unexpected argv after failed remove: {args}")
+
+        with mock.patch.object(cleanup, "_run", side_effect=wrapper):
+            ok, message = cleanup._remove_worktree(Path("/repo"), Path("/wt"), "worktree-x", dry_run=False)
+        self.assertFalse(ok)
+        self.assertIn("worktree remove failed", message)
+        self.assertIn("not a working tree", message)
+
+    def test_happy_path_deletes_local_and_remote(self) -> None:
+        seen: list[list[str]] = []
+
+        def wrapper(args, cwd=None):
+            seen.append(list(args))
+            return self._cp(args, rc=0)
+
+        with mock.patch.object(cleanup, "_run", side_effect=wrapper):
+            ok, message = cleanup._remove_worktree(Path("/repo"), Path("/wt"), "worktree-x", dry_run=False)
+        self.assertTrue(ok)
+        self.assertEqual(message, "local-branch:deleted, remote-branch:deleted")
+        self.assertEqual(
+            seen,
+            [
+                ["git", "-C", "/repo", "worktree", "remove", "/wt", "--force"],
+                ["git", "-C", "/repo", "branch", "-D", "worktree-x"],
+                ["git", "-C", "/repo", "push", "origin", "--delete", "worktree-x"],
+            ],
+        )
+
+    def test_remote_ref_already_gone_is_soft_success(self) -> None:
+        def wrapper(args, cwd=None):
+            if "push" in args and "--delete" in args:
+                return self._cp(
+                    args,
+                    rc=1,
+                    stderr="error: unable to delete 'worktree-x': remote ref does not exist\n",
+                )
+            return self._cp(args, rc=0)
+
+        with mock.patch.object(cleanup, "_run", side_effect=wrapper):
+            ok, message = cleanup._remove_worktree(Path("/repo"), Path("/wt"), "worktree-x", dry_run=False)
+        self.assertTrue(ok)
+        self.assertIn("local-branch:deleted", message)
+        self.assertIn("remote-branch:already-gone", message)
+        self.assertNotIn("remote-branch-failed", message)
+
+    def test_remote_delete_other_failure_still_succeeds(self) -> None:
+        def wrapper(args, cwd=None):
+            if "push" in args and "--delete" in args:
+                return self._cp(args, rc=1, stderr="fatal: could not read Username for 'https://github.com'\n")
+            return self._cp(args, rc=0)
+
+        with mock.patch.object(cleanup, "_run", side_effect=wrapper):
+            ok, message = cleanup._remove_worktree(Path("/repo"), Path("/wt"), "worktree-x", dry_run=False)
+        self.assertTrue(ok)
+        self.assertIn("remote-branch-failed:", message)
+        self.assertIn("could not read Username", message)
+
+    def test_local_branch_delete_failure_is_best_effort(self) -> None:
+        def wrapper(args, cwd=None):
+            if "branch" in args and "-D" in args:
+                return self._cp(args, rc=1, stderr="error: branch 'worktree-x' not found.\n")
+            return self._cp(args, rc=0)
+
+        with mock.patch.object(cleanup, "_run", side_effect=wrapper):
+            ok, message = cleanup._remove_worktree(Path("/repo"), Path("/wt"), "worktree-x", dry_run=False)
+        self.assertTrue(ok)
+        self.assertIn("local-branch:error: branch 'worktree-x' not found.", message)
+        self.assertIn("remote-branch:deleted", message)
+
+
+class LiveRemoveWorktreeTest(unittest.TestCase):
+    """Integration: real worktree remove + branch -D; stub fetch/push/gh only."""
+
+    def _patch_fetch_push_gh(
+        self,
+        repo: Path,
+        *,
+        push_rc: int = 0,
+        push_stderr: str = "",
+        gh_side_effect=None,
+    ):
+        real_run = cleanup._run
+        push_calls: list[list[str]] = []
+
+        def wrapper(args, cwd=None):
+            if args[:3] == ["git", "-C", str(repo)] and len(args) > 3 and args[3] == "fetch":
+                return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+            if args[:3] == ["git", "-C", str(repo)] and len(args) > 3 and args[3] == "push":
+                push_calls.append(list(args))
+                return subprocess.CompletedProcess(
+                    args=args,
+                    returncode=push_rc,
+                    stdout="",
+                    stderr=push_stderr,
+                )
+            if args and args[0] == "gh":
+                if gh_side_effect is not None:
+                    return gh_side_effect(args)
+                return subprocess.CompletedProcess(args=args, returncode=1, stdout="", stderr="no-gh")
+            return real_run(args, cwd=cwd)
+
+        return mock.patch.object(cleanup, "_run", side_effect=wrapper), push_calls
+
+    def test_live_remove_main_ancestor_deletes_worktree_and_local_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "juniper-ml"
+            _init_repo(repo)
+            wt = _add_worktree(repo, "sess-live", "worktree-live")
+            root = repo / ".claude" / "worktrees"
+            patcher, push_calls = self._patch_fetch_push_gh(repo)
+            with patcher:
+                report = cleanup.cleanup_session_worktrees(
+                    repo=repo,
+                    root=root,
+                    gh_repo="pcalnon/juniper-ml",
+                    dry_run=False,
+                    allow_cwd=True,
+                )
+            self.assertEqual(report.removed, ["sess-live"])
+            self.assertEqual(report.skipped_remove_failed, [])
+            self.assertFalse(wt.exists(), "git worktree remove --force must delete the directory")
+            branches = _run_git(repo, "branch", "--list", "worktree-live")
+            self.assertEqual(branches, "", msg="local branch -D must run after a successful remove")
+            self.assertEqual(
+                push_calls,
+                [["git", "-C", str(repo), "push", "origin", "--delete", "worktree-live"]],
+            )
+
+    def test_live_remove_remote_already_gone_still_removes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "juniper-ml"
+            _init_repo(repo)
+            wt = _add_worktree(repo, "sess-gone", "worktree-gone")
+            root = repo / ".claude" / "worktrees"
+            patcher, push_calls = self._patch_fetch_push_gh(
+                repo,
+                push_rc=1,
+                push_stderr="error: unable to delete 'worktree-gone': remote ref does not exist\n",
+            )
+            with patcher:
+                report = cleanup.cleanup_session_worktrees(
+                    repo=repo,
+                    root=root,
+                    gh_repo="pcalnon/juniper-ml",
+                    dry_run=False,
+                    allow_cwd=True,
+                )
+            self.assertEqual(report.removed, ["sess-gone"])
+            self.assertEqual(report.skipped_remove_failed, [])
+            self.assertFalse(wt.exists())
+            self.assertEqual(len(push_calls), 1)
+
+    def test_live_remove_failure_records_skipped_remove_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "juniper-ml"
+            _init_repo(repo)
+            wt = _add_worktree(repo, "sess-fail", "worktree-fail")
+            root = repo / ".claude" / "worktrees"
+            real_run = cleanup._run
+
+            def wrapper(args, cwd=None):
+                if args[:3] == ["git", "-C", str(repo)] and len(args) > 3 and args[3] == "fetch":
+                    return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+                if args[:3] == ["git", "-C", str(repo)] and "worktree" in args and "remove" in args:
+                    return subprocess.CompletedProcess(
+                        args=args,
+                        returncode=1,
+                        stdout="",
+                        stderr="fatal: injected worktree remove failure\n",
+                    )
+                if args and args[0] == "gh":
+                    return subprocess.CompletedProcess(args=args, returncode=1, stdout="", stderr="no-gh")
+                return real_run(args, cwd=cwd)
+
+            with mock.patch.object(cleanup, "_run", side_effect=wrapper):
+                report = cleanup.cleanup_session_worktrees(
+                    repo=repo,
+                    root=root,
+                    gh_repo="pcalnon/juniper-ml",
+                    dry_run=False,
+                    allow_cwd=True,
+                )
+            self.assertEqual(report.skipped_remove_failed, ["sess-fail"])
+            self.assertEqual(report.removed, [])
+            self.assertTrue(wt.exists(), "failed remove must leave the worktree directory intact")
 
 
 if __name__ == "__main__":

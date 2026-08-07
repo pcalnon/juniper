@@ -37,14 +37,17 @@ PyYAML and asserting:
       charset reject + the ``APP_TOKEN`` → ``--cross-repo`` capability gate on both write jobs' run scripts
       (a regression that always passes ``--cross-repo`` breaks the no-App degraded path).
 
-Beyond the structural pins, five **YAML-extraction rehearsals** execute the actual workflow snippets
+Beyond the structural pins, seven **YAML-extraction rehearsals** execute the actual workflow snippets
 hermetically (the "run the real thing, not a reimplementation" idiom): ``ModeResolutionMatrixTest`` extracts
 the ``id: mode`` step's shell and runs it over the whole mode matrix (incl. ``ceremony`` now valid + the
 dispatch-input > repo-variable precedence), ``CeremonySummaryRehearsalTest`` extracts the ceremony
 step-summary Python and runs it over a synthetic ``ceremony-output.txt`` (proving it renders
 ceremonies/resumes/HALTs/PENDING_PYPI_APPROVAL and the degraded-issue line), ``ProposeSummaryRehearsalTest``
 extracts the propose step-summary Python and runs it over a synthetic ``propose-output.txt`` (proving
-opened:/skip: lines bucket into the operator-facing step summary), ``DetectorExitContractRehearsalTest``
+opened:/skip: lines bucket into the operator-facing step summary), ``DetectSummaryRehearsalTest`` /
+``DetectSlackPayloadRehearsalTest`` extract the detect job's step-summary + Slack-payload Python and run
+them over a synthetic ``release-manifest.json`` (proving classification counts, hygiene, mode-specific
+footers, hard-fail banners, and the compact Slack JSON), ``DetectorExitContractRehearsalTest``
 extracts the detect job's ``Run release-train detector`` shell and proves exit 0/1 stay green while
 exit >= 2 fails the step (detect.py's report-only contract), and ``PackagesInputRehearsalTest`` extracts
 the write-job ``packages`` / ``--cross-repo`` shell prefix and *runs* it (charset reject exit 2 +
@@ -692,7 +695,267 @@ class ProposeSummaryRehearsalTest(unittest.TestCase):
 
 
 # Matches `python - <<'PY'` and the Slack redirect form `python - <<'PY' > slack-payload.json`.
+# Defined before the detect summary/Slack rehearsals so their extractors can reuse it.
 _PY_HEREDOC_OPENER = re.compile(r"<<'PY'(?:\s*>\s*\S+)?\n")
+
+
+# ── YAML-extraction rehearsals: detect step summary + Slack payload (real Python, hermetic) ──
+
+
+DETECT_MANIFEST_FIXTURE = {
+    "summary": {
+        "total": 3,
+        "by_classification": {
+            "BUMPED_NOT_RELEASED": 1,
+            "UNRELEASED_CHANGES": 1,
+            "UP_TO_DATE": 1,
+        },
+    },
+    "packages": [
+        {
+            "pypi_name": "juniper-observability",
+            "repo": "juniper-ml",
+            "released_version": "0.4.0",
+            "declared_version": "0.5.0",
+            "classification": "BUMPED_NOT_RELEASED",
+            "proposed_bump": None,
+            "hygiene": {"tag_only": True, "notes_missing": False},
+            "notes": ["awaiting ceremony"],
+        },
+        {
+            "pypi_name": "juniper-ci-tools",
+            "repo": "juniper-ml",
+            "released_version": "0.7.0",
+            "declared_version": "0.7.0",
+            "classification": "UNRELEASED_CHANGES",
+            "proposed_bump": "patch",
+            "hygiene": {"tag_only": False, "notes_missing": True},
+            "notes": [],
+        },
+        {
+            "pypi_name": "juniper-doc-tools",
+            "repo": "juniper-ml",
+            "released_version": "0.2.0",
+            "declared_version": "0.2.0",
+            "classification": "UP_TO_DATE",
+            "proposed_bump": None,
+            "hygiene": {},
+            "notes": [],
+        },
+    ],
+}
+
+
+def _extract_detect_py_heredoc(step_run: str) -> str:
+    """Extract the first ``<<'PY'…`` heredoc body from a detect-job ``run:`` script."""
+    match = _PY_HEREDOC_OPENER.search(step_run)
+    if match is None:
+        raise unittest.SkipTest("detect step is not a `python - <<'PY'` heredoc")
+    after = step_run[match.end() :]
+    body_lines = []
+    for line in after.splitlines():
+        if line.strip() == "PY" and "<<" not in line:
+            break
+        body_lines.append(line)
+    return "\n".join(body_lines)
+
+
+class DetectSummaryRehearsalTest(unittest.TestCase):
+    """Extract the detect job's ``Render step summary`` Python and run it over a synthetic
+    ``release-manifest.json``, proving the ACTUAL renderer surfaces classification counts, release
+    hygiene, the package table, detector notes, and mode-specific footers -- plus the hard-fail
+    banner when the manifest is missing.
+
+    Propose/ceremony summaries already have YAML-extraction rehearsals; without this twin, a detect
+    summary edit that drops ``SHIP_UNCERTAIN`` from action counts, mis-counts TAG_ONLY hygiene, or
+    swaps the report/propose/ceremony footer framing is invisible until a live daily train misleads
+    the operator. ``HeredocCompileTest`` only proves the body compiles.
+    """
+
+    py_body: str
+
+    @classmethod
+    def setUpClass(cls):
+        repo_root = _find_repo_root(Path(__file__).resolve().parent)
+        wf = repo_root / ".github" / "workflows" / WORKFLOW_NAME
+        if not wf.is_file():
+            raise unittest.SkipTest(f"{WORKFLOW_NAME} not present at {wf}")
+        doc = yaml.safe_load(wf.read_text(encoding="utf-8"))
+        step = next((s for s in doc["jobs"]["detect"]["steps"] if s.get("name") == "Render step summary"), None)
+        if step is None or "run" not in step:
+            raise unittest.SkipTest("could not locate the detect job's summary step")
+        cls.py_body = _extract_detect_py_heredoc(step["run"])
+
+    def _render(self, manifest, mode: str = "report") -> str:
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td)
+            summary = ws / "step_summary.md"
+            summary.write_text("", encoding="utf-8")
+            if manifest is not None:
+                (ws / "release-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            env = RedactedEnv(
+                os.environ,
+                GITHUB_WORKSPACE=str(ws),
+                GITHUB_STEP_SUMMARY=str(summary),
+                TRAIN_MODE=mode,
+            )
+            proc = subprocess.run(  # nosec B603 - the workflow's own python body
+                [sys.executable, "-c", self.py_body],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, f"detect summary renderer failed: {proc.stderr}")
+            return summary.read_text(encoding="utf-8")
+
+    def test_report_mode_renders_counts_hygiene_table_notes_and_footer(self):
+        md = self._render(DETECT_MANIFEST_FIXTURE, mode="report")
+        self.assertIn("Release train -- report mode", md)
+        self.assertIn("**3 packages**", md)
+        self.assertIn("BUMPED_NOT_RELEASED: 1", md)
+        self.assertIn("UNRELEASED_CHANGES: 1", md)
+        self.assertIn("UP_TO_DATE: 1", md)
+        self.assertIn("Release hygiene: TAG_ONLY=1, NOTES_MISSING=1", md)
+        self.assertIn("| juniper-observability |", md)
+        self.assertIn("| juniper-ci-tools |", md)
+        self.assertIn("patch", md)
+        self.assertIn("detector notes", md)
+        self.assertIn("`juniper-observability`: awaiting ceremony", md)
+        self.assertIn("Report-only:", md)
+        self.assertIn("**2 package(s) currently need release action.**", md)
+        self.assertNotIn("propose** job", md)
+        self.assertNotIn("ceremony** job", md)
+
+    def test_propose_and_ceremony_mode_footers_use_correct_action_sets(self):
+        propose_md = self._render(DETECT_MANIFEST_FIXTURE, mode="propose")
+        self.assertIn("Release train -- propose mode", propose_md)
+        self.assertIn("**propose** job opens standard-gated proposal PRs for the 2 package(s)", propose_md)
+        self.assertNotIn("Report-only:", propose_md)
+
+        ceremony_md = self._render(DETECT_MANIFEST_FIXTURE, mode="ceremony")
+        self.assertIn("Release train -- ceremony mode", ceremony_md)
+        # ceremony footer keys only on BUMPED_NOT_RELEASED (not the full action set).
+        self.assertIn("**ceremony** job runs the exempt-archive + Release ceremony for the 1 BUMPED_NOT_RELEASED package(s)", ceremony_md)
+        self.assertIn("Gate 2", ceremony_md)
+
+    def test_missing_or_empty_manifest_shows_hard_fail_banner(self):
+        for label, manifest in (("absent", None), ("empty-file", "")):
+            with self.subTest(manifest=label):
+                with tempfile.TemporaryDirectory() as td:
+                    ws = Path(td)
+                    summary = ws / "step_summary.md"
+                    summary.write_text("", encoding="utf-8")
+                    if manifest is not None:
+                        (ws / "release-manifest.json").write_text(manifest, encoding="utf-8")
+                    env = RedactedEnv(
+                        os.environ,
+                        GITHUB_WORKSPACE=str(ws),
+                        GITHUB_STEP_SUMMARY=str(summary),
+                        TRAIN_MODE="report",
+                    )
+                    proc = subprocess.run(  # nosec B603 - the workflow's own python body
+                        [sys.executable, "-c", self.py_body],
+                        capture_output=True,
+                        text=True,
+                        env=env,
+                        check=False,
+                    )
+                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                    md = summary.read_text(encoding="utf-8")
+                    self.assertIn("Detector failed hard -- no manifest was produced", md)
+                    self.assertNotIn("| package |", md)
+
+
+class DetectSlackPayloadRehearsalTest(unittest.TestCase):
+    """Extract the detect job's Slack-payload Python (``<<'PY' > slack-payload.json``) and prove the
+    ACTUAL compact JSON text: classification counts, sorted action package names, run URL, and the
+    hard-fail line when the manifest is absent.
+
+    The Slack step is ``continue-on-error`` and secret-gated; a payload regression can ship a green
+    daily train that posts a misleading (or empty) channel message. Compile-only coverage is not
+    enough -- this rehearses the rendered ``{"text": ...}`` shape.
+    """
+
+    py_body: str
+
+    @classmethod
+    def setUpClass(cls):
+        repo_root = _find_repo_root(Path(__file__).resolve().parent)
+        wf = repo_root / ".github" / "workflows" / WORKFLOW_NAME
+        if not wf.is_file():
+            raise unittest.SkipTest(f"{WORKFLOW_NAME} not present at {wf}")
+        doc = yaml.safe_load(wf.read_text(encoding="utf-8"))
+        step = next(
+            (s for s in doc["jobs"]["detect"]["steps"] if (s.get("name") or "").startswith("Slack notification")),
+            None,
+        )
+        if step is None or "run" not in step:
+            raise unittest.SkipTest("could not locate the detect job's Slack notification step")
+        run = step["run"]
+        if "slack-payload.json" not in run:
+            raise unittest.SkipTest("Slack step does not redirect into slack-payload.json")
+        cls.py_body = _extract_detect_py_heredoc(run)
+
+    def _payload(self, manifest, mode: str = "report", run_url: str = "https://example.test/run/1") -> dict:
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td)
+            if manifest is not None:
+                (ws / "release-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            env = RedactedEnv(
+                os.environ,
+                GITHUB_WORKSPACE=str(ws),
+                TRAIN_MODE=mode,
+                RUN_URL=run_url,
+            )
+            proc = subprocess.run(  # nosec B603 - the workflow's own python body
+                [sys.executable, "-c", self.py_body],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, f"Slack payload renderer failed: {proc.stderr}")
+            return json.loads(proc.stdout)
+
+    def test_actionable_manifest_lists_sorted_packages_and_run_url(self):
+        payload = self._payload(DETECT_MANIFEST_FIXTURE, mode="report")
+        self.assertEqual(set(payload.keys()), {"text"})
+        text = payload["text"]
+        self.assertIn("Release train (report mode): 3 packages --", text)
+        self.assertIn("BUMPED_NOT_RELEASED: 1", text)
+        self.assertIn("UNRELEASED_CHANGES: 1", text)
+        # action packages are sorted alphabetically in the workflow.
+        self.assertIn("Needs release action: juniper-ci-tools, juniper-observability", text)
+        self.assertIn("Run: https://example.test/run/1", text)
+        # Slack must stay summary-only -- no secrets / diffs / notes dump.
+        self.assertNotIn("awaiting ceremony", text)
+        self.assertNotIn("proposed_bump", text)
+
+    def test_quiet_manifest_omits_needs_release_action_line(self):
+        quiet = {
+            "summary": {"total": 1, "by_classification": {"UP_TO_DATE": 1}},
+            "packages": [
+                {
+                    "pypi_name": "juniper-doc-tools",
+                    "repo": "juniper-ml",
+                    "classification": "UP_TO_DATE",
+                    "hygiene": {},
+                    "notes": [],
+                }
+            ],
+        }
+        text = self._payload(quiet, mode="ceremony")["text"]
+        self.assertIn("Release train (ceremony mode): 1 packages -- UP_TO_DATE: 1", text)
+        self.assertNotIn("Needs release action:", text)
+        self.assertIn("Run: https://example.test/run/1", text)
+
+    def test_missing_manifest_posts_hard_fail_text(self):
+        text = self._payload(None)["text"]
+        self.assertEqual(
+            text,
+            "Release train: detector FAILED HARD (no manifest produced). Run: https://example.test/run/1",
+        )
 
 
 _PACKAGES_STEP_NAMES = {
@@ -850,8 +1113,9 @@ class HeredocCompileTest(unittest.TestCase):
     Balance alone (#708) does not catch a syntax-broken summary / Slack payload body — bash still
     launches ``python -``, then the step fails mid-run after the real work finished (the same
     late-failure class as run-30051952226, just with ``SyntaxError`` instead of exit 127). The
-    YAML-extraction rehearsals only exercise two of the four heredocs; this lint compiles ALL of
-    them (incl. the Slack redirect form ``<<'PY' > slack-payload.json``).
+    Detect / propose / ceremony summary rehearsals plus ``DetectSlackPayloadRehearsalTest`` cover
+    the four known bodies behaviorally; this lint still compiles ALL of them so a fifth heredoc
+    cannot land compile-broken (incl. the Slack redirect form ``<<'PY' > slack-payload.json``).
     """
 
     def test_every_py_heredoc_body_compiles(self):

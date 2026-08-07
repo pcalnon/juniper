@@ -31,7 +31,7 @@ The validated configuration is:
 
 This keeps the ed448 requirement where hardware permits (the certification root), keeps distinct per-role subkeys, and was proven live: subkeys transferred, card-backed signing and decryption both verified (§8). If Curve448-on-hardware is a hard requirement, the only known path is a Gnuk 2.2+ token (e.g. Nitrokey Start) — see §3.3.
 
-Two secondary failure classes were also identified in the earlier attempts recorded in `~/.gnupg/notes.txt` and are addressed by this procedure: gpg 2.4.x refuses to *create* Ed448/Curve448 keys without `--compliance=gnupg` (§2.2), and the scripted heredoc transfer attempts corrupted every secret they piped (§2.3).
+Two secondary failure classes were also identified in the earlier attempts recorded in `~/.gnupg/notes.txt` and are addressed by this procedure: Ubuntu/Debian-patched gpg builds (this host: `2.4.8-2ubuntu2.1`) refuse to *create* Ed448/Curve448 keys without an explicit `--compliance=gnupg` (§2.2 — upstream GnuPG has no such gate and silently forces v5 instead), and the scripted heredoc transfer attempts corrupted every secret they piped (§2.3).
 
 ## 1. Environment and evidence base
 
@@ -63,16 +63,18 @@ Consequences:
 - The error occurs for **every** ed448/x448 subkey, regardless of slot, PIN correctness, or key-attr pre-setting (`gpg --card-edit` → `admin` → `key-attr` offers no Curve448 entry to select either).
 - The 2025-08-29 ed448 key `93E8591643C507FF` (uid comment "yubikey-3", the current git `user.signingkey`) predictably could never have been moved to a YubiKey either — it operates as an on-disk software key.
 
-### 2.2 Layer 2: gpg 2.4.x gates Ed448/Curve448 *creation* behind `--compliance=gnupg`
+### 2.2 Layer 2: Ubuntu/Debian-patched gpg builds gate Ed448/Curve448 *creation* behind `--compliance=gnupg`
 
-A fresh GNUPGHOME reproduces:
+A fresh GNUPGHOME reproduces (on this host):
 
 ```text
 gpg: Cannot create Ed448 or Curve448 key without --compliance=gnupg.
 gpg: Key generation failed: Invalid public key algorithm
 ```
 
-Ed448/X448 in the v4/v5 packet formats gpg 2.4 emits is a GnuPG/LibrePGP extension (the IETF RFC 9580 "crypto-refresh" encodes these algorithms differently), so gpg requires the explicit compliance opt-in for generation. Add `compliance gnupg` to the ceremony home's `gpg.conf` (covers every invocation) or pass `--compliance=gnupg` per generating command — the notes.txt `--quick-add-key` lines already did the latter.
+**Scope correction (2026-08-05 validation, key-validation report §12):** this gate is a **downstream distro patch, not upstream GnuPG behavior**. The refusal string exists in this host's binary (Ubuntu package `gnupg2 2.4.8-2ubuntu2.1`; confirmed via `strings /usr/bin/gpg` + live fresh-home reproduction) but appears nowhere in upstream GnuPG source or its translation catalogs (STABLE-BRANCH-2-4 through 2.4.9 and master) — upstream instead creates 448 keys without any flag, silently forcing v5 ("Force version 5 key creation for ed448 and cv448 algorithms.", NEWS 2.3.1). Ubuntu's gnupg2 carries the FreePG-lineage patch set (`revert-rfc4880bis.patch` — "Revert the 'LibrePGP' changes that introduce the standards-incompatible v5 keyformat and others by default"), which turns creation of these LibrePGP-only v5 artifacts into an explicit opt-in (the IETF RFC 9580 "crypto-refresh" encodes these algorithms differently — dedicated v6 IDs, Ed448=28/X448=26 per the IANA registry).
+
+Practical rule (unchanged either way): add `compliance gnupg` to the ceremony home's `gpg.conf` (covers every invocation) or pass `--compliance=gnupg` per generating command — required on Ubuntu/Debian-patched builds, harmless on upstream gpg (where `gnupg` compliance is already the default). The notes.txt `--quick-add-key` lines already did the latter.
 
 Related observable: gpg creates ed448 keys in **v5 key format** — the primary's fingerprint is 64 hex chars (32 bytes) instead of the classic v4 40. Many external services cannot parse v5 keys (§6).
 
@@ -290,6 +292,7 @@ Order matters — do these **after** §4.1's reset and **before** handing the ke
    ```bash
    echo enable-ssh-support >> ~/.gnupg/gpg-agent.conf && gpgconf --kill gpg-agent
    gpg --export-ssh-key "$KEYFP"        # → 'ssh-ed25519 AAAA…' public line for authorized_keys
+   #   e.g. (2026-08-06 live run): ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE5lVKCTsiyaubgSBRz3CEJoBQa6GzlDPm4KGVTERN6s openpgp:0x9598412D
    # add the auth subkey's keygrip ($GNUPGHOME/private-keys-v1.d name) to ~/.gnupg/sshcontrol
    ```
 
@@ -310,7 +313,7 @@ Order matters — do these **after** §4.1's reset and **before** handing the ke
 | Symptom                                                            | Cause                                                                                                   | Fix                                                                                            |
 |--------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
 | `KEYTOCARD failed: Invalid value`                                  | Key algorithm not in the card's Algorithm Information list (ed448/x448 on any YubiKey)                  | Card-supported algorithm for card-resident subkeys (§3); Gnuk 2.2+ hardware for true 448       |
-| `Cannot create Ed448 or Curve448 key without --compliance=gnupg`   | gpg 2.4.x generation gate                                                                               | `compliance gnupg` in gpg.conf or `--compliance=gnupg` on the command (§2.2)                   |
+| `Cannot create Ed448 or Curve448 key without --compliance=gnupg`   | Ubuntu/Debian FreePG-patched gpg builds (upstream GnuPG creates v5 silently)                            | `compliance gnupg` in gpg.conf or `--compliance=gnupg` on the command (§2.2)                   |
 | Wrong-passphrase / `Bad PIN` from scripts that "should" be correct | Heredoc `$`-expansion / literal quotes mangling secrets; loopback answering both prompts with one value | §2.3 rules; interactive entry or the §9 stub                                                   |
 | `Bad PIN` interactively; counters dropping                         | Wrong PIN, or PIN state uncertain after failed scripted changes                                         | Check `ykman openpgp info` counters; 0 admin retries = unblockable → `ykman openpgp reset`     |
 | `cannot open '/dev/tty'` in scripted `--edit-key`                  | gpg wants a tty                                                                                         | add `--no-tty` with `--command-fd 0 --status-fd 1`                                             |
