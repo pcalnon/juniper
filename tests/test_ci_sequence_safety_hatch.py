@@ -58,6 +58,13 @@ def _find_repo_root(start: Path) -> Path:
 class SequenceSafetyHatchStructuralTest(unittest.TestCase):
     """Pin the hatch surface so a refactor cannot drop exact-match or widen merge_group."""
 
+    workflow_path: Path
+    raw: str
+    doc: dict
+    job: dict
+    step: dict | None
+    script: str
+
     @classmethod
     def setUpClass(cls) -> None:
         repo_root = _find_repo_root(Path(__file__).resolve().parent)
@@ -145,22 +152,7 @@ class SequenceSafetyHatchRehearsalTest(unittest.TestCase):
             # (workflow uses ``|| true`` on the json arm, but a clean stub keeps the log tidy).
             py = stub_bin / "python3"
             py.write_text(
-                "#!/usr/bin/env bash\n"
-                "set -euo pipefail\n"
-                f'printf "%s\\n" "$*" >>"{py_log}"\n'
-                'args="$*"\n'
-                'if [[ "$args" == *"--json"* ]]; then\n'
-                '  printf "%s\\n" "{}"\n'
-                "  exit 0\n"
-                "fi\n"
-                'if [[ "$args" == *"symbol_loss_check.py"* ]]; then\n'
-                f"  exit {int(symbol_exit)}\n"
-                "fi\n"
-                'if [[ "$args" == *"docs_additions_check.py"* ]]; then\n'
-                f"  exit {int(docs_exit)}\n"
-                "fi\n"
-                'echo "unexpected python3 argv: $*" >&2\n'
-                "exit 99\n",
+                "#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "%s\\n" "$*" >>"{py_log}"\n' 'args="$*"\n' 'if [[ "$args" == *"--json"* ]]; then\n' '  printf "%s\\n" "{}"\n' "  exit 0\n" "fi\n" 'if [[ "$args" == *"symbol_loss_check.py"* ]]; then\n' f"  exit {int(symbol_exit)}\n" "fi\n" 'if [[ "$args" == *"docs_additions_check.py"* ]]; then\n' f"  exit {int(docs_exit)}\n" "fi\n" 'echo "unexpected python3 argv: $*" >&2\n' "exit 99\n",
                 encoding="utf-8",
             )
             py.chmod(0o755)
@@ -170,33 +162,21 @@ class SequenceSafetyHatchRehearsalTest(unittest.TestCase):
             labels_file.write_text("".join(f"{name}\n" for name in (labels or [])), encoding="utf-8")
             gh = stub_bin / "gh"
             gh.write_text(
-                "#!/usr/bin/env bash\n"
-                "set -euo pipefail\n"
-                'if [ "${1:-}" = "pr" ] && [ "${2:-}" = "view" ]; then\n'
-                f'  cat "{labels_file}"\n'
-                "  exit 0\n"
-                "fi\n"
-                'echo "unexpected gh argv: $*" >&2\n'
-                "exit 99\n",
+                "#!/usr/bin/env bash\n" "set -euo pipefail\n" 'if [ "${1:-}" = "pr" ] && [ "${2:-}" = "view" ]; then\n' f'  cat "{labels_file}"\n' "  exit 0\n" "fi\n" 'echo "unexpected gh argv: $*" >&2\n' "exit 99\n",
                 encoding="utf-8",
             )
             gh.chmod(0o755)
 
             git = stub_bin / "git"
             git.write_text(
-                "#!/usr/bin/env bash\n"
-                "set -euo pipefail\n"
-                'if [ "${1:-}" = "cat-file" ]; then exit 0; fi\n'
-                'if [ "${1:-}" = "fetch" ]; then exit 0; fi\n'
-                'echo "unexpected git argv: $*" >&2\n'
-                "exit 99\n",
+                "#!/usr/bin/env bash\n" "set -euo pipefail\n" 'if [ "${1:-}" = "cat-file" ]; then exit 0; fi\n' 'if [ "${1:-}" = "fetch" ]; then exit 0; fi\n' 'echo "unexpected git argv: $*" >&2\n' "exit 99\n",
                 encoding="utf-8",
             )
             git.chmod(0o755)
 
             env = RedactedEnv(os.environ)
             env["PATH"] = str(stub_bin) + os.pathsep + env.get("PATH", "")
-            env["GH_TOKEN"] = "unused"
+            env["GH_TOKEN"] = "unused"  # nosec B105 - dummy token for the PATH-stubbed gh, never a real credential
             env["EVENT_NAME"] = event_name
             env["PR_NUMBER"] = pr_number
             env["PR_BASE_SHA"] = "" if empty_base and event_name == "pull_request" else pr_base

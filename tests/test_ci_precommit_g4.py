@@ -53,6 +53,13 @@ def _find_repo_root(start: Path) -> Path:
 class PrecommitG4StructuralTest(unittest.TestCase):
     """Pin the G4 event→argv contract so a refactor cannot silently restore --all-files on PRs."""
 
+    workflow_path: Path
+    raw: str
+    doc: dict
+    step: dict | None
+    script: str
+    env_block: dict
+
     @classmethod
     def setUpClass(cls) -> None:
         repo_root = _find_repo_root(Path(__file__).resolve().parent)
@@ -121,10 +128,7 @@ class PrecommitG4RehearsalTest(unittest.TestCase):
 
             precommit = stub_bin / "pre-commit"
             precommit.write_text(
-                "#!/usr/bin/env bash\n"
-                "set -euo pipefail\n"
-                f'printf "%s\\n" "$*" >>"{log_path}"\n'
-                "exit 0\n",
+                "#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "%s\\n" "$*" >>"{log_path}"\n' "exit 0\n",
                 encoding="utf-8",
             )
             precommit.chmod(0o755)
@@ -133,16 +137,7 @@ class PrecommitG4RehearsalTest(unittest.TestCase):
             git = stub_bin / "git"
             cat_rc = 0 if cat_file_ok else 1
             git.write_text(
-                "#!/usr/bin/env bash\n"
-                "set -euo pipefail\n"
-                'if [ "${1:-}" = "cat-file" ]; then\n'
-                f"  exit {cat_rc}\n"
-                "fi\n"
-                'if [ "${1:-}" = "fetch" ]; then\n'
-                "  exit 0\n"
-                "fi\n"
-                'echo "unexpected git argv: $*" >&2\n'
-                "exit 99\n",
+                "#!/usr/bin/env bash\n" "set -euo pipefail\n" 'if [ "${1:-}" = "cat-file" ]; then\n' f"  exit {cat_rc}\n" "fi\n" 'if [ "${1:-}" = "fetch" ]; then\n' "  exit 0\n" "fi\n" 'echo "unexpected git argv: $*" >&2\n' "exit 99\n",
                 encoding="utf-8",
             )
             git.chmod(0o755)
