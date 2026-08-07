@@ -74,6 +74,12 @@ def _verify_step_run(doc: dict) -> str:
 class PublishTestPyPIVerifyStructuralTest(unittest.TestCase):
     """Pin publish.yml verify wiring so a casual edit cannot drop extras resolution."""
 
+    repo_root: Path
+    workflow_path: Path
+    raw: str
+    doc: dict
+    script: str
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.repo_root = _find_repo_root(Path(__file__).resolve().parent)
@@ -177,13 +183,7 @@ class PublishTestPyPIVerifyRehearsalTest(unittest.TestCase):
         # python stub: tomllib version probe prints VERSION; import probes succeed.
         python = bindir / "python"
         python.write_text(
-            "#!/bin/bash\n"
-            'args="$*"\n'
-            'if [[ "$args" == *tomllib* ]]; then\n'
-            f'  echo "{version}"\n'
-            "  exit 0\n"
-            "fi\n"
-            "exit 0\n",
+            "#!/bin/bash\n" 'args="$*"\n' 'if [[ "$args" == *tomllib* ]]; then\n' f'  echo "{version}"\n' "  exit 0\n" "fi\n" "exit 0\n",
             encoding="utf-8",
         )
         python.chmod(python.stat().st_mode | stat.S_IXUSR)
