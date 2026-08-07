@@ -1080,10 +1080,7 @@ class ApplyPinPairsExactTest(unittest.TestCase):
     def test_leaves_non_exact_sibling_pins_untouched(self):
         # Prefix / longer-name siblings must not move when the exact old_req is absent as a
         # full string (bare replace is exact-token, not package-name anchored).
-        text = (
-            'deps = ["juniper-cascor>=0.5.0,<0.6.0", "juniper-cascor-worker>=0.4.0", '
-            '"juniper-cascor-client>=0.5.0"]\n'
-        )
+        text = 'deps = ["juniper-cascor>=0.5.0,<0.6.0", "juniper-cascor-worker>=0.4.0", ' '"juniper-cascor-client>=0.5.0"]\n'
         out = pr.apply_pin_pairs_exact(text, [("juniper-cascor>=0.5.0,<0.6.0", "juniper-cascor>=0.5.0,<0.7.0")])
         self.assertIn("juniper-cascor>=0.5.0,<0.7.0", out)
         self.assertIn("juniper-cascor-worker>=0.4.0", out)
