@@ -221,6 +221,10 @@ class PrBudgetAlarmRehearsalTest(unittest.TestCase):
 class PrBudgetAlarmStructuralTest(unittest.TestCase):
     """Pin the report-only / least-privilege surface so a refactor cannot widen it."""
 
+    workflow_path: Path
+    raw: str
+    doc: dict
+
     @classmethod
     def setUpClass(cls) -> None:
         repo_root = _find_repo_root(Path(__file__).resolve().parent)
