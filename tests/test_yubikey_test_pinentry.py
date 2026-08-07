@@ -89,7 +89,7 @@ class TestYubikeyTestPinentryAssuan(unittest.TestCase):
             ],
             admin_pin="A-ADMIN",
             user_pin="U-USER",
-            passphrase="P-PASS",
+            passphrase="P-PASS",  # nosec B106 - throwaway stub-test literal, not a credential
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         lines = result.stdout.splitlines()
@@ -113,7 +113,7 @@ class TestYubikeyTestPinentryAssuan(unittest.TestCase):
                 "BYE",
             ],
             user_pin="CARD-PIN",
-            passphrase="NOT-THIS",
+            passphrase="NOT-THIS",  # nosec B106 - throwaway stub-test literal, not a credential
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("D CARD-PIN", result.stdout.splitlines())
