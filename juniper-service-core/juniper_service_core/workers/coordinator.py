@@ -302,6 +302,21 @@ class WorkerCoordinator:
                 logger.warning("Result for unknown task %s from worker %s -- rejected", task_id, worker_id)
                 return False
 
+            # Ownership: only the assigned worker may submit a result. Reject before parse so a
+            # wrong-worker (or still-unassigned) envelope cannot free the assignee, poison the
+            # result map, or burn a parse side-effect on a task it does not own.
+            if task.assigned_worker_id is None:
+                logger.warning("Result for unassigned task %s from worker %s -- rejected", task_id, worker_id)
+                return False
+            if task.assigned_worker_id != worker_id:
+                logger.warning(
+                    "Result for task %s from worker %s -- rejected (assigned to %s)",
+                    task_id,
+                    worker_id,
+                    task.assigned_worker_id,
+                )
+                return False
+
             # Cascade-bound validation + parse (schema / tensor checks live in the injected protocol).
             parsed = self._protocol.parse_result(worker_id, msg, frames)
             if parsed is None:
