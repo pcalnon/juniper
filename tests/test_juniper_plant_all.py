@@ -1166,15 +1166,7 @@ class TestSafeCondaActivate(unittest.TestCase):
             conda = bin_dir / "conda"
             conda.write_text("#!/bin/bash\n" 'if [[ "$1" == "activate" ]]; then\n' "  exit 1\n" "fi\n")
             conda.chmod(0o755)
-            harness = (
-                "set -euo pipefail\n"
-                f'export PATH="{bin_dir}:/usr/bin:/bin"\n'
-                + _extract_safe_conda_activate()
-                + "failed=0\n"
-                + 'safe_conda_activate "JuniperCanopy1" || failed=1\n'
-                + 'echo "failed=${failed}"\n'
-                + "if (( failed != 1 )); then exit 2; fi\n"
-            )
+            harness = "set -euo pipefail\n" f'export PATH="{bin_dir}:/usr/bin:/bin"\n' + _extract_safe_conda_activate() + "failed=0\n" + 'safe_conda_activate "JuniperCanopy1" || failed=1\n' + 'echo "failed=${failed}"\n' + "if (( failed != 1 )); then exit 2; fi\n"
             result = subprocess.run(
                 ["/bin/bash", "-c", harness],
                 capture_output=True,
