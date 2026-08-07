@@ -89,7 +89,8 @@ phase_gen() {
     mkdir -m 700 "$TESTHOME"
     touch "$MARKER"
 
-    # 'compliance gnupg' is REQUIRED for Ed448/Curve448 key generation in gpg 2.4.x:
+    # 'compliance gnupg' is REQUIRED for Ed448/Curve448 key generation on Ubuntu/Debian-
+    # patched gpg builds (FreePG lineage; upstream gpg creates the v5 key silently instead):
     # without it: "gpg: Cannot create Ed448 or Curve448 key without --compliance=gnupg."
     printf 'keyid-format long\nwith-subkey-fingerprints\ncompliance gnupg\n' > "${TESTHOME}/gpg.conf"
     cat > "${TESTHOME}/gpg-agent.conf" <<EOF
