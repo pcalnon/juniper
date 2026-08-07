@@ -10,6 +10,10 @@ scan (8 publishing repos + juniper-deploy) and the empty-scan warning exit-0 arm
 Pins ``DEFAULT_REPOS`` membership lockstep so a publishing sibling (e.g.
 ``juniper-recurrence``) cannot silently drop out of the weekly audit fan-out.
 
+Additionally pins the live juniper-ml ``.github/workflows/claude.yml``
+``on:`` event matrix, per-event ``if:`` gates, and exact job ``permissions``
+(the L2/L3 bash validator does not cover those).
+
 The test bodies invoke the bash script via subprocess and assert on its
 exit code + stderr/stdout. The script lives at the canonical location
 util/validate_claude_yaml_access.bash relative to this file.
@@ -25,14 +29,34 @@ import unittest
 from pathlib import Path
 from textwrap import dedent
 
+import yaml
+
 from tests.redacted_env import RedactedEnv
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = REPO_ROOT / "util" / "validate_claude_yaml_access.bash"
+CLAUDE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "claude.yml"
 REGISTRY_PATH = REPO_ROOT / "util" / "release_train" / "registry.yaml"
 
 # Infra sibling that is not a PyPI publisher but still carries claude.yml risk.
 _DEPLOY_SIBLING = "juniper-deploy"
+
+# Live claude.yml contract (public-repo ANTHROPIC_API_KEY surface).
+_EXPECTED_ON_EVENTS = frozenset(
+    {
+        "issue_comment",
+        "pull_request_review_comment",
+        "issues",
+        "pull_request_review",
+    }
+)
+_EXPECTED_PERMISSIONS = {
+    "contents": "write",
+    "pull-requests": "write",
+    "issues": "write",
+    "id-token": "write",
+    "actions": "read",
+}
 
 
 GOOD_YAML = dedent("""\
@@ -343,6 +367,56 @@ class DefaultTargetsTests(unittest.TestCase):
             )
             self.assertIn("contains no claude.yml under the canonical Juniper repos", result.stderr)
             self.assertIn("nothing to do", result.stdout)
+
+
+class LiveClaudeWorkflowContractTests(unittest.TestCase):
+    """Pin juniper-ml's live claude.yml event matrix + permissions (secret surface).
+
+    The bash validator only checks L2 dangerous triggers + L3a/L3b ``@claude``
+    presence. It does not notice a dropped ``on:`` event, an ungated event in
+    ``if:``, or a permissions widen/narrow — all of which change who can spend
+    ``ANTHROPIC_API_KEY`` on a public repo.
+    """
+
+    raw: str
+    doc: dict
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.raw = CLAUDE_WORKFLOW.read_text(encoding="utf-8")
+        cls.doc = yaml.safe_load(cls.raw)
+
+    def test_on_events_match_canonical_matrix(self) -> None:
+        # PyYAML may parse the ``on:`` key as boolean True.
+        on_block = self.doc.get("on") or self.doc.get(True)
+        self.assertIsInstance(on_block, dict, msg="claude.yml must declare an on: mapping")
+        self.assertEqual(
+            frozenset(on_block.keys()),
+            _EXPECTED_ON_EVENTS,
+            msg=(f"on: event drift: missing={sorted(_EXPECTED_ON_EVENTS - frozenset(on_block))} " f"extra={sorted(frozenset(on_block) - _EXPECTED_ON_EVENTS)}"),
+        )
+
+    def test_job_if_gates_every_on_event(self) -> None:
+        """Every on: event must appear in the claude job if: (drive-by hatch)."""
+        job = self.doc["jobs"]["claude"]
+        if_expr = job.get("if")
+        self.assertIsInstance(if_expr, str)
+        self.assertIn("@claude", if_expr)
+        for event in _EXPECTED_ON_EVENTS:
+            self.assertIn(
+                f"github.event_name == '{event}'",
+                if_expr,
+                msg=f"claude job if: does not gate on: event {event!r}",
+            )
+
+    def test_job_permissions_exact(self) -> None:
+        job = self.doc["jobs"]["claude"]
+        perms = job.get("permissions")
+        self.assertEqual(
+            perms,
+            _EXPECTED_PERMISSIONS,
+            msg=f"claude job permissions drift: got={perms!r}",
+        )
 
 
 if __name__ == "__main__":
