@@ -104,11 +104,15 @@ def _needs_list(job: dict) -> list[str]:
 class SubpackageCiStructuralTest(unittest.TestCase):
     """Pin shared-package ci-*.yml contracts that keep subdirectory CI honest."""
 
+    repo_root: Path
+    workflows_dir: Path
+    loaded: dict[str, dict[str, Any]]
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.repo_root = _find_repo_root(Path(__file__).resolve().parent)
         cls.workflows_dir = cls.repo_root / ".github" / "workflows"
-        cls.loaded: dict[str, dict[str, Any]] = {}
+        cls.loaded = {}
         for suffix, subdir, cov_name, matrix, cov_floor, uses_wd in SHARED_CI:
             path = cls.workflows_dir / f"ci-{suffix}.yml"
             if not path.is_file():
@@ -126,11 +130,7 @@ class SubpackageCiStructuralTest(unittest.TestCase):
             }
 
     def test_exactly_the_six_shared_ci_workflows_exist(self) -> None:
-        found = sorted(
-            p.name
-            for p in self.workflows_dir.glob("ci-*.yml")
-            if p.name != "ci.yml" and not p.name.startswith("ci.yml")
-        )
+        found = sorted(p.name for p in self.workflows_dir.glob("ci-*.yml") if p.name != "ci.yml" and not p.name.startswith("ci.yml"))
         # Only the six package workflows use the ci-<pkg>.yml naming; meta is ci.yml.
         expected = sorted(f"ci-{suffix}.yml" for suffix, *_ in SHARED_CI)
         self.assertEqual(
@@ -157,8 +157,7 @@ class SubpackageCiStructuralTest(unittest.TestCase):
                     self.assertIn(
                         wf_self,
                         paths,
-                        f"{subdir}: {event} must include self-path {wf_self} "
-                        "so workflow edits still run CI",
+                        f"{subdir}: {event} must include self-path {wf_self} " "so workflow edits still run CI",
                     )
                     branches = (on.get(event) or {}).get("branches") or []
                     self.assertIn("main", branches)
