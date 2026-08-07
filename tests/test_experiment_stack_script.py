@@ -1330,6 +1330,9 @@ class TestDoUpFailClosedTeardown(unittest.TestCase):
             )
             # docker reports no networks at all → discover_gateway_ip must return 1.
             _write_stub(stub_bin / "docker", "#!/usr/bin/env bash\nexit 0\n")
+            # socat present-but-never-invoked: require_cmd must pass on hosts WITHOUT a
+            # real socat (CI runners) so the deterministic failure is the gateway probe.
+            _write_stub(stub_bin / "socat", "#!/usr/bin/env bash\nexit 0\n")
 
             env = RedactedEnv(os.environ)
             env.update(
