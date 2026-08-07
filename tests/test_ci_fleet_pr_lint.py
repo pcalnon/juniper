@@ -78,6 +78,7 @@ class FleetPrLintRehearsalTest(unittest.TestCase):
     """Extract and run the real fleet-pr-lint shell over the advisory matrix."""
 
     script: str
+    job: dict
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -280,6 +281,10 @@ class FleetPrLintRehearsalTest(unittest.TestCase):
 
 class FleetPrLintStructuralTest(unittest.TestCase):
     """Pin job surface so the advisory contract cannot drift unnoticed."""
+
+    job: dict
+    lint_step: dict
+    black_step: dict
 
     @classmethod
     def setUpClass(cls) -> None:
