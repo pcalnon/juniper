@@ -394,6 +394,16 @@ jobs:
           # bumps juniper-doc-tools in this same PR but forgets to
           # bump the pin in juniper-ml's own workflows.
           python3 -m unittest -v tests/test_doc_tools_drift.py
+          # tests/test_docs_full_check_ecosystem.py: lockstep gate for
+          # docs-full-check.yml env.ECOSYSTEM_REPOS vs registry publishing
+          # siblings (+ juniper-deploy). Catches the juniper-recurrence
+          # clone omission that silently dropped weekly cross-repo screens.
+          python3 -m unittest -v tests/test_docs_full_check_ecosystem.py
+          # tests/test_archive_guard_workflow.py: structural pin for the
+          # release-train-archive-guard merge_group short-circuit (flood
+          # §4 item 1) — job if, first-step notice, pull_request-only work
+          # steps, and absence from Quality Gate needs.
+          python3 -m unittest -v tests/test_archive_guard_workflow.py
           # tests/test_ci_tools_drift.py: same skip semantics as the
           # doc-tools sibling above -- the cross-repo consumer-pin
           # assertion auto-skips when siblings are not cloned, but the
