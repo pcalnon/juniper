@@ -72,6 +72,10 @@ env:
 
   # Juniper ecosystem repos to clone for cross-repo link validation.
   # Uses newline-separated list for shell iteration.
+  # Must stay lockstep with util/release_train/registry.yaml publishing
+  # siblings (minus juniper-ml, which is the workflow checkout) UNION
+  # juniper-deploy (doc/claude consumer, no PyPI package). Gate:
+  # tests/test_docs_full_check_ecosystem.py.
   ECOSYSTEM_REPOS: |
     juniper-data
     juniper-cascor
@@ -79,6 +83,7 @@ env:
     juniper-data-client
     juniper-cascor-client
     juniper-cascor-worker
+    juniper-recurrence
     juniper-deploy
 
 jobs:
@@ -143,7 +148,7 @@ jobs:
       - name: Downstream-consumer integration check
         env:
           # Tolerate up to this many per-repo failures before declaring
-          # a catastrophic juniper-doc-tools regression. With 7 consumers
+          # a catastrophic juniper-doc-tools regression. With 8 consumers
           # (juniper-deploy has no doc-link CI), >=5 broken == majority.
           DOWNSTREAM_FAIL_THRESHOLD: "5"
         run: |
@@ -167,7 +172,9 @@ jobs:
           )
 
           # Consumer repos that ship a doc-link CI lane (juniper-deploy
-          # excluded; it has no docs job in its ci.yml).
+          # excluded; it has no docs job in its ci.yml). juniper-recurrence
+          # ships ci-docs.yml (not ci.yml) — keep this list lockstep with
+          # tests/test_doc_tools_drift.py _CONSUMER_REPOS.
           CONSUMERS=(
             juniper-canopy
             juniper-cascor
@@ -175,6 +182,7 @@ jobs:
             juniper-cascor-worker
             juniper-data
             juniper-data-client
+            juniper-recurrence
           )
 
           declare -i failures=0

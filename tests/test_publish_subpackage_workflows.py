@@ -291,18 +291,7 @@ class PublishSubpackageVerifyRehearsalTest(unittest.TestCase):
         # python stub: -c importlib.metadata / import / -m <pkg> --version all succeed.
         python = bindir / "python"
         python.write_text(
-            "#!/bin/bash\n"
-            'args="$*"\n'
-            'if [[ "$args" == *importlib.metadata* ]]; then\n'
-            f'  echo "TestPyPI install OK {version}"\n'
-            "  exit 0\n"
-            "fi\n"
-            'if [[ "$args" == *-m* ]]; then\n'
-            f'  echo "{version}"\n'
-            "  exit 0\n"
-            "fi\n"
-            f'echo "TestPyPI install OK {version}"\n'
-            "exit 0\n",
+            "#!/bin/bash\n" 'args="$*"\n' 'if [[ "$args" == *importlib.metadata* ]]; then\n' f'  echo "TestPyPI install OK {version}"\n' "  exit 0\n" "fi\n" 'if [[ "$args" == *-m* ]]; then\n' f'  echo "{version}"\n' "  exit 0\n" "fi\n" f'echo "TestPyPI install OK {version}"\n' "exit 0\n",
             encoding="utf-8",
         )
         python.chmod(python.stat().st_mode | stat.S_IXUSR)
