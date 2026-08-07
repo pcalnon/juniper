@@ -16,8 +16,9 @@ fixture repos (the ``tests/test_worktree_cleanup.py`` fixture idiom) -- no netwo
 * the ``--batch`` cluster map + suggested merge order (restore/heal/repair/fix-first
   first, then ascending same-file-cluster membership), including a fake-``gh``
   end-to-end batch;
-* ``triage_pr`` / ``_gh_json`` / CLI ``--pr`` hard-fail on gh nonzero / non-JSON (batch
-  soft-ERROR continue is covered separately);
+* ``triage_pr`` / ``_gh_json`` / CLI ``--pr`` hard-fail on gh nonzero / non-JSON;
+* ``triage_batch`` soft-ERROR continue (one unresolvable ``headRefName`` must not abort
+  the rest of the open-PR set) + ``suggest_order`` empty-``true_delta`` ERROR contention;
 * deleted-``.py`` paths stay in ``true_delta`` but are filtered out of the gate battery;
 * ``JUNIPER_FLEET_SKIP_PRECOMMIT`` forces skip_all when the default gate runner would run;
 * the detached-clone-never-mutates-source contract (a ``git clone`` under the system
@@ -481,6 +482,25 @@ class ClusterOrderTest(unittest.TestCase):
         order = pm.suggest_order(verdicts, clusters)
         self.assertEqual(order[0], 12, "the singleton-cluster PR should lead when no heal PR exists")
 
+    def test_suggest_order_error_empty_delta_has_zero_contention(self):
+        # soft-ERROR rows carry ``true_delta=[]`` (predict_merge.py triage_batch catch).
+        # ``suggest_order`` contention is ``max(len(cluster[path]))`` over true_delta, so an
+        # empty delta sorts as least-colliding (contention 0) — after heals, ahead of busy
+        # feat clusters. Pin that so a future demotion/promotion of ERROR cannot silently
+        # reorder the supervisor merge plan.
+        verdicts = [
+            {"pr": 1, "title": "heal canopy", "branch": "cursor/heal-x", "true_delta": ["A.md"]},
+            {"pr": 2, "title": "gone branch", "branch": "cursor/gone", "true_delta": [], "verdict": "ERROR"},
+            {"pr": 3, "title": "feat hot", "branch": "cursor/hot", "true_delta": ["HOT.py"]},
+            {"pr": 4, "title": "feat hot2", "branch": "cursor/hot2", "true_delta": ["HOT.py"]},
+        ]
+        clusters = pm.build_clusters(verdicts)
+        self.assertNotIn("", clusters)  # empty paths must not invent a cluster key
+        order = pm.suggest_order(verdicts, clusters)
+        self.assertEqual(order[0], 1, "heal still leads")
+        self.assertEqual(order[1], 2, "ERROR empty-delta (contention 0) before HOT cluster")
+        self.assertEqual(order[2:], [3, 4], order)
+
     def test_is_heal_recognizes_repair_and_fix_first_tokens(self):
         # suggest_order only auto-leads on restore/heal today in the cluster test; the
         # other documented tokens must also promote, or a repair/fix-first PR sits
@@ -588,6 +608,48 @@ class TriageBatchGhTest(_RepoCase):
         self.assertCountEqual(report["merge_order"], [1, 2])
         for v in report["prs"]:
             self.assertIn(v["verdict"], pm.SCRIPT_VERDICTS)
+
+    def test_triage_batch_soft_error_continues_on_unresolvable_branch(self):
+        # One open PR whose headRefName does not resolve as origin/<name> must surface as
+        # verdict=ERROR and MUST NOT abort the rest of the batch. Without the soft-catch
+        # around simulate_merge, a single deleted/renamed remote branch turns the whole
+        # fleet-supervisor report into a hard failure and stalls merge ordering.
+        self._two_branch_repo()
+        payload = self.tmp / "gh"
+        payload.mkdir()
+        (payload / "list.json").write_text(
+            json.dumps(
+                [
+                    {"number": 1, "title": "b1 ok", "headRefName": "b1", "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"},
+                    {
+                        "number": 99,
+                        "title": "stale head",
+                        "headRefName": "does-not-exist",
+                        "mergeable": "UNKNOWN",
+                        "mergeStateStatus": "DIRTY",
+                    },
+                    {"number": 2, "title": "b2 ok", "headRefName": "b2", "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"},
+                ]
+            )
+        )
+        bindir = self.tmp / "bin"
+        _install_fake_gh(bindir, payload)
+        env = {"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}", "GH_FAKE_DIR": str(payload)}
+
+        with mock.patch.dict(os.environ, env):
+            report = pm.triage_batch(self.repo, run_gates=False)
+
+        self.assertEqual(report["open_pr_count"], 3)
+        by_pr = {v["pr"]: v for v in report["prs"]}
+        self.assertEqual(by_pr[99]["verdict"], "ERROR")
+        self.assertIn("does not resolve", by_pr[99].get("error", ""))
+        self.assertEqual(by_pr[99]["true_delta"], [])
+        self.assertEqual(by_pr[99]["title"], "stale head")
+        # Healthy PRs still get real script verdicts and contribute to clusters/order.
+        self.assertIn(by_pr[1]["verdict"], pm.SCRIPT_VERDICTS)
+        self.assertIn(by_pr[2]["verdict"], pm.SCRIPT_VERDICTS)
+        self.assertIn("shared.txt", report["clusters"])
+        self.assertCountEqual(report["merge_order"], [1, 2, 99])
 
 
 # --------------------------------------------------------------------------- #
