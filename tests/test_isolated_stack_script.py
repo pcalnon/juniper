@@ -973,24 +973,8 @@ class TestActivateCondaNounset(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmp:
             conda_sh = Path(tmp) / "conda.sh"
-            conda_sh.write_text(
-                "#!/usr/bin/env bash\n"
-                "conda() {\n"
-                '  if [[ "$1" == "activate" ]]; then\n'
-                "    return 1\n"
-                "  fi\n"
-                "}\n"
-            )
-            harness = (
-                "set -euo pipefail\n"
-                'log() { echo "$*"; }\n'
-                f'CONDA_SH="{conda_sh}"\n'
-                + _extract_activate_conda_function()
-                + "failed=0\n"
-                + 'activate_conda "JuniperCascor1" || failed=1\n'
-                + 'echo "failed=${failed}"\n'
-                + "if (( failed != 1 )); then exit 2; fi\n"
-            )
+            conda_sh.write_text("#!/usr/bin/env bash\n" "conda() {\n" '  if [[ "$1" == "activate" ]]; then\n' "    return 1\n" "  fi\n" "}\n")
+            harness = "set -euo pipefail\n" 'log() { echo "$*"; }\n' f'CONDA_SH="{conda_sh}"\n' + _extract_activate_conda_function() + "failed=0\n" + 'activate_conda "JuniperCascor1" || failed=1\n' + 'echo "failed=${failed}"\n' + "if (( failed != 1 )); then exit 2; fi\n"
             result = subprocess.run(
                 ["/bin/bash", "-c", harness],
                 capture_output=True,
