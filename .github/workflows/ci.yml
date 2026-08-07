@@ -377,7 +377,7 @@ jobs:
           python3 -m unittest -v tests/test_ci_tools_drift.py
           # tests/test_lockfile_update_workflow.py: structural gate for the weekly
           # lockfile-update.yml refresh — juniper-generate-dep-docs (not the deleted
-          # util/generate_dep_docs.sh), SHA-pinned create-pull-request, branch/labels/
+          # inline dep-docs shell script), SHA-pinned create-pull-request, branch/labels/
           # permissions. Companion to test_ci_tools_drift (pin range only).
           python3 -m unittest -v tests/test_lockfile_update_workflow.py
           # tests/test_security_scan_workflow.py: structural + hermetic rehearsal for
