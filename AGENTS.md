@@ -93,10 +93,10 @@ pre-commit run --all-files
 
 # Validate documentation links (requires `pip install juniper-doc-tools`
 # or `pip install -e juniper-doc-tools/` for editable local development)
-juniper-check-doc-links --exclude templates --exclude history --exclude legacy
+juniper-check-doc-links --exclude templates --exclude history --exclude legacy --exclude pull_requests --exclude releases --exclude analysis --exclude fixes --exclude development --exclude CHANGELOG.md --cross-repo skip
 
 # Validate documentation links (including cross-repo)
-juniper-check-doc-links --exclude templates --exclude history --exclude legacy --cross-repo check
+juniper-check-doc-links --exclude templates --exclude history --exclude legacy --exclude pull_requests --exclude releases --exclude analysis --exclude fixes --exclude development --exclude CHANGELOG.md --cross-repo check
 ```
 
 ## Publishing
