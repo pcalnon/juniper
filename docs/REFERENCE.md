@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.1
+**Version:** 0.6.3
 **Status:** Active
 **Last Updated:** 2026-08-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -19,8 +19,8 @@
 - [Pytest Orphan Reaper](#pytest-orphan-reaper)
 - [Environment Floor Drift Check](#environment-floor-drift-check)
 - [Agent Suite Doctor](#agent-suite-doctor)
-- [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
+- [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Sibling Packages](#sibling-packages)
@@ -192,7 +192,7 @@ Query helpers:
 
 Lifecycle details:
 
-- In `nohup` mode, `plant_all` writes one `name=pid` entry per service to `juniper-ml/JuniperProject.pid`; `chop_all` reads that file, sends `SIGTERM`, then escalates to `SIGKILL` after `SIGTERM_TIMEOUT` seconds if needed.
+- In `nohup` mode, `plant_all` writes one `name=pid` entry per service to `juniper-ml/JuniperProject.pid`; `chop_all` reads that file, **validates each PID against `/proc/<pid>/cmdline`**, then sends `SIGTERM` and escalates to `SIGKILL` after `SIGTERM_TIMEOUT` seconds if needed. Legacy `name: pid` lines are still accepted (see [non-empty pidfile stop path](#non-empty-pidfile-stop-path-validate_pid)).
 - In systemd mode (`--systemd` or `USE_SYSTEMD=1`), both scripts call `systemctl --user` for `juniper-data`, `juniper-cascor`, `juniper-canopy`, and `juniper-cascor-worker`. This mode does not use `JuniperProject.pid` and only preflight-checks `curl` (not `ss` / port availability).
 - `plant_all` derives the Juniper project root from the script location (`util/` -> repository -> parent directory). `chop_all` honors `JUNIPER_PROJECT_DIR` directly instead of deriving it from the checkout, so non-standard layouts must stop with the same root explicitly set, for example `JUNIPER_PROJECT_DIR=/path/to/Juniper util/juniper_chop_all.bash`.
 - Default data bind is loopback: `JUNIPER_DATA_HOST` defaults to `127.0.0.1` (export `0.0.0.0` only when you intentionally want all-interfaces). See [`notes/JUNIPER_2026-07-06_JUNIPER-ECOSYSTEM_LAUNCH-PATH-BIND-AUDIT.md`](../notes/JUNIPER_2026-07-06_JUNIPER-ECOSYSTEM_LAUNCH-PATH-BIND-AUDIT.md) (SEC-F28).
@@ -239,6 +239,8 @@ Troubleshooting:
 | Mixed plant/chop modes | Never plant with `--systemd` and chop via pidfile (or the reverse). Match the mode used at start. |
 | Orphaned `juniper-cascor-worker` still running after chop | Pidfile stop only covers workers recorded at plant time. Opt in with `KILL_WORKERS=1 util/juniper_chop_all.bash` (nohup mode only; ignored under `--systemd`). See below. |
 | Chop logs `KILL_WORKERS flag is not set to 1` | Expected when `KILL_WORKERS` is unset/`0` (default). Benign on the post-pidfile path (`|| true`); set `KILL_WORKERS=1` only when you intend the pgrep cleanup. |
+| Chop WARNING `cmdline does not match … skipping (stale PID / wrong process)` | Expected when the pidfile PID was reused by an unrelated process — `validate_pid` refuses the kill (JR-ML-SEC-045). Not a `STOP_FAILURES` increment; successful chop still truncates the pidfile. See [non-empty pidfile stop path](#non-empty-pidfile-stop-path-validate_pid). |
+| Chop WARNING `PID file preserved … for investigation` | At least one `graceful_stop` failed (`STOP_FAILURES > 0`) — pidfile is **not** truncated. Inspect survivors with `ss -tlnp` / the preserved lines, then re-chop or kill manually. |
 | Mid-plant unset-variable / odd conda activate noise | Confirm `safe_conda_activate` restores with `set -u` (see above). A broken restore disables nounset for later steps, so typos that should have failed may look like unrelated mid-plant failures. |
 
 #### Orphaned worker cleanup (`KILL_WORKERS`)
@@ -285,6 +287,45 @@ KILL_WORKERS=1 JUNIPER_PROJECT_DIR=/path/to/Juniper util/juniper_chop_all.bash
 
 Coverage: open juniper-ml#798 (`tests/test_juniper_chop_all.py` — missing/empty → cleanup → exit 1; early sites stay hard).
 
+#### Non-empty pidfile stop path (`validate_pid`)
+
+When `JuniperProject.pid` is present and non-empty, `chop_all` enters `=== Stopping Juniper Services ===` and walks every line. This is the path hermetic coverage in open [#913](https://github.com/pcalnon/juniper-ml/pull/913) pins (`TestNonEmptyPidfileWire`) — complementary to the missing/empty early wire above.
+
+**Line formats** (first delimiter wins):
+
+| Format | Example | Notes |
+|--------|---------|-------|
+| Current `name=pid` | `juniper-cascor=12345` | Written by modern `plant_all` (post-2026-05-07) |
+| Legacy `name: pid` | `juniper-cascor: 12345` | Still parsed (`=` preferred when both could appear) |
+
+**Per-line contract (`validate_pid` then `graceful_stop`):**
+
+1. Parse name + PID from the line (`=` or legacy `:`).
+2. `validate_pid <pid> <name>` (JR-ML-SEC-045 / D-05) checks `${JUNIPER_CHOP_PROC_ROOT:-/proc}/<pid>/cmdline`:
+   - Rejects non-numeric PIDs, missing `/proc` entries, and empty/unreadable cmdline.
+   - Accepts a match after hyphen/underscore/case fold so conda paths like `.../envs/JuniperCascor1/bin/python` match pidfile key `juniper-cascor` (plant launches cascor/canopy as relative `python server.py` / `python main.py` — the env token is often the only stable substring).
+   - Extra guard: pidfile key `juniper-cascor` must **not** match a worker cmdline that contains `worker` (normalized `junipercascor` is a prefix of `junipercascorworker`).
+3. On accept → `graceful_stop` (SIGTERM, then SIGKILL after `SIGTERM_TIMEOUT`). On reject → log WARNING and **skip** (no signal).
+4. A `validate_pid` skip is **not** a stop failure. Only a failed `graceful_stop` increments `STOP_FAILURES`.
+
+**Pidfile outcome:**
+
+| Result | Pidfile |
+|--------|---------|
+| Every line stopped or skipped as stale / wrong process (`STOP_FAILURES == 0`) | Truncated (`: >` the file) — chop exits 0 |
+| Any `graceful_stop` failure (`STOP_FAILURES > 0`) | **Preserved** for investigation — chop exits 1 |
+
+```bash
+# Typical stale-PID warning (safe skip — unrelated process kept alive)
+# WARNING: PID 12345 (juniper-data) cmdline does not match expected service 'juniper-data' — skipping (stale PID / wrong process)
+
+# After a clean chop (including skips), pidfile is empty:
+wc -c "${JUNIPER_PROJECT_DIR:-$HOME/Development/python/Juniper}/juniper-ml/JuniperProject.pid"
+```
+
+`JUNIPER_CHOP_PROC_ROOT` is **tests-only** (hermetic fake `/proc`); never set it on a live host. systemd mode never reaches this loop.
+
+Coverage: open juniper-ml#913 (`tests/test_juniper_chop_all.py` — `TestNonEmptyPidfileWire` + `TestValidatePid`).
 
 #### systemd mode
 
@@ -510,79 +551,6 @@ Troubleshooting:
 
 ---
 
-## Fleet Triage and Sequence Safety
-
-Flood-remediation tooling for Cursor-fleet / third-party open PRs and for silent symbol / docs damage that ordinary lint cannot see. Two layers:
-
-| Layer | Path | Role |
-|-------|------|------|
-| Sequence-safety screens | `util/sequence_safety/symbol_loss_check.py`, `docs_additions_check.py` | Path-invoked BASE..HEAD screens used by CI (`sequence-safety` job, `main-verify.yml`) |
-| Predicted-merge triage | `util/fleet_triage/predict_merge.py` | Detached-clone merge of `origin/main` into a PR tip; runs fast gates + screens on the **merge RESULT** |
-| Fleet supervisor agent | `.claude/agents/fleet-supervisor.md` | Read-only adjudication over a `--batch` report (never pushes / merges / closes) |
-
-Design context: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 items 7–8.
-
-### Sequence-safety CLIs
-
-```bash
-python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --json
-python util/sequence_safety/docs_additions_check.py --base origin/main --head HEAD --json
-# WARN-only exit 0 (label hatch); exit 2 is never masked:
-python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --advisory
-```
-
-| Concern | Default scope | FAIL classes | Primary waiver |
-|---------|---------------|--------------|----------------|
-| Symbol loss | `tests/*.py` + `util/**/*.{py,bash}` | `LOST` / `WEAKENED` / `DUPLICATED` (py FAIL; bash LOST FAIL, WEAKENED/DUPLICATED WARN) | Commit trailer `Allow-Symbol-Loss: <qualified.symbol>[, …]` in BASE..HEAD |
-| Docs deletions | `AGENTS.md` + `docs/**` + `notes/**` | Deleted heading, or ≥`--min-run` (default 5) consecutive deleted lines | Commit trailer `Allow-Docs-Rewrite: <path>` (or enumerated paths) |
-
-Constraints (verified in the checkers):
-
-- Qualified symbols only (`func:name`, `method:Class.name`, …). Bare-name relocation is **not** a downgrade (SF3).
-- `Allow-Symbol-Loss: *` / blanket wildcards are **rejected** (waive nothing).
-- Per-PR labels `allow-symbol-loss` / `docs-rewrite` only demote the advisory CI job via `--advisory` (WARN-only exit 0). They are invisible to `push:main` `main-verify` — use the commit trailer for post-merge green.
-- Exit codes: `0` clean, `1` ≥1 unwaived FAIL, `2` usage / bad ref. Gates: `tests/test_symbol_loss_check.py`, `tests/test_docs_additions_check.py`.
-
-### `predict_merge.py` operator contract
-
-```bash
-python util/fleet_triage/predict_merge.py --pr 895 --json
-python util/fleet_triage/predict_merge.py --batch --json
-python util/fleet_triage/predict_merge.py --pr 895 --repo-root .
-# Skip the pre-commit battery when hooks are unavailable locally:
-JUNIPER_FLEET_SKIP_PRECOMMIT=1 python util/fleet_triage/predict_merge.py --pr 895
-```
-
-Per PR the script:
-
-1. Creates a throwaway **detached** `git clone --shared` under the system tempdir (never a worktree, never writes the source checkout, never pushes).
-2. Merges `origin/main` into the branch tip (`git merge --no-ff`, `commit.gpgsign=false`).
-3. On the RESULT: runs `pre-commit` hooks `black` / `isort` / `flake8` / `mypy` / `check-ast` on touched `.py` files; shells out to `util/sequence_safety/symbol_loss_check.py --repo-root <clone> --base <base> --head <result> --json` (same CLI as `main-verify` — juniper-ml#895 / ml#872); runs an inline docs additions-only screen (any removed content line on a changed `.md`).
-4. Emits the **TRUE** changed-file delta from `git diff --name-only origin/main <result>` (not the stale `gh pr … --json files` list).
-
-| Verdict | Meaning |
-|---------|---------|
-| `MERGE-CLEAN` | Merge succeeds; fast gates + screens pass |
-| `NEEDS-UPDATE-BRANCH` | Merge succeeds; a fast gate fails (format / type / AST) |
-| `DAMAGED-FIX-FIRST` | Merge succeeds; symbol-loss or docs-deletion screen fails |
-| `CONFLICT` | Merge conflict against `origin/main` |
-
-`--batch` also builds a same-file cluster map and a restore/heal-first, least-colliding merge order. Exit `0` always reports (even when every verdict is `DAMAGED` / `CONFLICT`); exit `2` is usage / precondition only (`gh` missing, bad `--repo-root`, unresolved ref).
-
-Degrade paths (never crash the report): missing / broken `symbol_loss_check.py`, checker exit `2`, or non-JSON stdout → symbol screen `status=skip`. A delta with no `.py`/`.bash` short-circuits the symbol subprocess. Gate: `tests/test_predict_merge.py` (incl. `Allow-Symbol-Loss` trailer → `MERGE-CLEAN`).
-
-Pitfalls:
-
-| Symptom | Check / Fix |
-|---------|-------------|
-| Local run hangs on pre-commit | Set `JUNIPER_FLEET_SKIP_PRECOMMIT=1`, or ensure `pre-commit` is installed and hooks cached |
-| `DAMAGED-FIX-FIRST` after intentional deletion | Add `Allow-Symbol-Loss: func:…` (qualified) on a commit in the PR range; re-run `--pr` |
-| Trailer present but still DAMAGED | Wildcard `*` is rejected; bare names do not match; trailer must be in BASE..HEAD of the **merged** result |
-| Expecting docs screen == `docs_additions_check.py` | predict_merge’s docs screen is a simpler inline removed-line counter; CI / `main-verify` use the permanent `docs_additions_check.py` |
-| Agent closes / merges PRs | Forbidden — `fleet-supervisor` is read-only; DUP-CLOSE needs overlap **and** owner confirmation |
-
----
-
 ## Isolated Stack E2E Utilities
 
 `util/isolated_stack.bash` brings up a **throwaway** data / cascor / canopy trio on non-default ports so the training-runtime E2E checklist can run without touching the operator host stack (`8100` / `8201` / `8050`) or the deploy Docker stack. The primary recipe is [`notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md`](../notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md); this section is the operator contract for the helper.
@@ -698,6 +666,91 @@ Do **not** point isolated ports at the host stack or run `--up` on ports `plant_
 
 ---
 
+## Fleet Triage and Sequence Safety
+
+Flood-remediation tooling for Cursor-fleet / third-party open PRs and for silent symbol / docs damage that ordinary lint cannot see. Two layers:
+
+| Layer | Path | Role |
+|-------|------|------|
+| Sequence-safety screens | `util/sequence_safety/symbol_loss_check.py`, `docs_additions_check.py` | Path-invoked BASE..HEAD screens used by CI (`sequence-safety` job, `main-verify.yml`) |
+| Predicted-merge triage | `util/fleet_triage/predict_merge.py` | Detached-clone merge of `origin/main` into a PR tip; runs fast gates + screens on the **merge RESULT** |
+| Fleet supervisor agent | `.claude/agents/fleet-supervisor.md` | Read-only adjudication over a `--batch` report (never pushes / merges / closes) |
+
+Design context: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 items 7–8.
+
+### Sequence-safety CLIs
+
+```bash
+python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --json
+python util/sequence_safety/docs_additions_check.py --base origin/main --head HEAD --json
+# WARN-only exit 0 (label hatch); exit 2 is never masked:
+python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --advisory
+```
+
+| Concern | Default scope | FAIL classes | Primary waiver |
+|---------|---------------|--------------|----------------|
+| Symbol loss | `tests/*.py` + `util/**/*.{py,bash}` | `LOST` / `WEAKENED` / `DUPLICATED` (py FAIL; bash LOST FAIL, WEAKENED/DUPLICATED WARN) | Commit trailer `Allow-Symbol-Loss: <qualified.symbol>[, …]` in BASE..HEAD |
+| Docs deletions | `AGENTS.md` + `docs/**` + `notes/**` | Deleted heading, or ≥`--min-run` (default 5) consecutive deleted lines | Commit trailer `Allow-Docs-Rewrite: <path>` (or enumerated paths / `*`) |
+
+Constraints (verified in the checkers):
+
+- Qualified symbols only (`func:name`, `method:Class.name`, …). Bare-name relocation is **not** a downgrade (SF3).
+- `Allow-Symbol-Loss: *` / blanket wildcards are **rejected** (waive nothing).
+- `Allow-Docs-Rewrite: *` **is** accepted (waives every deleted `.md` in scope) — opposite of the symbol wildcard rule.
+- Per-PR labels `allow-symbol-loss` / `docs-rewrite` only demote the advisory CI job via `--advisory` (WARN-only exit 0). They are invisible to `push:main` `main-verify` — use the commit trailer for post-merge green.
+- Exit codes: `0` clean, `1` ≥1 unwaived FAIL, `2` usage / bad ref. Gates: `tests/test_symbol_loss_check.py`, `tests/test_docs_additions_check.py`.
+
+### `predict_merge.py` operator contract
+
+```bash
+python util/fleet_triage/predict_merge.py --pr 895 --json
+python util/fleet_triage/predict_merge.py --batch --json
+python util/fleet_triage/predict_merge.py --pr 895 --repo-root .
+# Skip the pre-commit battery when hooks are unavailable locally:
+JUNIPER_FLEET_SKIP_PRECOMMIT=1 python util/fleet_triage/predict_merge.py --pr 895
+```
+
+Per PR the script:
+
+1. Creates a throwaway **detached** `git clone --shared` under the system tempdir (never a worktree, never writes the source checkout, never pushes).
+2. Merges `origin/main` into the branch tip (`git merge --no-ff`, `commit.gpgsign=false`).
+3. On the RESULT: runs `pre-commit` hooks `black` / `isort` / `flake8` / `mypy` / `check-ast` on touched `.py` files; shells out to `util/sequence_safety/symbol_loss_check.py --repo-root <clone> --base <base> --head <result> --json` (same CLI as `main-verify` — juniper-ml#895 / ml#872); runs an **inline** docs additions-only screen that flags **any** removed content line on a changed `.md` (deliberately stricter than `docs_additions_check.py`'s heading / `--min-run` gate) and honors `Allow-Docs-Rewrite: <path>[, …]` / `*` trailers in `BASE..RESULT` (juniper-ml#926 — same escape hatch as sequence-safety so intentional rewrites are not forever `DAMAGED-FIX-FIRST`).
+4. Emits the **TRUE** changed-file delta from `git diff --name-only origin/main <result>` (not the stale `gh pr … --json files` list).
+
+| Verdict | Meaning |
+|---------|---------|
+| `MERGE-CLEAN` | Merge succeeds; fast gates + screens pass |
+| `NEEDS-UPDATE-BRANCH` | Merge succeeds; a fast gate fails (format / type / AST) |
+| `DAMAGED-FIX-FIRST` | Merge succeeds; symbol-loss or docs-deletion screen fails |
+| `CONFLICT` | Merge conflict against `origin/main` |
+
+`--batch` also builds a same-file cluster map and a restore/heal-first, least-colliding merge order. Exit `0` always reports (even when every verdict is `DAMAGED` / `CONFLICT`); exit `2` is usage / precondition only (`gh` missing, bad `--repo-root`, unresolved ref).
+
+Degrade paths (never crash the report): missing / broken `symbol_loss_check.py`, checker exit `2`, or non-JSON stdout → symbol screen `status=skip`. A delta with no `.py`/`.bash` short-circuits the symbol subprocess. Gate: `tests/test_predict_merge.py` (incl. `Allow-Symbol-Loss` and `Allow-Docs-Rewrite` trailer → `MERGE-CLEAN` arms).
+
+#### Docs screen vs `docs_additions_check.py` (honesty)
+
+| | `docs_additions_check.py` (CI / main-verify) | `predict_merge` inline docs screen |
+|--|---------------------------------------------|-------------------------------------|
+| Scope | `AGENTS.md` + `docs/**` + `notes/**` | Every changed `.md` in the TRUE delta |
+| FAIL threshold | Deleted heading, or ≥`N` consecutive deleted lines (default 5) | **Any** removed content line (`-` not `---`) |
+| `Allow-Docs-Rewrite` trailer | Yes (path / basename / `*`) | Yes (path / basename / `*` — juniper-ml#926) |
+| JSON | Full screen report | `deletions` + `waived` lists on the docs screen object |
+
+Do not assume trailer-less docs deletions that pass `--min-run` on main-verify will be `MERGE-CLEAN` in fleet triage — the inline screen is stricter by design.
+
+### Operator pitfalls
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Local run hangs on pre-commit | Set `JUNIPER_FLEET_SKIP_PRECOMMIT=1`, or ensure `pre-commit` is installed and hooks cached |
+| `DAMAGED-FIX-FIRST` after intentional **symbol** deletion | Add `Allow-Symbol-Loss: func:…` (qualified) on a commit in the PR range; re-run `--pr`. Wildcard `*` is rejected. |
+| `DAMAGED-FIX-FIRST` after intentional **docs** rewrite | Add `Allow-Docs-Rewrite: docs/REFERENCE.md` (or `*` / basename) on a commit in BASE..RESULT; re-run `--pr` (#926). Wrong-path trailers do not waive. |
+| Trailer present but still DAMAGED (symbols) | Wildcard `*` is rejected; bare names do not match; trailer must be in BASE..HEAD of the **merged** result |
+| Trailer present but still DAMAGED (docs) | Path must match the deleted `.md` (full path or basename); confirm the trailer commit is in `origin/main..<result>` |
+| Expecting docs screen == `docs_additions_check.py` | Same trailer escape hatch, different FAIL threshold — see honesty table above |
+| Agent closes / merges PRs | Forbidden — `fleet-supervisor` is read-only; DUP-CLOSE needs overlap **and** owner confirmation |
+
 ## Post-Merge Main Verification
 
 `.github/workflows/main-verify.yml` is the bypass-proof compositional-loss net (flood-remediation P2 gate G3). It runs on every `push` to `main` (plus `workflow_dispatch`) so a merge that skipped or greenwashed per-PR checks still gets screened after it lands. Design notes: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 item 8.
@@ -706,7 +759,22 @@ Do **not** point isolated ports at the host stack or run `--up` on ports `plant_
 |-----|--------------|--------------|
 | `symbol-screen` | **Always** | `util/sequence_safety/symbol_loss_check.py` + `docs_additions_check.py` over `BASE..HEAD`; uploads `sequence-safety-report` (`symbol-report.json` / `docs-report.json`, 30-day retention) |
 | `battery` | Path-gated | Re-runs the enumerated unittest + bash battery from `ci.yml`'s `tests` job when the push touched `tests/` \| `util/` \| `scripts/` \| `.github/` \| `pyproject.toml`; docs-only merges skip it |
-| `notify` | On `failure()` only | Upserts a dedup GitHub issue titled `main-verify: post-merge verification failed at <SHA>` and posts a non-blocking Slack summary (`SLACK_WEBHOOK_URL`; missing secret skips) |
+| `notify` | On `failure()` only | Upserts **one** open GitHub issue with the stable title `main-verify: post-merge verification failing` (comment per subsequent failing SHA) and posts a non-blocking Slack summary (`SLACK_WEBHOOK_URL`; missing secret skips) |
+
+#### Failure notify (stable-title issue dedup)
+
+Workflow header version **0.3.0** (juniper-ml#928). A red streak must stay loud without opening one issue per failing push (the 2026-07-31..08-01 streak filed six: #883 / #884 / #891 / #892 / #896 / #897).
+
+| Rule | Behavior |
+|------|----------|
+| **Stable title** | Exact string `main-verify: post-merge verification failing` (not SHA-keyed) |
+| **First failure** | `gh issue create` with that title; body names the first failing SHA, job results, run URL, and the standing remediation pointer (`Allow-Symbol-Loss` / `Allow-Docs-Rewrite` trailers; flood-remediation analysis doc) |
+| **Later failures in the streak** | Search open issues for that **exact** title; `gh issue comment` with the new SHA + run URL (no second issue) |
+| **Green path** | `notify` is `if: failure()` only — success is a no-op; the issue is **not** auto-closed |
+| **Owner close** | Close the tracking issue **after adjudication** (restore the loss, or land a trailer-waived follow-up that greens main-verify) |
+| **Slack** | Non-blocking; missing `SLACK_WEBHOOK_URL` skips; a post failure never fails the workflow |
+
+Re-runs of the **same** failing SHA still hit `failure()` and comment again if the issue remains open — that is intentional (loud until the owner closes).
 
 #### Concurrency (per-SHA, no cancel)
 
@@ -759,10 +827,12 @@ gh run download <run-id> -n sequence-safety-report
 | Red `symbol-screen` after a “green” PR | Per-PR job may have been `--advisory` via labels, or BASE was narrower than G3.1 catch-up. Download `sequence-safety-report`; waive with a **commit trailer** on a follow-up commit, or restore the deleted symbol/docs. |
 | Suspected `[skip ci]` gap | Open the next main-verify run's step summary — look for `catch-up from <sha> (N commits)`. That run screens every merge since the last successful tip. |
 | Docs-only merge, no battery | Expected — `battery` path-gate skips; `symbol-screen` still always runs. |
+| Many open “main-verify failed at \<SHA\>” issues | Pre-0.3.0 per-SHA titles. Current notify uses one stable title; close stale SHA-keyed issues after adjudication and rely on `main-verify: post-merge verification failing`. |
 | Silent main red (no Slack) | Confirm `SLACK_WEBHOOK_URL` is set; notify is non-blocking and never fails the workflow. Tracking issue title is SHA-keyed (re-runs comment, not reopen). |
+| Tracking issue still open after green | Expected — notify does not auto-close. Owner closes after adjudication. |
 | Battery list drift vs `ci.yml` | Keep both enumerations in lockstep in the same PR (see SYNC NOTE in `main-verify.yml`). |
 
-Related: per-PR advisory screens live in `ci.yml`'s standalone `sequence-safety` job (absent from the Quality Gate `needs:`). Fleet predicted-merge uses the same symbol CLI on a throwaway merge result (`util/fleet_triage/predict_merge.py`).
+Related: per-PR advisory screens live in `ci.yml`'s standalone `sequence-safety` job (absent from the Quality Gate `needs:`). Fleet predicted-merge shells out to the same symbol CLI on a throwaway merge result (`util/fleet_triage/predict_merge.py` → `util/sequence_safety/symbol_loss_check.py`; the 2026-07-28 flood-census ad-hoc screens are retired under `util/ad-hoc/retired/` with a `_RETIRED-2026-08-05` suffix).
 
 ## Experiment Stack Utilities
 
@@ -1203,5 +1273,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-05
-**Version:** 0.6.1
+**Version:** 0.6.3
 **Maintainer:** Paul Calnon

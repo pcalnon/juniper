@@ -9,13 +9,14 @@ or transport. cascor is untouched; its real ``WorkerProtocol`` adapter is WS-6. 
 Coverage:
 
 * ``WorkerCoordinator`` -- submit / dispatch (assignment built via the protocol) / submit-result
-  (accept, reject-unknown, reject-duplicate, reject-on-parse-None) / collect (+ worker-liveness
-  early-exit) / pending-count / task-timeout reassignment / stale-worker reassignment / anomaly hook /
-  send-callback bookkeeping / cancel + shutdown.
+  (accept, reject-unknown, reject-duplicate, reject-on-parse-None, reject-wrong-worker,
+  reject-unassigned) / collect (+ worker-liveness early-exit) / pending-count / task-timeout
+  reassignment / stale-worker reassignment / anomaly hook / send-callback bookkeeping / cancel +
+  shutdown.
 * ``/ws/workers`` stream -- origin reject, uninitialised-pool reject, rate-limit reject, registration
   (server-assigned id + client_name), invalid-registration reject, registry-full reject, the full
-  register -> dispatch -> result -> collect flow, heartbeat ack + enriched-field forwarding, and a
-  binary-attachment result round-trip.
+  register -> dispatch -> result -> collect flow, heartbeat ack + enriched-field forwarding, a
+  binary-attachment result round-trip, and oversize binary-frame reject (no ``submit_result``).
 """
 
 from __future__ import annotations
@@ -240,7 +241,95 @@ def test_submit_result_rejects_on_parse_none_and_marks_failed() -> None:
     # ok=False makes the protocol reject; the coordinator records a failed task and returns False.
     assert coord.submit_result("w1", {"task_id": tid, "ok": False}, {}) is False
     assert reg.get("w1").tasks_failed == 1
+    assert reg.get("w1").idle is True
+    assert reg.get("w1").active_task_id is None
+    # Reclaim: task must be requeued (not left with a sticky assigned_worker_id).
+    assert coord._pending_tasks[tid].assigned_worker_id is None
+    assert coord.has_pending_tasks() is True
+    assert tid in coord._unassigned_tasks
     assert coord.collect_results(timeout=0.1) == []  # nothing accepted
+
+
+def test_parse_none_requeue_does_not_let_timeout_steal_newer_assignment() -> None:
+    """parse_result None must reclaim the task; a later timeout must not clear a newer active_task_id.
+
+    Pre-fix cascade (same round, two tasks): reject t1 via parse None -> worker takes t2 ->
+    orphaned t1.assigned_worker_id still points at w1 -> timeout sweep complete_task(w1) clears
+    t2's active_task_id and leaves t2 stuck assigned. Post-fix: t1 is requeued immediately and
+    the timeout guard only frees the worker when active_task_id still matches.
+    """
+    reg = WorkerRegistry()
+    reg.register("w1", {})
+    coord = WorkerCoordinator(reg, _RecordingProtocol(), task_reassignment_timeout=1.0)
+    t1, t2 = coord.submit_tasks("r", [{"c": 0}, {"c": 1}])
+    assert coord.get_next_assignment("w1")[0]["task_id"] == t1
+    assert coord.submit_result("w1", {"task_id": t1, "ok": False}, {}) is False
+
+    # Worker is free; t1 is back on the unassigned queue ahead of (or with) t2.
+    assert reg.get("w1").idle is True
+    assert t1 in coord._unassigned_tasks
+    assert coord._pending_tasks[t1].assigned_worker_id is None
+
+    # Dispatch the next task (t1 requeued first — FIFO after append, so t2 was already waiting).
+    next_msg, _ = coord.get_next_assignment("w1")
+    next_tid = next_msg["task_id"]
+    assert next_tid in (t1, t2)
+    assert reg.get("w1").active_task_id == next_tid
+
+    # Force a timeout on a *different* orphaned assignment (simulates residual sticky state).
+    other = t2 if next_tid == t1 else t1
+    orphan = coord._pending_tasks[other]
+    orphan.assigned_worker_id = "w1"
+    orphan.dispatched_at = time.time() - 10.0
+    if other in coord._unassigned_tasks:
+        coord._unassigned_tasks.remove(other)
+
+    failed_before = reg.get("w1").tasks_failed
+    coord._check_task_timeouts()
+
+    # Newer assignment preserved; orphan requeued without a second complete_task on w1.
+    assert reg.get("w1").active_task_id == next_tid
+    assert reg.get("w1").idle is False
+    assert reg.get("w1").tasks_failed == failed_before
+    assert orphan.assigned_worker_id is None
+    assert other in coord._unassigned_tasks
+
+
+def test_submit_result_rejects_wrong_worker_keeps_assignee_busy() -> None:
+    """A stranger's result must not be accepted or free the assignee (ownership footgun)."""
+    reg = WorkerRegistry()
+    reg.register("w1", {})
+    reg.register("w2", {})
+    proto = _RecordingProtocol()
+    coord = WorkerCoordinator(reg, proto)
+    (tid,) = coord.submit_tasks("r", [{"c": 0}])
+    coord.get_next_assignment("w1")  # assigned to w1
+
+    assert coord.submit_result("w2", {"task_id": tid, "success": True, "score": 0.9}, {}) is False
+    assert reg.get("w1").idle is False  # assignee still busy — complete_task was NOT called
+    assert reg.get("w1").tasks_completed == 0
+    assert reg.get("w2").tasks_completed == 0
+    assert coord.collect_results(timeout=0.1) == []  # nothing accepted
+    # Real owner can still submit after the rejected stranger attempt.
+    assert coord.submit_result("w1", {"task_id": tid, "success": True, "score": 0.5}, {}) is True
+    assert reg.get("w1").idle is True
+
+
+def test_submit_result_rejects_unassigned_task() -> None:
+    """A result for a still-queued (unassigned) task must not be accepted before dispatch."""
+    reg = WorkerRegistry()
+    reg.register("w1", {})
+    coord = WorkerCoordinator(reg, _RecordingProtocol())
+    (tid,) = coord.submit_tasks("r", [{"c": 0}])
+    # Deliberately skip get_next_assignment — assigned_worker_id stays None.
+
+    assert coord.submit_result("w1", {"task_id": tid, "success": True}, {}) is False
+    assert coord.has_pending_tasks() is True  # still queued for a real dispatch
+    assert coord._pending_tasks[tid].completed is False
+    assert reg.get("w1").tasks_completed == 0
+    # After a real assignment the owner can submit normally.
+    coord.get_next_assignment("w1")
+    assert coord.submit_result("w1", {"task_id": tid, "success": True}, {}) is True
 
 
 def test_anomaly_detector_receives_generic_score() -> None:
@@ -596,6 +685,40 @@ async def test_task_result_expecting_binary_gets_text_is_rejected() -> None:
     await worker_stream_handler(ws)
     assert any("Expected binary frame" in m.get("error", "") for m in ws.sent)
     assert coord.collect_results(timeout=0.1) == []  # nothing accepted
+
+
+@pytest.mark.asyncio
+async def test_task_result_oversized_binary_frame_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An attachment frame over ``_MAX_BINARY_SIZE`` errors out without calling submit_result."""
+    import juniper_service_core.websocket.worker_stream as worker_stream_mod
+
+    class _NeedsBlob:
+        def build_assignment(self, task):
+            return ({"type": "task_assign", "task_id": task.task_id}, [])
+
+        def result_attachments(self, msg):
+            return ["blob"]
+
+        def parse_result(self, worker_id, msg, frames):  # pragma: no cover - never reached
+            raise AssertionError("parse_result must not run after oversize reject")
+
+    monkeypatch.setattr(worker_stream_mod, "_MAX_BINARY_SIZE", 16)
+    reg = WorkerRegistry()
+    coord = WorkerCoordinator(reg, _NeedsBlob())
+    (tid,) = coord.submit_tasks("r", [{"c": 0}])
+    app = _wire_app(reg, coord)
+    ws = FakeWorkerWebSocket(
+        app=app,
+        inbound=[
+            _text(_REGISTER),
+            _text({"type": "task_result", "task_id": tid}),
+            _binary(b"x" * 17),  # one byte over the patched 16-byte cap
+        ],
+    )
+    await worker_stream_handler(ws)
+    assert any(m.get("error") == "Binary frame too large" for m in ws.sent)
+    assert not any(m.get("type") == "result_ack" for m in ws.sent)  # no submit_result path
+    assert coord.collect_results(timeout=0.1) == []
 
 
 @pytest.mark.asyncio

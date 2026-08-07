@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `WorkerCoordinator.submit_result` now rejects results from a worker that does not own the
+  task (`assigned_worker_id is None` or `!= worker_id`) **before** protocol parse — closes the
+  cross-worker / unassigned accept footgun that left the assignee busy while a stranger's
+  result was collected.
+- `WorkerCoordinator.submit_result`: when `parse_result` returns `None`, clear
+  `task.assigned_worker_id` and requeue onto `_unassigned_tasks` (in addition to
+  `complete_task(..., success=False)`). Pre-fix the worker went idle while the
+  task stayed assigned-but-not-queued, so `has_pending_tasks()` went false and a
+  later `_check_task_timeouts` sweep could `complete_task` a *newer*
+  `active_task_id` on the same worker. `_check_task_timeouts` now only frees the
+  worker when `registry.active_task_id` still matches the timed-out task.
+
 ## [0.5.1] - 2026-07-28
 
 ### Fixed

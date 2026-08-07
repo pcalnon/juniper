@@ -97,11 +97,11 @@ class NotifyDedupStructuralTest(unittest.TestCase):
 
     def test_upsert_script_exact_title_jq_and_create_comment_paths(self) -> None:
         script = self.script
-        self.assertIn('select(.title == env.TITLE)', script)
+        self.assertIn("select(.title == env.TITLE)", script)
         self.assertIn('gh issue create --repo "$REPO" --title "$TITLE"', script)
         self.assertIn("gh issue comment", script)
         # Must not rebuild a per-SHA title in the shell (the old failure class).
-        self.assertNotRegex(script, r'title=.*\$\{?SHA')
+        self.assertNotRegex(script, r"title=.*\$\{?SHA")
         self.assertNotIn("failed at ${SHA}", script)
         self.assertNotIn("failed at `$SHA`", script)
 
@@ -146,7 +146,9 @@ class NotifyDedupRehearsalTest(unittest.TestCase):
         log_path = td_path / "gh.log"
         stub_bin = td_path / "bin"
         stub_bin.mkdir()
-        # Stub gh: log every invocation; issue list prints list_stdout (already jq-shaped);
+        # Stub gh: log every invocation; the creator-bound `gh api repos/.../issues?...`
+        # existing-issue query prints list_stdout (already jq-shaped); label create /
+        # issue edit are best-effort in the workflow (|| true) and answered as no-ops;
         # create/comment succeed. Soft-fail arm: list_exit != 0 with empty stdout.
         gh = stub_bin / "gh"
         gh.write_text(
@@ -154,9 +156,15 @@ class NotifyDedupRehearsalTest(unittest.TestCase):
             "set -euo pipefail\n"
             f'LOG="{log_path}"\n'
             'printf "%s\\n" "$*" >>"$LOG"\n'
-            'if [ "${1:-}" = "issue" ] && [ "${2:-}" = "list" ]; then\n'
+            'if [ "${1:-}" = "api" ]; then\n'
             f'  printf "%s" {json.dumps(list_stdout)}\n'
             f"  exit {int(list_exit)}\n"
+            "fi\n"
+            'if [ "${1:-}" = "label" ] && [ "${2:-}" = "create" ]; then\n'
+            "  exit 0\n"
+            "fi\n"
+            'if [ "${1:-}" = "issue" ] && [ "${2:-}" = "edit" ]; then\n'
+            "  exit 0\n"
             "fi\n"
             'if [ "${1:-}" = "issue" ] && [ "${2:-}" = "create" ]; then\n'
             '  echo "https://example.test/issues/99"\n'
@@ -204,7 +212,7 @@ class NotifyDedupRehearsalTest(unittest.TestCase):
         comment_lines = [ln for ln in log_lines if ln.startswith("issue comment ")]
         self.assertEqual(len(create_lines), 1, msg=f"expected one create, got {log_lines!r}\n{out}")
         self.assertEqual(comment_lines, [], msg=f"must not comment on first failure: {log_lines!r}")
-        self.assertIn(f'--title {STABLE_TITLE}', create_lines[0])
+        self.assertIn(f"--title {STABLE_TITLE}", create_lines[0])
         self.assertNotIn(sha, create_lines[0])
         body = (work / "issue-body.md").read_text(encoding="utf-8")
         self.assertIn(sha, body)
@@ -228,19 +236,20 @@ class NotifyDedupRehearsalTest(unittest.TestCase):
         self.assertIn("Commenting new failing SHA on existing tracking issue #42", out)
 
     def test_list_soft_fail_falls_through_to_create(self) -> None:
-        """``gh issue list`` failure is soft (``|| true``) → treat as no existing issue."""
+        """The creator-bound ``gh api`` query failure is soft (``|| true``) → treat as no existing issue."""
         code, out, log_lines, _work = self._run_upsert(list_stdout="", list_exit=1)
         self.assertEqual(code, 0, msg=out)
         create_lines = [ln for ln in log_lines if ln.startswith("issue create ")]
         self.assertEqual(len(create_lines), 1, msg=f"soft-fail list must create: {log_lines!r}\n{out}")
-        self.assertIn(f'--title {STABLE_TITLE}', create_lines[0])
+        self.assertIn(f"--title {STABLE_TITLE}", create_lines[0])
 
 
 class NotifyDedupExactTitleNarrowTest(unittest.TestCase):
-    """Pin that search-superset hits are narrowed by exact title (the jq select contract).
+    """Pin that superset hits are narrowed by exact title AND the PR filter (the jq select contract).
 
     The upsert shell asks ``gh`` to run
-    ``map(select(.title == env.TITLE)) | .[0].number // empty``. A stub that
+    ``map(select(.pull_request == null) | select(.title == env.TITLE)) | .[0].number // empty``
+    over the creator-bound ``/issues`` listing (which includes PRs). A stub that
     returns raw JSON would not exercise gh's --jq; instead we unit-check the
     filter expression against representative payloads with the real ``jq`` binary
     (same expression the workflow embeds), so a loosened select cannot ship.
@@ -259,11 +268,13 @@ class NotifyDedupExactTitleNarrowTest(unittest.TestCase):
         start = run.index(marker) + len(marker)
         end = run.index("'", start)
         jq_prog = run[start:end]
-        self.assertEqual(jq_prog, "map(select(.title == env.TITLE)) | .[0].number // empty")
+        self.assertEqual(jq_prog, "map(select(.pull_request == null) | select(.title == env.TITLE)) | .[0].number // empty")
 
         payload = json.dumps(
             [
                 {"number": 1, "title": f"{STABLE_TITLE} at deadbeef"},
+                # A PR with the exact title must NOT capture the tracker (/issues includes PRs).
+                {"number": 5, "title": STABLE_TITLE, "pull_request": {"url": "https://example.test/pulls/5"}},
                 {"number": 7, "title": STABLE_TITLE},
                 {"number": 9, "title": "main-verify: something else"},
             ]

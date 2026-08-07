@@ -44,6 +44,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -63,6 +64,8 @@ _SUPPORTED_MINORS_BACK = 2
 # Consumer repos that pin juniper-doc-tools in their CI. juniper-ml
 # itself does too (in docs-full-check.yml) -- it gets linted as a
 # special case via _ML_OWN_WORKFLOWS below.
+# juniper-recurrence ships the pin in ``ci-docs.yml`` (not ``ci.yml``);
+# discovery walks every workflow under ``.github/workflows/``.
 _CONSUMER_REPOS = (
     "juniper-canopy",
     "juniper-cascor",
@@ -70,6 +73,7 @@ _CONSUMER_REPOS = (
     "juniper-cascor-worker",
     "juniper-data",
     "juniper-data-client",
+    "juniper-recurrence",
 )
 
 # juniper-deploy is deliberately excluded: it has no docs-link CI and
@@ -110,6 +114,33 @@ def _extract_pins_from_yaml(yaml_text: str) -> list[tuple[str, str]]:
     docs-full-check.yml of juniper-ml each have one.
     """
     return [(m.group(1), m.group(2)) for m in _PIN_PATTERN.finditer(yaml_text)]
+
+
+def _consumer_workflow_files(repo_root: Path) -> list[Path]:
+    """Return ``.github/workflows/*.{yml,yaml}`` for a consumer checkout.
+
+    Some siblings (notably ``juniper-recurrence``) pin juniper-doc-tools in
+    a dedicated ``ci-docs.yml`` rather than ``ci.yml``. Scanning every
+    workflow keeps the weekly pin lint honest without hardcoding filenames.
+    """
+    workflows = repo_root / ".github" / "workflows"
+    if not workflows.is_dir():
+        return []
+    return sorted(workflows.glob("*.yml")) + sorted(workflows.glob("*.yaml"))
+
+
+def _extract_pins_from_repo(repo_root: Path) -> list[tuple[str, str, str]]:
+    """Collect ``(lower, upper, relative_workflow)`` pins from a consumer repo."""
+    found: list[tuple[str, str, str]] = []
+    for wf in _consumer_workflow_files(repo_root):
+        try:
+            text = wf.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        rel = str(wf.relative_to(repo_root))
+        for lower, upper in _extract_pins_from_yaml(text):
+            found.append((lower, upper, rel))
+    return found
 
 
 def _find_ecosystem_root(juniper_ml_root: Path) -> Path | None:
@@ -194,12 +225,16 @@ class JuniperDocToolsDriftTest(unittest.TestCase):
                     )
 
     def test_consumer_repos_pin_current_version(self):
-        """Read each cloned consumer repo's ci.yml and assert the
+        """Read each cloned consumer repo's workflows and assert the
         juniper-doc-tools pin admits the current version. Skipped
         when siblings are not present (per-PR mode) or when running
         locally without ``JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`` (local
         sibling working trees can lag ``origin/main`` and produce
         false positives -- see this module's docstring).
+
+        Scans every ``.github/workflows/*.{yml,yaml}`` so siblings that
+        pin in a dedicated docs workflow (``juniper-recurrence`` /
+        ``ci-docs.yml``) are not silently skipped.
         """
         if self.ecosystem_root is None:
             self.skipTest("ecosystem siblings not on disk")
@@ -212,31 +247,31 @@ class JuniperDocToolsDriftTest(unittest.TestCase):
         warnings: list[str] = []
         for repo in _CONSUMER_REPOS:
             with self.subTest(repo=repo):
-                ci = self.ecosystem_root / repo / ".github" / "workflows" / "ci.yml"
-                if not ci.exists():
-                    print(f"WARN: {repo}/.github/workflows/ci.yml not present (clone failure?)")
+                repo_root = self.ecosystem_root / repo
+                if not repo_root.is_dir():
+                    print(f"WARN: {repo}/ not present (clone failure?)")
                     continue
-                pins = _extract_pins_from_yaml(ci.read_text(encoding="utf-8"))
+                pins = _extract_pins_from_repo(repo_root)
                 if not pins:
-                    self.fail(f"{repo}/.github/workflows/ci.yml has no juniper-doc-tools pin -- " "Wave 2 did not run here (or was reverted).")
-                for lower, upper in pins:
+                    self.fail(f"{repo}/.github/workflows/ has no juniper-doc-tools pin -- " "Wave 2 did not run here (or was reverted).")
+                for lower, upper, rel in pins:
                     lower_tuple = _parse_version(lower)
                     upper_tuple = _parse_version(upper)
                     self.assertLessEqual(
                         lower_tuple,
                         current_tuple,
-                        f"{repo} pin lower bound {lower} is ahead of current {self.current_version}",
+                        f"{repo} ({rel}) pin lower bound {lower} is ahead of current {self.current_version}",
                     )
                     # Soft window: warn if the pin is more than the
                     # supported number of minors behind, even though it
                     # still admits current. Plan §5.1 specifies this as
                     # a soft warning, not a hard fail.
                     if upper_tuple[0] == current_tuple[0] and upper_tuple[1] - current_tuple[1] - 1 > _SUPPORTED_MINORS_BACK:
-                        warnings.append(f"{repo}: pin {lower}..{upper} is more than " f"{_SUPPORTED_MINORS_BACK} minors behind current " f"{self.current_version}; consider widening.")
+                        warnings.append(f"{repo} ({rel}): pin {lower}..{upper} is more than " f"{_SUPPORTED_MINORS_BACK} minors behind current " f"{self.current_version}; consider widening.")
                     self.assertLess(
                         current_tuple,
                         upper_tuple,
-                        f"{repo} pin upper bound {upper} excludes current " f"{self.current_version} -- bump the pin in {repo}.",
+                        f"{repo} ({rel}) pin upper bound {upper} excludes current " f"{self.current_version} -- bump the pin in {repo}.",
                     )
 
         if warnings:
@@ -273,6 +308,27 @@ class PinParsingHelperTest(unittest.TestCase):
     def test_supported_window_constant_matches_plan(self):
         # Plan §5.1: "more than 2 minor versions behind current" warns.
         self.assertEqual(_SUPPORTED_MINORS_BACK, 2)
+
+    def test_consumer_workflow_scan_finds_ci_docs_pin(self):
+        """Recurrence-shaped layout: pin lives in ``ci-docs.yml``, not ``ci.yml``."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wf = root / ".github" / "workflows"
+            wf.mkdir(parents=True)
+            (wf / "ci-pre-commit.yml").write_text("name: pre-commit\n", encoding="utf-8")
+            (wf / "ci-docs.yml").write_text(
+                '          pip install "juniper-doc-tools>=0.1.0,<0.2.0"\n',
+                encoding="utf-8",
+            )
+            pins = _extract_pins_from_repo(root)
+            self.assertEqual(pins, [("0.1.0", "0.2.0", ".github/workflows/ci-docs.yml")])
+
+    def test_consumer_repos_include_recurrence(self):
+        self.assertIn(
+            "juniper-recurrence",
+            _CONSUMER_REPOS,
+            "juniper-recurrence ships ci-docs.yml with a juniper-doc-tools pin",
+        )
 
 
 if __name__ == "__main__":
