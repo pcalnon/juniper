@@ -205,6 +205,35 @@ class WakeTheClaudeResumeTests(unittest.TestCase):
             last_invocation_args = self._extract_args(invocations[-1])
             self.assertEqual(last_invocation_args, ["--resume", VALID_UUID, "hello"])
 
+    def test_resume_with_symlink_session_file_follows_target(self) -> None:
+        """Resume reads through a symlink (``[[ -f ]]`` + ``cat``); save refuses to write one.
+
+        Pin the asymmetry so a future change that either blocks resume-via-symlink or
+        starts overwriting symlink targets is intentional (save-side reject is covered
+        separately by ``test_session_id_save_rejects_symlink_target``).
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            invocations_log, env = self._install_fake_claude(temp_dir)
+            real_target = Path(temp_dir) / "real-session.txt"
+            real_target.write_text(VALID_UUID, encoding="utf-8")
+            session_link = Path(temp_dir) / "sessions" / "session-id.txt"
+            session_link.symlink_to(real_target)
+
+            result = self._run_script(
+                ["--resume", session_link.name, "--prompt", "hello"],
+                cwd=temp_dir,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertTrue(session_link.is_symlink())
+            self.assertEqual(real_target.read_text(encoding="utf-8"), VALID_UUID)
+
+            invocations = self._wait_for_invocations(invocations_log)
+            self.assertTrue(invocations, msg="Expected wake_the_claude to invoke claude at least once")
+            last_invocation_args = self._extract_args(invocations[-1])
+            self.assertEqual(last_invocation_args, ["--resume", VALID_UUID, "hello"])
+
     def test_resume_with_invalid_uuid_fails_once_without_invoking_claude(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             invocations_log, env = self._install_fake_claude(temp_dir)

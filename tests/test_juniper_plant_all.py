@@ -12,12 +12,14 @@ Validates the script-level invariants introduced in the 2026-05-07 audit:
   JuniperCascor conda env.
 - ``wait_for_health`` clamps a zero/invalid poll interval (avoids busy-loop).
 
-Where possible, tests inspect the script as text — running the full script
-under unittest is impractical because it source-activates conda, allocates
-ports, and launches four long-lived background services. Pre-flight failure
-smokes exercise the nohup path against a synthetic JUNIPER_PROJECT_DIR /
-JUNIPER_CONDA_DIR layout. ``TestSystemdModeBehavioral`` is a separate
-full-script PATH-stub lane for the pre-preflight ``USE_SYSTEMD=1`` arm.
+Where possible, tests inspect the script as text. Pre-flight failure smokes
+exercise the nohup path against a synthetic ``JUNIPER_CONDA_DIR`` layout.
+``TestSystemdModeBehavioral`` is a full-script PATH-stub lane for the
+pre-preflight ``USE_SYSTEMD=1`` arm. ``TestNohupModeBehavioral`` copies the
+script into a synthetic sibling-package tree (``JUNIPER_PROJECT_DIR`` is
+derived from ``BASH_SOURCE``, not the environment) and PATH-stubs conda /
+uvicorn / curl / ss / sleep so the nohup bring-up + pidfile + mid-plant
+``STARTED_PIDS`` cleanup path is hermetic without live services.
 """
 
 from __future__ import annotations
@@ -698,6 +700,184 @@ class TestSystemdModeBehavioral(unittest.TestCase):
             self.assertNotIn(" stop ", f" {systemctl_log.read_text()} ")
 
 
+class TestNohupModeBehavioral(unittest.TestCase):
+    """Full-script PATH-stub coverage for the default (nohup) bring-up path.
+
+    ``JUNIPER_PROJECT_DIR`` is derived from the script location
+    (``dirname(dirname(dirname(BASH_SOURCE)))``), so the live script is copied
+    into a synthetic ``<project>/juniper-ml/util/`` tree beside stub service
+    checkouts. Conda / uvicorn / service binaries / curl / ss / sleep are
+    PATH-stubbed — no real conda, ports, or long-lived services.
+
+    Pins the blast-radius gap complementary to ``TestSystemdModeBehavioral``
+    and to chop's non-empty pidfile stop path: happy-path ``name=pid`` pidfile
+    write, and mid-plant health failure → ``STARTED_PIDS`` cleaned + pidfile
+    removed (never left for a later chop to chase dead PIDs).
+    """
+
+    _NOHUP_TIMEOUT_SECONDS = 45
+
+    def _stage_tree(self, root: Path, *, curl_fail_after: int | None = None) -> tuple[Path, Path, Path]:
+        """Return (script_copy, conda_dir, project_dir)."""
+        project = root / "Juniper"
+        ml_util = project / "juniper-ml" / "util"
+        ml_util.mkdir(parents=True)
+        script_copy = ml_util / "juniper_plant_all.bash"
+        script_copy.write_text(SCRIPT_TEXT)
+        script_copy.chmod(0o755)
+
+        for sub in (
+            "juniper-data",
+            "juniper-cascor/src",
+            "juniper-canopy/src",
+            "juniper-cascor-worker",
+        ):
+            (project / sub).mkdir(parents=True, exist_ok=True)
+        # Cascor / canopy modules are path-invoked; empty stubs are enough.
+        (project / "juniper-cascor" / "src" / "server.py").write_text("# stub\n")
+        (project / "juniper-canopy" / "src" / "main.py").write_text("# stub\n")
+
+        conda_dir = root / "miniforge3"
+        (conda_dir / "etc" / "profile.d").mkdir(parents=True)
+        conda_sh = conda_dir / "etc" / "profile.d" / "conda.sh"
+        # activate prepends the env's bin/; deactivate is a no-op.
+        conda_sh.write_text("#!/usr/bin/env bash\n" f'JUNIPER_CONDA_DIR_FOR_STUB="{conda_dir}"\n' "conda() {\n" '  case "${1:-}" in\n' "    activate)\n" '      export PATH="${JUNIPER_CONDA_DIR_FOR_STUB}/envs/${2}/bin:${PATH}"\n' '      export CONDA_DEFAULT_ENV="${2}"\n' "      ;;\n" "    deactivate) : ;;\n" "    *) : ;;\n" "  esac\n" "}\n" "export -f conda\n")
+
+        sleeper = "#!/usr/bin/env bash\nexec sleep 3600\n"
+        for env_name in ("JuniperData", "JuniperCascor1", "JuniperCanopy1"):
+            env_bin = conda_dir / "envs" / env_name / "bin"
+            env_bin.mkdir(parents=True)
+            python = env_bin / "python"
+            python.write_text(sleeper)
+            python.chmod(0o755)
+            if env_name == "JuniperData":
+                uvicorn = env_bin / "uvicorn"
+                uvicorn.write_text(sleeper)
+                uvicorn.chmod(0o755)
+            if env_name == "JuniperCascor1":
+                worker = env_bin / "juniper-cascor-worker"
+                worker.write_text(sleeper)
+                worker.chmod(0o755)
+
+        stub_bin = root / "path-stubs"
+        stub_bin.mkdir()
+        # Instant sleep so cleanup_on_failure's ``sleep 3`` and health polls
+        # do not burn wall-clock (elapsed in wait_for_health is counter-based).
+        sleep = stub_bin / "sleep"
+        sleep.write_text("#!/usr/bin/env bash\nexit 0\n")
+        sleep.chmod(0o755)
+        ss = stub_bin / "ss"
+        ss.write_text("#!/usr/bin/env bash\nexit 0\n")
+        ss.chmod(0o755)
+        curl = stub_bin / "curl"
+        if curl_fail_after is None:
+            curl.write_text("#!/usr/bin/env bash\nexit 0\n")
+        else:
+            # Fail on the Nth invocation (1-based) so data can start then
+            # the next service's health gate trips cleanup_on_failure.
+            state = root / "curl_state"
+            state.write_text("0")
+            curl.write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" f'state="{state}"\n' 'n="$(cat "$state")"\n' "n=$((n + 1))\n" 'printf "%s" "$n" >"$state"\n' f"if (( n >= {curl_fail_after} )); then exit 22; fi\n" "exit 0\n")
+        curl.chmod(0o755)
+
+        return script_copy, conda_dir, project
+
+    def _nohup_env(self, root: Path, conda_dir: Path, stub_bin: Path) -> RedactedEnv:
+        env = RedactedEnv(os.environ)
+        env["JUNIPER_CONDA_DIR"] = str(conda_dir)
+        env["HEALTH_CHECK_TIMEOUT"] = "1"
+        env["HEALTH_CHECK_INTERVAL"] = "1"
+        env["JUNIPER_DATA_PORT"] = "65110"
+        env["JUNIPER_CASCOR_PORT"] = "65111"
+        env["JUNIPER_CANOPY_PORT"] = "65112"
+        env["JUNIPER_WORKER_HEALTH_PORT"] = "65113"
+        # Prefer stubs; keep /usr/bin for realpath/nohup/bash helpers.
+        env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+        env.pop("USE_SYSTEMD", None)
+        return env
+
+    def test_happy_path_writes_equals_pidfile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script_copy, conda_dir, project = self._stage_tree(root)
+            stub_bin = root / "path-stubs"
+            env = self._nohup_env(root, conda_dir, stub_bin)
+            result = subprocess.run(
+                ["/bin/bash", str(script_copy)],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=self._NOHUP_TIMEOUT_SECONDS,
+            )
+            combined = result.stdout + result.stderr
+            # Always tear down background sleepers started under nohup.
+            pidfile = project / "juniper-ml" / "JuniperProject.pid"
+            try:
+                self.assertEqual(result.returncode, 0, msg=combined)
+                self.assertIn("=== Pre-flight Checks Passed ===", combined)
+                self.assertIn("=== All Juniper services started successfully ===", combined)
+                self.assertIn("Starting juniper-data", combined)
+                self.assertIn("Starting juniper-cascor-worker", combined)
+                self.assertTrue(pidfile.is_file(), msg=f"missing pidfile; output:\n{combined}")
+                lines = [ln for ln in pidfile.read_text().splitlines() if ln.strip()]
+                self.assertEqual(len(lines), 4, msg=lines)
+                names = []
+                for line in lines:
+                    self.assertRegex(line, r"^juniper-[a-z-]+=[0-9]+$")
+                    name, pid_s = line.split("=", 1)
+                    names.append(name)
+                    self.assertTrue(pid_s.isdigit())
+                self.assertEqual(
+                    names,
+                    [
+                        "juniper-data",
+                        "juniper-cascor",
+                        "juniper-canopy",
+                        "juniper-cascor-worker",
+                    ],
+                )
+            finally:
+                if pidfile.is_file():
+                    import sys
+
+                    for line in pidfile.read_text().splitlines():
+                        if "=" in line:
+                            pid = line.split("=", 1)[1].strip()
+                            if pid.isdigit():
+                                try:
+                                    os.kill(int(pid), signal.SIGKILL)
+                                except OSError as exc:
+                                    print(
+                                        f"non-fatal cleanup warning: failed to kill pid {pid}: {exc}",
+                                        file=sys.stderr,
+                                    )
+                    pidfile.unlink(missing_ok=True)
+
+    def test_mid_plant_health_failure_cleans_started_pids_and_pidfile(self) -> None:
+        """Second health probe fails → ERR trap kills STARTED_PIDS and removes pidfile."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # First curl (data health) OK; second (cascor health) fails.
+            script_copy, conda_dir, project = self._stage_tree(root, curl_fail_after=2)
+            stub_bin = root / "path-stubs"
+            env = self._nohup_env(root, conda_dir, stub_bin)
+            result = subprocess.run(
+                ["/bin/bash", str(script_copy)],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=self._NOHUP_TIMEOUT_SECONDS,
+            )
+            combined = result.stdout + result.stderr
+            pidfile = project / "juniper-ml" / "JuniperProject.pid"
+            self.assertEqual(result.returncode, 1, msg=combined)
+            self.assertIn("Starting juniper-data", combined)
+            self.assertIn("failed to become healthy within 1s", combined)
+            self.assertIn("Cleaning up started Juniper Project services", combined)
+            self.assertFalse(pidfile.exists(), msg=f"pidfile should be removed on failure; output:\n{combined}")
+            self.assertNotIn("All Juniper services started successfully", combined)
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -1152,11 +1332,44 @@ class TestSafeCondaActivate(unittest.TestCase):
             self.assertIn("NOUNSET_ON", result.stdout)
             self.assertIn("OK", result.stdout)
 
+    def test_conda_activate_failure_propagates_under_or_list(self) -> None:
+        """OR-list callers must still see activate failure (not a masked exit 0).
+
+        Bash disables ``set -e`` inside a function invoked as ``fn || …``. A
+        trailing successful ``set -u`` must not mask ``conda activate`` failure
+        and let the next host service launch on the ambient PATH (same class as
+        isolated-stack #967 / experiment_stack OR-list absorb).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            conda = bin_dir / "conda"
+            conda.write_text("#!/bin/bash\n" 'if [[ "$1" == "activate" ]]; then\n' "  exit 1\n" "fi\n")
+            conda.chmod(0o755)
+            harness = "set -euo pipefail\n" f'export PATH="{bin_dir}:/usr/bin:/bin"\n' + _extract_safe_conda_activate() + "failed=0\n" + 'safe_conda_activate "JuniperCanopy1" || failed=1\n' + 'echo "failed=${failed}"\n' + "if (( failed != 1 )); then exit 2; fi\n"
+            result = subprocess.run(
+                ["/bin/bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                env=RedactedEnv(os.environ),
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("failed=1", result.stdout)
+            self.assertIn("conda activate", result.stdout + result.stderr)
+
     def test_restore_arm_is_set_minus_u(self) -> None:
-        # Static pin: the pre/post pair must be +u then -u (not +u/+u).
+        # Static pin: every activate path must restore nounset (not +u/+u).
+        # Success and failure arms both end in ``set -u`` before return/fallthrough.
         body = _extract_safe_conda_activate()
+        self.assertIn("set +u", body)
         self.assertRegex(
             body,
-            r"set \+u\n\s*conda activate[^\n]+\n\s*set -u\n",
-            msg="safe_conda_activate must restore nounset with set -u after conda activate",
+            r"if ! conda activate[^\n]+; then\n\s*set -u\n",
+            msg="safe_conda_activate failure arm must restore set -u before return 1",
+        )
+        self.assertRegex(
+            body,
+            r"fi\n\s*set -u\n\}\n",
+            msg="safe_conda_activate success arm must restore set -u after conda activate",
         )
