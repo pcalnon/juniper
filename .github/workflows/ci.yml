@@ -391,6 +391,13 @@ jobs:
           # tip / non-ancestor fallback / zero BEFORE → HEAD^1 / last_ok==HEAD /
           # jq null — hermetic git fixture + stub gh. PyYAML (installed above).
           python3 -m unittest -v tests/test_main_verify_catchup_base.py
+          # tests/test_main_verify_notify_dedup.py: YAML-extraction rehearsal for
+          # main-verify.yml notify stable-title issue dedup (ml#928 / 0.3.0). Extracts
+          # the upsert shell and drives first-failure create / subsequent-SHA comment /
+          # creator-bound gh-api soft-fail → create, plus structural TITLE + authorship
+          # binding pins. Hermetic stub gh; PyYAML (installed above). Mirror in
+          # main-verify battery.
+          python3 -m unittest -v tests/test_main_verify_notify_dedup.py
           # tests/test_doc_tools_drift.py: the cross-repo
           # consumer-pin assertions auto-skip when siblings are not
           # cloned (per-PR mode); the helper unit tests + juniper-ml's
