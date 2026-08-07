@@ -149,6 +149,12 @@ wait_for_health() {
 }
 
 # Source conda + activate an env (nounset-safe, matching juniper_plant_all.bash).
+#
+# Fail-closed on ``source`` / ``conda activate``: callers may invoke this as
+# ``activate_conda … || return 1`` (open #963 ``*_up || failed=1`` absorb), which
+# disables ``set -e`` for the whole body (bash OR-list rule). A bare
+# ``conda activate`` failure followed by a successful ``set -u`` would otherwise
+# return 0 and let cascor/canopy launch on the ambient PATH.
 activate_conda() {
     local env_name="$1"
     if [[ ! -f "${CONDA_SH}" ]]; then
@@ -156,11 +162,18 @@ activate_conda() {
         return 1
     fi
     # shellcheck source=/dev/null
-    source "${CONDA_SH}"
+    source "${CONDA_SH}" || {
+        log "ERROR: failed to source conda.sh at ${CONDA_SH}"
+        return 1
+    }
     # Conda activation scripts (e.g. activate-binutils_linux-64.sh) may
     # reference unset vars like ADDR2LINE; disable nounset for the call only.
     set +u
-    conda activate "${env_name}"
+    if ! conda activate "${env_name}"; then
+        set -u
+        log "ERROR: conda activate '${env_name}' failed"
+        return 1
+    fi
     set -u
 }
 
