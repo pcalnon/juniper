@@ -313,6 +313,7 @@ jobs:
           python3 -m unittest -v tests/test_publish_testpypi_verify.py
           python3 -m unittest -v tests/test_main_verify_battery_paths.py
           python3 -m unittest -v tests/test_ci_quality_gate.py
+          python3 -m unittest -v tests/test_publish_subpackage_workflows.py
           # Flood-remediation sequence-safety screens (P2 G1/G2; mirror ci.yml).
           python3 -m unittest -v tests/test_symbol_loss_check.py
           python3 -m unittest -v tests/test_docs_additions_check.py

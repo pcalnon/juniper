@@ -384,6 +384,11 @@ jobs:
           # release-train-archive-guard); security soft-fails on == failure
           # (skipped OK). Structural + shell rehearsal IS the gate.
           python3 -m unittest -v tests/test_ci_quality_gate.py
+          # tests/test_publish_subpackage_workflows.py: structural + hermetic
+          # YAML-extraction gate for the six publish-*.yml shared-package workflows
+          # (tag-prefix guard, no push:tags #555 race, skip-existing, --no-deps
+          # without PyPI fallback, subdirectory working-directory / artifact path).
+          python3 -m unittest -v tests/test_publish_subpackage_workflows.py
           # tests/test_symbol_loss_check.py + tests/test_docs_additions_check.py:
           # the flood-remediation sequence-safety screens (Proposal P2 gates G1/G2,
           # productionized from the 2026-07-28 Cursor-flood census). Hermetic git
