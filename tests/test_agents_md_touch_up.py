@@ -73,6 +73,13 @@ def _real_git() -> str:
 class AgentsMdTouchUpStructuralTest(unittest.TestCase):
     """Pin workflow shape so a refactor cannot drop [skip ci], bot authorship, or the fork guard."""
 
+    workflow_path: Path
+    raw: str
+    doc: dict
+    job: dict
+    step: dict
+    script: str
+
     @classmethod
     def setUpClass(cls) -> None:
         repo_root = _find_repo_root(Path(__file__).resolve().parent)
@@ -138,24 +145,9 @@ class AgentsMdTouchUpRehearsalTest(unittest.TestCase):
 
     def _write_agents(self, repo: Path, *, last_updated: str | None) -> None:
         if last_updated is None:
-            body = (
-                "# CLAUDE.md\n\n"
-                "**Project**: juniper-ml\n"
-                "**Repository**: pcalnon/juniper-ml\n"
-                "**Author**: Paul Calnon\n"
-                "**License**: MIT License\n"
-                "**Version**: 0.7.0\n"
-            )
+            body = "# CLAUDE.md\n\n" "**Project**: juniper-ml\n" "**Repository**: pcalnon/juniper-ml\n" "**Author**: Paul Calnon\n" "**License**: MIT License\n" "**Version**: 0.7.0\n"
         else:
-            body = (
-                "# CLAUDE.md\n\n"
-                "**Project**: juniper-ml\n"
-                "**Repository**: pcalnon/juniper-ml\n"
-                "**Author**: Paul Calnon\n"
-                "**License**: MIT License\n"
-                "**Version**: 0.7.0\n"
-                f"**Last Updated**: {last_updated}\n"
-            )
+            body = "# CLAUDE.md\n\n" "**Project**: juniper-ml\n" "**Repository**: pcalnon/juniper-ml\n" "**Author**: Paul Calnon\n" "**License**: MIT License\n" "**Version**: 0.7.0\n" f"**Last Updated**: {last_updated}\n"
         (repo / "AGENTS.md").write_text(body, encoding="utf-8")
 
     def _init_repo(self, root: Path, *, last_updated: str | None) -> Path:
@@ -217,30 +209,16 @@ class AgentsMdTouchUpRehearsalTest(unittest.TestCase):
 
             date = stub_bin / "date"
             date.write_text(
-                "#!/usr/bin/env bash\n"
-                "set -euo pipefail\n"
+                "#!/usr/bin/env bash\n" "set -euo pipefail\n"
                 # Only the workflow's `date -u +%Y-%m-%d` is used; reject other shapes.
-                'if [ "$*" = "-u +%Y-%m-%d" ]; then\n'
-                f'  printf "%s\\n" "{FIXED_TODAY}"\n'
-                "  exit 0\n"
-                "fi\n"
-                'echo "unexpected date argv: $*" >&2\n'
-                "exit 99\n",
+                'if [ "$*" = "-u +%Y-%m-%d" ]; then\n' f'  printf "%s\\n" "{FIXED_TODAY}"\n' "  exit 0\n" "fi\n" 'echo "unexpected date argv: $*" >&2\n' "exit 99\n",
                 encoding="utf-8",
             )
             date.chmod(date.stat().st_mode | stat.S_IXUSR)
 
             git = stub_bin / "git"
             git.write_text(
-                "#!/usr/bin/env bash\n"
-                "set -euo pipefail\n"
-                f'REAL_GIT="{self.real_git}"\n'
-                f'LOG="{git_log}"\n'
-                'printf "%s\\n" "$*" >>"$LOG"\n'
-                'if [ "${1:-}" = "pull" ] || [ "${1:-}" = "push" ]; then\n'
-                "  exit 0\n"
-                "fi\n"
-                'exec "$REAL_GIT" "$@"\n',
+                "#!/usr/bin/env bash\n" "set -euo pipefail\n" f'REAL_GIT="{self.real_git}"\n' f'LOG="{git_log}"\n' 'printf "%s\\n" "$*" >>"$LOG"\n' 'if [ "${1:-}" = "pull" ] || [ "${1:-}" = "push" ]; then\n' "  exit 0\n" "fi\n" 'exec "$REAL_GIT" "$@"\n',
                 encoding="utf-8",
             )
             git.chmod(git.stat().st_mode | stat.S_IXUSR)
