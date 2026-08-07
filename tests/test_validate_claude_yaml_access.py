@@ -300,6 +300,9 @@ class LiveClaudeWorkflowContractTests(unittest.TestCase):
     ``ANTHROPIC_API_KEY`` on a public repo.
     """
 
+    raw: str
+    doc: dict
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.raw = CLAUDE_WORKFLOW.read_text(encoding="utf-8")
@@ -312,10 +315,7 @@ class LiveClaudeWorkflowContractTests(unittest.TestCase):
         self.assertEqual(
             frozenset(on_block.keys()),
             _EXPECTED_ON_EVENTS,
-            msg=(
-                f"on: event drift: missing={sorted(_EXPECTED_ON_EVENTS - frozenset(on_block))} "
-                f"extra={sorted(frozenset(on_block) - _EXPECTED_ON_EVENTS)}"
-            ),
+            msg=(f"on: event drift: missing={sorted(_EXPECTED_ON_EVENTS - frozenset(on_block))} " f"extra={sorted(frozenset(on_block) - _EXPECTED_ON_EVENTS)}"),
         )
 
     def test_job_if_gates_every_on_event(self) -> None:
