@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.5
+**Version:** 0.6.6
 **Status:** Active
 **Last Updated:** 2026-08-07
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -991,7 +991,9 @@ This section is *why* `failed=1` actually fires; what happens once it does is [P
 
 `do_up` allocates ports **before** staging: `allocate_port` records `HELD_LOCK_PORTS` and creates the `*.lock` dirs, then `create_run_dir` → `stage_config` → `write_ports_json`, then the launches.
 
-Those three staging steps are still **bare** under `set -e`. A missing `--config` (or an `mkdir` / `cp` / `ports.json` write failure) therefore exits `do_up` *after* the lockdirs exist and *before* `ports.json` is written. `--down` cannot recover them (it keys off `ports.json`) and the in-process `HELD_LOCK_PORTS` dies with the shell, so the 30-port ranges can starve later `--up` attempts until the lockdirs are removed by hand. Fix pending in open [#979](https://github.com/pcalnon/juniper-ml/pull/979); until then, clear leftover `*.lock` dirs under `JUNIPER_EXP_LOCK_ROOT` only after confirming no live listener holds the port.
+Each of those three staging steps is fail-closed as `<step> || { release_held_locks; return 1; }` ([#979](https://github.com/pcalnon/juniper-ml/pull/979)). Before that fix they were bare under `set -e`, so a missing `--config` (or an `mkdir` / `cp` / `ports.json` write failure) exited `do_up` *after* the lockdirs existed and *before* `ports.json` was written — `--down` could not recover them (it keys off `ports.json`) and the in-process `HELD_LOCK_PORTS` died with the shell, starving the 30-port ranges until the lockdirs were removed by hand.
+
+If you still find orphaned `*.lock` dirs under `JUNIPER_EXP_LOCK_ROOT` (a pre-#979 run, or a hard kill that outran the trap), clear them only after confirming no live listener holds the port.
 
 ### Driver (`util/experiments/run_experiment.py`)
 
@@ -1095,19 +1097,20 @@ Do **not** point experiment ports at `plant_all` / isolated-stack ports, and do 
 
 Each in-repo published sub-package has its own subdirectory CI at `.github/workflows/ci-<suffix>.yml`. These are **distinct** from the meta `ci.yml` and from the `publish-*.yml` publishers: they are the only always-on gate for that package's pytest / coverage / wheel smoke.
 
-| Workflow | Package dir | Python matrix (min) | `--cov-fail-under` | Test `working-directory` |
-|----------|-------------|---------------------|--------------------|--------------------------|
-| `ci-ci-tools.yml` | `juniper-ci-tools/` | 3.11–3.14 | 85 | package subdir |
-| `ci-config-tools.yml` | `juniper-config-tools/` | 3.11–3.14 | 85 | package subdir |
-| `ci-doc-tools.yml` | `juniper-doc-tools/` | 3.12–3.14 | 85 | package subdir |
-| `ci-model-core.yml` | `juniper-model-core/` | 3.12–3.14 | 95 | package subdir |
-| `ci-observability.yml` | `juniper-observability/` | 3.12–3.13 | 90 | package subdir |
-| `ci-service-core.yml` | `juniper-service-core/` | 3.12–3.13 | 80 | **none** (monorepo root) |
+| Workflow | Package dir | Python matrix (min) | `--cov-fail-under` | Test `working-directory` | Wheel smoke (installed into a throwaway venv) |
+|----------|-------------|---------------------|--------------------|--------------------------|-----------------------------------------------|
+| `ci-ci-tools.yml` | `juniper-ci-tools/` | 3.11–3.14 | 85 | package subdir | `juniper-generate-dep-docs --version`, `juniper-env-drift-check --version`, `juniper-coverage-gap-map --version` |
+| `ci-config-tools.yml` | `juniper-config-tools/` | 3.11–3.14 | 85 | package subdir | `python -m juniper_config_tools --version` |
+| `ci-doc-tools.yml` | `juniper-doc-tools/` | 3.12–3.14 | 85 | package subdir | `juniper-check-doc-links --version` + `python -m juniper_doc_tools --version` |
+| `ci-model-core.yml` | `juniper-model-core/` | 3.12–3.14 | 95 | package subdir | `import juniper_model_core` (asserts `TrainableModel`, no third-party runtime dep) |
+| `ci-observability.yml` | `juniper-observability/` | 3.12–3.13 | 90 | package subdir | none (`twine check` only) |
+| `ci-service-core.yml` | `juniper-service-core/` | 3.12–3.13 | 80 | **none** (monorepo root) | none (`twine check` only) |
 
 Matrix rows are **minimum floors** — extra versions are fine. Every workflow is `permissions: contents: read`.
 
 | Contract | Rule | Why it matters |
 |----------|------|----------------|
+| Triggers | `push` and `pull_request` on `main`, plus `workflow_dispatch` | Manual re-runs without a code change |
 | Path filters | `push` / `pull_request` paths include `<subdir>/**` **and** the workflow's own path | Dropping the self-path lets a broken gate land with no red check |
 | `fail-fast` | `strategy.fail-fast: false` on the test matrix | One Python version must not cancel the rest |
 | Coverage | `--cov=<import>` + `--cov-fail-under=<floor>` + `coverage.json` | Per-package line-coverage floor |
@@ -1163,6 +1166,7 @@ Operator contract for the two Monday scheduled workflows that keep dependency hy
 |------|-------|
 | Triggers | Cron `0 6 * * 1` (Monday 06:00 UTC) + `workflow_dispatch` |
 | Permissions | `contents: read` only |
+| Python | `3.12` |
 | Install | `pip install pip-audit` then `pip install -e .` |
 | Audit | a **sole** invocation: `pip-audit --strict --desc on` |
 
@@ -1323,6 +1327,8 @@ Publish and CI constraints:
 - **429 header passthrough.** `RateLimiter` raises `HTTPException` carrying `Retry-After` and the `X-RateLimit-*` headers; `SecurityMiddleware.dispatch` catches it and rebuilds `JSONResponse(..., headers=exc.headers)`. Dropping those headers makes well-behaved clients retry immediately, and `RateLimiter` unit tests alone do not exercise the catch path.
 - **Exempt paths.** `EXEMPT_PATHS` covers `/v1/health`, `/v1/health/live`, `/v1/health/ready`, `/docs`, `/openapi.json`, `/redoc`, and both literal `/metrics` forms (gated instead by the parallel `MetricsAuthMiddleware` allowlist). WebSocket upgrades are not intercepted by `BaseHTTPMiddleware`, so `/ws/*` is inherently outside this path.
 - **Blank API keys.** `APIKeyAuth` filters blank / whitespace-only configured keys (the `auth_posture.real_keys` rule), so an empty secret file cannot enable auth that would then accept an empty `X-API-Key`.
+- **Rate-limit keying.** `RateLimiter._get_key` buckets by `key:<api_key>` when the request authenticated, otherwise by `ip:<client.host>` — falling back to `ip:unknown` when Starlette reports no client. Authenticated callers therefore get their own budget rather than sharing one per source IP (and a shared NAT egress cannot exhaust an authenticated client's budget).
+- **Worker mTLS half-config.** `TLSConfig` (`juniper_service_core.workers.security`) fails closed: with TLS enabled and only one of `cert_file` / `key_file` set it raises `ValueError` naming both paths, rather than returning a bare `SSLContext` with neither chain nor key. A silent half-config is the dangerous shape — it looks "TLS enabled" to callers while presenting nothing.
 
 #### Control WS log sanitizer
 
@@ -1346,10 +1352,22 @@ Control-plane WebSockets build a per-connection `LeakyBucket` from `ws_control_r
 
 A client seeing a very large `retry_after` on a zero limit is the expected hard-backoff path; raise the setting if you want faster refill.
 
+Repeated *rejected handshakes* are throttled separately by `HandshakeCooldown`, which tracks rejections per client IP: more than `max_rejections` (default **10**) within `window_sec` (default **60**) blocks that IP for `block_sec` (default **300**, i.e. 5 minutes) and closes further attempts with **4029** `Too many rejected handshakes`. The state is in-memory only, so a server restart clears it — a deliberate NAT-hostile escape hatch, since many clients can share one egress IP.
+
 #### `/ws/workers` contracts
 
-- **Auth fail-closed.** With `app.state.api_key_auth` enabled, a bad or missing `X-API-Key` closes **4001** (`Authentication required`) and the socket is never accepted.
-- **Registration shape.** After accept, registration requires a pattern-valid string `worker_id` and a dict `capabilities`; a non-object frame or a shape failure closes **4008** `Invalid registration` with no `registration_ack` (distinct from the malformed-JSON close). The client-supplied id is display-only — the server assigns `worker-{uuid12}`.
+The handshake runs **Origin → auth → per-source rate limit → accept → registration → message loop**, so four of the five close codes fire *before* `accept()`:
+
+| Order | Condition | Close | Reason string |
+|-------|-----------|-------|---------------|
+| 1 | Any `Origin` header present | **4003** | `Origin header not allowed on worker endpoint` — workers are not browsers, so any Origin is a browser/CSRF shape |
+| 2 | `ws_authenticate` fails (bad or missing `X-API-Key` while `app.state.api_key_auth` is enabled) | **4001** | `Authentication required` |
+| 3 | Optional `worker_rate_limiter` denies the source IP | **4029** | `Rate limited` |
+| 4 | `worker_coordinator` or `worker_registry` missing | **4004** | `Worker system not initialized` — the pool never came up; not a client fault |
+| 5 | *(after accept)* registration shape invalid | **4008** | `Invalid registration` |
+
+- **Auth fail-closed.** The socket is never accepted on an auth failure — the close happens before `accept()`, so a client that sees a connection "open" has already passed auth.
+- **Registration shape.** After accept, registration requires a pattern-valid string `worker_id` and a dict `capabilities`; a non-object frame or a shape failure closes **4008** with no `registration_ack` (distinct from the malformed-JSON close). The client-supplied id is display-only — the server assigns `worker-{uuid12}`.
 - **Result ownership.** `WorkerCoordinator.submit_result` rejects wrong-worker / unassigned results before the protocol parse.
 - **Binary frame cap.** Attachments over `_MAX_BINARY_SIZE` (100 MB) get `Binary frame too large` before `submit_result`.
 - **Unknown lifecycle frames.** `build_frame_sink` maps unknown or missing frame types onto the generic `event` envelope rather than dropping or raising.
@@ -1364,6 +1382,11 @@ Control receive rejects malformed / non-object JSON with close **1003** rather t
 | Multi-line or forged log record after a bad Origin / command | `_sanitize_for_log` regression — never interpolate unsanitized Origin / command into logger format strings. |
 | Worker WS closes 4001 before `connection_established` | API-key auth is enabled — send `X-API-Key`, or disable `app.state.api_key_auth` locally. |
 | Worker WS closes 4008 after accept | Fix the registration shape: string `worker_id` plus dict `capabilities`. |
+| Worker WS closes 4003 immediately | The client sent an `Origin` header — workers are not browsers; drop it from the client's WS options. |
+| Worker WS closes 4029 before accept | `HandshakeCooldown` or the per-source worker rate limiter is throttling that IP; back off, or restart the server to clear the in-memory block. |
+| Worker WS closes 4004 | Server-side: `worker_coordinator` / `worker_registry` never initialized — check the service's worker-pool startup, not the client. |
+| Worker TLS "enabled" but presents no chain | Half-config — `TLSConfig` raises `ValueError` when only one of `cert_file` / `key_file` is set; supply both. |
+| One noisy IP throttles authenticated clients | Expected only for unauthenticated traffic — `RateLimiter` keys authenticated requests as `key:<api_key>`, so confirm the caller is actually sending `X-API-Key`. |
 | Two `task_assign` frames while the first task runs | A mid-task heartbeat must ack without dispatching — confirm the idle guard. |
 
 ---
@@ -1444,7 +1467,7 @@ gh workflow run publish-ci-tools.yml --repo pcalnon/juniper-ml --ref juniper-ci-
 
 Sibling package release flow:
 
-1. **Build and Validate** -- runs `python -m build --sdist --wheel` in the package subdirectory, validates with `twine check dist/*`, and uploads that subdirectory's `dist/` artifact.
+1. **Build and Validate** -- the build job sets `defaults.run.working-directory` to the package subdirectory (so every step is subdir-relative without repeating the path), runs `python -m build --sdist --wheel`, validates with `twine check dist/*`, and uploads that subdirectory's `dist/` artifact with `if-no-files-found: error` so a silently empty build fails here instead of surfacing as a confusing publish-step error.
 2. **Publish to TestPyPI** -- downloads the artifact into `dist/`, publishes with `packages-dir: dist/`, `repository-url: https://test.pypi.org/legacy/`, and `verbose: true` so trusted-publisher or upload errors include the server response body.
 3. **Verify TestPyPI Install** -- sparse-checks out the package `pyproject.toml`, reads the package version, retries the TestPyPI install up to five times to tolerate index lag, then imports the package's version module.
 4. **Publish to PyPI** -- runs only after TestPyPI install verification and publishes the same artifact with `packages-dir: dist/` and `verbose: true`.
@@ -1695,5 +1718,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-07
-**Version:** 0.6.5
+**Version:** 0.6.6
 **Maintainer:** Paul Calnon
