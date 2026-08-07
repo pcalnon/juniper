@@ -292,13 +292,12 @@ Order matters — do these **after** §4.1's reset and **before** handing the ke
    ```bash
    echo enable-ssh-support >> ~/.gnupg/gpg-agent.conf && gpgconf --kill gpg-agent
    gpg --export-ssh-key "$KEYFP"        # → 'ssh-ed25519 AAAA…' public line for authorized_keys
+   #   e.g. (2026-08-06 live run): ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE5lVKCTsiyaubgSBRz3CEJoBQa6GzlDPm4KGVTERN6s openpgp:0x9598412D
    # add the auth subkey's keygrip ($GNUPGHOME/private-keys-v1.d name) to ~/.gnupg/sshcontrol
    ```
 
 8. **Standing automation rule is unchanged**: headless/agent sessions must use `git -c commit.gpgsign=false -c tag.gpgSign=false …` — a card-resident key cannot sign without the human (PIN and/or touch).
 9. Store the ceremony GNUPGHOME (now containing the offline ed448 primary + stubs) offline per §4.3; remove it from the online host if the threat model calls for a true offline master.
-
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE5lVKCTsiyaubgSBRz3CEJoBQa6GzlDPm4KGVTERN6s openpgp:0x9598412D
 
 ## 6. Interoperability caveats
 
