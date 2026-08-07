@@ -710,6 +710,10 @@ bridge_up() {
         GATEWAY_IP="<monitoring-gateway>"
         announce "docker network ls --format '{{.Name}}' | grep -E '_monitoring\$'   # discover the monitoring network by SUFFIX"
     else
+        # Explicit ``|| return 1``: callers that invoke bridge_up under ``if ! bridge_up``
+        # (OR-list / conditional) disable set -e for this whole body. Without the guard a
+        # discover failure leaves GATEWAY_IP empty and falls through to relay_up / target
+        # write — a false-green bridge with a broken bind.
         discover_gateway_ip || return 1
     fi
     for entry in "${SCRAPE_TARGETS[@]:-}"; do
@@ -804,9 +808,23 @@ do_up() {
     [[ -n "${CASCOR_PORT}" ]] && SCRAPE_TARGETS+=("juniper-cascor:${CASCOR_PORT}")
     [[ -n "${RECURRENCE_PORT}" ]] && SCRAPE_TARGETS+=("juniper-recurrence:${RECURRENCE_PORT}")
 
-    create_run_dir
-    stage_config
-    write_ports_json
+    # release_held_locks on staging failure: under set -e a missing --config (or mkdir/cp
+    # failure) used to exit do_up after allocate_port had already created *.lock dirs, and
+    # ports.json was not written yet — so --down cannot recover the locks either. The
+    # 30-port experiment ranges then starve later --up attempts until lockdirs are removed
+    # by hand (or the runtime dir is reaped).
+    create_run_dir || {
+        release_held_locks
+        return 1
+    }
+    stage_config || {
+        release_held_locks
+        return 1
+    }
+    write_ports_json || {
+        release_held_locks
+        return 1
+    }
 
     # --- launches, in deterministic order data -> cascor -> recurrence ----------------
     local failed=0
