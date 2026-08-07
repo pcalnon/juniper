@@ -414,6 +414,16 @@ jobs:
           # docs-full-check.yml. The full cross-repo assertion runs
           # weekly via docs-full-check.yml.
           python3 -m unittest -v tests/test_ci_tools_drift.py
+          # tests/test_lockfile_update_workflow.py: structural gate for the weekly
+          # lockfile-update.yml refresh — juniper-generate-dep-docs (not the deleted
+          # inline dep-docs shell script), SHA-pinned create-pull-request, branch/labels/
+          # permissions. Companion to test_ci_tools_drift (pin range only).
+          python3 -m unittest -v tests/test_lockfile_update_workflow.py
+          # tests/test_security_scan_workflow.py: structural + hermetic rehearsal for
+          # the scheduled security-scan.yml — pins pip-audit --strict --desc on after
+          # pip install -e . (distinct from ci.yml's per-PR security job, which
+          # intentionally omits --strict). Neither workflow YAML is otherwise gated.
+          python3 -m unittest -v tests/test_security_scan_workflow.py
           # tests/test_coverage_gap_mapper_drift.py: dogfood gate for the
           # juniper-coverage-gap-map console script (enhancement E-4 + the C-0
           # enforcing mode; the per-file coverage-gap mapper hosted in
