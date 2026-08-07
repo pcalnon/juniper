@@ -55,6 +55,11 @@ def _multiline_repo_list(block: str) -> frozenset[str]:
 class DocsFullCheckEcosystemReposTest(unittest.TestCase):
     """Pin docs-full-check ECOSYSTEM_REPOS membership against the registry."""
 
+    repo_root: Path
+    workflow_path: Path
+    doc: dict
+    registry_repos: frozenset[str]
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.repo_root = _find_repo_root(Path(__file__).resolve().parent)
@@ -88,9 +93,7 @@ class DocsFullCheckEcosystemReposTest(unittest.TestCase):
         self.assertEqual(
             ecosystem,
             expected,
-            "docs-full-check env.ECOSYSTEM_REPOS must equal registry publishing "
-            "repos minus juniper-ml, plus juniper-deploy "
-            f"(extra={sorted(ecosystem - expected)}, missing={sorted(expected - ecosystem)}).",
+            "docs-full-check env.ECOSYSTEM_REPOS must equal registry publishing " "repos minus juniper-ml, plus juniper-deploy " f"(extra={sorted(ecosystem - expected)}, missing={sorted(expected - ecosystem)}).",
         )
         self.assertNotIn("juniper-ml", ecosystem, "juniper-ml is the workflow checkout, not an ECOSYSTEM_REPOS clone")
         self.assertIn(

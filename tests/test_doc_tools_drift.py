@@ -253,10 +253,7 @@ class JuniperDocToolsDriftTest(unittest.TestCase):
                     continue
                 pins = _extract_pins_from_repo(repo_root)
                 if not pins:
-                    self.fail(
-                        f"{repo}/.github/workflows/ has no juniper-doc-tools pin -- "
-                        "Wave 2 did not run here (or was reverted)."
-                    )
+                    self.fail(f"{repo}/.github/workflows/ has no juniper-doc-tools pin -- " "Wave 2 did not run here (or was reverted).")
                 for lower, upper, rel in pins:
                     lower_tuple = _parse_version(lower)
                     upper_tuple = _parse_version(upper)
@@ -270,16 +267,11 @@ class JuniperDocToolsDriftTest(unittest.TestCase):
                     # still admits current. Plan §5.1 specifies this as
                     # a soft warning, not a hard fail.
                     if upper_tuple[0] == current_tuple[0] and upper_tuple[1] - current_tuple[1] - 1 > _SUPPORTED_MINORS_BACK:
-                        warnings.append(
-                            f"{repo} ({rel}): pin {lower}..{upper} is more than "
-                            f"{_SUPPORTED_MINORS_BACK} minors behind current "
-                            f"{self.current_version}; consider widening."
-                        )
+                        warnings.append(f"{repo} ({rel}): pin {lower}..{upper} is more than " f"{_SUPPORTED_MINORS_BACK} minors behind current " f"{self.current_version}; consider widening.")
                     self.assertLess(
                         current_tuple,
                         upper_tuple,
-                        f"{repo} ({rel}) pin upper bound {upper} excludes current "
-                        f"{self.current_version} -- bump the pin in {repo}.",
+                        f"{repo} ({rel}) pin upper bound {upper} excludes current " f"{self.current_version} -- bump the pin in {repo}.",
                     )
 
         if warnings:

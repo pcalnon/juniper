@@ -58,6 +58,13 @@ def _find_repo_root(start: Path) -> Path:
 class ArchiveGuardWorkflowWiringTest(unittest.TestCase):
     """Pin merge_group short-circuit + pull_request-only work steps."""
 
+    repo_root: Path
+    workflow_path: Path
+    doc: dict
+    job: dict
+    steps: list
+    steps_by_name: dict
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.repo_root = _find_repo_root(Path(__file__).resolve().parent)
