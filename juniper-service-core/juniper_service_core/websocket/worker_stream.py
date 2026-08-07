@@ -214,6 +214,13 @@ async def _handle_registration(websocket: WebSocket, registry: WorkerRegistry) -
         await websocket.close(code=4006, reason="Invalid JSON")
         return None
 
+    # JSON-valid non-objects must not call ``msg.get`` / ``validate_worker_registration``
+    # — treat as a registration shape failure (4008), never register.
+    if not isinstance(msg, dict):
+        await websocket.send_json(_error_frame("Invalid registration", details="Registration payload must be a JSON object"))
+        await websocket.close(code=4008, reason="Invalid registration")
+        return None
+
     if msg.get("type") != MSG_REGISTER:
         await websocket.send_json(_error_frame("First message must be registration"))
         await websocket.close(code=4007, reason="Expected registration")

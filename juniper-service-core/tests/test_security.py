@@ -57,6 +57,22 @@ def test_validate_with_configured_keys():
     assert auth.validate(None) is False
 
 
+def test_blank_only_configured_keys_disable_auth():
+    """Empty/placeholder secret files resolve to blanks — must not enable auth."""
+    auth = APIKeyAuth(["", "  ", "\n", "\t"])
+    assert auth.enabled is False
+    assert auth.validate("") is True  # open mode when no real keys
+    assert auth.validate(None) is True
+
+
+def test_blank_keys_filtered_alongside_real_key():
+    auth = APIKeyAuth(["", "  ", "real-key"])
+    assert auth.enabled is True
+    assert auth.validate("real-key") is True
+    assert auth.validate("") is False
+    assert auth.validate("  ") is False
+
+
 # --- APIKeyAuth: async __call__ dependency ----------------------------------
 
 
@@ -86,6 +102,25 @@ async def test_call_raises_401_on_invalid_key():
     with pytest.raises(HTTPException) as exc_info:
         await auth(_make_request({"X-API-Key": "wrong"}))
     assert exc_info.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_call_blank_only_keys_are_open_not_empty_header_auth():
+    """Blank-only config must stay open (disabled), not authenticate empty X-API-Key."""
+    auth = APIKeyAuth([""])
+    assert auth.enabled is False
+    assert await auth(_make_request({"X-API-Key": ""})) is None
+    assert await auth(_make_request()) is None
+
+
+def test_build_api_key_auth_filters_blank_keys():
+    auth = build_api_key_auth(["", "  ", "k"])
+    assert auth.enabled is True
+    assert auth.validate("k") is True
+    assert auth.validate("") is False
+
+    disabled = build_api_key_auth(["", "\n"])
+    assert disabled.enabled is False
 
 
 # --- RateLimiter ------------------------------------------------------------

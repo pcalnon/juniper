@@ -64,6 +64,8 @@ set -euo pipefail
 | **Graduates to permanent utility**    | Move to `util/<name>` (drop `ad-hoc` from the header `Status:`). Update any docs that referenced the old path.    |
 | **Retired (purpose complete or obsolete)** | Delete in the same PR that completes the work, OR move to `util/ad-hoc/retired/` with the retirement date in the filename. Don't leave dead scripts behind. |
 
+**Example (juniper-ml#928):** the seven `2026-07-28_flood_census_*` / `docs_census_*` / `fp_transition_c2` investigation scripts were moved to `util/ad-hoc/retired/` with a `_RETIRED-2026-08-05` suffix once the flood-remediation analysis landed and `util/sequence_safety/` + `util/fleet_triage/predict_merge.py` became the live screens. Keeping the retired files in-repo preserves notes/ appendix and provenance comments that still name the old paths.
+
 ---
 
 ## What does NOT belong here
