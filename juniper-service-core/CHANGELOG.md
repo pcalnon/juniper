@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `WorkerCoordinator.submit_result` now rejects results from a worker that does not own the
+  task (`assigned_worker_id is None` or `!= worker_id`) **before** protocol parse — closes the
+  cross-worker / unassigned accept footgun that left the assignee busy while a stranger's
+  result was collected.
+
 ## [0.5.1] - 2026-07-28
 
 ### Fixed
