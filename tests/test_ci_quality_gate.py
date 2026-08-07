@@ -116,8 +116,7 @@ class QualityGateStructuralTest(unittest.TestCase):
         self.assertEqual(
             present,
             set(),
-            f"advisory/PR-only jobs must stay ABSENT from Quality Gate needs: (got {sorted(present)}). "
-            "Folding them in fails every push:main because those jobs skip on push.",
+            f"advisory/PR-only jobs must stay ABSENT from Quality Gate needs: (got {sorted(present)}). " "Folding them in fails every push:main because those jobs skip on push.",
         )
 
     def test_advisory_jobs_still_defined(self) -> None:

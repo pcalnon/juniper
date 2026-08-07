@@ -176,17 +176,13 @@ class BatteryPathDetectRehearsalTest(unittest.TestCase):
 
     def test_github_workflows_change_runs_battery(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            repo, sha_a, sha_b = self._stage_pair(
-                Path(tmp), changed_path=".github/workflows/ci.yml", content="name: x\n"
-            )
+            repo, sha_a, sha_b = self._stage_pair(Path(tmp), changed_path=".github/workflows/ci.yml", content="name: x\n")
             run, _log = self._run_detector(repo=repo, before=sha_a, head_sha=sha_b)
             self.assertEqual(run, "true")
 
     def test_pyproject_change_runs_battery(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            repo, sha_a, sha_b = self._stage_pair(
-                Path(tmp), changed_path="pyproject.toml", content="[project]\nname='x'\n"
-            )
+            repo, sha_a, sha_b = self._stage_pair(Path(tmp), changed_path="pyproject.toml", content="[project]\nname='x'\n")
             run, _log = self._run_detector(repo=repo, before=sha_a, head_sha=sha_b)
             self.assertEqual(run, "true")
 
