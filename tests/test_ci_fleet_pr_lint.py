@@ -54,13 +54,7 @@ def _find_repo_root(start: Path) -> Path:
 
 
 def _git(cwd: Path, *args: str, check: bool = True) -> str:
-    env = {
-        **os.environ,
-        "GIT_AUTHOR_NAME": "t",
-        "GIT_AUTHOR_EMAIL": "t@t",
-        "GIT_COMMITTER_NAME": "t",
-        "GIT_COMMITTER_EMAIL": "t@t",
-    }
+    env = RedactedEnv(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
     proc = subprocess.run(  # nosec B603,B607 - fixed git argv in temp fixture
         ["git", *args],
         cwd=cwd,
