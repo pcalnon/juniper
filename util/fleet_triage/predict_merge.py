@@ -23,7 +23,9 @@ For a PR branch (``--pr N``) or every open PR (``--batch``) it, per PR:
       on ``origin/main`` but absent in the merged result -- the #755/#729/#738
       "flake8+mypy still pass" damage class) and, for docs, a diff-vs-main
       additions-only screen (any removed content line on an addition PR is a
-      suspected #801/#803 silent section deletion);
+      suspected #801/#803 silent section deletion -- deliberately stricter than
+      the sequence-safety heading/min-run gate, but the same ``Allow-Docs-Rewrite``
+      commit-trailer waiver is honored so intentional rewrites are not DAMAGED);
   (d) emits a per-PR JSON verdict + the TRUE changed-file delta computed from the
       merge RESULT (``git diff --name-only origin/main <result>``), NOT the stale
       ``gh pr list --json files`` list (#729 showed 12 files vs 2 truly changed);
@@ -52,6 +54,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess  # nosec B404 -- git/gh/pre-commit orchestration, fixed argv lists, no shell
 import sys
@@ -164,6 +167,17 @@ def _ast_symbol_screen(clone: Path, base_ref: str, result_ref: str, changed: lis
 # --------------------------------------------------------------------------- #
 # docs additions-only screen
 # --------------------------------------------------------------------------- #
+#
+# Intentionally STRICTER than util/sequence_safety/docs_additions_check.py: fleet
+# triage flags ANY removed content line on a changed .md (the #801/#803 silent
+# section-deletion class), not only heading deletions / >=N consecutive runs.
+# Trailer parsing is shared with the sequence-safety escape hatch so an author-
+# declared ``Allow-Docs-Rewrite: <path>`` (or ``*``) is honored identically --
+# without that, an intentional docs rewrite is forever DAMAGED-FIX-FIRST while
+# the push:main main-verify gate would WAIVE it.
+
+_DOCS_ALLOW_RE = re.compile(r"^\s*Allow-Docs-Rewrite:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+
 
 def _removed_content_lines(diff_text: str) -> int:
     """Count removed CONTENT lines in a unified diff (a ``-`` line that is not the ``---`` header)."""
@@ -174,17 +188,62 @@ def _removed_content_lines(diff_text: str) -> int:
     return count
 
 
+def _parse_docs_allow_trailers(messages: str) -> tuple:
+    """Return (enumerated file tokens, wildcard_seen) -- same contract as docs_additions_check."""
+    allowed: set = set()
+    wildcard = False
+    for m in _DOCS_ALLOW_RE.finditer(messages or ""):
+        for tok in re.split(r"[,\s]+", m.group(1).strip()):
+            tok = tok.strip()
+            if not tok:
+                continue
+            if tok == "*":
+                wildcard = True
+                continue
+            allowed.add(tok)
+    return allowed, wildcard
+
+
+def _docs_rewrite_waives(path: str, allowed: set, wildcard: bool) -> bool:
+    """Match full path or basename (parity with sequence_safety.docs_additions_check._waives)."""
+    if wildcard:
+        return True
+    return path in allowed or path.rsplit("/", 1)[-1] in allowed
+
+
+def _docs_allow_from_range(clone: Path, base_ref: str, result_ref: str) -> tuple:
+    """Parse ``Allow-Docs-Rewrite`` trailers from commits in ``base_ref..result_ref``."""
+    cp = _git(clone, "log", "--format=%B", f"{base_ref}..{result_ref}")
+    if cp.returncode != 0:
+        return set(), False
+    return _parse_docs_allow_trailers(cp.stdout)
+
+
 def _docs_additions_only_screen(clone: Path, base_ref: str, result_ref: str, changed: list) -> dict:
-    """Flag any changed ``.md`` whose merge result removes content (suspected section deletion)."""
+    """Flag any changed ``.md`` whose merge result removes content (suspected section deletion).
+
+    Honors ``Allow-Docs-Rewrite: <path>[, ...]`` / ``*`` trailers in the BASE..RESULT
+    commit range (same escape hatch as ``util/sequence_safety/docs_additions_check.py``).
+    """
+    allowed, wildcard = _docs_allow_from_range(clone, base_ref, result_ref)
     deletions: list = []
+    waived: list = []
     for path in changed:
         if not path.endswith(".md"):
             continue
         cp = _git(clone, "diff", "--no-color", base_ref, result_ref, "--", path)
         removed = _removed_content_lines(cp.stdout)
-        if removed > 0:
-            deletions.append({"file": path, "removed_lines": removed})
-    return {"status": "fail" if deletions else "pass", "deletions": deletions}
+        if removed <= 0:
+            continue
+        if _docs_rewrite_waives(path, allowed, wildcard):
+            waived.append({"file": path, "removed_lines": removed, "waived_by": "Allow-Docs-Rewrite trailer"})
+            continue
+        deletions.append({"file": path, "removed_lines": removed})
+    return {
+        "status": "fail" if deletions else "pass",
+        "deletions": deletions,
+        "waived": waived,
+    }
 
 
 # --------------------------------------------------------------------------- #
