@@ -741,21 +741,7 @@ class TestNohupModeBehavioral(unittest.TestCase):
         (conda_dir / "etc" / "profile.d").mkdir(parents=True)
         conda_sh = conda_dir / "etc" / "profile.d" / "conda.sh"
         # activate prepends the env's bin/; deactivate is a no-op.
-        conda_sh.write_text(
-            "#!/usr/bin/env bash\n"
-            f'JUNIPER_CONDA_DIR_FOR_STUB="{conda_dir}"\n'
-            "conda() {\n"
-            '  case "${1:-}" in\n'
-            "    activate)\n"
-            '      export PATH="${JUNIPER_CONDA_DIR_FOR_STUB}/envs/${2}/bin:${PATH}"\n'
-            '      export CONDA_DEFAULT_ENV="${2}"\n'
-            "      ;;\n"
-            "    deactivate) : ;;\n"
-            "    *) : ;;\n"
-            "  esac\n"
-            "}\n"
-            "export -f conda\n"
-        )
+        conda_sh.write_text("#!/usr/bin/env bash\n" f'JUNIPER_CONDA_DIR_FOR_STUB="{conda_dir}"\n' "conda() {\n" '  case "${1:-}" in\n' "    activate)\n" '      export PATH="${JUNIPER_CONDA_DIR_FOR_STUB}/envs/${2}/bin:${PATH}"\n' '      export CONDA_DEFAULT_ENV="${2}"\n' "      ;;\n" "    deactivate) : ;;\n" "    *) : ;;\n" "  esac\n" "}\n" "export -f conda\n")
 
         sleeper = "#!/usr/bin/env bash\nexec sleep 3600\n"
         for env_name in ("JuniperData", "JuniperCascor1", "JuniperCanopy1"):
@@ -791,16 +777,7 @@ class TestNohupModeBehavioral(unittest.TestCase):
             # the next service's health gate trips cleanup_on_failure.
             state = root / "curl_state"
             state.write_text("0")
-            curl.write_text(
-                "#!/usr/bin/env bash\n"
-                "set -euo pipefail\n"
-                f'state="{state}"\n'
-                'n="$(cat "$state")"\n'
-                'n=$((n + 1))\n'
-                'printf "%s" "$n" >"$state"\n'
-                f'if (( n >= {curl_fail_after} )); then exit 22; fi\n'
-                "exit 0\n"
-            )
+            curl.write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" f'state="{state}"\n' 'n="$(cat "$state")"\n' "n=$((n + 1))\n" 'printf "%s" "$n" >"$state"\n' f"if (( n >= {curl_fail_after} )); then exit 22; fi\n" "exit 0\n")
         curl.chmod(0o755)
 
         return script_copy, conda_dir, project
