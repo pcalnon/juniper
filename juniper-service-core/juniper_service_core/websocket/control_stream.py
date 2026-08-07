@@ -200,7 +200,15 @@ async def _control_recv_loop(websocket: WebSocket, executor, valid_commands: set
             await websocket.close(code=1003, reason="Malformed JSON")
             return
 
-        if isinstance(msg, dict) and msg.get("type") == "pong":
+        # JSON-valid non-objects (arrays / scalars / null) must not reach
+        # ``_handle_command_message``'s ``msg.get`` — that AttributeError would
+        # tear down the receive loop instead of a controlled reject/close.
+        if not isinstance(msg, dict):
+            await websocket.send_json(create_control_ack_message("unknown", "error", error="Invalid control message"))
+            await websocket.close(code=1003, reason="Malformed JSON")
+            return
+
+        if msg.get("type") == "pong":
             pong_received.set()
             continue
 

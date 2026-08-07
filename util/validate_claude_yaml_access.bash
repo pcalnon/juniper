@@ -13,8 +13,9 @@
 #   validate_claude_yaml_access.bash [<file-or-dir> ...]
 #
 # Behavior with no arguments:
-#   - If JUNIPER_ROOT is set and contains the canonical 8 Juniper sibling
-#     repos, validate each repo's .github/workflows/claude.yml that exists.
+#   - If JUNIPER_ROOT is set and contains the canonical Juniper sibling
+#     repos (8 publishing repos + juniper-deploy), validate each repo's
+#     .github/workflows/claude.yml that exists.
 #   - Otherwise, validate the current git repo's
 #     .github/workflows/claude.yml relative to the script location.
 #
@@ -40,6 +41,10 @@ set -euo pipefail
 
 VERBOSE="${VERBOSE:-0}"
 
+# Canonical fan-out: every publishing repo from util/release_train/registry.yaml
+# plus juniper-deploy (infra sibling, not a PyPI publisher). Omitting a
+# publishing sibling (historically juniper-recurrence) blinds the weekly
+# ANTHROPIC_API_KEY audit even when docs-full-check clones that checkout.
 DEFAULT_REPOS=(
   juniper-cascor
   juniper-data
@@ -48,6 +53,7 @@ DEFAULT_REPOS=(
   juniper-cascor-worker
   juniper-ml
   juniper-canopy
+  juniper-recurrence
   juniper-deploy
 )
 

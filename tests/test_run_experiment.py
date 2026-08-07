@@ -23,10 +23,13 @@ for BOTH the run's juniper-data and cascor (their endpoint sets are disjoint). C
 * the Wave-2.3 recurrence path: SS5.5 block validation (dataset.split, train/crossval/predict
   keys, crossval n_folds), the synchronous ``POST /v1/train`` drive (200 / 409->4 / 422->2 /
   socket-timeout->``timed_out``), predict + crossval phases (dataset_id refs, hyperparams copied
-  into crossval, record-and-continue on failure), and the G-18 ``outputs.save_model`` re-run
-  (PATH-stubbed ``juniper-recurrence`` CLI: --dataset/--split/--out + JUNIPER_DATA_URL env;
-  missing CLI -> acceptance failure; nonzero CLI / TimeoutExpired -> acceptance failure with
-  recorded error; ``LD_LIBRARY_PATH=''`` hygiene);
+  into crossval, record-and-continue on failure — including the crossval-fail-continue arm),
+  and the G-18 ``outputs.save_model`` re-run (PATH-stubbed ``juniper-recurrence`` CLI:
+  --dataset/--split/--out + JUNIPER_DATA_URL env; missing CLI -> acceptance failure;
+  nonzero CLI / TimeoutExpired -> acceptance failure with recorded error;
+  ``LD_LIBRARY_PATH=''`` hygiene);
+* cascor essential-collect failure after COMPLETED (exit 1) and mid-drive consecutive poll
+  unreachability (exit 3, ``torn_down_early``);
 * G-6 ``check_g6_shape`` None/missing ``input_size`` fail-closed (anti-silence when shape
   fields are absent, not only wrong-size mismatch);
 * ``parse_metric_samples`` rejects non-finite NaN / ±Inf (silent stats/plot poison class).
@@ -40,6 +43,7 @@ import io
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -105,6 +109,11 @@ class _ScriptedState:
         self.train_delay = 0.0
         self.predict_status = 200
         self.crossval_status = 200
+        self.metrics_final_status = 200
+        self.metrics_history_status = 200
+        # After this many /v1/training/status responses, drop the listening socket so
+        # subsequent polls fail immediately with Connection refused (mid-drive tear-down).
+        self.status_die_after: int | None = None
         self.eval_metrics_present = True
         self.artifact_kind = "tabular"
         self.lock = threading.Lock()
@@ -225,13 +234,33 @@ class _StubHandler(BaseHTTPRequestHandler):
             )
         elif path == "/v1/training/status":
             with state.lock:
-                if state.increment_epochs:
-                    state.auto_epoch += 1
-                    fsm, epoch, hidden = "STARTED", state.auto_epoch, 0
-                else:
-                    idx = min(state.status_index, len(state.status_sequence) - 1)
-                    fsm, epoch, hidden = state.status_sequence[idx]
+                if state.status_die_after is not None and state.status_index >= state.status_die_after:
                     state.status_index += 1
+                    die = True
+                else:
+                    die = False
+                    if state.increment_epochs:
+                        state.auto_epoch += 1
+                        fsm, epoch, hidden = "STARTED", state.auto_epoch, 0
+                    else:
+                        idx = min(state.status_index, len(state.status_sequence) - 1)
+                        fsm, epoch, hidden = state.status_sequence[idx]
+                        state.status_index += 1
+            if die:
+                # Close the listening socket so the next poll fails immediately
+                # (Connection refused), not after DEFAULT_HTTP_TIMEOUT.
+                try:
+                    self.server.socket.close()
+                except OSError as exc:
+                    # Best-effort teardown in test server: socket may already be closed.
+                    print(f"test server socket close ignored OSError: {exc}", file=sys.stderr)
+                self.close_connection = True
+                try:
+                    self.connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    # Connection may already be closed/reset during forced teardown.
+                    return
+                return
             self._send(
                 200,
                 _envelope(
@@ -259,11 +288,17 @@ class _StubHandler(BaseHTTPRequestHandler):
                 return
             self._send(200, _EXPOSITION, content_type="text/plain; version=0.0.4")
         elif path == "/v1/metrics":
+            if state.metrics_final_status != 200:
+                self._send(state.metrics_final_status, json.dumps({"detail": "metrics final stub error"}).encode("utf-8"))
+                return
             payload = {"epoch": 3, "train_loss": 0.1, "train_accuracy": 0.95, "hidden_units": 2}
             if state.eval_metrics_present:
                 payload.update({"f1": 0.9, "precision": 0.88, "recall": 0.91, "roc_auc": 0.97})
             self._send(200, _envelope(payload))
         elif path == "/v1/metrics/history":
+            if state.metrics_history_status != 200:
+                self._send(state.metrics_history_status, json.dumps({"detail": "metrics history stub error"}).encode("utf-8"))
+                return
             self._send(
                 200,
                 _envelope(
@@ -880,6 +915,37 @@ class FailureArmsTest(_StubTestCase):
         self.assertEqual(manifest["outcome"], "timed_out")
         self.assertEqual(manifest["driver"]["max_wall_seconds"], 0.3)
 
+    def test_essential_collect_failure_exits_1(self) -> None:
+        # Training COMPLETED but an essential artifact is missing -> acceptance, not green.
+        self.state.metrics_final_status = 500
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "succeeded")
+        self.assertFalse(manifest["acceptance"]["ok"])
+        self.assertTrue(
+            any("essential artifact 'metrics_final'" in reason for reason in manifest["acceptance"]["reasons"]),
+            msg=manifest["acceptance"]["reasons"],
+        )
+        self.assertFalse((self.run_dir / "artifacts" / "results" / "metrics_final.json").exists())
+
+    def test_mid_drive_unreachable_exits_3(self) -> None:
+        # After the first status poll, kill the stub listener so CONSECUTIVE_POLL_ERRORS_MAX
+        # trips -> torn_down_early + EXIT_UNREACHABLE (not a silent green).
+        self.state.status_sequence = [("STARTED", 1, 0), ("STARTED", 2, 0), ("COMPLETED", 3, 1)]
+        self.state.status_die_after = 1
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir, "--poll-interval", "0.05")
+        self.assertEqual(code, rx.EXIT_UNREACHABLE)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "torn_down_early")
+        self.assertFalse(manifest["acceptance"]["ok"])
+        self.assertTrue(
+            any("unreachable mid-run" in reason for reason in manifest["acceptance"]["reasons"]),
+            msg=manifest["acceptance"]["reasons"],
+        )
+
     def test_yaml_budget_honored_without_cli(self) -> None:
         self.state.increment_epochs = True
         cfg = _base_config()
@@ -1095,6 +1161,23 @@ class RecurrencePathTest(_StubTestCase):
         self.assertTrue(any("predict" in reason for reason in manifest["acceptance"]["reasons"]))
         self.assertTrue((self.run_dir / "artifacts" / "results" / "crossval_response.json").is_file())
 
+    def test_crossval_failure_keeps_predict_and_fails_acceptance(self) -> None:
+        # Asymmetric sibling of predict-failure-continues: crossval 500 must not drop predict
+        # evidence, and the run must still land as acceptance failure with a written manifest.
+        self.state.crossval_status = 500
+        code, _ = _invoke(self._config(), self.run_dir)
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        self.assertEqual(len(self._posts("/v1/predict")), 1)
+        self.assertEqual(len(self._posts("/v1/crossval")), 1)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "succeeded")
+        self.assertFalse(manifest["acceptance"]["ok"])
+        self.assertTrue(any("crossval" in reason for reason in manifest["acceptance"]["reasons"]))
+        self.assertEqual(manifest["predict"], {"shape": [4, 1]})
+        self.assertIsNone(manifest["crossval"])
+        self.assertTrue((self.run_dir / "artifacts" / "results" / "predict_response.json").is_file())
+        self.assertFalse((self.run_dir / "artifacts" / "results" / "crossval_response.json").exists())
+
     def test_save_model_rerun_invokes_cli(self) -> None:
         bindir = self.tmp / "bin"
         bindir.mkdir()
@@ -1102,14 +1185,7 @@ class RecurrencePathTest(_StubTestCase):
         capture.mkdir()
         stub = bindir / "juniper-recurrence"
         stub.write_text(
-            "#!/bin/bash\n"
-            f"printf '%s\\n' \"$*\" > '{capture}/cmd.txt'\n"
-            f"printf '%s\\n' \"$JUNIPER_DATA_URL\" > '{capture}/env.txt'\n"
-            f"printf '%s\\n' \"${{LD_LIBRARY_PATH-<unset>}}\" > '{capture}/ld.txt'\n"
-            "prev=''\nout=''\n"
-            'for a in "$@"; do [ "$prev" = "--out" ] && out="$a"; prev="$a"; done\n'
-            '[ -n "$out" ] && : > "$out"\n'
-            "exit 0\n",
+            "#!/bin/bash\n" f"printf '%s\\n' \"$*\" > '{capture}/cmd.txt'\n" f"printf '%s\\n' \"$JUNIPER_DATA_URL\" > '{capture}/env.txt'\n" f"printf '%s\\n' \"${{LD_LIBRARY_PATH-<unset>}}\" > '{capture}/ld.txt'\n" "prev=''\nout=''\n" 'for a in "$@"; do [ "$prev" = "--out" ] && out="$a"; prev="$a"; done\n' '[ -n "$out" ] && : > "$out"\n' "exit 0\n",
             encoding="utf-8",
         )
         stub.chmod(0o755)
@@ -1171,9 +1247,7 @@ class RecurrencePathTest(_StubTestCase):
         # TimeoutExpired must be caught (ok=False + error), never an uncaught crash that
         # loses the SS13.4 manifest. Unit-drive ``_save_model_rerun`` so we do not wait 600s.
         out_path = self.tmp / "model.npz"
-        with mock.patch.object(rx.shutil, "which", return_value="/fake/juniper-recurrence"), mock.patch.object(
-            rx.subprocess, "run", side_effect=subprocess.TimeoutExpired(cmd=["juniper-recurrence"], timeout=600)
-        ):
+        with mock.patch.object(rx.shutil, "which", return_value="/fake/juniper-recurrence"), mock.patch.object(rx.subprocess, "run", side_effect=subprocess.TimeoutExpired(cmd=["juniper-recurrence"], timeout=600)):
             result = rx._save_model_rerun({"d": 8}, "ds-stub123", "train", "http://127.0.0.1:1", out_path)
         self.assertFalse(result["ok"])
         self.assertIn("timed out", result["error"].lower())
@@ -1236,6 +1310,27 @@ class CascorPlotsTest(_StubTestCase):
         self.assertTrue(any("matplotlib" in reason for reason in manifest["acceptance"]["reasons"]))
         self.assertEqual(manifest["driver"]["plots"]["skipped"][0]["reason"], "matplotlib unavailable")
 
+    def test_renderer_value_error_is_skip_not_acceptance_failure(self) -> None:
+        # Complements PlotRendererUnitTest ValueError raises: the driver must treat
+        # the renderer's no-renderable-data contract as a recorded SKIP (exit 0),
+        # never an acceptance failure / blank PNG.
+        real_load = rx._load_plots_module
+
+        def _load_raising(filename: str = "plots_cascor.py"):
+            plots = real_load(filename)
+            plots.render_eval_metrics = mock.Mock(side_effect=ValueError("eval metrics payload empty"))
+            return plots
+
+        with mock.patch.object(rx, "_load_plots_module", side_effect=_load_raising):
+            code, _ = _invoke(self._config_with_plots(["eval_metrics"]), self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["driver"]["plots"]["rendered"], [])
+        self.assertEqual(len(manifest["driver"]["plots"]["skipped"]), 1)
+        self.assertIn("eval metrics payload empty", manifest["driver"]["plots"]["skipped"][0]["reason"])
+        self.assertFalse((self.run_dir / "artifacts" / "plots" / "eval_metrics.png").exists())
+        self.assertTrue(manifest["acceptance"]["ok"])
+
     def test_no_plots_requested_renders_nothing(self) -> None:
         code, _ = _invoke(_write_config(self.tmp, _base_config()), self.run_dir)
         self.assertEqual(code, rx.EXIT_SUCCESS)
@@ -1277,6 +1372,13 @@ class PlotRendererUnitTest(unittest.TestCase):
         npz = {"X_train": np.zeros((4, 3)), "y_train": np.zeros(4), "X_test": np.zeros((2, 3)), "y_test": np.zeros(2)}
         with self.assertRaises(ValueError):
             self.plots.render_dataset(npz, "t", self.tmp / "dataset.png")
+
+    def test_render_decision_boundary_rejects_empty_predictions(self) -> None:
+        # Empty grid must ValueError so the driver records a per-plot SKIP (not a blank PNG).
+        boundary: dict[str, list] = {"grid_x": [], "grid_y": [], "predictions": []}
+        with self.assertRaises(ValueError) as ctx:
+            self.plots.render_decision_boundary(boundary, None, "t", self.tmp / "boundary.png")
+        self.assertIn("empty prediction grid", str(ctx.exception))
 
 
 @unittest.skipUnless(HAVE_NUMPY and HAVE_MPL, "numpy + matplotlib required for the SS8.2 plot set")
@@ -1352,13 +1454,97 @@ class RecurrencePlotRendererUnitTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.plots.render_dt_histogram({"X_train": [1]}, "train", "t", self.tmp / "dt.png")
 
+    def test_dt_histogram_rejects_empty_dt_arrays(self) -> None:
+        # Both dt series empty after reshape → ValueError so the driver records SKIP
+        # (not a blank two-panel histogram PNG). Orthogonal to non-Δt artifact reject.
+        with self.assertRaises(ValueError) as ctx:
+            self.plots.render_dt_histogram({"dt_train": [], "target_dt_train": []}, "train", "t", self.tmp / "dt_empty.png")
+        self.assertIn("dt arrays are empty", str(ctx.exception))
+
+    def test_dataset_overview_rejects_non_3d_x(self) -> None:
+        import numpy as np
+
+        # Wrong rank / empty first axis → ValueError (driver SKIP), not a crash or blank PNG.
+        with self.assertRaises(ValueError) as ctx:
+            self.plots.render_dataset_overview(
+                {"X_train": np.zeros((4, 3)), "y_train": np.zeros(4)},
+                "train",
+                "t",
+                self.tmp / "overview.png",
+            )
+        self.assertIn("not a non-empty 3-D", str(ctx.exception))
+
+    def test_flatten_outputs_rejects_empty_target(self) -> None:
+        # Empty prediction/target arrays are the shared no-data contract for forecast/residuals.
+        with self.assertRaises(ValueError) as ctx:
+            self.plots.render_forecast_vs_truth([], [0.1], "t", self.tmp / "f_empty.png")
+        self.assertIn("predictions is empty", str(ctx.exception))
+
     def test_crossval_folds_rejects_empty(self) -> None:
         with self.assertRaises(ValueError):
             self.plots.render_crossval_folds({"folds": []}, "t", self.tmp / "cv.png")
 
+    def test_crossval_folds_rejects_no_numeric_eval_metrics(self) -> None:
+        # Folds present but neither aggregate nor fold eval_metrics carry numerics → ValueError.
+        # Complements open #965's aggregate→fold fallback when fold metrics ARE numeric.
+        with self.assertRaises(ValueError) as ctx:
+            self.plots.render_crossval_folds(
+                {"folds": [{"fold": 0, "eval_metrics": {"note": "x"}}], "eval_aggregate": {"msg": "y"}},
+                "t",
+                self.tmp / "cv_nonnum.png",
+            )
+        self.assertIn("no numeric eval metrics", str(ctx.exception))
+
     def test_forecast_rejects_length_mismatch(self) -> None:
         with self.assertRaises(ValueError):
             self.plots.render_forecast_vs_truth([[0.1], [0.2]], [0.1, 0.2, 0.3], "t", self.tmp / "f.png")
+
+    def test_residuals_rejects_length_mismatch(self) -> None:
+        # Same length-assert as forecast; a silent zip/truncate would invent residuals.
+        with self.assertRaises(ValueError) as ctx:
+            self.plots.render_residuals([[0.1], [0.2]], [0.1], None, "t", self.tmp / "r.png")
+        self.assertIn("prediction count", str(ctx.exception))
+
+    def test_metrics_table_rejects_empty_numeric(self) -> None:
+        # No numeric train/CV cells -> ValueError -> driver SKIP (not an empty table PNG).
+        with self.assertRaises(ValueError) as ctx:
+            self.plots.render_metrics_table({}, None, "t", self.tmp / "empty.png")
+        self.assertIn("no numeric metrics", str(ctx.exception))
+        with self.assertRaises(ValueError):
+            self.plots.render_metrics_table({"note": "x"}, {"eval_aggregate": {"msg": "y"}}, "t", self.tmp / "nonnum.png")
+
+    def test_residuals_omits_target_dt_panel_on_length_mismatch(self) -> None:
+        # Misaligned target_dt must NOT raise — silently drop the residual-vs-dt panel
+        # (pred/truth length mismatch is the hard ValueError; target_dt is optional).
+        preds = [[0.1], [0.5], [0.9]]
+        truth = [0.0, 0.2, 0.4]
+        with mock.patch.object(self.plots.plt, "subplots", wraps=self.plots.plt.subplots) as spy:
+            out = self.plots.render_residuals(preds, truth, [1.0, 2.0], "t", self.tmp / "r_omit.png")
+        self.assertTrue(out.read_bytes().startswith(PNG_MAGIC))
+        spy.assert_called()
+        self.assertEqual(spy.call_args.args[:2], (1, 2), "misaligned target_dt must render 2 panels")
+
+    def test_residuals_includes_target_dt_panel_when_aligned(self) -> None:
+        preds = [[0.1], [0.5], [0.9]]
+        truth = [0.0, 0.2, 0.4]
+        with mock.patch.object(self.plots.plt, "subplots", wraps=self.plots.plt.subplots) as spy:
+            out = self.plots.render_residuals(preds, truth, [1.0, 1.5, 2.0], "t", self.tmp / "r_dt.png")
+        self.assertTrue(out.read_bytes().startswith(PNG_MAGIC))
+        spy.assert_called()
+        self.assertEqual(spy.call_args.args[:2], (1, 3), "aligned target_dt must render the residual-vs-dt panel")
+
+    def test_crossval_folds_falls_back_to_fold_eval_metrics(self) -> None:
+        # Empty / missing eval_aggregate must still render from folds[0].eval_metrics
+        # (the CrossValResponse shape when the service omits the aggregate block).
+        crossval = {
+            "folds": [
+                {"fold": 0, "eval_metrics": {"r2": 0.7, "mse": 0.2}},
+                {"fold": 1, "eval_metrics": {"r2": 0.6, "mse": 0.3}},
+            ],
+            "eval_aggregate": {},
+        }
+        out = self.plots.render_crossval_folds(crossval, "t", self.tmp / "cv_fallback.png")
+        self.assertTrue(out.read_bytes().startswith(PNG_MAGIC))
 
     def test_metrics_table_renders_train_and_cv_rows(self) -> None:
         crossval = {"eval_aggregate": {"r2": 0.8}, "eval_std": {"r2": 0.05}}
@@ -1408,6 +1594,24 @@ class StatsSummaryUnitTest(unittest.TestCase):
         self.assertEqual(result["per_round"], [{"hidden_units": 0, "best_correlation": 0.7}, {"hidden_units": 1, "best_correlation": 0.6}])
         self.assertEqual(result["max"], 0.7)
         self.assertEqual(result["samples"], 3)
+
+    def test_to_float_soft_none_on_value_error(self) -> None:
+        """Non-numeric scraped samples must soft-None (not raise) — Prometheus label noise."""
+        self.assertIsNone(self.stats._to_float(None))
+        self.assertIsNone(self.stats._to_float(""))
+        self.assertIsNone(self.stats._to_float("   "))
+        self.assertIsNone(self.stats._to_float("n/a"))
+        self.assertIsNone(self.stats._to_float("NaNxyz"))
+        self.assertEqual(self.stats._to_float("0.5"), 0.5)
+        self.assertEqual(self.stats._to_float(2), 2.0)
+        # End-to-end: a non-numeric correlation cell is skipped, not fatal.
+        rows = [
+            {"juniper_cascor_candidate_correlation": "n/a", "current_hidden_units": "0"},
+            {"juniper_cascor_candidate_correlation": "0.4", "current_hidden_units": "0"},
+        ]
+        result = self.stats.correlation_per_round(rows)
+        self.assertEqual(result["per_round"], [{"hidden_units": 0, "best_correlation": 0.4}])
+        self.assertEqual(result["samples"], 1)
 
     def test_build_stats_sequence_shapes_and_summary(self) -> None:
         manifest = {
