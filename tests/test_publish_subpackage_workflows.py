@@ -105,11 +105,15 @@ def _pypi_publish_steps(job: dict) -> list[dict]:
 class PublishSubpackageStructuralTest(unittest.TestCase):
     """Pin shared-package publish-*.yml contracts that already failed in the wild."""
 
+    repo_root: Path
+    workflows_dir: Path
+    loaded: dict[str, dict]
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.repo_root = _find_repo_root(Path(__file__).resolve().parent)
         cls.workflows_dir = cls.repo_root / ".github" / "workflows"
-        cls.loaded: dict[str, dict] = {}
+        cls.loaded = {}
         for suffix, pkg, _subdir in SHARED_PACKAGES:
             path = cls.workflows_dir / f"publish-{suffix}.yml"
             if not path.is_file():
