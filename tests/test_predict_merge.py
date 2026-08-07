@@ -10,11 +10,19 @@ fixture repos (the ``tests/test_worktree_cleanup.py`` fixture idiom) -- no netwo
   exit-2 / empty / non-JSON checker -> ``skip``, WARN-only not mapped, ``skip`` ≠ DAMAGED);
 * the TRUE-delta-vs-stale-file-list discrimination (delta from the merge RESULT, so a
   main-owned file the branch is merely stale on is excluded -- the #729 class);
-* the ``--batch`` cluster map + suggested merge order (restore/heal first, then ascending
-  same-file-cluster membership), including a fake-``gh`` end-to-end batch;
+* the docs additions-only screen edges (``_removed_content_lines`` ``---`` header
+  exclusion; additions-only ``.md`` pass; non-``.md`` deletions ignored);
+* the fast-gate battery skip when the TRUE delta has no ``.py`` files;
+* the ``--batch`` cluster map + suggested merge order (restore/heal/repair/fix-first
+  first, then ascending same-file-cluster membership), including a fake-``gh``
+  end-to-end batch;
+* ``triage_pr`` / ``_gh_json`` / CLI ``--pr`` hard-fail on gh nonzero / non-JSON (batch
+  soft-ERROR continue is covered separately);
+* deleted-``.py`` paths stay in ``true_delta`` but are filtered out of the gate battery;
+* ``JUNIPER_FLEET_SKIP_PRECOMMIT`` forces skip_all when the default gate runner would run;
 * the detached-clone-never-mutates-source contract (a ``git clone`` under the system
   tempdir, never a ``git worktree`` of -- and never a write to -- the invoking checkout);
-* CLI exit codes (0 always-report / 2 usage / 2 non-git ``--repo-root``).
+* CLI exit codes (0 always-report / 2 usage / 2 non-git ``--repo-root`` / ``--pr``).
 
 ``util/`` is not pre-commit-lint-gated (flake8/black scope to ``scripts``+``tests``), so
 this unittest -- wired into ``ci.yml`` + AGENTS.md's run-all -- is the gate. Imported via
@@ -222,6 +230,117 @@ class VerdictTest(_RepoCase):
         dels = v["gates"]["docs_additions_only"]["deletions"]
         self.assertEqual(v["gates"]["docs_additions_only"]["status"], "fail")
         self.assertTrue(dels and dels[0]["file"] == "notes.md", dels)
+        self.assertEqual(v["gates"]["docs_additions_only"].get("waived"), [])
+
+    def test_docs_deletion_waived_by_allow_trailer(self):
+        # Same one-line docs deletion as test_damaged_docs_deletion, but the branch
+        # commit carries ``Allow-Docs-Rewrite: notes.md`` -- the same escape hatch
+        # sequence_safety/docs_additions_check.py honors. Without trailer parity the
+        # fleet screen would forever DAMAGED an intentional rewrite that main-verify
+        # would WAIVE (the symbol screen already has this parity via #895).
+        _write(self.repo, "notes.md", "line1\nline2\nline3\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "docwaive")
+        _write(self.repo, "notes.md", "line1\nline3\n")
+        _commit(self.repo, "drop a docs line (intentional)\n\nAllow-Docs-Rewrite: notes.md")
+
+        v = pm.simulate_merge(self.repo, "docwaive", run_gates=False)
+        screen = v["gates"]["docs_additions_only"]
+        self.assertEqual(screen["status"], "pass")
+        self.assertEqual(screen["deletions"], [])
+        self.assertTrue(
+            screen.get("waived") and screen["waived"][0]["file"] == "notes.md",
+            screen.get("waived"),
+        )
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+
+    def test_docs_deletion_wildcard_trailer_waives_all(self):
+        _write(self.repo, "notes/a.md", "# A\nkeep\n")
+        _write(self.repo, "docs/b.md", "# B\nkeep\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "wild")
+        _write(self.repo, "notes/a.md", "# A\n")
+        _write(self.repo, "docs/b.md", "# B\n")
+        _commit(self.repo, "trim both docs\n\nAllow-Docs-Rewrite: *")
+
+        v = pm.simulate_merge(self.repo, "wild", run_gates=False)
+        screen = v["gates"]["docs_additions_only"]
+        self.assertEqual(screen["status"], "pass")
+        self.assertEqual(screen["deletions"], [])
+        waived_files = {item["file"] for item in screen.get("waived", [])}
+        self.assertEqual(waived_files, {"notes/a.md", "docs/b.md"})
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+
+    def test_docs_deletion_trailer_wrong_path_still_damaged(self):
+        # A trailer for a different path must NOT silence an unwaived deletion.
+        _write(self.repo, "notes.md", "line1\nline2\nline3\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "wrongpath")
+        _write(self.repo, "notes.md", "line1\nline3\n")
+        _commit(self.repo, "drop a docs line\n\nAllow-Docs-Rewrite: other.md")
+
+        v = pm.simulate_merge(self.repo, "wrongpath", run_gates=False)
+        self.assertEqual(v["verdict"], "DAMAGED-FIX-FIRST")
+        self.assertEqual(v["gates"]["docs_additions_only"]["status"], "fail")
+        self.assertEqual(v["gates"]["docs_additions_only"].get("waived"), [])
+
+    def test_docs_additions_only_markdown_is_merge_clean(self):
+        # Pure docs additions must NOT trip docs_additions_only (no `-` content lines).
+        # Regression class: counting unified-diff `---`/`+++` headers as removals would
+        # falsely DAMAGED every new `.md` file and stall the fleet merge order.
+        _write(self.repo, "notes/keep.md", "# keep\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "docadd")
+        _write(self.repo, "notes/new.md", "# new section\n\nbody\n")
+        _commit(self.repo, "add notes/new.md")
+
+        v = pm.simulate_merge(self.repo, "docadd", run_gates=False)
+        self.assertEqual(v["gates"]["docs_additions_only"]["status"], "pass")
+        self.assertEqual(v["gates"]["docs_additions_only"]["deletions"], [])
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+
+    def test_non_markdown_deletion_does_not_trip_docs_screen(self):
+        # docs_additions_only is intentionally `.md`-scoped; a .txt deletion alone must
+        # not produce DAMAGED-FIX-FIRST via that gate (symbol/gate battery own .py).
+        _write(self.repo, "plain.txt", "a\nb\nc\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "txtdel")
+        _write(self.repo, "plain.txt", "a\nc\n")  # drop b
+        _commit(self.repo, "drop a txt line")
+
+        v = pm.simulate_merge(self.repo, "txtdel", run_gates=False)
+        self.assertEqual(v["gates"]["docs_additions_only"]["status"], "pass")
+        self.assertEqual(v["gates"]["docs_additions_only"]["deletions"], [])
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+
+    def test_gate_battery_skips_when_delta_has_no_py(self):
+        # Docs-only TRUE delta must skip every pre-commit hook (never invoke the runner).
+        # Without this, a mis-wired battery could fail-closed on empty `--files` or
+        # invent flake8 damage for PRs that touch no Python.
+        _write(self.repo, "notes/seed.md", "seed\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "mdonly")
+        _write(self.repo, "notes/extra.md", "extra\n")
+        _commit(self.repo, "add notes/extra.md")
+
+        calls = []
+
+        def tracking_runner(clone, hook, files):
+            calls.append((hook, list(files)))
+            return ("fail", "must not run")
+
+        v = pm.simulate_merge(self.repo, "mdonly", gate_runner=tracking_runner)
+        self.assertEqual(calls, [], "gate_runner must not run when the delta has no .py")
+        for hook in pm.PRECOMMIT_HOOKS:
+            self.assertEqual(v["gates"][hook]["status"], "skip")
+            self.assertIn("no .py", v["gates"][hook]["detail"])
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
 
     def test_damaged_injected_gate_failure(self):
         # A clean, additions-only .py PR (no symbol loss) with an injected failing gate.
@@ -239,6 +358,57 @@ class VerdictTest(_RepoCase):
         self.assertEqual(v["verdict"], "DAMAGED-FIX-FIRST")
         self.assertEqual(v["gates"]["flake8"]["status"], "fail")
         self.assertEqual(v["gates"]["black"]["status"], "pass")
+
+    def test_deleted_py_not_passed_to_gate_battery(self):
+        # A deleted ``.py`` stays in ``true_delta`` but must NOT be handed to
+        # ``pre-commit --files`` (the path is gone on the merge HEAD). Filtering via
+        # ``_blob(HEAD) is not None`` is the only guard against a false DAMAGED
+        # from hooks that cannot open a deleted path.
+        _write(self.repo, "util/keep.py", "x = 1\n")
+        _write(self.repo, "util/doomed.py", "def doomed():\n    return 0\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "rmpy")
+        _git(self.repo, "rm", "-q", "util/doomed.py")
+        _write(self.repo, "notes/README.md", "docs only addition\n")
+        _commit(self.repo, "delete doomed.py + docs")
+
+        seen: list = []
+
+        def recording_runner(clone, hook, files):
+            seen.append((hook, list(files)))
+            return ("pass", "")
+
+        v = pm.simulate_merge(self.repo, "rmpy", gate_runner=recording_runner)
+        self.assertIn("util/doomed.py", v["true_delta"])
+        # Gate battery must skip entirely (no remaining .py in changed_existing) —
+        # never invoke the runner with the deleted path. Symbol-loss DAMAGED from
+        # the deleted def is honest (#908 screen); the regression class is a false
+        # DAMAGED from pre-commit opening a path that no longer exists on HEAD.
+        self.assertEqual(seen, [], f"gate_runner must not run when delta's only .py is deleted; got {seen}")
+        for hook in pm.PRECOMMIT_HOOKS:
+            self.assertEqual(v["gates"][hook]["status"], "skip")
+            self.assertIn("no .py", v["gates"][hook]["detail"])
+        self.assertEqual(v["gates"]["ast_symbol_screen"]["status"], "fail")
+        self.assertEqual(v["verdict"], "DAMAGED-FIX-FIRST")
+
+    def test_env_skip_precommit_disables_default_gate_runner(self):
+        # ``JUNIPER_FLEET_SKIP_PRECOMMIT`` is the hermetic escape when ``gate_runner``
+        # is unset. Ignoring it would invoke real pre-commit (hang/flake); always
+        # skipping would silence live fleet gates.
+        _write(self.repo, "util/keep.py", "x = 1\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "addpy")
+        _write(self.repo, "util/new.py", "def baz():\n    return 3\n")
+        _commit(self.repo, "add util/new.py")
+
+        with mock.patch.dict(os.environ, {"JUNIPER_FLEET_SKIP_PRECOMMIT": "1"}):
+            v = pm.simulate_merge(self.repo, "addpy", run_gates=True, gate_runner=None)
+        for hook in pm.PRECOMMIT_HOOKS:
+            self.assertEqual(v["gates"][hook]["status"], "skip", hook)
+            self.assertIn("gates disabled", v["gates"][hook]["detail"])
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
 
 
 # --------------------------------------------------------------------------- #
@@ -311,11 +481,72 @@ class ClusterOrderTest(unittest.TestCase):
         order = pm.suggest_order(verdicts, clusters)
         self.assertEqual(order[0], 12, "the singleton-cluster PR should lead when no heal PR exists")
 
+    def test_is_heal_recognizes_repair_and_fix_first_tokens(self):
+        # suggest_order only auto-leads on restore/heal today in the cluster test; the
+        # other documented tokens must also promote, or a repair/fix-first PR sits
+        # behind colliding feat work and the supervisor merge order is wrong.
+        self.assertTrue(pm._is_heal({"title": "repair broken gate", "branch": "cursor/x"}))
+        self.assertTrue(pm._is_heal({"title": "feat", "branch": "cursor/fix-first-docs"}))
+        self.assertTrue(pm._is_heal({"title": "heal canopy WS", "branch": "cursor/y"}))
+        self.assertFalse(pm._is_heal({"title": "feat docs", "branch": "cursor/docs-sync"}))
+
+        verdicts = [
+            {"pr": 20, "title": "feat hot", "branch": "cursor/hot", "true_delta": ["HOT.py"]},
+            {"pr": 21, "title": "repair symbol screen", "branch": "cursor/repair-x", "true_delta": ["A.md"]},
+            {"pr": 22, "title": "feat solo", "branch": "cursor/solo", "true_delta": ["SOLO.py"]},
+            {"pr": 23, "title": "nudge", "branch": "cursor/fix-first-y", "true_delta": ["B.md"]},
+        ]
+        clusters = pm.build_clusters(verdicts)
+        order = pm.suggest_order(verdicts, clusters)
+        # Both heal PRs lead (repair title + fix-first branch); remaining ties break
+        # by PR number via _pr_key (20 before 22), not by title.
+        self.assertEqual(order[:2], [21, 23], order)
+        self.assertEqual(order[2:], [20, 22], order)
+
+
+# --------------------------------------------------------------------------- #
+# docs additions-only screen — pure unit + wiring edges
+# --------------------------------------------------------------------------- #
+
+
+class DocsAdditionsScreenUnitTest(unittest.TestCase):
+    """Pin ``_removed_content_lines`` so unified-diff headers never inflate deletions."""
+
+    def test_removed_content_lines_ignores_file_headers(self):
+        # A real unified diff always opens with `---` / `+++` headers. Those must not
+        # count as content removals — otherwise every touched `.md` (even pure adds)
+        # reports removed_lines >= 1 and the PR is falsely DAMAGED-FIX-FIRST.
+        diff = "diff --git a/notes/x.md b/notes/x.md\n" "index 111..222 100644\n" "--- a/notes/x.md\n" "+++ b/notes/x.md\n" "@@ -1,3 +1,3 @@\n" " keep\n" "-gone\n" "+added\n" " keep2\n"
+        self.assertEqual(pm._removed_content_lines(diff), 1)
+
+    def test_removed_content_lines_pure_add_is_zero(self):
+        diff = "diff --git a/notes/new.md b/notes/new.md\n" "new file mode 100644\n" "index 000..abc\n" "--- /dev/null\n" "+++ b/notes/new.md\n" "@@ -0,0 +1,2 @@\n" "+# title\n" "+body\n"
+        self.assertEqual(pm._removed_content_lines(diff), 0)
+
+    def test_removed_content_lines_empty_diff_is_zero(self):
+        self.assertEqual(pm._removed_content_lines(""), 0)
+
 
 def _install_fake_gh(bin_dir: Path, payload_dir: Path) -> None:
     bin_dir.mkdir(parents=True, exist_ok=True)
     gh = bin_dir / "gh"
-    gh.write_text("#!/usr/bin/env bash\n" 'if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then cat "$GH_FAKE_DIR/list.json"; exit 0; fi\n' 'if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then cat "$GH_FAKE_DIR/view.json"; exit 0; fi\n' 'echo "unexpected gh invocation: $*" >&2\nexit 99\n')
+    # Optional GH_FAKE_{LIST,VIEW}_{RC,BODY} overrides let individual arms force
+    # nonzero exit / non-JSON stdout without rewriting the stub.
+    gh.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then\n'
+        '  if [[ -n "${GH_FAKE_LIST_RC:-}" ]]; then echo "${GH_FAKE_LIST_BODY:-gh list fail}" >&2; exit "$GH_FAKE_LIST_RC"; fi\n'
+        '  if [[ -n "${GH_FAKE_LIST_BODY:-}" ]]; then printf "%s" "$GH_FAKE_LIST_BODY"; exit 0; fi\n'
+        '  cat "$GH_FAKE_DIR/list.json"; exit 0\n'
+        "fi\n"
+        'if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then\n'
+        '  if [[ -n "${GH_FAKE_VIEW_RC:-}" ]]; then echo "${GH_FAKE_VIEW_BODY:-gh view fail}" >&2; exit "$GH_FAKE_VIEW_RC"; fi\n'
+        '  if [[ -n "${GH_FAKE_VIEW_BODY:-}" ]]; then printf "%s" "$GH_FAKE_VIEW_BODY"; exit 0; fi\n'
+        '  cat "$GH_FAKE_DIR/view.json"; exit 0\n'
+        "fi\n"
+        'echo "unexpected gh invocation: $*" >&2\n'
+        "exit 99\n"
+    )
     gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
 
 
@@ -476,6 +707,74 @@ class AstSymbolScreenDegradeTest(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+# triage_pr / _gh_json / CLI --pr (hard-fail; batch soft-ERROR is #930)
+# --------------------------------------------------------------------------- #
+
+
+class TriagePrGhTest(_RepoCase):
+    def _one_branch_repo(self) -> None:
+        _write(self.repo, "seed.txt", "seed\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "feat")
+        _write(self.repo, "fileD.txt", "D\n")
+        _commit(self.repo, "add D")
+        _publish_branch(self.repo, "feat")
+
+    def _fake_gh_env(self, payload: Path, **extra) -> dict:
+        bindir = self.tmp / "bin"
+        _install_fake_gh(bindir, payload)
+        env = {
+            "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
+            "GH_FAKE_DIR": str(payload),
+        }
+        env.update(extra)
+        return env
+
+    def test_triage_pr_enriches_title_and_gh_fields(self):
+        self._one_branch_repo()
+        payload = self.tmp / "gh"
+        payload.mkdir()
+        (payload / "view.json").write_text(
+            json.dumps(
+                {
+                    "number": 42,
+                    "title": "feat: land D",
+                    "headRefName": "feat",
+                    "mergeable": "MERGEABLE",
+                    "mergeStateStatus": "CLEAN",
+                }
+            )
+        )
+        with mock.patch.dict(os.environ, self._fake_gh_env(payload)):
+            v = pm.triage_pr(self.repo, 42, run_gates=False)
+        self.assertEqual(v["pr"], 42)
+        self.assertEqual(v["title"], "feat: land D")
+        self.assertEqual(v["gh_mergeable"], "MERGEABLE")
+        self.assertEqual(v["gh_merge_state"], "CLEAN")
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+        self.assertEqual(v["true_delta"], ["fileD.txt"])
+
+    def test_triage_pr_gh_nonzero_raises(self):
+        self._one_branch_repo()
+        payload = self.tmp / "gh"
+        payload.mkdir()
+        with mock.patch.dict(os.environ, self._fake_gh_env(payload, GH_FAKE_VIEW_RC="1", GH_FAKE_VIEW_BODY="not found")):
+            with self.assertRaises(pm.PredictMergeError) as ctx:
+                pm.triage_pr(self.repo, 99, run_gates=False)
+        self.assertIn("gh pr view", str(ctx.exception))
+
+    def test_triage_pr_non_json_raises(self):
+        self._one_branch_repo()
+        payload = self.tmp / "gh"
+        payload.mkdir()
+        with mock.patch.dict(os.environ, self._fake_gh_env(payload, GH_FAKE_VIEW_BODY="not-json{{{")):
+            with self.assertRaises(pm.PredictMergeError) as ctx:
+                pm.triage_pr(self.repo, 7, run_gates=False)
+        self.assertIn("non-JSON", str(ctx.exception))
+
+
+# --------------------------------------------------------------------------- #
 # CLI exit codes
 # --------------------------------------------------------------------------- #
 
@@ -522,6 +821,66 @@ class CliExitCodeTest(_RepoCase):
         report = json.loads(cp.stdout)
         self.assertEqual(report["open_pr_count"], 0)
         self.assertEqual(report["merge_order"], [])
+
+    def test_pr_mode_json_exits_0(self):
+        _write(self.repo, "seed.txt", "seed\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "feat")
+        _write(self.repo, "fileD.txt", "D\n")
+        _commit(self.repo, "add D")
+        _publish_branch(self.repo, "feat")
+        payload = self.tmp / "gh"
+        payload.mkdir()
+        (payload / "view.json").write_text(
+            json.dumps(
+                {
+                    "number": 3,
+                    "title": "single",
+                    "headRefName": "feat",
+                    "mergeable": "MERGEABLE",
+                    "mergeStateStatus": "CLEAN",
+                }
+            )
+        )
+        bindir = self.tmp / "bin"
+        _install_fake_gh(bindir, payload)
+        cp = self._run_cli(
+            "--pr",
+            "3",
+            "--repo-root",
+            str(self.repo),
+            "--json",
+            env_overrides={"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}", "GH_FAKE_DIR": str(payload)},
+        )
+        self.assertEqual(cp.returncode, 0, cp.stderr)
+        verdict = json.loads(cp.stdout)
+        self.assertEqual(verdict["pr"], 3)
+        self.assertEqual(verdict["title"], "single")
+        self.assertEqual(verdict["verdict"], "MERGE-CLEAN")
+
+    def test_pr_mode_gh_failure_exits_2(self):
+        _write(self.repo, "seed.txt", "seed\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        payload = self.tmp / "gh"
+        payload.mkdir()
+        bindir = self.tmp / "bin"
+        _install_fake_gh(bindir, payload)
+        cp = self._run_cli(
+            "--pr",
+            "404",
+            "--repo-root",
+            str(self.repo),
+            env_overrides={
+                "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
+                "GH_FAKE_DIR": str(payload),
+                "GH_FAKE_VIEW_RC": "1",
+                "GH_FAKE_VIEW_BODY": "GraphQL: Could not resolve",
+            },
+        )
+        self.assertEqual(cp.returncode, 2)
+        self.assertIn("error:", cp.stderr)
 
 
 if __name__ == "__main__":
