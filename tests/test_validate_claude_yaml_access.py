@@ -140,11 +140,7 @@ def _parse_default_repos(script_text: str) -> frozenset[str]:
     )
     if match is None:
         raise AssertionError("DEFAULT_REPOS=(...) block not found in validate script")
-    names = [
-        line.strip()
-        for line in match.group(1).splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    ]
+    names = [line.strip() for line in match.group(1).splitlines() if line.strip() and not line.strip().startswith("#")]
     return frozenset(names)
 
 
@@ -275,11 +271,7 @@ class DefaultTargetsTests(unittest.TestCase):
         self.assertEqual(
             default_repos,
             expected,
-            msg=(
-                f"DEFAULT_REPOS drifted from registry publishers ∪ {{{_DEPLOY_SIBLING}}}: "
-                f"missing={sorted(expected - default_repos)} "
-                f"extra={sorted(default_repos - expected)}"
-            ),
+            msg=(f"DEFAULT_REPOS drifted from registry publishers ∪ {{{_DEPLOY_SIBLING}}}: " f"missing={sorted(expected - default_repos)} " f"extra={sorted(default_repos - expected)}"),
         )
         self.assertIn(
             "juniper-recurrence",
