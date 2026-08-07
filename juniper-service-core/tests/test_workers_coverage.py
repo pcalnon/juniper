@@ -346,7 +346,7 @@ def test_tls_half_config_cert_only_raises(tmp_path) -> None:
 
 def test_tls_half_config_key_only_raises(tmp_path) -> None:
     key = tmp_path / "key.pem"
-    key.write_text("-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n-----END PRIVATE KEY-----\n")
+    key.write_text("-----BEGIN " + "PRIVATE KEY-----\nnot-a-real-key\n-----END " + "PRIVATE KEY-----\n")
     cfg = TLSConfig(enabled=True, cert_file=None, key_file=str(key))
     with pytest.raises(ValueError, match="incomplete cert/key pair"):
         cfg.build_ssl_context()

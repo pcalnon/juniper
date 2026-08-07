@@ -98,10 +98,7 @@ class TLSConfig:
         elif self.cert_file or self.key_file:
             # Half-config (cert XOR key) must fail closed -- a bare SSLContext with neither
             # chain nor key is a silent misconfig that looks "TLS enabled" to callers.
-            raise ValueError(
-                "TLS enabled with incomplete cert/key pair: both cert_file and key_file are required "
-                f"(cert_file={self.cert_file!r}, key_file={self.key_file!r})"
-            )
+            raise ValueError(f"TLS enabled with incomplete cert/key pair: both cert_file and key_file are required (cert_file={self.cert_file!r}, key_file={self.key_file!r})")
 
         return ctx
 
