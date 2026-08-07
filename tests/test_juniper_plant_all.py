@@ -1332,11 +1332,44 @@ class TestSafeCondaActivate(unittest.TestCase):
             self.assertIn("NOUNSET_ON", result.stdout)
             self.assertIn("OK", result.stdout)
 
+    def test_conda_activate_failure_propagates_under_or_list(self) -> None:
+        """OR-list callers must still see activate failure (not a masked exit 0).
+
+        Bash disables ``set -e`` inside a function invoked as ``fn || …``. A
+        trailing successful ``set -u`` must not mask ``conda activate`` failure
+        and let the next host service launch on the ambient PATH (same class as
+        isolated-stack #967 / experiment_stack OR-list absorb).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            conda = bin_dir / "conda"
+            conda.write_text("#!/bin/bash\n" 'if [[ "$1" == "activate" ]]; then\n' "  exit 1\n" "fi\n")
+            conda.chmod(0o755)
+            harness = "set -euo pipefail\n" f'export PATH="{bin_dir}:/usr/bin:/bin"\n' + _extract_safe_conda_activate() + "failed=0\n" + 'safe_conda_activate "JuniperCanopy1" || failed=1\n' + 'echo "failed=${failed}"\n' + "if (( failed != 1 )); then exit 2; fi\n"
+            result = subprocess.run(
+                ["/bin/bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                env=RedactedEnv(os.environ),
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("failed=1", result.stdout)
+            self.assertIn("conda activate", result.stdout + result.stderr)
+
     def test_restore_arm_is_set_minus_u(self) -> None:
-        # Static pin: the pre/post pair must be +u then -u (not +u/+u).
+        # Static pin: every activate path must restore nounset (not +u/+u).
+        # Success and failure arms both end in ``set -u`` before return/fallthrough.
         body = _extract_safe_conda_activate()
+        self.assertIn("set +u", body)
         self.assertRegex(
             body,
-            r"set \+u\n\s*conda activate[^\n]+\n\s*set -u\n",
-            msg="safe_conda_activate must restore nounset with set -u after conda activate",
+            r"if ! conda activate[^\n]+; then\n\s*set -u\n",
+            msg="safe_conda_activate failure arm must restore set -u before return 1",
+        )
+        self.assertRegex(
+            body,
+            r"fi\n\s*set -u\n\}\n",
+            msg="safe_conda_activate success arm must restore set -u after conda activate",
         )
