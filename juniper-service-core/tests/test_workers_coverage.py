@@ -335,6 +335,23 @@ def test_tls_cert_present_but_key_missing_raises(tmp_path) -> None:
         cfg.build_ssl_context()
 
 
+def test_tls_half_config_cert_only_raises(tmp_path) -> None:
+    """enabled + cert XOR key must fail closed (bare SSLContext is a silent misconfig)."""
+    cert = tmp_path / "cert.pem"
+    cert.write_text(_TEST_CERT_PEM)
+    cfg = TLSConfig(enabled=True, cert_file=str(cert), key_file=None)
+    with pytest.raises(ValueError, match="incomplete cert/key pair"):
+        cfg.build_ssl_context()
+
+
+def test_tls_half_config_key_only_raises(tmp_path) -> None:
+    key = tmp_path / "key.pem"
+    key.write_text("-----BEGIN " + "PRIVATE KEY-----\nnot-a-real-key\n-----END " + "PRIVATE KEY-----\n")
+    cfg = TLSConfig(enabled=True, cert_file=None, key_file=str(key))
+    with pytest.raises(ValueError, match="incomplete cert/key pair"):
+        cfg.build_ssl_context()
+
+
 # ======================================================================================
 # security: ConnectionRateLimiter stale-bucket cleanup
 # ======================================================================================

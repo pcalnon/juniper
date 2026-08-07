@@ -3,13 +3,18 @@
 Exercises :func:`validate_control_origin` (allow / fail-closed / disallowed), the
 :class:`LeakyBucket` ``retry_after`` full-bucket branch, and the :class:`HandshakeCooldown`
 rejection / block / expiry / stale-prune paths directly (pure stdlib, no transport).
+
+Also pins ``_sanitize_for_log`` so a CRLF-bearing Origin cannot forge multi-line
+control-plane log records when the allowlist reject path logs the untrusted header.
 """
 
 from __future__ import annotations
 
+import logging
 import time
 import types
 
+from juniper_service_core.websocket import control_security
 from juniper_service_core.websocket.control_security import HandshakeCooldown, LeakyBucket, validate_control_origin
 
 
@@ -32,6 +37,26 @@ def test_validate_origin_rejects_disallowed() -> None:
     assert validate_control_origin(ws, ["https://good.example"]) is False
 
 
+def test_sanitize_for_log_strips_crlf() -> None:
+    # Untrusted Origin / header text must collapse to a single log line.
+    assert "\n" not in control_security._sanitize_for_log("https://evil.example\ninjected")
+    assert "\r" not in control_security._sanitize_for_log("https://evil.example\rinjected")
+    assert control_security._sanitize_for_log("https://ok.example") == "https://ok.example"
+
+
+def test_validate_origin_reject_log_is_single_line(caplog) -> None:
+    # Regression: a CRLF Origin must not split the INFO reject record (log forging).
+    ws = _origin_ws("https://evil.example\r\nINFO forged")
+    with caplog.at_level(logging.INFO, logger=control_security.logger.name):
+        assert validate_control_origin(ws, ["https://good.example"]) is False
+    reject_msgs = [r.getMessage() for r in caplog.records if "not in allowlist" in r.getMessage()]
+    assert reject_msgs, "expected an allowlist-reject log line"
+    for msg in reject_msgs:
+        assert "\n" not in msg
+        assert "\r" not in msg
+        assert "forged" in msg  # payload still visible, just flattened
+
+
 def test_leaky_bucket_retry_after_zero_when_full() -> None:
     bucket = LeakyBucket(capacity=5, refill_rate=5.0)
     assert bucket.retry_after == 0.0
@@ -42,6 +67,14 @@ def test_leaky_bucket_consumes_then_reports_deficit() -> None:
     assert bucket.try_acquire() is True
     assert bucket.try_acquire() is False
     assert bucket.retry_after > 0.0
+
+
+def test_leaky_bucket_retry_after_zero_refill_does_not_divide_by_zero() -> None:
+    # control_stream wires ``refill_rate=float(rate_limit)``; rate_limit=0 used to
+    # ZeroDivisionError on the rate-limited ack path instead of returning retry_after.
+    bucket = LeakyBucket(capacity=0, refill_rate=0.0)
+    assert bucket.try_acquire() is False
+    assert bucket.retry_after == 3600.0
 
 
 def test_handshake_cooldown_records_and_blocks() -> None:
