@@ -191,7 +191,7 @@ class NotifyDedupRehearsalTest(unittest.TestCase):
 
         env = RedactedEnv(os.environ)
         env["PATH"] = str(stub_bin) + os.pathsep + env.get("PATH", "")
-        env["GH_TOKEN"] = "unused"
+        env["GH_TOKEN"] = "unused"  # nosec B105 - dummy token for the PATH-stubbed gh, never a real credential
         env["REPO"] = "pcalnon/juniper-ml"
         env["TITLE"] = STABLE_TITLE
         env["SHA"] = sha
