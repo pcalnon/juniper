@@ -363,6 +363,10 @@ jobs:
           # .pull_request filter; label-free match, bot-applied label on create). A title
           # alone is never a trust boundary on a public repo.
           python3 -m unittest -v tests/test_main_verify_workflow_guard.py
+          # tests/test_publish_testpypi_verify.py: structural + hermetic YAML-extraction
+          # gate for publish.yml's TestPyPI bare/[clients]/[tools] install verification
+          # (extras-resolution ship-silent class + TestPyPI index / no --no-deps contract).
+          python3 -m unittest -v tests/test_publish_testpypi_verify.py
           # tests/test_symbol_loss_check.py + tests/test_docs_additions_check.py:
           # the flood-remediation sequence-safety screens (Proposal P2 gates G1/G2,
           # productionized from the 2026-07-28 Cursor-flood census). Hermetic git

@@ -310,6 +310,7 @@ jobs:
           python3 -m unittest -v tests/test_workflow_script_paths.py
           # ci.yml G4 pre-commit split + sequence-safety label hatch (mirror ci.yml).
           python3 -m unittest -v tests/test_ci_precommit_g4.py
+          python3 -m unittest -v tests/test_publish_testpypi_verify.py
           # Flood-remediation sequence-safety screens (P2 G1/G2; mirror ci.yml).
           python3 -m unittest -v tests/test_symbol_loss_check.py
           python3 -m unittest -v tests/test_docs_additions_check.py
