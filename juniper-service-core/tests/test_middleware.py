@@ -247,3 +247,27 @@ def test_security_middleware_rate_limit_headers_present_when_enabled():
     assert response.headers["X-RateLimit-Limit"] == "60"
     assert "X-RateLimit-Remaining" in response.headers
     assert "X-RateLimit-Reset" in response.headers
+
+
+def test_security_middleware_rate_limit_429_json_preserves_retry_after():
+    """HTTPException from RateLimiter must surface as JSONResponse with Retry-After headers.
+
+    Pins the middleware catch path (``except HTTPException`` -> ``JSONResponse(..., headers=)``)
+    that unit tests of ``RateLimiter.__call__`` alone cannot exercise.
+    """
+    app = _base_app()
+    app.add_middleware(
+        SecurityMiddleware,
+        api_key_auth=APIKeyAuth(None),
+        rate_limiter=RateLimiter(requests_per_minute=1, enabled=True),
+    )
+    client = TestClient(app)
+    assert client.get("/v1/data").status_code == 200
+    response = client.get("/v1/data")
+    assert response.status_code == 429
+    body = response.json()
+    assert "Rate limit exceeded" in body["detail"]
+    assert response.headers["Retry-After"]
+    assert response.headers["X-RateLimit-Limit"] == "1"
+    assert response.headers["X-RateLimit-Remaining"] == "0"
+    assert response.headers["X-RateLimit-Reset"]

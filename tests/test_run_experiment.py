@@ -1221,6 +1221,27 @@ class CascorPlotsTest(_StubTestCase):
         self.assertTrue(any("matplotlib" in reason for reason in manifest["acceptance"]["reasons"]))
         self.assertEqual(manifest["driver"]["plots"]["skipped"][0]["reason"], "matplotlib unavailable")
 
+    def test_renderer_value_error_is_skip_not_acceptance_failure(self) -> None:
+        # Complements PlotRendererUnitTest ValueError raises: the driver must treat
+        # the renderer's no-renderable-data contract as a recorded SKIP (exit 0),
+        # never an acceptance failure / blank PNG.
+        real_load = rx._load_plots_module
+
+        def _load_raising(filename: str = "plots_cascor.py"):
+            plots = real_load(filename)
+            plots.render_eval_metrics = mock.Mock(side_effect=ValueError("eval metrics payload empty"))
+            return plots
+
+        with mock.patch.object(rx, "_load_plots_module", side_effect=_load_raising):
+            code, _ = _invoke(self._config_with_plots(["eval_metrics"]), self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["driver"]["plots"]["rendered"], [])
+        self.assertEqual(len(manifest["driver"]["plots"]["skipped"]), 1)
+        self.assertIn("eval metrics payload empty", manifest["driver"]["plots"]["skipped"][0]["reason"])
+        self.assertFalse((self.run_dir / "artifacts" / "plots" / "eval_metrics.png").exists())
+        self.assertTrue(manifest["acceptance"]["ok"])
+
     def test_no_plots_requested_renders_nothing(self) -> None:
         code, _ = _invoke(_write_config(self.tmp, _base_config()), self.run_dir)
         self.assertEqual(code, rx.EXIT_SUCCESS)
@@ -1344,6 +1365,39 @@ class RecurrencePlotRendererUnitTest(unittest.TestCase):
     def test_forecast_rejects_length_mismatch(self) -> None:
         with self.assertRaises(ValueError):
             self.plots.render_forecast_vs_truth([[0.1], [0.2]], [0.1, 0.2, 0.3], "t", self.tmp / "f.png")
+
+    def test_residuals_omits_target_dt_panel_on_length_mismatch(self) -> None:
+        # Misaligned target_dt must NOT raise — silently drop the residual-vs-dt panel
+        # (pred/truth length mismatch is the hard ValueError; target_dt is optional).
+        preds = [[0.1], [0.5], [0.9]]
+        truth = [0.0, 0.2, 0.4]
+        with mock.patch.object(self.plots.plt, "subplots", wraps=self.plots.plt.subplots) as spy:
+            out = self.plots.render_residuals(preds, truth, [1.0, 2.0], "t", self.tmp / "r_omit.png")
+        self.assertTrue(out.read_bytes().startswith(PNG_MAGIC))
+        spy.assert_called()
+        self.assertEqual(spy.call_args.args[:2], (1, 2), "misaligned target_dt must render 2 panels")
+
+    def test_residuals_includes_target_dt_panel_when_aligned(self) -> None:
+        preds = [[0.1], [0.5], [0.9]]
+        truth = [0.0, 0.2, 0.4]
+        with mock.patch.object(self.plots.plt, "subplots", wraps=self.plots.plt.subplots) as spy:
+            out = self.plots.render_residuals(preds, truth, [1.0, 1.5, 2.0], "t", self.tmp / "r_dt.png")
+        self.assertTrue(out.read_bytes().startswith(PNG_MAGIC))
+        spy.assert_called()
+        self.assertEqual(spy.call_args.args[:2], (1, 3), "aligned target_dt must render the residual-vs-dt panel")
+
+    def test_crossval_folds_falls_back_to_fold_eval_metrics(self) -> None:
+        # Empty / missing eval_aggregate must still render from folds[0].eval_metrics
+        # (the CrossValResponse shape when the service omits the aggregate block).
+        crossval = {
+            "folds": [
+                {"fold": 0, "eval_metrics": {"r2": 0.7, "mse": 0.2}},
+                {"fold": 1, "eval_metrics": {"r2": 0.6, "mse": 0.3}},
+            ],
+            "eval_aggregate": {},
+        }
+        out = self.plots.render_crossval_folds(crossval, "t", self.tmp / "cv_fallback.png")
+        self.assertTrue(out.read_bytes().startswith(PNG_MAGIC))
 
     def test_metrics_table_renders_train_and_cv_rows(self) -> None:
         crossval = {"eval_aggregate": {"r2": 0.8}, "eval_std": {"r2": 0.05}}
