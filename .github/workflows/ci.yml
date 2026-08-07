@@ -407,6 +407,14 @@ jobs:
           # stays a documented manual-verify step; the full behavioural matrix is
           # juniper-ci-tools' own pytest suite (synthetic fixtures, ci-ci-tools.yml).
           python3 -m unittest -v tests/test_coverage_gap_mapper_drift.py
+          # tests/test_subpackage_ci_workflows.py: structural gate for the six
+          # in-repo shared-package ci-*.yml workflows (path filters incl. self,
+          # python matrix floors, working-directory / service-core sibling
+          # install, --cov-fail-under + blocking juniper-coverage-gap-map
+          # --enforce, build.needs:test, wheel-smoke entry points). Workflow
+          # YAML is not pre-commit-lint-gated for these properties, so this
+          # unittest is the gate.
+          python3 -m unittest -v tests/test_subpackage_ci_workflows.py
           # tests/test_model_core_drift.py + tests/test_service_core_drift.py:
           # same idea as the doc-tools/ci-tools drift lints, but the pin lives in
           # pyproject.toml's [tools] extra (library deps, not CI-workflow installs).

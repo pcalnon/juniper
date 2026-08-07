@@ -316,6 +316,7 @@ jobs:
           python3 -m unittest -v tests/test_doc_tools_drift.py
           python3 -m unittest -v tests/test_ci_tools_drift.py
           python3 -m unittest -v tests/test_coverage_gap_mapper_drift.py
+          python3 -m unittest -v tests/test_subpackage_ci_workflows.py
           python3 -m unittest -v tests/test_model_core_drift.py
           python3 -m unittest -v tests/test_service_core_drift.py
           python3 -m unittest -v tests/test_pyproject_extras.py
