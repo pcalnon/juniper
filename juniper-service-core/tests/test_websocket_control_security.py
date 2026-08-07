@@ -69,6 +69,14 @@ def test_leaky_bucket_consumes_then_reports_deficit() -> None:
     assert bucket.retry_after > 0.0
 
 
+def test_leaky_bucket_retry_after_zero_refill_does_not_divide_by_zero() -> None:
+    # control_stream wires ``refill_rate=float(rate_limit)``; rate_limit=0 used to
+    # ZeroDivisionError on the rate-limited ack path instead of returning retry_after.
+    bucket = LeakyBucket(capacity=0, refill_rate=0.0)
+    assert bucket.try_acquire() is False
+    assert bucket.retry_after == 3600.0
+
+
 def test_handshake_cooldown_records_and_blocks() -> None:
     cooldown = HandshakeCooldown(max_rejections=3, window_sec=60, block_sec=300)
     assert cooldown.record_rejection("1.2.3.4") is False
