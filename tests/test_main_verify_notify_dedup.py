@@ -54,6 +54,15 @@ def _find_repo_root(start: Path) -> Path:
 class NotifyDedupStructuralTest(unittest.TestCase):
     """Pin the stable-title notify contract so a refactor cannot silently reintroduce per-SHA titles."""
 
+    repo_root: Path
+    workflow_path: Path
+    raw: str
+    doc: dict
+    notify: dict
+    upsert: dict
+    script: str
+    env_block: dict
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.repo_root = _find_repo_root(Path(__file__).resolve().parent)
