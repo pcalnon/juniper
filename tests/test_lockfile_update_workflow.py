@@ -48,6 +48,13 @@ def _find_repo_root(start: Path) -> Path:
 class LockfileUpdateWorkflowStructuralTest(unittest.TestCase):
     """Pin lockfile-update.yml so the weekly refresh cannot silently lose PR open."""
 
+    repo_root: Path
+    workflow_path: Path
+    raw: str
+    doc: dict
+    job: dict
+    steps: list
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.repo_root = _find_repo_root(Path(__file__).resolve().parent)
@@ -86,7 +93,7 @@ class LockfileUpdateWorkflowStructuralTest(unittest.TestCase):
         self.assertIn("juniper-ci-tools>=", install_run)
         # Pin-range shape is also enforced by test_ci_tools_drift; keep a local
         # presence check so this gate fails even if that suite is skipped.
-        self.assertRegex(install_run, r'juniper-ci-tools\s*>=\s*[0-9.]+,\s*<\s*[0-9.]+')
+        self.assertRegex(install_run, r"juniper-ci-tools\s*>=\s*[0-9.]+,\s*<\s*[0-9.]+")
 
         generate = self._step(GENERATE_STEP)
         generate_run = (generate.get("run") or "").strip()

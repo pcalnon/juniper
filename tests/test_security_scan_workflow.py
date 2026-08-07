@@ -61,6 +61,14 @@ def _step_run(job: dict, name: str) -> str:
 class SecurityScanStructuralTest(unittest.TestCase):
     """Pin security-scan.yml so a casual edit cannot drop --strict or widen perms."""
 
+    repo_root: Path
+    workflow_path: Path
+    raw: str
+    doc: dict
+    job: dict
+    install_script: str
+    audit_script: str
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.repo_root = _find_repo_root(Path(__file__).resolve().parent)
@@ -105,11 +113,7 @@ class SecurityScanStructuralTest(unittest.TestCase):
     def test_python_version_is_pinned(self) -> None:
         steps = self.job.get("steps") or []
         setup = next(
-            (
-                s
-                for s in steps
-                if isinstance(s.get("uses"), str) and "actions/setup-python@" in s["uses"]
-            ),
+            (s for s in steps if isinstance(s.get("uses"), str) and "actions/setup-python@" in s["uses"]),
             None,
         )
         self.assertIsNotNone(setup)
@@ -136,34 +140,21 @@ class SecurityScanRehearsalTest(unittest.TestCase):
         # Avoid f-strings that embed bash `${…}` expansions (3.12 parse hazards).
         python = bindir / "python"
         python.write_text(
-            "#!/usr/bin/env bash\n"
-            "set -euo pipefail\n"
-            'if [ "${1-}" = "-m" ] && [ "${2-}" = "pip" ]; then\n'
-            '  printf "python-m-pip %s\\n" "${*:3}" >> "' + str(pip_log) + '"\n'
-            "  exit 0\n"
-            "fi\n"
-            'echo "unexpected python argv: $*" >&2\n'
-            "exit 2\n",
+            "#!/usr/bin/env bash\n" "set -euo pipefail\n" 'if [ "${1-}" = "-m" ] && [ "${2-}" = "pip" ]; then\n' '  printf "python-m-pip %s\\n" "${*:3}" >> "' + str(pip_log) + '"\n' "  exit 0\n" "fi\n" 'echo "unexpected python argv: $*" >&2\n' "exit 2\n",
             encoding="utf-8",
         )
         python.chmod(python.stat().st_mode | stat.S_IXUSR)
 
         pip = bindir / "pip"
         pip.write_text(
-            "#!/usr/bin/env bash\n"
-            "set -euo pipefail\n"
-            'printf "pip %s\\n" "$*" >> "' + str(pip_log) + '"\n'
-            "exit 0\n",
+            "#!/usr/bin/env bash\n" "set -euo pipefail\n" 'printf "pip %s\\n" "$*" >> "' + str(pip_log) + '"\n' "exit 0\n",
             encoding="utf-8",
         )
         pip.chmod(pip.stat().st_mode | stat.S_IXUSR)
 
         audit = bindir / "pip-audit"
         audit.write_text(
-            "#!/usr/bin/env bash\n"
-            "set -euo pipefail\n"
-            'printf "%s\\n" "$*" >> "' + str(audit_log) + '"\n'
-            "exit 0\n",
+            "#!/usr/bin/env bash\n" "set -euo pipefail\n" 'printf "%s\\n" "$*" >> "' + str(audit_log) + '"\n' "exit 0\n",
             encoding="utf-8",
         )
         audit.chmod(audit.stat().st_mode | stat.S_IXUSR)
