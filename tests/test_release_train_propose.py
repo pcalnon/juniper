@@ -582,6 +582,81 @@ class BuildProposalTest(unittest.TestCase):
         # the drafted notes are NOT presented as a repo edit (archival is the later exempt step)
         self.assertNotIn(prop.notes_relpath, paths)
 
+    def test_notes_draft_rewrites_relative_links_onto_owning_repo_blob_main(self):
+        # Gate-1 / central-archive correctness (canopy v0.6.0 class; juniper-ml#877): propose must
+        # rewrite CHANGELOG-sourced relative links onto the owning repo's blob/main URL so a draft
+        # reviewed outside that repo (or later archived under juniper-ml notes/releases/) does not
+        # 404. Ceremony pins the tag-blob form separately; this pins the propose call-site default.
+        clog = textwrap.dedent("""\
+            # Changelog
+
+            ## [Unreleased]
+
+            ### Fixed
+
+            - a latent off-by-one ([design](notes/DESIGN.md), [ext](https://example.invalid/x)).
+
+            ## [0.4.0] - 2026-06-01
+
+            ### Added
+
+            - initial release
+            """)
+        # Sibling primary package: entry.repo must appear in the rewritten base (not hardcoded ml).
+        sib_root = self.eco / "juniper-canopy"
+        _write_pkg(sib_root, ".", name="juniper-canopy", version="0.4.0", changelog=clog)
+        entry = _entry(
+            pypi_name="juniper-canopy",
+            repo="juniper-canopy",
+            path=".",
+            tag_pattern="juniper-canopy-v*",
+            archive_name="RELEASE_NOTES_juniper-canopy_v{version}.md",
+            ship_paths=["juniper_canopy/"],
+        )
+        pkg = _manifest_pkg(
+            pypi_name="juniper-canopy",
+            repo="juniper-canopy",
+            released_version="0.4.0",
+            declared_version="0.4.0",
+            proposed_version="0.5.0",
+        )
+        prop = pr.build_proposal(entry, pkg, self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        draft = prop.notes_draft or ""
+        base = f"https://github.com/{pr.DEFAULT_OWNER}/juniper-canopy/blob/main"
+        self.assertIn(f"[design]({base}/notes/DESIGN.md)", draft)
+        self.assertNotIn("](notes/DESIGN.md)", draft)
+        self.assertIn("[ext](https://example.invalid/x)", draft)  # absolute untouched
+        # Propose must NOT use the ceremony tag-pinned form.
+        self.assertNotIn("/blob/juniper-canopy-v0.5.0/", draft)
+
+    def test_in_repo_notes_draft_uses_meta_repo_blob_main(self):
+        # In-repo sub-package: owning checkout is juniper-ml, so link_base must be ml's blob/main
+        # (not the pypi_name, and not a phantom sibling URL).
+        clog = textwrap.dedent("""\
+            # Changelog
+
+            ## [Unreleased]
+
+            ### Added
+
+            - new helper ([design](./notes/HELPER.md#api)).
+
+            ## [0.4.0] - 2026-06-01
+
+            ### Added
+
+            - initial release
+            """)
+        _write_pkg(self.repo_root, "juniper-thing/", name="juniper-thing", version="0.4.0", changelog=clog)
+        entry = _entry()
+        prop = pr.build_proposal(entry, _manifest_pkg(), self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-14")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        draft = prop.notes_draft or ""
+        base = f"https://github.com/{pr.DEFAULT_OWNER}/juniper-ml/blob/main"
+        self.assertIn(f"[design]({base}/notes/HELPER.md#api)", draft)
+        self.assertNotIn("](./notes/HELPER.md", draft)
+
     def test_dynamic_package_edits_version_file(self):
         _write_pkg(self.repo_root, "juniper-model-core/", name="juniper-model-core", version="0.3.0", changelog=_CHANGELOG, dynamic=True, import_pkg="juniper_model_core")
         entry = _entry(pypi_name="juniper-model-core", path="juniper-model-core/", version_source="dynamic", tag_pattern="juniper-model-core-v*", archive_name="RELEASE_NOTES_juniper-model-core_v{version}.md", ship_paths=["juniper-model-core/juniper_model_core/"])
