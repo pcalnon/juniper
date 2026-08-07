@@ -1288,6 +1288,38 @@ class CrossRepoCeremonyTest(unittest.TestCase):
         self.assertEqual(plan.action_kinds, ["open_archive_pr", "enable_auto_merge", "cut_release", "monitor_publish"])
         self.assertIn("A new capability.", plan.archive_content)  # notes sourced from the [0.5.0] CHANGELOG section
 
+    def test_cross_repo_archive_content_rewrites_links_onto_owning_tag(self):
+        # Sibling ceremony archives centrally in juniper-ml but CHANGELOG links are relative to the
+        # OWNING repo. link_base must be the owning repo's tag tip — never juniper-ml/blob/main
+        # (propose default) and never a hardcoded meta-repo tag URL (in-repo ceremony shape).
+        clog = textwrap.dedent("""\
+            # Changelog
+
+            ## [Unreleased]
+
+            ## [0.5.0] - 2026-07-17
+
+            ### Added
+
+            - A new capability ([design](notes/DESIGN.md), [ext](https://example.invalid/x)).
+            """)
+        plan = ce.plan_ceremony(
+            _sibling_entry(),
+            self._pkg(),
+            _sources(changelog=clog),
+            REPO_ROOT,
+            self.eco,
+            "2026-07-17",
+            cross_repo=True,
+        )
+        self.assertEqual(plan.state, "CEREMONY_PLANNED")
+        base = f"https://github.com/{ce.DEFAULT_OWNER}/juniper-cascor-client/blob/v0.5.0"
+        self.assertIn(f"[design]({base}/notes/DESIGN.md)", plan.archive_content)
+        self.assertNotIn("](notes/DESIGN.md)", plan.archive_content)
+        self.assertIn("[ext](https://example.invalid/x)", plan.archive_content)
+        self.assertNotIn("/juniper-ml/blob/", plan.archive_content)
+        self.assertNotIn("/blob/main/", plan.archive_content)
+
     def test_cross_repo_dup_guard_checks_central_archive_repo(self):
         # an open archive PR is deduped against juniper-ml (where the archive PR lives), NOT the owning repo.
         existing = [{"number": 900, "headRefName": "release-notes/juniper-cascor-client-v0.5.0", "title": "x"}]
