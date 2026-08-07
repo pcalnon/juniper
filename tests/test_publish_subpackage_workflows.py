@@ -155,7 +155,7 @@ class PublishSubpackageStructuralTest(unittest.TestCase):
                 self.assertIs(conc.get("cancel-in-progress"), False)
 
     def test_build_tag_prefix_guard_matches_package(self) -> None:
-        for suffix, pkg, subdir in SHARED_PACKAGES:
+        for _suffix, pkg, subdir in SHARED_PACKAGES:
             doc = self.loaded[pkg]["doc"]
             build = (doc.get("jobs") or {}).get("build") or {}
             build_if = str(build.get("if") or "")
@@ -168,7 +168,7 @@ class PublishSubpackageStructuralTest(unittest.TestCase):
                 self.assertEqual(wd, subdir)
 
     def test_artifact_path_under_subdirectory(self) -> None:
-        for suffix, pkg, subdir in SHARED_PACKAGES:
+        for _suffix, pkg, subdir in SHARED_PACKAGES:
             doc = self.loaded[pkg]["doc"]
             steps = ((doc.get("jobs") or {}).get("build") or {}).get("steps") or []
             upload = next((s for s in steps if "upload-artifact" in str(s.get("uses") or "")), None)
@@ -256,10 +256,13 @@ class PublishSubpackageStructuralTest(unittest.TestCase):
 class PublishSubpackageVerifyRehearsalTest(unittest.TestCase):
     """Run each extracted verify shell with PATH stubs — prove --no-deps + TestPyPI install fires."""
 
+    repo_root: Path
+    scripts: dict[str, str]
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.repo_root = _find_repo_root(Path(__file__).resolve().parent)
-        cls.scripts: dict[str, str] = {}
+        cls.scripts = {}
         for suffix, pkg, _subdir in SHARED_PACKAGES:
             path = cls.repo_root / ".github" / "workflows" / f"publish-{suffix}.yml"
             if not path.is_file():
