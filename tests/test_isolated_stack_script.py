@@ -1476,22 +1476,7 @@ class TestDoUpPartialFailureTeardown(unittest.TestCase):
             (stub_bin / "curl").write_text("#!/usr/bin/env bash\nexit 0\n")
             (stub_bin / "curl").chmod(0o755)
             # ss → report whichever listener file matches the queried sport port.
-            (stub_bin / "ss").write_text(
-                "#!/usr/bin/env bash\n"
-                "set -euo pipefail\n"
-                "port=\"\"\n"
-                'for a in "$@"; do\n'
-                '  case "$a" in\n'
-                '    sport\\ =\\ :*) port="${a##*:}" ;;\n'
-                "  esac\n"
-                "done\n"
-                f'listener="{listeners_dir}/$port.pid"\n'
-                'if [[ -n "$port" && -f "$listener" ]]; then\n'
-                '  pid="$(cat "$listener")"\n'
-                '  echo "LISTEN 0 128 127.0.0.1:${port} 0.0.0.0:* users:((\\"python\\",pid=${pid},fd=3))"\n'
-                "fi\n"
-                "exit 0\n"
-            )
+            (stub_bin / "ss").write_text("#!/usr/bin/env bash\n" "set -euo pipefail\n" 'port=""\n' 'for a in "$@"; do\n' '  case "$a" in\n' '    sport\\ =\\ :*) port="${a##*:}" ;;\n' "  esac\n" "done\n" f'listener="{listeners_dir}/$port.pid"\n' 'if [[ -n "$port" && -f "$listener" ]]; then\n' '  pid="$(cat "$listener")"\n' '  echo "LISTEN 0 128 127.0.0.1:${port} 0.0.0.0:* users:((\\"python\\",pid=${pid},fd=3))"\n' "fi\n" "exit 0\n")
             (stub_bin / "ss").chmod(0o755)
 
             env = RedactedEnv(os.environ)
