@@ -398,6 +398,13 @@ jobs:
           # binding pins. Hermetic stub gh; PyYAML (installed above). Mirror in
           # main-verify battery.
           python3 -m unittest -v tests/test_main_verify_notify_dedup.py
+          # tests/test_ci_fleet_pr_lint.py: YAML-extraction rehearsal for
+          # ci.yml Fleet PR Lint (P2 G5-iv / flood §4 item 8 phase 4) --
+          # commit-count warn, black --check warn path, fan-out >15, exact
+          # AGENTS.md / cheatsheet hotspots, always exit 0. Hermetic git
+          # fixture + stub black; PyYAML (installed above). Mirror in
+          # main-verify battery.
+          python3 -m unittest -v tests/test_ci_fleet_pr_lint.py
           # tests/test_doc_tools_drift.py: the cross-repo
           # consumer-pin assertions auto-skip when siblings are not
           # cloned (per-PR mode); the helper unit tests + juniper-ml's
