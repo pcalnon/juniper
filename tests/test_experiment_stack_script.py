@@ -25,7 +25,17 @@ pins:
 - ``allocate_port`` lockdir semantics with a stubbed ``ss``;
 - teardown behaviourally: pidfile-first (a stubbed ``ss`` reports NO listener, so
   only the pidfile path can kill the process), target-file removal, lockdir
-  release, and artifacts preserved.
+  release, artifacts preserved, and the kill-by-port fallback when the pidfile
+  path refuses a reused PID whose cmdline no longer matches.
+- live ``data_up`` / ``cascor_up`` / ``recurrence_up`` compose (F-6 listener pid
+  via ``ss`` after health, §6.1 env recipes) with PATH-stubbed env bins — no real
+  conda / network / docker;
+- ``do_up`` partial-failure → ``teardown_run`` (locks released, recorded data
+  listener killed) when a later service fails require_env_bin.
+- OR-list fail-closed: ``*_up || failed=1`` disables ``set -e`` inside each
+  ``*_up``, so critical steps must ``|| return 1`` (health-timeout + live listener
+  must not false-green; activate_conda must not mask conda failure; bridge failure
+  after healthy services must still teardown).
 
 Hermetic mechanics: ``JUNIPER_EXP_RUN_ROOT`` / ``JUNIPER_EXP_LOCK_ROOT`` /
 ``JUNIPER_EXP_DEPLOY_DIR`` / ``JUNIPER_EXP_PROJECT_DIR`` redirect every path into a
@@ -43,6 +53,7 @@ import re
 import signal
 import subprocess
 import tempfile
+import textwrap
 import time
 import unittest
 from pathlib import Path
@@ -53,6 +64,9 @@ SCRIPT_PATH = Path(__file__).resolve().parent.parent / "util" / "experiment_stac
 SCRIPT_TEXT = SCRIPT_PATH.read_text()
 SCRIPT_TIMEOUT_SECONDS = 20
 TEARDOWN_TIMEOUT_SECONDS = 45
+# Full --up with a short health timeout + tear-down of a stubbed listener.
+DO_UP_PARTIAL_TIMEOUT_SECONDS = 30
+LIVE_UP_TIMEOUT_SECONDS = 30
 
 
 def _strip_comment_lines(text: str) -> str:
@@ -133,6 +147,110 @@ def _stage_conda_fixture(root: Path) -> Path:
     return conda_dir
 
 
+def _force_kill(pid: int) -> None:
+    for kill_target in (lambda: os.killpg(pid, signal.SIGKILL), lambda: os.kill(pid, signal.SIGKILL)):
+        try:
+            kill_target()
+            break
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            continue
+    for _ in range(20):
+        if not Path(f"/proc/{pid}").exists():
+            return
+        time.sleep(0.05)
+
+
+def _stage_live_path_stubs(root: Path, listeners_dir: Path) -> Path:
+    """PATH stubs for live ``*_up``: curl waits for listener pidfile; ``ss`` reads it.
+
+    The env-bin stub registers ``$$`` under ``listeners_dir/<port>.pid`` *after* it is
+    backgrounded. ``wait_for_health`` can beat that write on the first poll if curl is
+    always-OK — then ``record_listener_pid`` fails with "no listener pid resolved via ss".
+    Curl therefore polls the pidfile (up to ~1s) before exiting 0; missing → exit 22 so
+    the health loop retries.
+    """
+    stub_bin = root / "live-path-stubs"
+    stub_bin.mkdir(parents=True, exist_ok=True)
+    listeners_dir.mkdir(parents=True, exist_ok=True)
+    _write_stub(
+        stub_bin / "ss",
+        textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            want=""
+            for arg in "$@"; do
+              case "$arg" in
+                *sport*) want="${{arg##*:}}" ;;
+              esac
+            done
+            [[ -n "$want" ]] || exit 0
+            pidfile="{listeners_dir}/$want.pid"
+            if [[ -f "$pidfile" ]]; then
+              pid="$(cat "$pidfile")"
+              echo "LISTEN 0 128 127.0.0.1:${{want}} 0.0.0.0:* users:((\\"python\\",pid=${{pid}},fd=3))"
+            fi
+            exit 0
+            """),
+    )
+    _write_stub(
+        stub_bin / "curl",
+        textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            url=""
+            for arg in "$@"; do
+              case "$arg" in
+                http://*|https://*) url="$arg" ;;
+              esac
+            done
+            # http://127.0.0.1:68110/v1/health -> 68110
+            port="$(printf '%s' "$url" | sed -n 's#.*://[^/:]*:\\([0-9][0-9]*\\)/.*#\\1#p')"
+            [[ -n "$port" ]] || exit 0
+            pidfile="{listeners_dir}/$port.pid"
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+              if [[ -f "$pidfile" ]]; then
+                exit 0
+              fi
+              sleep 0.1
+            done
+            exit 22
+            """),
+    )
+    _write_stub(stub_bin / "docker", "#!/usr/bin/env bash\nexit 0\n")
+    _write_stub(stub_bin / "socat", "#!/usr/bin/env bash\nexec sleep 60\n")
+    return stub_bin
+
+
+def _write_listening_env_bin(path: Path, *, listeners_dir: Path, marker_dir: Path, label: str) -> None:
+    """Conda env bin that registers ``$$`` for ``ss`` then sleeps (F-6 live compose)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_stub(
+        path,
+        textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            port=""
+            prev=""
+            for arg in "$@"; do
+              if [[ "$prev" == "--port" ]]; then
+                port="$arg"
+              fi
+              prev="$arg"
+            done
+            [[ -n "$port" ]] || {{ echo "missing --port in $*" >&2; exit 2; }}
+            mkdir -p "{listeners_dir}" "{marker_dir}"
+            printf '%s\\n' "$@" >"{marker_dir}/{label}.args"
+            {{
+              printf 'PWD=%s\\n' "$PWD"
+              # Prefix match for JUNIPER_* (not JUNIPER_=); keep PYTHON_GIL / LD_LIBRARY_PATH / PATH.
+              env | grep -E '^(PYTHON_GIL|LD_LIBRARY_PATH|PATH|JUNIPER_)' || true
+            }} >"{marker_dir}/{label}.env"
+            printf '%s\\n' "$$" >"{listeners_dir}/${{port}}.pid"
+            exec sleep 60
+            """),
+    )
+
+
 class TestSyntax(unittest.TestCase):
     """The script must pass ``bash -n`` cleanly."""
 
@@ -147,11 +265,20 @@ class TestSyntax(unittest.TestCase):
 
     def test_strict_mode_and_nounset_guard(self) -> None:
         self.assertIn("set -euo pipefail", SCRIPT_TEXT)
-        # The conda nounset guard idiom: +u around activate, -u restored after
-        # (a +u/+u restore silently disables nounset for the rest of bring-up).
+        # Fail-closed activate: every path restores nounset (not +u/+u). A bare
+        # ``conda activate`` failure followed by ``set -u`` would return 0 under
+        # OR-list callers and let services launch on the ambient PATH.
+        body = _extract_experiment_fn("activate_conda")
+        self.assertIn("set +u", body)
         self.assertRegex(
-            _extract_experiment_fn("activate_conda"),
-            r"set \+u\n\s*conda activate[^\n]+\n\s*set -u\n",
+            body,
+            r"if ! conda activate[^\n]+; then\n\s*set -u\n",
+            msg="activate_conda failure arm must restore set -u before return 1",
+        )
+        self.assertRegex(
+            body,
+            r"fi\n\s*set -u\n\}\n",
+            msg="activate_conda success arm must restore set -u after conda activate",
         )
 
 
@@ -278,8 +405,53 @@ class TestLaunchLines(unittest.TestCase):
 
     def test_bring_up_order_is_data_cascor_recurrence(self) -> None:
         do_up = _extract_experiment_fn("do_up")
-        self.assertLess(do_up.index("data_up"), do_up.index("cascor_up"))
-        self.assertLess(do_up.index("cascor_up"), do_up.index("recurrence_up"))
+        # Use the ``|| failed=1`` call sites (not bare names in comments).
+        self.assertIn("data_up || failed=1", do_up)
+        self.assertIn("cascor_up || failed=1", do_up)
+        self.assertIn("recurrence_up || failed=1", do_up)
+        self.assertLess(do_up.index("data_up || failed=1"), do_up.index("cascor_up || failed=1"))
+        self.assertLess(do_up.index("cascor_up || failed=1"), do_up.index("recurrence_up || failed=1"))
+        self.assertIn("tearing the partial run back down", do_up)
+        # OR-list disables set -e inside each *_up — critical steps must || return 1.
+        expected = (
+            (
+                "data_up",
+                'wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health" || return 1',
+                'record_listener_pid "juniper-data" "${DATA_PORT}" || return 1',
+                'activate_conda "${DATA_CONDA}" || return 1',
+            ),
+            (
+                "cascor_up",
+                'wait_for_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health" || return 1',
+                'record_listener_pid "juniper-cascor" "${CASCOR_PORT}" || return 1',
+                'activate_conda "${CASCOR_CONDA}" || return 1',
+            ),
+            (
+                "recurrence_up",
+                'wait_for_health "juniper-recurrence" "http://127.0.0.1:${RECURRENCE_PORT}/v1/health/ready" || return 1',
+                'record_listener_pid "juniper-recurrence" "${RECURRENCE_PORT}" || return 1',
+                'activate_conda "${RECURRENCE_CONDA}" || return 1',
+            ),
+        )
+        for fn_name, health_line, record_line, activate_line in expected:
+            body = _extract_experiment_fn(fn_name)
+            self.assertIn("require_env_bin", body)
+            self.assertIn(health_line, body, msg=f"{fn_name} must fail-closed on wait_for_health")
+            self.assertIn(record_line, body, msg=f"{fn_name} must fail-closed on record_listener_pid")
+            self.assertIn(activate_line, body, msg=f"{fn_name} must fail-closed on activate_conda")
+        # Bridge failure after healthy services must tear down (not abort via set -e).
+        self.assertIn("if ! bridge_up; then", do_up)
+        self.assertIn("grafana bridge failed", do_up)
+        bridge_up = _extract_experiment_fn("bridge_up")
+        self.assertIn("require_cmd socat || return 1", bridge_up)
+        self.assertIn("require_cmd docker || return 1", bridge_up)
+        # Every allocate_port site must clear HELD_LOCK_PORTS on failure (helper was dead).
+        for svc in ("juniper-data", "juniper-cascor", "juniper-recurrence"):
+            self.assertRegex(
+                do_up,
+                rf'allocate_port "{svc}".*?\|\| \{{\s*release_held_locks',
+                msg=f"{svc} allocate failure must call release_held_locks",
+            )
 
 
 class TestListenerPidRule(unittest.TestCase):
@@ -311,7 +483,9 @@ class TestListenerPidRule(unittest.TestCase):
 
     def test_every_service_records_its_listener_after_the_health_gate(self) -> None:
         for fn_name in ("data_up", "cascor_up", "recurrence_up"):
-            body = _extract_experiment_fn(fn_name)
+            # Strip comments: the OR-list fail-closed prose names record_listener_pid
+            # before the live call site and would invert a naive index() order check.
+            body = _strip_comment_lines(_extract_experiment_fn(fn_name))
             self.assertIn("record_listener_pid", body, msg=f"{fn_name} must record a listener pid")
             self.assertLess(
                 body.index("wait_for_health"),
@@ -753,6 +927,91 @@ class TestTeardownBehaviour(unittest.TestCase):
             finally:
                 self._force_kill(pid)
 
+    def test_kill_by_port_fallback_after_pidfile_cmdline_refuse(self) -> None:
+        """Pid-reuse refuse must still tear down via the recorded port's live listener.
+
+        The sibling arm above stubs ``ss`` with no listener, so the fallback is inert.
+        Here ``ss`` reports the live PID on the recorded port; ``stop_service`` must log
+        the refuse, then kill through the empty-cmdline port path (F-6 fallback).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_id = "20260730T000000Z-fbck"
+            run_root = root / "runs"
+            lock_root = root / "locks"
+            run_dir = run_root / run_id
+            (run_dir / "artifacts" / "results").mkdir(parents=True)
+            (run_dir / "logs").mkdir()
+            (lock_root / "8260.lock").mkdir(parents=True)
+            keeper = run_dir / "artifacts" / "results" / "metrics_final.json"
+            keeper.write_text("{}\n")
+            (run_dir / "ports.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": run_id,
+                        "data": None,
+                        "cascor": None,
+                        "recurrence": 8260,
+                        "data_url": None,
+                        "experiment": "smoke",
+                        "grafana_bridge": False,
+                    },
+                    indent=2,
+                )
+                + "\n"
+            )
+
+            pid = self._spawn_detached()
+            try:
+                (run_dir / "juniper-recurrence.pid").write_text(f"{pid}\n")
+                (run_dir / "juniper-recurrence.cmdline").write_text("some other process ")
+
+                stub_bin = root / "path-stubs"
+                stub_bin.mkdir(parents=True, exist_ok=True)
+                # Report the live PID only while it is still alive, so post-kill
+                # port_in_use does not false-alarm a still-bound listener.
+                _write_stub(
+                    stub_bin / "ss",
+                    "#!/usr/bin/env bash\n" f'pid="{pid}"\n' 'want=""\n' 'for arg in "$@"; do\n' '  case "$arg" in\n' '    *sport*) want="${arg##*:}" ;;\n' "  esac\n" "done\n" 'if [[ "$want" == "8260" ]] && kill -0 "$pid" 2>/dev/null; then\n' '  echo "LISTEN 0 128 127.0.0.1:8260 0.0.0.0:* users:((\\"python\\",pid=${pid},fd=3))"\n' "fi\n" "exit 0\n",
+                )
+                _write_stub(stub_bin / "curl", "#!/usr/bin/env bash\nexit 0\n")
+                _write_stub(stub_bin / "docker", "#!/usr/bin/env bash\nexit 0\n")
+                _write_stub(stub_bin / "socat", "#!/usr/bin/env bash\nexec sleep 60\n")
+
+                env = {
+                    "JUNIPER_EXP_RUN_ROOT": str(run_root),
+                    "JUNIPER_EXP_LOCK_ROOT": str(lock_root),
+                    "JUNIPER_EXP_DEPLOY_DIR": str(root / "deploy"),
+                    "JUNIPER_EXP_KILL_TIMEOUT": "5",
+                    "PATH": str(stub_bin) + os.pathsep + "/usr/bin:/bin",
+                }
+                result = subprocess.run(
+                    ["/bin/bash", str(SCRIPT_PATH), "--down", run_id],
+                    capture_output=True,
+                    text=True,
+                    env=RedactedEnv(os.environ, **env),
+                    timeout=TEARDOWN_TIMEOUT_SECONDS,
+                )
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                out = result.stdout
+                self.assertIn("cmdline changed since launch", out)
+                self.assertIn("pidfile path refused", out)
+                self.assertIn("falling back to the recorded port 8260", out)
+                self.assertIn("(by port 8260)", out)
+
+                for _ in range(60):
+                    if not Path(f"/proc/{pid}").exists():
+                        break
+                    time.sleep(0.1)
+                self.assertFalse(
+                    Path(f"/proc/{pid}").exists(),
+                    "kill-by-port fallback must terminate the live listener after a pidfile refuse",
+                )
+                self.assertTrue(keeper.exists(), "teardown must NEVER delete artifacts/")
+                self.assertFalse((lock_root / "8260.lock").exists(), "port lockdir must still be released")
+            finally:
+                self._force_kill(pid)
+
     def test_down_on_a_missing_run_exits_one(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             result = _run("--down", "20260730T000000Z-none", env_extra={"JUNIPER_EXP_RUN_ROOT": str(Path(tmp) / "runs")})
@@ -844,6 +1103,553 @@ class TestConfigStaging(unittest.TestCase):
         recurrence_up = _extract_experiment_fn("recurrence_up")
         self.assertNotIn("serve --config", recurrence_up)
         self.assertIn("Wave 3.3", recurrence_up)
+
+
+class TestReleaseHeldLocksOnAllocateFail(unittest.TestCase):
+    """Mid-allocate failure must clear earlier lockdirs (release_held_locks was dead)."""
+
+    def test_second_range_exhaustion_releases_the_first_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lock_root = root / "locks"
+            lock_root.mkdir()
+            # Occupy the entire cascor range so the second allocate_port fails.
+            for port in range(8230, 8260):
+                (lock_root / f"{port}.lock").mkdir()
+            stub_bin = _stage_stub_bin(root, busy_ports=[])
+            harness = (
+                "set -euo pipefail\n"
+                'log() { echo "$*"; }\n'
+                'announce() { echo "$*"; }\n'
+                "is_dry() { return 1; }\n"
+                f'LOCK_ROOT="{lock_root}"\n'
+                "HELD_LOCK_PORTS=()\n"
+                'ALLOCATED_PORT=""\n' + _extract_experiment_fn("port_in_use") + _extract_experiment_fn("allocate_port") + _extract_experiment_fn("release_held_locks") + "allocate_port juniper-data 8110 8110 || { release_held_locks; exit 1; }\n"
+                'printf "HELD_AFTER_DATA=%s\\n" "${HELD_LOCK_PORTS[*]:-}"\n'
+                "allocate_port juniper-cascor 8230 8259 || { release_held_locks; printf 'RELEASED\\n'; exit 1; }\n"
+            )
+            env = RedactedEnv(os.environ)
+            env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+            result = subprocess.run(
+                ["/bin/bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+            self.assertNotEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("RELEASED", result.stdout)
+            self.assertIn("HELD_AFTER_DATA=8110", result.stdout)
+            self.assertFalse(
+                (lock_root / "8110.lock").exists(),
+                "release_held_locks must rmdir the data lock after cascor range exhaustion",
+            )
+
+
+class TestActivateCondaOrList(unittest.TestCase):
+    """OR-list callers must still see activate failure (not a masked exit 0)."""
+
+    def test_conda_activate_failure_propagates_under_or_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            conda_sh = Path(tmp) / "conda.sh"
+            conda_sh.write_text("#!/usr/bin/env bash\n" "conda() {\n" '  if [[ "$1" == "activate" ]]; then\n' "    return 1\n" "  fi\n" "}\n")
+            harness = "set -euo pipefail\n" 'log() { echo "$*"; }\n' f'CONDA_SH="{conda_sh}"\n' + _extract_experiment_fn("activate_conda") + "failed=0\n" + 'activate_conda "JuniperCascor1" || failed=1\n' + 'echo "failed=${failed}"\n' + "if (( failed != 1 )); then exit 2; fi\n"
+            result = subprocess.run(
+                ["/bin/bash", "-c", harness],
+                capture_output=True,
+                text=True,
+                env=RedactedEnv(os.environ),
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("failed=1", result.stdout)
+            self.assertIn("conda activate", result.stdout + result.stderr)
+
+
+class TestDoUpFailClosedTeardown(unittest.TestCase):
+    """``do_up`` must tear a partial run back down when health fails under OR-list.
+
+    Pre-fix: ``data_up || failed=1`` disables ``set -e`` inside ``data_up``. A
+    health-timeout with a live listener then fell through to ``record_listener_pid``
+    (exit 0), so ``failed`` stayed 0 and the listener was orphaned with no teardown.
+    (Named distinctly from ``TestDoUpPartialFailureTeardown`` below, which covers the
+    require_env_bin missing-binary arm — same subject, different failure class.)
+    """
+
+    def _force_kill(self, pid: int) -> None:
+        for kill_target in (lambda: os.killpg(pid, signal.SIGKILL), lambda: os.kill(pid, signal.SIGKILL)):
+            try:
+                kill_target()
+                break
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                continue
+        for _ in range(20):
+            if not Path(f"/proc/{pid}").exists():
+                return
+            time.sleep(0.05)
+
+    def test_health_timeout_with_live_listener_tears_down(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project_dir = root / "Juniper"
+            listeners_dir = root / "listeners"
+            stub_bin = root / "bin"
+            conda_dir = root / "conda"
+            listeners_dir.mkdir()
+            stub_bin.mkdir()
+            (project_dir / "juniper-cascor" / "src").mkdir(parents=True)
+
+            # Env bin: parse --port, record pid for the ss stub, sleep (no real bind).
+            data_bin = conda_dir / "envs" / "JuniperData" / "bin"
+            data_bin.mkdir(parents=True)
+            _write_stub(
+                data_bin / "python",
+                "#!/usr/bin/env bash\n" "set -euo pipefail\n" 'port=""\n' "while [[ $# -gt 0 ]]; do\n" '  case "$1" in\n' '    --port) port="$2"; shift 2 ;;\n' "    *) shift ;;\n" "  esac\n" "done\n" f'printf "%s\\n" "$$" >"{listeners_dir}/$port.pid"\n'
+                # No ``exec``: keep this bash pid's cmdline stable for kill_verified_pid.
+                "sleep 60\n",
+            )
+            # cascor bin present but unused once data fails closed.
+            cascor_bin = conda_dir / "envs" / "JuniperCascor1" / "bin"
+            cascor_bin.mkdir(parents=True)
+            _write_stub(cascor_bin / "uvicorn", "#!/usr/bin/env bash\nsleep 60\n")
+
+            # curl always fails → wait_for_health times out (the false-green class).
+            _write_stub(stub_bin / "curl", "#!/usr/bin/env bash\nexit 1\n")
+            _write_stub(
+                stub_bin / "ss",
+                "#!/usr/bin/env bash\n" "set -euo pipefail\n" 'port=""\n' 'for a in "$@"; do\n' '  case "$a" in\n' '    sport\\ =\\ :*) port="${a##*:}" ;;\n' "  esac\n" "done\n" f'listener="{listeners_dir}/$port.pid"\n' 'if [[ -n "$port" && -f "$listener" ]]; then\n' '  pid="$(cat "$listener")"\n' '  echo "LISTEN 0 128 127.0.0.1:${port} 0.0.0.0:* users:((\\"python\\",pid=${pid},fd=3))"\n' "fi\n" "exit 0\n",
+            )
+            _write_stub(stub_bin / "docker", "#!/usr/bin/env bash\nexit 0\n")
+            _write_stub(stub_bin / "socat", "#!/usr/bin/env bash\nexec sleep 60\n")
+
+            env = RedactedEnv(os.environ)
+            env.update(
+                {
+                    "JUNIPER_EXP_RUN_ROOT": str(root / "runs"),
+                    "JUNIPER_EXP_LOCK_ROOT": str(root / "locks"),
+                    "JUNIPER_EXP_DEPLOY_DIR": str(root / "deploy"),
+                    "JUNIPER_EXP_PROJECT_DIR": str(project_dir),
+                    "JUNIPER_EXP_CONDA_DIR": str(conda_dir),
+                    "JUNIPER_EXP_HEALTH_TIMEOUT": "2",
+                    "JUNIPER_EXP_KILL_TIMEOUT": "5",
+                    "PATH": str(stub_bin) + os.pathsep + "/usr/bin:/bin",
+                }
+            )
+
+            result = subprocess.run(
+                ["/bin/bash", str(SCRIPT_PATH), "--up", "--cascor"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=DO_UP_PARTIAL_TIMEOUT_SECONDS,
+            )
+            child_pid: int | None = None
+            # Port is allocated starting at 8110 when free.
+            for pid_path in listeners_dir.glob("*.pid"):
+                try:
+                    child_pid = int(pid_path.read_text().strip())
+                except ValueError:
+                    child_pid = None
+                break
+            try:
+                self.assertNotEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertIn("bring-up failed — tearing the partial run back down", result.stdout)
+                self.assertIn("failed to become healthy", result.stdout)
+                # Must NOT report a successful bring-up (the pre-fix false-green).
+                self.assertNotIn(" is up ===", result.stdout)
+                if child_pid is not None:
+                    for _ in range(60):
+                        if not Path(f"/proc/{child_pid}").exists():
+                            break
+                        time.sleep(0.1)
+                    self.assertFalse(
+                        Path(f"/proc/{child_pid}").exists(),
+                        "partial teardown must kill the data listener after health timeout",
+                    )
+                # teardown.json proves teardown_run ran (ports released / artifacts kept).
+                run_dirs = list((root / "runs").glob("*"))
+                self.assertEqual(len(run_dirs), 1, msg=result.stdout)
+                self.assertTrue((run_dirs[0] / "teardown.json").exists(), msg=result.stdout)
+                self.assertTrue((run_dirs[0] / "artifacts").exists())
+            finally:
+                if child_pid is not None:
+                    self._force_kill(child_pid)
+
+    def test_bridge_failure_after_healthy_services_tears_down(self) -> None:
+        """A failed bridge after healthy services must teardown (not orphan via set -e).
+
+        The docker stub reports no monitoring network AND no default-bridge gateway,
+        so ``discover_gateway_ip`` fails deterministically regardless of whether the
+        host has a real ``socat`` on PATH (asserting on the socat require_cmd arm
+        would be environment-dependent).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project_dir = root / "Juniper"
+            listeners_dir = root / "listeners"
+            stub_bin = root / "bin"
+            conda_dir = root / "conda"
+            listeners_dir.mkdir()
+            stub_bin.mkdir()
+            (project_dir / "juniper-cascor" / "src").mkdir(parents=True)
+
+            listener_stub = (
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                'port=""\n'
+                "while [[ $# -gt 0 ]]; do\n"
+                '  case "$1" in\n'
+                '    --port) port="$2"; shift 2 ;;\n'
+                "    *) shift ;;\n"
+                "  esac\n"
+                "done\n"
+                f'printf "%s\\n" "$$" >"{listeners_dir}/$port.pid"\n'
+                # No ``exec``: keep this bash pid's cmdline stable for kill_verified_pid.
+                "sleep 60\n"
+            )
+            for env_name, bin_name in (
+                ("JuniperData", "python"),
+                ("JuniperCascor1", "uvicorn"),
+            ):
+                bin_dir = conda_dir / "envs" / env_name / "bin"
+                bin_dir.mkdir(parents=True, exist_ok=True)
+                _write_stub(bin_dir / bin_name, listener_stub)
+
+            # Health OK only once the service's listener pidfile exists (faithful to a
+            # real server, whose health answer arrives over the LISTENING socket) so
+            # record_listener_pid cannot race the stub's pidfile write; socat absent.
+            _write_stub(
+                stub_bin / "curl",
+                "#!/usr/bin/env bash\n" 'url="${!#}"\n' 'port="${url##*:}"\n' 'port="${port%%/*}"\n' f'[[ -n "$port" && -f "{listeners_dir}/$port.pid" ]] || exit 1\n' "exit 0\n",
+            )
+            _write_stub(
+                stub_bin / "ss",
+                "#!/usr/bin/env bash\n" "set -euo pipefail\n" 'port=""\n' 'for a in "$@"; do\n' '  case "$a" in\n' '    sport\\ =\\ :*) port="${a##*:}" ;;\n' "  esac\n" "done\n" f'listener="{listeners_dir}/$port.pid"\n' 'if [[ -n "$port" && -f "$listener" ]]; then\n' '  pid="$(cat "$listener")"\n' '  echo "LISTEN 0 128 127.0.0.1:${port} 0.0.0.0:* users:((\\"python\\",pid=${pid},fd=3))"\n' "fi\n" "exit 0\n",
+            )
+            # docker reports no networks at all → discover_gateway_ip must return 1.
+            _write_stub(stub_bin / "docker", "#!/usr/bin/env bash\nexit 0\n")
+            # socat present-but-never-invoked: require_cmd must pass on hosts WITHOUT a
+            # real socat (CI runners) so the deterministic failure is the gateway probe.
+            _write_stub(stub_bin / "socat", "#!/usr/bin/env bash\nexit 0\n")
+
+            env = RedactedEnv(os.environ)
+            env.update(
+                {
+                    "JUNIPER_EXP_RUN_ROOT": str(root / "runs"),
+                    "JUNIPER_EXP_LOCK_ROOT": str(root / "locks"),
+                    "JUNIPER_EXP_DEPLOY_DIR": str(root / "deploy"),
+                    "JUNIPER_EXP_PROJECT_DIR": str(project_dir),
+                    "JUNIPER_EXP_CONDA_DIR": str(conda_dir),
+                    "JUNIPER_EXP_HEALTH_TIMEOUT": "4",
+                    "JUNIPER_EXP_KILL_TIMEOUT": "5",
+                    "PATH": str(stub_bin) + os.pathsep + "/usr/bin:/bin",
+                }
+            )
+
+            result = subprocess.run(
+                ["/bin/bash", str(SCRIPT_PATH), "--up", "--cascor", "--grafana-bridge"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=DO_UP_PARTIAL_TIMEOUT_SECONDS,
+            )
+            child_pids: list[int] = []
+            for pid_path in listeners_dir.glob("*.pid"):
+                try:
+                    child_pids.append(int(pid_path.read_text().strip()))
+                except ValueError:
+                    pass
+            try:
+                self.assertNotEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertIn("grafana bridge failed — tearing the run back down", result.stdout)
+                self.assertIn("no monitoring network and no default-bridge gateway", result.stdout)
+                self.assertNotIn(" is up ===", result.stdout)
+                for child_pid in child_pids:
+                    for _ in range(60):
+                        if not Path(f"/proc/{child_pid}").exists():
+                            break
+                        time.sleep(0.1)
+                    self.assertFalse(
+                        Path(f"/proc/{child_pid}").exists(),
+                        f"bridge-failure teardown must kill listener pid {child_pid}",
+                    )
+                run_dirs = list((root / "runs").glob("*"))
+                self.assertEqual(len(run_dirs), 1, msg=result.stdout)
+                self.assertTrue((run_dirs[0] / "teardown.json").exists(), msg=result.stdout)
+            finally:
+                for child_pid in child_pids:
+                    self._force_kill(child_pid)
+
+
+class _LiveUpHarness(unittest.TestCase):
+    """Shared helpers for live ``*_up`` compose (F-6 ss listener after health)."""
+
+    def _common_prelude(
+        self,
+        *,
+        run_dir: Path,
+        conda_dir: Path,
+        project_dir: Path,
+        data_port: str = "68110",
+        cascor_port: str = "68230",
+        recurrence_port: str = "68260",
+    ) -> str:
+        # Concatenate (do not f-string) so bash `${...}` in extracts stay literal.
+        return (
+            "set -euo pipefail\n"
+            'SCRIPT_NAME="experiment_stack.bash"\n'
+            "DRY_RUN=0\n"
+            "CONDA_ACTIVATE=0\n"
+            f'CONDA_DIR="{conda_dir}"\n'
+            f'PROJECT_DIR="{project_dir}"\n'
+            f'CASCOR_SRC_DIR="{project_dir}/juniper-cascor/src"\n'
+            f'RUN_DIR="{run_dir}"\n'
+            f'LOG_DIR="{run_dir}/logs"\n'
+            f'DATA_PORT="{data_port}"\n'
+            f'CASCOR_PORT="{cascor_port}"\n'
+            f'RECURRENCE_PORT="{recurrence_port}"\n'
+            f'DATA_URL="http://127.0.0.1:{data_port}"\n'
+            'DATA_CONDA="JuniperData"\n'
+            'CASCOR_CONDA="JuniperCascor1"\n'
+            'RECURRENCE_CONDA="JuniperCascor1"\n'
+            "HEALTH_TIMEOUT=4\n"
+            'CONFIG_PATH=""\n'
+            'log() { echo "[${SCRIPT_NAME}] $*"; }\n'
+            'banner() { echo ""; echo "[${SCRIPT_NAME}] === $* ==="; }\n'
+            'announce() { echo "[${SCRIPT_NAME}] \\$ $*"; }\n'
+            'is_dry() { [[ "${DRY_RUN}" == "1" ]]; }\n' + _extract_experiment_fn("require_cmd") + _extract_experiment_fn("ensure_dir") + _extract_experiment_fn("env_bin") + _extract_experiment_fn("require_env_bin") + _extract_experiment_fn("port_listener_pid") + _extract_experiment_fn("proc_cmdline") + _extract_experiment_fn("wait_for_health") + _extract_experiment_fn("record_listener_pid") + _extract_experiment_fn("record_launch_env")
+        )
+
+    def _run_harness(self, harness: str, *, stub_bin: Path) -> subprocess.CompletedProcess[str]:
+        env = RedactedEnv(os.environ)
+        env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+        return subprocess.run(
+            ["/bin/bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=LIVE_UP_TIMEOUT_SECONDS,
+        )
+
+
+class TestDataUpLive(_LiveUpHarness):
+    """Behavioral pins for live ``data_up`` (direct env-bin + F-6 listener pid)."""
+
+    def test_happy_path_gil_env_listener_pid_and_health(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            marker_dir = root / "markers"
+            listeners_dir = root / "listeners"
+            project_dir = root / "project"
+            conda_dir = root / "conda"
+            (project_dir / "juniper-cascor" / "src").mkdir(parents=True)
+            stub_bin = _stage_live_path_stubs(root, listeners_dir)
+            _write_listening_env_bin(
+                conda_dir / "envs" / "JuniperData" / "bin" / "python",
+                listeners_dir=listeners_dir,
+                marker_dir=marker_dir,
+                label="data",
+            )
+            harness = self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir) + _extract_experiment_fn("data_up") + "data_up\n"
+            result = self._run_harness(harness, stub_bin=stub_bin)
+            pid_path = run_dir / "juniper-data.pid"
+            child_pid: int | None = None
+            try:
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertIn("juniper-data is healthy", result.stdout)
+                self.assertTrue(pid_path.is_file(), "data_up must record listener pid via ss (F-6)")
+                child_pid = int(pid_path.read_text().strip())
+                self.assertTrue(Path(f"/proc/{child_pid}").exists())
+                self.assertEqual(
+                    child_pid,
+                    int((listeners_dir / "68110.pid").read_text().strip()),
+                    "pidfile must match the ss-reported listener, not a subshell $!",
+                )
+                env_text = (marker_dir / "data.env").read_text()
+                self.assertIn("PYTHON_GIL=0", env_text)
+                self.assertIn(f"JUNIPER_DATA_STORAGE_PATH={run_dir}/data", env_text)
+                self.assertIn(f"JUNIPER_DATA_EQUITIES_CACHE_DIR={run_dir}/equities-cache", env_text)
+                self.assertIn("JUNIPER_DATA_METRICS_ENABLED=true", env_text)
+                args = (marker_dir / "data.args").read_text()
+                self.assertIn("-m", args)
+                self.assertIn("juniper_data", args)
+                self.assertIn("--port", args)
+                self.assertIn("68110", args)
+                cmdline = (run_dir / "juniper-data.cmdline").read_text()
+                self.assertTrue(cmdline.strip(), "cmdline sidecar must be recorded for teardown")
+                launch_env = (run_dir / "env" / "launch.env").read_text()
+                self.assertIn("PYTHON_GIL=0", launch_env)
+            finally:
+                if child_pid is not None:
+                    _force_kill(child_pid)
+
+
+class TestCascorUpLive(_LiveUpHarness):
+    """Behavioral pins for live ``cascor_up`` (LD_LIBRARY_PATH='', data URL, src CWD)."""
+
+    def test_happy_path_libtorch_neutral_data_url_and_listener(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            marker_dir = root / "markers"
+            listeners_dir = root / "listeners"
+            project_dir = root / "project"
+            conda_dir = root / "conda"
+            cascor_src = project_dir / "juniper-cascor" / "src"
+            cascor_src.mkdir(parents=True)
+            stub_bin = _stage_live_path_stubs(root, listeners_dir)
+            _write_listening_env_bin(
+                conda_dir / "envs" / "JuniperCascor1" / "bin" / "uvicorn",
+                listeners_dir=listeners_dir,
+                marker_dir=marker_dir,
+                label="cascor",
+            )
+            harness = self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir) + _extract_experiment_fn("cascor_up") + "cascor_up\n"
+            result = self._run_harness(harness, stub_bin=stub_bin)
+            pid_path = run_dir / "juniper-cascor.pid"
+            child_pid: int | None = None
+            try:
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertIn("juniper-cascor is healthy", result.stdout)
+                self.assertTrue(pid_path.is_file())
+                child_pid = int(pid_path.read_text().strip())
+                env_text = (marker_dir / "cascor.env").read_text()
+                self.assertIn("LD_LIBRARY_PATH=\n", env_text)
+                self.assertIn("JUNIPER_DATA_URL=http://127.0.0.1:68110", env_text)
+                self.assertIn("JUNIPER_CASCOR_AUTO_START=false", env_text)
+                self.assertIn("JUNIPER_CASCOR_METRICS_ENABLED=true", env_text)
+                args = (marker_dir / "cascor.args").read_text()
+                self.assertIn("api.app:create_app", args)
+                self.assertIn("--factory", args)
+                self.assertIn("68230", args)
+                self.assertIn(f"PWD={cascor_src}", (marker_dir / "cascor.env").read_text())
+            finally:
+                if child_pid is not None:
+                    _force_kill(child_pid)
+
+    def test_missing_uvicorn_aborts_before_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            listeners_dir = root / "listeners"
+            project_dir = root / "project"
+            conda_dir = root / "conda"
+            (project_dir / "juniper-cascor" / "src").mkdir(parents=True)
+            (conda_dir / "envs" / "JuniperCascor1" / "bin").mkdir(parents=True)
+            stub_bin = _stage_live_path_stubs(root, listeners_dir)
+            harness = self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir) + _extract_experiment_fn("cascor_up") + "set +e\n" + "cascor_up\n" + "echo STATUS=$?\n"
+            result = self._run_harness(harness, stub_bin=stub_bin)
+            # Harness ends with `echo STATUS=$?` under `set +e`; a non-zero STATUS is the pin.
+            self.assertIn("STATUS=1", result.stdout, msg=result.stderr + result.stdout)
+            self.assertIn("uvicorn not found in conda env", result.stdout)
+            self.assertFalse((run_dir / "juniper-cascor.pid").exists())
+
+
+class TestRecurrenceUpLive(_LiveUpHarness):
+    """Behavioral pins for live ``recurrence_up`` (ready health + metrics/rate-limit env)."""
+
+    def test_happy_path_ready_health_and_listener(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            marker_dir = root / "markers"
+            listeners_dir = root / "listeners"
+            project_dir = root / "project"
+            conda_dir = root / "conda"
+            (project_dir / "juniper-cascor" / "src").mkdir(parents=True)
+            stub_bin = _stage_live_path_stubs(root, listeners_dir)
+            _write_listening_env_bin(
+                conda_dir / "envs" / "JuniperCascor1" / "bin" / "juniper-recurrence",
+                listeners_dir=listeners_dir,
+                marker_dir=marker_dir,
+                label="recurrence",
+            )
+            harness = self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir) + _extract_experiment_fn("recurrence_up") + "recurrence_up\n"
+            result = self._run_harness(harness, stub_bin=stub_bin)
+            pid_path = run_dir / "juniper-recurrence.pid"
+            child_pid: int | None = None
+            try:
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertIn("juniper-recurrence is healthy", result.stdout)
+                self.assertTrue(pid_path.is_file())
+                child_pid = int(pid_path.read_text().strip())
+                env_text = (marker_dir / "recurrence.env").read_text()
+                self.assertIn("JUNIPER_RECURRENCE_METRICS_ENABLED=true", env_text)
+                self.assertIn("JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=false", env_text)
+                self.assertIn("JUNIPER_DATA_URL=http://127.0.0.1:68110", env_text)
+                args = (marker_dir / "recurrence.args").read_text()
+                self.assertIn("serve", args)
+                self.assertIn("68260", args)
+            finally:
+                if child_pid is not None:
+                    _force_kill(child_pid)
+
+
+class TestDoUpPartialFailureTeardown(unittest.TestCase):
+    """``do_up`` must tear a partial run back down when a later service fails."""
+
+    def test_cascor_missing_bin_tears_down_data_and_releases_locks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_root = root / "runs"
+            lock_root = root / "locks"
+            deploy_dir = root / "deploy"
+            project_dir = root / "project"
+            conda_dir = root / "conda"
+            listeners_dir = root / "listeners"
+            marker_dir = root / "markers"
+            (project_dir / "juniper-cascor" / "src").mkdir(parents=True)
+            stub_bin = _stage_live_path_stubs(root, listeners_dir)
+            _write_listening_env_bin(
+                conda_dir / "envs" / "JuniperData" / "bin" / "python",
+                listeners_dir=listeners_dir,
+                marker_dir=marker_dir,
+                label="data",
+            )
+            # Cascor env exists but uvicorn is missing → require_env_bin fails after data_up.
+            (conda_dir / "envs" / "JuniperCascor1" / "bin").mkdir(parents=True)
+
+            env = RedactedEnv(
+                os.environ,
+                JUNIPER_EXP_RUN_ROOT=str(run_root),
+                JUNIPER_EXP_LOCK_ROOT=str(lock_root),
+                JUNIPER_EXP_DEPLOY_DIR=str(deploy_dir),
+                JUNIPER_EXP_PROJECT_DIR=str(project_dir),
+                JUNIPER_EXP_CONDA_DIR=str(conda_dir),
+                JUNIPER_EXP_HEALTH_TIMEOUT="4",
+                JUNIPER_EXP_KILL_TIMEOUT="5",
+                PATH=str(stub_bin) + os.pathsep + "/usr/bin:/bin",
+            )
+            result = subprocess.run(
+                ["/bin/bash", str(SCRIPT_PATH), "--up", "--cascor", "--experiment", "partial-fail"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=TEARDOWN_TIMEOUT_SECONDS,
+            )
+            self.assertNotEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("bring-up failed — tearing the partial run back down", result.stdout)
+            self.assertIn("uvicorn not found in conda env", result.stdout)
+
+            runs = list(run_root.iterdir()) if run_root.is_dir() else []
+            self.assertEqual(len(runs), 1, f"expected one partial RUN_DIR, got {runs}")
+            run_dir = runs[0]
+            self.assertTrue((run_dir / "ports.json").is_file(), "ports.json must exist before launches")
+            self.assertTrue((run_dir / "teardown.json").is_file(), "teardown_run must write teardown.json")
+            self.assertFalse((run_dir / "juniper-data.pid").exists(), "teardown must clear the data pidfile")
+            self.assertFalse((lock_root / "8110.lock").exists(), "data port lock must be released")
+            self.assertFalse((lock_root / "8230.lock").exists(), "cascor port lock must be released")
+            data_listener = listeners_dir / "8110.pid"
+            if data_listener.is_file():
+                pid = int(data_listener.read_text().strip())
+                for _ in range(60):
+                    if not Path(f"/proc/{pid}").exists():
+                        break
+                    time.sleep(0.1)
+                self.assertFalse(Path(f"/proc/{pid}").exists(), "partial teardown must kill the data listener")
 
 
 if __name__ == "__main__":

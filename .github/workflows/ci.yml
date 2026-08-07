@@ -206,6 +206,11 @@ jobs:
           python3 -m unittest -v tests/test_worktree_cleanup.py
           python3 -m unittest -v tests/test_worktree_activate.py
           python3 -m unittest -v tests/test_worktree_sweep_scripts.py
+          # tests/test_yubikey_test_pinentry.py: Assuan OK greeting/BYE + GETPIN
+          # class routing for util/ad-hoc/2026-08-03_yubikey_test_pinentry.bash
+          # (#914 regression: non-OK greeting -> gpg-agent "No pinentry").
+          # util/ad-hoc is not pre-commit-lint-gated; this unittest is the gate.
+          python3 -m unittest -v tests/test_yubikey_test_pinentry.py
           # tests/test_cleanup_session_worktrees.py: hermetic coverage for
           # scripts/cleanup_session_worktrees.py — _has_merged_pr fail-closed
           # (gh fail / bad JSON), dirty/unmerged/detached keeps, self-cwd skip,
@@ -353,6 +358,32 @@ jobs:
           python3 -m unittest -v tests/test_requirements_drift_check.py
           python3 -m unittest -v tests/test_validate_claude_yaml_access.py
           python3 -m unittest -v tests/test_workflow_script_paths.py
+          # tests/test_ci_precommit_g4.py: YAML-extraction rehearsal for ci.yml's
+          # G4 pre-commit changed-files split (flood §4 item 8 phase 2 / #759) --
+          # pull_request / merge_group must --from-ref <BASE> --to-ref HEAD; push
+          # (and other non-PR events) keep --all-files. Workflow YAML is not
+          # otherwise lint-gated for this split, so this unittest is the gate.
+          python3 -m unittest -v tests/test_ci_precommit_g4.py
+          # tests/test_main_verify_workflow_guard.py: structural trust-binding guard for
+          # main-verify.yml's notify job (#928 review) -- the stable-title tracking-issue
+          # dedup must bind to creator=github-actions[bot] authorship (+ exact title +
+          # .pull_request filter; label-free match, bot-applied label on create). A title
+          # alone is never a trust boundary on a public repo.
+          python3 -m unittest -v tests/test_main_verify_workflow_guard.py
+          # tests/test_publish_testpypi_verify.py: structural + hermetic YAML-extraction
+          # gate for publish.yml's TestPyPI bare/[clients]/[tools] install verification
+          # (extras-resolution ship-silent class + TestPyPI index / no --no-deps contract).
+          python3 -m unittest -v tests/test_publish_testpypi_verify.py
+          # tests/test_main_verify_battery_paths.py: main-verify.yml battery
+          # path-change detector (P2 G3 burst-cost gate) -- util|tests|scripts|
+          # .github|pyproject → run; docs/notes-only → skip; unresolvable base →
+          # fail-open. YAML-extraction rehearsal IS the gate.
+          python3 -m unittest -v tests/test_main_verify_battery_paths.py
+          # tests/test_ci_quality_gate.py: Quality Gate needs: must exclude
+          # advisory/PR-only jobs (sequence-safety / fleet-pr-lint /
+          # release-train-archive-guard); security soft-fails on == failure
+          # (skipped OK). Structural + shell rehearsal IS the gate.
+          python3 -m unittest -v tests/test_ci_quality_gate.py
           # tests/test_symbol_loss_check.py + tests/test_docs_additions_check.py:
           # the flood-remediation sequence-safety screens (Proposal P2 gates G1/G2,
           # productionized from the 2026-07-28 Cursor-flood census). Hermetic git
@@ -365,6 +396,32 @@ jobs:
           # (G3) -- whose battery job mirrors THIS list and must stay in sync with it.
           python3 -m unittest -v tests/test_symbol_loss_check.py
           python3 -m unittest -v tests/test_docs_additions_check.py
+          # tests/test_ci_sequence_safety_hatch.py: YAML-extraction rehearsal for
+          # ci.yml's sequence-safety label hatch (P2 SF5) -- allow-symbol-loss /
+          # docs-rewrite → --advisory via grep -qx; merge_group stays strict; exit
+          # 1/2 aggregation. Complements the CLI --advisory arms above (workflow
+          # wiring the module tests cannot see).
+          python3 -m unittest -v tests/test_ci_sequence_safety_hatch.py
+          # tests/test_main_verify_catchup_base.py: YAML-extraction rehearsal for
+          # main-verify.yml G3.1 catch-up BASE (flood §4 item 8 / [skip ci] window).
+          # Extracts the workflow's Resolve catch-up base shell and drives ancestor
+          # tip / non-ancestor fallback / zero BEFORE → HEAD^1 / last_ok==HEAD /
+          # jq null — hermetic git fixture + stub gh. PyYAML (installed above).
+          python3 -m unittest -v tests/test_main_verify_catchup_base.py
+          # tests/test_main_verify_notify_dedup.py: YAML-extraction rehearsal for
+          # main-verify.yml notify stable-title issue dedup (ml#928 / 0.3.0). Extracts
+          # the upsert shell and drives first-failure create / subsequent-SHA comment /
+          # creator-bound gh-api soft-fail → create, plus structural TITLE + authorship
+          # binding pins. Hermetic stub gh; PyYAML (installed above). Mirror in
+          # main-verify battery.
+          python3 -m unittest -v tests/test_main_verify_notify_dedup.py
+          # tests/test_ci_fleet_pr_lint.py: YAML-extraction rehearsal for
+          # ci.yml Fleet PR Lint (P2 G5-iv / flood §4 item 8 phase 4) --
+          # commit-count warn, black --check warn path, fan-out >15, exact
+          # AGENTS.md / cheatsheet hotspots, always exit 0. Hermetic git
+          # fixture + stub black; PyYAML (installed above). Mirror in
+          # main-verify battery.
+          python3 -m unittest -v tests/test_ci_fleet_pr_lint.py
           # tests/test_doc_tools_drift.py: the cross-repo
           # consumer-pin assertions auto-skip when siblings are not
           # cloned (per-PR mode); the helper unit tests + juniper-ml's
@@ -372,6 +429,16 @@ jobs:
           # bumps juniper-doc-tools in this same PR but forgets to
           # bump the pin in juniper-ml's own workflows.
           python3 -m unittest -v tests/test_doc_tools_drift.py
+          # tests/test_docs_full_check_ecosystem.py: lockstep gate for
+          # docs-full-check.yml env.ECOSYSTEM_REPOS vs registry publishing
+          # siblings (+ juniper-deploy). Catches the juniper-recurrence
+          # clone omission that silently dropped weekly cross-repo screens.
+          python3 -m unittest -v tests/test_docs_full_check_ecosystem.py
+          # tests/test_archive_guard_workflow.py: structural pin for the
+          # release-train-archive-guard merge_group short-circuit (flood
+          # §4 item 1) — job if, first-step notice, pull_request-only work
+          # steps, and absence from Quality Gate needs.
+          python3 -m unittest -v tests/test_archive_guard_workflow.py
           # tests/test_ci_tools_drift.py: same skip semantics as the
           # doc-tools sibling above -- the cross-repo consumer-pin
           # assertion auto-skips when siblings are not cloned, but the
@@ -382,6 +449,16 @@ jobs:
           # docs-full-check.yml. The full cross-repo assertion runs
           # weekly via docs-full-check.yml.
           python3 -m unittest -v tests/test_ci_tools_drift.py
+          # tests/test_lockfile_update_workflow.py: structural gate for the weekly
+          # lockfile-update.yml refresh — juniper-generate-dep-docs (not the deleted
+          # inline dep-docs shell script), SHA-pinned create-pull-request, branch/labels/
+          # permissions. Companion to test_ci_tools_drift (pin range only).
+          python3 -m unittest -v tests/test_lockfile_update_workflow.py
+          # tests/test_security_scan_workflow.py: structural + hermetic rehearsal for
+          # the scheduled security-scan.yml — pins pip-audit --strict --desc on after
+          # pip install -e . (distinct from ci.yml's per-PR security job, which
+          # intentionally omits --strict). Neither workflow YAML is otherwise gated.
+          python3 -m unittest -v tests/test_security_scan_workflow.py
           # tests/test_coverage_gap_mapper_drift.py: dogfood gate for the
           # juniper-coverage-gap-map console script (enhancement E-4 + the C-0
           # enforcing mode; the per-file coverage-gap mapper hosted in
@@ -397,6 +474,14 @@ jobs:
           # stays a documented manual-verify step; the full behavioural matrix is
           # juniper-ci-tools' own pytest suite (synthetic fixtures, ci-ci-tools.yml).
           python3 -m unittest -v tests/test_coverage_gap_mapper_drift.py
+          # tests/test_subpackage_ci_workflows.py: structural gate for the six
+          # in-repo shared-package ci-*.yml workflows (path filters incl. self,
+          # python matrix floors, working-directory / service-core sibling
+          # install, --cov-fail-under + blocking juniper-coverage-gap-map
+          # --enforce, build.needs:test, wheel-smoke entry points). Workflow
+          # YAML is not pre-commit-lint-gated for these properties, so this
+          # unittest is the gate.
+          python3 -m unittest -v tests/test_subpackage_ci_workflows.py
           # tests/test_model_core_drift.py + tests/test_service_core_drift.py:
           # same idea as the doc-tools/ci-tools drift lints, but the pin lives in
           # pyproject.toml's [tools] extra (library deps, not CI-workflow installs).
@@ -489,6 +574,11 @@ jobs:
           # `.github/workflows/agents-md-touch-up.yml` workflow,
           # which auto-bumps on each PR push touching AGENTS.md.
           python3 -m unittest -v tests/test_agents_md_header_schema.py
+          # tests/test_agents_md_touch_up.py: YAML-extraction rehearsal for
+          # agents-md-touch-up.yml — missing field / already-today no-ops, stale
+          # date sed-bump + github-actions[bot] commit with [skip ci], rebase+push
+          # without --force. Workflow shell is not otherwise lint-gated.
+          python3 -m unittest -v tests/test_agents_md_touch_up.py
           # tests/test_agents_md_tree_drift.py: gap-G-3 guard -- every tracked
           # non-hidden top-level dir must appear in AGENTS.md's Repository-Structure
           # tree (catches the indented-tree omission the grep path-drift guard cannot).

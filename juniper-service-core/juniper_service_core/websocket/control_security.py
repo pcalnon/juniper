@@ -83,6 +83,11 @@ class LeakyBucket:
         with self._lock:
             if self._tokens >= 1.0:
                 return 0.0
+            # ``ws_control_rate_limit_per_sec=0`` builds ``refill_rate=0.0``; dividing
+            # the deficit by that crashed the control handler instead of acking
+            # ``rate_limited``. No refill → tell the client to back off hard.
+            if self._refill_rate <= 0:
+                return 3600.0
             deficit = 1.0 - self._tokens
             return round(deficit / self._refill_rate, 1)
 

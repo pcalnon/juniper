@@ -4,8 +4,8 @@
 **Repository**: pcalnon/juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
-**Version**: 1.2.2
-**Last Updated**: 2026-07-26
+**Version**: 1.2.3
+**Last Updated**: 2026-08-05
 
 ---
 
@@ -403,6 +403,7 @@ still archives at ceremony time:
 | `**Release Type:** …` | `major` → **MAJOR**, `minor` → **MINOR**, `patch`/`none`/unknown → **PATCH** | `release_type` / `_RELEASE_TYPE` (`notes_render.py:52`, `89-90`) |
 | `**Breaking changes:** …` | **YES** only when a Keep-a-Changelog **`Removed`** category is present (case-insensitive); otherwise **NO** | `notes_render.py:239` |
 | Bullets under What's New | Both `-` and `*` markers; indented / bare continuations fold into the current bullet; stray prose before any marker is ignored | `_split_bullets` (`notes_render.py:101-120`) / `parse_unreleased` |
+| Repo-relative CHANGELOG links | Rewritten absolute via `link_base` (table below) so centrally archived notes do not 404 | `rewrite_relative_links` (`notes_render.py:373-388`) |
 
 **Pitfalls:**
 
@@ -410,8 +411,37 @@ still archives at ceremony time:
 - A MAJOR bump labeled PATCH (or Breaking stuck at NO despite a `### Removed` section) means the
   bump→`release_type` map or the Removed membership check drifted.
 - Prefer `-` in hand-edited CHANGELOG, but do not reject a proposal solely because Unreleased used `*`.
+- A drafted or archived note that still shows repo-relative `[text](docs/…)` / `[text](notes/…)` links means
+  the caller omitted `link_base` — fix the call site (or pass CLI `--link-base`); do not hand-edit the
+  archive to absolute URLs.
 
-Coverage pins: `tests/test_release_train_propose.py` (juniper-ml#756).
+##### `link_base` — absolute CHANGELOG links in archived notes
+
+Release notes are archived centrally under `notes/releases/` in **juniper-ml**, but CHANGELOG bullets
+often carry links relative to the **owning** repo's tree. Archived verbatim, those targets 404 when
+read outside that repo (the canopy v0.6.0 archive class).
+
+`notes_render.rewrite_relative_links` prefixes relative inline-markdown targets with a `link_base`
+URL (`https://github.com/<owner>/<repo>/blob/<ref>`, no trailing slash). Callers set it as follows
+(also overridable via CLI `--link-base`):
+
+| Caller | Default `link_base` | Source |
+|---|---|---|
+| **ceremony** (central archive) | Owning repo's **tag-pinned** blob URL — `…/blob/{plan.tag}` | `ceremony.py` → `render_notes(…, link_base=…)` |
+| **propose** (Gate 1 draft) | Owning repo's `blob/main` — `…/blob/main` | `propose.py` → `render_notes(…, link_base=…)` |
+| CLI / offline | Explicit `--link-base URL`, or omit (no rewrite; back-compat) | `notes_render.py` CLI |
+
+What is rewritten vs left alone (`test_rewrite_relative_links_shapes`, juniper-ml#877):
+
+| Link form | Treatment |
+|---|---|
+| `[t](notes/X.md)`, `[t](./notes/X.md#sec)`, `[t](docs/Y.md "Title")` | → `{link_base}/notes/X.md` (leading `./` stripped; path anchors + markdown titles kept) |
+| Absolute `https://…` / `http://…` | Untouched |
+| `mailto:…`, bare `#anchor`, protocol-relative `//…` | Untouched |
+
+**Gate 1 check:** open the drafted notes (or the archive PR file) and confirm CHANGELOG-sourced relative
+links resolve to the owning repo (tag tip for ceremony; `main` for propose). Coverage pins:
+`tests/test_release_train_propose.py` (juniper-ml#756 header signals + juniper-ml#877 `link_base`).
 
 #### CHANGELOG refuse clears staged edits (juniper-ml#751)
 
@@ -898,5 +928,7 @@ gh release delete <tag> --repo pcalnon/<owning-repo> --cleanup-tag --yes
   §6 / §6.1 (implemented by juniper-ml#710; hardened by juniper-ml#712).
 - Notes-draft + healthy-hygiene operator edges (Gate 1 title/MAJOR/Breaking; `TAG_ONLY`/`NOTES_MISSING`
   clear when Release + archive exist): coverage juniper-ml#756; this runbook §3.1 / §3.2.
+- `link_base` relative-link rewrite (central-archive correctness; canopy v0.6.0 404 class): coverage
+  juniper-ml#877; this runbook §3.2 “Gate 1 review — notes draft”.
 - Release convention (cut a Release, archive notes centrally): repo `AGENTS.md` "Publishing" +
   [`JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md`](JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md) §11.

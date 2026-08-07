@@ -35,8 +35,13 @@ class APIKeyAuth:
 
         Args:
             api_keys: List of valid API keys. If None or empty, auth is disabled.
+                Blank / whitespace-only entries are ignored (same rule as
+                :func:`juniper_service_core.auth_posture.real_keys`) so an empty
+                secret file cannot enable auth that accepts an empty ``X-API-Key``.
         """
-        self._api_keys: set[str] = set(api_keys) if api_keys else set()
+        # Filter blanks before enabling: ``APIKeyAuth([""])`` must stay disabled,
+        # not authenticate a missing/empty header via compare_digest("", "").
+        self._api_keys: set[str] = {k for k in (api_keys or []) if isinstance(k, str) and k.strip()}
         self._enabled = len(self._api_keys) > 0
 
     @property
