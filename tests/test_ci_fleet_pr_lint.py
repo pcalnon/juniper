@@ -178,17 +178,12 @@ class FleetPrLintRehearsalTest(unittest.TestCase):
             black = stub_bin / "black"
             if black_fails:
                 black.write_text(
-                    "#!/usr/bin/env bash\n"
-                    "set -euo pipefail\n"
-                    "echo 'would reformat dirty.py' >&2\n"
-                    "exit 1\n",
+                    "#!/usr/bin/env bash\n" "set -euo pipefail\n" "echo 'would reformat dirty.py' >&2\n" "exit 1\n",
                     encoding="utf-8",
                 )
             else:
                 black.write_text(
-                    "#!/usr/bin/env bash\n"
-                    "set -euo pipefail\n"
-                    "exit 0\n",
+                    "#!/usr/bin/env bash\n" "set -euo pipefail\n" "exit 0\n",
                     encoding="utf-8",
                 )
             black.chmod(black.stat().st_mode | stat.S_IXUSR)
@@ -323,7 +318,7 @@ class FleetPrLintStructuralTest(unittest.TestCase):
     def test_black_pin_matches_pre_commit_rev(self) -> None:
         self.assertIsNotNone(self.black_step)
         run = self.black_step["run"]
-        self.assertIn('black==26.3.1', run)
+        self.assertIn("black==26.3.1", run)
 
 
 if __name__ == "__main__":
