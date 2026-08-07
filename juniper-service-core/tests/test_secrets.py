@@ -45,3 +45,26 @@ def test_returns_none_when_neither_set(monkeypatch):
     monkeypatch.delenv("MY_SECRET_FILE", raising=False)
     monkeypatch.delenv("MY_SECRET", raising=False)
     assert get_secret("MY_SECRET") is None
+
+
+def test_falls_back_when_file_env_points_at_directory(tmp_path, monkeypatch):
+    # A directory is not ``is_file()`` — must fall back to the plain env var (never
+    # attempt ``read_text`` on a directory / treat the path as a secret value).
+    monkeypatch.setenv("MY_SECRET_FILE", str(tmp_path))
+    monkeypatch.setenv("MY_SECRET", "plain-env-value")
+    assert get_secret("MY_SECRET") == "plain-env-value"
+
+
+def test_non_utf8_secret_file_raises_unicode_decode_error(tmp_path, monkeypatch):
+    # Current contract: ``Path.read_text()`` is bare — a binary / non-UTF-8 Docker
+    # secret aborts with ``UnicodeDecodeError`` rather than silently returning the
+    # plain env fallback. Pin so a future fail-soft change is intentional.
+    secret_file = tmp_path / "api_key.bin"
+    secret_file.write_bytes(b"\xff\xfe\x00not-utf8")
+    monkeypatch.setenv("MY_SECRET_FILE", str(secret_file))
+    monkeypatch.setenv("MY_SECRET", "plain-env-value")
+    try:
+        get_secret("MY_SECRET")
+    except UnicodeDecodeError:
+        return
+    raise AssertionError("expected UnicodeDecodeError for non-UTF-8 _FILE contents")

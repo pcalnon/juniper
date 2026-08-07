@@ -308,14 +308,26 @@ jobs:
           python3 -m unittest -v tests/test_requirements_drift_check.py
           python3 -m unittest -v tests/test_validate_claude_yaml_access.py
           python3 -m unittest -v tests/test_workflow_script_paths.py
-          python3 -m unittest -v tests/test_main_verify_workflow_guard.py
+          # ci.yml G4 pre-commit split + sequence-safety label hatch (mirror ci.yml).
+          python3 -m unittest -v tests/test_ci_precommit_g4.py
+          python3 -m unittest -v tests/test_publish_testpypi_verify.py
+          python3 -m unittest -v tests/test_main_verify_battery_paths.py
+          python3 -m unittest -v tests/test_ci_quality_gate.py
+          python3 -m unittest -v tests/test_publish_subpackage_workflows.py
           # Flood-remediation sequence-safety screens (P2 G1/G2; mirror ci.yml).
           python3 -m unittest -v tests/test_symbol_loss_check.py
           python3 -m unittest -v tests/test_docs_additions_check.py
+          python3 -m unittest -v tests/test_ci_sequence_safety_hatch.py
+          python3 -m unittest -v tests/test_main_verify_workflow_guard.py
+          # Flood-remediation sequence-safety screens (P2 G1/G2; mirror ci.yml).
           python3 -m unittest -v tests/test_main_verify_catchup_base.py
+          python3 -m unittest -v tests/test_main_verify_notify_dedup.py
+          # Fleet PR Lint advisory rehearsal (mirror ci.yml).
+          python3 -m unittest -v tests/test_ci_fleet_pr_lint.py
           python3 -m unittest -v tests/test_doc_tools_drift.py
           python3 -m unittest -v tests/test_ci_tools_drift.py
           python3 -m unittest -v tests/test_coverage_gap_mapper_drift.py
+          python3 -m unittest -v tests/test_subpackage_ci_workflows.py
           python3 -m unittest -v tests/test_model_core_drift.py
           python3 -m unittest -v tests/test_service_core_drift.py
           python3 -m unittest -v tests/test_pyproject_extras.py
