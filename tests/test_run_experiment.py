@@ -1183,7 +1183,7 @@ class PlotRendererUnitTest(unittest.TestCase):
 
     def test_render_decision_boundary_rejects_empty_predictions(self) -> None:
         # Empty grid must ValueError so the driver records a per-plot SKIP (not a blank PNG).
-        boundary = {"grid_x": [], "grid_y": [], "predictions": []}
+        boundary: dict[str, list] = {"grid_x": [], "grid_y": [], "predictions": []}
         with self.assertRaises(ValueError) as ctx:
             self.plots.render_decision_boundary(boundary, None, "t", self.tmp / "boundary.png")
         self.assertIn("empty prediction grid", str(ctx.exception))
