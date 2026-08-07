@@ -356,7 +356,15 @@ def make_live_sources(owner: str, repo_root: Path, ecosystem_root: Path) -> Sour
 
     def list_releases(repo: str) -> set:
         if repo not in rel_cache:
-            rel_cache[repo] = set(_gh_lines(["--paginate", f"repos/{owner}/{repo}/releases?per_page=100", "--jq", ".[].tag_name"]) or [])
+            # ``_gh_lines`` returns None on gh 404 / Not Found. Coercing that to ``set()``
+            # via ``or []`` made ``diff_base_tag not in releases`` always True → false
+            # TAG_ONLY for every package when the Releases API is unavailable (auth gap,
+            # renamed repo, transient Not Found). Raise so classify_package sets
+            # tag_only=None ("unavailable"), matching make_local_git_sources (#773).
+            lines = _gh_lines(["--paginate", f"repos/{owner}/{repo}/releases?per_page=100", "--jq", ".[].tag_name"])
+            if lines is None:
+                raise SourceError(f"releases unavailable (gh 404/Not Found) for {repo}; cannot evaluate TAG_ONLY")
+            rel_cache[repo] = set(lines)
         return rel_cache[repo]
 
     def compare(entry: PackageEntry, base: str, head: str) -> CompareResult:

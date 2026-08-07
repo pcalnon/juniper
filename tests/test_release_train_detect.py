@@ -19,6 +19,8 @@ Covers (task acceptance list):
   * CLI exit codes 0 / 1 / 2
   * live-sources ``gh compare`` 300-file cap -> ``local_git_compare`` fallback
     (keeps remote commit messages for SemVer)
+  * live-sources ``list_releases`` gh 404/None -> SourceError (not empty set /
+    false TAG_ONLY); empty list still means genuine TAG_ONLY
 
 ``util/`` is not pre-commit-lint-gated, so this unittest IS the gate (the
 ``env_floor_drift_check`` precedent). Imported via the house ``sys.path.insert`` idiom.
@@ -621,6 +623,58 @@ class ClassificationTest(unittest.TestCase):
             msg=f"expected unavailable note, got {rec.notes!r}",
         )
         # notes_missing is orthogonal and still evaluated
+        self.assertTrue(rec.hygiene["notes_missing"])
+
+    def test_live_list_releases_none_raises_source_error(self):
+        """make_live_sources.list_releases must raise on gh 404/None — not empty-set TAG_ONLY.
+
+        Pre-fix: ``set(_gh_lines(...) or [])`` turned a Releases-API Not Found into
+        ``set()``, so every package reported TAG_ONLY. Empty list (genuine zero
+        Releases) remains a real empty set and still means TAG_ONLY.
+        """
+        sources = d.make_live_sources("pcalnon", self.repo_root, self.eco)
+        with mock.patch.object(d, "_gh_lines", return_value=None):
+            with self.assertRaises(d.SourceError) as ctx:
+                sources.list_releases("juniper-ml")
+        msg = str(ctx.exception).lower()
+        self.assertIn("unavailable", msg)
+        self.assertIn("tag_only", msg)
+
+    def test_live_list_releases_empty_list_is_genuine_tag_only_signal(self):
+        """An authenticated empty Releases list is real data — empty set, not SourceError."""
+        sources = d.make_live_sources("pcalnon", self.repo_root, self.eco)
+        with mock.patch.object(d, "_gh_lines", return_value=[]) as gh:
+            got = sources.list_releases("juniper-ml")
+        gh.assert_called_once()
+        self.assertEqual(got, set())
+        # Cached: a second call must not re-hit gh.
+        with mock.patch.object(d, "_gh_lines") as gh2:
+            self.assertEqual(sources.list_releases("juniper-ml"), set())
+        gh2.assert_not_called()
+
+    def test_live_hygiene_tag_only_unavailable_on_releases_404(self):
+        """Wire live list_releases (404) into classify_package → tag_only=None, not True."""
+        e = self._pkg("0.4.0")
+        self.fake.pypi["juniper-thing"] = _pypi("0.4.0")
+        self.fake.tags["juniper-ml"] = ["juniper-thing-v0.4.0"]
+        self.fake.releases["juniper-ml"] = {"juniper-thing-v0.4.0"}  # unused when live seam raises
+        self.fake.compares[("juniper-ml", "juniper-thing-v0.4.0", "main")] = d.CompareResult(files=[], commits=[])
+        live = d.make_live_sources("pcalnon", self.repo_root, self.eco)
+        base = self.fake.build()
+        sources = d.Sources(
+            pypi_json=base.pypi_json,
+            list_tags=base.list_tags,
+            list_releases=live.list_releases,
+            compare=base.compare,
+            read_file=base.read_file,
+        )
+        with mock.patch.object(d, "_gh_lines", return_value=None):
+            rec = d.classify_package(e, sources, self.repo_root, self.eco)
+        self.assertIsNone(rec.hygiene["tag_only"])
+        self.assertTrue(
+            any("release-hygiene (tag_only) unavailable" in n for n in rec.notes),
+            msg=f"expected unavailable note, got {rec.notes!r}",
+        )
         self.assertTrue(rec.hygiene["notes_missing"])
 
     def test_ship_uncertain_when_compare_truncated_without_ship_evidence(self):

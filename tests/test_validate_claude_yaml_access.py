@@ -6,7 +6,9 @@ Covers the happy path plus the three failure modes the script detects:
   L3b if-guard does not reference the '@claude' literal
 
 Also covers the no-arg ``default_targets`` path: ``JUNIPER_ROOT`` sibling-repo
-scan (canonical 8 repos) and the empty-scan warning exit-0 arm.
+scan (8 publishing repos + juniper-deploy) and the empty-scan warning exit-0 arm.
+Pins ``DEFAULT_REPOS`` membership lockstep so a publishing sibling (e.g.
+``juniper-recurrence``) cannot silently drop out of the weekly audit fan-out.
 
 Additionally pins the live juniper-ml ``.github/workflows/claude.yml``
 ``on:`` event matrix, per-event ``if:`` gates, and exact job ``permissions``
@@ -20,6 +22,7 @@ util/validate_claude_yaml_access.bash relative to this file.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -33,6 +36,10 @@ from tests.redacted_env import RedactedEnv
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = REPO_ROOT / "util" / "validate_claude_yaml_access.bash"
 CLAUDE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "claude.yml"
+REGISTRY_PATH = REPO_ROOT / "util" / "release_train" / "registry.yaml"
+
+# Infra sibling that is not a PyPI publisher but still carries claude.yml risk.
+_DEPLOY_SIBLING = "juniper-deploy"
 
 # Live claude.yml contract (public-repo ANTHROPIC_API_KEY surface).
 _EXPECTED_ON_EVENTS = frozenset(
@@ -148,6 +155,36 @@ def _write_sibling_claude(juniper_root: Path, repo_name: str, body: str) -> Path
     return target
 
 
+def _parse_default_repos(script_text: str) -> frozenset[str]:
+    """Extract the DEFAULT_REPOS=(...) membership from the bash source."""
+    match = re.search(
+        r"^DEFAULT_REPOS=\(\s*(.*?)^\)$",
+        script_text,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError("DEFAULT_REPOS=(...) block not found in validate script")
+    names = [line.strip() for line in match.group(1).splitlines() if line.strip() and not line.strip().startswith("#")]
+    return frozenset(names)
+
+
+def _publishing_repos_from_registry() -> frozenset[str]:
+    """Unique ``repo`` values from util/release_train/registry.yaml (8 publishers)."""
+    try:
+        import yaml
+    except ImportError as exc:  # pragma: no cover - CI always has PyYAML
+        raise unittest.SkipTest(f"PyYAML unavailable: {exc}") from exc
+    data = yaml.safe_load(REGISTRY_PATH.read_text(encoding="utf-8"))
+    packages = data.get("packages") if isinstance(data, dict) else None
+    if not isinstance(packages, list):
+        raise AssertionError(f"registry.yaml missing packages list: {REGISTRY_PATH}")
+    repos: set[str] = set()
+    for pkg in packages:
+        if isinstance(pkg, dict) and isinstance(pkg.get("repo"), str):
+            repos.add(pkg["repo"])
+    return frozenset(repos)
+
+
 class ScriptShapeTests(unittest.TestCase):
     def test_script_exists_and_is_executable(self) -> None:
         self.assertTrue(SCRIPT_PATH.is_file(), f"missing: {SCRIPT_PATH}")
@@ -245,6 +282,27 @@ class ValidatorBehaviorTests(unittest.TestCase):
 class DefaultTargetsTests(unittest.TestCase):
     """No-arg default_targets: JUNIPER_ROOT sibling scan + empty-scan warning."""
 
+    def test_default_repos_lockstep_publishing_plus_deploy(self) -> None:
+        """DEFAULT_REPOS must cover every registry publishing repo + deploy.
+
+        Historical footgun: juniper-recurrence was a publishing sibling but
+        absent from DEFAULT_REPOS, so the weekly JUNIPER_ROOT audit skipped its
+        claude.yml even when the checkout was present (secret-spend class).
+        """
+        script_text = SCRIPT_PATH.read_text(encoding="utf-8")
+        default_repos = _parse_default_repos(script_text)
+        expected = _publishing_repos_from_registry() | {_DEPLOY_SIBLING}
+        self.assertEqual(
+            default_repos,
+            expected,
+            msg=(f"DEFAULT_REPOS drifted from registry publishers ∪ {{{_DEPLOY_SIBLING}}}: " f"missing={sorted(expected - default_repos)} " f"extra={sorted(default_repos - expected)}"),
+        )
+        self.assertIn(
+            "juniper-recurrence",
+            default_repos,
+            msg="juniper-recurrence must stay in the weekly claude.yml fan-out",
+        )
+
     def test_juniper_root_scans_canonical_siblings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -263,6 +321,26 @@ class DefaultTargetsTests(unittest.TestCase):
             # Must not have audited the non-canonical sibling (would FAIL L2).
             self.assertNotIn("FAIL", result.stdout)
             self.assertNotIn("not-a-juniper-repo", result.stdout)
+
+    def test_juniper_root_audits_recurrence_sibling(self) -> None:
+        """A bad claude.yml under juniper-recurrence must fail the fan-out.
+
+        Pre-fix, DEFAULT_REPOS omitted recurrence so this checkout was silently
+        skipped (exit 0) — the exact blind spot this gate pins shut.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_sibling_claude(root, "juniper-ml", GOOD_YAML)
+            _write_sibling_claude(root, "juniper-recurrence", BAD_TRIGGER_YAML)
+            result = _run_validator_no_args(juniper_root=root)
+            self.assertEqual(
+                result.returncode,
+                1,
+                msg=f"stdout={result.stdout!r} stderr={result.stderr!r}",
+            )
+            self.assertIn("FAIL", result.stdout)
+            self.assertIn("L2 dangerous trigger present", result.stdout)
+            self.assertIn("juniper-recurrence", result.stdout)
 
     def test_juniper_root_aggregates_sibling_failures(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

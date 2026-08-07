@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 import types
 
@@ -194,6 +195,66 @@ async def test_handle_command_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
         assert "timed out" in ws.sent[-1]["data"]["error"]
     finally:
         release.set()
+
+
+@pytest.mark.asyncio
+async def test_handle_command_timeout_log_is_single_line(monkeypatch: pytest.MonkeyPatch, caplog) -> None:
+    """Timeout ERROR must stay single-line when ``command`` carries CRLF/control chars.
+
+    Complements open #961's reject-path pin: timeout / unexpected-failure also
+    interpolate ``safe_command`` and are equally forgeable if sanitizing regresses.
+    """
+    release = threading.Event()
+    malicious = "start\r\ninjected\x07"
+
+    class _BlockingExecutor:
+        commands = (malicious,)
+
+        def execute(self, command: str, params: dict | None) -> dict:
+            release.wait(timeout=5)
+            return {"ok": True}
+
+    monkeypatch.setattr(control_stream, "_COMMAND_TIMEOUTS", {malicious: 0.05})
+    ws = ControlFakeWS()
+    try:
+        with caplog.at_level(logging.ERROR, logger=control_stream.logger.name):
+            await _handle_command_message(ws, _BlockingExecutor(), {malicious}, {"command": malicious}, LeakyBucket())
+        assert ws.sent[-1]["data"]["status"] == "error"
+        assert "timed out" in ws.sent[-1]["data"]["error"]
+        timeout_msgs = [r.getMessage() for r in caplog.records if "timed out" in r.getMessage()]
+        assert timeout_msgs, "expected a command-timeout ERROR log line"
+        for msg in timeout_msgs:
+            assert "\n" not in msg
+            assert "\r" not in msg
+            assert "\x07" not in msg
+            assert "injected" in msg
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
+async def test_handle_command_failed_log_is_single_line(caplog) -> None:
+    """Unexpected-failure ERROR must stay single-line when ``command`` carries CRLF/control chars."""
+    malicious = "start\ninjected\x1bX"
+
+    class _RaisingExecutor:
+        commands = (malicious,)
+
+        def execute(self, command: str, params: dict | None) -> dict:
+            raise KeyError("boom")
+
+    ws = ControlFakeWS()
+    with caplog.at_level(logging.ERROR, logger=control_stream.logger.name):
+        await _handle_command_message(ws, _RaisingExecutor(), {malicious}, {"command": malicious}, LeakyBucket())
+    assert ws.sent[-1]["data"]["status"] == "error"
+    assert ws.sent[-1]["data"]["error"] == "Command execution failed"
+    failed_msgs = [r.getMessage() for r in caplog.records if "failed:" in r.getMessage()]
+    assert failed_msgs, "expected a command-failed ERROR log line"
+    for msg in failed_msgs:
+        assert "\n" not in msg
+        assert "\r" not in msg
+        assert "\x1b" not in msg
+        assert "injected" in msg
 
 
 @pytest.mark.asyncio
