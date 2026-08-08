@@ -25,6 +25,19 @@ owner gate (plan S7.2: "the PR is untouched and falls back to the standard owner
 auto-merges"). The guard has **no side effect** beyond its own pass/fail -- it opens nothing, merges
 nothing, and mutates no environment (R7).
 
+Escape hatch (the #1003 link-repair class). Once this guard is a REQUIRED status check, a PR that
+*corrects* an already-archived note (a dead-link repair, a typo fix) is unmergeable-by-default, since
+rule 1 is add-only. An ``Allow-Archive-Edit: <path>[, <path>...]`` commit trailer anywhere in the
+BASE..HEAD commit bodies **waives** rules 1/4 for the named archive files, exactly mirroring the house
+``Allow-Docs-Rewrite`` / ``Allow-Symbol-Loss`` idiom (``juniper_ci_tools.docs_additions_check``):
+full path, bare basename, or ``*`` for all. The waiver is **narrow by construction** -- it applies only
+to a change whose every path is a FLAT ``notes/releases/RELEASE_NOTES_*.md`` file; a waived path that
+also drags an out-of-archive path (a rename OUT, a mixed diff) still FAILs. A waived-and-otherwise-clean
+diff reports the distinct verdict **WAIVED** (exit 0, the waived paths named), never a silent ``OK``.
+The trailer text is *injected* (``--trailers-file``), so the classifier stays pure and the tests stay
+hermetic; ``ci.yml`` produces the file with ``git log --format=%B <BASE>..HEAD``. Trailers travel in git
+history, so a squash merge MUST carry the trailer into the squash commit message (house gotcha).
+
 Design mirrors ``detect.py`` / ``propose.py``: stdlib-only pure classification the tests drive
 directly, a thin injected seam for the one external effect (the git diff + the registry read), a
 ``--repo-dir`` / ``--name-status-file`` / stdin seam so it runs fully offline, and the house exit
@@ -32,7 +45,8 @@ codes ``0`` pass (SKIP or OK) / ``1`` fail (a rule violated) / ``2`` invocation 
 not pre-commit-lint-gated, so ``tests/test_release_train_archive_guard.py`` IS the gate (the
 ``env_floor_drift_check`` precedent, shared with the sibling detectors).
 
-Run (CI guard lane): ``python3 util/release_train/archive_guard.py --base origin/main --head HEAD``
+Run (CI guard lane): ``python3 util/release_train/archive_guard.py --base origin/main --head HEAD
+                     --trailers-file trailers.txt``
 Offline / test:      ``python3 util/release_train/archive_guard.py --name-status-file diff.txt``
 
 Project: juniper-ml
@@ -95,17 +109,18 @@ class Change:
 
 @dataclass
 class GuardResult:
-    """The guard verdict for one PR diff. ``passed`` is the CI pass/fail (SKIP and OK both pass)."""
+    """The guard verdict for one PR diff. ``passed`` is the CI pass/fail (SKIP/OK/WAIVED all pass)."""
 
-    verdict: str  # "SKIP" (not an archive PR) | "OK" (archive PR, all rules hold) | "FAIL"
+    verdict: str  # "SKIP" (not an archive PR) | "OK" | "WAIVED" (trailer-waived edits) | "FAIL"
     is_archive_pr: bool
     added: list = field(default_factory=list)
     violations: list = field(default_factory=list)
     changes: list = field(default_factory=list)
+    waived: list = field(default_factory=list)  # display strings of trailer-waived non-add changes
 
     @property
     def passed(self) -> bool:
-        return self.verdict in ("SKIP", "OK")
+        return self.verdict in ("SKIP", "OK", "WAIVED")
 
     def to_dict(self) -> dict:
         return {
@@ -115,6 +130,7 @@ class GuardResult:
             "passed": self.passed,
             "added": list(self.added),
             "violations": list(self.violations),
+            "waived": list(self.waived),
             "change_count": len(self.changes),
         }
 
@@ -163,6 +179,61 @@ def filename_valid(basename: str, known_pypi_names: set) -> bool:
     return False
 
 
+# ── escape-hatch trailer parsing (Allow-Archive-Edit) ────────────────────────
+
+# Whole-body scan (MULTILINE, not just the last trailer block): the house convention is that an
+# ``Allow-*`` marker anywhere in ANY commit message of the BASE..HEAD range counts -- identical to
+# ``juniper_ci_tools.docs_additions_check._ALLOW_RE`` so the two escapes behave the same way.
+_ALLOW_ARCHIVE_EDIT_RE = re.compile(r"^\s*Allow-Archive-Edit:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def parse_allow_trailers(messages: str) -> tuple:
+    """Return ``(enumerated tokens, wildcard_seen)`` from concatenated commit messages.
+
+    ``Allow-Archive-Edit: notes/releases/RELEASE_NOTES_juniper-canopy_v0.6.0.md, OTHER.md`` yields the
+    two tokens; a ``*`` token sets the wildcard (waives every archive-confined edit in the diff).
+    Copied verbatim from the docs screen's ``parse_allow_trailers`` (comma- or whitespace-separated
+    tokens, case-insensitive trailer key) so the two escapes are keystroke-compatible."""
+    allowed: set = set()
+    wildcard = False
+    for m in _ALLOW_ARCHIVE_EDIT_RE.finditer(messages or ""):
+        for tok in re.split(r"[,\s]+", m.group(1).strip()):
+            tok = tok.strip()
+            if not tok:
+                continue
+            if tok == "*":
+                wildcard = True
+                continue
+            allowed.add(tok)
+    return allowed, wildcard
+
+
+def _waives(path: str, allowed: set, wildcard: bool) -> bool:
+    """Wildcard, exact repo-relative path, or bare basename -- the docs-screen matcher semantics."""
+    if wildcard:
+        return True
+    return path in allowed or path.rsplit("/", 1)[-1] in allowed
+
+
+def _is_flat_archive_path(path: str) -> bool:
+    """True for a FLAT ``notes/releases/RELEASE_NOTES_*.md`` path (the waiver's confinement test)."""
+    if not ARCHIVE_PATH_RE.match(path):
+        return False
+    return "/" not in path[len(RELEASES_PREFIX):]
+
+
+def change_waived(change: Change, allowed: set, wildcard: bool) -> bool:
+    """True when a non-add change is fully confined to flat archive files AND every path is waived.
+
+    Both conditions are deliberately conjunctive over **every** path of the change: a rename whose
+    other side leaves ``notes/releases/`` (or lands in a nested subdirectory) is never waivable, so the
+    escape can only ever relax an in-place archive correction -- never smuggle an out-of-archive edit
+    onto the exempt auto-merge lane."""
+    if not change.paths:
+        return False
+    return all(_is_flat_archive_path(p) and _waives(p, allowed, wildcard) for p in change.paths)
+
+
 # ── the guard (pure) ─────────────────────────────────────────────────────────
 
 
@@ -171,22 +242,34 @@ def touches_releases(changes: list) -> bool:
     return any(p.startswith(RELEASES_PREFIX) for c in changes for p in c.paths)
 
 
-def classify_diff(changes: list, known_pypi_names: set) -> GuardResult:
+def classify_diff(changes: list, known_pypi_names: set, allowed: "set | None" = None, wildcard: bool = False) -> GuardResult:
     """Apply the four structural rules (plan S7.2) to a parsed diff.
 
     Returns SKIP (pass) when the diff does not touch ``notes/releases/`` (not an archive PR); else
-    OK (pass) when all four rules hold, or FAIL with the specific rule violation(s)."""
+    OK (pass) when all four rules hold, WAIVED (pass) when the only would-be violations are
+    ``Allow-Archive-Edit``-waived in-place archive edits, or FAIL with the specific rule violation(s).
+
+    ``allowed`` / ``wildcard`` come from :func:`parse_allow_trailers` over the BASE..HEAD commit
+    bodies; the default (no trailer) reproduces the pre-escape behaviour byte-for-byte."""
     changes = list(changes)
     if not touches_releases(changes):
         return GuardResult(verdict="SKIP", is_archive_pr=False, changes=changes)
 
+    allowed = set(allowed or ())
     violations: list = []
     added: list = []
+    waived: list = []
 
-    # Rule 1 -- add-only.
+    # Which non-add changes the trailer waives (rules 1 + 4 skip them; every other rule is unchanged).
+    waived_changes = [c for c in changes if c.status != "A" and change_waived(c, allowed, wildcard)]
+    waived_ids = {id(c) for c in waived_changes}
+    waived = [c.display() for c in waived_changes]
+    waived_paths = {p for c in waived_changes for p in c.paths}
+
+    # Rule 1 -- add-only (waived in-place archive edits excepted).
     for c in changes:
-        if c.status != "A":
-            violations.append(f"rule1 (add-only): non-add change '{c.display()}' -- the exempt archive PR must add files only, never modify/delete/rename")
+        if c.status != "A" and id(c) not in waived_ids:
+            violations.append(f"rule1 (add-only): non-add change '{c.display()}' -- the exempt archive PR must add files only, never modify/delete/rename (waive an intended in-place archive edit with an 'Allow-Archive-Edit: <path>' commit trailer)")
 
     # Rule 2 + Rule 3 -- every ADDED path is a well-formed, convention-valid archive file.
     for c in changes:
@@ -204,17 +287,26 @@ def classify_diff(changes: list, known_pypi_names: set) -> GuardResult:
         if not filename_valid(basename, known_pypi_names):
             violations.append(f"rule3 (name-valid): added filename '{basename}' fails the RELEASE_NOTES_v<semver> / RELEASE_NOTES_<pkg>_v<semver> convention or names an unregistered package")
 
-    # Rule 4 -- single-purpose: no path anywhere in the diff outside the archive shape.
+    # Rule 4 -- single-purpose: no path anywhere in the diff outside the archive shape. A waived
+    # path is flat-archive-confined by construction (change_waived), so this loop could never flag
+    # it; the explicit skip states the contract rather than relying on that implication.
     for c in changes:
         for p in c.paths:
+            if p in waived_paths:
+                continue
             if not ARCHIVE_PATH_RE.match(p):
                 violations.append(f"rule4 (single-purpose): out-of-scope path '{p}' ({c.status}) -- the exempt PR must contain nothing but notes/releases/RELEASE_NOTES_*.md file(s)")
 
     # Dedup while preserving order (rule 2 and rule 4 legitimately both flag an out-of-path add).
     seen: set = set()
     deduped = [v for v in violations if not (v in seen or seen.add(v))]
-    verdict = "OK" if not deduped else "FAIL"
-    return GuardResult(verdict=verdict, is_archive_pr=True, added=added, violations=deduped, changes=changes)
+    if deduped:
+        verdict = "FAIL"
+    elif waived:
+        verdict = "WAIVED"  # clean ONLY because the trailer waived an in-place archive edit
+    else:
+        verdict = "OK"
+    return GuardResult(verdict=verdict, is_archive_pr=True, added=added, violations=deduped, changes=changes, waived=waived)
 
 
 # ── injected seam (the one external effect: the diff + the registry) ──────────
@@ -268,9 +360,20 @@ def render_report(result: GuardResult) -> str:
         for a in result.added:
             lines.append(f"    + {a}")
         return "\n".join(lines)
+    if result.verdict == "WAIVED":
+        lines.append(f"  verdict: WAIVED -- path-confined and single-purpose; {len(result.waived)} in-place archive edit(s) waived by an 'Allow-Archive-Edit:' commit trailer.")
+        for a in result.added:
+            lines.append(f"    + {a}")
+        for w in result.waived:
+            lines.append(f"    ~ waived (Allow-Archive-Edit): {w}")
+        lines.append("  Carry the trailer into the SQUASH commit message when merging -- trailers travel in git history and the post-merge screens re-read them.")
+        return "\n".join(lines)
     lines.append(f"  verdict: FAIL -- {len(result.violations)} rule violation(s); the PR falls back to the standard owner gate (it never auto-merges).")
     for v in result.violations:
         lines.append(f"    - {v}")
+    if result.waived:
+        for w in result.waived:
+            lines.append(f"    ~ waived (Allow-Archive-Edit): {w}")
     return "\n".join(lines)
 
 
@@ -290,12 +393,35 @@ def _read_diff_text(args: argparse.Namespace) -> str:
     raise GuardError("no diff source: pass --name-status-file PATH (or '-'), or --base REF --head REF")
 
 
+def _validate_seams(args: argparse.Namespace) -> None:
+    """Reject seam combinations that cannot both be satisfied -- BEFORE either read drains stdin."""
+    if args.name_status_file == "-" and args.trailers_file == "-":
+        raise GuardError("--name-status-file and --trailers-file cannot both read stdin ('-')")
+
+
+def _read_trailers_text(args: argparse.Namespace) -> str:
+    """The BASE..HEAD commit bodies for the ``Allow-Archive-Edit`` escape (injected, never shelled).
+
+    Absent ``--trailers-file`` the escape is simply inactive (fail-closed: no trailers => no waivers),
+    which is exactly the pre-escape behaviour. ``ci.yml`` produces the file with
+    ``git log --format=%B <BASE>..HEAD``; the tests write it directly."""
+    if args.trailers_file is None:
+        return ""
+    if args.trailers_file == "-":
+        return sys.stdin.read()
+    try:
+        return Path(args.trailers_file).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise GuardError(f"cannot read --trailers-file {args.trailers_file}: {exc}") from exc
+
+
 def parse_args(argv: "list[str] | None" = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(prog="release_train/archive_guard.py", description="Structural guard for the release-train's exempt notes-archive PR (plan S7.2). Exit 0 pass (SKIP/OK), 1 fail, 2 invocation error.")
+    p = argparse.ArgumentParser(prog="release_train/archive_guard.py", description="Structural guard for the release-train's exempt notes-archive PR (plan S7.2). Exit 0 pass (SKIP/OK/WAIVED), 1 fail, 2 invocation error.")
     p.add_argument("--base", default=None, help="base ref for the diff (e.g. origin/main)")
     p.add_argument("--head", default=None, help="head ref for the diff (e.g. HEAD)")
     p.add_argument("--repo-dir", default=".", help="git checkout to diff in (default: cwd)")
     p.add_argument("--name-status-file", default=None, metavar="PATH", help="read `git diff --name-status` output from a file ('-' for stdin) instead of running git (hermetic/offline)")
+    p.add_argument("--trailers-file", default=None, metavar="PATH", help="read the BASE..HEAD commit bodies (`git log --format=%%B <BASE>..HEAD`) from a file ('-' for stdin) so an 'Allow-Archive-Edit: <path>' trailer can waive an in-place archive edit; omitted => the escape is inactive")
     p.add_argument("--registry", default=None, help="path to registry.yaml (default: alongside detect.py)")
     p.add_argument("--json", action="store_true", help="emit the verdict as JSON instead of the human report")
     return p.parse_args(argv)
@@ -304,14 +430,17 @@ def parse_args(argv: "list[str] | None" = None) -> argparse.Namespace:
 def main(argv: "list[str] | None" = None) -> int:
     args = parse_args(argv)
     try:
+        _validate_seams(args)
         registry_path = Path(args.registry) if args.registry else None
         known = load_known_pypi_names(registry_path)
         diff_text = _read_diff_text(args)
+        trailers_text = _read_trailers_text(args)
     except GuardError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
-    result = classify_diff(parse_name_status(diff_text), known)
+    allowed, wildcard = parse_allow_trailers(trailers_text)
+    result = classify_diff(parse_name_status(diff_text), known, allowed, wildcard)
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))
     else:
