@@ -500,6 +500,18 @@ re-dispatch as-is: the reuse / Release-exists arms below make re-entry idempoten
 2026-07-29 five-package batch was cancelled mid-ceremony after 3 of 5 Releases and recovered with one
 scoped re-dispatch).
 
+**`main-ci-not-green` self-observation HALT — FIXED (2026-08-08).** Before this fix, a `ceremony`
+**dispatched** via `workflow_dispatch` (`mode=ceremony`) **deterministically self-halted** every eligible
+package with `main-ci-not-green` even when `main` was fully green: the §8 precondition probe read the
+newest run of ANY workflow on `main`, which under dispatch is the **in-progress release-train run itself**
+(empty conclusion → `None` ≠ `success` → HALT). This produced the 2026-07-29 #854–#857 HALT batch and the
+juniper-ci-tools W1 HALT (dedup issue #855, run 31257045597). The probe is now scoped to the newest
+**completed** run of the package's own main-CI workflow (`gh run list --workflow <name> --status
+completed`; the workflow name is the registry's `main_ci_workflow`, default `ci.yml`, per §4's
+`main-ci-not-green` row), so a dispatched ceremony no longer observes itself. If you still see
+`main-ci-not-green` after this fix, `main` CI really is not green for that package (or has no completed run
+of its workflow yet) — treat it as a genuine gate, not the old artifact.
+
 For each `BUMPED_NOT_RELEASED` package the ceremony (`ceremony.py:1-45`): runs the §8 preconditions,
 builds the central notes file, opens the **add-only** archive PR (always in juniper-ml — the central
 `notes/releases/` archive, plan §10.2), enables `gh pr merge --auto --squash` behind the required
@@ -638,7 +650,7 @@ invocation error (`ceremony.py:71-72`).
 
 | `reason_key` | Trigger | Code | Operator response |
 |---|---|---|---|
-| `main-ci-not-green` | target `main` CI latest conclusion ≠ `success` | `ceremony.py:735` | Fix `main` CI (owner rule: check main green before blaming a red PR); re-run ceremony. |
+| `main-ci-not-green` | newest **completed** run of the package's own main-CI workflow (registry `main_ci_workflow`, default `ci.yml`; the 3 recurrence packages → their path-scoped `ci-recurrence-*.yml` lane) on `main` has conclusion ≠ `success` | `ceremony.py:893` (probe `654-664`) | Fix `main` CI (owner rule: check main green before blaming a red PR); re-run ceremony. **Self-observation class FIXED (2026-08-08):** pre-fix the probe read the newest run of ANY workflow on `main`, so a `workflow_dispatch` ceremony read the in-progress release-train run ITSELF (empty conclusion → HALT) and dispatched ceremonies self-halted deterministically on a fully-green `main` (run 31257045597 / issue #855; the 2026-07-29 #854–#857 batch was this class). The probe is now `--workflow <name> --status completed`-scoped, so an in-progress self-run can no longer be read; a genuine red `main` (or a brand-new repo with zero completed runs of that workflow) still HALTs fail-closed (correct). |
 | `declared-lt-released-anomaly` | declared version < the version PyPI already serves (yank/rollback) | `ceremony.py:724` | Investigate the PyPI yank/rollback manually; do NOT release. Reconcile the declared version. |
 | `pypi-truth-missing` | manifest said released, but PyPI now returns no version | `ceremony.py:726` | A first-publish/yank a human must resolve — confirm the trusted-publisher config (procedure §3.3) before re-running. |
 | `changelog-section-missing` | no non-empty `CHANGELOG [<version>]` section to source the notes | `ceremony.py:741` | The proposal PR (Gate 1) should have created it — merge the proposal first, or add the section, then re-run. |

@@ -167,6 +167,11 @@ class PackageEntry:
     depends_on: list
     ship_paths: list
     exclude_paths: list
+    # Optional (plan S8 main-CI gate): the repo-relative workflow FILENAME whose newest completed run on
+    # ``main`` is this package's "is main green?" signal, passed to ``gh run list --workflow``. Defaults to
+    # ``ci.yml`` (the 7 repos with a single repo-level CI). juniper-recurrence has no repo-wide ci.yml --
+    # its three packages gate through path-scoped per-package lanes -- so those entries override it.
+    main_ci_workflow: str = "ci.yml"
 
     @property
     def pyproject_rel(self) -> str:
@@ -199,6 +204,7 @@ def load_registry(path: "Path | None" = None) -> list[PackageEntry]:
                 depends_on=list(raw.get("depends_on", []) or []),
                 ship_paths=list(raw.get("ship_paths", []) or []),
                 exclude_paths=list(raw.get("exclude_paths", []) or []),
+                main_ci_workflow=raw.get("main_ci_workflow") or "ci.yml",
             )
         )
     return entries

@@ -160,7 +160,7 @@ def _sources(
     def read_file(entry, filename):
         return changelog if filename.endswith("CHANGELOG.md") else None
 
-    def main_ci_conclusion(repo):
+    def main_ci_conclusion(repo, workflow):
         return main_ci
 
     def list_open_prs(repo):
@@ -297,6 +297,8 @@ class GhSurfaceInvariantTest(unittest.TestCase):
             ["pr", "merge", "1", "--repo", "pcalnon/juniper-ml", "--auto", "--squash"],
             ["release", "create", "v1", "--repo", "pcalnon/juniper-ml", "--notes-file", "x", "--latest=false"],
             ["run", "list", "--repo", "pcalnon/juniper-ml", "--branch", "main"],
+            # the ceremony's main-CI probe: workflow-scoped + completed-only (the dispatch self-observation fix)
+            ["run", "list", "--repo", "pcalnon/juniper-ml", "--branch", "main", "--workflow", "ci.yml", "--status", "completed", "--limit", "1", "--json", "conclusion", "--jq", ".[0].conclusion"],
             ["run", "view", "5"],
             ["issue", "create", "--repo", "pcalnon/juniper-ml", "--title", "t", "--body", "b"],
             ["issue", "edit", "3", "--body", "b"],
@@ -426,7 +428,7 @@ class LiveSeamSurfaceTest(unittest.TestCase):
 
     def _drive(self):
         src = ce.make_live_sources("pcalnon", self.tmp, self.tmp.parent, gh=self._rec_gh, git=self._rec_git)
-        src.main_ci_conclusion("juniper-ml")
+        src.main_ci_conclusion("juniper-ml", "ci.yml")
         src.list_open_prs("juniper-ml")
         src.release_exists("juniper-ml", "juniper-service-core-v0.5.0")
         src.publish_run_status("juniper-ml", "juniper-service-core-v0.5.0")
@@ -513,6 +515,87 @@ class LiveSeamSurfaceTest(unittest.TestCase):
         self.assertEqual(ce._api_field(refs[0], "ref"), "refs/heads/release-notes/juniper-service-core-v0.5.0")
         self.assertTrue(any("createCommitOnBranch" in tok for tok in gql[0]))
         self.assertEqual(ce._api_field(gql[0], "repoWithOwner"), "pcalnon/juniper-ml")
+
+
+# ── main-CI probe: workflow-scoped + completed-only (dispatch self-observation fix) ──
+
+
+class MainCiProbeArgShapeTest(unittest.TestCase):
+    """Pin the LIVE ``main_ci_conclusion`` argv and its self-observation regression.
+
+    The unscoped ``gh run list --branch main --limit 1`` form read the newest run of ANY workflow on
+    main. Under ``release-train.yml`` ``workflow_dispatch`` that newest run is the release-train run
+    ITSELF (in progress -> empty conclusion -> None), so a fully-green main deterministically HALTed
+    ``main-ci-not-green`` (run 31257045597, issue #855; the 2026-07-29 #854-#857 batch). The fix scopes
+    the probe to the newest COMPLETED run of the package's own main-CI workflow, so the in-progress
+    self-run can never be read. These tests pin BOTH the exact new argv and that behaviour."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.tmp, ignore_errors=True))
+        self.calls = []
+
+    def _rec_git(self, repo_dir, args, timeout=120, check=True):
+        return ""
+
+    def _probe_argv(self, repo, workflow):
+        def gh(args, timeout=90):
+            self.calls.append(list(args))
+            return "success"
+
+        src = ce.make_live_sources("pcalnon", self.tmp, self.tmp.parent, gh=gh, git=self._rec_git)
+        src.main_ci_conclusion(repo, workflow)
+        run_lists = [a for a in self.calls if a[:2] == ["run", "list"]]
+        self.assertEqual(len(run_lists), 1, self.calls)
+        return run_lists[0]
+
+    def test_probe_argv_is_workflow_scoped_and_completed_only(self):
+        argv = self._probe_argv("juniper-ml", "ci.yml")
+        self.assertEqual(
+            argv,
+            ["run", "list", "--repo", "pcalnon/juniper-ml", "--branch", "main", "--workflow", "ci.yml", "--status", "completed", "--limit", "1", "--json", "conclusion", "--jq", ".[0].conclusion"],
+        )
+        # the two scoping flags that kill the self-observation are present, in that order
+        self.assertEqual(argv[argv.index("--workflow") + 1], "ci.yml")
+        self.assertEqual(argv[argv.index("--status") + 1], "completed")
+        # the pre-fix unscoped fetch of ANY workflow's newest run is gone
+        self.assertNotIn("conclusion,status", argv)
+
+    def test_probe_threads_the_per_package_workflow_name(self):
+        # juniper-recurrence has no repo-wide ci.yml -> the registry override must reach the probe verbatim.
+        argv = self._probe_argv("juniper-recurrence", "ci-recurrence-model.yml")
+        self.assertIn("--workflow", argv)
+        self.assertEqual(argv[argv.index("--workflow") + 1], "ci-recurrence-model.yml")
+
+    def test_in_progress_self_run_is_not_read(self):
+        # Model gh's server-side filter: ONLY the completed + workflow-scoped query excludes the
+        # in-progress release-train dispatch run. An unscoped newest-run query (the pre-fix shape) would
+        # surface that in-progress run's empty conclusion -> None -> a false HALT on a green main.
+        def gh(args, timeout=90):
+            if args[:2] == ["run", "list"]:
+                scoped = "--status" in args and "completed" in args and "--workflow" in args
+                return "success" if scoped else ""  # unscoped -> the in-progress self-run (empty conclusion)
+            return ""
+
+        src = ce.make_live_sources("pcalnon", self.tmp, self.tmp.parent, gh=gh, git=self._rec_git)
+        self.assertEqual(src.main_ci_conclusion("juniper-ml", "ci.yml"), "success")
+
+    def test_entry_main_ci_workflow_reaches_the_planner_probe(self):
+        # End-to-end through plan_ceremony: the entry's registry-resolved workflow name is exactly what
+        # the S8 precondition probe receives (proves the field is THREADED at the call site, not merely
+        # carried on the entry). Uses an in-repo entry so it is not writable-repo-skipped; the recurrence
+        # lane VALUES are validated by tests/test_release_train_registry.py's loader-resolution test.
+        seen = {}
+
+        def main_ci_conclusion(repo, workflow):
+            seen["repo"], seen["workflow"] = repo, workflow
+            return "success"
+
+        src = _sources()
+        src.main_ci_conclusion = main_ci_conclusion
+        entry = _entry(main_ci_workflow="ci-sentinel.yml")  # repo defaults to juniper-ml (not skipped)
+        ce.plan_ceremony(entry, _manifest_pkg(), src, REPO_ROOT, REPO_ROOT.parent, "2026-07-17")
+        self.assertEqual(seen, {"repo": "juniper-ml", "workflow": "ci-sentinel.yml"})
 
 
 # ── S8 precondition HALTs ────────────────────────────────────────────────────
@@ -1166,7 +1249,7 @@ def _monitor_sources(*statuses):
     src = ce.CeremonySources(
         pypi_json=lambda n: None,
         read_file=lambda e, f: None,
-        main_ci_conclusion=lambda r: "success",
+        main_ci_conclusion=lambda r, w: "success",
         list_open_prs=lambda r: [],
         release_exists=lambda r, t: False,
         archive_on_main=lambda r: False,

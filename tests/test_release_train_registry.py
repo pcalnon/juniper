@@ -235,6 +235,42 @@ class RegistryStructuralTest(unittest.TestCase):
         self.assertIn("juniper-cascor-model/", excludes, "cascor app scope must exclude the model sub-package dir")
         self.assertIn("juniper-cascor-protocol/", excludes, "cascor app scope must exclude the protocol sub-package dir")
 
+    def test_main_ci_workflow_field_is_valid_and_recurrence_overridden(self):
+        # Optional per-package field (plan S8 main-CI gate): absent -> the loader defaults to ci.yml.
+        # juniper-recurrence has NO repo-wide ci.yml; its three packages MUST override main_ci_workflow
+        # with their path-scoped per-package lane. Any present value is a bare *.yml workflow filename.
+        # (Added with the ceremony dispatch self-observation fix -- run 31257045597 / issue #855.)
+        recurrence_lanes = {
+            "juniper-recurrence": "ci-recurrence-app.yml",
+            "juniper-recurrence-client": "ci-recurrence-client.yml",
+            "juniper-recurrence-model": "ci-recurrence-model.yml",
+        }
+        for pkg in self.packages:
+            name = pkg["pypi_name"]
+            wf = pkg.get("main_ci_workflow")
+            if wf is not None:
+                self.assertIsInstance(wf, str, f"{name}: main_ci_workflow must be a string")
+                self.assertTrue(wf.endswith(".yml"), f"{name}: main_ci_workflow '{wf}' must be a .yml filename")
+                self.assertNotIn("/", wf, f"{name}: main_ci_workflow must be a bare filename, not a path")
+            if pkg["repo"] == "juniper-recurrence":
+                self.assertEqual(wf, recurrence_lanes.get(name), f"{name}: recurrence package must pin its path-scoped CI lane (no repo-wide ci.yml)")
+            else:
+                self.assertIn(wf, (None, "ci.yml"), f"{name}: non-recurrence package uses the ci.yml default (got {wf!r})")
+
+    def test_main_ci_workflow_loader_resolves_default_and_overrides(self):
+        # The detect.py loader is what the ceremony consumes: absent -> "ci.yml"; recurrence -> its lane.
+        sys.path.insert(0, str(REPO_ROOT / "util" / "release_train"))
+        import detect as detect_mod  # noqa: PLC0415
+
+        entries = {e.pypi_name: e for e in detect_mod.load_registry()}
+        for name, entry in entries.items():
+            self.assertTrue(entry.main_ci_workflow.endswith(".yml"), f"{name}: loader gave a non-.yml main_ci_workflow {entry.main_ci_workflow!r}")
+            if entry.repo != "juniper-recurrence":
+                self.assertEqual(entry.main_ci_workflow, "ci.yml", f"{name}: expected the ci.yml default")
+        self.assertEqual(entries["juniper-recurrence"].main_ci_workflow, "ci-recurrence-app.yml")
+        self.assertEqual(entries["juniper-recurrence-client"].main_ci_workflow, "ci-recurrence-client.yml")
+        self.assertEqual(entries["juniper-recurrence-model"].main_ci_workflow, "ci-recurrence-model.yml")
+
 
 class RegistryInRepoResolutionTest(unittest.TestCase):
     """Unconditional: the 7 in-repo juniper-ml entries <-> the 7 tracked pyprojects."""
