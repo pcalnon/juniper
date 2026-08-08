@@ -78,7 +78,7 @@ jobs:
         # is a pure `python -m` entry shim and is excluded per the §2
         # excluded-files policy (dogfoods the tool's own enforcing mode).
         run: |
-          pip install "juniper-ci-tools>=0.6.0,<0.8.0"
+          pip install "juniper-ci-tools>=0.6.0,<0.9.0"
           juniper-coverage-gap-map --coverage-json coverage.json --enforce --omit "*/__main__.py"
 
   build:

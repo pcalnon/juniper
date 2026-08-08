@@ -73,7 +73,7 @@ jobs:
 
       - name: Enforce per-file coverage gate (blocking)
         run: |
-          pip install "juniper-ci-tools>=0.6.0,<0.8.0"
+          pip install "juniper-ci-tools>=0.6.0,<0.9.0"
           juniper-coverage-gap-map --coverage-json coverage.json --enforce
 
   build:

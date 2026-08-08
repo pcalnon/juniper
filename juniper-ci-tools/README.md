@@ -48,6 +48,13 @@ This installs the following console scripts (see the package's
   turns it into a blocking gate (exit 1 on a per-file statement gap or a
   sub-module pooled gap). Carries a documented numpy-2.x package-form `--cov`
   shim. See "Per-file coverage gate" below.
+- `juniper-symbol-loss-check` — AST symbol-loss screen (added in 0.8.0):
+  FAILs when a def/class/method (or bash function) is silently deleted, gutted
+  past threshold, or duplicated between BASE and HEAD. See "Sequence-safety
+  screens" below.
+- `juniper-docs-additions-check` — markdown deletion-magnitude screen (added
+  in 0.8.0): FAILs on a deleted heading or a run of `>= N` consecutive deleted
+  lines. See "Sequence-safety screens" below.
 
 The package requires Python 3.11 or newer and depends on PyYAML and packaging.
 
@@ -170,6 +177,48 @@ Exit codes: `0` (advisory always, or an enforcing run that is clean), `1`
 (enforcing only — a file or sub-module is under its floor; every offender is
 listed, no silent truncation), `2` (usage / structural error — no input, an
 unreadable or malformed `coverage.json`, or a dotted `--package`).
+
+## Sequence-safety screens (`juniper-symbol-loss-check` / `juniper-docs-additions-check`)
+
+Two ref-diff screens (added in 0.8.0) that answer the one question a per-PR check
+cannot: what was *silently deleted* between BASE and HEAD. They productionize the
+2026-07-28 Cursor-fleet flood census (Proposal P2) and are the single,
+PyPI-distributed source of truth for the sequence-safety gates that previously
+lived as hand-copied `util/sequence_safety/` trees. Both are pure git + stdlib
+(no network, gh, or pip), advisory-capable, and honor a commit-trailer waiver.
+
+```bash
+# Symbol-loss screen (gate G1 / G3): FAIL on a silently deleted / gutted /
+# duplicated def/class/method (or bash function). Default scope = the historical
+# juniper-ml surface (tests/*.py + util/**); pass --scope to screen another tree.
+juniper-symbol-loss-check --base origin/main --head HEAD
+juniper-symbol-loss-check --base <merge>^1 --head <merge> --scope 'src/**/*.py'
+
+# Docs deletion-magnitude screen (gate G2 / G3): FAIL on a deleted heading or a
+# run of >= --min-run (default 5) consecutive deleted lines. Default scope is the
+# universal docs cluster (AGENTS.md + docs/**/*.md + notes/**/*.md).
+juniper-docs-additions-check --base origin/main --head HEAD
+juniper-docs-additions-check --base origin/main --head HEAD --min-run 8
+
+# Advisory mode (print findings but exit 0 even on an unwaived FAIL) + JSON:
+juniper-symbol-loss-check --base <b> --head <h> --advisory --json
+
+# Module form (both):
+python -m juniper_ci_tools.cli_symbol_loss_check --help
+python -m juniper_ci_tools.cli_docs_additions_check --help
+```
+
+`--scope GLOB` (repeatable, POSIX path globs with explicit `**` recursion) selects
+the screened surface per repo; with no `--scope` each screen reproduces its
+historical hard-coded predicate verbatim, so a default run is byte-identical to
+the pre-migration util scripts. `--files PATH ...` bypasses scope entirely.
+
+Escape hatches travel in git history (so they work for both the per-PR and the
+post-merge gate): an `Allow-Symbol-Loss: <qualified.symbol>[, ...]` /
+`Allow-Docs-Rewrite: <path>[, ...]` commit trailer in the BASE..HEAD range waives
+the enumerated symbols / files (a `*` symbol wildcard is rejected; a `*` docs
+wildcard waives all). Exit codes: `0` clean, `1` >= 1 unwaived FAIL, `2` usage /
+invocation error (never masked by `--advisory`).
 
 ## Library API
 
