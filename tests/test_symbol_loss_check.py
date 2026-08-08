@@ -222,6 +222,36 @@ class SymbolLossBehaviourTest(unittest.TestCase):
             self.assertIsNotNone(f, msg=cp.stdout)
             self.assertEqual((f["verdict"], f["severity"]), ("DUPLICATED", "FAIL"))
 
+    def test_property_setter_pair_is_not_false_duplicated(self) -> None:
+        """Accessor-pair guard (``_accessor_suffix``, backported from the cascor port): a
+        ``@property`` getter and its ``@x.setter`` share a method name but are keyed
+        distinctly (``method:C.value`` vs ``method:C.value.setter``), so an unchanged
+        accessor pair is NEVER a false DUPLICATED -- while a genuine same-name method
+        re-definition (no accessor decorator) in the same file still DUPLICATEs. Without
+        the suffix both accessors collapse onto ``method:C.value`` (count 2) and the pair
+        false-FAILs on every PR touching such a file."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _init_repo(root)
+            base = "class C:\n" "    @property\n" "    def value(self):\n" "        return self._v\n\n" "    @value.setter\n" "    def value(self, v):\n" "        self._v = v\n\n" "    def plain(self):\n" "        return 1\n"
+            _write(root, "util/acc.py", base)
+            _commit(root, "base")
+            # head: keep the accessor pair verbatim (must NOT DUPLICATE) but genuinely
+            # re-define `plain` (a real same-name method dup that MUST still FAIL).
+            head = base + "\n    def plain(self):\n        return 2\n"
+            _write(root, "util/acc.py", head)
+            _commit(root, "redefine plain (real dup), keep the property/setter pair")
+            cp = _run_cli(root, "--json")
+            self.assertEqual(cp.returncode, 1, msg=cp.stderr)
+            by = _by_symbol(_report(cp))
+            # the getter + setter each stay count 1 under distinct keys -> no finding.
+            self.assertNotIn("method:C.value", by, msg=cp.stdout)
+            self.assertNotIn("method:C.value.setter", by, msg=cp.stdout)
+            # the genuine re-definition of `plain` IS duplicated.
+            dup = by.get("method:C.plain")
+            self.assertIsNotNone(dup, msg=cp.stdout)
+            self.assertEqual((dup["verdict"], dup["severity"]), ("DUPLICATED", "FAIL"))
+
     def test_removed_import_and_const_are_advisory_warn(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -16,7 +16,10 @@ each symbol:
   * DUPLICATED -- the same def/class/method id appears >= 2x at head (a fusion /
                   redefinition). FAIL (py) / WARN (bash). NOTE (P2 S0): fusion is
                   primarily netted by the REQUIRED pre-commit mypy (``no-redef``); this
-                  verdict is a best-effort overlap, not the primary net.
+                  verdict is a best-effort overlap, not the primary net. A ``@property``
+                  getter and its ``@x.setter`` / ``@x.deleter`` share a method name and are
+                  disambiguated with a ``.setter`` / ``.deleter`` key suffix so a legitimate
+                  accessor pair is never a false DUPLICATED -- see ``_accessor_suffix``.
 
 Verdicts are qualified (``method:Class.name``, ``func:name``, ``class:Name``,
 ``const:NAME``, ``import:name``) so a bare-name collision cannot mask a real deletion.
@@ -184,11 +187,31 @@ def _add(d: dict[str, Sym], key: str, lines: int, chars: int, body: str = "") ->
         d[key] = Sym(lines, chars, body=_norm_body(body))
 
 
+def _accessor_suffix(node: ast.AST) -> str:
+    """Distinct key suffix for a ``@<name>.setter`` / ``@<name>.deleter`` accessor.
+
+    A ``@property`` getter and its ``@x.setter`` / ``@x.deleter`` share a method name, so
+    without disambiguation the two ``FunctionDef`` nodes collide on one qualified key and
+    are miscounted as ``DUPLICATED`` -- a false positive on every PR touching such a file.
+    Suffixing the setter / deleter keeps the getter's bare key (so ``LOST`` detection on the
+    property is unchanged) while the accessors count independently.
+
+    ml's in-scope surface (``util/`` + top-level ``tests/``) has no such accessor pairs
+    today, so this guard rarely fires here; it is backported from the juniper-cascor port
+    (whose ``src/`` surface has them, e.g. ``TrainingLifecycleManager.network``) for
+    ecosystem consistency and forward safety if ml's scope ever widens to application source.
+    """
+    for dec in getattr(node, "decorator_list", []):
+        if isinstance(dec, ast.Attribute) and dec.attr in ("setter", "deleter"):
+            return f".{dec.attr}"
+    return ""
+
+
 def _walk_class(src: str, cls: ast.ClassDef, prefix: str, out: dict[str, Sym]) -> None:
     for n in cls.body:
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
             ln, ch, seg = _seg_len(src, n)
-            _add(out, f"method:{prefix}.{n.name}", ln, ch, seg)
+            _add(out, f"method:{prefix}.{n.name}{_accessor_suffix(n)}", ln, ch, seg)
         elif isinstance(n, ast.ClassDef):
             ln, ch, seg = _seg_len(src, n)
             _add(out, f"class:{prefix}.{n.name}", ln, ch, seg)
