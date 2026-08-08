@@ -938,15 +938,19 @@ util/experiment_stack.bash --down <RUN_ID>
 Optional flags on `--up`:
 
 - `--shared-data URL` — reuse an existing juniper-data instead of launching one.
-- `--config PATH` — copy YAML to `$RUN_DIR/config/experiment.yaml` and export `JUNIPER_CASCOR_CONFIG_FILE` (app-side YAML settings are Wave 3; until then the env var is staged but inert for recurrence, which has no `--config`).
+- `--config PATH` — copy YAML to `$RUN_DIR/config/experiment.yaml` and export **both** `JUNIPER_CASCOR_CONFIG_FILE` and `JUNIPER_RECURRENCE_CONFIG_FILE`; each app's Wave-3 `ExperimentYamlSettingsSource` projects the `service:` block (activation is by env var only, so the export is the threading mechanism).
 - `--experiment NAME` — Prometheus `experiment` label (default: config basename).
 - `--grafana-bridge` — **opt-in** socat relays + Prometheus target file under `JUNIPER_EXP_DEPLOY_DIR/prometheus/targets/<RUN_ID>.json`. Without it, `--status` reports UNSCRAPED.
 
 #### RUN_DIR contract (§6.4)
 
-`RUN_ID=<UTC yyyymmddThhmmssZ>-<4 hex>` under `JUNIPER_EXP_RUN_ROOT` (default `~/.local/state/juniper-experiments` — under `$HOME`, **not** `/tmp`, so a reaped sandbox cannot destroy results). Everything for the run lives inside `$RUN_DIR`: pidfiles + recorded cmdlines, `logs/`, `relays/`, `config/`, `env/launch.env`, `data/`, `equities-cache/`, `artifacts/{plots,results}/`, `ports.json`, `teardown.json`.
+`RUN_ID=<UTC yyyymmddThhmmssZ>-<4 hex>` under `JUNIPER_EXP_RUN_ROOT` (default `~/.local/state/juniper-experiments` — under `$HOME`, **not** `/tmp`, so a reaped sandbox cannot destroy results). Everything for the run lives inside `$RUN_DIR`: pidfiles + recorded cmdlines, `logs/`, `relays/`, `config/`, `env/launch.env`, `data/`, `equities-cache/`, `snapshots/`, `artifacts/{plots,results}/`, `ports.json`, `teardown.json`.
 
 Port locks use atomic `mkdir "$LOCK_ROOT/<port>.lock"` (`JUNIPER_EXP_LOCK_ROOT`, default `${XDG_RUNTIME_DIR:-/tmp}/juniper-experiments`) plus an `ss` probe. The lockdir serialises experiment launchers against each other; a foreign binder can still race — that surfaces as the service's own bind failure through the health gate.
+
+#### Concurrency (Wave 5)
+
+`cascor_up` exports `JUNIPER_CASCOR_SNAPSHOTS_DIR=$RUN_DIR/snapshots` (W-6), so each run's cascor writes snapshots into its own `RUN_DIR` instead of the repo-shared `src/snapshots` (the `.h5`-debris class); concurrent bench runs use `python -m bench.run_benchmark --results-dir` (W-7, juniper-recurrence). Two live runs are fully isolated — disjoint ports via the lockdirs, and `--down` of one run touches nothing of the other (pinned by `TestTwoRunConcurrency`). **Still standing until Q-6 is resolved**: at most one *cascor* instance per **checkout** — the app's own file logger targets the shared repo `logs/juniper_cascor.log` (H-7), so concurrent cascor runs must use distinct checkouts (worktrees). Data and recurrence instances have no such per-checkout constraint.
 
 #### F-6 listener pid rule (binding)
 
