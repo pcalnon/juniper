@@ -341,6 +341,39 @@ touches it.
 Hermetic coverage: `tests/test_release_train_propose.py` (happy-path shapes in juniper-ml#706;
 re-entry / absent / missing-header edges in juniper-ml#720).
 
+#### Gate 1 review: `AGENTS.md` per-package version TABLE row (juniper-ml#851)
+
+Some repos carry, in addition to the header, a **per-package version table** that a repo-local
+`version-drift` hook pins against each package's `_version.py` — today only
+[juniper-recurrence](https://github.com/pcalnon/juniper-recurrence) (`AGENTS.md:22-24` vs
+`scripts/check_version_drift.py`, hook id `version-drift`). Before juniper-ml#851 the train moved the
+header and knew nothing about those rows, so **every** recurrence proposal failed that repo's
+`Pre-commit (all-files)` gate and had to be healed by hand
+([recurrence#92](https://github.com/pcalnon/juniper-recurrence/pull/92) /
+[#93](https://github.com/pcalnon/juniper-recurrence/pull/93)). `propose.py` step 5a now rewrites the
+row generically (issue option 2 — any `|`-row naming the package in backticks with a standalone
+version cell), so a repo that adopts the same pattern later needs no new code.
+
+Unlike the header, the table is **per package**: a sub-package (`juniper-recurrence-model`) bumps its
+own row while the host header — which tracks the primary package — stays put. Header + row + the
+in-repo extras-pin true-up compose into **one** `AGENTS.md` file edit.
+
+| Signal in the proposal PR | Meaning | Operator action |
+|---|---|---|
+| Diff edits the package's table row in lockstep with the version bump; checklist says "version-table row … included in this PR" | Normal co-change (row was at the from-version) | Merge when the rest looks right |
+| **No** `AGENTS.md` row edit and **no** table checklist item | Either the repo has no such table (7 of the 8 repos) or the row already equals `to_version` (partial heal / re-entry) — silent success | Nothing to do |
+| Checklist item **REQUIRED** (version-table row) | A row names the package but its cell is neither the from- nor the to-version, or the row is ambiguous (two version cells) — the train never guesses at a cell | Fix the row by hand in the same PR before merge |
+| Row diff touches a **different** package's row | Should be impossible (the needle is the backtick-delimited name, byte-identical to the target repo's own `_agents_table_version`) | Treat as a bug; do not merge |
+
+**Open question (deliberately out of scope):** the recurrence `AGENTS.md` also mentions package
+versions in **prose** (`AGENTS.md:118`, the Status paragraph). Its drift hook does not check prose
+(invariants 1–3 cover `_version.py` ↔ CHANGELOG ↔ table cell ↔ header), so the train leaves prose
+alone rather than invent an ungated rewrite. If a repo ever gates prose, that is a separate change.
+
+Hermetic coverage: `tests/test_release_train_propose.py` (`AgentsTableVersionHelperTest` +
+`BuildProposalAgentsTableTest`, juniper-ml#851 — a table-bearing sibling fixture mirroring the real
+recurrence shape).
+
 #### Gate 1 — Phase 4.2 dependency order + consumer ceiling-bump follow-ons
 
 As of the Phase 4.2 land (`propose.py`, plan §13 / §12 step 4.2; CHANGELOG Unreleased), a `mode=propose`

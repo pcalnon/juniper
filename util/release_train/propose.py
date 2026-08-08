@@ -17,7 +17,11 @@ single **standard-gated release-proposal PR** (plan S5.4):
     in the PR body, **not** archived to ``notes/releases/`` (archival is the later exempt step);
   * the meta-package's ``AGENTS.md`` ``**Version**`` co-change (plan S5.4; kept in lockstep by
     ``tests/test_agents_md_version_drift.py``) and the S5.4 co-change checklist (lockfile regen,
-    version+pin+lint atomicity);
+    version+pin+lint atomicity). A repo whose ``AGENTS.md`` ALSO carries a per-package version TABLE
+    gets the released package's row bumped in the same edit (ml#851): juniper-recurrence pins those
+    rows against ``_version.py`` with a repo-local ``version-drift`` hook, so a header-only proposal
+    shipped red there (recurrence#92 / #93). The table is per-PACKAGE where the header is per-REPO, so
+    a sub-package bumps its own row without ever touching the host repo's primary-tracking header;
   * for an **in-repo** package (the meta-package or one of its six co-located sub-packages), the
     meta-package's own **consumer-pin co-changes** (plan S5.4): a pre-1.0 MINOR bump that escapes a
     ``[project.optional-dependencies]`` ``<next-minor`` ceiling moves that pin AND its two lockstep
@@ -332,6 +336,81 @@ def set_agents_version(text: str, new_version: str) -> tuple:
     old = m.group(2)
     new_text = text[: m.start()] + f"{m.group(1)}{new_version}{m.group(3)}" + text[m.end():]
     return new_text, old
+
+
+# A markdown-table cell that is a STANDALONE version (optionally backtick-wrapped) and nothing else --
+# ``0.3.0`` / ``` `0.2.0` ``` / ``0.4.0rc1``. Deliberately NOT a substring match: an extras-reference
+# cell (``` `juniper-doc-tools>=0.1.0,<0.2.0` ```) or a prose cell that merely mentions a version is not
+# a version cell, so this anchor is what keeps the heuristic off every other table in an AGENTS.md.
+_TABLE_VERSION_CELL = re.compile(r"^`?(\d+\.\d+\.\d+[0-9A-Za-z.\-+]*)`?$")
+
+
+def _row_names_package(row: str, pypi_name: str) -> bool:
+    """True when a markdown-table row names ``pypi_name`` as a backtick-delimited token.
+
+    Byte-identical name anchoring to the consumer gate this co-change exists to satisfy
+    (juniper-recurrence ``scripts/check_version_drift.py`` ``_agents_table_version``): the needle is
+    ``` `<name>` ``` with BOTH backticks, so the ``juniper-recurrence`` row never matches the
+    ``juniper-recurrence-model`` row, and a directory cell (``` `juniper-recurrence/` ```) is not a
+    package mention."""
+    return "`" + pypi_name + "`" in row
+
+
+def _rewrite_row_version_cell(line: str, old_version: str, new_version: str) -> str:
+    """Replace the standalone version token in a table row's version cell, preserving the row's pipe
+    count, padding, and any backticks (only the cell whose whole trimmed content IS ``old_version``)."""
+    body = line.rstrip("\r\n")
+    trailing = line[len(body):]
+    parts = body.split("|")
+    for idx, part in enumerate(parts):
+        m = _TABLE_VERSION_CELL.match(part.strip())
+        if m is not None and m.group(1) == old_version:
+            parts[idx] = part.replace(old_version, new_version, 1)
+    return "|".join(parts) + trailing
+
+
+def set_agents_table_version(text: str, pypi_name: str, from_version: "str | None", to_version: str) -> tuple:
+    """Bump the per-package version cell of every AGENTS.md markdown-table row naming ``pypi_name``
+    (ml#851). -> ``(new_text, status)`` with status in ``absent`` / ``current`` / ``edited`` / ``unexpected``.
+
+    The generic form of the ml#706 / worker#140 header precedent: some repos ALSO carry a per-package
+    version TABLE (juniper-recurrence's ``AGENTS.md:22-24`` sub-package table) that a repo-local
+    ``version-drift`` hook pins against ``_version.py``, so a proposal that moves only the header ships
+    red in that repo (the recurrence#92 / #93 failures). Unlike the header -- which tracks the repo's
+    PRIMARY package -- the table has one row PER package, so a sub-package hosted in a sibling repo
+    (``juniper-recurrence-model``) must bump its own row while never touching the host header.
+
+    Structured like ``apply_pin_edits_agents_table`` rather than a text sweep: a candidate is a
+    ``|``-row that names the package in backticks AND carries exactly one standalone version cell.
+    Honesty rules mirror step 5a -- a row already at ``to_version`` is silent success (``current``);
+    no candidate row at all is NOT an edit and NOT a checklist item (``absent`` -- most repos have no
+    such table); and anything unexpected (a cell that is neither the from- nor the to-version, or an
+    ambiguous row with two version cells) is left byte-untouched and surfaced ``unexpected`` for the
+    operator, never guessed at. A mixed set across rows is likewise ``unexpected`` (no partial edit)."""
+    lines = text.splitlines(keepends=True)
+    candidates: list = []  # (line index, version cell value)
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith("|") or not _row_names_package(stripped, pypi_name):
+            continue
+        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        found = [_TABLE_VERSION_CELL.match(c) for c in cells]
+        versions = [m.group(1) for m in found if m is not None]
+        if not versions:
+            continue  # a descriptive row carrying no version cell -- not a version table
+        if len(versions) > 1:
+            return text, "unexpected"  # ambiguous: which cell is THE version? never guess
+        candidates.append((i, versions[0]))
+    if not candidates:
+        return text, "absent"
+    values = {v for _, v in candidates}
+    if values == {to_version}:
+        return text, "current"
+    if from_version is None or values != {from_version}:
+        return text, "unexpected"
+    for i, value in candidates:
+        lines[i] = _rewrite_row_version_cell(lines[i], value, to_version)
+    return "".join(lines), "edited"
 
 
 # ── in-repo meta-package consumer-pin co-changes (plan S5.4; closes the #657 RK-11 gap) ─
@@ -915,7 +994,7 @@ def _changelog_rel(entry: "detect.PackageEntry") -> str:
     return os.path.normpath(os.path.join(entry.path, "CHANGELOG.md")).replace(os.sep, "/")
 
 
-def _co_change_checklist(entry: "detect.PackageEntry", bump: str, edges: list, agents_edited: bool, cochanges: list, dunder_rel: "str | None" = None, dunder_edited: bool = False, *, agents_surface: bool = True) -> list:
+def _co_change_checklist(entry: "detect.PackageEntry", bump: str, edges: list, agents_edited: bool, cochanges: list, dunder_rel: "str | None" = None, dunder_edited: bool = False, *, agents_surface: bool = True, agents_table_status: str = "absent") -> list:
     items: list = []
     if dunder_rel is not None:
         state = "included in this PR" if dunder_edited else "REQUIRED (``__version__`` assignment not found -- edit manually)"
@@ -928,6 +1007,12 @@ def _co_change_checklist(entry: "detect.PackageEntry", bump: str, edges: list, a
     elif agents_surface and entry.pypi_name == entry.repo:
         state = "included in this PR" if agents_edited else "REQUIRED (header absent or not at the expected from-version -- verify and edit manually)"
         items.append(f"Sibling AGENTS.md **Version** header bump ({state}); the target repo's CI runs the portable version-drift lint against its primary package version (the worker#140 pilot failure class).")
+    # ml#851: the table variant of the same class. ``absent`` (no such table -- most repos) and
+    # ``current`` (row already at to_version) are silent successes, exactly like the header rules above.
+    if agents_table_status == "edited":
+        items.append(f"AGENTS.md per-package version-table row bump for `{entry.pypi_name}` (included in this PR); a repo-local version-drift hook pins that row against the package version, so a header-only proposal ships red there (ml#851; the juniper-recurrence#92 / #93 class).")
+    elif agents_table_status == "unexpected":
+        items.append(f"AGENTS.md per-package version-table row bump for `{entry.pypi_name}` (REQUIRED -- a row names the package but its version cell is not at the expected from-version, or the row is ambiguous; verify and edit manually, the train never guesses at a cell); a repo-local version-drift hook pins that row against the package version (ml#851).")
     if cochanges:
         extras_touched = ", ".join(sorted({f"[{cc.extra}]" for cc in cochanges}))
         items.append(f"In-repo meta consumer pin (included in this PR): raised the {extras_touched} ceiling for {entry.pypi_name} to {cochanges[0].new_req} -- root pyproject.toml + tests/test_pyproject_extras.py membership + the AGENTS.md extras table, moved together in THIS PR (closes the ml#657 RK-11 gap; guarded by tests/test_pyproject_extras.py + the per-package RK-11 drift gate).")
@@ -1112,22 +1197,27 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
         prop.skipped_reason = f"could not read {clog_rel}"
         return prop
 
-    # 5. meta-package AGENTS.md **Version** co-change (plan S5.4). Mutually exclusive with the extras
-    # co-change in step 5b: only the meta-package edits its **Version** header (and the meta does not
-    # pin itself in its own extras), and only a sub-package edits the extras table -- so AGENTS.md is
-    # touched by at most one of the two steps and never gets two conflicting FileEdits.
+    # 5. AGENTS.md co-changes. AGENTS.md is read ONCE here and EVERY transformation below (the
+    # **Version** header, the ml#851 per-package version table, and the step-5b extras-pin table)
+    # composes onto the same text, so a proposal carries at most ONE AGENTS.md FileEdit: the executor
+    # writes each edit's full ``new_text`` in order, so two edits on one path would silently drop the
+    # first. The single append lives after step 5b (below), once every composer has run.
+    #
+    # 5. (header) meta-package AGENTS.md **Version** co-change (plan S5.4).
     agents_edited = False
     agents_surface = False  # True => checklist item (included or REQUIRED); False => already-at-target silent
+    agents_table_status = "absent"
+    atext = sources.read_file(entry, "AGENTS.md")
+    agents_new = atext
     if entry.pypi_name == notes_render.META_PACKAGE:
-        atext = sources.read_file(entry, "AGENTS.md")
         if atext is None:
             agents_surface = True  # absent → REQUIRED-manual
         else:
-            new_atext, aold = set_agents_version(atext, to_version)
+            candidate, aold = set_agents_version(agents_new, to_version)
             if aold is None:
                 agents_surface = True  # no **Version** line → REQUIRED-manual
-            elif new_atext != atext:
-                prop.edits.append(FileEdit(path="AGENTS.md", old_text=atext, new_text=new_atext))
+            elif candidate != agents_new:
+                agents_new = candidate
                 agents_edited = True
                 agents_surface = True
             # else: already at to_version (partial heal / re-entry) — silent success
@@ -1140,19 +1230,30 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
     # anything unexpected is left alone and surfaced via the co-change checklist (agents_edited=False).
     # Already-at-to_version is silent success (same class as the ml#701 dunder re-entry fix).
     elif entry.pypi_name == entry.repo:
-        atext = sources.read_file(entry, "AGENTS.md")
         if atext is None:
             agents_surface = True  # absent → REQUIRED-manual
         else:
-            new_atext, aold = set_agents_version(atext, to_version)
-            if aold == from_version and new_atext != atext:
-                prop.edits.append(FileEdit(path="AGENTS.md", old_text=atext, new_text=new_atext))
+            candidate, aold = set_agents_version(agents_new, to_version)
+            if aold == from_version and candidate != agents_new:
+                agents_new = candidate
                 agents_edited = True
                 agents_surface = True
             elif aold == to_version:
                 pass  # already correct — silent success; do NOT false-REQUIRED
             else:
                 agents_surface = True  # unexpected / missing header → REQUIRED-manual
+
+    # 5a. per-package AGENTS.md version-TABLE row co-change (ml#851 -- the worker#140 class, table
+    # variant). Some repos carry a per-package version table pinned by a repo-local ``version-drift``
+    # hook (juniper-recurrence's AGENTS.md:22-24 vs scripts/check_version_drift.py), so a proposal that
+    # moved only the header shipped red there (recurrence#92 / #93, healed by hand). Unlike the header,
+    # the table has a row PER package -- so this runs for EVERY package, including a sub-package hosted
+    # in a sibling repo, which still must not touch that repo's primary-tracking header. Repos without
+    # such a table are ``absent``: no edit, no checklist noise.
+    if atext is not None:
+        candidate, agents_table_status = set_agents_table_version(agents_new, entry.pypi_name, from_version, to_version)
+        if agents_table_status == "edited":
+            agents_new = candidate
 
     # 5b. in-repo meta-package consumer-pin co-changes (plan S5.4; closes the ml#657 RK-11 gap).
     # For an in-repo bump whose new version escapes a meta ``[extras]`` ``<next-minor`` ceiling, move
@@ -1174,11 +1275,13 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
                     new_test = apply_pin_edits_exact(test_text, cochanges)
                     if new_test != test_text:
                         prop.edits.append(FileEdit(path=test_rel, old_text=test_text, new_text=new_test))
-                agents_pin_text = sources.read_file(entry, "AGENTS.md")
-                if agents_pin_text is not None:
-                    new_agents = apply_pin_edits_agents_table(agents_pin_text, entry.pypi_name, cochanges[0].new_req)
-                    if new_agents != agents_pin_text:
-                        prop.edits.append(FileEdit(path="AGENTS.md", old_text=agents_pin_text, new_text=new_agents))
+                if atext is not None:
+                    # composes onto the step-5/5a text (see the step-5 note): one AGENTS.md FileEdit only.
+                    agents_new = apply_pin_edits_agents_table(agents_new, entry.pypi_name, cochanges[0].new_req)
+
+    # 5c. the SINGLE AGENTS.md edit, carrying whichever of the three composers actually changed text.
+    if atext is not None and agents_new != atext:
+        prop.edits.append(FileEdit(path="AGENTS.md", old_text=atext, new_text=agents_new))
 
     # 6. drafted release notes (template-driven; NOT archived here, plan S10.1/S10.2).
     prop.notes_relpath = notes_render.archive_relpath(entry.pypi_name, to_version)
@@ -1198,7 +1301,7 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
         trigger_title=f"release: {entry.pypi_name} v{to_version} (proposal)",
         date=date,
     )
-    prop.co_change_checklist = _co_change_checklist(entry, bump, prop.propagation_edges, agents_edited, prop.consumer_pin_cochanges, dunder_rel=dunder_rel, dunder_edited=dunder_edited, agents_surface=agents_surface)
+    prop.co_change_checklist = _co_change_checklist(entry, bump, prop.propagation_edges, agents_edited, prop.consumer_pin_cochanges, dunder_rel=dunder_rel, dunder_edited=dunder_edited, agents_surface=agents_surface, agents_table_status=agents_table_status)
 
     # 8. branch / commit / PR metadata.
     prop.branch = release_branch(entry.pypi_name, to_version)
