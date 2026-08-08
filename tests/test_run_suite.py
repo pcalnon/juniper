@@ -158,7 +158,7 @@ class MaterialiseTest(unittest.TestCase):
 
 
 class MainLoopTest(unittest.TestCase):
-    def _setup(self, *, cof: str = "true", fail_token: "str | None" = None, fail_up: bool = False):
+    def _setup(self, *, cof: str = "true", fail_marker: "str | None" = None, fail_up: bool = False):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
@@ -172,11 +172,11 @@ class MainLoopTest(unittest.TestCase):
         launcher = root / "stub_launcher.bash"
         _write_stub_launcher(launcher, markers, fail_up=fail_up)
         driver = root / "stub_driver.py"
-        per_cell = {fail_token: "failed"} if fail_token else None
+        per_cell = {fail_marker: "failed"} if fail_marker else None
         _write_stub_driver(driver, per_cell=per_cell)
         self._env = {"JUNIPER_SUITE_LAUNCHER": str(launcher), "JUNIPER_SUITE_DRIVER": str(driver), "JUNIPER_SUITE_PYTHON": sys.executable}
         self._old_run_root = run_suite.DEFAULT_RUN_ROOT
-        run_suite.DEFAULT_RUN_ROOT = run_root
+        run_suite.DEFAULT_RUN_ROOT = run_root  # type: ignore[attr-defined]
         self.addCleanup(lambda: setattr(run_suite, "DEFAULT_RUN_ROOT", self._old_run_root))
         return root, suite_dir, markers, run_root
 
@@ -212,7 +212,7 @@ class MainLoopTest(unittest.TestCase):
         self.assertEqual(manifest["schema"], "juniper-experiment-suite/1")
 
     def test_continue_on_failure_runs_all_and_exits_one(self) -> None:
-        root, suite_dir, markers, _ = self._setup(fail_token="max_hidden_units: 2")
+        root, suite_dir, markers, _ = self._setup(fail_marker="max_hidden_units: 2")
         rc, out = self._main("--suite", str(root / "suite.yaml"))
         self.assertEqual(rc, 1, msg=out)
         registry = [json.loads(line) for line in (suite_dir / "registry.jsonl").read_text().splitlines()]
@@ -221,7 +221,7 @@ class MainLoopTest(unittest.TestCase):
         self.assertEqual(len(list(markers.glob("down-*"))), 2)
 
     def test_stop_on_failure_halts_the_loop(self) -> None:
-        root, suite_dir, _, _ = self._setup(cof="false", fail_token="max_hidden_units: 2")
+        root, suite_dir, _, _ = self._setup(cof="false", fail_marker="max_hidden_units: 2")
         rc, _ = self._main("--suite", str(root / "suite.yaml"))
         self.assertEqual(rc, 1)
         registry = [json.loads(line) for line in (suite_dir / "registry.jsonl").read_text().splitlines()]
