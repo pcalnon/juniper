@@ -1,0 +1,29 @@
+# E-A reference suite (CLI experimentation plan §10.5 / §13.1): cascade budget × candidate pool
+# on spiral. Cells = base_config × matrix, minus exclude, plus include. Run with:
+#   python util/experiments/run_suite.py --suite util/experiments/suites/cascor-budget-sweep.yaml --dry-run
+schema_version: 1
+suite:
+  name: cascor-budget-sweep
+  description: "E-A: cascade budget x candidate pool on spiral"
+  app: cascor
+  base_config:
+    - ../../../../juniper-cascor/conf/experiments/spiral-baseline.yaml
+  seed_policy: fixed
+execution:
+  mode: sequential
+  max_parallel: 1
+  continue_on_failure: true
+  per_run_timeout_seconds: 3600
+matrix:
+  training.params.max_hidden_units: [4, 8, 16, 32]
+  training.params.candidate_pool_size: [4, 8, 16]
+include:
+  - name: wide-pool-long
+    overrides:
+      training.params.candidate_pool_size: 32
+      training.params.max_epochs: 5000
+exclude:
+  - {training.params.max_hidden_units: 32, training.params.candidate_pool_size: 16}
+outputs:
+  suite_dir: null
+  aggregate: [csv, markdown]
