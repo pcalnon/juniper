@@ -40,6 +40,14 @@
 #                   (it ships no importable module -- only pyproject runtime/extras changes ship).
 #   exclude_paths   repo-relative prefixes subtracted from ship_paths (tests, backups,
 #                   and -- for the cascor app -- the two co-located sub-package dirs).
+#   main_ci_workflow OPTIONAL. The workflow FILENAME whose newest COMPLETED run on main is this
+#                   package's "is main green?" signal for the ceremony's plan S8 precondition
+#                   (gh run list --workflow <name> --status completed). Defaults to "ci.yml" when
+#                   absent -- the 7 repos with a single repo-level CI. juniper-recurrence has NO
+#                   repo-wide ci.yml; its three packages gate through path-scoped per-package lanes
+#                   (ci-recurrence-{app,client,model}.yml), so those entries override the default.
+#                   (Added after the dispatch self-observation HALT -- run 31257045597 / issue #855 --
+#                   where the unscoped newest-run probe read the in-progress release-train run itself.)
 #
 # The <path>pyproject.toml is ALWAYS a ship candidate for runtime-dep/version/non-test-extra
 # changes (evaluated by the detector's pyproject-hunk classifier), independent of ship_paths.
@@ -258,6 +266,7 @@ packages:
     version_source: dynamic       # dynamic=["version"] -> juniper_recurrence/_version.py __version__
     tag_pattern: "juniper-recurrence-v*"
     archive_name: "RELEASE_NOTES_juniper-recurrence_v{version}.md"
+    main_ci_workflow: "ci-recurrence-app.yml"   # no repo-wide ci.yml; path-scoped app lane (juniper-recurrence/**)
     trigger: {now: tag, target: release}     # F-4: still push:tags today
     verify: {now: strict, target: strict}
     depends_on: ["juniper-service-core", "juniper-model-core", "juniper-recurrence-model", "juniper-data-client"]
@@ -270,6 +279,7 @@ packages:
     version_source: dynamic       # dynamic=["version"] -> juniper_recurrence_client/_version.py __version__
     tag_pattern: "juniper-recurrence-client-v*"
     archive_name: "RELEASE_NOTES_juniper-recurrence-client_v{version}.md"
+    main_ci_workflow: "ci-recurrence-client.yml"   # path-scoped client lane (juniper-recurrence-client/**)
     trigger: {now: tag, target: release}     # F-4: still push:tags today
     verify: {now: strict, target: strict}
     depends_on: []
@@ -282,6 +292,7 @@ packages:
     version_source: dynamic       # dynamic=["version"] -> juniper_recurrence_model/_version.py __version__
     tag_pattern: "juniper-recurrence-model-v*"
     archive_name: "RELEASE_NOTES_juniper-recurrence-model_v{version}.md"
+    main_ci_workflow: "ci-recurrence-model.yml"   # path-scoped model lane (juniper-recurrence-model/**)
     trigger: {now: tag, target: release}     # F-4: still push:tags today
     verify: {now: strict, target: strict}
     depends_on: ["juniper-model-core"]

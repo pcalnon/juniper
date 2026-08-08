@@ -610,7 +610,7 @@ class CeremonySources:
 
     pypi_json: Callable[[str], "dict | None"]
     read_file: Callable[["detect.PackageEntry", str], "str | None"]
-    main_ci_conclusion: Callable[[str], "str | None"]
+    main_ci_conclusion: Callable[[str, str], "str | None"]
     list_open_prs: Callable[[str], list]
     release_exists: Callable[[str, str], bool]
     archive_on_main: Callable[[str], bool]
@@ -651,8 +651,17 @@ def make_live_sources(owner: str, repo_root: Path, ecosystem_root: Path, *, allo
         except OSError:
             return None
 
-    def main_ci_conclusion(repo: str) -> "str | None":
-        out = _cgh(["run", "list", "--repo", f"{owner}/{repo}", "--branch", "main", "--limit", "1", "--json", "conclusion,status", "--jq", ".[0].conclusion"])
+    def main_ci_conclusion(repo: str, workflow: str) -> "str | None":
+        # The "is main green?" signal for the S8 precondition. Scope the probe to the newest COMPLETED run
+        # of the package's actual main-CI workflow (``workflow``, e.g. ``ci.yml``) -- NOT the newest run of
+        # ANY workflow on main. The unscoped ``--branch main --limit 1`` form self-observed: when the
+        # ceremony runs via ``release-train.yml`` ``workflow_dispatch``, the newest main-branch run is the
+        # release-train run ITSELF (in progress -> empty conclusion -> None), so a fully-green main
+        # deterministically HALTed ``main-ci-not-green`` (run 31257045597, issue #855; the 2026-07-29
+        # #854-#857 batch). ``--workflow`` excludes the release-train run; ``--status completed`` excludes
+        # any in-progress run of the CI workflow itself. Fail-closed: a brand-new repo with zero completed
+        # runs of ``workflow`` returns None -> HALT (correct -- do not cut a Release with no green signal).
+        out = _cgh(["run", "list", "--repo", f"{owner}/{repo}", "--branch", "main", "--workflow", workflow, "--status", "completed", "--limit", "1", "--json", "conclusion", "--jq", ".[0].conclusion"])
         return (out or "").strip() or None
 
     def list_open_prs(repo: str) -> list:
@@ -876,10 +885,12 @@ def plan_ceremony(entry: "detect.PackageEntry", pkg: dict, sources: CeremonySour
     plan.archive_relpath = archive_relpath(entry, target)
     plan.archive_branch = archive_branch(entry.pypi_name, target)
 
-    # 2. S8: target main CI must be green.
-    conclusion = sources.main_ci_conclusion(entry.repo)
+    # 2. S8: target main CI must be green -- the newest COMPLETED run of the package's own main-CI
+    # workflow (registry ``main_ci_workflow``, default ``ci.yml``), never the newest run of ANY workflow
+    # (which under workflow_dispatch is the release-train run itself -> the self-observation HALT).
+    conclusion = sources.main_ci_conclusion(entry.repo, entry.main_ci_workflow)
     if conclusion != "success":
-        return _halt(plan, "main-ci-not-green", f"target main CI latest conclusion is {conclusion!r}, not 'success' -- do not cut a Release onto a red main", when)
+        return _halt(plan, "main-ci-not-green", f"target main CI ({entry.main_ci_workflow}) latest completed conclusion is {conclusion!r}, not 'success' -- do not cut a Release onto a red main", when)
 
     # 3. build the FINAL central notes file from the released CHANGELOG [<version>] section.
     clog = sources.read_file(entry, changelog_rel(entry))
