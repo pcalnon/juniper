@@ -42,7 +42,9 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -76,15 +78,38 @@ _CONSUMER_REPOS = (
 # juniper-ci-tools.
 
 # When linting juniper-ml itself, walk every workflow under
-# .github/workflows/ that installs juniper-ci-tools. As of Wave 2:
-#   - ci.yml                  -- per-PR "Generate Dependency Documentation"
+# .github/workflows/ that installs juniper-ci-tools:
+#   - ci.yml                  -- per-PR "Generate Dependency Documentation" (dep-docs)
+#                                + the per-PR "Sequence Safety" screen job (>=0.8.0)
+#                                + the tests job (test_predict_merge shells the screens)
+#   - main-verify.yml         -- the post-merge (G3) sequence-safety screens (>=0.8.0;
+#                                rollout W3 -- the sequence-safety.yml/main-verify.yml pin
+#                                scan the plan §W3 step 3.3 calls for)
 #   - lockfile-update.yml     -- weekly lockfile refresh
 #   - docs-full-check.yml     -- §5.2 weekly downstream integration
 _ML_OWN_WORKFLOWS = (
     ".github/workflows/ci.yml",
+    ".github/workflows/main-verify.yml",
     ".github/workflows/lockfile-update.yml",
     ".github/workflows/docs-full-check.yml",
 )
+
+# Files/dirs that housed the in-repo sequence-safety screens before rollout W3 migrated
+# them into the juniper-ci-tools package. Their reappearance in juniper-ml would resurrect
+# the inline-copy drift class the migration killed (the same class the doc-tools + dep-docs
+# migrations killed before it). The cli*.py class guard in juniper-ci-tools already covers
+# the two new console scripts; this list is the juniper-ml-side resurrection guard.
+_MIGRATED_INLINE_SCREENS = (
+    "util/sequence_safety",
+    "tests/test_symbol_loss_check.py",
+    "tests/test_docs_additions_check.py",
+)
+
+
+def _resurrected_inline_screens(root: Path) -> list[str]:
+    """Return the migrated inline-screen paths (from ``_MIGRATED_INLINE_SCREENS``) that
+    still exist under ``root``. Empty list == clean (fully migrated)."""
+    return [rel for rel in _MIGRATED_INLINE_SCREENS if (root / rel).exists()]
 
 
 def _parse_version(v: str) -> tuple[int, ...]:
@@ -277,6 +302,76 @@ class PinParsingHelperTest(unittest.TestCase):
     def test_supported_window_constant_matches_plan(self):
         # Plan §5.1: "more than 2 minor versions behind current" warns.
         self.assertEqual(_SUPPORTED_MINORS_BACK, 2)
+
+
+class SequenceSafetyPackageMigrationTest(unittest.TestCase):
+    """Anti-resurrection gate for the sequence-safety package migration (rollout W3,
+    plan §W3 step 3.3).
+
+    The AST symbol-loss + docs deletion-magnitude screens now ship as the
+    juniper-ci-tools console scripts ``juniper-symbol-loss-check`` /
+    ``juniper-docs-additions-check`` (>=0.8.0); juniper-ml's ci.yml + main-verify.yml
+    consume them and MUST NOT carry the inline ``util/sequence_safety/`` copy or its two
+    moved unit tests. This gate has two halves:
+
+      (a) *resurrection guard* -- juniper-ml's own tree carries none of the migrated
+          inline paths (``test_inline_sequence_safety_tree_is_gone`` + a synthetic-fixture
+          negative that proves the guard bites);
+      (b) *pin admits current* -- the two new screen pins (``>=0.8.0,<0.9.0`` in ci.yml's
+          sequence-safety job and in main-verify.yml) still admit the current
+          juniper-ci-tools version, enforced by ``JuniperCiToolsDriftTest`` above now that
+          ``main-verify.yml`` is in ``_ML_OWN_WORKFLOWS``.
+    """
+
+    def test_inline_sequence_safety_tree_is_gone(self):
+        """(a) No resurrected inline screen tree / moved test lives in juniper-ml."""
+        root = Path(__file__).resolve().parent.parent
+        stragglers = _resurrected_inline_screens(root)
+        self.assertEqual(
+            stragglers,
+            [],
+            "the sequence-safety screens are migrated to the juniper-ci-tools package " "(rollout W3); delete the resurrected inline copy / moved test(s): " + ", ".join(stragglers),
+        )
+
+    def test_resurrection_guard_bites_on_synthetic_tree(self):
+        """Red-then-green proof: the guard is silent on a clean synthetic root and FIRES
+        when the migrated inline tree is planted there -- so a real resurrection in
+        juniper-ml cannot slip past ``test_inline_sequence_safety_tree_is_gone``. The
+        planting happens in a throwaway tmp fixture, never in the repo."""
+        tmp = Path(tempfile.mkdtemp(prefix="seqsafety-resurrection-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+
+        # GREEN: a clean synthetic root reports no resurrection.
+        self.assertEqual(_resurrected_inline_screens(tmp), [])
+
+        # RED: plant the migrated inline tree + its two moved tests; the guard must fire.
+        (tmp / "util" / "sequence_safety").mkdir(parents=True)
+        (tmp / "util" / "sequence_safety" / "symbol_loss_check.py").write_text("# resurrected\n", encoding="utf-8")
+        (tmp / "tests").mkdir()
+        (tmp / "tests" / "test_symbol_loss_check.py").write_text("# resurrected\n", encoding="utf-8")
+        (tmp / "tests" / "test_docs_additions_check.py").write_text("# resurrected\n", encoding="utf-8")
+        self.assertEqual(
+            _resurrected_inline_screens(tmp),
+            list(_MIGRATED_INLINE_SCREENS),
+            "the resurrection guard must report every planted inline-screen path",
+        )
+
+
+class SequenceSafetyResurrectionHelperTest(unittest.TestCase):
+    """Direct unit tests for ``_resurrected_inline_screens`` so it is covered independent
+    of the real-tree assertion (which is empty in the healthy repo)."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="seqsafety-helper-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_empty_root_is_clean(self):
+        self.assertEqual(_resurrected_inline_screens(self.tmp), [])
+
+    def test_reports_only_the_paths_present(self):
+        (self.tmp / "tests").mkdir()
+        (self.tmp / "tests" / "test_docs_additions_check.py").write_text("x\n", encoding="utf-8")
+        self.assertEqual(_resurrected_inline_screens(self.tmp), ["tests/test_docs_additions_check.py"])
 
 
 if __name__ == "__main__":

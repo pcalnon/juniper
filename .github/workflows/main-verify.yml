@@ -23,7 +23,8 @@
 #
 #    Three jobs:
 #      * symbol-screen -- ALWAYS runs. AST symbol-loss screen + docs deletion-magnitude
-#        screen of BASE .. <merge>, both via util/sequence_safety/. Uploads the JSON reports
+#        screen of BASE .. <merge>, both via the juniper-ci-tools console scripts
+#        (juniper-symbol-loss-check / juniper-docs-additions-check). Uploads the JSON reports
 #        as an artifact a supervisor can consume. FAILs the job on a compositional-loss
 #        finding.
 #          G3.1 CATCH-UP BASE (flood §4 item 8 / the 2026-07-30 skip incident): a quoted
@@ -60,7 +61,7 @@
 #
 # References:
 #    - notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md (S3 P2 G3 / S4 item 8)
-#    - util/sequence_safety/{symbol_loss_check,docs_additions_check}.py (+ tests/test_{symbol_loss,docs_additions}_check.py)
+#    - juniper-ci-tools (PyPI >=0.8.0): symbol_loss_check / docs_additions_check modules + CLIs (tests in juniper-ci-tools/tests/)
 #    - .github/workflows/release-train.yml (the verbatim non-blocking Slack pattern reused below)
 #####################################################################################################################################################################################################
 
@@ -107,6 +108,14 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_TEST_VERSION }}
+
+      - name: Install sequence-safety screens (juniper-ci-tools)
+        run: |
+          # G3 post-merge screens now ship as the PyPI package juniper-ci-tools (>=0.8.0),
+          # replacing the deleted in-repo util/sequence_safety/ copy (rollout W3). The console
+          # scripts juniper-symbol-loss-check / juniper-docs-additions-check land on PATH.
+          python -m pip install --upgrade "pip>=26.1.1"
+          pip install "juniper-ci-tools>=0.8.0,<0.9.0"
 
       - name: Resolve catch-up base
         id: base
@@ -175,14 +184,18 @@ jobs:
           echo "--- symbol-loss screen ---"
           # Human run to the log carries the authoritative exit code; the guarded
           # --json run then writes the artifact (same verdicts, machine-readable).
-          python3 util/sequence_safety/symbol_loss_check.py --base "$base" --head "$HEAD_SHA"
+          # Explicit --scope globs reproduce ml's historical in_scope() predicate
+          # (top-level tests/*.py + util/**/*.py + util/**/*.bash) verbatim (rollout W3).
+          juniper-symbol-loss-check --scope 'tests/*.py' --scope 'util/**/*.py' --scope 'util/**/*.bash' --base "$base" --head "$HEAD_SHA"
           src=$?
-          python3 util/sequence_safety/symbol_loss_check.py --base "$base" --head "$HEAD_SHA" --json > symbol-report.json || true
+          juniper-symbol-loss-check --scope 'tests/*.py' --scope 'util/**/*.py' --scope 'util/**/*.bash' --base "$base" --head "$HEAD_SHA" --json > symbol-report.json || true
           echo ""
           echo "--- docs deletion-magnitude screen ---"
-          python3 util/sequence_safety/docs_additions_check.py --base "$base" --head "$HEAD_SHA"
+          # No --scope: the universal docs cluster (AGENTS.md + docs/**/*.md + notes/**/*.md)
+          # is the package default and matches ml's historical in_docs_scope() verbatim.
+          juniper-docs-additions-check --base "$base" --head "$HEAD_SHA"
           drc=$?
-          python3 util/sequence_safety/docs_additions_check.py --base "$base" --head "$HEAD_SHA" --json > docs-report.json || true
+          juniper-docs-additions-check --base "$base" --head "$HEAD_SHA" --json > docs-report.json || true
           echo ""
           echo "symbol screen exit=${src} ; docs screen exit=${drc}"
           if [ "${src}" -ge 2 ] || [ "${drc}" -ge 2 ]; then
@@ -263,9 +276,12 @@ jobs:
         if: steps.changes.outputs.run == 'true'
         run: |
           python -m pip install --upgrade "pip>=26.1.1"
-          # Same two installs ci.yml's tests job performs: PyYAML (workflow/registry
-          # parsers) + packaging (env-drift dogfood's SpecifierSet/Version).
+          # Same installs ci.yml's tests job performs: PyYAML (workflow/registry
+          # parsers) + packaging (env-drift dogfood's SpecifierSet/Version) +
+          # juniper-ci-tools (the sequence-safety console scripts that
+          # tests/test_predict_merge.py shells to end-to-end; rollout W3).
           pip install "pyyaml>=6.0" "packaging>=22.0"
+          pip install "juniper-ci-tools>=0.8.0,<0.9.0"
 
       - name: Run Python regression battery
         if: steps.changes.outputs.run == 'true'
@@ -314,9 +330,9 @@ jobs:
           python3 -m unittest -v tests/test_main_verify_battery_paths.py
           python3 -m unittest -v tests/test_ci_quality_gate.py
           python3 -m unittest -v tests/test_publish_subpackage_workflows.py
-          # Flood-remediation sequence-safety screens (P2 G1/G2; mirror ci.yml).
-          python3 -m unittest -v tests/test_symbol_loss_check.py
-          python3 -m unittest -v tests/test_docs_additions_check.py
+          # Flood-remediation sequence-safety screens (P2 G1/G2) now ship as the PyPI
+          # package juniper-ci-tools (>=0.8.0); their unit tests live in juniper-ci-tools/tests/
+          # (rollout W3). The label-hatch rehearsal below stays juniper-ml's gate.
           python3 -m unittest -v tests/test_ci_sequence_safety_hatch.py
           python3 -m unittest -v tests/test_main_verify_workflow_guard.py
           # Flood-remediation sequence-safety screens (P2 G1/G2; mirror ci.yml).

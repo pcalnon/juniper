@@ -8,14 +8,15 @@ apply-label + re-run takes effect with no push. ``merge_group`` has no PR object
 queued merges stay strict (no label downgrade). Exact-match ``grep -qx`` prevents
 near-miss labels from silencing a FAIL.
 
-The CLI ``--advisory`` arms are covered in ``tests/test_symbol_loss_check.py`` /
-``tests/test_docs_additions_check.py``; this unittest pins the *workflow wiring*
-that maps labels → argv and aggregates exit codes — the seam those module tests
-cannot see.
+The CLI ``--advisory`` arms are covered in ``juniper-ci-tools/tests/`` (the screens
+now ship as the PyPI package ``juniper-ci-tools`` >=0.8.0; rollout W3); this unittest
+pins the *workflow wiring* that maps labels → argv and aggregates exit codes — the
+seam those package tests cannot see.
 
 Extracts the workflow's OWN ``Run sequence-safety screens`` shell and drives it
-over a hermetic stub ``gh`` / ``git`` / ``python3`` (same idiom as
-``tests/test_pr_budget_alarm.py`` / ``tests/test_ci_precommit_g4.py``).
+over hermetic stub ``gh`` / ``git`` executables plus stubs for the two console
+scripts ``juniper-symbol-loss-check`` / ``juniper-docs-additions-check`` (same idiom
+as ``tests/test_pr_budget_alarm.py`` / ``tests/test_ci_precommit_g4.py``).
 
 Neither the workflow YAML nor this shell is otherwise lint-gated for the hatch,
 so this unittest IS the gate.
@@ -143,19 +144,26 @@ class SequenceSafetyHatchRehearsalTest(unittest.TestCase):
             td_path = Path(td)
             script_path = td_path / "screens.sh"
             script_path.write_text(self.script, encoding="utf-8")
-            py_log = td_path / "python.log"
+            cmd_log = td_path / "screens.log"
             stub_bin = td_path / "bin"
             stub_bin.mkdir()
 
-            # Stub python3: log full argv; honour --json by writing {}; return configured exit.
-            # First non-json call for each module sets the human-screen exit; --json always 0
-            # (workflow uses ``|| true`` on the json arm, but a clean stub keeps the log tidy).
-            py = stub_bin / "python3"
-            py.write_text(
-                "#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "%s\\n" "$*" >>"{py_log}"\n' 'args="$*"\n' 'if [[ "$args" == *"--json"* ]]; then\n' '  printf "%s\\n" "{}"\n' "  exit 0\n" "fi\n" 'if [[ "$args" == *"symbol_loss_check.py"* ]]; then\n' f"  exit {int(symbol_exit)}\n" "fi\n" 'if [[ "$args" == *"docs_additions_check.py"* ]]; then\n' f"  exit {int(docs_exit)}\n" "fi\n" 'echo "unexpected python3 argv: $*" >&2\n' "exit 99\n",
-                encoding="utf-8",
-            )
-            py.chmod(0o755)
+            # Stub the two juniper-ci-tools console scripts (rollout W3 replaced the in-repo
+            # python3 util/sequence_safety/*.py invocations). Each logs its own name + full
+            # argv to cmd_log, honours --json by writing {} (exit 0; the workflow's json arm
+            # carries ``|| true``), and otherwise returns the configured screen exit. The
+            # <name>-prefixed log line keeps symbol vs docs invocations distinguishable and
+            # preserves the base-sha / --scope / label-hatch (--advisory) wiring assertions.
+            for cmd_name, exit_code in (
+                ("juniper-symbol-loss-check", int(symbol_exit)),
+                ("juniper-docs-additions-check", int(docs_exit)),
+            ):
+                stub = stub_bin / cmd_name
+                stub.write_text(
+                    "#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "{cmd_name} %s\\n" "$*" >>"{cmd_log}"\n' 'args="$*"\n' 'if [[ "$args" == *"--json"* ]]; then\n' '  printf "%s\\n" "{}"\n' "  exit 0\n" "fi\n" f"exit {exit_code}\n",
+                    encoding="utf-8",
+                )
+                stub.chmod(0o755)
 
             # One label per line (mirrors ``gh pr view --jq '.labels[].name'``).
             labels_file = td_path / "labels.txt"
@@ -192,7 +200,7 @@ class SequenceSafetyHatchRehearsalTest(unittest.TestCase):
                 timeout=30,
             )
             combined = proc.stdout + proc.stderr
-            log_lines = py_log.read_text(encoding="utf-8").splitlines() if py_log.is_file() else []
+            log_lines = cmd_log.read_text(encoding="utf-8").splitlines() if cmd_log.is_file() else []
             return proc.returncode, combined, log_lines
 
     @staticmethod
@@ -205,8 +213,18 @@ class SequenceSafetyHatchRehearsalTest(unittest.TestCase):
         self.assertEqual(rc, 0, msg=out)
         human = self._human_invocations(log)
         self.assertEqual(len(human), 2)
-        self.assertTrue(human[0].endswith("symbol_loss_check.py --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --head HEAD"))
-        self.assertTrue(human[1].endswith("docs_additions_check.py --base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --head HEAD"))
+        # symbol: the console script + the three explicit --scope globs that reproduce ml's
+        # historical in_scope() (top-level tests/*.py + util/**/*.py + util/**/*.bash; rollout
+        # W3), then the PR base-sha wiring and HEAD (single quotes stripped by the shell).
+        self.assertTrue(human[0].startswith("juniper-symbol-loss-check "))
+        self.assertIn("--scope tests/*.py", human[0])
+        self.assertIn("--scope util/**/*.py", human[0])
+        self.assertIn("--scope util/**/*.bash", human[0])
+        self.assertTrue(human[0].endswith("--base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --head HEAD"))
+        # docs: the universal default cluster (NO --scope) + the same base-sha wiring.
+        self.assertTrue(human[1].startswith("juniper-docs-additions-check "))
+        self.assertNotIn("--scope", human[1])
+        self.assertTrue(human[1].endswith("--base aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --head HEAD"))
         self.assertNotIn("--advisory", human[0])
         self.assertNotIn("--advisory", human[1])
         self.assertNotIn("ADVISORY", out)
