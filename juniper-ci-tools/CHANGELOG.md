@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Two sequence-safety ref-diff screens migrated from the two hand-copied inline
+  `util/sequence_safety/` trees (juniper-ml + juniper-cascor) into this package as
+  the single, PyPI-distributed source of truth (Wave 0 of the sequence-safety
+  ecosystem rollout, plan
+  `notes/JUNIPER_2026-08-07_JUNIPER-ECOSYSTEM_SEQUENCE-SAFETY-ROLLOUT-PLAN.md`):
+  - `juniper_ci_tools.symbol_loss_check` + `juniper-symbol-loss-check` console
+    script — AST symbol-loss screen (gate G1 / G3): FAIL on a silently deleted
+    (LOST), gutted-past-threshold (WEAKENED), or duplicated (DUPLICATED)
+    def/class/method (or bash function) between BASE and HEAD, with
+    qualified-name / body-similarity relocation downgrade, the
+    `@property`/`@x.setter` accessor-pair guard (`_accessor_suffix`), and an
+    `Allow-Symbol-Loss:` commit-trailer waiver (a `*` wildcard is rejected).
+  - `juniper_ci_tools.docs_additions_check` + `juniper-docs-additions-check`
+    console script — markdown deletion-magnitude screen (gate G2 / G3): FAIL on a
+    deleted heading or a run of `>= --min-run` (default 5) consecutive deleted
+    lines, WARN on small in-place swaps, with an `Allow-Docs-Rewrite:`
+    commit-trailer waiver. `--min-run` is tunable.
+- `--scope GLOB` — a new, repeatable POSIX-path-glob argument on both screens
+  (owner-decided scope-delivery design; plan D2). With no `--scope`, each screen
+  reproduces its historical hard-coded predicate **verbatim** (symbol:
+  `tests/*.py` + `util/**`; docs: `AGENTS.md` + `docs/**` + `notes/**`), so a
+  default run is byte-identical to the pre-migration util scripts; a caller may
+  instead scope a different surface (e.g. `--scope 'src/**/*.py'`). A tested
+  3.11-floor-safe `_match_scope` implements explicit `**` recursion (no
+  `PurePath.full_match`, which is 3.13+). `--files` still bypasses scope entirely.
+- Both screens ship the logic module + a thin `cli_*.py` argparse wrapper per the
+  house pattern; the `cli*.py` → `[project.scripts]` class guard covers both new
+  console scripts automatically.
+
 ## [0.7.1] - 2026-07-28
 
 ### Fixed

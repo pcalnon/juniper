@@ -136,7 +136,12 @@ is published from subdirectory `juniper-ci-tools/` by
 module form), Python port of the legacy `scripts/generate_dep_docs.sh` that
 drifted across 8 Juniper repos. Replaces all consumer inline copies via a
 single PyPI dependency; carries the cascor 2026-05-20 awk-extraction fix as
-the canonical implementation.
+the canonical implementation. As of **0.8.0** it also ships the two
+sequence-safety ref-diff screens — `juniper-symbol-loss-check` (AST symbol-loss)
+and `juniper-docs-additions-check` (markdown deletion-magnitude), both gaining a
+repeatable `--scope GLOB` knob — migrated from the two hand-copied
+`util/sequence_safety/` trees (Wave 0 of the sequence-safety ecosystem rollout,
+plan `notes/JUNIPER_2026-08-07_JUNIPER-ECOSYSTEM_SEQUENCE-SAFETY-ROLLOUT-PLAN.md`).
 
 ## Shared Observability Helpers
 

@@ -41,6 +41,12 @@ juniper-ml repo for the design rationale, the incident-class motivation
 (mirroring the 2026-05-18 doc-link validator incident), and the wave plan.
 """
 
+# The two sequence-safety screens are re-exported as SUBMODULES (plus their two
+# distinctly-named scope predicates), not flattened, because both modules define
+# ``run`` / ``Finding`` / ``classify_file`` with different signatures -- flattening
+# either into this namespace would silently shadow the other. Access those via the
+# submodule: ``juniper_ci_tools.symbol_loss_check.run`` / ``...docs_additions_check.run``.
+from juniper_ci_tools import docs_additions_check, symbol_loss_check
 from juniper_ci_tools._version import __version__
 from juniper_ci_tools.coverage_gap_mapper import (
     CoverageReport,
@@ -52,6 +58,7 @@ from juniper_ci_tools.coverage_gap_mapper import (
     run_coverage,
     write_include_coverage_config,
 )
+from juniper_ci_tools.docs_additions_check import in_docs_scope
 from juniper_ci_tools.generate_dep_docs import (
     GenerateResult,
     generate_dep_docs,
@@ -73,9 +80,14 @@ from juniper_ci_tools.lint_workflow_paths import (
     is_validatable,
     lint_workflow_paths,
 )
+from juniper_ci_tools.symbol_loss_check import in_scope
 
 __all__ = [
     "__version__",
+    "symbol_loss_check",
+    "docs_additions_check",
+    "in_scope",
+    "in_docs_scope",
     "GenerateResult",
     "generate_dep_docs",
     "render_header",

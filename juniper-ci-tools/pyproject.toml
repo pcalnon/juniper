@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "juniper-ci-tools"
-version = "0.7.1"
-description = "Shared CI / build tooling for the Juniper ML platform (dependency-documentation generator + workflow-script-path lint + AGENTS.md version-drift lint + AGENTS.md header-schema lint + advisory-or-enforcing per-file coverage-gap mapper + environment floor-drift checker)"
+version = "0.8.0"
+description = "Shared CI / build tooling for the Juniper ML platform (dependency-documentation generator + workflow-script-path lint + AGENTS.md version-drift lint + AGENTS.md header-schema lint + advisory-or-enforcing per-file coverage-gap mapper + environment floor-drift checker + sequence-safety symbol-loss & docs-deletion screens)"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -47,6 +47,8 @@ juniper-lint-agents-md-version = "juniper_ci_tools.cli_lint_agents_md_version:ma
 juniper-lint-agents-md-header = "juniper_ci_tools.cli_lint_agents_md_header:main"
 juniper-coverage-gap-map = "juniper_ci_tools.cli_coverage_gap_mapper:main"
 juniper-env-drift-check = "juniper_ci_tools.cli_env_drift_check:main"
+juniper-symbol-loss-check = "juniper_ci_tools.cli_symbol_loss_check:main"
+juniper-docs-additions-check = "juniper_ci_tools.cli_docs_additions_check:main"
 
 [project.urls]
 Homepage = "https://github.com/pcalnon/juniper-ml"
