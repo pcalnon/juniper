@@ -200,6 +200,39 @@ _META_AGENTS = textwrap.dedent("""\
     """)
 
 
+# A TABLE-BEARING sibling repo's AGENTS.md (ml#851) -- the real juniper-recurrence shape, trimmed:
+# a per-sub-package version table (the live rows are AGENTS.md:22-24) whose cells the repo-local
+# `version-drift` hook (`scripts/check_version_drift.py`, `_agents_table_version`) pins against each
+# package's `_version.py`, so a proposal that moves only the **Version** header ships red there
+# (juniper-recurrence#92 / #93). Also carries: the primary-tracking header (0.3.0 = the app), a
+# directory cell (`juniper-recurrence/`) that must NOT read as a package mention, a same-prefix
+# sibling row (`juniper-recurrence-model`) the app's needle must not match, and the prose mention
+# (live AGENTS.md:118) the drift hook does NOT check and the co-change deliberately leaves alone.
+_SIBLING_TABLE_AGENTS = textwrap.dedent("""\
+    # AGENTS.md
+
+    **Project**: juniper-recurrence — Recurrent / Continuous-Time Neural-Network Application
+    **Repository**: pcalnon/juniper-recurrence
+    **Version**: 0.3.0
+    **Last Updated**: 2026-06-25
+
+    ---
+
+    | Sub-project | Directory | PyPI package | Version |
+    |---|---|---|---|
+    | Application (FastAPI + CLI service) | `juniper-recurrence/` | `juniper-recurrence` | 0.3.0 |
+    | Model core (Δt-native LMU) | `juniper-recurrence-model/` | `juniper-recurrence-model` | 0.2.0 |
+    | HTTP client | `juniper-recurrence-client/` | `juniper-recurrence-client` | 0.2.0 |
+    | Benchmark / evaluation harness | `bench/` | _(not a package)_ | n/a |
+
+    ## Status
+
+    Live monorepo: the application (`juniper-recurrence` 0.3.0), the model core
+    (`juniper-recurrence-model` 0.2.0), and the HTTP client (`juniper-recurrence-client` 0.2.0) are all
+    published to PyPI.
+    """)
+
+
 def _write_meta_surface(repo_root: Path) -> None:
     """Write the meta-package's root pyproject.toml + tests/test_pyproject_extras.py + AGENTS.md so
     build_proposal's in-repo consumer-pin co-change (step 5b) can read + edit the real three files."""
@@ -1022,6 +1055,198 @@ class BuildProposalTest(unittest.TestCase):
         self.assertEqual(prop.edits, [])
         self.assertIsNone(prop.branch)
         self.assertFalse(any(e.path.endswith("CHANGELOG.md") for e in prop.edits))
+
+
+# ── AGENTS.md per-package version TABLE co-change (ml#851; worker#140 class, table variant) ──
+
+
+class AgentsTableVersionHelperTest(unittest.TestCase):
+    """``set_agents_table_version`` in isolation: what counts as a version row, and the four statuses."""
+
+    def test_rewrites_only_the_named_row_preserving_shape(self):
+        new_text, status = pr.set_agents_table_version(_SIBLING_TABLE_AGENTS, "juniper-recurrence", "0.3.0", "0.4.0")
+        self.assertEqual(status, "edited")
+        self.assertIn("| `juniper-recurrence` | 0.4.0 |", new_text)
+        # same-prefix sibling rows are NOT collateral (the backtick-delimited needle, mirroring the
+        # target repo's own `_agents_table_version`)
+        self.assertIn("| `juniper-recurrence-model` | 0.2.0 |", new_text)
+        self.assertIn("| `juniper-recurrence-client` | 0.2.0 |", new_text)
+        # the header is step 5's business, not the table's; the prose mention is nobody's (see below)
+        self.assertIn("**Version**: 0.3.0", new_text)
+        self.assertIn("the application (`juniper-recurrence` 0.3.0)", new_text)
+        # row shape preserved byte-for-byte apart from the cell (pipe count, padding, line count)
+        self.assertEqual(new_text.count("|"), _SIBLING_TABLE_AGENTS.count("|"))
+        self.assertEqual(len(new_text.splitlines()), len(_SIBLING_TABLE_AGENTS.splitlines()))
+
+    def test_backticked_version_cell_keeps_its_backticks(self):
+        text = "| `juniper-thing` |   `0.4.0`   |\n"
+        new_text, status = pr.set_agents_table_version(text, "juniper-thing", "0.4.0", "0.5.0")
+        self.assertEqual(status, "edited")
+        self.assertEqual(new_text, "| `juniper-thing` |   `0.5.0`   |\n")
+
+    def test_already_at_target_is_current_not_an_edit(self):
+        new_text, status = pr.set_agents_table_version(_SIBLING_TABLE_AGENTS, "juniper-recurrence-model", "0.2.0", "0.2.0")
+        self.assertEqual(status, "current")
+        self.assertEqual(new_text, _SIBLING_TABLE_AGENTS)
+
+    def test_no_row_is_absent(self):
+        new_text, status = pr.set_agents_table_version(_SIBLING_TABLE_AGENTS, "juniper-elsewhere", "0.1.0", "0.2.0")
+        self.assertEqual(status, "absent")
+        self.assertEqual(new_text, _SIBLING_TABLE_AGENTS)
+
+    def test_descriptive_row_without_a_version_cell_is_absent_not_unexpected(self):
+        # a package named in a plain descriptive table must not produce checklist noise
+        text = "| Client | `juniper-thing` | the HTTP client |\n"
+        new_text, status = pr.set_agents_table_version(text, "juniper-thing", "0.4.0", "0.5.0")
+        self.assertEqual(status, "absent")
+        self.assertEqual(new_text, text)
+
+    def test_extras_reference_row_is_not_a_version_row(self):
+        # the meta AGENTS.md scoping hazard: requirement cells are not standalone version cells, so the
+        # ml#657 extras table stays exclusively `apply_pin_edits_agents_table`'s business
+        new_text, status = pr.set_agents_table_version(_META_AGENTS, "juniper-service-core", "0.4.0", "0.5.0")
+        self.assertEqual(status, "absent")
+        self.assertEqual(new_text, _META_AGENTS)
+
+    def test_unexpected_cell_is_untouched(self):
+        text = "| `juniper-thing` | 9.9.9 |\n"
+        new_text, status = pr.set_agents_table_version(text, "juniper-thing", "0.4.0", "0.5.0")
+        self.assertEqual(status, "unexpected")
+        self.assertEqual(new_text, text)
+
+    def test_ambiguous_two_version_row_is_unexpected(self):
+        # never guess WHICH cell is the version cell
+        text = "| `juniper-thing` | 0.4.0 | 0.4.0 |\n"
+        new_text, status = pr.set_agents_table_version(text, "juniper-thing", "0.4.0", "0.5.0")
+        self.assertEqual(status, "unexpected")
+        self.assertEqual(new_text, text)
+
+    def test_mixed_rows_are_unexpected_with_no_partial_edit(self):
+        text = "| `juniper-thing` | 0.4.0 |\n| `juniper-thing` | 9.9.9 |\n"
+        new_text, status = pr.set_agents_table_version(text, "juniper-thing", "0.4.0", "0.5.0")
+        self.assertEqual(status, "unexpected")
+        self.assertEqual(new_text, text)
+
+    def test_unknown_from_version_never_invents_an_edit(self):
+        text = "| `juniper-thing` | 0.4.0 |\n"
+        new_text, status = pr.set_agents_table_version(text, "juniper-thing", None, "0.5.0")
+        self.assertEqual(status, "unexpected")
+        self.assertEqual(new_text, text)
+
+
+class BuildProposalAgentsTableTest(unittest.TestCase):
+    """ml#851 through ``build_proposal``: a table-bearing sibling repo (the juniper-recurrence shape).
+
+    The train's ``**Version**`` header co-change (ml#706 / worker#140) knew nothing about the
+    per-package version table juniper-recurrence's ``version-drift`` hook pins against ``_version.py``,
+    so every recurrence proposal shipped red (recurrence#92 / #93, healed by hand). These pin the
+    generic table heuristic (issue option 2) and its honesty rules."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.repo_root = self.root / "juniper-ml"
+        self.repo_root.mkdir()
+        _install_templates(self.repo_root)
+        self.eco = self.root
+        self.sib_root = self.eco / "juniper-recurrence"
+        self.fake = _FakeSources(self.repo_root, self.eco)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _write_sibling(self, *, pkg_path: str, name: str, version: str, import_pkg: str, agents: "str | None" = _SIBLING_TABLE_AGENTS) -> None:
+        _write_pkg(self.sib_root, pkg_path, name=name, version=version, changelog=_CHANGELOG, dynamic=True, import_pkg=import_pkg)
+        if agents is not None:
+            (self.sib_root / "AGENTS.md").write_text(agents)
+
+    def _propose(self, *, name: str, pkg_path: str, from_version: str, to_version: str) -> "pr.Proposal":
+        entry = _entry(pypi_name=name, repo="juniper-recurrence", path=pkg_path, version_source="dynamic", tag_pattern=f"{name}-v*", archive_name=f"RELEASE_NOTES_{name}_v{{version}}.md", ship_paths=[f"{pkg_path}{name.replace('-', '_')}/"])
+        pkg = _manifest_pkg(pypi_name=name, repo="juniper-recurrence", released_version=from_version, declared_version=from_version, proposed_version=to_version)
+        prop = pr.build_proposal(entry, pkg, self.fake.build(), self.repo_root, self.eco, [entry], "2026-08-07")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        return prop
+
+    def _agents_edits(self, prop) -> list:
+        return [e for e in prop.edits if e.path == "AGENTS.md"]
+
+    def test_sibling_primary_bump_moves_header_and_row_in_one_edit(self):
+        self._write_sibling(pkg_path="juniper-recurrence/", name="juniper-recurrence", version="0.3.0", import_pkg="juniper_recurrence")
+        prop = self._propose(name="juniper-recurrence", pkg_path="juniper-recurrence/", from_version="0.3.0", to_version="0.4.0")
+        agents = self._agents_edits(prop)
+        # ONE AGENTS.md edit: the executor writes each edit's full new_text in order, so a second edit
+        # on the same path would silently drop the first (header co-change lost).
+        self.assertEqual(len(agents), 1, "AGENTS.md must carry exactly one composed FileEdit")
+        self.assertIn("**Version**: 0.4.0", agents[0].new_text)
+        self.assertIn("| `juniper-recurrence` | 0.4.0 |", agents[0].new_text)
+        # the two sibling package rows are NOT collateral damage
+        self.assertIn("| `juniper-recurrence-model` | 0.2.0 |", agents[0].new_text)
+        self.assertIn("| `juniper-recurrence-client` | 0.2.0 |", agents[0].new_text)
+        self.assertTrue(any("version-table row" in item and "juniper-recurrence" in item and "included in this PR" in item for item in prop.co_change_checklist))
+        self.assertTrue(any("Sibling AGENTS.md" in item and "included in this PR" in item for item in prop.co_change_checklist))
+
+    def test_sibling_subpackage_bumps_its_row_and_never_the_host_header(self):
+        # the recurrence#92 case: the table is per-PACKAGE where the header is per-REPO, so a
+        # sub-package must move its own row while leaving the primary-tracking header alone.
+        self._write_sibling(pkg_path="juniper-recurrence-model/", name="juniper-recurrence-model", version="0.2.0", import_pkg="juniper_recurrence_model")
+        prop = self._propose(name="juniper-recurrence-model", pkg_path="juniper-recurrence-model/", from_version="0.2.0", to_version="0.3.0")
+        agents = self._agents_edits(prop)
+        self.assertEqual(len(agents), 1)
+        self.assertIn("| `juniper-recurrence-model` | 0.3.0 |", agents[0].new_text)
+        self.assertIn("**Version**: 0.3.0", agents[0].new_text)  # untouched: still the app's version
+        self.assertIn("| `juniper-recurrence` | 0.3.0 |", agents[0].new_text)  # app row untouched
+        self.assertIn("| `juniper-recurrence-client` | 0.2.0 |", agents[0].new_text)
+        self.assertTrue(any("version-table row" in item and "included in this PR" in item for item in prop.co_change_checklist))
+        self.assertFalse(any("Sibling AGENTS.md **Version**" in item for item in prop.co_change_checklist))
+
+    def test_row_for_a_different_package_is_untouched(self):
+        # bumping the client must move ONLY the client row (the app + model rows byte-identical)
+        self._write_sibling(pkg_path="juniper-recurrence-client/", name="juniper-recurrence-client", version="0.2.0", import_pkg="juniper_recurrence_client")
+        prop = self._propose(name="juniper-recurrence-client", pkg_path="juniper-recurrence-client/", from_version="0.2.0", to_version="0.2.1")
+        agents = self._agents_edits(prop)
+        self.assertEqual(len(agents), 1)
+        moved = set(agents[0].new_text.splitlines()) - set(agents[0].old_text.splitlines())
+        self.assertEqual(moved, {"| HTTP client | `juniper-recurrence-client/` | `juniper-recurrence-client` | 0.2.1 |"})
+
+    def test_package_without_a_row_emits_no_phantom_agents_edit(self):
+        # a table-bearing repo can still host a package the table does not list (the bench harness
+        # graduating to a package): absent row => no edit and no checklist noise.
+        self._write_sibling(pkg_path="juniper-recurrence-bench/", name="juniper-recurrence-bench", version="0.1.0", import_pkg="juniper_recurrence_bench")
+        prop = self._propose(name="juniper-recurrence-bench", pkg_path="juniper-recurrence-bench/", from_version="0.1.0", to_version="0.2.0")
+        self.assertEqual(self._agents_edits(prop), [])
+        self.assertFalse(any("version-table row" in item for item in prop.co_change_checklist))
+
+    def test_repo_without_a_table_emits_no_phantom_agents_edit(self):
+        # the common shape (7 of 8 repos): AGENTS.md has a header but no per-package version table.
+        self._write_sibling(pkg_path="juniper-recurrence-model/", name="juniper-recurrence-model", version="0.2.0", import_pkg="juniper_recurrence_model", agents="# AGENTS.md\n\n**Version**: 0.3.0\n**Author**: Paul\n")
+        prop = self._propose(name="juniper-recurrence-model", pkg_path="juniper-recurrence-model/", from_version="0.2.0", to_version="0.3.0")
+        self.assertEqual(self._agents_edits(prop), [])
+        self.assertFalse(any("version-table row" in item for item in prop.co_change_checklist))
+
+    def test_row_already_at_target_is_silent_success(self):
+        # partial heal / re-entry: the row already satisfies the target repo's drift hook, so no edit
+        # AND no REQUIRED (the ml#701 dunder / ml#720 header silent-success class).
+        healed = _SIBLING_TABLE_AGENTS.replace("| `juniper-recurrence-model` | 0.2.0 |", "| `juniper-recurrence-model` | 0.3.0 |")
+        self._write_sibling(pkg_path="juniper-recurrence-model/", name="juniper-recurrence-model", version="0.2.0", import_pkg="juniper_recurrence_model", agents=healed)
+        prop = self._propose(name="juniper-recurrence-model", pkg_path="juniper-recurrence-model/", from_version="0.2.0", to_version="0.3.0")
+        self.assertEqual(self._agents_edits(prop), [])
+        self.assertFalse(any("version-table row" in item for item in prop.co_change_checklist))
+
+    def test_unexpected_row_is_left_untouched_and_flagged_required(self):
+        drifted = _SIBLING_TABLE_AGENTS.replace("| `juniper-recurrence-model` | 0.2.0 |", "| `juniper-recurrence-model` | 9.9.9 |")
+        self._write_sibling(pkg_path="juniper-recurrence-model/", name="juniper-recurrence-model", version="0.2.0", import_pkg="juniper_recurrence_model", agents=drifted)
+        prop = self._propose(name="juniper-recurrence-model", pkg_path="juniper-recurrence-model/", from_version="0.2.0", to_version="0.3.0")
+        self.assertEqual(self._agents_edits(prop), [])
+        self.assertTrue(any("version-table row" in item and "REQUIRED" in item for item in prop.co_change_checklist))
+
+    def test_prose_mention_is_deliberately_left_alone(self):
+        # AGENTS.md:118 in the live repo. The target repo's drift hook checks the header + the table
+        # cells ONLY (scripts/check_version_drift.py invariants 1-3), so rewriting free prose would be
+        # an invented edit with no gate behind it -- raised as an open question on the PR instead.
+        self._write_sibling(pkg_path="juniper-recurrence/", name="juniper-recurrence", version="0.3.0", import_pkg="juniper_recurrence")
+        prop = self._propose(name="juniper-recurrence", pkg_path="juniper-recurrence/", from_version="0.3.0", to_version="0.4.0")
+        agents = self._agents_edits(prop)
+        self.assertIn("the application (`juniper-recurrence` 0.3.0)", agents[0].new_text)
 
 
 # ── in-repo meta consumer-pin co-changes: pure helpers (plan S5.4; ml#657 RK-11 gap) ─────
