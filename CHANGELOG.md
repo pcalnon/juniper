@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `tests/test_experiment_config_schemas.py` (plan §10.6 row 3, Wave 3.5): the drift gate over the sibling repos' shipped `conf/experiments/*.yaml` (cascor Wave 3.2 / recurrence Wave 3.4) — each file must load through the driver's §5.6 `load_config` and every `service:` key must name a real app `Settings` field, AST-extracted from the sibling's `settings.py` (+ the in-repo service-core `SettingsBase`) so no app import is needed. Gated like the other cross-repo drift tests; the extractor self-check always runs.
+
+### Changed
+
+- `util/experiment_stack.bash`: the `--config` staging is no longer app-side-inert — with Waves 3.1/3.3 merged, the launcher now also exports `JUNIPER_RECURRENCE_CONFIG_FILE` at the staged copy for `--recurrence` runs (cascor's export already existed), and the "no `--config` flag yet" note is retired. Neither launch passes an app `--config` flag: the env var is the threading mechanism, so the launcher CLI keeps owning the bind (§5.2). Test pin updated (`test_recurrence_config_threads_env_var_not_flag`).
+
+
+### Added
+
 - `util/experiments/stats_summary.py` + driver wiring (plan §8.3, Wave 2.6): every run now writes `artifacts/results/stats.json` and a human-readable `summary.md` (stdlib-only; rendered for every outcome, including stalled/failed runs) — identity/dataset-shape/outcome-timing blocks from the manifest, cascor candidate-correlation-per-round and `training_step_duration` p50/p95 derived from the driver's own `metrics_series.csv` (honestly labeled as per-poll means — true per-step quantiles are not recoverable from a sum/count exposition), the recurrence train/CV/θ/readout block, and §8.3 provenance/health degraded-mode notes (G-3 sampling, collect errors, plot skips, eval-disabled, G-6). A stats failure is recorded as `stats_error` on the manifest rather than killing it. Tests grow to 92.
 
 - `util/experiments/plots_recurrence.py` + driver wiring (plan §8.2, Wave 2.5 — closes G-5): the recurrence plot set rendered client-side — `dataset_overview.png` (sampled 3-D windows with the target starred), `dt_histogram.png` (per-step Δt + `target_dt`, the irregularity signature), `forecast_vs_truth.png` / `residuals.png` (predict response vs the predict split's target with the `y_reg_{split}`-preferred key rule and an optional residual-vs-`target_dt` panel), `crossval_folds.png` (per-fold eval bars + aggregate line), `metrics_table.png` (train + CV ± std). Disabled/failed predict or crossval phases and non-Δt artifacts are recorded per-plot skips; the recurrence manifest `driver.plots` stub is replaced with the real requested/rendered/skipped record. No training-history plot by design (`TrainResponse` carries no per-epoch series). Tests grow to 86 with a 3-D sequence stub artifact.

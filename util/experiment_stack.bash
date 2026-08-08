@@ -71,10 +71,11 @@
 # through `conda activate` instead, for an env that later grows activation hooks.
 #
 # CONFIG: --config PATH copies the YAML verbatim to $RUN_DIR/config/experiment.yaml (§6.4)
-# and exports JUNIPER_CASCOR_CONFIG_FILE at it (§6.2). The app-side YAML settings source is
-# Wave 3.1/3.3 — until it lands the env var is inert and `juniper-recurrence serve` has no
-# --config flag, so the launcher stages the file and says so rather than passing an
-# unsupported flag.
+# and exports JUNIPER_CASCOR_CONFIG_FILE / JUNIPER_RECURRENCE_CONFIG_FILE at it (§6.2). The
+# app-side YAML settings sources are LIVE (Wave 3.1 cascor#486 / Wave 3.3 recurrence#97):
+# each app projects the file's service: block above env (§5.1). Neither launch passes an app
+# --config flag — the env var is the threading mechanism, so the launcher CLI keeps owning
+# the bind (§5.2).
 ###########################################################################################################################################################################################################
 set -euo pipefail
 
@@ -171,7 +172,7 @@ Usage: ${SCRIPT_NAME} --up (--cascor | --recurrence) [--shared-data URL] [--conf
   --cascor           Include juniper-cascor (cascor arm = data + cascor).
   --recurrence       Include juniper-recurrence (recurrence arm = data + recurrence).
   --shared-data URL  Reuse an existing juniper-data instead of launching a per-run one.
-  --config PATH      Stage an experiment YAML into the run dir (app-side YAML is Wave 3).
+  --config PATH      Stage an experiment YAML into the run dir; its service: block reaches the apps via JUNIPER_*_CONFIG_FILE (Waves 3.1/3.3).
   --experiment NAME  Prometheus 'experiment' target label (default: config basename).
   --grafana-bridge   OPT-IN: start socat relays and write the Prometheus target file.
   --down RUN_ID      Tear down a run (pidfile-first); --all-mine tears down every run.
@@ -603,28 +604,28 @@ cascor_up() {
 # Bring-up: juniper-recurrence (console script, plan §6.1)
 ###########################################################################################################################################################################################################
 recurrence_up() {
-    local serve_bin
+    local serve_bin config_env=""
     serve_bin="$(env_bin "${RECURRENCE_CONDA}" juniper-recurrence)"
+    [[ -n "${CONFIG_PATH}" ]] && config_env="JUNIPER_RECURRENCE_CONFIG_FILE=${RUN_DIR}/config/experiment.yaml "
     banner "juniper-recurrence  ->  http://127.0.0.1:${RECURRENCE_PORT}  (${RECURRENCE_CONDA})"
-    announce "cd ${RUN_DIR} && JUNIPER_RECURRENCE_METRICS_ENABLED=true JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=false JUNIPER_DATA_URL=${DATA_URL} ${serve_bin} serve --host 127.0.0.1 --port ${RECURRENCE_PORT}   # nohup -> ${LOG_DIR}/juniper-recurrence.log"
+    announce "cd ${RUN_DIR} && JUNIPER_RECURRENCE_METRICS_ENABLED=true JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=false JUNIPER_DATA_URL=${DATA_URL} ${config_env}${serve_bin} serve --host 127.0.0.1 --port ${RECURRENCE_PORT}   # nohup -> ${LOG_DIR}/juniper-recurrence.log"
     if is_dry; then return 0; fi
 
     # See data_up: ``recurrence_up || failed=1`` disables set -e inside this body.
     require_env_bin "${RECURRENCE_CONDA}" juniper-recurrence || return 1
     ensure_dir "${LOG_DIR}"
-    if [[ -n "${CONFIG_PATH}" ]]; then
-        log "NOTE: juniper-recurrence serve has no --config flag yet (Wave 3.3); the YAML is staged at ${RUN_DIR}/config/experiment.yaml only"
-    fi
     record_launch_env "juniper-recurrence" \
         "JUNIPER_RECURRENCE_METRICS_ENABLED=true" \
         "JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=false" \
-        "JUNIPER_DATA_URL=${DATA_URL}"
+        "JUNIPER_DATA_URL=${DATA_URL}" \
+        "JUNIPER_RECURRENCE_CONFIG_FILE=${CONFIG_PATH:+${RUN_DIR}/config/experiment.yaml}"
     if [[ "${CONDA_ACTIVATE}" == "1" ]]; then activate_conda "${RECURRENCE_CONDA}" || return 1; fi
     (
         cd "${RUN_DIR}" || exit 1
         JUNIPER_RECURRENCE_METRICS_ENABLED=true \
             JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=false \
             JUNIPER_DATA_URL="${DATA_URL}" \
+            JUNIPER_RECURRENCE_CONFIG_FILE="${CONFIG_PATH:+${RUN_DIR}/config/experiment.yaml}" \
             nohup "${serve_bin}" serve --host 127.0.0.1 --port "${RECURRENCE_PORT}" >"${LOG_DIR}/juniper-recurrence.log" 2>&1 &
     )
     # No `$!` here on purpose — F-6.

@@ -1117,12 +1117,13 @@ class TestConfigStaging(unittest.TestCase):
         cascor_up = _extract_experiment_fn("cascor_up")
         self.assertIn("JUNIPER_CASCOR_CONFIG_FILE", cascor_up)
 
-    def test_recurrence_never_passes_an_unsupported_config_flag(self) -> None:
-        # `juniper-recurrence serve` has no --config flag until Wave 3.3; passing one
-        # would be an argparse error at launch, so the launcher stages and says so.
+    def test_recurrence_config_threads_env_var_not_flag(self) -> None:
+        # Wave 3.3 landed: the launcher threads JUNIPER_RECURRENCE_CONFIG_FILE (the app-side
+        # settings source reads it) and still NEVER passes a serve --config flag -- the env
+        # var is the threading mechanism, so the launcher CLI keeps owning the bind (SS5.2).
         recurrence_up = _extract_experiment_fn("recurrence_up")
         self.assertNotIn("serve --config", recurrence_up)
-        self.assertIn("Wave 3.3", recurrence_up)
+        self.assertIn("JUNIPER_RECURRENCE_CONFIG_FILE", recurrence_up)
 
 
 class TestMissingConfigReleasesPortLocks(unittest.TestCase):
