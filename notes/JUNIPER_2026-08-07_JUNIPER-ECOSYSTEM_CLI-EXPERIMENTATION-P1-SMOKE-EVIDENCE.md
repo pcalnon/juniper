@@ -45,3 +45,21 @@ Bonus observations:
 ## 4. Disposition
 
 **P1 smoke: PASS** for every arm the current wave-set can reach (P1.1, P1.2-exit-arms, P1.3, P1.4, P1.5, P1.6-datasource, P1.7), with the two remaining halves — P1.2 full completion and P1.6 interactive render — blocked on **W-11** and the **F-P1-2 owner follow-up** respectively, not on the program tooling. The program may proceed to Waves 3+ (YAML config layer) and Wave 4 dataset enablement (W-1 first) per §14.
+
+---
+
+## 5. P1.2 full-completion re-run (2026-08-08, post-W-11) — addendum
+
+W-11 (Wave 3.6; juniper-cascor#489 + the #491 pool amendment) landed the direct-CLI YAML mapping that F-P1-3 was waiting on. The re-run campaign (fresh launcher stack, data on 8110; smoke-shape YAML driven through `main.py --config`):
+
+| Attempt | Bound set | Outcome |
+| --- | --- | --- |
+| 1 | smoke YAML budgets via W-11 (`output_epochs` 50 via the `max_epochs` alias, `max_hidden_units` 2) | timeout 590 s — **W-11 verified applying** (file log: 9 overrides active; `candidate_pool_size`/`max_iterations`/`early_stopping` correctly reported service-tier-only); candidate phase dominated |
+| 2 | + `candidate_epochs` 100, `patience` 25 | timeout — candidates cap at epoch 100 ✓; **156 distinct candidates** (constants pool × 2 rounds) dominate |
+| 3 | + `CASCOR_NUM_PROCESSES=4` (H-11 env knob) | timeout — the env knob bounds concurrency, not the candidate count |
+| 4 | + `candidate_pool_size: 4` via the **#491 amendment** (`SpiralProblem` takes the kwarg; `main()` never passed it) | timeout — pool verified **156 → 12 candidates**; still compute-bound |
+| 5 | + `JUNIPER_CASCOR_LOG_LEVEL=WARNING` (6 stdout lines total) | timeout — **compute-bound, not log-bound** |
+
+**Finding F-P1-3b (supersedes the F-P1-3 disposition)**: with every documented bound verifiably applied, the direct-CLI training path exceeds a 590 s smoke bound on this host, where the **service** path completes the identical shape (spiral 200×2, pool 4, hidden 2) in **24 s** (§1 P1.1). The gap is structural CLI-path compute overhead — a §12 performance-lane scenario (`main.py --profile` exists for exactly this). P1.2's full-completion row stays open against F-P1-3b; the exit arms, launch path, W-11 mapping, and pool amendment are all live-proven.
+
+Environmental notes from the campaign: a fresh checkout crashes on the hard-coded `logs/` dir being absent (`FileNotFoundError` at logger init — adjacent to Q-6/H-7); teardown re-attested clean (ranges empty, `JuniperProject.pid` untouched).

@@ -163,8 +163,10 @@ OUTPUTS_KEYS = frozenset({"decision_boundary_resolution", "metrics_history_count
 SERVICE_FORBIDDEN_KEYS = frozenset({"host", "port", "juniper_data_url", "eval_metrics_enabled"})
 
 # G-6 staging aliases: juniper-data generator name -> cascor StageDatasetRequest.dataset_type
-# Literal member (src/api/models/training.py StageDatasetRequest; manager.py:3251 maps the
-# plurals back). gaussian/checkerboard are absent from the staged Literal until W-3 lands.
+# Literal member (src/api/models/training.py StageDatasetRequest; the manager maps the
+# plurals back and translates gaussian's n_samples to n_samples_per_class -- W-3,
+# juniper-cascor#490). Generators outside this map (arc_agi, csv_import, the 3-D
+# sequence family) are not cascade-correlation staging targets (plan SS10.3).
 STAGEABLE_GENERATOR_ALIASES: Dict[str, str] = {
     "spiral": "spirals",
     "xor": "xor",
@@ -172,6 +174,8 @@ STAGEABLE_GENERATOR_ALIASES: Dict[str, str] = {
     "moon": "moons",
     "mnist": "mnist",
     "equities": "equities",
+    "gaussian": "gaussian",
+    "checkerboard": "checkerboard",
 }
 
 FSM_TERMINAL_OK = "COMPLETED"
@@ -631,7 +635,7 @@ def stage_dataset(cascor_url: str, dataset_cfg: Dict[str, Any]) -> Dict[str, Any
     if alias is None:
         raise ConfigError(
             f"generator '{generator}' is not in cascor's staged dataset_type Literal "
-            f"(stageable: {', '.join(sorted(STAGEABLE_GENERATOR_ALIASES))}); gaussian/checkerboard need work item W-3 (plan SS11)"
+            f"(stageable: {', '.join(sorted(STAGEABLE_GENERATOR_ALIASES))}); arc_agi/csv_import and the 3-D sequence generators are not cascade-correlation staging targets (plan SS10.3)"
         )
     body = {"dataset_type": alias, "params": dataset_cfg["params"]}
     code, payload = _http_json("POST", f"{cascor_url}/v1/training/dataset", body=body)
