@@ -348,7 +348,7 @@ class TestRunDirContract(unittest.TestCase):
 
     def test_run_dir_layout_matches_section_6_4(self) -> None:
         create = _extract_experiment_fn("create_run_dir")
-        for subdir in ("logs", "relays", "config", "env", "data", "equities-cache", "artifacts/plots", "artifacts/results"):
+        for subdir in ("logs", "relays", "config", "env", "data", "equities-cache", "snapshots", "artifacts/plots", "artifacts/results"):
             self.assertIn(subdir, create, msg=f"§6.4 run-dir subdir missing: {subdir}")
 
     def test_pidfiles_live_in_the_run_dir(self) -> None:
@@ -401,6 +401,8 @@ class TestLaunchLines(unittest.TestCase):
         self.assertIn("JUNIPER_CASCOR_METRICS_ENABLED=true", cascor_up)
         self.assertIn("JUNIPER_CASCOR_AUTO_START=false", cascor_up)
         self.assertIn("JUNIPER_CASCOR_AUTO_START_DATA_SERVICE=false", cascor_up)
+        # Wave 5.3 (W-6 wiring): per-run snapshots home — retires the shared src/snapshots debris (H-4).
+        self.assertIn('JUNIPER_CASCOR_SNAPSHOTS_DIR="${RUN_DIR}/snapshots"', cascor_up)
         self.assertIn('JUNIPER_DATA_URL="${DATA_URL}"', cascor_up)
         self.assertIn('cd "${CASCOR_SRC_DIR}"', cascor_up)
 
@@ -1037,6 +1039,121 @@ class TestTeardownBehaviour(unittest.TestCase):
             result = _run("--down", "20260730T000000Z-none", env_extra={"JUNIPER_EXP_RUN_ROOT": str(Path(tmp) / "runs")})
             self.assertEqual(result.returncode, 1)
             self.assertIn("no such run dir", result.stdout)
+
+
+class TestTwoRunConcurrency(unittest.TestCase):
+    """Wave 5.3: two concurrent runs are isolated — ``--down`` of one touches nothing of the other.
+
+    Q-6 stays deferred, so the one-cascor-instance-per-CHECKOUT rule stands (H-7 log
+    race); what Wave 5 retires is the snapshots/bench collision (W-6/W-7). This arm
+    pins the launcher's per-run scoping under two live runs: run A's teardown kills
+    only A's recorded pid and releases only A's lockdirs/target file, leaving run B's
+    pid alive and its lockdirs, pidfile, and target file intact.
+    """
+
+    def _spawn_detached(self) -> int:
+        launcher = "setsid bash -c 'exec sleep 120' </dev/null >/dev/null 2>&1 & echo $!"
+        result = subprocess.run(["/bin/bash", "-c", launcher], capture_output=True, text=True, timeout=SCRIPT_TIMEOUT_SECONDS)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        pid = int(result.stdout.strip().splitlines()[-1])
+        time.sleep(0.2)
+        self.assertTrue(Path(f"/proc/{pid}").exists(), f"detached pid {pid} missing")
+        return pid
+
+    def _force_kill(self, pid: int) -> None:
+        for kill_target in (lambda: os.killpg(pid, signal.SIGKILL), lambda: os.kill(pid, signal.SIGKILL)):
+            try:
+                kill_target()
+                break
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                continue
+
+    @staticmethod
+    def _proc_cmdline(pid: int) -> str:
+        return Path(f"/proc/{pid}/cmdline").read_bytes().decode().replace("\0", " ")
+
+    def _synthesize_run(self, run_root: Path, lock_root: Path, targets_dir: Path, run_id: str, data_port: int, rec_port: int, pid: int) -> Path:
+        run_dir = run_root / run_id
+        (run_dir / "artifacts" / "results").mkdir(parents=True)
+        (run_dir / "logs").mkdir()
+        (lock_root / f"{data_port}.lock").mkdir(parents=True)
+        (lock_root / f"{rec_port}.lock").mkdir(parents=True)
+        (targets_dir / f"{run_id}.json").write_text("[]\n")
+        (run_dir / "artifacts" / "results" / "metrics_final.json").write_text("{}\n")
+        (run_dir / "ports.json").write_text(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "data": data_port,
+                    "cascor": None,
+                    "recurrence": rec_port,
+                    "data_url": f"http://127.0.0.1:{data_port}",
+                    "experiment": "two-run",
+                    "grafana_bridge": True,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        (run_dir / "juniper-recurrence.pid").write_text(f"{pid}\n")
+        (run_dir / "juniper-recurrence.cmdline").write_text(self._proc_cmdline(pid))
+        return run_dir
+
+    def test_down_of_run_a_leaves_run_b_untouched(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_root = root / "runs"
+            lock_root = root / "locks"
+            targets_dir = root / "deploy" / "prometheus" / "targets"
+            targets_dir.mkdir(parents=True)
+            run_a = "20260808T000000Z-aaaa"
+            run_b = "20260808T000001Z-bbbb"
+
+            pid_a = self._spawn_detached()
+            pid_b = self._spawn_detached()
+            try:
+                self._synthesize_run(run_root, lock_root, targets_dir, run_a, 8110, 8260, pid_a)
+                run_b_dir = self._synthesize_run(run_root, lock_root, targets_dir, run_b, 8111, 8261, pid_b)
+
+                stub_bin = _stage_stub_bin(root, busy_ports=[])
+                env = {
+                    "JUNIPER_EXP_RUN_ROOT": str(run_root),
+                    "JUNIPER_EXP_LOCK_ROOT": str(lock_root),
+                    "JUNIPER_EXP_DEPLOY_DIR": str(root / "deploy"),
+                    "JUNIPER_EXP_KILL_TIMEOUT": "5",
+                    "PATH": str(stub_bin) + os.pathsep + "/usr/bin:/bin",
+                }
+                result = subprocess.run(
+                    ["/bin/bash", str(SCRIPT_PATH), "--down", run_a],
+                    capture_output=True,
+                    text=True,
+                    env=RedactedEnv(os.environ, **env),
+                    timeout=TEARDOWN_TIMEOUT_SECONDS,
+                )
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+
+                # Run A fully torn down.
+                for _ in range(60):
+                    if not Path(f"/proc/{pid_a}").exists():
+                        break
+                    time.sleep(0.1)
+                self.assertFalse(Path(f"/proc/{pid_a}").exists(), "run A's recorded pid must be killed")
+                self.assertFalse((lock_root / "8110.lock").exists(), "run A's data lockdir must be released")
+                self.assertFalse((lock_root / "8260.lock").exists(), "run A's recurrence lockdir must be released")
+                self.assertFalse((targets_dir / f"{run_a}.json").exists(), "run A's target file must be removed")
+
+                # Run B completely untouched.
+                self.assertTrue(Path(f"/proc/{pid_b}").exists(), "run B's pid must stay alive")
+                self.assertTrue((lock_root / "8111.lock").exists(), "run B's data lockdir must survive")
+                self.assertTrue((lock_root / "8261.lock").exists(), "run B's recurrence lockdir must survive")
+                self.assertTrue((targets_dir / f"{run_b}.json").exists(), "run B's target file must survive")
+                self.assertTrue((run_b_dir / "juniper-recurrence.pid").exists(), "run B's pidfile must survive")
+                self.assertFalse((run_b_dir / "teardown.json").exists(), "run B must not gain a teardown record")
+            finally:
+                self._force_kill(pid_a)
+                self._force_kill(pid_b)
 
 
 class TestStatus(unittest.TestCase):

@@ -442,7 +442,7 @@ new_run_id() {
 }
 
 create_run_dir() {
-    announce "mkdir -p ${RUN_DIR}/{logs,relays,config,env,data,equities-cache,artifacts/plots,artifacts/results}"
+    announce "mkdir -p ${RUN_DIR}/{logs,relays,config,env,data,equities-cache,snapshots,artifacts/plots,artifacts/results}"
     if is_dry; then return 0; fi
     ensure_dir "${RUN_DIR}"
     ensure_dir "${LOG_DIR}"
@@ -451,6 +451,9 @@ create_run_dir() {
     ensure_dir "${RUN_DIR}/env"
     ensure_dir "${RUN_DIR}/data"
     ensure_dir "${RUN_DIR}/equities-cache"
+    # Wave 5.3: per-run cascor snapshots home (W-6 JUNIPER_CASCOR_SNAPSHOTS_DIR target) —
+    # retires the repo-shared src/snapshots .h5 debris (H-4; the F-P1-4 finding).
+    ensure_dir "${RUN_DIR}/snapshots"
     ensure_dir "${RUN_DIR}/artifacts/plots"
     ensure_dir "${RUN_DIR}/artifacts/results"
 }
@@ -568,7 +571,7 @@ cascor_up() {
     uvicorn_bin="$(env_bin "${CASCOR_CONDA}" uvicorn)"
     [[ -n "${CONFIG_PATH}" ]] && config_env="JUNIPER_CASCOR_CONFIG_FILE=${RUN_DIR}/config/experiment.yaml "
     banner "juniper-cascor  ->  http://127.0.0.1:${CASCOR_PORT}  (${CASCOR_CONDA})"
-    announce "cd ${CASCOR_SRC_DIR} && LD_LIBRARY_PATH= JUNIPER_CASCOR_METRICS_ENABLED=true JUNIPER_CASCOR_AUTO_START=false JUNIPER_CASCOR_AUTO_START_DATA_SERVICE=false JUNIPER_CASCOR_LOG_LEVEL=INFO JUNIPER_DATA_URL=${DATA_URL} ${config_env}${uvicorn_bin} api.app:create_app --factory --host 127.0.0.1 --port ${CASCOR_PORT}   # nohup -> ${LOG_DIR}/juniper-cascor.log"
+    announce "cd ${CASCOR_SRC_DIR} && LD_LIBRARY_PATH= JUNIPER_CASCOR_METRICS_ENABLED=true JUNIPER_CASCOR_AUTO_START=false JUNIPER_CASCOR_AUTO_START_DATA_SERVICE=false JUNIPER_CASCOR_LOG_LEVEL=INFO JUNIPER_CASCOR_SNAPSHOTS_DIR=${RUN_DIR}/snapshots JUNIPER_DATA_URL=${DATA_URL} ${config_env}${uvicorn_bin} api.app:create_app --factory --host 127.0.0.1 --port ${CASCOR_PORT}   # nohup -> ${LOG_DIR}/juniper-cascor.log"
     if is_dry; then return 0; fi
 
     # See data_up: ``cascor_up || failed=1`` disables set -e inside this body.
@@ -580,6 +583,7 @@ cascor_up() {
         "JUNIPER_CASCOR_AUTO_START=false" \
         "JUNIPER_CASCOR_AUTO_START_DATA_SERVICE=false" \
         "JUNIPER_CASCOR_LOG_LEVEL=INFO" \
+        "JUNIPER_CASCOR_SNAPSHOTS_DIR=${RUN_DIR}/snapshots" \
         "JUNIPER_DATA_URL=${DATA_URL}" \
         "JUNIPER_CASCOR_CONFIG_FILE=${CONFIG_PATH:+${RUN_DIR}/config/experiment.yaml}"
     if [[ "${CONDA_ACTIVATE}" == "1" ]]; then activate_conda "${CASCOR_CONDA}" || return 1; fi
@@ -590,6 +594,7 @@ cascor_up() {
             JUNIPER_CASCOR_AUTO_START=false \
             JUNIPER_CASCOR_AUTO_START_DATA_SERVICE=false \
             JUNIPER_CASCOR_LOG_LEVEL=INFO \
+            JUNIPER_CASCOR_SNAPSHOTS_DIR="${RUN_DIR}/snapshots" \
             JUNIPER_DATA_URL="${DATA_URL}" \
             JUNIPER_CASCOR_CONFIG_FILE="${CONFIG_PATH:+${RUN_DIR}/config/experiment.yaml}" \
             nohup "${uvicorn_bin}" api.app:create_app --factory --host 127.0.0.1 --port "${CASCOR_PORT}" >"${LOG_DIR}/juniper-cascor.log" 2>&1 &
