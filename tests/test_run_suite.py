@@ -113,6 +113,31 @@ class ExpandTest(unittest.TestCase):
         self.assertEqual([c["cell_id"] for c in cells], [c["cell_id"] for c in again])
         self.assertNotIn({"training.params.max_hidden_units": 16, "training.params.candidate_pool_size": 8}, [c["overrides"] for c in cells])
 
+    def test_project_dir_rebase_for_sibling_base_configs(self) -> None:
+        """Wave 7.3: from a worktree, sibling-relative base_config paths rebase onto
+        JUNIPER_EXP_PROJECT_DIR from their first juniper-* component; cell ids hash
+        the RELATIVE reference so they match the canonical checkout's."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            eco = root / "ecosystem" / "juniper-cascor" / "conf" / "experiments"
+            eco.mkdir(parents=True)
+            (eco / "base.yaml").write_text(BASE_CONFIG)
+            suite_dir = root / "elsewhere" / "suites"
+            suite_dir.mkdir(parents=True)
+            suite_yaml = suite_dir / "suite.yaml"
+            suite_yaml.write_text("schema_version: 1\nsuite:\n  name: s\n  app: cascor\n  base_config: [../../../../juniper-cascor/conf/experiments/base.yaml]\nmatrix:\n  training.params.max_hidden_units: [2]\n")
+            doc = run_suite.load_suite(suite_yaml)
+            old = os.environ.get("JUNIPER_EXP_PROJECT_DIR")
+            os.environ["JUNIPER_EXP_PROJECT_DIR"] = str(root / "ecosystem")
+            try:
+                cells = run_suite.expand_cells(doc, suite_yaml)
+            finally:
+                if old is None:
+                    os.environ.pop("JUNIPER_EXP_PROJECT_DIR", None)
+                else:
+                    os.environ["JUNIPER_EXP_PROJECT_DIR"] = old
+            self.assertEqual(cells[0]["config_path"], str(eco / "base.yaml"))
+
     def test_validation_rejections(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

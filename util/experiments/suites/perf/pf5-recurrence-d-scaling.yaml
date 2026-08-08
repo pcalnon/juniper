@@ -1,0 +1,12 @@
+# PF-5 (plan §12.3): recurrence d-scaling — fit time vs d; r2 vs fit time. Thresholds unratified.
+schema_version: 1
+suite:
+  name: pf5-recurrence-d-scaling
+  description: "PF-5: train.d scaling on irregular_sine"
+  app: recurrence
+  base_config: [../../../../../juniper-recurrence/conf/experiments/irregular-sine-rff.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 900}
+matrix:
+  train.d: [8, 16, 32, 64]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}
