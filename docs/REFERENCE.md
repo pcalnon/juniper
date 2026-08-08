@@ -717,7 +717,7 @@ Flood-remediation tooling for Cursor-fleet / third-party open PRs and for silent
 
 | Layer | Path | Role |
 |-------|------|------|
-| Sequence-safety screens | `util/sequence_safety/symbol_loss_check.py`, `docs_additions_check.py` | Path-invoked BASE..HEAD screens used by CI (`sequence-safety` job, `main-verify.yml`) |
+| Sequence-safety screens | the `juniper-symbol-loss-check` / `juniper-docs-additions-check` console scripts (PyPI `juniper-ci-tools>=0.8.0`) | Path-invoked BASE..HEAD screens used by CI (`sequence-safety` job, `main-verify.yml`) |
 | Predicted-merge triage | `util/fleet_triage/predict_merge.py` | Detached-clone merge of `origin/main` into a PR tip; runs fast gates + screens on the **merge RESULT** |
 | Fleet supervisor agent | `.claude/agents/fleet-supervisor.md` | Read-only adjudication over a `--batch` report (never pushes / merges / closes) |
 
@@ -726,10 +726,10 @@ Design context: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATIO
 ### Sequence-safety CLIs
 
 ```bash
-python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --json
-python util/sequence_safety/docs_additions_check.py --base origin/main --head HEAD --json
+juniper-symbol-loss-check --base origin/main --head HEAD --json
+juniper-docs-additions-check --base origin/main --head HEAD --json
 # WARN-only exit 0 (label hatch); exit 2 is never masked:
-python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --advisory
+juniper-symbol-loss-check --base origin/main --head HEAD --advisory
 ```
 
 | Concern | Default scope | FAIL classes | Primary waiver |
@@ -759,7 +759,7 @@ Per PR the script:
 
 1. Creates a throwaway **detached** `git clone --shared` under the system tempdir (never a worktree, never writes the source checkout, never pushes).
 2. Merges `origin/main` into the branch tip (`git merge --no-ff`, `commit.gpgsign=false`).
-3. On the RESULT: runs `pre-commit` hooks `black` / `isort` / `flake8` / `mypy` / `check-ast` over `changed_existing` — the TRUE delta filtered to paths that still resolve as a blob at `HEAD` — and **only when that set contains at least one `.py` file**; otherwise each hook reports `status=skip` with detail `no .py files in delta` (docs-only / non-Python PRs never invoke the gate runner). A **deleted** `.py` therefore stays in `true_delta` for the symbol screen but is never handed to `pre-commit --files`, so a pure-deletion PR can be gate-clean and still `DAMAGED-FIX-FIRST` from the symbol screen. `JUNIPER_FLEET_SKIP_PRECOMMIT=1` forces `skip_all`. It also shells out to `util/sequence_safety/symbol_loss_check.py --repo-root <clone> --base <base> --head <result> --json` (same CLI as `main-verify` — juniper-ml#895 / ml#872); runs an **inline** docs additions-only screen that flags **any** removed content line on a changed `.md` (deliberately stricter than `docs_additions_check.py`'s heading / `--min-run` gate) and honors `Allow-Docs-Rewrite: <path>[, …]` / `*` trailers in `BASE..RESULT` (juniper-ml#926 — same escape hatch as sequence-safety so intentional rewrites are not forever `DAMAGED-FIX-FIRST`).
+3. On the RESULT: runs `pre-commit` hooks `black` / `isort` / `flake8` / `mypy` / `check-ast` over `changed_existing` — the TRUE delta filtered to paths that still resolve as a blob at `HEAD` — and **only when that set contains at least one `.py` file**; otherwise each hook reports `status=skip` with detail `no .py files in delta` (docs-only / non-Python PRs never invoke the gate runner). A **deleted** `.py` therefore stays in `true_delta` for the symbol screen but is never handed to `pre-commit --files`, so a pure-deletion PR can be gate-clean and still `DAMAGED-FIX-FIRST` from the symbol screen. `JUNIPER_FLEET_SKIP_PRECOMMIT=1` forces `skip_all`. It also shells out to `juniper-symbol-loss-check (juniper-ci-tools) --repo-root <clone> --base <base> --head <result> --json` (same CLI as `main-verify` — juniper-ml#895 / ml#872); runs an **inline** docs additions-only screen that flags **any** removed content line on a changed `.md` (deliberately stricter than `juniper-docs-additions-check`'s heading / `--min-run` gate) and honors `Allow-Docs-Rewrite: <path>[, …]` / `*` trailers in `BASE..RESULT` (juniper-ml#926 — same escape hatch as sequence-safety so intentional rewrites are not forever `DAMAGED-FIX-FIRST`).
 4. Emits the **TRUE** changed-file delta from `git diff --name-only origin/main <result>` (not the stale `gh pr … --json files` list).
 
 | Verdict | Meaning (verified in `simulate_merge`) |
@@ -805,7 +805,7 @@ Do not assume trailer-less docs deletions that pass `--min-run` on main-verify w
 
 | Job | When it runs | What it does |
 |-----|--------------|--------------|
-| `symbol-screen` | **Always** | `util/sequence_safety/symbol_loss_check.py` + `docs_additions_check.py` over `BASE..HEAD`; uploads `sequence-safety-report` (`symbol-report.json` / `docs-report.json`, 30-day retention) |
+| `symbol-screen` | **Always** | the `juniper-symbol-loss-check` + `juniper-docs-additions-check` console scripts (juniper-ci-tools) over `BASE..HEAD`; uploads `sequence-safety-report` (`symbol-report.json` / `docs-report.json`, 30-day retention) |
 | `battery` | Path-gated | Re-runs the enumerated unittest + bash battery from `ci.yml`'s `tests` job when the push touched `tests/` \| `util/` \| `scripts/` \| `.github/` \| `pyproject.toml`; docs-only merges skip it |
 | `notify` | On `failure()` only | Upserts **one** open GitHub issue with the stable title `main-verify: post-merge verification failing` (comment per subsequent failing SHA) and posts a non-blocking Slack summary (`SLACK_WEBHOOK_URL`; missing secret skips) |
 
@@ -844,7 +844,7 @@ BASE resolution order (written to the job step summary as “Post-merge sequence
 2. Else **`github.event.before`** (the push's first parent), when resolvable and not the all-zero SHA.
 3. Else **`HEAD^1`** (force-push / initial commit / dispatch fallback).
 
-Screens then run as `python3 util/sequence_safety/{symbol_loss,docs_additions}_check.py --base <BASE> --head <HEAD>` (human log + guarded `--json` artifact). Exit `≥2` is invocation error; exit `≥1` is a compositional-loss finding.
+Screens then run as `juniper-{symbol-loss,docs-additions}-check --base <BASE> --head <HEAD>` (human log + guarded `--json` artifact). Exit `≥2` is invocation error; exit `≥1` is a compositional-loss finding.
 
 #### Waivers: trailers vs PR labels
 
@@ -874,8 +874,8 @@ The battery job's unittest list is a **manual mirror** of `ci.yml`'s `tests` job
 
 ```bash
 # Reproduce the screens locally against the same window main-verify would use:
-python3 util/sequence_safety/symbol_loss_check.py --base <BASE> --head <HEAD>
-python3 util/sequence_safety/docs_additions_check.py --base <BASE> --head <HEAD>
+juniper-symbol-loss-check --base <BASE> --head <HEAD>
+juniper-docs-additions-check --base <BASE> --head <HEAD>
 
 # Inspect the artifact from a failed run:
 gh run download <run-id> -n sequence-safety-report
@@ -892,7 +892,7 @@ gh run download <run-id> -n sequence-safety-report
 | Tracking issue still open after green | Expected — notify does not auto-close. Owner closes after adjudication. |
 | Battery list drift vs `ci.yml` | Keep both enumerations in lockstep in the same PR (see SYNC NOTE in `main-verify.yml`). |
 
-Related: per-PR advisory screens live in `ci.yml`'s standalone `sequence-safety` job (absent from the Quality Gate `needs:`). Fleet predicted-merge shells out to the same symbol CLI on a throwaway merge result (`util/fleet_triage/predict_merge.py` → `util/sequence_safety/symbol_loss_check.py`; the 2026-07-28 flood-census ad-hoc screens are retired under `util/ad-hoc/retired/` with a `_RETIRED-2026-08-05` suffix).
+Related: per-PR advisory screens live in `ci.yml`'s standalone `sequence-safety` job (absent from the Quality Gate `needs:`). Fleet predicted-merge shells out to the same symbol CLI on a throwaway merge result (`util/fleet_triage/predict_merge.py` → the `juniper-symbol-loss-check` console script (juniper-ci-tools >=0.8.0); the 2026-07-28 flood-census ad-hoc screens are retired under `util/ad-hoc/retired/` with a `_RETIRED-2026-08-05` suffix).
 
 ## Experiment Stack Utilities
 
@@ -1524,7 +1524,7 @@ Release runbooks:
 
 ## Flood-Remediation CI Gates
 
-Operator surface for the flood-remediation CI layers landed in [#869](https://github.com/pcalnon/juniper-ml/pull/869) / [#880](https://github.com/pcalnon/juniper-ml/pull/880) (Proposal P2 / flood analysis §4 items 1–2 + 8 phases 2–4). These jobs catch **serial same-file damage** that per-PR green checks miss. The CLIs they invoke live under `util/sequence_safety/`; predicted-merge triage for open fleet PRs is `util/fleet_triage/predict_merge.py` (see AGENTS.md Key Files).
+Operator surface for the flood-remediation CI layers landed in [#869](https://github.com/pcalnon/juniper-ml/pull/869) / [#880](https://github.com/pcalnon/juniper-ml/pull/880) (Proposal P2 / flood analysis §4 items 1–2 + 8 phases 2–4). These jobs catch **serial same-file damage** that per-PR green checks miss. The CLIs they invoke are the `juniper-ci-tools` console scripts (`juniper-symbol-loss-check` / `juniper-docs-additions-check` — install with `pip install "juniper-ci-tools>=0.8.0,<0.9.0"`; the inline `util/sequence_safety/` copy was retired in ml#1024); predicted-merge triage for open fleet PRs is `util/fleet_triage/predict_merge.py` (see AGENTS.md Key Files).
 
 Design context: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md).
 
@@ -1578,7 +1578,7 @@ Constraints (from the workflow comments / Proposal P2 §4):
 
 ### Per-PR Sequence Safety (#880 phase 3)
 
-Runs `util/sequence_safety/symbol_loss_check.py` then `docs_additions_check.py` over `<BASE>..HEAD`, uploads `sequence-safety-report` (`symbol-report.json` + `docs-report.json`, 30-day retention).
+Runs `juniper-symbol-loss-check` then `juniper-docs-additions-check` (juniper-ci-tools console scripts) over `<BASE>..HEAD`, uploads `sequence-safety-report` (`symbol-report.json` + `docs-report.json`, 30-day retention).
 
 | Lever | Effect |
 |-------|--------|
@@ -1591,10 +1591,10 @@ Promote to REQUIRED later in the **branch ruleset**, never by adding the job to 
 Local repro:
 
 ```bash
-python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --json
-python util/sequence_safety/docs_additions_check.py --base origin/main --head HEAD --json
+juniper-symbol-loss-check --base origin/main --head HEAD --json
+juniper-docs-additions-check --base origin/main --head HEAD --json
 # WARN-only (label-hatch equivalent); exit 2 is never masked:
-python util/sequence_safety/symbol_loss_check.py --base origin/main --head HEAD --advisory
+juniper-symbol-loss-check --base origin/main --head HEAD --advisory
 ```
 
 ### Fleet PR Lint (#880 phase 4)
