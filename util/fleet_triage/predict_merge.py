@@ -19,9 +19,10 @@ For a PR branch (``--pr N``) or every open PR (``--batch``) it, per PR:
       because ``strict_required_status_checks_policy`` is ``false``;
   (c) on that RESULT runs the repo-pinned fast gates on the touched files
       (``pre-commit run black isort flake8 mypy check-ast --files <changed>``)
-      PLUS two screens CI cannot see, BOTH delegating to the permanent
-      ``util/sequence_safety/`` checkers on the merged RESULT so a per-PR verdict is
-      byte-identical to the post-merge ``main-verify`` gate: an AST symbol-loss screen
+      PLUS two screens CI cannot see, BOTH delegating to the juniper-ci-tools console
+      scripts (``juniper-symbol-loss-check`` / ``juniper-docs-additions-check``, PyPI
+      package >=0.8.0) on the merged RESULT so a per-PR verdict is byte-identical to the
+      post-merge ``main-verify`` gate: an AST symbol-loss screen
       (a symbol present on ``origin/main`` but absent in the merged result -- the
       #755/#729/#738 "flake8+mypy still pass" damage class) and a docs
       deletion-magnitude screen (a deleted Markdown heading, or a run of >= N
@@ -45,6 +46,12 @@ adjudicates duplicates and never closes, pushes, or merges anything.
 Exit codes: 0 always-report (even when verdicts are DAMAGED/CONFLICT -- this is a
 report); 2 on usage / precondition error (bad args, unresolved ref, no ``gh``,
 ``--repo-root`` not a git repo).
+
+Requires: ``gh`` on PATH (PR discovery), and -- for the two compositional-loss screens --
+the ``juniper-ci-tools`` package (>=0.8.0) installed so ``juniper-symbol-loss-check`` /
+``juniper-docs-additions-check`` are on PATH (``pip install 'juniper-ci-tools>=0.8.0,<0.9.0'``).
+If a console script is absent, that screen degrades to ``skip`` (never crashes the report);
+the fast-gate battery + verdict logic still run.
 
 Any git commit this script makes (only the throwaway local merge commit) uses
 ``-c commit.gpgsign=false`` so the owner's YubiKey/ed448 signing config never
@@ -125,35 +132,38 @@ def _names(repo: Path, *diff_args: str) -> list:
 
 
 # --------------------------------------------------------------------------- #
-# AST symbol screen -- delegate to the permanent sequence-safety checker
+# AST symbol screen -- delegate to the juniper-ci-tools console script
 # --------------------------------------------------------------------------- #
 #
-# util/sequence_safety/symbol_loss_check.py (landed in ml#873) is the permanent home for
-# the symbol-loss screen; predict_merge shells out to its CLI on the merged RESULT so a
-# per-PR triage screen is byte-identical to the push:main "main-verify" gate -- the same
-# LOST/WEAKENED/DUPLICATED classification, RELOCATED downgrade, and Allow-Symbol-Loss
-# commit-trailer waivers. (This replaces the ad-hoc flood-census seed
-# util/ad-hoc/2026-07-28_flood_census_symbol_screen.py, whose pure extractors were borrowed
-# before the permanent module existed; the seed stays put as a program artifact.)
+# The symbol-loss screen ships as the PyPI package juniper-ci-tools (>=0.8.0); its console
+# script juniper-symbol-loss-check is the SAME one the per-PR ``sequence-safety`` job and the
+# push:main ``main-verify`` gate run, so a per-PR triage screen is byte-identical to those
+# gates -- the same LOST/WEAKENED/DUPLICATED classification, RELOCATED downgrade, and
+# Allow-Symbol-Loss commit-trailer waivers. predict_merge invokes it with NO --scope, so the
+# package's built-in default (ml's historical in_scope() predicate) applies verbatim, exactly
+# as the deleted in-repo util/sequence_safety/ copy did (rollout W3). REQUIRES juniper-ci-tools
+# installed (see the module docstring); a missing console script degrades to ``skip`` rather
+# than crashing the report.
 
-_SYMBOL_LOSS_CHECK = Path(__file__).resolve().parent.parent / "sequence_safety" / "symbol_loss_check.py"
+_SYMBOL_LOSS_CHECK = "juniper-symbol-loss-check"  # console script from juniper-ci-tools>=0.8.0 (on PATH once installed)
 
 
 def _ast_symbol_screen(clone: Path, base_ref: str, result_ref: str, changed: list) -> dict:
     """Screen the merged RESULT for a silently deleted / gutted / duplicated symbol vs ``base_ref``.
 
-    Delegates to ``util/sequence_safety/symbol_loss_check.py`` -- the SAME CLI the post-merge
-    ``main-verify`` gate runs -- against the scratch clone, so a per-PR verdict matches the
-    push:main net exactly (its in-scope filter, RELOCATED downgrade, and ``Allow-Symbol-Loss``
-    commit-trailer waivers all apply). ``status`` is ``fail`` iff the checker reports an unwaived
-    FAIL (exit 1); a missing / broken checker degrades to ``skip`` rather than crashing the
-    report. ``lost`` keeps the ``{file, symbol, kind}`` shape the JSON report + human render read.
+    Delegates to the ``juniper-symbol-loss-check`` console script (juniper-ci-tools>=0.8.0) --
+    the SAME CLI the post-merge ``main-verify`` gate runs -- against the scratch clone, so a
+    per-PR verdict matches the push:main net exactly (its in-scope filter, RELOCATED downgrade,
+    and ``Allow-Symbol-Loss`` commit-trailer waivers all apply). ``status`` is ``fail`` iff the
+    checker reports an unwaived FAIL (exit 1); a missing checker (juniper-ci-tools not installed)
+    or a broken one degrades to ``skip`` rather than crashing the report. ``lost`` keeps the
+    ``{file, symbol, kind}`` shape the JSON report + human render read.
     """
     if not any(p.endswith((".py", ".bash")) for p in changed):
         return {"status": "pass", "lost": []}  # nothing screenable in the delta -> skip the subprocess
-    if not _SYMBOL_LOSS_CHECK.exists():
-        return {"status": "skip", "lost": [], "detail": "symbol-loss checker unavailable"}
-    cp = _run([sys.executable, str(_SYMBOL_LOSS_CHECK), "--repo-root", str(clone), "--base", base_ref, "--head", result_ref, "--json"])
+    if shutil.which(_SYMBOL_LOSS_CHECK) is None:
+        return {"status": "skip", "lost": [], "detail": f"{_SYMBOL_LOSS_CHECK} unavailable -- pip install 'juniper-ci-tools>=0.8.0,<0.9.0'"}
+    cp = _run([_SYMBOL_LOSS_CHECK, "--repo-root", str(clone), "--base", base_ref, "--head", result_ref, "--json"])
     if cp.returncode == 2 or not cp.stdout.strip():
         return {"status": "skip", "lost": [], "detail": (cp.stderr.strip() or "symbol-loss screen error")[-300:]}
     try:
@@ -169,45 +179,45 @@ def _ast_symbol_screen(clone: Path, base_ref: str, result_ref: str, changed: lis
 
 
 # --------------------------------------------------------------------------- #
-# docs deletion-magnitude screen -- delegate to the permanent sequence-safety checker
+# docs deletion-magnitude screen -- delegate to the juniper-ci-tools console script
 # --------------------------------------------------------------------------- #
 #
-# util/sequence_safety/docs_additions_check.py is the permanent home for the docs
-# deletion-magnitude screen; predict_merge shells out to its CLI on the merged RESULT --
-# the SAME subprocess pattern _ast_symbol_screen uses post-ml#895 -- so a per-PR docs
-# verdict is byte-identical to the push:main "main-verify" gate: the module's magnitude
-# thresholds (a deleted Markdown heading, or a run of >= N consecutive deleted lines with
-# no adjacent addition, FAILs; a small in-place swap is WARN) and its ``Allow-Docs-Rewrite``
-# commit-trailer waiver. This REPLACES the earlier inline any-removed-line rule, which
-# painted every honest docs replacement DAMAGED (the August-storm false-positive class: 26
-# hand-adjudicated DAMAGED verdicts across the two storm triages -- 14 cascor + 12 ml) even
-# though main-verify would have passed the same diff.
+# The docs deletion-magnitude screen ships as the PyPI package juniper-ci-tools (>=0.8.0);
+# its console script juniper-docs-additions-check runs on the merged RESULT -- the SAME
+# subprocess pattern _ast_symbol_screen uses -- so a per-PR docs verdict is byte-identical to
+# the push:main "main-verify" gate: the module's magnitude thresholds (a deleted Markdown
+# heading, or a run of >= N consecutive deleted lines with no adjacent addition, FAILs; a
+# small in-place swap is WARN) and its ``Allow-Docs-Rewrite`` commit-trailer waiver. This
+# REPLACES the earlier inline any-removed-line rule, which painted every honest docs
+# replacement DAMAGED (the August-storm false-positive class: 26 hand-adjudicated DAMAGED
+# verdicts across the two storm triages -- 14 cascor + 12 ml) even though main-verify would
+# have passed the same diff.
 
-_DOCS_ADDITIONS_CHECK = Path(__file__).resolve().parent.parent / "sequence_safety" / "docs_additions_check.py"
+_DOCS_ADDITIONS_CHECK = "juniper-docs-additions-check"  # console script from juniper-ci-tools>=0.8.0 (on PATH once installed)
 
 
 def _docs_additions_only_screen(clone: Path, base_ref: str, result_ref: str, changed: list) -> dict:
     """Screen changed ``.md`` files for a net section deletion in the merged RESULT vs ``base_ref``.
 
-    Delegates to ``util/sequence_safety/docs_additions_check.py`` -- the SAME CLI the
-    post-merge ``main-verify`` gate runs -- so a per-PR docs verdict uses the module's
-    magnitude thresholds (a deleted Markdown heading, or a run of >= N consecutive deleted
-    lines with no adjacent addition, FAILs; a small in-place swap is WARN) and its
+    Delegates to the ``juniper-docs-additions-check`` console script (juniper-ci-tools>=0.8.0)
+    -- the SAME CLI the post-merge ``main-verify`` gate runs -- so a per-PR docs verdict uses
+    the module's magnitude thresholds (a deleted Markdown heading, or a run of >= N consecutive
+    deleted lines with no adjacent addition, FAILs; a small in-place swap is WARN) and its
     ``Allow-Docs-Rewrite`` commit-trailer waiver, instead of the old inline any-removed-line
     rule that DAMAGED every honest docs replacement. Every changed ``.md`` is passed via
     ``--files`` so the fleet screen keeps its broader "any changed .md" scope (the module's
     default scope is docs/ + notes/ + AGENTS.md). ``status`` mirrors the module's exit:
-    ``fail`` iff it reports an unwaived FAIL (exit 1); a missing / broken / non-JSON checker
-    degrades to ``skip`` rather than crashing the report (parity with ``_ast_symbol_screen``).
-    The ``deletions`` / ``waived`` slots keep the ``{file, removed_lines, ...}`` shape the JSON
-    report + human render read.
+    ``fail`` iff it reports an unwaived FAIL (exit 1); a missing checker (juniper-ci-tools not
+    installed) or a broken / non-JSON one degrades to ``skip`` rather than crashing the report
+    (parity with ``_ast_symbol_screen``). The ``deletions`` / ``waived`` slots keep the
+    ``{file, removed_lines, ...}`` shape the JSON report + human render read.
     """
     md_files = [p for p in changed if p.endswith(".md")]
     if not md_files:
         return {"status": "pass", "deletions": [], "waived": []}  # nothing screenable -> skip the subprocess
-    if not _DOCS_ADDITIONS_CHECK.exists():
-        return {"status": "skip", "deletions": [], "waived": [], "detail": "docs-deletion checker unavailable"}
-    cp = _run([sys.executable, str(_DOCS_ADDITIONS_CHECK), "--repo-root", str(clone), "--base", base_ref, "--head", result_ref, "--files", *md_files, "--json"])
+    if shutil.which(_DOCS_ADDITIONS_CHECK) is None:
+        return {"status": "skip", "deletions": [], "waived": [], "detail": f"{_DOCS_ADDITIONS_CHECK} unavailable -- pip install 'juniper-ci-tools>=0.8.0,<0.9.0'"}
+    cp = _run([_DOCS_ADDITIONS_CHECK, "--repo-root", str(clone), "--base", base_ref, "--head", result_ref, "--files", *md_files, "--json"])
     if cp.returncode == 2 or not cp.stdout.strip():
         return {"status": "skip", "deletions": [], "waived": [], "detail": (cp.stderr.strip() or "docs-deletion screen error")[-300:]}
     try:

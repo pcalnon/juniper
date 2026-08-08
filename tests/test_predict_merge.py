@@ -206,8 +206,8 @@ class VerdictTest(_RepoCase):
         # Same deletion as test_damaged_symbol_loss, but the branch commit carries an
         # ``Allow-Symbol-Loss`` trailer -> the sequence-safety screen WAIVES it, so the
         # per-PR verdict is MERGE-CLEAN. predict_merge now delegates to the SAME
-        # util/sequence_safety/symbol_loss_check.py CLI as the push:main ``main-verify``
-        # gate, so an author-declared intentional removal is honored identically.
+        # juniper-symbol-loss-check console script (juniper-ci-tools) as the push:main
+        # ``main-verify`` gate, so an author-declared intentional removal is honored identically.
         _write(self.repo, "util/mod.py", "def foo():\n    return 1\n\n\ndef bar():\n    return 2\n")
         _commit(self.repo, "c0")
         _publish_main(self.repo)
@@ -223,8 +223,8 @@ class VerdictTest(_RepoCase):
     def test_damaged_docs_deletion(self):
         # A deleted Markdown heading is a module FAIL (net section removal, #801/#803) ->
         # DAMAGED-FIX-FIRST. predict_merge now delegates to the SAME
-        # util/sequence_safety/docs_additions_check.py thresholds as the push:main
-        # main-verify gate (heading-deletion / >=N-run FAIL; a small swap is WARN).
+        # juniper-docs-additions-check console script (juniper-ci-tools) thresholds as the
+        # push:main main-verify gate (heading-deletion / >=N-run FAIL; a small swap is WARN).
         _write(self.repo, "notes.md", "# Title\n\n## Section One\n\nbody\n\n## Section Two\n\nkeep\n")
         _commit(self.repo, "c0")
         _publish_main(self.repo)
@@ -262,8 +262,8 @@ class VerdictTest(_RepoCase):
 
     def test_docs_deletion_waived_by_allow_trailer(self):
         # A heading deletion (a real module FAIL) that the branch commit declares with
-        # ``Allow-Docs-Rewrite: notes.md`` -- the same escape hatch
-        # sequence_safety/docs_additions_check.py honors. Without trailer parity the
+        # ``Allow-Docs-Rewrite: notes.md`` -- the same escape hatch the
+        # juniper-docs-additions-check console script honors. Without trailer parity the
         # fleet screen would forever DAMAGED an intentional rewrite that main-verify
         # would WAIVE (the symbol screen already has this parity via #895).
         _write(self.repo, "notes.md", "# Title\n\n## Section One\n\nbody\n\n## Section Two\n\nkeep\n")
@@ -569,9 +569,10 @@ class ClusterOrderTest(unittest.TestCase):
 class DocsAdditionsScreenDegradeTest(unittest.TestCase):
     """Pin the fail-soft contract of the docs deletion-magnitude screen delegation.
 
-    Mirrors ``AstSymbolScreenDegradeTest``: predict_merge shells out to
-    ``util/sequence_safety/docs_additions_check.py`` (the same #895 subprocess pattern), so
-    a missing / broken / non-JSON checker must ``skip`` (never crash triage), ``skip`` must
+    Mirrors ``AstSymbolScreenDegradeTest``: predict_merge shells out to the
+    ``juniper-docs-additions-check`` console script (juniper-ci-tools; the same subprocess
+    pattern), so a missing (package not installed) / broken / non-JSON checker must ``skip``
+    (never crash triage), ``skip`` must
     never become ``DAMAGED-FIX-FIRST`` (only ``status == "fail"`` drives that verdict), and
     a WARN-only (small in-place swap) finding must not be mapped into ``deletions``. FAIL
     findings map into ``deletions`` and WAIVED findings into ``waived``.
@@ -580,13 +581,12 @@ class DocsAdditionsScreenDegradeTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="fleet-docs-degrade-"))
         self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self.tmp)], check=False))
-        # A real on-disk path so ``_DOCS_ADDITIONS_CHECK.exists()`` is true without
-        # monkeypatching ``Path.exists`` (which would bleed into git/fixture helpers).
-        self.checker = self.tmp / "docs_additions_check.py"
-        self.checker.write_text("# stub checker path for exists() only\n", encoding="utf-8")
 
     def _screen_with_run(self, cp: subprocess.CompletedProcess, changed=None):
-        with mock.patch.object(pm, "_DOCS_ADDITIONS_CHECK", self.checker):
+        # The console script juniper-docs-additions-check is "available" -> shutil.which returns a
+        # truthy path; _run is stubbed to return the canned CompletedProcess (no real subprocess).
+        # Console-script analogue of the pre-W3 "_DOCS_ADDITIONS_CHECK on-disk path + _run stub".
+        with mock.patch.object(pm.shutil, "which", return_value="/usr/bin/juniper-docs-additions-check"):
             with mock.patch.object(pm, "_run", return_value=cp) as run_mock:
                 out = pm._docs_additions_only_screen(Path("/clone"), "base", "head", changed or ["notes.md"])
         return out, run_mock
@@ -598,8 +598,9 @@ class DocsAdditionsScreenDegradeTest(unittest.TestCase):
         run_mock.assert_not_called()
 
     def test_missing_checker_degrades_to_skip(self):
-        missing = self.tmp / "no-such-docs-check.py"
-        with mock.patch.object(pm, "_DOCS_ADDITIONS_CHECK", missing):
+        # juniper-ci-tools not installed -> the console script is not on PATH -> shutil.which
+        # returns None -> skip, and the subprocess is never spawned.
+        with mock.patch.object(pm.shutil, "which", return_value=None):
             with mock.patch.object(pm, "_run") as run_mock:
                 out = pm._docs_additions_only_screen(Path("/unused"), "base", "head", ["notes.md"])
         self.assertEqual(out["status"], "skip")
@@ -657,7 +658,7 @@ class DocsAdditionsScreenDegradeTest(unittest.TestCase):
     def test_skip_status_does_not_damage_merge_verdict(self):
         # End-to-end: a .md-touching PR whose docs checker is unavailable must stay
         # MERGE-CLEAN (skip ≠ fail). Regression class: treating skip as damaged would
-        # block every fleet triage batch when sequence_safety is temporarily absent.
+        # block every fleet triage batch when juniper-ci-tools is temporarily absent.
         repo = self.tmp / "repo"
         _init_repo(repo)
         _write(repo, "notes/seed.md", "# seed\n")
@@ -667,8 +668,9 @@ class DocsAdditionsScreenDegradeTest(unittest.TestCase):
         _write(repo, "notes/new.md", "# new\n\nbody\n")
         _commit(repo, "add notes/new.md")
 
-        missing = self.tmp / "no-such-docs-check.py"
-        with mock.patch.object(pm, "_DOCS_ADDITIONS_CHECK", missing):
+        # shutil.which -> None models juniper-ci-tools not installed; shutil.rmtree (used by
+        # simulate_merge's clone cleanup) is a different attribute and stays live.
+        with mock.patch.object(pm.shutil, "which", return_value=None):
             v = pm.simulate_merge(repo, "adddoc", run_gates=False)
         self.assertEqual(v["gates"]["docs_additions_only"]["status"], "skip")
         self.assertEqual(v["verdict"], "MERGE-CLEAN")
@@ -780,7 +782,7 @@ class TriageBatchGhTest(_RepoCase):
 
 
 # --------------------------------------------------------------------------- #
-# _ast_symbol_screen degrade arms (#895 switch to sequence_safety CLI)
+# _ast_symbol_screen degrade arms (delegates to the juniper-symbol-loss-check console script)
 # --------------------------------------------------------------------------- #
 
 
@@ -795,13 +797,13 @@ class AstSymbolScreenDegradeTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="fleet-ast-degrade-"))
         self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self.tmp)], check=False))
-        # A real on-disk path so ``_SYMBOL_LOSS_CHECK.exists()`` is true without
-        # monkeypatching ``Path.exists`` (which would bleed into git/fixture helpers).
-        self.checker = self.tmp / "symbol_loss_check.py"
-        self.checker.write_text("# stub checker path for exists() only\n", encoding="utf-8")
 
     def _screen_with_run(self, cp: subprocess.CompletedProcess, changed=None):
-        with mock.patch.object(pm, "_SYMBOL_LOSS_CHECK", self.checker):
+        # The console script juniper-symbol-loss-check is "available" -> shutil.which returns a
+        # truthy path; _run is stubbed to return the canned CompletedProcess (no real subprocess).
+        # This is the console-script analogue of the pre-W3 "_SYMBOL_LOSS_CHECK on-disk path +
+        # _run stub" pattern (the module now lives in the installed juniper-ci-tools package).
+        with mock.patch.object(pm.shutil, "which", return_value="/usr/bin/juniper-symbol-loss-check"):
             with mock.patch.object(pm, "_run", return_value=cp) as run_mock:
                 out = pm._ast_symbol_screen(Path("/clone"), "base", "head", changed or ["util/mod.py"])
         return out, run_mock
@@ -813,8 +815,9 @@ class AstSymbolScreenDegradeTest(unittest.TestCase):
         run_mock.assert_not_called()
 
     def test_missing_checker_degrades_to_skip(self):
-        missing = self.tmp / "no-such-symbol-loss-check.py"
-        with mock.patch.object(pm, "_SYMBOL_LOSS_CHECK", missing):
+        # juniper-ci-tools not installed -> the console script is not on PATH -> shutil.which
+        # returns None -> skip, and the subprocess is never spawned.
+        with mock.patch.object(pm.shutil, "which", return_value=None):
             with mock.patch.object(pm, "_run") as run_mock:
                 out = pm._ast_symbol_screen(Path("/unused"), "base", "head", ["util/mod.py"])
         self.assertEqual(out["status"], "skip")
@@ -878,7 +881,7 @@ class AstSymbolScreenDegradeTest(unittest.TestCase):
     def test_skip_status_does_not_damage_merge_verdict(self):
         # End-to-end: a .py-touching PR whose checker is unavailable must stay MERGE-CLEAN
         # (skip ≠ fail). Regression class: treating skip as damaged would block every
-        # fleet triage batch when sequence_safety is temporarily absent.
+        # fleet triage batch when juniper-ci-tools is temporarily absent.
         repo = self.tmp / "repo"
         _init_repo(repo)
         _write(repo, "util/keep.py", "x = 1\n")
@@ -888,8 +891,9 @@ class AstSymbolScreenDegradeTest(unittest.TestCase):
         _write(repo, "util/new.py", "def baz():\n    return 3\n")
         _commit(repo, "add util/new.py")
 
-        missing = self.tmp / "no-such-symbol-loss-check.py"
-        with mock.patch.object(pm, "_SYMBOL_LOSS_CHECK", missing):
+        # shutil.which -> None models juniper-ci-tools not installed; shutil.rmtree (used by
+        # simulate_merge's clone cleanup) is a different attribute and stays live.
+        with mock.patch.object(pm.shutil, "which", return_value=None):
             v = pm.simulate_merge(repo, "addpy", run_gates=False)
         self.assertEqual(v["gates"]["ast_symbol_screen"]["status"], "skip")
         self.assertEqual(v["verdict"], "MERGE-CLEAN")
