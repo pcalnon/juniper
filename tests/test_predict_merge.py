@@ -10,12 +10,14 @@ fixture repos (the ``tests/test_worktree_cleanup.py`` fixture idiom) -- no netwo
   exit-2 / empty / non-JSON checker -> ``skip``, WARN-only not mapped, ``skip`` ≠ DAMAGED);
 * the TRUE-delta-vs-stale-file-list discrimination (delta from the merge RESULT, so a
   main-owned file the branch is merely stale on is excluded -- the #729 class);
-* the docs additions-only screen edges (``_removed_content_lines`` ``---`` header
-  exclusion; additions-only ``.md`` pass; non-``.md`` deletions ignored);
+* the docs deletion-magnitude screen delegation (same #895 subprocess pattern): a deleted
+  heading / >=N-run FAIL -> DAMAGED, a small in-place swap WARN -> MERGE-CLEAN (the
+  August-storm false-DAMAGED class), the ``Allow-Docs-Rewrite`` trailer waiver, and the
+  matching missing / exit-2 / empty / non-JSON -> ``skip`` fail-soft arms;
 * the fast-gate battery skip when the TRUE delta has no ``.py`` files;
-* the ``--batch`` cluster map + suggested merge order (restore/heal/repair/fix-first
-  first, then ascending same-file-cluster membership), including a fake-``gh``
-  end-to-end batch;
+* the ``--batch`` cluster map + suggested merge order (heal PRs first -- a fix|heal|hotfix
+  head branch or a fix(/fix:/heal title -- then ascending same-file-cluster membership),
+  including a fake-``gh`` end-to-end batch;
 * ``triage_pr`` / ``_gh_json`` / CLI ``--pr`` hard-fail on gh nonzero / non-JSON;
 * ``triage_batch`` soft-ERROR continue (one unresolvable ``headRefName`` must not abort
   the rest of the open-PR set) + ``suggest_order`` empty-``true_delta`` ERROR contention;
@@ -219,32 +221,57 @@ class VerdictTest(_RepoCase):
         self.assertEqual(v["verdict"], "MERGE-CLEAN")
 
     def test_damaged_docs_deletion(self):
-        _write(self.repo, "notes.md", "line1\nline2\nline3\n")
+        # A deleted Markdown heading is a module FAIL (net section removal, #801/#803) ->
+        # DAMAGED-FIX-FIRST. predict_merge now delegates to the SAME
+        # util/sequence_safety/docs_additions_check.py thresholds as the push:main
+        # main-verify gate (heading-deletion / >=N-run FAIL; a small swap is WARN).
+        _write(self.repo, "notes.md", "# Title\n\n## Section One\n\nbody\n\n## Section Two\n\nkeep\n")
         _commit(self.repo, "c0")
         _publish_main(self.repo)
         _git(self.repo, "checkout", "-q", "-b", "docdel")
-        _write(self.repo, "notes.md", "line1\nline3\n")  # line2 removed
-        _commit(self.repo, "drop a docs line")
+        _write(self.repo, "notes.md", "# Title\n\n## Section Two\n\nkeep\n")  # Section One heading dropped
+        _commit(self.repo, "drop Section One")
 
         v = pm.simulate_merge(self.repo, "docdel", run_gates=False)
         self.assertEqual(v["verdict"], "DAMAGED-FIX-FIRST")
-        dels = v["gates"]["docs_additions_only"]["deletions"]
-        self.assertEqual(v["gates"]["docs_additions_only"]["status"], "fail")
+        screen = v["gates"]["docs_additions_only"]
+        self.assertEqual(screen["status"], "fail")
+        dels = screen["deletions"]
         self.assertTrue(dels and dels[0]["file"] == "notes.md", dels)
-        self.assertEqual(v["gates"]["docs_additions_only"].get("waived"), [])
+        self.assertEqual(dels[0]["reason"], "heading-deletion")
+        self.assertEqual(screen.get("waived"), [])
+
+    def test_small_docs_deletion_is_not_damaged(self):
+        # The storm-validated fix: a small in-place docs swap (a couple of removed lines
+        # bracketed by additions, no heading, below the >=5-run threshold) is a module WARN,
+        # NOT a FAIL -- so it is MERGE-CLEAN, not DAMAGED-FIX-FIRST. The old inline
+        # any-removed-line rule painted exactly this class DAMAGED (12 ml + 14 cascor false
+        # verdicts hand-adjudicated across the two August storm triages).
+        _write(self.repo, "notes.md", "# Title\n\nold line one\nold line two\ntail\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "docswap")
+        _write(self.repo, "notes.md", "# Title\n\nnew line one\nnew line two\ntail\n")  # in-place swap
+        _commit(self.repo, "reword two docs lines")
+
+        v = pm.simulate_merge(self.repo, "docswap", run_gates=False)
+        screen = v["gates"]["docs_additions_only"]
+        self.assertEqual(screen["status"], "pass", screen)
+        self.assertEqual(screen["deletions"], [])
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
 
     def test_docs_deletion_waived_by_allow_trailer(self):
-        # Same one-line docs deletion as test_damaged_docs_deletion, but the branch
-        # commit carries ``Allow-Docs-Rewrite: notes.md`` -- the same escape hatch
+        # A heading deletion (a real module FAIL) that the branch commit declares with
+        # ``Allow-Docs-Rewrite: notes.md`` -- the same escape hatch
         # sequence_safety/docs_additions_check.py honors. Without trailer parity the
         # fleet screen would forever DAMAGED an intentional rewrite that main-verify
         # would WAIVE (the symbol screen already has this parity via #895).
-        _write(self.repo, "notes.md", "line1\nline2\nline3\n")
+        _write(self.repo, "notes.md", "# Title\n\n## Section One\n\nbody\n\n## Section Two\n\nkeep\n")
         _commit(self.repo, "c0")
         _publish_main(self.repo)
         _git(self.repo, "checkout", "-q", "-b", "docwaive")
-        _write(self.repo, "notes.md", "line1\nline3\n")
-        _commit(self.repo, "drop a docs line (intentional)\n\nAllow-Docs-Rewrite: notes.md")
+        _write(self.repo, "notes.md", "# Title\n\n## Section Two\n\nkeep\n")
+        _commit(self.repo, "rewrite notes (intentional)\n\nAllow-Docs-Rewrite: notes.md")
 
         v = pm.simulate_merge(self.repo, "docwaive", run_gates=False)
         screen = v["gates"]["docs_additions_only"]
@@ -257,13 +284,13 @@ class VerdictTest(_RepoCase):
         self.assertEqual(v["verdict"], "MERGE-CLEAN")
 
     def test_docs_deletion_wildcard_trailer_waives_all(self):
-        _write(self.repo, "notes/a.md", "# A\nkeep\n")
-        _write(self.repo, "docs/b.md", "# B\nkeep\n")
+        _write(self.repo, "notes/a.md", "# A\n\n## Sec A\n\nbody\n")
+        _write(self.repo, "docs/b.md", "# B\n\n## Sec B\n\nbody\n")
         _commit(self.repo, "c0")
         _publish_main(self.repo)
         _git(self.repo, "checkout", "-q", "-b", "wild")
-        _write(self.repo, "notes/a.md", "# A\n")
-        _write(self.repo, "docs/b.md", "# B\n")
+        _write(self.repo, "notes/a.md", "# A\n")  # drop the ## Sec A heading (real FAIL)
+        _write(self.repo, "docs/b.md", "# B\n")  # drop the ## Sec B heading (real FAIL)
         _commit(self.repo, "trim both docs\n\nAllow-Docs-Rewrite: *")
 
         v = pm.simulate_merge(self.repo, "wild", run_gates=False)
@@ -275,13 +302,13 @@ class VerdictTest(_RepoCase):
         self.assertEqual(v["verdict"], "MERGE-CLEAN")
 
     def test_docs_deletion_trailer_wrong_path_still_damaged(self):
-        # A trailer for a different path must NOT silence an unwaived deletion.
-        _write(self.repo, "notes.md", "line1\nline2\nline3\n")
+        # A trailer for a DIFFERENT path must NOT silence an unwaived heading deletion.
+        _write(self.repo, "notes.md", "# Title\n\n## Section One\n\nbody\n\n## Section Two\n\nkeep\n")
         _commit(self.repo, "c0")
         _publish_main(self.repo)
         _git(self.repo, "checkout", "-q", "-b", "wrongpath")
-        _write(self.repo, "notes.md", "line1\nline3\n")
-        _commit(self.repo, "drop a docs line\n\nAllow-Docs-Rewrite: other.md")
+        _write(self.repo, "notes.md", "# Title\n\n## Section Two\n\nkeep\n")
+        _commit(self.repo, "drop Section One\n\nAllow-Docs-Rewrite: other.md")
 
         v = pm.simulate_merge(self.repo, "wrongpath", run_gates=False)
         self.assertEqual(v["verdict"], "DAMAGED-FIX-FIRST")
@@ -456,7 +483,9 @@ class NoMutationTest(_RepoCase):
 class ClusterOrderTest(unittest.TestCase):
     def test_clusters_and_heal_first_least_colliding_order(self):
         verdicts = [
-            {"pr": 1, "title": "restore deleted block", "branch": "cursor/restore-x", "true_delta": ["A.md"]},
+            # PR #1 is a heal via its fix/ HEAD branch (the new _is_heal rule: a
+            # fix|heal|hotfix branch prefix, not an arbitrary "restore"/"heal" substring).
+            {"pr": 1, "title": "restore deleted block", "branch": "fix/restore-x", "true_delta": ["A.md"]},
             {"pr": 2, "title": "feat two", "branch": "cursor/two", "true_delta": ["HOT.py"]},
             {"pr": 3, "title": "feat three", "branch": "cursor/three", "true_delta": ["HOT.py"]},
             {"pr": 4, "title": "feat four", "branch": "cursor/four", "true_delta": ["HOT.py"]},
@@ -497,54 +526,152 @@ class ClusterOrderTest(unittest.TestCase):
         clusters = pm.build_clusters(verdicts)
         self.assertNotIn("", clusters)  # empty paths must not invent a cluster key
         order = pm.suggest_order(verdicts, clusters)
-        self.assertEqual(order[0], 1, "heal still leads")
+        self.assertEqual(order[0], 1, "heal still leads (title ^heal)")
         self.assertEqual(order[1], 2, "ERROR empty-delta (contention 0) before HOT cluster")
         self.assertEqual(order[2:], [3, 4], order)
 
-    def test_is_heal_recognizes_repair_and_fix_first_tokens(self):
-        # suggest_order only auto-leads on restore/heal today in the cluster test; the
-        # other documented tokens must also promote, or a repair/fix-first PR sits
-        # behind colliding feat work and the supervisor merge order is wrong.
-        self.assertTrue(pm._is_heal({"title": "repair broken gate", "branch": "cursor/x"}))
-        self.assertTrue(pm._is_heal({"title": "feat", "branch": "cursor/fix-first-docs"}))
-        self.assertTrue(pm._is_heal({"title": "heal canopy WS", "branch": "cursor/y"}))
+    def test_is_heal_requires_branch_or_title_prefix(self):
+        # Tightened rule (#910 wave-1 mis-sort fix): heal-first fires ONLY on a
+        # fix|heal|hotfix HEAD-branch prefix or a fix(/fix:/heal TITLE prefix -- never a
+        # bare substring anywhere in the title/branch.
+        # promotes:
+        self.assertTrue(pm._is_heal({"title": "heal canopy WS", "branch": "cursor/y"}))  # title ^heal
+        self.assertTrue(pm._is_heal({"title": "fix: restore gate", "branch": "cursor/x"}))  # title ^fix:
+        self.assertTrue(pm._is_heal({"title": "fix(triage): sort", "branch": "cursor/z"}))  # title ^fix(
+        self.assertTrue(pm._is_heal({"title": "feat", "branch": "fix/broken-gate"}))  # branch ^fix/
+        self.assertTrue(pm._is_heal({"title": "feat", "branch": "origin/hotfix/urgent"}))  # origin-qualified ^hotfix/
+        # does NOT promote (the arbitrary-substring false positives the old rule hit):
+        self.assertFalse(pm._is_heal({"title": "repair broken gate", "branch": "cursor/x"}))  # "repair" dropped
+        self.assertFalse(pm._is_heal({"title": "feat", "branch": "cursor/fix-first-docs"}))  # not a fix/ path segment
+        self.assertFalse(pm._is_heal({"title": "test(fleet): + heal tokens", "branch": "cursor/t"}))  # "heal" mid-title
+
         self.assertFalse(pm._is_heal({"title": "feat docs", "branch": "cursor/docs-sync"}))
 
         verdicts = [
             {"pr": 20, "title": "feat hot", "branch": "cursor/hot", "true_delta": ["HOT.py"]},
-            {"pr": 21, "title": "repair symbol screen", "branch": "cursor/repair-x", "true_delta": ["A.md"]},
+            {"pr": 21, "title": "fix: repair symbol screen", "branch": "cursor/repair-x", "true_delta": ["A.md"]},
             {"pr": 22, "title": "feat solo", "branch": "cursor/solo", "true_delta": ["SOLO.py"]},
-            {"pr": 23, "title": "nudge", "branch": "cursor/fix-first-y", "true_delta": ["B.md"]},
+            {"pr": 23, "title": "nudge", "branch": "hotfix/y", "true_delta": ["B.md"]},
         ]
         clusters = pm.build_clusters(verdicts)
         order = pm.suggest_order(verdicts, clusters)
-        # Both heal PRs lead (repair title + fix-first branch); remaining ties break
+        # Both heal PRs lead (#21 fix: title + #23 hotfix/ branch); remaining ties break
         # by PR number via _pr_key (20 before 22), not by title.
         self.assertEqual(order[:2], [21, 23], order)
         self.assertEqual(order[2:], [20, 22], order)
 
 
 # --------------------------------------------------------------------------- #
-# docs additions-only screen — pure unit + wiring edges
+# docs deletion-magnitude screen delegation — fail-soft arms + verdict mapping
 # --------------------------------------------------------------------------- #
 
 
-class DocsAdditionsScreenUnitTest(unittest.TestCase):
-    """Pin ``_removed_content_lines`` so unified-diff headers never inflate deletions."""
+class DocsAdditionsScreenDegradeTest(unittest.TestCase):
+    """Pin the fail-soft contract of the docs deletion-magnitude screen delegation.
 
-    def test_removed_content_lines_ignores_file_headers(self):
-        # A real unified diff always opens with `---` / `+++` headers. Those must not
-        # count as content removals — otherwise every touched `.md` (even pure adds)
-        # reports removed_lines >= 1 and the PR is falsely DAMAGED-FIX-FIRST.
-        diff = "diff --git a/notes/x.md b/notes/x.md\n" "index 111..222 100644\n" "--- a/notes/x.md\n" "+++ b/notes/x.md\n" "@@ -1,3 +1,3 @@\n" " keep\n" "-gone\n" "+added\n" " keep2\n"
-        self.assertEqual(pm._removed_content_lines(diff), 1)
+    Mirrors ``AstSymbolScreenDegradeTest``: predict_merge shells out to
+    ``util/sequence_safety/docs_additions_check.py`` (the same #895 subprocess pattern), so
+    a missing / broken / non-JSON checker must ``skip`` (never crash triage), ``skip`` must
+    never become ``DAMAGED-FIX-FIRST`` (only ``status == "fail"`` drives that verdict), and
+    a WARN-only (small in-place swap) finding must not be mapped into ``deletions``. FAIL
+    findings map into ``deletions`` and WAIVED findings into ``waived``.
+    """
 
-    def test_removed_content_lines_pure_add_is_zero(self):
-        diff = "diff --git a/notes/new.md b/notes/new.md\n" "new file mode 100644\n" "index 000..abc\n" "--- /dev/null\n" "+++ b/notes/new.md\n" "@@ -0,0 +1,2 @@\n" "+# title\n" "+body\n"
-        self.assertEqual(pm._removed_content_lines(diff), 0)
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="fleet-docs-degrade-"))
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self.tmp)], check=False))
+        # A real on-disk path so ``_DOCS_ADDITIONS_CHECK.exists()`` is true without
+        # monkeypatching ``Path.exists`` (which would bleed into git/fixture helpers).
+        self.checker = self.tmp / "docs_additions_check.py"
+        self.checker.write_text("# stub checker path for exists() only\n", encoding="utf-8")
 
-    def test_removed_content_lines_empty_diff_is_zero(self):
-        self.assertEqual(pm._removed_content_lines(""), 0)
+    def _screen_with_run(self, cp: subprocess.CompletedProcess, changed=None):
+        with mock.patch.object(pm, "_DOCS_ADDITIONS_CHECK", self.checker):
+            with mock.patch.object(pm, "_run", return_value=cp) as run_mock:
+                out = pm._docs_additions_only_screen(Path("/clone"), "base", "head", changed or ["notes.md"])
+        return out, run_mock
+
+    def test_non_screenable_delta_short_circuits_without_subprocess(self):
+        with mock.patch.object(pm, "_run") as run_mock:
+            out = pm._docs_additions_only_screen(Path("/unused"), "base", "head", ["util/mod.py", "README.txt"])
+        self.assertEqual(out, {"status": "pass", "deletions": [], "waived": []})
+        run_mock.assert_not_called()
+
+    def test_missing_checker_degrades_to_skip(self):
+        missing = self.tmp / "no-such-docs-check.py"
+        with mock.patch.object(pm, "_DOCS_ADDITIONS_CHECK", missing):
+            with mock.patch.object(pm, "_run") as run_mock:
+                out = pm._docs_additions_only_screen(Path("/unused"), "base", "head", ["notes.md"])
+        self.assertEqual(out["status"], "skip")
+        self.assertEqual(out["deletions"], [])
+        self.assertIn("unavailable", out["detail"])
+        run_mock.assert_not_called()
+
+    def test_checker_exit_2_degrades_to_skip(self):
+        cp = subprocess.CompletedProcess(args=["docs_additions_check"], returncode=2, stdout="", stderr="fatal: bad revision 'base'\n")
+        out, run_mock = self._screen_with_run(cp)
+        self.assertEqual(out["status"], "skip")
+        self.assertEqual(out["deletions"], [])
+        self.assertIn("bad revision", out["detail"])
+        run_mock.assert_called_once()
+
+    def test_empty_stdout_degrades_to_skip(self):
+        cp = subprocess.CompletedProcess(args=[], returncode=0, stdout="   \n", stderr="")
+        out, _ = self._screen_with_run(cp)
+        self.assertEqual(out["status"], "skip")
+        self.assertEqual(out["deletions"], [])
+        self.assertIn("docs-deletion screen error", out["detail"])
+
+    def test_non_json_stdout_degrades_to_skip(self):
+        cp = subprocess.CompletedProcess(args=[], returncode=0, stdout="not-json{\n", stderr="")
+        out, _ = self._screen_with_run(cp)
+        self.assertEqual(out["status"], "skip")
+        self.assertEqual(out["deletions"], [])
+        self.assertEqual(out["detail"], "docs-deletion screen returned non-JSON")
+
+    def test_warn_only_finding_is_not_mapped_into_deletions(self):
+        report = {"findings": [{"path": "notes.md", "reason": "small-deletion", "severity": "WARN", "detail": {"deleted": 1, "added": 1}}]}
+        cp = subprocess.CompletedProcess(args=[], returncode=0, stdout=json.dumps(report), stderr="")
+        out, _ = self._screen_with_run(cp)
+        self.assertEqual(out["status"], "pass")
+        self.assertEqual(out["deletions"], [])
+        self.assertEqual(out["waived"], [])
+
+    def test_fail_and_waived_findings_map_shape_and_status(self):
+        report = {
+            "findings": [
+                {"path": "notes.md", "reason": "heading-deletion", "severity": "FAIL", "detail": {"deleted": 4, "added": 0}},
+                {"path": "docs/x.md", "reason": "deletion-run", "severity": "WAIVED", "detail": {"deleted": 7}},
+                {"path": "docs/y.md", "reason": "small-deletion", "severity": "WARN", "detail": {"deleted": 1}},
+            ]
+        }
+        cp = subprocess.CompletedProcess(args=[], returncode=1, stdout=json.dumps(report), stderr="")
+        out, _ = self._screen_with_run(cp)
+        self.assertEqual(out["status"], "fail")
+        self.assertEqual(out["deletions"], [{"file": "notes.md", "reason": "heading-deletion", "removed_lines": 4}])
+        self.assertEqual(
+            out["waived"],
+            [{"file": "docs/x.md", "reason": "deletion-run", "removed_lines": 7, "waived_by": "Allow-Docs-Rewrite trailer"}],
+        )
+
+    def test_skip_status_does_not_damage_merge_verdict(self):
+        # End-to-end: a .md-touching PR whose docs checker is unavailable must stay
+        # MERGE-CLEAN (skip ≠ fail). Regression class: treating skip as damaged would
+        # block every fleet triage batch when sequence_safety is temporarily absent.
+        repo = self.tmp / "repo"
+        _init_repo(repo)
+        _write(repo, "notes/seed.md", "# seed\n")
+        _commit(repo, "c0")
+        _publish_main(repo)
+        _git(repo, "checkout", "-q", "-b", "adddoc")
+        _write(repo, "notes/new.md", "# new\n\nbody\n")
+        _commit(repo, "add notes/new.md")
+
+        missing = self.tmp / "no-such-docs-check.py"
+        with mock.patch.object(pm, "_DOCS_ADDITIONS_CHECK", missing):
+            v = pm.simulate_merge(repo, "adddoc", run_gates=False)
+        self.assertEqual(v["gates"]["docs_additions_only"]["status"], "skip")
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
 
 
 def _install_fake_gh(bin_dir: Path, payload_dir: Path) -> None:

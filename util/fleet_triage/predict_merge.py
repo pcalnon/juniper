@@ -19,19 +19,23 @@ For a PR branch (``--pr N``) or every open PR (``--batch``) it, per PR:
       because ``strict_required_status_checks_policy`` is ``false``;
   (c) on that RESULT runs the repo-pinned fast gates on the touched files
       (``pre-commit run black isort flake8 mypy check-ast --files <changed>``)
-      PLUS two screens CI cannot see: an AST symbol-loss screen (a symbol present
-      on ``origin/main`` but absent in the merged result -- the #755/#729/#738
-      "flake8+mypy still pass" damage class) and, for docs, a diff-vs-main
-      additions-only screen (any removed content line on an addition PR is a
-      suspected #801/#803 silent section deletion -- deliberately stricter than
-      the sequence-safety heading/min-run gate, but the same ``Allow-Docs-Rewrite``
-      commit-trailer waiver is honored so intentional rewrites are not DAMAGED);
+      PLUS two screens CI cannot see, BOTH delegating to the permanent
+      ``util/sequence_safety/`` checkers on the merged RESULT so a per-PR verdict is
+      byte-identical to the post-merge ``main-verify`` gate: an AST symbol-loss screen
+      (a symbol present on ``origin/main`` but absent in the merged result -- the
+      #755/#729/#738 "flake8+mypy still pass" damage class) and a docs
+      deletion-magnitude screen (a deleted Markdown heading, or a run of >= N
+      consecutive deleted lines with no adjacent addition, is a suspected #801/#803
+      silent section deletion; a small in-place swap is WARN, and the same
+      ``Allow-Docs-Rewrite`` commit-trailer waiver is honored so intentional rewrites
+      are not DAMAGED);
   (d) emits a per-PR JSON verdict + the TRUE changed-file delta computed from the
       merge RESULT (``git diff --name-only origin/main <result>``), NOT the stale
       ``gh pr list --json files`` list (#729 showed 12 files vs 2 truly changed);
   (e) ``--batch`` builds the same-file cluster map (files -> PRs, from the true
-      deltas) and a suggested merge order (restore/heal PRs first, then ascending
-      same-file-cluster membership so the least-colliding PRs land first).
+      deltas) and a suggested merge order (heal PRs first -- a fix|heal|hotfix head
+      branch or a fix(/fix:/heal title -- then ascending same-file-cluster membership
+      so the least-colliding PRs land first).
 
 Script verdicts: MERGE-CLEAN | NEEDS-UPDATE-BRANCH | DAMAGED-FIX-FIRST | CONFLICT.
 The DUP-CLOSE recommendation is an agent-layer, two-key, owner-confirmed
@@ -165,85 +169,60 @@ def _ast_symbol_screen(clone: Path, base_ref: str, result_ref: str, changed: lis
 
 
 # --------------------------------------------------------------------------- #
-# docs additions-only screen
+# docs deletion-magnitude screen -- delegate to the permanent sequence-safety checker
 # --------------------------------------------------------------------------- #
 #
-# Intentionally STRICTER than util/sequence_safety/docs_additions_check.py: fleet
-# triage flags ANY removed content line on a changed .md (the #801/#803 silent
-# section-deletion class), not only heading deletions / >=N consecutive runs.
-# Trailer parsing is shared with the sequence-safety escape hatch so an author-
-# declared ``Allow-Docs-Rewrite: <path>`` (or ``*``) is honored identically --
-# without that, an intentional docs rewrite is forever DAMAGED-FIX-FIRST while
-# the push:main main-verify gate would WAIVE it.
+# util/sequence_safety/docs_additions_check.py is the permanent home for the docs
+# deletion-magnitude screen; predict_merge shells out to its CLI on the merged RESULT --
+# the SAME subprocess pattern _ast_symbol_screen uses post-ml#895 -- so a per-PR docs
+# verdict is byte-identical to the push:main "main-verify" gate: the module's magnitude
+# thresholds (a deleted Markdown heading, or a run of >= N consecutive deleted lines with
+# no adjacent addition, FAILs; a small in-place swap is WARN) and its ``Allow-Docs-Rewrite``
+# commit-trailer waiver. This REPLACES the earlier inline any-removed-line rule, which
+# painted every honest docs replacement DAMAGED (the August-storm false-positive class: 26
+# hand-adjudicated DAMAGED verdicts across the two storm triages -- 14 cascor + 12 ml) even
+# though main-verify would have passed the same diff.
 
-_DOCS_ALLOW_RE = re.compile(r"^\s*Allow-Docs-Rewrite:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
-
-
-def _removed_content_lines(diff_text: str) -> int:
-    """Count removed CONTENT lines in a unified diff (a ``-`` line that is not the ``---`` header)."""
-    count = 0
-    for line in diff_text.splitlines():
-        if line.startswith("-") and not line.startswith("---"):
-            count += 1
-    return count
-
-
-def _parse_docs_allow_trailers(messages: str) -> tuple:
-    """Return (enumerated file tokens, wildcard_seen) -- same contract as docs_additions_check."""
-    allowed: set = set()
-    wildcard = False
-    for m in _DOCS_ALLOW_RE.finditer(messages or ""):
-        for tok in re.split(r"[,\s]+", m.group(1).strip()):
-            tok = tok.strip()
-            if not tok:
-                continue
-            if tok == "*":
-                wildcard = True
-                continue
-            allowed.add(tok)
-    return allowed, wildcard
-
-
-def _docs_rewrite_waives(path: str, allowed: set, wildcard: bool) -> bool:
-    """Match full path or basename (parity with sequence_safety.docs_additions_check._waives)."""
-    if wildcard:
-        return True
-    return path in allowed or path.rsplit("/", 1)[-1] in allowed
-
-
-def _docs_allow_from_range(clone: Path, base_ref: str, result_ref: str) -> tuple:
-    """Parse ``Allow-Docs-Rewrite`` trailers from commits in ``base_ref..result_ref``."""
-    cp = _git(clone, "log", "--format=%B", f"{base_ref}..{result_ref}")
-    if cp.returncode != 0:
-        return set(), False
-    return _parse_docs_allow_trailers(cp.stdout)
+_DOCS_ADDITIONS_CHECK = Path(__file__).resolve().parent.parent / "sequence_safety" / "docs_additions_check.py"
 
 
 def _docs_additions_only_screen(clone: Path, base_ref: str, result_ref: str, changed: list) -> dict:
-    """Flag any changed ``.md`` whose merge result removes content (suspected section deletion).
+    """Screen changed ``.md`` files for a net section deletion in the merged RESULT vs ``base_ref``.
 
-    Honors ``Allow-Docs-Rewrite: <path>[, ...]`` / ``*`` trailers in the BASE..RESULT
-    commit range (same escape hatch as ``util/sequence_safety/docs_additions_check.py``).
+    Delegates to ``util/sequence_safety/docs_additions_check.py`` -- the SAME CLI the
+    post-merge ``main-verify`` gate runs -- so a per-PR docs verdict uses the module's
+    magnitude thresholds (a deleted Markdown heading, or a run of >= N consecutive deleted
+    lines with no adjacent addition, FAILs; a small in-place swap is WARN) and its
+    ``Allow-Docs-Rewrite`` commit-trailer waiver, instead of the old inline any-removed-line
+    rule that DAMAGED every honest docs replacement. Every changed ``.md`` is passed via
+    ``--files`` so the fleet screen keeps its broader "any changed .md" scope (the module's
+    default scope is docs/ + notes/ + AGENTS.md). ``status`` mirrors the module's exit:
+    ``fail`` iff it reports an unwaived FAIL (exit 1); a missing / broken / non-JSON checker
+    degrades to ``skip`` rather than crashing the report (parity with ``_ast_symbol_screen``).
+    The ``deletions`` / ``waived`` slots keep the ``{file, removed_lines, ...}`` shape the JSON
+    report + human render read.
     """
-    allowed, wildcard = _docs_allow_from_range(clone, base_ref, result_ref)
+    md_files = [p for p in changed if p.endswith(".md")]
+    if not md_files:
+        return {"status": "pass", "deletions": [], "waived": []}  # nothing screenable -> skip the subprocess
+    if not _DOCS_ADDITIONS_CHECK.exists():
+        return {"status": "skip", "deletions": [], "waived": [], "detail": "docs-deletion checker unavailable"}
+    cp = _run([sys.executable, str(_DOCS_ADDITIONS_CHECK), "--repo-root", str(clone), "--base", base_ref, "--head", result_ref, "--files", *md_files, "--json"])
+    if cp.returncode == 2 or not cp.stdout.strip():
+        return {"status": "skip", "deletions": [], "waived": [], "detail": (cp.stderr.strip() or "docs-deletion screen error")[-300:]}
+    try:
+        report = json.loads(cp.stdout)
+    except json.JSONDecodeError:
+        return {"status": "skip", "deletions": [], "waived": [], "detail": "docs-deletion screen returned non-JSON"}
     deletions: list = []
     waived: list = []
-    for path in changed:
-        if not path.endswith(".md"):
-            continue
-        cp = _git(clone, "diff", "--no-color", base_ref, result_ref, "--", path)
-        removed = _removed_content_lines(cp.stdout)
-        if removed <= 0:
-            continue
-        if _docs_rewrite_waives(path, allowed, wildcard):
-            waived.append({"file": path, "removed_lines": removed, "waived_by": "Allow-Docs-Rewrite trailer"})
-            continue
-        deletions.append({"file": path, "removed_lines": removed})
-    return {
-        "status": "fail" if deletions else "pass",
-        "deletions": deletions,
-        "waived": waived,
-    }
+    for f in report.get("findings", []):
+        item = {"file": f["path"], "reason": f.get("reason"), "removed_lines": (f.get("detail") or {}).get("deleted")}
+        if f.get("severity") == "FAIL":
+            deletions.append(item)
+        elif f.get("severity") == "WAIVED":
+            waived.append({**item, "waived_by": "Allow-Docs-Rewrite trailer"})
+    return {"status": "fail" if cp.returncode == 1 else "pass", "deletions": deletions, "waived": waived}
 
 
 # --------------------------------------------------------------------------- #
@@ -441,14 +420,32 @@ def build_clusters(verdicts: list) -> dict:
     return {path: sorted(prs, key=_pr_key) for path, prs in sorted(clusters.items())}
 
 
+# Heal-first ordering (land restore/repair PRs before ordinary feature work). Tightened
+# after a wave-1 mis-sort: an ordinary "test(...) + heal tokens" title matched the bare
+# substring "heal" and was promoted to the front. Heal-first now fires ONLY on a
+# fix|heal|hotfix HEAD-branch prefix or a fix(/fix:/heal TITLE prefix -- never an arbitrary
+# substring anywhere in the title/branch.
+_HEAL_BRANCH_RE = re.compile(r"^(?:fix|heal|hotfix)/", re.IGNORECASE)
+_HEAL_TITLE_RE = re.compile(r"^\s*(?:fix\(|fix:|heal\b)", re.IGNORECASE)
+
+
 def _is_heal(v: dict) -> bool:
-    """A restore/heal PR (land these first): title or branch names restore/heal/repair/fix-first."""
-    hay = f"{v.get('title', '')} {v.get('branch', '')}".lower()
-    return any(tok in hay for tok in ("restore", "heal", "repair", "fix-first"))
+    """A restore/heal PR to land first: the HEAD branch matches ``^(fix|heal|hotfix)/`` OR
+    the title starts with ``fix(`` / ``fix:`` / ``heal``. Tightened from the old
+    bare-substring match (``restore`` / ``heal`` / ``repair`` / ``fix-first`` anywhere in the
+    title or branch), which mis-sorted an ordinary ``test(...) + heal tokens`` PR to the
+    front of the wave-1 triage order. ``v['branch']`` is the origin-qualified ref
+    (``origin/<headRefName>``); the leading ``origin/`` is stripped so the HEAD branch name
+    is matched, and a bare fixture branch (no remote prefix) is matched as-is."""
+    branch = str(v.get("branch", ""))
+    head = branch.split("/", 1)[1] if branch.startswith("origin/") else branch
+    title = str(v.get("title", ""))
+    return bool(_HEAL_BRANCH_RE.match(head) or _HEAL_TITLE_RE.match(title))
 
 
 def suggest_order(verdicts: list, clusters: dict) -> list:
-    """Restore/heal PRs first, then ascending same-file-cluster membership (least-colliding first)."""
+    """Heal PRs first (``_is_heal``: fix|heal|hotfix branch or fix(/fix:/heal title), then
+    ascending same-file-cluster membership (least-colliding first)."""
     def contention(v: dict) -> int:
         return max((len(clusters.get(path, [])) for path in v.get("true_delta", [])), default=0)
 
@@ -562,7 +559,7 @@ def _render_batch(report: dict) -> str:
     for f, prs in sorted(contested.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         lines.append(f"  {f}: {prs}")
     lines.append("")
-    lines.append("Suggested merge order (restore/heal first, then least-colliding): " + str(report["merge_order"]))
+    lines.append("Suggested merge order (heal first, then least-colliding): " + str(report["merge_order"]))
     return "\n".join(lines)
 
 
