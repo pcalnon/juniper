@@ -1093,6 +1093,41 @@ Do **not** point experiment ports at `plant_all` / isolated-stack ports, and do 
 
 ---
 
+## Generator Availability Matrix (On-Host)
+
+Which juniper-data generators are usable in which on-host environment, and what each availability gate needs (CLI experimentation plan §11 items W-4/W-10). juniper-data's registry (`juniper_data/api/routes/generators.py::GENERATOR_REGISTRY`, 16 generators) reports per-generator availability through `generator_available()`: a generator MAY declare an `is_available()` hook probing its optional dependencies; generators without the hook are always available (the numpy-only synthetics), and `arc_agi` — whose Hugging Face source has a local-file fallback — relies on the request-time `ImportError → 501` backstop instead.
+
+### The gates
+
+| Generators | Gate | Enable with |
+| --- | --- | --- |
+| `spiral`, `xor`, `gaussian`, `circles`, `moon`, `checkerboard`, `csv_import`, `multi_sine`, `mackey_glass`, `ar_p`, `irregular_sine`, `delay_product` | none (numpy-only / stdlib) | — |
+| `equities`, `equities_seq` | `is_available()`: pandas + yfinance importable | `pip install 'juniper-data[equities]'` |
+| `mnist` | `is_available()`: Hugging Face `datasets` importable | `pip install 'juniper-data[mnist]'` — installs `datasets[vision]>=4.0.0` (the `[vision]` Pillow leg is required to decode the 28×28 PNGs; bare `datasets` fails at generation time). First generation downloads from the Hub — air-gapped deployments need a seeded HF cache (juniper-data README § MNIST / Fashion-MNIST). |
+| `arc_agi` | no hook — parameter-conditional (`[arc-agi]` extra or local task files) | `pip install 'juniper-data[arc-agi]'`, or point params at local ARC task files |
+
+### On-host matrix (probed 2026-08-08)
+
+| Environment | juniper-data install | Unavailable generators | Notes |
+| --- | --- | --- | --- |
+| `JuniperData` (experiment-stack / launcher data-service env) | editable → the live `juniper-data` checkout | `mnist` | Has `[equities]` deps; the per-run experiment stack serves everything except mnist. |
+| `JuniperCascor1` (cascor + recurrence launcher env; bench harness) | editable → the live `juniper-data` checkout | `equities`, `equities_seq`, `mnist` | Matters for **in-process** generation (`bench/`): synthetics all available; the equities pair needs `[equities]` installed into this env. |
+| `JuniperCanopy1` | wheel `0.6.0` (genuinely old) | probe absent | Pre-sequence-generator vintage — no `generator_available()`, none of the 7 W-9-era generators exist there. Not a serving env; upgrade only if canopy-side generation is ever needed. |
+
+Caveats: an **editable** install's `importlib.metadata` version (and a stale `__version__` dunder) reflect install time, not the checkout — both `JuniperData` and `JuniperCascor1` report `0.6.0` while running live `0.11.0` code. The probe answers *usable?*, never *which version*. Availability is also **per-env, not per-repo**: the same checkout probes differently under different interpreter environments.
+
+Re-derive any row with the probe one-liner (swap the env path):
+
+```bash
+/opt/miniforge3/envs/JuniperData/bin/python -c "
+from juniper_data.api.routes.generators import GENERATOR_REGISTRY, generator_available
+print(sorted(n for n, i in GENERATOR_REGISTRY.items() if not generator_available(i)))"
+```
+
+Against a **running** data service, the same facts come from the API: `GET /v1/generators/{name}/schema` includes `"available"`, and unavailable generators return `501` at dataset-creation time.
+
+---
+
 ## Shared-Package CI Workflows
 
 Each in-repo published sub-package has its own subdirectory CI at `.github/workflows/ci-<suffix>.yml`. These are **distinct** from the meta `ci.yml` and from the `publish-*.yml` publishers: they are the only always-on gate for that package's pytest / coverage / wheel smoke.
