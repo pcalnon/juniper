@@ -25,9 +25,14 @@ for BOTH the run's juniper-data and cascor (their endpoint sets are disjoint). C
   socket-timeout->``timed_out``), predict + crossval phases (dataset_id refs, hyperparams copied
   into crossval, record-and-continue on failure — including the crossval-fail-continue arm),
   and the G-18 ``outputs.save_model`` re-run (PATH-stubbed ``juniper-recurrence`` CLI:
-  --dataset/--split/--out + JUNIPER_DATA_URL env; missing CLI -> acceptance failure);
+  --dataset/--split/--out + JUNIPER_DATA_URL env; missing CLI -> acceptance failure;
+  nonzero CLI / TimeoutExpired -> acceptance failure with recorded error;
+  ``LD_LIBRARY_PATH=''`` hygiene);
 * cascor essential-collect failure after COMPLETED (exit 1) and mid-drive consecutive poll
-  unreachability (exit 3, ``torn_down_early``).
+  unreachability (exit 3, ``torn_down_early``);
+* G-6 ``check_g6_shape`` None/missing ``input_size`` fail-closed (anti-silence when shape
+  fields are absent, not only wrong-size mismatch);
+* ``parse_metric_samples`` rejects non-finite NaN / ±Inf (silent stats/plot poison class).
 """
 
 from __future__ import annotations
@@ -688,6 +693,57 @@ class MetricParsingTest(unittest.TestCase):
         text = "juniper_cascor_training_loss notafloat\njuniper_cascor_training_loss\n# comment\n"
         self.assertEqual(rx.parse_metric_samples(text), {})
 
+    def test_non_finite_samples_skipped(self) -> None:
+        # Prometheus empty gauges can emit NaN / ±Inf; accepting them poisons
+        # correlation_per_round max() and plot rendering. Skip non-finite.
+        for raw in ("NaN", "+Inf", "-Inf", "nan", "inf", "-inf"):
+            with self.subTest(raw=raw):
+                text = f"juniper_cascor_training_loss {raw}\njuniper_cascor_candidate_correlation 0.5\n"
+                samples = rx.parse_metric_samples(text)
+                self.assertNotIn("juniper_cascor_training_loss", samples)
+                self.assertEqual(samples["juniper_cascor_candidate_correlation"], 0.5)
+
+    def test_finite_after_non_finite_still_wins(self) -> None:
+        # Last finite sample wins; a trailing NaN must not clobber a prior good value.
+        text = "juniper_cascor_training_loss 1.25\njuniper_cascor_training_loss NaN\n"
+        self.assertEqual(rx.parse_metric_samples(text)["juniper_cascor_training_loss"], 1.25)
+
+
+class CheckG6ShapeTest(unittest.TestCase):
+    """Unit pins for G-6 anti-silence: missing shape fields must fail closed."""
+
+    def test_matching_sizes_ok(self) -> None:
+        result = rx.check_g6_shape({"n_features": 2}, {"input_size": 2}, {})
+        self.assertTrue(result["ok"])
+        self.assertIsNone(result["note"])
+
+    def test_wrong_size_not_ok(self) -> None:
+        result = rx.check_g6_shape({"n_features": 2}, {"input_size": 784}, {})
+        self.assertFalse(result["ok"])
+        self.assertIn("stale-data", result["note"])
+
+    def test_missing_actual_input_size_fail_closed(self) -> None:
+        # Neither network_info nor status_data carries input_size -> must NOT silent-pass.
+        result = rx.check_g6_shape({"n_features": 2}, {"hidden_units": 1}, {"training_state": {}})
+        self.assertFalse(result["ok"])
+        self.assertIsNone(result["actual_input_size"])
+        self.assertEqual(result["expected_input_size"], 2)
+
+    def test_missing_expected_n_features_fail_closed(self) -> None:
+        result = rx.check_g6_shape({}, {"input_size": 2}, {})
+        self.assertFalse(result["ok"])
+        self.assertIsNone(result["expected_input_size"])
+
+    def test_falls_back_to_status_training_state(self) -> None:
+        result = rx.check_g6_shape({"n_features": 3}, None, {"training_state": {"input_size": 3}})
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["actual_input_size"], 3)
+
+    def test_both_none_fail_closed_not_none_equals_none(self) -> None:
+        # Regression: naive ``expected == actual`` would pass None == None.
+        result = rx.check_g6_shape({}, None, {})
+        self.assertFalse(result["ok"])
+
 
 class EndpointResolutionTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -1129,14 +1185,14 @@ class RecurrencePathTest(_StubTestCase):
         capture.mkdir()
         stub = bindir / "juniper-recurrence"
         stub.write_text(
-            "#!/bin/bash\n" f"printf '%s\\n' \"$*\" > '{capture}/cmd.txt'\n" f"printf '%s\\n' \"$JUNIPER_DATA_URL\" > '{capture}/env.txt'\n" "prev=''\nout=''\n" 'for a in "$@"; do [ "$prev" = "--out" ] && out="$a"; prev="$a"; done\n' '[ -n "$out" ] && : > "$out"\n' "exit 0\n",
+            "#!/bin/bash\n" f"printf '%s\\n' \"$*\" > '{capture}/cmd.txt'\n" f"printf '%s\\n' \"$JUNIPER_DATA_URL\" > '{capture}/env.txt'\n" f"printf '%s\\n' \"${{LD_LIBRARY_PATH-<unset>}}\" > '{capture}/ld.txt'\n" "prev=''\nout=''\n" 'for a in "$@"; do [ "$prev" = "--out" ] && out="$a"; prev="$a"; done\n' '[ -n "$out" ] && : > "$out"\n' "exit 0\n",
             encoding="utf-8",
         )
         stub.chmod(0o755)
         cfg = _recurrence_config()
         cfg["outputs"]["save_model"] = True
         config = _write_config(self.tmp, cfg)
-        with mock.patch.dict(os.environ, {"PATH": f"{bindir}:{os.environ['PATH']}"}):
+        with mock.patch.dict(os.environ, {"PATH": f"{bindir}:{os.environ['PATH']}", "LD_LIBRARY_PATH": "/poison/lib"}):
             code, _ = _invoke(config, self.run_dir)
         self.assertEqual(code, rx.EXIT_SUCCESS)
         cmd = (capture / "cmd.txt").read_text(encoding="utf-8")
@@ -1145,6 +1201,8 @@ class RecurrencePathTest(_StubTestCase):
         self.assertIn("--d 8", cmd)
         self.assertIn("--out", cmd)
         self.assertEqual((capture / "env.txt").read_text(encoding="utf-8").strip(), self.server.base_url)
+        # G-18 hygiene: launcher empties LD_LIBRARY_PATH; the CLI re-run must match.
+        self.assertEqual((capture / "ld.txt").read_text(encoding="utf-8").strip(), "")
         manifest = _manifest(self.run_dir)
         self.assertTrue(manifest["save_model_rerun"]["ok"])
         self.assertTrue((self.run_dir / "artifacts" / "results" / "model.npz").is_file())
@@ -1163,6 +1221,37 @@ class RecurrencePathTest(_StubTestCase):
         self.assertEqual(manifest["outcome"], "succeeded")
         self.assertFalse(manifest["save_model_rerun"]["ok"])
         self.assertTrue(any("save_model" in reason for reason in manifest["acceptance"]["reasons"]))
+
+    def test_save_model_nonzero_cli_fails_acceptance(self) -> None:
+        # CLI present but exits 1: must surface stderr_tail / returncode, not silent green.
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        stub = bindir / "juniper-recurrence"
+        stub.write_text("#!/bin/bash\necho 'train boom' >&2\nexit 1\n", encoding="utf-8")
+        stub.chmod(0o755)
+        cfg = _recurrence_config()
+        cfg["outputs"]["save_model"] = True
+        config = _write_config(self.tmp, cfg)
+        with mock.patch.dict(os.environ, {"PATH": f"{bindir}:{os.environ['PATH']}"}):
+            code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "succeeded")
+        rerun = manifest["save_model_rerun"]
+        self.assertFalse(rerun["ok"])
+        self.assertEqual(rerun["returncode"], 1)
+        self.assertIn("train boom", rerun.get("stderr_tail", ""))
+        self.assertTrue(any("save_model" in reason for reason in manifest["acceptance"]["reasons"]))
+
+    def test_save_model_timeout_fails_acceptance(self) -> None:
+        # TimeoutExpired must be caught (ok=False + error), never an uncaught crash that
+        # loses the SS13.4 manifest. Unit-drive ``_save_model_rerun`` so we do not wait 600s.
+        out_path = self.tmp / "model.npz"
+        with mock.patch.object(rx.shutil, "which", return_value="/fake/juniper-recurrence"), mock.patch.object(rx.subprocess, "run", side_effect=subprocess.TimeoutExpired(cmd=["juniper-recurrence"], timeout=600)):
+            result = rx._save_model_rerun({"d": 8}, "ds-stub123", "train", "http://127.0.0.1:1", out_path)
+        self.assertFalse(result["ok"])
+        self.assertIn("timed out", result["error"].lower())
+        self.assertIn("cmd", result)
 
 
 @unittest.skipUnless(HAVE_NUMPY and HAVE_MPL, "numpy + matplotlib required for the SS8.1 plot set")
@@ -1505,6 +1594,24 @@ class StatsSummaryUnitTest(unittest.TestCase):
         self.assertEqual(result["per_round"], [{"hidden_units": 0, "best_correlation": 0.7}, {"hidden_units": 1, "best_correlation": 0.6}])
         self.assertEqual(result["max"], 0.7)
         self.assertEqual(result["samples"], 3)
+
+    def test_to_float_soft_none_on_value_error(self) -> None:
+        """Non-numeric scraped samples must soft-None (not raise) — Prometheus label noise."""
+        self.assertIsNone(self.stats._to_float(None))
+        self.assertIsNone(self.stats._to_float(""))
+        self.assertIsNone(self.stats._to_float("   "))
+        self.assertIsNone(self.stats._to_float("n/a"))
+        self.assertIsNone(self.stats._to_float("NaNxyz"))
+        self.assertEqual(self.stats._to_float("0.5"), 0.5)
+        self.assertEqual(self.stats._to_float(2), 2.0)
+        # End-to-end: a non-numeric correlation cell is skipped, not fatal.
+        rows = [
+            {"juniper_cascor_candidate_correlation": "n/a", "current_hidden_units": "0"},
+            {"juniper_cascor_candidate_correlation": "0.4", "current_hidden_units": "0"},
+        ]
+        result = self.stats.correlation_per_round(rows)
+        self.assertEqual(result["per_round"], [{"hidden_units": 0, "best_correlation": 0.4}])
+        self.assertEqual(result["samples"], 1)
 
     def test_build_stats_sequence_shapes_and_summary(self) -> None:
         manifest = {

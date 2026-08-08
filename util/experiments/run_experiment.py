@@ -94,6 +94,7 @@ import hashlib
 import importlib.util
 import json
 import logging
+import math
 import os
 import platform
 import shutil
@@ -323,9 +324,14 @@ def parse_metric_samples(text: str, families: Tuple[str, ...] = METRIC_FAMILIES)
         if name not in wanted or not rest:
             continue
         try:
-            out[name] = float(rest[0])
+            value = float(rest[0])
         except ValueError:
             continue
+        # Prometheus can emit NaN / ±Inf for empty gauges; accepting them poisons
+        # correlation_per_round / step-duration stats and plot rendering. Skip non-finite.
+        if not math.isfinite(value):
+            continue
+        out[name] = value
     return out
 
 

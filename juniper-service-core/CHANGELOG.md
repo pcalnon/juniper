@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`APIKeyAuth` blank/whitespace-only configured keys no longer enable auth** — aligns with
+  `auth_posture.real_keys` so an empty/placeholder secret file cannot leave auth "enabled"
+  while accepting an empty `X-API-Key` via `compare_digest("", "")`.
+- **Control / worker WebSocket JSON-valid non-object frames fail closed** — arrays / scalars /
+  `null` no longer AttributeError on `msg.get` in the control receive loop or worker
+  registration handshake; control closes `1003` with `"Invalid control message"`, worker
+  registration closes `4008` without registering.
 - `WorkerCoordinator.submit_result` now rejects results from a worker that does not own the
   task (`assigned_worker_id is None` or `!= worker_id`) **before** protocol parse — closes the
   cross-worker / unassigned accept footgun that left the assignee busy while a stranger's

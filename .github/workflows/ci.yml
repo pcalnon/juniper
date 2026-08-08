@@ -336,14 +336,21 @@ jobs:
           # tests/test_predict_merge.py: the Stage-0 fleet-supervisor script layer
           # (util/fleet_triage/predict_merge.py) -- hermetic predicted-merge over synthetic
           # bare-origin + branch fixtures: the four verdicts, TRUE-delta discrimination, the
-          # cluster map + order, detached-clone-never-mutates-source, and exit codes. util/ is
-          # not pre-commit-lint-gated, so this unittest is the gate (flood remediation §4 item 7).
+          # cluster map + order, triage_batch soft-ERROR continue, detached-clone-never-
+          # mutates-source, and exit codes. util/ is not pre-commit-lint-gated, so this
+          # unittest is the gate (flood remediation §4 item 7).
           python3 -m unittest -v tests/test_predict_merge.py
           # tests/test_fleet_supervisor_contract.py: static contract for the read-only
           # fleet-supervisor subagent (.claude/agents/fleet-supervisor.md) -- exact tool set
           # {Read,Grep,Glob,Bash}, opus+max, and body wiring to predict_merge.py + all four
           # verdict tokens + the read-only/never-push + two-key DUP-CLOSE contract.
           python3 -m unittest -v tests/test_fleet_supervisor_contract.py
+          # tests/test_pr_budget_alarm.py: YAML-extraction rehearsal for
+          # .github/workflows/pr-budget-alarm.yml (flood P1 §5 / #870) -- OK/WARN/ALARM
+          # thresholds, empty-var defaults (15/30), gh soft-fail -> level=OK exit 0, and
+          # the read-only + Slack continue-on-error surface. Workflow YAML is not otherwise
+          # lint-gated for these properties, so this unittest is the gate.
+          python3 -m unittest -v tests/test_pr_budget_alarm.py
           # tests/test_requirements_drift_check.py: exercises util/requirements_drift_check.py
           # (the notes/requirements snapshot drift checker; uses the PyYAML installed above).
           # Listed in AGENTS.md's "Run all tests" but never wired into this CI list
@@ -367,6 +374,21 @@ jobs:
           # gate for publish.yml's TestPyPI bare/[clients]/[tools] install verification
           # (extras-resolution ship-silent class + TestPyPI index / no --no-deps contract).
           python3 -m unittest -v tests/test_publish_testpypi_verify.py
+          # tests/test_main_verify_battery_paths.py: main-verify.yml battery
+          # path-change detector (P2 G3 burst-cost gate) -- util|tests|scripts|
+          # .github|pyproject → run; docs/notes-only → skip; unresolvable base →
+          # fail-open. YAML-extraction rehearsal IS the gate.
+          python3 -m unittest -v tests/test_main_verify_battery_paths.py
+          # tests/test_ci_quality_gate.py: Quality Gate needs: must exclude
+          # advisory/PR-only jobs (sequence-safety / fleet-pr-lint /
+          # release-train-archive-guard); security soft-fails on == failure
+          # (skipped OK). Structural + shell rehearsal IS the gate.
+          python3 -m unittest -v tests/test_ci_quality_gate.py
+          # tests/test_publish_subpackage_workflows.py: structural + hermetic
+          # YAML-extraction gate for the six publish-*.yml shared-package workflows
+          # (tag-prefix guard, no push:tags #555 race, skip-existing, --no-deps
+          # without PyPI fallback, subdirectory working-directory / artifact path).
+          python3 -m unittest -v tests/test_publish_subpackage_workflows.py
           # tests/test_symbol_loss_check.py + tests/test_docs_additions_check.py:
           # the flood-remediation sequence-safety screens (Proposal P2 gates G1/G2,
           # productionized from the 2026-07-28 Cursor-flood census). Hermetic git
@@ -391,6 +413,20 @@ jobs:
           # tip / non-ancestor fallback / zero BEFORE → HEAD^1 / last_ok==HEAD /
           # jq null — hermetic git fixture + stub gh. PyYAML (installed above).
           python3 -m unittest -v tests/test_main_verify_catchup_base.py
+          # tests/test_main_verify_notify_dedup.py: YAML-extraction rehearsal for
+          # main-verify.yml notify stable-title issue dedup (ml#928 / 0.3.0). Extracts
+          # the upsert shell and drives first-failure create / subsequent-SHA comment /
+          # creator-bound gh-api soft-fail → create, plus structural TITLE + authorship
+          # binding pins. Hermetic stub gh; PyYAML (installed above). Mirror in
+          # main-verify battery.
+          python3 -m unittest -v tests/test_main_verify_notify_dedup.py
+          # tests/test_ci_fleet_pr_lint.py: YAML-extraction rehearsal for
+          # ci.yml Fleet PR Lint (P2 G5-iv / flood §4 item 8 phase 4) --
+          # commit-count warn, black --check warn path, fan-out >15, exact
+          # AGENTS.md / cheatsheet hotspots, always exit 0. Hermetic git
+          # fixture + stub black; PyYAML (installed above). Mirror in
+          # main-verify battery.
+          python3 -m unittest -v tests/test_ci_fleet_pr_lint.py
           # tests/test_doc_tools_drift.py: the cross-repo
           # consumer-pin assertions auto-skip when siblings are not
           # cloned (per-PR mode); the helper unit tests + juniper-ml's

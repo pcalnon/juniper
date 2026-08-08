@@ -18,9 +18,14 @@ fixture repos (the ``tests/test_worktree_cleanup.py`` fixture idiom) -- no netwo
 * the ``--batch`` cluster map + suggested merge order (heal PRs first -- a fix|heal|hotfix
   head branch or a fix(/fix:/heal title -- then ascending same-file-cluster membership),
   including a fake-``gh`` end-to-end batch;
+* ``triage_pr`` / ``_gh_json`` / CLI ``--pr`` hard-fail on gh nonzero / non-JSON;
+* ``triage_batch`` soft-ERROR continue (one unresolvable ``headRefName`` must not abort
+  the rest of the open-PR set) + ``suggest_order`` empty-``true_delta`` ERROR contention;
+* deleted-``.py`` paths stay in ``true_delta`` but are filtered out of the gate battery;
+* ``JUNIPER_FLEET_SKIP_PRECOMMIT`` forces skip_all when the default gate runner would run;
 * the detached-clone-never-mutates-source contract (a ``git clone`` under the system
   tempdir, never a ``git worktree`` of -- and never a write to -- the invoking checkout);
-* CLI exit codes (0 always-report / 2 usage / 2 non-git ``--repo-root``).
+* CLI exit codes (0 always-report / 2 usage / 2 non-git ``--repo-root`` / ``--pr``).
 
 ``util/`` is not pre-commit-lint-gated (flake8/black scope to ``scripts``+``tests``), so
 this unittest -- wired into ``ci.yml`` + AGENTS.md's run-all -- is the gate. Imported via
@@ -382,6 +387,57 @@ class VerdictTest(_RepoCase):
         self.assertEqual(v["gates"]["flake8"]["status"], "fail")
         self.assertEqual(v["gates"]["black"]["status"], "pass")
 
+    def test_deleted_py_not_passed_to_gate_battery(self):
+        # A deleted ``.py`` stays in ``true_delta`` but must NOT be handed to
+        # ``pre-commit --files`` (the path is gone on the merge HEAD). Filtering via
+        # ``_blob(HEAD) is not None`` is the only guard against a false DAMAGED
+        # from hooks that cannot open a deleted path.
+        _write(self.repo, "util/keep.py", "x = 1\n")
+        _write(self.repo, "util/doomed.py", "def doomed():\n    return 0\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "rmpy")
+        _git(self.repo, "rm", "-q", "util/doomed.py")
+        _write(self.repo, "notes/README.md", "docs only addition\n")
+        _commit(self.repo, "delete doomed.py + docs")
+
+        seen: list = []
+
+        def recording_runner(clone, hook, files):
+            seen.append((hook, list(files)))
+            return ("pass", "")
+
+        v = pm.simulate_merge(self.repo, "rmpy", gate_runner=recording_runner)
+        self.assertIn("util/doomed.py", v["true_delta"])
+        # Gate battery must skip entirely (no remaining .py in changed_existing) —
+        # never invoke the runner with the deleted path. Symbol-loss DAMAGED from
+        # the deleted def is honest (#908 screen); the regression class is a false
+        # DAMAGED from pre-commit opening a path that no longer exists on HEAD.
+        self.assertEqual(seen, [], f"gate_runner must not run when delta's only .py is deleted; got {seen}")
+        for hook in pm.PRECOMMIT_HOOKS:
+            self.assertEqual(v["gates"][hook]["status"], "skip")
+            self.assertIn("no .py", v["gates"][hook]["detail"])
+        self.assertEqual(v["gates"]["ast_symbol_screen"]["status"], "fail")
+        self.assertEqual(v["verdict"], "DAMAGED-FIX-FIRST")
+
+    def test_env_skip_precommit_disables_default_gate_runner(self):
+        # ``JUNIPER_FLEET_SKIP_PRECOMMIT`` is the hermetic escape when ``gate_runner``
+        # is unset. Ignoring it would invoke real pre-commit (hang/flake); always
+        # skipping would silence live fleet gates.
+        _write(self.repo, "util/keep.py", "x = 1\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "addpy")
+        _write(self.repo, "util/new.py", "def baz():\n    return 3\n")
+        _commit(self.repo, "add util/new.py")
+
+        with mock.patch.dict(os.environ, {"JUNIPER_FLEET_SKIP_PRECOMMIT": "1"}):
+            v = pm.simulate_merge(self.repo, "addpy", run_gates=True, gate_runner=None)
+        for hook in pm.PRECOMMIT_HOOKS:
+            self.assertEqual(v["gates"][hook]["status"], "skip", hook)
+            self.assertIn("gates disabled", v["gates"][hook]["detail"])
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+
 
 # --------------------------------------------------------------------------- #
 # detached-clone-never-mutates-source
@@ -455,6 +511,25 @@ class ClusterOrderTest(unittest.TestCase):
         order = pm.suggest_order(verdicts, clusters)
         self.assertEqual(order[0], 12, "the singleton-cluster PR should lead when no heal PR exists")
 
+    def test_suggest_order_error_empty_delta_has_zero_contention(self):
+        # soft-ERROR rows carry ``true_delta=[]`` (predict_merge.py triage_batch catch).
+        # ``suggest_order`` contention is ``max(len(cluster[path]))`` over true_delta, so an
+        # empty delta sorts as least-colliding (contention 0) — after heals, ahead of busy
+        # feat clusters. Pin that so a future demotion/promotion of ERROR cannot silently
+        # reorder the supervisor merge plan.
+        verdicts = [
+            {"pr": 1, "title": "heal canopy", "branch": "cursor/heal-x", "true_delta": ["A.md"]},
+            {"pr": 2, "title": "gone branch", "branch": "cursor/gone", "true_delta": [], "verdict": "ERROR"},
+            {"pr": 3, "title": "feat hot", "branch": "cursor/hot", "true_delta": ["HOT.py"]},
+            {"pr": 4, "title": "feat hot2", "branch": "cursor/hot2", "true_delta": ["HOT.py"]},
+        ]
+        clusters = pm.build_clusters(verdicts)
+        self.assertNotIn("", clusters)  # empty paths must not invent a cluster key
+        order = pm.suggest_order(verdicts, clusters)
+        self.assertEqual(order[0], 1, "heal still leads (title ^heal)")
+        self.assertEqual(order[1], 2, "ERROR empty-delta (contention 0) before HOT cluster")
+        self.assertEqual(order[2:], [3, 4], order)
+
     def test_is_heal_requires_branch_or_title_prefix(self):
         # Tightened rule (#910 wave-1 mis-sort fix): heal-first fires ONLY on a
         # fix|heal|hotfix HEAD-branch prefix or a fix(/fix:/heal TITLE prefix -- never a
@@ -469,6 +544,7 @@ class ClusterOrderTest(unittest.TestCase):
         self.assertFalse(pm._is_heal({"title": "repair broken gate", "branch": "cursor/x"}))  # "repair" dropped
         self.assertFalse(pm._is_heal({"title": "feat", "branch": "cursor/fix-first-docs"}))  # not a fix/ path segment
         self.assertFalse(pm._is_heal({"title": "test(fleet): + heal tokens", "branch": "cursor/t"}))  # "heal" mid-title
+
         self.assertFalse(pm._is_heal({"title": "feat docs", "branch": "cursor/docs-sync"}))
 
         verdicts = [
@@ -601,7 +677,23 @@ class DocsAdditionsScreenDegradeTest(unittest.TestCase):
 def _install_fake_gh(bin_dir: Path, payload_dir: Path) -> None:
     bin_dir.mkdir(parents=True, exist_ok=True)
     gh = bin_dir / "gh"
-    gh.write_text("#!/usr/bin/env bash\n" 'if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then cat "$GH_FAKE_DIR/list.json"; exit 0; fi\n' 'if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then cat "$GH_FAKE_DIR/view.json"; exit 0; fi\n' 'echo "unexpected gh invocation: $*" >&2\nexit 99\n')
+    # Optional GH_FAKE_{LIST,VIEW}_{RC,BODY} overrides let individual arms force
+    # nonzero exit / non-JSON stdout without rewriting the stub.
+    gh.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then\n'
+        '  if [[ -n "${GH_FAKE_LIST_RC:-}" ]]; then echo "${GH_FAKE_LIST_BODY:-gh list fail}" >&2; exit "$GH_FAKE_LIST_RC"; fi\n'
+        '  if [[ -n "${GH_FAKE_LIST_BODY:-}" ]]; then printf "%s" "$GH_FAKE_LIST_BODY"; exit 0; fi\n'
+        '  cat "$GH_FAKE_DIR/list.json"; exit 0\n'
+        "fi\n"
+        'if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then\n'
+        '  if [[ -n "${GH_FAKE_VIEW_RC:-}" ]]; then echo "${GH_FAKE_VIEW_BODY:-gh view fail}" >&2; exit "$GH_FAKE_VIEW_RC"; fi\n'
+        '  if [[ -n "${GH_FAKE_VIEW_BODY:-}" ]]; then printf "%s" "$GH_FAKE_VIEW_BODY"; exit 0; fi\n'
+        '  cat "$GH_FAKE_DIR/view.json"; exit 0\n'
+        "fi\n"
+        'echo "unexpected gh invocation: $*" >&2\n'
+        "exit 99\n"
+    )
     gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
 
 
@@ -643,6 +735,48 @@ class TriageBatchGhTest(_RepoCase):
         self.assertCountEqual(report["merge_order"], [1, 2])
         for v in report["prs"]:
             self.assertIn(v["verdict"], pm.SCRIPT_VERDICTS)
+
+    def test_triage_batch_soft_error_continues_on_unresolvable_branch(self):
+        # One open PR whose headRefName does not resolve as origin/<name> must surface as
+        # verdict=ERROR and MUST NOT abort the rest of the batch. Without the soft-catch
+        # around simulate_merge, a single deleted/renamed remote branch turns the whole
+        # fleet-supervisor report into a hard failure and stalls merge ordering.
+        self._two_branch_repo()
+        payload = self.tmp / "gh"
+        payload.mkdir()
+        (payload / "list.json").write_text(
+            json.dumps(
+                [
+                    {"number": 1, "title": "b1 ok", "headRefName": "b1", "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"},
+                    {
+                        "number": 99,
+                        "title": "stale head",
+                        "headRefName": "does-not-exist",
+                        "mergeable": "UNKNOWN",
+                        "mergeStateStatus": "DIRTY",
+                    },
+                    {"number": 2, "title": "b2 ok", "headRefName": "b2", "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"},
+                ]
+            )
+        )
+        bindir = self.tmp / "bin"
+        _install_fake_gh(bindir, payload)
+        env = {"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}", "GH_FAKE_DIR": str(payload)}
+
+        with mock.patch.dict(os.environ, env):
+            report = pm.triage_batch(self.repo, run_gates=False)
+
+        self.assertEqual(report["open_pr_count"], 3)
+        by_pr = {v["pr"]: v for v in report["prs"]}
+        self.assertEqual(by_pr[99]["verdict"], "ERROR")
+        self.assertIn("does not resolve", by_pr[99].get("error", ""))
+        self.assertEqual(by_pr[99]["true_delta"], [])
+        self.assertEqual(by_pr[99]["title"], "stale head")
+        # Healthy PRs still get real script verdicts and contribute to clusters/order.
+        self.assertIn(by_pr[1]["verdict"], pm.SCRIPT_VERDICTS)
+        self.assertIn(by_pr[2]["verdict"], pm.SCRIPT_VERDICTS)
+        self.assertIn("shared.txt", report["clusters"])
+        self.assertCountEqual(report["merge_order"], [1, 2, 99])
 
 
 # --------------------------------------------------------------------------- #
@@ -762,6 +896,74 @@ class AstSymbolScreenDegradeTest(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+# triage_pr / _gh_json / CLI --pr (hard-fail; batch soft-ERROR is #930)
+# --------------------------------------------------------------------------- #
+
+
+class TriagePrGhTest(_RepoCase):
+    def _one_branch_repo(self) -> None:
+        _write(self.repo, "seed.txt", "seed\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "feat")
+        _write(self.repo, "fileD.txt", "D\n")
+        _commit(self.repo, "add D")
+        _publish_branch(self.repo, "feat")
+
+    def _fake_gh_env(self, payload: Path, **extra) -> dict:
+        bindir = self.tmp / "bin"
+        _install_fake_gh(bindir, payload)
+        env = {
+            "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
+            "GH_FAKE_DIR": str(payload),
+        }
+        env.update(extra)
+        return env
+
+    def test_triage_pr_enriches_title_and_gh_fields(self):
+        self._one_branch_repo()
+        payload = self.tmp / "gh"
+        payload.mkdir()
+        (payload / "view.json").write_text(
+            json.dumps(
+                {
+                    "number": 42,
+                    "title": "feat: land D",
+                    "headRefName": "feat",
+                    "mergeable": "MERGEABLE",
+                    "mergeStateStatus": "CLEAN",
+                }
+            )
+        )
+        with mock.patch.dict(os.environ, self._fake_gh_env(payload)):
+            v = pm.triage_pr(self.repo, 42, run_gates=False)
+        self.assertEqual(v["pr"], 42)
+        self.assertEqual(v["title"], "feat: land D")
+        self.assertEqual(v["gh_mergeable"], "MERGEABLE")
+        self.assertEqual(v["gh_merge_state"], "CLEAN")
+        self.assertEqual(v["verdict"], "MERGE-CLEAN")
+        self.assertEqual(v["true_delta"], ["fileD.txt"])
+
+    def test_triage_pr_gh_nonzero_raises(self):
+        self._one_branch_repo()
+        payload = self.tmp / "gh"
+        payload.mkdir()
+        with mock.patch.dict(os.environ, self._fake_gh_env(payload, GH_FAKE_VIEW_RC="1", GH_FAKE_VIEW_BODY="not found")):
+            with self.assertRaises(pm.PredictMergeError) as ctx:
+                pm.triage_pr(self.repo, 99, run_gates=False)
+        self.assertIn("gh pr view", str(ctx.exception))
+
+    def test_triage_pr_non_json_raises(self):
+        self._one_branch_repo()
+        payload = self.tmp / "gh"
+        payload.mkdir()
+        with mock.patch.dict(os.environ, self._fake_gh_env(payload, GH_FAKE_VIEW_BODY="not-json{{{")):
+            with self.assertRaises(pm.PredictMergeError) as ctx:
+                pm.triage_pr(self.repo, 7, run_gates=False)
+        self.assertIn("non-JSON", str(ctx.exception))
+
+
+# --------------------------------------------------------------------------- #
 # CLI exit codes
 # --------------------------------------------------------------------------- #
 
@@ -808,6 +1010,66 @@ class CliExitCodeTest(_RepoCase):
         report = json.loads(cp.stdout)
         self.assertEqual(report["open_pr_count"], 0)
         self.assertEqual(report["merge_order"], [])
+
+    def test_pr_mode_json_exits_0(self):
+        _write(self.repo, "seed.txt", "seed\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        _git(self.repo, "checkout", "-q", "-b", "feat")
+        _write(self.repo, "fileD.txt", "D\n")
+        _commit(self.repo, "add D")
+        _publish_branch(self.repo, "feat")
+        payload = self.tmp / "gh"
+        payload.mkdir()
+        (payload / "view.json").write_text(
+            json.dumps(
+                {
+                    "number": 3,
+                    "title": "single",
+                    "headRefName": "feat",
+                    "mergeable": "MERGEABLE",
+                    "mergeStateStatus": "CLEAN",
+                }
+            )
+        )
+        bindir = self.tmp / "bin"
+        _install_fake_gh(bindir, payload)
+        cp = self._run_cli(
+            "--pr",
+            "3",
+            "--repo-root",
+            str(self.repo),
+            "--json",
+            env_overrides={"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}", "GH_FAKE_DIR": str(payload)},
+        )
+        self.assertEqual(cp.returncode, 0, cp.stderr)
+        verdict = json.loads(cp.stdout)
+        self.assertEqual(verdict["pr"], 3)
+        self.assertEqual(verdict["title"], "single")
+        self.assertEqual(verdict["verdict"], "MERGE-CLEAN")
+
+    def test_pr_mode_gh_failure_exits_2(self):
+        _write(self.repo, "seed.txt", "seed\n")
+        _commit(self.repo, "c0")
+        _publish_main(self.repo)
+        payload = self.tmp / "gh"
+        payload.mkdir()
+        bindir = self.tmp / "bin"
+        _install_fake_gh(bindir, payload)
+        cp = self._run_cli(
+            "--pr",
+            "404",
+            "--repo-root",
+            str(self.repo),
+            env_overrides={
+                "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
+                "GH_FAKE_DIR": str(payload),
+                "GH_FAKE_VIEW_RC": "1",
+                "GH_FAKE_VIEW_BODY": "GraphQL: Could not resolve",
+            },
+        )
+        self.assertEqual(cp.returncode, 2)
+        self.assertIn("error:", cp.stderr)
 
 
 if __name__ == "__main__":

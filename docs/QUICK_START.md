@@ -2,9 +2,9 @@
 
 ## Install Juniper Packages with juniper-ml
 
-**Version:** 0.3.4
+**Version:** 0.3.6
 **Status:** Active
-**Last Updated:** 2026-08-05
+**Last Updated:** 2026-08-07
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -117,7 +117,14 @@ from juniper_cascor_worker import CandidateTrainingWorker
 - [Post-Merge Main Verification](REFERENCE.md#post-merge-main-verification) -- G3 / G3.1 catch-up BASE, stable-title failure notify, trailers vs labels, battery path-gate
 - [YubiKey GPG Provisioning](REFERENCE.md#yubikey-gpg-provisioning) -- ed448-on-card caveat + pointer to the validated transfer procedure
 - [Open-PR Budget Alarm](REFERENCE.md#open-pr-budget-alarm) -- daily report-only open-PR / `cursor/` queue guardrail
-- [Experiment Stack Utilities](REFERENCE.md#experiment-stack-utilities) -- per-run cascor/recurrence experiments via `util/experiment_stack.bash` + `run_experiment.py`
+- [Experiment Stack Utilities](REFERENCE.md#experiment-stack-utilities) -- per-run cascor/recurrence experiments via `util/experiment_stack.bash` + `run_experiment.py` (failed `--up` auto-tears down)
+- [Shared-Package CI Workflows](REFERENCE.md#shared-package-ci-workflows) -- the six in-repo `ci-<pkg>.yml` contracts (paths, floors, coverage enforce)
+- [Docs Full Check](REFERENCE.md#docs-full-check) -- weekly cross-repo link validation + the `ECOSYSTEM_REPOS` clone-list lockstep
+- [Scheduled Security Scan and Lockfile Update](REFERENCE.md#scheduled-security-scan-and-lockfile-update) -- weekly `pip-audit --strict` + the lockfile refresh PR
+- [Release-Train Detect Summary and Slack](REFERENCE.md#release-train-detect-summary-and-slack) -- action set vs the ceremonial class, hard-fail banner
+- [AGENTS.md Touch-Up](REFERENCE.md#agentsmd-touch-up) -- automatic `**Last Updated**:` bump on same-repo PRs
+- [Claude.yml Access Validation](REFERENCE.md#claudeyml-access-validation) -- L2/L3 `ANTHROPIC_API_KEY` safeguards + `DEFAULT_REPOS` fan-out
+- [juniper-service-core](REFERENCE.md#juniper-service-core) -- body limit, 429 headers, control-WS sanitizer, `/ws/workers` contracts
 - [juniper-observability README](../juniper-observability/README.md) -- shared observability primitives
 - [juniper-data-client Quick Start](https://github.com/pcalnon/juniper-data-client) -- dataset client usage
 - [juniper-cascor-client Quick Start](https://github.com/pcalnon/juniper-cascor-client) -- training client usage
@@ -125,6 +132,10 @@ from juniper_cascor_worker import CandidateTrainingWorker
 
 ---
 
+<<<<<<< HEAD
 **Last Updated:** 2026-08-05
-**Version:** 0.3.4
+=======
+**Last Updated:** 2026-08-07
+>>>>>>> 12a7d55 (docs: consolidate the fleet docs wave (in-place absorption of 25 operator-surface PRs))
+**Version:** 0.3.6
 **Status:** Active
