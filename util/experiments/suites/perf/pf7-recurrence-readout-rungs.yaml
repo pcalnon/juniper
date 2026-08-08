@@ -1,0 +1,13 @@
+# PF-7 (plan §12.3): readout-rung cost — fit time + r2 per rung (the DP-3 cost/benefit).
+# Thresholds unratified (§12).
+schema_version: 1
+suite:
+  name: pf7-recurrence-readout-rungs
+  description: "PF-7: linear/rff/mlp readout cost on irregular_sine"
+  app: recurrence
+  base_config: [../../../../../juniper-recurrence/conf/experiments/irregular-sine-rff.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1800}
+matrix:
+  train.readout: [linear, rff, mlp]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

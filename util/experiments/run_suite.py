@@ -104,6 +104,30 @@ def load_suite(path: Path) -> dict:
     return doc
 
 
+def _resolve_base_config(suite_path: Path, config_rel: str) -> Path:
+    """Resolve a base_config entry relative to the suite file.
+
+    Sibling-repo references (``../../../../juniper-cascor/...``) assume the
+    canonical ecosystem layout; from a session worktree the relative walk lands
+    outside the ecosystem. When the literal resolution does not exist and
+    ``JUNIPER_EXP_PROJECT_DIR`` is set (the launcher's own worktree override),
+    the path is rebased onto it from its first ``juniper-*`` component.
+    """
+    literal = (suite_path.parent / config_rel).resolve()
+    if literal.exists():
+        return literal
+    project_dir = os.environ.get("JUNIPER_EXP_PROJECT_DIR", "").strip()
+    if project_dir:
+        parts = Path(config_rel).parts
+        for i, part in enumerate(parts):
+            if part.startswith("juniper-"):
+                rebased = (Path(project_dir) / Path(*parts[i:])).resolve()
+                if rebased.exists():
+                    return rebased
+                break
+    return literal
+
+
 def _set_dotted(config: dict, dotted: str, value) -> None:
     parts = dotted.split(".")
     node = config
@@ -142,19 +166,22 @@ def expand_cells(doc: dict, suite_path: Path) -> "list[dict]":
     cells: "list[dict]" = []
     index = 0
     for config_rel in suite["base_config"]:
-        config_path = (suite_path.parent / config_rel).resolve()
+        config_path = _resolve_base_config(suite_path, config_rel)
         for overrides in combos:
             if excluded(overrides):
                 continue
-            cell_id = f"c{index:03d}-{_sha8(str(config_path) + json.dumps(overrides, sort_keys=True))}"
+            # Hash the RELATIVE reference, not the resolved path — cell ids stay
+            # identical between the canonical checkout and a worktree (JUNIPER_EXP_PROJECT_DIR rebase).
+            cell_id = f"c{index:03d}-{_sha8(config_rel + json.dumps(overrides, sort_keys=True))}"
             cells.append({"cell_id": cell_id, "index": index, "name": None, "config_path": str(config_path), "overrides": dict(overrides)})
             index += 1
     for item in include:
         if not isinstance(item, dict) or "overrides" not in item:
             raise SuiteError("include entries must be mappings with an 'overrides' key")
-        config_path = (suite_path.parent / item.get("config", suite["base_config"][0])).resolve()
+        config_rel = item.get("config", suite["base_config"][0])
+        config_path = _resolve_base_config(suite_path, config_rel)
         overrides = dict(item["overrides"])
-        cell_id = f"c{index:03d}-{_sha8(str(config_path) + json.dumps(overrides, sort_keys=True))}"
+        cell_id = f"c{index:03d}-{_sha8(config_rel + json.dumps(overrides, sort_keys=True))}"
         cells.append({"cell_id": cell_id, "index": index, "name": item.get("name"), "config_path": str(config_path), "overrides": overrides})
         index += 1
     if not cells:
