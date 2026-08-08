@@ -228,6 +228,8 @@ class _StubHandler(BaseHTTPRequestHandler):
                         {"name": "moon", "version": "1.0.0", "description": "", "available": True, "schema": {}},
                         {"name": "gaussian", "version": "1.0.0", "description": "", "available": True, "schema": {}},
                         {"name": "irregular_sine", "version": "1.0.0", "description": "", "available": True, "schema": {}},
+                        {"name": "checkerboard", "version": "1.0.0", "description": "", "available": True, "schema": {}},
+                        {"name": "arc_agi", "version": "1.0.0", "description": "", "available": True, "schema": {}},
                         {"name": "mnist", "version": "1.0.0", "description": "", "available": False, "schema": {}},
                     ]
                 ).encode("utf-8"),
@@ -1012,13 +1014,23 @@ class StagingPathTest(_StubTestCase):
         self.assertFalse(manifest["g6_shape_check"]["ok"])
         self.assertTrue(any("G-6" in reason for reason in manifest["acceptance"]["reasons"]))
 
-    def test_unstageable_generator_exits_2_naming_w3(self) -> None:
+    def test_gaussian_stages_since_w3(self) -> None:
+        # W-3 (juniper-cascor#490): gaussian joined the staged Literal; the driver
+        # stages it like any non-spiral generator (the manager translates n_samples
+        # to n_samples_per_class server-side).
         cfg = _base_config()
-        cfg["dataset"] = {"generator": "gaussian", "params": {"n_classes": 3}}
+        cfg["dataset"] = {"generator": "gaussian", "params": {"n_classes": 2, "n_samples_per_class": 20}}
+        code, _ = _invoke(_write_config(self.tmp, cfg), self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        self.assertEqual(self._posts("/v1/training/dataset")[0]["dataset_type"], "gaussian")
+
+    def test_unstageable_generator_exits_2(self) -> None:
+        cfg = _base_config()
+        cfg["dataset"] = {"generator": "arc_agi", "params": {"n_tasks": 5}}
         with self.assertLogs(rx.log, level="ERROR") as logs:
             code, _ = _invoke(_write_config(self.tmp, cfg), self.run_dir)
         self.assertEqual(code, rx.EXIT_MISUSE)
-        self.assertTrue(any("W-3" in line for line in logs.output))
+        self.assertTrue(any("not cascade-correlation staging targets" in line for line in logs.output))
         self.assertEqual(self._posts("/v1/training/start"), [])
 
 
