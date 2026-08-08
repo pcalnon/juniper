@@ -14,10 +14,11 @@
 #   ordered cell list, materialises each cell as a standalone driver-validated experiment YAML,
 #   executes cells sequentially (per-cell experiment_stack --up → run_experiment → --down), records
 #   each outcome in the append-only SUITE_DIR/registry.jsonl + the global RUN_ROOT/index.jsonl, and
-#   aggregates into aggregate.csv + REPORT.md + suite_manifest.json. Phase 1 is deliberately
-#   sequential; bounded parallelism is Wave 7.5 (prerequisites W-6 + the H-11 thread-budget split).
+#   aggregates into aggregate.csv + REPORT.md + suite_manifest.json. Wave 7.5 adds bounded
+#   parallelism (execution.mode: parallel + max_parallel; H-11 thread-budget split recorded per
+#   cell; cascor parallel>1 refused from one checkout while Q-6/H-7 stands — recurrence is free).
 #####################################################################################################################################################################################################
-"""Run an experiment suite sequentially.
+"""Run an experiment suite (sequential, or bounded-parallel for recurrence).
 
 Usage:
     python util/experiments/run_suite.py --suite SUITE.yaml [--dry-run] [--resume SUITE_ID]
@@ -42,7 +43,9 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -99,8 +102,18 @@ def load_suite(path: Path) -> dict:
     unknown = set(execution) - EXECUTION_KEYS
     if unknown:
         raise SuiteError(f"unknown execution: keys: {sorted(unknown)}")
-    if execution.get("mode", "sequential") != "sequential":
-        raise SuiteError("execution.mode: only 'sequential' is implemented (parallel is Wave 7.5)")
+    mode = execution.get("mode", "sequential")
+    if mode not in ("sequential", "parallel"):
+        raise SuiteError("execution.mode must be 'sequential' or 'parallel'")
+    max_parallel = int(execution.get("max_parallel", 1))
+    if max_parallel < 1:
+        raise SuiteError("execution.max_parallel must be >= 1")
+    if mode == "parallel" and max_parallel > 1 and suite.get("app") == "cascor":
+        # Wave 7.5 / Q-6: cascor's file logger targets the shared checkout logs/juniper_cascor.log
+        # (H-7); N parallel cascor instances from ONE checkout race it. Until Q-6 lands a
+        # JUNIPER_CASCOR_LOG_DIR-class override, parallel cascor runs need distinct checkouts —
+        # which a single suite cannot provide. Recurrence suites parallelise freely.
+        raise SuiteError("app: cascor cannot run parallel cells from one checkout while Q-6 is unresolved (H-7 shared log race) — use mode: sequential, or distinct checkouts outside run_suite")
     return doc
 
 
@@ -232,10 +245,24 @@ def _driver_validator():
         return None
 
 
+_JSONL_LOCK = threading.Lock()
+
+
 def _append_jsonl(path: Path, row: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row, sort_keys=True) + "\n")
+    with _JSONL_LOCK:
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def thread_budget_env(app: str, max_parallel: int) -> "dict[str, str]":
+    """H-11 budget split for parallel cells: CASCOR_NUM_PROCESSES (or the BLAS vars for
+    recurrence) = max(1, floor(nproc / (2 * max_parallel))); cascor BLAS pinned at 2."""
+    nproc = os.cpu_count() or 1
+    split = max(1, nproc // (2 * max_parallel))
+    if app == "cascor":
+        return {"OMP_NUM_THREADS": "2", "MKL_NUM_THREADS": "2", "OPENBLAS_NUM_THREADS": "2", "CASCOR_NUM_PROCESSES": str(split)}
+    return {"OMP_NUM_THREADS": str(split), "MKL_NUM_THREADS": str(split), "OPENBLAS_NUM_THREADS": str(split)}
 
 
 def _read_registry(suite_dir: Path) -> "dict[str, dict]":
@@ -267,11 +294,12 @@ def _headline_metrics(run_dir: Path) -> dict:
     return out
 
 
-def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher: Path, driver: Path, python_bin: str) -> dict:
+def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher: Path, driver: Path, python_bin: str, extra_env: "dict[str, str] | None" = None) -> dict:
     """--up → driver → --down for one cell; never raises for a cell-level failure."""
     started = time.time()
-    row = {"cell_id": cell["cell_id"], "name": cell["name"], "overrides": cell["overrides"], "config_sha256": hashlib.sha256(cell_yaml.read_bytes()).hexdigest(), "run_id": None, "outcome": "failed", "exit_code": None, "error": None}
-    up = subprocess.run(["/bin/bash", str(launcher), "--up", f"--{app}", "--config", str(cell_yaml), "--experiment", cell["cell_id"]], capture_output=True, text=True, timeout=max(timeout, 300))
+    env = {**os.environ, **(extra_env or {})} if extra_env else None
+    row = {"cell_id": cell["cell_id"], "name": cell["name"], "overrides": cell["overrides"], "config_sha256": hashlib.sha256(cell_yaml.read_bytes()).hexdigest(), "run_id": None, "outcome": "failed", "exit_code": None, "error": None, "thread_budget": dict(extra_env) if extra_env else None}
+    up = subprocess.run(["/bin/bash", str(launcher), "--up", f"--{app}", "--config", str(cell_yaml), "--experiment", cell["cell_id"]], capture_output=True, text=True, timeout=max(timeout, 300), env=env)
     match = RUN_ID_BANNER.search(up.stdout + up.stderr)
     if up.returncode != 0 or not match:
         row["error"] = f"launcher --up failed (exit {up.returncode}): {(up.stderr or up.stdout)[-500:]}"
@@ -282,7 +310,7 @@ def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher
     run_dir = DEFAULT_RUN_ROOT / run_id
     try:
         try:
-            drv = subprocess.run([python_bin, str(driver), "--config", str(cell_yaml), "--run-dir", str(run_dir)], capture_output=True, text=True, timeout=timeout)
+            drv = subprocess.run([python_bin, str(driver), "--config", str(cell_yaml), "--run-dir", str(run_dir)], capture_output=True, text=True, timeout=timeout, env=env)
             row["exit_code"] = drv.returncode
         except subprocess.TimeoutExpired:
             row["exit_code"] = None
@@ -303,7 +331,7 @@ def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher
         row["metrics"] = _headline_metrics(run_dir)
         row["run_dir"] = str(run_dir)
     finally:
-        down = subprocess.run(["/bin/bash", str(launcher), "--down", run_id], capture_output=True, text=True, timeout=300)
+        down = subprocess.run(["/bin/bash", str(launcher), "--down", run_id], capture_output=True, text=True, timeout=300, env=env)
         row["teardown_ok"] = down.returncode == 0
         row["wall_seconds"] = round(time.time() - started, 3)
     return row
@@ -398,27 +426,59 @@ def main(argv: "list[str] | None" = None) -> int:
         + "\n"
     )
 
-    any_failed = False
+    mode = execution.get("mode", "sequential")
+    max_parallel = int(execution.get("max_parallel", 1)) if mode == "parallel" else 1
+    budget = thread_budget_env(suite["app"], max_parallel) if mode == "parallel" else None
+
+    runnable = []
     for cell in selected:
         prior = registry_rows.get(cell["cell_id"])
-        if prior and prior.get("outcome") in TERMINAL_OUTCOMES and prior.get("outcome") == "succeeded":
+        if prior and prior.get("outcome") == "succeeded":
             print(f"[suite] {cell['cell_id']}: already succeeded — skipped (resume)")
             continue
-        try:
-            cell_yaml = materialise_cell(cell, suite, suite_dir, validate)
-        except SuiteError as exc:
-            print(f"suite error: {exc}", file=sys.stderr)
-            return 2
-        print(f"[suite] {cell['cell_id']}: running ({json.dumps(cell['overrides'], sort_keys=True)})", flush=True)
-        row = execute_cell(cell, cell_yaml, suite["app"], timeout, launcher, driver, python_bin)
+        runnable.append(cell)
+    try:
+        materialised = {cell["cell_id"]: materialise_cell(cell, suite, suite_dir, validate) for cell in runnable}
+    except SuiteError as exc:
+        print(f"suite error: {exc}", file=sys.stderr)
+        return 2
+
+    def _record(cell: dict, row: dict) -> None:
         row["suite_id"] = suite_id
         _append_jsonl(suite_dir / "registry.jsonl", row)
         _append_jsonl(DEFAULT_RUN_ROOT / "index.jsonl", {"suite_id": suite_id, "cell_id": cell["cell_id"], "run_id": row.get("run_id"), "outcome": row.get("outcome"), "run_dir": row.get("run_dir")})
         print(f"[suite] {cell['cell_id']}: {row['outcome']}" + (f" ({row.get('error')})" if row.get("error") else ""), flush=True)
-        if row["outcome"] != "succeeded":
-            any_failed = True
-            if not continue_on_failure:
-                break
+
+    any_failed = False
+    if mode == "parallel" and max_parallel > 1:
+        # Wave 7.5: bounded worker pool. Port lockdirs serialise allocation; W-6 gives each
+        # run its own snapshots dir; the H-11 budget env keeps N cells from thrashing the host.
+        # Stop-on-failure = stop SUBMITTING after the first failure; running cells drain.
+        stop = threading.Event()
+        with ThreadPoolExecutor(max_workers=max_parallel) as pool:
+            futures = {}
+            for cell in runnable:
+                if stop.is_set():
+                    break
+                print(f"[suite] {cell['cell_id']}: submitted ({json.dumps(cell['overrides'], sort_keys=True)})", flush=True)
+                futures[pool.submit(execute_cell, cell, materialised[cell["cell_id"]], suite["app"], timeout, launcher, driver, python_bin, budget)] = cell
+            for future in as_completed(futures):
+                cell = futures[future]
+                row = future.result()
+                _record(cell, row)
+                if row["outcome"] != "succeeded":
+                    any_failed = True
+                    if not continue_on_failure:
+                        stop.set()
+    else:
+        for cell in runnable:
+            print(f"[suite] {cell['cell_id']}: running ({json.dumps(cell['overrides'], sort_keys=True)})", flush=True)
+            row = execute_cell(cell, materialised[cell["cell_id"]], suite["app"], timeout, launcher, driver, python_bin, budget)
+            _record(cell, row)
+            if row["outcome"] != "succeeded":
+                any_failed = True
+                if not continue_on_failure:
+                    break
 
     rc = aggregate(suite_dir, suite, cells)
     print(f"[suite] wrote {suite_dir}/aggregate.csv + REPORT.md")

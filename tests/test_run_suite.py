@@ -70,7 +70,7 @@ outputs:
 
 
 def _write_stub_launcher(path: Path, marker_dir: Path, fail_up: bool = False) -> None:
-    path.write_text("#!/usr/bin/env bash\n" f"MARKERS={marker_dir}\n" 'if [[ "$1" == "--up" ]]; then\n' f"  {'exit 1' if fail_up else ''}\n" '  n=$(ls "$MARKERS" 2>/dev/null | grep -c up- || true)\n' '  touch "$MARKERS/up-$n"\n' '  echo "=== Experiment run stub-run-$n is up ==="\n' "  exit 0\n" "fi\n" 'if [[ "$1" == "--down" ]]; then touch "$MARKERS/down-$2"; exit 0; fi\n' "exit 2\n")
+    path.write_text("#!/usr/bin/env bash\n" f"MARKERS={marker_dir}\n" 'if [[ "$1" == "--up" ]]; then\n' f"  {'exit 1' if fail_up else ''}\n" '  touch "$MARKERS/up-$$"\n' '  echo "=== Experiment run stub-run-$$ is up ==="\n' "  exit 0\n" "fi\n" 'if [[ "$1" == "--down" ]]; then touch "$MARKERS/down-$2"; exit 0; fi\n' "exit 2\n")
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
 
 
@@ -146,7 +146,9 @@ class ExpandTest(unittest.TestCase):
                 ("schema_version: 2\nsuite: {name: s, app: cascor, base_config: [b]}\n", "schema_version"),
                 ("schema_version: 1\nsuite: {name: s, app: nope, base_config: [b]}\n", "app"),
                 ("schema_version: 1\nsuite: {name: s, app: cascor, base_config: []}\n", "base_config"),
-                ("schema_version: 1\nsuite: {name: s, app: cascor, base_config: [b]}\nexecution: {mode: parallel}\n", "sequential"),
+                ("schema_version: 1\nsuite: {name: s, app: cascor, base_config: [b]}\nexecution: {mode: bogus}\n", "sequential.*parallel"),
+                ("schema_version: 1\nsuite: {name: s, app: cascor, base_config: [b]}\nexecution: {mode: parallel, max_parallel: 2}\n", "Q-6"),
+                ("schema_version: 1\nsuite: {name: s, app: recurrence, base_config: [b]}\nexecution: {mode: parallel, max_parallel: 0}\n", "max_parallel"),
                 ("schema_version: 1\nsuite: {name: s, app: cascor, base_config: [b]}\nbogus: {}\n", "unknown"),
             ):
                 bad.write_text(body)
@@ -288,3 +290,59 @@ class MainLoopTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+PARALLEL_SUITE_TEMPLATE = """\
+schema_version: 1
+suite:
+  name: p-suite
+  description: test
+  app: recurrence
+  base_config:
+    - {base}
+execution:
+  mode: parallel
+  max_parallel: 2
+  continue_on_failure: true
+  per_run_timeout_seconds: 60
+matrix:
+  training.params.max_hidden_units: [2, 4]
+outputs:
+  suite_dir: {suite_dir}
+"""
+
+
+class ParallelModeTest(MainLoopTest):
+    """Wave 7.5: bounded-parallel execution (recurrence app; cascor refuses at load)."""
+
+    def test_parallel_happy_path_records_budget_and_both_cells(self) -> None:
+        root, suite_dir, markers, run_root = self._setup()
+        (root / "suite.yaml").write_text(PARALLEL_SUITE_TEMPLATE.format(base=root / "base.yaml", suite_dir=suite_dir))
+        rc, out = self._main("--suite", str(root / "suite.yaml"))
+        self.assertEqual(rc, 0, msg=out)
+        registry = [json.loads(line) for line in (suite_dir / "registry.jsonl").read_text().splitlines()]
+        self.assertEqual(len(registry), 2)
+        self.assertEqual({r["outcome"] for r in registry}, {"succeeded"})
+        for r in registry:
+            self.assertIsNotNone(r["thread_budget"], "parallel cells must record the H-11 budget env")
+            self.assertIn("OMP_NUM_THREADS", r["thread_budget"])
+            self.assertNotIn("CASCOR_NUM_PROCESSES", r["thread_budget"], "recurrence budget must not carry the cascor knob")
+        self.assertEqual(len(list(markers.glob("down-*"))), 2, "every parallel cell must be torn down")
+        index = [json.loads(line) for line in (run_root / "index.jsonl").read_text().splitlines()]
+        self.assertEqual(len(index), 2, "index appends must be lock-safe under parallelism")
+
+    def test_sequential_rows_have_no_budget(self) -> None:
+        root, suite_dir, _, _ = self._setup()
+        rc, _ = self._main("--suite", str(root / "suite.yaml"))
+        self.assertEqual(rc, 0)
+        registry = [json.loads(line) for line in (suite_dir / "registry.jsonl").read_text().splitlines()]
+        self.assertTrue(all(r["thread_budget"] is None for r in registry))
+
+    def test_budget_split_math(self) -> None:
+        budget = run_suite.thread_budget_env("cascor", max_parallel=2)
+        nproc = os.cpu_count() or 1
+        self.assertEqual(budget["CASCOR_NUM_PROCESSES"], str(max(1, nproc // 4)))
+        self.assertEqual(budget["OMP_NUM_THREADS"], "2")
+        rec = run_suite.thread_budget_env("recurrence", max_parallel=2)
+        self.assertEqual(rec["OMP_NUM_THREADS"], str(max(1, nproc // 4)))
+        self.assertNotIn("CASCOR_NUM_PROCESSES", rec)
