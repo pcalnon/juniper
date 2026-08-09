@@ -4,18 +4,19 @@
 # Application:   juniper-ml
 # File Name:     publish.yml
 # Author:        Paul Calnon
-# Version:       0.2.0
+# Version:       0.3.0
 #
 # Date Created:  2026-02-23
-# Last Modified: 2026-03-01
+# Last Modified: 2026-08-09
 #
 # License:       MIT License
 # Copyright:     Copyright (c) 2024-2026 Paul Calnon
 #
 # Description:
 #    GitHub Actions publish pipeline for juniper-ml meta-package.
-#    Triggered by GitHub release. Publishes TestPyPI first (with install
-#    verification), then PyPI. Uses OIDC trusted publishing (no API tokens).
+#    Triggered by GitHub release. Publishes TestPyPI first (with two-phase
+#    install verification), then PyPI. Uses OIDC trusted publishing (no
+#    API tokens).
 #
 #####################################################################################################################################################################################################
 
@@ -93,14 +94,51 @@ jobs:
         with:
           repository-url: https://test.pypi.org/legacy/
           attestations: true
+          # TestPyPI uploads are immutable, and a re-cut Release republishes a version
+          # that already exists there (e.g. the v0.7.0 recut after the merged-namespace
+          # verify failure). Tolerate it so the rehearsal leg is a no-op instead of an
+          # immutable-upload 400 — matching the sibling publish-*.yml contract. The PyPI
+          # leg below deliberately stays STRICT: a duplicate production upload is a real
+          # error the owner must see.
+          skip-existing: true
 
       - name: Verify TestPyPI install
         run: |
           VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           sleep 30
-          # Step 1: bare-package install. Confirms the wheel/sdist is on
-          # TestPyPI and importlib.metadata sees the expected version.
-          pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "juniper-ml==${VERSION}"
+          # ── TWO-PHASE VERIFICATION (2026-08-08 amendment, owner-approved) ────────────
+          # pip has NO index priority. --index-url plus --extra-index-url form ONE merged
+          # namespace and pip picks the HIGHEST version found across both. That is a
+          # dependency-confusion vector: a TestPyPI squatter outranks the real package.
+          # Live failure -- TestPyPI `fastapi 1.0` (a broken sdist) beat production
+          # fastapi 0.141.1 and killed the v0.7.0 verify (run 31281873275).
+          # Splitting the phases removes the merged namespace entirely while still
+          # exercising genuine extras/dependency resolution.
+          #
+          # PHASE 1 -- artifact provenance. Fetch the juniper-ml artifact from TestPyPI
+          # and ONLY TestPyPI, at the exact version this Release built, so the thing we
+          # go on to install is provably the artifact just uploaded. --no-deps keeps this
+          # phase about provenance alone: no dependency is resolved here, so there is no
+          # namespace to confuse.
+          DOWNLOAD_DIR="$(mktemp -d)"
+          pip download --no-deps --index-url https://test.pypi.org/simple/ --dest "${DOWNLOAD_DIR}" "juniper-ml==${VERSION}"
+          WHEEL="${DOWNLOAD_DIR}/juniper_ml-${VERSION}-py3-none-any.whl"
+          if [ ! -f "${WHEEL}" ]; then
+            echo "::error::TestPyPI did not serve the expected wheel: ${WHEEL}"
+            ls -la "${DOWNLOAD_DIR}" || true
+            exit 1
+          fi
+          echo "Phase 1 OK: fetched ${WHEEL} from TestPyPI"
+          # PHASE 2 -- dependency resolution from ONE index (production PyPI). The install
+          # target is the LOCAL TestPyPI wheel, so PyPI can never serve the target itself;
+          # every dependency and extra resolves from production PyPI alone. Deliberately
+          # NO --no-deps: extras resolution is genuinely exercised, which is the whole
+          # point of this gate. Local-wheel-with-extras (`<wheel>[extra]`) is standard pip
+          # requirement syntax and does resolve the extra's dependencies.
+          #
+          # Step 1: bare install. Confirms the downloaded artifact installs and
+          # importlib.metadata sees the expected version.
+          pip install --index-url https://pypi.org/simple/ "${WHEEL}"
           python -c "import importlib.metadata; print(f'TestPyPI bare OK: juniper-ml v{importlib.metadata.version(\"juniper-ml\")}')"
           # Step 2: [clients] extras-resolution install. Exercises the
           # [project.optional-dependencies] surface against the published
@@ -108,16 +146,15 @@ jobs:
           # roll-up into [all], dangling self-reference) fails the publish
           # rather than landing on PyPI silently. [clients] is one of two
           # light extras (data-client + cascor-client, no torch); it walks
-          # the full resolver path. Both deps are already on production
-          # PyPI so the --extra-index-url is what actually serves them.
-          pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "juniper-ml[clients]==${VERSION}"
+          # the full resolver path. Both deps come from production PyPI.
+          pip install --index-url https://pypi.org/simple/ "${WHEEL}[clients]"
           python -c "import juniper_data_client, juniper_cascor_client; print(f'TestPyPI extras OK: [clients] resolved data-client={juniper_data_client.__version__ if hasattr(juniper_data_client, \"__version__\") else \"?\"}, cascor-client={juniper_cascor_client.__version__ if hasattr(juniper_cascor_client, \"__version__\") else \"?\"}')"
           # Step 3: [tools] extras-resolution install. Pairs with step 2
           # to cover both light extras at publish time -- if [tools] were
           # broken, step 2 would still pass and ship. juniper-ci-tools,
           # juniper-doc-tools, juniper-observability are all small and
           # already on production PyPI; no torch involved.
-          pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "juniper-ml[tools]==${VERSION}"
+          pip install --index-url https://pypi.org/simple/ "${WHEEL}[tools]"
           python -c "import juniper_ci_tools, juniper_doc_tools, juniper_observability; print(f'TestPyPI extras OK: [tools] resolved ci-tools={juniper_ci_tools.__version__ if hasattr(juniper_ci_tools, \"__version__\") else \"?\"}, doc-tools={juniper_doc_tools.__version__ if hasattr(juniper_doc_tools, \"__version__\") else \"?\"}, observability={juniper_observability.__version__ if hasattr(juniper_observability, \"__version__\") else \"?\"}')"
 
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
