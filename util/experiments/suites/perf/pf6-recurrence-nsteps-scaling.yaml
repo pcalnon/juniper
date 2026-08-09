@@ -1,0 +1,12 @@
+# PF-6 (plan §12.3): recurrence dataset-size scaling — fit time vs window count. Thresholds unratified.
+schema_version: 1
+suite:
+  name: pf6-recurrence-nsteps-scaling
+  description: "PF-6: n_steps scaling on irregular_sine"
+  app: recurrence
+  base_config: [../../../../../juniper-recurrence/conf/experiments/irregular-sine-rff.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1800}
+matrix:
+  dataset.params.n_steps: [1000, 4000, 16000]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

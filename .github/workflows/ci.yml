@@ -175,6 +175,12 @@ jobs:
           # dogfoods the juniper-ci-tools env-floor-drift console script as a
           # subprocess (the module imports packaging for SpecifierSet/Version).
           pip install "packaging>=22.0"
+          # juniper-ci-tools ships the sequence-safety console scripts
+          # (juniper-symbol-loss-check / juniper-docs-additions-check) that
+          # tests/test_predict_merge.py shells to end-to-end in its behavioral
+          # screen arms (rollout W3; the in-repo util/sequence_safety/ copy was
+          # deleted). Without it those arms would degrade to `skip`.
+          pip install "juniper-ci-tools>=0.8.0,<0.9.0"
           # numpy is required by tests/test_run_experiment.py: the experiment
           # driver writes decision_boundary.npz and the tests round-trip it
           # via numpy.load (the driver itself imports numpy lazily).
@@ -389,18 +395,15 @@ jobs:
           # (tag-prefix guard, no push:tags #555 race, skip-existing, --no-deps
           # without PyPI fallback, subdirectory working-directory / artifact path).
           python3 -m unittest -v tests/test_publish_subpackage_workflows.py
-          # tests/test_symbol_loss_check.py + tests/test_docs_additions_check.py:
-          # the flood-remediation sequence-safety screens (Proposal P2 gates G1/G2,
-          # productionized from the 2026-07-28 Cursor-flood census). Hermetic git
-          # fixtures drive util/sequence_safety/{symbol_loss_check,docs_additions_check}.py
-          # (LOST/WEAKENED/DUPLICATED symbol verdicts with a qualified-name relocation
-          # downgrade + Allow-Symbol-Loss trailer escape; docs heading / >=N-line
-          # deletion magnitude with an Allow-Docs-Rewrite escape). util/ is not
-          # pre-commit-lint-gated, so these unittests are the gate. The same two
-          # screens run post-merge, unbypassably, in .github/workflows/main-verify.yml
-          # (G3) -- whose battery job mirrors THIS list and must stay in sync with it.
-          python3 -m unittest -v tests/test_symbol_loss_check.py
-          python3 -m unittest -v tests/test_docs_additions_check.py
+          # The flood-remediation sequence-safety screens (Proposal P2 gates G1/G2)
+          # now ship as the PyPI package juniper-ci-tools (>=0.8.0); the per-PR
+          # `sequence-safety` job above installs it and runs the console scripts
+          # (juniper-symbol-loss-check / juniper-docs-additions-check). The screens'
+          # own unit tests (LOST/WEAKENED/DUPLICATED, docs heading / >=N-line magnitude,
+          # both waiver trailers, and the new --scope glob engine) live in
+          # juniper-ci-tools/tests/ and run under the dedicated `CI -- juniper-ci-tools`
+          # workflow -- so they are no longer enumerated here (rollout W3). The label
+          # hatch + resurrection guard below remain juniper-ml's gate.
           # tests/test_ci_sequence_safety_hatch.py: YAML-extraction rehearsal for
           # ci.yml's sequence-safety label hatch (P2 SF5) -- allow-symbol-loss /
           # docs-rewrite → --advisory via grep -qx; merge_group stays strict; exit
@@ -643,6 +646,13 @@ jobs:
   # then falls back to the standard owner gate (plan S7.2); the guard has no side effect. Wired here
   # as a standalone status check so the owner can later mark it REQUIRED in the branch ruleset (step
   # 3.3), which is what lets the exempt archive PR auto-merge behind it.
+  #
+  # Escape hatch (the #1003 link-repair class): now that the check is REQUIRED, an intentional
+  # in-place correction of an already-archived note carries an `Allow-Archive-Edit: <path>` commit
+  # trailer (full path / basename / `*`), mirroring the house Allow-Docs-Rewrite / Allow-Symbol-Loss
+  # idiom. The trailer text is injected via --trailers-file (below), and a waived-and-otherwise-clean
+  # diff reports the distinct WAIVED verdict instead of FAIL. Carry the trailer into the SQUASH
+  # commit message when merging -- trailers travel in git history.
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
   release-train-archive-guard:
     name: Release-Train Archive Guard
@@ -695,7 +705,13 @@ jobs:
           # FETCH_HEAD = the PR base branch tip; the three-dot range then yields exactly the
           # PR's net change set (merge-base(base, HEAD)..HEAD), matching `gh pr diff`.
           git fetch --no-tags origin "${{ github.base_ref }}"
-          python3 util/release_train/archive_guard.py --base FETCH_HEAD --head HEAD
+          # Allow-Archive-Edit escape: the guard reads the PR's commit bodies from an INJECTED
+          # file (it never shells out to git itself), so the classifier stays pure and hermetically
+          # testable. Two-dot FETCH_HEAD..HEAD = exactly the commits this PR adds on top of base
+          # (the same range the sequence-safety screens' trailer parser uses); checkout above is
+          # fetch-depth: 0, so the full message bodies are present.
+          git log --format=%B FETCH_HEAD..HEAD > archive-guard-trailers.txt
+          python3 util/release_train/archive_guard.py --base FETCH_HEAD --head HEAD --trailers-file archive-guard-trailers.txt
 
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
   # Sequence Safety (ADVISORY, standalone): the per-PR compositional-loss screen (Proposal P2 gates
@@ -740,6 +756,15 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_TEST_VERSION }}
 
+      - name: Install sequence-safety screens (juniper-ci-tools)
+        run: |
+          # The two screens now ship as the PyPI package juniper-ci-tools (>=0.8.0),
+          # replacing the deleted in-repo util/sequence_safety/ copy (rollout W3).
+          # The console scripts juniper-symbol-loss-check / juniper-docs-additions-check
+          # land on PATH once installed.
+          python -m pip install --upgrade "pip>=26.1.1"
+          pip install "juniper-ci-tools>=0.8.0,<0.9.0"
+
       - name: Run sequence-safety screens (symbol + docs)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -773,18 +798,23 @@ jobs:
           echo "Screening ${base} .. HEAD"
           echo ""
           echo "--- symbol-loss screen ---"
+          # Explicit --scope globs reproduce ml's historical in_scope() predicate
+          # (top-level tests/*.py + util/**/*.py + util/**/*.bash) verbatim; proven
+          # byte-identical to the deleted in-repo module over 91 ref ranges (rollout W3).
           # shellcheck disable=SC2086  # $sym_adv is an intentional empty-or---advisory token
-          python3 util/sequence_safety/symbol_loss_check.py --base "$base" --head HEAD $sym_adv
+          juniper-symbol-loss-check --scope 'tests/*.py' --scope 'util/**/*.py' --scope 'util/**/*.bash' --base "$base" --head HEAD $sym_adv
           src=$?
           # shellcheck disable=SC2086
-          python3 util/sequence_safety/symbol_loss_check.py --base "$base" --head HEAD $sym_adv --json > symbol-report.json || true
+          juniper-symbol-loss-check --scope 'tests/*.py' --scope 'util/**/*.py' --scope 'util/**/*.bash' --base "$base" --head HEAD $sym_adv --json > symbol-report.json || true
           echo ""
           echo "--- docs deletion-magnitude screen ---"
+          # No --scope: the universal docs cluster (AGENTS.md + docs/**/*.md + notes/**/*.md)
+          # is the package default and matches ml's historical in_docs_scope() verbatim.
           # shellcheck disable=SC2086
-          python3 util/sequence_safety/docs_additions_check.py --base "$base" --head HEAD $docs_adv
+          juniper-docs-additions-check --base "$base" --head HEAD $docs_adv
           drc=$?
           # shellcheck disable=SC2086
-          python3 util/sequence_safety/docs_additions_check.py --base "$base" --head HEAD $docs_adv --json > docs-report.json || true
+          juniper-docs-additions-check --base "$base" --head HEAD $docs_adv --json > docs-report.json || true
           echo ""
           echo "symbol screen exit=${src} ; docs screen exit=${drc}"
           if [ "${src}" -ge 2 ] || [ "${drc}" -ge 2 ]; then

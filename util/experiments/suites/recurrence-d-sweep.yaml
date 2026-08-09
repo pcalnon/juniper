@@ -1,0 +1,22 @@
+# E-D-adjacent reference suite (plan §10.5): memory dimension d x the two committed recurrence
+# reference configs (irregular_sine rff + delay_product rff). Mirrors bench _D_GRID for direct
+# comparability to bench/results/. Run with --dry-run first.
+schema_version: 1
+suite:
+  name: recurrence-d-sweep
+  description: "E-D: train.d sweep over the committed recurrence reference configs"
+  app: recurrence
+  base_config:
+    - ../../../../juniper-recurrence/conf/experiments/irregular-sine-rff.yaml
+    - ../../../../juniper-recurrence/conf/experiments/delay-product-rff.yaml
+  seed_policy: fixed
+execution:
+  mode: sequential
+  max_parallel: 1
+  continue_on_failure: true
+  per_run_timeout_seconds: 600
+matrix:
+  train.d: [8, 16, 32]
+outputs:
+  suite_dir: null
+  aggregate: [csv, markdown]
