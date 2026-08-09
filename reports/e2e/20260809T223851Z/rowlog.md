@@ -59,10 +59,33 @@ Statuses: PASS / FAIL / BLOCKED / N-A / DEAD-CONFIRMED (plan §9).
 | M-ABOUT-02 | PASS | 4 li's (Py 3.13.13 / Linux 6.17.0-40-generic / x86_64 / App 2.2.0), zero about-ish network requests; M-ABOUT-02__system-info-open.png |
 | M-ABOUT-03 | PASS | static content renders (screenshots) |
 
-## W13 step ledger
+## W13 step ledger — COMPLETE (except W14-deferred arms)
 
-1 PASS · 2 PASS (LIVE arm) · 3 PASS (poll stops) · 4 PASS · 5 PASS · 6 PASS · 7 PASS · 8 PASS · 10 PASS · 11 PASS · 12 PASS — 9/13/14/15/16 pending.
+1 PASS · 2 PASS (LIVE arm) · 3 PASS (poll stops, cascor-log observable 47→59→frozen) · 4 PASS · 5 PASS · 6 PASS · 7 PASS · 8 PASS · 9 PASS (15 dark screenshots `W13-13__dark-*.png`; spot-judged metrics-top/about/sidebar — legible; OBS-2 noted) · 10 PASS · 11 PASS · 12 PASS · 13 PASS (15-tab walk, 0 console errors/warnings) · 14 PASS (states 0/2/5 + recovery; state 6 N-A — see C2.4-07) · 15 PASS (2 tooltips + Apply-disabled note) · 16 PASS (3/9 ⇄ 2/10, sum 12; evolution hides all 14 config-managed sections).
+
+## W13-14 / badge-state addenda
+
+| row | status | evidence |
+|---|---|---|
+| C2.4-01 | PASS | caught in-script post-reload: first paint "WS: --" bg rgb(108,117,125) before Connected |
+| C2.4-06 | PASS | socket close under setOffline → "WS: Reconnecting" amber rgb(255,193,7) |
+| C2.4-07 | N-A (annotated) | "WS: Offline" unreachable via socket loss: GAP-WS-31 retry-forever client collapses closed→reconnecting in one status update; MutationObserver over a fresh close saw zero intermediate states. Renderer branch is defensive-only. Matrix-annotation candidate. |
+| C2.4-04/05 | pending W14 | upstream reconnecting/degraded induction |
+| C2.4-02 | pending demo lane | WS: Demo grey |
+| C2.2-04 | PASS | per-tab section swaps observed (metrics NN-only, candidates CN, evolution none, dataset config) |
+| C2.2-05 | PASS (annotated) | evolution: all 14 SIDEBAR_SECTION_IDS hidden ✓; row text "only Training Controls remains" imprecise — always-on Experimental Functions card also remains (not config-managed; verified dashboard_manager.py:267-282) |
+| C2.2-06 | PASS | col-3/col-9 ⇄ col-2/col-10, always sums 12 |
+| C2.2-01 | PASS | all 15 tabs switch panels (full walk) |
+
+## Sweep extras recorded
+
+- M-PARAMETERS-01/02/03 PASS (tables render: 9/5/11 rows incl. headers).
+- M-REPLAY-01 PASS ("▶ No active replay session" visible, active block hidden).
+- M-NETWORK-EDITOR-02 PASS (idle block + Investigating explanation), -03 PASS-with-note (badge "FSM: Unknown" at cold idle — fallback chain; recheck during W1), -05 PASS-as-documented (**D-0 confirmed live**: readout "No topology loaded."; server-side 404 — no browser-side request), -10 PASS (options empty per D-0).
+- Playwright method notes: `setOffline` does NOT kill established WebSockets (badge honestly stays Connected; only pollers fail) — socket-state tests must close `window.cascorWS.ws` / `window.cascorControlWS.ws` directly. Disabled bootstrap buttons are pointer-transparent — tooltip hover on disabled Apply can't fire (retest enabled in W3; possible UX note).
 
 ## Observations / finding candidates (not yet ledgered)
 
 - OBS-1: About panel "App Version: 2.2.0" vs /v1/health "version": "0.4.0" — two version sources disagree (about_panel local self.version vs health handler). Candidate F-CANOPY finding (truth/docs class) for Phase 2 triage.
+- OBS-2: Dark mode renders all five training-control buttons uniform blue — the light-mode semantic colors (Start green / Pause yellow / Stop red) are lost. Legible but semantics-flattening; UX-class candidate for Phase 2 triage. Evidence: W13-13__dark-metrics-top.png vs M-TUTORIAL-01__walkthrough-overlay.png (light).
+- OBS-3: Metrics-tab sidebar header reads "Network Parameters" while the tutorial-tab shows "Training Controls" card only — header text swaps per TAB_HEADER_MAP as designed (C2.2-04 corroboration, not a finding).
