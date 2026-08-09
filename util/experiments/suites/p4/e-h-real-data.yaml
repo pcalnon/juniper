@@ -1,0 +1,14 @@
+# E-H cascor half (plan §10.5): real equities vs the spiral synthetic control at one fixed budget —
+# the efficient-market-ceiling sanity check (findings doc §3.2). Cell 0 = spiral control; the
+# include = AAPL 2015-2022 (networked at generation time).
+schema_version: 1
+suite:
+  name: e-h-real-data
+  description: "E-H (cascor): equities AAPL 2015-2022 vs spiral control"
+  app: cascor
+  base_config: [../../../../../juniper-cascor/conf/experiments/spiral-smoke.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1800}
+include:
+  - {name: equities-aapl, overrides: {dataset.generator: equities, dataset.params: {symbols: [AAPL], start_date: "2015-01-01", end_date: "2022-01-01", seed: 20260807}, outputs.plots: [training_history]}}
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

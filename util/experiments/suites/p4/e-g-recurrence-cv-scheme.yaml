@@ -1,0 +1,13 @@
+# E-G (plan §10.5): CV scheme x embargo — CV-stability comparison. Parallel x2 (7.5 dogfood).
+schema_version: 1
+suite:
+  name: e-g-recurrence-cv-scheme
+  description: "E-G: scheme x embargo on irregular_sine (parallel x2)"
+  app: recurrence
+  base_config: [../../../../../juniper-recurrence/conf/experiments/irregular-sine-rff.yaml]
+  seed_policy: fixed
+execution: {mode: parallel, max_parallel: 2, continue_on_failure: true, per_run_timeout_seconds: 900}
+matrix:
+  crossval.scheme: [expanding, rolling]
+  crossval.embargo: [0, 2, 5]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

@@ -1,0 +1,19 @@
+# E-B (plan §10.5): fixed smoke budget across the six 2-D generators — difficulty ranking.
+# Cell 0 (base product) IS the spiral row; the five includes swap dataset.generator + params
+# wholesale (P2-proven juniper-data param shapes). Checkerboard is expected to under-fit at this
+# budget (P2: val 0.545 vs 0.501 majority) — that is the ranking's point, not a defect.
+schema_version: 1
+suite:
+  name: e-b-cascor-dataset-difficulty
+  description: "E-B: fixed budget across spiral/xor/circles/moon/gaussian/checkerboard"
+  app: cascor
+  base_config: [../../../../../juniper-cascor/conf/experiments/spiral-smoke.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1800}
+include:
+  - {name: xor, overrides: {dataset.generator: xor, dataset.params: {n_points_per_quadrant: 250, noise: 0.05, seed: 20260807}}}
+  - {name: circles, overrides: {dataset.generator: circles, dataset.params: {n_samples: 1000, noise: 0.05, seed: 20260807}}}
+  - {name: moon, overrides: {dataset.generator: moon, dataset.params: {n_samples: 1000, noise: 0.1, seed: 20260807}}}
+  - {name: gaussian, overrides: {dataset.generator: gaussian, dataset.params: {n_classes: 3, n_samples_per_class: 300, n_features: 2, seed: 20260807}}}
+  - {name: checkerboard, overrides: {dataset.generator: checkerboard, dataset.params: {n_samples: 2000, n_squares: 4, noise: 0.05, seed: 20260807}}}
+outputs: {suite_dir: null, aggregate: [csv, markdown]}
