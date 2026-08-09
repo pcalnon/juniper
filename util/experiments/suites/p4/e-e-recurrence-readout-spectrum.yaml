@@ -1,0 +1,13 @@
+# E-E (plan §10.5): readout in {linear,rff,mlp} on delay_product AND irregular_sine — the DP-3
+# capacity separation, reproducibly (expect separation on delay_product, ties on irregular_sine).
+schema_version: 1
+suite:
+  name: e-e-recurrence-readout-spectrum
+  description: "E-E: readout spectrum on delay_product + irregular_sine"
+  app: recurrence
+  base_config: [../../../../../juniper-recurrence/conf/experiments/irregular-sine-rff.yaml, ../../../../../juniper-recurrence/conf/experiments/delay-product-rff.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1200}
+matrix:
+  train.readout: [linear, rff, mlp]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}
