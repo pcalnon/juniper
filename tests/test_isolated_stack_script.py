@@ -396,7 +396,7 @@ class TestDryRunDown(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("stop juniper-canopy on 8051", result.stdout)
-            self.assertIn("snapshot_*", result.stdout)
+            self.assertIn("snapshot_*.h5", result.stdout)
             self.assertFalse(run_dir.exists(), "dry-run --down must not create/remove anything on disk")
 
     def test_dry_down_includes_recurrence_port(self) -> None:
@@ -1436,9 +1436,13 @@ class TestLiveDown(unittest.TestCase):
             data_dir.mkdir(parents=True)
             (run_dir / "juniper-data.pid").write_text("1\n")
             (run_dir / "juniper-cascor.pid").write_text("2\n")
-            (project_dir / "juniper-cascor/src/snapshots/snapshot_keepme.bin").write_text("x")
-            (project_dir / "juniper-canopy/src/snapshots/snapshot_keepme.bin").write_text("y")
-            # Non-matching snapshot name must survive the snapshot_* cleanup.
+            (project_dir / "juniper-cascor/src/snapshots/snapshot_20260809T000000Z.h5").write_text("x")
+            (project_dir / "juniper-canopy/src/snapshots/snapshot_20260809T000001Z.h5").write_text("y")
+            # cascor's src/snapshots/ is a PYTHON PACKAGE: snapshot_*.py source modules
+            # MUST survive teardown (a bare snapshot_* glob deleted them — the 4081f5b
+            # over-deletion class, reproduced 2026-08-09).
+            (project_dir / "juniper-cascor/src/snapshots/snapshot_cli.py").write_text("# source module")
+            # Non-.h5 artifacts must survive the snapshot_*.h5 cleanup.
             (project_dir / "juniper-cascor/src/snapshots/other.bin").write_text("z")
 
             env = RedactedEnv(os.environ)
@@ -1466,16 +1470,20 @@ class TestLiveDown(unittest.TestCase):
             self.assertFalse((run_dir / "juniper-data.pid").exists())
             self.assertFalse((run_dir / "juniper-cascor.pid").exists())
             self.assertFalse(
-                (project_dir / "juniper-cascor/src/snapshots/snapshot_keepme.bin").exists(),
-                "cascor snapshot_* must be cleaned",
+                (project_dir / "juniper-cascor/src/snapshots/snapshot_20260809T000000Z.h5").exists(),
+                "cascor snapshot_*.h5 must be cleaned",
             )
             self.assertFalse(
-                (project_dir / "juniper-canopy/src/snapshots/snapshot_keepme.bin").exists(),
-                "canopy snapshot_* must be cleaned",
+                (project_dir / "juniper-canopy/src/snapshots/snapshot_20260809T000001Z.h5").exists(),
+                "canopy snapshot_*.h5 must be cleaned",
+            )
+            self.assertTrue(
+                (project_dir / "juniper-cascor/src/snapshots/snapshot_cli.py").exists(),
+                "snapshot_*.py SOURCE MODULES must survive teardown (4081f5b class)",
             )
             self.assertTrue(
                 (project_dir / "juniper-cascor/src/snapshots/other.bin").exists(),
-                "non-snapshot_* artifacts must be preserved",
+                "non-.h5 artifacts must be preserved",
             )
 
 

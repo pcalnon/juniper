@@ -440,12 +440,16 @@ do_down() {
     stop_port "${DATA_PORT}" "juniper-data"
 
     announce "rm -rf ${RUN_DIR}/data ${DATA_VENV} ${RUN_DIR}/*.pid   # run artifacts"
-    announce "rm -f ${CASCOR_SRC_DIR}/snapshots/snapshot_* ${CANOPY_SRC_DIR}/snapshots/snapshot_*   # snapshot artifacts"
+    announce "rm -f ${CASCOR_SRC_DIR}/snapshots/snapshot_*.h5 ${CANOPY_SRC_DIR}/snapshots/snapshot_*.h5   # snapshot artifacts (.h5 ONLY)"
     if is_dry; then return 0; fi
     rm -rf "${RUN_DIR}/data" "${DATA_VENV}" || true
     rm -f "${RUN_DIR}"/*.pid || true
-    rm -f "${CASCOR_SRC_DIR}"/snapshots/snapshot_* 2>/dev/null || true
-    rm -f "${CANOPY_SRC_DIR}"/snapshots/snapshot_* 2>/dev/null || true
+    # .h5 ONLY — cascor's src/snapshots/ is a PYTHON PACKAGE whose modules are named
+    # snapshot_*.py; a bare snapshot_* glob deletes the source code alongside the runtime
+    # artifacts (reproduced 2026-08-09; the same sweep pattern as the cascor 4081f5b
+    # over-deletion that broke main).
+    rm -f "${CASCOR_SRC_DIR}"/snapshots/snapshot_*.h5 2>/dev/null || true
+    rm -f "${CANOPY_SRC_DIR}"/snapshots/snapshot_*.h5 2>/dev/null || true
     log "Teardown complete"
 }
 
