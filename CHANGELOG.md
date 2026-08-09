@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-08-09
+
+### Fixed
+
+- **Meta-package TestPyPI publish verification switched to the two-phase form** (#1038):
+  phase 1 downloads the exact version from TestPyPI with `--no-deps` (artifact
+  provenance); phase 2 installs the downloaded wheel's `bare`/`[clients]`/`[tools]`
+  extras with dependencies resolved from PyPI **only** — a single index, so a
+  TestPyPI squatter can no longer shadow a real dependency (the `fastapi 1.0`
+  dependency-confusion failure that blocked the v0.7.0 publish). The TestPyPI
+  upload step now passes `skip-existing`.
+
+### Note
+
+- `v0.7.0` was tagged and uploaded to TestPyPI, but its publish failed at the
+  verification gate and the tag name was permanently retired by release
+  immutability — 0.7.1 is the first published release of the 0.7.0 content.
+
 ### Changed
 
 - `util/experiments/run_experiment.py`: the G-6 staging alias map gains `gaussian` and `checkerboard` (W-3 landed in juniper-cascor#490, including the server-side `n_samples`→`n_samples_per_class` gaussian translation), retiring the driver's W-3 refusal hint; generators outside the map (arc_agi, csv_import, the 3-D sequence family) now refuse with a §10.3 scope message. Tests updated (gaussian stages; arc_agi refusal arm).
