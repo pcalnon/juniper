@@ -143,7 +143,9 @@ def _stage_conda_fixture(root: Path) -> Path:
         bin_dir = conda_dir / "envs" / env_name / "bin"
         bin_dir.mkdir(parents=True, exist_ok=True)
         for bin_name in bins:
-            _write_stub(bin_dir / bin_name, "#!/usr/bin/env bash\nexec sleep 60\n")
+            # ``-c`` answers ``data_up``'s free-threading probe (1 = free-threaded); without
+            # it the probe's command substitution would block on the sleep below.
+            _write_stub(bin_dir / bin_name, "#!/usr/bin/env bash\n" 'if [[ "${1-}" == "-c" ]]; then echo 1; exit 0; fi\n' "exec sleep 60\n")
     return conda_dir
 
 
@@ -222,13 +224,22 @@ def _stage_live_path_stubs(root: Path, listeners_dir: Path) -> Path:
 
 
 def _write_listening_env_bin(path: Path, *, listeners_dir: Path, marker_dir: Path, label: str) -> None:
-    """Conda env bin that registers ``$$`` for ``ss`` then sleeps (F-6 live compose)."""
+    """Conda env bin that registers ``$$`` for ``ss`` then sleeps (F-6 live compose).
+
+    Also answers ``data_up``'s free-threading probe (``-c ...``) before the ``--port``
+    parsing: the default answer is 1 (free-threaded) so the ``PYTHON_GIL=0`` pins hold,
+    and a ``gil_probe_answer`` marker file overrides it to rehearse a stock CPython.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     _write_stub(
         path,
         textwrap.dedent(f"""\
             #!/usr/bin/env bash
             set -euo pipefail
+            if [[ "${{1-}}" == "-c" ]]; then
+              if [[ -f "{marker_dir}/gil_probe_answer" ]]; then cat "{marker_dir}/gil_probe_answer"; else echo 1; fi
+              exit 0
+            fi
             port=""
             prev=""
             for arg in "$@"; do
@@ -1398,7 +1409,9 @@ class TestDoUpFailClosedTeardown(unittest.TestCase):
             data_bin.mkdir(parents=True)
             _write_stub(
                 data_bin / "python",
-                "#!/usr/bin/env bash\n" "set -euo pipefail\n" 'port=""\n' "while [[ $# -gt 0 ]]; do\n" '  case "$1" in\n' '    --port) port="$2"; shift 2 ;;\n' "    *) shift ;;\n" "  esac\n" "done\n" f'printf "%s\\n" "$$" >"{listeners_dir}/$port.pid"\n'
+                "#!/usr/bin/env bash\n" "set -euo pipefail\n"
+                # Answer data_up's free-threading probe (free-threaded) without sleeping.
+                'if [[ "${1-}" == "-c" ]]; then echo 1; exit 0; fi\n' 'port=""\n' "while [[ $# -gt 0 ]]; do\n" '  case "$1" in\n' '    --port) port="$2"; shift 2 ;;\n' "    *) shift ;;\n" "  esac\n" "done\n" f'printf "%s\\n" "$$" >"{listeners_dir}/$port.pid"\n'
                 # No ``exec``: keep this bash pid's cmdline stable for kill_verified_pid.
                 "sleep 60\n",
             )
@@ -1490,6 +1503,8 @@ class TestDoUpFailClosedTeardown(unittest.TestCase):
             listener_stub = (
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
+                # Answer data_up's free-threading probe (free-threaded) without sleeping.
+                'if [[ "${1-}" == "-c" ]]; then echo 1; exit 0; fi\n'
                 'port=""\n'
                 "while [[ $# -gt 0 ]]; do\n"
                 '  case "$1" in\n'
@@ -1617,6 +1632,9 @@ class _LiveUpHarness(unittest.TestCase):
     def _run_harness(self, harness: str, *, stub_bin: Path) -> subprocess.CompletedProcess[str]:
         env = RedactedEnv(os.environ)
         env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+        # The launcher is the only thing allowed to set PYTHON_GIL here; an ambient value
+        # would leak into the stub's recorded env and decide the GIL assertions for us.
+        env.pop("PYTHON_GIL", None)
         return subprocess.run(
             ["/bin/bash", "-c", harness],
             capture_output=True,
@@ -1674,6 +1692,62 @@ class TestDataUpLive(_LiveUpHarness):
                 self.assertTrue(cmdline.strip(), "cmdline sidecar must be recorded for teardown")
                 launch_env = (run_dir / "env" / "launch.env").read_text()
                 self.assertIn("PYTHON_GIL=0", launch_env)
+            finally:
+                if child_pid is not None:
+                    _force_kill(child_pid)
+
+    def test_stock_build_omits_python_gil(self) -> None:
+        """A stock (non-free-threaded) CPython must never be handed ``PYTHON_GIL=0``.
+
+        Passing it is FATAL at interpreter startup — "Fatal Python error:
+        config_read_gil: Disabling the GIL is not supported by this build" — so the data
+        leg dies pre-bind and burns the whole health gate (the 2026-08-09 host regression
+        that also hit ``isolated_stack.bash``). The probe answering 0 must OMIT the toggle
+        from the launched env AND record it honestly (empty) in ``env/launch.env``.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            marker_dir = root / "markers"
+            listeners_dir = root / "listeners"
+            project_dir = root / "project"
+            conda_dir = root / "conda"
+            (project_dir / "juniper-cascor" / "src").mkdir(parents=True)
+            marker_dir.mkdir(parents=True)
+            (marker_dir / "gil_probe_answer").write_text("0\n")
+            stub_bin = _stage_live_path_stubs(root, listeners_dir)
+            _write_listening_env_bin(
+                conda_dir / "envs" / "JuniperData" / "bin" / "python",
+                listeners_dir=listeners_dir,
+                marker_dir=marker_dir,
+                label="data",
+            )
+            harness = self._common_prelude(run_dir=run_dir, conda_dir=conda_dir, project_dir=project_dir) + _extract_experiment_fn("data_up") + "data_up\n"
+            result = self._run_harness(harness, stub_bin=stub_bin)
+            pid_path = run_dir / "juniper-data.pid"
+            child_pid: int | None = None
+            try:
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertTrue(pid_path.is_file(), "an omitted toggle must not disturb the F-6 listener pid")
+                child_pid = int(pid_path.read_text().strip())
+                # Assert over FILTERED lines, never the whole recorded env: the stub's
+                # ``JUNIPER_`` grep also captures ambient secrets, and a failing assertion
+                # renders its arguments (the tests/redacted_env.py leak class).
+                env_lines = (marker_dir / "data.env").read_text().splitlines()
+                self.assertEqual(
+                    [line for line in env_lines if line.startswith("PYTHON_GIL")],
+                    [],
+                    "a stock CPython must be handed no PYTHON_GIL at all",
+                )
+                # The rest of the §6.1 recipe is untouched by the conditional.
+                data_lines = [line for line in env_lines if line.startswith("JUNIPER_DATA_")]
+                self.assertIn(f"JUNIPER_DATA_STORAGE_PATH={run_dir}/data", data_lines)
+                self.assertIn(f"JUNIPER_DATA_EQUITIES_CACHE_DIR={run_dir}/equities-cache", data_lines)
+                self.assertIn("JUNIPER_DATA_METRICS_ENABLED=true", data_lines)
+                # env/launch.env is evidence: empty value, never a false PYTHON_GIL=0.
+                launch_env = (run_dir / "env" / "launch.env").read_text()
+                self.assertNotIn("PYTHON_GIL=0", launch_env)
+                self.assertIn("PYTHON_GIL=\n", launch_env)
             finally:
                 if child_pid is not None:
                     _force_kill(child_pid)
