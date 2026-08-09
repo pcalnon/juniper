@@ -1,0 +1,17 @@
+# E-C (plan §10.5): noise robustness — accuracy-vs-noise on spiral (matrix) and moon (includes).
+schema_version: 1
+suite:
+  name: e-c-cascor-noise-robustness
+  description: "E-C: noise in {0.0,0.05,0.1,0.2} on spiral + moon"
+  app: cascor
+  base_config: [../../../../../juniper-cascor/conf/experiments/spiral-smoke.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1800}
+matrix:
+  dataset.params.noise: [0.0, 0.05, 0.1, 0.2]
+include:
+  - {name: moon-n0, overrides: {dataset.generator: moon, dataset.params: {n_samples: 1000, noise: 0.0, seed: 20260807}}}
+  - {name: moon-n05, overrides: {dataset.generator: moon, dataset.params: {n_samples: 1000, noise: 0.05, seed: 20260807}}}
+  - {name: moon-n10, overrides: {dataset.generator: moon, dataset.params: {n_samples: 1000, noise: 0.1, seed: 20260807}}}
+  - {name: moon-n20, overrides: {dataset.generator: moon, dataset.params: {n_samples: 1000, noise: 0.2, seed: 20260807}}}
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

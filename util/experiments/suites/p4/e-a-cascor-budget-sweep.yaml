@@ -1,0 +1,19 @@
+# E-A (plan §10.5): cascade budget x candidate pool on spiral — accuracy/units/wall-clock surface.
+# Full-budget base (spiral-baseline); 4x3 product minus the cost-control exclude, plus wide-pool-long.
+schema_version: 1
+suite:
+  name: e-a-cascor-budget-sweep
+  description: "E-A: max_hidden_units x candidate_pool_size on spiral (baseline budget)"
+  app: cascor
+  base_config: [../../../../../juniper-cascor/conf/experiments/spiral-baseline.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 3600}
+matrix:
+  training.params.max_hidden_units: [4, 8, 16, 32]
+  training.params.candidate_pool_size: [4, 8, 16]
+exclude:
+  - {training.params.max_hidden_units: 32, training.params.candidate_pool_size: 16}
+include:
+  - name: wide-pool-long
+    overrides: {training.params.candidate_pool_size: 32, training.params.max_epochs: 5000}
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

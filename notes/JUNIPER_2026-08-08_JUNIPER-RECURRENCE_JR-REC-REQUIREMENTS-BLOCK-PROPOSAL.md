@@ -13,8 +13,8 @@
 
 `notes/requirements/README.md` owner-repo enum (currently `cas/can/dat/dep/ml/cwk/ccl/dcl`, fixed as of the 2026-05-12 snapshot) gains:
 
-| Code | Repo |
-| --- | --- |
+| Code  | Repo                                                                                                       |
+|-------|------------------------------------------------------------------------------------------------------------|
 | `rec` | `juniper-recurrence` (monorepo: app + `juniper-recurrence-model` + `juniper-recurrence-client` + `bench/`) |
 
 No new area codes — the locked 15 suffice. ID format unchanged: `JR-REC-<AREA>-<NNN>`.

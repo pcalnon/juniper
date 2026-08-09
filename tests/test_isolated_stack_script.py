@@ -345,11 +345,42 @@ class TestDryRunUp(unittest.TestCase):
                 Path(tmp) / "run",
                 env_extra={"JUNIPER_E2E_CANOPY_PORT": "9051", "JUNIPER_E2E_DATA_EXTRAS": "api,mnist"},
             ).stdout
-            # canopy takes its port via JUNIPER_CANOPY_PORT (env), not a --port flag.
-            self.assertIn("JUNIPER_CANOPY_PORT=9051", out)
+            # canopy takes its port via the NESTED JUNIPER_CANOPY_SERVER__PORT (env), not a
+            # --port flag. The flat JUNIPER_CANOPY_PORT is NOT a canopy setting: Settings has
+            # extra="ignore" + env_nested_delimiter="__", so the flat form is silently dropped
+            # and canopy binds 8050 — the operator port (E2E plan §4.2, trap T-1).
+            self.assertIn("JUNIPER_CANOPY_SERVER__PORT=9051", out)
+            self.assertIn("JUNIPER_CANOPY_SERVER__HOST=127.0.0.1", out)
+            # Negative guard so the T-1 bug cannot re-land: the flat form must be gone.
+            self.assertNotIn("JUNIPER_CANOPY_PORT=", out)
             self.assertIn("[api,mnist]", out)
             # The WS pair must track the overridden canopy port on both ends.
             self.assertIn("JUNIPER_CANOPY_CASCOR_WS_ORIGIN=http://127.0.0.1:9051", out)
+
+    def test_dry_up_with_recurrence_prints_leg_and_canopy_url(self) -> None:
+        # PR-M2: the fourth leg's announce lines + the canopy hand-off, all print-only.
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run"
+            result = _run(
+                "--dry-run",
+                "--up",
+                "--with-recurrence",
+                env_extra={"JUNIPER_E2E_PROJECT_DIR": "/opt/juniper-e2e-fixture", "JUNIPER_E2E_RUN_DIR": str(run_dir)},
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            out = result.stdout
+            self.assertIn("8211 occupancy pre-check", out)
+            self.assertIn("serve --host 127.0.0.1 --port 8211", out)
+            self.assertIn("JUNIPER_CANOPY_RECURRENCE_SERVICE_URL=http://127.0.0.1:8211", out)
+            self.assertIn("/v1/health/ready", out)
+            self.assertFalse(run_dir.exists(), "dry-run --up --with-recurrence must not touch the run dir")
+
+    def test_dry_up_without_recurrence_flag_omits_leg(self) -> None:
+        # Default posture unchanged: no recurrence launch, no canopy recurrence URL.
+        with tempfile.TemporaryDirectory() as tmp:
+            out = self._dry_up(Path(tmp) / "run").stdout
+            self.assertNotIn("juniper-recurrence", out)
+            self.assertNotIn("JUNIPER_CANOPY_RECURRENCE_SERVICE_URL", out)
 
 
 class TestDryRunDown(unittest.TestCase):
@@ -365,8 +396,20 @@ class TestDryRunDown(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("stop juniper-canopy on 8051", result.stdout)
-            self.assertIn("snapshot_*", result.stdout)
+            self.assertIn("snapshot_*.h5", result.stdout)
             self.assertFalse(run_dir.exists(), "dry-run --down must not create/remove anything on disk")
+
+    def test_dry_down_includes_recurrence_port(self) -> None:
+        # --down covers the optional fourth leg unconditionally (idempotent when absent).
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run"
+            result = _run(
+                "--dry-run",
+                "--down",
+                env_extra={"JUNIPER_E2E_PROJECT_DIR": "/opt/juniper-e2e-fixture", "JUNIPER_E2E_RUN_DIR": str(run_dir)},
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("stop juniper-recurrence on 8211", result.stdout)
 
 
 class _CondaServiceUpHarness(unittest.TestCase):
@@ -422,10 +465,13 @@ conda() {{
   printf 'JUNIPER_DATA_URL=%s\\n' "${{JUNIPER_DATA_URL-}}"
   printf 'JUNIPER_CASCOR_WS_CONTROL_ALLOWED_ORIGINS=%s\\n' "${{JUNIPER_CASCOR_WS_CONTROL_ALLOWED_ORIGINS-}}"
   printf 'JUNIPER_CANOPY_DEMO_MODE=%s\\n' "${{JUNIPER_CANOPY_DEMO_MODE-}}"
-  printf 'JUNIPER_CANOPY_PORT=%s\\n' "${{JUNIPER_CANOPY_PORT-}}"
+  printf 'JUNIPER_CANOPY_SERVER__HOST=%s\\n' "${{JUNIPER_CANOPY_SERVER__HOST-}}"
+  printf 'JUNIPER_CANOPY_SERVER__PORT=%s\\n' "${{JUNIPER_CANOPY_SERVER__PORT-}}"
+  printf 'JUNIPER_CANOPY_PORT_FLAT=%s\\n' "${{JUNIPER_CANOPY_PORT-}}"
   printf 'JUNIPER_CANOPY_CASCOR_SERVICE_URL=%s\\n' "${{JUNIPER_CANOPY_CASCOR_SERVICE_URL-}}"
   printf 'JUNIPER_CANOPY_JUNIPER_DATA_URL=%s\\n' "${{JUNIPER_CANOPY_JUNIPER_DATA_URL-}}"
   printf 'JUNIPER_CANOPY_CASCOR_WS_ORIGIN=%s\\n' "${{JUNIPER_CANOPY_CASCOR_WS_ORIGIN-}}"
+  printf 'JUNIPER_CANOPY_RECURRENCE_SERVICE_URL=%s\\n' "${{JUNIPER_CANOPY_RECURRENCE_SERVICE_URL-}}"
 }} >"{env_log}"
 exit 0
 """
@@ -447,9 +493,13 @@ exit 0
         canopy_port: str = "65051",
         cascor_conda: str = "JuniperCascor1",
         canopy_conda: str = "JuniperCanopy1",
+        with_recurrence: str = "0",
+        recurrence_port: str = "65211",
+        recurrence_bin: "str | None" = None,
     ) -> subprocess.CompletedProcess[str]:
         src_dir.mkdir(parents=True, exist_ok=True)
         log_dir = run_dir / "logs"
+        effective_recurrence_bin = recurrence_bin or str(conda_dir / "envs" / "JuniperCascor1" / "bin" / "juniper-recurrence")
         harness = f"""
             set -euo pipefail
             SCRIPT_NAME="isolated_stack.bash"
@@ -464,6 +514,10 @@ exit 0
             CANOPY_ORIGIN="http://127.0.0.1:{canopy_port}"
             CASCOR_CONDA="{cascor_conda}"
             CANOPY_CONDA="{canopy_conda}"
+            WITH_RECURRENCE="{with_recurrence}"
+            RECURRENCE_PORT="{recurrence_port}"
+            RECURRENCE_CONDA="JuniperCascor1"
+            RECURRENCE_BIN="{effective_recurrence_bin}"
             CONDA_DIR="{conda_dir}"
             CONDA_SH="{conda_dir}/etc/profile.d/conda.sh"
             HEALTH_TIMEOUT=5
@@ -606,7 +660,11 @@ class TestCanopyUp(_CondaServiceUpHarness):
 
             env_text = _read_marker_when_written(env_log)
             self.assertIn("JUNIPER_CANOPY_DEMO_MODE=0", env_text)
-            self.assertIn("JUNIPER_CANOPY_PORT=65051", env_text)
+            self.assertIn("JUNIPER_CANOPY_SERVER__HOST=127.0.0.1", env_text)
+            self.assertIn("JUNIPER_CANOPY_SERVER__PORT=65051", env_text)
+            # Negative guard (T-1): canopy_up must NOT export the flat JUNIPER_CANOPY_PORT —
+            # canopy silently ignores it (extra="ignore") and would bind operator port 8050.
+            self.assertIn("JUNIPER_CANOPY_PORT_FLAT=\n", env_text)
             self.assertIn(
                 "JUNIPER_CANOPY_CASCOR_SERVICE_URL=http://127.0.0.1:65202",
                 env_text,
@@ -619,6 +677,9 @@ class TestCanopyUp(_CondaServiceUpHarness):
                 "JUNIPER_CANOPY_CASCOR_WS_ORIGIN=http://127.0.0.1:65051",
                 env_text,
             )
+            # Without --with-recurrence the URL must be UNSET (empty probe line) — an empty
+            # string export would read as "configured" to canopy's settings (plan §4.5).
+            self.assertIn("JUNIPER_CANOPY_RECURRENCE_SERVICE_URL=\n", env_text)
 
             pid_path = run_dir / "juniper-canopy.pid"
             self.assertTrue(pid_path.is_file(), "canopy_up must write juniper-canopy.pid")
@@ -654,6 +715,141 @@ class TestCanopyUp(_CondaServiceUpHarness):
         self.assertIn("JUNIPER_CANOPY_DEMO_MODE=0", canopy_body)
         self.assertIn('JUNIPER_CANOPY_CASCOR_WS_ORIGIN="${CANOPY_ORIGIN}"', canopy_body)
         self.assertIn('echo "$!" >"${RUN_DIR}/juniper-canopy.pid"', canopy_body)
+
+
+class TestRecurrenceLeg(_CondaServiceUpHarness):
+    """PR-M2 (--with-recurrence): canopy hand-off, recurrence_up compose, 8211 pre-check."""
+
+    def _stage_recurrence_bin(self, conda_dir: Path, root: Path) -> "tuple[Path, Path, Path]":
+        """Stage a stub juniper-recurrence console script at the env-bin path recurrence_up execs."""
+        launch_log = root / "recurrence-launch.log"
+        env_log = root / "recurrence-env.log"
+        for path in (launch_log, env_log):
+            path.write_text("")
+        bin_dir = conda_dir / "envs" / "JuniperCascor1" / "bin"
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        stub = bin_dir / "juniper-recurrence"
+        stub.write_text(f"""#!/usr/bin/env bash
+{{
+  printf 'juniper-recurrence'
+  printf ' %q' "$@"
+  printf '\\n'
+}} >>"{launch_log}"
+{{
+  printf 'LD_LIBRARY_PATH=%s\\n' "${{LD_LIBRARY_PATH-__UNSET__}}"
+  printf 'JUNIPER_DATA_URL=%s\\n' "${{JUNIPER_DATA_URL-}}"
+  printf 'JUNIPER_RECURRENCE_METRICS_ENABLED=%s\\n' "${{JUNIPER_RECURRENCE_METRICS_ENABLED-}}"
+  printf 'JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=%s\\n' "${{JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED-}}"
+}} >"{env_log}"
+exit 0
+""")
+        stub.chmod(0o755)
+        return stub, launch_log, env_log
+
+    def test_canopy_up_with_recurrence_exports_service_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            src_dir = root / "project" / "juniper-canopy" / "src"
+            stub_bin, conda_dir, _conda_log, _launch_log, env_log = self._stage_conda_and_stubs(root, launch_name="python")
+            result = self._run_up(
+                fn_name="canopy_up",
+                stub_bin=stub_bin,
+                conda_dir=conda_dir,
+                run_dir=run_dir,
+                src_dir=src_dir,
+                with_recurrence="1",
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("STATUS=0", result.stdout)
+            env_text = _read_marker_when_written(env_log)
+            self.assertIn("JUNIPER_CANOPY_RECURRENCE_SERVICE_URL=http://127.0.0.1:65211", env_text)
+
+    def test_recurrence_up_launches_console_script_with_env_and_pid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            src_dir = root / "project" / "unused" / "src"
+            stub_bin, conda_dir, _conda_log, _canopy_launch, _canopy_env = self._stage_conda_and_stubs(root, launch_name="python")
+            stub, launch_log, env_log = self._stage_recurrence_bin(conda_dir, root)
+            result = self._run_up(
+                fn_name="recurrence_up",
+                stub_bin=stub_bin,
+                conda_dir=conda_dir,
+                run_dir=run_dir,
+                src_dir=src_dir,
+                recurrence_bin=str(stub),
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("STATUS=0", result.stdout)
+            self.assertIn("juniper-recurrence is healthy", result.stdout)
+            # Health gate is the READY endpoint (experiment_stack parity).
+            self.assertIn("/v1/health/ready", result.stdout)
+
+            launch = _read_marker_when_written(launch_log)
+            self.assertIn("serve --host 127.0.0.1 --port 65211", launch)
+
+            env_text = _read_marker_when_written(env_log)
+            # Emptied (torch/libtorch shadow, cascor-leg parity), not merely unset.
+            self.assertIn("LD_LIBRARY_PATH=\n", env_text)
+            self.assertNotIn("LD_LIBRARY_PATH=__UNSET__", env_text)
+            self.assertIn("JUNIPER_DATA_URL=http://127.0.0.1:65101", env_text)
+            self.assertIn("JUNIPER_RECURRENCE_METRICS_ENABLED=true", env_text)
+            self.assertIn("JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=false", env_text)
+
+            pid_path = run_dir / "juniper-recurrence.pid"
+            self.assertTrue(pid_path.is_file(), "recurrence_up must write juniper-recurrence.pid")
+            self.assertRegex(pid_path.read_text().strip(), r"^[0-9]+$")
+
+    def test_recurrence_up_missing_bin_aborts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            src_dir = root / "project" / "unused" / "src"
+            stub_bin, conda_dir, _conda_log, _launch_log, _env_log = self._stage_conda_and_stubs(root, launch_name="python")
+            missing = root / "nonexistent" / "juniper-recurrence"
+            result = self._run_up(
+                fn_name="recurrence_up",
+                stub_bin=stub_bin,
+                conda_dir=conda_dir,
+                run_dir=run_dir,
+                src_dir=src_dir,
+                recurrence_bin=str(missing),
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("STATUS=1", result.stdout)
+            self.assertIn("console script not found", result.stdout)
+            self.assertFalse((run_dir / "juniper-recurrence.pid").exists())
+
+    def test_up_with_recurrence_precheck_aborts_on_live_listener(self) -> None:
+        # A real listener on the recurrence port must abort --up BEFORE any leg starts;
+        # the expected collider is juniper-deploy's root-owned docker-proxy on 8211
+        # (which ss lists without a pid= field for non-root callers — hence port_in_use,
+        # not port_pid, backs the pre-check).
+        import socket
+
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            srv.bind(("127.0.0.1", 0))
+            srv.listen(1)
+            port = srv.getsockname()[1]
+            with tempfile.TemporaryDirectory() as tmp:
+                run_dir = Path(tmp) / "run"
+                result = _run(
+                    "--up",
+                    "--with-recurrence",
+                    env_extra={
+                        "JUNIPER_E2E_PROJECT_DIR": "/opt/juniper-e2e-fixture",
+                        "JUNIPER_E2E_RUN_DIR": str(run_dir),
+                        "JUNIPER_E2E_RECURRENCE_PORT": str(port),
+                    },
+                )
+                self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+                self.assertIn("already has a listener", result.stdout)
+                self.assertIn("refusing to start the recurrence leg", result.stdout)
+                self.assertFalse(run_dir.exists(), "pre-check must abort before any leg touches the run dir")
+        finally:
+            srv.close()
 
 
 class TestDataUpLive(unittest.TestCase):
@@ -717,9 +913,15 @@ class TestDataUpLive(unittest.TestCase):
             f'printf "%s\\n" "$@" >>"{marker_dir}/pip.log"\n'
             "exit 0\n"
             "PIP\n"
-            # python: record PYTHON_GIL + argv, then sleep so the pidfile stays live.
+            # python: answer the free-threading probe (-c), else record PYTHON_GIL + argv
+            # and sleep so the pidfile stays live. Probe answer defaults to 1 (free-threaded)
+            # and can be overridden via a gil_probe_answer marker file.
             "cat >\"$dest/bin/python\" <<'PY'\n"
             "#!/usr/bin/env bash\n"
+            'if [[ "${1-}" == "-c" ]]; then\n'
+            f'  if [[ -f "{marker_dir}/gil_probe_answer" ]]; then cat "{marker_dir}/gil_probe_answer"; else echo 1; fi\n'
+            "  exit 0\n"
+            "fi\n"
             f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env"\n'
             f'printf "%s\\n" "$@" >"{marker_dir}/python.args"\n'
             "exec sleep 60\n"
@@ -837,7 +1039,7 @@ class TestDataUpLive(unittest.TestCase):
             (data_venv / "bin" / "activate").write_text('_OLD_VIRTUAL_PATH="$PATH"\n' f'VIRTUAL_ENV="{data_venv}"\n' "export VIRTUAL_ENV\n" 'PATH="$VIRTUAL_ENV/bin:$PATH"\n' "export PATH\n" "deactivate() {\n" '  PATH="$_OLD_VIRTUAL_PATH"\n' "  export PATH\n" "  unset VIRTUAL_ENV\n" "  unset -f deactivate 2>/dev/null || true\n" "}\n")
             (data_venv / "bin" / "pip").write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" >>"{marker_dir}/pip.log"\n' "exit 0\n")
             (data_venv / "bin" / "pip").chmod(0o755)
-            (data_venv / "bin" / "python").write_text("#!/usr/bin/env bash\n" f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env"\n' f'printf "%s\\n" "$@" >"{marker_dir}/python.args"\n' "exec sleep 60\n")
+            (data_venv / "bin" / "python").write_text("#!/usr/bin/env bash\n" 'if [[ "${1-}" == "-c" ]]; then\n' f'  if [[ -f "{marker_dir}/gil_probe_answer" ]]; then cat "{marker_dir}/gil_probe_answer"; else echo 1; fi\n' "  exit 0\n" "fi\n" f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env"\n' f'printf "%s\\n" "$@" >"{marker_dir}/python.args"\n' "exec sleep 60\n")
             (data_venv / "bin" / "python").chmod(0o755)
             # python3.14 stub that FAILS if -m venv is invoked (proves skip).
             (bin_dir / "python3.14").write_text("#!/usr/bin/env bash\n" f'echo "VENV_SHOULD_NOT_RUN" >>"{marker_dir}/venv.log"\n' "exit 99\n")
@@ -862,6 +1064,49 @@ class TestDataUpLive(unittest.TestCase):
                 self.assertTrue(pid_path.exists())
                 child_pid = int(pid_path.read_text().strip())
                 self.assertEqual(_read_marker_when_written(marker_dir / "python.env").strip(), "PYTHON_GIL=0")
+            finally:
+                if child_pid is not None:
+                    self._force_kill(child_pid)
+
+    def test_stock_build_omits_python_gil(self) -> None:
+        # On a stock (non-free-threaded) CPython, PYTHON_GIL=0 is FATAL at startup
+        # ("config_read_gil: Disabling the GIL is not supported by this build") — the
+        # 2026-08-09 rehearsal failure. The probe answering 0 must OMIT the toggle.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            data_dir = root / "juniper-data"
+            marker_dir = root / "markers"
+            bin_dir = root / "bin"
+            data_dir.mkdir()
+            marker_dir.mkdir()
+            bin_dir.mkdir()
+            (marker_dir / "gil_probe_answer").write_text("0\n")
+            data_venv = run_dir / ".venv-data"
+            (data_venv / "bin").mkdir(parents=True)
+            (data_venv / "bin" / "activate").write_text('_OLD_VIRTUAL_PATH="$PATH"\n' f'VIRTUAL_ENV="{data_venv}"\n' "export VIRTUAL_ENV\n" 'PATH="$VIRTUAL_ENV/bin:$PATH"\n' "export PATH\n" "deactivate() {\n" '  PATH="$_OLD_VIRTUAL_PATH"\n' "  export PATH\n" "  unset VIRTUAL_ENV\n" "  unset -f deactivate 2>/dev/null || true\n" "}\n")
+            (data_venv / "bin" / "pip").write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" >>"{marker_dir}/pip.log"\n' "exit 0\n")
+            (data_venv / "bin" / "pip").chmod(0o755)
+            (data_venv / "bin" / "python").write_text("#!/usr/bin/env bash\n" 'if [[ "${1-}" == "-c" ]]; then\n' f'  if [[ -f "{marker_dir}/gil_probe_answer" ]]; then cat "{marker_dir}/gil_probe_answer"; else echo 1; fi\n' "  exit 0\n" "fi\n" f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env"\n' f'printf "%s\\n" "$@" >"{marker_dir}/python.args"\n' "exec sleep 60\n")
+            (data_venv / "bin" / "python").chmod(0o755)
+            (bin_dir / "python3.14").write_text("#!/usr/bin/env bash\n" f'echo "VENV_SHOULD_NOT_RUN" >>"{marker_dir}/venv.log"\n' "exit 99\n")
+            (bin_dir / "python3.14").chmod(0o755)
+            self._write_curl_ok(bin_dir)
+
+            result = self._run_data_up(
+                run_dir=run_dir,
+                data_dir=data_dir,
+                marker_dir=marker_dir,
+                bin_dir=bin_dir,
+            )
+            pid_path = run_dir / "juniper-data.pid"
+            child_pid: "int | None" = None
+            try:
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertTrue(pid_path.exists())
+                child_pid = int(pid_path.read_text().strip())
+                # The toggle must be ABSENT (empty probe value), never PYTHON_GIL=0.
+                self.assertEqual(_read_marker_when_written(marker_dir / "python.env").strip(), "PYTHON_GIL=")
             finally:
                 if child_pid is not None:
                     self._force_kill(child_pid)
@@ -1191,9 +1436,13 @@ class TestLiveDown(unittest.TestCase):
             data_dir.mkdir(parents=True)
             (run_dir / "juniper-data.pid").write_text("1\n")
             (run_dir / "juniper-cascor.pid").write_text("2\n")
-            (project_dir / "juniper-cascor/src/snapshots/snapshot_keepme.bin").write_text("x")
-            (project_dir / "juniper-canopy/src/snapshots/snapshot_keepme.bin").write_text("y")
-            # Non-matching snapshot name must survive the snapshot_* cleanup.
+            (project_dir / "juniper-cascor/src/snapshots/snapshot_20260809T000000Z.h5").write_text("x")
+            (project_dir / "juniper-canopy/src/snapshots/snapshot_20260809T000001Z.h5").write_text("y")
+            # cascor's src/snapshots/ is a PYTHON PACKAGE: snapshot_*.py source modules
+            # MUST survive teardown (a bare snapshot_* glob deleted them — the 4081f5b
+            # over-deletion class, reproduced 2026-08-09).
+            (project_dir / "juniper-cascor/src/snapshots/snapshot_cli.py").write_text("# source module")
+            # Non-.h5 artifacts must survive the snapshot_*.h5 cleanup.
             (project_dir / "juniper-cascor/src/snapshots/other.bin").write_text("z")
 
             env = RedactedEnv(os.environ)
@@ -1221,16 +1470,20 @@ class TestLiveDown(unittest.TestCase):
             self.assertFalse((run_dir / "juniper-data.pid").exists())
             self.assertFalse((run_dir / "juniper-cascor.pid").exists())
             self.assertFalse(
-                (project_dir / "juniper-cascor/src/snapshots/snapshot_keepme.bin").exists(),
-                "cascor snapshot_* must be cleaned",
+                (project_dir / "juniper-cascor/src/snapshots/snapshot_20260809T000000Z.h5").exists(),
+                "cascor snapshot_*.h5 must be cleaned",
             )
             self.assertFalse(
-                (project_dir / "juniper-canopy/src/snapshots/snapshot_keepme.bin").exists(),
-                "canopy snapshot_* must be cleaned",
+                (project_dir / "juniper-canopy/src/snapshots/snapshot_20260809T000001Z.h5").exists(),
+                "canopy snapshot_*.h5 must be cleaned",
+            )
+            self.assertTrue(
+                (project_dir / "juniper-cascor/src/snapshots/snapshot_cli.py").exists(),
+                "snapshot_*.py SOURCE MODULES must survive teardown (4081f5b class)",
             )
             self.assertTrue(
                 (project_dir / "juniper-cascor/src/snapshots/other.bin").exists(),
-                "non-snapshot_* artifacts must be preserved",
+                "non-.h5 artifacts must be preserved",
             )
 
 
@@ -1497,6 +1750,8 @@ class TestDoUpPartialFailureTeardown(unittest.TestCase):
                 "PIP\n"
                 "cat >\"$dest/bin/python\" <<'PY'\n"
                 "#!/usr/bin/env bash\n"
+                # Answer the free-threading probe (-c) without blocking; else act as the listener.
+                'if [[ "${1-}" == "-c" ]]; then echo 1; exit 0; fi\n'
                 f'printf "%s\\n" "$$" >"{listeners_dir}/{data_port}.pid"\n'
                 "exec sleep 60\n"
                 "PY\n"
