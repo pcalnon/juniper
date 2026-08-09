@@ -14,12 +14,20 @@
 # the [api] extra provides uvicorn) — the JuniperData conda env is left pristine.
 # juniper-cascor + juniper-canopy run from their known-good conda envs.
 #
-# Flags (exactly one action, plus optional --dry-run):
+# Flags (exactly one action, plus optional --dry-run / --with-recurrence):
 #   --up        Create the data venv, then launch data -> cascor -> canopy (health-gated).
 #               On a mid-bring-up failure, tears the partial trio back down via --down
 #               (experiment_stack do_up parity — never leave orphan listeners on 8101/8202/8051).
-#   --down      Stop the trio by port and clean run + snapshot artifacts.
-#   --status    Probe the three health endpoints and list what is listening on each port.
+#   --with-recurrence
+#               With --up: also launch juniper-recurrence on 8211 (console script from the
+#               JuniperCascor1 env, health-gated on /v1/health/ready) BETWEEN cascor and canopy,
+#               and hand canopy JUNIPER_CANOPY_RECURRENCE_SERVICE_URL so the Recurrence (LMU)
+#               model is drivable end-to-end (E2E plan §4.5 / PR-M2). Occupancy pre-check:
+#               8211 is exactly the host port a running juniper-deploy stack publishes for the
+#               recurrence container (host 8211 -> ctr 8210), so --up aborts loudly BEFORE
+#               starting any leg if something already listens there.
+#   --down      Stop the stack by port (incl. the optional recurrence leg) and clean artifacts.
+#   --status    Probe the health endpoints (incl. recurrence) and list what is listening.
 #   --dry-run   PRINT every command that --up/--down/--status would run, execute nothing.
 #               (Use this when 8101/8202/8051 may already be in use.)
 #   --help,-h   Print usage and exit.
@@ -32,6 +40,10 @@
 #   JUNIPER_E2E_CONDA_DIR      — miniforge/conda dir     (default: /opt/miniforge3)
 #   JUNIPER_E2E_CASCOR_CONDA   — cascor conda env        (default: JuniperCascor1)
 #   JUNIPER_E2E_CANOPY_CONDA   — canopy conda env        (default: JuniperCanopy1)
+#   JUNIPER_E2E_RECURRENCE_PORT  — juniper-recurrence port (default: 8211)
+#   JUNIPER_E2E_RECURRENCE_CONDA — env holding the juniper-recurrence console script
+#                                  (default: JuniperCascor1 — no dedicated recurrence env;
+#                                  matches experiment_stack.bash JUNIPER_EXP_RECURRENCE_CONDA)
 #   JUNIPER_E2E_RUN_DIR        — scratch run dir (venv/logs/data) (default: ${TMPDIR:-/tmp}/juniper-e2e)
 #   JUNIPER_E2E_DATA_EXTRAS    — juniper-data pip extras  (default: api; use api,mnist for the D2/I-5 checks)
 #   JUNIPER_E2E_HEALTH_TIMEOUT — per-service health wait, seconds (default: 60)
@@ -66,6 +78,13 @@ CONDA_SH="${CONDA_DIR}/etc/profile.d/conda.sh"
 CASCOR_CONDA="${JUNIPER_E2E_CASCOR_CONDA:-JuniperCascor1}"
 CANOPY_CONDA="${JUNIPER_E2E_CANOPY_CONDA:-JuniperCanopy1}"
 
+# Optional fourth leg (--with-recurrence; E2E plan §4.5 / PR-M2). No dedicated recurrence
+# conda env exists — the console script ships in JuniperCascor1, matching experiment_stack.
+RECURRENCE_PORT="${JUNIPER_E2E_RECURRENCE_PORT:-8211}"
+RECURRENCE_CONDA="${JUNIPER_E2E_RECURRENCE_CONDA:-JuniperCascor1}"
+RECURRENCE_BIN="${CONDA_DIR}/envs/${RECURRENCE_CONDA}/bin/juniper-recurrence"
+WITH_RECURRENCE=0
+
 RUN_DIR="${JUNIPER_E2E_RUN_DIR:-${TMPDIR:-/tmp}/juniper-e2e}"
 DATA_VENV="${RUN_DIR}/.venv-data"
 LOG_DIR="${RUN_DIR}/logs"
@@ -87,12 +106,16 @@ usage() {
     cat <<USAGE
 ${SCRIPT_NAME} — isolated training-runtime E2E stack (data ${DATA_PORT} / cascor ${CASCOR_PORT} / canopy ${CANOPY_PORT})
 
-Usage: ${SCRIPT_NAME} [--dry-run] (--up | --down | --status)
+Usage: ${SCRIPT_NAME} [--dry-run] [--with-recurrence] (--up | --down | --status)
        ${SCRIPT_NAME} --help
 
   --up       Create the data venv, then launch data -> cascor -> canopy (health-gated).
-  --down     Stop the trio by port and clean run + snapshot artifacts.
-  --status   Probe the three health endpoints and list listening ports.
+  --with-recurrence
+             With --up: also launch juniper-recurrence on ${RECURRENCE_PORT} (health-gated on
+             /v1/health/ready) and hand canopy JUNIPER_CANOPY_RECURRENCE_SERVICE_URL.
+             Pre-checks ${RECURRENCE_PORT} for a listener first (juniper-deploy publishes it).
+  --down     Stop the stack by port (incl. the optional recurrence leg) and clean artifacts.
+  --status   Probe the health endpoints (incl. recurrence) and list listening ports.
   --dry-run  Print every command without executing it (safe when the ports are in use).
   --help,-h  Print this help.
 
@@ -130,6 +153,15 @@ port_pid() {
     local port="$1" out
     out="$(ss -tlnpH "sport = :${port}" 2>/dev/null | grep -oE 'pid=[0-9]+' | head -n1 | cut -d= -f2 || true)"
     printf '%s' "${out}"
+}
+
+# True if ANY listener holds the port. Deliberately not pid-based: the expected 8211
+# collider is a root-owned docker-proxy (juniper-deploy maps host 8211 -> recurrence
+# container 8210), whose pid= field ss omits for non-root callers — port_pid would
+# false-pass exactly the case the pre-check exists for.
+port_in_use() {
+    local port="$1"
+    [[ -n "$(ss -tlnH "sport = :${port}" 2>/dev/null)" ]]
 }
 
 # Poll a health URL until 200 or timeout (live mode only).
@@ -187,7 +219,7 @@ data_up() {
     announce "python3.14 -m venv ${DATA_VENV}"
     announce "source ${DATA_VENV}/bin/activate"
     announce "pip install -e '${DATA_DIR}[${DATA_EXTRAS}]' prometheus_client juniper-observability"
-    announce "python -m juniper_data --host 127.0.0.1 --port ${DATA_PORT}   # nohup -> ${LOG_DIR}/juniper-data.log"
+    announce "python -m juniper_data --host 127.0.0.1 --port ${DATA_PORT}   # nohup -> ${LOG_DIR}/juniper-data.log (+PYTHON_GIL=0 iff the venv python is a free-threaded build)"
     if is_dry; then return 0; fi
 
     # Explicit ``|| return 1``: do_up invokes this as ``data_up || failed=1``, which
@@ -200,9 +232,17 @@ data_up() {
     # shellcheck source=/dev/null
     source "${DATA_VENV}/bin/activate" || return 1
     pip install -q -e "${DATA_DIR}[${DATA_EXTRAS}]" prometheus_client juniper-observability || return 1
+    # PYTHON_GIL=0 aborts a stock (non-free-threaded) CPython at startup — "Fatal Python
+    # error: config_read_gil: Disabling the GIL is not supported by this build" — and the
+    # host python3.14 lost its free-threaded build to OS updates (2026-08-09 rehearsal).
+    # Probe the venv interpreter and pass PYTHON_GIL=0 only when it is supported.
+    local -a gil_env=()
+    if [[ "$(python -c 'import sysconfig; print(sysconfig.get_config_var("Py_GIL_DISABLED") or 0)' 2>/dev/null)" == "1" ]]; then
+        gil_env=("PYTHON_GIL=0")
+    fi
     (
         cd "${RUN_DIR}"
-        PYTHON_GIL=0 nohup python -m juniper_data --host 127.0.0.1 --port "${DATA_PORT}" >"${LOG_DIR}/juniper-data.log" 2>&1 &
+        nohup env "${gil_env[@]}" python -m juniper_data --host 127.0.0.1 --port "${DATA_PORT}" >"${LOG_DIR}/juniper-data.log" 2>&1 &
         echo "$!" >"${RUN_DIR}/juniper-data.pid"
     )
     deactivate || true
@@ -235,12 +275,68 @@ cascor_up() {
 
 
 ###########################################################################################################################################################################################################
+# Bring-up (OPT-IN, --with-recurrence): juniper-recurrence console script on 8211 (E2E plan §4.5 / PR-M2)
+###########################################################################################################################################################################################################
+# 8211 is exactly the host port a running juniper-deploy stack publishes for the recurrence
+# container (host 8211 -> ctr 8210, juniper-recurrence settings.py), so a live compose stack
+# can already hold it. Abort loudly BEFORE any leg starts — nothing is up yet, so there is
+# nothing to tear down and the operator stack is never touched.
+recurrence_port_precheck() {
+    announce "ss -tlnH \"sport = :${RECURRENCE_PORT}\"   # 8211 occupancy pre-check (deploy maps host 8211 -> recurrence ctr 8210)"
+    if is_dry; then return 0; fi
+    if port_in_use "${RECURRENCE_PORT}"; then
+        log "ERROR: port ${RECURRENCE_PORT} already has a listener — likely the juniper-deploy stack (host 8211 -> recurrence container 8210)."
+        log "ERROR: refusing to start the recurrence leg; stop the collider or set JUNIPER_E2E_RECURRENCE_PORT."
+        return 1
+    fi
+}
+
+recurrence_up() {
+    banner "juniper-recurrence  ->  http://127.0.0.1:${RECURRENCE_PORT}  (${RECURRENCE_CONDA}, console script)"
+    announce "LD_LIBRARY_PATH= JUNIPER_RECURRENCE_METRICS_ENABLED=true JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=false JUNIPER_DATA_URL=http://127.0.0.1:${DATA_PORT} ${RECURRENCE_BIN} serve --host 127.0.0.1 --port ${RECURRENCE_PORT}   # nohup -> ${LOG_DIR}/juniper-recurrence.log"
+    if is_dry; then return 0; fi
+
+    ensure_dir "${RUN_DIR}"
+    ensure_dir "${LOG_DIR}"
+    # See data_up: ``recurrence_up || failed=1`` disables set -e inside this body.
+    if [[ ! -x "${RECURRENCE_BIN}" ]]; then
+        log "ERROR: juniper-recurrence console script not found at ${RECURRENCE_BIN} (set JUNIPER_E2E_RECURRENCE_CONDA)"
+        return 1
+    fi
+    (
+        cd "${RUN_DIR}"
+        # LD_LIBRARY_PATH emptied like the cascor leg: recurrence imports torch (LMU) from
+        # the same JuniperCascor1 env, so the rust_mudgeon libtorch shadow applies here too.
+        LD_LIBRARY_PATH='' \
+            JUNIPER_RECURRENCE_METRICS_ENABLED=true \
+            JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=false \
+            JUNIPER_DATA_URL="http://127.0.0.1:${DATA_PORT}" \
+            nohup "${RECURRENCE_BIN}" serve --host 127.0.0.1 --port "${RECURRENCE_PORT}" >"${LOG_DIR}/juniper-recurrence.log" 2>&1 &
+        echo "$!" >"${RUN_DIR}/juniper-recurrence.pid"
+    )
+    # Readiness endpoint is /v1/health/ready (experiment_stack parity); recurrence needs
+    # 10-15 s of import before it binds, which the default 60 s HEALTH_TIMEOUT covers.
+    wait_for_health "juniper-recurrence" "http://127.0.0.1:${RECURRENCE_PORT}/v1/health/ready" || return 1
+}
+
+
+###########################################################################################################################################################################################################
 # Bring-up: juniper-canopy (JuniperCanopy1), service mode, WS Origin aligned to cascor's allowlist
 ###########################################################################################################################################################################################################
 canopy_up() {
+    # Optional recurrence hand-off: only when the fourth leg is up does canopy get a
+    # RECURRENCE_SERVICE_URL. Never export an empty string — canopy's settings would
+    # treat "" as configured and the model-select swap would aim at a dead URL.
+    local recurrence_env_announce=""
+    local -a extra_env=()
+    if (( WITH_RECURRENCE == 1 )); then
+        recurrence_env_announce="JUNIPER_CANOPY_RECURRENCE_SERVICE_URL=http://127.0.0.1:${RECURRENCE_PORT} "
+        extra_env+=("JUNIPER_CANOPY_RECURRENCE_SERVICE_URL=http://127.0.0.1:${RECURRENCE_PORT}")
+    fi
+
     banner "juniper-canopy  ->  http://127.0.0.1:${CANOPY_PORT}  (${CANOPY_CONDA}, service mode)"
     announce "conda activate ${CANOPY_CONDA} && cd ${CANOPY_SRC_DIR}"
-    announce "JUNIPER_CANOPY_DEMO_MODE=0 JUNIPER_CANOPY_PORT=${CANOPY_PORT} JUNIPER_CANOPY_CASCOR_SERVICE_URL=http://127.0.0.1:${CASCOR_PORT} JUNIPER_CANOPY_JUNIPER_DATA_URL=http://127.0.0.1:${DATA_PORT} JUNIPER_CANOPY_CASCOR_WS_ORIGIN=${CANOPY_ORIGIN} python main.py   # nohup -> ${LOG_DIR}/juniper-canopy.log"
+    announce "JUNIPER_CANOPY_DEMO_MODE=0 JUNIPER_CANOPY_SERVER__HOST=127.0.0.1 JUNIPER_CANOPY_SERVER__PORT=${CANOPY_PORT} JUNIPER_CANOPY_CASCOR_SERVICE_URL=http://127.0.0.1:${CASCOR_PORT} JUNIPER_CANOPY_JUNIPER_DATA_URL=http://127.0.0.1:${DATA_PORT} JUNIPER_CANOPY_CASCOR_WS_ORIGIN=${CANOPY_ORIGIN} ${recurrence_env_announce}python main.py   # nohup -> ${LOG_DIR}/juniper-canopy.log"
     if is_dry; then return 0; fi
 
     ensure_dir "${LOG_DIR}"
@@ -248,12 +344,19 @@ canopy_up() {
     activate_conda "${CANOPY_CONDA}" || return 1
     (
         cd "${CANOPY_SRC_DIR}"
-        JUNIPER_CANOPY_DEMO_MODE=0 \
-            JUNIPER_CANOPY_PORT="${CANOPY_PORT}" \
+        # Canopy's bind address lives on the NESTED ServerSettings (env_nested_delimiter="__",
+        # canopy src/settings.py) and Settings has extra="ignore", so the flat
+        # JUNIPER_CANOPY_PORT is silently dropped and canopy binds 8050 — the operator port
+        # (E2E plan §4.2, trap T-1). Only the SERVER__-nested names are read.
+        nohup env \
+            JUNIPER_CANOPY_DEMO_MODE=0 \
+            JUNIPER_CANOPY_SERVER__HOST=127.0.0.1 \
+            JUNIPER_CANOPY_SERVER__PORT="${CANOPY_PORT}" \
             JUNIPER_CANOPY_CASCOR_SERVICE_URL="http://127.0.0.1:${CASCOR_PORT}" \
             JUNIPER_CANOPY_JUNIPER_DATA_URL="http://127.0.0.1:${DATA_PORT}" \
             JUNIPER_CANOPY_CASCOR_WS_ORIGIN="${CANOPY_ORIGIN}" \
-            nohup python main.py >"${LOG_DIR}/juniper-canopy.log" 2>&1 &
+            "${extra_env[@]}" \
+            python main.py >"${LOG_DIR}/juniper-canopy.log" 2>&1 &
         echo "$!" >"${RUN_DIR}/juniper-canopy.pid"
     )
     wait_for_health "juniper-canopy" "http://127.0.0.1:${CANOPY_PORT}/v1/health" || return 1
@@ -281,16 +384,27 @@ stop_port() {
 # Action: --up
 ###########################################################################################################################################################################################################
 do_up() {
-    banner "Bringing UP the isolated E2E trio (data ${DATA_PORT} / cascor ${CASCOR_PORT} / canopy ${CANOPY_PORT})"
+    local stack_desc="data ${DATA_PORT} / cascor ${CASCOR_PORT} / canopy ${CANOPY_PORT}"
+    if (( WITH_RECURRENCE == 1 )); then
+        stack_desc+=" / recurrence ${RECURRENCE_PORT}"
+    fi
+    banner "Bringing UP the isolated E2E trio (${stack_desc})"
     if is_dry; then log "DRY-RUN: printing commands only, launching nothing"; fi
 
-    # --- launches, in deterministic order data -> cascor -> canopy -----------------------
+    # 8211 occupancy pre-check BEFORE any leg starts: nothing is up yet, so a collision
+    # (typically the juniper-deploy compose stack) aborts with zero teardown needed.
+    if (( WITH_RECURRENCE == 1 )); then
+        recurrence_port_precheck || return 1
+    fi
+
+    # --- launches, in deterministic order data -> cascor [-> recurrence] -> canopy -------
     # Under ``set -e``, a bare ``cascor_up`` / ``canopy_up`` failure would exit the script
     # immediately and leave earlier listeners orphaned on the E2E ports. Mirror
     # experiment_stack.bash: absorb each failure into ``failed``, then tear down.
     local failed=0
     data_up || failed=1
     if (( failed == 0 )); then cascor_up || failed=1; fi
+    if (( failed == 0 && WITH_RECURRENCE == 1 )); then recurrence_up || failed=1; fi
     if (( failed == 0 )); then canopy_up || failed=1; fi
 
     if (( failed == 1 )); then
@@ -304,6 +418,9 @@ do_up() {
     banner "Isolated E2E trio is up"
     log "data   : http://127.0.0.1:${DATA_PORT}/v1/health"
     log "cascor : http://127.0.0.1:${CASCOR_PORT}/v1/health"
+    if (( WITH_RECURRENCE == 1 )); then
+        log "recurrence : http://127.0.0.1:${RECURRENCE_PORT}/v1/health/ready"
+    fi
     log "canopy : http://127.0.0.1:${CANOPY_PORT}/v1/health"
 }
 
@@ -314,17 +431,25 @@ do_up() {
 do_down() {
     banner "Bringing DOWN the isolated E2E trio + cleaning artifacts"
     if is_dry; then log "DRY-RUN: printing commands only, removing nothing"; fi
+    # Reverse dependency order; the recurrence stop is unconditional (idempotent when the
+    # leg was never started — stop_port logs "nothing listening"), so --down does not need
+    # to know whether --up ran with --with-recurrence.
     stop_port "${CANOPY_PORT}" "juniper-canopy"
+    stop_port "${RECURRENCE_PORT}" "juniper-recurrence"
     stop_port "${CASCOR_PORT}" "juniper-cascor"
     stop_port "${DATA_PORT}" "juniper-data"
 
     announce "rm -rf ${RUN_DIR}/data ${DATA_VENV} ${RUN_DIR}/*.pid   # run artifacts"
-    announce "rm -f ${CASCOR_SRC_DIR}/snapshots/snapshot_* ${CANOPY_SRC_DIR}/snapshots/snapshot_*   # snapshot artifacts"
+    announce "rm -f ${CASCOR_SRC_DIR}/snapshots/snapshot_*.h5 ${CANOPY_SRC_DIR}/snapshots/snapshot_*.h5   # snapshot artifacts (.h5 ONLY)"
     if is_dry; then return 0; fi
     rm -rf "${RUN_DIR}/data" "${DATA_VENV}" || true
     rm -f "${RUN_DIR}"/*.pid || true
-    rm -f "${CASCOR_SRC_DIR}"/snapshots/snapshot_* 2>/dev/null || true
-    rm -f "${CANOPY_SRC_DIR}"/snapshots/snapshot_* 2>/dev/null || true
+    # .h5 ONLY — cascor's src/snapshots/ is a PYTHON PACKAGE whose modules are named
+    # snapshot_*.py; a bare snapshot_* glob deletes the source code alongside the runtime
+    # artifacts (reproduced 2026-08-09; the same sweep pattern as the cascor 4081f5b
+    # over-deletion that broke main).
+    rm -f "${CASCOR_SRC_DIR}"/snapshots/snapshot_*.h5 2>/dev/null || true
+    rm -f "${CANOPY_SRC_DIR}"/snapshots/snapshot_*.h5 2>/dev/null || true
     log "Teardown complete"
 }
 
@@ -345,6 +470,8 @@ do_status() {
     banner "Isolated E2E trio status"
     probe_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health" "${DATA_PORT}"
     probe_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health" "${CASCOR_PORT}"
+    # Unconditional: health=000 pid=none is the honest reading when the optional leg is down.
+    probe_health "juniper-recurrence" "http://127.0.0.1:${RECURRENCE_PORT}/v1/health/ready" "${RECURRENCE_PORT}"
     probe_health "juniper-canopy" "http://127.0.0.1:${CANOPY_PORT}/v1/health" "${CANOPY_PORT}"
 }
 
@@ -367,6 +494,7 @@ while [[ $# -gt 0 ]]; do
         --down) set_action down ;;
         --status) set_action status ;;
         --dry-run) DRY_RUN=1 ;;
+        --with-recurrence) WITH_RECURRENCE=1 ;;
         --help | -h) usage; exit 0 ;;
         *)
             log "ERROR: unknown argument '$1'"

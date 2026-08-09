@@ -7,16 +7,36 @@ uploaded wheel installs from TestPyPI AND that the light extras ``[clients]`` an
 (mistyped name, missing roll-up, dangling self-ref) that only the bare install
 would catch would otherwise ship to production PyPI.
 
+**2026-08-08 two-phase amendment (owner-approved).** The verify used to pass
+``--index-url <testpypi> --extra-index-url <pypi>`` to a single ``pip install``.
+pip has NO index priority: those two flags form ONE merged namespace and pip picks
+the HIGHEST version across both. That is a dependency-confusion vector -- a TestPyPI
+squatter outranks the real package. It fired for real: TestPyPI ``fastapi 1.0`` (a
+broken sdist) beat production ``fastapi 0.141.1`` and killed the v0.7.0 verify
+(run 31281873275). The verify is now two phases:
+
+  * **Phase 1 (provenance)** -- ``pip download --no-deps`` from TestPyPI ONLY, at the
+    exact ``==${VERSION}``, so the artifact under test provably came from TestPyPI.
+  * **Phase 2 (resolution)** -- ``pip install`` the LOCAL wheel (optionally with
+    extras) against production PyPI ONLY. No ``--no-deps``, so extras/dependency
+    resolution is genuinely exercised; single index, so nothing can be confused.
+
 This unittest:
-  1. Structurally pins the verify step's three install specs, TestPyPI index-url,
-     production PyPI ``--extra-index-url`` (required for deps; the meta-package
-     exception documented in ``test_workflow_script_paths.py``), the absence of
-     ``--no-deps``, the tomllib version read, the ``pypi needs: testpypi`` gate,
-     and the ``v*`` release-tag guard.
-  2. Extracts the verify shell and runs it hermetically with PATH stubs for
-     ``sleep`` / ``pip`` / ``python`` so a rewrite that drops a verify step, swaps
-     the index URLs, or stops walking extras fails in CI without hitting the
-     network.
+  1. Structurally pins both phases: the download phase's TestPyPI-only index +
+     ``--no-deps`` + exact ``==${VERSION}``, the three install phases' PyPI-only index
+     + local-wheel target + extras + absence of ``--no-deps``, the tomllib version read,
+     TestPyPI upload ``skip-existing`` (PyPI stays strict), the ``pypi needs: testpypi``
+     gate, and the ``v*`` release-tag guard.
+  2. Enforces the anti-regression invariant: NO verify command may carry
+     ``--extra-index-url``, and no single command may name both index URLs (the merged
+     namespace). A synthetic-violation self-test proves that check actually bites.
+  3. Extracts the verify shell and runs it hermetically with PATH stubs for
+     ``sleep`` / ``mktemp`` / ``pip`` / ``python`` so a rewrite that drops a phase, swaps
+     the index URLs, or stops walking extras fails in CI without hitting the network --
+     including a negative arm proving the missing-wheel guard aborts before any install.
+
+Assertions target *executable* lines only (comments are stripped), so the workflow may
+document the merged-namespace rationale without tripping its own gate.
 
 Neither the workflow YAML nor ``util/`` is pre-commit-lint-gated for these
 properties, so this unittest IS the gate.
@@ -45,15 +65,15 @@ from tests.redacted_env import RedactedEnv
 WORKFLOW_NAME = "publish.yml"
 VERIFY_STEP_NAME = "Verify TestPyPI install"
 TESTPYPI_INDEX = "https://test.pypi.org/simple/"
-PYPI_EXTRA_INDEX = "https://pypi.org/simple/"
+PYPI_INDEX = "https://pypi.org/simple/"
+
+# Rehearsal version + the wheel the download phase is contracted to produce.
+REHEARSAL_VERSION = "9.9.9"
+WHEEL_TEMPLATE = "juniper_ml-{version}-py3-none-any.whl"
 
 # Light extras exercised at publish time (no torch). Order is part of the contract
 # (bare first, then clients, then tools) so a truncated verify cannot silently ship.
-EXPECTED_INSTALL_SPECS = (
-    "juniper-ml==VERSION",
-    "juniper-ml[clients]==VERSION",
-    "juniper-ml[tools]==VERSION",
-)
+EXPECTED_INSTALL_EXTRAS = ("", "[clients]", "[tools]")
 
 
 def _find_repo_root(start: Path) -> Path:
@@ -71,8 +91,31 @@ def _verify_step_run(doc: dict) -> str:
     return step["run"]
 
 
+def _command_lines(script: str) -> list[str]:
+    """Executable lines of a shell step: comments and blanks stripped.
+
+    The workflow documents the dependency-confusion rationale in comments that
+    necessarily name ``--extra-index-url``; the contract is about what actually RUNS.
+    """
+    return [ln.strip() for ln in script.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+
+
+def _merges_index_namespaces(line: str) -> bool:
+    """True when ONE command names both index URLs -- the merged-namespace form.
+
+    Compares full index URLs, never bare hosts: ``test.pypi.org`` contains ``pypi.org``
+    as a substring, so a host-level check would report a false positive on every
+    TestPyPI-only command.
+    """
+    return TESTPYPI_INDEX in line and PYPI_INDEX in line
+
+
+def _pip_command_lines(script: str, subcommand: str) -> list[str]:
+    return [ln for ln in _command_lines(script) if re.match(rf"^pip\s+{subcommand}\b", ln)]
+
+
 class PublishTestPyPIVerifyStructuralTest(unittest.TestCase):
-    """Pin publish.yml verify wiring so a casual edit cannot drop extras resolution."""
+    """Pin publish.yml verify wiring so a casual edit cannot drop a phase or merge indexes."""
 
     repo_root: Path
     workflow_path: Path
@@ -117,31 +160,73 @@ class PublishTestPyPIVerifyStructuralTest(unittest.TestCase):
         self.assertIn("pyproject.toml", self.script)
         self.assertIn("['project']['version']", self.script)
 
-    def test_verify_three_install_specs_in_order(self) -> None:
+    # ── Phase 1: artifact provenance ────────────────────────────────────────────────
+    def test_download_phase_is_testpypi_only_at_exact_version(self) -> None:
+        downloads = _pip_command_lines(self.script, "download")
+        self.assertEqual(len(downloads), 1, f"expected exactly one `pip download` provenance phase, got {downloads}")
+        line = downloads[0]
+        self.assertIn("--no-deps", line, "provenance phase must be --no-deps (it resolves nothing)")
+        self.assertIn(f"--index-url {TESTPYPI_INDEX}", line)
+        self.assertNotIn(PYPI_INDEX, line, "the artifact MUST come from TestPyPI only")
+        self.assertIn('"juniper-ml==${VERSION}"', line, "provenance phase must pin the exact built version")
+        self.assertIn("--dest", line)
+
+    def test_download_phase_precedes_every_install(self) -> None:
+        lines = _command_lines(self.script)
+        dl = next(i for i, ln in enumerate(lines) if re.match(r"^pip\s+download\b", ln))
+        first_install = next(i for i, ln in enumerate(lines) if re.match(r"^pip\s+install\b", ln))
+        self.assertLess(dl, first_install, "download the artifact before installing it")
+
+    def test_wheel_path_is_version_pinned_and_guarded(self) -> None:
+        # The install target must be the exact expected wheel, and a missing wheel must
+        # abort loudly rather than hand a bogus path to pip.
+        self.assertIn(WHEEL_TEMPLATE.format(version="${VERSION}"), self.script)
+        self.assertIn('if [ ! -f "${WHEEL}" ]', self.script)
+        self.assertIn("exit 1", self.script)
+
+    # ── Phase 2: dependency resolution from ONE index ───────────────────────────────
+    def test_install_phase_uses_pypi_index_only_and_local_wheel(self) -> None:
+        installs = _pip_command_lines(self.script, "install")
+        self.assertEqual(len(installs), 3, f"expected exactly 3 install phases (bare/[clients]/[tools]), got {installs}")
+        for line in installs:
+            with self.subTest(line=line):
+                self.assertIn(f"--index-url {PYPI_INDEX}", line, "deps must resolve from production PyPI")
+                self.assertNotIn(TESTPYPI_INDEX, line, "install phase must not touch TestPyPI")
+                self.assertIn("${WHEEL}", line, "install target must be the locally downloaded TestPyPI wheel")
+                self.assertNotIn("--no-deps", line, "extras/dependency resolution must be genuinely exercised")
+
+    def test_install_phases_cover_bare_then_clients_then_tools(self) -> None:
         # Bare -> [clients] -> [tools]. A missing extras step is the exact ship-silent class.
-        bare = self.script.find('"juniper-ml==${VERSION}"')
-        clients = self.script.find('"juniper-ml[clients]==${VERSION}"')
-        tools = self.script.find('"juniper-ml[tools]==${VERSION}"')
-        self.assertNotEqual(bare, -1, "bare juniper-ml==VERSION install missing")
-        self.assertNotEqual(clients, -1, "[clients] extras install missing")
-        self.assertNotEqual(tools, -1, "[tools] extras install missing")
-        self.assertLess(bare, clients)
-        self.assertLess(clients, tools)
+        installs = _pip_command_lines(self.script, "install")
+        for line, extra in zip(installs, EXPECTED_INSTALL_EXTRAS):
+            with self.subTest(extra=extra or "<bare>"):
+                self.assertTrue(
+                    line.endswith(f'"${{WHEEL}}{extra}"'),
+                    f'expected install spec ending in "${{WHEEL}}{extra}", got: {line}',
+                )
 
-    def test_verify_uses_testpypi_index_and_pypi_extra_index(self) -> None:
-        # Meta-package exception: deps come from production PyPI; the target must come from TestPyPI.
-        self.assertGreaterEqual(self.script.count(f"--index-url {TESTPYPI_INDEX}"), 3)
-        self.assertGreaterEqual(self.script.count(f"--extra-index-url {PYPI_EXTRA_INDEX}"), 3)
+    # ── Anti-regression: the merged namespace must never come back ──────────────────
+    def test_no_verify_command_uses_extra_index_url(self) -> None:
+        offenders = [ln for ln in _command_lines(self.script) if "--extra-index-url" in ln]
+        self.assertEqual(
+            offenders,
+            [],
+            "--extra-index-url reintroduces the merged index namespace that let a TestPyPI " "squatter (fastapi 1.0) outrank production fastapi 0.141.1 and kill the v0.7.0 " f"verify (run 31281873275). Offending command(s): {offenders}",
+        )
 
-    def test_verify_does_not_use_no_deps(self) -> None:
-        # --no-deps + --extra-index-url is the supply-chain hole covered by
-        # test_workflow_script_paths; the meta verify must install WITH deps.
-        self.assertNotIn("--no-deps", self.script)
+    def test_no_verify_command_merges_both_index_namespaces(self) -> None:
+        offenders = [ln for ln in _command_lines(self.script) if _merges_index_namespaces(ln)]
+        self.assertEqual(
+            offenders,
+            [],
+            "a single pip command names BOTH TestPyPI and production PyPI. pip has no index " "priority -- it picks the highest version across the merged namespace, so a " f"TestPyPI squatter wins. Split into download-then-install phases. Offenders: {offenders}",
+        )
 
     def test_verify_does_not_install_heavy_extras(self) -> None:
         # [worker]/[servers]/[all]/[recurrence] pull torch / multi-GB; keep publish verify light.
         for heavy in ("[worker]", "[servers]", "[all]", "[recurrence]"):
             with self.subTest(extra=heavy):
+                self.assertNotIn(f"${{WHEEL}}{heavy}", self.script)
                 self.assertNotIn(f"juniper-ml{heavy}", self.script)
 
     def test_verify_imports_clients_and_tools_surfaces(self) -> None:
@@ -154,9 +239,56 @@ class PublishTestPyPIVerifyStructuralTest(unittest.TestCase):
         self.assertEqual(self.doc["jobs"]["pypi"].get("environment"), "pypi")
         self.assertEqual(self.doc.get("permissions"), {"id-token": "write"})
 
+    def test_testpypi_upload_skips_existing_but_pypi_stays_strict(self) -> None:
+        # A re-cut Release republishes a version TestPyPI already holds (immutable upload).
+        # TestPyPI tolerates it; production PyPI must NOT silently swallow a duplicate.
+        tp_steps = self.doc["jobs"]["testpypi"]["steps"]
+        tp_pub = next(s for s in tp_steps if str(s.get("uses", "")).startswith("pypa/gh-action-pypi-publish"))
+        self.assertIs(
+            (tp_pub.get("with") or {}).get("skip-existing"),
+            True,
+            "TestPyPI upload must set skip-existing: true so a Release recut is a no-op, not a 400.",
+        )
+        self.assertEqual((tp_pub.get("with") or {}).get("repository-url"), "https://test.pypi.org/legacy/")
+
+        py_steps = self.doc["jobs"]["pypi"]["steps"]
+        py_pub = next(s for s in py_steps if str(s.get("uses", "")).startswith("pypa/gh-action-pypi-publish"))
+        self.assertNotIn(
+            "skip-existing",
+            (py_pub.get("with") or {}),
+            "production PyPI upload must stay STRICT -- a duplicate upload is a real error.",
+        )
+
+
+class MergedNamespaceDetectorTest(unittest.TestCase):
+    """Synthetic-violation self-test: prove the merged-namespace check actually bites."""
+
+    def test_detects_the_pre_amendment_merged_form(self) -> None:
+        regressed = f'pip install --index-url {TESTPYPI_INDEX} --extra-index-url {PYPI_INDEX} "juniper-ml[clients]==${{VERSION}}"'
+        self.assertTrue(
+            _merges_index_namespaces(regressed),
+            "the exact pre-2026-08-08 form that failed run 31281873275 must be detected",
+        )
+
+    def test_single_index_forms_are_clean(self) -> None:
+        for line in (
+            f'pip download --no-deps --index-url {TESTPYPI_INDEX} --dest "${{D}}" "juniper-ml==${{VERSION}}"',
+            f'pip install --index-url {PYPI_INDEX} "${{WHEEL}}[tools]"',
+        ):
+            with self.subTest(line=line):
+                self.assertFalse(_merges_index_namespaces(line))
+
+    def test_testpypi_only_line_is_not_a_false_positive(self) -> None:
+        # Guards the substring trap: "test.pypi.org" contains "pypi.org".
+        self.assertFalse(_merges_index_namespaces(f"pip download --index-url {TESTPYPI_INDEX} juniper-ml"))
+
+    def test_command_lines_strips_comments(self) -> None:
+        script = "# pip install --extra-index-url https://pypi.org/simple/ foo\npip install bar\n\n   # trailing note\n"
+        self.assertEqual(_command_lines(script), ["pip install bar"])
+
 
 class PublishTestPyPIVerifyRehearsalTest(unittest.TestCase):
-    """Run the extracted verify shell with PATH stubs — prove the ACTUAL three pip specs fire."""
+    """Run the extracted verify shell with PATH stubs — prove the ACTUAL two phases fire."""
 
     script: str
 
@@ -168,27 +300,30 @@ class PublishTestPyPIVerifyRehearsalTest(unittest.TestCase):
             raise unittest.SkipTest(f"{WORKFLOW_NAME} not present at {wf}")
         cls.script = _verify_step_run(yaml.safe_load(wf.read_text(encoding="utf-8")))
 
-    def _write_stubs(self, bindir: Path, pip_log: Path, version: str = "9.9.9") -> None:
-        sleep = bindir / "sleep"
-        sleep.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
-        sleep.chmod(sleep.stat().st_mode | stat.S_IXUSR)
+    @staticmethod
+    def _write_exec(path: Path, body: str) -> None:
+        path.write_text(body, encoding="utf-8")
+        path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
-        pip = bindir / "pip"
-        pip.write_text(
-            "#!/bin/bash\n" f'printf "%s\\n" "$*" >> "{pip_log}"\n' "exit 0\n",
-            encoding="utf-8",
-        )
-        pip.chmod(pip.stat().st_mode | stat.S_IXUSR)
+    def _write_stubs(self, bindir: Path, pip_log: Path, mktemp_dir: Path, *, version: str, create_wheel: bool) -> None:
+        self._write_exec(bindir / "sleep", "#!/bin/bash\nexit 0\n")
+
+        # mktemp stub: deterministic dir INSIDE the test tree (keeps the rehearsal hermetic).
+        self._write_exec(bindir / "mktemp", "#!/bin/bash\n" f'mkdir -p "{mktemp_dir}"\n' f'printf "%s\\n" "{mktemp_dir}"\n' "exit 0\n")
+
+        # pip stub: logs every invocation; on `download` optionally materializes the wheel
+        # the workflow expects, so the download -> install handoff is genuinely exercised.
+        wheel_name = WHEEL_TEMPLATE.format(version=version)
+        make_wheel = "if [[ \"$1\" == 'download' ]]; then\n" '  dest=""; prev=""\n' '  for a in "$@"; do\n' '    if [[ "$prev" == "--dest" ]]; then dest="$a"; fi\n' '    prev="$a"\n' "  done\n" f'  if [[ -n "$dest" && "{int(create_wheel)}" == "1" ]]; then\n' '    mkdir -p "$dest"\n' f'    : > "$dest/{wheel_name}"\n' "  fi\n" "fi\n"
+        self._write_exec(bindir / "pip", "#!/bin/bash\n" f'printf "%s\\n" "$*" >> "{pip_log}"\n' f"{make_wheel}" "exit 0\n")
 
         # python stub: tomllib version probe prints VERSION; import probes succeed.
-        python = bindir / "python"
-        python.write_text(
+        self._write_exec(
+            bindir / "python",
             "#!/bin/bash\n" 'args="$*"\n' 'if [[ "$args" == *tomllib* ]]; then\n' f'  echo "{version}"\n' "  exit 0\n" "fi\n" "exit 0\n",
-            encoding="utf-8",
         )
-        python.chmod(python.stat().st_mode | stat.S_IXUSR)
 
-    def _run_verify(self) -> list[str]:
+    def _run_verify(self, *, create_wheel: bool = True) -> tuple[int, list[str], str]:
         with tempfile.TemporaryDirectory() as td:
             tdp = Path(td)
             bindir = tdp / "bin"
@@ -197,7 +332,7 @@ class PublishTestPyPIVerifyRehearsalTest(unittest.TestCase):
             pip_log.write_text("", encoding="utf-8")
             # Minimal pyproject so a non-stubbed python path still has a file (defensive).
             (tdp / "pyproject.toml").write_text('[project]\nname = "juniper-ml"\nversion = "9.9.9"\n', encoding="utf-8")
-            self._write_stubs(bindir, pip_log, version="9.9.9")
+            self._write_stubs(bindir, pip_log, tdp / "dl", version=REHEARSAL_VERSION, create_wheel=create_wheel)
             script_path = tdp / "verify.sh"
             script_path.write_text(self.script, encoding="utf-8")
             env = RedactedEnv(os.environ)
@@ -211,33 +346,58 @@ class PublishTestPyPIVerifyRehearsalTest(unittest.TestCase):
                 env=env,
                 check=False,
             )
-            self.assertEqual(
-                proc.returncode,
-                0,
-                f"verify shell exited {proc.returncode}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}",
-            )
             lines = [ln for ln in pip_log.read_text(encoding="utf-8").splitlines() if ln.strip()]
-            return lines
+            return proc.returncode, lines, proc.stdout + proc.stderr
 
-    def test_three_pip_installs_fire_with_expected_specs(self) -> None:
-        lines = self._run_verify()
-        self.assertEqual(len(lines), 3, f"expected exactly 3 pip installs, got {len(lines)}: {lines}")
-        expected = [spec.replace("VERSION", "9.9.9") for spec in EXPECTED_INSTALL_SPECS]
-        for line, spec in zip(lines, expected):
-            with self.subTest(spec=spec):
-                self.assertIn("install", line)
-                self.assertIn(f"--index-url {TESTPYPI_INDEX}", line)
-                self.assertIn(f"--extra-index-url {PYPI_EXTRA_INDEX}", line)
-                self.assertIn(spec, line)
+    def _run_verify_ok(self) -> list[str]:
+        rc, lines, out = self._run_verify()
+        self.assertEqual(rc, 0, f"verify shell exited {rc}\n{out}")
+        return lines
+
+    def test_download_then_three_installs_fire(self) -> None:
+        lines = self._run_verify_ok()
+        self.assertEqual(len(lines), 4, f"expected 1 download + 3 installs, got {len(lines)}: {lines}")
+        self.assertTrue(lines[0].startswith("download "), f"first pip call must be the provenance download: {lines[0]}")
+        for line in lines[1:]:
+            self.assertTrue(line.startswith("install "), f"expected an install call, got: {line}")
+
+    def test_download_phase_hits_testpypi_only_with_exact_version(self) -> None:
+        line = self._run_verify_ok()[0]
+        self.assertIn("--no-deps", line)
+        self.assertIn(f"--index-url {TESTPYPI_INDEX}", line)
+        self.assertIn(f"juniper-ml=={REHEARSAL_VERSION}", line)
+        self.assertNotIn(PYPI_INDEX, line)
+
+    def test_install_phases_hit_pypi_only_with_local_wheel_and_extras(self) -> None:
+        lines = self._run_verify_ok()[1:]
+        wheel_name = WHEEL_TEMPLATE.format(version=REHEARSAL_VERSION)
+        for line, extra in zip(lines, EXPECTED_INSTALL_EXTRAS):
+            with self.subTest(extra=extra or "<bare>"):
+                self.assertIn(f"--index-url {PYPI_INDEX}", line)
+                self.assertNotIn(TESTPYPI_INDEX, line)
                 self.assertNotIn("--no-deps", line)
+                self.assertNotIn("--extra-index-url", line)
+                self.assertTrue(line.endswith(f"{wheel_name}{extra}"), f"expected spec ending {wheel_name}{extra}, got: {line}")
+
+    def test_no_rehearsed_command_merges_index_namespaces(self) -> None:
+        # The runtime counterpart of the structural anti-regression gate.
+        offenders = [ln for ln in self._run_verify_ok() if _merges_index_namespaces(ln)]
+        self.assertEqual(offenders, [], f"pip invoked with a merged index namespace: {offenders}")
 
     def test_clients_install_precedes_tools(self) -> None:
-        lines = self._run_verify()
-        self.assertTrue(any("[clients]" in ln for ln in lines))
-        self.assertTrue(any("[tools]" in ln for ln in lines))
-        clients_i = next(i for i, ln in enumerate(lines) if "[clients]" in ln)
-        tools_i = next(i for i, ln in enumerate(lines) if "[tools]" in ln)
+        lines = self._run_verify_ok()
+        clients_i = next(i for i, ln in enumerate(lines) if ln.endswith("[clients]"))
+        tools_i = next(i for i, ln in enumerate(lines) if ln.endswith("[tools]"))
         self.assertLess(clients_i, tools_i)
+
+    def test_missing_wheel_aborts_before_any_install(self) -> None:
+        # Negative arm: if TestPyPI does not serve the expected wheel, the guard must fail
+        # the step rather than hand pip a nonexistent path (which would resolve juniper-ml
+        # from PyPI and silently verify the WRONG artifact).
+        rc, lines, out = self._run_verify(create_wheel=False)
+        self.assertNotEqual(rc, 0, "missing TestPyPI wheel must fail the verify step")
+        self.assertEqual(len(lines), 1, f"no install may run after a failed download: {lines}")
+        self.assertIn("::error::", out)
 
     def test_sleep_is_invoked_but_stubbed_not_blocking(self) -> None:
         # Contract: the workflow still contains `sleep 30` (index lag buffer). The
@@ -247,8 +407,7 @@ class PublishTestPyPIVerifyRehearsalTest(unittest.TestCase):
             "verify shell must retain `sleep 30` (TestPyPI index-lag buffer)",
         )
         # If sleep were not stubbed this would hang ~30s; finishing quickly is the proof.
-        lines = self._run_verify()
-        self.assertEqual(len(lines), 3)
+        self.assertEqual(len(self._run_verify_ok()), 4)
 
 
 if __name__ == "__main__":

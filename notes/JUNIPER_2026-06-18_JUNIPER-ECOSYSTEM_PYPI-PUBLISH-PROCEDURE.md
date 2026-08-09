@@ -310,6 +310,8 @@ rm -rf /tmp/test-testpypi
 
 > **Important**: The `--extra-index-url https://pypi.org/simple/` flag is essential. TestPyPI does not host all packages — without this fallback, dependencies will fail to resolve.
 
+> **2026-08-08 amendment — the CI meta-verify no longer uses the merged-index form above (owner-approved two-phase mechanism)**: pip has **no index priority**, so `--index-url` + `--extra-index-url` collapse into ONE namespace where the *highest version across both indexes wins* — a dependency-confusion vector in which a TestPyPI squatter outranks the real package (live failure: TestPyPI `fastapi 1.0`, a broken sdist, beat production `fastapi 0.141.1` and killed the juniper-ml v0.7.0 verify, run 31281873275). `.github/workflows/publish.yml` now verifies in two phases — **(1) provenance**: `pip download --no-deps --index-url https://test.pypi.org/simple/ --dest <tmp> "juniper-ml==${VERSION}"` (TestPyPI only, exact version), then **(2) resolution**: `pip install --index-url https://pypi.org/simple/ "<wheel>[extra]"` (production PyPI only, no `--no-deps`, so extras resolution is still genuinely exercised). The one-index-at-a-time rule is the point; the manual recipe above remains merged-namespace and is therefore subject to the same squatting risk. Gate: `tests/test_publish_testpypi_verify.py`.
+
 ---
 
 ## 8. Publishing to PyPI (Manual)

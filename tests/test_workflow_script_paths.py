@@ -158,10 +158,11 @@ class WorkflowScriptPathsTest(unittest.TestCase):
         # are fetched, so the fallback serves no functional purpose and only opens a
         # supply-chain hole: on a TestPyPI index lag pip could resolve the *target*
         # package from production PyPI and execute a squatted package during a
-        # trusted-publishing run. The meta-package workflow publish.yml is the sole
-        # documented exception: it installs WITH dependencies (to verify its extras
-        # resolve real sub-packages) so it legitimately uses --extra-index-url and is
-        # out of scope for this check (it does not combine the fallback with --no-deps).
+        # trusted-publishing run. As of the 2026-08-08 two-phase amendment the meta
+        # workflow publish.yml no longer uses --extra-index-url either (it downloads the
+        # artifact from TestPyPI only, then installs that local wheel from PyPI only), so
+        # the former meta-package exception is retired -- NO publish workflow may pair them.
+        # The meta verify's own shape is gated by tests/test_publish_testpypi_verify.py.
         offenders = []
         for workflow in sorted(self.workflows_dir.glob("publish*.yml")):
             text = workflow.read_text(encoding="utf-8")

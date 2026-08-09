@@ -65,7 +65,10 @@ source .venv-data/bin/activate
 pip install -e '/home/pcalnon/Development/python/Juniper/juniper-data[api]' prometheus_client juniper-observability
 # For the MNIST checks (D2 / I-5) add the [mnist] extra (pulls Hugging Face datasets[vision]):
 #   pip install -e '/home/pcalnon/Development/python/Juniper/juniper-data[api,mnist]'
-# PYTHON_GIL=0 matches util/isolated_stack.bash data_up (free-threading python3.14).
+# PYTHON_GIL=0 matches util/isolated_stack.bash data_up — but ONLY on a free-threaded
+# CPython (Py_GIL_DISABLED build): on a stock build it is FATAL at startup
+# (config_read_gil). The script probes the venv interpreter and passes the toggle
+# conditionally since 2026-08-09 (the host python3.14 reverted to a stock build).
 PYTHON_GIL=0 python -m juniper_data --host 127.0.0.1 --port 8101   # (background it / separate shell)
 ```
 
@@ -103,7 +106,8 @@ Health gate: `curl -sf http://127.0.0.1:8202/v1/health` returns 200. The `create
 conda activate JuniperCanopy1
 cd /home/pcalnon/Development/python/Juniper/juniper-canopy/src
 JUNIPER_CANOPY_DEMO_MODE=0 \
-  JUNIPER_CANOPY_PORT=8051 \
+  JUNIPER_CANOPY_SERVER__HOST=127.0.0.1 \
+  JUNIPER_CANOPY_SERVER__PORT=8051 \
   JUNIPER_CANOPY_CASCOR_SERVICE_URL=http://127.0.0.1:8202 \
   JUNIPER_CANOPY_JUNIPER_DATA_URL=http://127.0.0.1:8101 \
   JUNIPER_CANOPY_CASCOR_WS_ORIGIN=http://127.0.0.1:8051 \

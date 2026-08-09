@@ -1464,15 +1464,19 @@ Release flow:
 
 1. **Build and Validate** -- checks out the tag, installs `build` and `twine`, runs `python -m build`, validates with `twine check dist/*`, and uploads the `dist/` artifact.
 2. **Publish to TestPyPI** -- downloads the artifact, publishes to TestPyPI with OIDC trusted publishing, and enables PyPI attestations.
-3. **Verify TestPyPI Install (Gate 1)** -- reads `[project].version`, waits briefly for index lag, then runs **three** installs in order, each with `--index-url https://test.pypi.org/simple/` plus `--extra-index-url https://pypi.org/simple/` and **never** `--no-deps`:
-   1. bare `juniper-ml==${VERSION}` → `importlib.metadata` version check
-   2. `juniper-ml[clients]==${VERSION}` → imports `juniper_data_client`, `juniper_cascor_client`
-   3. `juniper-ml[tools]==${VERSION}` → imports `juniper_ci_tools`, `juniper_doc_tools`, `juniper_observability`
+3. **Verify TestPyPI Install (Gate 1)** -- reads `[project].version`, waits briefly for index lag, then verifies in **two phases** (2026-08-08 amendment: pip has **no index priority**, so a merged `--index-url` + `--extra-index-url` namespace resolves to the highest version across *both* indexes and lets a TestPyPI squatter outrank the real package — TestPyPI `fastapi 1.0` beat production `fastapi 0.141.1` and killed the v0.7.0 verify, run 31281873275):
+   1. **Provenance** -- `pip download --no-deps --index-url https://test.pypi.org/simple/ --dest <tmp> "juniper-ml==${VERSION}"`. The artifact comes from TestPyPI and **only** TestPyPI, at the exact built version; a missing `juniper_ml-${VERSION}-py3-none-any.whl` fails the step rather than handing pip a bogus path.
+   2. **Resolution** -- **three** installs of that local wheel in order, each `--index-url https://pypi.org/simple/` (production PyPI **only**, no `--extra-index-url`) and **never** `--no-deps`, so extras resolution is still genuinely exercised:
+      1. bare `"${WHEEL}"` → `importlib.metadata` version check
+      2. `"${WHEEL}[clients]"` → imports `juniper_data_client`, `juniper_cascor_client`
+      3. `"${WHEEL}[tools]"` → imports `juniper_ci_tools`, `juniper_doc_tools`, `juniper_observability`
 
    Light extras only — do **not** add `[worker]` / `[servers]` / `[all]` / `[recurrence]` here (torch, multi-GB). A broken extras declaration that a bare install alone would miss fails at this gate, before production PyPI.
 4. **Publish to PyPI** (`needs: testpypi`) -- runs only after Gate 1 succeeds and publishes the same artifact with OIDC trusted publishing and attestations enabled.
 
-**Tag guard:** the `build` job runs only for `workflow_dispatch` or a Release whose tag starts with `v`, so a shared-package Release (`juniper-<pkg>-v*`) cannot fire the meta publisher. Always-on gate for the three-spec verify, the tag guard, and `pypi needs: testpypi`: `tests/test_publish_testpypi_verify.py`.
+**Tag guard:** the `build` job runs only for `workflow_dispatch` or a Release whose tag starts with `v`, so a shared-package Release (`juniper-<pkg>-v*`) cannot fire the meta publisher. Always-on gate for the two-phase verify (including the anti-regression check that no verify command may carry `--extra-index-url` or name both index URLs), the tag guard, and `pypi needs: testpypi`: `tests/test_publish_testpypi_verify.py`.
+
+**Upload strictness:** the TestPyPI upload sets `skip-existing: true` so re-cutting a Release for a version TestPyPI already holds is a no-op rather than an immutable-upload 400; the production PyPI upload deliberately stays strict.
 
 ### Independent Sibling Package Publish Pipelines
 

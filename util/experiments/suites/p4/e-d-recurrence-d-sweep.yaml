@@ -1,0 +1,21 @@
+# E-D (plan §10.5): train.d in {8,16,32} x the three primaries — r2-vs-d, comparable to bench _D_GRID.
+# Base product = irregular_sine x d; multi_sine/mackey_glass ride include cells (dataset swapped
+# wholesale, d set per cell — includes do not cross with the matrix by design).
+schema_version: 1
+suite:
+  name: e-d-recurrence-d-sweep
+  description: "E-D: d x three primaries (bench-comparable)"
+  app: recurrence
+  base_config: [../../../../../juniper-recurrence/conf/experiments/irregular-sine-rff.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 900}
+matrix:
+  train.d: [8, 16, 32]
+include:
+  - {name: multi-sine-d8, overrides: {dataset.generator: multi_sine, dataset.params: {n_steps: 2000, lookback: 32, noise_std: 0.0, seed: 0, train_ratio: 0.8}, train.d: 8}}
+  - {name: multi-sine-d16, overrides: {dataset.generator: multi_sine, dataset.params: {n_steps: 2000, lookback: 32, noise_std: 0.0, seed: 0, train_ratio: 0.8}, train.d: 16}}
+  - {name: multi-sine-d32, overrides: {dataset.generator: multi_sine, dataset.params: {n_steps: 2000, lookback: 32, noise_std: 0.0, seed: 0, train_ratio: 0.8}, train.d: 32}}
+  - {name: mackey-glass-d8, overrides: {dataset.generator: mackey_glass, dataset.params: {n_steps: 2000, lookback: 32, seed: 0, train_ratio: 0.8}, train.d: 8}}
+  - {name: mackey-glass-d16, overrides: {dataset.generator: mackey_glass, dataset.params: {n_steps: 2000, lookback: 32, seed: 0, train_ratio: 0.8}, train.d: 16}}
+  - {name: mackey-glass-d32, overrides: {dataset.generator: mackey_glass, dataset.params: {n_steps: 2000, lookback: 32, seed: 0, train_ratio: 0.8}, train.d: 32}}
+outputs: {suite_dir: null, aggregate: [csv, markdown]}
