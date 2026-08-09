@@ -1,0 +1,13 @@
+# PF-2 (plan §12.3): cascor dataset-size scaling — wall-clock vs samples; memory RSS from the
+# experiments dashboard's Process RSS panel (deploy#171). Thresholds unratified (§12).
+schema_version: 1
+suite:
+  name: pf2-cascor-dataset-scaling
+  description: "PF-2: n_points_per_spiral scaling"
+  app: cascor
+  base_config: [../../../../../juniper-cascor/conf/experiments/spiral-smoke.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 2400}
+matrix:
+  dataset.params.n_points_per_spiral: [250, 500, 1000, 2000]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

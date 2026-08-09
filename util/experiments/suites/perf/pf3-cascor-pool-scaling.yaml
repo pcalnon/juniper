@@ -1,0 +1,15 @@
+# PF-3 (plan §12.3): candidate-pool x process-count scaling — speedup curve + oversubscription
+# onset (read against the H-11 thread budget via the dashboard's Process CPU Rate panel).
+# runtime.num_processes rides the driver's rule-6-clean runtime: block. Thresholds unratified.
+schema_version: 1
+suite:
+  name: pf3-cascor-pool-scaling
+  description: "PF-3: candidate_pool_size x num_processes"
+  app: cascor
+  base_config: [../../../../../juniper-cascor/conf/experiments/spiral-smoke.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 2400}
+matrix:
+  training.params.candidate_pool_size: [2, 4, 8, 16]
+  runtime.num_processes: [1, 2, 4]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

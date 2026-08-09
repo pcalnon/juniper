@@ -1,0 +1,17 @@
+# PF-1 (plan §12.3): cascor spiral, fixed budget, N repeats — variance of p50/p95 step duration and
+# total wall-clock under an unchanged config (compute nondeterminism, not config variance).
+# Thresholds unratified (§12); this file is the instrument, not the verdict.
+schema_version: 1
+suite:
+  name: pf1-cascor-spiral-repeats
+  description: "PF-1: fixed-budget spiral, 5 repeats"
+  app: cascor
+  base_config: [../../../../../juniper-cascor/conf/experiments/spiral-smoke.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1200}
+include:
+  - {name: repeat-2, overrides: {experiment.description: "PF-1 repeat 2"}}
+  - {name: repeat-3, overrides: {experiment.description: "PF-1 repeat 3"}}
+  - {name: repeat-4, overrides: {experiment.description: "PF-1 repeat 4"}}
+  - {name: repeat-5, overrides: {experiment.description: "PF-1 repeat 5"}}
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

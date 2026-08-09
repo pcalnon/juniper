@@ -18,7 +18,11 @@ Covers (task acceptance list, plan S7.2):
   * filename convention (rule 3): meta bare-`v` vs `<pkg>_v`, the meta wrong-form reject, unknown
     package + non-semver rejects
   * parse_name_status (rename/copy two-path form, similarity score stripped, blank/short lines ignored)
-  * CLI exit codes 0 (SKIP/OK) / 1 (FAIL) / 2 (no diff source) and the --json shape
+  * the `Allow-Archive-Edit:` trailer escape (the #1003 link-repair class): a waived M/D/rename
+    confined to flat notes/releases/RELEASE_NOTES_*.md yields the distinct WAIVED verdict (exit 0),
+    `*` waives all, a wrong-path trailer does NOT waive, a waived path that is out-of-archive (or
+    drags an out-of-archive path) still FAILs, and the no-trailer arms are byte-for-byte unchanged
+  * CLI exit codes 0 (SKIP/OK/WAIVED) / 1 (FAIL) / 2 (no diff source) and the --json shape
 
 Run: python3 -m unittest -v tests/test_release_train_archive_guard.py
 
@@ -255,17 +259,183 @@ class ClassifyDiffTest(unittest.TestCase):
         self.assertTrue(any(v.startswith("rule1") for v in res.violations), res.violations)
 
 
-class CliTest(unittest.TestCase):
-    """CLI exit-code contract (0 SKIP/OK, 1 FAIL, 2 invocation) via the --name-status-file seam."""
+class AllowArchiveEditTrailerParseTest(unittest.TestCase):
+    """`Allow-Archive-Edit:` trailer parsing -- the docs-screen matcher semantics, verbatim."""
 
-    def _run(self, name_status_text, *extra):
-        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as fh:
-            fh.write(name_status_text)
+    def test_enumerated_tokens_comma_and_whitespace_separated(self):
+        allowed, wildcard = ag.parse_allow_trailers(f"fix: repair dead link\n\nAllow-Archive-Edit: {GOOD_SUB}, {GOOD_META}\n")
+        self.assertEqual(allowed, {GOOD_SUB, GOOD_META})
+        self.assertFalse(wildcard)
+
+    def test_wildcard_token(self):
+        allowed, wildcard = ag.parse_allow_trailers("bulk archive repair\n\nAllow-Archive-Edit: *\n")
+        self.assertTrue(wildcard)
+        self.assertEqual(allowed, set())
+
+    def test_case_insensitive_and_whole_body_scan(self):
+        # The house convention: the marker counts anywhere in ANY commit body of the range, not only
+        # in a terminal trailer block (juniper-ml `Allow-*` trailer parsers read the whole body).
+        messages = "feat: x\n\nbody line\nallow-archive-edit: REPAIR.md\nmore body\n\nsecond commit subject\n"
+        allowed, wildcard = ag.parse_allow_trailers(messages)
+        self.assertEqual(allowed, {"REPAIR.md"})
+        self.assertFalse(wildcard)
+
+    def test_absent_trailer_is_empty(self):
+        allowed, wildcard = ag.parse_allow_trailers("chore: nothing to see here\n")
+        self.assertEqual((allowed, wildcard), (set(), False))
+        self.assertEqual(ag.parse_allow_trailers(""), (set(), False))
+
+    def test_waives_matcher_full_path_basename_wildcard(self):
+        self.assertTrue(ag._waives(GOOD_SUB, {GOOD_SUB}, False))  # full repo-relative path
+        self.assertTrue(ag._waives(GOOD_SUB, {Path(GOOD_SUB).name}, False))  # bare basename
+        self.assertTrue(ag._waives(GOOD_SUB, set(), True))  # wildcard
+        self.assertFalse(ag._waives(GOOD_SUB, {GOOD_META}, False))
+
+
+class AllowArchiveEditWaiverTest(unittest.TestCase):
+    """The escape's effect on classify_diff (the #1003 modify-in-notes/releases class)."""
+
+    KNOWN = frozenset({"juniper-ml", "juniper-service-core", "juniper-ci-tools", "juniper-observability"})
+
+    @staticmethod
+    def _trailer(*tokens):
+        return ag.parse_allow_trailers("docs: repair archived notes\n\nAllow-Archive-Edit: " + ", ".join(tokens) + "\n")
+
+    # ---- WAIVED (pass) ------------------------------------------------------------------------
+    def test_trailer_waived_modify_passes_as_waived(self):
+        allowed, wildcard = self._trailer(GOOD_SUB)
+        res = ag.classify_diff(_changes(("M", GOOD_SUB)), self.KNOWN, allowed, wildcard)
+        self.assertEqual(res.verdict, "WAIVED", res.violations)
+        self.assertTrue(res.passed)
+        self.assertTrue(res.is_archive_pr)
+        self.assertEqual(res.violations, [])
+        self.assertEqual(res.waived, [f"M {GOOD_SUB}"])
+
+    def test_trailer_waived_delete_passes_as_waived(self):
+        allowed, wildcard = self._trailer(GOOD_SUB)
+        res = ag.classify_diff(_changes(("D", GOOD_SUB)), self.KNOWN, allowed, wildcard)
+        self.assertEqual(res.verdict, "WAIVED", res.violations)
+        self.assertTrue(res.passed)
+        self.assertEqual(res.waived, [f"D {GOOD_SUB}"])
+
+    def test_basename_token_waives(self):
+        allowed, wildcard = self._trailer(Path(GOOD_SUB).name)
+        res = ag.classify_diff(_changes(("M", GOOD_SUB)), self.KNOWN, allowed, wildcard)
+        self.assertEqual(res.verdict, "WAIVED", res.violations)
+
+    def test_wildcard_waives_every_archive_confined_edit(self):
+        allowed, wildcard = self._trailer("*")
+        res = ag.classify_diff(_changes(("M", GOOD_SUB), ("D", GOOD_META)), self.KNOWN, allowed, wildcard)
+        self.assertEqual(res.verdict, "WAIVED", res.violations)
+        self.assertEqual(res.waived, [f"M {GOOD_SUB}", f"D {GOOD_META}"])
+
+    def test_rename_within_releases_waivable_when_both_sides_named(self):
+        # Both paths of the rename must be waived AND archive-confined; then it is an in-place
+        # archive correction and rules 1/4 stand down.
+        allowed, wildcard = self._trailer(GOOD_META, GOOD_SUB)
+        res = ag.classify_diff(_changes(("R", GOOD_META, GOOD_SUB)), self.KNOWN, allowed, wildcard)
+        self.assertEqual(res.verdict, "WAIVED", res.violations)
+        self.assertEqual(res.waived, [f"R {GOOD_META} -> {GOOD_SUB}"])
+
+    def test_waived_edit_alongside_valid_add_still_passes(self):
+        allowed, wildcard = self._trailer(GOOD_SUB)
+        res = ag.classify_diff(_changes(("A", GOOD_META), ("M", GOOD_SUB)), self.KNOWN, allowed, wildcard)
+        self.assertEqual(res.verdict, "WAIVED", res.violations)
+        self.assertEqual(res.added, [GOOD_META])
+
+    # ---- still FAIL (the escape is narrow) ----------------------------------------------------
+    def test_wrong_path_trailer_does_not_waive(self):
+        allowed, wildcard = self._trailer(GOOD_META)  # names a DIFFERENT archive file
+        res = ag.classify_diff(_changes(("M", GOOD_SUB)), self.KNOWN, allowed, wildcard)
+        self.assertEqual(res.verdict, "FAIL")
+        self.assertFalse(res.passed)
+        self.assertEqual(res.waived, [])
+        self.assertTrue(any(v.startswith("rule1") for v in res.violations), res.violations)
+
+    def test_waived_path_outside_releases_still_fails(self):
+        # A trailer may name any path, but a path OUTSIDE notes/releases/ is never archive-confined,
+        # so the escape cannot smuggle a non-archive edit onto the exempt lane (rule4 still bites).
+        allowed, wildcard = self._trailer("docs/REFERENCE.md", GOOD_SUB)
+        res = ag.classify_diff(_changes(("A", GOOD_SUB), ("M", "docs/REFERENCE.md")), self.KNOWN, allowed, wildcard)
+        self.assertEqual(res.verdict, "FAIL")
+        self.assertFalse(res.passed)
+        self.assertEqual(res.waived, [])
+        self.assertTrue(any(v.startswith("rule1") for v in res.violations), res.violations)
+        self.assertTrue(any(v.startswith("rule4") for v in res.violations), res.violations)
+
+    def test_wildcard_does_not_waive_rename_out_of_releases(self):
+        # The destination leaves notes/releases/, so change_waived() rejects it even under `*`.
+        allowed, wildcard = self._trailer("*")
+        res = ag.classify_diff(_changes(("R", GOOD_META, "docs/moved.md")), self.KNOWN, allowed, wildcard)
+        self.assertEqual(res.verdict, "FAIL")
+        self.assertEqual(res.waived, [])
+        self.assertTrue(any(v.startswith("rule1") for v in res.violations), res.violations)
+        self.assertTrue(any(v.startswith("rule4") for v in res.violations), res.violations)
+
+    def test_wildcard_does_not_waive_nested_archive_path(self):
+        # Matches ARCHIVE_PATH_RE but is not FLAT -- confinement requires a flat archive file.
+        nested = "notes/releases/RELEASE_NOTES_juniper-service-core/v0.5.0.md"
+        self.assertIsNotNone(ag.ARCHIVE_PATH_RE.match(nested), nested)
+        allowed, wildcard = self._trailer("*")
+        res = ag.classify_diff(_changes(("M", nested)), self.KNOWN, allowed, wildcard)
+        self.assertEqual(res.verdict, "FAIL")
+        self.assertEqual(res.waived, [])
+        self.assertTrue(any(v.startswith("rule1") for v in res.violations), res.violations)
+
+    def test_mixed_waived_edit_plus_unrelated_code_change_fails(self):
+        # The archive edit is waived, but the out-of-scope code path keeps the PR off the exempt lane.
+        allowed, wildcard = self._trailer(GOOD_SUB)
+        res = ag.classify_diff(_changes(("M", GOOD_SUB), ("M", "util/release_train/sneaky.py")), self.KNOWN, allowed, wildcard)
+        self.assertEqual(res.verdict, "FAIL")
+        self.assertFalse(res.passed)
+        self.assertEqual(res.waived, [f"M {GOOD_SUB}"])  # reported, but not exculpatory
+        self.assertTrue(any(v.startswith("rule4") for v in res.violations), res.violations)
+
+    # ---- the pre-escape behaviour is byte-for-byte unchanged ----------------------------------
+    def test_no_trailer_modify_still_fails(self):
+        res = ag.classify_diff(_changes(("M", GOOD_SUB)), self.KNOWN, set(), False)
+        self.assertEqual(res.verdict, "FAIL")
+        self.assertTrue(any(v.startswith("rule1") for v in res.violations), res.violations)
+
+    def test_pure_add_without_trailer_is_ok_not_waived(self):
+        res = ag.classify_diff(_changes(("A", GOOD_SUB)), self.KNOWN, set(), False)
+        self.assertEqual(res.verdict, "OK")
+        self.assertEqual(res.waived, [])
+
+    def test_pure_add_with_trailer_is_still_ok_not_waived(self):
+        # A trailer present but nothing to waive must not repaint a clean add as WAIVED.
+        allowed, wildcard = self._trailer("*")
+        res = ag.classify_diff(_changes(("A", GOOD_SUB)), self.KNOWN, allowed, wildcard)
+        self.assertEqual(res.verdict, "OK")
+        self.assertEqual(res.waived, [])
+
+    def test_non_archive_pr_with_trailer_still_skips(self):
+        allowed, wildcard = self._trailer("*")
+        res = ag.classify_diff(_changes(("M", "src/foo.py")), self.KNOWN, allowed, wildcard)
+        self.assertEqual(res.verdict, "SKIP")
+        self.assertTrue(res.passed)
+        self.assertFalse(res.is_archive_pr)
+
+
+class CliTest(unittest.TestCase):
+    """CLI exit-code contract (0 SKIP/OK/WAIVED, 1 FAIL, 2 invocation) via the injected file seams."""
+
+    def _write(self, text, suffix=".txt"):
+        with tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False, encoding="utf-8") as fh:
+            fh.write(text)
             path = fh.name
         self.addCleanup(lambda: Path(path).unlink(missing_ok=True))
+        return path
+
+    def _run(self, name_status_text, *extra, trailers=None):
+        path = self._write(name_status_text)
+        argv = ["--name-status-file", path, "--registry", str(REAL_REGISTRY)]
+        if trailers is not None:
+            argv += ["--trailers-file", self._write(trailers)]
+        argv += list(extra)
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = ag.main(["--name-status-file", path, "--registry", str(REAL_REGISTRY), *extra])
+            rc = ag.main(argv)
         return rc, buf.getvalue()
 
     def test_pass_ok_exit_0(self):
@@ -309,6 +479,59 @@ class CliTest(unittest.TestCase):
         rc_sub, _ = self._run(f"A\t{GOOD_SUB}\n")
         rc_meta, _ = self._run(f"A\t{GOOD_META}\n")
         self.assertEqual((rc_sub, rc_meta), (0, 0))
+
+    # ---- --trailers-file seam (the Allow-Archive-Edit escape end-to-end) ----------------------
+    def test_trailers_file_waived_modify_exit_0(self):
+        rc, out = self._run(f"M\t{GOOD_SUB}\n", trailers=f"docs: repair dead link\n\nAllow-Archive-Edit: {GOOD_SUB}\n")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("WAIVED", out)
+        self.assertIn(GOOD_SUB, out)
+        self.assertIn("SQUASH", out.upper())  # the carry-into-squash operator reminder
+
+    def test_trailers_file_wrong_path_still_exit_1(self):
+        rc, out = self._run(f"M\t{GOOD_SUB}\n", trailers=f"docs: unrelated\n\nAllow-Archive-Edit: {GOOD_META}\n")
+        self.assertEqual(rc, 1)
+        self.assertIn("FAIL", out)
+
+    def test_trailers_file_absent_keeps_modify_failing(self):
+        rc, out = self._run(f"M\t{GOOD_SUB}\n")  # no --trailers-file at all -> escape inactive
+        self.assertEqual(rc, 1)
+        self.assertIn("FAIL", out)
+
+    def test_waived_json_shape(self):
+        rc, out = self._run(f"M\t{GOOD_SUB}\n", "--json", trailers="x\n\nAllow-Archive-Edit: *\n")
+        self.assertEqual(rc, 0, out)
+        payload = json.loads(out)
+        self.assertEqual(payload["verdict"], "WAIVED")
+        self.assertTrue(payload["passed"])
+        self.assertTrue(payload["is_archive_pr"])
+        self.assertEqual(payload["violations"], [])
+        self.assertEqual(payload["waived"], [f"M {GOOD_SUB}"])
+        self.assertEqual(payload["schema"], "juniper-release-train/archive-guard/v1")
+
+    def test_ok_json_carries_empty_waived_list(self):
+        rc, out = self._run(f"A\t{GOOD_SUB}\n", "--json")
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(out)["waived"], [])
+
+    def test_unreadable_trailers_file_exit_2(self):
+        import contextlib
+
+        path = self._write(f"A\t{GOOD_SUB}\n")
+        buf, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(buf), contextlib.redirect_stderr(err):
+            rc = ag.main(["--name-status-file", path, "--registry", str(REAL_REGISTRY), "--trailers-file", "/nonexistent/nope.txt"])
+        self.assertEqual(rc, 2)
+        self.assertIn("--trailers-file", err.getvalue())
+
+    def test_both_stdin_seams_rejected_exit_2(self):
+        import contextlib
+
+        buf, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(buf), contextlib.redirect_stderr(err):
+            rc = ag.main(["--name-status-file", "-", "--registry", str(REAL_REGISTRY), "--trailers-file", "-"])
+        self.assertEqual(rc, 2)
+        self.assertIn("stdin", err.getvalue())
 
 
 if __name__ == "__main__":
