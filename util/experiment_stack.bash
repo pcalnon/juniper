@@ -534,7 +534,7 @@ data_up() {
     local python_bin
     python_bin="$(env_bin "${DATA_CONDA}" python)"
     banner "juniper-data  ->  http://127.0.0.1:${DATA_PORT}  (${DATA_CONDA}, per-run instance)"
-    announce "cd ${RUN_DIR} && JUNIPER_DATA_STORAGE_PATH=${RUN_DIR}/data JUNIPER_DATA_METRICS_ENABLED=true JUNIPER_DATA_EQUITIES_CACHE_DIR=${RUN_DIR}/equities-cache PYTHON_GIL=0 ${python_bin} -m juniper_data --host 127.0.0.1 --port ${DATA_PORT}   # nohup -> ${LOG_DIR}/juniper-data.log"
+    announce "cd ${RUN_DIR} && JUNIPER_DATA_STORAGE_PATH=${RUN_DIR}/data JUNIPER_DATA_METRICS_ENABLED=true JUNIPER_DATA_EQUITIES_CACHE_DIR=${RUN_DIR}/equities-cache PYTHON_GIL=0 ${python_bin} -m juniper_data --host 127.0.0.1 --port ${DATA_PORT}   # nohup -> ${LOG_DIR}/juniper-data.log (+PYTHON_GIL=0 iff the run's python is a free-threaded build)"
     if is_dry; then return 0; fi
 
     # Explicit ``|| return 1``: do_up invokes this as ``data_up || failed=1``, which
@@ -543,19 +543,32 @@ data_up() {
     # (exit 0) and false-green the bring-up — orphaning the process with no teardown.
     require_env_bin "${DATA_CONDA}" python || return 1
     ensure_dir "${LOG_DIR}"
+    # PYTHON_GIL=0 aborts a stock (non-free-threaded) CPython at startup — "Fatal Python
+    # error: config_read_gil: Disabling the GIL is not supported by this build" — so the
+    # toggle is passed only when THIS run's interpreter supports it (the host python3.14
+    # lost its free-threaded build to OS updates, 2026-08-09 rehearsal). Probe ${python_bin}
+    # itself, never the ambient python: the leg launches from that direct env-bin path.
+    # Deliberately NO ``|| return 1`` — an unrunnable probe degrades to omitting the toggle
+    # (always safe), and only a genuinely missing binary fails, via require_env_bin above.
+    local -a gil_env=()
+    local gil_record="PYTHON_GIL="
+    if [[ "$("${python_bin}" -c 'import sysconfig; print(sysconfig.get_config_var("Py_GIL_DISABLED") or 0)' 2>/dev/null)" == "1" ]]; then
+        gil_env=("PYTHON_GIL=0")
+        gil_record="PYTHON_GIL=0"
+    fi
+    # env/launch.env is evidence: record the toggle only when it is actually passed.
     record_launch_env "juniper-data" \
         "JUNIPER_DATA_STORAGE_PATH=${RUN_DIR}/data" \
         "JUNIPER_DATA_METRICS_ENABLED=true" \
         "JUNIPER_DATA_EQUITIES_CACHE_DIR=${RUN_DIR}/equities-cache" \
-        "PYTHON_GIL=0"
+        "${gil_record}"
     if [[ "${CONDA_ACTIVATE}" == "1" ]]; then activate_conda "${DATA_CONDA}" || return 1; fi
     (
         cd "${RUN_DIR}" || exit 1
         JUNIPER_DATA_STORAGE_PATH="${RUN_DIR}/data" \
             JUNIPER_DATA_METRICS_ENABLED=true \
             JUNIPER_DATA_EQUITIES_CACHE_DIR="${RUN_DIR}/equities-cache" \
-            PYTHON_GIL=0 \
-            nohup "${python_bin}" -m juniper_data --host 127.0.0.1 --port "${DATA_PORT}" >"${LOG_DIR}/juniper-data.log" 2>&1 &
+            nohup env "${gil_env[@]}" "${python_bin}" -m juniper_data --host 127.0.0.1 --port "${DATA_PORT}" >"${LOG_DIR}/juniper-data.log" 2>&1 &
     )
     # No `$!` here on purpose — F-6. The pid is resolved from the listener below.
     wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health" || return 1

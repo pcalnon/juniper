@@ -1,0 +1,13 @@
+# E-F (plan §10.5): jitter in {0.0,0.1,0.3,0.5} on irregular_sine — the delta-t-native advantage
+# vs irregularity. Dogfoods Wave 7.5 bounded-parallel (recurrence app; H-11 budget recorded).
+schema_version: 1
+suite:
+  name: e-f-recurrence-irregularity
+  description: "E-F: jitter sweep on irregular_sine (parallel x2)"
+  app: recurrence
+  base_config: [../../../../../juniper-recurrence/conf/experiments/irregular-sine-rff.yaml]
+  seed_policy: fixed
+execution: {mode: parallel, max_parallel: 2, continue_on_failure: true, per_run_timeout_seconds: 900}
+matrix:
+  dataset.params.jitter: [0.0, 0.1, 0.3, 0.5]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

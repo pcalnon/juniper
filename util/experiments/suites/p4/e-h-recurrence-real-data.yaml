@@ -1,0 +1,14 @@
+# E-H recurrence half (plan §10.5): equities_seq (calendar-gap delta-t, log_return target) vs the
+# irregular_sine synthetic control — expect r2 ~ 0 at the efficient-market ceiling, NOT negative
+# blowups (the ridge/log_return doctrine, recurrence#28).
+schema_version: 1
+suite:
+  name: e-h-recurrence-real-data
+  description: "E-H (recurrence): equities_seq AAPL 2015-2022 vs irregular_sine control"
+  app: recurrence
+  base_config: [../../../../../juniper-recurrence/conf/experiments/irregular-sine-rff.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1200}
+include:
+  - {name: equities-seq-aapl, overrides: {dataset.generator: equities_seq, dataset.params: {symbols: [AAPL], start_date: "2015-01-01", end_date: "2022-01-01", lookback: 64, regression_target: log_return, seed: 20260807}}}
+outputs: {suite_dir: null, aggregate: [csv, markdown]}
