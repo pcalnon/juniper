@@ -103,4 +103,4 @@ First browser contact: `/ws/training` + `/ws/control` handshakes rejected 403 in
 
 | PR | Repo | Content | State |
 |---|---|---|---|
-| #1049 | juniper-ml | F-E2E-006: canopy leg browser-WS allowlist export + 5 test pins + checklist §3.3 | auto-merge armed |
+| #1049 | juniper-ml | F-E2E-006: canopy leg browser-WS allowlist export + 5 test pins + checklist §3.3 | MERGED (--admin per landing protocol; green-but-BEHIND) |
