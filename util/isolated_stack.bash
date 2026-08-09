@@ -219,7 +219,7 @@ data_up() {
     announce "python3.14 -m venv ${DATA_VENV}"
     announce "source ${DATA_VENV}/bin/activate"
     announce "pip install -e '${DATA_DIR}[${DATA_EXTRAS}]' prometheus_client juniper-observability"
-    announce "python -m juniper_data --host 127.0.0.1 --port ${DATA_PORT}   # nohup -> ${LOG_DIR}/juniper-data.log"
+    announce "python -m juniper_data --host 127.0.0.1 --port ${DATA_PORT}   # nohup -> ${LOG_DIR}/juniper-data.log (+PYTHON_GIL=0 iff the venv python is a free-threaded build)"
     if is_dry; then return 0; fi
 
     # Explicit ``|| return 1``: do_up invokes this as ``data_up || failed=1``, which
@@ -232,9 +232,17 @@ data_up() {
     # shellcheck source=/dev/null
     source "${DATA_VENV}/bin/activate" || return 1
     pip install -q -e "${DATA_DIR}[${DATA_EXTRAS}]" prometheus_client juniper-observability || return 1
+    # PYTHON_GIL=0 aborts a stock (non-free-threaded) CPython at startup — "Fatal Python
+    # error: config_read_gil: Disabling the GIL is not supported by this build" — and the
+    # host python3.14 lost its free-threaded build to OS updates (2026-08-09 rehearsal).
+    # Probe the venv interpreter and pass PYTHON_GIL=0 only when it is supported.
+    local -a gil_env=()
+    if [[ "$(python -c 'import sysconfig; print(sysconfig.get_config_var("Py_GIL_DISABLED") or 0)' 2>/dev/null)" == "1" ]]; then
+        gil_env=("PYTHON_GIL=0")
+    fi
     (
         cd "${RUN_DIR}"
-        PYTHON_GIL=0 nohup python -m juniper_data --host 127.0.0.1 --port "${DATA_PORT}" >"${LOG_DIR}/juniper-data.log" 2>&1 &
+        nohup env "${gil_env[@]}" python -m juniper_data --host 127.0.0.1 --port "${DATA_PORT}" >"${LOG_DIR}/juniper-data.log" 2>&1 &
         echo "$!" >"${RUN_DIR}/juniper-data.pid"
     )
     deactivate || true

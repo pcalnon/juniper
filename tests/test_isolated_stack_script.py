@@ -913,9 +913,15 @@ class TestDataUpLive(unittest.TestCase):
             f'printf "%s\\n" "$@" >>"{marker_dir}/pip.log"\n'
             "exit 0\n"
             "PIP\n"
-            # python: record PYTHON_GIL + argv, then sleep so the pidfile stays live.
+            # python: answer the free-threading probe (-c), else record PYTHON_GIL + argv
+            # and sleep so the pidfile stays live. Probe answer defaults to 1 (free-threaded)
+            # and can be overridden via a gil_probe_answer marker file.
             "cat >\"$dest/bin/python\" <<'PY'\n"
             "#!/usr/bin/env bash\n"
+            'if [[ "${1-}" == "-c" ]]; then\n'
+            f'  if [[ -f "{marker_dir}/gil_probe_answer" ]]; then cat "{marker_dir}/gil_probe_answer"; else echo 1; fi\n'
+            "  exit 0\n"
+            "fi\n"
             f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env"\n'
             f'printf "%s\\n" "$@" >"{marker_dir}/python.args"\n'
             "exec sleep 60\n"
@@ -1033,7 +1039,7 @@ class TestDataUpLive(unittest.TestCase):
             (data_venv / "bin" / "activate").write_text('_OLD_VIRTUAL_PATH="$PATH"\n' f'VIRTUAL_ENV="{data_venv}"\n' "export VIRTUAL_ENV\n" 'PATH="$VIRTUAL_ENV/bin:$PATH"\n' "export PATH\n" "deactivate() {\n" '  PATH="$_OLD_VIRTUAL_PATH"\n' "  export PATH\n" "  unset VIRTUAL_ENV\n" "  unset -f deactivate 2>/dev/null || true\n" "}\n")
             (data_venv / "bin" / "pip").write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" >>"{marker_dir}/pip.log"\n' "exit 0\n")
             (data_venv / "bin" / "pip").chmod(0o755)
-            (data_venv / "bin" / "python").write_text("#!/usr/bin/env bash\n" f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env"\n' f'printf "%s\\n" "$@" >"{marker_dir}/python.args"\n' "exec sleep 60\n")
+            (data_venv / "bin" / "python").write_text("#!/usr/bin/env bash\n" 'if [[ "${1-}" == "-c" ]]; then\n' f'  if [[ -f "{marker_dir}/gil_probe_answer" ]]; then cat "{marker_dir}/gil_probe_answer"; else echo 1; fi\n' "  exit 0\n" "fi\n" f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env"\n' f'printf "%s\\n" "$@" >"{marker_dir}/python.args"\n' "exec sleep 60\n")
             (data_venv / "bin" / "python").chmod(0o755)
             # python3.14 stub that FAILS if -m venv is invoked (proves skip).
             (bin_dir / "python3.14").write_text("#!/usr/bin/env bash\n" f'echo "VENV_SHOULD_NOT_RUN" >>"{marker_dir}/venv.log"\n' "exit 99\n")
@@ -1058,6 +1064,49 @@ class TestDataUpLive(unittest.TestCase):
                 self.assertTrue(pid_path.exists())
                 child_pid = int(pid_path.read_text().strip())
                 self.assertEqual(_read_marker_when_written(marker_dir / "python.env").strip(), "PYTHON_GIL=0")
+            finally:
+                if child_pid is not None:
+                    self._force_kill(child_pid)
+
+    def test_stock_build_omits_python_gil(self) -> None:
+        # On a stock (non-free-threaded) CPython, PYTHON_GIL=0 is FATAL at startup
+        # ("config_read_gil: Disabling the GIL is not supported by this build") — the
+        # 2026-08-09 rehearsal failure. The probe answering 0 must OMIT the toggle.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            data_dir = root / "juniper-data"
+            marker_dir = root / "markers"
+            bin_dir = root / "bin"
+            data_dir.mkdir()
+            marker_dir.mkdir()
+            bin_dir.mkdir()
+            (marker_dir / "gil_probe_answer").write_text("0\n")
+            data_venv = run_dir / ".venv-data"
+            (data_venv / "bin").mkdir(parents=True)
+            (data_venv / "bin" / "activate").write_text('_OLD_VIRTUAL_PATH="$PATH"\n' f'VIRTUAL_ENV="{data_venv}"\n' "export VIRTUAL_ENV\n" 'PATH="$VIRTUAL_ENV/bin:$PATH"\n' "export PATH\n" "deactivate() {\n" '  PATH="$_OLD_VIRTUAL_PATH"\n' "  export PATH\n" "  unset VIRTUAL_ENV\n" "  unset -f deactivate 2>/dev/null || true\n" "}\n")
+            (data_venv / "bin" / "pip").write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" >>"{marker_dir}/pip.log"\n' "exit 0\n")
+            (data_venv / "bin" / "pip").chmod(0o755)
+            (data_venv / "bin" / "python").write_text("#!/usr/bin/env bash\n" 'if [[ "${1-}" == "-c" ]]; then\n' f'  if [[ -f "{marker_dir}/gil_probe_answer" ]]; then cat "{marker_dir}/gil_probe_answer"; else echo 1; fi\n' "  exit 0\n" "fi\n" f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env"\n' f'printf "%s\\n" "$@" >"{marker_dir}/python.args"\n' "exec sleep 60\n")
+            (data_venv / "bin" / "python").chmod(0o755)
+            (bin_dir / "python3.14").write_text("#!/usr/bin/env bash\n" f'echo "VENV_SHOULD_NOT_RUN" >>"{marker_dir}/venv.log"\n' "exit 99\n")
+            (bin_dir / "python3.14").chmod(0o755)
+            self._write_curl_ok(bin_dir)
+
+            result = self._run_data_up(
+                run_dir=run_dir,
+                data_dir=data_dir,
+                marker_dir=marker_dir,
+                bin_dir=bin_dir,
+            )
+            pid_path = run_dir / "juniper-data.pid"
+            child_pid: "int | None" = None
+            try:
+                self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+                self.assertTrue(pid_path.exists())
+                child_pid = int(pid_path.read_text().strip())
+                # The toggle must be ABSENT (empty probe value), never PYTHON_GIL=0.
+                self.assertEqual(_read_marker_when_written(marker_dir / "python.env").strip(), "PYTHON_GIL=")
             finally:
                 if child_pid is not None:
                     self._force_kill(child_pid)
@@ -1693,6 +1742,8 @@ class TestDoUpPartialFailureTeardown(unittest.TestCase):
                 "PIP\n"
                 "cat >\"$dest/bin/python\" <<'PY'\n"
                 "#!/usr/bin/env bash\n"
+                # Answer the free-threading probe (-c) without blocking; else act as the listener.
+                'if [[ "${1-}" == "-c" ]]; then echo 1; exit 0; fi\n'
                 f'printf "%s\\n" "$$" >"{listeners_dir}/{data_port}.pid"\n'
                 "exec sleep 60\n"
                 "PY\n"
