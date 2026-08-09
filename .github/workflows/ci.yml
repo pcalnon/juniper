@@ -646,6 +646,13 @@ jobs:
   # then falls back to the standard owner gate (plan S7.2); the guard has no side effect. Wired here
   # as a standalone status check so the owner can later mark it REQUIRED in the branch ruleset (step
   # 3.3), which is what lets the exempt archive PR auto-merge behind it.
+  #
+  # Escape hatch (the #1003 link-repair class): now that the check is REQUIRED, an intentional
+  # in-place correction of an already-archived note carries an `Allow-Archive-Edit: <path>` commit
+  # trailer (full path / basename / `*`), mirroring the house Allow-Docs-Rewrite / Allow-Symbol-Loss
+  # idiom. The trailer text is injected via --trailers-file (below), and a waived-and-otherwise-clean
+  # diff reports the distinct WAIVED verdict instead of FAIL. Carry the trailer into the SQUASH
+  # commit message when merging -- trailers travel in git history.
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
   release-train-archive-guard:
     name: Release-Train Archive Guard
@@ -698,7 +705,13 @@ jobs:
           # FETCH_HEAD = the PR base branch tip; the three-dot range then yields exactly the
           # PR's net change set (merge-base(base, HEAD)..HEAD), matching `gh pr diff`.
           git fetch --no-tags origin "${{ github.base_ref }}"
-          python3 util/release_train/archive_guard.py --base FETCH_HEAD --head HEAD
+          # Allow-Archive-Edit escape: the guard reads the PR's commit bodies from an INJECTED
+          # file (it never shells out to git itself), so the classifier stays pure and hermetically
+          # testable. Two-dot FETCH_HEAD..HEAD = exactly the commits this PR adds on top of base
+          # (the same range the sequence-safety screens' trailer parser uses); checkout above is
+          # fetch-depth: 0, so the full message bodies are present.
+          git log --format=%B FETCH_HEAD..HEAD > archive-guard-trailers.txt
+          python3 util/release_train/archive_guard.py --base FETCH_HEAD --head HEAD --trailers-file archive-guard-trailers.txt
 
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
   # Sequence Safety (ADVISORY, standalone): the per-PR compositional-loss screen (Proposal P2 gates

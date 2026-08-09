@@ -18,6 +18,11 @@ Drift modes this gate catches:
 3. A work step loses its ``pull_request`` gate → merge_group tries
    ``git fetch origin "${{ github.base_ref }}"`` with an empty base and fails
    the required check.
+4. The ``Allow-Archive-Edit`` escape's trailer plumbing is dropped (the
+   ``git log --format=%B`` producer step or the ``--trailers-file`` flag) →
+   the guard silently runs escape-inactive and every intentional in-place
+   archive correction (the #1003 link-repair class) becomes unmergeable
+   again behind this now-REQUIRED check.
 
 Companion behavioural coverage lives in ``tests/test_release_train_archive_guard.py``
 (the Python classifier). Workflow YAML is not otherwise lint-gated for this
@@ -123,6 +128,39 @@ class ArchiveGuardWorkflowWiringTest(unittest.TestCase):
         self.assertIn("util/release_train/archive_guard.py", run)
         self.assertIn("--base FETCH_HEAD", run)
         self.assertIn("--head HEAD", run)
+
+    def test_run_step_produces_and_passes_the_trailers_file(self) -> None:
+        """Allow-Archive-Edit escape: the guard never shells out to git, so CI MUST inject the
+        BASE..HEAD commit bodies. Drop either half and the escape is silently inactive."""
+        step = self.steps_by_name.get("Run archive guard")
+        self.assertIsNotNone(step)
+        run = str(step.get("run") or "")
+        self.assertIn(
+            "git log --format=%B FETCH_HEAD..HEAD",
+            run,
+            "the trailers file must come from the two-dot FETCH_HEAD..HEAD commit bodies (the PR's own commits)",
+        )
+        self.assertRegex(
+            run,
+            r"git log --format=%B FETCH_HEAD\.\.HEAD\s*>\s*(\S+)",
+            "the git log producer must redirect into a file",
+        )
+        import re as _re
+
+        produced = _re.search(r"git log --format=%B FETCH_HEAD\.\.HEAD\s*>\s*(\S+)", run).group(1)
+        self.assertIn(
+            f"--trailers-file {produced}",
+            run,
+            f"archive_guard.py must be passed the produced trailers file ({produced!r})",
+        )
+        # Producer must precede the guard invocation, else the file does not exist yet.
+        self.assertLess(run.index("git log --format=%B"), run.index("util/release_train/archive_guard.py"))
+
+    def test_checkout_has_full_history_for_the_trailer_range(self) -> None:
+        """fetch-depth: 0 -- a shallow checkout truncates FETCH_HEAD..HEAD commit bodies."""
+        step = self.steps_by_name.get("Checkout Code")
+        self.assertIsNotNone(step)
+        self.assertEqual(str((step.get("with") or {}).get("fetch-depth")), "0")
 
     def test_absent_from_quality_gate_needs(self) -> None:
         """Archive-guard skips on push; folding it into QG needs would fail every push:main."""

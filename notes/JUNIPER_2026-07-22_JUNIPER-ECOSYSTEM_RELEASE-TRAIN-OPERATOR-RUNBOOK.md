@@ -596,7 +596,8 @@ The ceremony arms `--auto` behind `ci.yml`'s PR-only `release-train-archive-guar
 |---|---|---|---|
 | `SKIP` | pass | Diff does **not** touch `notes/releases/` — not an archive PR | None. Normal PRs always SKIP so the required check never blocks them. |
 | `OK` | pass | Pure `A` adds of well-formed `notes/releases/RELEASE_NOTES_*.md`; all four rules hold | Auto-merge proceeds (with the signed archive commit, above). |
-| `FAIL` | fail (exit 1) | One or more rule violations | The PR **falls back to the standard owner gate** and **never auto-merges** (`archive_guard.py:271`). Fix or close; do not force-merge a dirty archive PR onto the exempt path. |
+| `WAIVED` | pass (exit 0) | Path-confined + single-purpose, and the only non-add change(s) are in-place archive edits waived by an `Allow-Archive-Edit:` commit trailer (see below) | None — the correction PR is mergeable. The waived paths are named in the check log; carry the trailer into the squash message. |
+| `FAIL` | fail (exit 1) | One or more **unwaived** rule violations | The PR **falls back to the standard owner gate** and **never auto-merges** (`archive_guard.py:371`). Fix or close; do not force-merge a dirty archive PR onto the exempt path. |
 
 `touches_releases` inspects **every** path on a change — including **both** sides of a rename/copy
 (`archive_guard.py:169-171`). That is the load-bearing contract against destination-only blindness:
@@ -617,6 +618,68 @@ ceremony re-open a single-file Add. Local smoke:
 ```bash
 # Against a PR tip (or any base...head range)
 python util/release_train/archive_guard.py --base origin/main --head HEAD --json
+```
+
+##### Correcting an already-archived note: the `Allow-Archive-Edit:` trailer
+
+Rule 1 is add-only, so **any** PR that MODIFIES (or deletes / renames-within) an existing
+`notes/releases/RELEASE_NOTES_*.md` FAILs by design — the #1003 class (canopy v0.6.0 release-notes
+dead-link repair). While the guard was advisory that red was cosmetic; now that
+`Release-Train Archive Guard` is a **REQUIRED** status check, a FAIL makes the correction PR
+**unmergeable**. Issue #1013 asked for the policy; the answer shipped is a narrow, auditable,
+owner-authored escape rather than a widened lane.
+
+Put an **`Allow-Archive-Edit:`** trailer in the PR's commit message(s):
+
+```text
+docs: repair dead CHANGELOG links in the archived canopy v0.6.0 notes
+
+Allow-Archive-Edit: notes/releases/RELEASE_NOTES_juniper-canopy_v0.6.0.md
+```
+
+Token semantics — deliberately identical to the sequence-safety `Allow-Docs-Rewrite:` /
+`Allow-Symbol-Loss:` trailers, so there is one idiom to remember
+(`archive_guard.py:187-235`):
+
+| Token form | Example | Waives |
+|---|---|---|
+| Full repo-relative path | `notes/releases/RELEASE_NOTES_juniper-canopy_v0.6.0.md` | exactly that file |
+| Bare basename | `RELEASE_NOTES_juniper-canopy_v0.6.0.md` | any archive file with that basename |
+| Wildcard | `*` | every archive-confined edit in the diff |
+| Several at once | `A.md, B.md` (comma **or** whitespace separated) | each named file |
+
+The trailer key is case-insensitive and is read from the **whole body** of **every** commit in the
+`BASE..HEAD` range (`ci.yml` produces the text with `git log --format=%B FETCH_HEAD..HEAD` and passes
+it to the guard as `--trailers-file`; the guard itself never shells out to git). A waived,
+otherwise-clean diff reports the distinct **`WAIVED`** verdict at exit 0 and **names every waived
+path** in the check log, so the escape is visible in CI rather than silent.
+
+What the trailer can **NOT** do — the escape only relaxes rules 1/4 for changes whose **every** path is
+a flat `notes/releases/RELEASE_NOTES_*.md` file (`change_waived`, `archive_guard.py:225`). All of these
+still **FAIL** no matter what the trailer says:
+
+| Diff shape | Why the waiver does not apply |
+|---|---|
+| `M notes/releases/X.md` + `M util/foo.py` | the code path is out of the archive — rule4 still bites |
+| `R notes/releases/X.md → docs/moved.md` | the destination leaves `notes/releases/` |
+| `M notes/releases/RELEASE_NOTES_pkg/v1.0.0.md` | nested, not a flat archive file |
+| trailer naming a **different** archive file than the one edited | no path match, so no waiver |
+| no `Allow-Archive-Edit:` trailer at all | escape inactive (fail-closed) — the pre-existing FAIL |
+
+**Squash-merge gotcha (carry the trailer).** GitHub's squash merge composes a **new** commit message,
+so an `Allow-*` trailer that lives only in a branch commit is **lost on `main`**. Paste the trailer
+into the squash commit body in the merge dialog whenever you squash a waived PR. Two reasons it
+matters: the post-merge `main-verify` (G3) docs screen re-reads the same range and would flag the
+archive-note deletions as an unwaived `Allow-Docs-Rewrite` finding, and the trailer is the only
+durable audit record of *which* archived file the owner approved editing. Related recorded gotcha:
+never *quote* an `Allow-*` marker in prose inside a commit message — the parsers read the whole body
+and will treat the quotation as a real waiver.
+
+Local smoke for a correction PR:
+
+```bash
+git log --format=%B origin/main..HEAD > /tmp/trailers.txt
+python util/release_train/archive_guard.py --base origin/main --head HEAD --trailers-file /tmp/trailers.txt --json
 ```
 
 - The monitor polls a bounded ~15-minute wall clock (`--monitor-timeout 900`,

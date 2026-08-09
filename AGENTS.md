@@ -82,6 +82,8 @@ python3 -m unittest -v tests/test_release_train_archive_guard.py
 python3 -m unittest -v tests/test_release_train_ceremony.py
 python3 -m unittest -v tests/test_experiment_stack_script.py
 python3 -m unittest -v tests/test_run_experiment.py
+python3 -m unittest -v tests/test_list_runs.py
+python3 -m unittest -v tests/test_run_suite.py
 python3 -m unittest -v tests/test_experiment_config_schemas.py
 bash scripts/test_resume_file_safety.bash
 # doc-link validator regression tests live in juniper-doc-tools/tests/
@@ -289,6 +291,8 @@ juniper-ml/
 │   ├── test_template_data_resolver.py    # Tests + drift gate: data layer (prompts/agent_templates/data/) + resolver
 │   ├── test_scaffold_template.py         # Behavioural: util/scaffold_template.py new-template generator (P5; drift-compliant output)
 │   ├── test_experiment_stack_script.py   # Contract + behavioural: util/experiment_stack.bash per-run launcher (§6.1 recipes, §6.4 RUN_DIR, §7.2 target file, §9.3 ranges, F-6 listener pid, dry-run + teardown; hermetic)
+│   ├── test_run_suite.py                 # Behavioural: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume; hermetic)
+│   ├── test_list_runs.py                 # Behavioural: util/experiments/list_runs.py lister/pruner (state classification, --older-than, prune safety gates; hermetic RUN_ROOT fixtures)
 │   ├── test_run_experiment.py            # Behavioural: util/experiments/run_experiment.py cascor + recurrence driver (§6.3 drive loops, Q-2 stall/budget, F-1 redirect sampling, G-6 staging, §5.5 blocks + G-18 save_model, §8.1/§8.2 plot sets, §8.3 stats/summary, §13.4 manifest, exit matrix 0-4; hermetic stub HTTP)
 │   ├── test_experiment_config_schemas.py # Drift gate (Wave 3.5): sibling conf/experiments/*.yaml ↔ driver load_config + AST-extracted app Settings fields (CI/force-local gated; always-on extractor self-check)
 │   ├── test_prompt_validator_contract.py # Lint: prompt-validator subagent frontmatter + pinned verdict schema/fixtures
@@ -339,7 +343,7 @@ juniper-ml/
     ├── juniper_chop_all.bash             # Stops all Juniper ecosystem services
     ├── isolated_stack.bash               # Isolated training-runtime E2E trio (data 8101 / cascor 8202 / canopy 8051): --up/--down/--status/--dry-run
     ├── experiment_stack.bash             # Per-run experiment launcher (data 8110-8139 / cascor 8230-8259 / recurrence 8260-8289): --up/--down/--status/--dry-run
-    ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py single-run cascor + recurrence driver (§6.3) + plots_cascor.py / plots_recurrence.py (§8.1 + §8.2 plot sets; 2.5 closes G-5) + stats_summary.py (§8.3 stats.json + summary.md)
+    ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py single-run cascor + recurrence driver (§6.3) + plots_cascor.py / plots_recurrence.py (§8.1 + §8.2 plot sets; 2.5 closes G-5) + stats_summary.py (§8.3 stats.json + summary.md) + list_runs.py (Wave 7.2: safety-gated lister/pruner) + run_suite.py + suites/ (Waves 7.1+7.5: suite driver — matrix expansion, per-cell up→drive→down, registry/index/aggregate; parallel + H-11 split, cascor refused per Q-6)
     ├── get_cascor_status.bash            # GET /v1/training/status
     ├── get_cascor_metrics.bash           # GET /v1/metrics
     ├── get_cascor_history.bash           # GET /v1/metrics/history?count=10
@@ -414,6 +418,7 @@ juniper-ml/
   - Gate 1 draft signals: meta `display_name` → `Juniper ML`; `release_type("major")` → MAJOR (`none`/unknown → PATCH); Breaking YES iff a `Removed` category is present; `_split_bullets` accepts `*` as well as `-` and folds continuations. Operator table: release-train runbook §3.2 (coverage juniper-ml#756).
 - `util/release_train/archive_guard.py` -- Structural guard (Phase 3.1, plan §7.2) for the release-train's gate-exempt notes-archive PR. Passes a PR diff (`git diff --name-status`; injected) ONLY if it is **add-only**, **path-confined** to `notes/releases/RELEASE_NOTES_*.md`, **name-valid** (`_v<semver>`, registry `pypi_name`), and **single-purpose**; non-archive PRs `SKIP`, a violation only `FAIL`s the check (R7). Run by `ci.yml`'s PR-only lane. Tests: `tests/test_release_train_archive_guard.py`.
   - `touches_releases` inspects **both** sides of a rename/copy so a rename-OUT of `notes/releases/` is still an archive PR and FAILs (never SKIP). Copy (`C`) and Typechange (`T`) are non-`A` and FAIL rule1. Operator triage: release-train runbook §3.3.
+  - `Allow-Archive-Edit: <path>|<basename>|*` commit trailer (house `Allow-*` idiom; injected via `--trailers-file`, produced by `ci.yml` from `git log --format=%B FETCH_HEAD..HEAD`) waives rules 1/4 for in-place edits of FLAT `notes/releases/RELEASE_NOTES_*.md` files -> distinct `WAIVED` verdict (exit 0, waived paths named); anything dragging an out-of-archive or nested path still FAILs. The #1003 link-repair class / issue #1013. **Carry the trailer into the squash commit message.**
 - `util/release_train/ceremony.py` -- Exempt-archive + Release ceremony (Phase 3.2, plan §7/§8/§10) for `BUMPED_NOT_RELEASED` packages: §8 preconditions (each HALTs + dedup issue), notes from the CHANGELOG `[<version>]` section, open the exempt archive PR (signed API commit), enable auto-merge, cut the Release (`--latest=false`; no `--verify-tag`), monitor -> `PENDING_PYPI_APPROVAL`. R7 gh-surface allowlist; idempotent re-entry. **`--dry-run` writes nothing.** Tests: `tests/test_release_train_ceremony.py`.
   - Signed-archive re-entry: reuse tip-at-base / single-commit-atop-base; HALT on unresolvable base/tip, non-422 refs errors, or diverged branch (never invent a sha). Operator table: release-train operator runbook §3.3.
   - Open archive-PR reuse (juniper-ml#730): `enable_automerge(…, pr_ref or plan.archive_branch)`; archive-already-on-main → release only; Release-exists → `RESUME_MONITOR`.
