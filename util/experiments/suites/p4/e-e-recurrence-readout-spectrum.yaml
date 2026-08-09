@@ -1,5 +1,8 @@
 # E-E (plan §10.5): readout in {linear,rff,mlp} on delay_product AND irregular_sine — the DP-3
 # capacity separation, reproducibly (expect separation on delay_product, ties on irregular_sine).
+# The *-rff bases carry rff_features/rff_gamma, which the service 422s for non-rff readouts
+# ("only valid when readout='rff'"), so the non-rff cells NULL them (the driver omits None train
+# keys — _lmu_hyperparams). Base product = the two rff cells; includes = linear/mlp per base.
 schema_version: 1
 suite:
   name: e-e-recurrence-readout-spectrum
@@ -8,6 +11,9 @@ suite:
   base_config: [../../../../../juniper-recurrence/conf/experiments/irregular-sine-rff.yaml, ../../../../../juniper-recurrence/conf/experiments/delay-product-rff.yaml]
   seed_policy: fixed
 execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1200}
-matrix:
-  train.readout: [linear, rff, mlp]
+include:
+  - {name: irregular-linear, config: ../../../../../juniper-recurrence/conf/experiments/irregular-sine-rff.yaml, overrides: {train.readout: linear, train.rff_features: null, train.rff_gamma: null}}
+  - {name: irregular-mlp, config: ../../../../../juniper-recurrence/conf/experiments/irregular-sine-rff.yaml, overrides: {train.readout: mlp, train.rff_features: null, train.rff_gamma: null}}
+  - {name: delay-linear, config: ../../../../../juniper-recurrence/conf/experiments/delay-product-rff.yaml, overrides: {train.readout: linear, train.rff_features: null, train.rff_gamma: null}}
+  - {name: delay-mlp, config: ../../../../../juniper-recurrence/conf/experiments/delay-product-rff.yaml, overrides: {train.readout: mlp, train.rff_features: null, train.rff_gamma: null}}
 outputs: {suite_dir: null, aggregate: [csv, markdown]}
