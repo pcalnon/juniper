@@ -1,0 +1,1141 @@
+# Juniper Canopy — E2E Click-by-Click Test Matrix
+
+**Project**: Juniper — Cascade Correlation Neural Network Research Platform
+**Repository**: pcalnon/juniper-canopy (target, READ-ONLY) — document filed in pcalnon/juniper-ml
+**Author**: Paul Calnon
+**Prepared by**: Claude Code
+**Document Type**: Test Matrix / Execution Script
+**Status**: **DRAFT — AWAITING OWNER APPROVAL**
+**Date**: 2026-08-08
+**Companion document**: `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md` (the master plan; scope, phases, stack bring-up, exit criteria)
+
+### Validation record
+
+This revision incorporates the corrections from the two independent audit reports:
+
+| Report | Verdict |
+|---|---|
+| `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-PLAN-GROUNDING-AUDIT.md` (grounding / anti-hallucination) | **GO-WITH-FIXES** — 874/890 claims exact; 9 VERIFIED-DRIFT; 7 WRONG (1 blocking) |
+| `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-PLAN-COVERAGE-AUDIT.md` (coverage / consistency) | **MAJOR-GAPS** — 38 findings: 3 blockers (FE-1, FE-2, CN-1), 13 major, 22 minor |
+
+All corrections from both reports' §7 correction lists were applied to this document and the companion
+plan on **2026-08-08**, in this revision (the plan now uses this matrix's `W1 … W14` namespace; §2/§3
+rows carry `row id` + `status` columns; the training-control rows are transport-aware). The document
+remains `DRAFT — AWAITING OWNER APPROVAL`.
+
+---
+
+## 0. What this document is
+
+The execution script for **Phase 1** of the companion plan — live, browser-driven, click-by-click validation of the
+juniper-canopy dashboard against the isolated stack — and the specification base for **Phase 3** (the automated UI
+suite). Every interactive control in the app gets a row; every primary workflow gets a numbered click script.
+
+Every component id, callback, endpoint and `file:line` in this document was read out of the repository during
+authoring. Where a control's real behaviour diverges from expectation, the divergence is stated explicitly and
+tagged **DIVERGENCE**.
+
+**Target surface**: `http://127.0.0.1:8051/dashboard/` (canopy under `util/isolated_stack.bash`; the Dash app is
+mounted at `/dashboard` — `juniper-canopy/src/main.py:495`, and `GET /` 307-redirects there).
+
+> **Prerequisite: plan Phase 0 / T-1.** Canopy cannot bind 8051 today — `util/isolated_stack.bash:252`
+> exports `JUNIPER_CANOPY_PORT`, a name canopy does not read (`extra="ignore"`), so canopy binds the
+> operator port 8050 and the stack health gate fails. This matrix must never be executed until the plan's
+> Phase-0 nested-name fix (`JUNIPER_CANOPY_SERVER__PORT`) has landed and the §4.3 honest gate passes.
+
+**Two lanes**:
+
+| Lane | Backend | How to confirm |
+| --- | --- | --- |
+| **LIVE** | `backend.backend_type == "service"` (cascor) | `GET /v1/health` → `demo_mode: false` (`juniper-canopy/src/main.py:1068`) |
+| **DEMO** | `backend.backend_type == "demo"` | `GET /v1/health` → `demo_mode: true` |
+
+---
+
+## 1. How to read this matrix
+
+### 1.1 Column legend (§2 chrome and §3 per-tab tables)
+
+| Column | Meaning |
+| --- | --- |
+| **row id** | Deterministic, stable row key — chrome rows `C<section>-NN` (e.g. `C2.5-03`), tab rows `M-<TAB>-NN` (e.g. `M-TOPOLOGY-04`), sequential within each section. Screenshot names (`<row-id>__<step>.png`) and the plan's A-5 scoring key off it. |
+| **control id** | The Dash component `id` (with the `file:line` of its definition). Pattern-matched ids are shown as their dict shape. |
+| **interaction** | The exact user gesture (click / type+blur / select / drag / drag-release / right-click / upload). |
+| **expected result** | What the *registered callback actually does* — not what the label suggests. |
+| **backend effect** | The HTTP request the callback issues (canopy route), or `—` for pure client/browser-local state. |
+| **verify** | Verification method(s) from §1.2. |
+| **auto** | Automation class from §1.3. |
+| **mode** | Lane applicability from §1.4. |
+| **FA** | Fragile-area tag from §1.5, or `—`. |
+| **status** | Initialized `—`; filled during Phase 1 with exactly one terminal value: `PASS` / `FAIL` / `BLOCKED` / `N-A` / `DEAD-CONFIRMED` (the shared vocabulary — plan §9; `DEAD-CONFIRMED` is the passing terminal state of a `DEAD-EXPECTED` automation-class row). |
+
+### 1.2 Verification-method legend
+
+| Code | Method |
+| --- | --- |
+| **VIS** | Visual / screenshot judgement — the thing rendered and looks right. |
+| **DOM** | Selector + attribute/text assertion (`textContent`, `value`, `style.display`, `disabled`, `class`). |
+| **API** | REST assertion against a canopy `/api/*` route, independent of the DOM. |
+| **NET** | Network-request observation (request fired, method, URL, status). |
+| **WS** | WebSocket frame observation, or the Dash store the WS drain feeds. **Concrete method**: observe frames via CDP `Network.webSocketFrameSent` / `Network.webSocketFrameReceived` (Playwright: `page.on("websocket")` → `ws.on("framesent"/"framereceived")`). The sockets and their owners are inventoried in §1.6a; a control-button WS verify means a `{command, command_id}` frame **sent** on `/ws/control` and its ack **received** on the same socket. |
+| **CON** | Browser console — zero uncaught errors / expected warnings only. |
+
+### 1.3 Automation legend
+
+| Code | Meaning |
+| --- | --- |
+| **AUTO** | Playwright-drivable end-to-end (buttons, links, checkboxes, radios, `dcc.Dropdown`, `dcc.Slider`, `dcc.Upload`). |
+| **AUTO-API** | **Not** drivable through the browser: Playwright fills the DOM but a Dash-React-controlled `dbc.Input(type="number")` never propagates the value into Dash state. Drive the *effect* through `POST /api/set_params` (or the equivalent route) and assert the DOM reflects it. This is the shipped doctrine, pinned by `juniper-canopy/src/tests/ui/test_param_roundtrip_visible.py:31-92`; the two failed browser approaches are documented as xfails in `juniper-canopy/src/tests/ui/test_apply_button_flow.py:64` and `juniper-canopy/src/tests/ui/test_l3_native_setter_poc.py:48`. |
+| **MANUAL** | Human/orchestrator judgement — layout quality, colour, chart legibility, animation smoothness, "does this read honestly". |
+| **DEAD-EXPECTED** | Control renders but has **no registered callback**. Clicking MUST do nothing: no network request, no DOM change, no console error. A change here is a *regression in the opposite direction* and must be reported. |
+
+> **The numeric-input wall (binding for every row marked AUTO-API).** `dbc.Input(type="number")` swallows synthetic
+> events; `page.fill()` updates the DOM node but Apply then POSTs the *old* value. Do not "fix" a test by asserting
+> the DOM value alone. Test text inputs (`type="text"` / `type="search"`), textareas, dropdowns, radios, checklists
+> and sliders normally — the wall is specific to `type="number"`.
+
+### 1.4 Mode legend
+
+| Code | Meaning |
+| --- | --- |
+| **L** | Live lane only (service backend). |
+| **D** | Demo lane only. |
+| **B** | Both lanes (behaviour identical or differs only in data). |
+
+### 1.5 Fragile-area tags
+
+| Tag | Area | Why fragile |
+| --- | --- | --- |
+| **FA-1** | Topology **display** | Three sources co-own `network-visualizer-topology-store` (slow REST poll, WS `cascade_add` push, tab-switch refetch) and a stub-topology guard rejects count-only WS frames — `juniper-canopy/src/frontend/dashboard_manager.py:3717-3760`. |
+| **FA-2** | Topology **interactions** | 12 Inputs feed one graph-rebuild callback (`:332-363` in `network_visualizer.py`) with a short-circuit on interval-only triggers; view-state (zoom/pan/dragmode) is re-applied from a separate store and only in 2-D. |
+| **FA-3** | Front-page **training status** | Two counter surfaces with historically confused labels (Step vs Hidden Units vs Iteration), plus a WS-vs-REST liveness gate that demotes the poll — `dashboard_manager.py:5996-6070`, `metrics_panel.py:1237-1281`. |
+| **FA-4** | Snapshots **save/load/replay** | Four ops share one confirm modal via a pattern-matched id carrying `op`; a successful `replay` additionally writes the replay session store **and** switches `active_tab` — `hdf5_snapshots_panel.py:1225-1296`. |
+| **FA-5** | Dataset **cold/hot migration** | Two destinations from one sidebar form (stage→restart vs live swap), a server-authoritative experimental gate, a two-step modal each, and a banner reconciled from `/api/status` polling. |
+
+### 1.6 Canonical route inventory used below
+
+All verified in `juniper-canopy/src/main.py` at the stated line:
+
+`/v1/health` :1047 · `/api/state` :1129 · `/api/status` :1269 · `/api/stream_health` :1279 · `/api/metrics` :1296 ·
+`/api/metrics/history` :1306 · `/api/network/stats` :1322 · `/api/topology` :1373 · `/api/topology/raw` :1388 ·
+`/api/dataset` :1401 · `/api/dataset/generate` :1414 · `/api/dataset/import-file` :1470 · `/api/dataset/import-url` :1557 ·
+`/api/dataset/generators` :1640 · `/api/decision_boundary` :1681 · `/api/v1/snapshots` :1874/:2090 ·
+`/api/v1/snapshots/history` :1912 · `/api/v1/snapshots/{id}` :1950 · `/api/v1/snapshots/{id}/restore` :2293 ·
+`.../replay` :2566 · `.../replay/control` :2603 · `.../resume` :2629 · `.../retrain` :2653 ·
+`/api/v1/network/weights` (PATCH) :2698 · `/api/v1/network/hidden-units` (POST) :2728 / (DELETE `{idx}`) :2745 ·
+`/api/v1/metrics/layouts` :2803/:2849, `{name}` :2828/:2912 · `/api/v1/redis/{status,metrics}` :2951/:2971 ·
+`/api/v1/cassandra/{status,metrics}` :2993/:3013 · `/api/v1/workers/{stats,list}` :3035/:3073 ·
+`/api/train/{start,pause,resume,stop,reset}` :3246/:3278/:3299/:3320/:3341 · `/api/train/status` :3362 ·
+`/api/train/restart` :3426 · `/api/model/select` :3570 · `/api/set_params` :3640 · `/api/stage_dataset` :3824 ·
+`/api/cancel_pending_dataset` (DELETE) :3847 · `/api/admin/experimental_functions` :3880/:3902 ·
+`/api/live_dataset_swap` (POST/DELETE) :3937/:3968 · `/api/history/dataset_swaps` :4006 ·
+`/api/snapshots/{snapshot_id}/history/dataset_swaps` :4032 (per-snapshot swap history; fetched at
+`dashboard_manager.py:5686` into `loaded-snapshot-swap-events-store` — §3.10, W7 step 16) ·
+`/api/ws_latency` (POST) :4225 (browser-originated: `assets/ws_latency.js:47-50` POSTs aggregated
+latency samples every **60 s** — **expected background traffic**; the W13 console/network sweep must
+not flag it as noise) · `/api/csrf` :535.
+
+### 1.6a WebSocket endpoint inventory
+
+Three WS routes in `juniper-canopy/src/main.py`; a **WS** verify (§1.2) must name which socket it observes:
+
+| WS route | Line | Browser-side owner | Used by |
+| --- | --- | --- | --- |
+| `/ws/training` | `main.py:634` | `assets/websocket_client.js` metrics/topology stream client | metrics WS append (`ws-metrics-buffer`), topology `cascade_add` fast path, replay weight drain; idle timeout 120 s (plan T-17) |
+| `/ws/control` | `main.py:777` | `window.cascorControlWS = new CascorWebSocket(controlWSUrl, {csrf: true})` — `assets/websocket_client.js:517` | the five training-control buttons under the **default** transport (§2.5): frame `{command, command_id}` (+ `params` for a one-shot Start), CSRF carried on the handshake |
+| `/ws` | `main.py:3147` | legacy/general socket | not load-bearing for any §2/§3 row; record any traffic observed |
+
+> **DIVERGENCE D-0 (blocking for W5 remove-unit).** `GET /api/network/topology` is **not a registered route**.
+> `NetworkEditorPanel` fetches exactly that URL (`juniper-canopy/src/frontend/components/network_editor_panel.py:517`),
+> so in every lane it receives a 404, `topology` stays `None`, the readout shows *"No topology loaded."* and the
+> remove-unit `dbc.Select` options list is `[]` (`network_editor_panel.py:538-540`). The repo's own unit tests admit
+> the 404 (`juniper-canopy/src/tests/unit/test_main_import_and_lifespan.py:304-305`). A stale code comment at
+> `dashboard_manager.py:3714` names the same non-route, but that handler actually calls `/api/topology`
+> (`dashboard_manager.py:6439`) and is unaffected.
+
+**Auth note.** `/api/train/*` carries `Depends(require_browser_control_auth)` (`main.py:3246,3278,3299,3320,3341,3362,3426`),
+which accepts a valid `X-API-Key`, or — keyless with auth enabled — an allowlisted `Origin` **plus** a valid
+`X-CSRF-Token` from `GET /api/csrf` (`juniper-canopy/src/security.py:314-375`). **Transport caveat (default
+posture)**: with `enable_ws_control_buttons=True` (the shipped default, `settings.py:349`), browser button
+clicks travel as `/ws/control` frames — the CSRF token rides the WS **handshake** (`{csrf: true}`,
+`websocket_client.js:517`) and `/api/train/*` sees no browser POST unless the WS path is unavailable
+(automatic REST fallback, which then carries `X-CSRF-Token` per the clientside JS). Out-of-band API driving
+of the training controls must still mint a CSRF token or send the key. Other `/api/*`
+routes used below carry no such dependency.
+
+---
+
+## 2. Global chrome matrix (present on every tab)
+
+Unless noted, ids are defined in `juniper-canopy/src/frontend/dashboard_manager.py`.
+
+### 2.1 Header, theme, welcome
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C2.1-01 | `dark-mode-toggle` (:621) | click | `dark-mode-store` flips + button glyph swaps (`:2905-2916`); `theme-state` follows (`:2921-2928`); clientside adds/removes `dark-mode` on `<html>` (`:2930-2945`). Every theme-aware figure redraws. | — (localStorage) | DOM, VIS | AUTO | B | — | — |
+| C2.1-02 | `dark-mode-toggle` | reload after toggle | `dark-mode-store` is `storage_type="local"` (:634) → theme persists across reload. | — | DOM | AUTO | B | — | — |
+| C2.1-03 | `welcome-modal` (:1859) | first visit | Opens once when `localStorage['juniper_canopy_welcomed']` is absent, fired off `params-init-interval` (`:2948-2960`). | — | DOM, VIS | AUTO | B | — | — |
+| C2.1-04 | `welcome-modal-close` (:1856) | click "Get Started" | Sets the localStorage key and closes (`:2962-2972`). Does not reopen on reload. | — | DOM | AUTO | B | — | — |
+
+### 2.2 Tab bar
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C2.2-01 | `visualization-tabs` (:1699) | click any of the 15 tabs | Switches panel. Tab list built by `_all_visualization_tabs` (`:2164-2252`); default `active_tab="metrics"` (:1700). | tab-gated stores refetch (see per-tab rows) | DOM, NET | AUTO | B | — | — |
+| C2.2-02 | `visualization-tabs` | change tab, then reload | Active tab is stamped into `layout-state-store` (`:3351-3364`; `dcc.Store` :1724-1726 with `id` :1725, `storage_type="local"` :1726) and restored on mount by an **equality-guarded** clientside restore (`:3287-3304`) — restore-once, no feedback loop. | — | DOM | AUTO | B | — | — |
+| C2.2-03 | `visualization-tabs` | — | **Writers of `active_tab` are three**: tutorial-context-menu trigger (`:3271-3281`), layout-state restore (`:3287-3304`), and a successful snapshot `replay` op (`hdf5_snapshots_panel.py:1230`). The `_visible_tabs` docstring (`:2259-2261`) still claims "exactly two" — **DIVERGENCE D-1**, doc-only. | — | — | MANUAL | B | FA-4 | — |
+| C2.2-04 | sidebar section visibility | switch tabs | 14 sidebar section ids (`SIDEBAR_SECTION_IDS` :267-282) get `display:block\|none` per `TAB_SIDEBAR_CONFIG` (:284-373); NN/CN collapses auto-open with their content; card header text swaps via `TAB_HEADER_MAP` (:376) — callback `:2289-2308`. Sections are **hidden, not unmounted** → assert *visibility*, never presence. | — | DOM | AUTO | B | — | — |
+| C2.2-05 | sidebar section visibility | switch to `evolution` / `replay` / `network-editor` | `TAB_SIDEBAR_CONFIG` has **no entry** for these three (12 keys only, :284-373) → `.get(active_tab, {})` yields `{}` → **all 14 sections hidden**; only the Training Controls card remains. Expected, not a bug. | — | DOM | AUTO | B | — | — |
+| C2.2-06 | `sidebar-col` / `visualization-col` (:1682/:1703) | switch tabs | Widths resize 3/9 ⇄ 2/10 from `ui_standards.TAB_SIDEBAR_WIDTH` (callback `:2315-2322`; table `juniper-canopy/src/frontend/ui_standards.py:37-56` — declared :37, 15 entries :39-55, closes :56). Sum is always 12. | — | DOM | AUTO | B | — | — |
+
+### 2.3 Top status bar
+
+Single callback `update_unified_status_bar` (`:3087-3104`) on `fast-update-interval`, reading `GET /api/status`;
+counter strings from `_counter_displays` (`:5996-6070`).
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C2.3-01 | `status-indicator` (:716) | passive | Coloured dot; style driven by latency/health. | `GET /api/status` | VIS, DOM | AUTO | B | FA-3 | — |
+| C2.3-02 | `top-status-display` (:731) | passive | Training status text + style. Default `"Stopped"`. | `GET /api/status` | DOM | AUTO | B | FA-3 | — |
+| C2.3-03 | `top-phase-display` (:750) | passive | Phase text. Default `"Idle"`. | `GET /api/status` | DOM | AUTO | B | FA-3 | — |
+| C2.3-04 | `top-epoch-display` (:773) | passive | Labeled **"Step: "** (:769). Renders `current_epoch` (fallback `current_step`) — completed training steps, **not** an inner epoch (`:6032-6037`). | `GET /api/status` | DOM | AUTO | B | FA-3 | — |
+| C2.3-05 | `top-hidden-units-display` (:799) | passive | Labeled **"Hidden Units: "** (:795). Renders `hidden / max_hidden_units`, or a bare count when the cap is absent (`:6039-6042`). | `GET /api/status` | DOM | AUTO | B | FA-3 | — |
+| C2.3-06 | `status-iteration-segment` (:808) | passive | Wrapper span around the Hidden-Units segment. Hidden (`display:none`) when `model-class-store == "one_shot"` (`:2362-2370`). Name is historical — it holds hidden units, not the growth iteration. | — | DOM | AUTO | B | FA-3 | — |
+| C2.3-07 | `latency-display` (:813) | passive | Right-aligned latency string. | `GET /api/status` | DOM | AUTO | B | FA-3 | — |
+| C2.3-08 | `connection-status` (:842) | — | Hidden `div` (`display:none`) that exists solely as a callback Output target. Nothing to click. | — | DOM | MANUAL | B | — | — |
+
+### 2.4 WebSocket badge — `ws-connection-indicator`
+
+Element: `juniper-canopy/src/frontend/components/connection_indicator.py:35`. Renderer JS:
+`connection_indicator.py:65-102`, registered at `dashboard_manager.py:3532-3538` with **two** Inputs —
+`ws-connection-status` (browser socket, :1808) and `stream-health-store` (canopy→cascor upstream, :1813, polled
+from `GET /api/stream_health`, `:3522`).
+
+| row id | # | Badge text | Trigger | Colour | mode | status |
+| --- | --- | --- | --- | --- | --- | --- |
+| C2.4-01 | 0 | `WS: --` | Initial render before any store update (`connection_indicator.py:36`). | grey `#6c757d` | B | — |
+| C2.4-02 | 1 | `WS: Demo` | `wsStatus.mode === "demo"` (:80-83). | grey `#6c757d` | D | — |
+| C2.4-03 | 2 | `WS: Connected` | `connected` true **and** upstream not degraded/reconnecting (:91-92). | green `#28a745` | B | — |
+| C2.4-04 | 3 | `WS: Upstream reconnecting` | `connected` true **and** `streamHealth.overall === "reconnecting"` (:86-89). | amber `#ffc107` | L | — |
+| C2.4-05 | 4 | `WS: Upstream degraded` | `connected` true **and** `streamHealth.overall === "degraded"` (:86-89). | amber `#ffc107` | L | — |
+| C2.4-06 | 5 | `WS: Reconnecting` | browser socket reconnecting (:94-98). | amber `#ffc107` | B | — |
+| C2.4-07 | 6 | `WS: Offline` | browser socket down (:99-100). | red `#dc3545` | B | — |
+
+Verification: DOM (text + `style.backgroundColor`) + WS. Automation: AUTO for states 0/1/2/6 (state 6 by killing
+the socket); states 3/4 need an induced upstream fault — the induction procedure is **workflow W14**
+(stop cascor via the isolated stack's own helpers; the browser observations themselves are AUTO once the
+MANUAL induction has run). `overall: "n/a"` (demo/recurrence,
+`main.py:1293`) must preserve the 4-state behaviour.
+
+### 2.5 Sidebar — Training Controls card
+
+> **Transport default (FE-1).** `enable_ws_control_buttons` defaults **`True`**
+> (`juniper-canopy/src/settings.py:349`), so the five buttons ship registered as a **clientside** callback
+> (`dashboard_manager.py:4125-4149`; JS body `PHASE_D_TRAINING_BUTTONS_CLIENTSIDE_JS`, `:110-260`) that
+> sends `{command, command_id}` (+ `params` for a one-shot Start, `:227-231`) over `window.cascorControlWS`
+> — the `/ws/control` socket opened by `assets/websocket_client.js:517` — with an **automatic REST
+> fallback** `fetch('/api/train/' + command)` (`:184`) fired **only** when the socket is
+> unavailable/not-OPEN or the `send()` promise rejects. `POST /api/train/<cmd>` (NET) is therefore the
+> **fallback observation, not the primary one**: on a healthy default-posture stack a button click
+> produces a WS frame and **no** `/api/train/*` HTTP request. The in-code comment at
+> `dashboard_manager.py:4122-4124` claiming the flag is "off (default)" is **stale** (divergence **D-5**,
+> §5.3; plan T-21 — a finding-candidate for Phase 1). Record the active transport in the run header
+> (startup log line at `:4149`); to force the REST posture for the non-default arm, run canopy with
+> `JUNIPER_CANOPY_ENABLE_WS_CONTROL_BUTTONS=false`.
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C2.5-01 | `train-gate-notice` (:857) | passive | Empty for a live model; fills with the reason Start is disabled when the selected model's status is not `live` (`:2479-2485`, `model_is_trainable` in `juniper-canopy/src/model_registry.py:232`). Both registry models are currently `status="live"` (`model_registry.py:175,188`), so this reads empty in normal operation. | — | DOM | AUTO | B | — | — |
+| C2.5-02 | `start-button` (:862) | click (default WS posture) | Clientside debounce 500 ms (`:135-141`), optimistic disable+loading, then a `{command:"start", command_id}` frame on `/ws/control`; a one-shot model attaches the `oneshot-start-params-store` body as `params` (`:227-231`). **No `/api/train/start` HTTP request on the primary path**; the REST `fetch('/api/train/start')` (`:184`) fires only if the WS send is unavailable/rejected. A rejected command surfaces via the error ack → `training-control-action` (`reportFailure`, `:152-162`); server-side 409 semantics unchanged (`main.py:3268-3272`). | `/ws/control` frame (REST fallback: `POST /api/train/start`) | WS, DOM, CON (NET only on fallback) | AUTO | B | FA-3 | — |
+| C2.5-03 | `pause-button` (:867) | click (default WS posture) | `{command:"pause"}` frame; not-pausable rejection arrives as a WS error ack (server 409 detail on the fallback path, `main.py:3290-3294`). | `/ws/control` frame (REST fallback: `POST /api/train/pause`) | WS, DOM (NET only on fallback) | AUTO | B | FA-3 | — |
+| C2.5-04 | `resume-button` (:872) | click (default WS posture) | `{command:"resume"}` frame; not-resumable rejection as above. | `/ws/control` frame (REST fallback: `POST /api/train/resume`) | WS, DOM (NET only on fallback) | AUTO | B | FA-3 | — |
+| C2.5-05 | `stop-button` (:877) | click (default WS posture) | `{command:"stop"}` frame. | `/ws/control` frame (REST fallback: `POST /api/train/stop`) | WS, DOM (NET only on fallback) | AUTO | B | FA-3 | — |
+| C2.5-06 | `reset-button` (:888) | click (default WS posture) | `{command:"reset"}` frame. Idempotent on a stopped backend. | `/ws/control` frame (REST fallback: `POST /api/train/reset`) | WS, DOM (NET only on fallback) | AUTO | B | FA-3 | — |
+| C2.5-07 | all five | click (non-default REST posture: `enable_ws_control_buttons=false`) | **Non-default configuration arm, kept for completeness.** The server-side Python handler is registered instead (`:4152-4186`; command POST built at `:6622-6647`) and every click issues `POST /api/train/<cmd>` directly — the pre-Phase-D behaviour the shipped test fixtures exercise. Verify NET + API in this posture only. | `POST /api/train/<cmd>` | DOM, API, NET | AUTO | B | FA-3 | — |
+| C2.5-08 | all five | click twice <500 ms | Second click is debounced — no second WS frame (clientside guard `:135-141`, default posture) / no second POST (server-side guard `:6614-6619`, non-default posture). | none | WS or NET (per posture) | AUTO | B | FA-3 | — |
+| C2.5-09 | all five | after any click | Buttons re-enable on control-ack or after the timeout sweep (`:4246-4257`). | — | DOM | AUTO | B | FA-3 | — |
+| C2.5-10 | `training-control-outcome-alert` (:2127) | after a **rejected** command | **Failure-only contract**: renders a dismissable `danger` alert (`duration=8000`) naming the command and the verbatim backend detail. On success (or no action) it renders `None` — a success never produces a toast (`dashboard_manager.py:6708-6730`). Fed by BOTH transports (`:4200-4213`), so it is posture-agnostic. | — | DOM, VIS | AUTO | B | FA-3 | — |
+
+### 2.6 Sidebar — Meta Parameters ▸ Neural Network
+
+All `dbc.Input(type="number")` rows below are **AUTO-API** (see §1.3). Dropdowns and radios are AUTO.
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C2.6-01 | `nn-subsection-header` (:912) | click | Toggles `nn-subsection-collapse` (:1293) + icon (`:4264-4266`). | — | DOM | AUTO | B | — |
+| C2.6-02 | `nn-max-iterations-input` (:923) | set value | Marks form dirty → enables Apply. | on Apply | DOM | AUTO-API | B | — |
+| C2.6-03 | `nn-max-total-epochs-input` (:934) | set value | dirty → Apply | on Apply | DOM | AUTO-API | B | — |
+| C2.6-04 | `nn-output-epochs-input` (:945) | set value | dirty → Apply | on Apply | DOM | AUTO-API | B | — |
+| C2.6-05 | `nn-init-output-weights-dropdown` (:956) | select | dirty → Apply. Not in the dirty-tracking Input list (`:4390-4424`) — **DIVERGENCE D-2**: changing it alone does **not** enable Apply. | on Apply | DOM | AUTO | B | — |
+| C2.6-06 | `nn-optimizer-type-dropdown` (:964) | select | dirty → Apply (Input at `:4420`). | on Apply | DOM | AUTO | B | — |
+| C2.6-07 | `nn-activation-function-dropdown` (:972) | select | dirty → Apply (Input at `:4422`). | on Apply | DOM | AUTO | B | — |
+| C2.6-08 | `nn-learning-rate-input` (:980) | set value | dirty → Apply. The canonical AUTO-API probe (`test_param_roundtrip_visible.py`). | on Apply | DOM, API | AUTO-API | B | — |
+| C2.6-09 | `nn-max-hidden-units-input` (:991) | set value | dirty → Apply | on Apply | DOM | AUTO-API | B | — |
+| C2.6-10 | `nn-multi-node-layers-checkbox` (:1018) | toggle | dirty → Apply; mirrored with the CN twin (`sync_multi_node_checkboxes`, `:4380`). | on Apply | DOM | AUTO | B | — |
+| C2.6-11 | `ctx-multi-node-header` (:1011) | click | Toggles `ctx-multi-node-collapse` (:1025). | — | DOM | AUTO | B | — |
+| C2.6-12 | `ctx-growth-triggers-header` (:1040) | click | Toggles `ctx-growth-triggers-collapse` (:1111). | — | DOM | AUTO | B | — |
+| C2.6-13 | `nn-growth-trigger-radio` (:1047) | select `preset_epochs` | Enables `nn-growth-preset-epochs-input`, disables the convergence pair. Default is `convergence` (:1052), shipped with preset-epochs `disabled=True` (:1067). | on Apply | DOM | AUTO | B | — |
+| C2.6-14 | `nn-growth-preset-epochs-input` (:1059) | set value (preset mode) | dirty → Apply | on Apply | DOM | AUTO-API | B | — |
+| C2.6-15 | `nn-growth-convergence-threshold-input` (:1077) | set value | dirty → Apply | on Apply | DOM | AUTO-API | B | — |
+| C2.6-16 | `nn-patience-input` (:1095) | set value | dirty → Apply | on Apply | DOM | AUTO-API | B | — |
+| C2.6-17 | `nn-model-summary` (:1133) | passive | Current model label + status; rewritten by the modal Select (`:2413`). | — | DOM | AUTO | B | — |
+| C2.6-18 | `nn-model-change-button` (:1138) | click "▸ change" | Opens `model-selection-modal` and rebuilds the table against the **current dataset** (`:2390-2401`). | — | DOM | AUTO | B | — |
+| C2.6-19 | `nn-model-dataset-hint` (:1152) | passive | Reverse gate: names the model constraint the current dataset imposes (`:2467-2473`). | — | DOM | AUTO | B | — |
+
+### 2.7 Sidebar — Dataset subsection (`sidebar-nn-spiral-dataset`, :1289)
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C2.7-01 | `ctx-spiral-dataset-header` (:1170) | click | Toggles `ctx-spiral-dataset-collapse` (:1285). Title span `nn-dataset-section-title` (:1168) is renamed per selected generator (`:2440-2449`). | — | DOM | AUTO | B | FA-5 | — |
+| C2.7-02 | `nn-spiral-rotations-input` (:1186) | set value | Staged on Apply Dataset. | on Apply Dataset | DOM | AUTO-API | B | FA-5 | — |
+| C2.7-03 | `nn-spiral-number-input` (:1198) | set value | Staged on Apply Dataset. | on Apply Dataset | DOM | AUTO-API | B | FA-5 | — |
+| C2.7-04 | `nn-dataset-elements-input` (:1211) | set value | Staged on Apply Dataset. | on Apply Dataset | DOM | AUTO-API | B | FA-5 | — |
+| C2.7-05 | `nn-dataset-noise-input` (:1223) | set value | Staged on Apply Dataset. | on Apply Dataset | DOM | AUTO-API | B | FA-5 | — |
+| C2.7-06 | `nn-dataset-typed-fields` (:1234) | passive | The 4 spiral-only inputs above; **hidden** for non-spiral generators (`:2442`). | — | DOM | AUTO | B | FA-5 | — |
+| C2.7-07 | `nn-dataset-type-dropdown` (:1243) | select | Options gated by the selected model (`gate_dataset_options`, `:2424-2433`); registry types are `spirals / xor / mnist / circles / moons / equities_seq` (`model_registry.py:132-152`, default `spirals` :153). Selecting re-renders the schema params and the model hint. | — | DOM, NET | AUTO | B | FA-5 | — |
+| C2.7-08 | `nn-dataset-schema-params` (:1255) | set generated fields | Schema-driven inputs with pattern id `{"type":"nn-gen-param","name":<field>}`, read directly by `apply_dataset` (`:4679-4680`). Numeric ones inherit the wall. | on Apply Dataset | DOM | AUTO-API | B | FA-5 | — |
+| C2.7-09 | `apply-dataset-button` (:1258) | click | Force-blurs the focused input first (`:2985-3005`), then `POST /api/stage_dataset`; on success opens `pending-dataset-banner`; a staging failure renders `dataset-stage-outcome-alert` (:2076) instead of failing silently (`:4663-4685`). | `POST /api/stage_dataset` | DOM, NET, API | AUTO | B | FA-5 | — |
+| C2.7-10 | `live-dataset-switch-button` (:1275) | click | Ships `disabled=True` (:1279). Enabled **only** when `experimental-flags-store.experimental_functions` **and** `training-status-store.is_running` are both true (`_gate_live_switch_button_handler`, `:5722-5731`). When enabled, opens `live-switch-modal` with a read-only summary (`:4893-4907`). | — | DOM | AUTO | B | FA-5 | — |
+
+### 2.8 Sidebar — Meta Parameters ▸ Candidate Nodes
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C2.8-01 | `cn-subsection-header` (:1308) | click | Toggles `cn-subsection-collapse` (:1517, ships `is_open=False`). | — | DOM | AUTO | B | — |
+| C2.8-02 | `cn-pool-size-input` (:1319) | set value | dirty → Apply; feeds the triple validator as **P**. | on Apply | DOM | AUTO-API | B | — |
+| C2.8-03 | `cn-correlation-threshold-input` (:1330) | set value | dirty → Apply | on Apply | DOM | AUTO-API | B | — |
+| C2.8-04 | `cn-selected-candidates-input` (:1341) | set value | dirty → Apply; feeds the validator as **S**. | on Apply | DOM | AUTO-API | B | — |
+| C2.8-05 | `cn-pool-triple-feedback` (:1357) | after any (S,T,R,P) change | Clientside truth-table mirror of cascor's `_validate_candidate_pool_triple` (`:3013-3069`): sets `invalid` on the offending input(s) and writes one message. Nine branches: `S∉[1,P]`; `T<0 or R<0`; `T>S or R>S`; `T==0 and R==0`; `T==0 and R!=S`; `R==0 and T!=S`; `T>0,R>0,T+R!=S`; any non-numeric → cleared; otherwise cleared. Server stays authoritative. | — | DOM, VIS | AUTO-API (inputs) | B | — |
+| C2.8-06 | `ctx-pool-training-header` (:1373) | click | Toggles `ctx-pool-training-collapse` (:1444). | — | DOM | AUTO | B | — |
+| C2.8-07 | `cn-training-complete-radio` (:1380) | select `convergence` | Enables the convergence threshold (ships `disabled=True` :1418) and disables iterations. Default is `preset_epochs` (:1385). | on Apply | DOM | AUTO | B | — |
+| C2.8-08 | `cn-training-iterations-input` (:1392) | set value | dirty → Apply | on Apply | DOM | AUTO-API | B | — |
+| C2.8-09 | `cn-training-convergence-threshold-input` (:1410) | set value | dirty → Apply | on Apply | DOM | AUTO-API | B | — |
+| C2.8-10 | `cn-patience-input` (:1428) | set value | dirty → Apply | on Apply | DOM | AUTO-API | B | — |
+| C2.8-11 | `cn-multi-candidate-checkbox` (:1456) | toggle | Enables `cn-candidate-selection-radio` (:1464, ships `value=None`, `opacity:0.5`) and the dependent count inputs. | on Apply | DOM | AUTO | B | — |
+| C2.8-12 | `cn-candidate-selection-radio` (:1464) | select `top_tier` / `random` | Enables `cn-top-candidates-input` (:1477) or `cn-random-candidates-input` (:1495) — both ship `disabled=True`. | on Apply | DOM | AUTO | B | — |
+| C2.8-13 | `cn-top-candidates-input` (:1477) | set value | dirty → Apply; validator **T**. | on Apply | DOM | AUTO-API | B | — |
+| C2.8-14 | `cn-random-candidates-input` (:1495) | set value | dirty → Apply; validator **R**. | on Apply | DOM | AUTO-API | B | — |
+
+### 2.9 Sidebar — pending-dataset banner trio, Apply, Experimental, Network Info, Pinned
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C2.9-01 | `pending-dataset-banner` (:1554) | passive | Ships `is_open=False`. Opened by a successful Apply Dataset; independently reconciled every slow tick from `/api/status.pending_dataset` (`:4720-4744`) — so it closes by itself once cascor clears the staged config. | `GET /api/status` | DOM | AUTO | B | FA-5 | — |
+| C2.9-02 | `restart-with-new-dataset-button` (:1539) | click | Opens `restart-confirm-modal` and seeds every field + `restart-modal-baseline` (`:5029-5040`). Does **not** POST directly (pre-N3 behaviour is gone). | `GET`s to seed | DOM | AUTO | B | FA-5 | — |
+| C2.9-03 | `cancel-pending-dataset-button` (:1545) | click | `DELETE /api/cancel_pending_dataset`; on 200 closes the banner, on failure leaves it open (`:4687-4709`). | `DELETE /api/cancel_pending_dataset` | DOM, API | AUTO | B | FA-5 | — |
+| C2.9-04 | `apply-params-button` (:1563) | click | Blur-commit (`:2985-3005`) → clamp to `CascorPatchBounds` → `POST /api/set_params` with the **25-key** body (`dashboard_manager.py:6971-7003`) → toast into `params-status` (`_apply_parameters_handler` :6933, shared core `_apply_params_via_backend` :7011). **Field-count precision**: dirty-tracking watches **27** inputs (`comparisons`, `:6884-6912`); the Apply callback gathers **28** `State`s (`:4508-4540` — +1 for the non-dirty-tracked `nn-init-output-weights-dropdown`, D-2; the number `test_param_roundtrip_visible.py:35`'s comment mirrors); the POST body drops three of them deliberately — `nn_dataset_elements` / `nn_dataset_noise` (canopy-local; travel on `/api/stage_dataset`) and `cn_training_complete` (read-only status flag) — leaving **25** keys. Ships `disabled=True` (:1566); enabled only when a tracked value differs from `applied-params-store` (`:4385-4491`, handler :6838). | `POST /api/set_params` | DOM, NET, API | AUTO (click) / AUTO-API (values) | B | — | — |
+| C2.9-05 | `params-status` (:1569) | after Apply | Exactly one of: `Applied N of M parameter(s); K not yet supported by the backend: …`; `Applied N parameter(s); K skipped: key (reason)…`; `Parameters applied` — each with an optional ` (clamped to bounds: key→value…)` suffix (`_compose_apply_toast`, `:7098-7152`). Non-200 → verbatim backend detail. The `429 with retries exhausted → "Rate limited — please try again in a few seconds"` branch is **`N-A` as shipped** (limiter off by default, `settings.py:317`, and the Apply path is a server-side self-call carrying the internal-request token — plan T-8), so it is not an observable Phase-1 outcome in either lane as configured. | — | DOM, VIS | AUTO | B | — | — |
+| C2.9-06 | interval clamp | during Apply | `apply-in-flight` set on click (`:3196`), released on `applied-params-store` update (`:3209`) **and** by a watchdog (`:3241`) after `APPLY_IN_FLIGHT_MAX_MS`; while set, `fast`/`slow` update intervals are disabled (the two `Output(..., "disabled")` lines `:3221-3222`, in the clientside callback `:3213-3226`). Dashboard must never stay frozen. | — | DOM, NET, CON | AUTO | B | FA-3 | — |
+| C2.9-07 | `experimental-functions-toggle` (:1646) | page load | Reconciled once from `GET /api/admin/experimental_functions` — the **server is authoritative** and overrides the persisted local value; unreachable backend forces OFF + warning alert (`:4765-4798`). | `GET /api/admin/experimental_functions` | DOM, NET | AUTO | B | FA-5 | — |
+| C2.9-08 | `experimental-functions-toggle` | toggle ON | `POST /api/admin/experimental_functions`; the response's `enabled` is what the switch shows. Divergence → warning alert; non-200 → revert + danger alert; network error → revert + danger alert (`:4800-4852`). | `POST /api/admin/experimental_functions` | DOM, NET, API | AUTO | B | FA-5 | — |
+| C2.9-09 | `experimental-functions-alert` (:1653) | after toggle | Renders the warning/danger `dbc.Alert` (5 s) or nothing. | — | DOM, VIS | AUTO | B | FA-5 | — |
+| C2.9-10 | `network-info-header` (:1593) | click | Toggles `network-info-collapse` (:1619, ships open) (`:3120-3128`). | — | DOM | AUTO | B | — | — |
+| C2.9-11 | `network-info-panel` (:1601) | passive | Refilled every slow tick (`:3111-3118`). | `GET`s via handler `:6186` | DOM | AUTO | B | — | — |
+| C2.9-12 | `network-info-details-header` (:1608) | click | Toggles `network-info-details-collapse` (:1614, ships closed) + icon (`:3130-3143`). **Second** collapsible level. | — | DOM | AUTO | B | — | — |
+| C2.9-13 | `network-info-details-panel` (:1613) | passive | Refilled every slow tick (`:3147-3154`, handler `:6282`). | — | DOM | AUTO | B | — | — |
+| C2.9-14 | `sidebar-pinned-card` (:1678) | passive | Ships `display:none`; shown only when `pinned-params-store` is non-empty (`:3972-3976`). | — | DOM | AUTO | B | — | — |
+| C2.9-15 | `sidebar-pinned-list` (:1674) | after pinning | Read-only name+value rows for every pinned key. | — | DOM | AUTO | B | — | — |
+| C2.9-16 | tooltips | hover a control | **23** `dbc.Tooltip`s built at `:1819` from `CONTROL_TOOLTIPS` (`juniper-canopy/src/frontend/tooltips.py:7-34`) — **22** parameter inputs + `apply-params-button`, rendered 1:1. | — | VIS, DOM | AUTO | B | — | — |
+
+### 2.10 Global modals and floating alerts (declared once, reachable from any tab)
+
+| row id | id | line | role | status |
+| --- | --- | --- | --- | --- |
+| C2.10-01 | `model-selection-modal` / `model-search-input` / `model-selection-table-container` / `model-selection-modal-close` | :2112 / :2098 / :2105 / :2109 | Model picker (§4 W8). | — |
+| C2.10-02 | `live-switch-modal` / `live-switch-dataset-summary` / `live-switch-fallback-button` / `live-switch-accept-button` | :1909 / :1883 / :1897 / :1903 | Hot-swap two-step (§4 W7). `backdrop="static"`, `keyboard=False`. | — |
+| C2.10-03 | `live-switch-progress-alert` / `live-switch-cancel-button` / `live-switch-outcome-alert` | :1935 / :1929 / :1943 | Hot-swap progress + cancel + outcome. | — |
+| C2.10-04 | `restart-confirm-modal` and children (`restart-confirm-summary` :1973, `restart-start-fresh-toggle` :1975, `restart-granular-toggle` :1986, `restart-granular-collapse` :2028, `restart-granular-context` :1998, `restart-modal-baseline` :2035, `restart-cancel-button` :2040, `restart-confirm-button` :2041) | :2045 | Cold-swap restart (§4 W6). `backdrop="static"`, `keyboard=False`. | — |
+| C2.10-05 | `restart-progress-alert` / `restart-outcome-alert` / `dataset-stage-outcome-alert` | :2059 / :2073 / :2076 | Stacked floating surfaces at `top: 13rem` / `13rem` / `17rem`. | — |
+| C2.10-06 | `training-control-outcome-alert` | :2127 | `top: 9rem`. | — |
+
+**Restart modal — the 11 granular MODIFY fields (N3b).** Field maps `RESTART_MODAL_DATASET_FIELDS` /
+`RESTART_MODAL_PARAM_FIELDS` (`dashboard_manager.py:401-407` / `:408-415`); builders
+`_build_restart_dataset_fields` (`:5149-5174`) and `_build_restart_param_fields` (`:5177-5204`). All are
+seeded on modal open from staged/current values; an edit's only consumer is the Confirm handler's
+diff-against-baseline (`:5058-5079`).
+
+> **LIMITATION (plan T-22, finding-candidate).** 10 of the 11 fields are `dbc.Input(type="number")`
+> (`:5157-5162`, `:5185-5190`), so the §1.3 numeric wall applies — **and there is NO API bypass for these
+> modal-scoped fields**: unlike the sidebar params (hydrated from `/api/state`), no route writes these
+> Dash `State`s, so the *modify* half of N3b is not drivable by any documented automated method. The
+> **seed** half is testable (`AUTO-API (seed-only)`: set backend params → open modal → assert seeded
+> values); the **modify** half is MANUAL-only (human keystrokes) — see the W6 MANUAL drill.
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| C2.10-07 | `restart-ds-type` (:5168) | select (Dropdown) | The one browser-drivable granular field; `#restart-confirm-summary` re-renders the delta vs `restart-modal-baseline` (`:5058-5079`). | on Confirm (re-stage) | DOM | AUTO | B | FA-5 | — |
+| C2.10-08 | `restart-ds-samples` (:5169) | seed / MANUAL edit | Seeded on open; a (manual) edit re-renders the summary delta. | on Confirm (re-stage) | DOM | AUTO-API (seed-only) / MANUAL (modify) | B | FA-5 | — |
+| C2.10-09 | `restart-ds-noise` (:5170) | seed / MANUAL edit | Same contract. | on Confirm (re-stage) | DOM | AUTO-API (seed-only) / MANUAL (modify) | B | FA-5 | — |
+| C2.10-10 | `restart-ds-rotations` (:5171) | seed / MANUAL edit | Same contract. | on Confirm (re-stage) | DOM | AUTO-API (seed-only) / MANUAL (modify) | B | FA-5 | — |
+| C2.10-11 | `restart-ds-spirals` (:5172) | seed / MANUAL edit | Same contract. | on Confirm (re-stage) | DOM | AUTO-API (seed-only) / MANUAL (modify) | B | FA-5 | — |
+| C2.10-12 | `restart-p-nn-learning-rate` (:5196) | seed / MANUAL edit | Seeded (clamped) from backend values; a (manual) edit is clamped + applied through the N5 `/api/set_params` machinery on Confirm (`:5178-5183`). | on Confirm (`/api/set_params`) | DOM | AUTO-API (seed-only) / MANUAL (modify) | B | FA-5 | — |
+| C2.10-13 | `restart-p-nn-max-hidden-units` (:5197) | seed / MANUAL edit | Same contract. | on Confirm (`/api/set_params`) | DOM | AUTO-API (seed-only) / MANUAL (modify) | B | FA-5 | — |
+| C2.10-14 | `restart-p-nn-patience` (:5198) | seed / MANUAL edit | Same contract. | on Confirm (`/api/set_params`) | DOM | AUTO-API (seed-only) / MANUAL (modify) | B | FA-5 | — |
+| C2.10-15 | `restart-p-cn-pool-size` (:5200) | seed / MANUAL edit | Same contract. | on Confirm (`/api/set_params`) | DOM | AUTO-API (seed-only) / MANUAL (modify) | B | FA-5 | — |
+| C2.10-16 | `restart-p-cn-selected` (:5201) | seed / MANUAL edit | Same contract. | on Confirm (`/api/set_params`) | DOM | AUTO-API (seed-only) / MANUAL (modify) | B | FA-5 | — |
+| C2.10-17 | `restart-p-cn-corr-thresh` (:5202) | seed / MANUAL edit | Same contract. | on Confirm (`/api/set_params`) | DOM | AUTO-API (seed-only) / MANUAL (modify) | B | FA-5 | — |
+
+---
+
+## 3. Per-tab matrices
+
+### 3.1 Tab `metrics` — "Training Metrics"
+
+Tab: `dashboard_manager.py:2177-2181`. Renderer: `juniper-canopy/src/frontend/components/metrics_panel.py` (prefix `metrics-panel-`).
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-METRICS-01 | `metrics-panel-status` (:163) | passive | Status pill; written together with the KPI tiles + both plots (`:737-760`). | — | DOM | AUTO | B | FA-3 | — |
+| M-METRICS-02 | `metrics-panel-progress-detail` (:176) | passive | Inline text assembled from `phase_detail`, `Growth Iteration i/N`, `Best Corr`, `Candidates t/T` (`:1283-1308`); empty when status is STOPPED/IDLE. | `GET /api/state` | DOM | AUTO | B | FA-3 | — |
+| M-METRICS-03 | `metrics-panel-phase-duration` (:186) | passive | Phase-duration string (`:658-664`). | — | DOM | AUTO | B | FA-3 | — |
+| M-METRICS-04 | `metrics-panel-layout-name-input` (:208) | type a name | `type="text"` → normal fill works. | — | DOM | AUTO | B | — | — |
+| M-METRICS-05 | `metrics-panel-save-layout-btn` (:216) | click | `POST /api/v1/metrics/layouts` (handler `:1531-1575`, URL `:1553`); writes `metrics-panel-layout-status`, refreshes the store, clears the name input (`:1113-1128`). | `POST /api/v1/metrics/layouts` | DOM, NET, API | AUTO | B | — | — |
+| M-METRICS-06 | `metrics-panel-layout-dropdown` (:230) | open / select | Options refreshed from `GET /api/v1/metrics/layouts` (`:1104-1111`, URL `:1521`). | `GET /api/v1/metrics/layouts` | DOM, NET | AUTO | B | — | — |
+| M-METRICS-07 | `metrics-panel-load-layout-btn` (:237) | click | `GET /api/v1/metrics/layouts/{name}` (`:1598`) → writes `metrics-panel-view-state` + status (`:1130-1141`). | `GET .../layouts/{name}` | DOM, NET | AUTO | B | — | — |
+| M-METRICS-08 | `metrics-panel-delete-layout-btn` (:245) | click | `DELETE /api/v1/metrics/layouts/{name}` (`:1642`) → status + store refresh + dropdown value cleared (`:1143-1155`). No confirm dialog. | `DELETE .../layouts/{name}` | DOM, NET, API | AUTO | B | — | — |
+| M-METRICS-09 | `metrics-panel-layout-status` (:260) | passive | Result text for the three ops above. | — | DOM | AUTO | B | — | — |
+| M-METRICS-10 | `metrics-panel-replay-controls` (:280) | passive | Container ships `display:none` (:380); shown only when training status ∈ {STOPPED, PAUSED, COMPLETED, FAILED} or state is empty (`:927-951`). **Not visible during a live run.** | — | DOM | AUTO | B | — | — |
+| M-METRICS-11 | `metrics-panel-replay-start` (:286) | click ⏮ | index ← `start_index`, mode `paused` (`:1018-1020`). | — | DOM | AUTO | B | — | — |
+| M-METRICS-12 | `metrics-panel-replay-step-back` (:294) | click ◀ | index −1 (floor 0), mode `paused` (`:1012-1014`). | — | DOM | AUTO | B | — | — |
+| M-METRICS-13 | `metrics-panel-replay-play` (:302) | click ▶ | Toggles `playing`⇄`paused`; icon becomes ⏸ while playing (`:1092-1099`); enables `metrics-panel-replay-interval`. | — | DOM | AUTO | B | — | — |
+| M-METRICS-14 | `metrics-panel-replay-step-forward` (:310) | click | index +1 (cap `max_index`), mode `paused` (`:1015-1017`). | — | DOM | AUTO | B | — | — |
+| M-METRICS-15 | `metrics-panel-replay-end` (:318) | click ⏭ | index ← `end_index`, mode `paused` (`:1021-1023`). | — | DOM | AUTO | B | — | — |
+| M-METRICS-16 | `metrics-panel-speed-1x/2x/4x` (:329/:336/:343) | click | Sets speed 1.0/2.0/4.0 → interval `1000/speed` ms = **1000 / 500 / 250 ms** (`:1034-1035`). **DIVERGENCE D-3**: the base tick is 1000 ms (`:566`), not 500 ms. | — | DOM | AUTO | B | — | — |
+| M-METRICS-17 | `metrics-panel-replay-position` (:358) | passive | `"<current> / <max>"`; ships `"0 / 0"` (`metrics_panel.py:1080-1088`). | — | DOM | AUTO | B | — | — |
+| M-METRICS-18 | `metrics-panel-replay-slider` (:363) | drag (`updatemode="drag"`) | Maps 0-100 → index, mode `paused` (`:1030-1032`). | — | DOM | AUTO | B | — | — |
+| M-METRICS-19 | `metrics-panel-display-mode` (:388) | select | `Sliding Window` / `Full History` / `Between Hidden Units`; writes `metrics-panel-display-mode-store` and shows/hides the window-size box (`:1161-1176`). Also re-triggers the REST history poll (`:3674`). | `GET /api/metrics/history` | DOM, NET | AUTO | B | FA-3 | — |
+| M-METRICS-20 | `metrics-panel-window-size` (:403) | set value | Clamped 10-1000 into the store (`:1174`). Visible only in `window` mode. | — | DOM | AUTO-API | B | — | — |
+| M-METRICS-21 | `metrics-panel-current-epoch` (:435) | passive | "Training Step" tile. | — | DOM | AUTO | B | FA-3 | — |
+| M-METRICS-22 | `metrics-panel-current-loss` (:443) | passive | Loss tile. | — | DOM | AUTO | B | FA-3 | — |
+| M-METRICS-23 | `metrics-panel-current-accuracy` (:452) | passive | Accuracy tile. | — | DOM | AUTO | B | FA-3 | — |
+| M-METRICS-24 | `metrics-panel-hidden-units` (:463) | passive | Hidden-units tile. | — | DOM | AUTO | B | FA-1 | — |
+| M-METRICS-25 | `metrics-panel-current-lr` (:471) | passive | LR tile, written from the training-state store (`:648-654`). | `GET /api/state` | DOM | AUTO | B | FA-3 | — |
+| M-METRICS-26 | `metrics-panel-classification-metrics` (:477) | passive | The 5-tile row. Hidden when `model-class-store == "one_shot"` (`:766-781`). | — | DOM | AUTO | B | — | — |
+| M-METRICS-27 | `metrics-panel-oneshot-result` (:483) | passive | Ships `display:none`; shown **instead** of the tiles + both plots for a one-shot model (`:766-781`). | — | DOM, VIS | AUTO | L | — | — |
+| M-METRICS-28 | `metrics-panel-progress-bars` (:486) | passive | Ships `display:none`; `metrics-panel-grow-progress` (:492) and `-candidate-epoch-progress` (:507) fill during a run (`:668-680`). | — | DOM, VIS | AUTO | B | FA-3 | — |
+| M-METRICS-29 | `metrics-panel-loss-plot` (:523) | zoom / pan | Relayout captured into `metrics-panel-view-state` (`:682-695`) and re-applied on redraw. modebar on, no plotly logo (:524). | — | VIS, DOM | AUTO | B | FA-3 | — |
+| M-METRICS-30 | `metrics-panel-accuracy-plot` (:528) | zoom / pan | Same; also carries the F1/Precision/Recall/ROC-AUC overlays (`SCALAR_SERIES`, `:92-97` — declared :92, entries :93-96, closes :97). | — | VIS | AUTO | B | FA-3 | — |
+| M-METRICS-31 | store fill (REST) | passive | `metrics-panel-metrics-store` filled by a liveness-gated `GET /api/metrics/history` poll on `fast-update-interval` (`:3671-3693`, URL `:6375`); demoted to `no_update` while the WS metrics stream is fresh. | `GET /api/metrics/history` | NET | AUTO | B | FA-3 | — |
+| M-METRICS-32 | store fill (WS) | passive | A separate `allow_duplicate` append callback consumes `ws-metrics-buffer` (`:3703-3712`); a clientside `Plotly.extendTraces` path appends to both figures without a rebuild (`metrics_panel.py:794-922`). | WS frames | WS, VIS | AUTO | L | FA-3 | — |
+
+### 3.2 Tab `candidates` — "Candidate Metrics"
+
+Tab: `dashboard_manager.py:2182-2186`. Renderer: `candidate_metrics_panel.py` (prefix `candidate-metrics-panel-`).
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-CANDIDATES-01 | `candidate-metrics-panel-status-badge` (:109) | passive | Pool status + colour (`:249-268`). | tab-gated fetch (callback registration `:233-247`; handler `_fetch_training_state` `:409`) | DOM | AUTO | B | — | — |
+| M-CANDIDATES-02 | `candidate-metrics-panel-phase` (:120) | passive | Pool phase; default `"Idle"`. | — | DOM | AUTO | B | — | — |
+| M-CANDIDATES-03 | `candidate-metrics-panel-pool-size` (:127) | passive | Pool size; default `"0"`. | — | DOM | AUTO | B | — | — |
+| M-CANDIDATES-04 | `candidate-metrics-panel-progress-section` (:147) | passive | Hidden unless `candidate_epoch` **and** `candidate_total_epochs` are present; then `-epoch-progress` (:138) shows `e/T` (`:270-288`). | — | DOM | AUTO | B | — | — |
+| M-CANDIDATES-05 | `candidate-metrics-panel-candidate-toggle` (:165) | click | Toggles `-pool-collapse` (:171) and flips `-toggle-icon` (:160) between ▼/▶ (`:326-342`). | — | DOM | AUTO | B | — | — |
+| M-CANDIDATES-06 | `candidate-metrics-panel-pool-info` (:170) | passive | "No active candidate pool" placeholder, or the pool display (`:290-311`). | — | DOM, VIS | AUTO | B | — | — |
+| M-CANDIDATES-07 | `candidate-metrics-panel-loss-plot` (:182) | passive | Theme-aware candidate loss figure (`:313-324`). | — | VIS | AUTO | B | — | — |
+| M-CANDIDATES-08 | `candidate-metrics-panel-history-toggle` (:197) | click | Toggles `-history-collapse` (:205) + `-history-icon` (:194) (`:394-408`). | — | DOM | AUTO | B | — | — |
+| M-CANDIDATES-09 | `candidate-metrics-panel-history-section` (:202) | passive | Rendered from `-pool-history-store` (:213), capped at `MAX_POOL_HISTORY_ENTRIES` (`:344-392`). | — | DOM, VIS | AUTO | B | — | — |
+| M-CANDIDATES-10 | `{"type":"candidate-metrics-panel-history-pool-header","index":<epoch>}` (:679) | click a per-epoch card header | **Nothing.** No callback exists anywhere in the repo for this pattern (sole occurrence at `:679`). `cursor: pointer` is styled but inert. | none | DOM, NET, CON | **DEAD-EXPECTED** | B | — | — |
+| M-CANDIDATES-11 | `{"type":"candidate-metrics-panel-history-pool-collapse","index":<epoch>}` (:694) | — | Always `is_open=False`; no writer. | none | DOM | **DEAD-EXPECTED** | B | — | — |
+
+### 3.3 Tab `topology` — "Network Topology"
+
+Tab: `dashboard_manager.py:2187-2191`. Renderer: `network_visualizer.py` (prefix `network-visualizer-`).
+The main rebuild callback takes 12 Inputs (`:332-363`) and short-circuits when only `fast-update-interval` fired and
+no highlight animation is active (`:406-413`).
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-TOPOLOGY-01 | `network-visualizer-layout-selector` (:111) | select | 4 options: `hierarchical` / `staggered` / `spring` / `circular` (:112-117) → graph re-laid out. | — | VIS, DOM | AUTO | B | FA-2 | — |
+| M-TOPOLOGY-02 | `network-visualizer-show-weights` (:123) | toggle | `["show"]` ⇄ `[]` → edge weight labels on/off (`:483`). | — | VIS | AUTO | B | FA-2 | — |
+| M-TOPOLOGY-03 | `network-visualizer-display-mode` (:131) | select `Weight Matrix` | Switches to a heatmap fed by `network-visualizer-raw-topology-store`; `Total Connections` becomes `"—"` (`:437-448`). Empty raw topology → empty figure + all zeros. | `GET /api/topology/raw` (`:6477`) | VIS, DOM, NET | AUTO | B | FA-1 | — |
+| M-TOPOLOGY-04 | `network-visualizer-display-mode` | select `Node Graph` | Back to the node graph. | `GET /api/topology` | VIS | AUTO | B | FA-1 | — |
+| M-TOPOLOGY-05 | `network-visualizer-view-mode` (:145) | select `3D` | 3-D rendering (`:486-492`). **View-state (zoom/pan/dragmode) is applied only in 2-D** (`:505-512`) — do not expect zoom persistence in 3-D. | — | VIS | AUTO | B | FA-2 | — |
+| M-TOPOLOGY-06 | `network-visualizer-depth-slider` (:179) | drag + release (`updatemode="mouseup"`) | Hierarchy filter keeps the first *k* cascade units; stats bar reads `"k of N"` (`:516-519`); label `-depth-label` (:174) reads `"all"` at max, else `"k of N"`. | — | VIS, DOM | AUTO | B | FA-2 | — |
+| M-TOPOLOGY-07 | `network-visualizer-depth-slider-container` (:190) | passive | Ships `display:none`; a clientside callback bumps `max` to `hidden_units` and reveals the container only when there is ≥1 hidden unit; the user-picked value survives grow events unless it exceeds the new max (`:666-700`). | — | DOM | AUTO | B | FA-2 | — |
+| M-TOPOLOGY-08 | `network-visualizer-input-count` / `-hidden-count` / `-output-count` / `-connection-count` (:200/:207/:214/:221) | passive | Stats bar counts, written by the rebuild callback. `-input-count` is the G-6-style input-width oracle used in W6. | — | DOM | AUTO | B | FA-1 | — |
+| M-TOPOLOGY-09 | `network-visualizer-stats-bar` (:195) | theme change | Background/foreground recolour (`:529-543`). | — | VIS | AUTO | B | — | — |
+| M-TOPOLOGY-10 | `network-visualizer-graph` (:247) | **click** a node | Selects it; `-selection-info` (:235) shows `Selected: <text>` + inferred `Layer:` and becomes visible. Clicking the same node again clears the selection (`:605-635`). | — | VIS, DOM | AUTO | B | FA-2 | — |
+| M-TOPOLOGY-11 | `network-visualizer-graph` | **box / lasso** select | Modebar carries `select2d` + `lasso2d` (:251). Selection lists up to 5 node names + `Selected: N node(s)` (`:581-603`). | — | VIS, DOM | AUTO | B | FA-2 | — |
+| M-TOPOLOGY-12 | `network-visualizer-graph` | click empty space | Selection cleared, `-selection-info` hidden (`:637-638`). | — | DOM | AUTO | B | FA-2 | — |
+| M-TOPOLOGY-13 | `network-visualizer-graph` | zoom / pan | Relayout captured into `-view-state` (:263) incl. `dragmode` and autorange reset (`:292-327`); re-applied on the next 2-D rebuild. | — | VIS, DOM | AUTO | B | FA-2 | — |
+| M-TOPOLOGY-14 | `network-visualizer-graph` | modebar **camera** (PNG export) | Downloads `canopy_network_<YYYYmmdd>_<HHMMSS>.png` at `scale: 2` — the filename is regenerated on every rebuild (`:415-426`). | — | VIS (download) | AUTO | B | FA-2 | — |
+| M-TOPOLOGY-15 | `network-visualizer-graph` | **hover** a node | Plotly-native hover tooltip only. **There is no `hoverData` callback** — the only graph Inputs are `relayoutData` (:294), `clickData` (:552) and `selectedData` (:553). Hover must not fire a request or change the DOM outside the Plotly tooltip. | none | VIS, NET | **DEAD-EXPECTED** (Dash layer) | B | FA-2 | — |
+| M-TOPOLOGY-16 | cascade-add glow | new hidden unit installed | A newly added unit is detected from the metrics delta (`:463-469`) and driven through an active→fading highlight with pulse scale/opacity (`:471-481`, `_update_highlight_state` :1541, `_calculate_highlight_properties` :1608). Purely visual, time-based. | — | VIS | MANUAL | B | FA-1 | — |
+| M-TOPOLOGY-17 | store refresh | switch to this tab | `network-visualizer-topology-store` refetches: the poll is **tab-gated to `topology`** (`:6427-6436`) and `active_tab` is an Input (`:3721`). A WS `cascade_add` push takes priority, but a count-only stub payload falls through to REST (`:3741-3754`). | `GET /api/topology` | NET, DOM | AUTO | B | FA-1 | — |
+| M-TOPOLOGY-18 | raw store refresh | Weight Matrix + this tab | `network-visualizer-raw-topology-store` polls only when the tab is active **and** view-mode is weight-matrix (`:3765-3784`). Deliberately not WS-gated. | `GET /api/topology/raw` | NET | AUTO | B | FA-1 | — |
+
+### 3.4 Tab `evolution` — "Network Evolution"
+
+Tab: `dashboard_manager.py:2192-2196`. Renderer: `network_evolution.py` (prefix `network-evolution-`).
+No sidebar sections are shown on this tab (§2.2).
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-EVOLUTION-01 | `network-evolution-clear-btn` (:67) | click | Clientside wipe: writes `[]` into `evolution-snapshots-store` (`dashboard_manager.py:3612-3622`). Grid falls back to the empty state. | — | DOM, VIS | AUTO | B | FA-1 | — |
+| M-EVOLUTION-02 | `network-evolution-stats` (:77) | passive | `"No snapshots yet"` until the store fills (`:143-153`). | — | DOM | AUTO | B | — | — |
+| M-EVOLUTION-03 | `network-evolution-grid-container` (:82) | passive | One card per cascade-grow snapshot; CSS grid, `auto-fill minmax(220px,1fr)` (:86). | — | VIS | MANUAL | B | FA-1 | — |
+| M-EVOLUTION-04 | `network-evolution-empty-state` (:133) | passive | 🌱 + "No snapshots yet — start training to record cascade growth." | — | VIS | AUTO | B | — | — |
+| M-EVOLUTION-05 | snapshot capture | during a run | Clientside from `ws-cascade-add-buffer` + `network-visualizer-topology-store` (`dashboard_manager.py:3602-3609`): dedupes on unchanged `hidden_units`, auto-clears when `input_units` changes or `hidden_units` shrinks (a dataset/network reset), caps at `_EVOLUTION_MAX_SNAPSHOTS`. | WS | WS, DOM | AUTO | L | FA-1 | — |
+| M-EVOLUTION-06 | `network-evolution-weight-norms-container` (:113) | passive | Ships `display:none`; revealed only when `replay-weight-buffer` has entries (`:159-164`). | — | DOM | AUTO | B | FA-4 | — |
+| M-EVOLUTION-07 | `network-evolution-weight-norms` (:108) | passive | Per-unit weight-norm traces across replay samples; modebar off. | — | VIS | MANUAL | B | FA-4 | — |
+
+### 3.5 Tab `boundaries` — "Decision Boundary"
+
+Tab: `dashboard_manager.py:2197-2201`. Renderer: `decision_boundary.py` (prefix `decision-boundary-`).
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-BOUNDARIES-01 | `decision-boundary-resolution-slider` (:101) | drag to a mark | Range 50-200 step 25, marks at 50/100/150/200 (:102-106). Value is appended as `?resolution=` (`dashboard_manager.py:6556-6575` builds `"/api/decision_boundary?resolution=<v>"`) **and** re-renders the plot (`decision_boundary.py:172-183`). | `GET /api/decision_boundary?resolution=<v>` | NET, VIS | AUTO | B | — | — |
+| M-BOUNDARIES-02 | `decision-boundary-show-confidence` (:111) | toggle | `["show"]` ⇄ `[]` → confidence shading on/off; pure re-render, no request. | — | VIS | AUTO | B | — | — |
+| M-BOUNDARIES-03 | `decision-boundary-refresh-btn` (:138) | click | Forces a boundary refetch (Input at `dashboard_manager.py:3822`). | `GET /api/decision_boundary` | NET | AUTO | B | — | — |
+| M-BOUNDARIES-04 | `decision-boundary-status` (:126) | passive | `"Status: No network loaded"` until data arrives; written with the figure (`:173`). | — | DOM | AUTO | B | — | — |
+| M-BOUNDARIES-05 | `decision-boundary-plot` (:150) | zoom / pan / hover | Plotly-native only; no Dash graph-event callback on this component. | — | VIS | AUTO | B | — | — |
+| M-BOUNDARIES-06 | `decision-boundary-dataset-data` (:156) | switch to this tab | Filled from the dataset store, tab-gated to `boundaries` (`dashboard_manager.py:3833-3841`). | `GET /api/dataset` | NET | AUTO | B | — | — |
+| M-BOUNDARIES-07 | replay-driven redraw | during a V2 replay | `replay-weight-buffer` recomputes the boundary client-of-server-side and overwrites `-boundary-data` via `allow_duplicate` (`:235-252`, `_compute_replay_boundary` :254). | — | VIS, WS | MANUAL | L | FA-4 | — |
+| M-BOUNDARIES-08 | poll gate | on any other tab | The boundary poll returns `no_update` unless `active_tab == "boundaries"` (`dashboard_manager.py:6556-6561`). No background traffic. | none | NET | AUTO | B | — | — |
+
+### 3.6 Tab `dataset` — "Dataset View"
+
+Tab: `dashboard_manager.py:2202-2206`. Renderer: `dataset_plotter.py` (prefix `dataset-plotter-`).
+
+**Toolbar and modal**
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-DATASET-01 | `dataset-plotter-generate-btn` (:99) | click | Opens `dataset-plotter-generate-modal` (:274); any confirm/cancel closes it (`dashboard_manager.py:3845-3863`). | — | DOM | AUTO | B | FA-5 | — |
+| M-DATASET-02 | `dataset-plotter-modal-tabs` (:263) | click a tab | 3 tabs: `-tab-generate` (:204) / `-tab-upload` (:239) / `-tab-url` (:260). | — | DOM | AUTO | B | FA-5 | — |
+| M-DATASET-03 | `dataset-plotter-gen-samples/-gen-spirals/-gen-rotations/-gen-noise` (:165/:172/:184/:191) | set values | Modal generate params. | on Generate | DOM | AUTO-API | D | FA-5 | — |
+| M-DATASET-04 | `dataset-plotter-gen-confirm` (:198) | click "Generate" | `POST /api/dataset/generate`. **Demo-only**: a non-demo backend returns **400** `"Dataset generation only available in demo mode"` (`main.py:1417-1418`), rendered into `-gen-status` (:199) as `❌ …` (`dashboard_manager.py:4011-4027`). | `POST /api/dataset/generate` | NET, API, DOM | AUTO | D (success) / L (400 arm) | FA-5 | — |
+| M-DATASET-05 | `dataset-plotter-import-file-upload` (:214) | drop / pick a CSV | `-import-file-name` (:230) shows `Selected: <name>` and `-import-file-confirm` (:233) enables (ships disabled) (`:3897-3908`). `accept=".csv,text/csv"`, `multiple=False`. | — | DOM | AUTO | B | FA-5 | — |
+| M-DATASET-06 | `dataset-plotter-import-file-confirm` (:233) | click "Import File" | Decodes the data-URL and POSTs multipart to `/api/dataset/import-file` (`dashboard_manager.py:4057-4090`). **Demo-only**: non-demo → 400 (`main.py:1478-1482`). Caps: 10 MB / 50 000 rows / 100 features (:210). | `POST /api/dataset/import-file` | NET, API, DOM | AUTO | D (success) / L (400 arm) | FA-5 | — |
+| M-DATASET-07 | `dataset-plotter-import-url-input` (:249) | type a URL | `type="url"` (`dataset_plotter.py:250`) — text-like, normal fill works; the §1.3 wall is specific to `type="number"`. | — | DOM | AUTO | B | FA-5 | — |
+| M-DATASET-08 | `dataset-plotter-import-url-confirm` (:254) | click "Fetch & Import" | `POST /api/dataset/import-url` (`dashboard_manager.py:4092-4114`). Gate order in `main.py:1570-1590`: non-demo → **400**; `settings.dataset_import_url_enabled` **false by default** → **403** `"URL-based dataset import is disabled by configuration"`; non-http(s) → 400; SSRF-blocked resolved IP → 400. Redirects are **not** followed; 10 s timeout → 504; >10 MB → 413. | `POST /api/dataset/import-url` | NET, API, DOM | AUTO | D (403 default arm) | FA-5 | — |
+| M-DATASET-09 | `dataset-plotter-gen-cancel` (:270) | click | Closes the modal without a request. | none | DOM, NET | AUTO | B | — | — |
+| M-DATASET-10 | `dataset-plotter-dataset-selector` (:106) | open / select | Options from `GET /api/dataset/generators` on mount (`:556-604`); defaults to `spiral` if present. Service unreachable → built-in fallback list `spiral / xor / circles / moon` (`:597-602`). Selecting alone does **nothing** — by design (comment `:112-115`). | `GET /api/dataset/generators` | DOM, NET | AUTO | B | FA-5 | — |
+| M-DATASET-11 | `dataset-plotter-load-selected-btn` (:118) | click "Load" | `POST /api/dataset/generate` with `{"generator": <value>}` (`dashboard_manager.py:4029-4055`); writes `-load-status` (:124). Same demo-only 400 gate; a non-spiral generator additionally needs juniper-data reachable or returns **503** (`main.py:1442-1444`). | `POST /api/dataset/generate` | NET, API, DOM | AUTO | D (success) / L (400 arm) | FA-5 | — |
+| M-DATASET-12 | `dataset-plotter-split-selector` (:129) | select | `All Data` / `Training Only` / `Test Only` → re-filters the plots (`_filter_by_split` :1151; callback `:496-532`). No request. | — | VIS, DOM | AUTO | B | — | — |
+
+**Stats and plots**
+
+| row id | control id | interaction | expected result | verify | auto | mode | status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| M-DATASET-13 | `dataset-plotter-sample-count` / `-feature-count` / `-class-count` / `-balance-info` (:282/:288/:293/:299) | passive | Four tiles written by the plot callback (`:496-532`). Balance from `_calculate_balance` (:1308). | DOM | AUTO | B | — |
+| M-DATASET-14 | `dataset-plotter-stats-summary` (:304) | theme change | Recolours (`:536-550`). | VIS | AUTO | B | — |
+| M-DATASET-15 | `dataset-plotter-scatter-plot` (:425) | passive | Main scatter (2-D) or sequence plot (3-D). | VIS | MANUAL | B | — |
+| M-DATASET-16 | `dataset-plotter-distribution-plot` (:431) | passive | Feature histograms (2-D) or the Δt strip (3-D). modebar off. | VIS | MANUAL | B | — |
+
+**Sequence (3-D) control set** — `dataset-plotter-seq-controls` (:412) ships `display:none` and is revealed only for a
+sequence dataset (`:630-635`).
+
+| row id | control id | interaction | expected result | verify | auto | mode | status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| M-DATASET-17 | `dataset-plotter-seq-mode` (:321) | select `Signals` / `Windows` | Swaps which selector group is visible: `-seq-group-signals` (:354) vs `-seq-group-windows` (:378, ships hidden) (`:646-654`). | DOM | AUTO | B | — |
+| M-DATASET-18 | `dataset-plotter-seq-window-single` (:338) | select | Signals mode: which window to slice. | VIS, DOM | AUTO | B | — |
+| M-DATASET-19 | `dataset-plotter-seq-signal-select` (:346) | multi-select | Signals mode: which signals to draw (`multi=True`, placeholder "All signals"). | VIS, DOM | AUTO | B | — |
+| M-DATASET-20 | `dataset-plotter-seq-signal-single` (:362) | select | Windows mode: the one signal. | VIS, DOM | AUTO | B | — |
+| M-DATASET-21 | `dataset-plotter-seq-window-multi` (:370) | multi-select | Windows mode: which windows. | VIS, DOM | AUTO | B | — |
+| M-DATASET-22 | `dataset-plotter-seq-arrange` (:383) | select | `Small multiples` ⇄ `Overlay` (`_plot_normalized_series` :831). | VIS | AUTO | B | — |
+| M-DATASET-23 | `dataset-plotter-seq-target-toggle` (:396) | switch on | Reveals `-seq-target-plot` (:437, ships `display:none`) (`:666-681`). | DOM, VIS | AUTO | B | — |
+| M-DATASET-24 | `dataset-plotter-seq-grid-toggle` (:404) | switch on | Reveals `-seq-grid-container` (:476) with the faceted signals×windows grid, capped at 100 cells (`:717-729`, `_create_grid_plot` :1096). Expert view, off by default. | DOM, VIS | AUTO | B | — |
+| M-DATASET-25 | `dataset-plotter-seq-char-toggle` (:449) | click | Toggles `-seq-char-collapse` (:458, ships open) and the ▾/▸ icon `-seq-char-icon` (:448) (`:702-711`). | DOM | AUTO | B | — |
+| M-DATASET-26 | `dataset-plotter-seq-char-companion` (:462) | passive | Ships `display:none`; shown for sequence datasets only. Contains `-seq-char-stats` (:454), `-seq-char-dt-hist` (:455), `-seq-char-target-dist` (:456) (`:685-698`). | DOM, VIS | AUTO | B | — |
+| M-DATASET-27 | all `-seq-*` | 2-D tabular dataset | Every sequence control stays hidden and empty. | DOM | AUTO | B | — |
+
+**Service-mode data caveat.** `GET /api/dataset` returns whatever `backend.get_dataset()` yields. In service mode
+`ServiceBackend.get_dataset` builds a metadata dict and then **attempts** to fill `inputs`/`targets` via
+`self._adapter.get_dataset_data()` (`juniper-canopy/src/backend/service_backend.py:270-294`); that adapter method
+returns `None` when the cascor client lacks `get_dataset_data` (`cascor_service_adapter.py:2032-2036`). So the live
+lane may legitimately render **metadata tiles with empty scatter/distribution plots**. Record which of the two you
+observed; an empty plot alongside non-zero `Samples`/`Features` is the metadata-only case, not a failure.
+
+### 3.7 Tab `workers` — "Workers"
+
+Tab: `dashboard_manager.py:2207-2211`. Renderer: `worker_panel.py` (prefix `worker-panel-`). Entirely read-only.
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-WORKERS-01 | `worker-panel-status-badge` (:72) | passive | `LOADING` → `NO WORKERS` (warning) / `DEGRADED` (warning, `stale>0`) / `HEALTHY` (success) (`:198-224`). | — | DOM | AUTO | B | — |
+| M-WORKERS-02 | `worker-panel-error-display` (:82) | upstream degraded | Dismissable warning alert `"Worker data degraded: <error>"` (`:226-227`). | — | DOM | AUTO | L | — |
+| M-WORKERS-03 | `worker-panel-total/-idle/-busy/-stale/-tasks-done/-avg-health` (:95/:102/:109/:116/:123/:130) | passive | Six tiles; `tasks-done` reads `"<done> / <failed> fail"`, `avg-health` a percentage (`:205-209`). | — | DOM | AUTO | B | — |
+| M-WORKERS-04 | `worker-panel-worker-list` (:142) | passive | Roster table (`_render_workers_table` :258; `@staticmethod` :257) or `"No workers connected"` info alert (`:242`). | — | DOM, VIS | AUTO | B | — |
+| M-WORKERS-05 | `worker-panel-local-note` (:252) | passive | Rendered **only** when `local_reported` is false — the honest "local in-process workers are not individually reported" note. Service mode forces `local_reported=False` (`main.py:3101`) → note present. Demo returns two synthetic workers (`worker-demo-01` local, `worker-demo-02` remote) with `local_reported=True` (`main.py:3115-3144`) → note **absent**. | — | DOM | AUTO | L (note) / D (no note) | — |
+| M-WORKERS-06 | store poll | switch to this tab | `worker-panel-workers-store` (:64) filled on the slow interval, **tab-gated to `workers`** (`dashboard_manager.py:3805-3813`); roster from `/api/v1/workers/list`, aggregate stats best-effort from `/api/v1/workers/stats` (a stats failure still renders the roster; handler `:6487-6535`). | `GET /api/v1/workers/list` + `/stats` | NET | AUTO | B | — |
+
+### 3.8 Tab `parameters` — "Parameters"
+
+Tab: `dashboard_manager.py:2212-2216`. Renderer: `parameters_panel.py` (prefix `parameters-panel-`).
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-PARAMETERS-01 | `parameters-panel-network-table` (:206) | passive | Network Training table: Pin / Parameter / Current / Min / Max / Default. Booleans and list-valued controls render as `Enabled`/`Disabled` (`:108-111`). | — | DOM | AUTO | B | — |
+| M-PARAMETERS-02 | `parameters-panel-dataset-table` (:216) | passive | Dataset table, same shape. | — | DOM | AUTO | B | — |
+| M-PARAMETERS-03 | `parameters-panel-candidate-table` (:226) | passive | Candidate Training table, same shape. | — | DOM | AUTO | B | — |
+| M-PARAMETERS-04 | `{"type":"param-pin","key":<param>}` (:118) | check | One pattern-matched callback collects every checkbox and writes the pinned key list into `pinned-params-store` (`dashboard_manager.py:3948-3952`), `storage_type="local"` (:1715). | — | DOM | AUTO | B | — |
+| M-PARAMETERS-05 | `{"type":"param-pin","key":<param>}` | check, then look at sidebar | `sidebar-pinned-card` (:1678) un-hides and `sidebar-pinned-list` (:1674) shows read-only name+value rows (`:3972-3976`). Names from `PARAM_DISPLAY_NAMES` (`parameters_panel.py:153`). | — | DOM, VIS | AUTO | B | — |
+| M-PARAMETERS-06 | `{"type":"param-pin","key":<param>}` | uncheck all, reload | Store empties, card re-hides, state survives reload (local storage). | — | DOM | AUTO | B | — |
+| M-PARAMETERS-07 | table refresh | after an Apply | `parameters-panel-params-store` (:232) is fed from `applied-params-store` with `nn_`/`cn_` prefixes stripped (`dashboard_manager.py:3628-3650`); the tables re-render (`parameters_panel.py:250-260` also watches `pinned-params-store`). | — | DOM | AUTO | B | — |
+
+### 3.9 Tab `snapshots` — "Snapshots"
+
+Tab: `dashboard_manager.py:2217-2221`. Renderer: `hdf5_snapshots_panel.py` (prefix `hdf5-snapshots-panel-`).
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-SNAPSHOTS-01 | `hdf5-snapshots-panel-create-name` (:131) | type | Optional custom name (text input). | — | DOM | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-02 | `hdf5-snapshots-panel-create-description` (:143) | type | Optional description. | — | DOM | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-03 | `hdf5-snapshots-panel-create-button` (:157) | click | `POST /api/v1/snapshots` with `name`/`description` as **query params** (`:406-411`); 201 → success into `-create-status` (:171), bump `-refresh-trigger` (:370), clear both inputs (`:807-855`). Non-201 → `detail` surfaced. | `POST /api/v1/snapshots` | DOM, NET, API | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-04 | `hdf5-snapshots-panel-refresh-button` (:194) | click | Re-lists snapshots (`:857-986`). | `GET /api/v1/snapshots` | NET, DOM | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-05 | `hdf5-snapshots-panel-refresh-interval` (:361) | passive | **10 000 ms** default (`DEFAULT_REFRESH_INTERVAL_MS = 10000`, `:53`; overridable by `JUNIPER_CANOPY_SNAPSHOTS_REFRESH_INTERVAL_MS`). Auto-refreshes the table. | `GET /api/v1/snapshots` | NET | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-06 | `hdf5-snapshots-panel-table-body` (:224) / `-status` (:200) / `-empty-state` (:235) | passive | Rows, status line, and an empty-state block whose `style` is toggled by the same callback. Also re-renders when `dataset-swap-events-store` changes (`:865`). | — | DOM, VIS | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-07 | `{"type":"hdf5-snapshots-panel-view-btn","index":<id>}` (:922) | click | Writes the snapshot id into `-selected-id` (:368) by parsing the pattern id (`:989-1030`). | — | DOM | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-08 | `hdf5-snapshots-panel-detail-panel` (:258) | after View | `GET /api/v1/snapshots/{id}` → detail render (`:1033-1038`, handler `:475`). | `GET /api/v1/snapshots/{id}` | NET, DOM | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-09 | `{"type":"hdf5-snapshots-panel-snapshot-op-btn","index":<id>,"op":"restore"}` (:937) | click | Opens the shared confirm modal with a restore body (`:1135-1201`). | — | DOM | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-10 | `…"op":"replay"` (:942) | click | Same modal, replay body. | — | DOM | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-11 | `…"op":"resume"` (:947) | click | Same modal, resume body. | — | DOM | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-12 | `…"op":"retrain"` (:952) | click | Same modal, retrain body. | — | DOM | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-13 | `hdf5-snapshots-panel-restore-modal-body` (:280) | passive | `Confirm <Op> of snapshot: <id>` + the op description + the ⚠️ "Training must be paused or stopped before any snapshot operation." line (`:527-539`). | — | DOM, VIS | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-14 | `hdf5-snapshots-panel-restore-cancel` (:287) | click | Closes the modal; **no** request (`:1204-1218`). | none | DOM, NET | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-15 | `hdf5-snapshots-panel-restore-confirm` (:293) | click | `POST /api/v1/snapshots/{id}/{op}` (`:554-559`). 200 → ✅ into `-restore-status` (:305) + refresh bump. 409 → conflict detail ("training may be running"); 404 → "Snapshot not found"; **501 → "Operation not supported in this mode"** (`:564-574`). | `POST /api/v1/snapshots/{id}/{op}` | DOM, NET, API | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-16 | `hdf5-snapshots-panel-restore-confirm` | confirm a **replay** | Additionally writes `replay-player-session` and sets `visualization-tabs.active_tab = "replay"` — the third `active_tab` writer (`:1270-1286`). | — | DOM | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-17 | `hdf5-snapshots-panel-history-toggle` (:321) | click | Toggles `-history-collapse` (:353) + icon (:316) and loads `GET /api/v1/snapshots/history` into `-history-content` (:331) (`:1299-1392`, handler `:594`). | `GET /api/v1/snapshots/history` | DOM, NET | AUTO | B | FA-4 | — |
+| M-SNAPSHOTS-18 | `hdf5-snapshots-panel-dataset-swaps-content` (:348) | passive | Paired-diff cards rendered from `dataset-swap-events-store` (`:1394-1396`, handler `:656`). | — | DOM, VIS | AUTO | B | FA-5 | — |
+| M-SNAPSHOTS-19 | right-click a snapshot row | context menu → an op | The JS context menu writes `{"snapshot_id","operation"}` into `-context-menu-trigger` (:382), which is the modal callback's **second** Input (`:1147`, branch `:1185-1189`). Same confirm modal, same endpoints. | — | DOM, VIS | MANUAL (native menu) | B | FA-4 | — |
+| M-SNAPSHOTS-20 | `{"type":"hdf5-snapshots-panel-swap-restore-pre-btn","index":<i>}` (:709) | click | **Nothing.** No callback anywhere (sole occurrence at `:709`). | none | DOM, NET, CON | **DEAD-EXPECTED** | B | FA-5 | — |
+| M-SNAPSHOTS-21 | `{"type":"hdf5-snapshots-panel-swap-restore-post-btn","index":<i>}` (:720) | click | **Nothing.** No callback anywhere (sole occurrence at `:720`). | none | DOM, NET, CON | **DEAD-EXPECTED** | B | FA-5 | — |
+
+### 3.10 Tab `replay` — "Replay"
+
+Tab: `dashboard_manager.py:2222-2226`. Renderer: `replay_player_panel.py` (prefix `replay-player-panel-`).
+Every transport control routes `queue_control` (`:550-598`) → `dispatch_control` (`:600-631`) →
+`POST /api/v1/snapshots/{id}/replay/control` (`:356`).
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-REPLAY-01 | `replay-player-panel-idle` (:99) | no session | `"▶ No active replay session"` placeholder visible; `-active` (:100) hidden (`:445-464`). | — | DOM, VIS | AUTO | B | FA-4 | — |
+| M-REPLAY-02 | `replay-player-panel-active` (:100) | session loaded | Whole control block becomes visible; idle hidden. | — | DOM | AUTO | B | FA-4 | — |
+| M-REPLAY-03 | `replay-player-panel-snapshot-id` (:159) | passive | `<code>` with the snapshot id. | — | DOM | AUTO | B | FA-4 | — |
+| M-REPLAY-04 | `replay-player-panel-fsm-badge` (:161) | passive | `session.fsm_state`, default `"Replaying"` (`:470`). | — | DOM | AUTO | B | FA-4 | — |
+| M-REPLAY-05 | `replay-player-panel-weights-badge` (:177) | passive | Ships `display:none`. `"V2 ✓ weights"` (green) when `session.weights_available`, else `"V1 (metrics only)"` (grey) (`:471-481`). | — | DOM, VIS | AUTO | B | FA-4 | — |
+| M-REPLAY-06 | `replay-player-panel-last-sample-readout` (:187) | during playback | Clientside string `"last sample: epoch N (M buffered)"` read off the buffer tail; empty when the buffer is empty (`:533-548`). | — | DOM | AUTO | L | FA-4 | — |
+| M-REPLAY-07 | `replay-player-panel-play-btn` (:203) | click ▶ Play | `{"action":"play"}` → POST. | `POST .../replay/control` | NET, DOM | AUTO | B | FA-4 | — |
+| M-REPLAY-08 | `replay-player-panel-pause-btn` (:210) | click ⏸ Pause | `{"action":"pause"}` → POST. | same | NET | AUTO | B | FA-4 | — |
+| M-REPLAY-09 | `replay-player-panel-stop-btn` (:217) | click ⏹ Stop | `{"action":"stop"}` → POST. | same | NET | AUTO | B | FA-4 | — |
+| M-REPLAY-10 | `replay-player-panel-scrubber` (:238) | drag + release (`updatemode="mouseup"`) | `{"action":"seek","params":{"time_index":<int>}}` → POST; `-epoch-readout` (:230) shows `"cur / end"`. | same | NET, DOM | AUTO | B | FA-4 | — |
+| M-REPLAY-11 | `replay-player-panel-speed` (:259) | drag + release | `{"action":"speed","params":{"value":<float>}}`. Range `SPEED_MIN..SPEED_MAX`; negatives play backward, 0 pauses — `-speed-readout` (:255) shows `"1×"` style, or `"Paused (0×)"` at zero (`:496`). | same | NET, DOM | AUTO | B | FA-4 | — |
+| M-REPLAY-12 | `replay-player-panel-range` (:284) | drag either handle + release | `{"action":"range","params":{"start":…,"end":…}}`; `-range-readout` (:280) shows `"[s, e]"`. | same | NET, DOM | AUTO | B | FA-4 | — |
+| M-REPLAY-13 | `replay-player-panel-status` (:102) | after any control | Success/error status block (`_success_status` :756 / `_error_status` :743). With no session: `"No active replay session"` (`:611-612`). | — | DOM, VIS | AUTO | B | FA-4 | — |
+| M-REPLAY-14 | `replay-player-panel-weight-drain` (:129) | passive | `dcc.Interval` at **500 ms**; a clientside callback drains `window._juniperWsDrain.drainReplayWeights()` into `replay-weight-buffer` (:124) with an LRU cap (`:507-528`). | — | WS, DOM | AUTO | L | FA-4 | — |
+| M-REPLAY-15 | `replay-player-panel-swap-events-graph` (:317) | hover a marker | Vertical markers on a wall-clock axis, hover-only (no click navigation — that lives in the History panel) (`:632-642`, `_render_swap_events_graph_handler` :652). modebar off. | — | VIS | MANUAL | B | FA-5 | — |
+| M-REPLAY-16 | per-snapshot swap-history hydrate | load a replay session | On a session change, `_hydrate_loaded_snapshot_swap_events_handler` (`dashboard_manager.py:5650`) fetches `GET /api/snapshots/{id}/history/dataset_swaps` (`:5686-5690`; route `main.py:4032`) into `loaded-snapshot-swap-events-store` (Output `:5535`; store `:698`), which the swap-events graph consumes (`replay_player_panel.py:639`). A same-session re-fire is `no_update`. Distinct from the **global** `/api/history/dataset_swaps` poll (`:5577`). Exercised in W7 step 16. | `GET /api/snapshots/{id}/history/dataset_swaps` | NET, DOM | AUTO | L | FA-5 | — |
+| M-REPLAY-17 | `replay-player-panel-swap-events-count` (:313) | passive | Monospace count beside the label. | — | DOM | AUTO | B | FA-5 | — |
+
+### 3.11 Tab `network-editor` — "Network Editor"
+
+Tab: `dashboard_manager.py:2227-2231`. Renderer: `network_editor_panel.py` (prefix `network-editor-panel-`).
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | FA | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-NETWORK-EDITOR-01 | `network-editor-panel-fsm-poll` (:135) | passive | `dcc.Interval` at **2000 ms**; polls `GET /api/status` and flips idle/active (`:478-531`). | `GET /api/status` | NET | AUTO | B | — | — |
+| M-NETWORK-EDITOR-02 | `network-editor-panel-idle` (:117) | FSM ≠ Investigating | Idle block visible; explains the editor unlocks only in the `Investigating` state, entered by restoring a snapshot (`:114`, `:205-206`). | — | DOM, VIS | AUTO | B | — | — |
+| M-NETWORK-EDITOR-03 | `network-editor-panel-idle-fsm-badge` (:213) | passive | `"FSM: <Name>"` from `state_machine.status` (fallback `status`, else `Unknown`) (`:501-503`). | — | DOM | AUTO | B | — | — |
+| M-NETWORK-EDITOR-04 | `network-editor-panel-active` (:118) | FSM = Investigating | Active block visible; the three forms become reachable. | — | DOM | AUTO | L | — | — |
+| M-NETWORK-EDITOR-05 | `network-editor-panel-topology-readout` (:234) | passive | **Currently always `"No topology loaded."`** — see **DIVERGENCE D-0** (`GET /api/network/topology` is not a route). | 404 | DOM, NET | AUTO | B | — | — |
+| M-NETWORK-EDITOR-06 | `network-editor-panel-add-weights` (:256) | type CSV floats | `dbc.Textarea` — normal fill works. Length must equal `input_size + num_existing_hidden_units` (:248-249). | on submit | DOM | AUTO | L | — | — |
+| M-NETWORK-EDITOR-07 | `network-editor-panel-add-bias` (:267) | set value | Numeric input. | on submit | DOM | AUTO-API | L | — | — |
+| M-NETWORK-EDITOR-08 | `network-editor-panel-add-activation` (:279) | select | `dbc.Select` from `_ACTIVATION_CHOICES`; default `Tanh` (:281). | on submit | DOM | AUTO | L | — | — |
+| M-NETWORK-EDITOR-09 | `network-editor-panel-add-submit` (:291) | click "Append unit" | `POST /api/v1/network/hidden-units` (`:604`). Demo mode: canopy 501s at `_require_service_adapter` (`main.py:2553-2563`). | `POST /api/v1/network/hidden-units` | NET, API, DOM | AUTO | L (success) / D (501 arm) | — | — |
+| M-NETWORK-EDITOR-10 | `network-editor-panel-remove-idx` (:314) | select | `dbc.Select`, options built from the topology store — **empty today** (D-0), so nothing is selectable. | — | DOM | AUTO | B | — | — |
+| M-NETWORK-EDITOR-11 | `network-editor-panel-remove-submit` (:324) | click "Delete unit" | Opens `-remove-modal` (:190) with `-remove-modal-body` (:157) and the snapshot-first checkbox `-remove-snapshot-first` (:167). | — | DOM | AUTO | L | FA-4 | — |
+| M-NETWORK-EDITOR-12 | `network-editor-panel-remove-cancel` (:178) | click | Closes the modal; no request. | none | DOM, NET | AUTO | L | — | — |
+| M-NETWORK-EDITOR-13 | `network-editor-panel-remove-confirm` (:184) | click | If snapshot-first is checked: `POST /api/v1/snapshots` first (`:695`), then `DELETE /api/v1/network/hidden-units/{idx}` (`:703`). | those two | NET, API | AUTO | L | FA-4 | — |
+| M-NETWORK-EDITOR-14 | `network-editor-panel-patch-target` (:353) | select | `dbc.Select` over `_PATCH_TARGETS`; default `output_weights` (:355). | on submit | DOM | AUTO | L | — | — |
+| M-NETWORK-EDITOR-15 | `network-editor-panel-patch-idx` (:364) | set value | Numeric; required for `hidden_unit_*` targets (:368). | on submit | DOM | AUTO-API | L | — | — |
+| M-NETWORK-EDITOR-16 | `network-editor-panel-patch-values` (:378) | type CSV row-major | Textarea — normal fill works. | on submit | DOM | AUTO | L | — | — |
+| M-NETWORK-EDITOR-17 | `network-editor-panel-patch-submit` (:385) | click "Apply patch" | `PATCH /api/v1/network/weights` (`:758`). cascor validates shape/dtype/NaN-Inf and rejects without mutating (:344). Demo mode: 501. | `PATCH /api/v1/network/weights` | NET, API, DOM | AUTO | L (success) / D (501 arm) | — | — |
+| M-NETWORK-EDITOR-18 | `network-editor-panel-status` (:119) | after any submit | Result/error block. | — | DOM, VIS | AUTO | B | — | — |
+
+### 3.12 Tab `redis` — "Redis"
+
+Tab: `dashboard_manager.py:2232-2236`. Renderer: `redis_panel.py` (prefix `redis-panel-`). Read-only.
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-REDIS-01 | `redis-panel-refresh-interval` (:318) | passive | `dcc.Interval` at `DEFAULT_REFRESH_INTERVAL_MS = 5000` (`:50`). | `GET /api/v1/redis/status` (:375) + `/metrics` (:428) | NET | AUTO | B | — |
+| M-REDIS-02 | `redis-panel-status-badge` (:121) / `-mode-badge` (:128) | passive | Connection status and mode badges (`:338-357`). | — | DOM | AUTO | B | — |
+| M-REDIS-03 | `redis-panel-error-display` (:138) | Redis absent | Expected state in both lanes when no Redis is deployed: an error/unavailable render — **the tab must not crash and must not blank the rest of the dashboard**. | — | DOM, VIS, CON | AUTO | B | — |
+| M-REDIS-04 | `redis-panel-version/-uptime/-clients/-latency/-memory/-ops-sec/-hit-rate/-keyspace` (:161/:179/:197/:215/:249/:267/:285/:303) | passive | Eight metric tiles; placeholders when unavailable. | — | DOM | AUTO | B | — |
+
+### 3.13 Tab `cassandra` — "Cassandra"
+
+Tab: `dashboard_manager.py:2237-2241`. Renderer: `cassandra_panel.py` (prefix `cassandra-panel-`). Read-only.
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-CASSANDRA-01 | `cassandra-panel-interval` (:191) | passive | `dcc.Interval` at `DEFAULT_REFRESH_INTERVAL_MS = 10000` (`:55`), overridable via `config["interval_ms"]` (:101). | `GET /api/v1/cassandra/status` (:393) + `/metrics` (:452) | NET | AUTO | B | — |
+| M-CASSANDRA-02 | `cassandra-panel-status-badge` (:203) / `-mode-badge` (:217) | passive | Status + mode badges (`:351-368`). | — | DOM | AUTO | B | — |
+| M-CASSANDRA-03 | `cassandra-panel-error-area` (:229) | Cassandra absent | Expected in both lanes without a cluster: unavailable render, no crash. | — | DOM, VIS, CON | AUTO | B | — |
+| M-CASSANDRA-04 | `cassandra-panel-contact-points/-keyspace/-hosts-table/-keyspace-count/-table-count/-replication-strategies` (:246/:257/:267/:294/:305/:315) | passive | Cluster info fields; placeholders when unavailable. | — | DOM | AUTO | B | — |
+
+### 3.14 Tab `tutorial` — "Tutorial"
+
+Tab: `dashboard_manager.py:2242-2246`. Renderer: `tutorial_panel.py` (prefix `tutorial-panel-`).
+**`TutorialPanel.register_callbacks` is a no-op** (`tutorial_panel.py:255-256`) — every behaviour on this tab is
+wired from `dashboard_manager` or is native `dbc.Accordion`.
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-TUTORIAL-01 | `walkthrough-launch-btn` (:37) | click "▶ Take a guided tour" | Clientside sets `walkthrough-state-store` to `{active:true,index:0}` (`dashboard_manager.py:3310-3320`); a second clientside driver calls `window._juniperWalkthrough.show(steps, index)` and `.hide()` on deactivate (`:3326-3345`). Steps come from `walkthrough-steps-store` (`dashboard_manager.py:1735`). | — | VIS, DOM, CON | AUTO | B | — |
+| M-TUTORIAL-02 | walkthrough overlay | Skip / Done in the overlay | The JS writes back through `dash_clientside.set_props`, flipping `active` false → `.hide()`. | — | VIS | MANUAL | B | — |
+| M-TUTORIAL-03 | `tutorial-panel-accordion` (:74) | click each of the 5 headers | 5 `AccordionItem`s: `cascor-overview` (:51), `workflow` (:56), `ui-guide` (:61), `param-ref` (:66), `shortcuts` (:71). `start_collapsed=True`, `always_open=True` → opening one does **not** close another. | — | DOM, VIS | AUTO | B | — |
+| M-TUTORIAL-04 | context-menu "View tutorial" (any tab) | right-click a tooltipped control | The JS context menu bumps `context-menu-tutorial-trigger` (`dashboard_manager.py:1826`), whose clientside callback sets `active_tab = "tutorial"` (`:3271-3281`). | — | DOM | MANUAL (native menu) | B | — |
+
+### 3.15 Tab `about` — "About"
+
+Tab: `dashboard_manager.py:2247-2251`. Renderer: `about_panel.py` (prefix `about-panel-`).
+
+| row id | control id | interaction | expected result | backend effect | verify | auto | mode | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M-ABOUT-01 | `about-panel-system-info-toggle` (:279) | click | Toggles `about-panel-system-info-collapse` (:290) (`:310-320`). | — | DOM | AUTO | B | — |
+| M-ABOUT-02 | `about-panel-system-info-content` (:287) | after opening | Four `<li>`s built **locally** from `sys.version`, `platform.system()/release()/machine()` and `self.version` — **no HTTP** (`:323-345`). Closing returns `[]`. | none | DOM, NET | AUTO | B | — |
+| M-ABOUT-03 | static About content | passive | Version/licence/links block. | — | VIS | MANUAL | B | — |
+
+---
+
+## 4. Workflow scripts
+
+Each step is `action → expected → verify → citation`. Preconditions and cleanup are stated per workflow.
+Unless stated otherwise the lane is **LIVE** and the browser is at `http://127.0.0.1:8051/dashboard/`.
+
+### W1 — Cold-start cascor training, end to end  [FA-1, FA-3]
+
+**Preconditions**: fresh isolated stack (data 8101 / cascor 8202 / canopy 8051); model = `cascor` (the default,
+`model_registry.py:197`); no prior training state.
+**Cleanup**: Stop, then Reset.
+
+1. `GET http://127.0.0.1:8051/v1/health` → `demo_mode: false`, `status: "ok"`, `service: "juniper-canopy"`. → **API** → `main.py:1059-1075`
+2. Load `/dashboard/` → the welcome modal opens on a first visit (or is already dismissed); no console errors. → **VIS, CON** → `dashboard_manager.py:2948-2960`
+3. Read the top status bar → `Status: Stopped`, `Phase: Idle`, `Step: 0`, `Hidden Units: 0` (or `0 / <cap>`). → **DOM** → `:731,:750,:773,:799` + `:6032-6042`
+4. Read the WS badge → `WS: Connected` (green) once the socket is up; **not** `WS: Demo`. → **DOM** → `connection_indicator.py:84-92`
+5. Click `#start-button` → **default WS posture** (`enable_ws_control_buttons=True`, `settings.py:349`): a `{command:"start", command_id}` frame is sent on `/ws/control` (clientside registration `dashboard_manager.py:4125-4149`; socket `websocket_client.js:517`) and the button goes disabled+loading. **No `POST /api/train/start` on the primary path** — the REST `fetch('/api/train/start')` (`:184`) is the automatic fallback only. Record the transport (startup log `:4149`). → **WS, DOM (NET only on fallback)** → §2.5, `main.py:3246`
+6. Poll `GET /api/status` → `is_running: true`. → **API** → `main.py:1269`
+7. Watch the status bar → `Status` leaves `Stopped`, `Phase` changes, `Step` increments monotonically. → **DOM** → `:6032-6037`
+8. Confirm **no** success toast appeared in `#training-control-outcome-alert` (failure-only contract). → **DOM** → `_surface_training_control_outcome_handler`
+9. Metrics tab: KPI tiles populate; loss and accuracy plots accumulate points. → **DOM, VIS** → `metrics_panel.py:737-760`
+10. Confirm `#metrics-panel-replay-controls` is **hidden** while running. → **DOM** → `metrics_panel.py:927-951`
+11. Metrics tab: `#metrics-panel-progress-bars` becomes visible; grow and candidate-epoch bars move. → **DOM** → `metrics_panel.py:668-680`
+12. Switch to Network Topology → `GET /api/topology` fires on tab entry; graph renders with input/output nodes. → **NET, VIS** → `dashboard_manager.py:3717-3724`, `:6427-6436`
+13. Wait for a cascade add → `#network-visualizer-hidden-count` increments and the new node shows the highlight glow. → **VIS, DOM** → `network_visualizer.py:463-481`
+14. Confirm the top bar's `Hidden Units` matches the topology `Hidden Units` count. → **DOM** → `:6039-6042` vs `network_visualizer.py:515-521`
+15. Sidebar → Network Information: confirm the panel refills on the slow tick; click `#network-info-header` → `#network-info-collapse` toggles (ships open); click `#network-info-details-header` → the **second** collapse level (`#network-info-details-collapse`, ships closed) opens and shows the detail fields (incl. the true growth iteration). → **DOM** → `:3120-3128`, `:3130-3143`, `:3147-3154`
+16. Candidate Metrics tab → status badge leaves `Inactive`, pool size non-zero during a candidate phase. → **DOM** → `candidate_metrics_panel.py:249-268`
+17. Let the run finish or click `#stop-button` → a `{command:"stop"}` frame on `/ws/control` (default posture; REST fallback per §2.5); `is_running: false`. → **WS, API** → `main.py:3320`
+18. After stopping, `#metrics-panel-replay-controls` becomes **visible**. → **DOM** → `metrics_panel.py:948-951`
+19. Console clean throughout. → **CON**
+
+### W2 — Pause / Resume / Stop / Reset control matrix  [FA-3]
+
+**Preconditions**: W1 step 5 completed (training running). **Cleanup**: Stop + Reset.
+
+1. Click `#pause-button` → a `{command:"pause"}` frame on `/ws/control` (default posture — §2.5; REST fallback only); `/api/status` shows `is_paused: true`. → **WS, API** → `main.py:3278`
+2. Click `#pause-button` again while paused → the rejection surfaces (WS error ack under the default posture; server 409 detail on the fallback/non-default path, `main.py:3290-3294`); a **danger** alert appears in `#training-control-outcome-alert` naming the command and reason — the alert is fed by both transports. → **DOM, WS** → `dashboard_manager.py:4200-4213`
+3. Dismiss the alert → it closes (and auto-dismisses after 8 s). → **DOM** → `duration=8000` in `_surface_training_control_outcome_handler`
+4. Click `#resume-button` → `{command:"resume"}` frame (default posture); `is_paused: false`, `is_running: true`. → **WS, API** → `main.py:3299`
+5. Click `#stop-button` → `{command:"stop"}` frame (default posture); `is_running: false`. → **WS, API** → `main.py:3320`
+6. Click `#reset-button` on a stopped backend → `{command:"reset"}` frame (default posture); idempotent, no error. → **WS** → `main.py:3341`
+7. Click `#start-button` → training starts again and **does not auto-flip to paused** within 2 s (the BUG-CC-#5 assertion). → **API** → `juniper-canopy/src/tests/ui/test_train_after_reset.py:51-63`
+8. Let the run reach `COMPLETED`, then click `#start-button` **without** Reset → record the outcome verbatim: a rejection must surface as a danger alert (WS error ack under the default posture; 409 on the REST path), a success must start a new run. The Start click never sends `reset=true` on either transport (the WS frame carries only `{command, command_id}` — `dashboard_manager.py:227-231`; the server-side handler builds `/api/train/{command}` with no query string), so a COMPLETED-state restart depends entirely on cascor's acceptance. → **WS, DOM, API** → `main.py:3246-3275`
+9. Click `#reset-button`, then `#start-button` → run starts from a clean network. → **API**
+10. Double-click any control button within 500 ms → exactly **one** control send (one WS frame under the default posture, clientside guard `:135-141`; one POST under the non-default server-side posture, guard `:6614-6619`). → **WS or NET (per posture)** → §2.5 debounce rows
+
+### W3 — Parameter apply round-trip  [numeric-input wall]
+
+**Preconditions**: any lane, training stopped. **Cleanup**: re-apply the original values.
+
+1. Note the current `#nn-learning-rate-input` DOM `value`. → **DOM** → `dashboard_manager.py:980`
+2. **A pure browser cannot do this step.** Typing into `#nn-learning-rate-input` fills the DOM but the value never reaches Dash state; Apply would POST the old value. → `src/tests/ui/test_apply_button_flow.py:64`, `test_l3_native_setter_poc.py:48`
+3. Instead `POST /api/set_params` mirroring the shipped test's **27-key** body with the new `nn_learning_rate` (`src/tests/ui/test_param_roundtrip_visible.py:37-65` — that payload = the dashboard's 25 POST keys minus `nn_init_output_weights` plus the three canopy-local keys; the dashboard's own Apply POSTs **25** keys from **28** gathered `State`s — §2.9). → **API** → `main.py:3640`
+4. Poll `GET /api/state` until `nn_learning_rate` matches (≤5 s). → **API** → `main.py:1129`, `test_param_roundtrip_visible.py:70-77`
+5. Reload the dashboard → `#nn-learning-rate-input` DOM value equals the new value after the `params-init-interval` tick. → **DOM** → `test_param_roundtrip_visible.py:82-92`; init callback `dashboard_manager.py:4650-4658`
+6. Browser-only dirty check: change `#nn-optimizer-type-dropdown` (a real dropdown) → `#apply-params-button` becomes enabled. → **DOM** → `:4420`, `:4385-4491`
+7. Click `#apply-params-button` → focused element is blurred first, then one `POST /api/set_params`. → **NET** → `:2985-3005`
+8. Read `#params-status` → exactly one of the three §2.9 shapes. Record the literal string. → **DOM** → `:7098-7152`
+9. Reload the dashboard and wait for the `params-init-interval` seeding tick — the UI Apply reads the sidebar input's current Dash value, which still holds the pre-POST value until re-seeded, so without this reload the clamp arm below cannot be provoked. → **DOM** → `:4650-4658`
+10. **Clamp arm**: `POST /api/set_params` with a value outside `CascorPatchBounds`, reload + init tick (step 9), then Apply from the UI on the same field → the toast carries ` (clamped to bounds: key→value)`. (Whether `/api/set_params` even persists an out-of-range value is itself uncertain — the clamp lives client-side in `_apply_params_via_backend` and cascor validates independently; record the observed behaviour either way.) → **DOM** → `:7137-7140`
+11. **Skip arm**: if the backend returns `skipped` or `skipped_detail`, the toast names the count and up to 5 keys with reasons. → **DOM** → `:7143-7151`
+12. During the in-flight window, confirm the fast/slow intervals are paused and then resume (the dashboard must never stay frozen). → **NET** → `:3196`, `:3209`, `:3221-3222`, `:3241`
+13. Parameters tab → the three tables reflect the applied values (prefixes stripped). → **DOM** → `:3628-3650`
+14. **Pin/unpin cycle**: on the Parameters tab, check one `{"type":"param-pin","key":…}` checkbox → `pinned-params-store` gains the key and the sidebar `#sidebar-pinned-card` un-hides with the name+value row; uncheck → the card re-hides; reload → the pin state survives (`storage_type="local"`). → **DOM** → `parameters_panel.py:117-118`, `dashboard_manager.py:3948-3952`, `:3972-3976`
+15. **CN triple validator** (`#cn-pool-triple-feedback`, §2.8): the cleared branch is reachable via the doctrine (seeded coherent values → no `invalid` flags after the init tick); the eight invalid branches need **human keystrokes** — manually type an incoherent (S,T,R,P) combination (e.g. `T+R ≠ S`) → the offending input(s) gain `invalid` styling and one message renders; restore coherent values → cleared. **MANUAL** for the invalid branches (synthetic fills never reach the clientside validator — the §1.3 wall). → **DOM, VIS** → `:3013-3069`
+16. **DIVERGENCE probe D-2**: change only `#nn-init-output-weights-dropdown` → Apply stays **disabled** (it is absent from the dirty-tracking Inputs, `:4390-4424`). Record; do not "fix" in Phase 1.
+
+### W4 — Topology exploration  [FA-1, FA-2]
+
+**Preconditions**: a network with ≥2 hidden units (run W1 first). **Cleanup**: reset layout to `hierarchical`, view to 2D, display to Node Graph.
+
+1. Open the Network Topology tab → `GET /api/topology` fires. → **NET** → `:3717-3724`
+2. Cycle `#network-visualizer-layout-selector` through all four values → the graph re-lays out each time; counts unchanged. → **VIS, DOM** → `network_visualizer.py:112-117`
+3. Uncheck `#network-visualizer-show-weights` → edge weight labels disappear; re-check restores them. → **VIS** → `network_visualizer.py:483`
+4. Select `3D` on `#network-visualizer-view-mode` → 3-D scene renders. → **VIS** → `:486-492`
+5. Zoom in 3-D, switch back to `2D` → **view state is not applied in 3-D**; only the 2-D branch restores ranges. Record actual behaviour. → **VIS** → `:505-512`
+6. Select `Weight Matrix` on `#network-visualizer-display-mode` → heatmap renders from `GET /api/topology/raw`; `#network-visualizer-connection-count` reads `"—"`. → **VIS, DOM, NET** → `:437-445`, `:3765-3784`
+7. Switch back to `Node Graph` → node graph returns with the connection count restored. → **DOM** → `:450-452`
+8. Confirm `#network-visualizer-depth-slider-container` is visible (≥1 hidden unit) and `#network-visualizer-depth-label` reads `all`. → **DOM** → `:666-690`
+9. Drag `#network-visualizer-depth-slider` to `k < N` and release → only the first *k* hidden units render; `#network-visualizer-hidden-count` reads `"k of N"`; label reads `"k of N"`. → **VIS, DOM** → `:454-459`, `:516-519`, `:683`
+10. Let another cascade add land → the user-picked `k` is preserved (not snapped to the new max). → **DOM** → `:679-682`
+11. Click a node → `#network-visualizer-selection-info` becomes visible with `Selected: <text>` + `Layer:`. → **DOM, VIS** → `:605-635`
+12. Click the same node again → selection clears and the panel hides. → **DOM** → `:614-616`
+13. Use the modebar box-select over several nodes → `Selected: N node(s)` with up to 5 names listed. → **DOM** → `:581-603`
+14. Zoom and pan; switch to another tab and back → the zoom/pan is restored from `#network-visualizer-view-state` (2-D). → **VIS** → `:292-327`, `:505-512`
+15. Click the modebar camera → a PNG downloads named `canopy_network_<timestamp>.png` at scale 2. → **VIS** → `:415-426`
+16. Hover a node → Plotly tooltip only; **no** network request, **no** DOM change outside the tooltip (there is no `hoverData` callback). → **NET, DOM** → §3.3 DEAD-EXPECTED row
+17. Toggle dark mode → the stats bar and figures recolour. → **VIS** → `:529-543`
+
+### W5 — Snapshot lifecycle  [FA-4]
+
+**Preconditions**: LIVE lane; a trained (or partially trained) network; training **stopped or paused** (the modal
+warns about this, `hdf5_snapshots_panel.py:534-537`).
+**Cleanup**: stop any replay session; leave training stopped.
+
+1. Snapshots tab → the table lists existing snapshots (or the empty state). → **DOM** → `:857-…`
+2. Type a name in `#hdf5-snapshots-panel-create-name` and a description in `#…-create-description`. → **DOM** → `:131,:143`
+3. Click `#hdf5-snapshots-panel-create-button` → `POST /api/v1/snapshots?name=…&description=…`; 201 → ✅ in `#…-create-status`; both inputs clear; the table refreshes. → **NET, API, DOM** → `:406-416`, `:807-…`
+4. Click that row's `{"type":"…-view-btn","index":<id>}` → `#…-detail-panel` fills from `GET /api/v1/snapshots/{id}`. → **NET, DOM** → `:989-1038`, `:475`
+5. Open the row's op menu and click **restore** → the confirm modal opens with `Confirm Restore of snapshot: <id>` and the ⚠️ training-state warning. → **DOM** → `:1135-1201`, `:527-539`
+6. Click `#hdf5-snapshots-panel-restore-cancel` → modal closes, **no** request. → **NET** → `:1204-1218`
+7. Re-open and click `#hdf5-snapshots-panel-restore-confirm` → `POST /api/v1/snapshots/{id}/restore`; ✅ in `#…-restore-status`. → **NET, API** → `:554-559`
+8. Poll `GET /api/status` until the FSM reads `Investigating`. → **API** → `network_editor_panel.py:491-505`
+9. Network Editor tab → the idle block hides, the active block shows, `#network-editor-panel-idle-fsm-badge` reads `FSM: Investigating`. → **DOM** → `:478-531`
+10. Read `#network-editor-panel-topology-readout` → **expected today: `"No topology loaded."`** and an empty `#network-editor-panel-remove-idx`. This is **DIVERGENCE D-0**; record it and continue. → **DOM, NET** → `:517`, `:538-540`
+11. **Fetch the shape the editor cannot supply (D-0 workaround)**: Topology tab → read `#network-visualizer-input-count` (**I**) and `#network-visualizer-hidden-count` (**H**); the append weight-vector length for step 13 is **I + H**, and the patch shape for step 12 derives from the same counts. → **DOM** → `network_visualizer.py:200,:207` (§3.3)
+12. **Smallest mutation — patch**: set `#network-editor-panel-patch-target` = `output_weights`, fill `#network-editor-panel-patch-values` with a correctly shaped row-major list (from step 11), click `#network-editor-panel-patch-submit` → `PATCH /api/v1/network/weights`; record the response. A shape/dtype/NaN violation must be rejected **without** mutating state. → **NET, API, DOM** → `:758`, `main.py:2698-2714`
+13. **Append**: fill `#network-editor-panel-add-weights` with `I + H` floats (step 11), keep bias 0.0 and activation `Tanh`, click `#network-editor-panel-add-submit` → `POST /api/v1/network/hidden-units`. → **NET, API** → `:604`, `main.py:2728-2742`
+14. Verify the append on the Topology tab → `#network-visualizer-hidden-count` incremented. → **DOM** → `:3717-3724`
+15. **Remove**: because of D-0 the dropdown is empty; drive `DELETE /api/v1/network/hidden-units/{idx}` directly to prove the route and then re-check the topology count. Record that the UI path is blocked. → **API** → `main.py:2745-2755`
+16. Back on Snapshots, open the op menu and click **replay** → confirm → `POST /api/v1/snapshots/{id}/replay`; **the active tab switches to `replay`** and `replay-player-session` is populated. → **NET, DOM** → `:1270-1286`
+17. Replay tab → the idle placeholder is gone; `#replay-player-panel-snapshot-id` shows the id; `#replay-player-panel-fsm-badge` shows the FSM state. → **DOM** → `:445-499`
+18. Read `#replay-player-panel-weights-badge` → `"V2 ✓ weights"` (green) or `"V1 (metrics only)"` (grey). Record which. → **DOM, VIS** → `:471-481`
+19. Click `#replay-player-panel-play-btn` → `POST /api/v1/snapshots/{id}/replay/control` with `{"action":"play"}`; status block shows success. → **NET** → `:550-598`, `:356`
+20. If V2: watch `#replay-player-panel-last-sample-readout` populate as `"last sample: epoch N (M buffered)"` on the 500 ms drain. → **DOM, WS** → `:507-548`, `:129`
+21. Drag `#replay-player-panel-scrubber` and release → `{"action":"seek",...}`; `#replay-player-panel-epoch-readout` updates. → **NET, DOM** → `:586-589`
+22. Drag `#replay-player-panel-speed` to a negative value and release → `{"action":"speed",...}`; readout shows the signed multiplier; at 0 it reads `"Paused (0×)"`. → **NET, DOM** → `:590-593`, `:496`
+23. Drag `#replay-player-panel-range` handles and release → `{"action":"range",...}`; `#replay-player-panel-range-readout` shows `[s, e]`. → **NET, DOM** → `:594-597`
+24. Network Evolution tab during replay → `#network-evolution-weight-norms-container` un-hides if the weight buffer has entries. → **DOM** → `network_evolution.py:159-164`
+25. Decision Boundary tab during a V2 replay → the boundary redraws off `replay-weight-buffer`. → **VIS** → `decision_boundary.py:235-252`
+26. Click `#replay-player-panel-stop-btn` → `{"action":"stop"}`. → **NET**
+27. Back on Snapshots, exercise **resume** and **retrain** through the same modal → `POST /api/v1/snapshots/{id}/resume` and `.../retrain`; record 200 vs 409 vs 501 for each. → **NET, API** → `:554-574`, `main.py:2629-2676`
+28. Expand `#hdf5-snapshots-panel-history-toggle` → `GET /api/v1/snapshots/history` fills `#…-history-content`. → **NET, DOM** → `:1299-…`
+29. **DEAD-EXPECTED probe**: click the swap-restore pre/post buttons in the paired-diff cards → nothing happens; no request, no console error. → **NET, CON** → `:709`, `:720`
+30. **DEMO-lane arm**: repeat steps 16/27 in demo mode → each returns **501** `"Snapshot replay/resume/retrain operations require a live cascor backend (service mode). Demo mode is not supported."` and the panel renders it as `❌ Operation not supported in this mode`. → **API, DOM** → `main.py:2553-2563`, `:571-574`
+
+### W6 — Dataset COLD migration (stage → restart)  [FA-5]
+
+**Preconditions**: LIVE lane, cascor model. **Cleanup**: cancel any pending change; restore the original dataset params.
+
+1. Sidebar → open the dataset subsection; note `#nn-dataset-type-dropdown` value and the current topology `#network-visualizer-input-count`. → **DOM** → `:1243`, `network_visualizer.py:200`
+2. Change `#nn-dataset-type-dropdown` to a different generator → the section title renames, spiral typed fields hide for a non-spiral type, and schema-driven fields render into `#nn-dataset-schema-params`. → **DOM** → `:2440-2449`
+3. Numeric dataset params (`#nn-dataset-elements-input`, `#nn-dataset-noise-input`) are AUTO-API — drive them via the staging POST if a value change is required. → `:1211,:1223`
+4. Click `#apply-dataset-button` → blur-commit, then `POST /api/stage_dataset`. → **NET** → `:2985-3005`, `:4663-4685`, `main.py:3824`
+5. `#pending-dataset-banner` opens with "Dataset change pending — restart training to apply." → **DOM, VIS** → `:1531-1557`
+6. `GET /api/status` shows a non-empty `pending_dataset`. → **API** → `:4741`
+7. **Cancel path**: click `#cancel-pending-dataset-button` → `DELETE /api/cancel_pending_dataset`; on 200 the banner closes. → **NET, DOM** → `:4687-4709`
+8. Confirm `/api/status.pending_dataset` is cleared and the banner stays closed through the next slow reconcile tick. → **API, DOM** → `:4720-4744`
+9. Re-apply (repeat 2-5) to re-stage.
+10. Click `#restart-with-new-dataset-button` → `#restart-confirm-modal` opens; `#restart-confirm-summary` lists the plan; every `restart-ds-*` / `restart-p-*` field is seeded and `#restart-modal-baseline` captured. → **DOM** → `:5008-5040`
+11. Confirm the modal is `backdrop="static"` + `keyboard=False` — Esc and backdrop clicks do **not** close it. → **DOM** → `:2047-2048`
+12. Toggle `#restart-start-fresh-toggle` on and off → read the two consequence lines (OFF = continue the model retaining metrics/history; ON = vanilla rebuild, snapshots preserved). Leave it **OFF** for this run. → **DOM, VIS** → `:1974-1983`, `:2001-2002`
+13. Click `#restart-granular-toggle` → `#restart-granular-collapse` expands showing `#restart-granular-context`, the editable dataset fields, and the key training params. → **DOM** → `:5042-5051`
+14. Edit one granular field — **a dropdown, `#restart-ds-type`, deliberately: it is the only one of the 11 granular fields a browser can drive** (the other 10 are `dbc.Input(type="number")` — §2.10 LIMITATION / plan T-22) → `#restart-confirm-summary` re-renders showing the delta against the baseline. → **DOM** → `:5058-5079`
+    - **MANUAL drill (granular MODIFY, plan T-22)**: a human types into one numeric granular field (e.g. `#restart-p-nn-patience`) → the summary re-renders that delta too. Synthetic fills cannot reach these fields (numeric wall) and **no API bypass exists** for these modal-scoped `State`s — record this row as the N3b modify-half coverage limit, a registered finding-candidate. → **DOM** → §2.10, `:5058-5079`
+15. Click `#restart-cancel-button` → modal closes, nothing executed. → **NET** → `:5081-5089`
+16. Re-open and click `#restart-confirm-button` → `#restart-progress-alert` opens immediately (spinner), then the orchestration runs: optional re-stage, optional param apply, then `POST /api/train/restart` (stop → await stopped → start). → **NET, VIS** → `:5091-5130`, `main.py:3426`
+17. `#restart-outcome-alert` renders a **truthful success or per-step failure** — this is a dedicated surface, so an epoch-0 instant convergence must read as success, not as "frozen". → **DOM, VIS** → `:2065-2073`
+18. The banner closes once cascor clears `pending_dataset`. → **DOM** → `:5106`, `:4720-4744`
+19. **Input-width sanity (G-6 analogue)**: on the Topology tab confirm `#network-visualizer-input-count` matches the new dataset's feature count; a mismatch is a hard failure. (Precondition: cascor model — this oracle lives on a cascade-only tab and is unavailable after a one-shot model swap.) → **DOM** → `network_visualizer.py:200`, `:515`
+20. Dataset View tab → the stats tiles reflect the new dataset. → **DOM** → `dataset_plotter.py:282-299`
+21. **Staging-failure arm (`#dataset-stage-outcome-alert`)**: induce a staging failure — stop the isolated stack's juniper-data leg (`util/isolated_stack.bash` owns it; `stop_port "${DATA_PORT}"`, `:266-…`), select a juniper-data-backed (non-spiral) generator, click `#apply-dataset-button` → staging fails and `#dataset-stage-outcome-alert` renders the error instead of failing silently (`:4663-4685`); no `#pending-dataset-banner`. Restart the data leg before continuing. → **DOM, NET** → `:4663-4685` — **MANUAL** (service manipulation; the browser assertions are AUTO once induced)
+
+### W7 — Dataset HOT migration (live swap)  [FA-5]
+
+**Preconditions**: LIVE lane; training **running**. **Cleanup**: turn Experimental Functions back off; stop training.
+
+1. **Deny arm first**: with Experimental Functions OFF, confirm `#live-dataset-switch-button` is `disabled` even while training runs. → **DOM** → `:5722-5731`
+2. Toggle `#experimental-functions-toggle` ON → `POST /api/admin/experimental_functions`; the switch settles on the **server's** `enabled`, and a divergence raises a warning alert in `#experimental-functions-alert`. → **NET, DOM** → `:4800-4852`
+3. Reload the page → the toggle is re-reconciled from `GET /api/admin/experimental_functions`; a server-side OFF overrides the persisted ON. → **NET, DOM** → `:4765-4798`
+4. With the flag ON and training **stopped**, confirm the Live button is still `disabled` (both conditions required). → **DOM** → `:5729-5731`
+5. Start training; the Live button becomes enabled. → **DOM**
+6. Click `#live-dataset-switch-button` → `#live-switch-modal` opens with the warning alert and `#live-switch-dataset-summary` listing the exact sidebar config (type, samples, noise, spirals, rotations; `None` values omitted; empty → an italic "No dataset config selected" warning row). → **DOM, VIS** → `:5733-5756`
+7. Confirm the modal cannot be dismissed by Esc or backdrop. → **DOM** → `:1911-1912`
+8. **Fallback path**: click `#live-switch-fallback-button` → modal closes (`:5758-5766`) **and** a clientside effect scrolls `#apply-dataset-button` into view and pulses it for ~1.1 s. → **VIS, DOM** → `:4925-4946`
+9. Re-open the modal and click `#live-switch-accept-button` → `#live-switch-progress-alert` opens immediately with a spinner and a Cancel button (split callback so the spinner precedes the 5-30 s POST). → **DOM, VIS** → `:4966-4975`
+10. `POST /api/live_dataset_swap` is issued. → **NET** → `main.py:3937`
+11. **Cancel arm** (optional, separate run): while in flight click `#live-switch-cancel-button` → `DELETE /api/live_dataset_swap`; the outcome alert reports the cancellation. → **NET** → `:4977-4983`, `main.py:3968`
+12. **Accept arm**: on 200 the outcome alert reports success and names the pre-swap snapshot id; on 200 with `status == "cancelled"` it reports an info "swap cancelled"; on non-200 it shows the server error **verbatim**. → **DOM, VIS** → `:5768-5780`
+13. `GET /api/history/dataset_swaps` returns the new event. → **API** → `main.py:4006`
+14. Snapshots tab → `#hdf5-snapshots-panel-dataset-swaps-content` renders the paired diff for the swap. → **DOM** → `:1394-1396`
+15. Snapshots table → the **pre-swap / post-swap snapshot pair** is present (roles computed by `_compute_swap_snapshot_roles`, `:629`). → **DOM**
+16. **Per-snapshot swap history (CG-1 closure)**: load a replay session for a snapshot whose window contains the swap (op menu → replay on the post-swap snapshot) → the per-snapshot fetch fires: `GET /api/snapshots/{id}/history/dataset_swaps` (`dashboard_manager.py:5686-5690`; route `main.py:4032`) fills `loaded-snapshot-swap-events-store`; a 404/empty here is indistinguishable from "no events" at the DOM, so assert the **request** and its 200 body, not just the graph. → **NET, API, DOM** → §3.10 hydrate row
+17. Replay tab → `#replay-player-panel-swap-events-graph` shows a marker at the swap time; hover gives before→after detail. → **VIS** → `:632-642`
+18. Turn `#experimental-functions-toggle` OFF → the Live button returns to `disabled` on the next store update. → **DOM** → `:5729-5731`
+
+### W8 — Model switch cascor ⇄ recurrence  [FA-3]
+
+**Preconditions**: LIVE lane with a reachable recurrence service — this **requires plan §4.5's
+`--with-recurrence` fourth leg (PR-M2)**; the base isolated stack starts data/cascor/canopy only.
+**Without the leg, every W8 step is `N-A (no recurrence service)`** (and note the plan's F-CANDIDATE:
+with no `recurrence_service_url` a recurrence Select is a silent no-op — the backend stays cascor — so
+running W8 anyway would validate a UI illusion). **Cleanup**: switch back to `cascor`; reload.
+
+1. Sidebar → click `#nn-model-change-button` → `#model-selection-modal` opens and the table is rebuilt against the **current dataset** (`:2390-2401`). → **DOM**
+2. Table columns are Model / Category / Status / Compatibility / Select; incompatible rows show the reason and a **disabled** Select; a non-live model stays selectable (Train-gated at the controls instead). → **DOM, VIS** → `_build_model_selection_table` `:2820`
+3. Type `lmu` in `#model-search-input` (a `type="search"` input — normal fill works) → the table filters live on the ~350 ms debounce. → **DOM** → `:2097-2103`
+4. Clear the search (native ×) → the full list returns. → **DOM**
+5. Click the `{"type":"model-select-btn","index":"recurrence"}` Select → `POST /api/model/select`, `model-selection-store` + `model-class-store` updated, `#nn-model-summary` rewritten, modal closes (`:2410-2419`). → **NET, DOM** → `main.py:3570`
+6. **Tab suppression**: the 5 cascade-only tabs disappear — `candidates`, `topology`, `evolution`, `boundaries`, `workers` (`_CASCADE_ONLY_TAB_IDS`, `:387`; rebuild `:2353-2360`). Ten tabs remain. → **DOM**
+7. `#status-iteration-segment` (the Hidden Units segment) is hidden. → **DOM** → `:2362-2370`
+8. Metrics tab → `#metrics-panel-classification-metrics` hides, `#metrics-panel-oneshot-result` shows, and both plots are hidden (`metrics_panel.py:766-781`). → **DOM, VIS**
+9. `#nn-dataset-type-dropdown` options re-gate to the 3-D-capable set and, if the current value is now incompatible, snap to a compatible one (`:2424-2433`). Recurrence declares `input_ndim={3}` and `requires_dt=True` (`model_registry.py:183,187`). → **DOM**
+10. `#oneshot-start-params-store` becomes non-`None` (the dataset-ref Start body) (`:2454-2461`). → **DOM**
+11. `#train-gate-notice` stays empty because `recurrence` is `status="live"` (`model_registry.py:188`); Start is **not** force-disabled. → **DOM** → `:2479-2485`
+12. Click `#start-button` → `POST /api/train/start` **with** the one-shot dataset-ref JSON body (`_handle_training_buttons_handler` adds `json=` only for a one-shot Start). → **NET** → `main.py:3266`
+13. Switch back to `cascor` via the modal → the 5 tabs return and the iteration segment reappears. → **DOM**
+14. **Orphaned-active-tab sensitivity**: before switching to recurrence, park on `topology` (a cascade-only tab); then switch. `_visible_tabs` deliberately does **not** touch `active_tab` (`:2259-2263`), so the active tab is removed from the bar while still selected. Record exactly what renders. This is a known design seam, not a regression to fix in Phase 1. → **VIS, DOM, CON**
+15. **Hydrate-once note**: `model-class-store` is hydrated from `GET /api/train/status` on `params-init-interval` only (`:2333-2351`); the *only* other writer is the modal Select (`:2412`). A backend swapped out-of-band is not picked up without a reload. → **API** → `main.py:3362`
+
+### W9 — DEMO-lane dataset generate / upload / URL  [FA-5, DEMO lane]
+
+**Preconditions**: canopy started with `DEMO_MODE` on (`/v1/health` → `demo_mode: true`).
+**Cleanup**: regenerate the default spiral dataset.
+
+1. Dataset View tab → click `#dataset-plotter-generate-btn` → the 3-tab modal opens on Generate. → **DOM** → `:3845-3863`
+2. Generate tab: the four numeric params are AUTO-API; for a browser run accept the defaults (200 / 2 / 1.5 / 0.1). → `dataset_plotter.py:165-191`
+3. Click `#dataset-plotter-gen-confirm` → `POST /api/dataset/generate`; `#dataset-plotter-gen-status` shows `✅ Dataset generated`; the modal closes; the store refreshes and the plots redraw. → **NET, DOM, VIS** → `dashboard_manager.py:4011-4027`
+4. Server-side clamping is silent: samples 20-2000, rotations 0.1-10.0, noise 0.0-1.0 (`main.py:1433-1435`). Probe one out-of-range value via the API and confirm the returned dataset honours the clamp. → **API**
+5. Upload tab: pick a small CSV (last column = integer label) via `#dataset-plotter-import-file-upload` → `#dataset-plotter-import-file-name` shows `Selected: <name>` and `#dataset-plotter-import-file-confirm` enables. → **DOM** → `:3897-3908`
+6. Click Import File → `POST /api/dataset/import-file` (multipart); `✅ Imported <name>`; plots redraw. → **NET, DOM** → `:4057-4090`
+7. Negative arm: upload a malformed CSV → 400 with the parser's message surfaced as `❌ …`. → **NET, DOM** → `main.py:1489-1492`
+8. URL tab: enter a URL in `#dataset-plotter-import-url-input`, click `#dataset-plotter-import-url-confirm` → with the default config this returns **403** `"URL-based dataset import is disabled by configuration"` and renders `❌ …`. → **NET, DOM** → `main.py:1575-1576`
+9. If `dataset_import_url_enabled` is turned on for the run: a loopback/RFC-1918/link-local target is refused with 400 by the SSRF guard; redirects are not followed; >10 MB → 413; >10 s → 504. → **API** → `main.py:1584-1622`
+10. Toolbar: pick a generator in `#dataset-plotter-dataset-selector` → confirm **nothing** happens until you click `#dataset-plotter-load-selected-btn` (by design). → **NET** → `dataset_plotter.py:112-115`
+11. Click Load → `POST /api/dataset/generate` with `{"generator": <name>}`; `✅ Loaded '<name>'`. A non-spiral generator with juniper-data unreachable returns **503**. → **NET, DOM** → `:4029-4055`, `main.py:1442-1444`
+12. **LIVE-lane mirror**: repeat steps 3, 6 and 8 in the live lane → each returns **400** `"…only available in demo mode"` and renders as `❌ …`. → **API, DOM** → `main.py:1417-1418`, `:1478-1482`, `:1570-1574`
+13. Cycle `#dataset-plotter-split-selector` through All/Train/Test → the plots and tiles re-filter with no request. → **VIS, NET** → `dataset_plotter.py:496-532`
+
+### W10 — Metrics layout save / load / delete
+
+**Preconditions**: Metrics tab. **Cleanup**: delete the layout created here.
+
+1. Zoom the loss plot and pan the accuracy plot → `#metrics-panel-view-state` captures the ranges. → **DOM** → `metrics_panel.py:682-695`
+2. Type `e2e-probe` into `#metrics-panel-layout-name-input`. → **DOM** → `:208`
+3. Click `#metrics-panel-save-layout-btn` → `POST /api/v1/metrics/layouts`; `#metrics-panel-layout-status` confirms; the name input clears. → **NET, DOM** → `:1113-1128`, `:1553`
+4. `GET /api/v1/metrics/layouts` lists `e2e-probe`. → **API** → `main.py:2803`
+5. Open `#metrics-panel-layout-dropdown` → `e2e-probe` is present. → **DOM** → `:1104-1111`
+6. Reset the zoom (double-click the plot), then select `e2e-probe` and click `#metrics-panel-load-layout-btn` → `GET /api/v1/metrics/layouts/e2e-probe`; the view state is restored. → **NET, VIS** → `:1130-1141`, `:1598`
+7. Click `#metrics-panel-delete-layout-btn` → `DELETE /api/v1/metrics/layouts/e2e-probe` **with no confirmation dialog**; status confirms; the dropdown value clears. → **NET, DOM** → `:1143-1155`, `:1642`
+8. `GET /api/v1/metrics/layouts` no longer lists it. → **API**
+9. Negative arm: click Save with an empty name → record the status text; click Load/Delete with no selection → record. → **DOM**
+
+### W11 — In-metrics replay controls
+
+**Preconditions**: Metrics tab, training **stopped** with accumulated history.
+
+1. Confirm `#metrics-panel-replay-controls` is visible (status ∈ STOPPED/PAUSED/COMPLETED/FAILED). → **DOM** → `metrics_panel.py:927-951`
+2. `#metrics-panel-replay-position` reads `"0 / <N>"` where N = history length − 1. → **DOM** → `:1080-1088`
+3. Click `#metrics-panel-replay-play` → the icon becomes ⏸ and the position advances once per second. → **DOM, VIS** → `:1010-1011`, `:1092-1099`, `:1040-1064`
+4. Click `#metrics-panel-speed-4x` → the tick interval becomes 250 ms (`1000/4`). Time ~10 ticks to confirm. → **DOM** → `:1034-1035`
+5. Click `#metrics-panel-speed-1x` → back to 1000 ms. **Record D-3** (base is 1000 ms, not 500 ms). → **DOM**
+6. Click `#metrics-panel-replay-play` again → pauses; icon returns to ▶. → **DOM** → `:1011`
+7. Click `#metrics-panel-replay-step-forward` / `-step-back` → index ±1, clamped at both ends, mode forced to `paused`. → **DOM** → `:1012-1017`
+8. Click `#metrics-panel-replay-start` / `-replay-end` → jumps to `start_index` / `end_index`. → **DOM** → `:1018-1023`
+9. Drag `#metrics-panel-replay-slider` → index = `round(value/100 × max)`, mode `paused`. → **DOM** → `:1030-1032`
+10. Play to the end → mode auto-stops at `end_index` (no wrap). → **DOM** → `:1057-1062`
+11. Start training again → the whole `#metrics-panel-replay-controls` block hides. → **DOM** → `:948-951`
+
+### W12 — Evolution + Boundaries during a live run  [FA-1]
+
+**Preconditions**: LIVE lane, training running with cascade growth.
+
+1. Network Evolution tab before any growth → `#network-evolution-empty-state` shows the 🌱 message and `#network-evolution-stats` reads "No snapshots yet". → **DOM, VIS** → `network_evolution.py:121-135`, `:143-153`
+2. After each cascade add → one new card appears in `#network-evolution-grid-container`; duplicates on unchanged `hidden_units` are suppressed. → **VIS, DOM** → `dashboard_manager.py:3581-3586`
+3. Click `#network-evolution-clear-btn` → the store is wiped clientside and the empty state returns. → **DOM** → `:3612-3622`
+4. Decision Boundary tab → the plot renders and `#decision-boundary-status` leaves "No network loaded". → **DOM, VIS** → `decision_boundary.py:172-183`
+5. Drag `#decision-boundary-resolution-slider` from 100 to 200 → `GET /api/decision_boundary?resolution=200`; the grid visibly densifies. → **NET, VIS** → `dashboard_manager.py:3818-3828`
+6. Untick `#decision-boundary-show-confidence` → shading disappears with **no** request. → **VIS, NET** → `decision_boundary.py:178`
+7. Click `#decision-boundary-refresh-btn` → an immediate refetch. → **NET** → `:3822`
+8. Switch to another tab and watch the network panel → the boundary poll goes silent (tab-gated). → **NET** → `_update_boundary_store_handler`
+9. Confirm the dataset overlay is present (`#decision-boundary-dataset-data` filled from `GET /api/dataset`). → **VIS, NET** → `:3833-3841`
+10. **Last, because it terminates the run this workflow depends on**: trigger a dataset/network reset (W6 — its restart path is stop → await stopped → start) → the evolution store auto-clears when `input_units` changes or `hidden_units` shrinks; subsequent observations are against the fresh network. → **DOM** → `:3561-3567`
+
+### W13 — Ancillary tabs + chrome smoke
+
+**Preconditions**: any lane.
+
+1. Workers tab → the badge resolves from `LOADING` to `HEALTHY` / `NO WORKERS` / `DEGRADED`; six tiles populate. → **DOM** → `worker_panel.py:198-224`
+2. LIVE lane → `#worker-panel-local-note` is **present** (`local_reported` forced false, `main.py:3101`). DEMO lane → two synthetic workers (`worker-demo-01` local, `worker-demo-02` remote) and the note **absent** (`main.py:3115-3144`). → **DOM**
+3. Leave the Workers tab → the poll stops (tab-gated). → **NET** → `dashboard_manager.py:3805-3813`
+4. Redis tab → status/mode badges render; with no Redis deployed the unavailable state renders cleanly, no console error, other tabs unaffected. → **DOM, VIS, CON** → `redis_panel.py:338-…`
+5. Cassandra tab → same expectation. → **DOM, VIS, CON** → `cassandra_panel.py:351-…`
+6. Tutorial tab → click all 5 accordion headers; `always_open=True` means opening one does not close another. → **DOM** → `tutorial_panel.py:74-77`
+7. Click `#walkthrough-launch-btn` → the overlay appears over the dashboard; Skip/Done dismisses it. → **VIS, CON** → `dashboard_manager.py:3310-3345`
+8. About tab → click `#about-panel-system-info-toggle` → four `<li>`s (Python version, platform, architecture, app version) render with **zero** network requests; close returns `[]`. → **DOM, NET** → `about_panel.py:310-345`
+9. Toggle `#dark-mode-toggle` → `<html>` gains `dark-mode`; visit every tab and confirm figures/panels recolour with no unreadable text. → **VIS** → `:2930-2945`
+10. Reload → dark mode persists (localStorage). → **DOM** → `:634`
+11. Switch to a non-default tab (e.g. `snapshots`), reload → the dashboard restores that tab exactly once, with no tab flicker/loop. → **DOM, CON** → `:3287-3304`, `:3351-3364`
+12. Clear `localStorage['juniper_canopy_welcomed']` and reload → the welcome modal reappears; "Get Started" dismisses it permanently. → **DOM** → `:2948-2972`
+13. Walk all 15 tabs once with the console open → zero uncaught errors, zero Dash callback exceptions. (A periodic `POST /api/ws_latency` — every 60 s from `assets/ws_latency.js:47-50` — is **expected background traffic**, not noise.) → **CON, NET**
+14. **WS badge chrome check**: read `#ws-connection-indicator` text + colour (`WS: Connected`, green, on a healthy live stack; `WS: Demo`, grey, in the demo lane); kill the browser socket (devtools / offline toggle) → `WS: Offline` (red) → auto-reconnect back to Connected. The upstream states 3/4 (`Upstream reconnecting` / `Upstream degraded`) are **W14's** induction, not this smoke. → **DOM, WS** → §2.4
+15. **Tooltip hover**: hover 2-3 tooltipped controls (e.g. `#nn-learning-rate-input`, `#apply-params-button`) → the `dbc.Tooltip` renders on `placement="top"`; spot-check against the **23**-entry `CONTROL_TOOLTIPS` map (22 parameter inputs + the Apply button). → **VIS, DOM** → `dashboard_manager.py:1819`, `tooltips.py:7-34`
+16. **Sidebar visibility + width sweep**: switch `metrics` → `topology` → `evolution`: sidebar sections show/hide per `TAB_SIDEBAR_CONFIG` (12 keys; `evolution` hides all 14 sections — expected), and the column widths flip 3/9 ⇄ 2/10 per `ui_standards.TAB_SIDEBAR_WIDTH` (sum always 12). Assert **visibility**, never presence (plan T-13). → **DOM** → `:2289-2308`, `:2315-2322`, `ui_standards.py:37-56`
+
+### W14 — Upstream-degradation induction (stop/restart cascor)  [FA-1, FA-3, LIVE lane]
+
+**Preconditions**: LIVE lane; training **running** (W1 step 5); the isolated stack's cascor leg owned by
+this session (`util/isolated_stack.bash` writes `juniper-cascor.pid` at `:231`; `stop_port` helper `:266`,
+`cascor_up` leg `:216-238`). This is the induction procedure for WS-badge states 3/4 (§2.4) and the plan
+§7.3 degraded probe.
+**Hard rule — do NOT restart canopy during this workflow**: restarting canopy while cascor is down
+triggers the **T-2 silent demo fallback** (`main.py:322-337` — canopy re-creates a demo backend and
+`/v1/health` still reads `status: "ok"`, only `demo_mode: true` betrays it). That fallback is **its own
+assertion**, run separately if wanted; inside W14 it would invalidate the live session.
+**Cleanup**: cascor restarted, badge green, stack back at the §4.3 honest gate.
+
+1. Baseline: badge reads `WS: Connected` (green); status bar advancing (Step increments). → **DOM** → **AUTO**
+2. **Stop cascor mid-run** via the stack's own helpers (`stop_port "${CASCOR_PORT}"` / kill the `juniper-cascor.pid` pid) — canopy itself keeps running. → **MANUAL** (orchestrator shell) → `util/isolated_stack.bash:266,:231`
+3. Poll `GET /api/stream_health` → `overall` leaves `"ok"` (`reconnecting` / `degraded`). → **API** → **AUTO** → `main.py:1279`
+4. WS badge downgrades to `WS: Upstream reconnecting` or `WS: Upstream degraded` (amber `#ffc107`) — badge states 3/4, driven by the `stream-health-store` input. → **DOM, WS** → **AUTO** (after the MANUAL induction) → `connection_indicator.py:86-89`, §2.4
+5. Top status bar: the 1 s `GET /api/status` poll classifies the outage — record the exact label rendered (the classified, actionable failure label, **not** a silent stale "healthy" read). → **DOM** → **AUTO** → `dashboard_manager.py:5963-5968`, plan §7.3
+6. Topology / metrics panels: last-known-good rendering (plan T-5) — panels read **stale, not failed**; record that the badge + status label are the only truthful degradation surfaces. → **VIS, DOM** → **MANUAL** (judgement)
+7. Confirm `/v1/health` still returns HTTP 200 with `status: "ok"` and `demo_mode: false` while degraded — the canopy process did not fall back to demo (it only does that on a **restart** with cascor down; see the hard rule above). → **API** → **AUTO** → `main.py:1059-1069`
+8. **Restart cascor** (re-run the cascor leg / `cascor_up`-equivalent with the run's env). → **MANUAL** → `util/isolated_stack.bash:216-238`
+9. Recovery: `stream_health.overall` returns `"ok"`; badge returns `WS: Connected` (green) **without a canopy restart**. → **API, DOM** → **AUTO**
+10. Status bar recovers to an honest post-outage state; record verbatim whether the interrupted run survived cascor's restart (in-memory training state is expected lost — record, do not pre-judge). → **DOM, API** → **AUTO** (record)
+11. Console: record errors observed during the outage window (reconnect noise is expected); **zero new** uncaught errors after recovery. → **CON** → **AUTO**
+
+---
+
+## 5. Dead / ambiguous controls register
+
+### 5.1 DEAD-EXPECTED (rendered, no callback — clicking must be a no-op)
+
+| id | definition | evidence |
+| --- | --- | --- |
+| `{"type":"candidate-metrics-panel-history-pool-header","index":<epoch>}` | `candidate_metrics_panel.py:679` | Sole occurrence of the pattern in the repo; no `MATCH`/`ALL` callback in the file or elsewhere. Styled `cursor: pointer` (`:678`) — visually implies clickability. |
+| `{"type":"candidate-metrics-panel-history-pool-collapse","index":<epoch>}` | `candidate_metrics_panel.py:694` | Always `is_open=False`; no writer. |
+| `{"type":"hdf5-snapshots-panel-swap-restore-pre-btn","index":<i>}` | `hdf5_snapshots_panel.py:709` | Sole occurrence; no callback. |
+| `{"type":"hdf5-snapshots-panel-swap-restore-post-btn","index":<i>}` | `hdf5_snapshots_panel.py:720` | Sole occurrence; no callback. |
+| `network-visualizer-graph` `hoverData` | `network_visualizer.py:247` | Only `relayoutData` (`:294`), `clickData` (`:552`) and `selectedData` (`:553`) are wired. Hover is Plotly-native. |
+| `connection-status` | `dashboard_manager.py:842` | `display:none` div existing only as a callback Output sink (`:3090`). |
+| `apply-blur-sink` | `dashboard_manager.py:1775` | Write-only Store satisfying Dash's "every callback needs an Output" rule. |
+| `live-switch-fallback-sink` | Output at `dashboard_manager.py:4943` | Same pattern for the scroll-and-pulse clientside effect. |
+
+### 5.2 Ambiguous / two-path behaviours to record, not "fix"
+
+| # | Item | Detail |
+| --- | --- | --- |
+| **A-1** | **Two-transport training buttons** | `settings.enable_ws_control_buttons` **defaults `True`** (`settings.py:349`), so the **shipped default** is the **clientside** WS-with-REST-fallback registration (`dashboard_manager.py:4125-4149` — frames on `/ws/control`, `fetch('/api/train/…')` only on WS unavailability/rejection); the **server-side** Python handler (`:4152-4186`) is the **non-default** posture. Both write `training-control-action`, so the outcome alert and button-state machinery are transport-agnostic. Record which path the run used (startup log at `:4149`) in the evidence header. The in-code comment `:4122-4124` claiming "off (default)" is stale — **D-5**. |
+| **A-2** | **`model-class-store` hydrate-once** | Hydrated from `GET /api/train/status` on the single-fire `params-init-interval` (`:2333-2351`; the Interval has `max_intervals=1`, `:1760`). The only other writer is the model-modal Select (`:2412`). An out-of-band backend swap is invisible until reload. |
+| **A-3** | **Third `active_tab` writer** | Tutorial context-menu (`:3271-3281`), layout-state restore (`:3287-3304`), **and** a successful snapshot `replay` (`hdf5_snapshots_panel.py:1230`). The `_visible_tabs` docstring still says "exactly two" (`:2259-2261`) — DIVERGENCE D-1 (documentation). |
+| **A-4** | **`TAB_SIDEBAR_CONFIG` covers 12 of 15 tabs** | `evolution`, `replay`, `network-editor` have no entry (`:284-373`), so `.get(active_tab, {})` hides all 14 sidebar sections on those tabs. `ui_standards.TAB_SIDEBAR_WIDTH` *does* list all 15 (`ui_standards.py:39-58`), so widths still resize. Consistent but easy to misread as a bug. |
+| **A-5** | **`status-iteration-segment` naming** | The id says "iteration" but the segment holds **Hidden Units**; the true growth iteration lives in the Network Info panel. Name kept deliberately for callback stability (`:804-808`). |
+| **A-6** | **Metrics store has two co-owners** | The liveness-gated REST poll (`:3671-3693`) and the WS append (`:3703-3712`) both write `metrics-panel-metrics-store` via `allow_duplicate`. `ws-metrics-buffer` is deliberately **not** an Input on the poll (`:3663-3670`) — a chained no-update producer would starve it. |
+| **A-7** | **Snapshot restore vs the other three ops** | `/restore` has its own route (`main.py:2293`); `replay`/`resume`/`retrain` all go through `_require_service_adapter` and 501 in demo mode (`main.py:2553-2563`). The panel routes all four through one URL template (`hdf5_snapshots_panel.py:556`). |
+
+### 5.3 Divergences found during authoring (report, do not fix in Phase 1)
+
+| ID | Divergence | Evidence |
+| --- | --- | --- |
+| **D-0** | `GET /api/network/topology` is **not a registered route**; `NetworkEditorPanel` fetches it and therefore always renders "No topology loaded." with an empty remove-unit dropdown. | `network_editor_panel.py:517` vs the route list in `main.py` (only `/api/network/stats` :1322, `/api/topology` :1373, `/api/topology/raw` :1388); no `include_router` / `add_api_route` in `main.py`; `src/tests/unit/test_main_import_and_lifespan.py:304-305` admits 404. |
+| **D-1** | `_visible_tabs` docstring claims exactly two `active_tab` writers; there are three. | `dashboard_manager.py:2259-2261` vs `:3278`, `:3300`, `hdf5_snapshots_panel.py:1230`. |
+| **D-2** | `nn-init-output-weights-dropdown` is not in the Apply dirty-tracking Input list, so changing it alone leaves Apply disabled (it *is* sent on Apply). | `dashboard_manager.py:956` (control) vs `:4390-4424` (Input list — includes optimizer `:4420` and activation `:4422`, not init-output-weights). |
+| **D-3** | In-metrics replay base tick is **1000 ms** (1x → 1000 / 2x → 500 / 4x → 250), not a 500 ms interval. | `metrics_panel.py:566` (`interval=1000`) and `:1034-1035` (`interval = 1000 / speed`). |
+| **D-4** | `/api/dataset/generate`'s demo-only gate is at `main.py:1417-1418`; the generator-specific 503/501 branches are `:1442-1446`. (Briefing cited `1417-1445` as one block — the gate and the generator branch are separate.) | `main.py:1414-1467`. |
+| **D-5** | The Phase-D transport comment says the flag is "off (default)"; the settings default is **`True`** — the clientside `/ws/control` transport IS the shipped default. Comment drift; **finding-candidate for Phase 1** (plan T-21). | `dashboard_manager.py:4122-4124` (stale comment) vs `settings.py:349` (`enable_ws_control_buttons: bool = True`). |
+
+---
+
+## 6. Coverage cross-check
+
+### 6.1 Tabs
+
+| # | tab_id | Label | Tab def | Matrix § | Workflows |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `metrics` | Training Metrics | `:2177-2181` | §3.1 | W1, W3, W10, W11 |
+| 2 | `candidates` | Candidate Metrics | `:2182-2186` | §3.2 | W1 |
+| 3 | `topology` | Network Topology | `:2187-2191` | §3.3 | W1, W4, W5, W6 |
+| 4 | `evolution` | Network Evolution | `:2192-2196` | §3.4 | W5, W12 |
+| 5 | `boundaries` | Decision Boundary | `:2197-2201` | §3.5 | W5, W12 |
+| 6 | `dataset` | Dataset View | `:2202-2206` | §3.6 | W6, W9 |
+| 7 | `workers` | Workers | `:2207-2211` | §3.7 | W13 |
+| 8 | `parameters` | Parameters | `:2212-2216` | §3.8 | W3 |
+| 9 | `snapshots` | Snapshots | `:2217-2221` | §3.9 | W5, W7 |
+| 10 | `replay` | Replay | `:2222-2226` | §3.10 | W5, W7 |
+| 11 | `network-editor` | Network Editor | `:2227-2231` | §3.11 | W5 |
+| 12 | `redis` | Redis | `:2232-2236` | §3.12 | W13 |
+| 13 | `cassandra` | Cassandra | `:2237-2241` | §3.13 | W13 |
+| 14 | `tutorial` | Tutorial | `:2242-2246` | §3.14 | W13 |
+| 15 | `about` | About | `:2247-2251` | §3.15 | W13 |
+
+15 / 15 tabs covered by ≥1 matrix section and ≥1 workflow.
+
+### 6.2 Fragile areas
+
+| Tag | Matrix sections | Workflows |
+| --- | --- | --- |
+| **FA-1** topology display | §3.3, §3.4, §2.3 | W1, W4, W12, W14 |
+| **FA-2** topology interactions | §3.3 | W4 |
+| **FA-3** front-page training status | §2.3, §2.5, §3.1 | W1, W2, W8, W14 |
+| **FA-4** snapshots save/load/replay | §3.9, §3.10, §3.4, §3.11 | W5 |
+| **FA-5** dataset cold/hot migration | §2.7, §2.9, §2.10, §3.6, §3.9, §3.10 | W6, W7, W9 |
+
+5 / 5 fragile areas covered by ≥1 matrix section and ≥1 workflow.
+
+### 6.3 Cross-cutting global chrome
+
+| Surface | Matrix section | Workflow |
+| --- | --- | --- |
+| Header + dark mode | §2.1 | W13 (steps 9-10) |
+| Welcome modal | §2.1 | W13 (step 12) |
+| Tab bar + persistence + sidebar visibility/width | §2.2 | W13 (steps 11, 16) |
+| Top status bar (7 elements) | §2.3 | W1, W2, W14 (step 5) |
+| WS badge (7 states incl. initial) | §2.4 | W1 (step 4), W13 (step 14: states 0/2/6), W14 (step 4: states 3/4) |
+| Training Controls (6 elements + outcome alert) | §2.5 | W1, W2 |
+| NN meta-parameter block | §2.6 | W3 |
+| Sidebar dataset block | §2.7 | W6, W7 |
+| CN meta-parameter block + triple validator | §2.8 | W3 (step 15: validator) |
+| Pending-dataset banner trio | §2.9 | W6 |
+| Apply Parameters + toast + interval clamp | §2.9 | W3 |
+| Experimental Functions gate | §2.9 | W7 |
+| Network Information (2 collapse levels) | §2.9 | W1 (step 15) |
+| Pinned Parameters mirror | §2.9, §3.8 | W3 (step 14) |
+| Tooltips (23) | §2.9 | W13 (step 15) |
+| Model-selection modal | §2.10, §2.6 | W8 |
+| Live-switch modal + progress + outcome | §2.10 | W7 |
+| Restart-confirm modal + progress + outcome (incl. the 11 granular fields) | §2.10 | W6 (steps 10-16, MANUAL drill in 14) |
+| Dataset-stage outcome alert | §2.10, §2.7 | W6 (step 21: failure arm) |
+
+### 6.4 Lane coverage
+
+| Lane | Workflows |
+| --- | --- |
+| **LIVE** | W1, W2, W3, W4, W5 (1-29), W6, W7, W8 (conditional on the plan §4.5 `--with-recurrence` leg — otherwise every W8 step is `N-A (no recurrence service)`), W9 (step 12), W10, W11, W12, W13, W14 |
+| **DEMO** | W2, W3, W5 (step 30), W9 (1-11, 13), W10, W11, W13 |
+
+---
+
+## 7. Reporting contract for Phase 1
+
+For every §2/§3 row executed, fill its trailing `status` column — initialized `—` — with exactly one
+terminal value from the **single shared vocabulary** (plan §9): `PASS` / `FAIL` / `BLOCKED` / `N-A` /
+`DEAD-CONFIRMED`; record the observed DOM/API value, and a screenshot named
+`<row-id>__<step>.png` (the leading `row id` column: `C<section>-NN` / `M-<TAB>-NN`) for any `VIS` or
+`MANUAL` row. A `DEAD-EXPECTED` automation-class row terminates `DEAD-CONFIRMED` when the click
+verifiably did nothing, and **FAILs** if it produces a network request, a DOM change, or a console
+error. A code-vs-doc `DIVERGENCE` (D-0 … D-5) is a **ledger annotation, not a row status**, and is not
+a Phase-1 failure — it is an input to the plan's remediation backlog. `BLOCKED` rows must name the
+blocking divergence / finding id (e.g. W5 step 15 → D-0).
+
+**Before execution begins**, the owner must approve both this matrix and the companion
+`JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md`. The independent cross-validation
+pass this section recommended has been **performed and applied** — see the Validation record at the top
+of this document: `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-PLAN-GROUNDING-AUDIT.md` (grounding,
+GO-WITH-FIXES) and `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-PLAN-COVERAGE-AUDIT.md` (coverage,
+MAJOR-GAPS); all of both reports' §7 corrections are incorporated in this revision.
