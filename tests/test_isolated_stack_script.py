@@ -357,6 +357,31 @@ class TestDryRunUp(unittest.TestCase):
             # The WS pair must track the overridden canopy port on both ends.
             self.assertIn("JUNIPER_CANOPY_CASCOR_WS_ORIGIN=http://127.0.0.1:9051", out)
 
+    def test_dry_up_with_recurrence_prints_leg_and_canopy_url(self) -> None:
+        # PR-M2: the fourth leg's announce lines + the canopy hand-off, all print-only.
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run"
+            result = _run(
+                "--dry-run",
+                "--up",
+                "--with-recurrence",
+                env_extra={"JUNIPER_E2E_PROJECT_DIR": "/opt/juniper-e2e-fixture", "JUNIPER_E2E_RUN_DIR": str(run_dir)},
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            out = result.stdout
+            self.assertIn("8211 occupancy pre-check", out)
+            self.assertIn("serve --host 127.0.0.1 --port 8211", out)
+            self.assertIn("JUNIPER_CANOPY_RECURRENCE_SERVICE_URL=http://127.0.0.1:8211", out)
+            self.assertIn("/v1/health/ready", out)
+            self.assertFalse(run_dir.exists(), "dry-run --up --with-recurrence must not touch the run dir")
+
+    def test_dry_up_without_recurrence_flag_omits_leg(self) -> None:
+        # Default posture unchanged: no recurrence launch, no canopy recurrence URL.
+        with tempfile.TemporaryDirectory() as tmp:
+            out = self._dry_up(Path(tmp) / "run").stdout
+            self.assertNotIn("juniper-recurrence", out)
+            self.assertNotIn("JUNIPER_CANOPY_RECURRENCE_SERVICE_URL", out)
+
 
 class TestDryRunDown(unittest.TestCase):
     """``--dry-run --down`` prints teardown commands and removes nothing."""
@@ -373,6 +398,18 @@ class TestDryRunDown(unittest.TestCase):
             self.assertIn("stop juniper-canopy on 8051", result.stdout)
             self.assertIn("snapshot_*", result.stdout)
             self.assertFalse(run_dir.exists(), "dry-run --down must not create/remove anything on disk")
+
+    def test_dry_down_includes_recurrence_port(self) -> None:
+        # --down covers the optional fourth leg unconditionally (idempotent when absent).
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run"
+            result = _run(
+                "--dry-run",
+                "--down",
+                env_extra={"JUNIPER_E2E_PROJECT_DIR": "/opt/juniper-e2e-fixture", "JUNIPER_E2E_RUN_DIR": str(run_dir)},
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertIn("stop juniper-recurrence on 8211", result.stdout)
 
 
 class _CondaServiceUpHarness(unittest.TestCase):
@@ -434,6 +471,7 @@ conda() {{
   printf 'JUNIPER_CANOPY_CASCOR_SERVICE_URL=%s\\n' "${{JUNIPER_CANOPY_CASCOR_SERVICE_URL-}}"
   printf 'JUNIPER_CANOPY_JUNIPER_DATA_URL=%s\\n' "${{JUNIPER_CANOPY_JUNIPER_DATA_URL-}}"
   printf 'JUNIPER_CANOPY_CASCOR_WS_ORIGIN=%s\\n' "${{JUNIPER_CANOPY_CASCOR_WS_ORIGIN-}}"
+  printf 'JUNIPER_CANOPY_RECURRENCE_SERVICE_URL=%s\\n' "${{JUNIPER_CANOPY_RECURRENCE_SERVICE_URL-}}"
 }} >"{env_log}"
 exit 0
 """
@@ -455,9 +493,13 @@ exit 0
         canopy_port: str = "65051",
         cascor_conda: str = "JuniperCascor1",
         canopy_conda: str = "JuniperCanopy1",
+        with_recurrence: str = "0",
+        recurrence_port: str = "65211",
+        recurrence_bin: "str | None" = None,
     ) -> subprocess.CompletedProcess[str]:
         src_dir.mkdir(parents=True, exist_ok=True)
         log_dir = run_dir / "logs"
+        effective_recurrence_bin = recurrence_bin or str(conda_dir / "envs" / "JuniperCascor1" / "bin" / "juniper-recurrence")
         harness = f"""
             set -euo pipefail
             SCRIPT_NAME="isolated_stack.bash"
@@ -472,6 +514,10 @@ exit 0
             CANOPY_ORIGIN="http://127.0.0.1:{canopy_port}"
             CASCOR_CONDA="{cascor_conda}"
             CANOPY_CONDA="{canopy_conda}"
+            WITH_RECURRENCE="{with_recurrence}"
+            RECURRENCE_PORT="{recurrence_port}"
+            RECURRENCE_CONDA="JuniperCascor1"
+            RECURRENCE_BIN="{effective_recurrence_bin}"
             CONDA_DIR="{conda_dir}"
             CONDA_SH="{conda_dir}/etc/profile.d/conda.sh"
             HEALTH_TIMEOUT=5
@@ -631,6 +677,9 @@ class TestCanopyUp(_CondaServiceUpHarness):
                 "JUNIPER_CANOPY_CASCOR_WS_ORIGIN=http://127.0.0.1:65051",
                 env_text,
             )
+            # Without --with-recurrence the URL must be UNSET (empty probe line) — an empty
+            # string export would read as "configured" to canopy's settings (plan §4.5).
+            self.assertIn("JUNIPER_CANOPY_RECURRENCE_SERVICE_URL=\n", env_text)
 
             pid_path = run_dir / "juniper-canopy.pid"
             self.assertTrue(pid_path.is_file(), "canopy_up must write juniper-canopy.pid")
@@ -666,6 +715,141 @@ class TestCanopyUp(_CondaServiceUpHarness):
         self.assertIn("JUNIPER_CANOPY_DEMO_MODE=0", canopy_body)
         self.assertIn('JUNIPER_CANOPY_CASCOR_WS_ORIGIN="${CANOPY_ORIGIN}"', canopy_body)
         self.assertIn('echo "$!" >"${RUN_DIR}/juniper-canopy.pid"', canopy_body)
+
+
+class TestRecurrenceLeg(_CondaServiceUpHarness):
+    """PR-M2 (--with-recurrence): canopy hand-off, recurrence_up compose, 8211 pre-check."""
+
+    def _stage_recurrence_bin(self, conda_dir: Path, root: Path) -> "tuple[Path, Path, Path]":
+        """Stage a stub juniper-recurrence console script at the env-bin path recurrence_up execs."""
+        launch_log = root / "recurrence-launch.log"
+        env_log = root / "recurrence-env.log"
+        for path in (launch_log, env_log):
+            path.write_text("")
+        bin_dir = conda_dir / "envs" / "JuniperCascor1" / "bin"
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        stub = bin_dir / "juniper-recurrence"
+        stub.write_text(f"""#!/usr/bin/env bash
+{{
+  printf 'juniper-recurrence'
+  printf ' %q' "$@"
+  printf '\\n'
+}} >>"{launch_log}"
+{{
+  printf 'LD_LIBRARY_PATH=%s\\n' "${{LD_LIBRARY_PATH-__UNSET__}}"
+  printf 'JUNIPER_DATA_URL=%s\\n' "${{JUNIPER_DATA_URL-}}"
+  printf 'JUNIPER_RECURRENCE_METRICS_ENABLED=%s\\n' "${{JUNIPER_RECURRENCE_METRICS_ENABLED-}}"
+  printf 'JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=%s\\n' "${{JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED-}}"
+}} >"{env_log}"
+exit 0
+""")
+        stub.chmod(0o755)
+        return stub, launch_log, env_log
+
+    def test_canopy_up_with_recurrence_exports_service_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            src_dir = root / "project" / "juniper-canopy" / "src"
+            stub_bin, conda_dir, _conda_log, _launch_log, env_log = self._stage_conda_and_stubs(root, launch_name="python")
+            result = self._run_up(
+                fn_name="canopy_up",
+                stub_bin=stub_bin,
+                conda_dir=conda_dir,
+                run_dir=run_dir,
+                src_dir=src_dir,
+                with_recurrence="1",
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("STATUS=0", result.stdout)
+            env_text = _read_marker_when_written(env_log)
+            self.assertIn("JUNIPER_CANOPY_RECURRENCE_SERVICE_URL=http://127.0.0.1:65211", env_text)
+
+    def test_recurrence_up_launches_console_script_with_env_and_pid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            src_dir = root / "project" / "unused" / "src"
+            stub_bin, conda_dir, _conda_log, _canopy_launch, _canopy_env = self._stage_conda_and_stubs(root, launch_name="python")
+            stub, launch_log, env_log = self._stage_recurrence_bin(conda_dir, root)
+            result = self._run_up(
+                fn_name="recurrence_up",
+                stub_bin=stub_bin,
+                conda_dir=conda_dir,
+                run_dir=run_dir,
+                src_dir=src_dir,
+                recurrence_bin=str(stub),
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("STATUS=0", result.stdout)
+            self.assertIn("juniper-recurrence is healthy", result.stdout)
+            # Health gate is the READY endpoint (experiment_stack parity).
+            self.assertIn("/v1/health/ready", result.stdout)
+
+            launch = _read_marker_when_written(launch_log)
+            self.assertIn("serve --host 127.0.0.1 --port 65211", launch)
+
+            env_text = _read_marker_when_written(env_log)
+            # Emptied (torch/libtorch shadow, cascor-leg parity), not merely unset.
+            self.assertIn("LD_LIBRARY_PATH=\n", env_text)
+            self.assertNotIn("LD_LIBRARY_PATH=__UNSET__", env_text)
+            self.assertIn("JUNIPER_DATA_URL=http://127.0.0.1:65101", env_text)
+            self.assertIn("JUNIPER_RECURRENCE_METRICS_ENABLED=true", env_text)
+            self.assertIn("JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=false", env_text)
+
+            pid_path = run_dir / "juniper-recurrence.pid"
+            self.assertTrue(pid_path.is_file(), "recurrence_up must write juniper-recurrence.pid")
+            self.assertRegex(pid_path.read_text().strip(), r"^[0-9]+$")
+
+    def test_recurrence_up_missing_bin_aborts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            src_dir = root / "project" / "unused" / "src"
+            stub_bin, conda_dir, _conda_log, _launch_log, _env_log = self._stage_conda_and_stubs(root, launch_name="python")
+            missing = root / "nonexistent" / "juniper-recurrence"
+            result = self._run_up(
+                fn_name="recurrence_up",
+                stub_bin=stub_bin,
+                conda_dir=conda_dir,
+                run_dir=run_dir,
+                src_dir=src_dir,
+                recurrence_bin=str(missing),
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertIn("STATUS=1", result.stdout)
+            self.assertIn("console script not found", result.stdout)
+            self.assertFalse((run_dir / "juniper-recurrence.pid").exists())
+
+    def test_up_with_recurrence_precheck_aborts_on_live_listener(self) -> None:
+        # A real listener on the recurrence port must abort --up BEFORE any leg starts;
+        # the expected collider is juniper-deploy's root-owned docker-proxy on 8211
+        # (which ss lists without a pid= field for non-root callers — hence port_in_use,
+        # not port_pid, backs the pre-check).
+        import socket
+
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            srv.bind(("127.0.0.1", 0))
+            srv.listen(1)
+            port = srv.getsockname()[1]
+            with tempfile.TemporaryDirectory() as tmp:
+                run_dir = Path(tmp) / "run"
+                result = _run(
+                    "--up",
+                    "--with-recurrence",
+                    env_extra={
+                        "JUNIPER_E2E_PROJECT_DIR": "/opt/juniper-e2e-fixture",
+                        "JUNIPER_E2E_RUN_DIR": str(run_dir),
+                        "JUNIPER_E2E_RECURRENCE_PORT": str(port),
+                    },
+                )
+                self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+                self.assertIn("already has a listener", result.stdout)
+                self.assertIn("refusing to start the recurrence leg", result.stdout)
+                self.assertFalse(run_dir.exists(), "pre-check must abort before any leg touches the run dir")
+        finally:
+            srv.close()
 
 
 class TestDataUpLive(unittest.TestCase):
