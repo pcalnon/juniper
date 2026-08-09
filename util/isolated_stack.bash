@@ -95,6 +95,12 @@ HEALTH_TIMEOUT="${JUNIPER_E2E_HEALTH_TIMEOUT:-60}"
 # presented Origin (both are canopy's own origin). Without the pair: 403 + reconnect churn.
 CANOPY_ORIGIN="http://127.0.0.1:${CANOPY_PORT}"
 
+# Browser-facing WS allowlist (F-E2E-006): canopy's OWN /ws/training + /ws/control gate
+# incoming browser sockets on websocket.allowed_origins, whose default admits only
+# port-8050 origins (canopy src/settings.py:142-147) — so on the isolated port the
+# dashboard's own sockets 403-loop. Hand canopy an allowlist for its real origin.
+CANOPY_WS_ALLOWLIST="[\"http://127.0.0.1:${CANOPY_PORT}\",\"http://localhost:${CANOPY_PORT}\"]"
+
 DRY_RUN=0
 ACTION=""
 
@@ -336,7 +342,7 @@ canopy_up() {
 
     banner "juniper-canopy  ->  http://127.0.0.1:${CANOPY_PORT}  (${CANOPY_CONDA}, service mode)"
     announce "conda activate ${CANOPY_CONDA} && cd ${CANOPY_SRC_DIR}"
-    announce "JUNIPER_CANOPY_DEMO_MODE=0 JUNIPER_CANOPY_SERVER__HOST=127.0.0.1 JUNIPER_CANOPY_SERVER__PORT=${CANOPY_PORT} JUNIPER_CANOPY_CASCOR_SERVICE_URL=http://127.0.0.1:${CASCOR_PORT} JUNIPER_CANOPY_JUNIPER_DATA_URL=http://127.0.0.1:${DATA_PORT} JUNIPER_CANOPY_CASCOR_WS_ORIGIN=${CANOPY_ORIGIN} ${recurrence_env_announce}python main.py   # nohup -> ${LOG_DIR}/juniper-canopy.log"
+    announce "JUNIPER_CANOPY_DEMO_MODE=0 JUNIPER_CANOPY_SERVER__HOST=127.0.0.1 JUNIPER_CANOPY_SERVER__PORT=${CANOPY_PORT} JUNIPER_CANOPY_CASCOR_SERVICE_URL=http://127.0.0.1:${CASCOR_PORT} JUNIPER_CANOPY_JUNIPER_DATA_URL=http://127.0.0.1:${DATA_PORT} JUNIPER_CANOPY_CASCOR_WS_ORIGIN=${CANOPY_ORIGIN} JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS=${CANOPY_WS_ALLOWLIST} ${recurrence_env_announce}python main.py   # nohup -> ${LOG_DIR}/juniper-canopy.log"
     if is_dry; then return 0; fi
 
     ensure_dir "${LOG_DIR}"
@@ -355,6 +361,7 @@ canopy_up() {
             JUNIPER_CANOPY_CASCOR_SERVICE_URL="http://127.0.0.1:${CASCOR_PORT}" \
             JUNIPER_CANOPY_JUNIPER_DATA_URL="http://127.0.0.1:${DATA_PORT}" \
             JUNIPER_CANOPY_CASCOR_WS_ORIGIN="${CANOPY_ORIGIN}" \
+            JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS="${CANOPY_WS_ALLOWLIST}" \
             "${extra_env[@]}" \
             python main.py >"${LOG_DIR}/juniper-canopy.log" 2>&1 &
         echo "$!" >"${RUN_DIR}/juniper-canopy.pid"
