@@ -17,3 +17,16 @@ Until then, the standing items are unchanged:
   - the plan's P1 proposal formalizes this.
   - this is the one control the forensics showed would have prevented all eight damage incidents
   - worth weighing before the next monthly Cursor storm
+
+---
+
+## Standing issues
+
+1. PR #925 bypass decisions:
+    - identify 1276151
+    - cursor/claude removal
+    - code_quality deadlock
+    - queue coupling
+2. the merge-queue availability check
+3. the item-1 promotion call around Aug 21
+4. plus an eventual ff-pull of your local recurrence checkout
