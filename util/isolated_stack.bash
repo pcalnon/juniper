@@ -240,7 +240,7 @@ cascor_up() {
 canopy_up() {
     banner "juniper-canopy  ->  http://127.0.0.1:${CANOPY_PORT}  (${CANOPY_CONDA}, service mode)"
     announce "conda activate ${CANOPY_CONDA} && cd ${CANOPY_SRC_DIR}"
-    announce "JUNIPER_CANOPY_DEMO_MODE=0 JUNIPER_CANOPY_PORT=${CANOPY_PORT} JUNIPER_CANOPY_CASCOR_SERVICE_URL=http://127.0.0.1:${CASCOR_PORT} JUNIPER_CANOPY_JUNIPER_DATA_URL=http://127.0.0.1:${DATA_PORT} JUNIPER_CANOPY_CASCOR_WS_ORIGIN=${CANOPY_ORIGIN} python main.py   # nohup -> ${LOG_DIR}/juniper-canopy.log"
+    announce "JUNIPER_CANOPY_DEMO_MODE=0 JUNIPER_CANOPY_SERVER__HOST=127.0.0.1 JUNIPER_CANOPY_SERVER__PORT=${CANOPY_PORT} JUNIPER_CANOPY_CASCOR_SERVICE_URL=http://127.0.0.1:${CASCOR_PORT} JUNIPER_CANOPY_JUNIPER_DATA_URL=http://127.0.0.1:${DATA_PORT} JUNIPER_CANOPY_CASCOR_WS_ORIGIN=${CANOPY_ORIGIN} python main.py   # nohup -> ${LOG_DIR}/juniper-canopy.log"
     if is_dry; then return 0; fi
 
     ensure_dir "${LOG_DIR}"
@@ -248,8 +248,13 @@ canopy_up() {
     activate_conda "${CANOPY_CONDA}" || return 1
     (
         cd "${CANOPY_SRC_DIR}"
+        # Canopy's bind address lives on the NESTED ServerSettings (env_nested_delimiter="__",
+        # canopy src/settings.py) and Settings has extra="ignore", so the flat
+        # JUNIPER_CANOPY_PORT is silently dropped and canopy binds 8050 — the operator port
+        # (E2E plan §4.2, trap T-1). Only the SERVER__-nested names are read.
         JUNIPER_CANOPY_DEMO_MODE=0 \
-            JUNIPER_CANOPY_PORT="${CANOPY_PORT}" \
+            JUNIPER_CANOPY_SERVER__HOST=127.0.0.1 \
+            JUNIPER_CANOPY_SERVER__PORT="${CANOPY_PORT}" \
             JUNIPER_CANOPY_CASCOR_SERVICE_URL="http://127.0.0.1:${CASCOR_PORT}" \
             JUNIPER_CANOPY_JUNIPER_DATA_URL="http://127.0.0.1:${DATA_PORT}" \
             JUNIPER_CANOPY_CASCOR_WS_ORIGIN="${CANOPY_ORIGIN}" \

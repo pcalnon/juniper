@@ -103,7 +103,8 @@ Health gate: `curl -sf http://127.0.0.1:8202/v1/health` returns 200. The `create
 conda activate JuniperCanopy1
 cd /home/pcalnon/Development/python/Juniper/juniper-canopy/src
 JUNIPER_CANOPY_DEMO_MODE=0 \
-  JUNIPER_CANOPY_PORT=8051 \
+  JUNIPER_CANOPY_SERVER__HOST=127.0.0.1 \
+  JUNIPER_CANOPY_SERVER__PORT=8051 \
   JUNIPER_CANOPY_CASCOR_SERVICE_URL=http://127.0.0.1:8202 \
   JUNIPER_CANOPY_JUNIPER_DATA_URL=http://127.0.0.1:8101 \
   JUNIPER_CANOPY_CASCOR_WS_ORIGIN=http://127.0.0.1:8051 \

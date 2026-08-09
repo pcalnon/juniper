@@ -345,8 +345,14 @@ class TestDryRunUp(unittest.TestCase):
                 Path(tmp) / "run",
                 env_extra={"JUNIPER_E2E_CANOPY_PORT": "9051", "JUNIPER_E2E_DATA_EXTRAS": "api,mnist"},
             ).stdout
-            # canopy takes its port via JUNIPER_CANOPY_PORT (env), not a --port flag.
-            self.assertIn("JUNIPER_CANOPY_PORT=9051", out)
+            # canopy takes its port via the NESTED JUNIPER_CANOPY_SERVER__PORT (env), not a
+            # --port flag. The flat JUNIPER_CANOPY_PORT is NOT a canopy setting: Settings has
+            # extra="ignore" + env_nested_delimiter="__", so the flat form is silently dropped
+            # and canopy binds 8050 — the operator port (E2E plan §4.2, trap T-1).
+            self.assertIn("JUNIPER_CANOPY_SERVER__PORT=9051", out)
+            self.assertIn("JUNIPER_CANOPY_SERVER__HOST=127.0.0.1", out)
+            # Negative guard so the T-1 bug cannot re-land: the flat form must be gone.
+            self.assertNotIn("JUNIPER_CANOPY_PORT=", out)
             self.assertIn("[api,mnist]", out)
             # The WS pair must track the overridden canopy port on both ends.
             self.assertIn("JUNIPER_CANOPY_CASCOR_WS_ORIGIN=http://127.0.0.1:9051", out)
@@ -422,7 +428,9 @@ conda() {{
   printf 'JUNIPER_DATA_URL=%s\\n' "${{JUNIPER_DATA_URL-}}"
   printf 'JUNIPER_CASCOR_WS_CONTROL_ALLOWED_ORIGINS=%s\\n' "${{JUNIPER_CASCOR_WS_CONTROL_ALLOWED_ORIGINS-}}"
   printf 'JUNIPER_CANOPY_DEMO_MODE=%s\\n' "${{JUNIPER_CANOPY_DEMO_MODE-}}"
-  printf 'JUNIPER_CANOPY_PORT=%s\\n' "${{JUNIPER_CANOPY_PORT-}}"
+  printf 'JUNIPER_CANOPY_SERVER__HOST=%s\\n' "${{JUNIPER_CANOPY_SERVER__HOST-}}"
+  printf 'JUNIPER_CANOPY_SERVER__PORT=%s\\n' "${{JUNIPER_CANOPY_SERVER__PORT-}}"
+  printf 'JUNIPER_CANOPY_PORT_FLAT=%s\\n' "${{JUNIPER_CANOPY_PORT-}}"
   printf 'JUNIPER_CANOPY_CASCOR_SERVICE_URL=%s\\n' "${{JUNIPER_CANOPY_CASCOR_SERVICE_URL-}}"
   printf 'JUNIPER_CANOPY_JUNIPER_DATA_URL=%s\\n' "${{JUNIPER_CANOPY_JUNIPER_DATA_URL-}}"
   printf 'JUNIPER_CANOPY_CASCOR_WS_ORIGIN=%s\\n' "${{JUNIPER_CANOPY_CASCOR_WS_ORIGIN-}}"
@@ -606,7 +614,11 @@ class TestCanopyUp(_CondaServiceUpHarness):
 
             env_text = _read_marker_when_written(env_log)
             self.assertIn("JUNIPER_CANOPY_DEMO_MODE=0", env_text)
-            self.assertIn("JUNIPER_CANOPY_PORT=65051", env_text)
+            self.assertIn("JUNIPER_CANOPY_SERVER__HOST=127.0.0.1", env_text)
+            self.assertIn("JUNIPER_CANOPY_SERVER__PORT=65051", env_text)
+            # Negative guard (T-1): canopy_up must NOT export the flat JUNIPER_CANOPY_PORT —
+            # canopy silently ignores it (extra="ignore") and would bind operator port 8050.
+            self.assertIn("JUNIPER_CANOPY_PORT_FLAT=\n", env_text)
             self.assertIn(
                 "JUNIPER_CANOPY_CASCOR_SERVICE_URL=http://127.0.0.1:65202",
                 env_text,
