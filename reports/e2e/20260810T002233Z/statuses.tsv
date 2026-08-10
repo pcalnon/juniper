@@ -1,0 +1,67 @@
+row_id	status	notes	screenshots
+C2.1-01	PASS	store flip true, glyph 🌙→☀️, html.dark-mode added, body bg rgb(26,26,26), figures redrew	C2.1-01__dark.png
+C2.1-02	PASS	theme persists across reload (store=true, class present); glyph desync on mount → F-CANOPY-001 (not a row expectation)	C2.1-02__reload-glyph-desync.png
+C2.1-03	PASS	welcome modal opened on first visit (fresh profile), fired after params-init	C2.1-03__open.png
+C2.1-04	PASS	Get Started click → localStorage juniper_canopy_welcomed="1", modal closed; reload → no reopen	—
+C2.4-01	PASS	initial layout children "WS: --", backgroundColor #6c757d grey (verified via /dashboard/_dash-layout JSON)	—
+C2.4-03	PASS	"WS: Connected" bg rgb(40,167,69) #28a745 on healthy stack; recovery-verified twice	C2.4-03__recovered.png,C2.4-03__recovered2.png
+C2.4-06	PASS	"WS: Reconnecting" bg rgb(255,193,7) #ffc107 rendered during 6s-delayed reconnect induction (client closed/reconnecting attempts:1)	C2.4-07__down-state.png
+C2.4-07	PASS	"WS: Offline" bg rgb(220,53,69) #dc3545 rendered during pre-connect window (t=+806ms..~11s after reload); also text-probed at +6.3s on an earlier load	C2.4-07__offline-red.png
+C2.2-01	PASS	all 15 tabs switch (driven across session); tab-gated stores refetch per-tab	—
+C2.3-01	PASS	status dot renders; style driven by health (eventual — see F-CANOPY-004 latency)	—
+C2.3-02	PASS	"Stopped"→"Running"→"Completed — stalled (0 new units)"→"Unreachable" all rendered honestly	—
+C2.3-03	PASS	"Idle"→"Output Training" rendered; FA-3 latency noted	—
+C2.3-04	PASS	Step: renders current_epoch	—
+C2.3-05	PASS	"0 / 10" cap form rendered	—
+C2.3-06	PASS	segment visible (block) for cascor	—
+C2.3-07	PASS	"Latency: 15ms" rendered	—
+C2.3-08	PASS	connection-status div display:none	—
+C2.5-01	PASS	train-gate-notice empty for live cascor model	—
+C2.5-02	PASS(frame)/see C2.5-09	1 click → exactly 1 {command:"start",command_id} frame on /ws/control + optimistic ⏳ disable; NO /api/train/start HTTP (T-21 WS-primary CONFIRMED); success ack ~1s	—
+C2.5-05	PASS	{command:"stop"} frame + success ack; no HTTP	—
+C2.5-06	PASS	{command:"reset"} frame + success ack on stopped backend (idempotent); state COMPLETED→Stopped(RESET) server-side	—
+C2.5-09	FAIL	F-CANOPY-003: ack never re-enables (JS success path logs only); 2s sweep lands +32s..minutes	—
+M-CANDIDATES-01	PASS	badge Inactive idle; tab-gated fetch	M-CANDIDATES-06__idle.png
+M-CANDIDATES-02	PASS	phase Idle default	—
+M-CANDIDATES-03	PASS	pool size 0 default	—
+M-CANDIDATES-04	PASS	progress section display:none without candidate epochs	—
+M-CANDIDATES-05	PASS	toggle flips collapse + icon ▼⇄▶	—
+M-CANDIDATES-06	PASS	"No active candidate pool" placeholder	M-CANDIDATES-06__idle.png
+M-CANDIDATES-08	PASS	history toggle flips collapse + icon	—
+M-TOPOLOGY-07	PASS	depth container ships hidden with 0 units; clientside reveal (display:block) fired when hidden_units≥1 — while server counts still lagged (F-CANOPY-004 contrast pin)	—
+M-WORKERS-01	PASS	LOADING→NO WORKERS (warning) resolved	—
+M-WORKERS-03	PASS	six tiles populate (0/…/--)	—
+M-WORKERS-04	PASS	"No workers connected" info alert	—
+M-WORKERS-05	PASS	LIVE lane: local-note PRESENT (local_reported forced false)	—
+M-REDIS-02	PASS	status+mode badges render "DISABLED" cleanly, no crash, other tabs unaffected	—
+M-REDIS-03	PASS	unavailable state renders clean; no console error	—
+M-CASSANDRA-02	PASS	badges "DISABLED" clean	—
+M-CASSANDRA-03	PASS	unavailable clean, no crash	—
+M-TUTORIAL-03	PASS	5 accordion items; paced clicks accumulate 2→3→4→5 open (always_open honored); batch-click artifact disproven	M-TUTORIAL-03__all-open.png
+M-ABOUT-01	PASS	toggle opens collapse (render lands late under congestion)	—
+M-ABOUT-02	PASS	4 li's (Py 3.13.13 / Linux 6.17.0-40 / x86_64 / App Version 2.2.0) with ZERO non-Dash HTTP; NOTE: About "App Version 2.2.0" vs /v1/health version 0.4.0 — docs-truth-up ledger item	—
+C2.4-04	PASS	real induction (cascor leg down): "WS: Upstream reconnecting" amber rgb(255,193,7); recovery to green w/o canopy restart; stream_health overall value is "healthy" not matrix-claimed "ok" (doc divergence)	C2.4-04__upstream-reconnecting.png
+C2.5-03	PASS(frame)	{command:"pause"} frame + success ack ~20ms; /api/status is_paused:true; button then wedged ⏳ (F-CANOPY-003)	—
+C2.5-04	PASS(frame)+F-CANOPY-005	{command:"resume"} frame; ack +18ms on wire; send-promise still timed out → REST fallback double-fired → 409 (F-CANOPY-005); is_paused:false after	—
+C2.5-08	BLOCKED	debounce arm unreachable: after any click the button wedges ⏳ disabled (F-CANOPY-003) so a second click can never be delivered <500ms	—
+C2.5-10	BLOCKED	rejection alert never rendered in 6+ min despite a real success:false feed (F-CANOPY-005's 409); surface starved by F-CANOPY-004; pause-pause route blocked by the wedge	—
+M-EVOLUTION-02	PASS	"Snapshots: 4 of 20 max" during run	M-EVOLUTION-03__cards.png
+M-EVOLUTION-03	PASS	4 growth cards in grid during run (clientside WS capture path works — cascade_add handler un-clobbered)	M-EVOLUTION-03__cards.png
+M-EVOLUTION-05	PASS	cards accumulated per cascade add during live run; dedupe respected (4 cards @ hidden 5)	M-EVOLUTION-03__cards.png
+M-EVOLUTION-06	PASS	weight-norms container display:none without replay buffer	—
+W13-01	PASS	Workers badge LOADING→NO WORKERS; tiles populate	—
+W13-02	PASS	LIVE lane: local-note present; no synthetic workers	—
+W13-04	PASS	Redis DISABLED renders cleanly, no crash	—
+W13-05	PASS	Cassandra DISABLED renders cleanly, no crash	—
+W13-06	PASS	5 accordion headers; always_open honored	M-TUTORIAL-03__all-open.png
+W13-08	PASS	About system info: 4 li's, zero non-Dash HTTP	—
+W14-01..11	PASS	full arc via real outage: baseline green → cascor down → stream_health reconnecting (verbatim refusal reason) → badge amber state 3 → top bar "Unreachable" → /v1/health demo_mode:false held → cascor restart → healthy+green in ~4s, NO canopy restart; in-memory run state lost (recorded); NOTE stream_health overall="healthy" not "ok" (doc divergence)	C2.4-04__upstream-reconnecting.png
+C2.6-01	PASS	NN subsection collapse toggled closed then reopened (both directions)	—
+C2.6-11	PASS	ctx-multi-node collapse toggle round-trip	—
+C2.6-12	PASS	ctx-growth-triggers collapse toggle round-trip	—
+C2.6-06	PASS(delayed)	optimizer dropdown change → Apply enabled (render landed ~15s late under run congestion); revert-to-baseline re-disable NOT observed — Apply stayed enabled (case-mismatch suspicion applied-store vs dropdown value; post-run recheck queued)	—
+W7-step1	PASS	deny arm: exp toggle OFF + training running → live-dataset-switch-button disabled	—
+M-DATASET-04-L	PASS	LIVE-lane arm: POST /api/dataset/generate → 400 "Dataset generation only available in demo mode" (verbatim)	—
+M-DATASET-06-L	PASS	LIVE-lane arm: POST /api/dataset/import-file (multipart tiny CSV) → 400 demo-only (verbatim, incl. "cascor backend doesn't accept inline datasets yet")	—
+M-DATASET-08-L	PASS	LIVE-lane arm: POST /api/dataset/import-url → 400 demo-only (gate order: demo gate precedes 403 config gate, per main.py:1570-1590)	—
+W9-step12	PASS	all three live-lane mirror arms return 400 demo-only	—
