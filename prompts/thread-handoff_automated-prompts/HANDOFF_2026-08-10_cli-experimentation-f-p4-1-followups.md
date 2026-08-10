@@ -4,7 +4,13 @@ Continue the **CLI experimentation program residual work** (successor to `HANDOF
 
 ## Completed this session (do not redo)
 
-- **F-P4-1 ROOT-CAUSED** (not termination semantics). Chain: the driver's spiral-only inline `dataset` source made cascor substitute its in-process fallback for the configured juniper-data dataset; the fallback was param-deaf (`n_per_spiral` vs `n_points_per_spiral` → 200 pts, no noise/seed) and **unit-radius** (1/(4π) normalized); at that scale the default candidate init (`randn×0.1`) leaves every tanh candidate in its linear regime, where the output-layer-converged residual is least-squares-orthogonal → best-of-pool correlation pinned ≈2.7e-4 → `grow_network` breaks `below_threshold` at iteration 1 (0 units, chance acc). Same run at radius-10 scale: 12 units, 0.995 acc. Full write-up: [`notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_F-P4-1-SERVICE-SPIRAL-ROOT-CAUSE.md`](../../notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_F-P4-1-SERVICE-SPIRAL-ROOT-CAUSE.md). Repro committed as cascor `util/ad-hoc/f_p4_1_spiral_service_repro.py`. CUDA-OOM noise excluded by `CUDA_VISIBLE_DEVICES=` control.
+- **F-P4-1 ROOT-CAUSED** (not termination semantics).
+  - Chain: the driver's spiral-only inline `dataset` source made cascor substitute its in-process fallback for the configured juniper-data dataset
+  - The fallback was param-deaf (`n_per_spiral` vs `n_points_per_spiral` → 200 pts, no noise/seed) and **unit-radius** (1/(4π) normalized); at that scale the default candidate init (`randn×0.1`) leaves every tanh candidate in its linear regime, where the output-layer-converged residual is least-squares-orthogonal → best-of-pool correlation pinned ≈2.7e-4 → `grow_network` breaks `below_threshold` at iteration 1 (0 units, chance acc).
+  - Same run at radius-10 scale: 12 units, 0.995 acc.
+  - Full write-up: [`notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_F-P4-1-SERVICE-SPIRAL-ROOT-CAUSE.md`](../../notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_F-P4-1-SERVICE-SPIRAL-ROOT-CAUSE.md).
+  - Repro committed as cascor `util/ad-hoc/f_p4_1_spiral_service_repro.py`.
+  - CUDA-OOM noise excluded by `CUDA_VISIBLE_DEVICES=` control.
 - **cascor#504 (OPEN PR)** — fallback `_generate_spiral_data` honors SpiralParams (`n_points_per_spiral`/`n_rotations`/`noise`/`radius`/`seed`, legacy key kept), radius-10 default; 33/33 route tests + pre-commit green.
 - **ml#1055 (OPEN PR)** — driver stages spiral like every other generator (inline branch removed from `start_training`; G-6 now covers spiral); 118/118 `tests.test_run_experiment`; AGENTS.md + root-cause note included.
 - **cascor#505 (OPEN issue)** — API `candidate_patience`/`candidate_convergence_threshold` never reach the pool (workers hardcode module defaults 50/0.001); fix shape documented in the issue.
@@ -14,11 +20,19 @@ Continue the **CLI experimentation program residual work** (successor to `HANDOF
 
 ## Remaining work (priority order)
 
-1. **TestCanopyUp marker-race fix — finish + PR**: root cause found (`tests/test_isolated_stack_script.py::_read_marker_when_written` returns on the stub's first `printf` — bare `python` — before argv lands; ml#1045's flake). Fix written (require newline-terminated complete record) in worktree `worktrees/juniper-ml--fix--exp-launcher-followups--20260810-0230--2d5ad285`, branch `fix/canopy-up-marker-race`, **UNCOMMITTED**. Module then passed 5 of 7 runs with ONE unidentified intermittent failure whose test name was never captured (hunt interrupted). Before committing: loop `python3 -m unittest tests.test_isolated_stack_script >log 2>&1` until failure, name the test, decide pre-existing vs introduced, then commit + PR.
-2. **Launcher dead-process fast-fail (designed, not implemented)**: `wait_for_health` (`util/experiment_stack.bash:346`) gains optional `liveness_pattern` arg; between curl polls run `pgrep -f -- "$pattern"`, two consecutive misses → log + `return 1`. Callers pass per-service patterns (data `-m juniper_data.*--port ${DATA_PORT}`; cascor `api.app:create_app.*--port ${CASCOR_PORT}`; recurrence its serve line + port). F-6 stays intact (no `$!`, liveness only — never used to kill). Hermetic arms in `tests/test_experiment_stack_script.py` w/ a `pgrep` PATH stub: dead-fast-fail, slow-boot-continues, no-pattern back-compat, launch-line contract.
+1. **TestCanopyUp marker-race fix — finish + PR**: root cause found (`tests/test_isolated_stack_script.py::_read_marker_when_written` returns on the stub's first `printf` — bare `python` — before argv lands; ml#1045's flake).
+    - Fix written (require newline-terminated complete record) in worktree `worktrees/juniper-ml--fix--exp-launcher-followups--20260810-0230--2d5ad285`, branch `fix/canopy-up-marker-race`, **UNCOMMITTED**.
+    - Module then passed 5 of 7 runs with ONE unidentified intermittent failure whose test name was never captured (hunt interrupted).\
+    - Before committing: loop `python3 -m unittest tests.test_isolated_stack_script >log 2>&1` until failure, name the test, decide pre-existing vs introduced, then commit + PR.
+2. **Launcher dead-process fast-fail (designed, not implemented)**: `wait_for_health` (`util/experiment_stack.bash:346`) gains optional `liveness_pattern` arg; between curl polls run `pgrep -f -- "$pattern"`, two consecutive misses → log + `return 1`.
+    - Callers pass per-service patterns (data `-m juniper_data.*--port ${DATA_PORT}`; cascor `api.app:create_app.*--port ${CASCOR_PORT}`; recurrence its serve line + port).
+    - F-6 stays intact (no `$!`, liveness only — never used to kill).
+    - Hermetic arms in `tests/test_experiment_stack_script.py` w/ a `pgrep` PATH stub: dead-fast-fail, slow-boot-continues, no-pattern back-compat, launch-line contract.
 3. **AGENTS.md #979 staleness correction** (small docs PR): rewrite the "Staging lock gap (open #979)" bullet as fixed-by-#979, keep the leftover-lockdir cleanup guidance.
-4. **PR shepherding**: cascor#504 + ml#1055 are owner-gated (never self-merge; headless-merge policy). After merges: V2 worktree cleanups for `juniper-cascor--fix--f-p4-1-service-spiral-termination--20260809-1930--d8ae2f97`, the session worktree branch `fix/f-p4-1-stage-spiral-driver`, and the follow-ups worktree.
-5. **Spiral-surface re-runs (owner-scheduled)**: E-A grid + E-B/E-C spiral rows remain F-P4-1 measurements until re-run against the fixed stack; real spiral cells train minutes each (E-A full budget ≈ 18 min for 200 pts in-process; the 800-pt staged dataset is longer). P1.1 reference metrics describe the fallback dataset (mechanics remain valid).
+4. **PR shepherding**: cascor#504 + ml#1055 are owner-gated (never self-merge; headless-merge policy).
+    - After merges: V2 worktree cleanups for `juniper-cascor--fix--f-p4-1-service-spiral-termination--20260809-1930--d8ae2f97`, the session worktree branch `fix/f-p4-1-stage-spiral-driver`, and the follow-ups worktree.
+5. **Spiral-surface re-runs (owner-scheduled)**: E-A grid + E-B/E-C spiral rows remain F-P4-1 measurements until re-run against the fixed stack; real spiral cells train minutes each (E-A full budget ≈ 18 min for 200 pts in-process; the 800-pt staged dataset is longer).
+    - P1.1 reference metrics describe the fallback dataset (mechanics remain valid).
 6. **cascor#505 implementation** if owner wants it (multiprocessing task-format blast radius; CASCOR-P0-005 key-name class — needs construct-level tests).
 7. **Owner items carried unchanged**: Q-6 (log-dir override retires H-7, unlocks cascor-parallel `run_suite`); F-P1-2 (`:3000` Grafana squatter; options in P3 roll-up §3); §12 PF threshold ratification + F-P1-3b profiling lane; W-12/Q-7 (`csv_import` corpus); Q-8/Q-10 (perf-baselines home; recurrence conda env); JR-REC ingest at the next requirements-snapshot refresh.
 
