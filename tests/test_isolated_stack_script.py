@@ -260,6 +260,17 @@ class TestControlWsOriginPair(unittest.TestCase):
         # Both halves resolve to canopy's own origin.
         self.assertIn('CANOPY_ORIGIN="http://127.0.0.1:${CANOPY_PORT}"', SCRIPT_TEXT)
 
+    def test_canopy_browser_ws_allowlist_env(self) -> None:
+        # F-E2E-006: canopy's OWN /ws/training + /ws/control admit only port-8050
+        # origins by default (canopy src/settings.py:142-147); the leg must hand
+        # canopy an allowlist derived from the REAL canopy port or the dashboard's
+        # own browser sockets 403-loop on the isolated port.
+        self.assertIn("JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS=", SCRIPT_TEXT)
+        self.assertIn(
+            'CANOPY_WS_ALLOWLIST="[\\"http://127.0.0.1:${CANOPY_PORT}\\",\\"http://localhost:${CANOPY_PORT}\\"]"',
+            SCRIPT_TEXT,
+        )
+
 
 class TestDocumentedOverrides(unittest.TestCase):
     """The header docstring must advertise the env overrides."""
@@ -325,6 +336,10 @@ class TestDryRunUp(unittest.TestCase):
             out = self._dry_up(Path(tmp) / "run").stdout
             self.assertIn("JUNIPER_CASCOR_WS_CONTROL_ALLOWED_ORIGINS=http://127.0.0.1:8051", out)
             self.assertIn("JUNIPER_CANOPY_CASCOR_WS_ORIGIN=http://127.0.0.1:8051", out)
+            self.assertIn(
+                'JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS=["http://127.0.0.1:8051","http://localhost:8051"]',
+                out,
+            )
 
     def test_dry_up_uses_overridden_project_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -356,6 +371,11 @@ class TestDryRunUp(unittest.TestCase):
             self.assertIn("[api,mnist]", out)
             # The WS pair must track the overridden canopy port on both ends.
             self.assertIn("JUNIPER_CANOPY_CASCOR_WS_ORIGIN=http://127.0.0.1:9051", out)
+            # And the browser-facing allowlist must follow the override too (F-E2E-006).
+            self.assertIn(
+                'JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS=["http://127.0.0.1:9051","http://localhost:9051"]',
+                out,
+            )
 
     def test_dry_up_with_recurrence_prints_leg_and_canopy_url(self) -> None:
         # PR-M2: the fourth leg's announce lines + the canopy hand-off, all print-only.
@@ -471,6 +491,7 @@ conda() {{
   printf 'JUNIPER_CANOPY_CASCOR_SERVICE_URL=%s\\n' "${{JUNIPER_CANOPY_CASCOR_SERVICE_URL-}}"
   printf 'JUNIPER_CANOPY_JUNIPER_DATA_URL=%s\\n' "${{JUNIPER_CANOPY_JUNIPER_DATA_URL-}}"
   printf 'JUNIPER_CANOPY_CASCOR_WS_ORIGIN=%s\\n' "${{JUNIPER_CANOPY_CASCOR_WS_ORIGIN-}}"
+  printf 'JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS=%s\\n' "${{JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS-}}"
   printf 'JUNIPER_CANOPY_RECURRENCE_SERVICE_URL=%s\\n' "${{JUNIPER_CANOPY_RECURRENCE_SERVICE_URL-}}"
 }} >"{env_log}"
 exit 0
@@ -512,6 +533,7 @@ exit 0
             CASCOR_PORT="{cascor_port}"
             CANOPY_PORT="{canopy_port}"
             CANOPY_ORIGIN="http://127.0.0.1:{canopy_port}"
+            CANOPY_WS_ALLOWLIST="[\\"http://127.0.0.1:{canopy_port}\\",\\"http://localhost:{canopy_port}\\"]"
             CASCOR_CONDA="{cascor_conda}"
             CANOPY_CONDA="{canopy_conda}"
             WITH_RECURRENCE="{with_recurrence}"
@@ -675,6 +697,12 @@ class TestCanopyUp(_CondaServiceUpHarness):
             )
             self.assertIn(
                 "JUNIPER_CANOPY_CASCOR_WS_ORIGIN=http://127.0.0.1:65051",
+                env_text,
+            )
+            # F-E2E-006: the browser-facing allowlist must reach the live process env
+            # and carry the REAL canopy port (default admits only 8050 origins).
+            self.assertIn(
+                'JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS=["http://127.0.0.1:65051","http://localhost:65051"]',
                 env_text,
             )
             # Without --with-recurrence the URL must be UNSET (empty probe line) — an empty

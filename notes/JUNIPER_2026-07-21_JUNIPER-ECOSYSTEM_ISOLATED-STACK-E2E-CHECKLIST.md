@@ -111,6 +111,7 @@ JUNIPER_CANOPY_DEMO_MODE=0 \
   JUNIPER_CANOPY_CASCOR_SERVICE_URL=http://127.0.0.1:8202 \
   JUNIPER_CANOPY_JUNIPER_DATA_URL=http://127.0.0.1:8101 \
   JUNIPER_CANOPY_CASCOR_WS_ORIGIN=http://127.0.0.1:8051 \
+  JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS='["http://127.0.0.1:8051","http://localhost:8051"]' \
   python main.py
 ```
 
@@ -119,6 +120,11 @@ JUNIPER_CANOPY_DEMO_MODE=0 \
   prefixed form, matching `util/juniper_plant_all.bash`.
 - `JUNIPER_CANOPY_JUNIPER_DATA_URL` lets canopy read `/v1/generators` from the isolated juniper-data (I-5 / N7).
 - `JUNIPER_CANOPY_CASCOR_WS_ORIGIN` — see §4.
+- `JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS` — canopy's **own** browser-WS origin gate
+  (`websocket.allowed_origins`, canopy `src/settings.py:142-147`): the default admits only
+  port-**8050** origins, so off `:8050` the dashboard's own `/ws/training` + `/ws/control`
+  handshakes are rejected 403 in a reconnect loop (E2E arc finding F-E2E-006). Must name the
+  real canopy origin(s) as a JSON list.
 
 Health gate: `curl -sf http://127.0.0.1:8051/v1/health` returns 200.
 
