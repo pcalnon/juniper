@@ -498,11 +498,18 @@ juniper-ml/
     `bring-up failed — tearing the partial run back down` and calls `teardown_run` (live only; not `--dry-run`), keeping `logs/` + `artifacts/` and releasing lockdirs.
   - Health: `wait_for_health` polls `/v1/health` (data, cascor) and `/v1/health/ready` (recurrence) every 2s until `JUNIPER_EXP_HEALTH_TIMEOUT` (default **90** — F-8 sizes it
     for a cold start; the 1.1 s warm number is not the design point).
+  - **Dead-process fast-fail**: `wait_for_health` takes an optional 4th arg, a `pgrep -f` liveness pattern, and each leg passes a **port-scoped** one (`-m juniper_data .*--port
+    ${DATA_PORT}` / `api.app:create_app .*--port ${CASCOR_PORT}` / `juniper-recurrence serve .*--port ${RECURRENCE_PORT}`) so a sibling run can never satisfy this run's gate.
+    Two **consecutive** misses end the wait with `process is gone … died during startup` naming the leg's log, instead of burning the full 90 s per leg on a process that already
+    exited (the P4-campaign class). Two misses, not one, and the first probe runs after the first sleep — the launch subshell returns before its child execs, so fork+exec keeps a
+    >=4 s grace. **F-6 intact**: the pattern is only ever read; it never resolves a pid and never kills. No `pgrep` on PATH degrades to the prior timeout-only behaviour (an
+    unavailable probe must never manufacture a failure), and passing no pattern is unchanged back-compat. Pins: `TestHealthGateLiveness` in `tests/test_experiment_stack_script.py`.
   - **OR-list fail-closed**: `do_up` invokes `*_up || failed=1`, which disables `set -e` inside each body. `require_env_bin` / `activate_conda` / `wait_for_health` / `record_listener_pid` therefore each end with `|| return 1`, or a health
     timeout with a live listener false-greens `--up` and skips `teardown_run`. A mid-`allocate_port` failure calls `release_held_locks` (else prior `*.lock` dirs starve later `--up`), and an opt-in `bridge_up` failure after healthy
     services logs `grafana bridge failed — tearing the run back down` and runs `teardown_run` instead of a bare `set -e` abort.
-  - **Staging lock gap (open #979)**: `create_run_dir` / `stage_config` / `write_ports_json` are still bare under `set -e`, so a missing `--config` exits after the lockdirs exist and before `ports.json` is written — `--down` cannot then
-    recover them and the 30-port ranges starve. Clear leftovers under `JUNIPER_EXP_LOCK_ROOT` only after confirming no live listener holds the port.
+  - **Staging lock release (fixed by #979)**: `create_run_dir` / `stage_config` / `write_ports_json` each `|| { release_held_locks; …; }`, so a missing `--config` no longer exits
+    with the lockdirs held and `ports.json` unwritten — the state `--down` could not recover, which starved the 30-port ranges. Should leftovers ever appear (an operator `kill -9`
+    mid-staging), clear them under `JUNIPER_EXP_LOCK_ROOT` only after confirming no live listener holds the port.
   - Grafana bridge is **opt-in** (`--grafana-bridge`): only then does it preflight `socat`, discover the monitoring gateway by network-name **suffix**
     (`docker network ls | grep -E '_monitoring$'` — a worktree-launched compose project renames the network; loud default-bridge fallback), start one
     `socat "TCP-LISTEN:<port>,bind=<gateway>,fork,reuseaddr" "TCP:127.0.0.1:<port>"` relay per scraped service (pids under `RUN_DIR/relays/`), and write the §7.2 target file
