@@ -713,6 +713,86 @@ class HappyPathAndIdempotencyTest(unittest.TestCase):
         self.assertEqual(plan.action_kinds, [])
 
 
+# ── select_publish_run (which run the monitor's brain is fed) ────────────────
+
+
+class SelectPublishRunTest(unittest.TestCase):
+    """The monitor must be fed the REAL publisher, not a tag-guarded sibling no-op.
+
+    A Release fires every ``release: published`` publisher in the owning repo; the guarded ones
+    finish ``completed/skipped`` sharing the real run's ``displayTitle`` AND ``headBranch``. The
+    pre-fix "first title hit" selector therefore fed the monitor a skipped run, which
+    ``classify_publish_run`` maps to ``IN_PROGRESS`` forever -- so the monitor burned its full
+    900s per package and the ceremony job's ``timeout-minutes: 30`` killed the run as a bogus
+    ``cancelled``. Fixtures below are the ACTUAL run sets observed for cascor v0.8.0 and
+    cascor-protocol v0.2.0 on 2026-08-10 (runs 31343798097/100/123 and 31344486728/730/731).
+    """
+
+    CASCOR_V080 = [
+        {"databaseId": 31343798100, "workflowName": "Publish juniper-cascor-protocol to PyPI", "displayTitle": "juniper-cascor v0.8.0", "headBranch": "v0.8.0", "status": "completed", "conclusion": "skipped"},
+        {"databaseId": 31343798123, "workflowName": "Publish juniper-cascor-model to PyPI", "displayTitle": "juniper-cascor v0.8.0", "headBranch": "v0.8.0", "status": "completed", "conclusion": "skipped"},
+        {"databaseId": 31343798097, "workflowName": "Publish to PyPI", "displayTitle": "juniper-cascor v0.8.0", "headBranch": "v0.8.0", "status": "waiting", "conclusion": None},
+    ]
+
+    PROTOCOL_V020 = [
+        {"databaseId": 31344486728, "workflowName": "Publish to PyPI", "displayTitle": "juniper-cascor-protocol v0.2.0", "headBranch": "juniper-cascor-protocol-v0.2.0", "status": "completed", "conclusion": "skipped"},
+        {"databaseId": 31344486731, "workflowName": "Publish juniper-cascor-model to PyPI", "displayTitle": "juniper-cascor-protocol v0.2.0", "headBranch": "juniper-cascor-protocol-v0.2.0", "status": "completed", "conclusion": "skipped"},
+        {"databaseId": 31344486730, "workflowName": "Publish juniper-cascor-protocol to PyPI", "displayTitle": "juniper-cascor-protocol v0.2.0", "headBranch": "juniper-cascor-protocol-v0.2.0", "status": "waiting", "conclusion": None},
+    ]
+
+    def test_skipped_siblings_are_never_selected(self):
+        """The live regression: the meta publisher, not either guard no-op listed ahead of it."""
+        picked = ce.select_publish_run(self.CASCOR_V080, "v0.8.0")
+        self.assertIsNotNone(picked)
+        self.assertEqual(picked["databaseId"], 31343798097)
+        self.assertNotEqual((picked.get("conclusion") or "").lower(), "skipped")
+
+    def test_selected_run_classifies_as_pending_not_in_progress(self):
+        """End-to-end of the defect: selection + classification must reach the terminal gate state.
+
+        Pre-fix this pair returned ``IN_PROGRESS``, which is non-terminal, so the monitor polled
+        until timeout instead of returning the moment the run parked at the ``pypi`` gate.
+        """
+        for tag, runs, expect_id in (("v0.8.0", self.CASCOR_V080, 31343798097), ("juniper-cascor-protocol-v0.2.0", self.PROTOCOL_V020, 31344486730)):
+            with self.subTest(tag=tag):
+                picked = ce.select_publish_run(runs, tag)
+                self.assertEqual(picked["databaseId"], expect_id)
+                self.assertEqual(ce.classify_publish_run({"status": picked["status"], "conclusion": picked["conclusion"], "jobs": []}), "PENDING_PYPI_APPROVAL")
+
+    def test_exact_head_branch_beats_substring_title(self):
+        """``v0.2.0`` is a substring of ``juniper-cascor-protocol v0.2.0`` -- substring alone cross-matches packages."""
+        runs = [
+            {"databaseId": 2, "displayTitle": "juniper-cascor-protocol v0.2.0", "headBranch": "juniper-cascor-protocol-v0.2.0", "status": "waiting", "conclusion": None},
+            {"databaseId": 1, "displayTitle": "juniper-cascor v0.2.0", "headBranch": "v0.2.0", "status": "waiting", "conclusion": None},
+        ]
+        self.assertEqual(ce.select_publish_run(runs, "v0.2.0")["databaseId"], 1)
+
+    def test_all_skipped_is_none_so_caller_reports_not_found(self):
+        """No real publisher fired -> ``None`` -> the caller's non-terminal ``NOT_FOUND`` (keep polling)."""
+        runs = [dict(r, status="completed", conclusion="skipped") for r in self.CASCOR_V080]
+        self.assertIsNone(ce.select_publish_run(runs, "v0.8.0"))
+        self.assertEqual(ce.classify_publish_run(ce.select_publish_run(runs, "v0.8.0")), "NOT_FOUND")
+
+    def test_unfinished_beats_completed(self):
+        runs = [
+            {"databaseId": 9, "displayTitle": "x v1.0.0", "headBranch": "v1.0.0", "status": "completed", "conclusion": "success"},
+            {"databaseId": 3, "displayTitle": "x v1.0.0", "headBranch": "v1.0.0", "status": "waiting", "conclusion": None},
+        ]
+        self.assertEqual(ce.select_publish_run(runs, "v1.0.0")["databaseId"], 3)
+
+    def test_completed_success_still_selectable_when_nothing_unfinished(self):
+        """An already-approved Gate 2 must still surface (-> RELEASED), not vanish behind the skip filter."""
+        runs = [
+            {"databaseId": 8, "displayTitle": "x v1.0.0", "headBranch": "v1.0.0", "status": "completed", "conclusion": "skipped"},
+            {"databaseId": 7, "displayTitle": "x v1.0.0", "headBranch": "v1.0.0", "status": "completed", "conclusion": "success"},
+        ]
+        self.assertEqual(ce.select_publish_run(runs, "v1.0.0")["databaseId"], 7)
+
+    def test_no_runs_and_no_match_are_none(self):
+        self.assertIsNone(ce.select_publish_run([], "v9.9.9"))
+        self.assertIsNone(ce.select_publish_run(self.CASCOR_V080, "v9.9.9"))
+
+
 # ── classify_publish_run (the monitor's brain) ───────────────────────────────
 
 

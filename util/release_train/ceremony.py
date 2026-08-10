@@ -497,6 +497,33 @@ def halt_issue_payload(pypi_name: str, version: "str | None", reason_key: str, d
     return {"title": title, "body": body, "reason_key": reason_key}
 
 
+def select_publish_run(runs: "list[dict]", tag: str) -> "dict | None":
+    """Pick the run that actually carries this tag's publish state (plan S8 monitor).
+
+    A Release fires EVERY publisher subscribed to ``release: published`` in the owning repo. The
+    ones whose tag-prefix guard rejects this tag finish ``completed/skipped`` while sharing the
+    real run's ``displayTitle`` AND ``headBranch``, so "first title hit" lands on a guard no-op
+    whose status classifies as ``IN_PROGRESS`` forever -- the monitor then burns its whole
+    timeout observing a run that can never move. That is the 2026-08-09/10 ceremony class: both
+    legs of the cascor 0.8.0 + protocol 0.2.0 run matched a skipped sibling, spent 900s each, and
+    the job's ``timeout-minutes: 30`` killed the run (surfacing as a bogus ``cancelled``).
+
+    Selection: skipped runs are dropped; an exact ``headBranch`` match beats a substring
+    ``displayTitle`` match (a bare ``v0.2.0`` is a substring of ``juniper-cascor-protocol
+    v0.2.0``, so substring alone cross-matches packages); an unfinished run beats a finished one
+    (``waiting`` is precisely the state the monitor is looking for); newest ``databaseId`` breaks
+    any remaining tie. Returns ``None`` when nothing real matched, which the caller maps to the
+    non-terminal ``NOT_FOUND`` -- the run may not be visible yet right after ``cut_release``.
+    """
+    exact = [r for r in runs if (r.get("headBranch") or "") == tag]
+    candidates = exact or [r for r in runs if tag in (r.get("displayTitle") or "")]
+    live = [r for r in candidates if (r.get("conclusion") or "").lower() != "skipped"]
+    if not live:
+        return None
+    unfinished = [r for r in live if (r.get("status") or "").lower() != "completed"]
+    return max(unfinished or live, key=lambda r: r.get("databaseId") or 0)
+
+
 def classify_publish_run(run: "dict | None") -> str:
     """Map a publish run's status to a ceremony terminal signal (plan S8 TestPyPI gate / S5.1).
 
@@ -686,7 +713,7 @@ def make_live_sources(owner: str, repo_root: Path, ecosystem_root: Path, *, allo
     def publish_run_status(repo: str, tag: str) -> "dict | None":
         out = _cgh(["run", "list", "--repo", f"{owner}/{repo}", "--event", "release", "--json", "databaseId,headBranch,displayTitle,status,conclusion", "--limit", "20"])
         runs = json.loads(out) if out else []
-        match = next((r for r in runs if tag in (r.get("displayTitle") or "") or tag == (r.get("headBranch") or "")), None)
+        match = select_publish_run(runs, tag)
         if match is None:
             return None
         out2 = _cgh(["run", "view", str(match["databaseId"]), "--repo", f"{owner}/{repo}", "--json", "status,conclusion,jobs"])
