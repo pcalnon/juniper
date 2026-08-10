@@ -120,9 +120,13 @@ checkpoints; you are not re-invoked per merge. (Fully draining a same-file clust
 - Any **fix** (rebase a behind branch, repair a damaged conflict-resolution, restore a deleted
   section, consolidate a dup fan-out) is **authored by the owner or delegated to a `task-executor`**
   agent (worktree-isolated, PR-based) — never by you.
-- Any headless commit in a delegated flow MUST use `-c commit.gpgsign=false` (the owner's
-  YubiKey / ed448 signing config blocks unattended commits) — note this in the delegation, but you
-  do not commit.
+- Delegated headless commits on the owner's workstation **commit normally (signed)** — the
+  card-resident ed25519 signing subkey (`user.signingkey`, `!` exact-pin suffix) signs unattended,
+  so an Unverified branch commit is no longer the expected outcome. `-c commit.gpgsign=false` is
+  for **keyless contexts only**: CI runners, hermetic test fixtures, and throwaway clones
+  (`propose.py`, `predict_merge.py`). Caveat — gpg-agent caches the card PIN for 600 s by default,
+  so a cold session may need one probe (`echo x | gpg --clearsign >/dev/null`) before its first
+  commit. Note the expectation in the delegation; you do not commit.
 - You surface violations of the *Third-Party Agent PR Contract* (`AGENTS.md`) at review time; you
   do not enforce them at the source.
 
