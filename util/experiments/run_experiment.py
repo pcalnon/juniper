@@ -19,9 +19,11 @@ WHAT IT DOES (SS6.3, in order):
   2. health-waits on the run's juniper-data and cascor services (bounded);
   3. pre-flights the dataset: ``GET /v1/generators`` must list ``dataset.generator`` with ``available: true``;
   4. drives the run: ``POST /v1/datasets`` on juniper-data (recording the content-addressed ``dataset_id``),
-     then -- spiral -- ``POST /v1/training/start`` with the inline ``dataset`` source, or -- any other
-     generator (G-6) -- stages via ``POST /v1/training/dataset`` first and asserts the loaded shape
-     afterwards; polls ``GET /v1/training/status`` to ``COMPLETED`` / ``FAILED`` under the Q-2 wall-clock
+     then stages EVERY generator via ``POST /v1/training/dataset`` (G-6) and asserts the loaded shape
+     afterwards -- spiral included since F-P4-1: the inline ``dataset`` source materialized cascor's
+     in-process fallback (unit-radius, params ignored) instead of the configured juniper-data dataset,
+     so every service spiral run terminated below_threshold with zero hidden units at chance accuracy;
+     polls ``GET /v1/training/status`` to ``COMPLETED`` / ``FAILED`` under the Q-2 wall-clock
      budget (``outputs.max_wall_seconds``, default 3600) and stall detector (no ``current_epoch`` change for
      ``--stall-seconds``, default 120 -> ``outcome: "stalled"``, never a silent hang); on every poll samples
      the app's own loopback ``/metrics`` exposition (redirect-following, F-1) and appends the allowlisted
@@ -629,7 +631,7 @@ def create_dataset(data_url: str, dataset_cfg: Dict[str, Any]) -> Dict[str, Any]
 
 
 def stage_dataset(cascor_url: str, dataset_cfg: Dict[str, Any]) -> Dict[str, Any]:
-    """G-6: stage a non-spiral dataset via ``POST /v1/training/dataset`` (applied at the next start)."""
+    """G-6: stage the dataset via ``POST /v1/training/dataset`` (applied at the next start; spiral included since F-P4-1)."""
     generator = dataset_cfg["generator"]
     alias = STAGEABLE_GENERATOR_ALIASES.get(generator)
     if alias is None:
@@ -646,22 +648,22 @@ def stage_dataset(cascor_url: str, dataset_cfg: Dict[str, Any]) -> Dict[str, Any
     return _unwrap(payload) or {}
 
 
-def start_training(cascor_url: str, config: Dict[str, Any], data_url: str, staged: bool) -> Dict[str, Any]:
-    """``POST /v1/training/start``. Spiral runs pass the juniper-data DatasetSource inline; staged runs rely on the pending config."""
+def start_training(cascor_url: str, config: Dict[str, Any]) -> Dict[str, Any]:
+    """``POST /v1/training/start`` against the staged (pending) dataset config.
+
+    F-P4-1: every generator — spiral included — is staged via ``stage_dataset``
+    before this call. The old spiral-only inline ``dataset`` source made cascor
+    materialize its in-process fallback spiral (unit-radius, params silently
+    ignored) instead of the configured juniper-data dataset, which pinned
+    candidate correlation at ~2.7e-4 and terminated every service spiral run
+    below_threshold with zero hidden units.
+    """
     training = config["training"]
     body: Dict[str, Any] = {"start_fresh": training["start_fresh"]}
     if training.get("epochs") is not None:
         body["epochs"] = training["epochs"]
     if training.get("params"):
         body["params"] = training["params"]
-    if not staged:
-        dataset_cfg = config["dataset"]
-        body["dataset"] = {
-            "source": "juniper-data",
-            "url": data_url,
-            "generator": dataset_cfg["generator"],
-            "params": dataset_cfg["params"],
-        }
     code, payload = _http_json("POST", f"{cascor_url}/v1/training/start", body=body, timeout=60.0)
     if code == 422:
         raise ConfigError(f"POST /v1/training/start rejected (422 -- TrainingParams is extra='forbid'): {_detail(payload)}")
@@ -1106,7 +1108,7 @@ def _render_recurrence_plots(
 
 
 def check_g6_shape(dataset_meta: Dict[str, Any], network_info: Optional[Dict[str, Any]], status_data: Dict[str, Any]) -> Dict[str, Any]:
-    """G-6 anti-silence assert for staged (non-spiral) runs: the loaded input width must match the generated dataset."""
+    """G-6 anti-silence assert for staged runs (every cascor generator since F-P4-1): the loaded input width must match the generated dataset."""
     expected = dataset_meta.get("n_features")
     actual = None
     if isinstance(network_info, dict):
@@ -1274,8 +1276,10 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
     run_id = ports.get("run_id") or run_dir.name
     experiment_name = config["experiment"]["name"]
     generator = config["dataset"]["generator"]
-    staged_path = generator != "spiral"
-    log.info("run %s: experiment '%s' (cascor, generator=%s%s) data=%s cascor=%s", run_id, experiment_name, generator, ", staged G-6 path" if staged_path else "", data_url, cascor_url)
+    # F-P4-1: spiral joins the staged G-6 path — the inline dataset source made
+    # cascor substitute its degenerate in-process fallback for the configured
+    # juniper-data dataset. Every cascor-path generator now stages.
+    log.info("run %s: experiment '%s' (cascor, generator=%s, staged G-6 path) data=%s cascor=%s", run_id, experiment_name, generator, data_url, cascor_url)
 
     timings: Dict[str, float] = {}
     outcome = "torn_down_early"
@@ -1308,13 +1312,12 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
         _phase("dataset_create", t0)
         log.info("dataset ready: dataset_id=%s (generator %s v%s)", dataset_response.get("dataset_id"), generator, generator_entry.get("version"))
 
-        if staged_path:
-            t0 = time.monotonic()
-            stage_dataset(cascor_url, config["dataset"])
-            _phase("stage", t0)
+        t0 = time.monotonic()
+        stage_dataset(cascor_url, config["dataset"])
+        _phase("stage", t0)
 
         t0 = time.monotonic()
-        start_training(cascor_url, config, data_url, staged=staged_path)
+        start_training(cascor_url, config)
         _phase("start", t0)
 
         t0 = time.monotonic()
@@ -1334,11 +1337,10 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
         artifacts.extend(collected)
         _phase("collect", t0)
 
-        if staged_path:
-            meta = dataset_response.get("meta") if isinstance(dataset_response.get("meta"), dict) else {}
-            g6 = check_g6_shape(meta, extras.get("network_info"), status_data)
-            if not g6["ok"]:
-                acceptance_reasons.append("G-6 shape check failed: " + str(g6["note"]))
+        meta = dataset_response.get("meta") if isinstance(dataset_response.get("meta"), dict) else {}
+        g6 = check_g6_shape(meta, extras.get("network_info"), status_data)
+        if not g6["ok"]:
+            acceptance_reasons.append("G-6 shape check failed: " + str(g6["note"]))
 
         if config["outputs"]["plots"]:
             t0 = time.monotonic()
