@@ -238,3 +238,93 @@ re-confirmed live rather than assumed — a deliberately conservative bias.
   semantics-destroying. Evidence: `W13-13__dark-metrics-top.png` vs the light walkthrough capture.
 - **OBS-3 → not a finding**: metrics-tab sidebar header "Network Parameters" vs tutorial-tab "Training
   Controls" is `TAB_HEADER_MAP` behaving as designed (C2.2-04 corroboration).
+
+### Findings opened in segment 4
+
+**F-CANOPY-007 — canopy CREATES snapshots through the cascor backend but LISTS them off a LOCAL
+filesystem path; on any split-filesystem deployment the list is silently empty (P1, OPEN).**
+
+Found driving W5 step 3. The create succeeded end-to-end — panel reported
+`✅ Snapshot created successfully: snapshot_20260811T010849Z`, both inputs cleared — yet the table stayed
+on its empty state and `#hdf5-snapshots-panel-status` still read "No snapshots available". The UI was
+faithful; its own API was wrong:
+
+| Probe | Result |
+|---|---|
+| `GET :8202/v1/snapshots` (cascor) | `{"status":"success","data":[{"id":"snapshot_20260811T010849Z","size_bytes":296701,"path":".../juniper-cascor/src/snapshots/…h5"}]}` |
+| `GET :8051/api/v1/snapshots` (canopy) | `{"snapshots": [], "message": "No snapshots available"}` |
+
+Mechanism: `get_snapshots` (`juniper-canopy/src/main.py:1874-1909`) serves `_list_snapshot_files()`
+(`:1838`), which reads `_snapshots_dir` — `JUNIPER_CANOPY_SNAPSHOT_DIR`, else the deprecated
+`CASCOR_SNAPSHOT_DIR`, else **`"./snapshots"` relative to canopy's CWD** (`:1713-1726`). The detail and
+op paths resolve through the same root (`_find_snapshot_file`, `:1764-1806`, used at `:2000`). Creation,
+by contrast, is proxied to the cascor backend, which writes under **its own** `src/snapshots`. Live: the
+env var was unset, canopy's CWD was `juniper-canopy/src`, and `juniper-canopy/src/snapshots/` held only
+`snapshot_history.jsonl` — no `.h5` at all.
+
+Why it has never been seen: the shipped compose topology co-mounts ONE volume
+(`juniper-cascor-snapshots:/app/data`, `juniper-deploy/docker-compose.yml:265` and `:434`) into both
+services, so the local read resolves to cascor's directory. Two host processes with different CWDs — the
+isolated stack, or any split-host deployment — do not share it. The failure is **silent**: no error, no
+warning, no degraded-mode signal; `snapshot_history.jsonl` is still written locally, so history and list
+actively disagree.
+
+Blast radius: the entire FA-4 surface (list / detail / restore / replay / resume / retrain), i.e. W5
+steps 4-7 and 16-27, because every one of them needs a table row that can never appear.
+
+**Confirmed by remediation** — the strongest available proof. After exporting
+`JUNIPER_CANOPY_SNAPSHOT_DIR` at cascor's real snapshot dir and bouncing the canopy leg, the same probe
+returned the snapshot with its true path, and the panel rendered `1 snapshot(s) found`, empty state
+`display:none`, one row (289.7 KB), 1 View button + 4 op buttons.
+
+Fix direction (Phase 2): canopy should resolve snapshots through the backend it created them with rather
+than assuming a shared filesystem — or, at minimum, detect that the configured dir is not the backend's
+and surface a degraded-mode banner instead of an empty list.
+
+**F-CANOPY-008 — the `/ws/control` CSRF gate leaks a per-IP connection slot on every rejection;
+five rejections permanently lock the control plane out until canopy restarts (P0/P1, OPEN).**
+
+Found immediately after the canopy bounce above. `/ws/training` reconnected normally; `/ws/control`
+403-looped, and the audit log named the reason:
+`{"event":"ws_csrf_rejected","endpoint":"/ws/control","reason":"invalid_token"}` × 5 — the browser was
+still presenting a token minted by the *previous* canopy process. That part is expected. What is **not**
+expected is what those five rejections left behind: `Per-IP limit reached for 127.0.0.1 (5/5)`, which then
+survived a full page close, `clearCookies()`, `localStorage`/`sessionStorage` clear, and a 20 s idle
+window. The counter never came back.
+
+Mechanism, read out of the handler (`juniper-canopy/src/main.py`, `/ws/control`):
+
+| Step | Path | Slot handling |
+|---|---|---|
+| Origin validation | `close(4003); return` | correct — returns *before* any reservation |
+| `check_connection_limits(...)` | reserves a per-IP + per-session slot | its own per-session failure arm decrements (`websocket_manager.py:544`) |
+| `connect(...)` | `except: release_connection_limits(); raise` / `if not connected: release_connection_limits()` | **correct on both arms** |
+| **CSRF first-frame auth** | `missing_or_invalid_frame`, `invalid_token`, `auth_timeout`, `malformed_auth`, generic `Exception` | **all five do `log…(); close(1008); return` — none calls `release_connection_limits()` or `disconnect()`** |
+
+The reservation taken before `connect()` is therefore never rolled back when the CSRF gate rejects.
+`websocket_manager.release_connection_limits` (`:549-559`) exists for precisely this rollback and its
+docstring describes the window; the surrounding `connect()` call was written with that discipline and the
+CSRF block that follows was not. Since `connect()` had already *succeeded*, the socket is also still
+registered in `active_connections` — so the leak plausibly extends to the registration and to
+`juniper_canopy_websocket_connections_active{channel="control"}`. (The counter leak is proven live; the
+registration/metric leak is a code-reading inference to confirm during Phase 2 triage.)
+
+Why this matters well beyond the test rig, with `max_connections_per_ip: int = 5` (`settings.py:156`):
+
+- It is reachable with **zero malice** — restart canopy, or simply let a token go stale, with a dashboard
+  tab open. The client's own auto-reconnect burns all five slots in about ten seconds. That is exactly how
+  it was hit here.
+- Recovery requires **restarting canopy**. Nothing the operator does in the browser releases the slots.
+- The cap is **shared across all clients behind NAT** — the method's own docstring states that inside
+  Docker every client presents as the bridge-gateway IP. So five CSRF failures from *one* user lock the
+  control plane for *every* user of that deployment.
+- Because the training buttons are WS-primary (T-21), the visible symptom is "the training controls stopped
+  working", with only a console 403 to go on.
+
+Fix direction (Phase 2): release the reservation on every CSRF reject path — cleanest as a `try/finally`
+(or a small context manager) around the post-reservation block so no future gate inserted after
+`check_connection_limits` can reintroduce the leak. Regression test: drive N+1 rejected handshakes from
+one IP, then assert a *valid* handshake still connects.
+
+Note this is the "audit every call site when extending a shared helper" class: the helper was correct and
+correctly used at the call site it shipped with; the later-added gate simply did not adopt it.

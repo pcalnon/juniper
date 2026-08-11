@@ -1,0 +1,9 @@
+row_id	status	notes	screenshots
+M-SNAPSHOTS-01	PASS	create-name is type="text" (Playwright-drivable; not the T-7 number wall); value commits to the Dash store on blur	—
+M-SNAPSHOTS-02	PASS	create-description is type="text"; value commits on blur	—
+M-SNAPSHOTS-03	PASS(post-fix)	click -> 201; "✅ Snapshot created successfully: snapshot_20260811T010849Z"; BOTH inputs cleared. Table-refresh half of the expectation initially FAILED (stayed on empty state) -- not a refresh bug: canopy's own list endpoint returned empty while cascor held the .h5 (F-CANOPY-007). Re-verified PASS after the JUNIPER_CANOPY_SNAPSHOT_DIR fix + canopy bounce.	—
+M-SNAPSHOTS-06	PASS	both states proven: empty -> status "No snapshots available" + empty-state display:block + 0 rows; populated -> status "1 snapshot(s) found" + empty-state display:none + 1 row (289.7 KB) + 1 View btn + 4 op btns	—
+W5-01	PASS	Snapshots tab lists the empty state on arrival (baseline was a genuinely empty snapshot set, confirmed against cascor)	—
+W5-02	PASS	name + description typed and committed	—
+W5-03	PASS(post-fix)	see M-SNAPSHOTS-03; create is proxied to cascor and writes juniper-cascor/src/snapshots/snapshot_20260811T010849Z.h5 (296701 bytes)	—
+M-NETWORK-EDITOR-05	PASS(D-0 re-confirmed)	GET :8051/api/network/topology -> 404 (unregistered route), re-probed live this segment; corroborates the inherited 20260809T223851Z rowlog verdict	—
