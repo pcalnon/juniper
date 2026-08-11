@@ -443,19 +443,19 @@ class TestLaunchLines(unittest.TestCase):
         expected = (
             (
                 "data_up",
-                'wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health" || return 1',
+                'wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health" "${HEALTH_TIMEOUT}" "-m juniper_data .*--port ${DATA_PORT}" || return 1',
                 'record_listener_pid "juniper-data" "${DATA_PORT}" || return 1',
                 'activate_conda "${DATA_CONDA}" || return 1',
             ),
             (
                 "cascor_up",
-                'wait_for_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health" || return 1',
+                'wait_for_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health" "${HEALTH_TIMEOUT}" "api.app:create_app .*--port ${CASCOR_PORT}" || return 1',
                 'record_listener_pid "juniper-cascor" "${CASCOR_PORT}" || return 1',
                 'activate_conda "${CASCOR_CONDA}" || return 1',
             ),
             (
                 "recurrence_up",
-                'wait_for_health "juniper-recurrence" "http://127.0.0.1:${RECURRENCE_PORT}/v1/health/ready" || return 1',
+                'wait_for_health "juniper-recurrence" "http://127.0.0.1:${RECURRENCE_PORT}/v1/health/ready" "${HEALTH_TIMEOUT}" "juniper-recurrence serve .*--port ${RECURRENCE_PORT}" || return 1',
                 'record_listener_pid "juniper-recurrence" "${RECURRENCE_PORT}" || return 1',
                 'activate_conda "${RECURRENCE_CONDA}" || return 1',
             ),
@@ -479,6 +479,166 @@ class TestLaunchLines(unittest.TestCase):
                 rf'allocate_port "{svc}".*?\|\| \{{\s*release_held_locks',
                 msg=f"{svc} allocate failure must call release_held_locks",
             )
+
+
+class TestHealthGateLiveness(unittest.TestCase):
+    """The health gate fails fast when the process it is waiting on is already dead.
+
+    A leg that dies during startup (bad env, import error, port stolen) used to burn
+    the whole ``HEALTH_TIMEOUT`` -- 90 s per leg -- before the operator learned
+    anything, even though the cause was already in the leg's log. ``wait_for_health``
+    takes an optional ``pgrep -f`` liveness pattern and ends the wait after two
+    CONSECUTIVE misses.
+
+    Two misses, not one, because the launch subshell returns before its child has
+    exec'd; and the probe runs after the first sleep, so fork+exec gets a >=4 s grace.
+
+    F-6 is untouched: the pattern is only ever read. Teardown still resolves the pid
+    from the listener socket and verifies uid + cmdline before signalling anything.
+    """
+
+    #: Instant ``sleep`` keeps the arms fast; ``elapsed`` still advances by 2 per loop.
+    _SLEEP_STUB = "#!/usr/bin/env bash\nexit 0\n"
+
+    def _harness(self, *, timeout: int, pattern: str, log_dir: Path) -> str:
+        pattern_arg = f' "{pattern}"' if pattern else ""
+        return f"""
+            set -euo pipefail
+            SCRIPT_NAME="experiment_stack.bash"
+            LOG_DIR="{log_dir}"
+            HEALTH_TIMEOUT={timeout}
+            log() {{ echo "[${{SCRIPT_NAME}}] $*"; }}
+            {_extract_experiment_fn("wait_for_health")}
+            set +e
+            wait_for_health "juniper-data" "http://127.0.0.1:65999/v1/health" {timeout}{pattern_arg}
+            status=$?
+            set -e
+            echo "STATUS=${{status}}"
+            exit 0
+        """
+
+    def _run_gate(
+        self,
+        *,
+        curl_body: str,
+        pgrep_body: "str | None",
+        pattern: str,
+        timeout: int = 20,
+    ) -> "tuple[subprocess.CompletedProcess[str], Path]":
+        tmp = tempfile.mkdtemp()
+        root = Path(tmp)
+        stub_bin = root / "path-stubs"
+        stub_bin.mkdir(parents=True, exist_ok=True)
+        log_dir = root / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        _write_stub(stub_bin / "curl", curl_body)
+        _write_stub(stub_bin / "sleep", self._SLEEP_STUB)
+        if pgrep_body is not None:
+            _write_stub(stub_bin / "pgrep", pgrep_body)
+        env = RedactedEnv(os.environ)
+        # No /usr/bin:/bin fallback when pgrep must be ABSENT, else the real one resolves.
+        tail = "" if pgrep_body is None else os.pathsep + "/usr/bin:/bin"
+        env["PATH"] = str(stub_bin) + tail
+        result = subprocess.run(
+            ["/bin/bash", "-c", self._harness(timeout=timeout, pattern=pattern, log_dir=log_dir)],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=SCRIPT_TIMEOUT_SECONDS,
+        )
+        return result, root
+
+    def _counting_curl(self, root: Path) -> str:
+        """curl that always fails but records each poll, so we can bound the wait."""
+        return "#!/usr/bin/env bash\n" f'echo poll >>"{root}/curl.count"\n' "exit 1\n"
+
+    def test_dead_process_fails_fast_instead_of_burning_the_timeout(self) -> None:
+        tmp = tempfile.mkdtemp()
+        root = Path(tmp)
+        result, gate_root = self._run_gate(
+            curl_body=self._counting_curl(root),
+            pgrep_body="#!/usr/bin/env bash\nexit 1\n",  # nothing matches: the leg is gone
+            pattern="-m juniper_data .*--port 65999",
+            timeout=60,
+        )
+        self.assertIn("STATUS=1", result.stdout, msg=result.stdout + result.stderr)
+        self.assertIn("process is gone", result.stdout)
+        self.assertIn("died during startup", result.stdout)
+        # Names the log to read -- the whole point of failing fast.
+        self.assertIn("juniper-data.log", result.stdout)
+        # Two consecutive misses => 2 polls, NOT the 30 a 60s timeout would allow.
+        polls = (root / "curl.count").read_text().splitlines()
+        self.assertLessEqual(len(polls), 3, msg=f"expected a fast fail, got {len(polls)} polls")
+        self.assertTrue((gate_root / "logs").is_dir())
+
+    def test_single_transient_miss_does_not_declare_death(self) -> None:
+        tmp = tempfile.mkdtemp()
+        root = Path(tmp)
+        # pgrep misses on odd calls, hits on even: never two in a row.
+        pgrep_body = "#!/usr/bin/env bash\n" f'n=$(cat "{root}/pgrep.n" 2>/dev/null || echo 0)\n' "n=$((n+1))\n" f'echo "$n" >"{root}/pgrep.n"\n' "if (( n % 2 == 1 )); then exit 1; fi\n" "exit 0\n"
+        # curl fails 4 times then succeeds: the gate must survive to see it.
+        curl_body = "#!/usr/bin/env bash\n" f'n=$(cat "{root}/curl.n" 2>/dev/null || echo 0)\n' "n=$((n+1))\n" f'echo "$n" >"{root}/curl.n"\n' "if (( n <= 4 )); then exit 1; fi\n" "exit 0\n"
+        result, _ = self._run_gate(curl_body=curl_body, pgrep_body=pgrep_body, pattern="-m juniper_data .*--port 65999", timeout=60)
+        self.assertIn("STATUS=0", result.stdout, msg=result.stdout + result.stderr)
+        self.assertIn("is healthy", result.stdout)
+        self.assertNotIn("process is gone", result.stdout)
+
+    def test_slow_boot_with_live_process_still_becomes_healthy(self) -> None:
+        tmp = tempfile.mkdtemp()
+        root = Path(tmp)
+        curl_body = "#!/usr/bin/env bash\n" f'n=$(cat "{root}/curl.n" 2>/dev/null || echo 0)\n' "n=$((n+1))\n" f'echo "$n" >"{root}/curl.n"\n' "if (( n <= 6 )); then exit 1; fi\n" "exit 0\n"
+        result, _ = self._run_gate(
+            curl_body=curl_body,
+            pgrep_body="#!/usr/bin/env bash\nexit 0\n",  # process alive throughout
+            pattern="-m juniper_data .*--port 65999",
+            timeout=60,
+        )
+        self.assertIn("STATUS=0", result.stdout, msg=result.stdout + result.stderr)
+        self.assertNotIn("process is gone", result.stdout)
+
+    def test_no_pattern_keeps_timeout_only_behaviour_and_never_probes(self) -> None:
+        tmp = tempfile.mkdtemp()
+        root = Path(tmp)
+        pgrep_body = "#!/usr/bin/env bash\n" f'echo called >>"{root}/pgrep.calls"\n' "exit 1\n"
+        result, _ = self._run_gate(curl_body="#!/usr/bin/env bash\nexit 1\n", pgrep_body=pgrep_body, pattern="", timeout=6)
+        self.assertIn("STATUS=1", result.stdout, msg=result.stdout + result.stderr)
+        self.assertIn("failed to become healthy within", result.stdout)
+        self.assertNotIn("process is gone", result.stdout)
+        self.assertFalse((root / "pgrep.calls").exists(), "no pattern must mean no liveness probe at all")
+
+    def test_absent_pgrep_degrades_to_timeout_rather_than_a_false_death(self) -> None:
+        """An unavailable probe must never manufacture a failure."""
+        result, _ = self._run_gate(
+            curl_body="#!/usr/bin/env bash\nexit 1\n",
+            pgrep_body=None,  # pgrep not on PATH at all
+            pattern="-m juniper_data .*--port 65999",
+            timeout=6,
+        )
+        self.assertIn("STATUS=1", result.stdout, msg=result.stdout + result.stderr)
+        self.assertIn("pgrep unavailable", result.stdout)
+        self.assertIn("failed to become healthy within", result.stdout)
+        self.assertNotIn("process is gone", result.stdout, "absent pgrep must not read as a dead process")
+
+    def test_each_leg_passes_a_port_scoped_liveness_pattern(self) -> None:
+        """Port-scoped so a sibling run's process can never satisfy this run's gate."""
+        expected = (
+            ("data_up", '"-m juniper_data .*--port ${DATA_PORT}"'),
+            ("cascor_up", '"api.app:create_app .*--port ${CASCOR_PORT}"'),
+            ("recurrence_up", '"juniper-recurrence serve .*--port ${RECURRENCE_PORT}"'),
+        )
+        for fn_name, pattern in expected:
+            body = _strip_comment_lines(_extract_experiment_fn(fn_name))
+            self.assertIn(pattern, body, msg=f"{fn_name} must pass a port-scoped liveness pattern")
+            self.assertIn("wait_for_health", body)
+
+    def test_liveness_probe_is_read_only_and_never_kills(self) -> None:
+        """F-6: the pattern resolves nothing and signals nothing."""
+        gate = _extract_experiment_fn("wait_for_health")
+        self.assertIn("pgrep -f --", gate)
+        self.assertNotIn("kill", gate, "the health gate must never signal a process")
+        # pgrep exists ONLY in the gate: teardown resolves pids from the listener socket.
+        pgrep_fns = [name for name in ("stop_service", "teardown_run", "record_listener_pid", "port_listener_pid", "kill_verified_pid", "terminate_pid") if "pgrep" in _extract_experiment_fn(name)]
+        self.assertEqual([], pgrep_fns, msg=f"pgrep must not leak into teardown: {pgrep_fns}")
 
 
 class TestListenerPidRule(unittest.TestCase):
