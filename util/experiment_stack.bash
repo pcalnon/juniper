@@ -343,8 +343,27 @@ proc_cmdline() {
 }
 
 # Poll a health URL until 200 or timeout (live mode only).
+#
+# The optional 4th arg is a `pgrep -f` LIVENESS pattern for the process this gate is
+# waiting on. A service that dies during startup (bad env, import error, port already
+# bound) otherwise burns the whole HEALTH_TIMEOUT — 90s by default, per leg — before the
+# operator learns anything, and the real cause is already sitting in the leg's log. With
+# a pattern, two CONSECUTIVE misses end the wait immediately and name the log to read.
+#
+# Two misses, not one: the launch subshell returns before its child finishes exec'ing, so
+# a single miss is a normal startup artifact. The first probe runs after the first sleep,
+# giving fork+exec a >=4s grace before a death can be declared.
+#
+# F-6 stays intact: this pattern is only ever read (`pgrep`), never used to resolve a pid
+# and never used to kill. Teardown still goes through the recorded listener pid + cmdline.
+# A host without `pgrep` degrades to the pre-existing timeout-only behaviour rather than
+# reporting a false death — an unavailable probe must never manufacture a failure.
 wait_for_health() {
-    local name="$1" url="$2" timeout="${3:-${HEALTH_TIMEOUT}}" elapsed=0
+    local name="$1" url="$2" timeout="${3:-${HEALTH_TIMEOUT}}" liveness_pattern="${4-}" elapsed=0 misses=0
+    if [[ -n "${liveness_pattern}" ]] && ! command -v pgrep >/dev/null 2>&1; then
+        log "${name}: pgrep unavailable — health gate falls back to timeout-only (no dead-process fast-fail)"
+        liveness_pattern=""
+    fi
     log "Waiting for ${name} health at ${url} (timeout ${timeout}s)"
     while (( elapsed < timeout )); do
         if curl -sf --max-time 5 "${url}" >/dev/null 2>&1; then
@@ -353,6 +372,17 @@ wait_for_health() {
         fi
         sleep 2
         elapsed=$(( elapsed + 2 ))
+        if [[ -n "${liveness_pattern}" ]]; then
+            if pgrep -f -- "${liveness_pattern}" >/dev/null 2>&1; then
+                misses=0
+            else
+                misses=$(( misses + 1 ))
+                if (( misses >= 2 )); then
+                    log "ERROR: ${name} process is gone after ${elapsed}s (no process matches '${liveness_pattern}') — it died during startup; see ${LOG_DIR}/${name}.log"
+                    return 1
+                fi
+            fi
+        fi
     done
     log "ERROR: ${name} failed to become healthy within ${timeout}s (see ${LOG_DIR})"
     return 1
@@ -571,7 +601,8 @@ data_up() {
             nohup env "${gil_env[@]}" "${python_bin}" -m juniper_data --host 127.0.0.1 --port "${DATA_PORT}" >"${LOG_DIR}/juniper-data.log" 2>&1 &
     )
     # No `$!` here on purpose — F-6. The pid is resolved from the listener below.
-    wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health" || return 1
+    # The liveness pattern carries this run's port so it can never match a sibling run.
+    wait_for_health "juniper-data" "http://127.0.0.1:${DATA_PORT}/v1/health" "${HEALTH_TIMEOUT}" "-m juniper_data .*--port ${DATA_PORT}" || return 1
     record_listener_pid "juniper-data" "${DATA_PORT}" || return 1
 }
 
@@ -613,7 +644,7 @@ cascor_up() {
             nohup "${uvicorn_bin}" api.app:create_app --factory --host 127.0.0.1 --port "${CASCOR_PORT}" >"${LOG_DIR}/juniper-cascor.log" 2>&1 &
     )
     # No `$!` here on purpose — F-6.
-    wait_for_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health" || return 1
+    wait_for_health "juniper-cascor" "http://127.0.0.1:${CASCOR_PORT}/v1/health" "${HEALTH_TIMEOUT}" "api.app:create_app .*--port ${CASCOR_PORT}" || return 1
     record_listener_pid "juniper-cascor" "${CASCOR_PORT}" || return 1
 }
 
@@ -647,7 +678,7 @@ recurrence_up() {
             nohup "${serve_bin}" serve --host 127.0.0.1 --port "${RECURRENCE_PORT}" >"${LOG_DIR}/juniper-recurrence.log" 2>&1 &
     )
     # No `$!` here on purpose — F-6.
-    wait_for_health "juniper-recurrence" "http://127.0.0.1:${RECURRENCE_PORT}/v1/health/ready" || return 1
+    wait_for_health "juniper-recurrence" "http://127.0.0.1:${RECURRENCE_PORT}/v1/health/ready" "${HEALTH_TIMEOUT}" "juniper-recurrence serve .*--port ${RECURRENCE_PORT}" || return 1
     record_listener_pid "juniper-recurrence" "${RECURRENCE_PORT}" || return 1
 }
 

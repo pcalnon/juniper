@@ -38,7 +38,7 @@ CLAUDE_EFFORT="${1}"
 # Define Script Constants for Claude Code interaction
 ########################################################################################################################################################################################################
 export MODEL_FABLE_NAME="claude-fable-5"
-export MODEL_OPUS_NAME="claude-opus-4-8"
+export MODEL_OPUS_NAME="claude-opus-5"
 export MODEL_SONNET_NAME="claude-sonnet-4-6"
 export MODEL_HAIKU_NAME="claud-haiku-4-5"
 
@@ -57,8 +57,8 @@ export LOW="low"
 ########################################################################################################################################################################################################
 # Define Script Defaults
 ########################################################################################################################################################################################################
-export DEFAULT_MODEL="${MODEL_FABLE_ALIAS}"
-# export DEFAULT_MODEL="${MODEL_OPUS_ALIAS}"
+# export DEFAULT_MODEL="${MODEL_FABLE_ALIAS}"
+export DEFAULT_MODEL="${MODEL_OPUS_ALIAS}"
 
 # export DEFAULT_EFFORT="${HIGH}"
 export DEFAULT_EFFORT="${MAX}"

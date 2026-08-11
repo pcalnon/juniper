@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-09
+**Last Updated**: 2026-08-11
 
 ---
 
@@ -424,6 +424,11 @@ juniper-ml/
   - Open archive-PR reuse (juniper-ml#730): `enable_automerge(…, pr_ref or plan.archive_branch)`; archive-already-on-main → release only; Release-exists → `RESUME_MONITOR`.
   - Precondition: `notes-render-failed` HALTs when `notes_render.render_notes` raises `OSError` (missing/unreadable `TEMPLATE_RELEASE_NOTES.md` / security template) — restore the template, re-run; never invent archive body. Operator catalog: release-train operator runbook §4.
   - Monitor: `NOT_FOUND` (run invisible right after `cut_release`) is **not** terminal — keep polling; timeout while still building or permanently missing → honest `IN_PROGRESS` (never invent PENDING/RELEASED/HALT). Operator guidance: release-train operator runbook §3.3.
+  - Monitor run **selection** (`select_publish_run`): a Release fires EVERY `release: published` publisher in the owning repo, and the tag-guarded ones finish `completed/skipped`
+    sharing the real run's `displayTitle` **and** `headBranch`. Feeding a skipped run to `classify_publish_run` yields `IN_PROGRESS` forever, so the monitor burns its whole
+    `--monitor-timeout` per package and the ceremony job's `timeout-minutes: 30` kills the run — surfacing as a bogus `cancelled` (the 2026-08-09/10 class; both legs of the
+    cascor 0.8.0 + protocol 0.2.0 ceremony hit it). Selection drops `skipped` runs, prefers an exact `headBranch` match over a substring `displayTitle` match (bare `v0.2.0` is a
+    substring of `juniper-cascor-protocol v0.2.0`), and prefers an unfinished run over a finished one. All-skipped → `None` → non-terminal `NOT_FOUND`. Pin: `SelectPublishRunTest`.
   - R7 archive-lane (`_assert_api_allowed`): a `git/refs` POST must carry explicit `ref=refs/heads/*` — missing/empty `ref=` is `SeamViolation` (juniper-ml#770; pre-#770 deferred omit to the live API).
   - Execute terminal `RELEASED`: publish run `completed`+`success` (both gates done) surfaces as final state with **no** halt issue — distinct from plan-time `ALREADY_RELEASED` (PyPI already serves target). Operator guidance: runbook §3.3.
 - `util/prompt_discovery/` -- Discovery helpers for the custom-agent suite (PR 4); path-invoked (`python util/prompt_discovery/cli.py --repo-root <path>`), emits a JSON grounding bundle (closed-world facts + provenance: `head_sha`/`dirty`/`ttl_seconds`/`per_probe_status`) from seven probes (`repo_context`, `test_status`, `file_probe`, `symbol_probe`, `dependency_facts`, `conventions`, `concurrency`). Accepts `--target-repo` (cross-repo alias of `--repo-root`). A discovery failure is a hard stop (exit 2).
@@ -493,11 +498,18 @@ juniper-ml/
     `bring-up failed — tearing the partial run back down` and calls `teardown_run` (live only; not `--dry-run`), keeping `logs/` + `artifacts/` and releasing lockdirs.
   - Health: `wait_for_health` polls `/v1/health` (data, cascor) and `/v1/health/ready` (recurrence) every 2s until `JUNIPER_EXP_HEALTH_TIMEOUT` (default **90** — F-8 sizes it
     for a cold start; the 1.1 s warm number is not the design point).
+  - **Dead-process fast-fail**: `wait_for_health` takes an optional 4th arg, a `pgrep -f` liveness pattern, and each leg passes a **port-scoped** one (`-m juniper_data .*--port
+    ${DATA_PORT}` / `api.app:create_app .*--port ${CASCOR_PORT}` / `juniper-recurrence serve .*--port ${RECURRENCE_PORT}`) so a sibling run can never satisfy this run's gate.
+    Two **consecutive** misses end the wait with `process is gone … died during startup` naming the leg's log, instead of burning the full 90 s per leg on a process that already
+    exited (the P4-campaign class). Two misses, not one, and the first probe runs after the first sleep — the launch subshell returns before its child execs, so fork+exec keeps a
+    >=4 s grace. **F-6 intact**: the pattern is only ever read; it never resolves a pid and never kills. No `pgrep` on PATH degrades to the prior timeout-only behaviour (an
+    unavailable probe must never manufacture a failure), and passing no pattern is unchanged back-compat. Pins: `TestHealthGateLiveness` in `tests/test_experiment_stack_script.py`.
   - **OR-list fail-closed**: `do_up` invokes `*_up || failed=1`, which disables `set -e` inside each body. `require_env_bin` / `activate_conda` / `wait_for_health` / `record_listener_pid` therefore each end with `|| return 1`, or a health
     timeout with a live listener false-greens `--up` and skips `teardown_run`. A mid-`allocate_port` failure calls `release_held_locks` (else prior `*.lock` dirs starve later `--up`), and an opt-in `bridge_up` failure after healthy
     services logs `grafana bridge failed — tearing the run back down` and runs `teardown_run` instead of a bare `set -e` abort.
-  - **Staging lock gap (open #979)**: `create_run_dir` / `stage_config` / `write_ports_json` are still bare under `set -e`, so a missing `--config` exits after the lockdirs exist and before `ports.json` is written — `--down` cannot then
-    recover them and the 30-port ranges starve. Clear leftovers under `JUNIPER_EXP_LOCK_ROOT` only after confirming no live listener holds the port.
+  - **Staging lock release (fixed by #979)**: `create_run_dir` / `stage_config` / `write_ports_json` each `|| { release_held_locks; …; }`, so a missing `--config` no longer exits
+    with the lockdirs held and `ports.json` unwritten — the state `--down` could not recover, which starved the 30-port ranges. Should leftovers ever appear (an operator `kill -9`
+    mid-staging), clear them under `JUNIPER_EXP_LOCK_ROOT` only after confirming no live listener holds the port.
   - Grafana bridge is **opt-in** (`--grafana-bridge`): only then does it preflight `socat`, discover the monitoring gateway by network-name **suffix**
     (`docker network ls | grep -E '_monitoring$'` — a worktree-launched compose project renames the network; loud default-bridge fallback), start one
     `socat "TCP-LISTEN:<port>,bind=<gateway>,fork,reuseaddr" "TCP:127.0.0.1:<port>"` relay per scraped service (pids under `RUN_DIR/relays/`), and write the §7.2 target file
@@ -516,7 +528,9 @@ juniper-ml/
   Path-invoked: `python util/experiments/run_experiment.py --config <yaml> --run-dir <RUN_DIR>` against a stack from `experiment_stack.bash` -- service URLs resolve from the run's `ports.json` (`--data-url` / `--cascor-url` override). Stdlib + PyYAML; numpy lazily only for the `.npz` artifact (JSON fallback); HTTP via redirect-following `urllib` GETs (F-1: bare `/metrics` 307s to `/metrics/`).
   - Validates the §5.4/§5.5 YAML (driver-owned §5.6 subset): unknown blocks/keys rejected, `schema_version` gated, `experiment.seed` REQUIRED (with the `dataset.params.seed` derivation rule + run-scoped default tags), rule-6 infra keys (`service.host/port/juniper_data_url/eval_metrics_enabled`) rejected; `training:` selects the cascor path, `train:`/`crossval:`/`predict:` (+ `dataset.split`) the recurrence path.
   - Drive: generator preflight (`GET /v1/generators` must report `available: true`), `POST /v1/datasets` (content-addressed `dataset_id` recorded), then `POST /v1/training/start` and poll `GET /v1/training/status` to `COMPLETED`/`FAILED` under the Q-2 wall-clock budget (`outputs.max_wall_seconds`, CLI `--max-wall-seconds` wins) + stall detector (no `current_epoch` progress for `--stall-seconds`, default 120 -> `outcome: "stalled"`).
-  - Non-spiral generators stage through `POST /v1/training/dataset` (alias map incl. gaussian/checkerboard since W-3, juniper-cascor#490) with a post-run G-6 input-width assert (mismatch = acceptance failure).
+  - Every cascor-path generator stages through `POST /v1/training/dataset` (alias map incl. gaussian/checkerboard since W-3, juniper-cascor#490) with a post-run G-6 input-width assert (mismatch = acceptance failure).
+    - Spiral joined the staged path with F-P4-1: the old spiral-only inline `dataset` source made cascor materialize its in-process fallback (unit-radius, params silently ignored) instead of the configured juniper-data dataset, terminating every service spiral run below_threshold with zero hidden units.
+    - Root-cause note: [`notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_F-P4-1-SERVICE-SPIRAL-ROOT-CAUSE.md`](notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_F-P4-1-SERVICE-SPIRAL-ROOT-CAUSE.md); cascor-side fidelity fix cascor#504; candidate-param plumbing gap cascor#505.
   - Each poll samples the loopback `/metrics` allowlist (`candidate_correlation` / `hidden_units_total` / `training_loss` / `training_accuracy_ratio` / step-duration sum+count) into `artifacts/results/metrics_series.csv` -- correlation exists ONLY there, never in `/v1/metrics/history` rows; a 404 (metrics disabled, G-3) degrades sampling, not the run.
   - Recurrence drive (Wave 2.3): health-gates `/v1/health/ready`, then the **synchronous** `POST /v1/train` (the response IS completion — no poll loop; the Q-2 budget is the request's socket timeout → `timed_out`), then optional `POST /v1/predict` (`predict.from_dataset_split`, default `test`) and `POST /v1/crossval` (same LMU hyperparams as `train:` for bench comparability); every phase refs the dataset by content-addressed `dataset_id` (H-8).
   - Predict/crossval failures are recorded and the run continues to the manifest (acceptance failure), never dying mid-evidence. `outputs.save_model: true` (G-18) re-runs the `juniper-recurrence train` CLI with `--dataset <dataset_id>` + identical hyperparam flags + `--out .../model.npz` as a manifest-recorded extra step (the CLI has no `--params` flag, so the dataset_id ref is the only faithful form).

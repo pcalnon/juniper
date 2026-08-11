@@ -788,11 +788,16 @@ class HappyPathTest(_StubTestCase):
         start = start_bodies[0]
         self.assertTrue(start["start_fresh"])
         self.assertEqual(start["params"], {"max_iterations": 2})
-        self.assertEqual(start["dataset"]["source"], "juniper-data")
-        self.assertEqual(start["dataset"]["url"], self.server.base_url)
-        self.assertEqual(start["dataset"]["generator"], "spiral")
-        self.assertEqual(start["dataset"]["params"]["seed"], 4242)
-        self.assertEqual(self._posts("/v1/training/dataset"), [])
+        # F-P4-1: spiral now stages through POST /v1/training/dataset like every
+        # other generator — the inline ``dataset`` source made cascor substitute
+        # its degenerate in-process fallback (unit-radius, params ignored) for
+        # the configured juniper-data dataset. The start body carries no
+        # ``dataset`` key at all.
+        self.assertNotIn("dataset", start)
+        staged = self._posts("/v1/training/dataset")
+        self.assertEqual(len(staged), 1)
+        self.assertEqual(staged[0]["dataset_type"], "spirals")
+        self.assertEqual(staged[0]["params"]["seed"], 4242)
 
         dataset_bodies = self._posts("/v1/datasets")
         self.assertEqual(len(dataset_bodies), 1)
@@ -824,7 +829,9 @@ class HappyPathTest(_StubTestCase):
         self.assertEqual(manifest["dataset"]["version"], "1.2.0")
         self.assertEqual(manifest["seeds"], {"experiment": 4242, "dataset": 4242})
         self.assertEqual(manifest["completion_reason"], "max_iterations")
-        self.assertIsNone(manifest["g6_shape_check"])
+        # F-P4-1: spiral is a staged run now, so the G-6 shape assert applies.
+        self.assertIsNotNone(manifest["g6_shape_check"])
+        self.assertTrue(manifest["g6_shape_check"]["ok"])
         self.assertFalse(manifest["metrics_scraped"]["grafana_bridge"])
         self.assertIn("artifacts/results/metrics_series.csv", manifest["artifacts"])
         self.assertIn("config/experiment.yaml", manifest["artifacts"])

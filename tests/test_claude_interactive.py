@@ -20,6 +20,7 @@ No network, no real Claude binary.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -34,6 +35,42 @@ CLAUDEY_LINK = REPO_ROOT / "claudey"
 # Script-local boolean literals (TRUE="0", FALSE="1").
 SCRIPT_TRUE = "0"
 SCRIPT_FALSE = "1"
+
+# Only `export NAME="..."` constant definitions -- never a line that runs anything.
+_CONSTANT_DEF = re.compile(r"^export\s+[A-Z][A-Z0-9_]*=")
+
+# The shipped default must still be a model the launcher actually knows about, so a
+# typo'd or empty constant fails loudly instead of the assertions going tautological.
+KNOWN_MODEL_ALIASES = frozenset({"fable", "opus", "sonnet", "haiku"})
+KNOWN_EFFORT_LEVELS = frozenset({"auto", "max", "xhigh", "high", "medium", "low"})
+
+
+def shipped_defaults(*names: str) -> dict[str, str]:
+    """Resolve `DEFAULT_*` constants from claude_interactive.bash, as bash resolves them.
+
+    The launcher switches its shipped defaults by commenting one assignment out and
+    activating another::
+
+        # export DEFAULT_MODEL="${MODEL_FABLE_ALIAS}"
+        export DEFAULT_MODEL="${MODEL_OPUS_ALIAS}"
+
+    Which model is active changes for account-usage and billing reasons, and the effort
+    and prompt defaults use the same idiom. Re-declaring the expected value in this
+    module would turn every such switch into a red build, so the script stays the single
+    definitive source and these tests follow it.
+
+    Evaluating the launcher itself would START A CLAUDE SESSION, so only the
+    `export NAME="..."` constant lines are extracted and evaluated. That hands the
+    commented-out variants and the `${MODEL_*_ALIAS}` indirection to bash itself rather
+    than re-implementing shell semantics with a regex.
+    """
+    definitions = [line for line in LAUNCHER_SRC.read_text(encoding="utf-8").splitlines() if _CONSTANT_DEF.match(line)]
+    probe = "\n".join(definitions) + "\n" + "\n".join(f'printf "%s\\n" "${{{name}?unset}}"' for name in names)
+    result = subprocess.run(["/bin/bash", "-c", probe], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise AssertionError(f"could not resolve {names} from {LAUNCHER_SRC.name}: {result.stderr.strip()}")
+    values = result.stdout.splitlines()
+    return dict(zip(names, values, strict=True))
 
 
 class ClaudeInteractiveLauncherRuntimeTests(unittest.TestCase):
@@ -139,13 +176,31 @@ class ClaudeInteractiveLauncherRuntimeTests(unittest.TestCase):
             args = self._extract_logged_args(args_log)
             self.assertTrue(args, "Expected wrapper to invoke wake_the_claude.bash")
             self.assertIn("--dangerously-skip-permissions", args)
-            # Defaults that ride alongside the permission force.
-            self.assertEqual(args[args.index("--model") + 1], "fable")
-            self.assertEqual(args[args.index("--effort") + 1], "max")
+            # Defaults that ride alongside the permission force. Read from the script
+            # (see shipped_defaults) so switching the active model / effort / prompt is
+            # never a red build -- what is pinned is that the launcher PASSES ON its own
+            # shipped defaults, not which values they currently hold.
+            defaults = shipped_defaults("DEFAULT_MODEL", "DEFAULT_EFFORT", "DEFAULT_PROMPT")
+            self.assertEqual(args[args.index("--model") + 1], defaults["DEFAULT_MODEL"])
+            self.assertEqual(args[args.index("--effort") + 1], defaults["DEFAULT_EFFORT"])
             self.assertIn("--remote-control", args)
             self.assertEqual(args[args.index("--id") + 1], SCRIPT_TRUE)
             self.assertEqual(args[args.index("--worktree") + 1], SCRIPT_TRUE)
-            self.assertIn("Hello World, Claude!", args)
+            self.assertIn(defaults["DEFAULT_PROMPT"], args)
+
+    def test_shipped_defaults_are_values_the_launcher_supports(self) -> None:
+        """Guard against the switch itself being broken.
+
+        ``test_shipped_debug_true_forces_skip_permissions`` compares the launcher's
+        argv against the launcher's own constants, so it stays green through a model
+        switch -- but it would also stay green if a constant were emptied or misspelled.
+        This pins the values to what the launcher actually accepts, keeping the pair
+        meaningful without re-declaring which model is currently selected.
+        """
+        defaults = shipped_defaults("DEFAULT_MODEL", "DEFAULT_EFFORT", "DEFAULT_PROMPT")
+        self.assertIn(defaults["DEFAULT_MODEL"], KNOWN_MODEL_ALIASES)
+        self.assertIn(defaults["DEFAULT_EFFORT"], KNOWN_EFFORT_LEVELS)
+        self.assertTrue(defaults["DEFAULT_PROMPT"].strip(), "DEFAULT_PROMPT must not be empty")
 
     def test_debug_false_omits_skip_permissions_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
