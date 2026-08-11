@@ -87,7 +87,7 @@ Found by the #1044 executor while mutation-testing: the live-up stubs capture `e
 | Field | Value |
 |---|---|
 | Run-id | `20260810T002233Z` — screenshots `reports/e2e/20260810T002233Z/`, running row record `statuses.tsv` there; matrix `status` column filled in bulk at Phase-1 close |
-| Stack | data 8101 (v0.11.0) · cascor 8202 (v0.6.0) · recurrence **8212** (8211 held by the operator Docker stack at bring-up; the #1042 occupancy pre-check relocated the leg — canopy env `JUNIPER_E2E_RECURRENCE_PORT=8212` confirms) · canopy 8051 (v0.4.0) |
+| Stack | data 8101 (v0.11.0) · cascor 8202 (v0.6.0) · recurrence **8212** (8211 held by the operator Docker stack at bring-up; the #1042 occupancy pre-check relocated the leg — canopy env `JUNIPER_E2E_RECURRENCE_PORT=8212` confirms) · canopy 8051 (v0.4.0). **Superseded 2026-08-10 (segment 4): the isolated recurrence leg is DOWN — see §"Stack-topology correction" below. The trio (data/cascor/canopy) is unaffected and still honest.** |
 | Honest gate (§4.3) | `GET :8051/v1/health`: `status:"ok"`, **`demo_mode:false`**, **`juniper_data_available:true`**; `GET /v1/health/ready`: `ready`, deps healthy (data 20.5 ms, cascor 15.7 ms), `details.mode:"service"` |
 | Canopy env (live process) | `JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS=["http://127.0.0.1:8051","http://localhost:8051"]` present (F-E2E-006 fix live); `DEMO_MODE=0`; nested `SERVER__PORT=8051` |
 | Transport | WS-primary confirmed: `/ws/training` + `/ws/control` both OPEN; control handshake observed in console (`CSRF token acquired` → `Sending CSRF auth frame` → `Control WS Status: open`) — plan T-21 posture as shipped |
@@ -142,3 +142,99 @@ Freeing the VRAM via the repo's own reaper took down the live cascor service leg
 ### Row statuses (running)
 
 `reports/e2e/20260810T002233Z/statuses.tsv` is the per-row record as rows execute. Verdicts so far: **C2.1-01..04 PASS** · **C2.4-01 PASS** · **C2.4-03 PASS** · **C2.4-06 PASS** · **C2.4-07 PASS** (C2.4-02 → DEMO lane; C2.4-04/05 → W14 induction).
+
+---
+
+## Phase 1 — segment 4 (2026-08-10): state reconciliation
+
+Segment 4 opened against a stale handoff. Reconciling it against the live host produced three
+corrections and one evidence recovery, all recorded here before any new row was driven.
+
+### Stack-topology correction — the isolated recurrence leg is DOWN
+
+The segment-3 handoff (and the run header above) assert a live recurrence leg on **8212**. Re-probed at
+segment-4 open: **false**.
+
+| Probe | Result |
+|---|---|
+| `curl :8212/v1/health/ready` | `Failed to connect … Could not connect to server` — **nothing is serving 8212** |
+| `curl :8211/v1/health/ready` | `{"status":"ready"}` — but **not an E2E leg** (below) |
+| `ss -tlnpH "sport = :8211"` | listener with no owning host pid visible to this user |
+| `pgrep -af juniper-recurrence` | pid 1169615 `/usr/local/bin/python3.13 … serve` — **no `--port` flag**, container-style prefix |
+| `/proc/1169615/root/.dockerenv` | **present** |
+| `/proc/1169615/cgroup` | `…/docker-106a7b2f….scope` |
+| `docker ps` | `juniper-recurrence  127.0.0.1:8211->8210/tcp  Up 30 hours (healthy)` |
+
+**Conclusion**: host 8211 is the operator's **juniper-deploy container** (host 8211 → ctr 8210), exactly the
+collider `isolated_stack.bash:26-27,164-165,291-295` warns about; the canonical E2E default is
+8211 (`isolated_stack.bash:83`), which is why the earlier session relocated the leg to 8212. That relocated
+leg has since exited (canopy, started 2026-08-09 17:46, has survived it). Canopy still points at the dead
+port: live process env carries `JUNIPER_CANOPY_RECURRENCE_SERVICE_URL=http://127.0.0.1:8212` and
+`JUNIPER_E2E_RECURRENCE_PORT=8212`.
+
+**Consequence (recorded to prevent a false finding)**: **W7 / W8 and every recurrence-dependent row are
+BLOCKED until the isolated leg is restored on 8212.** Driven as-is they would fail for a purely
+environmental reason while presenting exactly as the pre-registered **T-16** candidate (recurrence silent
+no-op swap with Start still enabled). T-16 may only be adjudicated against a live leg. The deploy stack is
+the operator's and is **not** to be stopped to free 8211 — the documented `JUNIPER_E2E_RECURRENCE_PORT`
+override is the sanctioned path.
+
+The trio is unaffected: data 8101 and cascor 8202 are host processes (`python` pid 1755429, `uvicorn`
+pid 3325500 — the latter the documented mid-session cascor restart), and the honest gate re-passed at
+segment-4 open (`demo_mode:false`, `juniper_data_available:true`).
+
+### W5 preconditions re-verified live
+
+`GET :8202/v1/training/status` → `state_machine.status STOPPED`, `phase IDLE`,
+`monitor.current_hidden_units 10`, `is_training false`; `GET :8202/v1/snapshots` → `data: []`.
+The trained 10-unit network and the empty snapshot baseline both survived the 26 h idle — W5 may proceed.
+
+### Evidence recovery — the superseded `-results` run
+
+Phase 1 was driven twice, on two branches, by two sessions:
+
+| Branch | Run-id | Record | Fate |
+|---|---|---|---|
+| `arc/canopy-e2e-phase1-results` | `20260809T223851Z` | `rowlog.md` (91 lines) | superseded; its F-E2E-006 fix landed as ml#1049 |
+| `arc/canopy-e2e-phase1` | `20260810T002233Z` | `statuses.tsv` (92 rows) | carried forward |
+
+The later run re-covered most of the earlier one, but **~22 verdicts exist only in the earlier rowlog**.
+It is preserved verbatim at `reports/e2e/20260809T223851Z/rowlog.md` rather than discarded, and its unique
+rows are inherited with run-id attribution: **C2.2-02/04/05/06**, **M-WORKERS-06**, **M-REDIS-01/04**,
+**M-CASSANDRA-01/04**, **M-TUTORIAL-01/02**, **M-ABOUT-03**, **M-PARAMETERS-01/02/03**, **M-REPLAY-01**,
+**M-NETWORK-EDITOR-02/03/05/10**, and the **W13 step ledger 1–16**.
+
+Most consequential: **M-NETWORK-EDITOR-05 already confirms divergence D-0 live** — readout
+"No topology loaded.", server-side 404, *no browser-side request* — which the segment-3 handoff still
+listed as outstanding work.
+
+### Cross-run verdict reconciliation — C2.4-07
+
+The two runs disagree, and the disagreement is itself evidence: the earlier run recorded **N-A
+(annotated)** — "WS: Offline" judged unreachable, because the retry-forever client collapses
+`closed`→`reconnecting` in a single status update (GAP-WS-31) and a MutationObserver over a fresh socket
+close saw no intermediate state. The later run recorded **PASS**, catching the red `#dc3545` state in the
+*pre-connect* window (t≈+806 ms after reload) rather than via socket loss. **PASS stands**; the earlier
+note is retained as the methodology reason the state is invisible on the socket-loss path.
+
+### Coverage baseline
+
+`util/ad-hoc/e2e_row_coverage.py` (added this segment) diffs the matrix row inventory against every
+accumulated verdict record, expanding the compressed range notation the run records use
+(`M-TOPOLOGY-01..06,09..18`). At segment-4 open:
+
+**298 matrix rows · 104 verdicted · 194 remaining.** The mapper only credits a row when its id is the
+verdict record's *subject* (first TSV field / first table cell), so rows recorded in the earlier rowlog's
+prose bullets (`M-PARAMETERS-02/03`, `M-NETWORK-EDITOR-03/05/10`) read as remaining and will be
+re-confirmed live rather than assumed — a deliberately conservative bias.
+
+### Observation candidates promoted from the `-results` sweep
+
+- **OBS-1 → docs-truth-up (Phase 4)**: About panel "App Version: 2.2.0" vs `/v1/health` `version: 0.4.0` —
+  two disagreeing version sources (about-panel local `self.version` vs the health handler). Corroborated
+  independently by the later run (TSV `M-ABOUT-02`).
+- **OBS-2 → UX candidate (Phase 2 triage)**: dark mode flattens all five training-control buttons to a
+  uniform blue, losing the light-mode semantics (Start green / Pause yellow / Stop red). Legible, but
+  semantics-destroying. Evidence: `W13-13__dark-metrics-top.png` vs the light walkthrough capture.
+- **OBS-3 → not a finding**: metrics-tab sidebar header "Network Parameters" vs tutorial-tab "Training
+  Controls" is `TAB_HEADER_MAP` behaving as designed (C2.2-04 corroboration).
