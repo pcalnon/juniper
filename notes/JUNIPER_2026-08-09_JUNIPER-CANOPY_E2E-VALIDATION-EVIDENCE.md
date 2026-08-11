@@ -328,3 +328,230 @@ one IP, then assert a *valid* handshake still connects.
 
 Note this is the "audit every call site when extending a shared helper" class: the helper was correct and
 correctly used at the call site it shipped with; the later-added gate simply did not adopt it.
+
+---
+
+## Phase 1 — segment 5 (2026-08-11): W5 steps 4-7
+
+### Stack state on entry — the cascor leg had died
+
+Segment 4 handed off "stack UP and honest: data 8101 / cascor 8202 / canopy 8051". On entry to segment 5
+the cascor leg was **DOWN and had been for ~7.6 h**:
+
+| Probe | Result |
+|---|---|
+| `isolated_stack.bash --status` | data `health=200 pid=1755429` · cascor **`health=000 pid=none`** · canopy `health=200 pid=2375744` |
+| `/tmp/juniper-e2e/logs/juniper-cascor.log` | last write `2026-08-10 20:36` local (= `2026-08-11T01:36Z`); ends **mid-poll** on a `GET /v1/training/status 200 OK` |
+| uvicorn shutdown lines | none — no `Shutting down`, no traceback, no exit code |
+| `syslog` OOM in the window | none (`grep -iE 'oom|killed process'`, `Aug 10 19:00–21:59` → no hits) |
+
+An abrupt end mid-request with no graceful shutdown and no OOM is a **hard external kill**. This is the
+second occurrence of the **F-ML-001** class already in this ledger — and the sibling helper
+`util/ad-hoc/e2e_cascor_leg_restart.bash` was written during the *first* occurrence, its header recording
+"after an orphan-reaper pass took down the nohup-detached cascor service". A concurrent experiment
+campaign was active across the window (run dirs `20260811T022342Z` … `20260811T042344Z` under
+`~/.local/state/juniper-experiments`), and orphaned `JuniperCascor1` forkserver children from a dead
+experiment_stack cascor (port 8230, ~4.8 h old) were still resident. F-ML-001 therefore stands **unfixed
+and demonstrably recurrent**: the isolated stack's nohup-detached services remain reapable by any
+concurrent session's cleanup pass. The pidfile-exclusion / listener-port KEEP gate proposed in F-ML-001 is
+what would have prevented both occurrences.
+
+Recovery: `bash util/ad-hoc/e2e_cascor_leg_restart.bash` → `cascor healthy on 8202`. Canopy was **not**
+touched, so the browser CSRF context stayed valid and no F-CANOPY-008 slot was burned.
+
+**Canopy reconnect — an unprompted resilience positive.** Canopy rode the entire 7.6 h outage and healed
+itself with no intervention: `Control stream supervisor connected to ws://127.0.0.1:8202` at `04:14:04`
+and `Cascor metrics stream connected` at `04:14:19`, with the next relay summary reading
+`status=healthy; reconnects=1`. The supervisor's fixed 30 s control-stream backoff and the metrics
+stream's escalating backoff both behaved as designed across a multi-hour outage. Relevant to the W14
+outage-recovery rows.
+
+### Precondition change — restore now targets an EMPTY cascor
+
+The restarted cascor came back with no in-memory model: `GET :8202/v1/network` → `404 "No network created"`,
+FSM `STOPPED/IDLE`, `current_hidden_units: 0`. The trained 10-unit network segment 4 handed forward is
+**gone**; the snapshot file survived on disk (`snapshot_20260811T010849Z.h5`, 296 701 bytes).
+
+This *strengthens* W5 steps 4-7 rather than weakening them: the restore is now exercised into a genuinely
+empty backend, which is the honest test of the restore path, and its success becomes the precondition for
+steps 8+ instead of being masked by a network that was already resident. Recorded here because any later
+row that assumes "10 units were already loaded" must read this note first.
+
+### Findings opened in segment 5
+
+**F-CANOPY-009 — the snapshot detail panel is wiped by the table's own 10 s refresh: every selection
+self-destructs within one tick (P1, OPEN; root-caused live).**
+
+Found driving W5 step 4. The row's `View Details` button *does* work — the panel fills correctly — and then
+the panel clears itself with no user action. Measured live, single click, 500 ms polling of
+`#hdf5-snapshots-panel-detail-panel`:
+
+| t (ms from probe start) | Panel content |
+|---|---|
+| 10 527 | `Select a snapshot from the table above to view its details.` (placeholder) |
+| **14 308** | **`ID: snapshot_20260811T010849Z  Name: snapshot_20260811T010849Z.h5  Times…`** (filled) |
+| **21 320** | `Select a snapshot from the table above to view its details.` (**wiped**) |
+
+Visible lifetime ≈ **7 s**, bounded above by the panel's 10 s refresh tick. The first three attempts of this
+row were recorded as "button does nothing" purely because each post-click read at +7–10 s sampled *after*
+the wipe — the defect masquerades as a dead button.
+
+Mechanism, captured from the wire (`_dash-update-component` request/response pairs):
+
+1. `select_snapshot` (`juniper-canopy/src/frontend/components/hdf5_snapshots_panel.py:995`) fires with
+   `changedPropIds` naming the row button's `n_clicks` and `state` carrying the correct
+   `{"type":"hdf5-snapshots-panel-view-btn","index":"snapshot_20260811T010849Z"}` — and returns
+   `{"hdf5-snapshots-panel-selected-id":{"data":null}}`. The serialized `inputs` entry carries **no
+   `value` key**, i.e. `n_clicks` arrives falsy.
+2. `update_detail_panel` (`:1038`) then fires with `selected-id.data = null` and returns the placeholder
+   `P` element — captured verbatim in the same trace.
+
+Why `n_clicks` is falsy on that second firing: `update_snapshots_table` (`:868`) is driven by
+`Input(f"{component_id}-refresh-interval", "n_intervals")` (`:862`) on a **10 s** interval
+(`DEFAULT_REFRESH_INTERVAL_MS = 10000`, `:53`; wired `:361-364`) and rebuilds **every row from scratch**
+each tick. The rebuilt `View Details` button (`:920-927`) is constructed **without `n_clicks=0`** — unlike
+all four sibling op-buttons (`:936-954`), which each pass it explicitly. Its counter therefore returns as
+`None`, the pattern-matching `Input(..., ALL)` sees the input list change, and `select_snapshot` re-fires
+with `n_clicks_list = [None]`. It hits its own guard at `:997-998`:
+
+```python
+if not n_clicks_list or not any(n_clicks_list):
+    return None
+```
+
+`any([None])` is `False`, so the callback **clears** the store rather than leaving it alone — and the
+detail panel follows it down.
+
+Two structural notes that matter at fix time:
+
+- All four early-outs in this callback (`:998`, `:1002`, `:1007`, `:1012`) `return None`. Every one of them
+  means "nothing meaningful triggered me", yet each **destroys** existing selection state. `dash.no_update`
+  is the correct return for all four and `dash` is already imported at `:41` — the fix is a one-token change
+  per site, not a refactor.
+- The author's own fallback at `:1022-1030` ("find the button with highest `n_clicks`") is **dead code**: it
+  sits in the `except json.JSONDecodeError` arm, which is only reachable *after* passing the `:997` guard
+  that already rejected this exact state. Someone anticipated this failure mode and the guard above it
+  prevents the remedy from ever running.
+
+Blast radius: W5 step 4, and every downstream row that needs a *stable* selection — the detail panel is the
+only surface exposing a snapshot's HDF5 attributes (`format_version`, `serializer_version`,
+`juniper_version`), so the V1/V2 determination behind W5 step 18 cannot be made from the UI. Any operator
+reading a snapshot's provenance has a ≈7 s window per click.
+
+Note the contrast with **F-CANOPY-007**: that one made the list unreachable on a split filesystem; this one
+makes the *detail* unreadable even when the list is correct. They are independent defects on the same
+panel, and 007's fix is what made 009 observable at all.
+
+Fix direction (Phase 2): return `dash.no_update` from all four early-outs in `select_snapshot`, and
+construct the `View Details` button with `n_clicks=0` to match its siblings so the rebuild stops
+re-triggering the callback at all. Regression test: select a snapshot, hold past two refresh ticks
+(> 20 s), assert the detail panel still renders the selected id.
+
+**F-CANOPY-010 — the snapshot-operation CONFIRMATION MODAL closes itself ~3.6 s after opening; the
+operator has under four seconds to read and confirm a state-changing action (P1, OPEN; root-caused live).**
+
+Same class as F-CANOPY-009, different callback, worse consequence — recorded separately because it needs
+its own fix and its own regression test. Found driving W5 step 5.
+
+The modal opens **correctly**. Body captured live, matching the matrix expectation on both halves:
+
+> `Confirm Restore of snapshot: snapshot_20260811T010849Z` · `Load this snapshot for inspection and
+> modification. Training is NOT started — invoke Retrain or Resume to begin a training run.` · `⚠️ Training
+> must …`
+
+Then it decays, in two stages, with no user action:
+
+| t (ms from click) | State |
+|---|---|
+| 2 256 | modal open, body correct |
+| 4 765 | modal still open, **body emptied** (`""`) |
+| 5 887 | **modal gone** |
+
+≈ **3.6 s** of usable life. Mechanism: `open_snapshot_op_modal`
+(`hdf5_snapshots_panel.py:1151`) is fed by `Input({"type": …-snapshot-op-btn, "index": ALL, "op": ALL},
+"n_clicks")` (`:1146`). The same 10 s `update_snapshots_table` rebuild that drives F-CANOPY-009 reconstructs
+the dropdown items, re-firing this callback with a falsy `n_clicks`; it takes one of its four early-outs
+(`:1167`, `:1171`, `:1175`, `:1198`), each of which returns the triple
+
+```python
+return False, "", None      # is_open=False, modal_body="", pending_id=None
+```
+
+— i.e. it *actively slams the dialog shut, blanks its body, and discards the pending operation id*. The
+two-stage decay above is exactly those three Outputs landing across ticks. Note the op-buttons **do** carry
+`n_clicks=0` (`:936-954`), so unlike F-CANOPY-009 this is not a missing-default bug — the guard at `:1170`
+rejects the rebuilt `0` as falsy just the same. The fix is the same one-token change (`dash.no_update`,
+already imported at `:41`) at all four sites.
+
+Severity above F-CANOPY-009: this is the **confirmation gate for restore / replay / resume / retrain** — the
+operations that mutate live training state. A confirmation dialog that revokes itself in 3.6 s either
+trains the operator to click without reading, or silently drops the action. It also discards
+`-restore-pending-id`, so the pending operation is gone even if the button were still reachable.
+
+Reproduction is deterministic and needs no special timing: open any row's op menu, pick any operation,
+wait four seconds.
+
+### W5 steps 5-7 — results
+
+- **Step 5 PASS.** Modal opens with the correct title and the ⚠️ training-state warning (body quoted above).
+  The self-close is filed as F-CANOPY-010, not as a step-5 failure — the step's stated expectation is met.
+- **Step 6 PASS**, and proven on the wire rather than by timing. Cancel produced exactly one
+  `_dash-update-component` carrying `restore-cancel`, answered
+  `{"hdf5-snapshots-panel-restore-modal":{"is_open":false}}` — the dedicated cancel callback (`:1209-1210`)
+  — with **zero `/api/` requests** in the window, satisfying "modal closes, no request". Timing confirms the
+  close was the click and not the F-CANOPY-010 decay: modal open t=3383 ms, cancel clicked t=3390 ms, closed
+  t=6172 ms.
+- **Step 7 INCONCLUSIVE — re-run required.** Confirm fired and the panel rendered
+  `❌ Failed (restore): Failed to restore snapshot`, but **the cascor leg was already dead when it landed**,
+  so this is environmental and *not* a canopy verdict. A direct probe taken while cascor was down returned
+  the identical `HTTP 500 {"detail":"Failed to restore snapshot"}` from
+  `POST :8051/api/v1/snapshots/{id}/restore` — canopy's message is faithful to an unreachable backend.
+  Recorded as INCONCLUSIVE rather than FAIL. One honest-label observation does survive: the surface reports
+  failure correctly but carries **no diagnostic** distinguishing "backend unreachable" from "restore
+  rejected" — the operator cannot tell these apart from the UI.
+
+### F-ML-001 UPGRADE — three confirmed kills in one session; the trigger is now pinned
+
+F-ML-001 was filed as "the reaper can kill nohup-detached isolated-stack services". This segment escalates
+it from a hazard to a **demonstrated, repeating, arc-blocking failure**, and pins both the trigger and the
+selectivity.
+
+Three kills of the isolated cascor leg (8202) inside ~1 hour, each within ~2 s of a concurrent
+experiment-campaign run directory being created:
+
+| # | cascor log last write | Concurrent run dir created | Δ |
+|---|---|---|---|
+| 1 | `2026-08-11 01:36` (local 20:36 Aug 10) | campaign active across the window | — |
+| 2 | `04:34:01.118` | `20260811T093401Z-3b2b` → 04:34:01 | **~0 s** |
+| 3 | `04:36:45.999` | `20260811T093647Z-dae2` → 04:36:47 | **~2 s** |
+
+Every kill is abrupt: last line is a served request, no uvicorn `Shutting down`, no traceback, and no OOM
+in `syslog` for any window. Kill #3 landed *mid-gesture*, between the restore-confirm click and its
+response — which is what produced the INCONCLUSIVE W5-07 above.
+
+**Why cascor and not the other two legs** — the reaper's predicate explains the selectivity exactly, and
+all three legs behave as predicted:
+
+| Leg | cmdline | Matches `JuniperC[a-z0-9]+` gate? | Parentless? | Outcome |
+|---|---|---|---|---|
+| cascor 8202 | `/opt/miniforge3/envs/**JuniperCascor1**/bin/python3.13 …/uvicorn api.app:create_app` | **yes** | yes (ppid 1/systemd — nohup by design) | **killed, 3×** |
+| data 8101 | `/tmp/juniper-e2e/.venv-data/…/python -m juniper_data` | no (venv path) | yes | survived |
+| canopy 8051 | `python main.py` (bare argv; env path not in cmdline) | no | yes | survived |
+
+So the leg that dies is precisely the one whose **conda env name appears in its cmdline**. Data and canopy
+survive by accident of how they are invoked, not by any protection — F-ML-001's original note that canopy
+"is equally exposed" is confirmed as *conditionally* true: it escapes only because `python main.py` hides
+`JuniperCanopy1`.
+
+**The trigger is an operator action, not the campaign scripts.** `util/experiments/**` and
+`util/experiment_stack.bash` contain no `reap_pytest_orphans` / `kill_all_pythons` / `pkill` / `killall`
+invocation (greps clean). The kills therefore come from the concurrent session's *manual pre-run reap* —
+the standing practice of clearing orphaned `JuniperCascor1` forkserver children before each campaign run
+(the known GPU-leak class). Corroborating: the ~4.8 h-old orphaned forkserver children from a dead
+experiment cascor on port 8230 that were resident at segment start were gone after kill #2.
+
+Consequence for this arc: **the isolated cascor leg cannot be kept alive while the campaign runs**, and
+189 matrix rows remain, most of which need it. This is a coordination/tooling blocker, not a canopy defect
+— escalated to the session owner rather than worked around, because every available workaround either
+deviates from the byte-matched launch recipe the E2E evidence depends on, or edits a shared tool another
+running session is actively using.
