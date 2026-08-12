@@ -279,20 +279,59 @@ adopted the fleet naming. **Fix the CI structure first** (§5), then require the
 
 ## 4. Defects found while deriving the lists
 
-These are live bugs, independent of the ruleset problem:
+1. ~~**Typo — juniper-cascor ruleset**: `Integration Tests (Python 3.12 on macos-lates)`
+   and three `ubuntu-lates` siblings.~~ **FIXED 2026-08-12.**
+2. ~~**Typo — juniper-data ruleset**: `Regression Tests (Python 3.12 on macos-lates)`
+   plus three `ubuntu-lates` siblings.~~ **FIXED 2026-08-12.**
+3. ~~**Truncation — juniper-deploy ruleset**:
+   `Unit Tests + Coverage (Python 3.12 on macos-latest` — missing closing paren.~~
+   **FIXED 2026-08-12.**
+4. **Unexpanded matrix expression — juniper-data.** *Investigated 2026-08-12:*
+   **not a workflow defect — no fix needed.** The job name at
+   `juniper-data/.github/workflows/ci.yml:228` is correct GitHub Actions syntax, and
+   `unit-tests` declares `needs: [pre-commit]`. On juniper-data#253 the rollup carries
+   **both** an un-interpolated `Unit Tests + Coverage (Python ${{ matrix.python-version }}
+   on ${{ matrix.os }})` with `conclusion: CANCELLED` **and** all four properly expanded
+   names with `conclusion: SUCCESS`. Two runs: an earlier one cancelled by
+   `concurrency: {group: ci-${{ github.ref }}, cancel-in-progress: true}`
+   (`ci.yml:48-50`) when a second push landed, plus the run that actually completed.
+   **A matrix job cancelled before expansion is reported by GitHub under its literal name
+   template.** Routine for any repo combining a matrix with `cancel-in-progress`.
+   *Consequence:* never add the literal `${{ … }}` string as a required context — it
+   appears only on cancelled runs. The auditor already classifies it path-gated `[1/8]`
+   and excludes it from Tier 1, which is the correct handling.
+5. ~~**juniper-cascor-worker still carries the `update` rule**~~ **FIXED 2026-08-12** —
+   now the fleet-standard 8 rules.
 
-1. **Typo — juniper-cascor ruleset**: requires `Integration Tests (Python 3.12 on macos-lates)`
-   and three `ubuntu-lates` siblings. Missing the trailing `t`; unmatchable by construction.
-2. **Typo — juniper-data ruleset**: requires `Regression Tests (Python 3.12 on macos-lates)`
-   plus three `ubuntu-lates` siblings.
-3. **Truncation — juniper-deploy ruleset**: requires
-   `Unit Tests + Coverage (Python 3.12 on macos-latest` — **missing the closing paren**.
-4. **Unexpanded matrix expression — juniper-data workflow**: a check reported literally as
-   `Unit Tests + Coverage (Python ${{ matrix.python-version }} on ${{ matrix.os }})`.
-   The job-name template did not interpolate on that run — a real workflow defect worth a
-   separate fix.
-5. **juniper-cascor-worker still carries the `update` rule** — the lone remaining
-   rule-set outlier (9 rules vs the fleet's 8).
+### 4a. Post-application state (2026-08-12)
+
+Tier 1 applied by the owner via the web UI. Re-audit result — **200 blocking contexts
+reduced to 9**, all one systematic cause:
+
+| Repo | Required | Blocking | Remaining issue |
+|---|---|---|---|
+| juniper-ml | 14 | **0** | ✅ clean |
+| juniper-cascor | 21 | 1 | `Security Scan` |
+| juniper-canopy | 18 | 1 | `Security Scan` |
+| juniper-data | 19 | 1 | `Security Scan` |
+| juniper-cascor-worker | 19 | 1 | `Security Scan` |
+| juniper-deploy | 7 | 1 | `Security Scan` |
+| juniper-data-client | 17 | 1 | `Security Scan` |
+| juniper-cascor-client | 17 | 1 | `Security Scan` |
+| juniper-recurrence | 6 | 3 | `Security Scan`, `Analyze (python)`, `Quality Gate` |
+
+**Cause:** `Security Scan` (singular) was added fleet-wide, but **only juniper-ml names
+its job that way**. Six repos emit `Security Scans` (plural); deploy and recurrence have
+no security-scan job at all.
+
+**Fix:**
+
+| Repo | Action |
+|---|---|
+| cascor, canopy, data, cascor-worker, data-client, cascor-client | `Security Scan` → **`Security Scans`** |
+| deploy | **remove** `Security Scan` — no such job (Tier 2 adds one) |
+| recurrence | **remove** `Security Scan`, `Analyze (python)`, `Quality Gate` — none exist (Tier 2) |
+| juniper-ml | none — already correct |
 
 ---
 
