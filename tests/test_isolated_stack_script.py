@@ -88,15 +88,26 @@ def _read_marker_when_written(path: Path, timeout_seconds: float = 10.0) -> str:
     The ``*_up`` arms background the launcher and return as soon as the (stubbed,
     instant) health probe passes, so the stub may not have written its marker yet
     when the harness returns -- poll briefly instead of asserting on a snapshot race.
+
+    Completeness is guaranteed by the WRITER, not by this poll: the stubs build each
+    marker in a ``.partial`` sibling and ``mv`` it into place, so any file observed
+    here is a whole record. That is the load-bearing half of the fix -- a stub that
+    wrote its multi-line env block straight to the final path was caught mid-record
+    (7 of 12 lines) under CPU contention, and the test failed on a key that had not
+    landed yet.
+
+    The trailing-newline check below is only a cheap second line of defence for a
+    future stub that forgets the atomic-publish idiom; it cannot catch a truncated
+    record that happens to end on a line boundary, which is exactly what was observed.
     """
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         if path.exists():
             text = path.read_text()
-            if text.strip():
+            if text.strip() and text.endswith("\n"):
                 return text
         time.sleep(0.025)
-    raise AssertionError(f"marker file {path} not written within {timeout_seconds}s")
+    raise AssertionError(f"marker file {path} not written (or left mid-record) within {timeout_seconds}s")
 
 
 def _run(*args: str, env_extra: "dict[str, str] | None" = None) -> subprocess.CompletedProcess:
@@ -474,12 +485,20 @@ conda() {{
         curl.chmod(0o755)
 
         # Shared launch stub body: log argv + selected env, exit immediately.
+        #
+        # Each marker is published ATOMICALLY -- written to a ``.partial`` sibling and
+        # then ``mv``'d into place. A multi-line record written straight to its final
+        # path is observable half-written: a poller caught this env block after only 7
+        # of its 12 lines (newline-terminated, so a trailing-newline check passes), and
+        # the test then failed on a key that had not landed yet. ``mv`` within a
+        # directory is a rename, so the reader sees either no file or the whole record.
         launch_body = f"""#!/usr/bin/env bash
 {{
   printf '%s' "{launch_name}"
   printf ' %q' "$@"
   printf '\\n'
-}} >>"{launch_log}"
+}} >"{launch_log}.partial"
+mv -f "{launch_log}.partial" "{launch_log}"
 {{
   printf 'LD_LIBRARY_PATH=%s\\n' "${{LD_LIBRARY_PATH-__UNSET__}}"
   printf 'JUNIPER_DATA_URL=%s\\n' "${{JUNIPER_DATA_URL-}}"
@@ -493,7 +512,8 @@ conda() {{
   printf 'JUNIPER_CANOPY_CASCOR_WS_ORIGIN=%s\\n' "${{JUNIPER_CANOPY_CASCOR_WS_ORIGIN-}}"
   printf 'JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS=%s\\n' "${{JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS-}}"
   printf 'JUNIPER_CANOPY_RECURRENCE_SERVICE_URL=%s\\n' "${{JUNIPER_CANOPY_RECURRENCE_SERVICE_URL-}}"
-}} >"{env_log}"
+}} >"{env_log}.partial"
+mv -f "{env_log}.partial" "{env_log}"
 exit 0
 """
         launcher = stub_bin / launch_name
@@ -757,18 +777,21 @@ class TestRecurrenceLeg(_CondaServiceUpHarness):
         bin_dir = conda_dir / "envs" / "JuniperCascor1" / "bin"
         bin_dir.mkdir(parents=True, exist_ok=True)
         stub = bin_dir / "juniper-recurrence"
+        # Markers published atomically (.partial then mv) -- see _stage_conda_and_stubs.
         stub.write_text(f"""#!/usr/bin/env bash
 {{
   printf 'juniper-recurrence'
   printf ' %q' "$@"
   printf '\\n'
-}} >>"{launch_log}"
+}} >"{launch_log}.partial"
+mv -f "{launch_log}.partial" "{launch_log}"
 {{
   printf 'LD_LIBRARY_PATH=%s\\n' "${{LD_LIBRARY_PATH-__UNSET__}}"
   printf 'JUNIPER_DATA_URL=%s\\n' "${{JUNIPER_DATA_URL-}}"
   printf 'JUNIPER_RECURRENCE_METRICS_ENABLED=%s\\n' "${{JUNIPER_RECURRENCE_METRICS_ENABLED-}}"
   printf 'JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=%s\\n' "${{JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED-}}"
-}} >"{env_log}"
+}} >"{env_log}.partial"
+mv -f "{env_log}.partial" "{env_log}"
 exit 0
 """)
         stub.chmod(0o755)
