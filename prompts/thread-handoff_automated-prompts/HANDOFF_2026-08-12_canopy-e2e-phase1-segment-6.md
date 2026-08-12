@@ -31,6 +31,13 @@ planning any UI work.
   child of a resident supervisor. Launch recipe is byte-identical to `cascor_up`; only the parent changes.
   **Verified with the reaper itself** — `reap_pytest_orphans.bash --dry-run` now reports
   `KEEP pid=… (live parent)` for the leg while still flagging the stale campaign orphans.
+- **Branch made green.** `tests/test_isolated_stack_script.py` was RED on the arc branch (3 failures) while
+  main was green: segment 4 added `JUNIPER_CANOPY_SNAPSHOT_DIR` to `canopy_up` without updating the
+  contract test, and `_run_up` enumerates every variable the function reads under `set -u`, so `canopy_up`
+  aborted on an unbound expansion. Fixed, and the export is now genuinely pinned — the env probe records a
+  **fixed** variable list, so it had to be extended too or the suite would have gone green without guarding
+  the F-CANOPY-007 remediation at all. Guard verified to bite. 66/66 green; `pre-commit` clean over the
+  whole branch diff.
 
 ## Remaining work (priority order)
 
@@ -77,9 +84,10 @@ curl -sS http://127.0.0.1:8202/v1/network | head -c 80                      # "N
 curl -sS http://127.0.0.1:8051/api/v1/snapshots | head -c 120               # 1 snapshot
 bash util/reap_pytest_orphans.bash --dry-run --verbose | grep 'KEEP.*uvicorn'  # leg shows KEEP (live parent)
 python3 util/ad-hoc/e2e_row_coverage.py --repo-root .                       # 109 / 189
+python3 -m unittest -q tests/test_isolated_stack_script.py                  # 66/66 OK
 ```
 
-All seven were executed against the live host at segment-5 close and pass as written. Two notes, because
+All eight were executed against the live host at segment-5 close and pass as written. Two notes, because
 both cost time when they were wrong:
 
 - The reaper grep must key on `KEEP.*uvicorn`, **not** on the port — `--verbose` truncates the cmdline
