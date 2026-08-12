@@ -90,7 +90,7 @@ def required_contexts(repo: str) -> set[str]:
             f"/repos/pcalnon/{repo}/rules/branches/main",
             "--jq",
             '[.[]|select(.type=="required_status_checks")'
-            "|.parameters.required_status_checks[].context]",
+            + "|.parameters.required_status_checks[].context]",
         ]
     )
     out = out.strip()
