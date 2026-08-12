@@ -18,18 +18,18 @@ repo's *actual* CI job names, which differ per repo by design.
 
 A required context that never reports is never satisfied. The result:
 
-| Repo | Required | Matched | **Blocking** |
-|---|---|---|---|
-| juniper-ml | 30 | 7 | **23** |
-| juniper-cascor | 30 | 12 | **18** |
-| juniper-canopy | 30 | 10 | **20** |
-| juniper-data | 30 | 10 | **20** |
-| juniper-cascor-worker | 30 | 10 | **20** |
-| juniper-deploy | 30 | 4 | **26** |
-| juniper-data-client | 30 | 8 | **22** |
-| juniper-cascor-client | 30 | 8 | **22** |
-| juniper-recurrence | 30 | 1 | **29** |
-| **TOTAL** | | | **200** |
+| Repo                  | Required | Matched | **Blocking** |
+|-----------------------|----------|---------|--------------|
+| juniper-ml            | 30       | 7       | **23**       |
+| juniper-cascor        | 30       | 12      | **18**       |
+| juniper-canopy        | 30       | 10      | **20**       |
+| juniper-data          | 30       | 10      | **20**       |
+| juniper-cascor-worker | 30       | 10      | **20**       |
+| juniper-deploy        | 30       | 4       | **26**       |
+| juniper-data-client   | 30       | 8       | **22**       |
+| juniper-cascor-client | 30       | 8       | **22**       |
+| juniper-recurrence    | 30       | 1       | **29**       |
+| **TOTAL**             |          |         | **200**      |
 
 **Every repo's `main` is currently unmergeable except by admin bypass** — the exact
 opposite of the headless-merge goal.
@@ -79,7 +79,7 @@ Exact strings. Case, spacing, and parentheses are significant.
 
 ### juniper-ml (14)
 
-```
+```bash
 Analyze (python)
 Build and Validate Package
 Claude.yml Access Audit
@@ -98,7 +98,7 @@ Security Scan
 
 ### juniper-cascor (21)
 
-```
+```bash
 Analyze (python)
 Async-route audit (BUG-JD-10 class)
 Bandit
@@ -124,7 +124,7 @@ model-core Conformance
 
 ### juniper-canopy (18)
 
-```
+```bash
 Analyze (python)
 Async-route audit (BUG-JD-10 class)
 Build Distribution
@@ -147,7 +147,7 @@ Unit Tests + Coverage (Python 3.14 on ubuntu-latest)
 
 ### juniper-data (19)
 
-```
+```bash
 Analyze (python)
 Async-route audit (BUG-JD-10 class)
 Bandit
@@ -171,7 +171,7 @@ Unit Tests + Coverage (Python 3.14 on ubuntu-latest)
 
 ### juniper-cascor-worker (19)
 
-```
+```bash
 Analyze (python)
 Async-route audit (BUG-JD-10 class)
 Bandit
@@ -195,7 +195,7 @@ Unit Tests + Coverage (Python 3.14 on ubuntu-latest)
 
 ### juniper-deploy (6)
 
-```
+```bash
 Compose Validation
 Gitleaks
 Pre-commit
@@ -206,7 +206,7 @@ Unit Tests
 
 ### juniper-data-client (17)
 
-```
+```bash
 Analyze (python)
 Bandit
 Build Package
@@ -228,7 +228,7 @@ Unit Tests + Coverage (Python 3.14 on ubuntu-latest)
 
 ### juniper-cascor-client (17)
 
-```
+```bash
 Analyze (python)
 Bandit
 Build Package
@@ -250,7 +250,7 @@ Unit Tests + Coverage (Python 3.14 on ubuntu-latest)
 
 ### juniper-recurrence (3) — ⚠️ structurally different
 
-```
+```bash
 Documentation links
 Guard PR base branch
 Pre-commit (all-files)
@@ -259,16 +259,16 @@ Pre-commit (all-files)
 **Do not simply accept 3.** recurrence's real gates are all path-gated and therefore
 unsafe to require as-is:
 
-| Context | Reports on |
-|---|---|
-| `Required checks` | 4/7 PRs |
-| `Test (Python 3.12/3.13/3.14)` | 4/7 |
-| `Lint (ruff)` | 4/7 |
-| `Build distribution` | 4/7 |
-| `Docker Build & Smoke Test` | 4/7 |
-| `Bench required checks` | 3/7 |
-| `Bench smoke (Python 3.12/3.13/3.14)` | 3/7 |
-| `Test — torch MLP readout (Rung 2b; optional [torch] extra)` | 1/7 |
+| Context                                                      | Reports on |
+|--------------------------------------------------------------|------------|
+| `Required checks`                                            | 4/7 PRs    |
+| `Test (Python 3.12/3.13/3.14)`                               | 4/7        |
+| `Lint (ruff)`                                                | 4/7        |
+| `Build distribution`                                         | 4/7        |
+| `Docker Build & Smoke Test`                                  | 4/7        |
+| `Bench required checks`                                      | 3/7        |
+| `Bench smoke (Python 3.12/3.13/3.14)`                        | 3/7        |
+| `Test — torch MLP readout (Rung 2b; optional [torch] extra)` | 1/7        |
 
 recurrence runs two disjoint CI configurations (main CI vs bench CI) on complementary path
 filters, so almost nothing runs on every PR. Note also `Documentation links` is
@@ -302,79 +302,79 @@ Ordered by value. "N/A" reasons are given where a fleet check does not apply.
 
 ### juniper-ml
 
-| Check | Why |
-|---|---|
-| `Gitleaks` | Repo carries SOPS-encrypted `.env` / `.env.secrets`; secret scanning is the natural guard and the `no-unencrypted-env` pre-commit hook only covers committed plaintext. |
-| `SOPS Validation` | `.sops.yaml` is live but nothing validates encryption in CI. deploy already has this job to copy. |
-| `Unit Tests + Coverage` | ml has `Regression Tests` only — no coverage gate, while every sibling enforces one. |
-| `Lockfile Freshness` | `lockfile-update.yml` regenerates weekly, but no PR check catches a stale `conf/requirements_ci.txt`. |
-| Promote `Sequence Safety` | ml#1011, after the ~2026-08-21 soak. |
+| Check                     | Why                                                                                                                                                                     |
+|---------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Gitleaks`                | Repo carries SOPS-encrypted `.env` / `.env.secrets`; secret scanning is the natural guard and the `no-unencrypted-env` pre-commit hook only covers committed plaintext. |
+| `SOPS Validation`         | `.sops.yaml` is live but nothing validates encryption in CI. deploy already has this job to copy.                                                                       |
+| `Unit Tests + Coverage`   | ml has `Regression Tests` only — no coverage gate, while every sibling enforces one.                                                                                    |
+| `Lockfile Freshness`      | `lockfile-update.yml` regenerates weekly, but no PR check catches a stale `conf/requirements_ci.txt`.                                                                   |
+| Promote `Sequence Safety` | ml#1011, after the ~2026-08-21 soak.                                                                                                                                    |
 
 ### juniper-cascor
 
-| Check | Why |
-|---|---|
-| `Gitleaks` | Not present; cascor holds API-key handling code. |
-| Promote `Sequence Safety` | ml#1011. |
+| Check                     | Why                                              |
+|---------------------------|--------------------------------------------------|
+| `Gitleaks`                | Not present; cascor holds API-key handling code. |
+| Promote `Sequence Safety` | ml#1011.                                         |
 
 *N/A: `Release-Train Archive Guard` (juniper-ml only), `Compose Validation` (deploy only).*
 
 ### juniper-canopy
 
-| Check | Why |
-|---|---|
-| `Bandit` | canopy is the only service repo without a standalone Bandit job. |
-| `Gitleaks` | Handles `CANOPY_API_KEY` / CSRF secrets. |
-| Promote `Sequence Safety` | ml#1011. |
+| Check                     | Why                                                              |
+|---------------------------|------------------------------------------------------------------|
+| `Bandit`                  | canopy is the only service repo without a standalone Bandit job. |
+| `Gitleaks`                | Handles `CANOPY_API_KEY` / CSRF secrets.                         |
+| Promote `Sequence Safety` | ml#1011.                                                         |
 
 ### juniper-data
 
-| Check | Why |
-|---|---|
+| Check                              | Why                                                              |
+|------------------------------------|------------------------------------------------------------------|
 | Fix the unexpanded matrix job name | Defect 4 above — currently emits a literal `${{ ... }}` context. |
-| `Gitleaks` | Handles `JUNIPER_DATA_API_KEY`. |
-| Promote `Sequence Safety` | ml#1011. |
+| `Gitleaks`                         | Handles `JUNIPER_DATA_API_KEY`.                                  |
+| Promote `Sequence Safety`          | ml#1011.                                                         |
 
 ### juniper-cascor-worker
 
-| Check | Why |
-|---|---|
+| Check                       | Why                                                                         |
+|-----------------------------|-----------------------------------------------------------------------------|
 | `Docker Build & Smoke Test` | The only containerized service repo without one; the worker ships an image. |
-| `Gitleaks` | `_FILE` secret-indirection code path (worker#94/#95). |
-| Promote `Sequence Safety` | ml#1011. |
+| `Gitleaks`                  | `_FILE` secret-indirection code path (worker#94/#95).                       |
+| Promote `Sequence Safety`   | ml#1011.                                                                    |
 
 ### juniper-deploy — ⚠️ thinnest CI in the fleet (6 checks)
 
-| Check | Why |
-|---|---|
-| `Analyze (python)` (CodeQL) | No static analysis at all today, despite shipping Python tooling. |
-| `Documentation Links` | Large `docs/` surface, entirely unvalidated. |
-| `Dependency Documentation` | No dependency-doc generation, unlike all 8 siblings. |
-| `Security Scans` (pip-audit) | No dependency CVE screen. |
-| `Lockfile Freshness` | No lockfile drift gate. |
+| Check                        | Why                                                               |
+|------------------------------|-------------------------------------------------------------------|
+| `Analyze (python)` (CodeQL)  | No static analysis at all today, despite shipping Python tooling. |
+| `Documentation Links`        | Large `docs/` surface, entirely unvalidated.                      |
+| `Dependency Documentation`   | No dependency-doc generation, unlike all 8 siblings.              |
+| `Security Scans` (pip-audit) | No dependency CVE screen.                                         |
+| `Lockfile Freshness`         | No lockfile drift gate.                                           |
 
 ### juniper-data-client / juniper-cascor-client
 
-| Check | Why |
-|---|---|
-| `Lockfile Freshness` | Both lack the drift gate their sibling services have. |
-| `Gitleaks` | Both handle API keys. |
-| Promote `Sequence Safety` | ml#1011. |
+| Check                     | Why                                                   |
+|---------------------------|-------------------------------------------------------|
+| `Lockfile Freshness`      | Both lack the drift gate their sibling services have. |
+| `Gitleaks`                | Both handle API keys.                                 |
+| Promote `Sequence Safety` | ml#1011.                                              |
 
 *N/A: `Docker Build & Smoke Test`, `Compose Validation` (libraries, no image).*
 
 ### juniper-recurrence — ⚠️ largest gap; structural fix first
 
-| Step | Why |
-|---|---|
-| **1. Make the core suite run on every PR** | Prerequisite for everything else. `Test`, `Lint (ruff)`, `Build distribution`, `Required checks` are path-gated to 4/7 PRs, so nothing meaningful can be required. Either drop the path filters on the core lane or add an always-run fallback job. |
-| **2. Adopt fleet naming** | `Required checks` → `Quality Gate`; `Documentation links` → `Documentation Links`. Removes a standing drift class. |
-| 3. `Analyze (python)` (CodeQL) | No static analysis today. |
-| 4. `Security Scans` + `Bandit` | No dependency CVE or security-lint screen. |
-| 5. `Dependency Documentation` | Absent, unlike all siblings. |
-| 6. `Lockfile Freshness` | Absent. |
-| 7. Coverage gate | No `Unit Tests + Coverage` equivalent. |
-| 8. `Gitleaks` | Absent. |
+| Step                           | Why                                                                                                                                                                                                  |
+|--------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **1. Core suite, all PRs**     | Req for everything. `Test`, `Lint (ruff)`, `Build distribution`, `Required checks` path-gate: 4/7 PRs, No meaningful checks required. Drop path filters on core lane or add always-run fallback job. |
+| **2. Adopt fleet naming**      | `Required checks` → `Quality Gate`; `Documentation links` → `Documentation Links`. Removes a standing drift class.                                                                                   |
+| 3. `Analyze (python)` (CodeQL) | No static analysis today.                                                                                                                                                                            |
+| 4. `Security Scans` + `Bandit` | No dependency CVE or security-lint screen.                                                                                                                                                           |
+| 5. `Dependency Documentation`  | Absent, unlike all siblings.                                                                                                                                                                         |
+| 6. `Lockfile Freshness`        | Absent.                                                                                                                                                                                              |
+| 7. Coverage gate               | No `Unit Tests + Coverage` equivalent.                                                                                                                                                               |
+| 8. `Gitleaks`                  | Absent.                                                                                                                                                                                              |
 
 recurrence is a **publishing repo shipping 3 packages** and has the weakest CI of the nine
 — worth a dedicated hardening pass.
