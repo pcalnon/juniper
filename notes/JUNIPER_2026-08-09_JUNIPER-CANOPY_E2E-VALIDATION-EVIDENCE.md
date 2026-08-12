@@ -555,3 +555,44 @@ Consequence for this arc: **the isolated cascor leg cannot be kept alive while t
 — escalated to the session owner rather than worked around, because every available workaround either
 deviates from the byte-matched launch recipe the E2E evidence depends on, or edits a shared tool another
 running session is actively using.
+
+#### Remedy adopted (owner-selected): supervise the leg under a live parent
+
+`util/ad-hoc/e2e_cascor_leg_supervise.bash` (new) launches the cascor leg as a **direct child of a resident
+supervisor** instead of via `( … nohup … & )`. It targets the reaper's *orphan* predicate only — the
+uvicorn argv, the §6.1 env set, the port, the CWD, and the log destination stay byte-identical to
+`cascor_up` / `e2e_cascor_leg_restart.bash`, so nothing the E2E evidence observes about canopy↔cascor
+behaviour changes. The supervisor's own argv (`bash util/ad-hoc/e2e_cascor_leg_supervise.bash`) does not
+match the `JuniperC[a-z0-9]+` candidate gate, so the supervisor is never itself a reap candidate and the
+child can never re-classify to orphan.
+
+**Verified with the reaper itself** — `util/reap_pytest_orphans.bash --dry-run --verbose` against the
+running supervised stack:
+
+```text
+KEEP       pid=437062 ppid=437053 (live parent) cmd=…/JuniperCascor1/bin/python3.13 …/uvicorn api.app:create_app --
+WOULD REAP pid=3695742 ppid=25920 cmd=…/JuniperCascor1/bin/python3.13 -c … multiprocessing.forkserver …
+…
+Dry-run summary: 5 would be reaped, 4 kept (live parent), 0 skipped.
+```
+
+The E2E leg is classified **KEEP (live parent)** by the very tool that killed it three times, while the
+stale campaign forkserver orphans are still correctly flagged for reaping. The F-ML-001 dry-run/live delta
+caveat (children of reaped orphans re-classify mid-pass) does not reach this leg: its parent is not a
+candidate in any pass.
+
+Two limits worth stating plainly:
+
+- This defends against the **orphan reaper only**. A blanket killer (`kill_all_pythons.bash` and friends)
+  kills regardless of parentage and would still take the leg down.
+- cascor's own multiprocessing **forkserver children** remain orphan-classified candidates. Reaping those
+  does not kill the service (its parent is the supervisor) but can disrupt an in-flight training run — so a
+  reap during a live W1/W2 run is still not safe.
+
+Auto-restart is deliberately **opt-in** (`--restart`, default off) so a genuine cascor crash stays visible
+instead of being silently papered over mid-run; every child exit is timestamped to
+`${LOG_DIR}/juniper-cascor-supervisor.log` either way, so a row verdict can always be checked against
+whether the backend restarted underneath it.
+
+F-6 note: because uvicorn is a *direct* child here, `$!` genuinely is the server pid, so the pidfile this
+script writes is honest — unlike the subshell form, where `$!` is the subshell.
