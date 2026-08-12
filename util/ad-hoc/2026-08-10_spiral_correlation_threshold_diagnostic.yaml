@@ -1,0 +1,29 @@
+# DIAGNOSTIC (not a P4 study): is spiral-baseline's correlation_threshold: 0.2 the thing
+# that keeps the re-surfaced E-A grid degenerate?
+#
+# E-A re-run against the F-P4-1-fixed stack (2026-08-10) produced 12/12 cells at
+# outcome=succeeded but 1 hidden unit, acc 0.54, completion_reason=no_candidate. Best
+# candidate correlation was 0.0189359 for every pool in {4,8,16} and 0.0729 for pool 32 --
+# all an order of magnitude under the 0.2 acceptance bar, so no candidate is ever
+# installable and BOTH budget axes are inert.
+#
+# This sweeps ONLY correlation_threshold, holding pool and unit cap fixed, to separate:
+#   (a) the threshold is mis-set for this dataset scale  -> lower thresholds recruit units
+#   (b) candidates fundamentally cannot learn this spiral -> nothing recruits at any bar
+# 0.2 is kept as the control cell so the comparison is within one run of the harness.
+#
+# Retire with the campaign script once the F-P4-2 disposition is written up.
+schema_version: 1
+suite:
+  name: spiral-correlation-threshold-diagnostic
+  description: "DIAGNOSTIC: correlation_threshold sweep on spiral-baseline (E-A no_candidate)"
+  app: cascor
+  base_config: [/home/pcalnon/Development/python/Juniper/juniper-cascor/conf/experiments/spiral-baseline.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1800}
+matrix:
+  training.params.correlation_threshold: [0.2, 0.05, 0.01]
+include:
+  - name: floor-002-wide-pool
+    overrides: {training.params.correlation_threshold: 0.002, training.params.candidate_pool_size: 32}
+outputs: {suite_dir: null, aggregate: [csv, markdown]}
