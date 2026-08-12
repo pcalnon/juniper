@@ -70,13 +70,22 @@ planning any UI work.
 
 ```bash
 cd /home/pcalnon/Development/python/Juniper/juniper-ml/.claude/worktrees/warm-scribbling-island
-git log --oneline -2          # expect b62c48b, 9b96873
+git log --oneline -2          # expect the handoff commit atop b62c48b
 git status --short            # expect clean
 bash util/isolated_stack.bash --status                                      # data/cascor/canopy all 200
 curl -sS http://127.0.0.1:8202/v1/network | head -c 80                      # "No network created" (empty)
 curl -sS http://127.0.0.1:8051/api/v1/snapshots | head -c 120               # 1 snapshot
-bash util/reap_pytest_orphans.bash --dry-run --verbose | grep 8202 -B2      # leg shows KEEP (live parent)
+bash util/reap_pytest_orphans.bash --dry-run --verbose | grep 'KEEP.*uvicorn'  # leg shows KEEP (live parent)
 python3 util/ad-hoc/e2e_row_coverage.py --repo-root .                       # 109 / 189
 ```
+
+All seven were executed against the live host at segment-5 close and pass as written. Two notes, because
+both cost time when they were wrong:
+
+- The reaper grep must key on `KEEP.*uvicorn`, **not** on the port — `--verbose` truncates the cmdline
+  before `--port 8202`, so a `grep 8202` returns nothing and looks like the supervision failed when it
+  has not.
+- `git log` is deliberately not pinned to exact SHAs; the handoff commit itself lands on top after this
+  file is written, so any hard-coded pair goes stale immediately.
 
 Git: branch `arc/canopy-e2e-phase1-seg5`, pushed, clean tree. No stash use.
