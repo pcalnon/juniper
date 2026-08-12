@@ -88,7 +88,9 @@ def _write_stub_driver(path: Path, outcome: str = "succeeded", per_cell: "dict |
         "    for token, oc in per_cell.items():\n"
         "        if token in cfg:\n"
         "            outcome = oc\n"
-        "(run_dir / 'manifest.json').write_text(json.dumps({'outcome': outcome}))\n"
+        # argv is recorded so tests can assert what the suite actually forwarded to the
+        # driver (e.g. --stall-seconds); run_suite only reads 'outcome' from the manifest.
+        "(run_dir / 'manifest.json').write_text(json.dumps({'outcome': outcome, 'argv': sys.argv[1:]}))\n"
         "sys.exit(0 if outcome == 'succeeded' else 1)\n"
     )
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
@@ -237,6 +239,47 @@ class MainLoopTest(unittest.TestCase):
         self.assertIn("REPORT.md", out)
         manifest = json.loads((suite_dir / "suite_manifest.json").read_text())
         self.assertEqual(manifest["schema"], "juniper-experiment-suite/1")
+
+    def _driver_argvs(self, run_root: Path) -> "list[list[str]]":
+        return [json.loads(m.read_text())["argv"] for m in sorted(run_root.glob("*/manifest.json"))]
+
+    def test_stall_seconds_is_forwarded_to_the_driver(self) -> None:
+        """execution.stall_seconds must reach the driver's Q-2 detector.
+
+        The detector watches ``current_epoch``, which does not advance while the CANDIDATE
+        pool trains, so a long candidate phase reads as a stall. Without this passthrough a
+        suite cannot raise the window and healthy cells are killed at the 120 s default --
+        the P4 E-A grid lost every ``candidate_pool_size >= 16`` cell that way.
+        """
+        root, _suite_dir, _markers, run_root = self._setup()
+        suite_yaml = root / "suite.yaml"
+        suite_yaml.write_text(suite_yaml.read_text().replace("  per_run_timeout_seconds: 60", "  per_run_timeout_seconds: 60\n  stall_seconds: 900"))
+        rc, out = self._main("--suite", str(suite_yaml))
+        self.assertEqual(rc, 0, msg=out)
+        argvs = self._driver_argvs(run_root)
+        self.assertTrue(argvs, "no driver invocations recorded")
+        for argv in argvs:
+            self.assertIn("--stall-seconds", argv)
+            self.assertEqual(argv[argv.index("--stall-seconds") + 1], "900.0")
+
+    def test_absent_stall_seconds_leaves_the_driver_default_alone(self) -> None:
+        """Omitting the key must not pass the flag at all (the driver owns its default)."""
+        root, _suite_dir, _markers, run_root = self._setup()
+        rc, out = self._main("--suite", str(root / "suite.yaml"))
+        self.assertEqual(rc, 0, msg=out)
+        argvs = self._driver_argvs(run_root)
+        self.assertTrue(argvs, "no driver invocations recorded")
+        for argv in argvs:
+            self.assertNotIn("--stall-seconds", argv)
+
+    def test_unknown_execution_key_still_rejected(self) -> None:
+        """The new key widens the allow-list by exactly one — typos must still fail."""
+        root, _suite_dir, _markers, _run_root = self._setup()
+        suite_yaml = root / "suite.yaml"
+        suite_yaml.write_text(suite_yaml.read_text().replace("  per_run_timeout_seconds: 60", "  per_run_timeout_seconds: 60\n  stall_second: 900"))
+        rc, out = self._main("--suite", str(suite_yaml))
+        self.assertEqual(rc, 2, msg=out)
+        self.assertIn("unknown execution: keys", out)
 
     def test_continue_on_failure_runs_all_and_exits_one(self) -> None:
         root, suite_dir, markers, _ = self._setup(fail_marker="max_hidden_units: 2")

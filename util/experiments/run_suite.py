@@ -60,7 +60,7 @@ RUN_ID_BANNER = re.compile(r"Experiment run (\S+) is up")
 
 SUITE_KEYS = frozenset({"schema_version", "suite", "execution", "matrix", "include", "exclude", "outputs"})
 SUITE_SUITE_KEYS = frozenset({"name", "description", "app", "base_config", "seed_policy"})
-EXECUTION_KEYS = frozenset({"mode", "max_parallel", "continue_on_failure", "per_run_timeout_seconds"})
+EXECUTION_KEYS = frozenset({"mode", "max_parallel", "continue_on_failure", "per_run_timeout_seconds", "stall_seconds"})
 TERMINAL_OUTCOMES = frozenset({"succeeded", "failed", "stalled", "timed_out"})
 
 
@@ -294,8 +294,17 @@ def _headline_metrics(run_dir: Path) -> dict:
     return out
 
 
-def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher: Path, driver: Path, python_bin: str, extra_env: "dict[str, str] | None" = None) -> dict:
-    """--up → driver → --down for one cell; never raises for a cell-level failure."""
+def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher: Path, driver: Path, python_bin: str, extra_env: "dict[str, str] | None" = None, stall_seconds: "float | None" = None) -> dict:
+    """--up → driver → --down for one cell; never raises for a cell-level failure.
+
+    ``stall_seconds`` forwards ``execution.stall_seconds`` to the driver's Q-2 stall
+    detector. It matters because the detector watches ``current_epoch``, which only
+    advances during OUTPUT-layer training — no progress is reported while the CANDIDATE
+    pool trains. A cell whose candidate phase runs longer than the driver default (120 s)
+    is therefore marked ``stalled`` while perfectly healthy, and the suite has no way to
+    say otherwise. Observed on the P4 E-A grid: every ``candidate_pool_size >= 16`` cell
+    stalled at ~130 s, then completed normally in 513–1258 s once the window was raised.
+    """
     started = time.time()
     env = {**os.environ, **(extra_env or {})} if extra_env else None
     row = {"cell_id": cell["cell_id"], "name": cell["name"], "overrides": cell["overrides"], "config_sha256": hashlib.sha256(cell_yaml.read_bytes()).hexdigest(), "run_id": None, "outcome": "failed", "exit_code": None, "error": None, "thread_budget": dict(extra_env) if extra_env else None}
@@ -310,7 +319,10 @@ def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher
     run_dir = DEFAULT_RUN_ROOT / run_id
     try:
         try:
-            drv = subprocess.run([python_bin, str(driver), "--config", str(cell_yaml), "--run-dir", str(run_dir)], capture_output=True, text=True, timeout=timeout, env=env)
+            drv_argv = [python_bin, str(driver), "--config", str(cell_yaml), "--run-dir", str(run_dir)]
+            if stall_seconds is not None:
+                drv_argv += ["--stall-seconds", str(stall_seconds)]
+            drv = subprocess.run(drv_argv, capture_output=True, text=True, timeout=timeout, env=env)
             row["exit_code"] = drv.returncode
         except subprocess.TimeoutExpired:
             row["exit_code"] = None
@@ -389,6 +401,8 @@ def main(argv: "list[str] | None" = None) -> int:
     execution = doc.get("execution") or {}
     outputs = doc.get("outputs") or {}
     timeout = float(execution.get("per_run_timeout_seconds", 3600))
+    # None => omit the flag entirely, so the driver keeps owning its own default.
+    stall_seconds = float(execution["stall_seconds"]) if execution.get("stall_seconds") is not None else None
     continue_on_failure = bool(execution.get("continue_on_failure", True))
     launcher = Path(os.environ.get("JUNIPER_SUITE_LAUNCHER", str(DEFAULT_LAUNCHER)))
     driver = Path(os.environ.get("JUNIPER_SUITE_DRIVER", str(DEFAULT_DRIVER)))
@@ -405,7 +419,8 @@ def main(argv: "list[str] | None" = None) -> int:
         for cell in cells:
             print(f"  {cell['cell_id']}  config={Path(cell['config_path']).name}  overrides={json.dumps(cell['overrides'], sort_keys=True)}" + (f"  name={cell['name']}" if cell["name"] else ""))
             print(f"    $ {launcher} --up --{suite['app']} --config {suite_dir}/cells/{cell['cell_id']}/experiment.yaml --experiment {cell['cell_id']}")
-            print(f"    $ {python_bin} {driver} --config …/experiment.yaml --run-dir <RUN_DIR> && {launcher} --down <RUN_ID>")
+            stall_flag = f" --stall-seconds {stall_seconds}" if stall_seconds is not None else ""
+            print(f"    $ {python_bin} {driver} --config …/experiment.yaml --run-dir <RUN_DIR>{stall_flag} && {launcher} --down <RUN_ID>")
         return 0
 
     if args.resume and not suite_dir.is_dir():
@@ -461,7 +476,7 @@ def main(argv: "list[str] | None" = None) -> int:
                 if stop.is_set():
                     break
                 print(f"[suite] {cell['cell_id']}: submitted ({json.dumps(cell['overrides'], sort_keys=True)})", flush=True)
-                futures[pool.submit(execute_cell, cell, materialised[cell["cell_id"]], suite["app"], timeout, launcher, driver, python_bin, budget)] = cell
+                futures[pool.submit(execute_cell, cell, materialised[cell["cell_id"]], suite["app"], timeout, launcher, driver, python_bin, budget, stall_seconds)] = cell
             for future in as_completed(futures):
                 cell = futures[future]
                 row = future.result()
@@ -473,7 +488,7 @@ def main(argv: "list[str] | None" = None) -> int:
     else:
         for cell in runnable:
             print(f"[suite] {cell['cell_id']}: running ({json.dumps(cell['overrides'], sort_keys=True)})", flush=True)
-            row = execute_cell(cell, materialised[cell["cell_id"]], suite["app"], timeout, launcher, driver, python_bin, budget)
+            row = execute_cell(cell, materialised[cell["cell_id"]], suite["app"], timeout, launcher, driver, python_bin, budget, stall_seconds)
             _record(cell, row)
             if row["outcome"] != "succeeded":
                 any_failed = True
