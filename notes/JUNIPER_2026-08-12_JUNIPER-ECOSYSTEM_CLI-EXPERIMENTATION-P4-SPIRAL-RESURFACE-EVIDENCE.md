@@ -56,20 +56,20 @@ Tooling used for the campaign lives in `util/ad-hoc/` with retirement conditions
 
 Base `juniper-cascor/conf/experiments/spiral-baseline.yaml` (spiral, 500 points/arm, 3.0 rotations, noise 0.05; `max_epochs` 2000, `max_iterations` 12).
 
-| cell | pool | unit cap | units | train acc | val acc | wall (s) | completion | best corr |
-|------|-----:|---------:|------:|----------:|--------:|---------:|------------|----------:|
-| c000 | 4 | 4 | 4 | 0.545 | 0.570 | 246 | `early_stopped` | 0.0727 |
-| c001 | 8 | 4 | 4 | 0.605 | 0.545 | 353 | `early_stopped` | 0.1382 |
-| c002 | 16 | 4 | 4 | 0.616 | 0.610 | 513 | `early_stopped` | 0.0727 |
-| c003 | 4 | 8 | 8 | 0.635 | 0.625 | 447 | `early_stopped` | 0.1427 |
-| c004 | 8 | 8 | 8 | 0.631 | 0.595 | 695 | `early_stopped` | 0.1382 |
-| c005 | 16 | 8 | 8 | 0.630 | 0.580 | 870 | `early_stopped` | 0.2696 |
-| c006 | 4 | 16 | 12 | 0.615 | 0.615 | 599 | `max_iterations` | 0.1822 |
-| c007 | 8 | 16 | 12 | 0.661 | 0.645 | 885 | `max_iterations` | 0.1971 |
-| c008 | 16 | 16 | 12 | 0.620 | 0.620 | 1258 | `max_iterations` | 0.2696 |
-| c009 | 4 | 32 | 12 | 0.615 | 0.615 | 596 | `max_iterations` | 0.1822 |
-| c010 | 8 | 32 | 12 | 0.661 | 0.645 | 858 | `max_iterations` | 0.1971 |
-| c011 | 32 | (5000 ep) | 12 | 0.638 | **0.670** | 2494 | `max_iterations` | **0.4195** |
+| cell | pool |  unit cap | units | train acc |   val acc | wall (s) | completion       |  best corr |
+|------|-----:|----------:|------:|----------:|----------:|---------:|------------------|-----------:|
+| c000 |    4 |         4 |     4 |     0.545 |     0.570 |      246 | `early_stopped`  |     0.0727 |
+| c001 |    8 |         4 |     4 |     0.605 |     0.545 |      353 | `early_stopped`  |     0.1382 |
+| c002 |   16 |         4 |     4 |     0.616 |     0.610 |      513 | `early_stopped`  |     0.0727 |
+| c003 |    4 |         8 |     8 |     0.635 |     0.625 |      447 | `early_stopped`  |     0.1427 |
+| c004 |    8 |         8 |     8 |     0.631 |     0.595 |      695 | `early_stopped`  |     0.1382 |
+| c005 |   16 |         8 |     8 |     0.630 |     0.580 |      870 | `early_stopped`  |     0.2696 |
+| c006 |    4 |        16 |    12 |     0.615 |     0.615 |      599 | `max_iterations` |     0.1822 |
+| c007 |    8 |        16 |    12 |     0.661 |     0.645 |      885 | `max_iterations` |     0.1971 |
+| c008 |   16 |        16 |    12 |     0.620 |     0.620 |     1258 | `max_iterations` |     0.2696 |
+| c009 |    4 |        32 |    12 |     0.615 |     0.615 |      596 | `max_iterations` |     0.1822 |
+| c010 |    8 |        32 |    12 |     0.661 |     0.645 |      858 | `max_iterations` |     0.1971 |
+| c011 |   32 | (5000 ep) |    12 |     0.638 | **0.670** |     2494 | `max_iterations` | **0.4195** |
 
 Original campaign, every one of these twelve cells: **0 hidden units, chance accuracy**.
 
@@ -77,27 +77,27 @@ Original campaign, every one of these twelve cells: **0 hidden units, chance acc
 
 Base `spiral-smoke.yaml` (`max_epochs` 50, `max_iterations` 2, `max_hidden_units` 2, pool 4).
 
-| generator | units | train acc | val acc | completion |
-|-----------|------:|----------:|--------:|------------|
-| moon | 2 | 0.998 | **1.000** | `early_stopped` |
-| gaussian | 2 | 0.990 | 0.994 | `early_stopped` |
-| circles | 2 | 0.955 | 0.965 | `early_stopped` |
-| xor | 2 | 0.951 | 0.960 | `early_stopped` |
-| checkerboard | 2 | 0.458 | 0.475 | `early_stopped` |
-| spiral | 2 | 0.575 | 0.350 | `early_stopped` |
+| generator    | units | train acc |   val acc | completion      |
+|--------------|------:|----------:|----------:|-----------------|
+| moon         |     2 |     0.998 | **1.000** | `early_stopped` |
+| gaussian     |     2 |     0.990 |     0.994 | `early_stopped` |
+| circles      |     2 |     0.955 |     0.965 | `early_stopped` |
+| xor          |     2 |     0.951 |     0.960 | `early_stopped` |
+| checkerboard |     2 |     0.458 |     0.475 | `early_stopped` |
+| spiral       |     2 |     0.575 |     0.350 | `early_stopped` |
 
 ### 4.3 E-C — noise robustness at smoke budget (8/8 clean)
 
 | dataset | noise | units | train acc | val acc |
 |---------|------:|------:|----------:|--------:|
-| spiral | 0.00 | 2 | 0.656 | 0.488 |
-| spiral | 0.05 | 2 | 0.575 | 0.350 |
-| spiral | 0.10 | 2 | 0.572 | 0.363 |
-| spiral | 0.20 | 2 | 0.619 | 0.488 |
-| moon | 0.00 | 1 | 1.000 | 1.000 |
-| moon | 0.05 | 1 | 1.000 | 1.000 |
-| moon | 0.10 | 2 | 0.998 | 1.000 |
-| moon | 0.20 | 2 | 0.968 | 0.965 |
+| spiral  |  0.00 |     2 |     0.656 |   0.488 |
+| spiral  |  0.05 |     2 |     0.575 |   0.350 |
+| spiral  |  0.10 |     2 |     0.572 |   0.363 |
+| spiral  |  0.20 |     2 |     0.619 |   0.488 |
+| moon    |  0.00 |     1 |     1.000 |   1.000 |
+| moon    |  0.05 |     1 |     1.000 |   1.000 |
+| moon    |  0.10 |     2 |     0.998 |   1.000 |
+| moon    |  0.20 |     2 |     0.968 |   0.965 |
 
 ---
 
@@ -105,7 +105,8 @@ Base `spiral-smoke.yaml` (`max_epochs` 50, `max_iterations` 2, `max_hidden_units
 
 **F-1 — the budget surface exists.** Units track the unit cap (4 → 4, 8 → 8, 16 → 12), wall time scales 246 s → 2494 s, and completion reasons are legitimate (`early_stopped` / `max_iterations`) rather than `below_threshold`. Candidate correlation is one to two orders of magnitude above the F-P4-1 signature.
 
-**F-2 — `max_iterations`, not `max_hidden_units`, is the binding constraint.** Cascade installs one unit per iteration and `spiral-baseline.yaml` sets `max_iterations: 12`, so no cell can exceed 12 units. The `cap: 16` and `cap: 32` rows are therefore *the same experiment*, and they came back **bit-identical** (c006 ≡ c009 at val 0.615 / corr 0.182186; c007 ≡ c010 at val 0.645 / corr 0.197113). That identity doubles as a reproducibility check on the whole harness. **Any future E-A must raise `max_iterations` alongside the cap**, or half the grid is wasted.
+**F-2 — `max_iterations`, not `max_hidden_units`, is the binding constraint.** Cascade installs one unit per iteration and `spiral-baseline.yaml` sets `max_iterations: 12`, so no cell can exceed 12 units. The `cap: 16` and `cap: 32` rows are therefore *the same experiment*, and they came back **bit-identical** (c006 ≡ c009 at val 0.615 / corr 0.182186; c007 ≡ c010 at val 0.645 / corr 0.197113).
+That identity doubles as a reproducibility check on the whole harness. **Any future E-A must raise `max_iterations` alongside the cap**, or half the grid is wasted.
 
 **F-3 — candidate pool raises correlation, at a fixed unit count.** Holding units at 12: 0.1822 (pool 4) → 0.1971 (pool 8) → 0.2696 (pool 16) → 0.4195 (pool 32), monotone. At smaller unit budgets the ordering is noisy (the cap-4 row runs 0.0727 / 0.1382 / 0.0727), because `best corr` is a maximum over rounds and more rounds means more draws. Correlation is the quantity the pool improves; see F-4.
 
@@ -125,12 +126,12 @@ The original campaign ran 55 cells sequentially on one GPU. Given the leak measu
 
 Direct evidence from this re-run, where the same cells were measured contaminated and clean:
 
-| cell | contaminated | clean | delta |
-|------|-------------|-------|-------|
-| E-B circles | 0.715 (1 unit, `no_candidate`, 24 OOM) | **0.965** (2 units) | +0.250 |
-| E-B xor | 0.875 (1 unit, `no_candidate`, 19 OOM) | **0.960** (2 units) | +0.085 |
-| E-C moon-n20 | 0.860 (1 unit, 23 OOM) | **0.965** (2 units) | +0.105 |
-| E-A c010 | 0.585 (12 units, 202 OOM) | **0.645** (12 units) | +0.060 |
+| cell         | contaminated                           | clean                | delta  |
+|--------------|----------------------------------------|----------------------|--------|
+| E-B circles  | 0.715 (1 unit, `no_candidate`, 24 OOM) | **0.965** (2 units)  | +0.250 |
+| E-B xor      | 0.875 (1 unit, `no_candidate`, 19 OOM) | **0.960** (2 units)  | +0.085 |
+| E-C moon-n20 | 0.860 (1 unit, 23 OOM)                 | **0.965** (2 units)  | +0.105 |
+| E-A c010     | 0.585 (12 units, 202 OOM)              | **0.645** (12 units) | +0.060 |
 
 Consequences for the published P4 document:
 
@@ -144,14 +145,14 @@ The E-A conclusions in the original document are unaffected in direction: they w
 
 ## 7. Recommended follow-ups
 
-| # | Item | Owner decision |
-|---|------|----------------|
-| R-1 | juniper-cascor#509 — stop forkserver children outliving teardown; and independently, **do not report `succeeded` when zero candidates were installable because of allocation failures** | cascor |
-| R-2 | Re-run the remaining P4 suites (E-D through E-H) under the `oom == 0` discipline, and mark the original numbers provisional until then | owner |
-| R-3 | Raise `max_iterations` with the unit cap in any future E-A, per F-2 | suite design |
-| R-4 | Give E-C's spiral rows an E-A-class budget, or drop them and keep E-C a moon-only noise study, per F-6 | suite design |
-| R-5 | Investigate the service-vs-CLI spiral accuracy gap (F-5) | open question |
-| R-6 | Adopt `execution.stall_seconds` (juniper-ml#1069) in the P4 suites and retire the ad-hoc shim | juniper-ml |
+| #   | Item                                                                                                                                                                                    | Owner decision |
+|-----|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------|
+| R-1 | juniper-cascor#509 — stop forkserver children outliving teardown; and independently, **do not report `succeeded` when zero candidates were installable because of allocation failures** | cascor         |
+| R-2 | Re-run the remaining P4 suites (E-D through E-H) under the `oom == 0` discipline, and mark the original numbers provisional until then                                                  | owner          |
+| R-3 | Raise `max_iterations` with the unit cap in any future E-A, per F-2                                                                                                                     | suite design   |
+| R-4 | Give E-C's spiral rows an E-A-class budget, or drop them and keep E-C a moon-only noise study, per F-6                                                                                  | suite design   |
+| R-5 | Investigate the service-vs-CLI spiral accuracy gap (F-5)                                                                                                                                | open question  |
+| R-6 | Adopt `execution.stall_seconds` (juniper-ml#1069) in the P4 suites and retire the ad-hoc shim                                                                                           | juniper-ml     |
 
 ---
 
