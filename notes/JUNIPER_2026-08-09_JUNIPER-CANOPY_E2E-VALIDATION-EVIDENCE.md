@@ -1212,3 +1212,45 @@ Two of my own instrument errors, recorded because each cost real time and each w
 After any reload the **welcome modal** (`welcome-modal`, matrix §2.1) is open over the dashboard and must
 be dismissed via `#welcome-modal-close` before driving anything. Sessions that keep one long-lived page
 never see it, so it is easy to omit from a recipe and then lose time to it after the first reload.
+
+### W11 — in-metrics replay: 2 driven, 9 blocked on an unmet precondition
+
+W11's stated precondition is "training **stopped** with accumulated history". The second half is not met
+in this run: `GET /api/metrics/history?count=100` returns `history: []`, and `monitor.total_metrics` is
+`0` — no training has run in this cascor process since the `09:44:52` start. Two rows are still
+answerable, and one of the two is a matrix-precision correction worth having.
+
+**W11-01 passes through a branch the row does not describe.** The controls are visible — but
+`toggle_replay_visibility` (`metrics_panel.py:946-947`) returns `display:block` *unconditionally* when the
+training-state store is falsy, and only then falls through to the
+`status ∈ [STOPPED, PAUSED, COMPLETED, FAILED]` test the row names. The store is empty here, so the
+status branch was never evaluated. This matters because canopy's `/api/status` currently reports
+`fsm_status: REPLAYING`, which is **not** in that set — anyone checking the row against live status would
+record a divergence that is not real.
+
+**W11-02 passes in its degenerate form.** The readout is `0 / 0`. The row's `N = history length − 1` holds
+for non-empty history; `update_replay_ui` (`:1082`) is `len(metrics_data) - 1 if metrics_data else 0`, so
+empty history clamps `N` to `0`, not `−1`.
+
+**D-3 is confirmed at the cited site**, which is W11-05's real payload: `metrics_panel.py:1034` reads
+`base_interval = 1000`, and `:1035` divides by speed — so 1x = 1000 ms, 2x = 500 ms, 4x = 250 ms. The
+documented divergence (base is 1000 ms, **not** 500 ms) holds exactly, and step 4's expected 250 ms at 4x
+follows.
+
+**The remaining nine rows were driven anyway, and the results are artifacts rather than verdicts** — which
+is the point of recording them explicitly. With `max_index = 0`, `replay_tick` (`:1053-1060`) computes
+`new_index 1 > end_index 0` and sets `mode = "stopped"` on the *first* tick, so:
+
+- the play icon never durably shows ⏸ (there is no empty-history guard on the play branch — `:1010-1011`
+  flips `mode` unconditionally — the state is simply overtaken by its own auto-stop);
+- both step buttons pin to 0 through their own clamps (`max(0, i-1)` / `min(max_index, i+1)`);
+- both jumps are no-ops because `start_index` and `end_index` coincide at 0;
+- the slider is explicitly short-circuited (`:1031` computes the index only `if max_index > 0`).
+
+None of that distinguishes a correct control from a dead one, so none of it is reported as a defect.
+
+**Unblocking W11 needs a decision, not just more driving.** It requires a short cascor training run to
+accumulate metrics history — that is W1 — which is a live state change: it would overwrite the
+deliberately mutated network built by W5-12/13/15 and this segment's editor rows, and the standing
+guidance is not to disturb a live cascor training state casually. Flagged for the owner rather than taken
+unilaterally.
