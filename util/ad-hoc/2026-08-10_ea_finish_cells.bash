@@ -26,10 +26,12 @@ export JUNIPER_EXP_HEALTH_TIMEOUT="${JUNIPER_EXP_HEALTH_TIMEOUT:-180}"
 # Which suite the cells belong to (E-A by default; E-B / E-C re-runs override it).
 SUITE_YAML="${JUNIPER_SUITE_YAML:-${REPO_ROOT}/util/experiments/suites/p4/e-a-cascor-budget-sweep.yaml}"
 
-# Cells may be overridden as positional args, e.g. to re-run only the pool>=16 cells
-# under the stall shim:
-#   JUNIPER_SUITE_DRIVER=util/ad-hoc/2026-08-10_driver_stall_shim.py \
-#     nohup util/ad-hoc/2026-08-10_ea_finish_cells.bash c002-… c005-… c008-… c011-… &
+# Cells may be overridden as positional args, e.g. to re-run only the pool>=16 cells:
+#   nohup util/ad-hoc/2026-08-10_ea_finish_cells.bash c002-… c005-… c008-… c011-… &
+#
+# Those cells needed a widened stall window; that is now the suite's own
+# execution.stall_seconds (ml#1069), so the JUNIPER_SUITE_DRIVER stall shim this script
+# used to document is deleted and no driver override is required.
 if (($# > 0)); then
     CELLS=("$@")
 else

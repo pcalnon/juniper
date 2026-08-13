@@ -197,10 +197,10 @@ JUNIPER_EXP_PROJECT_DIR=/home/pcalnon/Development/python/Juniper \
 JUNIPER_EXP_HEALTH_TIMEOUT=180 \
   util/ad-hoc/2026-08-10_p4_spiral_resurface_campaign.bash
 
-# Cells whose candidate phase exceeds the stall window (candidate_pool_size >= 16):
-#   with juniper-ml#1069 merged, set execution.stall_seconds in the suite YAML instead of the shim.
-JUNIPER_SUITE_DRIVER=util/ad-hoc/2026-08-10_driver_stall_shim.py JUNIPER_EXP_STALL_SECONDS=1200 \
-  util/ad-hoc/2026-08-10_ea_finish_cells.bash <CELL_ID> ...
+# Cells whose candidate phase exceeds the stall window (candidate_pool_size >= 16) need no
+# special handling: E-A carries execution.stall_seconds: 1200 (ml#1069), so the driver
+# inherits the widened window from the suite. Re-run selected cells with:
+util/ad-hoc/2026-08-10_ea_finish_cells.bash <CELL_ID> ...
 
 python3 util/ad-hoc/2026-08-10_ea_aggregate_clean.py     # clean grid + missing-cell report
 ```

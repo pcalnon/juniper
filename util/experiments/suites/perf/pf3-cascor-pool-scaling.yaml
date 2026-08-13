@@ -8,7 +8,12 @@ suite:
   app: cascor
   base_config: [../../../../../juniper-cascor/conf/experiments/spiral-smoke.yaml]
   seed_policy: fixed
-execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 2400}
+# stall_seconds (ml#1069): the smoke base caps max_epochs but NOT candidate_epochs, so the
+# CANDIDATE phase is full-length here too — and the Q-2 detector reports no current_epoch
+# progress while it runs. The pool-16 cells would be recorded `stalled` at the 120 s driver
+# default while healthy, which would corrupt the speedup curve this suite exists to measure;
+# the num_processes: 1 leg serialises that pool and is the slowest cell in the sweep.
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 2400, stall_seconds: 1200}
 matrix:
   training.params.candidate_pool_size: [2, 4, 8, 16]
   runtime.num_processes: [1, 2, 4]

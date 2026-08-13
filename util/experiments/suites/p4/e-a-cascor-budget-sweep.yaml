@@ -7,7 +7,12 @@ suite:
   app: cascor
   base_config: [../../../../../juniper-cascor/conf/experiments/spiral-baseline.yaml]
   seed_policy: fixed
-execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 3600}
+# stall_seconds (ml#1069): the Q-2 detector watches current_epoch, which advances only during
+# OUTPUT-layer training — no progress is reported at all while the CANDIDATE pool trains. Every
+# candidate_pool_size >= 16 cell therefore reads as `stalled` at ~130 s against the 120 s driver
+# default while perfectly healthy; given room those cells complete in 513-2494 s. 1200 is the
+# window the F-P4-1 re-surface campaign proved on the pool-16 and pool-32 cells.
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 3600, stall_seconds: 1200}
 matrix:
   training.params.max_hidden_units: [4, 8, 16, 32]
   training.params.candidate_pool_size: [4, 8, 16]
