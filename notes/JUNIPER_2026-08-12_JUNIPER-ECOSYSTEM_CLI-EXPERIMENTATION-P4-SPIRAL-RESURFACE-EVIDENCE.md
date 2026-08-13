@@ -21,7 +21,7 @@ Two previously unknown defects were found during the re-run, both of which corru
 | 2 | **GPU leak** — candidate forkserver children survive teardown holding CUDA contexts | card fills across a campaign; candidates die at instantiation; run reports `succeeded` / `no_candidate` / 1 unit | RAISED — juniper-cascor#509; worked around by reaping before every cell |
 | 3 | **Stall window** — `run_suite` could not pass `--stall-seconds`, and no epoch progress is reported during candidate training | healthy large-pool cells killed at 120 s and recorded as `stalled` / 0 units | FIXED — juniper-ml#1069 (`execution.stall_seconds`) |
 
-Because defects 2 and 3 present as plausible results rather than as errors, **the original P4 evidence for E-B and E-C is suspect** (§6). Every number in this document was collected with an explicit `oom == 0` filter and a reap before each cell.
+Because defects 2 and 3 present as plausible results rather than as errors, every number in this document was collected with an explicit `oom == 0` filter and a reap before each cell. §6 records what that screening does and does not license as a claim about *prior* evidence: the original P4 E-B/E-C accuracies were read directly and **agree with this arc's clean re-run**, though the original's 1-unit characterisation of moon/gaussian is superseded (§6.1).
 
 ---
 
@@ -120,26 +120,59 @@ That identity doubles as a reproducibility check on the whole harness. **Any fut
 
 ---
 
-## 6. Corrections to the original P4 evidence
+## 6. What the contamination evidence does and does not show
 
-The original campaign ran 55 cells sequentially on one GPU. Given the leak measured here (≈285 MiB per cell on an 8 GiB card), its later suites were almost certainly contaminated, and the corruption is invisible in the recorded outcome.
+> **Corrected 2026-08-12** (handoff-validation pass). An earlier revision of this section claimed the
+> original P4 evidence was itself contaminated and overstated its E-B ranking and E-C moon dip. **That
+> claim was false and is retracted in full.** The contamination measurements below are real, but they
+> measure *this arc's own first-pass re-runs*, not the original campaign.
 
-Direct evidence from this re-run, where the same cells were measured contaminated and clean:
+Four cells were measured both contaminated and clean, which is what makes the GPU leak's signature legible:
 
-| cell         | contaminated                           | clean                | delta  |
+| cell         | contaminated (this arc, first pass)    | clean                | delta  |
 |--------------|----------------------------------------|----------------------|--------|
 | E-B circles  | 0.715 (1 unit, `no_candidate`, 24 OOM) | **0.965** (2 units)  | +0.250 |
 | E-B xor      | 0.875 (1 unit, `no_candidate`, 19 OOM) | **0.960** (2 units)  | +0.085 |
 | E-C moon-n20 | 0.860 (1 unit, 23 OOM)                 | **0.965** (2 units)  | +0.105 |
 | E-A c010     | 0.585 (12 units, 202 OOM)              | **0.645** (12 units) | +0.060 |
 
-Consequences for the published P4 document:
+**The original P4 document agrees with the clean column, not the contaminated one.** Read directly from
+[`JUNIPER_2026-08-09_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P4-STUDIES-EVIDENCE.md`](JUNIPER_2026-08-09_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P4-STUDIES-EVIDENCE.md):
+its E-B table records xor **0.9600** and circles **0.9650**, both at 2 units, and its E-C table records
+moon-n20 **0.9650** at 2 units with the prose "dipping to 0.965 at 0.20". Nothing in it is overstated,
+and its accuracy **ranking** is reproduced here exactly.
 
-- Its E-B ranking ("moon/gaussian easiest → xor/circles → checkerboard beyond budget") **overstates the gap** between the easy pair and xor/circles. Cleanly, all four clear 0.96.
-- Its E-C moon finding ("flat to 0.10, dip at 0.20") **overstates the dip**: 0.965, not 0.86.
-- Contamination is not always a collapse. The E-A c010 row kept its full 12 units and merely lost 0.06 of accuracy — the most dangerous form, because nothing about it looks wrong.
+### 6.1 The genuine deltas against the original E-B
 
-The E-A conclusions in the original document are unaffected in direction: they were degenerate from F-P4-1, and this document supersedes them outright.
+The agreement is not total, and the differences are all in unit count rather than ranking. The original
+records four of six E-B rows at **1** unit; every row here recruits **2**:
+
+| generator    | original    | this re-run | note                     |
+|--------------|-------------|-------------|--------------------------|
+| xor          | 0.9600 / 2u | 0.960 / 2u  | reproduced exactly       |
+| circles      | 0.9650 / 2u | 0.965 / 2u  | reproduced exactly       |
+| moon         | 0.9950 / 1u | 1.000 / 2u  | +0.005, extra unit       |
+| gaussian     | 1.0000 / 1u | 0.994 / 2u  | **−0.006**, extra unit   |
+| checkerboard | 0.5000 / 1u | 0.475 / 2u  | **−0.025**, extra unit   |
+| spiral       | degenerate  | 0.350 / 2u  | was F-P4-1-degenerate    |
+
+So the original's characterisation of moon/gaussian as *1-unit* problems is superseded, and accuracy moves
+in **both** directions — down for gaussian and checkerboard. These are budget-boundary differences at a
+2-unit cap, not evidence of contamination in either direction, and no mechanism here explains them.
+
+### 6.2 What the leak evidence does establish
+
+- The leak corrupts **silently**. E-A c010 kept its full 12 units and merely lost 0.06 of accuracy — the
+  most dangerous form, because nothing about it looks wrong.
+- Contamination is a function of **position within a campaign**, so a suite is trustworthy only if its own
+  cells were screened. This arc's first pass ran E-B and E-C on a card its own E-A cells had already
+  filled; the original campaign's ordering differed and its E-B/E-C cells evidently survived.
+- The original's E-A rows are superseded by **F-P4-1** (§1), not by the leak: it recorded all twelve at
+  ≈0.505 with 0-1 units, which is the F-P4-1 signature.
+
+**Method note.** The retracted claim came from comparing this arc's contaminated first pass against its own
+clean re-run and attributing the delta to a prior document *without opening it*. Any claim that prior
+evidence is wrong must quote that evidence directly.
 
 ---
 
@@ -148,7 +181,7 @@ The E-A conclusions in the original document are unaffected in direction: they w
 | #   | Item                                                                                                                                                                                    | Owner decision |
 |-----|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------|
 | R-1 | juniper-cascor#509 — stop forkserver children outliving teardown; and independently, **do not report `succeeded` when zero candidates were installable because of allocation failures** | cascor         |
-| R-2 | Re-run the remaining P4 suites (E-D through E-H) under the `oom == 0` discipline, and mark the original numbers provisional until then                                                  | owner          |
+| R-2 | **Scoped re-run only.** Of the remaining suites only `e-h-real-data.yaml` is `app: cascor`; E-D / E-E / E-F / E-G and `e-h-recurrence-real-data.yaml` are `app: recurrence`, emit no `logs/juniper-cascor.log`, and are not implicated by cascor#509 (a cascor-path defect). Re-run the cascor leg under the screen; leave the recurrence suites as published unless a recurrence-side mechanism is found. Tooling is E-A-shaped: `ea_finish_cells.bash` needs `JUNIPER_SUITE_YAML=` + explicit cell ids, and `ea_aggregate_clean.py` is hard-scoped to `e-a-cascor-budget-sweep-*` with a fixed 12-cell expectation — generalize it first | owner          |
 | R-3 | Raise `max_iterations` with the unit cap in any future E-A, per F-2                                                                                                                     | suite design   |
 | R-4 | Give E-C's spiral rows an E-A-class budget, or drop them and keep E-C a moon-only noise study, per F-6                                                                                  | suite design   |
 | R-5 | Investigate the service-vs-CLI spiral accuracy gap (F-5)                                                                                                                                | open question  |
