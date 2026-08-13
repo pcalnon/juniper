@@ -335,6 +335,66 @@ no security-scan job at all.
 
 ---
 
+## 4b. Validation — headless merge proven on all 9 repos (2026-08-12)
+
+A probe PR was opened in every repo (docs-only — deliberately the **stricter** case, most
+likely to expose a wrongly-required path-gated context). Every merge was verified against
+its ruleset rule-suite: `result: pass` means the rules were **evaluated and satisfied**;
+`bypass` would mean admin override. **All ten merges recorded `pass`.**
+
+| Repo | PR | Merge SHA | Rule suite |
+|---|---|---|---|
+| juniper-ml | #1071 | `21beca1a` | `pass` |
+| juniper-ml | #1070 (re-signed) | `c90584cd` | `pass` |
+| juniper-cascor | #510 | `ed7c5907` | `pass` |
+| juniper-canopy | #487 | `1cec3328` | `pass` |
+| juniper-data | #259 | `08e9a416` | `pass` |
+| juniper-cascor-worker | #150 | `82686487` | `pass` |
+| juniper-deploy | #174 | `11150bc5` | `pass` |
+| juniper-data-client | #147 | `7a28b0b0` | `pass` |
+| juniper-cascor-client | #114 | `270c2669` | `pass` |
+| juniper-recurrence | #106 | `0bfe142b` | `pass` |
+
+### The blocker chain (each masked the next)
+
+1. `required_status_checks` — fleet-union of 30 contexts; 200 unsatisfiable fleet-wide.
+2. `code_scanning` — a **second** fleet-union: 7 tools where repos upload only 1–2.
+3. `require_last_push_approval: true` — requires approval of the last push *by someone
+   other than the pusher*. Structurally unsatisfiable for a solo maintainer, who also
+   cannot approve their own PR. Meaningful only alongside
+   `required_approving_review_count >= 1`; with 0 it just deadlocks.
+4. **Legacy branch protection on juniper-recurrence** (§4c).
+5. Stale auto-merge queue — a ruleset edit is not a PR event.
+
+### 4c. Legacy branch protection — juniper-recurrence only
+
+`/repos/pcalnon/juniper-recurrence/branches/main/protection` returned a full **classic
+branch-protection** config living *alongside* the ruleset. **Both layers are enforced**,
+and the ruleset work never touched it. It carried two independent blockers:
+
+- `required_pull_request_reviews.required_approving_review_count: 1` (the ruleset says 0)
+- required contexts `Test — torch MLP readout (Rung 2b; optional [torch] extra)` (reports
+  on 1/7 PRs) and `Bench required checks` (3/7) — both path-gated, so neither ever reports
+  on a docs-only PR
+
+All 8 sibling repos return `404 Branch not protected`. Deleted 2026-08-12 after the
+ruleset was confirmed to cover the same ground; the pre-delete config was captured first.
+
+**Check this layer first** when a repo is BLOCKED with every ruleset rule satisfied —
+`/rules/branches/main` does **not** surface it.
+
+### 4d. Operational findings
+
+| Finding | Consequence |
+|---|---|
+| **REST contents API creates UNSIGNED commits** | Unusable under `required_signatures`. Only the GraphQL `createCommitOnBranch` mutation signs. Same class as the #1070 unsigned-commit block, reached from the other direction. |
+| **An unsigned commit anywhere on a PR branch blocks the merge** | Squash-merge does **not** rescue it (this supersedes the older "squash is GitHub-signed so branch commits don't matter" belief). |
+| **`allow_auto_merge: false` on 8 of 9 repos** (only juniper-ml `true`) | `gh pr merge --auto` there **silently falls back to an immediate merge** instead of arming. Sharp edge for any automated flow. |
+| **A PR stuck at `CLEAN`** | Re-arm auto-merge — a ruleset edit is not a PR event, so nothing re-evaluates the queue. Do **not** admin-merge. |
+| **canopy requires the macOS unit-test leg** | It carries the known CSRF-TTL flake (`test_validate_refreshes_ttl`; 1 failed / 5645 passed, green on rerun). juniper-data runs its macOS leg `continue-on-error` while keeping the Linux legs required — canopy is inconsistent with that. See Tier 2. |
+
+---
+
 ## 5. Tier 2 — roadmap (checks each repo would benefit from)
 
 Ordered by value. "N/A" reasons are given where a fleet check does not apply.
@@ -362,6 +422,7 @@ Ordered by value. "N/A" reasons are given where a fleet check does not apply.
 
 | Check                     | Why                                                              |
 |---------------------------|------------------------------------------------------------------|
+| **macOS leg decision**    | **Raised by the 2026-08-12 validation.** canopy *requires* `Unit Tests + Coverage (Python 3.12 on macos-latest)`, and that leg carries the known CSRF-TTL flake (`test_validate_refreshes_ttl`) — so headless merge here fails intermittently and needs a rerun. Either fix the flake or run the macOS leg `continue-on-error` and require only the Linux legs, which is what juniper-data already does. |
 | `Bandit`                  | canopy is the only service repo without a standalone Bandit job. |
 | `Gitleaks`                | Handles `CANOPY_API_KEY` / CSRF secrets.                         |
 | Promote `Sequence Safety` | ml#1011.                                                         |
@@ -414,9 +475,11 @@ Ordered by value. "N/A" reasons are given where a fleet check does not apply.
 | 6. `Lockfile Freshness`        | Absent.                                                                                                                                                                                              |
 | 7. Coverage gate               | No `Unit Tests + Coverage` equivalent.                                                                                                                                                               |
 | 8. `Gitleaks`                  | Absent.                                                                                                                                                                                              |
+| 9. **Re-add `code_scanning` + `code_quality`** | Both rules were **removed** from recurrence's ruleset on 2026-08-12 to unblock merging — it has no code-scanning analyses at all, so both were unsatisfiable. Restore them once step 3 (CodeQL) lands; until then recurrence's ruleset is 6 rules where the fleet standard is 8. |
 
 recurrence is a **publishing repo shipping 3 packages** and has the weakest CI of the nine
-— worth a dedicated hardening pass.
+— worth a dedicated hardening pass. It was also the only repo carrying legacy branch
+protection (§4c), and the only one that started this arc with no ruleset at all.
 
 ---
 
