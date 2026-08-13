@@ -734,3 +734,90 @@ the warning exists only in the cascor log.
 - **Step-11 inputs resolved.** `I = 2`, `H = 10` taken from `/api/topology` (the topology DOM being dead
   per F-CANOPY-006), confirming the handoff's pre-computed **append weight-vector length of `I + H` = 12
   floats** for W5-13.
+
+### W5 steps 11-15 — the editor works; only its gate is broken
+
+**The load-bearing result of this segment.** Every Network Editor control is `present: true,
+disabled: false, visible: false` — enabled, in the DOM, inside the block F-CANOPY-011 keeps hidden.
+Driving them by raw JS (which Dash honours regardless of CSS visibility) exercised the full callback →
+canopy route → adapter → cascor path **successfully**, including two real mutations that landed in cascor.
+
+**Therefore F-CANOPY-011 is a visibility/gating defect ONLY.** The editor's callbacks, canopy's three
+proxy routes, and cascor's validation are all sound. This bounds the fix to the two contract corrections
+and is why F-CANOPY-011 is filed P1-unreachable rather than P0-broken.
+
+Control types (relevant because the T-7 numeric wall does *not* obstruct this panel): `patch-values` and
+`add-weights` are `<textarea>`; `patch-target`, `add-activation`, `remove-idx` are `<select>`; only
+`patch-idx` and `add-bias` are `input[type=number]`, and both ship at usable defaults (`0` / `Tanh`), so
+no numeric field had to be driven.
+
+| step | verdict | evidence |
+|---|---|---|
+| W5-11 | PASS | `I=2`, `H=10` from `/api/topology`; `output_weights` is 12 × 2, cascade fan-in 2,3,4,…,11 |
+| W5-12 | PASS (both arms) | shape violation rejected **without mutating**; valid 1-D patch landed |
+| W5-13 | PASS (after cap reorder) | cap-refused at H=10; appended after the step-15 delete |
+| W5-14 | PASS | count 9 → 10, verified at the API (DOM oracle dead per F-CANOPY-006) |
+| W5-15 | PASS | `DELETE …/hidden-units/9` → 200; UI path blocked, twice over |
+
+**W5-12 — negative arm (the matrix's explicit requirement).** Target `output_weights`, 24 flat floats
+(`0.01 … 0.24`, row-major for the 12 × 2 shape) →
+`Patch failed: patch_weights failed: shape mismatch: output_weights expects (12, 2), got (24,)`.
+Re-reading `/v1/network/topology` immediately after shows `output_weights` **byte-identical** to the
+pre-state (`[[0.08172,-0.08172],[0.32116,-0.32093],[0.64142,-0.64161]]`) — the matrix's "must be rejected
+without mutating state" is satisfied, and the error text is precise and actionable.
+
+**W5-12 — positive arm.** Target `output_bias`, values `0.25, -0.25` → `Patched output.bias (2 values).`;
+`/v1/network/topology` then reports `output_bias = [0.25, -0.25]`. The write path is proven end-to-end.
+
+**W5-13 — as specified, then reordered.** With H=10 the append was refused:
+`Add failed: add_hidden_unit failed: network is at max_hidden_units cap (10)` — an honest business-rule
+refusal (the restored snapshot is a fully-grown network at `max_hidden_units: 10`), not a defect; state
+unmutated. The success path therefore required freeing a slot, so **step 15 was executed before step 13**
+and the append vector recomputed at the new H: `I + H = 2 + 9 = 11` floats. Result:
+`hidden_units 9 → 10`, tail unit id 9 carrying **exactly** the sent ramp
+`[0.31,0.32,…,0.41]` (11 weights), `bias 0.0`, `activation Tanh` — the shipped defaults, uncoerced.
+
+**W5-15 — route proven, UI path blocked twice.** `DELETE :8051/api/v1/network/hidden-units/9` (canopy's
+proxy, `main.py:2745-2755`) → **HTTP 200**, body `removed_index: 9`, `num_hidden_units: 9`,
+`fsm_state: "INVESTIGATING"`; count 10 → 9. The UI path is unreachable for **two independent reasons**:
+`#network-editor-panel-remove-idx` has options `[""]` (D-0 — the topology that would populate it never
+loads) *and* the whole active block is hidden (F-CANOPY-011).
+
+Final network state left for the replay rows: `input 2 / hidden 10 / output 2`, `output_bias [0.25,-0.25]`,
+tail unit = the synthetic ramp. The snapshot `.h5` on disk is **untouched** by all of this, so W5-16/27
+still replay and resume from the pristine artifact.
+
+### Findings opened in segment 6 (continued)
+
+**F-CANOPY-012 — `output_weights`, the Network Editor's DEFAULT patch target, is structurally impossible
+to patch from the UI: the panel parses a flat 1-D list while the route requires 2-D (P2, OPEN;
+root-caused).**
+`_parse_float_list` (`network_editor_panel.py:415-431`) returns a **flat** `List[float]`, and
+`on_patch_weights` (`:721-760`) forwards it verbatim as `body["values"]` — there is **no reshape anywhere**
+in the callback, and none is possible today because the topology needed to infer the shape is exactly what
+D-0/F-CANOPY-011 withhold. cascor requires `output_weights` as `(I+H, output_size)` = `(12, 2)`, so any
+input a user can type is rejected: `shape mismatch: output_weights expects (12, 2), got (24,)`. Of the
+four dropdown options, only this one is 2-D — `output_bias` (1-D), `hidden_unit_weights` (1-D per unit),
+and `hidden_unit_bias` (scalar) all round-trip fine, and `output_bias` was proven to land live. The broken
+option is the dropdown's **first and default** value, so it is the first thing any operator tries.
+Mitigating: the failure is loud, precise, and non-mutating. Fix options are a 2-D-aware parse (accept
+nested `[[…],[…]]`) or a reshape using `(I+H, output_size)` once the topology is available — which makes
+this dependent on the D-0 route fix.
+
+**F-CANOPY-013 — Network Editor success messages read payload keys off the response ENVELOPE, so a
+successful append reports `index None (now None hidden units)` (P3, OPEN; root-caused, one latent second
+instance).**
+`_post_json` (`:433-465`) returns `{"success": True, "data": resp.json()}` — i.e. `result["data"]` is the
+**entire** cascor envelope `{"status":…, "data": {…}, "meta":…}`, as confirmed live by the DELETE response
+body. But `on_add_unit` (`:608-611`) does `data = result["data"]; idx = data.get("unit_index"); total =
+data.get("num_hidden_units")`, reading both keys off the envelope root where they do not exist; they live
+one level deeper at `result["data"]["data"]`. Both resolve to `None`, producing the observed
+`Appended unit at index None (now None hidden units).` on an append that in fact **fully succeeded**. The
+key *names* are correct — cascor documents the add payload as carrying `unit_index`, `num_hidden_units`,
+`operation` (`juniper-cascor src/api/routes/network.py:135`) — so this is purely a nesting-level error,
+fixable in one line. Cosmetic only (no state is harmed, and the operation itself is correct), but it
+degrades the one surface an operator has for confirming a blind mutation, and it does so on the *success*
+path where nobody is looking for a bug. **Second, latent instance:** `on_remove_unit` (`:705-707`) repeats
+the pattern verbatim and would render `Removed unit N (now None hidden units).` — unreachable today only
+because the remove dropdown is empty, so it will surface the moment F-CANOPY-011 and D-0 are fixed. Fix
+both call sites together.
