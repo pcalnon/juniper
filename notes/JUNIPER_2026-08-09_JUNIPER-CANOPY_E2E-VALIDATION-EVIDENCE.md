@@ -716,7 +716,10 @@ this segment's restore. The codebase is internally inconsistent about the same f
 correctly and the network is usable for inspection; the **consequence for resume/retrain (W5-27) is
 verified at that row**, since `output_optimizer = None` may either be lazily rebuilt or fault. Surface
 honesty gap: canopy reports an unqualified `✅ Restored` while the backend has degraded the restore, and
-the warning exists only in the cascor log.
+the warning exists only in the cascor log. **Scope widened later in the segment:** the same warning fires
+on the **replay** load path too (cascor log, `20:45:31` and `20:51:19`, both `POST …/replay` starts), so
+this is not restore-specific — it is every snapshot load path that reaches
+`_load_optimizer_state_from_hdf5_helper`.
 
 ### Observations (segment 6, non-finding)
 
@@ -909,3 +912,55 @@ equal the fallbacks, so a resumed session at a non-default speed or a user-narro
 stale defaults with no error. Same defect class as F-CANOPY-013 (a payload key read one level too
 shallow), different file and different pair of keys — worth fixing as one sweep with a helper that
 unwraps `session.session` once.
+
+### W5 steps 27-29 — the tail rows
+
+**W5-27 PASS — both operations 200 in the LIVE lane.** The row asks for "200 vs 409 vs 501 for each":
+
+| op | code | resulting FSM | notes |
+|---|---|---|---|
+| `POST …/{id}/resume` | **200** | `RESUME_READY` | prepares a resume point; does **not** start training. `time_index.default = "end"`, window `{0, 12}` |
+| `POST …/{id}/retrain` | **200** | `STOPPED` | resets to a fresh-run-ready state, window reset to `{0, 0}` |
+
+Both were driven at the API after the UI modal gesture failed to open twice under page congestion (see the
+methodology note below); the surrounding modal machinery is already proven by W5-05 and W5-16. The **409**
+arm was not induced — it requires an active training run, which is out of this row's scope and would have
+left the stack mid-run against the W5 cleanup contract. The **501** arm belongs to the DEMO-lane row
+W5-30, not here. Both ops are recorded by the backend history surface, which is how W5-28 cross-validates.
+
+**W5-28 PASS.** `#hdf5-snapshots-panel-history-toggle` flipped
+`#hdf5-snapshots-panel-history-collapse` from `visible:false / .collapse` to `visible:true / .collapsing`,
+and `#…-history-content` went from its `Loading history…` placeholder to real entries within 3.2 s:
+`• RETRAIN snapshot_20260811T010849Z 2026-08-13 01:57:41 … • RESUME … 01:57:32 … • REPLAY_STOPPED …
+01:54:41 …`. A satisfying cross-check: the history faithfully lists exactly the operations this segment
+drove, in order. `GET /api/v1/snapshots/history` independently returns 200 with the same records.
+
+**W5-29 PASS (dead-expected, proven statically).** Stronger than the row asks. The two ids
+`{"type": "hdf5-snapshots-panel-swap-restore-pre-btn"…}` / `…-post-btn` occur in the entire panel **only**
+at their construction sites (`hdf5_snapshots_panel.py:709` and `:720`) — there is **no `Input(...)`
+anywhere referencing either**, so no callback can fire and the buttons are inert *by construction*, not
+merely inert-on-the-day. Live confirmation: this session renders **zero** such buttons
+(`swapBtnCount: 0`) because there are no dataset-swap events to build paired-diff cards from
+(`#hdf5-snapshots-panel-dataset-swaps-content` is present but empty). The row's expectation — nothing
+happens, no request, no console error — therefore holds vacuously and provably. Not click-driven: there
+was nothing to click, and manufacturing a swap event to reach a button already proven callback-less would
+add no evidence.
+
+### Methodology notes (segment 6)
+
+- **A click issued within ~10 ms of a tab render is silently lost.** The first W5-16 attempt clicked the
+  replay op 7 ms after the Snapshots tab rendered and nothing happened — Dash had not yet wired the
+  freshly-rebuilt pattern-matched Input. A **1.5-2 s settle before clicking** made it reliable. This is
+  distinct from F-CANOPY-010 (which closes an *already-open* modal) and worth carrying forward: a lost
+  click looks exactly like a broken control.
+- **The confirm modal's DOM does not exist while closed.** `[id*="modal"]` returns `[]` on a settled
+  Snapshots tab; the modal and its confirm button enter the DOM only on open. So "confirm button absent"
+  is the normal closed state, not evidence of a defect — poll for the element to *appear*.
+- **Page congestion is real and measurable.** Two `page.evaluate` gestures with ~43 s internal budgets
+  exceeded 120 s of wall clock while the same operations succeeded instantly at the API. This is
+  F-CANOPY-004 territory and it makes long in-page polling loops an unreliable instrument; where a row's
+  assertion is about the *backend outcome* rather than the *UI gesture*, driving the API is both faster
+  and more trustworthy.
+- **Supervisor log clean for the whole segment.** `${LOG_DIR}/juniper-cascor-supervisor.log` still shows
+  only the single `09:44:52` start and the `09:44:56` healthy line — **zero child exits** across every row
+  above, so no verdict in this segment can be an environmental artifact.
