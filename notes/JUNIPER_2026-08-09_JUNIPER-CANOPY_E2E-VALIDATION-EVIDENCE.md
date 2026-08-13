@@ -596,3 +596,141 @@ whether the backend restarted underneath it.
 
 F-6 note: because uvicorn is a *direct* child here, `$!` genuinely is the server pid, so the pidfile this
 script writes is honest — unlike the subshell form, where `$!` is the subshell.
+
+---
+
+## Phase 1 — segment 6 (2026-08-12): W5 steps 7-10
+
+### Stack state on entry — the supervision remedy held
+
+All four legs healthy on arrival; **the cascor leg had been up 10.6 h uninterrupted** under
+`util/ad-hoc/e2e_cascor_leg_supervise.bash` (supervisor pid 437053, child pid 437062, started
+`2026-08-12 09:44:52-0500`). `${LOG_DIR}/juniper-cascor-supervisor.log` records **zero child exits** across
+the whole segment, so every verdict below is a genuine canopy verdict rather than an environmental
+artifact — the exact confound that made W5-07 inconclusive in segment 5. `reap_pytest_orphans.bash
+--dry-run` still reports `KEEP pid=437062 ppid=437053 (live parent)`. The F-ML-001 remedy is holding.
+
+Restore precondition was as segment 5 left it: cascor network **empty** (`GET :8202/v1/network` →
+`"No network created"`), snapshot `snapshot_20260811T010849Z` intact on disk (296701 bytes). Clean
+restore-into-empty.
+
+### W5-07 — RE-RUN: PASS (was INCONCLUSIVE)
+
+Driven as one `page.evaluate` gesture per the segment-5 technique (CDP round-trips are far too slow for
+F-CANOPY-010's ~3.6 s modal window). Timings from inside the page: restore op-btn clicked `t=9 ms`,
+confirm button visible `t=1837 ms`, **restore-confirm clicked `t=1844 ms`** (comfortably inside the decay
+window), status settled `t=4282 ms`.
+
+- **UI**: `#hdf5-snapshots-panel-restore-status` → `✅ Restored from snapshot 'snapshot_20260811T010849Z'`.
+- **Modal body** (re-confirming W5-05): `Confirm Restore of snapshot: snapshot_20260811T010849Z / Load this
+  snapshot for inspection and modification. Training is NOT started — invoke Retrain or Resume to begin a
+  training run. / ⚠️ Training must be paused or stopped before any snaps…`
+- **Wire** (server-side, per the §methodology note — the browser log carries only
+  `_dash-update-component`; a filtered capture of 1978 requests contained **zero** `/api/v1/snapshots`
+  entries, confirming the call is canopy→cascor): cascor log shows
+  `POST /v1/snapshots/snapshot_20260811T010849Z/restore HTTP/1.1" 200 OK` and
+  `api.lifecycle.manager - INFO - Snapshot restored: snapshot_20260811T010849Z (FSM=Investigating)`
+  at `2026-08-12 20:24:03,610`.
+- **Backend truth** (the half that was missing): `GET :8202/v1/network` → `input_size:2, output_size:2,
+  hidden_units:10, max_hidden_units:10, uuid d5827628-4843-4910-a9ba-aec16f0de3ee`;
+  `/v1/network/topology` returns all 10 units with the correct CasCor cascade fan-in (unit 0 → 2 weights,
+  unit 1 → 3, unit 2 → 4, …). Empty → 10 units, correlated to the click, on a leg proven not to have
+  restarted.
+
+The segment-5 honest-label note stands and is now sharper: canopy's failure copy was faithful to a dead
+backend, and its success copy is faithful to a live one — but **neither carries a diagnostic
+distinguishing the two**, which is precisely why the row needed a supervised leg to adjudicate.
+
+### W5-08 — PASS
+
+`GET :8051/api/status` → `fsm_status = 'INVESTIGATING'`, corroborated at the source by cascor's
+`/v1/training/status` → `state_machine.status = "INVESTIGATING"`, `phase = "IDLE"`. Restore did **not**
+start training (`training_state.status "Stopped"`, `is_training false`) — matching the modal's own copy.
+
+### W5-09 — FAIL (F-CANOPY-011)
+
+Expected: idle block hides, active block shows, `#network-editor-panel-idle-fsm-badge` reads
+`FSM: Investigating`. Observed, **stable across 6 samples spanning 12.5 s** (not a transient):
+
+| element | expected | observed |
+|---|---|---|
+| `#network-editor-panel-idle-fsm-badge` | `FSM: Investigating` | `FSM: Unknown` |
+| `#network-editor-panel-idle` | hidden | `display: block` (visible) |
+| `#network-editor-panel-active` | shown | `display: none` (hidden) |
+
+The panel never leaves its idle state, so the entire active editing surface — add-unit, remove-unit,
+patch-weights — is unreachable through the UI while the FSM is genuinely `INVESTIGATING`.
+
+### W5-10 — PASS (expected divergence D-0), but the cause is now known to be doubled
+
+`#network-editor-panel-topology-readout` → `No topology loaded.` and `#network-editor-panel-remove-idx`
+options `[""]` (empty) — exactly the matrix's "expected today" text, so the row passes as written.
+
+The new information is *why*. There are **two stacked defects**, and the first masks the second:
+
+1. **F-CANOPY-011** short-circuits at `network_editor_panel.py:505` before the topology fetch is ever
+   attempted, returning `topology-store = None` → `render_topology` renders the placeholder.
+2. **D-0** — the fetch at `:517` targets `/api/network/topology`, which is **404** (verified live); the
+   working route is `/api/topology` (**200**, serving `input_units:2, output_units:2, hidden_units:10`,
+   14 nodes, 89 connections).
+
+**Operational consequence: fixing D-0's route alone will NOT revive the Network Editor.** Both the FSM key
+and the route must be corrected, or the panel stays idle and the readout stays on the placeholder.
+
+### Findings opened in segment 6
+
+**F-CANOPY-011 — the Network Editor reads the FSM from a key shape canopy's `/api/status` never returns,
+so the panel is permanently inert (P1, OPEN; root-caused, deterministic).**
+`network_editor_panel.py:400-412` (`_is_investigating`) and the badge line `:501` both read
+`status["state_machine"]["status"]`, falling back to a top-level `status["status"]`. Canopy's `/api/status`
+returns **neither**: it is a flat dict whose FSM field is `fsm_status`. Verified live against the running
+service — `'state_machine' in payload → False`, `'status' in payload → False`,
+`payload['fsm_status'] → 'INVESTIGATING'`. `state_machine` is *cascor's* `/v1/training/status` schema, not
+canopy's; the panel was written against the upstream shape but points at the canopy proxy. The docstring at
+`:403-406` asserts the wrong contract in prose ("nests the FSM summary under `state_machine`"), which is
+why it reads as correct on inspection. Consequently `_is_investigating` returns `False` unconditionally,
+`:505` always takes the not-investigating branch (`idle: block`, `active: none`), and `:501` renders
+`"Unknown".title()` → `FSM: Unknown`. This is a complete feature blackout of a shipped panel, independent
+of actual FSM state, and it masks D-0 (`:517` → `/api/network/topology`, 404; the live route is
+`/api/topology`). Blast radius: W5-09 FAIL; W5-12/13/14 have **no UI path** and must be driven at the API
+to prove the routes; M-NETWORK-EDITOR rows that assert the active surface. Fix is two contract
+corrections (read `fsm_status`; fetch `/api/topology`) plus a test that pins the panel against a real
+`/api/status` payload rather than a hand-built one.
+
+**F-CASCOR-002 — snapshot restore ALWAYS drops optimizer state: `learning_rate` is written as a string and
+read back undecoded, so the Adam constructor raises and the optimizer is silently set to `None` (P2, cascor
+repo, OPEN; root-caused and reproduced).**
+Save/load asymmetry in `src/snapshots/snapshot_serializer.py`. `:448` writes
+`write_str_attr(opt_group, "learning_rate", network.learning_rate)` — a **string** attribute. `:1037` reads
+it back with a raw `opt_group.attrs.get("learning_rate", …)` — **no decode** — while its sibling one line
+up (`:1036`, `optimizer_type`, written by the same `write_str_attr`) *is* decoded via `read_str_attr`.
+Direct probe of the live artifact confirms the on-disk types: `params/output_layer/optimizer` attrs are
+`learning_rate = np.bytes_(b'0.1')`, `optimizer_type = np.bytes_(b'Adam')`. The undecoded value flows to
+`:1050` `optim.Adam(output_layer.parameters(), lr=learning_rate)`, where torch's range check
+(`0.0 <= lr`) raises — reproduced verbatim in the JuniperCascor1 env:
+`TypeError: '<=' not supported between instances of 'float' and 'numpy.bytes_'`. `:1026-1028` catches it,
+logs `Could not restore optimizer: …` at **WARNING**, and sets `network.output_optimizer = None`. This is
+deterministic, not intermittent: every restore of every snapshot loses optimizer state. Observed live in
+this segment's restore. The codebase is internally inconsistent about the same field — `:336` writes
+`config_group.attrs["learning_rate"]` as a native float. Severity is P2 because the weights restore
+correctly and the network is usable for inspection; the **consequence for resume/retrain (W5-27) is
+verified at that row**, since `output_optimizer = None` may either be lazily rebuilt or fault. Surface
+honesty gap: canopy reports an unqualified `✅ Restored` while the backend has degraded the restore, and
+the warning exists only in the cascor log.
+
+### Observations (segment 6, non-finding)
+
+- **`/api/status.hidden_units` is stale after a restore.** For the same restored network, canopy's
+  `/api/status` reports `hidden_units: 0` while `/api/topology` reports `10` and cascor's `/v1/network`
+  reports `10`. The source is cascor's `/v1/training/status` **`monitor`** block
+  (`monitor.current_hidden_units: 0`) — training telemetry, which is legitimately zero because no training
+  has run since the restore. Recorded as a finding-*candidate* rather than a finding: no consumer has yet
+  been shown to render network size from this field. Any that does would show a restored 10-unit network
+  as empty. `input_size`/`output_size` on the same payload are correct (2/2).
+- **Topology tab reads 0/0/0 for the restored network** (`#network-visualizer-{input,hidden,output}-count`)
+  while `/api/topology` serves 2/10/2. This **corroborates F-CANOPY-006** (counts stay at the layout-default
+  `"0"`s and the DOM never updates) rather than being new, and it is *not* attributable to the stale
+  `/api/status.hidden_units` above — under F-CANOPY-006 those counts never update from any source.
+- **Step-11 inputs resolved.** `I = 2`, `H = 10` taken from `/api/topology` (the topology DOM being dead
+  per F-CANOPY-006), confirming the handoff's pre-computed **append weight-vector length of `I + H` = 12
+  floats** for W5-13.
