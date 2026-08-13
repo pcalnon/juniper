@@ -964,3 +964,164 @@ add no evidence.
 - **Supervisor log clean for the whole segment.** `${LOG_DIR}/juniper-cascor-supervisor.log` still shows
   only the single `09:44:52` start and the `09:44:56` healthy line — **zero child exits** across every row
   above, so no verdict in this segment can be an environmental artifact.
+
+---
+
+## Phase 1 — segment 7 (2026-08-13): the Network Editor tab, 18/18
+
+Branch `arc/canopy-e2e-phase1-seg7`, cut from the pushed seg6 tip `3562bff`; the seg6 worktree
+`encapsulated-prancing-sun` is locked by another session, so this segment follows the arc's
+one-worktree-per-segment pattern for the third time. Run id unchanged: `20260811T010700Z`.
+
+### Stack state on entry
+
+`data 8101 / cascor 8202 / canopy 8051` all `200`; cascor at **10/10** hidden units; 1 snapshot;
+supervisor log still showing only the `09:44:52` start and `09:44:56` healthy lines — **zero child
+exits**, now across two segments and ~19 h of uptime. The F-ML-001 supervision remedy continues to hold,
+so nothing below is environmental.
+
+### The headline: F-CANOPY-011 is now proven live, not inferred
+
+Segment 6 established the defect by reading the code. This segment put it in front of the panel and
+watched it fail, which is a materially stronger claim.
+
+`POST /api/v1/snapshots/snapshot_20260811T010849Z/restore` → `200`, and canopy's **own** `/api/status`
+then reported:
+
+```json
+{"fsm_status": "INVESTIGATING", "phase": "idle", "state_machine": null, ...}
+```
+
+That is the exact state the editor exists to unlock in. After waiting 5 s — more than two of the panel's
+own 2 s poll cycles, so staleness is excluded — the panel was **unchanged**:
+
+| element | observed | expected if the gate worked |
+|---|---|---|
+| `-idle` | `display:block`, `offsetParent` set | hidden |
+| `-active` | `display:none`, `offsetParent` null | **visible** |
+| `-idle-fsm-badge` | `FSM: Unknown` | `FSM: Investigating` |
+| `-topology-readout` | `No topology loaded.` | the live topology |
+
+The mechanism is visible in that JSON: `state_machine` is literally `null` and the field is `fsm_status`,
+so `_is_investigating` (`:410-412`) evaluates `("" or "").upper() == "INVESTIGATING"` → `False`
+**unconditionally**, and the badge falls all the way to its last-resort `Unknown`.
+
+### The correction: the gate's *intent* is right — cascor enforces the same precondition
+
+This is the segment's most consequential finding, and it revises segment 6's framing. Driving the append
+and remove submits while the FSM was `STOPPED` produced, from **cascor**, not canopy:
+
+```text
+Add failed:    add_hidden_unit failed:    add_hidden_unit_manual requires INVESTIGATING state (currently STOPPED)
+Remove failed: remove_hidden_unit failed: remove_hidden_unit_manual requires INVESTIGATING state (currently STOPPED)
+```
+
+So the editor is **not** gated for no reason: manual structural edits have a real backend precondition,
+and canopy's gate is a faithful mirror of it that happens to read the wrong key. Segment 6 saw only the
+two `PATCH` mutations land — and `PATCH` is genuinely permitted in `STOPPED`, which is why the gate looked
+gratuitous from that evidence alone.
+
+The practical consequence for the fix: **do not remove the gate**, correct it
+(`state_machine.status` → `fsm_status`). And the corrected gate does work — with the FSM actually at
+`INVESTIGATING`, the same two ops succeeded end-to-end (`hidden_units` 10 → 9 → 10, tail unit carrying the
+sent 11-weight vector, `bias 0.25`, `activation Sigmoid`, all read back from cascor).
+
+### F-CANOPY-013 is no longer latent — it is observed on successful operations
+
+Both success messages were captured on ops that **fully succeeded** at the backend:
+
+```text
+Snapshot taken; Removed unit 9 (now None hidden units).      [alert-success]
+Appended unit at index None (now None hidden units).         [alert-success]
+```
+
+`_post_json` (`:458`) returns the whole `{status, data, meta}` envelope as `result["data"]`, so `:609-610`
+and the remove callback read `unit_index` / `num_hidden_units` off the **envelope root** and get `None`.
+The patch path is *spared* — its messages count request-side values via `len(values)` — which usefully
+bounds the fix to callbacks that read a response.
+
+### F-CANOPY-012 confirmed and sharpened — a naive reshape would still be wrong
+
+```text
+Patch failed: patch_weights failed: shape mismatch: output_weights expects (12, 2), got (24,)
+```
+
+The panel sends flat `(24,)`; cascor wants 2-D. But the required shape is
+`(n_in + n_hidden, n_out) = (12, 2)` — **not** `(n_out, n_in + n_hidden) = (2, 12)` — while the field's own
+placeholder instructs the user to type "CSV **row-major**". A reshape that trusts the placeholder would
+produce a transposed weight matrix that *passes* the shape check and silently corrupts the network. The
+fix must reshape to `(12, 2)` and the placeholder must be corrected in the same change.
+
+### F-CASCOR-002 UPGRADE — the loss is physical, self-propagating, and reproducible on demand
+
+Segment 6 proved the `TypeError` and the swallowed WARNING. Segment 7 found what that costs on disk.
+Re-snapshotting a network that was itself restored from a snapshot yields an artifact with the optimizer
+group **entirely absent** — verified with `util/ad-hoc/e2e_snapshot_h5_compare.py` (added this segment):
+
+| snapshot | provenance | nodes | optimizer nodes |
+|---|---|---|---|
+| `snapshot_20260811T010849Z.h5` (296,701 B) | original training | 191 | **2** — `params/output_layer/optimizer[/state_dict]` |
+| `snapshot_20260813T043121Z.h5` (285,187 B) | taken after an earlier restore | 185 | **0 — ABSENT** |
+| `snapshot_20260813T043711Z.h5` (295,308 B) | taken after a *fresh* restore | 189 | **0 — ABSENT** |
+
+The third row is a deliberate control: an independent restore→save cycle, run minutes after the second,
+reproducing the loss exactly. And the smoking gun sits in the pristine file where the finding said it
+would:
+
+```text
+params/output_layer/optimizer.attrs['learning_rate'] = np.bytes_(b'0.1')   (python type bytes_)
+config.attrs['learning_rate']                        = np.float64(0.1)     (python type float64)
+```
+
+— the same attribute written as a **string** in one place and a float in the other, which is precisely the
+`np.bytes_` that trips torch's range check at `:1037`.
+
+This warrants a **severity upgrade, P2 → P1**. The original finding describes a load-time warning; what is
+actually happening is that one restore→save cycle **permanently destroys the optimizer state in the
+artifact lineage**. A consumer of the second-generation snapshot cannot even encounter the bug — there is
+nothing left to fail on — so training resumed from it silently restarts the optimizer from scratch, with
+no warning at all. The failure is loudest at its least harmful moment and silent thereafter.
+
+### Row-by-row results (all 18)
+
+`M-NETWORK-EDITOR-05` was already recorded in segment 6 (D-0 re-confirmed); the other 17 are new.
+Full per-row detail is in `reports/e2e/20260811T010700Z/statuses.tsv` — the summary:
+
+| verdict | rows |
+|---|---|
+| **PASS** | 01, 02, 05, 06, 07, 08, 10, 12, 14, 15, 16, 18 |
+| **PASS**, reachable only by injection | 11 |
+| **PASS** on path/effect, **FAIL** on status message (F-CANOPY-013) | 09, 13 |
+| **PASS** on 2 of 4 targets, **FAIL** on the default (F-CANOPY-012) | 17 |
+| **FAIL** (F-CANOPY-011) | 03, 04 |
+
+Three rows earned more than a bare verdict:
+
+- **M-NETWORK-EDITOR-01** — `dcc.Interval` renders **no DOM node**, and canopy's log is application-level
+  with no access lines, so neither the usual DOM nor log oracle applies. Verified instead by instrumenting
+  `window.fetch` and timing the Dash callback POSTs carrying the `fsm-poll` input: **6 fires in 11 s,
+  median inter-arrival 1957 ms** against the 2000 ms nominal. The 1045–3025 ms spread is congestion, not
+  drift — the same window carried **140** other Dash callbacks, which is the hardest number this arc has
+  yet put on F-CANOPY-004.
+- **M-NETWORK-EDITOR-11** — the validation arm needs no trickery and is the more useful evidence: clicking
+  Delete with an empty index returns `Pick a unit to delete.` and correctly does **not** open the modal,
+  proving the callback is wired and fires from a `display:none` control. Reaching the modal itself
+  required injecting the `<option value="9">` that D-0 prevents from ever existing.
+- **M-NETWORK-EDITOR-13** — the `STOPPED` arm proves the *ordering* independently of the outcome: the
+  snapshot-first `POST` succeeded (count 1 → 2) and only then was the `DELETE` refused. Had the order been
+  reversed or the snapshot skipped, the counts could not look like that.
+
+### Observations (segment 7, non-finding)
+
+- **The snapshot-first pre-step is not transactional.** A refused `DELETE` leaves its safety snapshot
+  behind (count 1 → 2 with the network untouched at 10 units). Defensible — a pre-op snapshot is a safety
+  artifact and keeping it costs only disk — but undocumented, and repeated failed attempts accumulate
+  orphans.
+- **The T-7 numeric wall is narrower than recorded.** `-add-bias` and `-patch-idx` are both
+  `type="number"`, yet both were driven successfully with a native-setter + `input`/`change` gesture, and
+  the values reached cascor (`bias 0.25` on the appended unit; `[0.11, 0.22]` on unit 0). T-7 is a
+  Playwright `fill()` limitation, **not** a DOM one — so `AUTO` via raw JS is sufficient where the matrix
+  currently prescribes `AUTO-API`.
+- **The remove picker has two independent reasons to stay empty**, so fixing either alone is insufficient:
+  the gate returns before the topology fetch is ever reached (`:505`), *and* that fetch targets the 404
+  route `/api/network/topology` (D-0).
