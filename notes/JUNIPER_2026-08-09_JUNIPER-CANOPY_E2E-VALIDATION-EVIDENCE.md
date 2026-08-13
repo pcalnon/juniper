@@ -1125,3 +1125,90 @@ Three rows earned more than a bare verdict:
 - **The remove picker has two independent reasons to stay empty**, so fixing either alone is insufficient:
   the gate returns before the topology fetch is ever reached (`:505`), *and* that fetch targets the 404
   route `/api/network/topology` (D-0).
+
+### The Replay tab, 17/17
+
+A replay session was started **through the UI** (Snapshots → `▶️ Replay` → Confirm) on the pristine
+`snapshot_20260811T010849Z`. That detail matters: a session started by direct API call does **not** light
+the panel up, because `replay-player-session` is written by the *snapshots* panel after its own POST — the
+player is store-driven, not backend-polled. The panel went active 4643 ms after Confirm and the tab
+**auto-switched to Replay**, corroborating segment 6.
+
+**The whole transport surface is dead, and now provably all of it.** Segment 6 established
+action-independence from play + stop. This segment drove all six controls:
+
+| control | driven how | dispatched? | result |
+|---|---|---|---|
+| `-play-btn` / `-pause-btn` / `-stop-btn` | `.click()` | yes | **byte-identical** `No scheme supplied` |
+| `-scrubber` | trusted `ArrowRight` | 2 callbacks | same error; handle 6 → 7 |
+| `-speed` | trusted `ArrowRight` | 2 callbacks | same error; handle 5.0 → 5.1 |
+| `-range` | trusted `ArrowRight` | 2 callbacks | same error; handles → `[3, 12]` |
+
+The error text carries its own diagnosis — `Perhaps you meant **https:///**/api/v1/…` — three slashes,
+the empty base URL concatenated straight onto the path. The sliders' readouts (`0 / 12`, `1×`, `[0, 12]`)
+correctly do **not** advance, because they re-render only from a *successful* control response; that is
+right behaviour downstream of a dead request, not a second defect.
+
+The backend was exonerated once more en passant: a direct `POST {"action":"stop"}` to the same route
+returned `200` with `fsm_state: STOPPED`.
+
+**F-CANOPY-015 measured against the payload.** `POST /replay` returns, nested at `data.session`:
+
+```json
+{"length": 12, "time_index": 0, "speed": 1.0, "paused": true,
+ "range": {"start": 0, "end": 12}, "weights_available": true,
+ "weight_sampling": {"strategy": "adaptive", "num_samples": 3, "sample_epochs": [10000, 10, 11]}}
+```
+
+`weights_available` is **true** — this is provably a V2 snapshot — and the badge nonetheless renders
+**`V1 (metrics only)`** in grey. The two masked siblings behave exactly as the finding predicted: `speed`
+`1.0` equals `SPEED_DEFAULT`, and `range` renders `[0, 12]` because the fallback `[start, end]` from
+`_session_window` coincides with the real window.
+
+That second one hides a trap worth stating plainly, because it is the same shape as the F-CANOPY-012
+transpose: the backend's `range` is a **dict** `{start, end}`, while the render does
+`f"[{range_value[0]}, {range_value[1]}]"`. **Reading one level deeper without converting dict → list turns
+a silently-wrong readout into a `KeyError`.** The obvious one-line fix crashes the panel.
+
+One more stale line in the matrix: row 05 says the badge "ships `display:none`", but the callback's
+`badge_style` sets `display:inline-block`, so it is *shown* — shown and wrong, which is worse than hidden.
+
+**What still works.** `-status` faithfully rendered the error for all six attempts (it is doing its job —
+what it reports is F-CANOPY-014). The weight-drain plumbing is intact: `window._juniperWsDrain` exposes
+`_replayWeightBuffer` beside its six sibling channel buffers and `drainReplayWeights()` returns
+`array(0)` — idle, not broken, which is precisely the distinction worth drawing when the observable
+payoff is blocked upstream. The swap-events graph renders its empty state correctly, and
+`GET /api/snapshots/{id}/history/dataset_swaps` returns `200` with `{"events": []}` — a live route, not
+another D-0. Graph, count (`0 events`) and backend all agree, so the count is genuinely wired.
+
+| verdict | rows |
+|---|---|
+| **PASS** | 01, 02, 03, 04, 06, 13, 14, 15, 16, 17 |
+| **FAIL** (F-CANOPY-014) | 07, 08, 09, 10, 11, 12 |
+| **FAIL** (F-CANOPY-015) | 05 |
+
+### Methodology corrections (segment 7)
+
+Two of my own instrument errors, recorded because each cost real time and each would recur:
+
+- **`offsetParent` is `null` for `position:fixed` elements — so it is not a visibility test for modals.**
+  Two replay-start attempts were scored as "modal never opened (20 s)" and provisionally blamed on
+  F-CANOPY-004 congestion. Both were wrong: the modal *was* opening and my filter could not see it. Use
+  `getComputedStyle` + `getBoundingClientRect().width/height > 0`. This sits directly beside segment 6's
+  note that the modal DOM does not exist while closed — together they say: poll for the element to
+  appear, then test visibility by geometry.
+- **A Dash slider commits only on a TRUSTED event.** Setting the paired `<input type="number">` via the
+  React native-setter moves the visual handle but produces **zero** callback dispatches and no readout
+  change; so does a full synthetic `pointerdown`/`pointermove`/`pointerup` sequence. A real
+  `page.keyboard.press('ArrowRight')` on the focused thumb dispatches immediately. Under
+  `updatemode="mouseup"`, a moved handle is **not** evidence that a value committed — the two must be
+  checked separately, or a dead control looks driven.
+- **Do not blame congestion before excluding the instrument.** Both corrections above initially presented
+  as F-CANOPY-004. Congestion is real and measured (140 callbacks / 11 s), which makes it an attractive
+  and therefore dangerous default explanation.
+
+### A first-load overlay stands between a fresh page and every gesture
+
+After any reload the **welcome modal** (`welcome-modal`, matrix §2.1) is open over the dashboard and must
+be dismissed via `#welcome-modal-close` before driving anything. Sessions that keep one long-lived page
+never see it, so it is easy to omit from a recipe and then lose time to it after the first reload.
