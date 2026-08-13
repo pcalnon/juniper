@@ -625,6 +625,26 @@ jobs:
           # not cloned in this job; the always-on AST-extractor self-check still
           # runs, and the weekly docs-full-check context exercises the full walk).
           python3 -m unittest -v tests/test_experiment_config_schemas.py
+          # tests/test_run_suite.py: hermetic tests for util/experiments/run_suite.py, the suite
+          # driver (CLI experimentation plan Waves 7.1/7.5) -- matrix expansion + cell_ids, per_cell
+          # seeds, the stubbed up/drive/down loop, registry/index/aggregate, resume, and the ml#1069
+          # execution.stall_seconds passthrough. Launcher and driver are injected as stub scripts via
+          # the JUNIPER_SUITE_LAUNCHER / JUNIPER_SUITE_DRIVER seams; no live stack, no services.
+          # Documented in AGENTS.md but never wired into this job until R-6 -- so the stall_seconds
+          # passthrough the P4 suites now depend on was itself ungated.
+          python3 -m unittest -v tests/test_run_suite.py
+          # tests/test_list_runs.py: hermetic tests for util/experiments/list_runs.py, the Wave 7.2
+          # safety-gated run lister/pruner -- state classification, --older-than, and the prune
+          # safety gates, over synthetic RUN_ROOT fixtures. Also previously unwired.
+          python3 -m unittest -v tests/test_list_runs.py
+          # tests/test_experiment_suite_yamls.py: drift gate over the shipped suites in
+          # util/experiments/suites/**. Every suite must pass run_suite.load_suite (catching the
+          # unknown-key / `stall_second` typo class that otherwise surfaces hours into a GPU
+          # campaign), and any cascor suite sweeping candidate_pool_size >= 16 must declare an
+          # execution.stall_seconds above the driver default -- the Q-2 detector reports no
+          # current_epoch progress while the candidate pool trains, so those cells are recorded
+          # `stalled` while healthy. Structural only; never resolves sibling-repo base_config.
+          python3 -m unittest -v tests/test_experiment_suite_yamls.py
           # tests/test_check_conda_env_torch.py: hermetic P-5 torch._C shadow diagnostic
           # (util/check_conda_env_torch.bash exit 0/1/2/3/4) via JUNIPER_CONDA_DIR + stub python.
           # util/ is not pre-commit-lint-gated, so this unittest is the gate.
