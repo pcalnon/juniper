@@ -112,8 +112,17 @@ def print_table(best: dict[str, dict]) -> None:
     print(f"{'cell':<5}{'pool':>5}{'cap':>5}{'units':>7}{'train':>8}{'val':>8}{'wall_s':>8}  {'completion':<15}best_corr")
     for cell in sorted(best):
         r = best[cell]
-        cap = r["cap"] if r["cap"] is not None else f"({r['epochs']}ep)"
-        print(f"{cell:<5}{str(r['pool']):>5}{str(cap):>5}{r['units']:>7}{r['train'][:6]:>8}{r['val'][:6]:>8}{r['wall']:>8.0f}  {r['reason']:<15}{r['corr']}")
+        # A suite that overrides neither knob (E-H inherits both from its base config) has no
+        # cap AND no epochs — print a dash rather than the "None(Noneep)" the E-A-shaped
+        # fallback produced.
+        if r["cap"] is not None:
+            cap = str(r["cap"])
+        elif r["epochs"] is not None:
+            cap = f"({r['epochs']}ep)"
+        else:
+            cap = "-"
+        pool = str(r["pool"]) if r["pool"] is not None else "-"
+        print(f"{cell:<5}{pool:>5}{cap:>5}{r['units']:>7}{r['train'][:6]:>8}{r['val'][:6]:>8}{r['wall']:>8.0f}  {r['reason']:<15}{r['corr']}")
         # A non-cascor suite has none of the three budget knobs; show what it did vary
         # rather than a row of Nones.
         if r["pool"] is None and r["cap"] is None and r["epochs"] is None and r["overrides"]:
