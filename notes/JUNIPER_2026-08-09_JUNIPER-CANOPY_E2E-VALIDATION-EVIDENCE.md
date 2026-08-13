@@ -1213,7 +1213,12 @@ After any reload the **welcome modal** (`welcome-modal`, matrix §2.1) is open o
 be dismissed via `#welcome-modal-close` before driving anything. Sessions that keep one long-lived page
 never see it, so it is easy to omit from a recipe and then lose time to it after the first reload.
 
-### W11 — in-metrics replay: 2 driven, 9 blocked on an unmet precondition
+### W11 — in-metrics replay: first pass (SUPERSEDED below by the training run)
+
+> The verdicts in this subsection were recorded **before** the owner-approved training run. They are kept
+> because they document what was and was not distinguishable without history — but the recorded row
+> statuses have since been **revised** by "W11 re-driven with real history" below. Nine rows moved from
+> BLOCKED to **FAIL**.
 
 W11's stated precondition is "training **stopped** with accumulated history". The second half is not met
 in this run: `GET /api/metrics/history?count=100` returns `history: []`, and `monitor.total_metrics` is
@@ -1254,3 +1259,63 @@ accumulate metrics history — that is W1 — which is a live state change: it w
 deliberately mutated network built by W5-12/13/15 and this segment's editor rows, and the standing
 guidance is not to disturb a live cascor training state casually. Flagged for the owner rather than taken
 unilaterally.
+
+### W11 re-driven with real history — and the lane is a defect, not a precondition gap
+
+The owner approved the training run. An insurance snapshot of the mutated network was taken first
+(`snapshot_20260813T051936Z`), then:
+
+1. `Start` alone → **`409: Training cannot be started: Training data not provided`**.
+2. `Apply Dataset` staged canopy's pending config (spirals, 1000 samples, noise 0.25) and raised the §2.9
+   pending-dataset banner. The banner's `Stop & Restart with new dataset` did **not** start a run.
+3. Staging directly on cascor — `POST /v1/training/dataset` with
+   `{"dataset_type":"spirals","params":{…}}` → `staged` — then `Start` → training **ran**
+   (`STARTED / OUTPUT`, `is_training: true`, 10 hidden units retained).
+4. Stopped after ~35 s with **401 metrics** accumulated.
+
+**W11-11 PASS**, proven properly: with training running the controls went `display:none`. That also
+exercises the *status* branch of `toggle_replay_visibility` that the first pass could not reach — so both
+arms of that gate are now covered, and W11-01 is upgraded accordingly.
+
+**Everything else in the lane FAILED — and the training run is what made that provable.** With 401 rows
+of history:
+
+- `#metrics-panel-replay-position` still reads **`0 / 0`**;
+- play, step-forward/back, and both jumps do nothing;
+- and the slider never moves.
+
+The first pass could not tell this apart from correct behaviour at `max_index = 0`. With a real window
+(`max_index = 400`) the clamps, the coincident start/end, and the short-circuited slider math are all out
+of the picture, and the controls are simply dead.
+
+**F-CANOPY-016 (new, P1) — the in-metrics replay control cluster never dispatches.** The evidence is on
+the wire, not inferred:
+
+| probe | result |
+|---|---|
+| store genuinely populated? | **yes** — the sibling loss chart, reading the *same* `metrics-panel-metrics-store` Input, renders a trace of **401 points** |
+| `update_replay_ui` requested when that store changed? | **zero** requests in 20 s |
+| `metrics-panel-replay-state` requested on a play / step click? | **zero** requests in 15 s |
+| instrument working? | **yes** — the same hook caught 3 unrelated `replay-player-panel` dispatches in that window, and 15 `metrics-panel-metrics-store` polls in another |
+
+So the callback is registered (it rendered `0 / 0` at mount under `prevent_initial_call=False`) and then
+never fires again, while the button callbacks never fire at all. The readout is frozen at its mount value
+forever. **Root cause is not isolated** — registered-but-never-re-triggered is a Dash-graph symptom, not a
+diagnosis — and that isolation belongs to the fix phase. What is established is the observable: the entire
+W11 surface is inert in the live lane regardless of history.
+
+Two smaller things worth carrying:
+
+- **The metrics store is throttled, not starved.** In `full` mode only **1 poll in 15** returns data — the
+  `FULL_HISTORY_POLL_TICK_MODULUS` throttle — the other 14 return `{"multi":true,"response":{}}`
+  (`dash.no_update`). A short observation window will look like a dead store when it is merely slow.
+- **F-CANOPY-002 confirmed from the client side.** `window._juniperWsDrain` shows
+  **`_lastMetricsFrameMs: 0`** — *no metrics frame has ever arrived* — with `_metricsBuffer` empty and
+  `_metricsReceived: false`, while `_lastStateFrameMs` carries a real timestamp and
+  `_connectionStatus` is `{connected: true, mode: "live"}`. The socket is up and sibling channels deliver;
+  the metrics channel specifically is dead. That is exactly the clobbered-handler signature, now visible
+  in the client's own state rather than only in the source.
+
+**Do not read the replay slider's `aria-valuemax` as a data signal**: `update_replay_ui` returns a
+hardcoded `100` for that output (`metrics_panel.py:1084` — `return slider_value, 100, position_text`),
+because the slider is a percentage scale. It reads `100` whether history is 0 rows or 401.
