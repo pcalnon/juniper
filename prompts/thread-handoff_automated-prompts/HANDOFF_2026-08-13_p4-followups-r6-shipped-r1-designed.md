@@ -31,9 +31,8 @@ which remains accurate for everything it records. The owner approved **all six**
 All code work: worktree, PR, **never self-merge**, `gh pr list` dup-guard first.
 
 1. **R-1 — cascor#509, honest outcomes (the standalone-valuable half). DESIGN IS DONE; write it.**
-   Worktree already created and clean at
-   `/home/pcalnon/Development/python/Juniper/worktrees/juniper-cascor--fix--509-candidate-allocation-honest-outcome--20260812-2252--ed7c5907`
-   on branch `fix/509-candidate-allocation-honest-outcome` (from cascor `origin/main` = `ed7c590`).
+   Create a worktree off cascor `origin/main` per the ecosystem convention (a prior session's worktree
+   was created, left unused, and cleaned up again — there is nothing to resume, only to write).
 
    The defect: in `src/cascade_correlation/cascade_correlation.py`, `grow_network` (~line 4388) does
 
@@ -134,9 +133,25 @@ git fetch --prune && git log --oneline HEAD..origin/main   # must be empty befor
 ```
 
 - `juniper-ml`: session worktree `.claude/worktrees/gleaming-riding-ritchie` on branch
-  `feat/p4-suites-adopt-stall-seconds` at `60f1dba` (3 commits: the feature commit, the touch-up bot's
-  `AGENTS.md` date bump, and the symbol-loss waiver). Pushed; tree clean apart from this handoff.
+  `feat/p4-suites-adopt-stall-seconds` (the feature commit, the touch-up bot's `AGENTS.md` date bump, the
+  symbol-loss waiver, and this handoff). Pushed and **CI green**; PR #1074 needs only the owner's merge.
   `origin/main` was `adbd49b` at branch point. Other open PR: **#1073** (ruleset validation, different arc).
-- `juniper-cascor`: `origin/main` = `ed7c590`, primary checkout in sync. New worktree/branch for R-1 created
-  and **untouched** — no cascor code has been modified.
-- Environment: no experiment campaign was run this session. GPU untouched; no listeners, no lockdirs claimed.
+- `juniper-cascor`: `origin/main` = `ed7c590`, primary checkout in sync. **No cascor code was modified and
+  no cascor branch or worktree remains** — the R-1 worktree was created, never written to, and removed
+  during cleanup. Issues #509 and #505 remain OPEN.
+- Environment: no experiment campaign was run. GPU untouched; no listeners, no lockdirs claimed. One
+  side effect worth knowing: `juniper-ci-tools` was pip-installed into the active `JuniperCascor1` env to
+  reproduce the sequence-safety screens locally. It is a plain wheel (not an editable), so it does not
+  affect the editable-install drift checker; leave it or uninstall it, either is harmless.
+
+## Final update to state
+
+Where R-1 stopped
+
+The design is settled and recorded in the archived handoff, so it survives this pause. The last thing I confirmed — and it matters — is that train_candidates re-raises CandidateTrainingError unchanged (line 2152) rather than swallowing it, and _get_training_results only wraps other exceptions into TrainingError. So a raise from grow_network propagates cleanly to the lifecycle manager's except Exception → mark_failed → status "Failed". No handler in the path would eat it.
+
+That also means the existing CandidateTrainingError is the correct type to reuse — its docstring describes the identical failure class ("raising this error instead fails loudly"), so R-1 adds no new exception, just a guard and a new completion_reason value.
+
+Two things still to decide when you pick it back up: whether the new completion_reason string is worth the cross-repo contract change (canopy consumes it via stopped_reason), and whether the forkserver-lifecycle half ships as a separate PR — I'd recommend yes, since the honest-outcome half is independently valuable and much smaller.
+
+---
