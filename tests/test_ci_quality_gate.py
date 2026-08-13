@@ -48,6 +48,13 @@ ADVISORY_EXCLUDED = frozenset(
 )
 
 # Required hard needs (the QG must keep these).
+#
+# ``sops-validation`` joined 2026-08-13 (Tier 2 CI hardening). It proves every value
+# line in a tracked ``*.enc`` file is real SOPS ciphertext -- the check the
+# ``no-unencrypted-env`` pre-commit hook cannot make, since that hook catches a
+# plaintext ``.env`` but not a file merely NAMED ``.enc`` whose contents were
+# partially decrypted. It is a hard need (not advisory): it runs on every event,
+# so folding it in does not paint pushes red the way the PR-only soak jobs would.
 REQUIRED_NEEDS = (
     "pre-commit",
     "tests",
@@ -56,6 +63,7 @@ REQUIRED_NEEDS = (
     "security",
     "claude-yaml-audit",
     "dependency-docs",
+    "sops-validation",
 )
 
 
