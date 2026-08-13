@@ -821,3 +821,91 @@ path where nobody is looking for a bug. **Second, latent instance:** `on_remove_
 the pattern verbatim and would render `Removed unit N (now None hidden units).` — unreachable today only
 because the remove dropdown is empty, so it will surface the moment F-CANOPY-011 and D-0 are fixed. Fix
 both call sites together.
+
+### W5 steps 16-26 — replay starts perfectly, then cannot be controlled at all
+
+**W5-16 PASS.** Replay op → modal body `Confirm Replay of snapshot: snapshot_20260811T010849Z / Start a
+read-only playback session of this snapshot's training history. Use the replay player controls to scrub
+through metric and topology evolution. / ⚠️ Training must b…` → confirm → **the active tab auto-switched
+to `Replay`** (t=6125 ms) and the panel reported `✅ Snapshot replay started`. Both halves of the
+expectation met.
+
+**W5-17 PASS.** `#replay-player-panel-idle` is `display: none` (placeholder gone),
+`#replay-player-panel-active` is `display: block`, `#replay-player-panel-snapshot-id` =
+`snapshot_20260811T010849Z`, `#replay-player-panel-fsm-badge` = `REPLAYING`. All three halves met.
+
+**W5-18 FAIL (F-CANOPY-015).** `#replay-player-panel-weights-badge` renders **`V1 (metrics only)`** in the
+grey style. The snapshot is provably **V2 with weight history**: the artifact's own root attrs are
+`format_version = b'2'`, `serializer_version = b'2.0.0'`, and `history/weights/` holds `output_weights`
+and `output_bias` (3 samples each) plus `hidden_units` and `sample_indices`; cascor's own replay-start
+response reports `session.weights_available = True` with
+`weight_sampling {strategy: adaptive, interval: 50, num_samples: 3}`. The badge is reporting the opposite
+of the truth, which per the matrix is the row's entire purpose ("Record which").
+
+**W5-19 FAIL / W5-26 FAIL / W5-21, W5-22, W5-23 BLOCKED (all F-CANOPY-014).** Clicking
+`#replay-player-panel-play-btn` (visible, enabled) leaves the status block on
+`❌ Invalid URL '/api/v1/snapshots/snapshot_20260811T010849Z/replay/control': No scheme supplied. Perhaps
+you meant https:///api/v1/…` and `#replay-player-panel-epoch-readout` frozen at `0 / 12` — playback never
+advances. `#replay-player-panel-stop-btn` produces the **identical** error, proving the failure is
+**action-independent**: every control action funnels through the one malformed URL at
+`replay_player_panel.py:356`. The slider rows (seek / speed / range) are therefore recorded BLOCKED rather
+than driven — the submit path is provably dead for every action, so dragging them could only re-observe
+the same error.
+**Backend exonerated on the wire**: a direct `POST :8051/api/v1/snapshots/{id}/replay/control
+{"action":"play"}` returns **HTTP 200** with a full result block (`length: 12, time_index: 0, speed: 1.0,
+paused: false, range {0,12}, weights_available: true`). canopy's route and cascor are both healthy; only
+the panel's URL construction is broken.
+
+**W5-20, W5-24, W5-25 BLOCKED (consequential).** The V2 last-sample drain, the Evolution weight-norms
+un-hide, and the Decision-Boundary redraw all require playback to advance, which F-CANOPY-014 prevents.
+W5-20 is doubly blocked — the panel also believes the session is V1 (F-CANOPY-015).
+
+### Findings opened in segment 6 (continued)
+
+**F-CANOPY-014 — the replay player builds every control URL with an EMPTY base, so the entire replay
+control surface is dead: play / pause / seek / speed / range / stop all fail with `No scheme supplied`
+(P1, OPEN; root-caused, backend exonerated).**
+`replay_player_panel.py:80` initialises `self._api_base_url = config.get("api_base_url", "")` — an
+**empty-string** fallback. The runtime config does not supply `api_base_url`, so the base is `""` and
+`:356` builds `f"{self._api_base_url}/api/v1/snapshots/{snapshot_id}/replay/control"` =
+`"/api/v1/snapshots/…/replay/control"`, a schemeless relative path. `requests` rejects it verbatim:
+`Invalid URL …: No scheme supplied.` The panel surfaces this honestly in its status block, but every
+control is inert. A three-way comparison across the sibling panels isolates the defect precisely — this is
+the **only** one of the three with an empty fallback:
+
+| panel | line | base-URL expression | outcome |
+|---|---|---|---|
+| `hdf5_snapshots_panel.py` | `:79` | `f"http://127.0.0.1:{_settings.server.port}"` (unconditional) | works — create/restore/replay all landed |
+| `network_editor_panel.py` | `:99` | `config.get("api_base_url", f"http://127.0.0.1:{_settings.server.port}")` | works — patch/add/delete all landed |
+| `replay_player_panel.py` | `:80` | `config.get("api_base_url", "")` | **broken** |
+
+Blast radius: W5-19/26 FAIL and W5-20/21/22/23/24/25 BLOCKED — the whole M-REPLAY control surface. Fix is
+one line (adopt either sibling's fallback); the deeper question of why the config omits `api_base_url` is
+worth answering so the two working panels aren't relying on defaults either.
+
+**F-CANOPY-015 — the replay player reads three session fields one nesting level too shallow; the weights
+badge therefore reports V1 for a V2 snapshot while two sibling misreads are silently masked by
+coincidence (P2, OPEN; root-caused, empirically confirmed).**
+cascor's replay-start payload nests the live session summary under a `session` key. Measured directly off
+the running service, the `data` block's keys are
+`['fsm_state', 'operation', 'session', 'snapshot_id', 'status', 'time_index', 'training_params']` while
+`data.session` carries `['length', 'paused', 'range', 'snapshot_id', 'speed', 'time_index',
+'weight_sampling', 'weights_available']`. canopy's `confirm_snapshot_op`
+(`hdf5_snapshots_panel.py:1281-1287`) stores the **data block** as the session store — correct as far as it
+goes — but `replay_player_panel.py:468-471` then reads `range`, `speed`, and `weights_available` off that
+block's top level, where **none of the three exist**. The panel is inconsistent with itself: its own
+`_session_window` (`:383-397`) and the `fsm_state` read (`:470`) *are* written against the unified
+data-block shape and work correctly, which is why the epoch readout and FSM badge are right.
+Observed consequences, exactly as the shapes predict:
+
+| read | line | actual value | rendered | masked? |
+|---|---|---|---|---|
+| `weights_available` | `:471` | `True` (nested) | `V1 (metrics only)` | **no — visibly wrong** |
+| `speed` | `:469` | `1.0` (nested) | `1×` via `SPEED_DEFAULT` | yes, by coincidence |
+| `range` | `:468` | `{0, 12}` (nested) | `[0, 12]` via `[start, end]` | yes, by coincidence |
+
+The two masked reads are latent: they render correctly **only** while the real session values happen to
+equal the fallbacks, so a resumed session at a non-default speed or a user-narrowed range would display
+stale defaults with no error. Same defect class as F-CANOPY-013 (a payload key read one level too
+shallow), different file and different pair of keys — worth fixing as one sweep with a helper that
+unwraps `session.session` once.
