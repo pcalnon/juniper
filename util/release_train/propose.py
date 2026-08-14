@@ -313,6 +313,9 @@ def make_live_sources(owner: str, repo_root: Path, ecosystem_root: Path) -> Prop
             try:
                 os.unlink(body_path)
             except OSError:
+                # Best-effort cleanup of our own tempfile. Deliberately swallowed: the commit either
+                # already landed or already failed, and a leftover temp file on an ephemeral runner
+                # must never mask that outcome (nor turn a successful release proposal into an error).
                 pass
         try:
             data = json.loads(out) if out else {}
