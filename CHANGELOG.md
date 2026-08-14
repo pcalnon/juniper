@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Editable-install drift check now detects stale metadata**, a second axis orthogonal to
+  `FRESH` / `WORKTREE_PINNED` / `ORPHANED` (`util/editable_install_drift_check.py`). An editable
+  install never re-derives its version when the source tree moves on: `import` follows the live
+  tree, but `*.dist-info/METADATA` stays frozen at whatever was declared when pip last ran. The
+  path axis cannot see that, and neither can `juniper-env-drift-check`, which asks a different
+  question — whether an installed version satisfies a consumer's declared *floor*. A stale
+  editable sits comfortably above every floor and is still wrong.
+  - Found on this host on 2026-08-14: **7 of 8** editable installs were `FRESH` **and** stale at
+    once, `juniper-data` five minors behind (`0.6.0` recorded vs `0.11.0` declared). Both existing
+    checkers reported completely clean. The consequence is not a broken `import` — it is anything
+    reading the *installed* version: juniper-cascor's own `test_version_matches_pyproject` failed
+    locally on exactly this (`0.6.0` vs pyproject `0.9.0`), and a host-launched service exports the
+    stale number as its build-info/provenance metric.
+  - New per-finding fields `installed_version` / `source_version` / `version_status`
+    (`MATCH` | `STALE` | `UNKNOWN`) in the table, the summary, and `--json`. `STALE` is **soft**
+    (exit `0` — `import` still resolves); `--strict-version` makes it exit `1`, and `--strict` is
+    unchanged, still about the path axis alone.
+  - `--fix-stale` refreshes stale installs against the path they **already point at**
+    (`drift: "stale-metadata"`), not a canonical-discovery result — reinstalling from the recorded
+    path is what re-stamps the metadata, while routing it through discovery could re-point a
+    deliberate checkout. `ORPHANED` repair is untouched (`drift: "path"`).
+  - Dynamic versions resolve only from an **explicit** declaration
+    (`[tool.setuptools.dynamic] version.attr`, including `src/` layouts, or `[tool.hatch.version] path`).
+    An unrecognized backend reports `UNKNOWN` rather than guessing at a plausible `_version.py`,
+    so the tool cannot manufacture a `STALE` finding from the wrong file.
+  - Coverage: `tests/test_editable_install_drift_check.py::VersionDriftTest` (18 arms, hermetic —
+    synthetic conda dir + ecosystem root, no real pip).
+
 ### Fixed
 
 - **Runner-commit automations no longer produce unsigned, unmergeable branches** (juniper-ml#1099).
