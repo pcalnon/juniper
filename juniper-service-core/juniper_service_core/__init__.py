@@ -72,9 +72,11 @@ if TYPE_CHECKING:
     from juniper_service_core.secrets import get_secret
     from juniper_service_core.security import (
         APIKeyAuth,
+        FailedAuthThrottle,
         RateLimiter,
         api_key_header,
         build_api_key_auth,
+        build_failed_auth_throttle,
         build_rate_limiter,
     )
     from juniper_service_core.settings import SettingsBase
@@ -122,9 +124,11 @@ __all__ = [
     "AuthPostureError",
     # Security (lazy, from .security)
     "APIKeyAuth",
+    "FailedAuthThrottle",
     "RateLimiter",
     "api_key_header",
     "build_api_key_auth",
+    "build_failed_auth_throttle",
     "build_rate_limiter",
     # Secrets (lazy, from .secrets)
     "get_secret",
@@ -201,9 +205,11 @@ _LAZY_EXPORTS = {
     "auth_is_configured": "juniper_service_core.auth_posture",
     "AuthPostureError": "juniper_service_core.auth_posture",
     "APIKeyAuth": "juniper_service_core.security",
+    "FailedAuthThrottle": "juniper_service_core.security",
     "RateLimiter": "juniper_service_core.security",
     "api_key_header": "juniper_service_core.security",
     "build_api_key_auth": "juniper_service_core.security",
+    "build_failed_auth_throttle": "juniper_service_core.security",
     "build_rate_limiter": "juniper_service_core.security",
     "get_secret": "juniper_service_core.secrets",
     "SecurityHeadersMiddleware": "juniper_service_core.middleware",
