@@ -393,6 +393,7 @@ ruleset was confirmed to cover the same ground; the pre-delete config was captur
 | **A PR stuck at `CLEAN`** | Re-arm auto-merge — a ruleset edit is not a PR event, so nothing re-evaluates the queue. Do **not** admin-merge. |
 | **canopy requires the macOS unit-test leg** | It carries the known CSRF-TTL flake (`test_validate_refreshes_ttl`; 1 failed / 5645 passed, green on rerun). juniper-data runs its macOS leg `continue-on-error` while keeping the Linux legs required — canopy is inconsistent with that. See Tier 2. |
 | **Renaming a test is a symbol LOSS to post-merge `main-verify`** | The screen is AST-based and does not know a rename from a deletion, so the old qualified name must be waived on the squash commit or `main-verify` goes red on `main` — see §4e. |
+| **Demoting a `###` heading is a docs DELETION to post-merge `main-verify`** | The docs screen counts headings, not prose, so turning `### X` into `**X**:` reads as `heading-deletion` even when the content is untouched. Same stickiness, different screen and different trailer (`Allow-Docs-Rewrite`) — see §4f. |
 
 ### 4e. Renames need a waiver trailer on the *squash* commit
 
@@ -416,6 +417,42 @@ Diagnosis note: this streak began earlier, on 2026-08-10 at `b8201d0`, with a **
 failing (`Regression Battery`, symbol screen green). That resolved on its own, and by
 2026-08-14 the battery was green on every run while the symbol screen was the sole failure.
 Check *which job* failed before assuming a streak has one cause.
+
+### 4f. The same trap on the *docs* screen — heading demotion (2026-08-14)
+
+§4e's streak cleared, and `main` went red again two days later from the **sibling** screen. The
+cause was `68f62f5` ("docs: update validation records and improve table formatting"), which
+demoted a heading in the canopy E2E matrix note:
+
+```text
+files_screened=5 findings=132 fail=1 by_reason={'heading-deletion': 1, 'small-deletion': 131}
+  [FAIL/heading-deletion] notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md
+                          {'headings': ['### Validation record'], 'deleted': 1, 'added': 1}
+```
+
+`### Validation record` became `**Validation record**:` — the section survived verbatim, only its
+markup changed. `deleted: 1, added: 1` is the tell: a *retitle-shaped* edit, not a content loss.
+
+What generalises from §4e, and what does not:
+
+| Property | §4e (symbol screen) | §4f (docs screen) |
+|---|---|---|
+| Trailer | `Allow-Symbol-Loss` | `Allow-Docs-Rewrite` |
+| Must ride the squash commit | yes | yes |
+| Sticky via the G3.1 catch-up base | yes | yes |
+| Token matched | qualified symbol name | **file path or bare basename** |
+| Failing job name | `Symbol & Docs Screen` | `Symbol & Docs Screen` (same job — check the `by_reason` line, not the job name) |
+
+Two additions to the §4e playbook:
+
+1. **Both screens run in one job**, so the job name alone does not tell you which fired. Read the
+   `by_verdict=` (symbol) vs `by_reason=` (docs) summary line.
+2. **Only `FAIL`-severity findings need waiving.** The run above reported 132 findings but
+   `fail=1`; the 131 `small-deletion` rows are WARN and never block. Waive the one FAIL path —
+   do not reach for the `*` wildcard.
+
+The trailer is `Allow-Docs-Rewrite: <path>`, and it accepts the bare basename as well as the
+repo-relative path (`_waives()` in `juniper_ci_tools/docs_additions_check.py`).
 
 ---
 
