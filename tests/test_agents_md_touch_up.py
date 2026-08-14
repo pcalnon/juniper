@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
-"""YAML-extraction rehearsal for ``agents-md-touch-up.yml`` Last Updated auto-bump.
+"""YAML-extraction rehearsal for ``agents-md-touch-up.yml`` Last Updated VERIFICATION.
 
 Companion to ``tests/test_agents_md_header_schema.py`` (shape/ISO format) and the
 ``.github/workflows/agents-md-touch-up.yml`` workflow that keeps ``**Last Updated**:``
-currency. Neither the workflow YAML nor its sed/commit shell is otherwise lint-gated,
-so this unittest IS the gate.
+current. Neither the workflow YAML nor its verify shell is otherwise lint-gated, so
+this unittest IS the gate.
 
-Risky contract pinned here:
+Contract pinned here (juniper-ml#1099 -- the lane VERIFIES, it never mutates):
 
-- Missing ``**Last Updated**:`` field → exit 0 with ``::warning::`` (no crash / no commit).
-- Already today's UTC date → exit 0, no commit.
-- Stale date → sed rewrite, commit as ``github-actions[bot]`` with ``[skip ci]``, then
-  ``git pull --rebase`` + ``git push`` (never ``--force``).
+- Missing ``**Last Updated**:`` field -> exit 0 with ``::warning::``.
+- Malformed (non ``YYYY-MM-DD``) value -> exit 1.
+- Value in the future -> exit 1.
+- AGENTS.md changed but the date line NOT changed in this PR -> exit 1 with the
+  exact line to write.
+- AGENTS.md changed AND the date line changed -> exit 0.
+- ANTI-RESURRECTION: the shell must never ``sed -i`` / ``git commit`` / ``git push``.
+  It used to do exactly that, which produced two failure classes under the
+  2026-08-12 ``required_signatures`` normalization -- an UNSIGNED commit (rejected,
+  unmergeable branch) and a ``[skip ci]`` orphan head (no required context ever
+  reports, PR permanently BLOCKED). See juniper-cascor#515 / #518.
 
 Idiom matches ``tests/test_release_train_workflow_guard.py`` / ``tests/test_ci_fleet_pr_lint.py``:
-extract the workflow's OWN bump shell and drive it hermetically.
+extract the workflow's OWN verify shell and drive it hermetically.
 
 Run: python3 -m unittest -v tests/test_agents_md_touch_up.py
 
@@ -37,13 +44,11 @@ import yaml
 from tests.redacted_env import RedactedEnv
 
 WORKFLOW_NAME = "agents-md-touch-up.yml"
-JOB_NAME = "touch-up"
-STEP_NAME = "Bump AGENTS.md `**Last Updated**:` to today (UTC)"
-FIXED_TODAY = "2026-08-05"
+JOB_NAME = "verify-date"
+STEP_NAME = "Verify AGENTS.md `**Last Updated**:` was bumped in this PR"
+FIXED_TODAY = "2026-08-14"
 STALE_DATE = "2026-01-01"
-BOT_NAME = "github-actions[bot]"
-BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
-SKIP_CI_MARKER = "[skip ci]"
+FUTURE_DATE = "2027-03-04"
 
 
 def _find_repo_root(start: Path) -> Path:
@@ -70,10 +75,26 @@ def _real_git() -> str:
     return path
 
 
-class AgentsMdTouchUpStructuralTest(unittest.TestCase):
-    """Pin workflow shape so a refactor cannot drop [skip ci], bot authorship, or the fork guard."""
+def _load_step() -> tuple:
+    repo_root = _find_repo_root(Path(__file__).resolve().parent)
+    wf = repo_root / ".github" / "workflows" / WORKFLOW_NAME
+    if not wf.is_file():
+        raise unittest.SkipTest(f"{WORKFLOW_NAME} not present at {wf}")
+    raw = wf.read_text(encoding="utf-8")
+    doc = yaml.safe_load(raw)
+    job = (doc.get("jobs") or {}).get(JOB_NAME)
+    if job is None:
+        raise unittest.SkipTest(f"{WORKFLOW_NAME} has no {JOB_NAME!r} job")
+    steps = job.get("steps") or []
+    step = next((s for s in steps if s.get("name") == STEP_NAME), None)
+    if step is None or "run" not in step:
+        raise unittest.SkipTest(f"could not locate {STEP_NAME!r} run step")
+    return raw, doc, job, step
 
-    workflow_path: Path
+
+class AgentsMdDateCheckStructuralTest(unittest.TestCase):
+    """Pin workflow shape so the lane cannot regain write access or start mutating again."""
+
     raw: str
     doc: dict
     job: dict
@@ -82,126 +103,86 @@ class AgentsMdTouchUpStructuralTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        repo_root = _find_repo_root(Path(__file__).resolve().parent)
-        cls.workflow_path = repo_root / ".github" / "workflows" / WORKFLOW_NAME
-        if not cls.workflow_path.is_file():
-            raise unittest.SkipTest(f"{WORKFLOW_NAME} not present at {cls.workflow_path}")
-        cls.raw = cls.workflow_path.read_text(encoding="utf-8")
-        cls.doc = yaml.safe_load(cls.raw)
-        cls.job = (cls.doc.get("jobs") or {}).get(JOB_NAME)
-        if cls.job is None:
-            raise unittest.SkipTest(f"{WORKFLOW_NAME} has no {JOB_NAME!r} job")
-        steps = cls.job.get("steps") or []
-        cls.step = next((s for s in steps if s.get("name") == STEP_NAME), None)
-        if cls.step is None or "run" not in cls.step:
-            raise unittest.SkipTest(f"could not locate {STEP_NAME!r} run step")
+        cls.raw, cls.doc, cls.job, cls.step = _load_step()
         cls.script = cls.step["run"]
 
-    def test_paths_filter_and_fork_guard(self) -> None:
+    def test_paths_filter(self) -> None:
         on = self.doc.get("on") or self.doc.get(True) or {}
         pr = on.get("pull_request") or {}
         self.assertEqual(pr.get("paths"), ["AGENTS.md"])
-        self.assertIn(
-            "github.event.pull_request.head.repo.full_name == github.repository",
-            str(self.job.get("if", "")),
-        )
 
-    def test_contents_write_permission(self) -> None:
+    def test_permissions_are_read_only(self) -> None:
+        """Verification needs no write scope -- the whole point of juniper-ml#1099."""
         perms = self.doc.get("permissions") or {}
-        self.assertEqual(perms.get("contents"), "write")
+        self.assertEqual(perms.get("contents"), "read")
+        self.assertNotIn("write", str(perms.values()).lower())
 
-    def test_script_pins_bot_identity_skip_ci_and_no_force_push(self) -> None:
+    def test_script_never_mutates(self) -> None:
+        """ANTI-RESURRECTION: the unsigned-commit / [skip ci]-orphan class must not come back."""
         script = self.script
-        self.assertIn(BOT_NAME, script)
-        self.assertIn(BOT_EMAIL, script)
-        self.assertIn(SKIP_CI_MARKER, script)
-        self.assertIn('git pull --rebase origin "$PR_HEAD_REF"', script)
-        self.assertIn('git push origin HEAD:"$PR_HEAD_REF"', script)
-        self.assertNotIn("--force", script)
-        self.assertNotIn("git push -f", script)
-        self.assertIn("PR_HEAD_REF", (self.step.get("env") or {}))
+        for forbidden in ("git commit", "git push", "sed -i", "git add", "git config user."):
+            self.assertNotIn(forbidden, script, f"verify lane must never run {forbidden!r}")
+
+    def test_step_receives_base_sha(self) -> None:
+        self.assertIn("BASE_SHA", (self.step.get("env") or {}))
+
+    def test_checkout_has_full_history(self) -> None:
+        """The three-dot diff needs a resolvable merge base."""
+        steps = self.job.get("steps") or []
+        checkout = next((s for s in steps if str(s.get("uses", "")).startswith("actions/checkout")), None)
+        self.assertIsNotNone(checkout, "verify lane must check out the PR head")
+        self.assertEqual((checkout.get("with") or {}).get("fetch-depth"), 0)
 
 
-class AgentsMdTouchUpRehearsalTest(unittest.TestCase):
-    """Extract and run the real bump shell over missing / current / stale AGENTS.md arms."""
+class AgentsMdDateCheckRehearsalTest(unittest.TestCase):
+    """Extract and run the real verify shell over every arm of the contract."""
 
     script: str
     real_git: str
 
     @classmethod
     def setUpClass(cls) -> None:
-        repo_root = _find_repo_root(Path(__file__).resolve().parent)
-        wf = repo_root / ".github" / "workflows" / WORKFLOW_NAME
-        if not wf.is_file():
-            raise unittest.SkipTest(f"{WORKFLOW_NAME} not present at {wf}")
-        doc = yaml.safe_load(wf.read_text(encoding="utf-8"))
-        job = (doc.get("jobs") or {}).get(JOB_NAME) or {}
-        steps = job.get("steps") or []
-        step = next((s for s in steps if s.get("name") == STEP_NAME), None)
-        if step is None or "run" not in step:
-            raise unittest.SkipTest(f"could not locate {STEP_NAME!r} run step")
+        _raw, _doc, _job, step = _load_step()
         cls.script = step["run"]
         cls.real_git = _real_git()
 
-    def _write_agents(self, repo: Path, *, last_updated: str | None) -> None:
+    def _agents_body(self, *, last_updated: str | None, version: str = "0.7.1") -> str:
+        head = "# CLAUDE.md\n\n" "**Project**: juniper-ml\n" "**Repository**: pcalnon/juniper-ml\n" "**Author**: Paul Calnon\n" "**License**: MIT License\n" f"**Version**: {version}\n"
         if last_updated is None:
-            body = "# CLAUDE.md\n\n" "**Project**: juniper-ml\n" "**Repository**: pcalnon/juniper-ml\n" "**Author**: Paul Calnon\n" "**License**: MIT License\n" "**Version**: 0.7.0\n"
-        else:
-            body = "# CLAUDE.md\n\n" "**Project**: juniper-ml\n" "**Repository**: pcalnon/juniper-ml\n" "**Author**: Paul Calnon\n" "**License**: MIT License\n" "**Version**: 0.7.0\n" f"**Last Updated**: {last_updated}\n"
-        (repo / "AGENTS.md").write_text(body, encoding="utf-8")
+            return head
+        return head + f"**Last Updated**: {last_updated}\n"
 
-    def _init_repo(self, root: Path, *, last_updated: str | None) -> Path:
+    def _git(self, repo: Path, *args: str) -> str:
+        return subprocess.run(  # nosec B603,B607 - fixed git argv in temp fixture
+            [self.real_git, *args],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    def _init_repo(self, root: Path, *, base_body: str) -> tuple:
+        """Create a repo whose FIRST commit is the PR base, and return (repo, base_sha)."""
         repo = root / "repo"
         repo.mkdir()
-        subprocess.run(  # nosec B603,B607 - fixed git argv in temp fixture
-            [self.real_git, "init"],
-            cwd=repo,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(  # nosec B603,B607
-            [self.real_git, "config", "user.email", "fixture@example.com"],
-            cwd=repo,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(  # nosec B603,B607
-            [self.real_git, "config", "user.name", "fixture"],
-            cwd=repo,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(  # nosec B603,B607
-            [self.real_git, "config", "commit.gpgsign", "false"],
-            cwd=repo,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        self._write_agents(repo, last_updated=last_updated)
-        subprocess.run(  # nosec B603,B607
-            [self.real_git, "add", "AGENTS.md"],
-            cwd=repo,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(  # nosec B603,B607
-            [self.real_git, "commit", "-m", "base"],
-            cwd=repo,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return repo
+        self._git(repo, "init")
+        self._git(repo, "config", "user.email", "fixture@example.com")
+        self._git(repo, "config", "user.name", "fixture")
+        self._git(repo, "config", "commit.gpgsign", "false")
+        (repo / "AGENTS.md").write_text(base_body, encoding="utf-8")
+        self._git(repo, "add", "AGENTS.md")
+        self._git(repo, "commit", "-m", "base")
+        return repo, self._git(repo, "rev-parse", "HEAD")
 
-    def _run(self, repo: Path, *, git_log: Path) -> tuple[int, str]:
+    def _pr_commit(self, repo: Path, body: str) -> None:
+        (repo / "AGENTS.md").write_text(body, encoding="utf-8")
+        self._git(repo, "add", "AGENTS.md")
+        self._git(repo, "commit", "-m", "pr change")
+
+    def _run(self, repo: Path, base_sha: str, *, git_log: Path) -> tuple:
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
-            script_path = td_path / "bump.sh"
+            script_path = td_path / "verify.sh"
             script_path.write_text(self.script, encoding="utf-8")
 
             stub_bin = td_path / "bin"
@@ -209,23 +190,23 @@ class AgentsMdTouchUpRehearsalTest(unittest.TestCase):
 
             date = stub_bin / "date"
             date.write_text(
-                "#!/usr/bin/env bash\n" "set -euo pipefail\n"
-                # Only the workflow's `date -u +%Y-%m-%d` is used; reject other shapes.
-                'if [ "$*" = "-u +%Y-%m-%d" ]; then\n' f'  printf "%s\\n" "{FIXED_TODAY}"\n' "  exit 0\n" "fi\n" 'echo "unexpected date argv: $*" >&2\n' "exit 99\n",
+                "#!/usr/bin/env bash\n" "set -euo pipefail\n" 'if [ "$*" = "-u +%Y-%m-%d" ]; then\n' f'  printf "%s\\n" "{FIXED_TODAY}"\n' "  exit 0\n" "fi\n" 'echo "unexpected date argv: $*" >&2\n' "exit 99\n",
                 encoding="utf-8",
             )
             date.chmod(date.stat().st_mode | stat.S_IXUSR)
 
+            # Real git underneath, but every invocation is logged so the
+            # anti-mutation assertions can prove no commit/push was attempted.
             git = stub_bin / "git"
             git.write_text(
-                "#!/usr/bin/env bash\n" "set -euo pipefail\n" f'REAL_GIT="{self.real_git}"\n' f'LOG="{git_log}"\n' 'printf "%s\\n" "$*" >>"$LOG"\n' 'if [ "${1:-}" = "pull" ] || [ "${1:-}" = "push" ]; then\n' "  exit 0\n" "fi\n" 'exec "$REAL_GIT" "$@"\n',
+                "#!/usr/bin/env bash\n" "set -euo pipefail\n" f'REAL_GIT="{self.real_git}"\n' f'LOG="{git_log}"\n' 'printf "%s\\n" "$*" >>"$LOG"\n' 'exec "$REAL_GIT" "$@"\n',
                 encoding="utf-8",
             )
             git.chmod(git.stat().st_mode | stat.S_IXUSR)
 
             env = RedactedEnv(os.environ)
             env["PATH"] = str(stub_bin) + os.pathsep + env.get("PATH", "")
-            env["PR_HEAD_REF"] = "cursor/example-branch"
+            env["BASE_SHA"] = base_sha
 
             proc = subprocess.run(  # nosec B603,B607 - workflow shell, fixed argv
                 ["bash", str(script_path)],
@@ -238,98 +219,112 @@ class AgentsMdTouchUpRehearsalTest(unittest.TestCase):
             )
             return proc.returncode, proc.stdout + proc.stderr
 
-    def test_missing_last_updated_warns_and_exits_0_without_commit(self) -> None:
+    def _assert_no_mutation(self, repo: Path, head_before: str, git_log: Path) -> None:
+        self.assertEqual(self._git(repo, "rev-parse", "HEAD"), head_before, "verify lane moved HEAD")
+        self.assertEqual(self._git(repo, "status", "--porcelain"), "", "verify lane dirtied the tree")
+        log = git_log.read_text(encoding="utf-8")
+        for verb in ("commit", "push", "add "):
+            self.assertNotIn(verb, log, f"verify lane invoked git {verb!r}")
+
+    def test_missing_last_updated_warns_and_passes(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            repo = self._init_repo(root, last_updated=None)
-            base = subprocess.run(  # nosec B603,B607
-                [self.real_git, "rev-parse", "HEAD"],
-                cwd=repo,
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.strip()
+            repo, base = self._init_repo(root, base_body=self._agents_body(last_updated=None))
+            self._pr_commit(repo, self._agents_body(last_updated=None, version="0.7.2"))
+            head = self._git(repo, "rev-parse", "HEAD")
             git_log = root / "git.log"
             git_log.write_text("", encoding="utf-8")
-            rc, out = self._run(repo, git_log=git_log)
+            rc, out = self._run(repo, base, git_log=git_log)
             self.assertEqual(rc, 0, out)
             self.assertIn("::warning::", out)
             self.assertIn("no '**Last Updated**:' field", out)
-            head = subprocess.run(  # nosec B603,B607
-                [self.real_git, "rev-parse", "HEAD"],
-                cwd=repo,
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.strip()
-            self.assertEqual(head, base)
-            log = git_log.read_text(encoding="utf-8")
-            self.assertNotIn("commit", log)
-            self.assertNotIn("push", log)
+            self._assert_no_mutation(repo, head, git_log)
 
-    def test_already_today_is_noop(self) -> None:
+    def test_malformed_date_fails(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            repo = self._init_repo(root, last_updated=FIXED_TODAY)
-            base = subprocess.run(  # nosec B603,B607
-                [self.real_git, "rev-parse", "HEAD"],
-                cwd=repo,
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.strip()
+            repo, base = self._init_repo(root, base_body=self._agents_body(last_updated=STALE_DATE))
+            self._pr_commit(repo, self._agents_body(last_updated="Aug 14 2026"))
+            head = self._git(repo, "rev-parse", "HEAD")
             git_log = root / "git.log"
             git_log.write_text("", encoding="utf-8")
-            rc, out = self._run(repo, git_log=git_log)
-            self.assertEqual(rc, 0, out)
-            self.assertIn(f"Last Updated already {FIXED_TODAY}", out)
-            head = subprocess.run(  # nosec B603,B607
-                [self.real_git, "rev-parse", "HEAD"],
-                cwd=repo,
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.strip()
-            self.assertEqual(head, base)
-            self.assertNotIn("commit", git_log.read_text(encoding="utf-8"))
+            rc, out = self._run(repo, base, git_log=git_log)
+            self.assertEqual(rc, 1, out)
+            self.assertIn("not a YYYY-MM-DD date", out)
+            self._assert_no_mutation(repo, head, git_log)
 
-    def test_stale_date_bumps_commits_with_skip_ci_and_pushes(self) -> None:
+    def test_future_date_fails(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            repo = self._init_repo(root, last_updated=STALE_DATE)
+            repo, base = self._init_repo(root, base_body=self._agents_body(last_updated=STALE_DATE))
+            self._pr_commit(repo, self._agents_body(last_updated=FUTURE_DATE))
+            head = self._git(repo, "rev-parse", "HEAD")
             git_log = root / "git.log"
             git_log.write_text("", encoding="utf-8")
-            rc, out = self._run(repo, git_log=git_log)
+            rc, out = self._run(repo, base, git_log=git_log)
+            self.assertEqual(rc, 1, out)
+            self.assertIn("is in the future", out)
+            self._assert_no_mutation(repo, head, git_log)
+
+    def test_changed_without_bump_fails_with_guidance(self) -> None:
+        """The core case: AGENTS.md edited, date left stale."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, base = self._init_repo(root, base_body=self._agents_body(last_updated=STALE_DATE))
+            self._pr_commit(repo, self._agents_body(last_updated=STALE_DATE, version="0.7.2"))
+            head = self._git(repo, "rev-parse", "HEAD")
+            git_log = root / "git.log"
+            git_log.write_text("", encoding="utf-8")
+            rc, out = self._run(repo, base, git_log=git_log)
+            self.assertEqual(rc, 1, out)
+            self.assertIn("does not bump", out)
+            self.assertIn(f"**Last Updated**: {FIXED_TODAY}", out)
+            self._assert_no_mutation(repo, head, git_log)
+
+    def test_bumped_date_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, base = self._init_repo(root, base_body=self._agents_body(last_updated=STALE_DATE))
+            self._pr_commit(repo, self._agents_body(last_updated=FIXED_TODAY, version="0.7.2"))
+            head = self._git(repo, "rev-parse", "HEAD")
+            git_log = root / "git.log"
+            git_log.write_text("", encoding="utf-8")
+            rc, out = self._run(repo, base, git_log=git_log)
             self.assertEqual(rc, 0, out)
-            self.assertIn(f"{STALE_DATE} -> {FIXED_TODAY}", out)
+            self.assertNotIn("does not bump", out)
+            self._assert_no_mutation(repo, head, git_log)
 
-            body = (repo / "AGENTS.md").read_text(encoding="utf-8")
-            self.assertIn(f"**Last Updated**: {FIXED_TODAY}", body)
-            self.assertNotIn(STALE_DATE, body)
+    def test_already_today_and_unchanged_passes(self) -> None:
+        """A second PR on the same UTC day has nothing to bump, so the date line
+        legitimately does not appear in its diff. Requiring 'changed' alone would
+        fail every such PR -- including the one that introduced this check."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, base = self._init_repo(root, base_body=self._agents_body(last_updated=FIXED_TODAY))
+            self._pr_commit(repo, self._agents_body(last_updated=FIXED_TODAY, version="0.7.2"))
+            head = self._git(repo, "rev-parse", "HEAD")
+            git_log = root / "git.log"
+            git_log.write_text("", encoding="utf-8")
+            rc, out = self._run(repo, base, git_log=git_log)
+            self.assertEqual(rc, 0, out)
+            self.assertIn("already today's UTC date", out)
+            self._assert_no_mutation(repo, head, git_log)
 
-            msg = subprocess.run(  # nosec B603,B607
-                [self.real_git, "log", "-1", "--pretty=%s"],
-                cwd=repo,
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.strip()
-            self.assertIn(FIXED_TODAY, msg)
-            self.assertIn(SKIP_CI_MARKER, msg)
-
-            author = subprocess.run(  # nosec B603,B607
-                [self.real_git, "log", "-1", "--pretty=%an <%ae>"],
-                cwd=repo,
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.strip()
-            self.assertEqual(author, f"{BOT_NAME} <{BOT_EMAIL}>")
-
-            log_lines = git_log.read_text(encoding="utf-8").splitlines()
-            self.assertTrue(any(line.startswith("pull --rebase origin ") for line in log_lines), log_lines)
-            self.assertTrue(any(line.startswith("push origin HEAD:") for line in log_lines), log_lines)
-            self.assertFalse(any("--force" in line or line.startswith("push -f") for line in log_lines))
+    def test_backdated_but_changed_passes(self) -> None:
+        """A PR opened days ago keeps passing on re-run -- the reason the predicate is
+        'the line changed', not 'the line equals today'. This arm is the one that
+        exercises the diff branch (the date is deliberately NOT today)."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, base = self._init_repo(root, base_body=self._agents_body(last_updated=STALE_DATE))
+            self._pr_commit(repo, self._agents_body(last_updated="2026-08-10", version="0.7.2"))
+            head = self._git(repo, "rev-parse", "HEAD")
+            git_log = root / "git.log"
+            git_log.write_text("", encoding="utf-8")
+            rc, out = self._run(repo, base, git_log=git_log)
+            self.assertEqual(rc, 0, out)
+            self.assertIn("was bumped in this PR", out)
+            self._assert_no_mutation(repo, head, git_log)
 
 
 if __name__ == "__main__":

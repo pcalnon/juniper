@@ -27,7 +27,7 @@
 - [Docs Full Check](#docs-full-check)
 - [Scheduled Security Scan and Lockfile Update](#scheduled-security-scan-and-lockfile-update)
 - [Release-Train Detect Summary and Slack](#release-train-detect-summary-and-slack)
-- [AGENTS.md Touch-Up](#agentsmd-touch-up)
+- [AGENTS.md Date Check](#agentsmd-date-check)
 - [Claude.yml Access Validation](#claudeyml-access-validation)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
@@ -1259,21 +1259,30 @@ If `release-manifest.json` is absent or blank the summary writes only `**Detecto
 
 ---
 
-## AGENTS.md Touch-Up
+## AGENTS.md Date Check
 
-[`.github/workflows/agents-md-touch-up.yml`](../.github/workflows/agents-md-touch-up.yml) keeps `AGENTS.md`'s `**Last Updated**:` header aligned with the UTC date the file actually changed. The companion schema lint is `tests/test_agents_md_header_schema.py` (presence + `YYYY-MM-DD`); version equality is a separate concern (`tests/test_agents_md_version_drift.py`).
+[`.github/workflows/agents-md-touch-up.yml`](../.github/workflows/agents-md-touch-up.yml) keeps `AGENTS.md`'s `**Last Updated**:` header aligned with the UTC date the file actually changed — by **verifying** it, never by rewriting your branch. The companion schema lint is `tests/test_agents_md_header_schema.py` (presence + `YYYY-MM-DD`); version equality is a separate concern (`tests/test_agents_md_version_drift.py`).
 
 | Item | Value |
 |------|-------|
 | Events | `pull_request` types `opened` / `reopened` / `synchronize` |
 | Paths filter | `AGENTS.md` only |
-| Job `if` | `github.event.pull_request.head.repo.full_name == github.repository` — fork PRs are skipped (the default token is read-only there) |
-| Permissions | `contents: write` + `pull-requests: read` |
-| Concurrency | `agents-md-touch-up-<PR number>`, `cancel-in-progress: true` |
+| Job `if` | none — fork PRs are checked too (verification needs no token) |
+| Permissions | `contents: read` |
+| Concurrency | `agents-md-date-check-<PR number>`, `cancel-in-progress: true` |
 
-Behaviour: check out the PR head; if `AGENTS.md` has **no** `**Last Updated**:` line, emit a `::warning::` and exit 0 without committing; if the value already equals today's UTC date, no-op; otherwise rewrite the line, commit as `github-actions[bot]` with a `[skip ci]`-tagged message, `git pull --rebase` against the PR head, and push (**never** `--force`).
+Behaviour: check out the PR head with full history; if `AGENTS.md` has **no** `**Last Updated**:` line, emit a `::warning::` and pass; otherwise the value must be a well-formed `YYYY-MM-DD` date, must not be in the future, and the line must have **changed in this PR** (`git diff <base>...HEAD`). Anything else fails the check and prints the exact line to write.
 
-The skip-ci marker is mandatory so the bump does not recurse into the whole CI fleet, and a rebase failure fails the job loudly rather than force-pushing. Expect an extra bot commit on same-repo PRs that touch `AGENTS.md` with a stale date — that is success, not noise. Fork PRs never get the bump; the author sets the date manually. Coverage: `tests/test_agents_md_touch_up.py`.
+The predicate is "the line changed", not "the line equals today": a PR opened Monday and merged Thursday would fail an equals-today check on every re-run. `util/release_train/propose.py` sets this header in its own commit, so release-train proposals satisfy the check as authored.
+
+**This job used to bump the date and push the commit itself.** That was removed in juniper-ml#1099 because it produced two failure classes under the 2026-08-12 `required_signatures` normalization:
+
+| Class | Effect |
+|-------|--------|
+| Unsigned commit | A local `git commit` on a runner is unsigned; `required_signatures` rejects it, and an unsigned commit anywhere in the branch history blocks the merge (squash does not rescue it) |
+| `[skip ci]` orphan | The bump commit became the PR head, and because it carried `[skip ci]` **no required context ever reported on it** — the PR sat permanently BLOCKED with every check stuck at "expected" (juniper-cascor#515) |
+
+It also raced `Update Lockfile (Dependabot)` for the push slot. Verifying eliminates all three, and drops the lane's write scope entirely. Coverage: `tests/test_agents_md_touch_up.py` (11 arms, including an anti-resurrection assertion that the shell can never `git commit` / `git push` / `sed -i` again).
 
 ---
 

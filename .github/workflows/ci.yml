@@ -591,14 +591,15 @@ jobs:
           # canonical header schema (Project / Repository / Author /
           # License / Version / Last Updated, in that relative order)
           # so the agent-facing contract has a guaranteed shape. The
-          # Last Updated field's currency is maintained by the
+          # Last Updated field's currency is enforced by the
           # `.github/workflows/agents-md-touch-up.yml` workflow,
-          # which auto-bumps on each PR push touching AGENTS.md.
+          # which VERIFIES the date on each PR touching AGENTS.md.
           python3 -m unittest -v tests/test_agents_md_header_schema.py
           # tests/test_agents_md_touch_up.py: YAML-extraction rehearsal for
-          # agents-md-touch-up.yml — missing field / already-today no-ops, stale
-          # date sed-bump + github-actions[bot] commit with [skip ci], rebase+push
-          # without --force. Workflow shell is not otherwise lint-gated.
+          # agents-md-touch-up.yml — missing field warns+passes, malformed /
+          # future / unbumped dates fail, bumped passes, plus the #1099
+          # anti-resurrection assertion that the shell never commits or pushes.
+          # Workflow shell is not otherwise lint-gated.
           python3 -m unittest -v tests/test_agents_md_touch_up.py
           # tests/test_agents_md_tree_drift.py: gap-G-3 guard -- every tracked
           # non-hidden top-level dir must appear in AGENTS.md's Repository-Structure

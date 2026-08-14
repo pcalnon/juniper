@@ -415,12 +415,16 @@ def set_agents_version(text: str, new_version: str) -> tuple:
 def set_agents_last_updated(text: str, date: str) -> tuple:
     """Replace the ``**Last Updated**:`` header value in AGENTS.md. -> (new_text, old|None).
 
-    Pre-empts the ``agents-md-touch-up.yml`` workflow, which fires on any PR touching AGENTS.md and
-    pushes its own ``[skip ci]`` commit when the date is stale. That commit becomes the PR head, and
-    because it carries ``[skip ci]`` **no required context ever reports on it** -- leaving the proposal
-    permanently BLOCKED (the cascor#515 class: every required check stuck at "expected"). It also races
-    the lockfile workflow, whose push is then rejected. The touch-up job is idempotent, so setting the
-    date here makes it a no-op rather than a mutation. Purely additive: an AGENTS.md with no
+    Satisfies the ``agents-md-touch-up.yml`` date check, which fires on any PR touching AGENTS.md and
+    requires ``**Last Updated**`` to be a valid non-future date that either equals today or changed in
+    the PR. Setting it here means the proposal passes as authored.
+
+    Historically that lane MUTATED instead of verifying: it pushed its own ``[skip ci]`` commit when the
+    date was stale. That commit became the PR head, and because it carried ``[skip ci]`` **no required
+    context ever reported on it** -- leaving the proposal permanently BLOCKED (the cascor#515 class:
+    every required check stuck at "expected"). It also raced the lockfile workflow, whose push was then
+    rejected, and its local commit was UNSIGNED (juniper-ml#1099). The lane now verifies, but setting the
+    date here remains correct and is what keeps the proposal green. Purely additive: an AGENTS.md with no
     ``**Last Updated**`` line is returned untouched with ``old=None`` (no invented header) -- the same
     honesty contract as ``set_agents_version``."""
     m = re.search(r"^(\*\*Last Updated\*\*:\s*)(\S+)(.*)$", text, re.MULTILINE)
@@ -1369,7 +1373,7 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
                     agents_new = apply_pin_edits_agents_table(agents_new, entry.pypi_name, cochanges[0].new_req)
 
     # 5c. **Last Updated** true-up. Runs ONLY when a previous composer actually changed AGENTS.md --
-    # the touch-up workflow is path-filtered to AGENTS.md, so a proposal that does not touch the file
+    # the date-check workflow is path-filtered to AGENTS.md, so a proposal that does not touch the file
     # cannot trigger it and must not gratuitously bump its date. Composes onto the same text as
     # 5/5a/5b (see the step-5 note), so it never adds a second FileEdit.
     if atext is not None and agents_new != atext:
