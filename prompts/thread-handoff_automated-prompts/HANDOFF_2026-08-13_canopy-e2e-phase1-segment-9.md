@@ -58,6 +58,16 @@ its tools are absent, use the drivers.
   `e2e_cascor_leg_restart.bash`. **Never reap while the stack runs.**
 - Stack left at baseline: params restored (LR 0.1 / Adam / Tanh), pending dataset cancelled to None, FSM
   STOPPED, network still 10 units with the segment-7 mutations, **4** snapshots on disk.
+- **GPU released at segment-8 close (F-CASCOR-003).** cascor never tears its multiprocessing forkserver
+  down after a run ends: the segment-7 spirals run left a launcher + 15 children holding **1740 MiB**
+  (15 × 116 MiB) for ~20 h while `fsm_status` was STOPPED. SIGTERM to the 15 children took the card from
+  2650 MiB used / 5136 free to **861 / 6925**, zero Juniper processes on it, with the service completely
+  intact (same pid 437062, same network uuid `d5827628-…`, supervisor still zero child exits). **These
+  are NOT ppid-1 orphans** — the parent chain runs up to the live cascor service — so
+  `reap_pytest_orphans.bash` classifies them KEEP and cannot recover this memory. Expect the leak to
+  recur after **every** training run: if you drive W6-16 or any other run, re-check
+  `nvidia-smi --query-compute-apps=pid,used_memory --format=csv` afterwards and SIGTERM the children of
+  cascor's forkserver launcher (`ps -o pid= --ppid <launcher>`), never the service itself.
 - **`/api/set_params`, `/api/stage_dataset` and `/api/cancel_pending_dataset` are POSTed SERVER-SIDE from
   Dash callbacks — 0 browser requests is EXPECTED, never score it a failure.** Prove them on the canopy
   server log (read by byte offset; the log is >100 MB) plus the browser's `_dash-update-component`.
@@ -93,6 +103,7 @@ curl -sS http://127.0.0.1:8051/api/v1/snapshots | python3 -c "import sys,json;pr
 curl -sS http://127.0.0.1:8051/api/status | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['fsm_status'], d['pending_dataset'])"  # STOPPED None
 tail -3 /tmp/juniper-e2e/logs/juniper-cascor-supervisor.log             # no child-exit lines
 cut -f1 reports/e2e/20260811T010700Z/statuses.tsv | sed 's/-[0-9]*$//' | sort | uniq -c   # 29 W5 / 21 W6 / 18 NE / 17 REPLAY / 11 W11 / 9 W3 / 4 SNAP
+nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv | grep -c Juniper   # 0 — card released
 python3 -m unittest -q tests/test_isolated_stack_script.py              # 66/66 OK
 pre-commit run --from-ref origin/main --to-ref HEAD                     # clean
 gh pr view 489 --repo pcalnon/juniper-canopy --json state,title         # the F-CANOPY-017 fix, open
