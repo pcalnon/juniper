@@ -104,7 +104,18 @@ its tools are absent, use the drivers.
   dashboard after a fresh load. Confirm-modal DOM does not exist while closed — poll for it to appear.
 - Verdicts accumulate in the per-run TSV via `util/ad-hoc/e2e_append_statuses.py` (dup-guarded;
   `--replace` rewrites a revised verdict in place). Matrix status column still untouched — bulk-filled at close.
-- Commits are unsigned (signing key times out headless); harmless, wip commits squash at close.
+- **"Signing times out headless" is STALE — headless signing WORKS.** The 2026-08-07 ed25519 key
+  migration fixed it: `gpg2 --batch --detach-sign` with the configured key returns exit 0 with no prompt,
+  `git commit -S` yields `%G? = G`, and GitHub reports `verified: true`. Evidence commits on THIS branch
+  are still unsigned (harmless — juniper-ml's ml-side flow tolerates it and wip commits squash at close),
+  but **juniper-canopy `main` is governed by a RULESET containing `required_signatures`**, so any commit
+  merged there MUST be signed or the PR sits `BLOCKED` with every check green. That is what happened to
+  #489: green CI, `mergeable=MERGEABLE`, `mergeStateStatus=BLOCKED`, and the cause was
+  `verification.reason = "unsigned"`, not a failing gate. Fix is `git commit --amend -S` + force-push,
+  **not** `--admin` — admin-bypassing a signature rule lands exactly the artifact the rule exists to
+  prevent. Note the legacy branch-protection API 404s on canopy (`Branch not protected`) because the
+  repo uses rulesets; query `repos/<r>/rules/branches/main` instead. Canopy also has **no auto-merge**
+  (`enablePullRequestAutoMerge` is refused), so merge directly once checks are green.
 
 ## Verification (run first)
 
