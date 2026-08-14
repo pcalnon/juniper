@@ -57,7 +57,7 @@ Every `OPEN` in this document was confirmed by reading the file **today**. Line 
 | `juniper-ml` (meta) | 0 | 0 | 0 | 1 | 0 | **1** |
 | **Total** | **7** | **19** | **18** | **34** | **18** | **96** |
 
-**Status:** all 96 entries above are **OPEN** and were confirmed present in current source on 2026-08-14. Three further findings are already fixed and are listed separately in [§5](#5-fixed-findings-before-and-since-the-primer) rather than counted above: two were fixed between the primer's publication and this register, and one earlier still. No extracted claim failed to reproduce, but one claim reproduced with its provenance inverted — see `APD-SVCCORE-016`.
+**Status:** the 96 entries above were all confirmed present in current source on 2026-08-14. **Five have since been fixed** — `APD-DATA-002`, `APD-DATA-006`, `APD-DATA-034`, `APD-DATA-036`, `APD-CASCOR-002` — leaving **91 open**; each is marked at its detail entry and in its §4 table row, and all five are recorded in [§5](#5-fixed-findings-before-and-since-the-primer) with their PR and verification. Three further findings were already fixed before this register was written and are likewise listed in §5 rather than counted in the 96: two between the primer's publication and this register, and one earlier still. No extracted claim failed to reproduce, but one claim reproduced with its provenance inverted — see `APD-SVCCORE-016`.
 
 ### 2.1 Reachability — read this before triaging any Security entry
 
@@ -72,6 +72,22 @@ The entries that survive this filter as genuinely reachable are those in the bar
 ### 2.2 The four highest-value items
 
 Ranked by consequence divided by cost, not by count.
+
+> **Worked through 2026-08-14. Items 1–3 are FIXED; item 4 is now the top remaining item.** The
+> ranking held up in practice: item 1's fix was indeed a port of already-tested lines from two
+> siblings, and item 2 did turn out to need two PRs because the handler is byte-identical in both
+> services. Item 4's warning below — that consolidating the forks would activate `APD-SVCCORE-003` —
+> is unchanged and still governs how it should be approached.
+>
+> | Item | Fixed by | Notes |
+> |---|---|---|
+> | 1 — `APD-DATA-002` + `APD-DATA-036` | [juniper-data#261](https://github.com/pcalnon/juniper-data/pull/261) | One patch, as predicted |
+> | 2 — `APD-CASCOR-002` | [juniper-cascor#516](https://github.com/pcalnon/juniper-cascor/pull/516) | |
+> | 2 — `APD-DATA-034` | [juniper-data#262](https://github.com/pcalnon/juniper-data/pull/262) | |
+> | 3 — `APD-DATA-006` | [juniper-data#263](https://github.com/pcalnon/juniper-data/pull/263) | |
+> | 4 — `APD-DATA-001` / `APD-CASCOR-004` | **still open** | See the loop warning below before acting |
+>
+> The §2.3 drift-check recommendation was also built: [juniper-ml#1103](https://github.com/pcalnon/juniper-ml/pull/1103).
 
 1. **`APD-DATA-002` — the request body limit is bypassable.** A chunked request with no `Content-Length` streams past the 10 MiB cap entirely. The only unauthenticated memory-exhaustion vector in the register when the service runs in the open bare/dev profile — and the fix is twelve already-written, already-tested lines sitting in **two** sibling repos
    (`juniper-cascor/src/api/middleware.py:100-110`, `juniper-service-core/juniper_service_core/middleware.py:113-131`). Highest consequence over lowest cost. `APD-DATA-036` is a second defect on the same line and ships with the same patch.
@@ -92,14 +108,26 @@ Fifteen entries share one shape: **a guard adopted in one copy of near-identical
 
 **Copy drift** — a service maintains its own copy of shared code and misses a fix. A drift check against `juniper-service-core` would catch these.
 
-| Guard | Landed in | Missing from |
-|---|---|---|
-| Streaming body cap (CR-024) | `juniper-cascor`, then `juniper-service-core` | `juniper-data` (`APD-DATA-002`) |
-| `Content-Length` parse guard (400, not 500) | `juniper-cascor`, `juniper-service-core` | `juniper-data` (`APD-DATA-036`) |
-| Blank-API-key filter | `juniper-service-core` | `juniper-data` (`APD-DATA-003`), `juniper-cascor` (`APD-CASCOR-006` †) |
-| Pre-auth throttle (`juniper-ml#1082`) † | `juniper-service-core` | `juniper-data`, `juniper-cascor` (`APD-DATA-001` †, `APD-CASCOR-004` †) |
-| `OPTIONS` bypass in the exempt check | *(nowhere)* | `juniper-cascor`, `juniper-data` (`APD-CASCOR-001b`, `APD-DATA-035` †) |
-| Narrow serialisation-error handling | *(nowhere)* | `juniper-cascor`, `juniper-data` (`APD-CASCOR-002`, `APD-DATA-034` †) |
+> **That drift check now exists**: `juniper-ml/tests/test_service_fork_drift.py`
+> ([juniper-ml#1103](https://github.com/pcalnon/juniper-ml/pull/1103)). It encodes this table as a
+> registry of named guards — deliberately *not* a file diff, because these forks diverge
+> legitimately and sometimes intentionally (juniper-data holds API keys in a `list` so
+> `compare_digest` runs per key without a set-membership timing side-channel, where service-core uses
+> a `set`; a diff would bury the signal). It is **two-sided**: rows already fixed are `ENFORCED` and
+> must stay present, and rows still open are `KNOWN_GAP` and asserted to be still *absent*, so
+> closing one fails the gate and prompts promotion rather than letting the ledger rot. The
+> `OPTIONS` row is deliberately not encoded — it landed in no copy, so there is no reference
+> implementation to derive a marker from. The gate runs against sibling checkouts in
+> `docs-full-check.yml`.
+
+| Guard | Landed in | Missing from | Gate |
+|---|---|---|---|
+| Streaming body cap (CR-024) | `juniper-cascor`, then `juniper-service-core` | ~~`juniper-data`~~ — **fixed** (`APD-DATA-002`, data#261) | `ENFORCED` |
+| `Content-Length` parse guard (400, not 500) | `juniper-cascor`, `juniper-service-core` | ~~`juniper-data`~~ — **fixed** (`APD-DATA-036`, data#261) | `ENFORCED` |
+| Blank-API-key filter | `juniper-service-core` | `juniper-data` (`APD-DATA-003`), `juniper-cascor` (`APD-CASCOR-006` †) | `KNOWN_GAP` |
+| Pre-auth throttle (`juniper-ml#1082`) † | `juniper-service-core` | `juniper-data`, `juniper-cascor` (`APD-DATA-001` †, `APD-CASCOR-004` †) | `KNOWN_GAP` |
+| `OPTIONS` bypass in the exempt check | *(nowhere)* | `juniper-cascor`, `juniper-data` (`APD-CASCOR-001b`, `APD-DATA-035` †) | *(not encoded — no reference impl)* |
+| Narrow serialisation-error handling | *(nowhere)* | ~~`juniper-cascor`, `juniper-data`~~ — **both fixed** (`APD-CASCOR-002` cascor#516, `APD-DATA-034` † data#262) | `ENFORCED` |
 
 The pre-auth-throttle row is `†`: the pairing of the shared fix against the two unpatched copies is register-original, not a primer claim.
 
@@ -159,7 +187,7 @@ juniper-data/juniper_data/api/app.py:18 from .middleware import ... SecurityMidd
 | | |
 |---|---|
 | **Severity** | Security |
-| **Status** | OPEN |
+| **Status** | **FIXED** — [juniper-data#261](https://github.com/pcalnon/juniper-data/pull/261) (with `APD-DATA-036`, same patch) |
 | **Source** | `juniper-data/juniper_data/api/middleware.py:79-83` |
 | **Primer** | I.2 / I.4 — lines 757-759 |
 | **Confidence** | High |
@@ -198,7 +226,7 @@ Triggering this defect therefore needs *both* the JSON list form `'[""]'` (the s
 | | |
 |---|---|
 | **Severity** | Correctness |
-| **Status** | OPEN |
+| **Status** | **FIXED** — [juniper-data#263](https://github.com/pcalnon/juniper-data/pull/263) |
 | **Source** | `juniper-data/juniper_data/storage/base.py:217-222`; `juniper_data/api/routes/datasets.py:785-794` |
 | **Primer** | II.6 — lines 4197-4200, 4275-4279 |
 | **Confidence** | High |
@@ -315,7 +343,7 @@ Restate the work item as: **apply a length cap and a character allowlist on ingr
 | | |
 |---|---|
 | **Severity** | Correctness |
-| **Status** | OPEN |
+| **Status** | **FIXED** — [juniper-cascor#516](https://github.com/pcalnon/juniper-cascor/pull/516); the juniper-data sibling `APD-DATA-034` in [juniper-data#262](https://github.com/pcalnon/juniper-data/pull/262) |
 | **Source** | `juniper-cascor/src/api/app.py:678-684`; mechanism recorded at `src/api/models/common.py:83-94` |
 | **Primer** | Appendix A Q58 — lines 9596-9598 |
 | **Confidence** | High |
@@ -415,11 +443,11 @@ That is a stronger finding than a single stray hit would have been: the one pack
 | ID | Finding | Sev | Source | Primer | Conf |
 |---|---|---|---|---|---|
 | APD-DATA-001 † | 401 path unthrottled — the `#1082` fix never reached this copy | S | `api/middleware.py:110-150` | 1058 (mechanism) | High |
-| APD-DATA-002 | Body limit bypassable by chunked request with no `Content-Length` | S | `api/middleware.py:79-83` | 757 | High |
+| APD-DATA-002 | **FIXED (#261)** — Body limit bypassable by chunked request with no `Content-Length` | S | `api/middleware.py:79-83` | 757 | High |
 | APD-DATA-003 | Blank API key enables auth that accepts an empty key | S | `api/security.py:54`, `api/settings.py:155-160` | 1041 | High |
 | APD-DATA-004 | Batch-create echoes raw `e.detail` beside a redacting branch | S | `api/routes/datasets.py:423-431` vs `:433-447` | 4749 | High |
 | APD-DATA-005 | `APIKeyHeader` declared but never wired — no `securitySchemes` in OpenAPI | M | `api/security.py:26` | 1062, 5199 | High |
-| APD-DATA-006 | `record_access` lock asymmetry — a `GET` can undo a tag edit | C | `storage/base.py:217-222` | 4197 | High |
+| APD-DATA-006 | **FIXED (#263)** — `record_access` lock asymmetry — a `GET` can undo a tag edit | C | `storage/base.py:217-222` | 4197 | High |
 | APD-DATA-007 | Tag update is read-modify-write with no CAS or version check | C | `api/routes/datasets.py:785-794`, `storage/local_fs.py:262-298` | 4171 | High |
 | APD-DATA-008 | Cache hit returns 201 — status line cannot signal "already existed" | E | `api/routes/datasets.py:71`, `:120-139` | 3836 | High |
 | APD-DATA-009 | Batch-create returns 201 even when every item failed | C | `api/routes/datasets.py:377` | 4785 | High |
@@ -447,9 +475,9 @@ That is a stronger finding than a single stray hit would have been: the one pack
 | APD-DATA-031 | No RFC 9457 problem details; three independent error sources | E | `api/app.py`, `api/middleware.py`, routes | 4718 | Low |
 | APD-DATA-032 | Access counters live in the representation, blocking a strong metadata `ETag` | E | `core/models.py:84-85`, `api/routes/datasets.py:672` | 4247 | Low |
 | APD-DATA-033 | Rate-limit window is the one knob of three an operator cannot set | E | `api/app.py:123-126`, `api/settings.py:164-165` | 1380 | Low |
-| APD-DATA-034 † | Blanket `ValueError` handler reports server faults as `400` — and no `coerce_native_scalars` equivalent exists here | C | `api/app.py:152-158` | 9596 (cascor sibling) | High |
+| APD-DATA-034 † | **FIXED (#262)** — Blanket `ValueError` handler reports server faults as `400` — and no `coerce_native_scalars` equivalent exists here | C | `api/app.py:152-158` | 9596 (cascor sibling) | High |
 | APD-DATA-035 † | CORS registered innermost → `SecurityMiddleware` 401s preflights; path-only `_is_exempt` | C | `api/app.py:104-138`, `api/middleware.py:152-160` | 9592 (cascor sibling) | High |
-| APD-DATA-036 | Unguarded `int(content_length)` — `Content-Length: abc` is a 500, not a 400 | R | `api/middleware.py:81` | 758 | High |
+| APD-DATA-036 | **FIXED (#261)** — Unguarded `int(content_length)` — `Content-Length: abc` is a 500, not a 400 | R | `api/middleware.py:81` | 758 | High |
 
 **`APD-DATA-005` cross-reference.** `APD-DATA-024` nullifies it further: because `openapi_url` is `None` whenever any API key is configured (`api/app.py:91`, `:99`), a secured deployment serves **no OpenAPI document at all** — so the missing `securitySchemes` block is unobservable exactly where it would matter. The severity is `M`, not `S`: there is no attacker and no gain, only an absent schema stanza. `api_key_header` is instantiated at `api/security.py:26` and referenced nowhere else in the repository.
 
@@ -501,7 +529,7 @@ Four carefully chosen, individually meaningful codes collapse into one opaque st
 | APD-CASCOR-006 † | Blank API key enables auth that accepts an empty key — no `.strip()` filter | S | `src/api/security.py:32-33` | 1041 (data sibling) | High |
 | APD-CASCOR-001a | Middleware order comment is wrong (omits `RequestBodyLimitMiddleware`) | M | `src/api/app.py:644-646`, `:630` | 9592 | High |
 | APD-CASCOR-001b | CORS innermost → `SecurityMiddleware` answers preflights 401 | C | `src/api/app.py:621`, `:641`; `src/api/middleware.py:189-198` | 9592 | High |
-| APD-CASCOR-002 | `ValueError` handler reclassifies serialisation faults as `400` | C | `src/api/app.py:678-684` | 9596 | High |
+| APD-CASCOR-002 | **FIXED (#516)** — `ValueError` handler reclassifies serialisation faults as `400` | C | `src/api/app.py:678-684` | 9596 | High |
 | APD-CASCOR-003 | 46 of 47 routes declare no `response_model` | M | `src/api/routes/` (only `health.py:130`) | 7761 | High |
 | APD-CASCOR-005 | Key comparison short-circuits on match in 2 of 3 copies (see §3 assessment) | M | `src/api/security.py:53` | 1027-1029, 9463 | Low |
 
@@ -593,7 +621,25 @@ and capping first-party pins on a meta-package fed by a **daily release train** 
 
 ## 5. Fixed findings (before and since the primer)
 
-Recorded so the register is not read as a list of live problems that includes resolved ones. Two were fixed between the primer's publication on 2026-08-13 and this register; the third was fixed earlier, before the primer was written, and appears here only because the primer discusses it.
+Recorded so the register is not read as a list of live problems that includes resolved ones.
+
+### 5.1 Fixed since this register was published (2026-08-14)
+
+These five carry their **original IDs** — they were counted in the 96, and are marked `FIXED` in place at their §4 table row and detail entry rather than renumbered or removed, so a reader following an existing reference still lands on the right entry and sees why it is closed. Working the §2.2 list is what produced them.
+
+| ID | Finding | Fixed by | Verification |
+|---|---|---|---|
+| APD-DATA-002 | Body cap bypassable by a chunked request with no `Content-Length` — the register's #1 item | [juniper-data#261](https://github.com/pcalnon/juniper-data/pull/261) | `POST`/`PUT`/`PATCH` always stream-read against a cumulative cap, aborting 413 mid-stream; `Content-Length` demoted to an early-reject hint. Seven tests added where there had been **no** body-limit coverage at all; the two bypass shapes are driven at the ASGI layer because httpx recomputes `Content-Length` and cannot express them. Ports the implementation already shipping in cascor and service-core. |
+| APD-DATA-036 | Unguarded `int(content_length)` surfaced a malformed client header as a 500 | [juniper-data#261](https://github.com/pcalnon/juniper-data/pull/261) — same patch, as this register predicted | Returns an explicit 400. Reproduced before fixing: the raw `ValueError` escapes to starlette's `ServerErrorMiddleware`, confirming it never reaches the app's own `ValueError` handler. |
+| APD-CASCOR-002 | Blanket `ValueError` handler reported serialisation faults as `400` | [juniper-cascor#516](https://github.com/pcalnon/juniper-cascor/pull/516) | `PydanticSerializationError` is classified 500 and logged at exception level; a plain `ValueError` still returns 400, so the existing `test_value_error_handler` passes unchanged — the handler was narrowed, not redefined. `coerce_native_scalars` remains as the cheap pre-emption for the numpy-scalar path. |
+| APD-DATA-034 † | The same handler in juniper-data, which had **no** `coerce_native_scalars` equivalent | [juniper-data#262](https://github.com/pcalnon/juniper-data/pull/262) | Same narrowing. This was the worse of the two: with no helper standing in the way, every serialisation fault here was reported as a client error. Both fixes confirmed to bite by reverting them (`assert 400 == 500`). |
+| APD-DATA-006 | `record_access` could write a pre-edit snapshot over a committed tag edit | [juniper-data#263](https://github.com/pcalnon/juniper-data/pull/263) | New `DatasetStore.update_tags` performs the whole read-modify-write inside the same `_version_lock`, in one thread hop. The test uses `LocalFSDatasetStore` deliberately — `InMemoryDatasetStore.get_meta` returns the very object it stores, so both writers mutate one instance and the lost write **cannot be expressed**; a test written against the convenient store would have passed on the broken code. |
+
+The §2.3 copy-drift recommendation was built alongside them: `tests/test_service_fork_drift.py` ([juniper-ml#1103](https://github.com/pcalnon/juniper-ml/pull/1103)) now holds the three fixed guards as `ENFORCED` so they cannot silently regress, and the two still-open rows as `KNOWN_GAP` so closing one prompts promotion.
+
+### 5.2 Fixed before this register
+
+Two were fixed between the primer's publication on 2026-08-13 and this register; the third was fixed earlier, before the primer was written, and appears here only because the primer discusses it.
 
 | ID | Finding | Fixed by | Verification |
 |---|---|---|---|

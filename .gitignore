@@ -179,3 +179,6 @@ scripts/sessions/nohup.out
 !.claude/skills/**
 !.claude/agents/
 !.claude/agents/**
+
+# Playwright MCP session artifacts (browser-driven E2E validation)
+.playwright-mcp/

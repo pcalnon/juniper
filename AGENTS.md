@@ -59,6 +59,7 @@ python3 -m unittest -v tests/test_predict_merge.py
 python3 -m unittest -v tests/test_fleet_supervisor_contract.py
 python3 -m unittest -v tests/test_workflow_script_paths.py
 python3 -m unittest -v tests/test_doc_tools_drift.py
+python3 -m unittest -v tests/test_service_fork_drift.py
 python3 -m unittest -v tests/test_pyproject_extras.py
 python3 -m unittest -v tests/test_template_library_drift.py
 python3 -m unittest -v tests/test_template_selection.py
@@ -227,6 +228,7 @@ juniper-ml/
 ├── images/                    # Project branding (logos v0-v9 in PNG/XCF/ICO, tree photos)
 ├── logs/                      # Runtime log output (.gitkeep)
 ├── papers/                    # Research papers and references
+├── reports/                   # Per-run evidence artifacts (e2e/<RUN_ID>/statuses.tsv — canopy E2E arc verdicts)
 ├── resources/                 # External resources (AppImages, etc.)
 │
 ├── notes/                     # Development notes, plans, and procedures
@@ -285,6 +287,7 @@ juniper-ml/
 │   ├── test_fleet_supervisor_contract.py # Lint: fleet-supervisor subagent frontmatter + body wiring (predict_merge.py, 4 verdicts, read-only/never-push, two-key DUP-CLOSE)
 │   ├── test_workflow_script_paths.py     # Lint: every .github/workflows/*.yml script path exists
 │   ├── test_doc_tools_drift.py           # Lint: consumer-repo juniper-doc-tools pins still admit current version (plan §5.1)
+│   ├── test_service_fork_drift.py        # Drift gate: security guards that must not diverge across the data/cascor service-core forks (register §2.3; ENFORCED + self-maintaining KNOWN_GAP ledger)
 │   ├── test_pyproject_extras.py          # Lint: pyproject [project.optional-dependencies] surface matches the contract
 │   ├── test_template_library_drift.py    # Lint: custom-agent template library (prompts/agent_templates/) manifest <-> templates
 │   ├── test_template_selection.py        # Lint: custom-agent template match_signals selection coherence
@@ -560,6 +563,10 @@ juniper-ml/
 - `tests/test_workflow_script_paths.py` -- Lint test: every `python <path.py>` / `bash <path.bash>` invocation in `.github/workflows/*.yml` must reference a path that exists in the repo. Cross-repo paths (`juniper-X/...`) are skipped as runtime-resolved. Catches the failure class that broke 3 juniper-X CIs on 2026-05-18.
 - The sequence-safety screen unit tests (symbol + docs: `LOST`/`WEAKENED`/`DUPLICATED`, SF3 masking pin, relocation WARN, heading / `>=N`-run FAIL, both trailer escapes + wildcard, `--min-run`, the `--scope` glob engine, exit codes 0/1/2) moved to `juniper-ci-tools/tests/` with the package migration (rollout W3); they run under the dedicated `CI -- juniper-ci-tools` workflow. juniper-ml's `tests/test_ci_tools_drift.py` carries the anti-resurrection guard + the two new screen-pin drift checks.
 - `tests/test_doc_tools_drift.py` -- Lint test (plan §5.1) for `juniper-doc-tools` pins. Extracts the `juniper-doc-tools>=X,<Y` pin from juniper-ml's own workflows and each cloned consumer repo's `ci.yml`, then asserts the range still admits the current version (read from `juniper-doc-tools/pyproject.toml`). Soft-warns on pins more than 2 minors behind; hard-fails when the upper bound excludes current.
+- `tests/test_service_fork_drift.py` -- Drift gate for the security guards that must hold identically in `juniper-data`'s and `juniper-cascor`'s forks of the `juniper-service-core` middleware / security code (defect-register §2.3 "Copy drift").
+  - A registry of named guards, each detected by a small source marker, rather than a file diff: the forks diverge legitimately and constantly (juniper-data deliberately holds API keys in a `list` for `compare_digest` timing where service-core uses a `set`), so a diff would drown the signal.
+  - Two-sided by design. `ENFORCED` guards must be **present** in every fork; their disappearance is a regression. `KNOWN_GAP` guards must still be **absent** -- when someone closes one, the gate fails and instructs them to promote the row to `ENFORCED`, so the ledger cannot rot into a list of things that used to be true.
+  - Cross-repo assertions gate exactly like `test_ci_tools_drift.py` (`GITHUB_ACTIONS=true` or `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`); the registry-structure checks and the matcher's negative control always run. It bites in `docs-full-check.yml`, the only job that clones the siblings. The register's "OPTIONS bypass" row is deliberately **not** encoded: it landed in no copy, so there is no reference implementation to derive a marker from.
 - `tests/test_pyproject_extras.py` -- Lint test pinning the `[project.optional-dependencies]` surface (`clients`, `worker`, `servers`, `tools`, `doc-tools`, `all`). Asserts the exact set of extras, the exact membership of each, that `[all]` aggregates every non-alias extra exactly once, and that `[project].version` is semver-ish. Added pre-0.5.0 after juniper-ml#295 introduced `[servers]` + `[tools]` without regression coverage; any future edit to extras must update the lint contract in the same PR.
   - juniper-ml's own pin check runs every PR; the cross-repo assertion auto-skips when siblings aren't on disk and additionally skips local runs by default. Set `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1` to opt in locally.
 - `tests/test_template_library_drift.py` -- Lint test enforcing manifest <-> template consistency for the custom-agent template library (`prompts/agent_templates/`): every registered template exists and every template is registered; each follows the canonical section skeleton in order; every `{{placeholder}}` matches the systematic convention; the `generic` fallback always matches.
