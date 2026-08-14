@@ -1206,7 +1206,17 @@ class BuildProposalAgentsTableTest(unittest.TestCase):
         agents = self._agents_edits(prop)
         self.assertEqual(len(agents), 1)
         moved = set(agents[0].new_text.splitlines()) - set(agents[0].old_text.splitlines())
-        self.assertEqual(moved, {"| HTTP client | `juniper-recurrence-client/` | `juniper-recurrence-client` | 0.2.1 |"})
+        # Exactly two lines move: the client's own table row, and the step-5c ``**Last Updated**``
+        # true-up that pre-empts the agents-md-touch-up workflow (its ``[skip ci]`` commit would
+        # otherwise become the PR head and orphan every required check -- the cascor#515 class).
+        # The app and model rows stay byte-identical, which is what this test exists to pin.
+        self.assertEqual(
+            moved,
+            {
+                "| HTTP client | `juniper-recurrence-client/` | `juniper-recurrence-client` | 0.2.1 |",
+                "**Last Updated**: 2026-08-07",
+            },
+        )
 
     def test_package_without_a_row_emits_no_phantom_agents_edit(self):
         # a table-bearing repo can still host a package the table does not list (the bench harness
@@ -1703,7 +1713,7 @@ class ExecuteCrossRepoGuardTest(unittest.TestCase):
                 }
             )
         )
-        self.calls = {"write": [], "git": [], "pr": []}
+        self.calls = {"write": [], "branch": [], "commit": [], "pr": []}
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -1716,17 +1726,24 @@ class ExecuteCrossRepoGuardTest(unittest.TestCase):
             return None
 
     def _sources(self) -> pr.ProposeSources:
-        # Repo-aware recording seam (Phase 4.1): write_file/run_git carry the target repo, so the test
-        # can prove a sibling's edits/branches land in the SIBLING checkout, never the juniper-ml one.
+        # Repo-aware recording seam (Phase 4.1): every write member carries the target repo, so the
+        # test can prove a sibling's branch/commit lands in the SIBLING repo, never the juniper-ml one.
         def open_pr(repo, base, head, title, body):
             self.calls["pr"].append((repo, base, head))
             return f"https://github.com/pcalnon/{repo}/pull/1"
 
+        def create_signed_commit(repo, branch, message, additions, expected_head_oid):
+            # record the decoded paths so the assertions read like the old write_file recording
+            self.calls["write"].extend((repo, path) for path, _contents in additions)
+            self.calls["commit"].append((repo, branch, message, expected_head_oid))
+            return "c0ffee"
+
         return pr.ProposeSources(
             read_file=self._read_file,
             list_open_prs=lambda repo: [],
-            write_file=lambda repo, path, content: self.calls["write"].append((repo, path)),
-            run_git=lambda repo, args: self.calls["git"].append((repo, list(args))),
+            resolve_ref_sha=lambda repo, ref: f"sha-{repo}-{ref}",
+            create_branch=lambda repo, branch, sha: self.calls["branch"].append((repo, branch, sha)),
+            create_signed_commit=create_signed_commit,
             open_pr=open_pr,
         )
 
@@ -1788,11 +1805,11 @@ class ExecuteCrossRepoGuardTest(unittest.TestCase):
         )
         self.assertIn("opened: juniper-thing", out)
         self.assertIn("opened: juniper-sibling", out)
-        # the sibling branched from origin/main (fresh clone's authoritative ref); the in-repo from main
-        sib_switch = next(args for repo, args in self.calls["git"] if repo == "juniper-sibling" and "switch" in args)
-        self.assertEqual(sib_switch, ["switch", "-c", "release/juniper-sibling-v0.5.0", "origin/main"])
-        inrepo_switch = next(args for repo, args in self.calls["git"] if repo == "juniper-ml" and "switch" in args)
-        self.assertEqual(inrepo_switch, ["switch", "-c", "release/juniper-thing-v0.5.0", "main"])
+        # Both branch from the API-resolved tip of `main` in their OWN repo. The old local-git path
+        # needed an in-repo `main` vs sibling `origin/main` split (working tree vs fresh clone); the
+        # API path has no working tree, so one ref name is correct for both.
+        self.assertIn(("juniper-sibling", "release/juniper-sibling-v0.5.0", "sha-juniper-sibling-main"), self.calls["branch"])
+        self.assertIn(("juniper-ml", "release/juniper-thing-v0.5.0", "sha-juniper-ml-main"), self.calls["branch"])
 
     def test_cross_repo_sibling_edits_target_sibling_checkout_never_the_meta(self):
         self._run_execute("--cross-repo")
@@ -1811,15 +1828,31 @@ class ExecuteCrossRepoGuardTest(unittest.TestCase):
             if repo == "juniper-ml":
                 self.assertTrue(path.startswith("juniper-thing/"), f"unexpected juniper-ml write {path!r}")
 
-    def test_execute_commit_disables_gpg_signing(self):
+    def test_execute_commit_is_a_github_signed_api_commit(self):
+        # Replaces the old `test_execute_commit_disables_gpg_signing`, which pinned the exact defect:
+        # `-c commit.gpgsign=false` produced an UNSIGNED commit, and once the 2026-08-12 ruleset
+        # normalization added `required_signatures` fleet-wide, every proposal PR became unmergeable
+        # (cascor#515). A commit authored through GitHub's API is GitHub-signed / Verified.
         self._run_execute("--cross-repo")  # exercise BOTH repos' commits
-        commits = [(repo, args) for repo, args in self.calls["git"] if "commit" in args]
-        self.assertTrue(commits, "expected a git commit call in the --execute path")
-        self.assertEqual({repo for repo, _ in commits}, {"juniper-ml", "juniper-sibling"})
-        for _repo, args in commits:
-            self.assertIn("commit.gpgsign=false", args)
-            # the -c flag must precede the commit subcommand for git to honour it
-            self.assertLess(args.index("commit.gpgsign=false"), args.index("commit"))
+        self.assertTrue(self.calls["commit"], "expected a signed-commit call in the --execute path")
+        self.assertEqual({repo for repo, _b, _m, _o in self.calls["commit"]}, {"juniper-ml", "juniper-sibling"})
+        for _repo, _branch, message, expected_head_oid in self.calls["commit"]:
+            self.assertTrue(message, "commit must carry a headline")
+            # optimistic concurrency: pinned to the tip we branched from, never blank
+            self.assertTrue(expected_head_oid)
+        # every edit rides in ONE commit per repo -- not one commit per file
+        self.assertEqual(len(self.calls["commit"]), 2)
+
+    def test_execute_path_makes_no_local_git_commit(self):
+        # Anti-resurrection: the module must expose no local-git helper for the write path, or the
+        # unsigned commit can grow back the next time someone needs a working tree. Targets the
+        # executable forms only -- the ProposeSources docstring still NAMES the old flag when
+        # explaining why it was removed, and that prose must stay readable.
+        self.assertFalse(hasattr(pr, "_git"), "propose.py must not carry a local-git helper")
+        src = Path(pr.__file__).read_text(encoding="utf-8")
+        self.assertNotIn('"commit.gpgsign=false"', src)  # the argv-token literal
+        self.assertNotIn('"git"', src)  # a subprocess argv naming the git binary
+        self.assertNotIn('subprocess.run(["git"', src)
 
     def test_execute_proposal_direct_refuses_cross_repo_without_capability(self):
         # belt-and-suspenders: called directly WITHOUT capability, execute_proposal must never write a
@@ -1829,7 +1862,8 @@ class ExecuteCrossRepoGuardTest(unittest.TestCase):
         url = pr.execute_proposal(prop, self._sources(), "main")  # cross_repo defaults False
         self.assertEqual(url, "")
         self.assertEqual(self.calls["write"], [])
-        self.assertEqual(self.calls["git"], [])
+        self.assertEqual(self.calls["branch"], [])
+        self.assertEqual(self.calls["commit"], [])
         self.assertEqual(self.calls["pr"], [])
 
     def test_execute_proposal_direct_opens_sibling_when_capable(self):
@@ -1839,7 +1873,7 @@ class ExecuteCrossRepoGuardTest(unittest.TestCase):
         url = pr.execute_proposal(prop, self._sources(), "main", cross_repo=True, ecosystem_root=self.root)
         self.assertTrue(url)
         self.assertEqual(self.calls["pr"], [("juniper-sibling", "main", "release/juniper-sibling-v0.5.0")])
-        self.assertIn(("juniper-sibling", ["switch", "-c", "release/juniper-sibling-v0.5.0", "origin/main"]), self.calls["git"])
+        self.assertIn(("juniper-sibling", "release/juniper-sibling-v0.5.0", "sha-juniper-sibling-main"), self.calls["branch"])
         self.assertIn(("juniper-sibling", "pyproject.toml"), self.calls["write"])
 
 
@@ -2068,7 +2102,7 @@ class FollowOnBuildProposalTest(unittest.TestCase):
 
 class ExecuteFollowOnTest(unittest.TestCase):
     def setUp(self):
-        self.calls = {"write": [], "git": [], "pr": []}
+        self.calls = {"write": [], "branch": [], "commit": [], "pr": []}
         self._tmp = tempfile.TemporaryDirectory()
         self.eco = Path(self._tmp.name)
         (self.eco / "juniper-cascor").mkdir()
@@ -2081,7 +2115,19 @@ class ExecuteFollowOnTest(unittest.TestCase):
             self.calls["pr"].append((repo, base, head))
             return f"https://github.com/pcalnon/{repo}/pull/2"
 
-        return pr.ProposeSources(read_file=lambda e, f: None, list_open_prs=lambda repo: [], write_file=lambda repo, path, content: self.calls["write"].append((repo, path)), run_git=lambda repo, args: self.calls["git"].append((repo, list(args))), open_pr=open_pr)
+        def create_signed_commit(repo, branch, message, additions, expected_head_oid):
+            self.calls["write"].extend((repo, path) for path, _contents in additions)
+            self.calls["commit"].append((repo, branch, message, expected_head_oid))
+            return "c0ffee"
+
+        return pr.ProposeSources(
+            read_file=lambda e, f: None,
+            list_open_prs=lambda repo: [],
+            resolve_ref_sha=lambda repo, ref: f"sha-{repo}-{ref}",
+            create_branch=lambda repo, branch, sha: self.calls["branch"].append((repo, branch, sha)),
+            create_signed_commit=create_signed_commit,
+            open_pr=open_pr,
+        )
 
     def _fo(self, skipped=None) -> pr.FollowOnPR:
         fo = pr.FollowOnPR(consumer="juniper-cascor", repo="juniper-cascor", upstream="juniper-model-core", upstream_version="0.4.0", pin_file="pyproject.toml", pin_changes=[("dependencies", "juniper-model-core>=0.2.0,<0.4.0", "juniper-model-core>=0.2.0,<0.5.0")], branch="deps/juniper-model-core-ceiling-0.5.0", consumer_pin_state=pr.PIN_ESCAPED_FOLLOWON, commit_message="chore(deps): raise juniper-model-core ceiling to <0.5.0 for its v0.4.0 release", pr_title="t", pr_body="b")
@@ -2090,20 +2136,25 @@ class ExecuteFollowOnTest(unittest.TestCase):
             fo.skipped_reason = skipped
         return fo
 
-    def test_opens_in_consumer_repo_from_origin_main_when_capable(self):
+    def test_opens_in_consumer_repo_with_a_signed_commit_when_capable(self):
+        # The follow-on lane carries the SAME unsigned-commit defect as the proposal lane and is fixed
+        # by the same shared helper -- fixing only one would leave consumer-pin PRs unmergeable.
         url = pr.execute_follow_on(self._fo(), self._sources(), "main", cross_repo=True, ecosystem_root=self.eco)
         self.assertTrue(url)
         self.assertEqual(self.calls["pr"], [("juniper-cascor", "main", "deps/juniper-model-core-ceiling-0.5.0")])
-        self.assertIn(("juniper-cascor", ["switch", "-c", "deps/juniper-model-core-ceiling-0.5.0", "origin/main"]), self.calls["git"])
+        self.assertIn(("juniper-cascor", "deps/juniper-model-core-ceiling-0.5.0", "sha-juniper-cascor-main"), self.calls["branch"])
         self.assertIn(("juniper-cascor", "pyproject.toml"), self.calls["write"])
-        commit = next(args for repo, args in self.calls["git"] if "commit" in args)
-        self.assertIn("commit.gpgsign=false", commit)
-        self.assertLess(commit.index("commit.gpgsign=false"), commit.index("commit"))  # -c precedes the subcommand
+        self.assertEqual(len(self.calls["commit"]), 1)
+        repo, branch, message, expected_head_oid = self.calls["commit"][0]
+        self.assertEqual(repo, "juniper-cascor")
+        self.assertEqual(branch, "deps/juniper-model-core-ceiling-0.5.0")
+        self.assertIn("juniper-model-core", message)
+        self.assertEqual(expected_head_oid, "sha-juniper-cascor-main")
 
     def test_refuses_without_cross_repo_capability(self):
         url = pr.execute_follow_on(self._fo(), self._sources(), "main")  # cross_repo defaults False
         self.assertEqual(url, "")
-        self.assertEqual(self.calls, {"write": [], "git": [], "pr": []})
+        self.assertEqual(self.calls, {"write": [], "branch": [], "commit": [], "pr": []})
 
     def test_refuses_a_skipped_follow_on(self):
         url = pr.execute_follow_on(self._fo(skipped="dup-guard: open ceiling-bump PR"), self._sources(), "main", cross_repo=True, ecosystem_root=self.eco)
@@ -2163,17 +2214,23 @@ class ExecuteProposalSeamTest(unittest.TestCase):
     """
 
     def _recording_sources(self) -> "tuple[pr.ProposeSources, dict]":
-        calls: dict = {"write": [], "git": [], "pr": []}
+        calls: dict = {"write": [], "branch": [], "commit": [], "pr": []}
 
         def open_pr(repo, base, head, title, body):
             calls["pr"].append((repo, base, head))
             return f"https://example.invalid/{repo}/pull/1"
 
+        def create_signed_commit(repo, branch, message, additions, expected_head_oid):
+            calls["write"].extend((repo, path) for path, _contents in additions)
+            calls["commit"].append((repo, branch, message, expected_head_oid))
+            return "c0ffee"
+
         sources = pr.ProposeSources(
             read_file=lambda _entry, _filename: None,
             list_open_prs=lambda _repo: [],
-            write_file=lambda repo, path, content: calls["write"].append((repo, path)),
-            run_git=lambda repo, args: calls["git"].append((repo, list(args))),
+            resolve_ref_sha=lambda repo, ref: f"sha-{repo}-{ref}",
+            create_branch=lambda repo, branch, sha: calls["branch"].append((repo, branch, sha)),
+            create_signed_commit=create_signed_commit,
             open_pr=open_pr,
         )
         return sources, calls
@@ -2210,7 +2267,8 @@ class ExecuteProposalSeamTest(unittest.TestCase):
         prop.edits.append(pr.FileEdit(path="pyproject.toml", old_text="a", new_text="b"))
         self.assertEqual(pr.execute_proposal(prop, sources, "main"), "")
         self.assertEqual(calls["write"], [])
-        self.assertEqual(calls["git"], [])
+        self.assertEqual(calls["branch"], [])
+        self.assertEqual(calls["commit"], [])
         self.assertEqual(calls["pr"], [])
 
     def test_execute_proposal_missing_branch_returns_empty_without_writes(self):
@@ -2226,7 +2284,8 @@ class ExecuteProposalSeamTest(unittest.TestCase):
         prop.edits.append(pr.FileEdit(path="pyproject.toml", old_text="a", new_text="b"))
         self.assertEqual(pr.execute_proposal(prop, sources, "main"), "")
         self.assertEqual(calls["write"], [])
-        self.assertEqual(calls["git"], [])
+        self.assertEqual(calls["branch"], [])
+        self.assertEqual(calls["commit"], [])
         self.assertEqual(calls["pr"], [])
 
 
