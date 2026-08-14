@@ -9,16 +9,16 @@ under R-3 has run and is written up, and no PR of this arc is open in either rep
 
 ## Shipped and merged (do not redo)
 
-| PR | Item |
-| --- | --- |
+| PR         | Item                                                                              |
+|------------|-----------------------------------------------------------------------------------|
 | cascor#511 | R-1a — an all-candidates-errored round raises instead of reporting `no_candidate` |
-| cascor#512 | R-1b — the RC-4 candidate pool is released at end of run |
-| ml#1074 | R-6 — `execution.stall_seconds` adopted in the suites + gated |
-| ml#1075 | R-2 prereq (aggregator generalized) + R-4 (E-C rebudget) + R-5 premise check |
-| ml#1077 | R-3 — `max_iterations: [32]` so the unit cap binds in E-A |
-| ml#1078 | R-2 — E-H cascor re-run evidence |
-| ml#1083 | in-flight campaign handoff (landed mid-run, results not included) |
-| ml#1086 | R-3 E-A re-run evidence |
+| cascor#512 | R-1b — the RC-4 candidate pool is released at end of run                          |
+| ml#1074    | R-6 — `execution.stall_seconds` adopted in the suites + gated                     |
+| ml#1075    | R-2 prereq (aggregator generalized) + R-4 (E-C rebudget) + R-5 premise check      |
+| ml#1077    | R-3 — `max_iterations: [32]` so the unit cap binds in E-A                         |
+| ml#1078    | R-2 — E-H cascor re-run evidence                                                  |
+| ml#1083    | in-flight campaign handoff (landed mid-run, results not included)                 |
+| ml#1086    | R-3 E-A re-run evidence                                                           |
 
 ## The three findings that change how earlier results read
 
