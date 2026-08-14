@@ -230,8 +230,8 @@ def main(argv: list) -> int:
         finally:
             try:
                 os.unlink(body_path)
-            except OSError:
-                pass
+            except OSError as exc:
+                print(f"WARNING: failed to remove temporary body file {body_path}: {exc}", file=sys.stderr)
         print(f"PR: {url}")
         return 0
     except GhError as exc:
