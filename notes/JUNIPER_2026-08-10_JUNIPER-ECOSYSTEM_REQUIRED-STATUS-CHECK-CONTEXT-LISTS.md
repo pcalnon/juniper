@@ -27,8 +27,7 @@ A required context that never reports is never satisfied. The result:
 | juniper-cascor-worker | 30       | 10      | **20**       |
 | juniper-deploy        | 30       | 4       | **26**       |
 | juniper-data-client   | 30       | 8       | **22**       |
-| juniper-cascor-client | 30       | 8       | **22**       |Documentation Links
-Build P
+| juniper-cascor-client | 30       | 8       | **22**       |
 | juniper-recurrence    | 30       | 1       | **29**       |
 | **TOTAL**             |          |         | **200**      |
 
@@ -174,7 +173,8 @@ Unit Tests + Coverage (Python 3.14 on ubuntu-latest)
 
 ```bash
 Analyze (python)
-Async-route audit (BUG-JD-10 class)Documentation Links
+Async-route audit (BUG-JD-10 class)
+Bandit
 Build Package
 Dependency Documentation
 Documentation Links
