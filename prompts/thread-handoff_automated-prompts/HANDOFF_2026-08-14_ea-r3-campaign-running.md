@@ -17,7 +17,17 @@ The P4 §7 register (R-1..R-6) is **closed and merged**. One campaign is **in fl
 
 ml main `cfd5ded`; cascor main carries both #509 halves. No open PRs in either repo.
 
-## IN FLIGHT — the only live work
+## CAMPAIGN COMPLETE — superseded by the evidence note
+
+The E-A re-run **finished 2026-08-14T04:55Z**: 12/12 `succeeded`, all `oom == 0`, 176.6 min.
+Results, the R-3 verdict, the #512-at-scale verdict and the R-5 consequence are written up in
+[`notes/JUNIPER_2026-08-14_…-R3-EA-RERUN-EVIDENCE.md`](../../notes/JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-R3-EA-RERUN-EVIDENCE.md).
+Headlines: units now track the cap (4/8/16/32), the previously bit-identical c006≡c009 and
+c007≡c010 pairs are resolved, best val rose **0.670 → 0.735**, and GPU free went **6840 →
+6891 MiB net across twelve un-reaped cells**. The section below is retained as the original
+in-flight record.
+
+## (original in-flight record)
 
 **E-A re-run under R-3.** Started 2026-08-14T01:58Z, 12 cells, ~4–6 h expected.
 
