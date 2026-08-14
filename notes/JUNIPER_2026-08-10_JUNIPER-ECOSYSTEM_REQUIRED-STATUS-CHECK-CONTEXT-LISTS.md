@@ -454,6 +454,28 @@ Two additions to the §4e playbook:
 The trailer is `Allow-Docs-Rewrite: <path>`, and it accepts the bare basename as well as the
 repo-relative path (`_waives()` in `juniper_ci_tools/docs_additions_check.py`).
 
+#### Promoting `Sequence Safety` to required would not have prevented this
+
+The natural conclusion — "`68f62f5` reached `main` without per-PR screening, so promote the
+advisory gate" (§2, juniper-ml#1011) — **does not follow**, and acting on it would leave the hole
+open while looking closed.
+
+`juniper-ml-rules` (`13805432`, `enforcement=active`) *already* carries a `pull_request` rule.
+`68f62f5` still landed as a direct push, because the ruleset grants `RepositoryRole id=5`
+(**Admin**) a bypass of mode `always`. An `always` bypass skips `required_status_checks` exactly as
+it skips the PR requirement — so a check promoted from advisory to required is still never
+consulted on an admin push. **#1011 does not close this path; juniper-ml#1012 (bypass-actor
+removal) is the item that does.** Until then the only reliable mitigations are behavioural: route
+the change through a PR even when you *can* bypass, or know to carry the trailer in the pushed
+commit itself.
+
+Contrast **juniper-cascor**, whose analogous incident looks identical from the outside and has the
+opposite remedy: `4081f5b` swept five live `snapshot_*.py` modules out with stale `.h5` artifacts on
+a direct push, breaking `create_app` at import (caught by this same post-merge net; restored by
+cascor#501, adjudicated in cascor#500). There the repo genuinely *lacked* a `pull_request` rule, and
+adding one closed it. **ml's gap is the bypass, not a missing rule — the cascor remediation does not
+transfer.** Check which of the two shapes you have before prescribing a fix.
+
 ---
 
 ## 5. Tier 2 — roadmap (checks each repo would benefit from)
