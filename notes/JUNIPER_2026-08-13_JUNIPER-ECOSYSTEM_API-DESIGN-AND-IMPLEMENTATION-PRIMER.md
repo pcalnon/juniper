@@ -12,11 +12,11 @@
 
 This primer is organised into three parts that answer three different questions.
 
-| Part | Question it answers | Read it when |
-|------|--------------------|--------------|
-| **Part I — The Web API Landscape** | *Which kind of API should this be, and what cross-cutting concerns apply regardless?* | You are choosing a style, or you need the map before the territory. |
-| **Part II — REST and HTTP Semantics in Depth** | *Given that it is an HTTP API, what exactly do the specifications require and permit?* | You are designing or reviewing concrete endpoints. |
-| **Part III — Library and SDK API Design** | *How do I design an in-process API — a package other code imports — that can survive its own evolution?* | You are publishing a library, or curating a public surface. |
+| Part                                           | Question it answers                                                                                      | Read it when                                                        |
+|------------------------------------------------|----------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|
+| **Part I — The Web API Landscape**             | *Which kind of API should this be, and what cross-cutting concerns apply regardless?*                    | You are choosing a style, or you need the map before the territory. |
+| **Part II — REST and HTTP Semantics in Depth** | *Given that it is an HTTP API, what exactly do the specifications require and permit?*                   | You are designing or reviewing concrete endpoints.                  |
+| **Part III — Library and SDK API Design**      | *How do I design an in-process API — a package other code imports — that can survive its own evolution?* | You are publishing a library, or curating a public surface.         |
 
 Every major section follows the same internal shape: **Overview → Background → Topics and Subtopics → Expert-Level Detail → Judgement Calls → Tradeoffs → Best Practices → Common Failure Modes → Error Handling → Controversy (where it exists) → Worked Examples**. Where a section has no genuine controversy, the block is omitted rather than manufactured — an invented dispute is worse than an absent one.
 
@@ -137,14 +137,14 @@ The caller cannot distinguish "the request never arrived" from "the request was 
 
 The word covers at least three distinct design problems, and conflating them is the most common source of bad advice.
 
-| | **Network API** | **Library/SDK API** | **Platform/OS API** |
-|---|---|---|---|
-| Call mechanism | Serialised over a transport | In-process function call | Syscall / ABI |
-| Failure modes | Partial, ambiguous, retryable | Deterministic exceptions | Error codes, signals |
-| Versioning unit | Endpoint / media type / schema | Package version | Kernel or ABI version |
-| Breaking change cost | Coordinated client migration | Dependency resolution | Effectively unbounded |
-| Latency budget | Milliseconds to seconds | Nanoseconds | Nanoseconds to microseconds |
-| Can the caller see internals? | No | Often yes (Python especially) | No |
+|                               | **Network API**                | **Library/SDK API**           | **Platform/OS API**         |
+|-------------------------------|--------------------------------|-------------------------------|-----------------------------|
+| Call mechanism                | Serialised over a transport    | In-process function call      | Syscall / ABI               |
+| Failure modes                 | Partial, ambiguous, retryable  | Deterministic exceptions      | Error codes, signals        |
+| Versioning unit               | Endpoint / media type / schema | Package version               | Kernel or ABI version       |
+| Breaking change cost          | Coordinated client migration   | Dependency resolution         | Effectively unbounded       |
+| Latency budget                | Milliseconds to seconds        | Nanoseconds                   | Nanoseconds to microseconds |
+| Can the caller see internals? | No                             | Often yes (Python especially) | No                          |
 
 Advice that is correct for one column is frequently wrong for another.
 
@@ -178,12 +178,12 @@ Part I maps the ground an API sits on before any of your own design decisions ap
 
 The decision this part equips you to make is a compound one, and the layers are not independent:
 
-| Layer | The question | Where it binds the layers above |
-|---|---|---|
-| Substrate | HTTP/1.1, HTTP/2, HTTP/3? | Sets per-request overhead, and whether "fewer, bigger requests" is good advice |
-| Style | REST, gRPC, GraphQL? | gRPC *requires* HTTP/2 framing; GraphQL's default POST discards HTTP caching |
-| Interaction | Poll, SSE, WebSocket, webhook? | WebSockets bypass your HTTP middleware entirely — auth must move |
-| Auth | Key, token, mTLS, signature? | Browser transports cannot set headers, which forces the credential elsewhere |
+| Layer       | The question                   | Where it binds the layers above                                                |
+|-------------|--------------------------------|--------------------------------------------------------------------------------|
+| Substrate   | HTTP/1.1, HTTP/2, HTTP/3?      | Sets per-request overhead, and whether "fewer, bigger requests" is good advice |
+| Style       | REST, gRPC, GraphQL?           | gRPC *requires* HTTP/2 framing; GraphQL's default POST discards HTTP caching   |
+| Interaction | Poll, SSE, WebSocket, webhook? | WebSockets bypass your HTTP middleware entirely — auth must move               |
+| Auth        | Key, token, mTLS, signature?   | Browser transports cannot set headers, which forces the credential elsewhere   |
 
 Two cross-cutting sources anchor the whole part. [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html) defines what HTTP *means*, independent of version. [RFC 9205](https://www.rfc-editor.org/rfc/rfc9205.html) (BCP 56, "Building Protocols with HTTP") defines what you may and may not do when you build an application protocol on top of HTTP — it is short, normative, directly on point for every API design decision in this primer, and almost never cited in practitioner writing.
 
@@ -251,11 +251,11 @@ Discovery is different too. A client may connect directly using the ALPN token `
 
 TLS is not a version of HTTP; it is what makes the `https` scheme mean anything. Its placement differs:
 
-| Version | TLS relationship | ALPN token | Minimum |
-|---|---|---|---|
-| HTTP/1.1 | TLS below HTTP, negotiated separately (RFC 9112 §9.7) | `http/1.1` | not specified by RFC 9112 |
-| HTTP/2 | TLS below HTTP, ALPN-selected (RFC 9113 §3.2) | `h2` | TLS 1.2 or higher (RFC 9113 §9.2) |
-| HTTP/3 | TLS 1.3 *inside* QUIC (RFC 9114 §1.2) | `h3` | TLS 1.3 |
+| Version  | TLS relationship                                      | ALPN token | Minimum                           |
+|----------|-------------------------------------------------------|------------|-----------------------------------|
+| HTTP/1.1 | TLS below HTTP, negotiated separately (RFC 9112 §9.7) | `http/1.1` | not specified by RFC 9112         |
+| HTTP/2   | TLS below HTTP, ALPN-selected (RFC 9113 §3.2)         | `h2`       | TLS 1.2 or higher (RFC 9113 §9.2) |
+| HTTP/3   | TLS 1.3 *inside* QUIC (RFC 9114 §1.2)                 | `h3`       | TLS 1.3                           |
 
 RFC 9113 §3.2 also bans the cleartext identifier over TLS: the `h2c` token "MUST NOT be sent by a client or selected by a server."
 
@@ -325,15 +325,15 @@ The permitted middle ground is a note — "if an application's deployment benefi
 
 #### Tradeoffs
 
-| Dimension | HTTP/1.1 | HTTP/2 | HTTP/3 |
-|---|---|---|---|
-| Concurrency | multiple connections; pipelining unusable | streams on one TCP connection | streams on one QUIC connection |
-| Head-of-line blocking | application layer *and* TCP | TCP only (RFC 9113 §1) | neither, within a connection |
-| Header cost | full text, every request | HPACK, stateful per connection | QPACK, out-of-order safe |
-| Transport | TCP | TCP | UDP (blocked on some networks) |
-| TLS | optional, layered | required in practice, TLS 1.2+ | TLS 1.3, inside QUIC |
-| Debuggability | trivially readable on the wire | binary; needs tooling | binary and encrypted end-to-end |
-| Upgrade to another protocol | yes (`Upgrade`) | no (RFC 9113 §8.2.2) | no |
+| Dimension                   | HTTP/1.1                                  | HTTP/2                         | HTTP/3                          |
+|-----------------------------|-------------------------------------------|--------------------------------|---------------------------------|
+| Concurrency                 | multiple connections; pipelining unusable | streams on one TCP connection  | streams on one QUIC connection  |
+| Head-of-line blocking       | application layer *and* TCP               | TCP only (RFC 9113 §1)         | neither, within a connection    |
+| Header cost                 | full text, every request                  | HPACK, stateful per connection | QPACK, out-of-order safe        |
+| Transport                   | TCP                                       | TCP                            | UDP (blocked on some networks)  |
+| TLS                         | optional, layered                         | required in practice, TLS 1.2+ | TLS 1.3, inside QUIC            |
+| Debuggability               | trivially readable on the wire            | binary; needs tooling          | binary and encrypted end-to-end |
+| Upgrade to another protocol | yes (`Upgrade`)                           | no (RFC 9113 §8.2.2)           | no                              |
 
 The debuggability row is worth dwelling on. HTTP/1.1's greatest engineering virtue is that you can read it. RFC 9205 §4.1 leans on this: when writing examples, "applications should document both the request and response messages with complete header sections, preferably in HTTP/1.1 format." Your documentation should show HTTP/1.1 wire format regardless of what you deploy.
 
@@ -411,12 +411,12 @@ Links let a request be "routed to a different server without the overhead of a r
 
 Four call types, all expressed as one HTTP/2 stream:
 
-| Call type | Client sends | Server sends | Typical use |
-|---|---|---|---|
-| Unary | one message | one message | ordinary RPC |
-| Server-streaming | one message | a sequence | subscriptions, large result sets |
-| Client-streaming | a sequence | one message | uploads, telemetry ingest |
-| Bidirectional streaming | a sequence | a sequence | interactive sessions |
+| Call type               | Client sends | Server sends | Typical use                      |
+|-------------------------|--------------|--------------|----------------------------------|
+| Unary                   | one message  | one message  | ordinary RPC                     |
+| Server-streaming        | one message  | a sequence   | subscriptions, large result sets |
+| Client-streaming        | a sequence   | one message  | uploads, telemetry ingest        |
+| Bidirectional streaming | a sequence   | a sequence   | interactive sessions             |
 
 The mechanism is worth understanding because it explains gRPC's single biggest deployment constraint. A gRPC call is an HTTP/2 `POST` whose body is a sequence of length-prefixed protobuf messages carried in `DATA` frames. The RPC's final status is *not* the HTTP status code — it is delivered in a `grpc-status` **trailer**: a `HEADERS` frame sent *after* all `DATA` frames. That design is what lets a server stream a thousand records and only then report failure.
 
@@ -464,17 +464,17 @@ The hard part of caching, having a stable strong validator, was already done; th
 
 #### Honest comparison
 
-| Dimension | REST (JSON over HTTP) | gRPC | GraphQL |
-|---|---|---|---|
-| Contract strength | none by default; OpenAPI is bolt-on and often drifts | strong: `.proto` is the source of truth, codegen both ends | strong: typed schema, introspectable at runtime |
-| Tooling | universal (curl, browsers, every proxy) | excellent codegen; needs `grpcurl`-class tools to poke by hand | excellent explorer/IDE tooling; typed client codegen |
-| HTTP caching | full (if you use it) | none — opaque POSTs | none by default; recoverable via persisted queries + `GET` |
-| Over/under-fetching | both, unless you add field selection | under-fetching common; fixed response shape | solved by construction — this is its reason to exist |
-| Versioning | URL or media-type versioning; RFC 9205 §4.16 prefers links, media types, or new header fields | field numbers give wire compat; add fields, never renumber | schema evolution by additive change plus `@deprecated`; no versions |
-| Streaming | SSE or WebSockets, bolted on | native, four call types | subscriptions, transport unspecified by the core spec |
-| Browser reachability | native | **no** — needs gRPC-Web or Connect plus a proxy | native |
-| Error model | HTTP status codes plus a body (RFC 9457 problem details, ideally) | `grpc-status` code in trailers plus `grpc-message` | `errors` array in the body |
-| Observability | status codes are the metric | status codes are the metric | see below — status codes are *not* the metric |
+| Dimension            | REST (JSON over HTTP)                                                                         | gRPC                                                           | GraphQL                                                             |
+|----------------------|-----------------------------------------------------------------------------------------------|----------------------------------------------------------------|---------------------------------------------------------------------|
+| Contract strength    | none by default; OpenAPI is bolt-on and often drifts                                          | strong: `.proto` is the source of truth, codegen both ends     | strong: typed schema, introspectable at runtime                     |
+| Tooling              | universal (curl, browsers, every proxy)                                                       | excellent codegen; needs `grpcurl`-class tools to poke by hand | excellent explorer/IDE tooling; typed client codegen                |
+| HTTP caching         | full (if you use it)                                                                          | none — opaque POSTs                                            | none by default; recoverable via persisted queries + `GET`          |
+| Over/under-fetching  | both, unless you add field selection                                                          | under-fetching common; fixed response shape                    | solved by construction — this is its reason to exist                |
+| Versioning           | URL or media-type versioning; RFC 9205 §4.16 prefers links, media types, or new header fields | field numbers give wire compat; add fields, never renumber     | schema evolution by additive change plus `@deprecated`; no versions |
+| Streaming            | SSE or WebSockets, bolted on                                                                  | native, four call types                                        | subscriptions, transport unspecified by the core spec               |
+| Browser reachability | native                                                                                        | **no** — needs gRPC-Web or Connect plus a proxy                | native                                                              |
+| Error model          | HTTP status codes plus a body (RFC 9457 problem details, ideally)                             | `grpc-status` code in trailers plus `grpc-message`             | `errors` array in the body                                          |
+| Observability        | status codes are the metric                                                                   | status codes are the metric                                    | see below — status codes are *not* the metric                       |
 
 RFC 9205 §4.16 deserves quoting on versioning because it contradicts the default instinct. For backwards-incompatible change it names three mechanisms: "Using a distinct link relation type to identify a URL for a resource that implements the new functionality", "Using a distinct media type to identify formats that enable the new functionality", and "Using a distinct HTTP header field to implement new functionality outside the message content." A `/v2/` path prefix is not on the list.
 
@@ -636,13 +636,13 @@ For most teams most of the time, **REST done properly beats GraphQL done hastily
 
 HTTP's default is client-initiated request/response. A large class of APIs needs the reverse: the server has news, and the client should learn about it promptly. There are five practical answers, and they are not interchangeable.
 
-| Option | Direction | Transport | Reconnect | Browser API |
-|---|---|---|---|---|
-| Polling | client pulls | ordinary HTTP requests | trivial (it is just the next request) | any HTTP client |
-| Long-polling | client pulls, server holds | ordinary HTTP requests | client re-issues after each response | any HTTP client |
-| Server-Sent Events | server pushes | one long-lived HTTP response | **automatic**, built into the API | `EventSource` |
-| WebSockets | bidirectional | its own protocol after an HTTP upgrade | manual, you write it | `WebSocket` |
-| Webhooks | server pushes | a fresh HTTP request to *your* server | server-side retry policy | n/a (server-to-server) |
+| Option             | Direction                  | Transport                              | Reconnect                             | Browser API            |
+|--------------------|----------------------------|----------------------------------------|---------------------------------------|------------------------|
+| Polling            | client pulls               | ordinary HTTP requests                 | trivial (it is just the next request) | any HTTP client        |
+| Long-polling       | client pulls, server holds | ordinary HTTP requests                 | client re-issues after each response  | any HTTP client        |
+| Server-Sent Events | server pushes              | one long-lived HTTP response           | **automatic**, built into the API     | `EventSource`          |
+| WebSockets         | bidirectional              | its own protocol after an HTTP upgrade | manual, you write it                  | `WebSocket`            |
+| Webhooks           | server pushes              | a fresh HTTP request to *your* server  | server-side retry policy              | n/a (server-to-server) |
 
 The most consequential structural fact, and the one this section builds toward: **a WebSocket connection is not an HTTP request, and middleware written against the request/response abstraction never sees it.**
 The qualifier is load-bearing. Starlette's `BaseHTTPMiddleware` returns immediately for any non-HTTP scope (`starlette/middleware/base.py:102`, Starlette 1.6.0), so anything built on it is blind to the upgrade — and every middleware in Juniper is built on it.
@@ -710,11 +710,11 @@ Three values are reserved and **must never be sent in a Close frame** — 1005 (
 
 The ranges (RFC 6455 §7.4.2) are the part most often misremembered:
 
-| Range | Reservation |
-|---|---|
-| 0-999 | not used |
-| 1000-2999 | the protocol, its revisions, and extensions in a permanent public specification |
-| 3000-3999 | libraries, frameworks, and applications — **registered directly with IANA** |
+| Range     | Reservation                                                                            |
+|-----------|----------------------------------------------------------------------------------------|
+| 0-999     | not used                                                                               |
+| 1000-2999 | the protocol, its revisions, and extensions in a permanent public specification        |
+| 3000-3999 | libraries, frameworks, and applications — **registered directly with IANA**            |
 | 4000-4999 | private use, **cannot be registered**, meaning by prior agreement between applications |
 
 So an application inventing its own codes should use 4000-4999 unless it intends to register them.
@@ -799,18 +799,18 @@ This is the kind of defect that never shows up in testing: most client libraries
 
 #### Tradeoffs
 
-| Concern | Polling | Long-poll | SSE | WebSocket | Webhook |
-|---|---|---|---|---|---|
-| Latency | interval/2 average | near-immediate | near-immediate | near-immediate | near-immediate |
-| Server connections held | none | one per client | one per client | one per client | none |
-| Direction | pull | pull | server → client | both | server → client |
-| Binary payloads | yes | yes | no (encode) | yes | yes |
-| Automatic reconnect | n/a | client re-issues | **built in** | you write it | server retries |
-| Resumption | n/a | none | `Last-Event-ID` | you build it | delivery attempt log |
-| HTTP caching | **yes** | no | no | no | n/a |
-| Middleware applies | yes | yes | yes | **request/response middleware: no**; pure-ASGI: yes | yes |
-| Proxy friendliness | perfect | timeout fights | good | needs upgrade support | perfect |
-| Auth from a browser | headers fine | headers fine | cookie/query with `EventSource`; headers if you drop to `fetch()` | cookie/query/subprotocol/post-connect | n/a |
+| Concern                 | Polling            | Long-poll        | SSE                                                               | WebSocket                                           | Webhook              |
+|-------------------------|--------------------|------------------|-------------------------------------------------------------------|-----------------------------------------------------|----------------------|
+| Latency                 | interval/2 average | near-immediate   | near-immediate                                                    | near-immediate                                      | near-immediate       |
+| Server connections held | none               | one per client   | one per client                                                    | one per client                                      | none                 |
+| Direction               | pull               | pull             | server → client                                                   | both                                                | server → client      |
+| Binary payloads         | yes                | yes              | no (encode)                                                       | yes                                                 | yes                  |
+| Automatic reconnect     | n/a                | client re-issues | **built in**                                                      | you write it                                        | server retries       |
+| Resumption              | n/a                | none             | `Last-Event-ID`                                                   | you build it                                        | delivery attempt log |
+| HTTP caching            | **yes**            | no               | no                                                                | no                                                  | n/a                  |
+| Middleware applies      | yes                | yes              | yes                                                               | **request/response middleware: no**; pure-ASGI: yes | yes                  |
+| Proxy friendliness      | perfect            | timeout fights   | good                                                              | needs upgrade support                               | perfect              |
+| Auth from a browser     | headers fine       | headers fine     | cookie/query with `EventSource`; headers if you drop to `fetch()` | cookie/query/subprotocol/post-connect               | n/a                  |
 
 #### Best Practices
 
@@ -904,12 +904,12 @@ RFC 9700 (BCP 240, January 2025) **updates RFC 6749, RFC 6750, and RFC 6819** an
 
 RFC 6749 §1.3 defines four grants. Their status under RFC 9700:
 
-| Grant | RFC 6749 | RFC 9700 status |
-|---|---|---|
-| Authorization code | §1.3.1, §4.1 | **Recommended**, with PKCE mandatory for public clients |
-| Implicit | §1.3.2, §4.2 | **Discouraged** — "clients SHOULD NOT use the implicit grant... unless access token injection in the authorization response is prevented and the aforementioned token leakage vectors are mitigated" (§2.1.2) |
-| Resource owner password credentials | §1.3.3, §4.3 | **Prohibited** — "MUST NOT be used" (§2.4) |
-| Client credentials | §1.3.4, §4.4 | Fine for machine-to-machine; there is no user to delegate |
+| Grant                               | RFC 6749     | RFC 9700 status                                                                                                                                                                                               |
+|-------------------------------------|--------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Authorization code                  | §1.3.1, §4.1 | **Recommended**, with PKCE mandatory for public clients                                                                                                                                                       |
+| Implicit                            | §1.3.2, §4.2 | **Discouraged** — "clients SHOULD NOT use the implicit grant... unless access token injection in the authorization response is prevented and the aforementioned token leakage vectors are mitigated" (§2.1.2) |
+| Resource owner password credentials | §1.3.3, §4.3 | **Prohibited** — "MUST NOT be used" (§2.4)                                                                                                                                                                    |
+| Client credentials                  | §1.3.4, §4.4 | Fine for machine-to-machine; there is no user to delegate                                                                                                                                                     |
 
 The reasoning, quoted rather than paraphrased:
 
@@ -1079,15 +1079,15 @@ RFC 9700 §2.5 extends the same reasoning to client authentication: asymmetric m
 
 #### Tradeoffs
 
-| Mechanism | Revocation | Scoping | Replay protection | Client complexity | Best fit |
-|---|---|---|---|---|---|
-| API key | immediate (delete it) | none built in | none | trivial | machine-to-machine, quotas |
-| HTTP Basic | change the password | none | none | trivial | legacy, internal, over TLS only |
-| Opaque bearer + introspection | immediate | server-side | none | low | when revocation must be fast |
-| JWT access token | hard (see below) | claims | none | low | high-volume, short-lived |
-| OAuth 2.0 + OIDC | via refresh + short expiry | scopes, audience | none by default | high | third-party delegation, SSO |
-| mTLS | CRL/OCSP; slow | certificate attributes | connection-bound | high (PKI) | service mesh, high assurance |
-| HMAC signing (RFC 9421) | rotate the key | whatever you sign | **yes**, with a timestamp/nonce | medium | webhooks, non-repudiation, through gateways |
+| Mechanism                     | Revocation                 | Scoping                | Replay protection               | Client complexity | Best fit                                    |
+|-------------------------------|----------------------------|------------------------|---------------------------------|-------------------|---------------------------------------------|
+| API key                       | immediate (delete it)      | none built in          | none                            | trivial           | machine-to-machine, quotas                  |
+| HTTP Basic                    | change the password        | none                   | none                            | trivial           | legacy, internal, over TLS only             |
+| Opaque bearer + introspection | immediate                  | server-side            | none                            | low               | when revocation must be fast                |
+| JWT access token              | hard (see below)           | claims                 | none                            | low               | high-volume, short-lived                    |
+| OAuth 2.0 + OIDC              | via refresh + short expiry | scopes, audience       | none by default                 | high              | third-party delegation, SSO                 |
+| mTLS                          | CRL/OCSP; slow             | certificate attributes | connection-bound                | high (PKI)        | service mesh, high assurance                |
+| HMAC signing (RFC 9421)       | rotate the key             | whatever you sign      | **yes**, with a timestamp/nonce | medium            | webhooks, non-repudiation, through gateways |
 
 The row that surprises people is replay protection: *none* of the bearer mechanisms have it. A captured `Authorization` header is reusable until expiry. Only signing (and sender-constraining mechanisms such as mTLS or DPoP, per RFC 9700 §2.2.1) changes that.
 
@@ -1248,11 +1248,11 @@ In practice the two are implemented identically and named interchangeably. Read 
 
 #### Where to Enforce, and What to Key On
 
-| Layer | Sees | Cost of a rejection | Blind to |
-|---|---|---|---|
-| CDN / edge | IP, path, coarse headers | Near zero; never reaches your network | Authenticated identity, tenant, request cost |
-| Gateway | Everything pre-routing | One hop; no app CPU | Per-operation cost, DB state |
-| Application | Full auth context, resolved route, business cost | Full parse, auth, framework overhead | Nothing — but pays for every rejection |
+| Layer       | Sees                                             | Cost of a rejection                   | Blind to                                     |
+|-------------|--------------------------------------------------|---------------------------------------|----------------------------------------------|
+| CDN / edge  | IP, path, coarse headers                         | Near zero; never reaches your network | Authenticated identity, tenant, request cost |
+| Gateway     | Everything pre-routing                           | One hop; no app CPU                   | Per-operation cost, DB state                 |
+| Application | Full auth context, resolved route, business cost | Full parse, auth, framework overhead  | Nothing — but pays for every rejection       |
 
 The answer is usually "more than one": coarse IP limits at the edge to absorb volumetric abuse, identity-scoped limits in the application where identity is actually known.
 
@@ -1280,11 +1280,11 @@ The docstring is the deployment constraint. It holds a `dict` under a `threading
 
 The minimum viable rejection is 429 plus `Retry-After`. Everything beyond exists so a well-behaved client can *avoid* the rejection rather than discover it. Three header families are in circulation, with sharply different status:
 
-| Form | Status | Notes |
-|---|---|---|
-| `X-RateLimit-Limit` / `-Remaining` / `-Reset` | **De-facto vendor convention.** No RFC, no draft. | Ubiquitous; `-Reset` semantics (epoch vs delta seconds) vary by vendor |
-| `RateLimit-Limit` / `-Remaining` / `-Reset` | Historical IETF draft form (through revision -06) | Superseded within the same draft; do not build on it |
-| `RateLimit` + `RateLimit-Policy` | **Internet-Draft** `draft-ietf-httpapi-ratelimit-headers` | Current form as of this writing; intended status Standards Track, **not an RFC** |
+| Form                                          | Status                                                    | Notes                                                                            |
+|-----------------------------------------------|-----------------------------------------------------------|----------------------------------------------------------------------------------|
+| `X-RateLimit-Limit` / `-Remaining` / `-Reset` | **De-facto vendor convention.** No RFC, no draft.         | Ubiquitous; `-Reset` semantics (epoch vs delta seconds) vary by vendor           |
+| `RateLimit-Limit` / `-Remaining` / `-Reset`   | Historical IETF draft form (through revision -06)         | Superseded within the same draft; do not build on it                             |
+| `RateLimit` + `RateLimit-Policy`              | **Internet-Draft** `draft-ietf-httpapi-ratelimit-headers` | Current form as of this writing; intended status Standards Track, **not an RFC** |
 
 That last row is frequently misreported as a standard. It is an [Internet-Draft](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/) of the IETF HTTPAPI Working Group.
 
@@ -1381,15 +1381,15 @@ The guard returns `3600.0` — back off hard — rather than dividing. The gener
 
 #### Tradeoffs
 
-| Choice | Gain | Cost |
-|---|---|---|
-| Edge enforcement | Rejections never reach your infrastructure | No identity, no per-operation cost awareness |
-| Application enforcement | Full context: tenant, route, business cost | Every rejection costs a full request parse |
-| In-memory counters | Zero dependencies, zero latency | Limit silently multiplies by replica count |
-| Shared-store counters | Correct across replicas | Round trip per request; new failure mode |
-| Key on IP | Works pre-auth; stops volumetric abuse | Breaks behind NAT/CDN; trivially evaded on IPv6 |
-| Key on API key | Accurate, fair, per-tenant | Only available after auth; needs an IP fallback |
-| Advertise quota headers | Clients self-throttle; fewer 429s | Discloses your limits to attackers |
+| Choice                  | Gain                                       | Cost                                            |
+|-------------------------|--------------------------------------------|-------------------------------------------------|
+| Edge enforcement        | Rejections never reach your infrastructure | No identity, no per-operation cost awareness    |
+| Application enforcement | Full context: tenant, route, business cost | Every rejection costs a full request parse      |
+| In-memory counters      | Zero dependencies, zero latency            | Limit silently multiplies by replica count      |
+| Shared-store counters   | Correct across replicas                    | Round trip per request; new failure mode        |
+| Key on IP               | Works pre-auth; stops volumetric abuse     | Breaks behind NAT/CDN; trivially evaded on IPv6 |
+| Key on API key          | Accurate, fair, per-tenant                 | Only available after auth; needs an IP fallback |
+| Advertise quota headers | Clients self-throttle; fewer 429s          | Discloses your limits to attackers              |
 
 #### Best Practices
 
@@ -1473,14 +1473,14 @@ As of this writing the draft is at intended status Standards Track and has not b
 
 ##### What must be stored
 
-| Stored | Why |
-|---|---|
-| The key | Lookup |
-| A fingerprint of the request (hash of method + path + body) | To detect key reuse with different content |
-| Response status, headers, and body | So the replay is byte-identical, not merely successful |
-| Processing state (in-flight / complete / failed) | To handle concurrent duplicates |
-| Creation timestamp | To expire the entry |
-| Scope (which caller owns the key) | So one tenant's key cannot collide with another's |
+| Stored                                                      | Why                                                    |
+|-------------------------------------------------------------|--------------------------------------------------------|
+| The key                                                     | Lookup                                                 |
+| A fingerprint of the request (hash of method + path + body) | To detect key reuse with different content             |
+| Response status, headers, and body                          | So the replay is byte-identical, not merely successful |
+| Processing state (in-flight / complete / failed)            | To handle concurrent duplicates                        |
+| Creation timestamp                                          | To expire the entry                                    |
+| Scope (which caller owns the key)                           | So one tenant's key cannot collide with another's      |
 
 Scoping is not optional: a store keyed on the raw header value alone lets any caller guess another's key and receive their stored response — information disclosure with an unpleasant blast radius. A TTL is likewise mandatory, and its length is a real decision: it must exceed the longest plausible client retry horizon (hours, if clients retry from a durable queue) and it bounds storage growth. Expiry is not a correctness compromise; it is an explicit statement that after `T`, a repeat is a new intent.
 
@@ -1499,7 +1499,7 @@ Key `K` with body A, then `K` with body B. Something is wrong — a key-generati
 ##### Which statuses are safely retryable
 
 | Status | Retryable? | Reasoning |
-|---|---|---|
+| --- | --- | --- |
 | Connection error, DNS failure | Yes, if idempotent | May never have reached the server |
 | Timeout with no response | Yes, if idempotent — the two-generals case exactly | Unknown outcome |
 | 408 Request Timeout | Yes | Server explicitly did not complete the request |
@@ -1569,13 +1569,13 @@ The escape hatch is equally instructive: when `params['seed']` is absent or `Non
 The most instructive example in the primer: three client libraries by the same author, on the same base stack (`requests` plus urllib3's `Retry`), within a few months of one another, reaching three incompatible conclusions. They were not written in parallel — data-client's policy comment is self-dated 2026-04-24, and recurrence-client's `constants.py` first landed on 2026-06-18 — which makes the divergence worse rather than better.
 This is a fix that failed to propagate, not three simultaneous judgement calls.
 
-| | juniper-data-client (v0.4.2) | juniper-cascor-client (v0.7.0) | juniper-recurrence-client (v0.2.0) |
-|---|---|---|---|
-| Retryable statuses | `429, 500, 502, 503, 504` | `429, 502, 503, 504` — **no 500** | `429, 500, 502, 503, 504` |
-| Allowed methods | `HEAD, GET, PUT` | **`GET, POST, DELETE, PUT, PATCH`** | `HEAD, GET` |
-| Retries non-idempotent? | No | **Yes** | No |
-| `backoff_factor` | 0.5, constructor-configurable | 0.5, hardcoded (`client.py:91`) | 0.5, configurable |
-| Jitter | none | none | none |
+|                         | juniper-data-client (v0.4.2)  | juniper-cascor-client (v0.7.0)      | juniper-recurrence-client (v0.2.0) |
+|-------------------------|-------------------------------|-------------------------------------|------------------------------------|
+| Retryable statuses      | `429, 500, 502, 503, 504`     | `429, 502, 503, 504` — **no 500**   | `429, 500, 502, 503, 504`          |
+| Allowed methods         | `HEAD, GET, PUT`              | **`GET, POST, DELETE, PUT, PATCH`** | `HEAD, GET`                        |
+| Retries non-idempotent? | No                            | **Yes**                             | No                                 |
+| `backoff_factor`        | 0.5, constructor-configurable | 0.5, hardcoded (`client.py:91`)     | 0.5, configurable                  |
+| Jitter                  | none                          | none                                | none                               |
 
 Verified at `juniper_data_client/constants.py:58` and `:67`; `juniper_cascor_client/constants.py:36` and `:37`; `juniper_recurrence_client/constants.py:50` and `:54`.
 
@@ -1606,15 +1606,15 @@ The teaching point is not that cascor-client has a bug. It is that **retry polic
 
 #### Tradeoffs
 
-| Choice | Gain | Cost |
-|---|---|---|
-| Retry aggressively | Hides transient failures from users | Amplifies overload; duplicates non-idempotent effects |
-| Retry conservatively | No duplicates; no amplification | Users see failures the network would have absorbed |
-| Idempotency keys | Safe retries for any operation | Storage, TTL policy, atomic-claim complexity, new failure surface |
-| Content-addressed IDs | Idempotency free from the data model | Only works when content fully determines the result |
-| Retries in the HTTP adapter | Zero caller code | Invisible, unloggable, un-opt-out-able |
-| Retries in the application | Observable and controllable | Every call site must implement it |
-| Circuit breaker | Fast failure; upstream gets idle time | Rejects requests that might have succeeded |
+| Choice                      | Gain                                  | Cost                                                              |
+|-----------------------------|---------------------------------------|-------------------------------------------------------------------|
+| Retry aggressively          | Hides transient failures from users   | Amplifies overload; duplicates non-idempotent effects             |
+| Retry conservatively        | No duplicates; no amplification       | Users see failures the network would have absorbed                |
+| Idempotency keys            | Safe retries for any operation        | Storage, TTL policy, atomic-claim complexity, new failure surface |
+| Content-addressed IDs       | Idempotency free from the data model  | Only works when content fully determines the result               |
+| Retries in the HTTP adapter | Zero caller code                      | Invisible, unloggable, un-opt-out-able                            |
+| Retries in the application  | Observable and controllable           | Every call site must implement it                                 |
+| Circuit breaker             | Fast failure; upstream gets idle time | Rejects requests that might have succeeded                        |
 
 #### Best Practices
 
@@ -1703,20 +1703,20 @@ Its weaknesses are practical — verbose, awkward in browsers and API consoles, 
 
 The obvious ones — removing an endpoint or field, renaming, changing a type — are rarely what breaks people, because they are obvious enough to catch in review. These are the ones that ship:
 
-| Change | Why it breaks a consumer |
-|---|---|
-| Adding a *required* request field | Every existing caller's request becomes invalid |
-| Tightening validation (`maxLength` 500 → 100) | Previously accepted requests now 422 |
-| Adding a value to a response enum | Clients with exhaustive `match` on the old domain crash or fall through |
-| Removing a value from a *request* enum | Callers sending it now fail |
-| Changing an error code (400 → 422) | Client error-handling branches silently stop matching |
-| Changing the error *body shape* | Any client parsing `detail` as a string breaks when it becomes an array |
-| Changing a default value | Callers relying on the old default get different behaviour with no request change |
-| Changing result ordering | Any implicit "first item" assumption breaks |
-| Changing pagination page size | Fixed-size buffers and page-count logic break |
-| Making a sync operation async (200 → 202) | Clients reading the body as the result get a job stub |
-| Tightening rate limits | Working integrations start failing |
-| Adding a field a strict parser rejects | `additionalProperties: false` or strict deserialisation fails |
+| Change                                        | Why it breaks a consumer                                                          |
+|-----------------------------------------------|-----------------------------------------------------------------------------------|
+| Adding a *required* request field             | Every existing caller's request becomes invalid                                   |
+| Tightening validation (`maxLength` 500 → 100) | Previously accepted requests now 422                                              |
+| Adding a value to a response enum             | Clients with exhaustive `match` on the old domain crash or fall through           |
+| Removing a value from a *request* enum        | Callers sending it now fail                                                       |
+| Changing an error code (400 → 422)            | Client error-handling branches silently stop matching                             |
+| Changing the error *body shape*               | Any client parsing `detail` as a string breaks when it becomes an array           |
+| Changing a default value                      | Callers relying on the old default get different behaviour with no request change |
+| Changing result ordering                      | Any implicit "first item" assumption breaks                                       |
+| Changing pagination page size                 | Fixed-size buffers and page-count logic break                                     |
+| Making a sync operation async (200 → 202)     | Clients reading the body as the result get a job stub                             |
+| Tightening rate limits                        | Working integrations start failing                                                |
+| Adding a field a strict parser rejects        | `additionalProperties: false` or strict deserialisation fails                     |
 
 That last row turns "additive-only is always safe" into a half-truth: adding a field is safe *only* if clients ignore unknown fields, which is a property of your consumers, not of your change.
 
@@ -1793,13 +1793,13 @@ The cheap fix is one constant and a lint rule. The valuable insight is what the 
 
 #### Tradeoffs
 
-| Strategy | Gain | Cost |
-|---|---|---|
-| URI path | Visible, routable, cacheable, trivially explained | URI stops identifying a resource; clients rewrite every URL |
-| Query parameter | Easy to add and default | Silent defaults; pollutes the query space; cache-key subtleties |
-| Custom header | Clean URIs | Invisible in logs; needs `Vary`; poor tooling support |
-| Media type | Uses HTTP as designed; `Vary: Accept` is standard | Verbose; awkward in browsers; low adoption; easy to get wrong |
-| Never version | No migration ever; no version sprawl | Permanent scar tissue; demands getting v1 nearly right |
+| Strategy        | Gain                                              | Cost                                                            |
+|-----------------|---------------------------------------------------|-----------------------------------------------------------------|
+| URI path        | Visible, routable, cacheable, trivially explained | URI stops identifying a resource; clients rewrite every URL     |
+| Query parameter | Easy to add and default                           | Silent defaults; pollutes the query space; cache-key subtleties |
+| Custom header   | Clean URIs                                        | Invisible in logs; needs `Vary`; poor tooling support           |
+| Media type      | Uses HTTP as designed; `Vary: Accept` is standard | Verbose; awkward in browsers; low adoption; easy to get wrong   |
+| Never version   | No migration ever; no version sprawl              | Permanent scar tissue; demands getting v1 nearly right          |
 
 #### Best Practices
 
@@ -1999,14 +1999,14 @@ The lesson generalises: a checksum in your data model is not an HTTP validator. 
 
 #### Tradeoffs
 
-| Choice | Gain | Cost |
-|---|---|---|
-| Long `max-age` | Zero round trips; maximum offload | Stale for the full duration; no way to recall it |
-| `no-cache` + `ETag` | Always fresh; big bandwidth saving on 304s | A round trip on every request |
-| `s-maxage` split | Hard CDN caching, fresh browsers | Two lifetimes to reason about |
-| `immutable` + content-addressed URLs | Invalidation becomes unnecessary | Requires content-derived identifiers |
-| `Vary` on a header | Correct negotiated caching | Every added header multiplies fragmentation |
-| No cache headers at all | Nothing to get wrong | Full origin load; heuristic caching may still surprise you |
+| Choice                               | Gain                                       | Cost                                                       |
+|--------------------------------------|--------------------------------------------|------------------------------------------------------------|
+| Long `max-age`                       | Zero round trips; maximum offload          | Stale for the full duration; no way to recall it           |
+| `no-cache` + `ETag`                  | Always fresh; big bandwidth saving on 304s | A round trip on every request                              |
+| `s-maxage` split                     | Hard CDN caching, fresh browsers           | Two lifetimes to reason about                              |
+| `immutable` + content-addressed URLs | Invalidation becomes unnecessary           | Requires content-derived identifiers                       |
+| `Vary` on a header                   | Correct negotiated caching                 | Every added header multiplies fragmentation                |
+| No cache headers at all              | Nothing to get wrong                       | Full origin load; heuristic caching may still surprise you |
 
 #### Best Practices
 
@@ -2139,15 +2139,15 @@ A related discipline is sanitising untrusted text before it reaches a log line. 
 
 #### Tradeoffs
 
-| Choice | Gain | Cost |
-|---|---|---|
-| Label by route template | Bounded cardinality; safe under attack | Cannot see per-resource traffic in metrics |
-| Label by raw path | Per-resource visibility | Unbounded, attacker-controlled series growth |
-| 100% trace sampling | Every request explicable | Storage and ingest scale with traffic |
-| Tail-based sampling | Keeps the interesting traces | Requires buffering; more complex pipeline |
-| Structured logs | Queryable, redactable, machine-parsable | Verbose; less pleasant to read raw |
-| Cached readiness | Cheap under constant polling | Up to TTL seconds of stale readiness |
-| Separate liveness/readiness | No restart loops on dependency failure | Two endpoints and two semantics to maintain |
+| Choice                      | Gain                                    | Cost                                         |
+|-----------------------------|-----------------------------------------|----------------------------------------------|
+| Label by route template     | Bounded cardinality; safe under attack  | Cannot see per-resource traffic in metrics   |
+| Label by raw path           | Per-resource visibility                 | Unbounded, attacker-controlled series growth |
+| 100% trace sampling         | Every request explicable                | Storage and ingest scale with traffic        |
+| Tail-based sampling         | Keeps the interesting traces            | Requires buffering; more complex pipeline    |
+| Structured logs             | Queryable, redactable, machine-parsable | Verbose; less pleasant to read raw           |
+| Cached readiness            | Cheap under constant polling            | Up to TTL seconds of stale readiness         |
+| Separate liveness/readiness | No restart loops on dependency failure  | Two endpoints and two semantics to maintain  |
 
 #### Best Practices
 
@@ -2299,15 +2299,15 @@ What it does not tell you: behaviour under *real* traffic shape (synthetic load 
 
 #### Tradeoffs
 
-| Choice | Gain | Cost |
-|---|---|---|
-| In-process ASGI tests | Fast, debuggable, faithful to app behaviour | Misses server-layer behaviour; client rewrites some headers |
-| Socket-level tests | Real server, real HTTP | Slow; port management; startup races |
-| Broad autouse mocks | Convenient; fast; no external setup | Masks the real path entirely; green suite over dead app |
-| Narrow explicit mocks | Real path stays exercised elsewhere | More fixture code; more per-test setup |
-| Consumer-driven contracts | Breaking changes caught before merge | Requires consumer participation and a broker |
-| Schema-based testing | Broad coverage cheaply | Only as good as the schema; blind to undeclared responses |
-| Property-based testing | Finds cases nobody thought of | Slower; failures need interpretation |
+| Choice                    | Gain                                        | Cost                                                        |
+|---------------------------|---------------------------------------------|-------------------------------------------------------------|
+| In-process ASGI tests     | Fast, debuggable, faithful to app behaviour | Misses server-layer behaviour; client rewrites some headers |
+| Socket-level tests        | Real server, real HTTP                      | Slow; port management; startup races                        |
+| Broad autouse mocks       | Convenient; fast; no external setup         | Masks the real path entirely; green suite over dead app     |
+| Narrow explicit mocks     | Real path stays exercised elsewhere         | More fixture code; more per-test setup                      |
+| Consumer-driven contracts | Breaking changes caught before merge        | Requires consumer participation and a broker                |
+| Schema-based testing      | Broad coverage cheaply                      | Only as good as the schema; blind to undeclared responses   |
+| Property-based testing    | Finds cases nobody thought of               | Slower; failures need interpretation                        |
 
 #### Best Practices
 
@@ -3233,14 +3233,14 @@ HTTP is not REST. HTTP/1.1 was designed alongside the dissertation and REST was 
 
 Fielding derives REST through these sections. Note §5.1.4 is titled "Cache", not "Cacheable", and there is no constraint called "resource identification" at this level.
 
-| § | Constraint | What it requires | Property bought |
-|---|---|---|---|
-| 5.1.2 | Client-Server | Separate user-interface concerns from data-storage concerns | Portability, independent evolvability |
-| 5.1.3 | Stateless | "each request from client to server must contain all of the information necessary to understand the request, and cannot take advantage of any stored context on the server" | Visibility, reliability, scalability |
-| 5.1.4 | Cache | "data within a response to a request be implicitly or explicitly labeled as cacheable or non-cacheable" | Reduced latency; costs staleness risk |
-| 5.1.5 | Uniform Interface | Four sub-constraints (below) | Simplicity, visibility, independent evolvability |
-| 5.1.6 | Layered System | A component "cannot 'see' beyond the immediate layer with which they are interacting" | Bounded complexity, substrate independence |
-| 5.1.7 | Code-On-Demand | Client functionality extensible by downloaded code | Extensibility; **optional** |
+| §     | Constraint        | What it requires                                                                                                                                                            | Property bought                                  |
+|-------|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------|
+| 5.1.2 | Client-Server     | Separate user-interface concerns from data-storage concerns                                                                                                                 | Portability, independent evolvability            |
+| 5.1.3 | Stateless         | "each request from client to server must contain all of the information necessary to understand the request, and cannot take advantage of any stored context on the server" | Visibility, reliability, scalability             |
+| 5.1.4 | Cache             | "data within a response to a request be implicitly or explicitly labeled as cacheable or non-cacheable"                                                                     | Reduced latency; costs staleness risk            |
+| 5.1.5 | Uniform Interface | Four sub-constraints (below)                                                                                                                                                | Simplicity, visibility, independent evolvability |
+| 5.1.6 | Layered System    | A component "cannot 'see' beyond the immediate layer with which they are interacting"                                                                                       | Bounded complexity, substrate independence       |
+| 5.1.7 | Code-On-Demand    | Client functionality extensible by downloaded code                                                                                                                          | Extensibility; **optional**                      |
 
 Code-on-demand is optional, and §5.1.7 says why in the same breath: "However, it also reduces visibility, and thus is only an optional constraint within REST." Fielding then meets the objection directly — "The notion of an optional constraint may seem like an oxymoron" — explaining that it lets an architecture gain the benefit within a realm where support is known while degrading gracefully
 outside it.
@@ -3264,12 +3264,12 @@ Essentially no commercial HTTP API satisfies constraint 4. Industry "REST" means
 The usual scaffold for the gap is the **Richardson Maturity Model**, proposed by **Leonard Richardson** in a 2008 QCon talk ("Justice Will Take Us Millions of Intricate Moves") and popularised by Martin Fowler's 2010 article [*Richardson Maturity Model*](https://martinfowler.com/articles/richardsonMaturityModel.html). Attribute it to Richardson — not Fowler, and certainly not Fielding. It is a
 third-party descriptive model and appears nowhere in the dissertation.
 
-| Level | Name | Meaning | Typical example |
-|---|---|---|---|
-| 0 | The Swamp of POX | One URI, one method, verbs in the payload | SOAP, XML-RPC, `POST /api` with `{"action": "..."}` |
-| 1 | Resources | Many URIs, still one method | `POST /getUser`, `POST /deleteUser` |
-| 2 | HTTP Verbs | Many URIs, correct methods, correct status codes | Nearly every "REST API" shipped since 2010 |
-| 3 | Hypermedia Controls | Level 2 plus links driving state transitions | HAL, Siren, JSON:API relationships, ActivityPub |
+| Level | Name                | Meaning                                          | Typical example                                     |
+|-------|---------------------|--------------------------------------------------|-----------------------------------------------------|
+| 0     | The Swamp of POX    | One URI, one method, verbs in the payload        | SOAP, XML-RPC, `POST /api` with `{"action": "..."}` |
+| 1     | Resources           | Many URIs, still one method                      | `POST /getUser`, `POST /deleteUser`                 |
+| 2     | HTTP Verbs          | Many URIs, correct methods, correct status codes | Nearly every "REST API" shipped since 2010          |
+| 3     | Hypermedia Controls | Level 2 plus links driving state transitions     | HAL, Siren, JSON:API relationships, ActivityPub     |
 
 juniper-data sits at Level 2 with one hypermedia-adjacent gesture: `CreateDatasetResponse` carries an `artifact_url` (`juniper_data/api/routes/datasets.py:138`, `:253`) so callers need not build the artifact path. That is a link — but a hand-rolled `f"/v1/datasets/{dataset_id}/artifact"`, not a typed link relation, and there is exactly one.
 
@@ -3291,11 +3291,11 @@ while its two siblings do not.
 
 #### Tradeoffs
 
-| Choice | Gains | Costs |
-|---|---|---|
-| Strict HATEOAS | Server can restructure URLs freely; runtime capability discovery | Larger payloads; every client needs a link-following layer; almost no tooling assumes it |
-| Level 2 pragmatism | Trivial OpenAPI codegen; every HTTP library works; the team already knows it | URL structure becomes public contract; capability discovery is out-of-band documentation |
-| Verbs in payloads (Level 0/1) | Maps trivially onto existing RPC code; no method or status arguments | Loses caching, intermediary visibility, and idempotency signalling entirely |
+| Choice                        | Gains                                                                        | Costs                                                                                    |
+|-------------------------------|------------------------------------------------------------------------------|------------------------------------------------------------------------------------------|
+| Strict HATEOAS                | Server can restructure URLs freely; runtime capability discovery             | Larger payloads; every client needs a link-following layer; almost no tooling assumes it |
+| Level 2 pragmatism            | Trivial OpenAPI codegen; every HTTP library works; the team already knows it | URL structure becomes public contract; capability discovery is out-of-band documentation |
+| Verbs in payloads (Level 0/1) | Maps trivially onto existing RPC code; no method or status arguments         | Loses caching, intermediary visibility, and idempotency signalling entirely              |
 
 #### Best Practices
 
@@ -3363,7 +3363,7 @@ The rule works because HTTP already supplies the verbs, and a uniform method set
 It breaks for operations that are not state manipulation of a single named thing. The classic hard cases:
 
 | Hard case | Options | Guidance |
-|---|---|---|
+| --- | --- | --- |
 | **Search / query** | `GET /datasets?generator=spiral`; `GET /datasets/filter?…`; `POST /datasets/search` with a body | Prefer GET with query params — cacheable, linkable, safe. Fall back to POST only when the query exceeds URL limits or carries secrets; RFC 9205 §4.5.1 says applications needing POST queries "ought to consider allowing **both** methods" |
 | **Batch operations** | `POST /datasets/batch-delete`; `PATCH /datasets` with a list; many parallel requests | A batch is a legitimate resource — a *job description*, not a verb. Name it as one and be explicit about partial-failure semantics |
 | **State transitions** | `POST /orders/{id}/cancel`; `PATCH /orders/{id}` with `{"status":"cancelled"}`; `POST /orders/{id}/cancellations` | The sub-resource-as-noun form is most defensible: the transition becomes a thing with its own identity, timestamp, and reason |
@@ -3418,12 +3418,12 @@ good pattern applied once; `preview`, `tags`, and the item URI itself remain cli
 
 #### Identifiers: slug vs opaque vs UUID, and the enumeration risk
 
-| Style | Example | Good for | Costs |
-|---|---|---|---|
-| Sequential integer | `/users/42` | Compact, sortable, trivially indexed | **Enumerable.** Leaks volume and ordering; makes IDOR trivially exploitable at scale |
-| UUID | `/users/9f2c…` | Non-enumerable, client-generatable, merge-safe | Opaque to humans, 36 chars, poor index locality unless UUIDv7 |
-| Slug | `/posts/why-rest-is-hard` | Human-readable, SEO-relevant | Mutable — renames break links unless you keep redirects forever |
-| Content hash | `/datasets/spiral-v1.0.0-a3f8…` | Deduplicating, immutable, cache-friendly | Identity is a function of content — changing anything renames |
+| Style              | Example                         | Good for                                       | Costs                                                                                |
+|--------------------|---------------------------------|------------------------------------------------|--------------------------------------------------------------------------------------|
+| Sequential integer | `/users/42`                     | Compact, sortable, trivially indexed           | **Enumerable.** Leaks volume and ordering; makes IDOR trivially exploitable at scale |
+| UUID               | `/users/9f2c…`                  | Non-enumerable, client-generatable, merge-safe | Opaque to humans, 36 chars, poor index locality unless UUIDv7                        |
+| Slug               | `/posts/why-rest-is-hard`       | Human-readable, SEO-relevant                   | Mutable — renames break links unless you keep redirects forever                      |
+| Content hash       | `/datasets/spiral-v1.0.0-a3f8…` | Deduplicating, immutable, cache-friendly       | Identity is a function of content — changing anything renames                        |
 
 **Sequential integers are an information disclosure, not only an IDOR risk.** Two separate problems: an attacker reading `/users/42` trivially tries 41 and 43 (IDOR — the real defect is the missing authorisation check; the ID style only sets exploitability), and *even with* correct authorisation, exposing `/orders/10041` and `/orders/10098` a week later tells a competitor you processed 57 orders.
 Opaque IDs do not fix authorisation bugs; they remove the enumeration and the side channel.
@@ -3456,12 +3456,12 @@ nonce deliberately breaks content-addressing for exactly the case where its prem
 
 juniper-data declares these GET routes on the `/datasets` router, in this order:
 
-| Line | Route | Kind |
-|---|---|---|
-| `datasets.py:276` | `GET /filter` | literal |
-| `datasets.py:338` | `GET /stats` | literal |
-| `datasets.py:604` | `GET /versions` | literal |
-| `datasets.py:628` | `GET /latest` | literal |
+| Line              | Route               | Kind      |
+|-------------------|---------------------|-----------|
+| `datasets.py:276` | `GET /filter`       | literal   |
+| `datasets.py:338` | `GET /stats`        | literal   |
+| `datasets.py:604` | `GET /versions`     | literal   |
+| `datasets.py:628` | `GET /latest`       | literal   |
 | `datasets.py:651` | `GET /{dataset_id}` | catch-all |
 
 The order is **load-bearing**. Starlette matches routes in declaration order, and `/{dataset_id}` is an unconstrained single-segment parameter that matches the literal string `stats` perfectly well. Move `:651` above `:338` — a plausible outcome of an alphabetise-the-handlers refactor or a merge that reorders a file — and `GET /v1/datasets/stats` stops reaching `get_dataset_stats`, entering
@@ -3499,12 +3499,12 @@ characters whose encoding is negotiable, and never put a `/` inside a path-segme
 
 #### Tradeoffs
 
-| Choice | Gains | Costs |
-|---|---|---|
-| Content-addressed IDs | Free deduplication, idempotent creation, immutable cache keys | Fails when generation is non-deterministic; long identifiers; any parameter change renames |
-| Deep nesting | Expresses ownership; natural authorisation scoping | Clients carry IDs they do not need; refactoring containment breaks every URL |
-| Literal segments beside a catch-all | Readable, conventional URLs | Silent ordering dependency; needs a converter or a test to be safe |
-| Mandatory query params for identity | Avoids inventing a parent collection | The URI without the param looks addressable but is not; yields 422 where 404 is expected |
+| Choice                              | Gains                                                         | Costs                                                                                      |
+|-------------------------------------|---------------------------------------------------------------|--------------------------------------------------------------------------------------------|
+| Content-addressed IDs               | Free deduplication, idempotent creation, immutable cache keys | Fails when generation is non-deterministic; long identifiers; any parameter change renames |
+| Deep nesting                        | Expresses ownership; natural authorisation scoping            | Clients carry IDs they do not need; refactoring containment breaks every URL               |
+| Literal segments beside a catch-all | Readable, conventional URLs                                   | Silent ordering dependency; needs a converter or a test to be safe                         |
+| Mandatory query params for identity | Avoids inventing a parent collection                          | The URI without the param looks addressable but is not; yields 422 where 404 is expected   |
 
 #### Best Practices
 
@@ -3526,11 +3526,11 @@ characters whose encoding is negotiable, and never put a `/` inside a path-segme
 
 Routing errors deserve distinguishable responses. Three cases commonly collapsed into one 404:
 
-| Condition | Correct code | Why |
-|---|---|---|
-| Path matches no route | 404 | Genuinely no such resource |
-| Path matches, resource absent | 404 | Same code, but the body should name the identifier, as `datasets.py:670` does |
-| Path matches, method not supported | 405 | RFC 9110 §15.5.6 — and the server **MUST** generate an `Allow` header listing supported methods |
+| Condition                          | Correct code | Why                                                                                             |
+|------------------------------------|--------------|-------------------------------------------------------------------------------------------------|
+| Path matches no route              | 404          | Genuinely no such resource                                                                      |
+| Path matches, resource absent      | 404          | Same code, but the body should name the identifier, as `datasets.py:670` does                   |
+| Path matches, method not supported | 405          | RFC 9110 §15.5.6 — and the server **MUST** generate an `Allow` header listing supported methods |
 
 FastAPI produces the 405-with-`Allow` behaviour automatically, worth knowing so you do not hand-roll a 404 in its place. The remaining gap in juniper-data is that hand-raised 404s use `detail: string` while FastAPI's automatic validation failures use `detail: [array of objects]`, so clients cannot parse errors uniformly — covered in II.4.
 
@@ -3553,17 +3553,17 @@ Two structural rules worth internalising, both from §9.1: "All general-purpose 
 
 Every cell below was read out of the specification text, not recalled.
 
-| Method | Safe | Idempotent | Cacheable | Request body | Response body | Defined in |
-|---|---|---|---|---|---|---|
-| GET | Yes | Yes | Yes | SHOULD NOT | Yes | RFC 9110 §9.3.1 |
-| HEAD | Yes | Yes | Yes | SHOULD NOT | **MUST NOT** | RFC 9110 §9.3.2 |
-| POST | No | No | Only with explicit freshness **and** `Content-Location` == target URI | Yes | Usually | RFC 9110 §9.3.3 |
-| PUT | No | Yes | No | Yes | 201, or 200/204 | RFC 9110 §9.3.4 |
-| DELETE | No | Yes | No | SHOULD NOT | 200/202/204 | RFC 9110 §9.3.5 |
-| PATCH | No | **No** | Only with explicit freshness and matching `Content-Location` | Yes (the patch document) | Usually | RFC 5789 §2 |
-| OPTIONS | Yes | Yes | No | Allowed, but no defined use | Optional | RFC 9110 §9.3.7 |
-| TRACE | Yes | Yes | No | **MUST NOT** | Yes (the reflected message) | RFC 9110 §9.3.8 |
-| CONNECT | No | No | No | **None** | No (a tunnel follows) | RFC 9110 §9.3.6 |
+| Method  | Safe | Idempotent | Cacheable                                                             | Request body                | Response body               | Defined in      |
+|---------|------|------------|-----------------------------------------------------------------------|-----------------------------|-----------------------------|-----------------|
+| GET     | Yes  | Yes        | Yes                                                                   | SHOULD NOT                  | Yes                         | RFC 9110 §9.3.1 |
+| HEAD    | Yes  | Yes        | Yes                                                                   | SHOULD NOT                  | **MUST NOT**                | RFC 9110 §9.3.2 |
+| POST    | No   | No         | Only with explicit freshness **and** `Content-Location` == target URI | Yes                         | Usually                     | RFC 9110 §9.3.3 |
+| PUT     | No   | Yes        | No                                                                    | Yes                         | 201, or 200/204             | RFC 9110 §9.3.4 |
+| DELETE  | No   | Yes        | No                                                                    | SHOULD NOT                  | 200/202/204                 | RFC 9110 §9.3.5 |
+| PATCH   | No   | **No**     | Only with explicit freshness and matching `Content-Location`          | Yes (the patch document)    | Usually                     | RFC 5789 §2     |
+| OPTIONS | Yes  | Yes        | No                                                                    | Allowed, but no defined use | Optional                    | RFC 9110 §9.3.7 |
+| TRACE   | Yes  | Yes        | No                                                                    | **MUST NOT**                | Yes (the reflected message) | RFC 9110 §9.3.8 |
+| CONNECT | No   | No         | No                                                                    | **None**                    | No (a tunnel follows)       | RFC 9110 §9.3.6 |
 
 Sourcing for the non-obvious cells. **Safe set**, §9.2.1: "Of the request methods defined by this specification, the GET, HEAD, OPTIONS, and TRACE methods are defined to be safe" — so POST, PUT, DELETE, CONNECT are not, and RFC 5789 §2 declares PATCH unsafe. **Idempotent set**, §9.2.2: "Of the request methods defined by this specification, PUT, DELETE, and safe request methods are idempotent" — so
 POST and CONNECT are not, and PATCH is not (RFC 5789 §2, verbatim: "PATCH is neither safe nor idempotent"). **Cacheability**, §9.2.3: "This specification defines caching semantics for GET, HEAD, and POST, although the overwhelming majority of cache implementations only support GET and HEAD"; §9.3.4 through §9.3.8 each state explicitly that responses to PUT, DELETE, CONNECT, OPTIONS, and TRACE "are
@@ -3610,23 +3610,23 @@ PATCH sends a *patch document*: "a set of instructions describing how a resource
 
 **Patch document formats.** RFC 5789 deliberately defines none — "there is no single default patch document format that implementations are required to support." The two that matter are both Standards Track:
 
-| Format | RFC | Media type | Shape |
-|---|---|---|---|
-| JSON Patch | RFC 6902 (April 2013) | `application/json-patch+json` | An array of operations: `add`, `remove`, `replace`, `move`, `copy`, `test` (RFC 6902 §4) |
-| JSON Merge Patch | RFC 7396 (October 2014) | `application/merge-patch+json` | A partial document; `null` means delete the member |
+| Format           | RFC                     | Media type                     | Shape                                                                                    |
+|------------------|-------------------------|--------------------------------|------------------------------------------------------------------------------------------|
+| JSON Patch       | RFC 6902 (April 2013)   | `application/json-patch+json`  | An array of operations: `add`, `remove`, `replace`, `move`, `copy`, `test` (RFC 6902 §4) |
+| JSON Merge Patch | RFC 7396 (October 2014) | `application/merge-patch+json` | A partial document; `null` means delete the member                                       |
 
 Two accuracy notes. **JSON Merge Patch is RFC 7396, which obsoletes RFC 7386** — RFC 7386 is frequently cited and is the wrong number. And "PATCH with a partial JSON object and `Content-Type: application/json`" is *neither* format: it is an ad-hoc convention resembling merge patch with no specification, no `null`-means-delete guarantee, and no `test` operation. Defensible for an internal API —
 just do not label it as either RFC. JSON Patch's `test` operation is the underrated one: it turns a patch into its own precondition, so `[{"op":"test","path":"/version","value":7},{"op":"replace",…}]` fails atomically if the resource moved, without an ETag round trip.
 
 #### PUT vs PATCH vs POST
 
-| Situation | Method | Reasoning |
-|---|---|---|
-| Client knows the full target state and the URI | PUT | Idempotent, intermediary-visible, replaces state (§9.3.4) |
-| Client knows a delta, not the whole document | PATCH | Sending the whole document would clobber concurrent edits to fields you did not touch |
-| Server chooses the URI | POST | §9.3.4: "A service that selects a proper URI on behalf of the client, after receiving a state-changing request, SHOULD be implemented using the POST method rather than PUT" |
-| Operation is a process, not a state assignment | POST | The catch-all by design; §9.3.3 lists "providing a block of data ... to a data-handling process" first |
-| Creating a resource at a client-chosen URI | PUT | §9.3.4: PUT MUST return 201 if it created, 200/204 if it replaced |
+| Situation                                      | Method | Reasoning                                                                                                                                                                    |
+|------------------------------------------------|--------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Client knows the full target state and the URI | PUT    | Idempotent, intermediary-visible, replaces state (§9.3.4)                                                                                                                    |
+| Client knows a delta, not the whole document   | PATCH  | Sending the whole document would clobber concurrent edits to fields you did not touch                                                                                        |
+| Server chooses the URI                         | POST   | §9.3.4: "A service that selects a proper URI on behalf of the client, after receiving a state-changing request, SHOULD be implemented using the POST method rather than PUT" |
+| Operation is a process, not a state assignment | POST   | The catch-all by design; §9.3.3 lists "providing a block of data ... to a data-handling process" first                                                                       |
+| Creating a resource at a client-chosen URI     | PUT    | §9.3.4: PUT MUST return 201 if it created, 200/204 if it replaced                                                                                                            |
 
 The strongest signal is the third row's inverse: if you are writing PUT while thinking "but the server assigns the ID", you want POST.
 
@@ -3668,13 +3668,13 @@ If you must support it for a legacy client you do not control, terminate the ove
 
 #### Tradeoffs
 
-| Choice | Gains | Costs |
-|---|---|---|
-| Retry only idempotent methods | Cannot duplicate side effects; matches §9.2.2 | Transient failures on POST surface to the caller |
-| Retry everything | Fewer visible failures | Duplicate creates and repeated side effects — the live risk in `juniper-cascor-client` |
-| PATCH with JSON Patch | Precise; `test` gives free preconditions; spec-backed | Clients must build op arrays; harder to read in logs |
-| PATCH with merge patch | Trivial for clients; looks like the resource | Cannot express array insertion; `null` is overloaded as "delete" |
-| Method override | Works through hostile intermediaries | Blinds caches, proxies, WAFs; authorisation-bypass surface |
+| Choice                        | Gains                                                 | Costs                                                                                  |
+|-------------------------------|-------------------------------------------------------|----------------------------------------------------------------------------------------|
+| Retry only idempotent methods | Cannot duplicate side effects; matches §9.2.2         | Transient failures on POST surface to the caller                                       |
+| Retry everything              | Fewer visible failures                                | Duplicate creates and repeated side effects — the live risk in `juniper-cascor-client` |
+| PATCH with JSON Patch         | Precise; `test` gives free preconditions; spec-backed | Clients must build op arrays; harder to read in logs                                   |
+| PATCH with merge patch        | Trivial for clients; looks like the resource          | Cannot express array insertion; `null` is overloaded as "delete"                       |
+| Method override               | Works through hostile intermediaries                  | Blinds caches, proxies, WAFs; authorisation-bypass surface                             |
 
 #### Best Practices
 
@@ -3696,14 +3696,14 @@ If you must support it for a legacy client you do not control, terminate the ove
 
 RFC 5789 §2.2 gives PATCH's error mapping, and it generalises to all write methods:
 
-| Condition | Code | Source |
-|---|---|---|
-| Patch document media type not supported | 415 | RFC 5789 §2.2 |
-| Patch document malformed | 400 | RFC 5789 §2.2 |
-| Patch well-formed but not applicable to current state | 409 | RFC 5789 §2.2 — "Conflicting state" |
-| `If-Match` / `If-Unmodified-Since` failed | 412 | RFC 5789 §2.2; RFC 9110 §15.5.13 |
-| Resource concurrently modified, no precondition sent | 409 | RFC 5789 §2.2 — "Conflicting modification" |
-| Server requires conditional requests | 428 | RFC 6585 §3 |
+| Condition                                             | Code | Source                                     |
+|-------------------------------------------------------|------|--------------------------------------------|
+| Patch document media type not supported               | 415  | RFC 5789 §2.2                              |
+| Patch document malformed                              | 400  | RFC 5789 §2.2                              |
+| Patch well-formed but not applicable to current state | 409  | RFC 5789 §2.2 — "Conflicting state"        |
+| `If-Match` / `If-Unmodified-Since` failed             | 412  | RFC 5789 §2.2; RFC 9110 §15.5.13           |
+| Resource concurrently modified, no precondition sent  | 409  | RFC 5789 §2.2 — "Conflicting modification" |
+| Server requires conditional requests                  | 428  | RFC 6585 §3                                |
 
 Note the 409/412 split precisely: **412 means a precondition you sent evaluated false; 409 means the request conflicts with current state and you sent no precondition.** RFC 5789 §2.2 makes the distinction explicit, and it is the most useful thing in that section.
 
@@ -3728,8 +3728,8 @@ codes "are often generated by components other than the application itself" — 
 #### The classes
 
 | Class | Meaning (RFC 9110) | Client's default reaction |
-|---|---|---|
-| 1xx Informational | "an interim response for communicating connection status or request progress prior to completing the requested action and sending a final response" (§15.2). Cannot contain content or trailers | Parse and usually ignore; a final response follows |
+| --- | --- | --- |
+| 1xx Informational | "an interim response for communicating connection status or request progress prior to completing the requested action and sending a final response" (§15.2). Can't contain content or trailers | Parse & usually ignore; final response follows |
 | 2xx Successful | "the client's request was successfully received, understood, and accepted" (§15.3) | Proceed |
 | 3xx Redirection | "further action needs to be taken by the user agent in order to fulfill the request" (§15.4) | Follow `Location` carefully — see the method-rewriting rules below |
 | 4xx Client Error | "the client seems to have erred" (§15.5). Server SHOULD send a representation explaining the situation "and whether it is a temporary or permanent condition" | Do not blind-retry; fix the request |
@@ -3739,36 +3739,36 @@ The "n00 fallback" rule from RFC 9205 §4.6 is the one to build clients around: 
 
 #### The codes that matter, precisely
 
-| Code | Name | Use it when | RFC |
-|---|---|---|---|
-| 200 | OK | Success with a representation | 9110 §15.3.1 |
-| 201 | Created | One or more resources were created; identify the primary one via `Location` | 9110 §15.3.2 |
-| 202 | Accepted | Accepted for later processing; "intentionally noncommittal" | 9110 §15.3.3 |
-| 204 | No Content | Success, nothing to send. Cannot contain content or trailers | 9110 §15.3.5 |
-| 206 | Partial Content | Successful range request | 9110 §15.3.7 |
-| 301 / 308 | Moved Permanently / Permanent Redirect | Resource has a new permanent URI | 9110 §15.4.2 / §15.4.9 |
-| 302 / 307 | Found / Temporary Redirect | Resource temporarily elsewhere | 9110 §15.4.3 / §15.4.8 |
-| 303 | See Other | The result of this operation is available elsewhere via GET | 9110 §15.4.4 |
-| 304 | Not Modified | Conditional GET/HEAD whose precondition made a transfer unnecessary | 9110 §15.4.5 |
-| 400 | Bad Request | "malformed request syntax, invalid request message framing, or deceptive request routing" | 9110 §15.5.1 |
-| 401 | Unauthorized | Missing or invalid credentials. **MUST** send `WWW-Authenticate` | 9110 §15.5.2 |
-| 403 | Forbidden | Understood, refused; credentials (if any) insufficient | 9110 §15.5.4 |
-| 404 | Not Found | No current representation, or unwilling to disclose one exists | 9110 §15.5.5 |
-| 405 | Method Not Allowed | Method known, not supported here. **MUST** send `Allow` | 9110 §15.5.6 |
-| 406 | Not Acceptable | No representation matches the negotiation fields and no default will be sent | 9110 §15.5.7 |
-| 409 | Conflict | Conflicts with current resource state; user might resolve and resubmit | 9110 §15.5.10 |
-| 410 | Gone | Permanently unavailable, and the server knows it | 9110 §15.5.11 |
-| 412 | Precondition Failed | A condition in the request header fields evaluated false | 9110 §15.5.13 |
-| 413 | Content Too Large | Request content exceeds what the server will process | 9110 §15.5.14 |
-| 415 | Unsupported Media Type | Request content is in a format the resource does not support | 9110 §15.5.16 |
-| 422 | Unprocessable Content | Media type understood, syntax correct, instructions not processable | 9110 §15.5.21 |
-| 428 | Precondition Required | Server requires the request to be conditional | 6585 §3 |
-| 429 | Too Many Requests | "the user has sent too many requests in a given amount of time" | 6585 §4 |
-| 500 | Internal Server Error | "an unexpected condition that prevented it from fulfilling the request" | 9110 §15.6.1 |
-| 501 | Not Implemented | "the server does not support the functionality required to fulfill the request" | 9110 §15.6.2 |
-| 502 | Bad Gateway | Acting as gateway/proxy, got an invalid response from upstream | 9110 §15.6.3 |
-| 503 | Service Unavailable | "temporary overload or scheduled maintenance, which will likely be alleviated after some delay" | 9110 §15.6.4 |
-| 504 | Gateway Timeout | Acting as gateway/proxy, no timely response from upstream | 9110 §15.6.5 |
+| Code      | Name                                   | Use it when                                                                                     | RFC                    |
+|-----------|----------------------------------------|-------------------------------------------------------------------------------------------------|------------------------|
+| 200       | OK                                     | Success with a representation                                                                   | 9110 §15.3.1           |
+| 201       | Created                                | One or more resources were created; identify the primary one via `Location`                     | 9110 §15.3.2           |
+| 202       | Accepted                               | Accepted for later processing; "intentionally noncommittal"                                     | 9110 §15.3.3           |
+| 204       | No Content                             | Success, nothing to send. Cannot contain content or trailers                                    | 9110 §15.3.5           |
+| 206       | Partial Content                        | Successful range request                                                                        | 9110 §15.3.7           |
+| 301 / 308 | Moved Permanently / Permanent Redirect | Resource has a new permanent URI                                                                | 9110 §15.4.2 / §15.4.9 |
+| 302 / 307 | Found / Temporary Redirect             | Resource temporarily elsewhere                                                                  | 9110 §15.4.3 / §15.4.8 |
+| 303       | See Other                              | The result of this operation is available elsewhere via GET                                     | 9110 §15.4.4           |
+| 304       | Not Modified                           | Conditional GET/HEAD whose precondition made a transfer unnecessary                             | 9110 §15.4.5           |
+| 400       | Bad Request                            | "malformed request syntax, invalid request message framing, or deceptive request routing"       | 9110 §15.5.1           |
+| 401       | Unauthorized                           | Missing or invalid credentials. **MUST** send `WWW-Authenticate`                                | 9110 §15.5.2           |
+| 403       | Forbidden                              | Understood, refused; credentials (if any) insufficient                                          | 9110 §15.5.4           |
+| 404       | Not Found                              | No current representation, or unwilling to disclose one exists                                  | 9110 §15.5.5           |
+| 405       | Method Not Allowed                     | Method known, not supported here. **MUST** send `Allow`                                         | 9110 §15.5.6           |
+| 406       | Not Acceptable                         | No representation matches the negotiation fields and no default will be sent                    | 9110 §15.5.7           |
+| 409       | Conflict                               | Conflicts with current resource state; user might resolve and resubmit                          | 9110 §15.5.10          |
+| 410       | Gone                                   | Permanently unavailable, and the server knows it                                                | 9110 §15.5.11          |
+| 412       | Precondition Failed                    | A condition in the request header fields evaluated false                                        | 9110 §15.5.13          |
+| 413       | Content Too Large                      | Request content exceeds what the server will process                                            | 9110 §15.5.14          |
+| 415       | Unsupported Media Type                 | Request content is in a format the resource does not support                                    | 9110 §15.5.16          |
+| 422       | Unprocessable Content                  | Media type understood, syntax correct, instructions not processable                             | 9110 §15.5.21          |
+| 428       | Precondition Required                  | Server requires the request to be conditional                                                   | 6585 §3                |
+| 429       | Too Many Requests                      | "the user has sent too many requests in a given amount of time"                                 | 6585 §4                |
+| 500       | Internal Server Error                  | "an unexpected condition that prevented it from fulfilling the request"                         | 9110 §15.6.1           |
+| 501       | Not Implemented                        | "the server does not support the functionality required to fulfill the request"                 | 9110 §15.6.2           |
+| 502       | Bad Gateway                            | Acting as gateway/proxy, got an invalid response from upstream                                  | 9110 §15.6.3           |
+| 503       | Service Unavailable                    | "temporary overload or scheduled maintenance, which will likely be alleviated after some delay" | 9110 §15.6.4           |
+| 504       | Gateway Timeout                        | Acting as gateway/proxy, no timely response from upstream                                       | 9110 §15.6.5           |
 
 #### The commonly-misused pairs
 
@@ -3778,10 +3778,10 @@ it, and there is no `Location`.
 
 **301 vs 302 vs 307 vs 308 — the method-rewriting fact.** The single most valuable redirect fact, and routinely stated backwards. RFC 9205 §4.6.1 tabulates it exactly:
 
-| | Permanent | Temporary |
-|---|---|---|
-| **Allows** change of the request method from POST to GET | 301 | 302 |
-| **Does not allow** change of the request method | 308 | 307 |
+|                                                          | Permanent | Temporary |
+|----------------------------------------------------------|-----------|-----------|
+| **Allows** change of the request method from POST to GET | 301       | 302       |
+| **Does not allow** change of the request method          | 308       | 307       |
 
 RFC 9110's own notes on 301 and 302 say "For historical reasons, a user agent MAY change the request method from POST to GET for the subsequent request. If this behavior is undesired, the 308 (Permanent Redirect) status code can be used instead" (§15.4.2; §15.4.3 says the same pointing at 307). §15.4.8 is unambiguous the other way: with 307 "the user agent **MUST NOT** change the request method".
 The history is in §15.4's note — 301 and 302 were originally method-preserving, early user agents split on redirecting POST as POST or as GET, "prevailing practice eventually converged on changing the method to GET", and 307/308 were added later to express the preserving behaviour unambiguously.
@@ -3855,12 +3855,12 @@ Notably, juniper-data *does* observe the distinction internally: the cache-hit b
 
 #### Tradeoffs
 
-| Choice | Gains | Costs |
-|---|---|---|
-| Fine-grained codes (many distinct 4xx) | Clients branch on the status line alone | Exhausts the code space; intermediaries can forge the same codes; RFC 9205 advises against it |
-| Coarse codes plus a typed body | Unlimited error vocabulary; survives proxy-generated codes | Clients must parse the body; useless to generic intermediaries |
-| 501 for a capability gap | Honest, non-retryable, does not trip health checks | Heuristically cacheable per §15.1 — check the method before reusing on GET |
-| 503 for a capability gap | Familiar to ops tooling | Invites retries and health-tooling misreads for a condition that will not clear |
+| Choice                                 | Gains                                                      | Costs                                                                                         |
+|----------------------------------------|------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
+| Fine-grained codes (many distinct 4xx) | Clients branch on the status line alone                    | Exhausts the code space; intermediaries can forge the same codes; RFC 9205 advises against it |
+| Coarse codes plus a typed body         | Unlimited error vocabulary; survives proxy-generated codes | Clients must parse the body; useless to generic intermediaries                                |
+| 501 for a capability gap               | Honest, non-retryable, does not trip health checks         | Heuristically cacheable per §15.1 — check the method before reusing on GET                    |
+| 503 for a capability gap               | Familiar to ops tooling                                    | Invites retries and health-tooling misreads for a condition that will not clear               |
 
 #### Best Practices
 
@@ -3945,13 +3945,13 @@ not subject to content negotiation for that request header field."
 **`Accept` versus `Content-Type` is the most common confusion here, and it is not subtle once stated.** `Content-Type` (§8.3) describes *the message you are currently reading* — the request body on a request, the response body on a response. `Accept` (§12.5.1) describes *what the sender would like back*. A request carries both, describing different messages. The failure it produces: a client sends
 `Content-Type: application/json` on a bodyless GET expecting that to select a JSON response, the server correctly ignores it, returns XML, and the client blames negotiation.
 
-| Field | Selects | Notes |
-|---|---|---|
-| `Accept` (§12.5.1) | Media type | Specificity beats weight |
-| `Accept-Language` (§12.5.4) | Natural language | Language tags per §8.5.1 |
-| `Accept-Encoding` (§12.5.3) | Content coding | `identity` is "a synonym for 'no encoding'"; an uncoded representation is acceptable by default unless excluded by `identity;q=0` or `*;q=0` |
-| `Accept-Charset` (§12.5.2) | Charset | Effectively obsolete for new APIs; UTF-8 everywhere |
-| `Vary` (§12.5.5) | — (response) | "describes what parts of a request message, aside from the method and target URI, might have influenced the origin server's process for selecting the content of this response" |
+| Field                       | Selects          | Notes                                                                                                                                                                           |
+|-----------------------------|------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Accept` (§12.5.1)          | Media type       | Specificity beats weight                                                                                                                                                        |
+| `Accept-Language` (§12.5.4) | Natural language | Language tags per §8.5.1                                                                                                                                                        |
+| `Accept-Encoding` (§12.5.3) | Content coding   | `identity` is "a synonym for 'no encoding'"; an uncoded representation is acceptable by default unless excluded by `identity;q=0` or `*;q=0`                                    |
+| `Accept-Charset` (§12.5.2)  | Charset          | Effectively obsolete for new APIs; UTF-8 everywhere                                                                                                                             |
+| `Vary` (§12.5.5)            | — (response)     | "describes what parts of a request message, aside from the method and target URI, might have influenced the origin server's process for selecting the content of this response" |
 
 **If you negotiate, you must send `Vary`.** Without it a shared cache stores one representation and serves it to clients that asked for something else. `Vary: accept-encoding, accept-language` is the common minimum; a proxy `MUST NOT` generate `Vary: *`.
 
@@ -3959,11 +3959,11 @@ not subject to content negotiation for that request header field."
 
 `media-type = type "/" subtype parameters` (§8.3.1); type and subtype tokens are case-insensitive; parameters are semicolon-delimited name/value pairs whose case-sensitivity depends on the parameter. Media types "ought to be registered with IANA according to the procedures defined in [BCP13]".
 
-| Choice | Example | When |
-|---|---|---|
-| Generic | `application/json` | Default. Every client, tool, and proxy handles it |
-| Structured suffix | `application/problem+json` | You need a distinct type but want generic JSON tooling to still apply |
-| Vendor tree | `application/vnd.example.dataset+json` | You want the media type to carry versioning or schema identity |
+| Choice            | Example                                | When                                                                  |
+|-------------------|----------------------------------------|-----------------------------------------------------------------------|
+| Generic           | `application/json`                     | Default. Every client, tool, and proxy handles it                     |
+| Structured suffix | `application/problem+json`             | You need a distinct type but want generic JSON tooling to still apply |
+| Vendor tree       | `application/vnd.example.dataset+json` | You want the media type to carry versioning or schema identity        |
 
 The `+json` **structured syntax suffix** signals that a format is built on JSON, so a recipient can apply generic JSON processing when it does not need the specific semantics. The suffix is registered by RFC 6839, *Additional Media Type Structured Syntax Suffixes* (January 2013, updating RFC 3023), whose §3.1 is titled "The +json Structured Syntax Suffix". Note its category: RFC 6839 is **Informational**, not Standards Track — it registers suffixes, it does not standardise a media type.
 Registration procedures for media types generally are BCP 13, which RFC 9110 §8.3.1 cites.
@@ -4044,14 +4044,14 @@ That is a genuine, load-bearing tradeoff — no compression in exchange for boun
 
 #### Tradeoffs
 
-| Choice | Gains | Costs |
-|---|---|---|
-| Proactive negotiation | One URI per resource; preferred form on the first round trip | Complicates the origin server; "limits the reusability of responses for shared caching" (§12.1); needs correct `Vary` |
-| Reactive negotiation | Cache-friendly; no per-request preference parsing | Extra round trip; no standardised automatic selection (§12.2) |
-| One format, no negotiation | Simplest possible; nothing to get wrong | Adding a second format later becomes a breaking change or a new URI |
-| `ZIP_STORED` streaming | Bounded memory regardless of export size | No compression — larger transfer |
-| `ZIP_DEFLATED` buffered | Smaller transfer | Whole archive in memory; OOM risk scales with request size |
-| Inline base64 binary | One round trip; atomic with metadata | +33% size, no ranges, no independent caching, parser pressure |
+| Choice                     | Gains                                                        | Costs                                                                                                                 |
+|----------------------------|--------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
+| Proactive negotiation      | One URI per resource; preferred form on the first round trip | Complicates the origin server; "limits the reusability of responses for shared caching" (§12.1); needs correct `Vary` |
+| Reactive negotiation       | Cache-friendly; no per-request preference parsing            | Extra round trip; no standardised automatic selection (§12.2)                                                         |
+| One format, no negotiation | Simplest possible; nothing to get wrong                      | Adding a second format later becomes a breaking change or a new URI                                                   |
+| `ZIP_STORED` streaming     | Bounded memory regardless of export size                     | No compression — larger transfer                                                                                      |
+| `ZIP_DEFLATED` buffered    | Smaller transfer                                             | Whole archive in memory; OOM risk scales with request size                                                            |
+| Inline base64 binary       | One round trip; atomic with metadata                         | +33% size, no ranges, no independent caching, parser pressure                                                         |
 
 #### Best Practices
 
@@ -4074,13 +4074,13 @@ That is a genuine, load-bearing tradeoff — no compression in exchange for boun
 
 #### Error Handling
 
-| Condition | Code | Source |
-|---|---|---|
-| No acceptable representation, and no default will be sent | 406 | RFC 9110 §15.5.7 |
-| Request content type unsupported by the resource | 415 | RFC 9110 §15.5.16 |
-| Request content coding unsupported | 415 **with** `Accept-Encoding` | RFC 9110 §12.5.3 |
-| Range unsatisfiable | 416 | RFC 9110 §15.5.17 |
-| Successful range response | 206 with `Content-Range` | RFC 9110 §15.3.7 |
+| Condition                                                 | Code                           | Source            |
+|-----------------------------------------------------------|--------------------------------|-------------------|
+| No acceptable representation, and no default will be sent | 406                            | RFC 9110 §15.5.7  |
+| Request content type unsupported by the resource          | 415                            | RFC 9110 §15.5.16 |
+| Request content coding unsupported                        | 415 **with** `Accept-Encoding` | RFC 9110 §12.5.3  |
+| Range unsatisfiable                                       | 416                            | RFC 9110 §15.5.17 |
+| Successful range response                                 | 206 with `Content-Range`       | RFC 9110 §15.3.7  |
 
 Two subtleties. 406 is optional — §12.4.1 lets the server disregard the negotiation header and send a default, and for machine APIs sending the one format you have is usually kinder than a 406 nobody can act on. And the `Accept-Encoding`-on-415 rule is bidirectional: including it when the 415 was about the *media type* actively misleads the client about what went wrong.
 
@@ -4115,11 +4115,11 @@ not a hint — §8.8.3 makes an entity tag strong by default and requires the or
 (case-sensitive, `weak = %s"W/"`) when generation falls short. Mislabelling has teeth, because the comparison function
 differs by field:
 
-| Field | Comparison function | Source |
+| Field             | Comparison function | Source           |
 |-------------------|---------------------|------------------|
-| `If-Match` | strong (MUST) | RFC 9110 §13.1.1 |
-| `If-None-Match` | weak (MUST) | RFC 9110 §13.1.2 |
-| `If-Range` (etag) | strong (exact) | RFC 9110 §13.1.5 |
+| `If-Match`        | strong (MUST)       | RFC 9110 §13.1.1 |
+| `If-None-Match`   | weak (MUST)         | RFC 9110 §13.1.2 |
+| `If-Range` (etag) | strong (exact)      | RFC 9110 §13.1.5 |
 
 §8.8.3.2: strong comparison matches only when both tags are non-weak and the opaque parts match
 character-by-character; weak comparison matches on the opaque parts regardless. So `W/"1"` and `"1"` are a weak match
@@ -4212,12 +4212,12 @@ cannot rely upon its use to prevent 'lost update' conflicts."
 
 #### ETag generation, and the fix already sitting in juniper-data
 
-| Strategy | Strong? | Cost per response | Fails when |
-|-------------------------|--------------|------------------------------|------------------------------------------|
-| Content hash | yes | O(body); free if precomputed | Body built per-request, or very large |
-| Version counter / rowid | yes | O(1) read | Needs every writer to bump it |
-| `mtime` + size | weak | O(1) stat | Sub-second writes; restore resets mtime |
-| Hash of serialized JSON | usually weak | O(body) every response | Field order, floats, embedded read counters |
+| Strategy                | Strong?      | Cost per response            | Fails when                                  |
+|-------------------------|--------------|------------------------------|---------------------------------------------|
+| Content hash            | yes          | O(body); free if precomputed | Body built per-request, or very large       |
+| Version counter / rowid | yes          | O(1) read                    | Needs every writer to bump it               |
+| `mtime` + size          | weak         | O(1) stat                    | Sub-second writes; restore resets mtime     |
+| Hash of serialized JSON | usually weak | O(body) every response       | Field order, floats, embedded read counters |
 
 The cost objection is answered in §8.8.1: a collision-resistant hash suffices as a strong validator "if the data is
 available prior to the response header fields being sent **and the digest does not need to be recalculated every time
@@ -4288,13 +4288,13 @@ second process is not serialised at all. The storage layer is what would have to
 
 #### Tradeoffs
 
-| Choice | Buys | Costs |
-|--------------------------|--------------------------------|-------------------------------------------|
-| Precomputed content hash | Strong validator, cheap 304s | A write-path field; backfill for old rows |
-| Hash on every response | No schema change | CPU on the path meant to be cheapest |
-| Version counter | O(1), obviously strong | Every writer must bump it, migrations too |
-| `Last-Modified` only | Zero storage | Weak; unusable for `If-Match` |
-| Requiring `If-Match` | Lost updates impossible *if the check and write are atomic* | Breaking change; needs a CAS in storage |
+| Choice                   | Buys                                                        | Costs                                     |
+|--------------------------|-------------------------------------------------------------|-------------------------------------------|
+| Precomputed content hash | Strong validator, cheap 304s                                | A write-path field; backfill for old rows |
+| Hash on every response   | No schema change                                            | CPU on the path meant to be cheapest      |
+| Version counter          | O(1), obviously strong                                      | Every writer must bump it, migrations too |
+| `Last-Modified` only     | Zero storage                                                | Weak; unusable for `If-Match`             |
+| Requiring `If-Match`     | Lost updates impossible *if the check and write are atomic* | Breaking change; needs a CAS in storage   |
 
 #### Best Practices
 
@@ -4510,12 +4510,12 @@ few.
 
 #### Tradeoffs
 
-| Scheme | Deep-page cost | Drift-safe | Random access | Client complexity |
+| Scheme        | Deep-page cost    | Drift-safe | Random access | Client complexity |
 |---------------|-------------------|------------|---------------|-------------------|
-| Offset/limit | grows with offset | no | yes | none |
-| Page number | grows with page | no | yes | none |
-| Keyset | flat | yes | no | low |
-| Opaque cursor | flat | yes | no | low (token only) |
+| Offset/limit  | grows with offset | no         | yes           | none              |
+| Page number   | grows with page   | no         | yes           | none              |
+| Keyset        | flat              | yes        | no            | low               |
+| Opaque cursor | flat              | yes        | no            | low (token only)  |
 
 #### Best Practices
 
@@ -4638,13 +4638,13 @@ application errors." It then names the mechanism: convey finer-grained informati
 The media type is **`application/problem+json`** (§3); Appendix B defines `application/problem+xml`. Five members
 (§3.1):
 
-| Member | Type | Semantics |
-|------------|-----------------------|--------------------------------------------------------|
-| `type` | string, URI reference | Identifies the problem type. Consumers **MUST** use it as the primary identifier. Default when absent: `about:blank`. |
-| `status` | number | The status the origin generated. **Advisory only**; generators MUST use the same code in the real response. |
-| `title` | string | Short human-readable summary of the *type*. **SHOULD NOT** change between occurrences except for localisation. |
-| `detail` | string | Human-readable explanation of *this occurrence*. |
-| `instance` | string, URI reference | Identifies the specific occurrence. |
+| Member     | Type                  | Semantics                                                                                                             |
+|------------|-----------------------|-----------------------------------------------------------------------------------------------------------------------|
+| `type`     | string, URI reference | Identifies the problem type. Consumers **MUST** use it as the primary identifier. Default when absent: `about:blank`. |
+| `status`   | number                | The status the origin generated. **Advisory only**; generators MUST use the same code in the real response.           |
+| `title`    | string                | Short human-readable summary of the *type*. **SHOULD NOT** change between occurrences except for localisation.        |
+| `detail`   | string                | Human-readable explanation of *this occurrence*.                                                                      |
+| `instance` | string, URI reference | Identifies the specific occurrence.                                                                                   |
 
 Four points people get wrong. **`type` defaults to `about:blank`** (§3.1.1), which §4.2.1 registers as meaning "the
 problem has no additional semantics beyond that of the HTTP status code", with `title` then **SHOULD** being the
@@ -4800,13 +4800,13 @@ envelope is right; the status must stop claiming creation.
 
 #### Tradeoffs
 
-| Decision | Buys | Costs |
-|----------------------------|----------------------------------------|------------------------------------------|
-| `application/problem+json` | Standard shape, tooling, extensibility | Negotiation for old clients |
-| URI `type` as identifier | Global uniqueness, resolvable docs | Verbose; awkward as a map key |
-| Flat `code` extension | Ergonomic branching | A second identifier to keep in sync |
-| Correlation id in body | Support can find the log | Must be logged, must not be guessable |
-| Generic 500 text | No information disclosure | Developers cannot self-diagnose |
+| Decision                   | Buys                                   | Costs                                 |
+|----------------------------|----------------------------------------|---------------------------------------|
+| `application/problem+json` | Standard shape, tooling, extensibility | Negotiation for old clients           |
+| URI `type` as identifier   | Global uniqueness, resolvable docs     | Verbose; awkward as a map key         |
+| Flat `code` extension      | Ergonomic branching                    | A second identifier to keep in sync   |
+| Correlation id in body     | Support can find the log               | Must be logged, must not be guessable |
+| Generic 500 text           | No information disclosure              | Developers cannot self-diagnose       |
 
 #### Best Practices
 
@@ -4947,13 +4947,13 @@ link-value may carry several space-separated relation types (§3.5).
 **None of the five below is in the local spec cache and outbound fetches were blocked, so the media types and status
 claims here are working knowledge and are unverified.** Treat them as pointers.
 
-| Format | Media type (unverified) | Shape | Status (unverified) |
-|-----------------|-------------------------------|---------------------------------------------|-------------------------------|
-| HAL | `application/hal+json` | `_links` map of rel → href; `_embedded` | Expired I-D; widely implemented |
-| JSON:API | `application/vnd.api+json` | `data`/`included`/`links`/`errors`, typed resource identifiers, sparse fieldsets | Versioned community spec |
-| Siren | `application/vnd.siren+json` | `class`, `properties`, `entities`, `links`, `actions` (method, href, fields) | Community spec, low adoption |
-| Collection+JSON | `application/vnd.collection+json` | `items`, `queries`, `template` for writes | Community spec, very low adoption |
-| JSON-LD + Hydra | `application/ld+json` | RDF linked data; Hydra adds an operations vocabulary | JSON-LD a W3C Rec; Hydra a CG draft |
+| Format          | Media type (unverified)           | Shape                                                                            | Status (unverified)                 |
+|-----------------|-----------------------------------|----------------------------------------------------------------------------------|-------------------------------------|
+| HAL             | `application/hal+json`            | `_links` map of rel → href; `_embedded`                                          | Expired I-D; widely implemented     |
+| JSON:API        | `application/vnd.api+json`        | `data`/`included`/`links`/`errors`, typed resource identifiers, sparse fieldsets | Versioned community spec            |
+| Siren           | `application/vnd.siren+json`      | `class`, `properties`, `entities`, `links`, `actions` (method, href, fields)     | Community spec, low adoption        |
+| Collection+JSON | `application/vnd.collection+json` | `items`, `queries`, `template` for writes                                        | Community spec, very low adoption   |
+| JSON-LD + Hydra | `application/ld+json`             | RDF linked data; Hydra adds an operations vocabulary                             | JSON-LD a W3C Rec; Hydra a CG draft |
 
 The spread is instructive. HAL adds links and nothing else, which is why it is the one people ship. Siren is the only
 one describing *state transitions* — an `actions` array naming method, target, and expected fields — which is what
@@ -4990,12 +4990,12 @@ lesson: hypermedia succeeds where following the link is *easier* than not follow
 
 #### Tradeoffs
 
-| Approach | Buys | Costs |
-|------------------------|--------------------------------------------|------------------------------------------|
-| No links | Simplest client; trivial codegen | URL structure is frozen public API |
-| `Link` headers only | Standard, incremental, degrades gracefully | Awkward to reach in some HTTP clients |
-| `_links` in body (HAL) | Easy to consume; per-item links | Payload growth; a format commitment |
-| Full actions (Siren) | Server owns the state machine | Client complexity; almost no tooling |
+| Approach               | Buys                                       | Costs                                 |
+|------------------------|--------------------------------------------|---------------------------------------|
+| No links               | Simplest client; trivial codegen           | URL structure is frozen public API    |
+| `Link` headers only    | Standard, incremental, degrades gracefully | Awkward to reach in some HTTP clients |
+| `_links` in body (HAL) | Easy to consume; per-item links            | Payload growth; a format commitment   |
+| Full actions (Siren)   | Server owns the state machine              | Client complexity; almost no tooling  |
 
 #### Best Practices
 
@@ -5134,14 +5134,14 @@ singular `example`, an incompatible `exclusiveMinimum`) are 3.0-only. Do not mix
 **Design-first**: write the document, review it, generate stubs and SDKs, implement against them. **Code-first**:
 write annotated handlers; the framework derives the document.
 
-| | Design-first | Code-first |
-|---|---|---|
-| Review artifact | The contract, before code exists | A diff of generated JSON, after the fact |
-| Parallel work | Consumers start day one from a mock | Consumers wait for the endpoint |
-| Drift direction | Doc says X, code does Y (**doc-rot**) | Doc omits X entirely (**spec-drift**) |
-| Cost of a change | Edit doc, regenerate, implement | Edit code |
-| Typical failure | Describes an API nobody built | Describes only what the framework can see |
-| Enforcement | Needs runtime validation to bind them | Needs review discipline to catch omissions |
+|                  | Design-first                          | Code-first                                 |
+|------------------|---------------------------------------|--------------------------------------------|
+| Review artifact  | The contract, before code exists      | A diff of generated JSON, after the fact   |
+| Parallel work    | Consumers start day one from a mock   | Consumers wait for the endpoint            |
+| Drift direction  | Doc says X, code does Y (**doc-rot**) | Doc omits X entirely (**spec-drift**)      |
+| Cost of a change | Edit doc, regenerate, implement       | Edit code                                  |
+| Typical failure  | Describes an API nobody built         | Describes only what the framework can see  |
+| Enforcement      | Needs runtime validation to bind them | Needs review discipline to catch omissions |
 
 The asymmetry worth internalising: design-first's failure is *visible* (someone reads the spec and it is wrong) while
 code-first's is *invisible* (the spec is internally consistent and silently incomplete). An incomplete spec passes
@@ -5230,13 +5230,13 @@ explicit `operation_id=` values, and `openapi_url` decoupled from `docs_url`.
 
 #### Tradeoffs
 
-| Decision | Buys | Costs |
-|-----------------------------|---------------------------------------------|------------------------------------------|
-| Design-first | Parallel consumer work; reviewable contract | Doc-rot; slower iteration; second artifact |
-| Code-first | Zero drift on what the framework sees | Silent omissions it cannot see |
-| Explicit `operationId` | Stable generated method names | One more field per operation |
-| Declared error responses | Typed error handling in generated clients | Verbose; hand-maintained |
-| Schema served in production | Codegen and contract tests against real envs | Discloses the full API surface |
+| Decision                    | Buys                                         | Costs                                      |
+|-----------------------------|----------------------------------------------|--------------------------------------------|
+| Design-first                | Parallel consumer work; reviewable contract  | Doc-rot; slower iteration; second artifact |
+| Code-first                  | Zero drift on what the framework sees        | Silent omissions it cannot see             |
+| Explicit `operationId`      | Stable generated method names                | One more field per operation               |
+| Declared error responses    | Typed error handling in generated clients    | Verbose; hand-maintained                   |
+| Schema served in production | Codegen and contract tests against real envs | Discloses the full API surface             |
 
 #### Best Practices
 
@@ -5646,7 +5646,7 @@ def create_app() -> FastAPI:
     async def create_dataset(body: DatasetCreate) -> JSONResponse:
         dataset_id = compute_dataset_id(generator=body.generator, version=body.version, params=body.params)
         existing: Dataset | None = app.state.datasets.get(dataset_id)
-        if existing is not None:
+        if existing is not None:and
             # Content-addressing makes creation idempotent for free. Returning 200
             # rather than 201 lets the client tell "I created this" from "this
             # already existed" -- a distinction the real service throws away.
@@ -5755,10 +5755,7 @@ def create_app() -> FastAPI:
             # unconditional, and the fix is for the client to add a precondition.
             raise ProblemException(
                 status=428,
-                title="Precondition Required",
-                detail="PATCH requires an If-Match header carrying the ETag you last read.",
-                type_="https://errors.example.com/precondition-required",
-                headers={"ETag": current},
+                title="Precondition Required",and
             )
         if not strong_match(candidates, current):
             raise ProblemException(
@@ -6141,13 +6138,13 @@ they have, what they raise, how they change, and what a type checker downstream 
 Almost every property flips when the boundary moves in-process. Caller and callee now share a heap, an
 exception stack, and an interpreter that dies together.
 
-| Property | Network API | In-process library API |
-|---|---|---|
-| Failure mode | The *outcome* can be lost: the peer may have applied the request and lost the response | The outcome always arrives — a return or an exception — but the *effect* can still be partial |
-| Unit of versioning | The deployed service; one version serves all callers | The installed distribution; every caller may pin a different one |
-| Caller visibility of internals | None — only the wire format is reachable | Complete — every module, attribute, and closure |
-| Compatibility enforcement | The server validates and rejects | Nothing validates; a wrong call is a `TypeError` at best |
-| Cost of a call | Milliseconds — hundreds of microseconds at best, and observable | Nanoseconds, unobservable, so callers make millions |
+| Property                       | Network API                                                                            | In-process library API                                                                        |
+|--------------------------------|----------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
+| Failure mode                   | The *outcome* can be lost: the peer may have applied the request and lost the response | The outcome always arrives — a return or an exception — but the *effect* can still be partial |
+| Unit of versioning             | The deployed service; one version serves all callers                                   | The installed distribution; every caller may pin a different one                              |
+| Caller visibility of internals | None — only the wire format is reachable                                               | Complete — every module, attribute, and closure                                               |
+| Compatibility enforcement      | The server validates and rejects                                                       | Nothing validates; a wrong call is a `TypeError` at best                                      |
+| Cost of a call                 | Milliseconds — hundreds of microseconds at best, and observable                        | Nanoseconds, unobservable, so callers make millions                                           |
 
 Two of those rows are usually stated more strongly than they survive. The in-process failure mode is
 often given as "total or none", and it is not: a method that mutates two attributes and then raises
@@ -6374,12 +6371,12 @@ Measured on CPython 3.13.13, seven runs each, warm cache, via
 **new top-level, non-underscore entries in `sys.modules`** after the import, against the same
 interpreter's own startup baseline:
 
-| | `import juniper_service_core` | `import juniper_observability` |
-|---|---|---|
-| New top-level modules | 2 (`juniper_service_core`, `typing`) | 66 |
-| Third-party pulled | none | `pydantic`, `pydantic_core`, `starlette`, `anyio`, … |
-| `-X importtime` cumulative | 2.8 – 3.5 ms (median 2.9) | 156 – 196 ms (median 165) |
-| `len(dir(module))` | 61 (exactly `__all__`) | 47 |
+|                            | `import juniper_service_core`        | `import juniper_observability`                       |
+|----------------------------|--------------------------------------|------------------------------------------------------|
+| New top-level modules      | 2 (`juniper_service_core`, `typing`) | 66                                                   |
+| Third-party pulled         | none                                 | `pydantic`, `pydantic_core`, `starlette`, `anyio`, … |
+| `-X importtime` cumulative | 2.8 – 3.5 ms (median 2.9)            | 156 – 196 ms (median 165)                            |
+| `len(dir(module))`         | 61 (exactly `__all__`)               | 47                                                   |
 
 The module count is environment-sensitive; the ratio is not. An interpreter whose startup already
 imports `typing` and the `collections` family reports 2 new modules for `juniper-service-core`, one
@@ -6416,12 +6413,12 @@ public surface, less honest about the module.
 
 #### Tradeoffs
 
-| Choice | Buys | Costs |
-|---|---|---|
-| Eager imports | Simplicity; errors at import; tools see reality | Every consumer pays full import cost and every dependency |
-| PEP 562 lazy surface | Fast, dependency-free import; `--no-deps` verifiability | Three parallel name lists; deferred `AttributeError`s |
-| Guard at module top | Clear failure, one place | Unimportable without the optional dependency, for everyone |
-| Guard in function body | Always importable | Failure deferred to a call site, possibly in production |
+| Choice                 | Buys                                                    | Costs                                                      |
+|------------------------|---------------------------------------------------------|------------------------------------------------------------|
+| Eager imports          | Simplicity; errors at import; tools see reality         | Every consumer pays full import cost and every dependency  |
+| PEP 562 lazy surface   | Fast, dependency-free import; `--no-deps` verifiability | Three parallel name lists; deferred `AttributeError`s      |
+| Guard at module top    | Clear failure, one place                                | Unimportable without the optional dependency, for everyone |
+| Guard in function body | Always importable                                       | Failure deferred to a call site, possibly in production    |
 
 #### Best Practices
 
@@ -6739,13 +6736,13 @@ A caller writes `v.installed`, not `v[2]`, and adding a field renumbers nothing.
 
 #### Tradeoffs
 
-| Decision | Buys | Costs |
-|---|---|---|
-| Keyword-only everything | Free reordering and additions; readable call sites | No shorthand even for the obvious argument |
-| Positional-friendly | Matches the stdlib; shorter for recognised arguments | Order permanent from release one; booleans get misordered |
-| `**kwargs` passthrough | Forward-compatibility with an evolving server | All static checking, completion, and typo detection |
-| Fail-fast constructor | Errors at the configuration site, with the bad value | Rejects inputs a lenient version would coerce |
-| `NamedTuple` returns | Named access; additive evolution | One more exported type to version |
+| Decision                | Buys                                                 | Costs                                                     |
+|-------------------------|------------------------------------------------------|-----------------------------------------------------------|
+| Keyword-only everything | Free reordering and additions; readable call sites   | No shorthand even for the obvious argument                |
+| Positional-friendly     | Matches the stdlib; shorter for recognised arguments | Order permanent from release one; booleans get misordered |
+| `**kwargs` passthrough  | Forward-compatibility with an evolving server        | All static checking, completion, and typo detection       |
+| Fail-fast constructor   | Errors at the configuration site, with the bad value | Rejects inputs a lenient version would coerce             |
+| `NamedTuple` returns    | Named access; additive evolution                     | One more exported type to version                         |
 
 #### Best Practices
 
@@ -6795,11 +6792,11 @@ and type checkers making "what exactly did I just break?" a question with a chec
 
 The precision the argument usually misses: `*` does not remove the freeze, it *relocates* it.
 
-| Parameter kind | Frozen forever | Free to change |
-|---|---|---|
-| Positional-or-keyword | Order **and** names | Nothing except appending |
-| Keyword-only (after `*`) | Names | Order; insertions; deprecations |
-| Positional-only (before `/`) | Order | Names |
+| Parameter kind               | Frozen forever      | Free to change                  |
+|------------------------------|---------------------|---------------------------------|
+| Positional-or-keyword        | Order **and** names | Nothing except appending        |
+| Keyword-only (after `*`)     | Names               | Order; insertions; deprecations |
+| Positional-only (before `/`) | Order               | Names                           |
 
 Keyword-only trades a frozen order for frozen *names* — usually the better trade, since a name is
 easier to get right first time than an ordering that must anticipate parameters you have not thought
@@ -7068,12 +7065,12 @@ an exception.
 
 #### Tradeoffs
 
-| Choice | Buys | Costs |
-|---|---|---|
-| Flat base + leaves | Simple; catch broadly or narrowly | Callers grow long `except` tuples as leaves multiply |
-| Intermediate categories | Category-level handling | Contested membership; miscategorisation is worse than none |
-| Builtin base classes | Interoperability with existing handlers | Unintended capture by unrelated broad handlers |
-| Structured attributes | Programmatic branching; message text becomes editable | Requires an `__init__` |
+| Choice                  | Buys                                                  | Costs                                                      |
+|-------------------------|-------------------------------------------------------|------------------------------------------------------------|
+| Flat base + leaves      | Simple; catch broadly or narrowly                     | Callers grow long `except` tuples as leaves multiply       |
+| Intermediate categories | Category-level handling                               | Contested membership; miscategorisation is worse than none |
+| Builtin base classes    | Interoperability with existing handlers               | Unintended capture by unrelated broad handlers             |
+| Structured attributes   | Programmatic branching; message text becomes editable | Requires an `__init__`                                     |
 
 #### Best Practices
 
@@ -7282,18 +7279,18 @@ versions that also happen to be valid SemVer.
 The network answer ("the response shape changed") does not transfer. The in-process set is larger and
 less obvious.
 
-| Change | Breaking? | Why |
-|---|---|---|
-| Adding a keyword-only parameter with a default | No | No existing call site is affected |
-| Adding a positional parameter anywhere but the end | Yes | Silently rebinds existing positional calls |
-| Renaming any positional-or-keyword parameter | Yes | Breaks every caller that passed it by name |
-| Narrowing a return type (`dict` → `MyModel`) | Yes | Callers doing `result["k"]` break |
-| Widening a return type (`str` → `str \| None`) | Yes | Callers not handling `None` break |
-| Changing which exception type is raised | Yes | `except` clauses are call sites |
-| Removing an attribute, even undocumented | Usually | Convention says no; reality says someone used it |
-| Tightening validation | Yes | Inputs that used to work now raise |
-| Loosening validation | No | Strictly additive |
-| Behaviour change with an unchanged signature | Yes, and the worst kind | Nothing static detects it |
+| Change                                             | Breaking?               | Why                                              |
+|----------------------------------------------------|-------------------------|--------------------------------------------------|
+| Adding a keyword-only parameter with a default     | No                      | No existing call site is affected                |
+| Adding a positional parameter anywhere but the end | Yes                     | Silently rebinds existing positional calls       |
+| Renaming any positional-or-keyword parameter       | Yes                     | Breaks every caller that passed it by name       |
+| Narrowing a return type (`dict` → `MyModel`)       | Yes                     | Callers doing `result["k"]` break                |
+| Widening a return type (`str` → `str \| None`)     | Yes                     | Callers not handling `None` break                |
+| Changing which exception type is raised            | Yes                     | `except` clauses are call sites                  |
+| Removing an attribute, even undocumented           | Usually                 | Convention says no; reality says someone used it |
+| Tightening validation                              | Yes                     | Inputs that used to work now raise               |
+| Loosening validation                               | No                      | Strictly additive                                |
+| Behaviour change with an unchanged signature       | Yes, and the worst kind | Nothing static detects it                        |
 
 Tightening validation deserves emphasis because it feels like a bugfix. Had
 `juniper-recurrence-client` added its hostless-URL check (`client.py:183-184`) in a patch release,
@@ -7320,13 +7317,13 @@ distribution, dependencies included, to read a string.
 failure mode for uninstalled source trees. **Manual duplication** is what the other four do, and it is
 where drift lives.
 
-| Package | `pyproject.toml` | `__version__` | Other copies | Consistent? |
-|---|---|---|---|---|
-| `juniper-recurrence-client` | dynamic (`:7`) | `_version.py:7` = `0.2.0` | none | Yes, structurally |
-| `juniper-cascor-client` | `:7` = `0.7.0` | `__init__.py:14` = `0.7.0` | `constants.py:14` = `0.7.0` | Yes, by hand |
-| `juniper-data-client` | `:7` = `0.4.2` | `__init__.py:11` = `0.4.2` | five file headers | **No** |
-| `juniper-service-core` | `:7` = `0.5.1` | `_version.py:5` = `0.5.1` | none | Yes, by hand |
-| `juniper-observability` | `:7` = `0.4.0` | `_version.py:3` = `0.4.0` | none | Yes, by hand |
+| Package                     | `pyproject.toml` | `__version__`              | Other copies                | Consistent?       |
+|-----------------------------|------------------|----------------------------|-----------------------------|-------------------|
+| `juniper-recurrence-client` | dynamic (`:7`)   | `_version.py:7` = `0.2.0`  | none                        | Yes, structurally |
+| `juniper-cascor-client`     | `:7` = `0.7.0`   | `__init__.py:14` = `0.7.0` | `constants.py:14` = `0.7.0` | Yes, by hand      |
+| `juniper-data-client`       | `:7` = `0.4.2`   | `__init__.py:11` = `0.4.2` | five file headers           | **No**            |
+| `juniper-service-core`      | `:7` = `0.5.1`   | `_version.py:5` = `0.5.1`  | none                        | Yes, by hand      |
+| `juniper-observability`     | `:7` = `0.4.0`   | `_version.py:3` = `0.4.0`  | none                        | Yes, by hand      |
 
 Two findings need stating precisely, because this story is usually told wrong.
 `juniper-cascor-client` *had* drifted and has been fixed: `__init__.py:11-13` carries the tombstone —
@@ -7436,14 +7433,14 @@ rationale in the comment block at the meta-package's `pyproject.toml:36-42`, whi
 `doc-tools` extra declared at `:43-44`. Of that pin it says (`:38-40`): "Pinned inside the 0.1.x range
 so a future 0.2.x with breaking CLI changes doesn't auto-adopt before consumer repos have migrated."
 
-| Pin | Location | Ceiling? |
-|---|---|---|
-| `juniper-data-client>=0.4.1` | meta `pyproject.toml:30` | No |
-| `juniper-doc-tools>=0.1.0,<0.2.0` | meta `pyproject.toml:44`, `:54` | Yes |
-| `juniper-service-core>=0.2.0,<0.6.0` | meta `pyproject.toml:57` | Yes |
-| `requests>=2.28.0`, `urllib3>=2.0.0` | every client `pyproject.toml` | No |
-| `juniper-observability>=0.3.1,<0.5.0` | `juniper-recurrence-client/pyproject.toml:46` | Yes |
-| `fastapi>=0.110`, `pydantic>=2.0`, `numpy>=1.24` | `juniper-service-core/pyproject.toml:24-38` | No |
+| Pin                                              | Location                                      | Ceiling? |
+|--------------------------------------------------|-----------------------------------------------|----------|
+| `juniper-data-client>=0.4.1`                     | meta `pyproject.toml:30`                      | No       |
+| `juniper-doc-tools>=0.1.0,<0.2.0`                | meta `pyproject.toml:44`, `:54`               | Yes      |
+| `juniper-service-core>=0.2.0,<0.6.0`             | meta `pyproject.toml:57`                      | Yes      |
+| `requests>=2.28.0`, `urllib3>=2.0.0`             | every client `pyproject.toml`                 | No       |
+| `juniper-observability>=0.3.1,<0.5.0`            | `juniper-recurrence-client/pyproject.toml:46` | Yes      |
+| `fastapi>=0.110`, `pydantic>=2.0`, `numpy>=1.24` | `juniper-service-core/pyproject.toml:24-38`   | No       |
 
 The pattern is coherent even if never stated as policy: third-party runtime dependencies get floors
 only; first-party pre-1.0 siblings get ceilings, because their `0.y` bumps are treated as major.
@@ -7458,13 +7455,13 @@ only; first-party pre-1.0 siblings get ceilings, because their `0.y` bumps are t
 
 #### Tradeoffs
 
-| Choice | Buys | Costs |
-|---|---|---|
-| Dynamic version from `_version.py` | Structurally impossible to drift | `_version.py` must stay import-free |
-| `importlib.metadata` | No literal in source | Runtime lookup; fails for uninstalled trees |
-| Manual duplication | Zero machinery | Drifts, and only a test catches it |
-| Warned deprecation | Callers learn before removal | Needs correct `stacklevel` and a removal plan |
-| Silent behaviour flag | No noise; legacy path stays legitimate | Never removable — you cannot see who uses it |
+| Choice                             | Buys                                   | Costs                                         |
+|------------------------------------|----------------------------------------|-----------------------------------------------|
+| Dynamic version from `_version.py` | Structurally impossible to drift       | `_version.py` must stay import-free           |
+| `importlib.metadata`               | No literal in source                   | Runtime lookup; fails for uninstalled trees   |
+| Manual duplication                 | Zero machinery                         | Drifts, and only a test catches it            |
+| Warned deprecation                 | Callers learn before removal           | Needs correct `stacklevel` and a removal plan |
+| Silent behaviour flag              | No noise; legacy path stays legitimate | Never removable — you cannot see who uses it  |
 
 #### Best Practices
 
@@ -7585,11 +7582,11 @@ every signature and will drift.
 
 All three client packages ship the marker and declare it:
 
-| Package | Marker file | Declaration | `Typing :: Typed` |
-|---|---|---|---|
-| `juniper-data-client` | `juniper_data_client/py.typed` | `pyproject.toml:73-74` | `:25` |
-| `juniper-cascor-client` | `juniper_cascor_client/py.typed` | `pyproject.toml:76-77` | `:25` |
-| `juniper-recurrence-client` | `juniper_recurrence_client/py.typed` | `pyproject.toml:61-62` | `:25` |
+| Package                     | Marker file                          | Declaration            | `Typing :: Typed` |
+|-----------------------------|--------------------------------------|------------------------|-------------------|
+| `juniper-data-client`       | `juniper_data_client/py.typed`       | `pyproject.toml:73-74` | `:25`             |
+| `juniper-cascor-client`     | `juniper_cascor_client/py.typed`     | `pyproject.toml:76-77` | `:25`             |
+| `juniper-recurrence-client` | `juniper_recurrence_client/py.typed` | `pyproject.toml:61-62` | `:25`             |
 
 Each declaration is the same two lines, and they are what makes the marker survive the build:
 
@@ -7693,13 +7690,13 @@ it this way.
 
 #### Tradeoffs
 
-| Choice | Buys | Costs |
-|---|---|---|
-| Ship `py.typed` | Downstream checking, completion, refactor safety | Annotations become a contract you must not break |
-| Inline annotations | Cannot drift; single source | Runtime import cost unless typing-only imports are guarded |
-| Stub files | Types for code you cannot annotate | A second copy of every signature |
-| `Protocol` at boundaries | Callers need no import or inheritance | `isinstance` checks members, never signatures |
-| `Any` returns | No modelling work; survives server-side additions | No checking at all for consumers of that value |
+| Choice                   | Buys                                              | Costs                                                      |
+|--------------------------|---------------------------------------------------|------------------------------------------------------------|
+| Ship `py.typed`          | Downstream checking, completion, refactor safety  | Annotations become a contract you must not break           |
+| Inline annotations       | Cannot drift; single source                       | Runtime import cost unless typing-only imports are guarded |
+| Stub files               | Types for code you cannot annotate                | A second copy of every signature                           |
+| `Protocol` at boundaries | Callers need no import or inheritance             | `isinstance` checks members, never signatures              |
+| `Any` returns            | No modelling work; survives server-side additions | No checking at all for consumers of that value             |
 
 #### Best Practices
 
@@ -7856,13 +7853,13 @@ part of your implementation into a contract.
 
 #### Background
 
-| Mechanism | Consumer supplies | You freeze |
-|---|---|---|
-| Callback / hook | A function | One signature |
-| `Protocol` injection | An object with the right members | One method set |
-| Registry | A registration call | The registration API and dispatch contract |
-| Entry points | Package metadata | The group name and the loaded object's contract |
-| Subclassing | A subclass | Your call order, attribute names, and internal method boundaries |
+| Mechanism            | Consumer supplies                | You freeze                                                       |
+|----------------------|----------------------------------|------------------------------------------------------------------|
+| Callback / hook      | A function                       | One signature                                                    |
+| `Protocol` injection | An object with the right members | One method set                                                   |
+| Registry             | A registration call              | The registration API and dispatch contract                       |
+| Entry points         | Package metadata                 | The group name and the loaded object's contract                  |
+| Subclassing          | A subclass                       | Your call order, attribute names, and internal method boundaries |
 
 Subclassing is last for a reason: a consumer overriding your method depends not on that method's
 signature but on *when you call it, how many times, and what state exists then*. Offering it freezes
@@ -7990,13 +7987,13 @@ import-time cost of scanning distribution metadata.
 
 #### Tradeoffs
 
-| Mechanism | Stability cost | Consumer cost |
-|---|---|---|
-| Callback | One signature frozen | Write one function |
-| Protocol injection | One method set frozen | Write a small adapter class |
-| Typed registrars | Registrar set frozen; new types need a release | Nothing; completion works |
-| Entry points | Group name and loaded contract frozen | Publish a distribution |
-| Subclassing | Internal call order frozen | Inherit — and re-verify on every upgrade |
+| Mechanism          | Stability cost                                 | Consumer cost                            |
+|--------------------|------------------------------------------------|------------------------------------------|
+| Callback           | One signature frozen                           | Write one function                       |
+| Protocol injection | One method set frozen                          | Write a small adapter class              |
+| Typed registrars   | Registrar set frozen; new types need a release | Nothing; completion works                |
+| Entry points       | Group name and loaded contract frozen          | Publish a distribution                   |
+| Subclassing        | Internal call order frozen                     | Inherit — and re-verify on every upgrade |
 
 #### Best Practices
 
@@ -8231,12 +8228,12 @@ prefix, you do not need one.
 
 #### Tradeoffs
 
-| Choice | Buys | Costs |
-|---|---|---|
-| Extras for optional deps | One distribution, one version, one repository | Every extra combination is an untested install path |
-| Self-referential `all` | No duplication; additive by one token | Slightly obscure to readers who have not seen it |
-| Meta-package | One install command; coordinated version | Its version means nothing once cadences diverge |
-| Mandatory deps + lazy imports | Fast, verifiable import | Reviewers must know the guarantee is import-time only |
+| Choice                        | Buys                                          | Costs                                                 |
+|-------------------------------|-----------------------------------------------|-------------------------------------------------------|
+| Extras for optional deps      | One distribution, one version, one repository | Every extra combination is an untested install path   |
+| Self-referential `all`        | No duplication; additive by one token         | Slightly obscure to readers who have not seen it      |
+| Meta-package                  | One install command; coordinated version      | Its version means nothing once cadences diverge       |
+| Mandatory deps + lazy imports | Fast, verifiable import                       | Reviewers must know the guarantee is import-time only |
 
 #### Best Practices
 
@@ -8274,14 +8271,14 @@ wheel is importable, and what got installed alongside it is what the code expect
 
 This example is the corrected version of the design defects Part III identified in the three real Juniper client libraries. Each correction is a direct response to something observable in the shipped code.
 
-| Defect in the real clients | Correction here |
-|---|---|
+| Defect in the real clients                                                                                                   | Correction here                                                                                                                 |
+|------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------|
 | Exceptions carry only a formatted string — no `.status_code`, no `.response` — so callers cannot branch without parsing text | Every HTTP-derived error preserves `status_code`, the parsed problem-details `payload`, and the `request_id` as real attributes |
-| One client retries `POST`, `PATCH`, and `DELETE` on transient 5xx with no idempotency key | Non-idempotent methods are retried **only** when an idempotency key is supplied |
-| A single scalar timeout covers connect, read, write, and pool | Timeouts are separated, with per-call override |
-| `create_network(**kwargs: Any)` types nothing and forwards blind | Public methods are keyword-only with `Literal` types for closed enums |
-| Retry exhaustion collapses a typed 503 into the base exception, losing the status | The final response is mapped before raising, so the typed error survives exhaustion |
-| No jitter on backoff | Full jitter, with `Retry-After` honoured when the server supplies it |
+| One client retries `POST`, `PATCH`, and `DELETE` on transient 5xx with no idempotency key                                    | Non-idempotent methods are retried **only** when an idempotency key is supplied                                                 |
+| A single scalar timeout covers connect, read, write, and pool                                                                | Timeouts are separated, with per-call override                                                                                  |
+| `create_network(**kwargs: Any)` types nothing and forwards blind                                                             | Public methods are keyword-only with `Literal` types for closed enums                                                           |
+| Retry exhaustion collapses a typed 503 into the base exception, losing the status                                            | The final response is mapped before raising, so the typed error survives exhaustion                                             |
+| No jitter on backoff                                                                                                         | Full jitter, with `Retry-After` honoured when the server supplies it                                                            |
 
 The instrumentation hook is worth studying as a small ergonomics lesson: it defaults to a **named no-op function** rather than `None`, so the call site has no branch; it fires in a `finally` so failures are observed as well as successes; and its own exceptions are swallowed with an explicit comment, because instrumentation that can break the caller is worse than no instrumentation.
 
@@ -9630,17 +9627,17 @@ These signal seniority because they are the questions that matter once you are a
 
 Properties are as defined in RFC 9110 §9. "Cacheable" means a response to the method may be stored by a cache in principle; whether it is cached in practice depends on the response's own directives and status.
 
-| Method | Safe | Idempotent | Cacheable | Request body | Response body |
-|--------|------|-----------|-----------|--------------|---------------|
-| `GET` | Yes | Yes | Yes | No defined semantics | Yes |
-| `HEAD` | Yes | Yes | Yes | No defined semantics | No |
-| `POST` | No | No | In principle | Yes | Yes |
-| `PUT` | No | Yes | No | Yes | Yes |
-| `DELETE` | No | Yes | No | No defined semantics | Yes |
-| `PATCH` | No | **No** | No | Yes | Yes |
-| `OPTIONS` | Yes | Yes | No | Optional | Yes |
-| `TRACE` | Yes | Yes | No | No | Yes |
-| `CONNECT` | No | No | No | No | Yes |
+| Method    | Safe | Idempotent | Cacheable    | Request body         | Response body |
+|-----------|------|------------|--------------|----------------------|---------------|
+| `GET`     | Yes  | Yes        | Yes          | No defined semantics | Yes           |
+| `HEAD`    | Yes  | Yes        | Yes          | No defined semantics | No            |
+| `POST`    | No   | No         | In principle | Yes                  | Yes           |
+| `PUT`     | No   | Yes        | No           | Yes                  | Yes           |
+| `DELETE`  | No   | Yes        | No           | No defined semantics | Yes           |
+| `PATCH`   | No   | **No**     | No           | Yes                  | Yes           |
+| `OPTIONS` | Yes  | Yes        | No           | Optional             | Yes           |
+| `TRACE`   | Yes  | Yes        | No           | No                   | Yes           |
+| `CONNECT` | No   | No         | No           | No                   | Yes           |
 
 Three notes on reading this table, each taken from the specification rather than from folklore.
 
@@ -9654,62 +9651,62 @@ Three notes on reading this table, each taken from the specification rather than
 
 ### B.2 Status codes that carry design decisions
 
-| Code | Name | Use it when | Do not use it when |
-|------|------|-------------|--------------------|
-| 200 | OK | A request succeeded and there is a body | You created something — prefer 201 |
-| 201 | Created | A new resource exists; include `Location` | The resource already existed |
-| 202 | Accepted | Work was queued; include a status handle | You have no way for the client to follow up |
-| 204 | No Content | Success with deliberately no body | You have a body to send |
-| 206 | Partial Content | Responding to a valid `Range` | — |
-| 301 / 308 | Moved Permanently | The resource has a new canonical URI | Use 308 when the method must not change |
-| 302 / 307 | Found / Temporary Redirect | Temporary relocation | Use 307 when the method must not change |
-| 304 | Not Modified | A conditional `GET` validator matched | You are sending a body |
-| 400 | Bad Request | Malformed syntax the server cannot parse | A well-formed but invalid value, if your convention is 422 |
-| 401 | Unauthorized | Authentication missing or invalid; send `WWW-Authenticate` | The caller is known and merely not permitted |
-| 403 | Forbidden | Authenticated but not permitted | You wish to hide existence — consider 404 |
-| 404 | Not Found | No resource at this URI | You know it existed and want to say so — 410 |
-| 405 | Method Not Allowed | URI exists, method does not; send `Allow` | — |
-| 409 | Conflict | State conflict the client may resolve | A supplied precondition failed — 412 |
-| 410 | Gone | Deliberately removed, permanently | You do not actually know |
-| 412 | Precondition Failed | An `If-Match`/`If-Unmodified-Since` evaluated false | — |
-| 415 | Unsupported Media Type | The request's `Content-Type` is unsupported | The *content* is invalid — 400/422 |
-| 422 | Unprocessable Content | Well-formed but semantically invalid (contested) | Your API convention uses 400 |
-| 428 | Precondition Required | You require conditional requests for writes | — |
-| 429 | Too Many Requests | Rate limit exceeded; send `Retry-After` | The condition is not rate-related |
-| 500 | Internal Server Error | An unhandled server fault | You know it is a client error |
-| 501 | Not Implemented | The capability does not exist here and will not appear on its own | It is a transient outage — 503 |
-| 502 | Bad Gateway | An upstream returned something invalid | — |
-| 503 | Service Unavailable | Temporarily down or overloaded; send `Retry-After` | The condition will never clear — 501 |
-| 504 | Gateway Timeout | An upstream did not respond in time | — |
+| Code      | Name                       | Use it when                                                       | Do not use it when                                         |
+|-----------|----------------------------|-------------------------------------------------------------------|------------------------------------------------------------|
+| 200       | OK                         | A request succeeded and there is a body                           | You created something — prefer 201                         |
+| 201       | Created                    | A new resource exists; include `Location`                         | The resource already existed                               |
+| 202       | Accepted                   | Work was queued; include a status handle                          | You have no way for the client to follow up                |
+| 204       | No Content                 | Success with deliberately no body                                 | You have a body to send                                    |
+| 206       | Partial Content            | Responding to a valid `Range`                                     | —                                                          |
+| 301 / 308 | Moved Permanently          | The resource has a new canonical URI                              | Use 308 when the method must not change                    |
+| 302 / 307 | Found / Temporary Redirect | Temporary relocation                                              | Use 307 when the method must not change                    |
+| 304       | Not Modified               | A conditional `GET` validator matched                             | You are sending a body                                     |
+| 400       | Bad Request                | Malformed syntax the server cannot parse                          | A well-formed but invalid value, if your convention is 422 |
+| 401       | Unauthorized               | Authentication missing or invalid; send `WWW-Authenticate`        | The caller is known and merely not permitted               |
+| 403       | Forbidden                  | Authenticated but not permitted                                   | You wish to hide existence — consider 404                  |
+| 404       | Not Found                  | No resource at this URI                                           | You know it existed and want to say so — 410               |
+| 405       | Method Not Allowed         | URI exists, method does not; send `Allow`                         | —                                                          |
+| 409       | Conflict                   | State conflict the client may resolve                             | A supplied precondition failed — 412                       |
+| 410       | Gone                       | Deliberately removed, permanently                                 | You do not actually know                                   |
+| 412       | Precondition Failed        | An `If-Match`/`If-Unmodified-Since` evaluated false               | —                                                          |
+| 415       | Unsupported Media Type     | The request's `Content-Type` is unsupported                       | The *content* is invalid — 400/422                         |
+| 422       | Unprocessable Content      | Well-formed but semantically invalid (contested)                  | Your API convention uses 400                               |
+| 428       | Precondition Required      | You require conditional requests for writes                       | —                                                          |
+| 429       | Too Many Requests          | Rate limit exceeded; send `Retry-After`                           | The condition is not rate-related                          |
+| 500       | Internal Server Error      | An unhandled server fault                                         | You know it is a client error                              |
+| 501       | Not Implemented            | The capability does not exist here and will not appear on its own | It is a transient outage — 503                             |
+| 502       | Bad Gateway                | An upstream returned something invalid                            | —                                                          |
+| 503       | Service Unavailable        | Temporarily down or overloaded; send `Retry-After`                | The condition will never clear — 501                       |
+| 504       | Gateway Timeout            | An upstream did not respond in time                               | —                                                          |
 
 428, 429, and 431 are defined in RFC 6585, not RFC 9110.
 
 ### B.3 Headers that carry API-design weight
 
-| Header | Direction | Purpose | Notes |
-|--------|-----------|---------|-------|
-| `ETag` | Response | Opaque validator for a representation | `W/` prefix marks a weak validator |
-| `If-None-Match` | Request | Conditional GET → 304 | Bandwidth saving, not round-trip saving |
-| `If-Match` | Request | Optimistic concurrency → 412 | The lost-update fix |
-| `Cache-Control` | Both | Freshness and storage directives | `no-cache` ≠ `no-store` |
-| `Vary` | Response | Declares the cache key's request-header inputs | Getting it wrong leaks data across users |
-| `Retry-After` | Response | Seconds or HTTP-date to wait | Meaningful on 429 and 503 |
-| `Location` | Response | Created or redirected resource URI | Required in spirit on 201 |
-| `Link` | Response | Typed relations to other resources | RFC 8288; the one widely-adopted hypermedia mechanism |
-| `Deprecation` | Response | Marks a deprecated resource | RFC 9745 |
-| `Sunset` | Response | When the resource stops working | RFC 8594 |
-| `WWW-Authenticate` | Response | Challenge accompanying a 401 | Frequently omitted in practice |
-| `Idempotency-Key` | Request | Client-chosen replay token | Internet-Draft, not an RFC |
-| `RateLimit`, `RateLimit-Policy` | Response | Standardised quota signalling | Internet-Draft; supersedes the older three-field form |
-| `X-RateLimit-*` | Response | De-facto quota signalling | Vendor convention, never standardised |
-| `X-Request-ID` | Both | Correlation across services | Convention; sanitise before logging |
+| Header                          | Direction | Purpose                                        | Notes                                                 |
+|---------------------------------|-----------|------------------------------------------------|-------------------------------------------------------|
+| `ETag`                          | Response  | Opaque validator for a representation          | `W/` prefix marks a weak validator                    |
+| `If-None-Match`                 | Request   | Conditional GET → 304                          | Bandwidth saving, not round-trip saving               |
+| `If-Match`                      | Request   | Optimistic concurrency → 412                   | The lost-update fix                                   |
+| `Cache-Control`                 | Both      | Freshness and storage directives               | `no-cache` ≠ `no-store`                               |
+| `Vary`                          | Response  | Declares the cache key's request-header inputs | Getting it wrong leaks data across users              |
+| `Retry-After`                   | Response  | Seconds or HTTP-date to wait                   | Meaningful on 429 and 503                             |
+| `Location`                      | Response  | Created or redirected resource URI             | Required in spirit on 201                             |
+| `Link`                          | Response  | Typed relations to other resources             | RFC 8288; the one widely-adopted hypermedia mechanism |
+| `Deprecation`                   | Response  | Marks a deprecated resource                    | RFC 9745                                              |
+| `Sunset`                        | Response  | When the resource stops working                | RFC 8594                                              |
+| `WWW-Authenticate`              | Response  | Challenge accompanying a 401                   | Frequently omitted in practice                        |
+| `Idempotency-Key`               | Request   | Client-chosen replay token                     | Internet-Draft, not an RFC                            |
+| `RateLimit`, `RateLimit-Policy` | Response  | Standardised quota signalling                  | Internet-Draft; supersedes the older three-field form |
+| `X-RateLimit-*`                 | Response  | De-facto quota signalling                      | Vendor convention, never standardised                 |
+| `X-Request-ID`                  | Both      | Correlation across services                    | Convention; sanitise before logging                   |
 
 ### B.4 Retry decision table
 
 This condenses the retryability table in [I.7](#i7-idempotency-retries-and-the-exactly-once-illusion); where the two could be read differently, that one governs.
 
 | Condition | Retry? | Notes |
-|-----------|--------|-------|
+| ----------- | -------- | ------- |
 | DNS failure, or connection refused before any request bytes were sent | Yes | Nothing reached the server, so the request demonstrably did not execute. This is the one genuinely unambiguous row — and only when your client can prove the case |
 | Any other connection error (reset mid-flight, broken pipe, TLS failure after send) | **Yes, if idempotent** | May never have reached the server — or may have been fully applied. Most HTTP libraries collapse this with the row above into a single exception type, so treat an undifferentiated "connection error" as *this* row |
 | Read timeout / no response | **Yes, if idempotent** (or keyed) | Unknown outcome — the two-generals case exactly |
@@ -9730,51 +9727,51 @@ The "if idempotent" qualifiers on 502/503/504 are not decoration. Those codes ar
 
 Every document below was fetched and read locally rather than cited from memory; reproduce the cache with [`util/ad-hoc/2026-08-13_fetch_api_specs.bash`](../util/ad-hoc/2026-08-13_fetch_api_specs.bash). Titles, dates, categories, and obsoletes relationships are as printed in the canonical text.
 
-| Document | Title | Category | Date | Obsoletes |
-|----------|-------|----------|------|-----------|
-| [RFC 5789](https://www.rfc-editor.org/rfc/rfc5789.html) | PATCH Method for HTTP | Standards Track | March 2010 | — |
-| [RFC 6455](https://www.rfc-editor.org/rfc/rfc6455.html) | The WebSocket Protocol | Standards Track | December 2011 | — |
-| [RFC 6585](https://www.rfc-editor.org/rfc/rfc6585.html) | Additional HTTP Status Codes | Standards Track | April 2012 | — |
-| [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html) | The OAuth 2.0 Authorization Framework | Standards Track | October 2012 | 5849 |
-| [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html) | The OAuth 2.0 Authorization Framework: Bearer Token Usage | Standards Track | October 2012 | — |
-| [RFC 7519](https://www.rfc-editor.org/rfc/rfc7519.html) | JSON Web Token (JWT) | Standards Track | May 2015 | — |
-| [RFC 7636](https://www.rfc-editor.org/rfc/rfc7636.html) | Proof Key for Code Exchange by OAuth Public Clients | Standards Track | September 2015 | — |
-| [RFC 7807](https://www.rfc-editor.org/rfc/rfc7807.html) | Problem Details for HTTP APIs | Standards Track | March 2016 | — (obsoleted **by** 9457) |
-| [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259.html) | The JavaScript Object Notation (JSON) Data Interchange Format | Standards Track | December 2017 | 7159 |
-| [RFC 8288](https://www.rfc-editor.org/rfc/rfc8288.html) | Web Linking | Standards Track | October 2017 | 5988 |
-| [RFC 8414](https://www.rfc-editor.org/rfc/rfc8414.html) | OAuth 2.0 Authorization Server Metadata | Standards Track | June 2018 | — |
-| [RFC 8594](https://www.rfc-editor.org/rfc/rfc8594.html) | The Sunset HTTP Header Field | Informational | May 2019 | — |
-| [RFC 8615](https://www.rfc-editor.org/rfc/rfc8615.html) | Well-Known Uniform Resource Identifiers (URIs) | Standards Track | May 2019 | 5785 |
-| [RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html) | JSON Web Token (JWT) Profile for OAuth 2.0 Access Tokens | Standards Track | October 2021 | — |
-| [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html) | HTTP Semantics (STD 97) | Standards Track | June 2022 | 2818, 7230, 7231, 7232, 7233, 7235, 7538, 7615, 7694 |
-| [RFC 9111](https://www.rfc-editor.org/rfc/rfc9111.html) | HTTP Caching (STD 98) | Standards Track | June 2022 | 7234 |
-| [RFC 9112](https://www.rfc-editor.org/rfc/rfc9112.html) | HTTP/1.1 (STD 99) | Standards Track | June 2022 | 7230 |
-| [RFC 9113](https://www.rfc-editor.org/rfc/rfc9113.html) | HTTP/2 | Standards Track | June 2022 | 7540, 8740 |
-| [RFC 9114](https://www.rfc-editor.org/rfc/rfc9114.html) | HTTP/3 | Standards Track | June 2022 | — |
-| [RFC 9205](https://www.rfc-editor.org/rfc/rfc9205.html) | Building Protocols with HTTP (BCP 56) | Best Current Practice | June 2022 | 3205 |
-| [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421.html) | HTTP Message Signatures | Standards Track | February 2024 | — |
-| [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html) | Problem Details for HTTP APIs | Standards Track | July 2023 | 7807 |
-| [RFC 9651](https://www.rfc-editor.org/rfc/rfc9651.html) | Structured Field Values for HTTP | Standards Track | September 2024 | 8941 |
-| [RFC 9700](https://www.rfc-editor.org/rfc/rfc9700.html) | Best Current Practice for OAuth 2.0 Security (BCP 240) | Best Current Practice | January 2025 | — (updates 6749, 6750, 6819) |
-| [RFC 9745](https://www.rfc-editor.org/rfc/rfc9745.html) | The Deprecation HTTP Response Header Field | Standards Track | March 2025 | — |
+| Document                                                | Title                                                         | Category              | Date           | Obsoletes                                            |
+|---------------------------------------------------------|---------------------------------------------------------------|-----------------------|----------------|------------------------------------------------------|
+| [RFC 5789](https://www.rfc-editor.org/rfc/rfc5789.html) | PATCH Method for HTTP                                         | Standards Track       | March 2010     | —                                                    |
+| [RFC 6455](https://www.rfc-editor.org/rfc/rfc6455.html) | The WebSocket Protocol                                        | Standards Track       | December 2011  | —                                                    |
+| [RFC 6585](https://www.rfc-editor.org/rfc/rfc6585.html) | Additional HTTP Status Codes                                  | Standards Track       | April 2012     | —                                                    |
+| [RFC 6749](https://www.rfc-editor.org/rfc/rfc6749.html) | The OAuth 2.0 Authorization Framework                         | Standards Track       | October 2012   | 5849                                                 |
+| [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html) | The OAuth 2.0 Authorization Framework: Bearer Token Usage     | Standards Track       | October 2012   | —                                                    |
+| [RFC 7519](https://www.rfc-editor.org/rfc/rfc7519.html) | JSON Web Token (JWT)                                          | Standards Track       | May 2015       | —                                                    |
+| [RFC 7636](https://www.rfc-editor.org/rfc/rfc7636.html) | Proof Key for Code Exchange by OAuth Public Clients           | Standards Track       | September 2015 | —                                                    |
+| [RFC 7807](https://www.rfc-editor.org/rfc/rfc7807.html) | Problem Details for HTTP APIs                                 | Standards Track       | March 2016     | — (obsoleted **by** 9457)                            |
+| [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259.html) | The JavaScript Object Notation (JSON) Data Interchange Format | Standards Track       | December 2017  | 7159                                                 |
+| [RFC 8288](https://www.rfc-editor.org/rfc/rfc8288.html) | Web Linking                                                   | Standards Track       | October 2017   | 5988                                                 |
+| [RFC 8414](https://www.rfc-editor.org/rfc/rfc8414.html) | OAuth 2.0 Authorization Server Metadata                       | Standards Track       | June 2018      | —                                                    |
+| [RFC 8594](https://www.rfc-editor.org/rfc/rfc8594.html) | The Sunset HTTP Header Field                                  | Informational         | May 2019       | —                                                    |
+| [RFC 8615](https://www.rfc-editor.org/rfc/rfc8615.html) | Well-Known Uniform Resource Identifiers (URIs)                | Standards Track       | May 2019       | 5785                                                 |
+| [RFC 9068](https://www.rfc-editor.org/rfc/rfc9068.html) | JSON Web Token (JWT) Profile for OAuth 2.0 Access Tokens      | Standards Track       | October 2021   | —                                                    |
+| [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html) | HTTP Semantics (STD 97)                                       | Standards Track       | June 2022      | 2818, 7230, 7231, 7232, 7233, 7235, 7538, 7615, 7694 |
+| [RFC 9111](https://www.rfc-editor.org/rfc/rfc9111.html) | HTTP Caching (STD 98)                                         | Standards Track       | June 2022      | 7234                                                 |
+| [RFC 9112](https://www.rfc-editor.org/rfc/rfc9112.html) | HTTP/1.1 (STD 99)                                             | Standards Track       | June 2022      | 7230                                                 |
+| [RFC 9113](https://www.rfc-editor.org/rfc/rfc9113.html) | HTTP/2                                                        | Standards Track       | June 2022      | 7540, 8740                                           |
+| [RFC 9114](https://www.rfc-editor.org/rfc/rfc9114.html) | HTTP/3                                                        | Standards Track       | June 2022      | —                                                    |
+| [RFC 9205](https://www.rfc-editor.org/rfc/rfc9205.html) | Building Protocols with HTTP (BCP 56)                         | Best Current Practice | June 2022      | 3205                                                 |
+| [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421.html) | HTTP Message Signatures                                       | Standards Track       | February 2024  | —                                                    |
+| [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html) | Problem Details for HTTP APIs                                 | Standards Track       | July 2023      | 7807                                                 |
+| [RFC 9651](https://www.rfc-editor.org/rfc/rfc9651.html) | Structured Field Values for HTTP                              | Standards Track       | September 2024 | 8941                                                 |
+| [RFC 9700](https://www.rfc-editor.org/rfc/rfc9700.html) | Best Current Practice for OAuth 2.0 Security (BCP 240)        | Best Current Practice | January 2025   | — (updates 6749, 6750, 6819)                         |
+| [RFC 9745](https://www.rfc-editor.org/rfc/rfc9745.html) | The Deprecation HTTP Response Header Field                    | Standards Track       | March 2025     | —                                                    |
 
 ### C.1 Non-RFC references
 
 These are cited in the body and are **not** IETF standards. The distinction matters: an Internet-Draft may change or expire, and a vendor convention has no normative force at all.
 
-| Reference | What it is | Status |
-|-----------|-----------|--------|
-| [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) | Version-numbering convention | Community specification, not a standard |
-| [PEP 440](https://peps.python.org/pep-0440/) | Python version identifiers | Python packaging standard |
-| [PEP 561](https://peps.python.org/pep-0561/) | Distributing and packaging type information | Python packaging standard |
-| [PEP 562](https://peps.python.org/pep-0562/) | Module `__getattr__` and `__dir__` | Python language standard |
-| [OpenAPI Specification](https://spec.openapis.org/) | API description format | Linux Foundation specification |
-| [JSON Schema](https://json-schema.org/) | Schema vocabulary | IETF Internet-Draft series |
-| [GraphQL Specification](https://spec.graphql.org/) | Query language and type system | GraphQL Foundation specification |
-| [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html) | `text/event-stream` push | WHATWG HTML Living Standard — **not** an RFC |
-| `draft-ietf-httpapi-idempotency-key-header` | `Idempotency-Key` request header | **Internet-Draft** |
-| `draft-ietf-httpapi-ratelimit-headers` | `RateLimit` / `RateLimit-Policy` fields | **Internet-Draft** |
-| `X-RateLimit-*`, `X-Request-ID` | Widely used response/request headers | **De-facto convention only** |
+| Reference                                                                            | What it is                                  | Status                                       |
+|--------------------------------------------------------------------------------------|---------------------------------------------|----------------------------------------------|
+| [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)                     | Version-numbering convention                | Community specification, not a standard      |
+| [PEP 440](https://peps.python.org/pep-0440/)                                         | Python version identifiers                  | Python packaging standard                    |
+| [PEP 561](https://peps.python.org/pep-0561/)                                         | Distributing and packaging type information | Python packaging standard                    |
+| [PEP 562](https://peps.python.org/pep-0562/)                                         | Module `__getattr__` and `__dir__`          | Python language standard                     |
+| [OpenAPI Specification](https://spec.openapis.org/)                                  | API description format                      | Linux Foundation specification               |
+| [JSON Schema](https://json-schema.org/)                                              | Schema vocabulary                           | IETF Internet-Draft series                   |
+| [GraphQL Specification](https://spec.graphql.org/)                                   | Query language and type system              | GraphQL Foundation specification             |
+| [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html) | `text/event-stream` push                    | WHATWG HTML Living Standard — **not** an RFC |
+| `draft-ietf-httpapi-idempotency-key-header`                                          | `Idempotency-Key` request header            | **Internet-Draft**                           |
+| `draft-ietf-httpapi-ratelimit-headers`                                               | `RateLimit` / `RateLimit-Policy` fields     | **Internet-Draft**                           |
+| `X-RateLimit-*`, `X-Request-ID`                                                      | Widely used response/request headers        | **De-facto convention only**                 |
 
 ## Appendix D — Running the Examples
 
@@ -9788,14 +9785,14 @@ The examples are extracted **from this document**, not from a parallel copy kept
 
 These are the versions the examples were actually verified against.
 
-| Component | Version |
-|-----------|---------|
-| CPython | 3.13.13 |
-| FastAPI | 0.141.1 |
-| Starlette | 1.6.0 |
-| Pydantic | 2.13.4 |
-| httpx | 0.28.1 |
-| pytest | 8.x |
+| Component      | Version |
+|----------------|---------|
+| CPython        | 3.13.13 |
+| FastAPI        | 0.141.1 |
+| Starlette      | 1.6.0   |
+| Pydantic       | 2.13.4  |
+| httpx          | 0.28.1  |
+| pytest         | 8.x     |
 | pytest-asyncio | current |
 
 One version-specific note that will bite anyone adapting these examples from older tutorials: **httpx 0.28 removed the `AsyncClient(app=...)` shortcut**. Driving an ASGI application in-process now requires the transport explicitly.
