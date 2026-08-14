@@ -1,0 +1,77 @@
+# R-5 arm S1 — SERVICE path on the DIRECT CLI's dataset (n_rotations 1.0).
+#
+# The decisive arm. It is conf/experiments/spiral-baseline.yaml with exactly TWO deltas,
+# both forced by the comparison:
+#   * n_rotations: 3.0 -> 1.0        the direct CLI's own default (_SPIRAL_PROBLEM_NUM_ROTATIONS = 1)
+#   * max_hidden_units 24 -> 8 and max_iterations 12 -> 32
+#                                    to reproduce E-A cell c004's budget exactly
+# Everything else — generator, noise, points, ratios, seed, learning rates, thresholds,
+# candidate pool, epochs — is byte-identical to the baseline.
+#
+# Anchor: E-A c004 (service, n_rotations 3.0, cap 8, pool 8) -> train 0.6312 / val 0.595.
+# S1 differs from c004 in n_rotations ALONE, so S1 - c004 measures dataset difficulty on a
+# single path with everything else held fixed.
+#
+# Why this replaces a direct-CLI arm: the direct CLI fetches its dataset from juniper-data
+# via SpiralDataProvider and sends no `algorithm` and no `radius`, so it gets the SAME
+# generator (modern) at the SAME radius (10.0) as the service. n_rotations is the only
+# dataset knob that differs between the two paths. Running the service at the CLI's
+# n_rotations therefore puts the service on the CLI's dataset — and if it then reaches the
+# ~0.995 the CLI is quoted at, no service-tier penalty exists to explain.
+#
+# (The direct CLI itself was measured too, but its output-training budget is not governed by
+# any W-11-mapped knob, so it is not budget-comparable; see the evidence note.)
+schema_version: 1
+experiment:
+  name: r5-arm-s1-service-nrot1
+  description: "R-5 arm S1 — service on the CLI's dataset (n_rotations 1.0), cap 8 / pool 8"
+  seed: 20260729
+
+service:
+  log_level: INFO
+  metrics_enabled: true
+  auto_start: false
+  auto_start_data_service: false
+
+dataset:
+  generator: spiral
+  persist: true
+  tags: ["experiment", "r5", "arm-s1"]
+  ttl_seconds: 86400
+  params:
+    n_spirals: 2
+    n_points_per_spiral: 500
+    n_rotations: 1.0
+    noise: 0.05
+    algorithm: modern
+    train_ratio: 0.8
+    test_ratio: 0.2
+    seed: 20260729
+
+training:
+  start_fresh: true
+  params:
+    max_epochs: 2000
+    max_iterations: 32
+    early_stopping: true
+    learning_rate: 0.05
+    candidate_learning_rate: 0.05
+    correlation_threshold: 0.2
+    candidate_pool_size: 8
+    max_hidden_units: 8
+    patience: 200
+    convergence_threshold: 1.0e-5
+    candidate_patience: 100
+    candidate_epochs: 500
+
+runtime:
+  num_processes: 4
+  blas_threads: 2
+  eval_metrics_enabled: true
+
+outputs:
+  decision_boundary_resolution: 200
+  metrics_history_count: 1000
+  plots: [dataset, decision_boundary, training_history, candidate_correlation, eval_metrics]
+  snapshot_at_end: false
+  max_wall_seconds: 3600
