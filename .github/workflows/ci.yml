@@ -462,6 +462,14 @@ jobs:
           # docs-full-check.yml. The full cross-repo assertion runs
           # weekly via docs-full-check.yml.
           python3 -m unittest -v tests/test_ci_tools_drift.py
+          # tests/test_service_fork_drift.py: security guards that must not
+          # diverge across the juniper-data / juniper-cascor forks of the
+          # service-core middleware (defect-register §2.3 "Copy drift"). Same
+          # skip semantics as the two drift lints above -- the sibling-walking
+          # assertions auto-skip here and run weekly via docs-full-check.yml,
+          # while the registry structure checks and the matcher's negative
+          # control always run.
+          python3 -m unittest -v tests/test_service_fork_drift.py
           # tests/test_lockfile_update_workflow.py: structural gate for the weekly
           # lockfile-update.yml refresh — juniper-generate-dep-docs (not the deleted
           # inline dep-docs shell script), SHA-pinned create-pull-request, branch/labels/
