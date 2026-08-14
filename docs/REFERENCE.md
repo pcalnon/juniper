@@ -384,6 +384,37 @@ Troubleshooting:
 
 `util/editable_install_drift_check.py` scans conda envs for `juniper-*` editables (via `*.dist-info/direct_url.json`), classifies each as `FRESH` / `WORKTREE_PINNED` / `ORPHANED`, and optionally re-points orphans with `--fix` (preview with `--dry-run`). Exit `1` on any `ORPHANED` finding.
 
+#### Version axis: `MATCH` / `STALE` / `UNKNOWN`
+
+A second, **orthogonal** axis compares the version an install *recorded* at `pip install -e` time against the version its source tree declares *now*. An editable never re-derives its version when the source moves on: `import` follows the live tree, but `*.dist-info/METADATA` stays frozen at the last pip run.
+
+| Verdict | Meaning |
+|---------|---------|
+| `MATCH` | Recorded version equals the target's declared version. |
+| `STALE` | They disagree — metadata frozen at install time. |
+| `UNKNOWN` | Not comparable: `ORPHANED` target, or no resolvable declared version. |
+
+The axes are independent — a `FRESH` install can be `STALE`, and so can a `WORKTREE_PINNED` one. This is why the path axis alone missed it: on 2026-08-14 **7 of 8** installs on this host were `FRESH` **and** stale simultaneously, `juniper-data` five minors behind (`0.6.0` recorded vs `0.11.0` declared).
+
+What it breaks, since `import` keeps working: anything reading the *installed* version rather than the source — a repo's own `version == pyproject` self-check (juniper-cascor's `test_version_matches_pyproject` failed locally on exactly this), and the build-info/provenance metric a host-launched service exports.
+
+Distinct from `juniper-env-drift-check` (juniper-ci-tools), which asks whether an installed version satisfies a consumer's declared **floor**. A stale editable can sit comfortably above every floor and still be wrong; only an editable install can drift this way.
+
+`STALE` is **soft** — exit stays `0`, because `import` still resolves. `--strict-version` makes it exit `1`. `--strict` remains about the path axis only.
+
+```bash
+python util/editable_install_drift_check.py                     # report (STALE is soft)
+python util/editable_install_drift_check.py --strict-version    # exit 1 on any STALE
+python util/editable_install_drift_check.py --fix --fix-stale --dry-run   # preview refresh
+python util/editable_install_drift_check.py --fix --fix-stale             # re-stamp metadata
+```
+
+`--fix-stale` repairs a stale-but-`FRESH` install against the path it **already points at** (`drift: "stale-metadata"`), not a canonical-discovery result — reinstalling from the recorded path is what re-stamps the metadata, and routing it through discovery could re-point a deliberate checkout. `ORPHANED` items keep resolving to their canonical repo (`drift: "path"`).
+
+A dynamic version is read only from an **explicit** declaration (setuptools `[tool.setuptools.dynamic] version.attr`, hatch `[tool.hatch.version] path`); an unrecognized backend reports `UNKNOWN` rather than guessing at a plausible `_version.py`.
+
+> **Live services:** `--fix`/`--fix-stale` reinstall into the env. Scope with `--env NAME` if a long-lived service is running from one of them.
+
 #### Ambiguous canonical `--fix` SKIP
 
 `--fix` resolves a unique canonical source under the ecosystem root via `discover_canonical(pkg_name, ecosystem_root)`:
