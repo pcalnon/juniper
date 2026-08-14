@@ -1319,3 +1319,142 @@ Two smaller things worth carrying:
 **Do not read the replay slider's `aria-valuemax` as a data signal**: `update_replay_ui` returns a
 hardcoded `100` for that output (`metrics_panel.py:1084` — `return slider_value, 100, position_text`),
 because the slider is a percentage scale. It reads `100` whether history is 0 rows or 401.
+
+---
+
+## Phase 1 — segment 9 (2026-08-14): the W6 owner gate, driven
+
+Segment 9 opened from `main` (the segment-8 evidence PR #1100 having landed) with the browser MCP
+**available for the first time in the arc** — `mcp__playwright__*` tools entered the session index, so the
+`util/ad-hoc/` script drivers were not needed. Both legs were version-checked before anything was believed:
+canopy was restarted onto `d11bfcd` (it had been running Aug-10 code, i.e. pre-#489), and the cascor leg was
+left alone but recorded as pinning `#513` — see the F-CASCOR-003b row for why that matters.
+
+### The headline: W6-16..20 driven, and F-CANOPY-019's open question is settled
+
+The owner gate the last three segments deferred is now driven, and it answered the question it was blocking:
+**the STAGED dataset wins at restart, while the modal describes the SIDEBAR.**
+
+The reproduction was built as a single-variable discriminator, because the segment-8 setup (staged *moons*
+vs summary *spirals*) varied the generator, sample count and noise at once:
+
+1. Staged `spirals / 200 / 0.1` through `#apply-dataset-button` — canopy logged
+   `Dataset staged: {nn_dataset_elements: 200, nn_dataset_noise: 0.1}` and `/api/status.pending_dataset`
+   carried `n_samples 200, noise 0.1`.
+2. Set the sidebar **back** to `1000 / 0.25` *without* applying. Re-checked `pending_dataset`: still 200/0.1.
+   Sidebar and staged now differ in exactly two numbers.
+3. Opened the modal. `#restart-confirm-summary` read **`Samples: 1000 | Noise: 0.25`** — the sidebar values.
+   The granular fields agreed with the summary (`#restart-ds-samples` `1000`, `#restart-ds-noise` `0.25`), so
+   the misdescription is not confined to the summary text.
+4. Confirmed. juniper-data then generated `spiral-1.0.0-6514b5ab7f063c31` —
+   `n_points_per_spiral 100, noise 0.1` → **`n_samples 200`**, `n_train 160`, `n_test 40` — distinct from the
+   pre-restart `spiral-1.0.0-1aacda4c47242992` (`n_points_per_spiral 500, noise 0.25` → `n_samples 1000`).
+
+So the user reads *"Samples: 1000, Noise: 0.25"*, confirms, and gets 200/0.1. That moves F-CANOPY-019 from
+"the summary is cosmetically wrong" to **the confirmation dialog misdescribes the action it then performs** —
+the one thing a confirm dialog exists to get right.
+
+**A second-order consequence falls out of the code and is worth driving next.** `_execute_restart_handler`
+Phase 1 re-stages only when `_restart_dataset_changed(dataset_vals, baseline.dataset)` is true — and *both*
+sides of that comparison are seeded from the sidebar. Touching **any** granular dataset field should
+therefore flip the outcome: it would re-stage the sidebar values over the staged ones and silently discard
+the pending change. The dialog's effect would then depend on whether the user opened the
+"Verify / modify what will happen" section at all. Not yet driven; recorded as the next W6 target.
+
+### Two worries the handoff carried, both disproven
+
+- **Confirming would NOT have wiped the network.** `dashboard_manager.py:5453` does hard-code
+  `payload = {"start_fresh": bool(start_fresh), "reset": True}` (line `:5453` on `d11bfcd`, not `:5447`), but
+  with `start_fresh` OFF the network **survived**: `hidden_units` stayed `1` across the restart and
+  `current_epoch` reset `1 → 0`. The hard-coded `reset` resets training counters, not the model. The gate was
+  guarding less than it appeared to, and the outcome alert's claim to have "continued the current model" is
+  substantively **true**.
+- **The outcome alert is truthful — but ungrammatical.** It rendered
+  `Restart succeeded. Restart complete. Started continued the current model.` `:5504` appends
+  `"a fresh model."` / `"continued the current model."` onto a prefix already ending in `Started`. Cosmetic,
+  but this is the surface the plan requires to read truthfully, and *"Started continued"* invites a misread.
+
+### A finding that wasn't: checking the ledger before filing
+
+A live, reproducible observation — a dashboard loaded **while training is already running** shows
+`Stopped / Idle / 0 hidden units` with `#latency-display` **empty**, and never recovers — was drafted as a new
+P1 and then **withdrawn as a duplicate**. F-CANOPY-006 (P0, OPEN) already establishes that the topology
+counters "never update from any source", and segment 4 recorded the same 0/0/0-vs-correct-`/api/topology`
+reading as corroboration; F-CANOPY-004 (P0/P1, OPEN) already records a starved server-side callback leaving an
+"alert element still empty 6+ min later". The observation is those two findings' blast radius.
+
+What it does add, kept on the `F-CANOPY-020` row: the affected surface is the **top status bar itself** — the
+dashboard's primary readout, written as one group by `update_unified_status_bar` (`:3087-3104`) on the same
+1 s `fast-update-interval` that F-CANOPY-006 already fingers as the supersession driver; the failure is
+**permanent**, not the documented 30 s–minutes lag; `#latency-display` rendering *empty* rather than stale is a
+clean discriminator between "never produced a value" and "produced a late one"; and it correlates with **when
+the page was loaded** — the only page in the session with a live status bar was loaded *before* training
+started and tracked correctly throughout, including candidate progress `400/400`.
+
+Ruled out along the way, so a fixer need not re-run them: interval throttling
+(`visibilityState: 'visible'`, `hasFocus: true`), a dead callback loop (**62** `_dash-update-component` POSTs
+in a 12 s window, all 200), JS errors (none), server-side errors (none), and init/localStorage state (broken
+with the welcomed key both set and cleared, in a fresh tab, and after a full canopy restart).
+
+### Methodology notes (segment 9)
+
+- **Playwright's post-click ack times out on this page, but the click lands.** `locator.click()` — even with
+  `force: true` — exceeds the tool's budget after "done scrolling", while the element is provably stable
+  (identical rect across 6 samples), topmost at its centre, and `pointerEvents: auto`. `page.mouse.click(x, y)`
+  fired without awaiting completion **does** reach the app: the console recorded
+  `[Phase D] WS command success: stop <uuid>` and the backend transitioned. **Verify clicks by effect, never
+  by the tool's return.** Compute the target's coordinates and dispatch immediately — a layout shift between
+  computing and clicking silently misses.
+- **Focus via JS, type with real keys.** The working input technique for the numeric wall is
+  `element.focus()` through `page.evaluate`, then `Control+A` / `Delete` / `keyboard.type()`. The keystrokes are
+  genuinely trusted; only the focusing is scripted. Both `#nn-dataset-elements-input` (`step=1`) and
+  `#nn-dataset-noise-input` (`step="any"`) committed typed values cleanly on post-#489 canopy.
+- **`performance.getEntriesByType('resource')` caps at 250 entries.** A full buffer reads *exactly* like zero
+  traffic and produced an interim "the callback loop is dead" conclusion that was wrong. Call
+  `performance.clearResourceTimings()` and `setResourceTimingBufferSize()` before counting anything.
+- **Read a panel's counters only with its own tab active.** Panels are hidden, not unmounted, so a
+  never-hydrated hidden panel returns `0` and is indistinguishable from a real failure. A first W6-19 reading
+  was taken from the Topology panel while Dataset View was active, and was discarded.
+- **`#welcome-modal` IS the `.modal-dialog`**, not a wrapper around one. `#welcome-modal .modal-dialog`
+  returns null and reads exactly like a closed modal.
+- **Scope `[role=option]` by the trigger's `aria-controls`.** A global query returned six options belonging to
+  *other* open dropdowns. Radix selects also drive reliably by keyboard (focus → `Enter` → arrows) when an
+  option click does not take; note `ArrowDown` + typeahead is not the same as an exact-name click.
+- **`window.cascorControlWS` is not the socket handle** — the bridge registers on `window.cascorWS`, so probing
+  `cascorControlWS.readyState` reports a false "socket unavailable" and invites the wrong transport conclusion.
+- **Settle before judging, again.** The W6-14 summary re-render was read at 2.5 s and looked like a wall; it had
+  updated by the next 1.5 s sample. Sample repeatedly and only call a wall when the value is stable across
+  several reads.
+
+### Row results (segment 9)
+
+`reports/e2e/20260811T010700Z/statuses.tsv` — **119 rows** (112 → 119).
+
+| row | verdict |
+|---|---|
+| W6-16 | **PASS** — progress alert ≈1.8 s, orchestration ran, `reset: True` confirmed at `:5453` |
+| W6-17 | **PASS(truthful) / FAIL(message composition)** — "Started continued the current model." |
+| W6-18 | **PASS** — banner trio unmounts once `pending_dataset` clears |
+| W6-19 | **FAIL(display only — F-CANOPY-006)**; the 2-feature width itself is correct at the API |
+| W6-20 | **FAIL(display only — F-CANOPY-004 class)**; the staged dataset demonstrably *did* apply |
+| C2.1-03 / C2.1-04 / C2.4-03 | **PASS** — re-confirmed on this run (first recorded on run `20260810T002233Z`) |
+| C2.2-02 | **PASS** — active tab restored from `layout-state-store` across reload |
+| C2.5-TRANSPORT | **PASS** — FE-1 confirmed: clicks travel as `/ws/control` frames, **zero** `/api/train/*` browser POSTs |
+| F-CANOPY-019 | **RESOLVED open question** — staged wins, modal describes the sidebar |
+| F-CANOPY-020 | **withdrawn as new** — blast radius of F-CANOPY-004 + F-CANOPY-006 |
+| F-CASCOR-003b | **OPEN QUESTION** — pool retention observed, but not attributable to current cascor main |
+
+### The cascor worker pool: an observation held back on purpose
+
+Starting training from a cold network spawned a forkserver (pid `1503392`, ppid `2830469` — ancestry walked to
+**this arc's** cascor child, not the other session's port-8230 stack) plus **15 children at 116 MiB each**
+(~1740 MiB). After a clean UI stop with `fsm_status` confirmed `STOPPED`, all 16 were **still resident** at
++8 s and again at +90 s. That is the F-CASCOR-003 signature.
+
+It is **not** recorded as a defect against current cascor main, because this leg pins older code: the
+supervised child booted `2026-08-14 03:52:46`, while cascor **#514 — "thread candidate patience and
+convergence to the pool"** merged at `04:57:03` and **#516** at `15:37:23`, both *after*. The leg carries
+`#511/#512/#513` only, and #514 touches the candidate-pool path by name. To settle it: restart the cascor leg
+onto `fadfe80` and repeat start → stop → observe. This is the same trap the segment-8 handoff flagged after it
+nearly cost a duplicate PR — a long-lived supervised leg silently pins its boot-time code, so `ps -o lstart`
+against `git log` is a precondition for attributing *any* observed behaviour.
