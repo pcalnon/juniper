@@ -1,0 +1,51 @@
+# R-5 arm C SMOKE — direct-CLI feasibility probe (tiny budget, throwaway).
+# Confirms `python src/main.py --config <this>` runs to completion and reports an accuracy
+# comparable to the service path, before committing to the full equalised campaign.
+# The CLI's spiral sweep is HARDCODED at 780 deg (spiral_problem.py:666), so `algorithm`
+# and `radius` have no CLI counterpart and n_rotations is inert for its geometry — all
+# three are deliberately omitted here rather than passed and silently ignored.
+schema_version: 1
+experiment:
+  name: r5-arm-c-smoke
+  description: "R-5 arm C feasibility smoke — direct CLI, 2-unit budget"
+  seed: 20260729
+
+service:
+  log_level: INFO
+  metrics_enabled: false
+  auto_start: false
+  auto_start_data_service: false
+
+dataset:
+  generator: spiral
+  persist: false
+  tags: ["r5", "arm-c", "smoke"]
+  params:
+    n_spirals: 2
+    n_points_per_spiral: 500
+    noise: 0.05
+    train_ratio: 0.8
+    test_ratio: 0.2
+    seed: 20260729
+
+training:
+  start_fresh: true
+  params:
+    max_epochs: 100
+    early_stopping: true
+    learning_rate: 0.05
+    correlation_threshold: 0.2
+    candidate_pool_size: 4
+    max_hidden_units: 2
+    patience: 50
+    candidate_epochs: 50
+
+runtime:
+  num_processes: 4
+  blas_threads: 2
+  eval_metrics_enabled: false
+
+outputs:
+  plots: []
+  snapshot_at_end: false
+  max_wall_seconds: 900
