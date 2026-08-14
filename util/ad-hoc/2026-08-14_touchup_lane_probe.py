@@ -5,9 +5,13 @@ Project: juniper-ml
 Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-14
-Status: ad-hoc -- investigation
-Retire when: the ml#1099 touch-up fan-out (mutate -> verify-only) has landed in
-             every repo that has the lane.
+Status: ad-hoc -- investigation (PURPOSE COMPLETE 2026-08-14)
+Retire when: now eligible -- the touch-up fan-out landed in all 8 repos that have
+             the lane. Delete or move to util/ad-hoc/retired/ on the next sweep.
+             Answer it produced: the lane exists in 8 repos (NOT 9 -- juniper-
+             recurrence has none), all named `Bump AGENTS.md Last Updated`, and
+             the name was a required context on none of them, which is what made
+             the rename to `Verify AGENTS.md Last Updated` safe.
 Related: juniper-ml#1099, juniper-cascor#518
 
 Why: converting the lane from "commit a date bump" to "verify the date" renames
