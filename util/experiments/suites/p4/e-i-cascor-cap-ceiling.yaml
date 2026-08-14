@@ -1,0 +1,74 @@
+# E-I (plan §10.5; extends E-A): where does service-mode spiral ACTUALLY top out?
+#
+# E-A under R-3 (ml#1077, evidence ml#1086) made the max_hidden_units cap bind for the first
+# time and found best val 0.735 at cap 32 / pool 8 — but 32 was where the AXIS ended, not where
+# the model stopped improving. The E-A pool-8 column reads 4u→0.545, 8u→0.595, 16u→0.610,
+# 32u→0.735 and is still rising at the top, and val (0.735) sat ABOVE train (0.720), so the run
+# was not yet overfitting either. The recorded 0.735 is therefore still a floor on spiral's
+# service-mode accuracy, exactly as 0.670 was before R-3. This suite continues that one column
+# upward — pool fixed at 8, cap doubling to 64 and 128 — until the curve flattens or turns over.
+#
+# Pool is deliberately NOT swept. E-A settled that question: at fixed cap, pool raises
+# best-candidate correlation monotonically (0.073 → 0.270 → 0.425) but not accuracy, and the
+# pool-32 cell (c011, the most expensive in that grid at 2893 s) reached only 0.665 — below the
+# pool-8 cell at a higher cap. Capacity buys accuracy here; pool does not. Spending this
+# campaign's wall-clock on a second pool column would re-measure a settled finding instead of
+# the open one.
+schema_version: 1
+suite:
+  name: e-i-cascor-cap-ceiling
+  description: "E-I: max_hidden_units ceiling sweep on spiral at fixed pool 8 (E-A extension)"
+  app: cascor
+  base_config: [../../../../../juniper-cascor/conf/experiments/spiral-baseline.yaml]
+  seed_policy: fixed
+#
+# BUDGET — two independent limits, and the smaller one is NOT the suite's.
+#
+# `per_run_timeout_seconds` is only the subprocess timeout run_suite puts on the driver. The
+# limit that actually ends a run is the DRIVER's Q-2 wall-clock budget, which comes from the
+# resolved config's `outputs.max_wall_seconds` — run_suite never passes --max-wall-seconds, so
+# an unoverridden cell inherits spiral-baseline's 3600. That mattered more than E-A's write-up
+# recorded: its widest cell (c011, 2893 s) is described there as never approaching the 7200 s
+# per-cell timeout, but it came within 707 s of the 3600 s budget that would actually have
+# stopped it. Cells here run 2-4x longer, so the driver budget is raised in the matrix below and
+# per_run_timeout_seconds is set ABOVE it — the driver must be the one to stop, because it writes
+# an honest `timed_out` manifest (§13.4) where a subprocess kill leaves none.
+#
+# Sizing: cost is ~linear in the cap. derive_epochs_cap makes it explicit —
+# `effective_iterations = min(max_iterations, max_hidden_units)`, each iteration costing one
+# candidate-pool pass plus one output pass — so a doubled cap is ~2x the iterations. Measured
+# per-doubling growth on the E-A pool-8 column was milder (1.87 / 1.51 / 1.63, i.e. sublinear:
+# output training converges inside patience more often as the net widens), but linear is the
+# safe planning bound. From c010's 1319 s at cap 32 that projects ~2640 s at 64 and ~5280 s at
+# 128; 14400 leaves ~2.7x headroom, and a cell that genuinely needs more than four hours has
+# told us something worth recording as a `timed_out` row rather than something worth hiding.
+#
+# stall_seconds is 1200 (not the 120 s driver default) even though pool 8 did not need it in
+# E-A: the Q-2 detector watches current_epoch, which does not advance at all while the CANDIDATE
+# pool trains, and the candidate phase gets slower every iteration as the cascade widens the
+# input each candidate sees. A healthy 128-unit cell would otherwise read `stalled` late in its
+# growth — the ml#1069 class, arriving through width instead of through pool size.
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 15600, stall_seconds: 1200}
+matrix:
+  # 32 is the CONTROL, not a new measurement: it must reproduce E-A's c010 (32 units, train
+  # 0.7200, val 0.7350, best corr 0.425). seed_policy: fixed leaves experiment.seed and
+  # dataset.params.seed at the baseline's 20260729 for every cell, and dataset_id is
+  # content-addressed on those params, so the control trains the same network on the same data
+  # as c010 and any divergence is stack drift rather than capacity.
+  #
+  # Its cell_id will NOT match c010's — that hashes the override set, and this one carries two
+  # extra keys — but the TRAJECTORY is identical, because both added keys are inert here by
+  # construction: the cap binds at 32 units long before iteration 128, and 14400 s is never
+  # reached by a cell that took 1319 s. That inertness is itself worth proving, since the 64 and
+  # 128 cells depend on `max_iterations` beyond the cap being harmless.
+  training.params.max_hidden_units: [32, 64, 128]
+  # One value each — single-element axes add no cells (expand_cells takes the cross-product), so
+  # this stays a 3-cell suite. max_iterations must CLEAR the largest cap or that cap can never
+  # bind and the R-3 defect returns in a new costume: growth adds one unit per iteration, so 128
+  # is exactly enough for the largest cap here and inert for the two below it.
+  training.params.candidate_pool_size: [8]
+  training.params.max_iterations: [128]
+  outputs.max_wall_seconds: [14400]
+# Cheapest cell first (the matrix preserves list order), so a drifted stack fails the ~22-minute
+# control rather than four hours into the widest cell.
+outputs: {suite_dir: null, aggregate: [csv, markdown]}
