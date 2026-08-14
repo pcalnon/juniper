@@ -27,7 +27,8 @@ Statuses reflect as-built reality at proposal time (most items shipped before th
 
 **Status**: shipped  **Priority**: P0  **Category**: TRAIN  **Owner**: rec
 **Sources**: `juniper-ml/notes/JUNIPER_2026-06-18_JUNIPER-RECURRENCE_EVALUATION-DESIGN.md` (OQ-14 bands); `juniper-recurrence/bench/run_benchmark.py` (`evaluate_bands`)
-**Detail**: The variable-Δt LMU must (band 1) cut RMSE ≥ 25% vs the fixed-Δt control on irregular-Δt data, (band 2) beat naive persistence and match/beat the linear ridge baseline on every primary dataset, and (band 3) tie fixed-Δt on regular grids. The pre-registered `PRIMARY_DATASETS` + `evaluate_bands` are the sole scoring authority (DP-5 guardrail).
+**Detail**: The variable-Δt LMU must (band 1) cuDocumentation Links
+Build Pt RMSE ≥ 25% vs the fixed-Δt control on irregular-Δt data, (band 2) beat naive persistence and match/beat the linear ridge baseline on every primary dataset, and (band 3) tie fixed-Δt on regular grids. The pre-registered `PRIMARY_DATASETS` + `evaluate_bands` are the sole scoring authority (DP-5 guardrail).
 
 ### JR-REC-TRAIN-002 — Readout spectrum (linear / RFF / MLP) with a capacity instrument
 

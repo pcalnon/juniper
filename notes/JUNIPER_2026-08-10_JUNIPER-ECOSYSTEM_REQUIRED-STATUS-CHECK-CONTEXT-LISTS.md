@@ -27,7 +27,8 @@ A required context that never reports is never satisfied. The result:
 | juniper-cascor-worker | 30       | 10      | **20**       |
 | juniper-deploy        | 30       | 4       | **26**       |
 | juniper-data-client   | 30       | 8       | **22**       |
-| juniper-cascor-client | 30       | 8       | **22**       |
+| juniper-cascor-client | 30       | 8       | **22**       |Documentation Links
+Build P
 | juniper-recurrence    | 30       | 1       | **29**       |
 | **TOTAL**             |          |         | **200**      |
 
@@ -173,8 +174,7 @@ Unit Tests + Coverage (Python 3.14 on ubuntu-latest)
 
 ```bash
 Analyze (python)
-Async-route audit (BUG-JD-10 class)
-Bandit
+Async-route audit (BUG-JD-10 class)Documentation Links
 Build Package
 Dependency Documentation
 Documentation Links
@@ -308,17 +308,17 @@ adopted the fleet naming. **Fix the CI structure first** (§5), then require the
 Tier 1 applied by the owner via the web UI. Re-audit result — **200 blocking contexts
 reduced to 9**, all one systematic cause:
 
-| Repo | Required | Blocking | Remaining issue |
-|---|---|---|---|
-| juniper-ml | 14 | **0** | ✅ clean |
-| juniper-cascor | 21 | 1 | `Security Scan` |
-| juniper-canopy | 18 | 1 | `Security Scan` |
-| juniper-data | 19 | 1 | `Security Scan` |
-| juniper-cascor-worker | 19 | 1 | `Security Scan` |
-| juniper-deploy | 7 | 1 | `Security Scan` |
-| juniper-data-client | 17 | 1 | `Security Scan` |
-| juniper-cascor-client | 17 | 1 | `Security Scan` |
-| juniper-recurrence | 6 | 3 | `Security Scan`, `Analyze (python)`, `Quality Gate` |
+| Repo                  | Required | Blocking | Remaining issue                                     |
+|-----------------------|----------|----------|-----------------------------------------------------|
+| juniper-ml            | 14       | **0**    | ✅ clean                                            |
+| juniper-cascor        | 21       | 1        | `Security Scan`                                     |
+| juniper-canopy        | 18       | 1        | `Security Scan`                                     |
+| juniper-data          | 19       | 1        | `Security Scan`                                     |
+| juniper-cascor-worker | 19       | 1        | `Security Scan`                                     |
+| juniper-deploy        | 7        | 1        | `Security Scan`                                     |
+| juniper-data-client   | 17       | 1        | `Security Scan`                                     |
+| juniper-cascor-client | 17       | 1        | `Security Scan`                                     |
+| juniper-recurrence    | 6        | 3        | `Security Scan`, `Analyze (python)`, `Quality Gate` |
 
 **Cause:** `Security Scan` (singular) was added fleet-wide, but **only juniper-ml names
 its job that way**. Six repos emit `Security Scans` (plural); deploy and recurrence have
@@ -326,12 +326,12 @@ no security-scan job at all.
 
 **Fix:**
 
-| Repo | Action |
-|---|---|
-| cascor, canopy, data, cascor-worker, data-client, cascor-client | `Security Scan` → **`Security Scans`** |
-| deploy | **remove** `Security Scan` — no such job (Tier 2 adds one) |
-| recurrence | **remove** `Security Scan`, `Analyze (python)`, `Quality Gate` — none exist (Tier 2) |
-| juniper-ml | none — already correct |
+| Repo                                                            | Action                                                                               |
+|-----------------------------------------------------------------|--------------------------------------------------------------------------------------|
+| cascor, canopy, data, cascor-worker, data-client, cascor-client | `Security Scan` → **`Security Scans`**                                               |
+| deploy                                                          | **remove** `Security Scan` — no such job (Tier 2 adds one)                           |
+| recurrence                                                      | **remove** `Security Scan`, `Analyze (python)`, `Quality Gate` — none exist (Tier 2) |
+| juniper-ml                                                      | none — already correct                                                               |
 
 ---
 
@@ -342,18 +342,18 @@ likely to expose a wrongly-required path-gated context). Every merge was verifie
 its ruleset rule-suite: `result: pass` means the rules were **evaluated and satisfied**;
 `bypass` would mean admin override. **All ten merges recorded `pass`.**
 
-| Repo | PR | Merge SHA | Rule suite |
-|---|---|---|---|
-| juniper-ml | #1071 | `21beca1a` | `pass` |
-| juniper-ml | #1070 (re-signed) | `c90584cd` | `pass` |
-| juniper-cascor | #510 | `ed7c5907` | `pass` |
-| juniper-canopy | #487 | `1cec3328` | `pass` |
-| juniper-data | #259 | `08e9a416` | `pass` |
-| juniper-cascor-worker | #150 | `82686487` | `pass` |
-| juniper-deploy | #174 | `11150bc5` | `pass` |
-| juniper-data-client | #147 | `7a28b0b0` | `pass` |
-| juniper-cascor-client | #114 | `270c2669` | `pass` |
-| juniper-recurrence | #106 | `0bfe142b` | `pass` |
+| Repo                  | PR                | Merge SHA  | Rule suite |
+|-----------------------|-------------------|------------|------------|
+| juniper-ml            | #1071             | `21beca1a` | `pass`     |
+| juniper-ml            | #1070 (re-signed) | `c90584cd` | `pass`     |
+| juniper-cascor        | #510              | `ed7c5907` | `pass`     |
+| juniper-canopy        | #487              | `1cec3328` | `pass`     |
+| juniper-data          | #259              | `08e9a416` | `pass`     |
+| juniper-cascor-worker | #150              | `82686487` | `pass`     |
+| juniper-deploy        | #174              | `11150bc5` | `pass`     |
+| juniper-data-client   | #147              | `7a28b0b0` | `pass`     |
+| juniper-cascor-client | #114              | `270c2669` | `pass`     |
+| juniper-recurrence    | #106              | `0bfe142b` | `pass`     |
 
 ### The blocker chain (each masked the next)
 
@@ -392,6 +392,30 @@ ruleset was confirmed to cover the same ground; the pre-delete config was captur
 | **`allow_auto_merge: false` on 8 of 9 repos** (only juniper-ml `true`) | `gh pr merge --auto` there **silently falls back to an immediate merge** instead of arming. Sharp edge for any automated flow. |
 | **A PR stuck at `CLEAN`** | Re-arm auto-merge — a ruleset edit is not a PR event, so nothing re-evaluates the queue. Do **not** admin-merge. |
 | **canopy requires the macOS unit-test leg** | It carries the known CSRF-TTL flake (`test_validate_refreshes_ttl`; 1 failed / 5645 passed, green on rerun). juniper-data runs its macOS leg `continue-on-error` while keeping the Linux legs required — canopy is inconsistent with that. See Tier 2. |
+| **Renaming a test is a symbol LOSS to post-merge `main-verify`** | The screen is AST-based and does not know a rename from a deletion, so the old qualified name must be waived on the squash commit or `main-verify` goes red on `main` — see §4e. |
+
+### 4e. Renames need a waiver trailer on the *squash* commit
+
+Renaming `FleetSupervisorAgentTest.test_body_notes_gpgsign_for_delegated_commits` in ml#1062
+(a deliberate, documented rename) left post-merge **main-verify** red on `main`: the symbol
+screen reported `[FAIL/LOST] … method:FleetSupervisorAgentTest.test_body_notes_gpgsign_for_delegated_commits`
+because the squash commit carried no waiver trailer.
+
+Three things make this bite harder than it looks:
+
+1. **The screen cannot distinguish a rename from a deletion.** It compares AST symbol
+   inventories between base and head; the old qualified name is simply gone.
+2. **The trailer must be on the commit that actually lands on `main`.** A trailer written only
+   on a branch commit is discarded by squash-merge. Set it in the squash body at merge time.
+3. **A red `main-verify` is sticky.** Its catch-up base is the last *successful* main-verify tip
+   that is an ancestor of HEAD, so once the streak starts the screened window keeps growing and
+   the same finding re-reports on every later commit — including commits from other sessions
+   that had nothing to do with it. One waiver clears the whole streak.
+
+Diagnosis note: this streak began earlier, on 2026-08-10 at `b8201d0`, with a **different** job
+failing (`Regression Battery`, symbol screen green). That resolved on its own, and by
+2026-08-14 the battery was green on every run while the symbol screen was the sole failure.
+Check *which job* failed before assuming a streak has one cause.
 
 ---
 

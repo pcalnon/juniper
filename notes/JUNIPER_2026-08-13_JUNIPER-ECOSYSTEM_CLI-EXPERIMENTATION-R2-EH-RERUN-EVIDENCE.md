@@ -22,10 +22,10 @@ They were not re-run.
 
 Suite `e-h-real-data-20260813T131815Z`, 2/2 cells `succeeded`, both screened `oom == 0`.
 
-| cell | dataset | units | train | val | wall | completion |
-| --- | --- | --- | --- | --- | --- | --- |
-| c000 | spiral control (smoke budget) | 2 | 0.575 | 0.35 | 119 s | `early_stopped` |
-| c001 | equities AAPL 2015–2022 | **0** | 0.5326 | **0.5284** | 32 s | `below_threshold` |
+| cell | dataset                       | units | train  | val        | wall  | completion        |
+|------|-------------------------------|-------|--------|------------|-------|-------------------|
+| c000 | spiral control (smoke budget) | 2     | 0.575  | 0.35       | 119 s | `early_stopped`   |
+| c001 | equities AAPL 2015–2022       | **0** | 0.5326 | **0.5284** | 32 s  | `below_threshold` |
 
 Against the original, quoted directly from
 [`JUNIPER_2026-08-09_…-P4-STUDIES-EVIDENCE.md` §E-H](JUNIPER_2026-08-09_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P4-STUDIES-EVIDENCE.md):

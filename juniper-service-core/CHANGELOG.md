@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`FailedAuthThrottle` + `build_failed_auth_throttle(...)`** — an IP-keyed, fixed-window throttle
+  for *failed* authentication attempts, checked before authentication and consuming budget only on
+  a 401. `SecurityMiddleware` gains an optional `failed_auth_throttle=` argument and **enables one
+  by default** (10 failures per 60 s per source IP), returning 429 with `Retry-After` past the
+  budget.
+  Defaulting to enabled is safe because budget is spent only on failure: a caller presenting a
+  valid key is never counted, so well-behaved traffic sees no behaviour change whatsoever. A 429
+  from the quota limiter is deliberately *not* counted either — it is a quota outcome, not a
+  credential guess, and counting it would let an authenticated caller throttle itself out of the
+  auth path by exceeding its own quota. Opt out with
+  `build_failed_auth_throttle(enabled=False)`.
+  Both names are exported through the lazy PEP 562 surface, so the dependency-free top-level
+  import is unchanged.
+  Note the throttle is in-memory and per-process: behind multiple replicas the effective budget
+  multiplies by the replica count, and exact fleet-wide enforcement needs a shared store.
+
+### Fixed
+
+- **WebSocket heartbeat timeouts no longer close with the reserved code 1006.** Both
+  `websocket/control_stream.py` and `websocket/training_stream.py` closed a pong-timeout
+  connection with `code=1006`. [RFC 6455 §7.4.1](https://www.rfc-editor.org/rfc/rfc6455.html)
+  reserves that value and forbids an endpoint from setting it as a Close-frame status — it
+  exists for a *receiver* to report a closure that carried no Close frame at all. The
+  `websockets` server used under uvicorn enforces this and raises on serialization, so the
+  close frame never reached the peer: the client was left holding a silent half-open socket
+  with no code and no reason string. Both sites now close **1011** with reason
+  `"Heartbeat timeout: no pong or traffic within <N>s"`, matching the fix `juniper-cascor`
+  already applied to its own copies after the 2026-07-10 control-WS incident. The timeout and
+  ping interval are also now included in the timeout log line. Guarded by an AST-based
+  anti-resurrection test so a new handler cannot reintroduce 1006.
+
+### Security
+
+- **The 401 path is no longer unthrottled.** `SecurityMiddleware` runs authentication before the
+  identity-keyed `RateLimiter`, which is correct — a rejected request must not spend a legitimate
+  caller's quota, and the limiter's bucket key depends on the auth result (`key:{api_key}`, else
+  `ip:{client_ip}`), so limiting first would collapse every authenticated caller behind one NAT
+  into a single bucket. But because an auth failure raises before the limiter is ever reached,
+  **failed authentication consumed no budget at all**: credential guessing and garbage-credential
+  floods were rate limited by nothing.
+  The fix is not to reorder — that trades a real protection for a worse one — but to add a second,
+  coarse limiter ahead of authentication. See `FailedAuthThrottle` above.
+
 ## [0.5.1] - 2026-08-09
 
 ### Fixed

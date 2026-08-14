@@ -15,7 +15,7 @@ from juniper_service_core.middleware import (
     SecurityHeadersMiddleware,
     SecurityMiddleware,
 )
-from juniper_service_core.security import APIKeyAuth, RateLimiter
+from juniper_service_core.security import APIKeyAuth, FailedAuthThrottle, RateLimiter, build_failed_auth_throttle
 
 
 def _base_app() -> FastAPI:
@@ -271,3 +271,167 @@ def test_security_middleware_rate_limit_429_json_preserves_retry_after():
     assert response.headers["X-RateLimit-Limit"] == "1"
     assert response.headers["X-RateLimit-Remaining"] == "0"
     assert response.headers["X-RateLimit-Reset"]
+
+
+# ----------------------------------------------------------------------------------------
+# Pre-authentication failed-attempt throttle
+# ----------------------------------------------------------------------------------------
+
+
+def _auth_app(throttle: FailedAuthThrottle | None = None, *, requests_per_minute: int = 1000) -> TestClient:
+    """An app with API-key auth enabled and a deliberately generous identity-keyed limiter.
+
+    The quota limiter is generous so that any 429 observed in these tests comes from the
+    failed-auth throttle rather than from the quota path.
+    """
+    app = _base_app()
+    kwargs = {} if throttle is None else {"failed_auth_throttle": throttle}
+    app.add_middleware(
+        SecurityMiddleware,
+        api_key_auth=APIKeyAuth(["s3cret"]),
+        rate_limiter=RateLimiter(requests_per_minute=requests_per_minute, enabled=True),
+        **kwargs,
+    )
+    return TestClient(app)
+
+
+def test_failed_auth_attempts_are_throttled():
+    """The defect: auth raised before the limiter, so 401s consumed no budget at all.
+
+    Pre-fix, credential guessing was unthrottled -- a bad key returned 401 forever. The pre-auth
+    throttle closes that: past the budget the caller gets 429 with ``Retry-After``.
+    """
+    client = _auth_app(build_failed_auth_throttle(max_failures=3, window_seconds=60))
+
+    for _ in range(3):
+        assert client.get("/v1/data", headers={"X-API-Key": "wrong"}).status_code == 401
+
+    throttled = client.get("/v1/data", headers={"X-API-Key": "wrong"})
+    assert throttled.status_code == 429
+    assert "failed authentication" in throttled.json()["detail"].lower()
+    assert int(throttled.headers["Retry-After"]) >= 1
+
+
+def test_valid_credentials_never_consume_the_throttle_budget():
+    """Budget is spent only on failure, which is what makes enabling this by default safe.
+
+    A caller presenting a valid key sees no behaviour change however many requests it makes, so
+    the fix cannot throttle well-behaved traffic.
+    """
+    client = _auth_app(build_failed_auth_throttle(max_failures=2, window_seconds=60))
+
+    for _ in range(20):
+        assert client.get("/v1/data", headers={"X-API-Key": "s3cret"}).status_code == 200
+
+    # Budget untouched: two failures still get 401, only the third is throttled.
+    assert client.get("/v1/data", headers={"X-API-Key": "wrong"}).status_code == 401
+    assert client.get("/v1/data", headers={"X-API-Key": "wrong"}).status_code == 401
+    assert client.get("/v1/data", headers={"X-API-Key": "wrong"}).status_code == 429
+
+
+def test_missing_api_key_also_counts_as_a_failed_attempt():
+    """A flood carrying no credentials is the same attack as a flood carrying wrong ones."""
+    client = _auth_app(build_failed_auth_throttle(max_failures=2, window_seconds=60))
+
+    assert client.get("/v1/data").status_code == 401
+    assert client.get("/v1/data").status_code == 401
+    assert client.get("/v1/data").status_code == 429
+
+
+def test_throttle_is_enabled_by_default():
+    """Constructing SecurityMiddleware without the argument still closes the gap.
+
+    An opt-in security fix that nobody opts into does not fix anything. The default budget is
+    the library default of 10 failures per 60 s.
+    """
+    client = _auth_app()  # no throttle passed
+
+    for _ in range(10):
+        assert client.get("/v1/data", headers={"X-API-Key": "wrong"}).status_code == 401
+    assert client.get("/v1/data", headers={"X-API-Key": "wrong"}).status_code == 429
+
+
+def test_throttle_can_be_opted_out():
+    """``enabled=False`` restores the pre-fix behaviour for anyone who needs it."""
+    client = _auth_app(build_failed_auth_throttle(enabled=False))
+
+    for _ in range(25):
+        assert client.get("/v1/data", headers={"X-API-Key": "wrong"}).status_code == 401
+
+
+def test_quota_429_is_not_counted_as_an_authentication_failure():
+    """Only 401 feeds the throttle.
+
+    A 429 from the identity-keyed limiter is a quota outcome, not a credential guess. Counting it
+    would let an authenticated caller throttle *itself* out of the auth path merely by exceeding
+    its own quota.
+    """
+    throttle = build_failed_auth_throttle(max_failures=2, window_seconds=60)
+    client = _auth_app(throttle, requests_per_minute=1)
+
+    assert client.get("/v1/data", headers={"X-API-Key": "s3cret"}).status_code == 200
+    for _ in range(5):
+        assert client.get("/v1/data", headers={"X-API-Key": "s3cret"}).status_code == 429
+
+    # None of those quota 429s were recorded, so the failure budget is still intact.
+    assert throttle.check("testclient")[0] is False
+
+
+def test_exempt_paths_bypass_the_throttle():
+    """Health checks stay reachable even from an IP that is currently throttled."""
+    client = _auth_app(build_failed_auth_throttle(max_failures=1, window_seconds=60))
+
+    assert client.get("/v1/data", headers={"X-API-Key": "wrong"}).status_code == 401
+    assert client.get("/v1/data", headers={"X-API-Key": "wrong"}).status_code == 429
+    assert client.get("/v1/health").status_code == 200
+
+
+# ----------------------------------------------------------------------------------------
+# FailedAuthThrottle unit behaviour
+# ----------------------------------------------------------------------------------------
+
+
+def test_failed_auth_throttle_check_does_not_consume_budget():
+    throttle = FailedAuthThrottle(max_failures=1, window_seconds=60)
+    for _ in range(10):
+        assert throttle.check("1.2.3.4") == (False, 0)
+    throttle.record_failure("1.2.3.4")
+    blocked, retry_after = throttle.check("1.2.3.4")
+    assert blocked is True
+    assert retry_after >= 1
+
+
+def test_failed_auth_throttle_is_keyed_per_source_ip():
+    throttle = FailedAuthThrottle(max_failures=1, window_seconds=60)
+    throttle.record_failure("1.2.3.4")
+    assert throttle.check("1.2.3.4")[0] is True
+    assert throttle.check("5.6.7.8")[0] is False
+
+
+def test_failed_auth_throttle_window_rolls_over():
+    throttle = FailedAuthThrottle(max_failures=1, window_seconds=0)  # every check starts a new window
+    throttle.record_failure("1.2.3.4")
+    assert throttle.check("1.2.3.4")[0] is False
+
+
+def test_failed_auth_throttle_disabled_never_blocks():
+    throttle = FailedAuthThrottle(max_failures=1, enabled=False)
+    for _ in range(10):
+        throttle.record_failure("1.2.3.4")
+    assert throttle.check("1.2.3.4") == (False, 0)
+
+
+def test_failed_auth_throttle_reset_clears_state():
+    throttle = FailedAuthThrottle(max_failures=1, window_seconds=60)
+    throttle.record_failure("1.2.3.4")
+    assert throttle.check("1.2.3.4")[0] is True
+    throttle.reset()
+    assert throttle.check("1.2.3.4")[0] is False
+
+
+def test_failed_auth_throttle_prunes_expired_entries():
+    """Bounded memory: a dict keyed by attacker-supplied source IPs is itself a DoS vector."""
+    throttle = FailedAuthThrottle(max_failures=100, window_seconds=0)
+    for i in range(FailedAuthThrottle._CLEANUP_INTERVAL + 10):
+        throttle.record_failure(f"10.0.0.{i % 255}")
+    assert len(throttle._failures) <= FailedAuthThrottle._MAX_ENTRIES
