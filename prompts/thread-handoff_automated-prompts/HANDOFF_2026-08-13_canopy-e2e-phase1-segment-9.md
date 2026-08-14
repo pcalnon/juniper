@@ -133,10 +133,19 @@ first CI run failed **`XPASS(strict)`** on `test_apply_pushes_typed_learning_rat
 test had carried a strict xfail for months blaming a Playwright/Dash harness wall, and the fix makes it
 genuinely pass. The xfail's own evidence ("apply callback receives State value=null", "Apply pushes the
 default, not the set value") was the product defect reporting itself; "manual sessions work" because the
-spinner arrows snap to the step grid. Marker removed, docstring corrected, pushed as `2aad49d` — **CI
-re-run not yet observed, check it before merging.** Side effect: the deferred
+spinner arrows snap to the step grid. Marker removed, docstring corrected. Side effect: the deferred
 `selenium`+`multiprocess`+`chromedriver` / `make test-ui-dash` follow-up is unnecessary for this — real
 keystrokes hit the same grid.
+
+**Merge hygiene applied (owner approved merging this arc's PRs).** The branch was force-pushed to a
+SINGLE commit (`61d8d37`) before merge, per [[feedback_squash_merge_first_commit_only]]: it had a
+follow-up commit (the un-xfail) that the first commit's CI *requires*, which is exactly the
+"later commit corrects an earlier one" shape that has silently shipped first-commit-only three times in
+this org (deploy#92, worker#101, canopy#364/#365). Had only the fix landed, main would have gone red with
+`XPASS(strict)`. The collapse also dropped `conf/layouts/metrics_layouts.json` — a tracked fixture whose
+`created` timestamps are rewritten by any local suite run, pure test pollution that had ridden along in
+the original commits. **After merging, confirm the merge commit's diff is all 8 files**
+(`gh pr view 489 --json mergeCommit` then `git show --stat`), never trust the MERGED badge.
 
 Git: branch `arc/canopy-e2e-phase1-seg8`, pushed, clean tree. No stash use. Canopy fix rides its own
 branch `fix/params-step-grid-silent-default` (worktree
