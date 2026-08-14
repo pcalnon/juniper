@@ -38,11 +38,15 @@ its tools are absent, use the drivers.
 
 1. **Remaining global chrome (§2.x)**, then **W5-30 + the DEMO lane** (each demo arm must 501 and render
    `❌ Operation not supported in this mode`).
-2. **W6-16..20 — OWNER GATE.** `#restart-confirm-button` POSTs `/api/train/restart` with `reset`
-   **hard-coded True** (`dashboard_manager.py:5447`) regardless of the start-fresh switch, so confirming
-   wipes the live 10-unit segment-6/7 network. Insurance snapshot `snapshot_20260813T051936Z` is on disk.
-   Driving it also settles the open F-CANOPY-019 question of whether the staged dataset or the modal's
-   summary actually wins at restart.
+2. **W6-16..20 — the owner gate is now CHEAP, because the restart already cost what it was guarding.**
+   `#restart-confirm-button` POSTs `/api/train/restart` with `reset` **hard-coded True**
+   (`dashboard_manager.py:5447`) regardless of the start-fresh switch. That gate existed to protect the
+   live 10-unit segment-6/7 network — which the cascor leg restart has already dropped, so there is no
+   longer anything for it to wipe. Driving it settles the open F-CANOPY-019 question of whether the
+   staged dataset or the modal's summary actually wins at restart. **Precondition: W6-16 needs a network
+   and a staged pending dataset** — re-stage per W6-02/04, and create a network first (restore a
+   snapshot, or run W1) since `/v1/network` is currently 404. Worth doing early in segment 9 while the
+   state is already disposable.
 3. **W6-21** (staging-failure arm) needs the shared juniper-data leg stopped — MANUAL, not attempted.
 4. **W7/W8 remain BLOCKED** — the isolated recurrence leg is down (host 8211 is the juniper-deploy
    container; never record it as the pre-registered T-16 candidate).
@@ -51,32 +55,34 @@ its tools are absent, use the drivers.
 
 ## Key context / gotchas
 
-- Stack UP and supervised: data 8101 / cascor 8202 (supervised child, pid 437062 under supervisor
-  437053) / canopy 8051 (`demo_mode:false`). Supervisor log has **zero child exits** across segments
-  6+7+8 (~24 h).
+- Stack UP and supervised: data 8101 / cascor 8202 / canopy 8051 (`demo_mode:false`).
+- **THE CASCOR LEG WAS RESTARTED at segment-8 close (2026-08-14 03:52:47).** New pids: supervisor
+  **2830431**, child **2830469** — the old 437053/437062 are gone. It now runs post-#511/#512 code (the
+  only other cascor commit since is CI-only #513). The supervisor log therefore shows a deliberate stop
+  (`received a stop signal`) followed by a fresh start — that is expected, NOT the F-ML-001 reaper class.
+  Judge child-exit health only from **03:52:47 onward**.
+- **CONSEQUENCE — the network is EMPTY.** `/v1/network` → 404 `No network created`; canopy reads
+  `fsm: STOPPED, units: 0, network_connected: False`. The 10-unit network with the segment-6/7 mutations
+  is **gone**; params are back to cascor's own defaults, not the restored sidebar baseline. **4** snapshots
+  survive on disk. To restore the documented precondition: restore `snapshot_20260813T051936Z`
+  (insurance) or `snapshot_20260811T010849Z` (pristine V2) — but note a restore drives FSM to
+  INVESTIGATING (segment-7 evidence), which is itself not the STOPPED baseline. Deliberately left empty
+  so segment 9 chooses the state its lane actually needs, rather than inheriting a silent restore.
 - Restart cascor ONLY via `nohup bash util/ad-hoc/e2e_cascor_leg_supervise.bash >/dev/null 2>&1 &` — NOT
-  `e2e_cascor_leg_restart.bash`. **Never reap while the stack runs.**
-- Stack left at baseline: params restored (LR 0.1 / Adam / Tanh), pending dataset cancelled to None, FSM
-  STOPPED, network still 10 units with the segment-7 mutations, **4** snapshots on disk.
-- **GPU released at segment-8 close — and THE CASCOR LEG IS RUNNING STALE CODE.** The segment-7 spirals
-  run left a forkserver launcher + 15 children holding **1740 MiB** (15 × 116 MiB) for ~20 h while
-  `fsm_status` was STOPPED. SIGTERM to the 15 children took the card from 2650 MiB used / 5136 free to
-  **861 / 6925**, zero Juniper processes on it, service fully intact (same pid 437062, same network uuid
-  `d5827628-…`, supervisor still zero child exits). **This is NOT a live defect in cascor main** —
-  `_release_candidate_worker_pool` already exists (`cascade_correlation.py:3727`), called from `fit`'s
-  `finally` (`:1924`) and registered with `atexit` (`:1103`), shipped as **cascor#512** (`a6f5df9`,
-  2026-08-13 00:42:17). The leg started **Aug 12 09:44:51**, ~15 h BEFORE that fix, and the leaked
-  workers spawned 00:23:10, 19 min before the fix commit — so the process holds pre-#512 code in memory.
-  It is missing exactly two src commits: **#511** and **#512**. **RECOMMENDED FIRST ACTION for segment 9
-  (owner call): restart the cascor leg** via
-  `nohup bash util/ad-hoc/e2e_cascor_leg_supervise.bash >/dev/null 2>&1 &` so it picks both up — the cost
-  is the in-memory 10-unit network with the segment-6/7 mutations (insurance snapshot
-  `snapshot_20260813T051936Z` + pristine `snapshot_20260811T010849Z` are on disk). Until that restart the
-  leak recurs after **every** run on this leg (W6-16 included): re-check
-  `nvidia-smi --query-compute-apps=pid,used_memory --format=csv` and SIGTERM the children of the
-  forkserver launcher (`ps -o pid= --ppid <launcher>`), never the service.
-  **General lesson:** a long-lived supervised leg silently pins the code version it booted with — check
-  `ps -o lstart -p <pid>` against `git log` before attributing an observed defect to current main.
+  `e2e_cascor_leg_restart.bash`. It refuses to double-start while 8202 has a listener, so stop first with
+  `kill -TERM <supervisor-pid>` (its trap TERMs the child, escalates to KILL, exits 0). `PROJECT_DIR`
+  defaults to an ABSOLUTE path, so launching it from a session worktree is safe. **Never reap while the
+  stack runs.**
+- **GPU: RELEASED and now self-managing.** The old leg had leaked a forkserver launcher + 15 children
+  holding **1740 MiB** (15 × 116 MiB) for ~20 h while `fsm_status` was STOPPED. That was NOT a live
+  cascor defect — `_release_candidate_worker_pool` (`cascade_correlation.py:3727`, from `fit`'s `finally`
+  `:1924` and `atexit` `:1103`) shipped as **cascor#512** (`a6f5df9`, 2026-08-13 00:42:17), and the leg
+  had booted ~15 h before it. F-CASCOR-003 is recorded WITHDRAWN for that reason. The restart above
+  resolved it at the root: card now **~994 MiB used / 6792 free, zero Juniper processes**, and the new leg
+  releases its own pool after every run. No manual SIGTERM dance is needed any more.
+  **General lesson (kept — it nearly cost a duplicate PR):** a long-lived supervised leg silently pins
+  the code version it booted with. Check `ps -o lstart -p <pid>` against `git log` before attributing an
+  observed defect to current main.
 - **`/api/set_params`, `/api/stage_dataset` and `/api/cancel_pending_dataset` are POSTed SERVER-SIDE from
   Dash callbacks — 0 browser requests is EXPECTED, never score it a failure.** Prove them on the canopy
   server log (read by byte offset; the log is >100 MB) plus the browser's `_dash-update-component`.
@@ -104,21 +110,33 @@ its tools are absent, use the drivers.
 
 ```bash
 cd /home/pcalnon/Development/python/Juniper/juniper-ml/.claude/worktrees/piped-cuddling-squirrel
-git log --oneline -1                                                    # handoff commit atop 660c16d
+git log --oneline -1                                                    # segment-8 tip
 git status --short                                                      # clean
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8101/v1/health   # 200 (repeat 8202, 8051)
-curl -sS http://127.0.0.1:8202/v1/network | head -c 80                  # 10 hidden units
+curl -sS http://127.0.0.1:8202/v1/network | head -c 80                  # 404 "No network created" — EXPECTED post-restart
 curl -sS http://127.0.0.1:8051/api/v1/snapshots | python3 -c "import sys,json;print(len(json.load(sys.stdin)['snapshots']))"   # 4
-curl -sS http://127.0.0.1:8051/api/status | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['fsm_status'], d['pending_dataset'])"  # STOPPED None
-tail -3 /tmp/juniper-e2e/logs/juniper-cascor-supervisor.log             # no child-exit lines
-cut -f1 reports/e2e/20260811T010700Z/statuses.tsv | sed 's/-[0-9]*$//' | sort | uniq -c   # 29 W5 / 21 W6 / 18 NE / 17 REPLAY / 11 W11 / 9 W3 / 4 SNAP
+curl -sS http://127.0.0.1:8051/api/status | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['fsm_status'], d['hidden_units'], d['network_connected'])"  # STOPPED 0 False
+tail -4 /tmp/juniper-e2e/logs/juniper-cascor-supervisor.log             # deliberate stop + fresh start 03:52:47; no exits AFTER that
+ps -o pid,lstart= -p 2830469                                            # Fri Aug 14 03:52:46 — post-#512 leg
+cut -f1 reports/e2e/20260811T010700Z/statuses.tsv | sed 's/-[0-9]*$//' | sort | uniq -c   # 29 W5 / 21 W6 / 18 NE / 17 REPLAY / 11 W11 / 9 W3 / 4 SNAP / 2 F-CANOPY / 1 F-CASCOR = 112
 nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv | grep -c Juniper   # 0 — card released
 python3 -m unittest -q tests/test_isolated_stack_script.py              # 66/66 OK
 pre-commit run --from-ref origin/main --to-ref HEAD                     # clean
-gh pr view 489 --repo pcalnon/juniper-canopy --json state,title         # the F-CANOPY-017 fix, open
+gh pr view 489 --repo pcalnon/juniper-canopy --json state,statusCheckRollup   # F-CANOPY-017 fix, OPEN
 ```
 
 All executed at segment-8 close and pass as written.
+
+**Open PR — juniper-canopy#489** (`fix/params-step-grid-silent-default`, worktree
+`worktrees/juniper-canopy--fix--params-step-grid--20260813-1030--2fdd2a0`): the F-CANOPY-017 fix. Its
+first CI run failed **`XPASS(strict)`** on `test_apply_pushes_typed_learning_rate_into_backend` — that
+test had carried a strict xfail for months blaming a Playwright/Dash harness wall, and the fix makes it
+genuinely pass. The xfail's own evidence ("apply callback receives State value=null", "Apply pushes the
+default, not the set value") was the product defect reporting itself; "manual sessions work" because the
+spinner arrows snap to the step grid. Marker removed, docstring corrected, pushed as `2aad49d` — **CI
+re-run not yet observed, check it before merging.** Side effect: the deferred
+`selenium`+`multiprocess`+`chromedriver` / `make test-ui-dash` follow-up is unnecessary for this — real
+keystrokes hit the same grid.
 
 Git: branch `arc/canopy-e2e-phase1-seg8`, pushed, clean tree. No stash use. Canopy fix rides its own
 branch `fix/params-step-grid-silent-default` (worktree
