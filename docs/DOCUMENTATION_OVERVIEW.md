@@ -48,7 +48,7 @@
 | **Operate weekly docs-full-check**      | [REFERENCE — Docs Full Check](REFERENCE.md#docs-full-check)                                                                     | docs/    |
 | **Understand weekly security / lockfile hygiene** | [REFERENCE — Scheduled Security Scan and Lockfile Update](REFERENCE.md#scheduled-security-scan-and-lockfile-update)     | docs/    |
 | **Read the release-train detect summary / Slack** | [REFERENCE — Detect Summary and Slack](REFERENCE.md#release-train-detect-summary-and-slack)                             | docs/    |
-| **Understand the AGENTS.md date auto-bump** | [REFERENCE — AGENTS.md Touch-Up](REFERENCE.md#agentsmd-touch-up)                                                             | docs/    |
+| **Understand the AGENTS.md date check** | [REFERENCE — AGENTS.md Date Check](REFERENCE.md#agentsmd-date-check)                                                             | docs/    |
 | **Audit `claude.yml` access safeguards**| [REFERENCE — Claude.yml Access Validation](REFERENCE.md#claudeyml-access-validation) + [ANTHROPIC API key walkthrough](../notes/JUNIPER_2026-05-10_JUNIPER-ECOSYSTEM_ANTHROPIC-API-KEY-ACCESS-VALIDATION-WALKTHROUGH.md) | docs/ + notes/ |
 | **Debug service-core middleware / control-WS / workers** | [REFERENCE — juniper-service-core](REFERENCE.md#juniper-service-core)                                           | docs/    |
 | **Create or clean a worktree**          | [Worktree setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) / [cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md) | notes/ |
@@ -67,7 +67,7 @@
 |----------------------------------------|------------|--------------------------------------------------------------------------------------------------|
 | **DOCUMENTATION_OVERVIEW.md**          | Overview   | This file -- navigation index                                                                    |
 | **QUICK_START.md**                     | Tutorial   | Install Juniper packages in under a minute                                                       |
-| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, agent-suite doctor, post-merge main-verify, YubiKey GPG pointer, fleet triage / sequence-safety, shared-package CI + publish pipelines, scheduled security-scan / lockfile-update, docs-full-check, release-train detect summary, AGENTS.md touch-up, `claude.yml` access validation, sibling packages (incl. service-core), release-workflow, flood CI gates, and open-PR budget alarm |
+| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, agent-suite doctor, post-merge main-verify, YubiKey GPG pointer, fleet triage / sequence-safety, shared-package CI + publish pipelines, scheduled security-scan / lockfile-update, docs-full-check, release-train detect summary, AGENTS.md date check, `claude.yml` access validation, sibling packages (incl. service-core), release-workflow, flood CI gates, and open-PR budget alarm |
 | **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, CI guardrail and hygiene tasks, signing-ceremony tasks, service-core contracts, and experiment-stack tasks |
 
 > The deprecated monolithic cheatsheet (`DEVELOPER_CHEATSHEET-ORIGINAL.md`)

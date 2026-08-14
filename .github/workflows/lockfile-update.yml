@@ -55,6 +55,13 @@ jobs:
         with:
           branch: chore/lockfile-update
           delete-branch: true
+          # required_signatures (2026-08-12 normalization, juniper-ml#1099):
+          # the action's default local commit is UNSIGNED, which makes the PR
+          # unmergeable -- an unsigned commit anywhere in the branch history
+          # blocks the merge and squash does not rescue it. sign-commits routes
+          # the commit through the GitHub API so it is signed as
+          # github-actions[bot].
+          sign-commits: true
           commit-message: 'chore(deps): refresh CI lockfiles'
           title: 'chore(deps): refresh CI lockfiles'
           body: |

@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Runner-commit automations no longer produce unsigned, unmergeable branches** (juniper-ml#1099).
+  The 2026-08-12 branch-protection normalization added `required_signatures` to every repo, and a
+  local `git commit` on a runner is unsigned — an unsigned commit *anywhere* in a branch's history
+  blocks the merge, and squash does not rescue it. juniper-ml#1096 fixed this for `propose.py`; the
+  remaining lanes are fixed here. Live repro: [juniper-cascor#518](https://github.com/pcalnon/juniper-cascor/pull/518),
+  the `juniper-cascor v0.9.0` proposal — 20/20 checks green, zero review threads, `mergeable: MERGEABLE`,
+  and still `BLOCKED` on one unsigned lockfile commit.
+  - `.github/workflows/agents-md-touch-up.yml` — **verifies** `**Last Updated**:` instead of rewriting
+    the branch. The value must be a well-formed `YYYY-MM-DD`, not in the future, and either already
+    equal to today's UTC date or changed in the PR; a missing field warns and passes. This kills two
+    failure classes at once: the unsigned commit above, and the `[skip ci]` orphan — the old bump
+    commit became the PR head and, because it carried `[skip ci]`, **no required context ever reported
+    on it**, leaving the PR permanently BLOCKED with every check stuck at "expected"
+    ([cascor#515](https://github.com/pcalnon/juniper-cascor/pull/515)). It also stops the lane racing
+    `Update Lockfile (Dependabot)` for the push slot. Permissions drop from `contents: write` to
+    `contents: read`, the fork guard is gone (verification needs no token), and the job is renamed
+    `Verify AGENTS.md Last Updated` (it is not a required context on any repo). The predicate is
+    "changed *or* already today" rather than "equals today" so a PR spanning several days keeps
+    passing on re-run.
+  - `.github/workflows/lockfile-update.yml` — `peter-evans/create-pull-request` now runs with
+    `sign-commits: true`, so the weekly `chore/lockfile-update` PR is mergeable.
+  - `tests/test_agents_md_touch_up.py` rewritten for the verify contract (12 arms), including an
+    **anti-resurrection** assertion that the extracted shell can never `git commit` / `git push` /
+    `sed -i` / `git add` again, and a rehearsal arm pinning the already-today case.
+
+### Added
+
+- `util/ad-hoc/2026-08-14_signed_workflow_pr.py` — opens a PR on any Juniper repo whose commit is
+  created through `createCommitOnBranch` and is therefore GitHub-signed. Used to land the #1099
+  fan-out, and it dogfoods the mechanism it ships.
+- `util/ad-hoc/2026-08-14_touchup_lane_probe.py` — reports, per repo, whether the touch-up lane
+  exists, its job name, whether that name is a **required** context (renaming a required context
+  would hang every PR), and whether it still mutates. Distinguishes a 404 from a transient fetch
+  failure so a flaky network can never be read as "this repo has no lane".
+
 ## [0.7.1] - 2026-08-09
 
 ### Fixed

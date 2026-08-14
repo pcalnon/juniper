@@ -237,7 +237,7 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 | Weekly docs-full-check | Mon 06:00 UTC / dispatch — clones `ECOSYSTEM_REPOS`, `--cross-repo check` + pin screens     |
 | Audit this `claude.yml`| `bash util/validate_claude_yaml_access.bash .github/workflows/claude.yml`                   |
 | Audit all siblings     | `JUNIPER_ROOT=/path/to/Juniper bash util/validate_claude_yaml_access.bash`                  |
-| AGENTS.md date bump    | Automatic on same-repo PRs touching `AGENTS.md` (`agents-md-touch-up.yml`; bot commit)      |
+| AGENTS.md date bump    | **You bump it**; CI verifies on PRs touching `AGENTS.md` (`agents-md-touch-up.yml`; no bot commit) |
 | Shared-package CI      | Path-scoped `ci-<pkg>.yml` under `.github/workflows/` (six packages; see REFERENCE)         |
 | Open-PR budget alarm   | Daily 14:00 UTC `pr-budget-alarm.yml` (report-only); `gh workflow run pr-budget-alarm.yml`  |
 | Doc links (CI parity)  | `juniper-check-doc-links --exclude templates --exclude history --exclude legacy --cross-repo skip` |
@@ -515,7 +515,7 @@ Tip: meta publish Gate 1 runs **three** TestPyPI installs (bare → `[clients]` 
 
 Tip: shared-package `ci-*.yml` (six sub-packages) must keep path self-inclusion, matrix floors, `--cov-fail-under`, and a blocking `juniper-coverage-gap-map --enforce`. Dropping the workflow self-path or `--enforce` ships green while the package suite stops running or stops enforcing gaps; service-core installs sibling `juniper-model-core` from the monorepo root (no test-job `working-directory`). Full table: [REFERENCE — Shared-Package CI](REFERENCE.md#shared-package-ci-workflows).
 
-Tip: editing `AGENTS.md` on a same-repo PR triggers `agents-md-touch-up.yml` to bump `**Last Updated**:` via a `github-actions[bot]` commit that carries the skip-ci trailer (no-op when already current; warning + exit 0 when the field is missing). Never strip that trailer and never teach the job `--force`; fork PRs are skipped by design. See [REFERENCE — AGENTS.md Touch-Up](REFERENCE.md#agentsmd-touch-up).
+Tip: editing `AGENTS.md` on any PR triggers `agents-md-touch-up.yml`, which **verifies** `**Last Updated**:` — it must be a valid `YYYY-MM-DD`, not in the future, and changed in your PR. Bump it yourself in the same commit (`**Last Updated**: $(date -u +%Y-%m-%d)`); the job never edits your branch. A missing field warns and passes. Since juniper-ml#1099 there is **no** bot commit: the old auto-bump produced unsigned commits (rejected by `required_signatures`) and `[skip ci]` heads that orphaned every required check. See [REFERENCE — AGENTS.md Date Check](REFERENCE.md#agentsmd-date-check).
 
 Tip: release-train detect footers — report/propose count `UNRELEASED_CHANGES` + `BUMPED_NOT_RELEASED` + `SHIP_UNCERTAIN`; the **ceremony** footer counts only `BUMPED_NOT_RELEASED`. A missing/empty `release-manifest.json` shows the hard-fail banner (`FAILED HARD` in Slack), never a quiet clear. See [REFERENCE — Detect Summary and Slack](REFERENCE.md#release-train-detect-summary-and-slack).
 
@@ -589,7 +589,7 @@ Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or r
 | Scheduled security scan suddenly fails every run | Someone added `--skip-editable` — that flag belongs only to per-PR `ci.yml`. |
 | No Monday lockfile PR | A clean tree is a no-op; confirm Actions → Update Lockfiles still runs `juniper-generate-dep-docs`. |
 | `test_ci_tools_drift` red after a ci-tools bump | Widen the `<Y` ceiling in `lockfile-update.yml` + `ci.yml` + `docs-full-check.yml` in the same PR. |
-| Extra bot commit on an `AGENTS.md` PR | Expected touch-up bump; confirm only the date line changed. |
+| `Verify AGENTS.md Last Updated` fails | You changed `AGENTS.md` without bumping `**Last Updated**:`. Set it to today's UTC date and push. |
 | `AGENTS.md` date not auto-bumped | Fork PR (skipped by design), missing `**Last Updated**:` field (warning only), or the date is already today. |
 | A shared-package workflow edit never runs its CI | `paths:` must still list the workflow file itself. |
 | Coverage gap map "passes" on a hollow module | Look for a dropped `--enforce` or a newly broad `--omit`. |
