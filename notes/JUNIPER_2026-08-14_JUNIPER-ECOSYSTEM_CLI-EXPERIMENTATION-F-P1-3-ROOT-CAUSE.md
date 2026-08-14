@@ -177,6 +177,11 @@ investigator will reach for and that do nothing. Recommend fixing L-1/L-2 togeth
 `self.output_epochs`, and either forward `max_epochs` or drop the parameter) and deleting L-3
 outright.
 
+> **Superseded — read [§9](#9-5-correction--l-1-is-live-and-l-3-must-not-be-deleted-2026-08-14-post-merge) before acting on this table.**
+> This section was written from a static read. L-1 is **live**, not inert (fixed in cascor#522);
+> L-2's "the argument is dead" is wrong; and deleting L-3 would **break the build** — it is the
+> C2b/Q1 snapshot-compat attribute, not dead code.
+
 ---
 
 ## 6. What this unblocks
@@ -236,7 +241,7 @@ Two traps worth carrying forward:
 | **F-P1-3b** — "structural CLI-path compute overhead" | **WITHDRAWN** (§3) — no compute gap was ever measured; the 590 s was a block, not a workload |
 | P1.2 full-completion row (P1 smoke) | **Re-runnable** — arm A/C are completed direct-CLI runs; the P1 row can close once #517 merges |
 | R-5 §5 "no completed direct-CLI run" | **Resolved**; the head-to-head remains open and needs a #514-consistent campaign (§6) |
-| L-1 … L-4 | **Filed, not fixed** (§5) |
+| L-1 … L-4 | **Superseded by §9** — L-1 was live (fixed, cascor#522); L-2 re-scoped; L-3's "delete" recommendation withdrawn; L-4 still filed |
 
 Artifacts live under the run dir
 `~/.local/state/juniper-experiments/20260814T200636Z-dcf8/artifacts/results/` —
@@ -272,3 +277,90 @@ terminates) is unaffected, and arms A and B remain directly-observed but transcr
 **Do not** grep the shared `juniper-cascor/logs/juniper_cascor.log` for the completion marker: the
 live service rotates it, so a `0` means "rotated", not "never completed" — which inverts the
 finding this note establishes.
+
+---
+
+## 9. §5 correction — L-1 is live, and L-3 must not be deleted (2026-08-14, post-merge)
+
+§5 filed L-1…L-4 as "all inert today" from a **static** read of the budget path. Re-derived
+against the preserved arm C log, two of the four rows were wrong — one in each direction. The
+§5 table above is left as written; this section supersedes it.
+
+| # | §5 said | actually | disposition |
+| --- | --- | --- | --- |
+| L-1 | Inert | **Live on the direct CLI** — the configured budget is discarded for the initial output pass | **FIXED** (cascor#522) |
+| L-2 | "the argument is dead" | **Wrong** — `max_epochs` is consumed; it is only `grow_network` that never receives it | Re-scoped + documented in code |
+| L-3 | Dead; "delete outright" | **Not dead** — it is the C2b/Q1 snapshot-compat attribute | **Recommendation WITHDRAWN** |
+| L-4 | Inert | unchanged | Still filed |
+
+### 9.1 L-1 is live
+
+`fit` resolves `max_epochs = (max_epochs, self.output_epochs)[max_epochs is None]`
+(`cascade_correlation.py:1882`) and spends the result on the **initial** output-layer pass
+(`:1891`). A non-`None` argument therefore *wins over* the config. `solve_n_spiral_problem`
+passed the module constant, so the W-11 override never reached that pass — while every
+per-round pass inside `grow_network` reads `self.output_epochs` directly and did honour it.
+
+The preserved arm C log proves it in that run's own evidence. YAML: `training.params.max_epochs: 100`.
+
+| pass | budget source | epochs reached |
+| --- | --- | --- |
+| initial (`fit` → `train_output_layer`) | `_SPIRAL_PROBLEM_OUTPUT_EPOCHS` | **10000** |
+| per-round #1 (`grow_network`) | `self.output_epochs` | 100 |
+| per-round #2 (`grow_network`) | `self.output_epochs` | 100 |
+
+`Starting main training loop with max_epochs: 10000` where the YAML asked for 100. The initial
+pass ran **17:49:18 → 17:49:36 — ~18 s of a ~40 s run** — with the loss flat at `0.203637` from
+roughly epoch 150 on. Same function, same run, two different budgets.
+
+This is a **measured mechanism, not a resurrection of F-P1-3b.** F-P1-3b claimed a structural
+compute ratio inferred from runs that never finished; this is one identified call site, measured
+from a completed run's own log. It says nothing about a CLI-vs-service ratio, and §6's rule stands.
+
+Two repo-internal specifications were already explicit about the intended semantics, which is why
+this counts as a defect rather than a preference:
+
+- `main.py:246` — `_W11_TRAINING_KEY_MAP` maps the YAML's `max_epochs` onto `output_epochs`
+  precisely so it can bound this pass: *"C2b semantics: TrainingParams.max_epochs is the initial
+  output-training pass budget"*.
+- `manager.py:1614-1637` — `derive_epochs_cap` models the run as
+  `output_epochs + effective_iterations * (candidate_epochs + output_epochs)`, i.e. "one initial
+  output-training pass" costing `output_epochs`.
+
+Fixed in **cascor#522**: `spiral_problem.py:1348` now passes `self.output_epochs`. Pinned by
+`src/tests/unit/test_l1_spiral_output_epochs_budget.py`, verified to fail against the pre-fix
+source. `solve_n_spiral_problem` has no non-test caller outside the direct CLI, so the service
+path is untouched.
+
+### 9.2 L-2 was mis-scoped
+
+`max_epochs` is **not** dead: `:1891` consumes it. What is true is narrower — it is not forwarded
+to `grow_network`, whose per-round passes read `self.output_epochs`. The asymmetry is real and now
+carries a comment at the resolution site rather than being silently surprising.
+
+It is also not purely a CLI concern: `max_epochs` is in the service's
+`TrainingLifecycleManager._FIT_KWARGS`, so an explicit PATCH can still split the initial pass from
+the per-round passes. Whether an explicit `max_epochs` *should* re-budget the per-round passes is
+an open semantic question. It was deliberately not settled inside a fix PR — forwarding it would
+change service behaviour and is golden-suite-visible.
+
+### 9.3 L-3 must not be deleted
+
+§5's "deleting L-3 outright" would **break the build**. `epochs_max` is not dead code that nobody
+noticed; C2b/Q1 already retired it as an *input* while deliberately keeping the attribute:
+
+- `snapshot_serializer.py:354` writes `config_group.attrs["epochs_max"]`, and
+  `test_snapshot_serializer.py::test_epochs_max_roundtrip` asserts `loaded.epochs_max == 777`.
+- `test_c2b_epochs_cap_and_surfaces.py:136` asserts
+  `getattr(lifecycle.network, "epochs_max", None) is not None  # legacy attribute still exists (snapshot compat)`.
+
+`cascade_correlation.py:714` **is** that snapshot-compat attribute, and "the engine never reads it"
+is already the documented intended state (`manager.py:1618-1625`), not a latent defect. The 1e11
+sentinel reads alarmingly, but nothing consults it — which is the point of the C2b design, since
+the reported cap is now derived from the granular limits instead.
+
+**Method note.** Both errors came from reading the budget path statically and stopping at the
+first plausible conclusion — L-1 looked inert because a nearby argument looked dead, and L-3
+looked dead because its assignment has no reader in that one module. Both dissolved on contact
+with the run's own log and a repo-wide grep. The same lesson as F-P1-3b, one level down: a
+static read is not a measurement either.
