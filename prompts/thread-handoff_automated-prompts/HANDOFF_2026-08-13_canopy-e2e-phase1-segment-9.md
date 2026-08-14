@@ -58,16 +58,25 @@ its tools are absent, use the drivers.
   `e2e_cascor_leg_restart.bash`. **Never reap while the stack runs.**
 - Stack left at baseline: params restored (LR 0.1 / Adam / Tanh), pending dataset cancelled to None, FSM
   STOPPED, network still 10 units with the segment-7 mutations, **4** snapshots on disk.
-- **GPU released at segment-8 close (F-CASCOR-003).** cascor never tears its multiprocessing forkserver
-  down after a run ends: the segment-7 spirals run left a launcher + 15 children holding **1740 MiB**
-  (15 × 116 MiB) for ~20 h while `fsm_status` was STOPPED. SIGTERM to the 15 children took the card from
-  2650 MiB used / 5136 free to **861 / 6925**, zero Juniper processes on it, with the service completely
-  intact (same pid 437062, same network uuid `d5827628-…`, supervisor still zero child exits). **These
-  are NOT ppid-1 orphans** — the parent chain runs up to the live cascor service — so
-  `reap_pytest_orphans.bash` classifies them KEEP and cannot recover this memory. Expect the leak to
-  recur after **every** training run: if you drive W6-16 or any other run, re-check
-  `nvidia-smi --query-compute-apps=pid,used_memory --format=csv` afterwards and SIGTERM the children of
-  cascor's forkserver launcher (`ps -o pid= --ppid <launcher>`), never the service itself.
+- **GPU released at segment-8 close — and THE CASCOR LEG IS RUNNING STALE CODE.** The segment-7 spirals
+  run left a forkserver launcher + 15 children holding **1740 MiB** (15 × 116 MiB) for ~20 h while
+  `fsm_status` was STOPPED. SIGTERM to the 15 children took the card from 2650 MiB used / 5136 free to
+  **861 / 6925**, zero Juniper processes on it, service fully intact (same pid 437062, same network uuid
+  `d5827628-…`, supervisor still zero child exits). **This is NOT a live defect in cascor main** —
+  `_release_candidate_worker_pool` already exists (`cascade_correlation.py:3727`), called from `fit`'s
+  `finally` (`:1924`) and registered with `atexit` (`:1103`), shipped as **cascor#512** (`a6f5df9`,
+  2026-08-13 00:42:17). The leg started **Aug 12 09:44:51**, ~15 h BEFORE that fix, and the leaked
+  workers spawned 00:23:10, 19 min before the fix commit — so the process holds pre-#512 code in memory.
+  It is missing exactly two src commits: **#511** and **#512**. **RECOMMENDED FIRST ACTION for segment 9
+  (owner call): restart the cascor leg** via
+  `nohup bash util/ad-hoc/e2e_cascor_leg_supervise.bash >/dev/null 2>&1 &` so it picks both up — the cost
+  is the in-memory 10-unit network with the segment-6/7 mutations (insurance snapshot
+  `snapshot_20260813T051936Z` + pristine `snapshot_20260811T010849Z` are on disk). Until that restart the
+  leak recurs after **every** run on this leg (W6-16 included): re-check
+  `nvidia-smi --query-compute-apps=pid,used_memory --format=csv` and SIGTERM the children of the
+  forkserver launcher (`ps -o pid= --ppid <launcher>`), never the service.
+  **General lesson:** a long-lived supervised leg silently pins the code version it booted with — check
+  `ps -o lstart -p <pid>` against `git log` before attributing an observed defect to current main.
 - **`/api/set_params`, `/api/stage_dataset` and `/api/cancel_pending_dataset` are POSTed SERVER-SIDE from
   Dash callbacks — 0 browser requests is EXPECTED, never score it a failure.** Prove them on the canopy
   server log (read by byte offset; the log is >100 MB) plus the browser's `_dash-update-component`.
