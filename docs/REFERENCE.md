@@ -1665,7 +1665,7 @@ The pinentry stub answers Admin PIN / user PIN / passphrase from `TEST_ADMIN_PIN
 ### Related
 
 - Code-signing migration status: [`notes/JUNIPER_2026-07-16_JUNIPER-ECOSYSTEM_CODE-SIGNING-KEY-MIGRATION-STATUS.md`](../notes/JUNIPER_2026-07-16_JUNIPER-ECOSYSTEM_CODE-SIGNING-KEY-MIGRATION-STATUS.md)
-- Release-train headless commits avoid the owner’s YubiKey (`commit.gpgsign false` on propose; API-signed archive on ceremony) — see AGENTS.md / release-train runbook
+- Release-train headless commits are **API-signed on both lanes** (`createCommitOnBranch` in propose *and* ceremony), so they avoid the owner’s YubiKey while still satisfying `required_signatures`. Propose was unsigned until the 2026-08-12 ruleset normalization made that unmergeable (cascor#515) — see AGENTS.md / release-train runbook
 
 ## Open-PR Budget Alarm
 

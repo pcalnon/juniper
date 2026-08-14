@@ -85,11 +85,13 @@ Status: permanent utility (Phase 2, proposal-PR generation)
 from __future__ import annotations
 
 import argparse
+import base64
 import difflib
 import heapq
 import json
 import os
 import re
+import tempfile
 import subprocess  # nosec B404 - only the gh/git binaries with fixed argv (no shell)
 import sys
 import tomllib  # Python >= 3.11 (juniper-ml requires >= 3.12); parses the meta extras for pin co-changes
@@ -206,17 +208,34 @@ class Proposal:
 class ProposeSources:
     """External effects the generator needs, injected for hermetic testing.
 
-    ``read_file`` / ``list_open_prs`` are the only members the dry-run path uses; ``write_file`` /
-    ``run_git`` / ``open_pr`` are execute-only and may be ``None``. The three execute members are
-    **repo-aware** (Phase 4.1): ``write_file(repo, rel_path, content)`` and ``run_git(repo, args)``
-    target the checkout of ``repo`` -- the juniper-ml checkout for an in-repo package, the sibling's
-    checkout for a cross-repo one -- so a sibling proposal never writes into (or is committed against)
-    the juniper-ml checkout. ``open_pr(repo, base, head, title, body)`` opens the PR in ``repo``."""
+    ``read_file`` / ``list_open_prs`` are the only members the dry-run path uses; the four write
+    members are execute-only and may be ``None``. All are **repo-aware** (Phase 4.1): each takes the
+    target ``repo`` -- juniper-ml for an in-repo package, the sibling for a cross-repo one -- so a
+    sibling proposal never writes into the juniper-ml checkout.
+
+    The write path is **entirely GitHub-API based**, and deliberately so. It previously wrote files
+    into a local checkout and made a local ``git commit`` pinned to ``-c commit.gpgsign=false`` (the
+    runner has no GPG key and the owner's YubiKey-resident key cannot reach a headless commit). Once
+    the 2026-08-12 branch-protection normalization added ``required_signatures`` to all 9 repos, that
+    unsigned commit made every proposal PR unmergeable -- an unsigned commit anywhere on the branch
+    blocks the merge and squash does not rescue it (cascor#515; the pre-normalization cascor#497
+    merged with the identical unsigned commits). A commit authored through GitHub's API under the App
+    / ``GITHUB_TOKEN`` identity is **GitHub-signed / Verified**, which is the same fix ``ceremony.py``
+    already applies to the exempt-archive commit (ml#707). Building the commit through the API also
+    means the write path needs no working tree at all -- checkouts remain read-only inputs.
+
+    - ``resolve_ref_sha(repo, ref)`` -> the tip sha of ``ref`` (the branch point + the optimistic
+      ``expectedHeadOid``).
+    - ``create_branch(repo, branch, sha)`` -> create ``refs/heads/<branch>`` at ``sha``.
+    - ``create_signed_commit(repo, branch, message, additions, expected_head_oid)`` -> one signed
+      commit carrying EVERY edit, where ``additions`` is ``[(path, base64_contents), ...]``.
+    - ``open_pr(repo, base, head, title, body)`` opens the PR in ``repo``."""
 
     read_file: Callable[["detect.PackageEntry", str], "str | None"]
     list_open_prs: Callable[[str], list]
-    write_file: "Callable[[str, str, str], None] | None" = None
-    run_git: "Callable[[str, list], None] | None" = None
+    resolve_ref_sha: "Callable[[str, str], str] | None" = None
+    create_branch: "Callable[[str, str, str], None] | None" = None
+    create_signed_commit: "Callable[[str, str, str, list, str], str] | None" = None
     open_pr: "Callable[..., str] | None" = None
 
 
@@ -236,23 +255,12 @@ def _gh(args: list, timeout: int = 60) -> "str | None":
     return proc.stdout
 
 
-def _git(repo_dir: Path, args: list, timeout: int = 120) -> None:
-    try:
-        proc = subprocess.run(["git", "-C", str(repo_dir), *args], capture_output=True, text=True, timeout=timeout, check=False)  # nosec B603,B607 - fixed argv
-    except FileNotFoundError as exc:
-        raise SourceError("git not found (needed for --execute)") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise SourceError(f"git timed out: {' '.join(args)}") from exc
-    if proc.returncode != 0:
-        raise SourceError(f"git failed ({' '.join(args)}): {(proc.stderr or '').strip()[:200]}")
+# NOTE: there is deliberately no local-``git`` helper here any more. The write path is API-only so a
+# proposal commit is always GitHub-signed; a ``git commit`` helper sitting in this module is exactly
+# the affordance that would let the unsigned path grow back (see ``ProposeSources``).
 
 
 def make_live_sources(owner: str, repo_root: Path, ecosystem_root: Path) -> ProposeSources:
-    def _repo_dir(repo: str) -> Path:
-        # In-repo (juniper-ml) -> the working checkout; a sibling -> its clone under the ecosystem root
-        # (Phase 4.1). Mirrors ``ceremony.make_live_sources._repo_dir`` and ``detect.base_dir_for``.
-        return repo_root if repo == detect.META_REPO else (ecosystem_root / repo)
-
     def read_file(entry: "detect.PackageEntry", filename: str) -> "str | None":
         target = detect.base_dir_for(entry, repo_root, ecosystem_root) / filename
         try:
@@ -269,19 +277,82 @@ def make_live_sources(owner: str, repo_root: Path, ecosystem_root: Path) -> Prop
         except ValueError as exc:
             raise SourceError(f"gh pr list returned non-JSON for {repo}") from exc
 
-    def write_file(repo: str, rel_path: str, content: str) -> None:
-        target = _repo_dir(repo) / rel_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+    def resolve_ref_sha(repo: str, ref: str) -> str:
+        out = _gh(["api", f"repos/{owner}/{repo}/git/ref/heads/{ref}", "--jq", ".object.sha"])
+        sha = (out or "").strip()
+        if not sha:
+            raise SourceError(f"cannot resolve {ref} in {owner}/{repo} (empty sha)")
+        return sha
 
-    def run_git(repo: str, args: list) -> None:
-        _git(_repo_dir(repo), args)
+    def create_branch(repo: str, branch: str, sha: str) -> None:
+        _gh(["api", f"repos/{owner}/{repo}/git/refs", "-X", "POST", "-f", f"ref=refs/heads/{branch}", "-f", f"sha={sha}"])
+
+    def create_signed_commit(repo: str, branch: str, message: str, additions: list, expected_head_oid: str) -> str:
+        # ``gh api graphql -f k=v`` can only pass scalars, and ``fileChanges.additions`` is a LIST --
+        # a proposal commits several files at once (pyproject + CHANGELOG + AGENTS.md, sometimes the
+        # extras test and the dunder). So the whole CreateCommitOnBranchInput goes through as one
+        # ``$input`` object via a JSON request body (``gh api graphql --input <file>``), which keeps
+        # every value JSON-escaped rather than interpolated into the document.
+        body = {
+            "query": _CREATE_COMMIT_ON_BRANCH_MUTATION,
+            "variables": {
+                "input": {
+                    "branch": {"repositoryNameWithOwner": f"{owner}/{repo}", "branchName": branch},
+                    "message": {"headline": message},
+                    "expectedHeadOid": expected_head_oid,
+                    "fileChanges": {"additions": [{"path": path, "contents": contents} for path, contents in additions]},
+                }
+            },
+        }
+        with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8", delete=False) as fh:
+            json.dump(body, fh)
+            body_path = fh.name
+        try:
+            out = _gh(["api", "graphql", "--input", body_path])
+        finally:
+            try:
+                os.unlink(body_path)
+            except OSError:
+                pass
+        try:
+            data = json.loads(out) if out else {}
+        except ValueError as exc:
+            raise SourceError(f"createCommitOnBranch returned non-JSON for {repo}") from exc
+        if data.get("errors"):
+            raise SourceError(f"createCommitOnBranch failed for {repo}: {data['errors']}")
+        return (((data.get("data") or {}).get("createCommitOnBranch") or {}).get("commit") or {}).get("oid") or ""
 
     def open_pr(repo: str, base: str, head: str, title: str, body: str) -> str:
         out = _gh(["pr", "create", "--repo", f"{owner}/{repo}", "--base", base, "--head", head, "--title", title, "--body", body])
         return (out or "").strip()
 
-    return ProposeSources(read_file=read_file, list_open_prs=list_open_prs, write_file=write_file, run_git=run_git, open_pr=open_pr)
+    return ProposeSources(
+        read_file=read_file,
+        list_open_prs=list_open_prs,
+        resolve_ref_sha=resolve_ref_sha,
+        create_branch=create_branch,
+        create_signed_commit=create_signed_commit,
+        open_pr=open_pr,
+    )
+
+
+# The GraphQL mutation that makes the proposal commit GitHub-signed. Unlike ceremony.py's single-file
+# archive variant, this takes the whole input as one ``$input`` object so a proposal can carry every
+# file it edits in ONE commit (see ``create_signed_commit`` for why the scalar ``-f`` form cannot).
+_CREATE_COMMIT_ON_BRANCH_MUTATION = "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid url } } }"
+
+
+def _execute_signed_pr(repo: str, branch: str, edits: list, commit_message: str, base_branch: str, sources: "ProposeSources") -> None:
+    """Branch from ``base_branch`` and land ``edits`` as ONE GitHub-signed commit on ``branch``.
+
+    Shared by both write lanes (the release proposal and the cross-repo consumer-pin follow-on) so
+    neither can drift back to an unsigned local commit -- the whole point of the API path."""
+    base_sha = sources.resolve_ref_sha(repo, base_branch)
+    sources.create_branch(repo, branch, base_sha)
+    additions = [(edit.path, base64.b64encode(edit.new_text.encode("utf-8")).decode("ascii")) for edit in edits]
+    # expectedHeadOid pins optimistic concurrency to the tip we just branched from: if anything else
+    # advanced the branch in between, the mutation fails loudly rather than silently rebasing.
+    sources.create_signed_commit(repo, branch, commit_message, additions, base_sha)
 
 
 # ── version-file editing (static pyproject / dynamic _version.py / AGENTS.md) ─
@@ -335,6 +406,27 @@ def set_agents_version(text: str, new_version: str) -> tuple:
         return text, None
     old = m.group(2)
     new_text = text[: m.start()] + f"{m.group(1)}{new_version}{m.group(3)}" + text[m.end():]
+    return new_text, old
+
+
+def set_agents_last_updated(text: str, date: str) -> tuple:
+    """Replace the ``**Last Updated**:`` header value in AGENTS.md. -> (new_text, old|None).
+
+    Pre-empts the ``agents-md-touch-up.yml`` workflow, which fires on any PR touching AGENTS.md and
+    pushes its own ``[skip ci]`` commit when the date is stale. That commit becomes the PR head, and
+    because it carries ``[skip ci]`` **no required context ever reports on it** -- leaving the proposal
+    permanently BLOCKED (the cascor#515 class: every required check stuck at "expected"). It also races
+    the lockfile workflow, whose push is then rejected. The touch-up job is idempotent, so setting the
+    date here makes it a no-op rather than a mutation. Purely additive: an AGENTS.md with no
+    ``**Last Updated**`` line is returned untouched with ``old=None`` (no invented header) -- the same
+    honesty contract as ``set_agents_version``."""
+    m = re.search(r"^(\*\*Last Updated\*\*:\s*)(\S+)(.*)$", text, re.MULTILINE)
+    if not m:
+        return text, None
+    old = m.group(2)
+    if old == date:
+        return text, old  # already current -- silent success, no phantom edit
+    new_text = text[: m.start()] + f"{m.group(1)}{date}{m.group(3)}" + text[m.end():]
     return new_text, old
 
 
@@ -971,19 +1063,13 @@ def execute_follow_on(fo: "FollowOnPR", sources: ProposeSources, base_branch: st
     """Apply one follow-on to its consumer repo's checkout and open the PR there (Phase 4.2 execute).
     Mirrors ``execute_proposal``: in-repo branches from ``base_branch``, a sibling from ``origin/main``;
     the capability guard is belt-and-suspenders (the caller already skips a skipped/degraded follow-on)."""
-    if sources.write_file is None or sources.run_git is None or sources.open_pr is None:
-        raise SourceError("execute mode needs write_file/run_git/open_pr seam members")
+    if sources.resolve_ref_sha is None or sources.create_branch is None or sources.create_signed_commit is None or sources.open_pr is None:
+        raise SourceError("execute mode needs resolve_ref_sha/create_branch/create_signed_commit/open_pr seam members")
     if fo.skipped or not fo.branch or not fo.edits:
         return ""
     if cross_repo_skip_reason(fo.repo, cross_repo_capable=cross_repo, ecosystem_root=ecosystem_root) is not None:
         return ""
-    start_point = base_branch if fo.repo == WRITABLE_REPO else "origin/main"
-    sources.run_git(fo.repo, ["switch", "-c", fo.branch, start_point])
-    for edit in fo.edits:
-        sources.write_file(fo.repo, edit.path, edit.new_text)
-        sources.run_git(fo.repo, ["add", "--", edit.path])
-    sources.run_git(fo.repo, ["-c", "commit.gpgsign=false", "commit", "-m", fo.commit_message or f"deps: raise {fo.upstream} ceiling"])
-    sources.run_git(fo.repo, ["push", "--set-upstream", "origin", fo.branch])
+    _execute_signed_pr(fo.repo, fo.branch, fo.edits, fo.commit_message or f"deps: raise {fo.upstream} ceiling", base_branch, sources)
     return sources.open_pr(fo.repo, base_branch, fo.branch, fo.pr_title or "", fo.pr_body or "")
 
 
@@ -1279,7 +1365,14 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
                     # composes onto the step-5/5a text (see the step-5 note): one AGENTS.md FileEdit only.
                     agents_new = apply_pin_edits_agents_table(agents_new, entry.pypi_name, cochanges[0].new_req)
 
-    # 5c. the SINGLE AGENTS.md edit, carrying whichever of the three composers actually changed text.
+    # 5c. **Last Updated** true-up. Runs ONLY when a previous composer actually changed AGENTS.md --
+    # the touch-up workflow is path-filtered to AGENTS.md, so a proposal that does not touch the file
+    # cannot trigger it and must not gratuitously bump its date. Composes onto the same text as
+    # 5/5a/5b (see the step-5 note), so it never adds a second FileEdit.
+    if atext is not None and agents_new != atext:
+        agents_new, _ = set_agents_last_updated(agents_new, date)
+
+    # 5d. the SINGLE AGENTS.md edit, carrying whichever of the four composers actually changed text.
     if atext is not None and agents_new != atext:
         prop.edits.append(FileEdit(path="AGENTS.md", old_text=atext, new_text=agents_new))
 
@@ -1418,31 +1511,22 @@ def cross_repo_skip_reason(repo: str, *, cross_repo_capable: bool = False, ecosy
 
 
 def execute_proposal(prop: Proposal, sources: ProposeSources, base_branch: str = "main", *, cross_repo: bool = False, ecosystem_root: "Path | None" = None) -> str:
-    """Apply one proposal to its OWN repo's checkout and open the PR there. Needs the write/git/pr seam.
+    """Land one proposal as a GitHub-signed commit in its OWN repo and open the PR there.
 
     Guarded so it can only run under an explicit ``--execute`` (never the default), and only for a
     package the capability check clears (in-repo always; a sibling only when ``cross_repo`` AND its
-    checkout is on disk). An in-repo package branches from ``base_branch`` (the workflow checkout is on
-    local ``main``); a sibling branches from ``origin/main`` (a fresh clone's authoritative ref). The
-    PR ``--base`` is ``base_branch`` (``main``) in both cases."""
-    if sources.write_file is None or sources.run_git is None or sources.open_pr is None:
-        raise SourceError("execute mode needs write_file/run_git/open_pr seam members")
-    if prop.skipped or not prop.branch:
+    checkout is on disk). Both the branch point and the PR ``--base`` are ``base_branch`` (``main``),
+    resolved through the API -- so unlike the old local-git path there is no in-repo/sibling
+    ``origin/main`` split, and no working tree is touched at all (see ``ProposeSources``)."""
+    if sources.resolve_ref_sha is None or sources.create_branch is None or sources.create_signed_commit is None or sources.open_pr is None:
+        raise SourceError("execute mode needs resolve_ref_sha/create_branch/create_signed_commit/open_pr seam members")
+    if prop.skipped or not prop.branch or not prop.edits:
         return ""
     # Cross-repo guard (belt-and-suspenders -- main() already skips before calling): never write a
-    # sibling's edits into the wrong checkout / open a doomed PR without the capability (plan S9.2).
+    # sibling's edits into the wrong repo / open a doomed PR without the capability (plan S9.2).
     if cross_repo_skip_reason(prop.repo, cross_repo_capable=cross_repo, ecosystem_root=ecosystem_root) is not None:
         return ""
-    start_point = base_branch if prop.repo == WRITABLE_REPO else "origin/main"
-    sources.run_git(prop.repo, ["switch", "-c", prop.branch, start_point])
-    for edit in prop.edits:
-        sources.write_file(prop.repo, edit.path, edit.new_text)
-        sources.run_git(prop.repo, ["add", "--", edit.path])
-    # ``-c commit.gpgsign=false``: the CI runner has no GPG key, and the owner's YubiKey-resident
-    # signing config must never reach a headless commit (it would fail). The workflow's git-config
-    # step also sets this; pinning it on the commit itself makes the job immune regardless of config.
-    sources.run_git(prop.repo, ["-c", "commit.gpgsign=false", "commit", "-m", prop.commit_message or f"release: {prop.pypi_name}"])
-    sources.run_git(prop.repo, ["push", "--set-upstream", "origin", prop.branch])
+    _execute_signed_pr(prop.repo, prop.branch, prop.edits, prop.commit_message or f"release: {prop.pypi_name}", base_branch, sources)
     return sources.open_pr(prop.repo, base_branch, prop.branch, prop.pr_title or "", prop.pr_body or "")
 
 
