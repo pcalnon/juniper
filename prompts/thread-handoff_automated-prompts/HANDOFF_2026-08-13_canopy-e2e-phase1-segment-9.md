@@ -1,12 +1,16 @@
 # HANDOFF 2026-08-13 — Canopy E2E Phase 1: segment 9
 
 Continue Phase 1 live click-by-click validation of the juniper-canopy E2E arc. Segment 8 closed W3,
-drove W6 through step 15, and shipped the first fix PR of the arc. Work is COMMITTED and PUSHED on
-branch `arc/canopy-e2e-phase1-seg8` (worktree `piped-cuddling-squirrel`). Run-id `20260811T010700Z`.
+drove W6 through step 15, and shipped **the first fix of the arc — juniper-canopy#489, merged**. Its
+evidence branch is merged to juniper-ml `main`, so all of it (seg4→seg8) is on `main` now.
+Run-id `20260811T010700Z`; per-run TSV `reports/e2e/20260811T010700Z/statuses.tsv`, 112 rows.
 
-**Branch note.** Branch `arc/canopy-e2e-phase1-seg9` from the pushed seg8 tip. Prior segments' worktrees
-are locked by other sessions; a worktree-isolated session cannot run git against them. This is the arc's
-normal mode, not an exception — it has now repeated four segments running.
+**Branch note — CHANGED at segment-8 close.** Segment 8's branch was **PR'd and merged to `main`**, so
+the accumulated arc evidence (seg4→seg8, 32 wip commits squashed to one) now lives on `main`. **Branch
+`arc/canopy-e2e-phase1-seg9` from `origin/main`, not from a prior segment tip.** The old
+branch-from-the-previous-tip chain — which existed only because prior segments' worktrees are locked by
+other sessions — ends here. If you do land in a fresh `.claude/worktrees/` dir, that lock constraint
+still applies to anything you try to reach sideways; just start from `main`.
 
 **Browser MCP was unavailable in segment 8.** `claude mcp list` reported playwright and chrome-devtools
 connected, but their tools never entered the session tool index and ToolSearch could not find them. The
@@ -51,8 +55,10 @@ its tools are absent, use the drivers.
 3. **W6-21** (staging-failure arm) needs the shared juniper-data leg stopped — MANUAL, not attempted.
 4. **W7/W8 remain BLOCKED** — the isolated recurrence leg is down (host 8211 is the juniper-deploy
    container; never record it as the pre-registered T-16 candidate).
-5. Matrix bulk-fill, then Phase 1 lands as ONE evidence PR (plan §6.2); the wip commits are crash-safety
-   only and squash at close.
+5. Matrix bulk-fill. **Note the evidence-PR cadence CHANGED:** plan §6.2's "Phase 1 lands as ONE
+   evidence PR" was executed at segment-8 close — the accumulated seg4→seg8 branch was squash-merged to
+   `main` rather than held to the end of Phase 1. Segment 9 therefore starts from `main` and lands its
+   own evidence PR the same way, per segment, instead of accumulating a chain.
 
 ## Key context / gotchas
 
@@ -84,6 +90,14 @@ its tools are absent, use the drivers.
   **General lesson (kept — it nearly cost a duplicate PR):** a long-lived supervised leg silently pins
   the code version it booted with. Check `ps -o lstart -p <pid>` against `git log` before attributing an
   observed defect to current main.
+- **THE CARD IS SHARED — check ancestry before blaming (or killing) anything.** At segment-8 close a
+  second cascor appeared on the GPU: 7 forkserver children / ~870 MiB under uvicorn pid 2998041 on
+  **port 8230**, parented straight to `systemd --user`. That is the **experiment_stack cascor range
+  (8230-8259)** — another session's per-run stack, not this arc's leg and not a port conflict (8202 is
+  still held by supervised pid 2830469). **Zero GPU processes trace to the supervised leg.** Before
+  attributing GPU load to this stack, walk the parent chain to a pid you own; before killing anything,
+  prove it descends from *your* leg. Other sessions run cascor concurrently
+  ([[juniper-ml-concurrent-session-activity]]).
 - **`/api/set_params`, `/api/stage_dataset` and `/api/cancel_pending_dataset` are POSTed SERVER-SIDE from
   Dash callbacks — 0 browser requests is EXPECTED, never score it a failure.** Prove them on the canopy
   server log (read by byte offset; the log is >100 MB) plus the browser's `_dash-update-component`.
@@ -170,5 +184,6 @@ reproduce F-CANOPY-017 exactly as recorded — that is stale code, not a regress
 leg before treating any W3 re-run as evidence about current main.** Same class as the cascor leg above;
 `ps -o lstart` vs `git log` applies to every leg, not just cascor.
 
-Git: branch `arc/canopy-e2e-phase1-seg8`, pushed, clean tree. No stash use. Canopy fix is MERGED (worktree
+Git: segment 8's branch `arc/canopy-e2e-phase1-seg8` is MERGED to `main` (32 wip commits squashed to
+one evidence commit); start segment 9 from `origin/main`. No stash use. Canopy fix is MERGED (worktree
 `worktree + branch REMOVED after the merge). Canopy `main` is at `d11bfcd`.
