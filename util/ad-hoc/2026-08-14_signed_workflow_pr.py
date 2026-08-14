@@ -5,10 +5,13 @@ Project: juniper-ml
 Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-14
-Status: ad-hoc -- migration
-Retire when: the ml#1099 runner-commit signing fan-out has landed in all 9 repos
-             (lockfile lanes + agents-md-touch-up lanes) and no further
-             cross-repo workflow PRs are needed for this arc.
+Status: ad-hoc -- migration (fan-out LANDED 2026-08-14; kept as a reusable tool)
+Retire when: no further cross-repo workflow PRs are needed. The ml#1099 fan-out
+             itself is complete -- 11 PRs across **8** repos (juniper-recurrence
+             has no touch-up lane, and only cascor/canopy/data have a lockfile
+             lane), all merged. Consider graduating this to util/ proper rather
+             than retiring it: opening a GitHub-signed PR on a sibling repo is a
+             recurring need, not a one-off.
 Related: juniper-ml#1099, juniper-cascor#518 (live repro), juniper-ml#1096
          (propose.py's create_signed_commit -- the reference implementation)
 

@@ -43,6 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exists, its job name, whether that name is a **required** context (renaming a required context
   would hang every PR), and whether it still mutates. Distinguishes a 404 from a transient fetch
   failure so a flaky network can never be read as "this repo has no lane".
+- `util/ad-hoc/2026-08-14_signing_arc_status.py` — cross-repo merge-readiness board used to land the
+  #1099 fan-out. Its `MERGE-OK` column is the reusable part: a green check rollup is **not** grounds
+  to merge, so it additionally requires contexts that actually **ran** (a PR whose checks never
+  reported also shows no failures — the `[skip ci]` orphan class), zero unresolved review threads
+  (`gh pr checks` does not surface them; ml#1096 sat BLOCKED on one with 18/18 green), every commit
+  signed, and `mergeStateStatus == CLEAN` (`BEHIND`/`BLOCKED` are invisible in the rollup). Counts
+  come from the GraphQL rollup because the installed `gh pr checks` has no `--json`.
 
 ## [0.7.1] - 2026-08-09
 
