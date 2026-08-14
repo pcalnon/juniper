@@ -18,12 +18,13 @@ its tools are absent, use the drivers.
 
 ## Completed in segment 8
 
-- **W3 CLOSED** (01-08 + 16) and **W6 driven 01-15**, all PASS. TSV 79 → **111 rows**.
+- **W3 CLOSED** (01-08 + 16) and **W6 driven 01-15**, all PASS. TSV 79 → **112 rows** (9 W3 + 21 W6 +
+  3 finding rows: F-CANOPY-017, F-CANOPY-019, and the withdrawn F-CASCOR-003).
 - **F-CANOPY-017 (P1)** — editing a step-invalid numeric param silently applies a hardcoded default.
   HTML5 bases the step grid at `min`, so `#nn-learning-rate-input` (`min=0.0001, step=0.001`) rejected
   every plausible learning rate; the edit yields Dash State `None` and `dashboard_manager.py:6975`
   substituted `DEFAULT_LEARNING_RATE=0.01`. Live: 0.0789 → typed 0.0733 → applied 0.01. 7 of 22 sidebar
-  number inputs were off their own grid. **FIX PR OPEN: juniper-canopy#489** (not merged — your review).
+  number inputs were off their own grid. **FIXED — juniper-canopy#489 MERGED 2026-08-14 as `d11bfcd`.**
 - **F-CANOPY-018 (P2)** — `params-status` has two writers; the dirty tracker re-fires on
   `applied-params-store` and overwrites the apply toast, so "Unsaved changes" shows after every
   successful apply and the applied/skipped/clamped detail is never seen. **Not yet fixed.**
@@ -148,16 +149,26 @@ spinner arrows snap to the step grid. Marker removed, docstring corrected. Side 
 `selenium`+`multiprocess`+`chromedriver` / `make test-ui-dash` follow-up is unnecessary for this — real
 keystrokes hit the same grid.
 
-**Merge hygiene applied (owner approved merging this arc's PRs).** The branch was force-pushed to a
-SINGLE commit (`61d8d37`) before merge, per [[feedback_squash_merge_first_commit_only]]: it had a
-follow-up commit (the un-xfail) that the first commit's CI *requires*, which is exactly the
-"later commit corrects an earlier one" shape that has silently shipped first-commit-only three times in
-this org (deploy#92, worker#101, canopy#364/#365). Had only the fix landed, main would have gone red with
-`XPASS(strict)`. The collapse also dropped `conf/layouts/metrics_layouts.json` — a tracked fixture whose
-`created` timestamps are rewritten by any local suite run, pure test pollution that had ridden along in
-the original commits. **After merging, confirm the merge commit's diff is all 8 files**
-(`gh pr view 489 --json mergeCommit` then `git show --stat`), never trust the MERGED badge.
+**MERGED 2026-08-14T09:51Z as `d11bfcd`** (owner approved merging this arc's PRs). Merge-commit diff
+verified: all **8 files, 481 insertions / 110 deletions** — the full change, not first-commit-only. The
+worktree and branch are cleaned up; canopy `main` is at `d11bfcd`.
 
-Git: branch `arc/canopy-e2e-phase1-seg8`, pushed, clean tree. No stash use. Canopy fix rides its own
-branch `fix/params-step-grid-silent-default` (worktree
-`worktrees/juniper-canopy--fix--params-step-grid--20260813-1030--2fdd2a0`) — clean up after #489 merges.
+Getting it there took two non-obvious passes, both worth knowing:
+1. **Collapsed to a single commit first** (`61d8d37`), per [[feedback_squash_merge_first_commit_only]]:
+   the branch had a follow-up commit (the un-xfail) that the first commit's CI *requires* — exactly the
+   "later commit corrects an earlier one" shape that has silently shipped first-commit-only three times
+   here (deploy#92, worker#101, canopy#364/#365). Had only the fix landed, main would have gone red with
+   `XPASS(strict)` on the very test the fix repairs. The collapse also dropped
+   `conf/layouts/metrics_layouts.json` — a tracked fixture whose `created` timestamps any local suite run
+   rewrites, pure pollution that had ridden along.
+2. **Signed it** (`b95d47a`). With every check green the PR still read `BLOCKED`; the cause was
+   `required_signatures` (see the signing note below), not a gate and not a review.
+
+**⚠ THE LIVE CANOPY LEG PREDATES THIS FIX.** It started **Mon Aug 10 20:22:32**, so the running
+dashboard on 8051 still has the old `step`/default-substitution behaviour. Re-driving W3 against it will
+reproduce F-CANOPY-017 exactly as recorded — that is stale code, not a regression. **Restart the canopy
+leg before treating any W3 re-run as evidence about current main.** Same class as the cascor leg above;
+`ps -o lstart` vs `git log` applies to every leg, not just cascor.
+
+Git: branch `arc/canopy-e2e-phase1-seg8`, pushed, clean tree. No stash use. Canopy fix is MERGED (worktree
+`worktree + branch REMOVED after the merge). Canopy `main` is at `d11bfcd`.
