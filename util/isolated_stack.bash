@@ -101,6 +101,17 @@ CANOPY_ORIGIN="http://127.0.0.1:${CANOPY_PORT}"
 # dashboard's own sockets 403-loop. Hand canopy an allowlist for its real origin.
 CANOPY_WS_ALLOWLIST="[\"http://127.0.0.1:${CANOPY_PORT}\",\"http://localhost:${CANOPY_PORT}\"]"
 
+# Snapshot directory (F-E2E-007 / F-CANOPY-007): canopy CREATES snapshots by proxying to the
+# cascor backend (which writes under its own src/snapshots), but LISTS and resolves them by
+# reading a LOCAL directory — JUNIPER_CANOPY_SNAPSHOT_DIR, else the legacy CASCOR_SNAPSHOT_DIR,
+# else "./snapshots" relative to canopy's CWD (canopy src/main.py:1713-1726, read path
+# :1838-1909 / :1764-1806). The shipped docker topology co-mounts one volume
+# (juniper-cascor-snapshots:/app/data) into both services, so the local read resolves; two host
+# processes with different CWDs do NOT share it, and the list endpoint then returns a silent
+# {"snapshots": [], "message": "No snapshots available"} while cascor holds the .h5 — no error,
+# no warning. Point canopy at cascor's real snapshot dir so the whole W5 lifecycle is honest.
+CANOPY_SNAPSHOT_DIR="${JUNIPER_E2E_CANOPY_SNAPSHOT_DIR:-${CASCOR_SRC_DIR}/snapshots}"
+
 DRY_RUN=0
 ACTION=""
 
@@ -342,7 +353,7 @@ canopy_up() {
 
     banner "juniper-canopy  ->  http://127.0.0.1:${CANOPY_PORT}  (${CANOPY_CONDA}, service mode)"
     announce "conda activate ${CANOPY_CONDA} && cd ${CANOPY_SRC_DIR}"
-    announce "JUNIPER_CANOPY_DEMO_MODE=0 JUNIPER_CANOPY_SERVER__HOST=127.0.0.1 JUNIPER_CANOPY_SERVER__PORT=${CANOPY_PORT} JUNIPER_CANOPY_CASCOR_SERVICE_URL=http://127.0.0.1:${CASCOR_PORT} JUNIPER_CANOPY_JUNIPER_DATA_URL=http://127.0.0.1:${DATA_PORT} JUNIPER_CANOPY_CASCOR_WS_ORIGIN=${CANOPY_ORIGIN} JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS=${CANOPY_WS_ALLOWLIST} ${recurrence_env_announce}python main.py   # nohup -> ${LOG_DIR}/juniper-canopy.log"
+    announce "JUNIPER_CANOPY_DEMO_MODE=0 JUNIPER_CANOPY_SERVER__HOST=127.0.0.1 JUNIPER_CANOPY_SERVER__PORT=${CANOPY_PORT} JUNIPER_CANOPY_CASCOR_SERVICE_URL=http://127.0.0.1:${CASCOR_PORT} JUNIPER_CANOPY_JUNIPER_DATA_URL=http://127.0.0.1:${DATA_PORT} JUNIPER_CANOPY_CASCOR_WS_ORIGIN=${CANOPY_ORIGIN} JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS=${CANOPY_WS_ALLOWLIST} JUNIPER_CANOPY_SNAPSHOT_DIR=${CANOPY_SNAPSHOT_DIR} ${recurrence_env_announce}python main.py   # nohup -> ${LOG_DIR}/juniper-canopy.log"
     if is_dry; then return 0; fi
 
     ensure_dir "${LOG_DIR}"
@@ -362,6 +373,7 @@ canopy_up() {
             JUNIPER_CANOPY_JUNIPER_DATA_URL="http://127.0.0.1:${DATA_PORT}" \
             JUNIPER_CANOPY_CASCOR_WS_ORIGIN="${CANOPY_ORIGIN}" \
             JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS="${CANOPY_WS_ALLOWLIST}" \
+            JUNIPER_CANOPY_SNAPSHOT_DIR="${CANOPY_SNAPSHOT_DIR}" \
             "${extra_env[@]}" \
             python main.py >"${LOG_DIR}/juniper-canopy.log" 2>&1 &
         echo "$!" >"${RUN_DIR}/juniper-canopy.pid"

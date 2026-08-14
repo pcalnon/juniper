@@ -903,25 +903,45 @@ the train's checkout, then re-dispatch `ceremony`; if it still fires, the call s
 bug — the happy path always passes `ref=refs/heads/release-notes/…`). Hermetic pin:
 `tests/test_release_train_ceremony.py` (`test_assert_api_allowed_rejects_refs_post_without_ref_field`).
 
-**Runner git identity (headless, unsigned) — must be `--global`.** Both write jobs run a
-`Configure git identity (headless, unsigned)` step that sets `user.name`, `user.email`, and
+**Runner git identity — must be `--global`.** Both write jobs run a
+`Configure git identity` step that sets `user.name`, `user.email`, and
 `commit.gpgsign false` via `git config --global` (`release-train.yml:466-478` propose,
-`675-687` ceremony). Cross-repo `propose` commits inside freshly-cloned **sibling** checkouts; a
+`675-687` ceremony). Cross-repo `propose` clones **sibling** checkouts; a
 repo-local `git config` on the juniper-ml checkout alone leaves those clones with
 `Author identity unknown` (first cross-repo pilot failure, run 30040138774; fixed juniper-ml#705).
-The hosted runner is ephemeral, so `--global` is still job-scoped. `propose.py` also passes
-`-c commit.gpgsign=false` on its commit so a YubiKey-resident signing config never reaches a headless
-run. The detect job must not configure identity (it never commits).
+The hosted runner is ephemeral, so `--global` is still job-scoped.
+The detect job must not configure identity (it never commits).
 
-**Runner git identity (headless, unsigned) — must be `--global`.** Both write jobs run a
-`Configure git identity (headless, unsigned)` step that sets `user.name`, `user.email`, and
+**Commits are API-signed on BOTH lanes (2026-08-14).** `propose.py` used to make an **unsigned**
+local git commit (`-c commit.gpgsign=false`) so a YubiKey-resident config never reached a headless
+run. The 2026-08-12 branch-protection normalization added `required_signatures` to all 9 repos,
+which made every proposal PR unmergeable — an unsigned commit anywhere on the branch blocks the
+merge, and squash does not rescue it (cascor#515; the pre-normalization cascor#497 merged with the
+identical unsigned commits). Both `execute_proposal` and `execute_follow_on` now build their commit
+through the GitHub API via one `_execute_signed_pr` helper, so it is **GitHub-signed / Verified** —
+the same fix `ceremony.py` already applied to the archive commit (ml#707). `propose.py` carries no
+local-`git` helper at all, so the unsigned path cannot grow back. The API path needs no working
+tree; sibling checkouts remain **read-only** inputs.
+
+**Runner git identity — must be `--global`.** Both write jobs run a
+`Configure git identity` step that sets `user.name`, `user.email`, and
 `commit.gpgsign false` via `git config --global` (`release-train.yml:466-478` propose,
-`675-687` ceremony). Cross-repo `propose` commits inside freshly-cloned **sibling** checkouts; a
+`675-687` ceremony). Cross-repo `propose` clones **sibling** checkouts; a
 repo-local `git config` on the juniper-ml checkout alone leaves those clones with
 `Author identity unknown` (first cross-repo pilot failure, run 30040138774; fixed juniper-ml#705).
-The hosted runner is ephemeral, so `--global` is still job-scoped. `propose.py` also passes
-`-c commit.gpgsign=false` on its commit so a YubiKey-resident signing config never reaches a headless
-run. The detect job must not configure identity (it never commits).
+The hosted runner is ephemeral, so `--global` is still job-scoped.
+The detect job must not configure identity (it never commits).
+
+**Commits are API-signed on BOTH lanes (2026-08-14).** `propose.py` used to make an **unsigned**
+local git commit (`-c commit.gpgsign=false`) so a YubiKey-resident config never reached a headless
+run. The 2026-08-12 branch-protection normalization added `required_signatures` to all 9 repos,
+which made every proposal PR unmergeable — an unsigned commit anywhere on the branch blocks the
+merge, and squash does not rescue it (cascor#515; the pre-normalization cascor#497 merged with the
+identical unsigned commits). Both `execute_proposal` and `execute_follow_on` now build their commit
+through the GitHub API via one `_execute_signed_pr` helper, so it is **GitHub-signed / Verified** —
+the same fix `ceremony.py` already applied to the archive commit (ml#707). `propose.py` carries no
+local-`git` helper at all, so the unsigned path cannot grow back. The API path needs no working
+tree; sibling checkouts remain **read-only** inputs.
 
 
 **Ruleset bypass (2026-07-29).** Beyond the workflow-side R7 fence above, the App is a juniper-ml

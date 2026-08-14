@@ -512,6 +512,7 @@ mv -f "{launch_log}.partial" "{launch_log}"
   printf 'JUNIPER_CANOPY_CASCOR_WS_ORIGIN=%s\\n' "${{JUNIPER_CANOPY_CASCOR_WS_ORIGIN-}}"
   printf 'JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS=%s\\n' "${{JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS-}}"
   printf 'JUNIPER_CANOPY_RECURRENCE_SERVICE_URL=%s\\n' "${{JUNIPER_CANOPY_RECURRENCE_SERVICE_URL-}}"
+  printf 'JUNIPER_CANOPY_SNAPSHOT_DIR=%s\\n' "${{JUNIPER_CANOPY_SNAPSHOT_DIR-}}"
 }} >"{env_log}.partial"
 mv -f "{env_log}.partial" "{env_log}"
 exit 0
@@ -541,6 +542,12 @@ exit 0
         src_dir.mkdir(parents=True, exist_ok=True)
         log_dir = run_dir / "logs"
         effective_recurrence_bin = recurrence_bin or str(conda_dir / "envs" / "JuniperCascor1" / "bin" / "juniper-recurrence")
+        # F-CANOPY-007 remediation: canopy_up exports JUNIPER_CANOPY_SNAPSHOT_DIR, whose script-level
+        # default is "${CASCOR_SRC_DIR}/snapshots". The harness enumerates every variable the function
+        # reads and runs under `set -u`, so a new script-level variable MUST be declared here or the
+        # function aborts on an unbound expansion rather than on anything the test is asserting.
+        cascor_src_dir = src_dir if fn_name == "cascor_up" else src_dir.parent / "cascor-src"
+        snapshot_dir = cascor_src_dir / "snapshots"
         harness = f"""
             set -euo pipefail
             SCRIPT_NAME="isolated_stack.bash"
@@ -554,6 +561,7 @@ exit 0
             CANOPY_PORT="{canopy_port}"
             CANOPY_ORIGIN="http://127.0.0.1:{canopy_port}"
             CANOPY_WS_ALLOWLIST="[\\"http://127.0.0.1:{canopy_port}\\",\\"http://localhost:{canopy_port}\\"]"
+            CANOPY_SNAPSHOT_DIR="{snapshot_dir}"
             CASCOR_CONDA="{cascor_conda}"
             CANOPY_CONDA="{canopy_conda}"
             WITH_RECURRENCE="{with_recurrence}"
@@ -728,6 +736,13 @@ class TestCanopyUp(_CondaServiceUpHarness):
             # Without --with-recurrence the URL must be UNSET (empty probe line) — an empty
             # string export would read as "configured" to canopy's settings (plan §4.5).
             self.assertIn("JUNIPER_CANOPY_RECURRENCE_SERVICE_URL=\n", env_text)
+            # F-CANOPY-007: canopy CREATES snapshots through the cascor backend but LISTS them
+            # off a local dir, defaulting to "./snapshots" relative to its own CWD — so on two
+            # host processes with different CWDs the list is SILENTLY empty while cascor holds
+            # the .h5. canopy_up must point canopy at cascor's real snapshot dir, or the whole
+            # W5 snapshot lifecycle is unreachable from the UI.
+            self.assertIn("JUNIPER_CANOPY_SNAPSHOT_DIR=", env_text)
+            self.assertRegex(env_text, r"JUNIPER_CANOPY_SNAPSHOT_DIR=\S*/cascor-src/snapshots\n")
 
             pid_path = run_dir / "juniper-canopy.pid"
             self.assertTrue(pid_path.is_file(), "canopy_up must write juniper-canopy.pid")
