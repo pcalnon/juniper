@@ -68,12 +68,7 @@ leftover listeners in 8110–8139 / 8230–8259 before resuming.
 - `cell_id` hashes the override set, so R-3 changed every id. Aggregation is fine (keys on
   `cell_id[:4]`) but old `--only <full-id>` refs will not resolve.
 
-## Environment facts that bite
-
-- **`JUNIPER_EXP_PROJECT_DIR=/home/pcalnon/Development/python/Juniper` is load-bearing** in a
-  worktree — without it `base_config` resolves to a non-existent
-  `.claude/worktrees/juniper-cascor/…` and every cell fails to materialise.
-- Use the **JuniperCascor1** python (`/opt/miniforge3/envs/JuniperCascor1/bin/python`) —
+## Environment facts that bitenothingscor1/bin/python`) —
   matplotlib for plots. `JUNIPER_EXP_HEALTH_TIMEOUT=180`.
 - A **live isolated E2E stack** is up: cascor `:8202`, data `:8101`, canopy `:8051`, all
   healthy and idle. It currently holds **zero** GPU (it released its forkserver children).
