@@ -62,7 +62,8 @@ ADVISORY_EXACT = {
     "Build Notification",
     "Notify Downstream Repos",
     "Notify on Failure",
-    "Bump AGENTS.md Last Updated",
+    "Bump AGENTS.md Last Updated",  # pre-#1099 name; kept so older repos still classify
+    "Verify AGENTS.md Last Updated",
     "Update requirements.lock",
     "CodeQL",  # umbrella; the real gate is "Analyze (python)"
 }
