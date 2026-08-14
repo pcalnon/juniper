@@ -47,11 +47,27 @@ echo "F-P1-3 control: backend=INHERITED (MPLBACKEND unset)  bound=${BOUND}s"
 echo "F-P1-3 control: data=${JUNIPER_DATA_URL}"
 
 cd "${CASCOR_SRC}" || exit 2
+
+# The parent's own logger writes to <checkout>/logs/juniper_cascor.log, NOT to stdout — stdout
+# carries only the candidate workers. Record the pre-run length so the run's own slice can be
+# extracted afterwards; without this the completion markers that decide the verdict are not in
+# any preserved artifact. Reliable only when CASCOR_SRC is a DEDICATED checkout/worktree: a
+# shared one is rotated out from under you by any other cascor writing to it.
+PARENT_LOG="${CASCOR_SRC}/../logs/juniper_cascor.log"
+parent_log_before=0
+[[ -f "${PARENT_LOG}" ]] && parent_log_before=$(wc -l <"${PARENT_LOG}")
+
 start=$(date +%s)
 # --foreground so the bound applies to the python process itself, and KILL after a short
 # grace because a Tk mainloop does not always honour TERM promptly.
+#
+# `>>` (O_APPEND), never `>`: a plain truncating redirect hands every forked child a shared,
+# non-append file offset, so an orphaned worker flushing after the kill writes at ITS stale
+# offset and silently overwrites whatever the shell appended in the meantime. That is not
+# hypothetical — it destroyed this script's own verdict line on the 2026-08-14 run.
+: >"${OUT_DIR}/direct_cli_control.log"
 timeout --foreground --kill-after=10s "${BOUND}" \
-    "${PY}" main.py --config "${CONFIG}" >"${OUT_DIR}/direct_cli_control.log" 2>&1
+    "${PY}" main.py --config "${CONFIG}" >>"${OUT_DIR}/direct_cli_control.log" 2>&1
 rc=$?
 end=$(date +%s)
 
@@ -59,6 +75,22 @@ end=$(date +%s)
 # tree explicitly rather than leaving it for the next campaign to trip over.
 pkill -f "${CASCOR_SRC}/main.py --config ${CONFIG}" 2>/dev/null
 pkill -f "main.py --config ${CONFIG}" 2>/dev/null
+sleep 2   # let the reaped children finish flushing before the parent log is sliced
+
+# Preserve the run's slice of the parent log — this is where `Training completed.`,
+# `Started plotting process PID`, and `Completed solving SpiralProblem instance` live, and it is
+# the ONLY place the hang can be told apart from a completion.
+if [[ -f "${PARENT_LOG}" ]]; then
+    parent_log_after=$(wc -l <"${PARENT_LOG}")
+    if ((parent_log_after >= parent_log_before)); then
+        tail -n +$((parent_log_before + 1)) "${PARENT_LOG}" >"${OUT_DIR}/parent_juniper_cascor.log"
+        echo "F-P1-3 control: parent log slice -> ${OUT_DIR}/parent_juniper_cascor.log ($((parent_log_after - parent_log_before)) lines)"
+    else
+        echo "F-P1-3 control: WARNING parent log shrank (rotated mid-run) — slice not preserved; re-run from a DEDICATED worktree"
+    fi
+else
+    echo "F-P1-3 control: WARNING no parent log at ${PARENT_LOG} — completion markers not preserved"
+fi
 
 elapsed=$((end - start))
 echo "F-P1-3 control: exit=${rc} wall_seconds=${elapsed}" | tee -a "${OUT_DIR}/direct_cli_control.log"

@@ -69,7 +69,7 @@ Both calls block under an interactive backend:
 - **`plt.show()`** hands the process to the GUI event loop until every figure window is
   closed. In an automated run there is no one to close them.
 - **`self.plotter.join()`** waits on the dataset-plot child spawned at
-  `spiral_problem.py:1298` — a **non-daemon** `spawn` process, which is itself parked in its
+  `spiral_problem.py:1298` (pre-fix; `:1325` after cascor#517) — a **non-daemon** `spawn` process, which is itself parked in its
   own `plt.show()` (`juniper-cascor/src/cascor_plotter/cascor_plotter.py:125`; the same
   pattern at lines 194 and 246). So even if the parent's `show()` returned, the join would
   not.
@@ -167,7 +167,7 @@ Found while tracing the budget path; all inert today, none bundled into the hang
 
 | # | finding | status |
 | --- | --- | --- |
-| L-1 | `spiral_problem.py:1311` calls `fit(max_epochs=_SPIRAL_PROBLEM_OUTPUT_EPOCHS)` — the module **constant**, not `self.output_epochs`, which is where the W-11 `output_epochs` / `max_epochs` override actually lands. | Inert |
+| L-1 | `spiral_problem.py:1338` (`:1311` pre-cascor#517) calls `fit(max_epochs=_SPIRAL_PROBLEM_OUTPUT_EPOCHS)` — the module **constant**, not `self.output_epochs`, which is where the W-11 `output_epochs` / `max_epochs` override actually lands. | Inert |
 | L-2 | `fit()` never forwards `max_epochs` to `grow_network`: it is logged at `cascade_correlation.py:1910` and then unused (`:1912`). So L-1 is inert *because* the argument is dead — the effective output-epoch budget arrives via the config object, which does carry the override. | Inert |
 | L-3 | `epochs_max` is assigned at `cascade_correlation.py:714` and never read anywhere in that module. Its constant is `_PROJECT_MODEL_EPOCHS_MAX = 100_000_000_000` (`constants_model.py:206`) — a 1e11 sentinel that looks like an unbounded budget but governs nothing. | Dead |
 | L-4 | `training.params.early_stopping` is reported by W-11 as service-tier-only and ignored, so the direct CLI always uses `fit()`'s `early_stopping=True` default. Harmless while every config wants it true; silently wrong the first time one does not. | Inert |
@@ -242,3 +242,33 @@ Artifacts live under the run dir
 `~/.local/state/juniper-experiments/20260814T200636Z-dcf8/artifacts/results/` —
 `fp13-agg/` (arm A), `fp13-control/` (arm B), `fp13-fix-noplots-2/` and `fp13-fix-postisort/`
 (arm C, the latter re-run after isort touched the imports).
+
+### 8.1 Evidence-preservation correction (added after validation)
+
+**The per-arm figures above are NOT re-derivable from those run dirs.** Independent validation of
+this note's handoff caught three compounding causes, all since fixed:
+
+1. The runners captured **stdout only**, and the parent's logger writes to
+   `<checkout>/logs/juniper_cascor.log`. All four arm logs contain **zero** occurrences of
+   `Training completed` / `Started plotting process PID` / `Completed solving` — so the preserved
+   dirs cannot tell arm B apart from arms A/C on the completion marker at all.
+2. Those runs used the **shared** cascor checkout, whose log the live `:8202` service rotates every
+   few minutes. The 15:06-15:14 window has rotated away.
+3. Arm B's own verdict line was **overwritten**: a `>` redirect gives forked children a shared
+   non-append offset, so an orphan flushing after the kill wrote over what the shell had appended.
+
+Both ad-hoc runners now use `>>` and slice the run's own portion of the parent log into
+`OUT_DIR/parent_juniper_cascor.log`. A **preserved** arm-C run (2026-08-14 17:50, dedicated
+worktree) lives at
+`~/.local/state/juniper-experiments/20260814T224846Z-0565/artifacts/results/fp13-armC-preserved/`:
+`Completed solving` ×1, `Training completed` ×1, `Started plotting` ×**0** (proving `--no-plots`
+end to end), 2-unit cap, train **0.95625**.
+
+Two corrections to §1 that follow: train **0.960** / test **0.970** are **arm A's** figures, not
+all three arms'; and the wall times are contention-dependent — arm C measured 38-40 s on an idle
+GPU and **95 s** alongside a live training run. The qualitative result (pre-fix hangs, fixed
+terminates) is unaffected, and arms A and B remain directly-observed but transcript-only.
+
+**Do not** grep the shared `juniper-cascor/logs/juniper_cascor.log` for the completion marker: the
+live service rotates it, so a `0` means "rotated", not "never completed" — which inverts the
+finding this note establishes.
