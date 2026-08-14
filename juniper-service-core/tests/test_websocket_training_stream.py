@@ -205,7 +205,13 @@ async def test_send_metrics_burst_handles_none_history() -> None:
 async def test_heartbeat_ping_loop_closes_on_pong_timeout() -> None:
     ws = TrainingFakeWS()
     await _heartbeat_ping_loop(ws, 0.001, 0.001, asyncio.Event())
-    assert ws.closed == (1006, "Heartbeat timeout")
+    code, reason = ws.closed
+    # See the matching assertion in test_websocket_control_stream.py: RFC 6455 Section 7.4.1
+    # forbids an endpoint from setting 1006 as a Close-frame status, and the ``websockets``
+    # server raises rather than serialize it.
+    assert code == 1011
+    assert code != 1006
+    assert reason.startswith("Heartbeat timeout")
     assert any(m.get("type") == "ping" for m in ws.sent)
 
 

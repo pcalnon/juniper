@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **WebSocket heartbeat timeouts no longer close with the reserved code 1006.** Both
+  `websocket/control_stream.py` and `websocket/training_stream.py` closed a pong-timeout
+  connection with `code=1006`. [RFC 6455 §7.4.1](https://www.rfc-editor.org/rfc/rfc6455.html)
+  reserves that value and forbids an endpoint from setting it as a Close-frame status — it
+  exists for a *receiver* to report a closure that carried no Close frame at all. The
+  `websockets` server used under uvicorn enforces this and raises on serialization, so the
+  close frame never reached the peer: the client was left holding a silent half-open socket
+  with no code and no reason string. Both sites now close **1011** with reason
+  `"Heartbeat timeout: no pong or traffic within <N>s"`, matching the fix `juniper-cascor`
+  already applied to its own copies after the 2026-07-10 control-WS incident. The timeout and
+  ping interval are also now included in the timeout log line. Guarded by an AST-based
+  anti-resurrection test so a new handler cannot reintroduce 1006.
+
 ## [0.5.1] - 2026-08-09
 
 ### Fixed

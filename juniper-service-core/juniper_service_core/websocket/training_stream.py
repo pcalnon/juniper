@@ -11,7 +11,11 @@ streaming with optional resume. On connect:
 
 After promotion, the server sends application-level ``{"type":"ping","ts":<float>}`` heartbeats
 every ``ws_heartbeat_interval_sec`` (default 30s); the client must reply ``{"type":"pong"}``
-within ``ws_heartbeat_pong_timeout_sec`` (default 10s) or the connection is closed with 1006.
+within ``ws_heartbeat_pong_timeout_sec`` (default 10s) or the connection is closed with close
+code **1011** and reason ``"Heartbeat timeout: no pong or traffic within <N>s"``. It is
+deliberately not 1006: RFC 6455 Section 7.4.1 reserves that value and forbids an endpoint from
+setting it as a Close-frame status, and the ``websockets`` server raises rather than serialize
+it -- so a 1006 close sends no frame at all and leaves the peer on a silent half-open socket.
 
 De-cascored from cascor: reads the live state through the generic
 :class:`~juniper_service_core.lifecycle.manager.ServiceLifecycleManager` query surface
@@ -105,9 +109,13 @@ async def _heartbeat_ping_loop(websocket: WebSocket, hb_interval: float, hb_time
         try:
             await asyncio.wait_for(pong_received.wait(), timeout=hb_timeout)
         except asyncio.TimeoutError:
-            logger.info("Training WS: heartbeat timeout, closing connection")
+            logger.info("Training WS: heartbeat timeout, closing -- no pong or traffic within %.0fs of ping (interval=%.0fs)", hb_timeout, hb_interval)
             try:
-                await websocket.close(code=1006, reason="Heartbeat timeout")
+                # 1011, not 1006 -- RFC 6455 Section 7.4.1 forbids an endpoint from setting 1006
+                # as a Close-frame status, and the ``websockets`` server raises rather than
+                # serialize it, so the peer would be left with a silent half-open socket.
+                # See the fuller note at the matching site in ``control_stream.py``.
+                await websocket.close(code=1011, reason=f"Heartbeat timeout: no pong or traffic within {hb_timeout:.0f}s")
             except Exception:  # noqa: BLE001 - close after timeout is best-effort
                 logger.debug("Training WS: close after heartbeat timeout failed", exc_info=True)
             return
