@@ -160,6 +160,11 @@ class FleetSupervisorAgentTest(unittest.TestCase):
     def test_body_scopes_gpgsign_bypass_to_keyless_contexts(self):
         """The ``-c commit.gpgsign=false`` bypass must be scoped to KEYLESS contexts only.
 
+        Renamed from ``test_body_notes_gpgsign_for_delegated_commits`` in juniper-ml#1062. The old
+        name is recorded here so the rename stays greppable: the AST symbol-loss screen sees a
+        rename as a deletion, and naming the predecessor is what makes the accompanying
+        ``Allow-Symbol-Loss`` waiver auditable rather than a bare assertion that nothing was lost.
+
         Before 2026-08-07 the owner's card-resident key could not sign unattended, so this body
         carried a blanket "any headless commit MUST disable signing" rule -- and the *previous*
         version of this test pinned that blanket rule in place. Headless signing works on the
