@@ -302,5 +302,236 @@ class DriftCheckTest(unittest.TestCase):
         self.assertIn("python missing", results[0]["error"])
 
 
+class VersionDriftTest(unittest.TestCase):
+    """The version axis: does an editable's RECORDED version still match its source?
+
+    An editable install does not re-derive its version when the source tree moves
+    on -- ``import`` follows the live tree but ``*.dist-info/METADATA`` stays frozen
+    at the version declared when pip last ran. The path axis (FRESH/PINNED/ORPHANED)
+    cannot see this: on 2026-08-14, 7 of 8 installs on this host were FRESH and
+    stale simultaneously, one of them 5 minors behind (juniper-data 0.6.0 vs 0.11.0),
+    which is what breaks a repo's own ``version == pyproject`` self-check and makes a
+    host-launched service export the wrong build-info version.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.conda = self.root / "conda"
+        self.eco = self.root / "Juniper"
+        self.eco.mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def site_packages(self, env: str = "JuniperX", py: str = "python3.13") -> Path:
+        sp = self.conda / "envs" / env / "lib" / py / "site-packages"
+        sp.mkdir(parents=True, exist_ok=True)
+        return sp
+
+    def run_main(self, *argv: str) -> tuple[int, str]:
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = mod.main(["--conda-dir", str(self.conda), "--ecosystem-root", str(self.eco), *argv])
+        return code, buf.getvalue()
+
+    def make_repo(self, name: str, pyproject: str) -> Path:
+        repo = self.eco / name
+        repo.mkdir(parents=True, exist_ok=True)
+        (repo / "pyproject.toml").write_text(pyproject)
+        return repo
+
+    def static_repo(self, name: str = "juniper-data", version: str = "0.11.0") -> Path:
+        return self.make_repo(name, f'[project]\nname = "{name}"\nversion = "{version}"\n')
+
+    # -- source_version: static ----------------------------------------------
+
+    def test_source_version_static(self) -> None:
+        repo = self.static_repo(version="0.11.0")
+        version, detail = mod.source_version(str(repo))
+        self.assertEqual(version, "0.11.0")
+        self.assertIn("static", detail)
+
+    def test_source_version_no_pyproject_is_unknown(self) -> None:
+        bare = self.eco / "bare"
+        bare.mkdir()
+        self.assertEqual(mod.source_version(str(bare)), (None, "no pyproject.toml at target"))
+
+    def test_source_version_malformed_pyproject_is_unknown(self) -> None:
+        repo = self.make_repo("juniper-broken", "[project\nname = ")
+        version, detail = mod.source_version(str(repo))
+        self.assertIsNone(version)
+        self.assertIn("unreadable", detail)
+
+    def test_source_version_absent_declaration_is_unknown(self) -> None:
+        repo = self.make_repo("juniper-nover", '[project]\nname = "juniper-nover"\n')
+        version, detail = mod.source_version(str(repo))
+        self.assertIsNone(version)
+        self.assertIn("no version declared", detail)
+
+    # -- source_version: dynamic ----------------------------------------------
+
+    def _dynamic_repo(self, *, layout: str = "flat", version: str = "0.4.0") -> Path:
+        repo = self.make_repo(
+            "juniper-recurrence",
+            '[project]\nname = "juniper-recurrence"\ndynamic = ["version"]\n\n' "[tool.setuptools.dynamic]\n" 'version = { attr = "juniper_recurrence._version.__version__" }\n',
+        )
+        base = repo / "src" if layout == "src" else repo
+        pkg = base / "juniper_recurrence"
+        pkg.mkdir(parents=True)
+        (pkg / "_version.py").write_text(f'__version__ = "{version}"\n')
+        return repo
+
+    def test_source_version_dynamic_setuptools_attr(self) -> None:
+        repo = self._dynamic_repo()
+        version, detail = mod.source_version(str(repo))
+        self.assertEqual(version, "0.4.0")
+        self.assertIn("_version.py", detail)
+
+    def test_source_version_dynamic_src_layout(self) -> None:
+        repo = self._dynamic_repo(layout="src")
+        self.assertEqual(mod.source_version(str(repo))[0], "0.4.0")
+
+    def test_source_version_dynamic_hatch_path(self) -> None:
+        repo = self.make_repo(
+            "juniper-hatched",
+            '[project]\nname = "juniper-hatched"\ndynamic = ["version"]\n\n' '[tool.hatch.version]\npath = "juniper_hatched/__about__.py"\n',
+        )
+        pkg = repo / "juniper_hatched"
+        pkg.mkdir()
+        (pkg / "__about__.py").write_text("__version__ = '2.1.0'\n")
+        self.assertEqual(mod.source_version(str(repo))[0], "2.1.0")
+
+    def test_dynamic_version_never_guesses_at_a_version_file(self) -> None:
+        """An undeclared _version.py must NOT be read.
+
+        Reporting UNKNOWN is correct when the backend is unrecognized; guessing at
+        a plausible file risks reporting a version from the wrong module and
+        manufacturing a STALE finding out of nothing.
+        """
+        repo = self.make_repo(
+            "juniper-mystery",
+            '[project]\nname = "juniper-mystery"\ndynamic = ["version"]\n',
+        )
+        pkg = repo / "juniper_mystery"
+        pkg.mkdir()
+        (pkg / "_version.py").write_text('__version__ = "9.9.9"\n')
+        version, detail = mod.source_version(str(repo))
+        self.assertIsNone(version)
+        self.assertIn("not resolvable", detail)
+
+    def test_dynamic_version_file_without_dunder_is_unknown(self) -> None:
+        repo = self.make_repo(
+            "juniper-recurrence",
+            '[project]\nname = "juniper-recurrence"\ndynamic = ["version"]\n\n' "[tool.setuptools.dynamic]\n" 'version = { attr = "juniper_recurrence._version.__version__" }\n',
+        )
+        pkg = repo / "juniper_recurrence"
+        pkg.mkdir()
+        (pkg / "_version.py").write_text("# version comes from git\n")
+        version, detail = mod.source_version(str(repo))
+        self.assertIsNone(version)
+        self.assertIn("no __version__", detail)
+
+    # -- classify_version ------------------------------------------------------
+
+    def test_classify_version_match_and_stale(self) -> None:
+        repo = self.static_repo(version="0.11.0")
+        self.assertEqual(mod.classify_version("0.11.0", str(repo), mod.STATUS_FRESH)[0], mod.VERSION_MATCH)
+        status, source, detail = mod.classify_version("0.6.0", str(repo), mod.STATUS_FRESH)
+        self.assertEqual(status, mod.VERSION_STALE)
+        self.assertEqual(source, "0.11.0")
+        self.assertIn("0.6.0", detail)
+        self.assertIn("0.11.0", detail)
+
+    def test_orphaned_target_is_version_unknown(self) -> None:
+        """An ORPHANED target has no source tree to read -- never invent a compare."""
+        gone = self.eco / "deleted-juniper-data"
+        status, source, detail = mod.classify_version("0.6.0", str(gone), mod.STATUS_ORPHANED)
+        self.assertEqual(status, mod.VERSION_UNKNOWN)
+        self.assertIsNone(source)
+        self.assertIn("not comparable", detail)
+
+    def test_worktree_pinned_still_gets_a_version_verdict(self) -> None:
+        """The two axes are orthogonal: a PINNED install can also be STALE."""
+        wt = self.eco / "worktrees" / "wt-a" / "juniper-data"
+        wt.mkdir(parents=True)
+        (wt / "pyproject.toml").write_text('[project]\nname = "juniper-data"\nversion = "0.11.0"\n')
+        write_editable(self.site_packages(), "juniper-data", str(wt), version="0.6.0")
+        finding = mod.collect(self.conda, None)[0]
+        self.assertEqual(finding.status, mod.STATUS_WORKTREE)
+        self.assertEqual(finding.version_status, mod.VERSION_STALE)
+
+    # -- collect + CLI ---------------------------------------------------------
+
+    def test_collect_reports_stale_alongside_fresh(self) -> None:
+        repo = self.static_repo(version="0.11.0")
+        write_editable(self.site_packages(), "juniper-data", str(repo), version="0.6.0")
+        finding = mod.collect(self.conda, None)[0]
+        self.assertEqual(finding.status, mod.STATUS_FRESH)  # path is fine ...
+        self.assertEqual(finding.version_status, mod.VERSION_STALE)  # ... version is not
+        self.assertEqual(finding.installed_version, "0.6.0")
+        self.assertEqual(finding.source_version, "0.11.0")
+
+    def test_stale_is_soft_by_default_and_hard_under_strict_version(self) -> None:
+        repo = self.static_repo(version="0.11.0")
+        write_editable(self.site_packages(), "juniper-data", str(repo), version="0.6.0")
+        code, out = self.run_main()
+        self.assertEqual(code, 0, "STALE must not fail by default -- import still works")
+        self.assertIn("STALE 0.6.0->0.11.0", out)
+        self.assertEqual(self.run_main("--strict-version")[0], 1)
+        # --strict is about the PATH axis and must not start failing on staleness.
+        self.assertEqual(self.run_main("--strict")[0], 0)
+
+    def test_summary_and_json_carry_the_version_axis(self) -> None:
+        repo = self.static_repo(version="0.11.0")
+        write_editable(self.site_packages(), "juniper-data", str(repo), version="0.6.0")
+        _, out = self.run_main("--json")
+        payload = json.loads(out)
+        self.assertEqual(payload["summary"][mod.VERSION_STALE], 1)
+        self.assertEqual(payload["summary"][mod.VERSION_MATCH], 0)
+        finding = payload["findings"][0]
+        self.assertEqual(finding["version_status"], mod.VERSION_STALE)
+        self.assertEqual(finding["installed_version"], "0.6.0")
+        self.assertEqual(finding["source_version"], "0.11.0")
+
+    # -- --fix-stale -----------------------------------------------------------
+
+    def test_fix_ignores_stale_unless_fix_stale_given(self) -> None:
+        repo = self.static_repo(version="0.11.0")
+        write_editable(self.site_packages(), "juniper-data", str(repo), version="0.6.0")
+        _, out = self.run_main("--fix", "--dry-run", "--json")
+        self.assertEqual(json.loads(out)["fix"], [])
+
+    def test_fix_stale_reinstalls_in_place(self) -> None:
+        """A stale-but-FRESH install is repaired against its OWN path.
+
+        Routing it through canonical discovery would risk re-pointing a deliberate
+        checkout; reinstalling from the path already recorded is what re-stamps the
+        frozen metadata.
+        """
+        repo = self.static_repo(version="0.11.0")
+        write_editable(self.site_packages(), "juniper-data", str(repo), version="0.6.0")
+        code, out = self.run_main("--fix", "--fix-stale", "--dry-run", "--json")
+        fix = json.loads(out)["fix"]
+        self.assertEqual(len(fix), 1)
+        self.assertEqual(fix[0]["action"], "DRY_RUN")
+        self.assertEqual(fix[0]["drift"], "stale-metadata")
+        self.assertEqual(fix[0]["canonical"], str(repo))
+        self.assertEqual(fix[0]["from"], str(repo))
+        self.assertIn("--force-reinstall", fix[0]["cmd"])
+        self.assertEqual(code, 0)  # still soft without --strict-version
+
+    def test_fix_stale_leaves_orphan_repair_on_the_canonical_path(self) -> None:
+        """--fix-stale must not change how ORPHANED installs are resolved."""
+        repo = self.static_repo(version="0.11.0")
+        gone = self.eco / "deleted-juniper-data"
+        write_editable(self.site_packages(), "juniper-data", str(gone), version="0.6.0")
+        _, out = self.run_main("--fix", "--fix-stale", "--dry-run", "--json")
+        fix = json.loads(out)["fix"]
+        self.assertEqual(len(fix), 1)
+        self.assertEqual(fix[0]["drift"], "path")
+        self.assertEqual(fix[0]["canonical"], str(repo))
+
+
 if __name__ == "__main__":
     unittest.main()
