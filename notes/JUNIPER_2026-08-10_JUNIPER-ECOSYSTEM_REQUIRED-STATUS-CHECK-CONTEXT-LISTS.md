@@ -392,6 +392,30 @@ ruleset was confirmed to cover the same ground; the pre-delete config was captur
 | **`allow_auto_merge: false` on 8 of 9 repos** (only juniper-ml `true`) | `gh pr merge --auto` there **silently falls back to an immediate merge** instead of arming. Sharp edge for any automated flow. |
 | **A PR stuck at `CLEAN`** | Re-arm auto-merge — a ruleset edit is not a PR event, so nothing re-evaluates the queue. Do **not** admin-merge. |
 | **canopy requires the macOS unit-test leg** | It carries the known CSRF-TTL flake (`test_validate_refreshes_ttl`; 1 failed / 5645 passed, green on rerun). juniper-data runs its macOS leg `continue-on-error` while keeping the Linux legs required — canopy is inconsistent with that. See Tier 2. |
+| **Renaming a test is a symbol LOSS to post-merge `main-verify`** | The screen is AST-based and does not know a rename from a deletion, so the old qualified name must be waived on the squash commit or `main-verify` goes red on `main` — see §4e. |
+
+### 4e. Renames need a waiver trailer on the *squash* commit
+
+Renaming `FleetSupervisorAgentTest.test_body_notes_gpgsign_for_delegated_commits` in ml#1062
+(a deliberate, documented rename) left post-merge **main-verify** red on `main`: the symbol
+screen reported `[FAIL/LOST] … method:FleetSupervisorAgentTest.test_body_notes_gpgsign_for_delegated_commits`
+because the squash commit carried no waiver trailer.
+
+Three things make this bite harder than it looks:
+
+1. **The screen cannot distinguish a rename from a deletion.** It compares AST symbol
+   inventories between base and head; the old qualified name is simply gone.
+2. **The trailer must be on the commit that actually lands on `main`.** A trailer written only
+   on a branch commit is discarded by squash-merge. Set it in the squash body at merge time.
+3. **A red `main-verify` is sticky.** Its catch-up base is the last *successful* main-verify tip
+   that is an ancestor of HEAD, so once the streak starts the screened window keeps growing and
+   the same finding re-reports on every later commit — including commits from other sessions
+   that had nothing to do with it. One waiver clears the whole streak.
+
+Diagnosis note: this streak began earlier, on 2026-08-10 at `b8201d0`, with a **different** job
+failing (`Regression Battery`, symbol screen green). That resolved on its own, and by
+2026-08-14 the battery was green on every run while the symbol screen was the sole failure.
+Check *which job* failed before assuming a streak has one cause.
 
 ---
 
