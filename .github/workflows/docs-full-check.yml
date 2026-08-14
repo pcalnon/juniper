@@ -245,6 +245,19 @@ jobs:
           cd "$GITHUB_WORKSPACE/juniper-ml"
           python3 -m unittest -v tests/test_ci_tools_drift.py
 
+      # Defect-register §2.3 "Copy drift" -- the security guards that must hold
+      # identically in juniper-data's and juniper-cascor's forks of the
+      # service-core middleware. THIS is where that gate actually bites: the
+      # sibling checkouts exist only in this weekly job, so the per-PR ci.yml
+      # run exercises the registry structure while the fork-walking assertions
+      # skip. Failure modes are two-sided by design -- an ENFORCED guard that
+      # vanished from a fork (a regression), or a KNOWN_GAP that has been closed
+      # and needs promoting to ENFORCED so the fix is protected in turn.
+      - name: Lint service-fork security-guard drift
+        run: |
+          cd "$GITHUB_WORKSPACE/juniper-ml"
+          python3 -m unittest -v tests/test_service_fork_drift.py
+
       # Plan §5.2 (ci-tools) -- downstream-consumer integration. Runs
       # juniper-generate-dep-docs (just installed above) against every
       # cloned consumer repo. ``--no-conda`` is passed because the
