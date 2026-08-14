@@ -168,9 +168,16 @@ async def _control_ping_loop(websocket: WebSocket, client_ip: str, hb_interval: 
         try:
             await asyncio.wait_for(pong_received.wait(), timeout=hb_timeout)
         except asyncio.TimeoutError:
-            logger.info("Control WS: heartbeat timeout, closing: %s", client_ip)
+            logger.info("Control WS: heartbeat timeout, closing %s -- no pong or traffic within %.0fs of ping (interval=%.0fs)", client_ip, hb_timeout, hb_interval)
             try:
-                await websocket.close(code=1006, reason="Heartbeat timeout")
+                # 1011, not 1006. RFC 6455 Section 7.4.1 reserves 1006 and forbids an endpoint
+                # from setting it as a Close-frame status: it exists for *receivers* to report an
+                # abnormal closure that carried no Close frame at all. The ``websockets`` server
+                # under uvicorn enforces this and raises on serialization, so a 1006 close frame
+                # never reaches the peer -- the client is left holding a silent half-open socket
+                # with no reason string. juniper-cascor hit exactly this on 2026-07-10 and fixed
+                # its own copy; this is the same fix for the shared implementation.
+                await websocket.close(code=1011, reason=f"Heartbeat timeout: no pong or traffic within {hb_timeout:.0f}s")
             except Exception:  # noqa: BLE001 - close after timeout is best-effort
                 logger.debug("Control WS: close after heartbeat timeout failed for %s", client_ip, exc_info=True)
             return

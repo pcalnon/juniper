@@ -7,13 +7,41 @@ suite:
   app: cascor
   base_config: [../../../../../juniper-cascor/conf/experiments/spiral-baseline.yaml]
   seed_policy: fixed
-execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 3600}
+# stall_seconds (ml#1069): the Q-2 detector watches current_epoch, which advances only during
+# OUTPUT-layer training — no progress is reported at all while the CANDIDATE pool trains. Every
+# candidate_pool_size >= 16 cell therefore reads as `stalled` at ~130 s against the 120 s driver
+# default while perfectly healthy; given room those cells complete in 513-2494 s. 1200 is the
+# window the F-P4-1 re-surface campaign proved on the pool-16 and pool-32 cells.
+#
+# per_run_timeout_seconds raised 3600 -> 7200 for the R-3 unit budget below: the old ceiling was
+# sized for 12 growth iterations (widest cell 2494 s). Cells that now run to 32 units do ~2.7x the
+# iterations, each one costlier than the last as the output layer retrains against a wider input,
+# so the widest cell can approach — and without headroom exceed — the old limit.
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 7200, stall_seconds: 1200}
+# R-3: max_iterations must clear the largest max_hidden_units or the CAP NEVER BINDS. spiral-baseline
+# pins max_iterations: 12, so the cap-16 and cap-32 rows were both iteration-bound at 12 units and
+# returned bit-identical results (c006 == c009, c007 == c010 in the re-surfaced grid) — two of the
+# twelve cells measured nothing. Growth adds one unit per iteration here (no multi-candidate
+# promotion configured), so 32 iterations is exactly enough for the largest cap.
+#
+# This is a SINGLE-ELEMENT matrix axis, not a second swept dimension: expand_cells takes the
+# cross-product, so a real axis would multiply the grid. One value adds no cells, and `exclude`
+# matching is a key-SUBSET test so the existing exclusion still applies unchanged.
+#
+# Reading the results: the cap is enforced through the early-stopping path
+# (`early_stop = early_stopping and (... or max_units_reached ...)`, so it holds only because
+# baseline sets early_stopping: true). A cap-bound cell therefore reports `early_stopped`, the same
+# reason as patience-exhausted and accuracy-target cells — use the units column to tell them apart:
+# units == max_hidden_units means the cap bound.
 matrix:
   training.params.max_hidden_units: [4, 8, 16, 32]
   training.params.candidate_pool_size: [4, 8, 16]
+  training.params.max_iterations: [32]
 exclude:
   - {training.params.max_hidden_units: 32, training.params.candidate_pool_size: 16}
 include:
+  # Inherits the base cap of 24, so it needs its own iteration budget — include entries are
+  # independent of the matrix and would otherwise keep the base's 12.
   - name: wide-pool-long
-    overrides: {training.params.candidate_pool_size: 32, training.params.max_epochs: 5000}
+    overrides: {training.params.candidate_pool_size: 32, training.params.max_epochs: 5000, training.params.max_iterations: 32}
 outputs: {suite_dir: null, aggregate: [csv, markdown]}

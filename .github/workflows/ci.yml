@@ -34,11 +34,16 @@ name: CI/CD Pipeline
 
 on:
   push:
+    # Topic-branch globs (feature/**, fix/**) were removed 2026-08-13: once a PR is
+    # open, `push` and `pull_request` BOTH fire for the same commit, so every job ran
+    # twice. The concurrency group is keyed on github.ref, which differs between a
+    # branch push (refs/heads/…) and a PR (refs/pull/N/merge), so cancel-in-progress
+    # never collapsed the pair — it was a straight 2x CI cost on every PR from a
+    # matching branch. Same fix as juniper-recurrence#108. `pull_request` covers every
+    # commit once a PR exists; workflow_dispatch remains for a branch with no PR.
     branches:
       - main
       - develop
-      - feature/**
-      - fix/**
   pull_request:
     branches:
       - main
@@ -625,6 +630,26 @@ jobs:
           # not cloned in this job; the always-on AST-extractor self-check still
           # runs, and the weekly docs-full-check context exercises the full walk).
           python3 -m unittest -v tests/test_experiment_config_schemas.py
+          # tests/test_run_suite.py: hermetic tests for util/experiments/run_suite.py, the suite
+          # driver (CLI experimentation plan Waves 7.1/7.5) -- matrix expansion + cell_ids, per_cell
+          # seeds, the stubbed up/drive/down loop, registry/index/aggregate, resume, and the ml#1069
+          # execution.stall_seconds passthrough. Launcher and driver are injected as stub scripts via
+          # the JUNIPER_SUITE_LAUNCHER / JUNIPER_SUITE_DRIVER seams; no live stack, no services.
+          # Documented in AGENTS.md but never wired into this job until R-6 -- so the stall_seconds
+          # passthrough the P4 suites now depend on was itself ungated.
+          python3 -m unittest -v tests/test_run_suite.py
+          # tests/test_list_runs.py: hermetic tests for util/experiments/list_runs.py, the Wave 7.2
+          # safety-gated run lister/pruner -- state classification, --older-than, and the prune
+          # safety gates, over synthetic RUN_ROOT fixtures. Also previously unwired.
+          python3 -m unittest -v tests/test_list_runs.py
+          # tests/test_experiment_suite_yamls.py: drift gate over the shipped suites in
+          # util/experiments/suites/**. Every suite must pass run_suite.load_suite (catching the
+          # unknown-key / `stall_second` typo class that otherwise surfaces hours into a GPU
+          # campaign), and any cascor suite sweeping candidate_pool_size >= 16 must declare an
+          # execution.stall_seconds above the driver default -- the Q-2 detector reports no
+          # current_epoch progress while the candidate pool trains, so those cells are recorded
+          # `stalled` while healthy. Structural only; never resolves sibling-repo base_config.
+          python3 -m unittest -v tests/test_experiment_suite_yamls.py
           # tests/test_check_conda_env_torch.py: hermetic P-5 torch._C shadow diagnostic
           # (util/check_conda_env_torch.bash exit 0/1/2/3/4) via JUNIPER_CONDA_DIR + stub python.
           # util/ is not pre-commit-lint-gated, so this unittest is the gate.
@@ -1032,9 +1057,40 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
+
+    # security-events: write is required by gitleaks-action to upload its SARIF.
+    permissions:
+      contents: read
+      security-events: write
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Gitleaks scans full git history, not just the tip commit.
+          fetch-depth: 0
+
+      # Added 2026-08-13 (Tier 2 CI hardening). juniper-ml was the ONLY repo of the nine
+      # with no secret scanning: six siblings run Gitleaks as a step inside their
+      # `Security Scans` job and juniper-deploy runs it as a standalone job, while this
+      # job ran pip-audit alone. That gap mattered here specifically — this repo carries
+      # SOPS-encrypted `.env` / `.env.secrets`, and the `no-unencrypted-env` pre-commit
+      # hook only catches a plaintext env file being committed, not a credential pasted
+      # into any other tracked file. Kept as a STEP (not a new job) so it is covered by
+      # the already-required `Security Scan` context and needs no ruleset change.
+      - name: Run Gitleaks (Secrets Detection)
+        # gitleaks-action rejects `repository_dispatch` outright ("the
+        # [repository_dispatch] event is not yet supported"), which would kill the whole
+        # job on ecosystem-fanout runs. Mirrors juniper-cascor / juniper-data / juniper-canopy.
+        if: github.event_name != 'repository_dispatch'
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # gitleaks-action ships as a Node.js 20 action; opt into Node 24 to match the
+          # sibling repos and avoid the deprecation warning. Drop once upstream repins.
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+        # No `fail` input exists on this action version (passing it errors); it exits
+        # non-zero on leaks by default, which is the behaviour we want.
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -1136,13 +1192,79 @@ jobs:
           retention-days: 90
 
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  # SOPS Validation: prove every tracked *.enc file is actually encrypted
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  # Added 2026-08-13 (Tier 2 CI hardening). This repo has a live `.sops.yaml` and a
+  # tracked `.env.enc`, but nothing in CI verified the ciphertext — juniper-deploy was
+  # the only repo running this check. The `no-unencrypted-env` pre-commit hook blocks a
+  # PLAINTEXT `.env` from being committed; it does not verify that a file NAMED `.enc`
+  # actually contains SOPS ciphertext. A partially-decrypted or hand-edited `.env.enc`
+  # would sail through. Structural only — no age key needed, so it runs on every PR.
+  # Mirrors juniper-deploy's sops-validation job.
+  sops-validation:
+    name: SOPS Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check for encrypted files
+        id: check-enc
+        run: |
+          ENC_FILES=$(find . -path ./.git -prune -o \( -name '*.env.enc' -o -name '*.env.secrets.enc' \) -print 2>/dev/null)
+          if [ -z "$ENC_FILES" ]; then
+            echo "No encrypted files found — skipping validation."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Found encrypted files:"
+            echo "$ENC_FILES"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate SOPS metadata structure
+        if: steps.check-enc.outputs.skip != 'true'
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║       juniper-ml - SOPS Structural Validation              ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          exit_code=0
+          for file in $(find . -path ./.git -prune -o \( -name '*.env.enc' -o -name '*.env.secrets.enc' \) -print); do
+            echo "Validating: $file"
+
+            # Required SOPS metadata fields.
+            for key in sops_version sops_lastmodified; do
+              if ! grep -q "^${key}=" "$file" 2>/dev/null; then
+                echo "  FAIL: Missing SOPS metadata key: ${key}"
+                exit_code=1
+              fi
+            done
+            # age recipient — prefix match so multiple recipients still pass.
+            if ! grep -q "^sops_age__" "$file" 2>/dev/null; then
+              echo "  FAIL: Missing SOPS age recipient metadata"
+              exit_code=1
+            fi
+
+            # Every value line must carry SOPS ciphertext. This is the check the
+            # pre-commit hook cannot make: it catches a plaintext value inside a file
+            # that is merely NAMED .enc.
+            plaintext=$(grep -v '^#' "$file" | grep -v '^sops_' | grep -v '^$' | grep -cv 'ENC\[AES256_GCM,' 2>/dev/null) || plaintext=0
+            if [ "$plaintext" -gt 0 ]; then
+              echo "  FAIL: $plaintext line(s) contain non-encrypted values"
+              exit_code=1
+            else
+              echo "  PASS: All values are SOPS-encrypted"
+            fi
+          done
+          exit $exit_code
+
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
   # Quality Gate: All required checks must pass
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
   required-checks:
     name: Quality Gate
     runs-on: ubuntu-latest
     if: always()
-    needs: [pre-commit, tests, build, docs, security, claude-yaml-audit, dependency-docs]
+    needs: [pre-commit, tests, build, docs, security, claude-yaml-audit, dependency-docs, sops-validation]
     steps:
       - name: Check Quality Gate Status
         run: |
@@ -1157,6 +1279,7 @@ jobs:
           echo "Security:             ${{ needs.security.result }}"
           echo "Claude.yml Audit:     ${{ needs.claude-yaml-audit.result }}"
           echo "Dependency Docs:      ${{ needs.dependency-docs.result }}"
+          echo "SOPS Validation:      ${{ needs.sops-validation.result }}"
           echo ""
 
           if [[ "${{ needs.pre-commit.result }}" != "success" ]]; then
@@ -1192,6 +1315,11 @@ jobs:
 
           if [[ "${{ needs.dependency-docs.result }}" != "success" ]]; then
             echo "::error::Dependency documentation generation failed"
+            exit 1
+          fi
+
+          if [[ "${{ needs.sops-validation.result }}" != "success" ]]; then
+            echo "::error::SOPS structural validation failed"
             exit 1
           fi
 

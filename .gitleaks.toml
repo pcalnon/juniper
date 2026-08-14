@@ -1,0 +1,41 @@
+# =============================================================================
+# Gitleaks Configuration — Juniper Ecosystem
+#
+# Detects accidentally committed secrets. SOPS-encrypted files are allowlisted
+# since they contain encrypted (not plaintext) secrets.
+#
+# Added 2026-08-13 alongside the Gitleaks step in ci.yml's `Security Scan` job
+# (Tier 2 CI hardening). juniper-ml was the only repo of the nine with no secret
+# scanning at all; this allowlist is required for that step to be usable, because
+# the repo tracks a SOPS-encrypted `.env.enc` and a `.sops.yaml` carrying age
+# PUBLIC keys — both of which gitleaks flags without it.
+#
+# Kept byte-identical in intent to juniper-deploy / juniper-cascor so the fleet
+# shares one allowlist contract.
+#
+# Usage:
+#   gitleaks detect --config .gitleaks.toml
+#   gitleaks detect --config .gitleaks.toml --baseline-path .gitleaks-baseline.json
+#
+# See: https://github.com/gitleaks/gitleaks#configuration
+# =============================================================================
+
+title = "Juniper Gitleaks Configuration"
+
+# Do NOT use [allowlist].paths to exempt .env.enc files — this would
+# skip ALL rules for those files, including plaintext secret detection.
+# See: https://github.com/gitleaks/gitleaks/issues/1790
+#
+# That distinction is the whole point here: the companion `SOPS Validation` job
+# proves every value line in a tracked *.enc file is real ciphertext, so a
+# partially-decrypted .env.enc is caught rather than silently allowlisted.
+
+[allowlist]
+  description = "Allowlisted patterns"
+
+  # age public keys are not secrets (only the private key is sensitive)
+  # SOPS-encrypted ciphertext values (ENC[AES256_GCM,...]) are safe to commit
+  regexes = [
+    '''age1[a-z0-9]{58}''',
+    '''ENC\[AES256_GCM,data:[A-Za-z0-9+/=]+,''',
+  ]

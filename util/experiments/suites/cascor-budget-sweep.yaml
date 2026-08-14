@@ -14,6 +14,12 @@ execution:
   max_parallel: 1
   continue_on_failure: true
   per_run_timeout_seconds: 3600
+  # The Q-2 stall detector watches current_epoch, which advances only during OUTPUT-layer
+  # training — nothing is reported while the CANDIDATE pool trains. Every pool >= 16 cell
+  # therefore reads as `stalled` at ~130 s against the 120 s driver default while healthy;
+  # given room they complete in 513-2494 s. 1200 is the window proven on the P4 E-A re-run,
+  # of which this suite is the reference form. (ml#1069)
+  stall_seconds: 1200
 matrix:
   training.params.max_hidden_units: [4, 8, 16, 32]
   training.params.candidate_pool_size: [4, 8, 16]

@@ -1,12 +1,29 @@
 # E-C (plan §10.5): noise robustness — accuracy-vs-noise on spiral (matrix) and moon (includes).
+#
+# R-4: the base config was spiral-smoke, whose 2-unit cap (max_hidden_units: 2, max_iterations: 2,
+# max_epochs: 50) binds long before noise does — so every spiral cell hit the cap and the
+# accuracy-vs-noise curve came out flat by construction, measuring the budget rather than the
+# noise. Rebased on spiral-baseline (the same base E-A uses) so the cells have room to respond
+# to noise, and so E-C's spiral rows are directly comparable with the E-A budget surface.
+#
+# The moon includes inherit the same budget. That is deliberate: a noise study whose two datasets
+# run at different budgets cannot be read across, and moon is the easier problem, so a baseline
+# budget is ample there (those cells early-stop well short of it). The moon rows replace
+# dataset.params wholesale — run_suite's _set_dotted assigns the node rather than merging — so
+# they pick up none of spiral-baseline's spiral-only params.
 schema_version: 1
 suite:
   name: e-c-cascor-noise-robustness
-  description: "E-C: noise in {0.0,0.05,0.1,0.2} on spiral + moon"
+  description: "E-C: noise in {0.0,0.05,0.1,0.2} on spiral + moon (baseline budget)"
   app: cascor
-  base_config: [../../../../../juniper-cascor/conf/experiments/spiral-smoke.yaml]
+  base_config: [../../../../../juniper-cascor/conf/experiments/spiral-baseline.yaml]
   seed_policy: fixed
-execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1800}
+# per_run_timeout_seconds raised to E-A's 3600: the widest E-A cell took 2494 s, so the old 1800 s
+# would have truncated the slower baseline-budget cells. stall_seconds is defensive rather than
+# required — the Q-2 detector only misreads pools >= 16 and baseline's pool is 8 (E-A's pool-8
+# cells all completed clean) — but a noise-0.2 cell is the slowest thing here, and a false
+# "stalled" is expensive to re-run.
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 3600, stall_seconds: 1200}
 matrix:
   dataset.params.noise: [0.0, 0.05, 0.1, 0.2]
 include:

@@ -13,9 +13,11 @@ cannot forge multi-line control-plane ERROR/INFO records.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import logging
+import pathlib
 import threading
 import types
 
@@ -321,7 +323,15 @@ async def test_handle_command_rate_limited() -> None:
 async def test_control_ping_loop_closes_on_pong_timeout() -> None:
     ws = ControlFakeWS()
     await _control_ping_loop(ws, "1.2.3.4", 0.001, 0.001, asyncio.Event())
-    assert ws.closed == (1006, "Heartbeat timeout")
+    code, reason = ws.closed
+    # 1011 (internal error), never 1006. RFC 6455 Section 7.4.1 reserves 1006 and forbids an
+    # endpoint from setting it as a Close-frame status; the ``websockets`` server raises rather
+    # than serialize it, so a 1006 close never reaches the peer and the client is left holding a
+    # silent half-open socket. Asserting the exact code -- and asserting 1006 explicitly -- is
+    # what stops that regression coming back.
+    assert code == 1011
+    assert code != 1006
+    assert reason.startswith("Heartbeat timeout")
     assert any(m.get("type") == "ping" for m in ws.sent)
 
 
@@ -393,3 +403,39 @@ async def test_control_handler_returns_when_gate_fails() -> None:
     await control_stream_handler(ws)
     assert ws.closed == (1013, "Control endpoint disabled")
     assert ws.accepted is False
+
+
+# ----------------------------------------------------------------------------------------
+# Anti-resurrection: close code 1006 must never be sent by this package
+# ----------------------------------------------------------------------------------------
+
+
+def test_no_module_sends_reserved_close_code_1006() -> None:
+    """No WebSocket handler may set 1006 as a Close-frame status.
+
+    RFC 6455 Section 7.4.1: "1006 is a reserved value and MUST NOT be set as a status code in a
+    Close control frame by an endpoint." It is designated for a *receiver* to report a closure
+    that carried no Close frame at all. The ``websockets`` server used under uvicorn enforces
+    this and raises on serialization, so a handler that asks for 1006 sends no close frame --
+    the peer is left with a silent half-open socket and no reason string, which is exactly how
+    the 2026-07-10 control-WS incident stayed invisible for hours.
+
+    The two heartbeat sites are unit-tested above; this scans the whole package so a *new*
+    handler cannot reintroduce the code somewhere without a test.
+    """
+    package = pathlib.Path(control_stream.__file__).parent
+    offenders = []
+    for path in sorted(package.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            # Match ``...close(code=1006, ...)`` structurally rather than by text, so the prose
+            # explaining *why* 1006 is banned does not trip the guard it documents.
+            func = node.func
+            if not (isinstance(func, ast.Attribute) and func.attr == "close"):
+                continue
+            for kw in node.keywords:
+                if kw.arg == "code" and isinstance(kw.value, ast.Constant) and kw.value.value == 1006:
+                    offenders.append(f"{path.name}:{node.lineno}")
+    assert offenders == [], "close code 1006 is forbidden by RFC 6455 Section 7.4.1 -- use 1011:\n" + "\n".join(offenders)

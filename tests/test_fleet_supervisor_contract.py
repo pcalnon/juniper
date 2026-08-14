@@ -157,11 +157,33 @@ class FleetSupervisorAgentTest(unittest.TestCase):
             "the two-key rule must require content overlap (the added-line multiset key)",
         )
 
-    def test_body_notes_gpgsign_for_delegated_commits(self):
+    def test_body_scopes_gpgsign_bypass_to_keyless_contexts(self):
+        """The ``-c commit.gpgsign=false`` bypass must be scoped to KEYLESS contexts only.
+
+        Before 2026-08-07 the owner's card-resident key could not sign unattended, so this body
+        carried a blanket "any headless commit MUST disable signing" rule -- and the *previous*
+        version of this test pinned that blanket rule in place. Headless signing works on the
+        workstation now, and the stale rule was the direct cause of the unsigned juniper-cascor#506
+        branch commits (``verification.reason == "unsigned"`` while ``commit.gpgsign=true``).
+
+        The bypass remains correct for genuinely keyless contexts -- CI runners, hermetic fixtures,
+        throwaway clones (``propose.py`` / ``predict_merge.py``) -- so pin the SCOPING, not the
+        flag's bare presence.
+        """
         self.assertIn(
             "commit.gpgsign=false",
             self.body,
-            "any delegated headless commit must use -c commit.gpgsign=false (owner's signing config)",
+            "the keyless-context bypass must still be documented (propose.py / predict_merge.py rely on it)",
+        )
+        low = self.body.lower()
+        self.assertTrue(
+            any(token in low for token in ("keyless", "ci runner", "hermetic", "throwaway")),
+            "the gpgsign bypass must be scoped to keyless contexts, not stated as a blanket rule",
+        )
+        self.assertNotIn(
+            "any headless commit in a delegated flow must use",
+            low,
+            "the blanket 'every headless commit MUST disable signing' rule is stale (cascor#506 class)",
         )
 
     def test_body_is_non_trivial(self):
