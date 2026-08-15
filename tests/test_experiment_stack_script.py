@@ -414,8 +414,47 @@ class TestLaunchLines(unittest.TestCase):
         self.assertIn("JUNIPER_CASCOR_AUTO_START_DATA_SERVICE=false", cascor_up)
         # Wave 5.3 (W-6 wiring): per-run snapshots home — retires the shared src/snapshots debris (H-4).
         self.assertIn('JUNIPER_CASCOR_SNAPSHOTS_DIR="${RUN_DIR}/snapshots"', cascor_up)
+        # Q-6 wiring (H-7): per-run file log — retires the shared logs/juniper_cascor.log that a
+        # concurrent cascor process interleaves and rotates away (how the F-P1-3 arm A/B evidence
+        # was lost). cascor#523 supplies the override this points at.
+        self.assertIn('JUNIPER_CASCOR_LOG_DIR="${LOG_DIR}"', cascor_up)
         self.assertIn('JUNIPER_DATA_URL="${DATA_URL}"', cascor_up)
         self.assertIn('cd "${CASCOR_SRC_DIR}"', cascor_up)
+
+    def test_q6_log_dir_exported_at_every_cascor_site(self) -> None:
+        """The Q-6 export must appear at all three synchronized cascor_up sites.
+
+        ``cascor_up`` states its launch env three times — the ``announce`` dry-run line, the
+        ``record_launch_env`` array persisted to ``env/launch.env``, and the live ``nohup``
+        invocation. Updating only the live one is the standing failure mode here (it is how the
+        dry-run and the recorded env silently drift from what actually ran), and it is invisible
+        to any test that greps the function as a whole. Pin the count, not the presence.
+        """
+        cascor_up = _extract_experiment_fn("cascor_up")
+        self.assertEqual(
+            cascor_up.count("JUNIPER_CASCOR_LOG_DIR"),
+            3,
+            "expected the Q-6 log-dir export at all 3 cascor_up sites (announce / record_launch_env / nohup)",
+        )
+        # Same invariant for its W-6 sibling — if that count ever changes, this test should be
+        # updated deliberately rather than the two drifting apart unnoticed.
+        self.assertEqual(cascor_up.count("JUNIPER_CASCOR_SNAPSHOTS_DIR"), 3)
+
+    def test_q6_log_dir_exists_before_cascor_launch(self) -> None:
+        """The target dir must be created before the service starts.
+
+        cascor derives its log path from the checkout root and a fresh worktree has no ``logs/``,
+        so pointing the override at a directory that does not exist yet trades one failure for
+        another. ``ensure_dir "${LOG_DIR}"`` already runs in ``cascor_up`` for the nohup redirect;
+        this pins that it stays there, since the override now depends on it too.
+        """
+        cascor_up = _extract_experiment_fn("cascor_up")
+        self.assertIn('ensure_dir "${LOG_DIR}"', cascor_up)
+        ensure_at = cascor_up.index('ensure_dir "${LOG_DIR}"')
+        # Anchor on the real invocation, not the bare word: the ``announce`` dry-run line carries a
+        # trailing ``# nohup -> ...`` comment that precedes ensure_dir and would match first.
+        launch_at = cascor_up.index('nohup "${uvicorn_bin}"')
+        self.assertLess(ensure_at, launch_at, "LOG_DIR must be created before the cascor launch")
 
     def test_recurrence_launch_recipe(self) -> None:
         recurrence_up = _extract_experiment_fn("recurrence_up")
