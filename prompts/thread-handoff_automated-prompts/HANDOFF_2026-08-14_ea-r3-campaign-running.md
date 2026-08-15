@@ -1,5 +1,11 @@
 # HANDOFF 2026-08-14 — E-A campaign running under R-3; register otherwise closed
 
+**NOTE:  Start here!!**
+**This session is recovering from a previous, interrupted session. The work outlined in this prompt is in an unknown state.**
+**The first step of this session should be to determine the current state and status of the Juniper Project and this prompt's work.**
+
+---
+
 Continue the **CLI experimentation program**. Successor to
 [`HANDOFF_2026-08-13_p4-followups-r6-shipped-r1-designed.md`](HANDOFF_2026-08-13_p4-followups-r6-shipped-r1-designed.md).
 The P4 §7 register (R-1..R-6) is **closed and merged**. One campaign is **in flight**.

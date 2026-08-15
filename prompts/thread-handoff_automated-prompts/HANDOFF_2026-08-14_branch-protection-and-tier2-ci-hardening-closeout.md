@@ -1,5 +1,11 @@
 # HANDOFF 2026-08-14 — branch-protection + Tier 2 CI hardening closeout
 
+**NOTE:  Start here!!**
+**This session is recovering from a previous, interrupted session. The work outlined in this prompt is in an unknown state.**
+**The first step of this session should be to determine the current state and status of the Juniper Project and this prompt's work.**
+
+---
+
 Continue the Juniper branch-protection / CI-hardening arc. Standing policy: headless merges only
 on Paul's explicit per-PR/group approval; guardrails (checks RAN + green, verify `result=pass` not
 `bypass`, defective PRs get corrected re-lands) always apply.
@@ -40,8 +46,7 @@ on Paul's explicit per-PR/group approval; guardrails (checks RAN + green, verify
   `notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_REQUIRED-STATUS-CHECK-CONTEXT-LISTS.md`: a table row
   ending `|Documentation Links`, a stray `Build P` line, and — most consequential — a concatenation
   **inside the juniper-cascor-worker Tier 1 code block**, which is the copy-paste source for ruleset
-  config. Left unreverted because it came from an owner commit. Repair?
-- **`allow_auto_merge: false` on 8 of 9** (only juniper-ml `true`). Consequence: there
+  config. Left unreverted because it came from an owner commit. Repair?cd Development/python/Juniper/juniper-ml/; conda activate JuniperCascor1; l; l
   `gh pr merge --auto` **silently falls back to an immediate merge** instead of arming. Deliberate?
 - **Merge queue?** `strict_required_status_checks_policy` is on fleet-wide (the deliberate
   anti-storm guarantee after the Cursor PR-storm damage). Cost: PRs go `BEHIND` repeatedly under

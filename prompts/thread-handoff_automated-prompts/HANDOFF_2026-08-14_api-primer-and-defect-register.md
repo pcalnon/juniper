@@ -1,5 +1,11 @@
 # HANDOFF 2026-08-14 — API primer + defect register COMPLETE; no work in flight
 
+**NOTE:  Start here!!**
+**This session is recovering from a previous, interrupted session. The work outlined in this prompt is in an unknown state.**
+**The first step of this session should be to determine the current state and status of the Juniper Project and this prompt's work.**
+
+---
+
 Independent of the concurrent CLI-experimentation and canopy E2E arcs; touches none of their files.
 Nearest sibling by date: [`HANDOFF_2026-08-14_cli-experimentation-p4-arc-complete.md`](HANDOFF_2026-08-14_cli-experimentation-p4-arc-complete.md).
 

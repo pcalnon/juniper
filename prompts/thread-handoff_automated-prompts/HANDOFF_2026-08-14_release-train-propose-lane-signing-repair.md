@@ -1,5 +1,12 @@
 # HANDOFF 2026-08-14 — release-train propose-lane signing repair
 
+
+**NOTE:  Start here!!**
+**This session is recovering from a previous, interrupted session. The work outlined in this prompt is in an unknown state.**
+**The first step of this session should be to determine the current state and status of the Juniper Project and this prompt's work.**
+
+---
+
 Continue the Juniper branch-protection / release-train arc. Standing policy: headless merges only on
 Paul's explicit per-PR/group approval; guardrails (checks RAN + green, verify `result=pass` not
 `bypass`, defective PRs get corrected re-lands) always apply.

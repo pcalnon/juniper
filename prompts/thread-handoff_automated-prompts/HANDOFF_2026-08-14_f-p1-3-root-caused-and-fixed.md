@@ -1,5 +1,11 @@
 # HANDOFF 2026-08-14 — F-P1-3 root-caused and fixed; the direct CLI runs
 
+**NOTE:  Start here!!**
+**This session is recovering from a previous, interrupted session. The work outlined in this prompt is in an unknown state.**
+**The first step of this session should be to determine the current state and status of the Juniper Project and this prompt's work.**
+
+---
+
 Continue the **CLI experimentation program**. Successor to
 [`HANDOFF_2026-08-14_e-i-cap-ceiling-and-f-p1-3-successor.md`](HANDOFF_2026-08-14_e-i-cap-ceiling-and-f-p1-3-successor.md),
 which named F-P1-3 as the successor to the closed spiral arc. **F-P1-3 is now closed.** Nothing of

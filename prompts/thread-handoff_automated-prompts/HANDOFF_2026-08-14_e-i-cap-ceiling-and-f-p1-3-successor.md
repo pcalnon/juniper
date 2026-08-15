@@ -1,5 +1,11 @@
 # HANDOFF 2026-08-14 — E-I shipped; the spiral arc is closed, F-P1-3 is the successor
 
+**NOTE:  Start here!!**
+**This session is recovering from a previous, interrupted session. The work outlined in this prompt is in an unknown state.**
+**The first step of this session should be to determine the current state and status of the Juniper Project and this prompt's work.**
+
+---
+
 Continue the **CLI experimentation program**. Successor to
 [`HANDOFF_2026-08-14_ea-r3-campaign-running.md`](HANDOFF_2026-08-14_ea-r3-campaign-running.md).
 The P4 §7 register (R-1..R-6) is closed, **R-5 is closed**, and the spiral capacity question is

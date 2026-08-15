@@ -1,5 +1,11 @@
 # HANDOFF 2026-08-14 — Canopy E2E Phase 1: segment 10
 
+**NOTE:  Start here!!**
+**This session is recovering from a previous, interrupted session. The work outlined in this prompt is in an unknown state.**
+**The first step of this session should be to determine the current state and status of the Juniper Project and this prompt's work.**
+
+---
+
 Continue Phase 1 live click-by-click validation of the juniper-canopy E2E arc. Segment 9 **drove the W6
 restart-confirm owner gate** that the previous three segments deferred, and **resolved F-CANOPY-019's open
 question**. Run-id `20260811T010700Z`; per-run TSV `reports/e2e/20260811T010700Z/statuses.tsv`, **119 rows**.
