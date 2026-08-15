@@ -5,7 +5,7 @@ actors, and the two `[owner-decision]` issues attached to them. It deliberately 
 CLI-experimentation plan; a sibling handoff archived the same day owns that, and this one defers to it
 rather than restating it.
 
-**Four handoffs are live for 2026-08-15 and none supersedes another:**
+**Five handoffs are live for 2026-08-15 and none supersedes another:**
 
 | document | owns |
 | --- | --- |
@@ -13,6 +13,7 @@ rather than restating it.
 | `HANDOFF_2026-08-15_api-primer-defect-register-outstanding-work.md` (ml#1121) | the defect register — 91 open defects |
 | `HANDOFF_2026-08-15_q6-resolved-and-owner-decision-register.md` (ml#1124) | what is left of the CLI-experimentation *plan*, including every Q-* owner decision |
 | **this one** | the **ruleset / bypass-actor / branch-protection** family |
+| `HANDOFF_2026-08-15_branch-protection-arc-closure-evidence.md` | closure evidence for the 2026-08-14 branch-protection handoff, and two corrections to it; defers to **this** register for ml#1011 / ml#1012 |
 
 **Nothing in this register is in flight**, and no engineering work is pending on it — every item is an
 owner decision or a lookup only the owner can perform. `main` moves continuously (it advanced four times
