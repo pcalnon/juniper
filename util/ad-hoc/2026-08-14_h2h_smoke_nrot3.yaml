@@ -1,0 +1,70 @@
+# HEAD-TO-HEAD smoke, n_rotations 3.0 (the HARD spiral) -- ONE config, BOTH arms.
+#
+# Byte-identical to the sibling ..._nrot1.yaml except for `n_rotations`, the experiment name,
+# and the tag. See that file's header for the full rationale behind every choice below; the
+# short version:
+#
+#   * n_rotations is the ONLY dataset knob that differs between the two paths by default
+#     (CLI `_SPIRAL_PROBLEM_NUM_ROTATIONS = 1` vs the service baseline's 3.0). Setting it
+#     explicitly in both arms is what makes this comparison mean anything. 3.0 is the value
+#     the whole E-A / E-I service surface was measured at, so this arm is the one that can be
+#     read against that history.
+#   * `algorithm` / `radius` omitted so NEITHER arm sends them (the CLI cannot).
+#   * `max_iterations` named so the SERVICE's growth loop is cap-bound like the CLI's.
+#   * `outputs.max_wall_seconds` explicit -- the driver budget is what actually ends a run.
+#   * `plots: []` so neither arm does client-side rendering inside the wall-clock comparison.
+#   * The output-epoch budget is only honoured by the direct CLI as of juniper-cascor#522
+#     (finding L-1). A pre-#522 checkout is NOT budget-equalised.
+#
+# Expectation worth recording BEFORE the run: at a 2-unit cap this arm should sit near chance.
+# E-A measured the same spiral at cap 4 / pool 4 at val 0.545, and the pool-8 curve only
+# reaches 0.995 at 128 units. A floored result here is the DESIGN, not a failure -- it is the
+# control that shows the easy arm's separation is real rather than a budget artifact.
+schema_version: 1
+experiment:
+  name: h2h-smoke-nrot3
+  description: "Head-to-head smoke -- hard spiral (n_rotations 3.0), cap 2 / pool 4"
+  seed: 20260729
+
+service:
+  log_level: INFO
+  metrics_enabled: true
+  auto_start: false
+  auto_start_data_service: false
+
+dataset:
+  generator: spiral
+  persist: true
+  tags: ["h2h", "smoke", "nrot3"]
+  ttl_seconds: 86400
+  params:
+    n_spirals: 2
+    n_points_per_spiral: 500
+    n_rotations: 3.0
+    noise: 0.05
+    train_ratio: 0.8
+    test_ratio: 0.2
+    seed: 20260729
+
+training:
+  start_fresh: true
+  params:
+    max_epochs: 100
+    max_iterations: 32
+    early_stopping: true
+    learning_rate: 0.05
+    correlation_threshold: 0.2
+    candidate_pool_size: 4
+    max_hidden_units: 2
+    patience: 50
+    candidate_epochs: 50
+
+runtime:
+  num_processes: 4
+  blas_threads: 2
+  eval_metrics_enabled: false
+
+outputs:
+  plots: []
+  snapshot_at_end: false
+  max_wall_seconds: 900
