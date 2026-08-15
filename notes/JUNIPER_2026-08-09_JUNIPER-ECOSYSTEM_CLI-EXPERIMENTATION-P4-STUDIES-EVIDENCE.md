@@ -126,6 +126,19 @@ The contrast that localises it: the **direct-CLI** path on the same machine trai
 Everything needed to reproduce is in the suite artifacts (12 E-A registries + manifests).
 Until resolved, E-A's budget surface and the spiral rows of E-B/E-C are **measurements of F-P4-1, not of spiral difficulty**.
 
+> **Correction (2026-08-15) — the supporting parenthetical in the paragraph above is wrong; the conclusion is not.**
+> "the P1.2/F-P1-3b profiling runs **ground through 156-candidate pools for minutes**" mis-reads a *block*
+> as a *workload*. Those runs were not computing for minutes: training finished in ~39 s and the process
+> then parked in a post-training `plt.show()`
+> ([F-P1-3 root cause](JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-F-P1-3-ROOT-CAUSE.md), cascor#517).
+> That is the same error F-P1-3b made, reused here as evidence.
+>
+> **The contrast itself survives on better evidence.** The direct CLI *does* train spiral — arm A/C
+> reach train ≈ 0.956–0.970 — so "CLI trains spiral, service did not" holds; only the "for minutes"
+> timing claim is withdrawn. Do not cite this parenthetical as evidence of direct-CLI slowness: the
+> [head-to-head](JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-HEAD-TO-HEAD-SMOKE-EVIDENCE.md)
+> measured no path gap at all.
+
 ### Operational findings (the campaign's own lessons)
 
 1. **Cascor cell failures partition into three honest classes**:
@@ -156,3 +169,27 @@ Post-campaign attest: both experiment port ranges empty, zero port lockdirs, zer
 ## 6. Program state
 
 P0–P3 ✓ · Wave 4 ✓ · Wave 5 ✓ · Wave 6 ✓ · Wave 7 ✓ · **P4 ✓ (this document)**. The §10.5 outputs now exist for all nine studies. Raised to owner from this phase: **F-P4-1** (service-path spiral training termination — the priority follow-up; blocks meaningful E-A/E-B/E-C spiral surfaces and re-frames the P1.1 reference). Remaining program items: W-12/Q-7 (csv_import corpus — parked), Q-6 (log-dir override; would retire the one-cascor-per-checkout rule and unlock cascor-parallel suites), F-P1-2 (Grafana render — context package in P3), PF threshold ratification (§12), and the §12 perf lane proper (F-P1-3b profiling) — for which the PF suites and the E-B difficulty ranking are now standing inputs.
+
+> **Update (2026-08-15) — register refresh.** Two entries above have moved:
+>
+> - **F-P4-1** is **ROOT-CAUSED and fixed**, no longer study-blocking. The cause was the spiral-only
+>   inline `dataset` source making cascor materialize its in-process fallback (unit-radius, params
+>   silently ignored) instead of the configured juniper-data dataset; spiral now stages like every
+>   other generator
+>   ([F-P4-1 root cause](JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_F-P4-1-SERVICE-SPIRAL-ROOT-CAUSE.md);
+>   fidelity fix cascor#504 merged, candidate-param plumbing gap cascor#505 closed).
+>   Its "raised to owner / priority follow-up" framing above is therefore spent, and the claim it
+>   rested on — that the service tier is handicapped — is **false**, confirmed three independent ways
+>   (ml#1093, E-I, and the
+>   [head-to-head](JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-HEAD-TO-HEAD-SMOKE-EVIDENCE.md)).
+> - "the §12 perf lane proper (**F-P1-3b profiling**)" — F-P1-3b is **REFUTED** (§5 of the head-to-head;
+>   withdrawn in the [F-P1-3 root cause](JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-F-P1-3-ROOT-CAUSE.md)).
+>   The perf lane remains open on the PF suites and the E-B ranking; it no longer has an F-P1-3b premise.
+>
+> **W-12/Q-7, F-P1-2, PF threshold ratification and Q-6 are unchanged and still open.** On **Q-6**
+> specifically, this arc supplied the field evidence the plan anticipated: H-7's "accepted residual
+> risk" materialized. The arm A/B root-cause evidence was **lost** because the runs wrote to a shared
+> checkout's `logs/juniper_cascor.log`, which the live `:8202` service rotated away mid-arc. The
+> current mitigation is the one-cascor-per-checkout rule (run experiments from a dedicated worktree) —
+> which is exactly the rule a `JUNIPER_CASCOR_LOG_DIR` override would retire. Recommend resolving Q-6
+> **yes**; it is now a demonstrated evidence-integrity issue, not only a concurrency nicety.

@@ -63,3 +63,22 @@ Timings: recurrence rows 1.7–6.5 s total (equities_seq dominated by the 3.0 s 
 ## 7. Program state after P2
 
 P0 ✓ · P1 ✓ (F-P1-3b CLI-path completion open as a §12 perf item) · Wave 4 register ✓ (W-1/2/3/5/8/9/10/11 + W-4 docs) · **P2 ✓ (this document)**. The §10.4 P3 criteria are substantially evidenced by P1 (spiral reference run), the W-8 bench baseline (ratified bands PASS; `delay_product` RFF ≫ linear in-repo), and this matrix. Remaining program work: Wave 5 concurrency hardening (W-6 snapshots dir, W-7 `--results-dir`, launcher multi-run + Q-6 log-dir class), W-12/Q-7 `csv_import` corpus, and the §12 performance lane (owns F-P1-3b). Owner decisions still open: F-P1-2 (native Grafana v13 squatting :3000), stale cascor image rebuild, F-P1-3b profiling priority.
+
+> **Update (2026-08-15) — F-P1-3b is REFUTED; this paragraph's forward-looking items are superseded.**
+> Three references above are stale and must not be picked up as work:
+>
+> - "P1 ✓ (**F-P1-3b** CLI-path completion open as a §12 perf item)" — P1.2 full completion is **PASS**
+>   ([P1 note §6](JUNIPER_2026-08-07_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P1-SMOKE-EVIDENCE.md)); it was
+>   never blocked on compute, but on a post-training `plt.show()` (cascor#517).
+> - "the §12 performance lane (**owns F-P1-3b**)" — the perf lane no longer owns it. The lane itself
+>   remains open; its F-P1-3b premise does not.
+> - "Owner decisions still open: … **F-P1-3b profiling priority**" — withdrawn as a decision. There is
+>   nothing to prioritise profiling *for* on this finding.
+>
+> F-P1-3b claimed structural direct-CLI compute overhead. It was **withdrawn** for lack of evidence
+> ([F-P1-3 root cause §3](JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-F-P1-3-ROOT-CAUSE.md))
+> — the 590 s was a *block, not a workload*, so no compute gap was ever measured — and then positively
+> **refuted** by direct measurement
+> ([head-to-head §5](JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-HEAD-TO-HEAD-SMOKE-EVIDENCE.md)):
+> on identical data at an identical budget the CLI is not slower at all (36 s vs 46 s; 35 s vs 35 s).
+> Of this paragraph's other items, **F-P1-2 and Q-6 remain genuinely open owner calls.**
