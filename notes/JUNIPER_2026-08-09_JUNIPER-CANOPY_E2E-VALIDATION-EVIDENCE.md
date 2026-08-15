@@ -1588,3 +1588,93 @@ PASS would credit the 500 ms guard for something the disable alone explains.
   driven with real keystrokes (JS `focus()` then `Control+A`/`Delete`/`type`/`Tab`); the granular fields now
   carry the post-#489 step pattern (`step="any"` for floats, `step="1"` for ints). The six `#restart-p-*` param
   fields are the same widget class but were not exercised — re-check them before deleting the T-22 note.
+
+---
+
+## Phase 1 — segment 11 (2026-08-15): every recorded verdict consolidated into the matrix
+
+Segment 11 drove **nothing live** — the isolated trio (data 8101 / cascor 8202 / canopy 8051) was down and a
+fresh stack would have opened a new run-id for no new evidence. It is a consolidation segment: the arc has been
+accumulating verdicts in **three** separate run records since 2026-08-09, and only the newest of them had ever
+been mapped back into the matrix.
+
+Matrix status column: **66 → 137 of 298 rows (46%)**. Nothing was re-driven and no verdict was invented; every
+cell traces to a record already committed in `reports/e2e/`.
+
+### The three verdict sources, and who wins
+
+| source | run | contributed |
+|---|---|---|
+| `reports/e2e/20260811T010700Z/statuses.tsv` | segments 9-10 | the 66 already-filled cells (unchanged) |
+| `reports/e2e/20260810T002233Z/statuses.tsv` | segments 4-8 | the bulk of the new fills |
+| `reports/e2e/20260809T223851Z/rowlog.md`    | the superseded first LIVE run | the §2.1-2.4 chrome baseline |
+
+Precedence is **newest-first**: a later re-drive of a row always beats an earlier record, and `--overwrite` was
+not used, so the segment-10 cells are byte-identical to what #1113 merged. Re-running the fill now reports
+`filled: 0` — it is idempotent.
+
+### A silent mis-fill in the segment-10 tool, found and repaired
+
+`util/ad-hoc/e2e_matrix_fill.py` split table rows on **every** `|`. Markdown escapes a literal pipe inside a
+cell as `\|`, which adds a phantom cell and shifts every index past it by one. Exactly one matrix row contains
+such an escape — **C2.2-04** (`display:block\|none`) — and it was in segment 10's fill set, so its `PASS` was
+written into the **FA** column while the status cell stayed `—`. The row read as fragile-area-tagged and
+unverified; both halves were wrong.
+
+Fixed three ways: the splitter now splits on unescaped pipes only, the row is repaired (FA back to `—`, status
+`PASS`), and the tool refuses to write any line whose **cell count** changes — the structural invariant that
+makes this class of error impossible to reintroduce silently rather than merely unlikely.
+
+### Three honesty rules the consolidation had to encode
+
+- **`pending` is not a verdict.** The rowlog records in-progress bookkeeping in the same column as outcomes
+  (`pending demo lane`, `pending W14`). Four ids — C2.4-02, C2.4-04/05, M-TUTORIAL-04, M-WORKERS-02 — are
+  deliberately **left empty** rather than filled with a non-terminal value a reader would take as an outcome.
+- **A lane arm proves one lane.** `M-DATASET-04-L` / `-06-L` / `-08-L` are LIVE-arm drives of demo-only
+  features (each asserting the documented non-demo `400`). They fold onto their base row — the row expectation
+  covers that behaviour — but render as `PASS (LIVE arm)`, never a bare `PASS`, because the demo arm was never
+  driven.
+- **A compressed range addresses real rows.** `M-TOPOLOGY-01..06,09..18 BLOCKED` (graph never renders in the
+  live lane — F-CANOPY-006) is one record covering **fourteen** rows; taking the token literally dropped all
+  fourteen. Both this expansion and the lane-suffix fold now match `util/ad-hoc/e2e_row_coverage.py`, so the
+  mapper and the filler finally agree on what "has a verdict" means.
+
+### Where the remaining 161 rows are
+
+| section | filled |
+|---|---|
+| §2.1 / §2.2 / §2.3 header, tabs, status bar | 4/4, 6/6, 8/8 |
+| §2.4 WS badge | 5/7 (C2.4-02 demo arm, C2.4-05 upstream-degraded induction) |
+| §2.5 training controls | 9/10 |
+| §2.6 NN meta-parameters | 4/19 |
+| §2.7 dataset subsection | 0/10 |
+| §2.8 candidate-node meta-parameters | 0/14 |
+| §2.9 banner trio / Apply / Experimental / Network Info / Pinned | 0/16 |
+| §2.10 global modals + floating alerts | 0/17 |
+| §3.1 metrics | 10/32 |
+| §3.2 candidates | 7/11 |
+| §3.3 topology | 18/18 |
+| §3.4 evolution | 5/7 |
+| §3.5 boundaries | 0/8 |
+| §3.6 dataset view | 3/27 |
+| §3.7 workers | 5/6 |
+| §3.8 parameters | 0/7 |
+| §3.9 snapshots | 4/21 |
+| §3.10 replay / §3.11 network editor | 17/17, 18/18 |
+| §3.12 redis / §3.13 cassandra / §3.14 tutorial / §3.15 about | 4/4, 4/4, 3/4, 3/3 |
+
+The unfilled mass is concentrated in the **sidebar** (§2.6-§2.10, 66 rows) and three tabs (dataset view,
+snapshots, metrics — 70 rows). That is the shape of the remaining Phase-1 live work, and it is now visible
+from the matrix itself instead of having to be reconstructed from run records.
+
+### Two verdict ids that have no matrix row — on purpose
+
+`C2.5-TRANSPORT` (the FE-1 behavioural transport proof) and `C2.5-D5` (divergence D-5 + the unavailable
+transport oracle) were recorded as synthetic ids in segment 9/10 because neither is a matrix row. The filler
+reports them rather than dropping them silently; they live in this note, not in a status cell.
+
+### Methodology note (segment 11)
+
+Consolidation is worth a segment of its own. The three-source merge surfaced a mis-filed verdict, a
+range-expansion gap, and a non-terminal value one step away from being recorded as an outcome — none of which
+a live-driving segment would have looked for.

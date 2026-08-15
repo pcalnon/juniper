@@ -7,10 +7,10 @@ this arc is unmerged.
 
 ## Do not redo — all merged
 
-| PR | Merge | Item |
-| --- | --- | --- |
+| PR         | Merge                | Item                                                                                                                                |
+|------------|----------------------|-------------------------------------------------------------------------------------------------------------------------------------|
 | cascor#517 | `ed3da59d` (+182/-8) | Fix — `--no-plots` through every entrypoint + `_backend_is_interactive()` guard + `test_fp13_direct_cli_termination.py` (15 passed) |
-| ml#1102 | `736181e7` (+396) | Root-cause evidence note + the two ad-hoc arms |
+| ml#1102    | `736181e7` (+396)    | Root-cause evidence note + the two ad-hoc arms                                                                                      |
 
 Both content-verified after merge; both rule-suites `pass`, not `bypass`; ml main-verify and
 cascor Golden/Conformance/CodeQL/Sequence-Safety green on the merge SHAs.
@@ -23,11 +23,11 @@ process in the GUI event loop, the second waits on a **non-daemon** plot child p
 `plt.show()`. Pre-fix positions `spiral_problem.py:1325-1327`; post-fix the guarded pair is at
 `:1363-1365` and the helper at `:122`.
 
-| arm | code | backend | flags | outcome |
-| --- | --- | --- | --- | --- |
-| A | pre-fix | `Agg` forced | — | exit 0, 39 s |
-| B | pre-fix | `tkagg` inherited (`DISPLAY=:0`) | — | **hung past a 240 s bound** |
-| C | cascor#517 | `tkagg` inherited | `--no-plots` | exit 0 (38-40 s idle; **95 s** under GPU contention) |
+| arm | code       | backend                          | flags        | outcome                                              |
+|-----|------------|----------------------------------|--------------|------------------------------------------------------|
+| A   | pre-fix    | `Agg` forced                     | —            | exit 0, 39 s                                         |
+| B   | pre-fix    | `tkagg` inherited (`DISPLAY=:0`) | —            | **hung past a 240 s bound**                          |
+| C   | cascor#517 | `tkagg` inherited                | `--no-plots` | exit 0 (38-40 s idle; **95 s** under GPU contention) |
 
 Arm A was the first completed direct-CLI run on record. **Finding F-P1-3b ("structural CLI-path
 compute overhead") is WITHDRAWN**: nothing in that five-attempt campaign observed the CLI *finish*,
