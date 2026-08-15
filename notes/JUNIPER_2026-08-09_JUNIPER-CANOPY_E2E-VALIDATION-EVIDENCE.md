@@ -1598,7 +1598,7 @@ fresh stack would have opened a new run-id for no new evidence. It is a consolid
 accumulating verdicts in **three** separate run records since 2026-08-09, and only the newest of them had ever
 been mapped back into the matrix.
 
-Matrix status column: **66 → 137 of 298 rows (46%)**. Nothing was re-driven and no verdict was invented; every
+Matrix status column: **66 → 140 of 298 rows (47%)**. Nothing was re-driven and no verdict was invented; every
 cell traces to a record already committed in `reports/e2e/`.
 
 ### The three verdict sources, and who wins
@@ -1628,18 +1628,48 @@ makes this class of error impossible to reintroduce silently rather than merely 
 ### Three honesty rules the consolidation had to encode
 
 - **`pending` is not a verdict.** The rowlog records in-progress bookkeeping in the same column as outcomes
-  (`pending demo lane`, `pending W14`). Four ids — C2.4-02, C2.4-04/05, M-TUTORIAL-04, M-WORKERS-02 — are
+  (`pending demo lane`, `pending W14`). Four ids — C2.4-02, C2.4-05, M-TUTORIAL-04, M-WORKERS-02 — are
   deliberately **left empty** rather than filled with a non-terminal value a reader would take as an outcome.
+  (C2.4-04 shared the `C2.4-04/05 pending` token but carries a real verdict from a later run, which wins once
+  the token is expanded — see the slash-enumeration fix below.)
 - **A lane arm proves one lane.** `M-DATASET-04-L` / `-06-L` / `-08-L` are LIVE-arm drives of demo-only
   features (each asserting the documented non-demo `400`). They fold onto their base row — the row expectation
   covers that behaviour — but render as `PASS (LIVE arm)`, never a bare `PASS`, because the demo arm was never
   driven.
 - **A compressed range addresses real rows.** `M-TOPOLOGY-01..06,09..18 BLOCKED` (graph never renders in the
   live lane — F-CANOPY-006) is one record covering **fourteen** rows; taking the token literally dropped all
-  fourteen. Both this expansion and the lane-suffix fold now match `util/ad-hoc/e2e_row_coverage.py`, so the
-  mapper and the filler finally agree on what "has a verdict" means.
+  fourteen. This expansion and the lane-suffix fold now match `util/ad-hoc/e2e_row_coverage.py`.
 
-### Where the remaining 161 rows are
+### Two more ways a run record addresses rows — and the last three cells they were hiding
+
+Auditing the filler against the mapper left an unexplained residue, and chasing it found two further forms the
+run records use that the tool did not read:
+
+- **A slash enumeration is a range written differently.** `M-PARAMETERS-01/02/03 PASS` names three rows.
+  `,` and `..` were expanded; `/` was not, so the token matched no matrix row and was dropped whole. `/` is now
+  the same separator as `,`.
+- **A rowlog records verdicts as prose bullets, not only table rows.** The filler read `| row | status |`
+  tables exclusively. The first LIVE run also wrote free bullets, and three of them carry terminal verdicts.
+
+Together these fill exactly three cells — **M-PARAMETERS-01/02/03 → `PASS`** ("tables render: 9/5/11 rows incl.
+headers"). That is precisely the inheritance §"Coverage baseline" promised: those three ids are named in this
+note's own list of rowlog-unique rows to inherit with run-id attribution, and they render as a bare `PASS`
+exactly like the other inherited cells (C2.2-02, M-ABOUT-03, M-REDIS-01). The segment-4 note that they "read as
+remaining and will be re-confirmed live rather than assumed" was describing the *mapper's* conservative
+crediting, not a decision to discard the record; a recorded verdict with named evidence is not an assumption.
+
+The bullet parser is deliberately narrow: the bullet must **open** with a row token followed by a terminal
+verdict word, and only that leading token is taken. The one bullet that continues with bare `-03 PASS-with-note,
+-05 …` continuations is not unpacked — those rows already carry later verdicts, and guessing at an ambiguous
+continuation to save three cells is the trade that produced the C2.2-04 mis-fill above. Under-reading is
+recoverable; a wrong status cell is not.
+
+**The two tools still disagree by one row, and the filler is the correct one.** The mapper credits only the
+*leading* token of a slash enumeration, so it counts M-PARAMETERS-01 verdicted while M-PARAMETERS-02/03 read
+remaining. `e2e_row_coverage.py` is a coverage estimator, not the ledger; the matrix is the ledger. Left as-is
+and recorded here rather than quietly reconciled by loosening one of them to match the other.
+
+### Where the remaining 158 rows are
 
 | section | filled |
 |---|---|
@@ -1658,7 +1688,7 @@ makes this class of error impossible to reintroduce silently rather than merely 
 | §3.5 boundaries | 0/8 |
 | §3.6 dataset view | 3/27 |
 | §3.7 workers | 5/6 |
-| §3.8 parameters | 0/7 |
+| §3.8 parameters | 3/7 |
 | §3.9 snapshots | 4/21 |
 | §3.10 replay / §3.11 network editor | 17/17, 18/18 |
 | §3.12 redis / §3.13 cassandra / §3.14 tutorial / §3.15 about | 4/4, 4/4, 3/4, 3/3 |
@@ -1675,6 +1705,13 @@ reports them rather than dropping them silently; they live in this note, not in 
 
 ### Methodology note (segment 11)
 
-Consolidation is worth a segment of its own. The three-source merge surfaced a mis-filed verdict, a
-range-expansion gap, and a non-terminal value one step away from being recorded as an outcome — none of which
-a live-driving segment would have looked for.
+Consolidation is worth a segment of its own. The three-source merge surfaced a mis-filed verdict, three
+separate row-addressing forms the tool could not read (`..` ranges, `/` enumerations, prose bullets), and a
+non-terminal value one step away from being recorded as an outcome — none of which a live-driving segment
+would have looked for.
+
+The generalisable part is the audit method, not any one fix: **two independent tools counting the same thing
+and disagreeing is a defect detector.** Every one of the row-addressing gaps above was found by taking a small
+unexplained delta between `e2e_matrix_fill.py` and `e2e_row_coverage.py` seriously instead of rounding it off.
+The last disagreement is left standing *because* it is now explained — a reconciled number that no longer
+carries information is worth less than an explained discrepancy.
