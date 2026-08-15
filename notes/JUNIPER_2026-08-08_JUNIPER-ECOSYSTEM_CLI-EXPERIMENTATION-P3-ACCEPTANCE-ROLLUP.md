@@ -55,3 +55,9 @@ Recommendation when it blocks: option 1 to unblock immediately; option 3 then 2 
 ## 4. Program state after P3
 
 P0 ✓ · P1 ✓ · P2 ✓ · **P3 ✓ (this document)** · Wave 4 ✓ · Wave 5 ✓ (5.5/W-12 parked on Q-7). Remaining: Wave 7 (run_suite, list_runs, PF scenarios owning F-P1-3b, Q-9 alert scoping, bounded-parallel, the Q-12 `JR-REC-*` block proposal), then P4 experimentation studies (§10.5) on the automation Wave 7 provides. Image rebuild for the deploy stack (F-P1-1 unblock) authorized and in progress this session.
+
+> **Update (2026-08-15):** "PF scenarios **owning F-P1-3b**" is superseded — F-P1-3b is **REFUTED**
+> (withdrawn in the [F-P1-3 root cause §3](JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-F-P1-3-ROOT-CAUSE.md),
+> then measured absent in the [head-to-head §5](JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-HEAD-TO-HEAD-SMOKE-EVIDENCE.md)).
+> Wave 7 has since shipped and the PF scenarios stand on their own; they simply no longer own that
+> finding. Criterion 6 and criterion 8's Grafana sub-arms (§3) remain open against **F-P1-2**, unchanged.
