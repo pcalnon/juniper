@@ -1,0 +1,87 @@
+# HEAD-TO-HEAD smoke, n_rotations 1.0 (the EASY spiral) -- ONE config, BOTH arms.
+#
+# This same file is fed to the direct CLI (`main.py --config`) and to the service driver
+# (`util/experiments/run_experiment.py --config`). Driving both arms from a single file is
+# the strongest equalisation available: there is no second document to drift.
+#
+# Why each choice:
+#
+#   * n_rotations is set EXPLICITLY. It is the ONLY dataset knob that differs between the
+#     two paths by default (CLI `_SPIRAL_PROBLEM_NUM_ROTATIONS = 1` vs the service baseline's
+#     3.0), and ml#1093 measured it moving val 0.595 -> 1.000 at cap 8. Leaving it implicit
+#     is what made every prior "CLI vs service" number incomparable. The sibling
+#     ..._nrot3.yaml is byte-identical but for this value.
+#
+#   * `algorithm` and `radius` are deliberately OMITTED. The CLI's W-11 dataset map
+#     (main.py `_W11_DATASET_KEY_MAP`) carries neither, so the CLI cannot send them; omitting
+#     them means NEITHER arm sends them and both inherit the same juniper-data default. Naming
+#     `algorithm: modern` here would still work but would rest on an assumption about that
+#     default rather than on construction.
+#
+#   * `max_iterations` IS named even though the CLI has no counterpart (it reports the key as
+#     service-tier-only and ignores it -- unmapped keys are reported loudly, never dropped).
+#     It is here so the SERVICE's growth loop is bounded by `max_hidden_units`, exactly as the
+#     CLI's is: `derive_epochs_cap` uses `min(max_iterations, max_hidden_units)`, so any value
+#     >= the cap makes the cap the binding limit on both paths. Without it the two arms could
+#     stop for different reasons.
+#
+#   * `outputs.max_wall_seconds` is explicit. The driver's own budget -- NOT a suite's
+#     `per_run_timeout_seconds` -- is what actually ends a run, and an unset value silently
+#     inherits `spiral-baseline`'s 3600 (the E-I budget trap).
+#
+#   * `plots: []` on both arms. The CLI renders no plot FILES at all (its `plot_*` helpers only
+#     `show()`, never `savefig`), so leaving the service arm plotting would add client-side work
+#     to one side of a wall-clock comparison and none to the other.
+#
+#   * The output-epoch budget below is only honoured by the direct CLI as of juniper-cascor#522
+#     (finding L-1): before it, `solve_n_spiral_problem` pinned the module constant and the
+#     initial output pass ran 10000 epochs regardless of this file. A head-to-head run against
+#     a pre-#522 checkout is NOT budget-equalised.
+schema_version: 1
+experiment:
+  name: h2h-smoke-nrot1
+  description: "Head-to-head smoke -- easy spiral (n_rotations 1.0), cap 2 / pool 4"
+  seed: 20260729
+
+service:
+  log_level: INFO
+  metrics_enabled: true
+  auto_start: false
+  auto_start_data_service: false
+
+dataset:
+  generator: spiral
+  persist: true
+  tags: ["h2h", "smoke", "nrot1"]
+  ttl_seconds: 86400
+  params:
+    n_spirals: 2
+    n_points_per_spiral: 500
+    n_rotations: 1.0
+    noise: 0.05
+    train_ratio: 0.8
+    test_ratio: 0.2
+    seed: 20260729
+
+training:
+  start_fresh: true
+  params:
+    max_epochs: 100
+    max_iterations: 32
+    early_stopping: true
+    learning_rate: 0.05
+    correlation_threshold: 0.2
+    candidate_pool_size: 4
+    max_hidden_units: 2
+    patience: 50
+    candidate_epochs: 50
+
+runtime:
+  num_processes: 4
+  blas_threads: 2
+  eval_metrics_enabled: false
+
+outputs:
+  plots: []
+  snapshot_at_end: false
+  max_wall_seconds: 900

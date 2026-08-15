@@ -240,7 +240,7 @@ Two traps worth carrying forward:
 | **F-P1-3** — direct CLI cannot be run to completion at a controlled budget | **CLOSED** — root-caused (§2), fixed in cascor#517, verified (§1 arm C) |
 | **F-P1-3b** — "structural CLI-path compute overhead" | **WITHDRAWN** (§3) — no compute gap was ever measured; the 590 s was a block, not a workload |
 | P1.2 full-completion row (P1 smoke) | **Re-runnable** — arm A/C are completed direct-CLI runs; the P1 row can close once #517 merges |
-| R-5 §5 "no completed direct-CLI run" | **Resolved**; the head-to-head remains open and needs a #514-consistent campaign (§6) |
+| R-5 §5 "no completed direct-CLI run" | **Resolved**; the head-to-head itself is now **CLOSED at smoke scale** — [head-to-head smoke evidence](JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-HEAD-TO-HEAD-SMOKE-EVIDENCE.md): no path gap, and F-P1-3b positively **refuted** |
 | L-1 … L-4 | **Superseded by §9** — L-1 was live (fixed, cascor#522); L-2 re-scoped; L-3's "delete" recommendation withdrawn; L-4 still filed |
 
 Artifacts live under the run dir
