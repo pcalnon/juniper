@@ -74,7 +74,7 @@ mounted at `/dashboard` — `juniper-canopy/src/main.py:495`, and `GET /` 307-re
 carry a short rider naming what was and was not proved — `PASS(stated expectation)`, `PASS (LIVE arm)`,
 `FAIL(during-run)/PASS(post-run)`; the rider narrows the verdict, it never replaces it. A row still reading `—`
 has **no** recorded terminal verdict: either it was never driven, or the only record of it is non-terminal
-(`pending …`), which is deliberately not filled. As of segment 11: **137 of 298** rows carry a verdict.
+(`pending …`), which is deliberately not filled. As of the segment-11 follow-up (ml#1117): **140 of 298** rows carry a verdict.
 
 ### 1.2 Verification-method legend
 
