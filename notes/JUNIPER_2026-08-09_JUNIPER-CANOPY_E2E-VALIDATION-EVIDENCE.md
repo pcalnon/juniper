@@ -1458,3 +1458,133 @@ convergence to the pool"** merged at `04:57:03` and **#516** at `15:37:23`, both
 onto `fadfe80` and repeat start → stop → observe. This is the same trap the segment-8 handoff flagged after it
 nearly cost a duplicate PR — a long-lived supervised leg silently pins its boot-time code, so `ps -o lstart`
 against `git log` is a precondition for attributing *any* observed behaviour.
+
+---
+
+## Phase 1 — segment 10 (2026-08-14): the second F-CANOPY-019 arm, and the matrix finally gets filled
+
+Segment 10 opened from `main` with the segment-9 evidence PR (#1106) merged. TSV **120 → 145 rows**, and the
+matrix status column went from **completely empty** to **66 rows filled** — the bulk-fill had been deferred
+in every segment since 4.
+
+### The headline: F-CANOPY-019 is now fully characterized, and it is worse than a wrong label
+
+Segment 9 proved the modal describes the SIDEBAR while the STAGED dataset is what gets applied. Segment 10
+drove the other branch — the one the code predicted but nobody had run.
+
+Setup was identical to segment 9 (staged `spirals/200/0.1`, sidebar set back to `1000/0.25` without applying,
+`pending_dataset` re-verified at 200/0.1, modal summary reading "Samples: 1000"). The single difference: before
+confirming, **one granular field was edited** — `#restart-ds-rotations` 1.5 → 2.5, an axis unrelated to the
+staged difference.
+
+Result: juniper-data generated `spiral-1.0.0-a697da0a6182be0c` with **`n_samples 1000`, `noise 0.25`,
+`n_rotations 2.5`** — the sidebar values plus the edit. The staged 200/0.1 was **silently discarded**.
+
+So the same dialog, from the same visible state, produces opposite outcomes:
+
+| user action | modal says | backend applies | staged intent |
+|---|---|---|---|
+| does not touch the granular section | Samples 1000 | **200** (staged) | preserved; dialog misdescribed it |
+| edits **any** granular field | Samples 1000 | **1000** (sidebar + edit) | **silently discarded** |
+
+The mechanism is exactly the code read: `_execute_restart_handler` Phase 1 re-stages when
+`_restart_dataset_changed(dataset_vals, baseline.dataset)` differs, and **both sides are seeded from the
+sidebar**, so any edit makes the comparison true. The destructive direction — losing a deliberately staged
+dataset — is the one triggered by the user being *more* careful and opening "Verify / modify what will happen".
+
+In fairness: arm B is not wholly silent. The outcome alert does say *"Re-staged dataset to spirals (1000
+samples)."* But that is post-hoc, after the restart has run, and it auto-dismisses in ~8 s. Nothing before the
+click warns that the staged change is about to be dropped. **Upgraded P2 → P1.**
+
+### F-CANOPY-005's trigger is broader than the timeout race
+
+Clicking Pause on a non-running backend produced this console sequence:
+
+```
+[WARNING] [Phase D] REST fallback (pause): WS rejected: Training cannot be paused in the current state
+[ERROR]   Failed to load resource: 409 (Conflict) @ /api/train/pause
+[WARNING] [Phase D] REST /api/train/pause returned 409
+```
+
+Read the first line carefully: the WS did **not** time out and did **not** fail at the transport level. It
+returned a well-formed rejection carrying a legitimate *business* error from the backend. The client then
+treated that considered refusal as grounds to re-issue the identical command over HTTP.
+
+That matches the shipped contract as the matrix states it ("the REST fetch fires only if the WS send is
+unavailable/**rejected**"), so it is by design — but it means a rejection the backend has already adjudicated
+gets retried on a second transport, and the client cannot distinguish *"the socket failed, retry"* from
+*"the server considered this and said no."* Harmless for pause-on-stopped (409 both times); the exposure is any
+command whose WS rejection is transient or partially applied. The fix direction is to fire the fallback only on
+transport-level failure, never on a received error ack.
+
+**F-CANOPY-003 also reproduced** on `d11bfcd`: after the rejected pause and a rapid reset pair, `#pause-button`
+and `#reset-button` were both still `disabled` across 10 samples spanning ~12 s, with no ack and no sweep
+clearing them.
+
+### A correction to segment 9's wording
+
+Segment 9 recorded the dead status bar as **permanent**. Segment 10 shows that was over-stated. Loaded while
+the backend is **at rest**, the bar does hydrate — it sat at its initial `Stopped`/`Idle`/`0`/`""` values for
+~19 s and then came fully good at ~21 s (`Completed — early stopped` / `Output Training` / Step 14 /
+`11 / 10` / `Latency: 6ms`, every field matching `/api/status`). Loaded **during** a live run it never
+hydrates, which is precisely F-CANOPY-004's documented scope. The corrected statement: **starved when the page
+is loaded mid-run, merely slow (~20 s) when loaded at rest.**
+
+### Two documented divergences confirmed, one new observability gap
+
+- **D-1 confirmed** (doc-only): there are THREE writers of `visualization-tabs.active_tab` —
+  `dashboard_manager.py:3283`, `:3305`, and `hdf5_snapshots_panel.py:1230` — while `_visible_tabs`' docstring
+  at `:2264-2266` states the dashboard "keeps exactly two". Runtime behaviour is fine; the comment is stale.
+- **D-5 confirmed** (doc-only): the comment at `:4128-4129` says "When the flag is off (default)…" while
+  `settings.py:349` declares `enable_ws_control_buttons: bool = True`. Note the guard reads
+  `getattr(..., False)` — that `False` is a missing-attribute fallback, not the product default, and is easy
+  to misread as corroborating the comment.
+- **NEW — the matrix's own transport oracle is unavailable.** §2.5 instructs "Record the active transport in
+  the run header (startup log line at `:4149`)". That line does not exist in the canopy log: **zero**
+  occurrences of `Phase D` across the whole 119 MB file, and zero for the else-branch equivalent, while other
+  `frontend.dashboard_manager` INFO records are present. It is emitted during app construction, before logging
+  is configured. The transport had to be established behaviourally instead — WS frames plus zero
+  `/api/train/*` requests.
+
+### An anomaly parked rather than filed
+
+`/api/status` reported **`hidden_units: 11` against `max_hidden_units: 10`** — the network holds eleven units
+against a declared cap of ten. It reached 10/10 before the segment-10 restart and 11 after, so the extra unit
+arrived across a restart carrying the hard-coded `reset: True` with start-fresh OFF. Recorded as an
+observation on C2.3-05, not a finding: cascor's cap semantics are not established here (`max_hidden_units` may
+bound grow *iterations* rather than total units). Reproduce deliberately before filing.
+
+### Row results (segment 10)
+
+`reports/e2e/20260811T010700Z/statuses.tsv` — **145 rows**; matrix status column **66 filled**.
+
+| group | result |
+|---|---|
+| §2.1 header/theme/welcome | **4/4** — C2.1-01/02 driven; F-CANOPY-001 (glyph desync) re-confirmed live on `d11bfcd`, still OPEN |
+| §2.2 tab bar | **6/6** — incl. D-1 confirmed; all 15 tabs enumerated |
+| §2.3 top status bar | **8/8** — all asserted against the `/api/status` oracle |
+| §2.5 training controls | **8/10** — C2.5-04 (resume) and C2.5-07 (non-default REST posture) not driven; C2.5-08 recorded INCONCLUSIVE on purpose |
+| W6 | W6-14 upgraded to both halves; new W6-16b (second execution, granular-edit path) |
+
+**C2.5-08 is deliberately INCONCLUSIVE.** Two clicks 120 ms apart produced one command effect — the contract's
+outcome — but the mechanism is not separable here: the first click optimistically disables the button, so the
+second lands on a disabled control regardless of any debounce, and neither click logged a WS frame. Scoring it
+PASS would credit the 500 ms guard for something the disable alone explains.
+
+### Methodology notes (segment 10)
+
+- **`scrollIntoView` does not apply before a `getBoundingClientRect` in the same `page.evaluate`.** A stop
+  click was dispatched at `y = -1515` — far off-viewport — because the rect was read in the same call that
+  requested the scroll. Scroll, wait, then read the rect in a **separate** evaluate, and reject any box with
+  `y < 0` or `height == 0` before clicking.
+- **Read the id list from source, never from a DOM prefix.** A `[id^="sidebar-"]` query returns 20 elements;
+  `SIDEBAR_SECTION_IDS` (`dashboard_manager.py:267-282`) is exactly 14. Scoring against the superset makes a
+  correctly all-hidden tab look like a failure — it nearly produced a false FAIL on C2.2-05.
+- **Match tab labels exactly**: an attempt on "Evolution" found nothing because the tab is "Network Evolution",
+  which reads as an unclickable control if the selector result is not checked.
+- **Hooking `console.log` alone misses the interesting lines.** The Phase-D fallback path logs at `warn` and
+  `error`, so a `console.log`-only capture returned empty while the real evidence sat in the console file.
+- **The T-22 numeric wall is obsolete for the restart modal's dataset fields.** `#restart-ds-rotations` was
+  driven with real keystrokes (JS `focus()` then `Control+A`/`Delete`/`type`/`Tab`); the granular fields now
+  carry the post-#489 step pattern (`step="any"` for floats, `step="1"` for ints). The six `#restart-p-*` param
+  fields are the same widget class but were not exercised — re-check them before deleting the T-22 note.
