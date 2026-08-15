@@ -56,13 +56,31 @@ MATRIX_NAMESPACES = ("C2.", "M-")
 # the bookkeeping is usually qualified: "pending demo lane", "pending W14".
 NON_VERDICT_PREFIXES = ("pending", "todo", "in progress", "in-progress", "deferred", "not run")
 
+# A rowlog also records verdicts as prose BULLETS, not just table rows -- the
+# first LIVE run wrote "- M-PARAMETERS-01/02/03 PASS (tables render: ...)".
+# Reading only the tables silently dropped those. The bullet form is parsed
+# DELIBERATELY NARROWLY: the bullet must open with a row token followed by a
+# terminal verdict word, and only that LEADING token is taken. A bullet that
+# continues with bare "-03 PASS-with-note, -05 ..." continuations is not
+# unpacked -- an ambiguous continuation is left to a later run record rather
+# than guessed at. Under-reading is recoverable; a wrong status cell is not.
+TERMINAL_VERDICTS = ("PASS", "FAIL", "BLOCKED", "SKIP", "N/A", "NOT-APPLICABLE")
+BULLET_VERDICT_RE = re.compile(
+    r"^[-*]\s+((?:C2\.[0-9.]+|M-[A-Z-]+)-[0-9]+(?:[,/][0-9]+)*)\s+"
+    r"(" + "|".join(re.escape(v) for v in TERMINAL_VERDICTS) + r")([A-Za-z-]*)"
+)
+
 # Run records address rows the way a human writes them: a compressed range
-# ("M-TOPOLOGY-01..06,09..18" for one BLOCKED verdict covering fourteen rows)
-# and lane-arm suffixes ("M-DATASET-04-L" = the LIVE arm of M-DATASET-04). Both
-# forms name real matrix rows; taking the token literally silently drops them.
+# ("M-TOPOLOGY-01..06,09..18" for one BLOCKED verdict covering fourteen rows),
+# a slash enumeration ("M-PARAMETERS-01/02/03 PASS" -- three rows, one verdict)
+# and lane-arm suffixes ("M-DATASET-04-L" = the LIVE arm of M-DATASET-04). All
+# three forms name real matrix rows; taking the token literally silently drops
+# them. ``/`` and ``,`` are the same separator written two ways, so the spec is
+# normalised before expansion.
 # Same normalisation the row-coverage mapper (util/ad-hoc/e2e_row_coverage.py)
 # already applies, so the two tools agree on what "has a verdict" means.
-RANGE_TOKEN_RE = re.compile(r"^([A-Z][A-Za-z0-9.]*(?:-[A-Z0-9]+)*)-(\d+(?:\.\.\d+)?(?:,\d+(?:\.\.\d+)?)*)$")
+RANGE_SEP_RE = re.compile(r"[,/]")
+RANGE_TOKEN_RE = re.compile(r"^([A-Z][A-Za-z0-9.]*(?:-[A-Z0-9]+)*)-(\d+(?:\.\.\d+)?(?:[,/]\d+(?:\.\.\d+)?)*)$")
 LANE_SUFFIX_RE = re.compile(r"-(?:L|D)$")
 
 
@@ -73,9 +91,9 @@ def expand_row_ids(token: str) -> list[str]:
     if not m:
         return [token] if token else []
     prefix, spec = m.group(1), m.group(2)
-    width = len(spec.split("..")[0].split(",")[0])
+    width = len(RANGE_SEP_RE.split(spec)[0].split("..")[0])
     out: list[str] = []
-    for part in spec.split(","):
+    for part in RANGE_SEP_RE.split(spec):
         if ".." in part:
             lo_s, hi_s = part.split("..", 1)
             pad = max(width, len(lo_s), len(hi_s))
@@ -165,10 +183,16 @@ def load_tsv_verdicts(path: Path) -> dict[str, str]:
 
 
 def load_rowlog_verdicts(path: Path) -> dict[str, str]:
-    """Read an earlier run's markdown rowlog (``| row | status | evidence |``)."""
+    """Read an earlier run's markdown rowlog: ``| row | status | evidence |``
+    table rows, plus the narrow prose-bullet form (see BULLET_VERDICT_RE)."""
     out: dict[str, str] = {}
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
+        bullet = BULLET_VERDICT_RE.match(line)
+        if bullet:
+            token, verdict, rider = bullet.group(1), bullet.group(2), bullet.group(3)
+            out.setdefault(token, f"{verdict}{rider}")
+            continue
         if not line.startswith("|") or is_separator(line):
             continue
         # split_row keeps the outer empties: ['', row, status, evidence, '']
