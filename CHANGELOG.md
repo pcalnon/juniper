@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`util/open_signed_pr.py`** — promoted from `util/ad-hoc/` to a permanent utility after it landed
+  the #1099 signing fan-out across 8 repos. Opens a PR on any Juniper repo whose commit is
+  **GitHub-signed**, by creating branch + commit + PR through the API (`createCommitOnBranch`) rather
+  than a local checkout. That matters because `required_signatures` rejects unsigned commits
+  fleet-wide, GPG/YubiKey signing is unavailable to a runner, and an unsigned commit *anywhere* in a
+  branch's history blocks the merge; GitHub signs API-authored commits. It also needs no working
+  tree, making it the path of choice when a session is confined to one worktree and cannot commit in
+  sibling checkouts.
+  - Gains `--delete` (repeatable) alongside `--add`, so the two together express a file move in one
+    signed commit; at least one is now required. `fileChanges.deletions` is omitted entirely when
+    unused rather than sent as an empty list.
+  - Safety contract unchanged and now pinned by tests: refuses on an existing open PR for the branch
+    and on an existing branch (never force-updates another ref), pins `expectedHeadOid` to the
+    resolved base sha so a concurrent push fails loudly instead of clobbering, and `--dry-run`
+    resolves read-only and writes nothing.
+- `tests/test_open_signed_pr.py` — hermetic suite for the above (`gh` is a PATH stub recording argv
+  and replaying canned stdout; no network, repo, or `git`). `util/` sits outside every pre-commit
+  Python hook's scope, so this is the gate. Wired into `ci.yml`.
+
+### Changed
+
+- `util/ad-hoc/2026-08-14_touchup_lane_probe.py` and `util/ad-hoc/2026-08-14_signing_arc_status.py`
+  moved to `util/ad-hoc/retired/` with the `_RETIRED-2026-08-14` suffix (the #928 precedent), their
+  purposes being complete: the touch-up fan-out landed in all 8 repos with the lane, and
+  `juniper-cascor` 0.9.0 published to PyPI. Their headers now record the answers they produced rather
+  than a "retire when" condition already met.
+
 - **Editable-install drift check now detects stale metadata**, a second axis orthogonal to
   `FRESH` / `WORKTREE_PINNED` / `ORPHANED` (`util/editable_install_drift_check.py`). An editable
   install never re-derives its version when the source tree moves on: `import` follows the live

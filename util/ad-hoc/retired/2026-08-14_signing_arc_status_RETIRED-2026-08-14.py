@@ -5,10 +5,11 @@ Project: juniper-ml
 Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-14
-Status: ad-hoc -- investigation (all 11 PRs MERGED 2026-08-14; ml#1099 closed)
-Retire when: juniper-cascor 0.9.0 is published to PyPI (the last open thread this
-             board was watching) and the arc is fully closed. Delete or move to
-             util/ad-hoc/retired/ then.
+Status: RETIRED 2026-08-14 -- arc closed (kept for provenance, not for use)
+Outcome:     all 11 fan-out PRs merged, ml#1099 closed, and juniper-cascor 0.9.0
+             published to PyPI 2026-08-14T23:36Z -- the last thread this board was
+             watching. The reusable part is the MERGE-OK contract documented below;
+             re-point PRS at a new batch if you need it again.
 Related: juniper-ml#1099, juniper-ml#1105, juniper-cascor#518
 
 Reports per PR: check rollup, ran/pending/failed context counts, mergeStateStatus,

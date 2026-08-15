@@ -539,6 +539,13 @@ jobs:
           # template passes the real library-drift helpers (skeleton+placeholders); --dry-run,
           # refuse-on-collision, and the tool NEVER edits manifest.yaml (prints the stanza).
           python3 -m unittest -v tests/test_scaffold_template.py
+          # tests/test_open_signed_pr.py: util/open_signed_pr.py -- the signed cross-repo
+          # PR opener promoted out of util/ad-hoc/ after the ml#1099 fan-out. Hermetic
+          # (gh is a PATH stub): pins the createCommitOnBranch mutation, expectedHeadOid ==
+          # the resolved base sha, additions/deletions shape, the explicit ref=refs/heads/…
+          # on the refs POST (ml#770 R7), and that every refusal path writes nothing.
+          # util/ is outside every pre-commit Python hook's scope, so this is the gate.
+          python3 -m unittest -v tests/test_open_signed_pr.py
           # tests/test_prompt_validator_contract.py: static contract test for the
           # prompt-validator subagent (.claude/agents/prompt-validator.md) + its pinned
           # verdict JSON schema/fixtures (tests/fixtures/prompt_validator/). Asserts the

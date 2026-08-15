@@ -2,43 +2,57 @@
 Open a PR on any Juniper repo whose commit is GitHub-signed (createCommitOnBranch).
 
 Project: juniper-ml
-Sub-Project: ad-hoc tooling
+Sub-Project: cross-repo tooling
 Author: Paul Calnon
 Created: 2026-08-14
-Status: ad-hoc -- migration (fan-out LANDED 2026-08-14; kept as a reusable tool)
-Retire when: no further cross-repo workflow PRs are needed. The ml#1099 fan-out
-             itself is complete -- 11 PRs across **8** repos (juniper-recurrence
-             has no touch-up lane, and only cascor/canopy/data have a lockfile
-             lane), all merged. Consider graduating this to util/ proper rather
-             than retiring it: opening a GitHub-signed PR on a sibling repo is a
-             recurring need, not a one-off.
-Related: juniper-ml#1099, juniper-cascor#518 (live repro), juniper-ml#1096
-         (propose.py's create_signed_commit -- the reference implementation)
+Status: permanent utility (promoted from util/ad-hoc/ after the ml#1099 fan-out)
+Related: juniper-ml#1099 (the fan-out this was built for), juniper-ml#1096
+         (util/release_train/propose.py's create_signed_commit -- the reference
+         implementation this mirrors)
 
 Why this exists
 ---------------
 The 2026-08-12 branch-protection normalization added ``required_signatures`` to
-all 9 Juniper repos. A local ``git commit`` on a runner is unsigned, so every
-automation that pushes one now produces an UNMERGEABLE branch -- and an unsigned
-commit anywhere in the branch history blocks the merge (squash does not rescue
-it). ml#1096 fixed that for ``propose.py``; this script is the vehicle for
-fixing the remaining lanes, and it deliberately uses the same mechanism it is
-shipping: every commit it makes is created through the GitHub API, which GitHub
-signs, so these fix-PRs are themselves mergeable under the new rule.
+all 9 Juniper repos. GPG/YubiKey signing is not available to a hosted runner, and
+an unsigned commit ANYWHERE in a branch's history blocks the merge -- squash does
+not rescue it. The portable way to produce a signed commit without a key is the
+GraphQL ``createCommitOnBranch`` mutation: GitHub signs commits authored through
+its API.
+
+That makes this useful well beyond the original fan-out. Any time you need to land
+a change on a sibling repo -- a workflow fix, a pin bump, a config correction --
+without cloning it, this opens the branch, the signed commit, and the PR in three
+API calls. It needs no working tree, so it is also the sandbox-friendly path when
+a session is confined to one worktree and cannot commit in sibling checkouts.
 
 Usage
 -----
-    python util/ad-hoc/2026-08-14_signed_workflow_pr.py \
-        --repo juniper-cascor \
-        --branch fix/lockfile-lane-signed-commit \
-        --add /path/to/new-lockfile-update.yml:.github/workflows/lockfile-update.yml \
-        --message "ci(lockfile): sign the regen commit and skip release/** heads" \
-        --title "ci(lockfile): sign the regen commit and skip release/** heads" \
-        --body-file /path/to/body.md \
-        [--base main] [--owner pcalnon] [--dry-run]
+    python util/open_signed_pr.py \\
+        --repo juniper-cascor \\
+        --branch ci/lockfile-lane-signed-commit \\
+        --add /local/path/lockfile-update.yml:.github/workflows/lockfile-update.yml \\
+        --message "ci(lockfile): sign the regen commit" \\
+        --title "ci(lockfile): sign the regen commit" \\
+        --body-file /local/path/body.md \\
+        [--delete path/to/remove] [--base main] [--owner pcalnon] [--dry-run]
 
-``--add`` is repeatable (LOCAL_PATH:REPO_PATH). Exit 0 = PR open (or already
-open), 1 = refused/dup, 2 = hard error.
+``--add`` is repeatable (LOCAL_PATH:REPO_PATH) and ``--delete`` is repeatable
+(REPO_PATH); together they express a file move. At least one of the two is
+required. Exit 0 = PR opened (or --dry-run), 1 = refused (dup PR / branch exists),
+2 = hard error.
+
+Safety contract
+---------------
+* Refuses when an open PR already exists for the branch (concurrent sessions are
+  a real hazard in this fleet) and when the branch already exists -- it never
+  force-updates someone else's ref.
+* ``expectedHeadOid`` is pinned to the resolved base sha, so a concurrent push
+  makes the mutation fail loudly rather than clobber.
+* ``--dry-run`` performs the read-only resolution and prints the plan; it creates
+  no branch, no commit and no PR.
+
+Tests: ``tests/test_open_signed_pr.py`` (hermetic; ``gh`` is a PATH stub).
+``util/`` is not covered by the pre-commit Python hooks, so that suite is the gate.
 """
 
 from __future__ import annotations
@@ -100,14 +114,20 @@ def create_branch(owner: str, repo: str, branch: str, sha: str) -> None:
     )
 
 
-def create_signed_commit(owner: str, repo: str, branch: str, message: str, additions: list, expected_head_oid: str) -> str:
-    """Land ``additions`` as ONE GitHub-signed commit on ``branch``.
+def create_signed_commit(owner: str, repo: str, branch: str, message: str, additions: list, expected_head_oid: str, deletions: "list | None" = None) -> str:
+    """Land ``additions`` (and any ``deletions``) as ONE GitHub-signed commit on ``branch``.
 
     Mirrors util/release_train/propose.py::create_signed_commit -- the whole
     CreateCommitOnBranchInput goes through as a single ``$input`` object via a
     JSON request body, because ``gh api graphql -f k=v`` can only pass scalars
     and ``fileChanges.additions`` is a list.
+
+    ``deletions`` is omitted from the payload entirely when empty rather than sent
+    as ``[]``, keeping the request byte-identical to the additions-only form.
     """
+    file_changes: dict = {"additions": [{"path": path, "contents": contents} for path, contents in additions]}
+    if deletions:
+        file_changes["deletions"] = [{"path": path} for path in deletions]
     body = {
         "query": CREATE_COMMIT_MUTATION,
         "variables": {
@@ -115,7 +135,7 @@ def create_signed_commit(owner: str, repo: str, branch: str, message: str, addit
                 "branch": {"repositoryNameWithOwner": f"{owner}/{repo}", "branchName": branch},
                 "message": {"headline": message},
                 "expectedHeadOid": expected_head_oid,
-                "fileChanges": {"additions": [{"path": path, "contents": contents} for path, contents in additions]},
+                "fileChanges": file_changes,
             }
         },
     }
@@ -164,12 +184,17 @@ def main(argv: list) -> int:
     ap.add_argument("--repo", required=True)
     ap.add_argument("--base", default="main")
     ap.add_argument("--branch", required=True)
-    ap.add_argument("--add", action="append", required=True, type=parse_add, metavar="LOCAL:REPOPATH")
+    ap.add_argument("--add", action="append", default=[], type=parse_add, metavar="LOCAL:REPOPATH")
+    ap.add_argument("--delete", action="append", default=[], metavar="REPOPATH", help="repo path to delete in the same commit (repeatable)")
     ap.add_argument("--message", required=True, help="commit headline")
     ap.add_argument("--title", required=True)
     ap.add_argument("--body-file", required=True)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
+
+    if not args.add and not args.delete:
+        print("ERROR: nothing to commit -- pass at least one --add or --delete.", file=sys.stderr)
+        return 2
 
     additions = []
     for local, repo_path in args.add:
@@ -203,6 +228,8 @@ def main(argv: list) -> int:
             print(f"  branch {args.branch}")
             for repo_path, contents in additions:
                 print(f"  add    {repo_path} ({len(base64.b64decode(contents))} bytes)")
+            for repo_path in args.delete:
+                print(f"  delete {repo_path}")
             print(f"  commit {args.message}")
             print(f"  title  {args.title}")
             print("  (nothing written)")
@@ -213,7 +240,7 @@ def main(argv: list) -> int:
             return 1
         create_branch(args.owner, args.repo, args.branch, base_sha)
 
-        oid = create_signed_commit(args.owner, args.repo, args.branch, args.message, additions, base_sha)
+        oid = create_signed_commit(args.owner, args.repo, args.branch, args.message, additions, base_sha, args.delete)
         print(f"signed commit {oid[:12]} on {slug}:{args.branch}")
 
         with tempfile.NamedTemporaryFile("w", suffix=".md", encoding="utf-8", delete=False) as fh:

@@ -5,13 +5,17 @@ Project: juniper-ml
 Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-14
-Status: ad-hoc -- investigation (PURPOSE COMPLETE 2026-08-14)
-Retire when: now eligible -- the touch-up fan-out landed in all 8 repos that have
-             the lane. Delete or move to util/ad-hoc/retired/ on the next sweep.
-             Answer it produced: the lane exists in 8 repos (NOT 9 -- juniper-
-             recurrence has none), all named `Bump AGENTS.md Last Updated`, and
-             the name was a required context on none of them, which is what made
-             the rename to `Verify AGENTS.md Last Updated` safe.
+Status: RETIRED 2026-08-14 -- purpose complete (kept for provenance, not for use)
+Answer it produced: the touch-up lane exists in 8 repos (NOT 9 -- juniper-recurrence
+             has none), all named `Bump AGENTS.md Last Updated`, and that name was a
+             required status check on NONE of them -- which is what made the rename
+             to `Verify AGENTS.md Last Updated` safe to ship. Renaming a required
+             context would have left every PR waiting forever on a context that
+             could no longer report.
+Note:        it also caught its own bug -- the first version conflated a transient
+             `gh` fetch failure with a 404 and reported cascor and canopy as
+             lane-less when both have the lane. Any successor MUST distinguish 404
+             from error, or it will silently drop repos from a fan-out.
 Related: juniper-ml#1099, juniper-cascor#518
 
 Why: converting the lane from "commit a date bump" to "verify the date" renames
