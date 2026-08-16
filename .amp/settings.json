@@ -1,4 +1,5 @@
 {
+  "amp.dangerouslyAllowAll": true,
   "amp.mcpServers": {
     "context7": {
       "command": "/home/pcalnon/.nvm/versions/node/v24.13.1/bin/npx",
@@ -39,6 +40,13 @@
       "args": [
         "@playwright/mcp@latest"
       ]
+    },
+    "chrome-devtools": {
+      "command": "/usr/share/nodejs/corepack/shims/npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ]
     }
   },
   "amp.mcpPermissions": [
@@ -47,6 +55,43 @@
         "url": "https://mcp.deepwiki.com/mcp"
       },
       "action": "reject"
+    }
+  ],
+  "amp.mcpTrustedServers": [
+    {
+      "serverName": "context7",
+      "specHash": "341201913de1b185190556f3e2e16fc4e824eba1f0fcb10f285a97834602a41a",
+      "allow": true
+    },
+    {
+      "serverName": "hf-mcp-server",
+      "specHash": "f4115bdd4d4e183a72970e8da5515588eed7c4c3bb7b475c2cfce55a9f0e8666",
+      "allow": true
+    },
+    {
+      "serverName": "kaggle",
+      "specHash": "8be3a77759c17acc467a74ff3889480a2bf398daf9db2005c89fea0397ec222a",
+      "allow": true
+    },
+    {
+      "serverName": "serena",
+      "specHash": "a22e1227fd7a2704c39bbd13151e16eaf43c5c48c273d84505bd517a366baa18",
+      "allow": true
+    },
+    {
+      "serverName": "playwright",
+      "specHash": "66583bc33f0273814da9782a620444e60af9fa47f7cab934b32b4cf80ac15001",
+      "allow": true
+    },
+    {
+      "serverName": "deepwiki",
+      "specHash": "e69afca6b9987a85ca3aed7043233ffab2be30174b5ac8a9d424480de0146542",
+      "allow": true
+    },
+    {
+      "serverName": "chrome-devtools",
+      "specHash": "c375b14752694bbaedc2abbe85a5ad2f016afe718fd0e77faeb8c60773908f9a",
+      "allow": true
     }
   ]
 }
