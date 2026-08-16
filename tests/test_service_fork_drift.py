@@ -12,7 +12,9 @@ The natural experiment that proves the shape: ``juniper-ml#1082`` added
 **automatically**, because recurrence imports the shared middleware. It never
 reached ``juniper-data`` or ``juniper-cascor``, because both import their own
 forks. Same fix, same ecosystem, three services; the only differentiator is
-library-versus-copy.
+library-versus-copy. Closing that gap took two hand-written PRs against the two
+forks (``juniper-data#266``, ``juniper-cascor#524``) -- the per-fork cost this
+gate exists to make visible up front, rather than at the next audit.
 
 Why a targeted invariant registry and not a file diff
 -----------------------------------------------------
@@ -133,13 +135,19 @@ GUARDS: tuple[Guard, ...] = (
     ),
     Guard(
         guard_id="pre-auth-throttle",
-        summary=("juniper-ml#1082 added FailedAuthThrottle to the shared package so the 401 path consumes budget; neither fork imports it. This is the natural experiment above -- the fix reached recurrence automatically and neither fork at all."),
+        summary=("juniper-ml#1082 added FailedAuthThrottle to the shared package so the 401 path consumes budget. This was the natural experiment above -- the fix reached recurrence automatically and neither fork at all -- until it was ported into both (juniper-data#266, juniper-cascor#524)."),
         register_ids=("APD-DATA-001", "APD-CASCOR-004"),
-        status=KNOWN_GAP,
+        status=ENFORCED,
         canonical="juniper-service-core/juniper_service_core/security.py",
         sites=(
-            ForkSite("juniper-data", _DATA_MIDDLEWARE, ("FailedAuthThrottle",)),
-            ForkSite("juniper-cascor", _CASCOR_MIDDLEWARE, ("FailedAuthThrottle",)),
+            # Two markers, not one. The class name alone would go green on a bare
+            # ``import``, and the half-port that matters -- wiring the pre-auth
+            # ``check()`` but omitting ``record_failure`` -- is a throttle that never
+            # accumulates, i.e. a silent no-op that still satisfies a name-only marker.
+            # Behavioural coverage lives in each fork's own suite; this pair is the
+            # cheapest structural proxy for "both halves are present".
+            ForkSite("juniper-data", _DATA_MIDDLEWARE, ("FailedAuthThrottle", "record_failure")),
+            ForkSite("juniper-cascor", _CASCOR_MIDDLEWARE, ("FailedAuthThrottle", "record_failure")),
         ),
     ),
 )
