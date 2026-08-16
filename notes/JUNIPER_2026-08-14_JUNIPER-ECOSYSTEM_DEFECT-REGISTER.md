@@ -57,7 +57,7 @@ Every `OPEN` in this document was confirmed by reading the file **today**. Line 
 | `juniper-ml` (meta) | 0 | 0 | 0 | 1 | 0 | **1** |
 | **Total** | **7** | **19** | **18** | **34** | **18** | **96** |
 
-**Status:** the 96 entries above were all confirmed present in current source on 2026-08-14. **Five have since been fixed** — `APD-DATA-002`, `APD-DATA-006`, `APD-DATA-034`, `APD-DATA-036`, `APD-CASCOR-002` — leaving **91 open**; each is marked at its detail entry and in its §4 table row, and all five are recorded in [§5](#5-fixed-findings-before-and-since-the-primer) with their PR and verification. Three further findings were already fixed before this register was written and are likewise listed in §5 rather than counted in the 96: two between the primer's publication and this register, and one earlier still. No extracted claim failed to reproduce, but one claim reproduced with its provenance inverted — see `APD-SVCCORE-016`.
+**Status:** the 96 entries above were all confirmed present in current source on 2026-08-14. **Seven have since been fixed** — `APD-DATA-002`, `APD-DATA-006`, `APD-DATA-034`, `APD-DATA-036`, `APD-CASCOR-002`, and (2026-08-16) `APD-DATA-001` † / `APD-CASCOR-004` † — leaving **89 open**; each is marked at its detail entry and in its §4 table row, and all seven are recorded in [§5](#5-fixed-findings-before-and-since-the-primer) with their PR and verification. That closes every item in §2.2's ranked list. Three further findings were already fixed before this register was written and are likewise listed in §5 rather than counted in the 96: two between the primer's publication and this register, and one earlier still. No extracted claim failed to reproduce, but one claim reproduced with its provenance inverted — see `APD-SVCCORE-016`.
 
 ### 2.1 Reachability — read this before triaging any Security entry
 
@@ -73,11 +73,12 @@ The entries that survive this filter as genuinely reachable are those in the bar
 
 Ranked by consequence divided by cost, not by count.
 
-> **Worked through 2026-08-14. Items 1–3 are FIXED; item 4 is now the top remaining item.** The
-> ranking held up in practice: item 1's fix was indeed a port of already-tested lines from two
-> siblings, and item 2 did turn out to need two PRs because the handler is byte-identical in both
-> services. Item 4's warning below — that consolidating the forks would activate `APD-SVCCORE-003` —
-> is unchanged and still governs how it should be approached.
+> **Worked through 2026-08-14 to 2026-08-16. All four items are FIXED.** The ranking held up in
+> practice: item 1's fix was indeed a port of already-tested lines from two siblings, and item 2 did
+> turn out to need two PRs because the handler is byte-identical in both services. Item 4's warning
+> below — that consolidating the forks would activate `APD-SVCCORE-003` — is unchanged, and the fix
+> chosen for item 4 deliberately **did not** consolidate: it ported the throttle into each copy,
+> leaving that warning still governing any future consolidation.
 >
 > | Item | Fixed by | Notes |
 > |---|---|---|
@@ -85,9 +86,12 @@ Ranked by consequence divided by cost, not by count.
 > | 2 — `APD-CASCOR-002` | [juniper-cascor#516](https://github.com/pcalnon/juniper-cascor/pull/516) | |
 > | 2 — `APD-DATA-034` | [juniper-data#262](https://github.com/pcalnon/juniper-data/pull/262) | |
 > | 3 — `APD-DATA-006` | [juniper-data#263](https://github.com/pcalnon/juniper-data/pull/263) | |
-> | 4 — `APD-DATA-001` / `APD-CASCOR-004` | **still open** | See the loop warning below before acting |
+> | 4 — `APD-DATA-001` | [juniper-data#266](https://github.com/pcalnon/juniper-data/pull/266) | Ported, not consolidated |
+> | 4 — `APD-CASCOR-004` | [juniper-cascor#524](https://github.com/pcalnon/juniper-cascor/pull/524) | Ported, not consolidated |
 >
 > The §2.3 drift-check recommendation was also built: [juniper-ml#1103](https://github.com/pcalnon/juniper-ml/pull/1103).
+> Its `pre-auth-throttle` row was promoted `KNOWN_GAP` → `ENFORCED` when item 4 landed, which is the
+> self-maintaining half of that ledger working exactly as designed.
 
 1. **`APD-DATA-002` — the request body limit is bypassable.** A chunked request with no `Content-Length` streams past the 10 MiB cap entirely. The only unauthenticated memory-exhaustion vector in the register when the service runs in the open bare/dev profile — and the fix is twelve already-written, already-tested lines sitting in **two** sibling repos
    (`juniper-cascor/src/api/middleware.py:100-110`, `juniper-service-core/juniper_service_core/middleware.py:113-131`). Highest consequence over lowest cost. `APD-DATA-036` is a second defect on the same line and ships with the same patch.
@@ -95,9 +99,10 @@ Ranked by consequence divided by cost, not by count.
    It has already bitten once — cascor's `coerce_native_scalars` exists solely to dodge it, and `juniper-data` has no such workaround, so it is *less* protected. An observability blind spot across the whole HTTP surface of two services.
 3. **`APD-DATA-006` — a `GET` can silently undo a write.** `record_access` rewrites the whole metadata document under a lock the tag-update path does not take. The race is likelier than it first appears: on the download path `record_access` is scheduled with `call_soon`
    (`routes/datasets.py:698`), so it runs on the loop thread and can land squarely between the tag update's two `asyncio.to_thread` hops. Silent write loss triggered by a *safe* method is the class nobody suspects.
-4. **`APD-DATA-001` † / `APD-CASCOR-004` † — the 401 path is unthrottled in both running services.** `juniper-ml#1082` added `FailedAuthThrottle` to `juniper-service-core`, but **neither service imports that middleware** — both carry their own copies. Real, but ranked fourth deliberately:
+4. **`APD-DATA-001` † / `APD-CASCOR-004` † — the 401 path is unthrottled in both running services.** — **FIXED** ([juniper-data#266](https://github.com/pcalnon/juniper-data/pull/266), [juniper-cascor#524](https://github.com/pcalnon/juniper-cascor/pull/524)). `juniper-ml#1082` added `FailedAuthThrottle` to `juniper-service-core`, but **neither service imported that middleware** — both carry their own copies. Real, but ranked fourth deliberately:
    the credentials are high-entropy keys from Docker secrets, so online guessing is not the threat; what the throttle actually buys is CPU and log-flood control. The shippable fix is porting `FailedAuthThrottle` into the two copies — *not* "retire the copies", which is a migration project, not an equal-cost alternative.
    **Both entries are `†`.** The primer describes the mechanism and states the shared-package fix landed (1058, 1344); it never mentions a juniper-data or juniper-cascor copy of `SecurityMiddleware`, and `FailedAuthThrottle` appears zero times in its 9,863 lines. The copy divergence is this register's finding, not the primer's.
+   **What the fix took, for the next port of this shape.** Both PRs mirror service-core's optional fourth constructor parameter (`failed_auth_throttle: FailedAuthThrottle | None = None`, defaulting to an *enabled* throttle), so neither `app.py` call site changed and no settings field was added — the shared package and juniper-recurrence expose no env knob either, and inventing one per fork would have widened the divergence this entry is about. The port is two-part and the second half is the easy one to lose: `check()` runs before authentication, but `record_failure()` is gated on the response being a 401, so a `check()`-only port is a throttle that never accumulates. Each fork's suite therefore carries an arm that fails if `record_failure` is dropped (verified by mutation in both). One pre-existing cascor test, `test_failed_auth_does_not_increment_rate_limit`, fires exactly the default budget of 10 failed attempts and then asserts a valid key still passes; it now builds a generous throttle so it keeps measuring the *identity-keyed limiter's* counters rather than tripping the new gate.
 
 **A loop worth noticing before acting on #4.** The tempting fix for the divergence — adopt the shared middleware everywhere — is precisely what would make `APD-SVCCORE-003` live. That entry (a `getattr`-with-default settings lookup that silently skips the WebSocket Origin allowlist when the field is absent or misspelled) is the
 highest *potential* consequence in the register, and it is inert today only because nothing imports `juniper_service_core.websocket`. cascor's copy reads those settings as hard attributes, so a typo is an `AttributeError` there. **On this axis the local copy is the stricter one, and consolidation would be a regression unless `_setting` is hardened first.**
@@ -125,11 +130,20 @@ Fifteen entries share one shape: **a guard adopted in one copy of near-identical
 | Streaming body cap (CR-024) | `juniper-cascor`, then `juniper-service-core` | ~~`juniper-data`~~ — **fixed** (`APD-DATA-002`, data#261) | `ENFORCED` |
 | `Content-Length` parse guard (400, not 500) | `juniper-cascor`, `juniper-service-core` | ~~`juniper-data`~~ — **fixed** (`APD-DATA-036`, data#261) | `ENFORCED` |
 | Blank-API-key filter | `juniper-service-core` | `juniper-data` (`APD-DATA-003`), `juniper-cascor` (`APD-CASCOR-006` †) | `KNOWN_GAP` |
-| Pre-auth throttle (`juniper-ml#1082`) † | `juniper-service-core` | `juniper-data`, `juniper-cascor` (`APD-DATA-001` †, `APD-CASCOR-004` †) | `KNOWN_GAP` |
+| Pre-auth throttle (`juniper-ml#1082`) † | `juniper-service-core` | ~~`juniper-data`, `juniper-cascor`~~ — **both fixed** (`APD-DATA-001` † data#266, `APD-CASCOR-004` † cascor#524) | `ENFORCED` |
 | `OPTIONS` bypass in the exempt check | *(nowhere)* | `juniper-cascor`, `juniper-data` (`APD-CASCOR-001b`, `APD-DATA-035` †) | *(not encoded — no reference impl)* |
 | Narrow serialisation-error handling | *(nowhere)* | ~~`juniper-cascor`, `juniper-data`~~ — **both fixed** (`APD-CASCOR-002` cascor#516, `APD-DATA-034` † data#262) | `ENFORCED` |
 
 The pre-auth-throttle row is `†`: the pairing of the shared fix against the two unpatched copies is register-original, not a primer claim.
+
+> **A marker caveat learned promoting that row.** The gate checks source markers, so it verifies a
+> *name*, not a behaviour — the original single marker `("FailedAuthThrottle",)` would have gone
+> green on a bare `import`, and the half-port that actually matters (pre-auth `check()` wired,
+> `record_failure` omitted → a throttle that never accumulates) would have sailed through it. The
+> promoted row therefore asserts **two** markers per fork, `FailedAuthThrottle` *and*
+> `record_failure`. That is still only a structural proxy: real behavioural coverage lives in each
+> fork's own suite, and a green `ENFORCED` gate is evidence the pieces are present, never that the
+> port is correct. Worth applying the same scepticism to the remaining rows.
 
 **Sibling-package drift** — three independently released client packages that solved the same problem differently. No shared code, so no drift check applies; this needs a written cross-client convention.
 
@@ -159,7 +173,7 @@ Entries below carry full detail. Everything else is tabulated in §4 with the sa
 | | |
 |---|---|
 | **Severity** | Security |
-| **Status** | OPEN |
+| **Status** | **FIXED** — [juniper-data#266](https://github.com/pcalnon/juniper-data/pull/266); the juniper-cascor sibling `APD-CASCOR-004` † in [juniper-cascor#524](https://github.com/pcalnon/juniper-cascor/pull/524) |
 | **Source** | `juniper-data/juniper_data/api/middleware.py:110-150` |
 | **Primer** | I.5 — line 1058 (mechanism only) |
 | **Provenance** | **Register-original.** The primer describes the shared-package mechanism and says the gap "is now fixed (juniper-ml#1082)" (1058, 1344). It never mentions a juniper-data copy of `SecurityMiddleware`; `FailedAuthThrottle` appears zero times in the primer. |
@@ -176,9 +190,11 @@ juniper-cascor/src/api/app.py:20        from api.middleware import ... SecurityM
 juniper-data/juniper_data/api/app.py:18 from .middleware import ... SecurityMiddleware
 ```
 
-`grep -rn FailedAuthThrottle` across both repos returns **zero** hits. The shared fix is unreachable from either running service.
+`grep -rn FailedAuthThrottle` across both repos returned **zero** hits (re-verified 2026-08-15, still zero). The shared fix was unreachable from either running service.
 
 **Fix.** Port `FailedAuthThrottle` into both copies. Retiring the copies in favour of the shared middleware is the better end state but a much larger project — and read §2.2's closing paragraph first.
+
+**Fixed as described** — ported, not consolidated, so §2.2's loop warning still governs any future consolidation. Both PRs mirror service-core's optional fourth constructor parameter defaulting to an *enabled* throttle, so no `app.py` call site changed; no settings field was added, matching the shared package and juniper-recurrence. Both halves are wired (`check()` before auth, `record_failure()` gated on a 401) — a `check()`-only port would be a throttle that never accumulates, and each fork carries an arm that fails if `record_failure` is dropped. The `pre-auth-throttle` drift row moved `KNOWN_GAP` → `ENFORCED` in the same arc, with a second marker added because the original name-only marker would have gone green on a bare `import`.
 
 ---
 
@@ -442,7 +458,7 @@ That is a stronger finding than a single stray hit would have been: the one pack
 
 | ID | Finding | Sev | Source | Primer | Conf |
 |---|---|---|---|---|---|
-| APD-DATA-001 † | 401 path unthrottled — the `#1082` fix never reached this copy | S | `api/middleware.py:110-150` | 1058 (mechanism) | High |
+| APD-DATA-001 † | **FIXED (#266)** — 401 path unthrottled — the `#1082` fix never reached this copy | S | `api/middleware.py:110-150` | 1058 (mechanism) | High |
 | APD-DATA-002 | **FIXED (#261)** — Body limit bypassable by chunked request with no `Content-Length` | S | `api/middleware.py:79-83` | 757 | High |
 | APD-DATA-003 | Blank API key enables auth that accepts an empty key | S | `api/security.py:54`, `api/settings.py:155-160` | 1041 | High |
 | APD-DATA-004 | Batch-create echoes raw `e.detail` beside a redacting branch | S | `api/routes/datasets.py:423-431` vs `:433-447` | 4749 | High |
@@ -525,7 +541,7 @@ Four carefully chosen, individually meaningful codes collapse into one opaque st
 
 | ID | Finding | Sev | Source | Primer | Conf |
 |---|---|---|---|---|---|
-| APD-CASCOR-004 † | 401 path unthrottled — the `#1082` fix never reached this copy | S | `src/api/middleware.py:147-186` | 1058 (mechanism) | High |
+| APD-CASCOR-004 † | **FIXED (#524)** — 401 path unthrottled — the `#1082` fix never reached this copy | S | `src/api/middleware.py:147-186` | 1058 (mechanism) | High |
 | APD-CASCOR-006 † | Blank API key enables auth that accepts an empty key — no `.strip()` filter | S | `src/api/security.py:32-33` | 1041 (data sibling) | High |
 | APD-CASCOR-001a | Middleware order comment is wrong (omits `RequestBodyLimitMiddleware`) | M | `src/api/app.py:644-646`, `:630` | 9592 | High |
 | APD-CASCOR-001b | CORS innermost → `SecurityMiddleware` answers preflights 401 | C | `src/api/app.py:621`, `:641`; `src/api/middleware.py:189-198` | 9592 | High |
@@ -625,7 +641,7 @@ Recorded so the register is not read as a list of live problems that includes re
 
 ### 5.1 Fixed since this register was published (2026-08-14)
 
-These five carry their **original IDs** — they were counted in the 96, and are marked `FIXED` in place at their §4 table row and detail entry rather than renumbered or removed, so a reader following an existing reference still lands on the right entry and sees why it is closed. Working the §2.2 list is what produced them.
+These seven carry their **original IDs** — they were counted in the 96, and are marked `FIXED` in place at their §4 table row and detail entry rather than renumbered or removed, so a reader following an existing reference still lands on the right entry and sees why it is closed. Working the §2.2 list is what produced them, and it is now worked through: all four of its items are closed.
 
 | ID | Finding | Fixed by | Verification |
 |---|---|---|---|
@@ -634,8 +650,10 @@ These five carry their **original IDs** — they were counted in the 96, and are
 | APD-CASCOR-002 | Blanket `ValueError` handler reported serialisation faults as `400` | [juniper-cascor#516](https://github.com/pcalnon/juniper-cascor/pull/516) | `PydanticSerializationError` is classified 500 and logged at exception level; a plain `ValueError` still returns 400, so the existing `test_value_error_handler` passes unchanged — the handler was narrowed, not redefined. `coerce_native_scalars` remains as the cheap pre-emption for the numpy-scalar path. |
 | APD-DATA-034 † | The same handler in juniper-data, which had **no** `coerce_native_scalars` equivalent | [juniper-data#262](https://github.com/pcalnon/juniper-data/pull/262) | Same narrowing. This was the worse of the two: with no helper standing in the way, every serialisation fault here was reported as a client error. Both fixes confirmed to bite by reverting them (`assert 400 == 500`). |
 | APD-DATA-006 | `record_access` could write a pre-edit snapshot over a committed tag edit | [juniper-data#263](https://github.com/pcalnon/juniper-data/pull/263) | New `DatasetStore.update_tags` performs the whole read-modify-write inside the same `_version_lock`, in one thread hop. The test uses `LocalFSDatasetStore` deliberately — `InMemoryDatasetStore.get_meta` returns the very object it stores, so both writers mutate one instance and the lost write **cannot be expressed**; a test written against the convenient store would have passed on the broken code. |
+| APD-DATA-001 † | 401 path unthrottled — the `#1082` fix never reached this copy; the register's #4 item | [juniper-data#266](https://github.com/pcalnon/juniper-data/pull/266) | `FailedAuthThrottle` ported into `api/security.py`; `check()` runs before authentication and `record_failure()` is gated on a 401. **Ported, not consolidated** — §2.2's loop warning about `APD-SVCCORE-003` still governs. Mirrors service-core's optional fourth constructor parameter defaulting to an *enabled* throttle, so `app.py` was unchanged and no settings field was added. 13 arms added; the half-port that matters is caught by mutation — deleting the single `record_failure` line fails 3 of them. Full suite 1173 passed. |
+| APD-CASCOR-004 † | The same gap in juniper-cascor's copy | [juniper-cascor#524](https://github.com/pcalnon/juniper-cascor/pull/524) | Same port, same shape, same mutation check. One pre-existing test needed isolating rather than weakening: `test_failed_auth_does_not_increment_rate_limit` fires **exactly** the default budget of 10 failed attempts and then asserts a valid key passes, so it now builds a generous throttle and keeps measuring the *identity-keyed limiter's* counters. That interaction is correct behaviour, not a regression — once an IP burns its failed-attempt budget it is throttled at the door regardless of the next credential, because `check()` necessarily precedes knowing the key is good. |
 
-The §2.3 copy-drift recommendation was built alongside them: `tests/test_service_fork_drift.py` ([juniper-ml#1103](https://github.com/pcalnon/juniper-ml/pull/1103)) now holds the three fixed guards as `ENFORCED` so they cannot silently regress, and the two still-open rows as `KNOWN_GAP` so closing one prompts promotion.
+The §2.3 copy-drift recommendation was built alongside them: `tests/test_service_fork_drift.py` ([juniper-ml#1103](https://github.com/pcalnon/juniper-ml/pull/1103)) now holds **four** fixed guards as `ENFORCED` so they cannot silently regress, and the one still-open row (`blank-api-key-filter`) as `KNOWN_GAP` so closing it prompts promotion. Promoting the `pre-auth-throttle` row exercised that mechanism end to end and exposed a limit worth carrying forward: a single name marker would have gone green on a bare `import`, so the promoted row asserts two markers — see the caveat under §2.3.
 
 ### 5.2 Fixed before this register
 
@@ -644,7 +662,7 @@ Two were fixed between the primer's publication on 2026-08-13 and this register;
 | ID | Finding | Fixed by | Verification |
 |---|---|---|---|
 | APD-SVCCORE-F01 | WebSocket heartbeat closed with the reserved code `1006`, which RFC 6455 §7.4.1 forbids an endpoint from sending — so the `websockets` server refused to serialise it and no close frame reached the peer | [juniper-ml#1081](https://github.com/pcalnon/juniper-ml/pull/1081) — after the primer | Both sites now close `1011` with the timeout in the reason: `websocket/control_stream.py:180`, `websocket/training_stream.py:118`. An AST anti-resurrection guard prevents recurrence. |
-| APD-SVCCORE-F02 | The 401 path consumed no rate-limit budget | [juniper-ml#1082](https://github.com/pcalnon/juniper-ml/pull/1082) — after the primer | `FailedAuthThrottle` is checked **before** authentication (`middleware.py:205-213`) and `record_failure` is gated on a 401 (`:226-227`); `:222-225` is the `except HTTPException` line and its explanatory comment. **Fixed in the shared package only** — see `APD-DATA-001` † and `APD-CASCOR-004` †. |
+| APD-SVCCORE-F02 | The 401 path consumed no rate-limit budget | [juniper-ml#1082](https://github.com/pcalnon/juniper-ml/pull/1082) — after the primer | `FailedAuthThrottle` is checked **before** authentication (`middleware.py:205-213`) and `record_failure` is gated on a 401 (`:226-227`); `:222-225` is the `except HTTPException` line and its explanatory comment. Fixed in the shared package first and, on 2026-08-16, ported into both forks — see `APD-DATA-001` † and `APD-CASCOR-004` †. |
 | APD-CCLIENT-F01 | `__version__` left at `0.4.0` while the package shipped `0.5.x`/`0.6.x` | **Before** the primer — the exact commit is unidentified | All three literals now read `0.7.0`; a tombstone comment records the incident at `__init__.py:11-13`. Attempts to attribute this to a specific PR did not resolve, so no provenance is claimed rather than an unverifiable one being recorded. The *guard* is still absent — see `APD-ECO-005`. |
 
 ---
