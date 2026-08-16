@@ -123,6 +123,21 @@ W1 run 1: every `CandidateUnit` construction raised `torch.AcceleratorError: CUD
 **F-ML-001 — `util/reap_pytest_orphans.bash` kills nohup-detached isolated-stack services (P1, juniper-ml repo, OPEN).**
 Freeing the VRAM via the repo's own reaper took down the live cascor service leg: isolated-stack services are launched `( cd … && nohup … & )`, so after the subshell exits they are parentless BY DESIGN — exactly the reaper's orphan predicate (candidate gate: JuniperC-env python; orphan: parent gone/init/systemd). Dry-run listed only forkserver/resource-tracker rows, but the live pass cascaded 145 kills including the service (`52 would be reaped` → `145 reaped`; the dry-run/live delta is itself a gap — children of reaped orphans re-classify mid-pass). The data leg survived only because its venv python path escapes the `JuniperC[a-z0-9]+` gate; canopy (JuniperCanopy1 — gate-matching) survived this pass but is equally exposed. Needs a service-pidfile exclusion (read `${RUN_DIR}/juniper-*.pid`) or a listener-port KEEP gate.
 
+**F-CANOPY-017 — a step-invalid numeric param silently applied a hardcoded default (P1; FIXED canopy#489, verified live segment 12).**
+Minted in run `20260811T010700Z` (`statuses.tsv:90`) but never entered this ledger until segment 12 — recorded here to close that gap. HTML5 evaluates `step` relative to `min`, so `#nn-learning-rate-input` (`min=0.0001, step=0.001`) admitted only `0.0001+n*0.001`; no plausible learning rate was on that grid, an edit therefore delivered Dash `None`, and `_apply_parameters_handler` substituted `DEFAULT_LEARNING_RATE`. Live instance: `/api/state` 0.0789 → user types 0.0733 → POSTs 0.01. A DOM sweep found 7 of 22 sidebar number inputs whose own seeded value was already `stepMismatch`. **FIXED** by juniper-canopy#489 (`d11bfcd`, 2026-08-14), which cites the finding by name: float params now use `step="any"`, integer params `step=1`, and a `None` numeric State refuses the apply and names the offending fields instead of substituting a default. **Verified live in segment 12** — all 20 sidebar numeric inputs report `validity.valid=true` / `stepMismatch=false`, and the finding's own 0.0733 instance now commits. Consequence: the matrix's `AUTO-API` class for the sidebar numeric rows is stale (see §1.1).
+
+**F-CANOPY-018 — `params-status` has two writers, so the apply toast is always overwritten (P2, OPEN).**
+Minted in run `20260811T010700Z` (`statuses.tsv:88`, W3-08) but never entered this ledger until segment 12. `params-status.children` is written both by `apply_parameters` (the toast, via `_compose_apply_toast` `:7057`) and by `track_param_changes` (`:4385-4389`), which takes `applied-params-store` as an Input — so a successful apply re-fires the tracker, which overwrites the toast. **Segment 12 sharpened it:** the toast *is* rendered (`Parameters applied` observed at t=1800 ms) and survives **~900 ms** before being replaced by `⚠️ Unsaved changes`; the earlier "never the success toast" reading was a sampling artifact. Also: after a successful apply the form never returns to clean until a page reload. Matrix row C2.9-05 **FAIL**.
+
+**F-CANOPY-022 — the "Add Top Tier Candidates" option can never be applied (P1, OPEN; segment 12).**
+canopy emits `value: "top_tier"` (`juniper-canopy/src/frontend/dashboard_manager.py:1471`); cascor accepts only `Literal["top","random","mixed"]` (`juniper-cascor/src/api/models/training.py:159`, `:327`). No translation exists — `_toggle_cn_selection_inputs_handler` (`dashboard_manager.py:6815-6821`) uses `top_tier` only for UI gating and the raw value enters the payload, so Apply returns a Pydantic `literal_error` surfaced as HTTP 502. Control: the sibling `random` arm matches cascor's literal and applies cleanly. cascor's `mixed` has no canopy option at all. Fix direction: map at the payload boundary, or change the option value.
+
+**F-CANOPY-023 — a successful apply is reported as a 502 failure (P1, OPEN; segment 12).**
+cascor's `PATCH /v1/training/params` silently ignores `epochs_max` (returns `200 success`, keeps its own value; control: `patience` writes correctly), and canopy's `_verify_apply_roundtrip` (`juniper-canopy/src/backend/cascor_service_adapter.py:~1316-1334`) fails the *whole* apply on any single key divergence. Net: whenever the sidebar's seeded `nn_max_total_epochs` is stale against cascor's live `epochs_max` — i.e. after a training run — the operator is told the apply failed while every edit actually landed. A page reload re-seeds the sidebar and the next apply succeeds. Fix direction: exclude cascor-owned keys from the verify, or degrade a single-key mismatch into the existing `mismatches` partition.
+
+**F-CANOPY-024 — the shipped default candidate triple is invalid (P2, OPEN; segment 12).**
+A fresh dashboard ships S=1, T=1, R=1, so T+R=2≠S and the *first* Apply always fails validation. Both validators agree (identical sentence client-side and from cascor). The user cannot fix it in place because T and R both ship `disabled=True` behind `cn-multi-candidate-checkbox`. Related, not itself a defect: cascor's `candidate_selection` is never seeded into `cn-candidate-selection-radio` (which ships `value=None` by design), so a backend-configured selection is lost across a page load.
+
 ### Observations (non-finding)
 
 - **Badge render lag**: `ws-connection-indicator` trails the client state machine by ~1–2 s in both directions (client `closed/reconnecting` at +0.8 s rendered amber at +2.8 s; client re-`open` rendered green ~2 s later). No latency contract exists in the matrix; recorded as §7.3 context.
@@ -1715,3 +1730,151 @@ and disagreeing is a defect detector.** Every one of the row-addressing gaps abo
 unexplained delta between `e2e_matrix_fill.py` and `e2e_row_coverage.py` seriously instead of rounding it off.
 The last disagreement is left standing *because* it is now explained — a reconciled number that no longer
 carries information is worth less than an explained discrepancy.
+
+---
+
+## Phase 1 — segment 12 (2026-08-16): the sidebar driven live, and the numeric wall is gone
+
+Run id `20260816T124231Z`. Stack: canopy `f90420e` (0.4.0, :8051), cascor `3909d27` (0.9.0, :8202),
+juniper-data `4db9544` (0.11.0, :8101), all launched fresh at 07:41 local and health-gated on
+`demo_mode:false` + `juniper_data_available:true`. Matrix **140 → 168 of 298**.
+
+Segment 11 consolidated; segment 12 drove. The target was the four sidebar sections (§2.6–§2.9, 55 rows),
+which the matrix classes largely as `AUTO-API` — "not drivable through the browser". That classification
+turned out to be the segment's headline.
+
+### The headline: `F-CANOPY-017` is fixed, so the `AUTO-API` wall no longer exists
+
+The handoff asked for the class to be re-tested before `AUTO-API` was accepted as "API only". It does not
+hold. **juniper-canopy#489 (`d11bfcd`, 2026-08-14) fixed `F-CANOPY-017`** — its commit message cites the
+finding by name and describes the same root cause this arc recorded.
+
+A live DOM sweep of **all 20** sidebar numeric inputs on canopy `f90420e` found **every one** reporting
+`validity.valid = true` and `stepMismatch = false`. All seven fields the finding named as off-grid are
+repaired, to the `float="any"` / `int=1` pattern:
+
+| field | F-CANOPY-017 recorded | now |
+|---|---|---|
+| `nn-max-iterations-input` | `step=100` | `step=1` |
+| `nn-max-total-epochs-input` | `step=1000` | `step=1` |
+| `nn-learning-rate-input` | `step=0.001, min=0.0001` | `step="any"` |
+| `nn-growth-preset-epochs-input` | `step=10` | `step=1` |
+| `nn-dataset-elements-input` | `step=100` | `step=1` |
+| `cn-correlation-threshold-input` | `step=0.0001` | `step="any"` |
+| `cn-training-convergence-threshold-input` | `step=0.00001` | `step="any"` |
+
+The finding's own live instance was re-run: typing **`0.0733`** into `#nn-learning-rate-input` — the exact
+value whose old grid position produced "typed 0.0733 → POSTed 0.01" — now reads valid and commits.
+
+That is not merely a DOM-level result. Typed values were shown to reach **cascor**: `output_epochs=12345`,
+`patience=88`, and the whole `S/T/R` triple were read back from `GET /v1/training/params` and survived a full
+page reload. `F-CANOPY-017` is therefore recorded **RESOLVED (verified live)**, and the matrix's `AUTO-API`
+column is flagged stale for these rows in §1.1.
+
+### Two driving techniques, cross-validated
+
+Real keystrokes (`focus` → `Control+a` → `Delete` → `pressSequentially` → `Tab`) drove `C2.6-02` end to end.
+Because a per-keystroke Dash round trip makes that path cost ~6 tool calls per field, the rest of the numeric
+rows were driven with the React native-setter (`HTMLInputElement.prototype.value` setter + a real `input`
+event). The two were cross-validated: both produce the identical dirty→Apply transition, and the native-setter
+path was additionally proven to round-trip to the backend on five separate fields. Neither is the `page.fill()`
+that the old doctrine indicted.
+
+Per-field attribution used a **set → revert** probe: set a value, wait for `apply-params-button` to go
+`disabled → enabled`, restore the original, wait for `enabled → disabled`. Both transitions belong to that one
+field, so no row borrows another row's evidence.
+
+### Three new findings
+
+**`F-CANOPY-022` (P1) — "Add Top Tier Candidates" can never be applied.** canopy and cascor disagree on the
+value vocabulary. canopy declares `{"label": "Add Top Tier Candidates", "value": "top_tier"}`
+(`juniper-canopy/src/frontend/dashboard_manager.py:1471`); cascor accepts only
+`Literal["top","random","mixed"]` (`juniper-cascor/src/api/models/training.py:159`, `:327`). No translation
+exists — `_toggle_cn_selection_inputs_handler` (`dashboard_manager.py:6815-6821`) consumes `top_tier` purely
+for UI gating and the raw value enters the payload. Selecting it with an otherwise-valid triple
+(S=5, T=5, R=0; clientside feedback empty) yields
+`literal_error … 'input': 'top_tier' … "Input should be 'top', 'random' or 'mixed'"`. **Control:** the sibling
+`random` arm matches cascor's literal exactly and applied cleanly in the same session. One of the two shipped
+options is permanently unusable; cascor's third literal `mixed` has no canopy option at all.
+
+**`F-CANOPY-023` (P1) — a successful apply is reported as a 502 failure.** Two halves, both verified:
+
+* *cascor* silently ignores `epochs_max`. `PATCH /v1/training/params -d '{"epochs_max": 115000}'` returns
+  `200 status=success` while the stored value stays `140795`. Control: the same shape with `{"patience": 77}`
+  stored 77, so the silent-ignore is specific to the key cascor owns.
+* *canopy* fails the whole apply on any single divergence. `_verify_apply_roundtrip`
+  (`juniper-canopy/src/backend/cascor_service_adapter.py:~1316-1334`) compares every mapped key after the
+  write and returns `{"ok": False, "error": "verification_failed"}` for the entire operation.
+
+Live: canopy logged `apply_params verify mismatch: {'epochs_max': {'requested': 115000, 'applied': 140795}}`
+and showed `Failed to apply (HTTP 502) … verification_failed` — yet cascor had taken every edit, and they
+survived a reload. The trigger is precise: only when the sidebar's seeded `nn_max_total_epochs` has gone stale
+against cascor's live `epochs_max`, which happens across a training run. **Why earlier segments missed it:**
+`W3-03` drove `/api/set_params` with a body seeded from live `/api/state`, so no key could diverge.
+
+**`F-CANOPY-024` (P2) — the shipped default candidate triple is invalid.** On the first sweep of a fresh
+stack, before any edit: S=1, T=1, R=1, so T+R=2≠S. Both validators agree — the clientside feedback and
+cascor's rejection are the same sentence — so the *first* Apply on a fresh dashboard always fails. The user
+cannot fix it in place, because T and R both ship `disabled=True` behind `cn-multi-candidate-checkbox`.
+
+### `F-CANOPY-018` confirmed and sharpened
+
+Still open on `f90420e`, and the prior characterisation was a sampling artifact. The success toast **is**
+rendered: sampling `params-status` at 900 ms intervals caught `Parameters applied` at t=1800 ms, overwritten
+by `⚠️ Unsaved changes` at t=2700 ms and never returning. **The toast survives ~900 ms.** Earlier segments
+recorded "never the success toast, 3 independent runs" — they sampled too coarsely. All three documented §2.9
+shapes were observed this segment, so `_compose_apply_toast` is correct; the row fails only because the second
+writer destroys its output. Also not previously recorded: **after a successful apply the form never returns to
+clean** — Apply stays enabled and the status stays `⚠️ Unsaved changes` until a page reload.
+
+### `F-CASCOR-003b` — not settled, and the measurement method was the problem
+
+The naive count appeared to reproduce the original observation — `pgrep -f 'JuniperCascor1.*forkserver'`
+returned **18** at +43 s and +73 s after a clean stop — then fell to 7, to 3, and **rose back to 11**. A rise
+is impossible for a draining pool, which exposed the error: the box is shared, and the pattern was matching a
+concurrent session's cascor.
+
+Attributing by parentage instead, my leg (pid `298210`) held exactly two children — `319149` (14 MB) and the
+476 MB multiprocessing forkserver `319150` — and **no candidate-pool grandchildren**. The 461 MB × 7 cluster
+belonged to a different cascor (pid `348136`), started 130 s earlier by another session. The forkserver
+persisting is expected and is not pool residency.
+
+Recorded **INCONCLUSIVE**. The next attempt must record the leg pid at bring-up and count only its
+descendants. The original observation was taken with the box-wide method and should be re-taken before being
+treated as real.
+
+### Row results (segment 12) — 28 rows
+
+| verdict | rows |
+|---|---|
+| **PASS** (27) | C2.6-02, C2.6-03, C2.6-04, C2.6-08, C2.6-09, C2.6-13, C2.6-15, C2.6-16, C2.7-01, C2.7-04, C2.7-05, C2.8-01, C2.8-02, C2.8-03, C2.8-04, C2.8-05, C2.8-06, C2.8-07, C2.8-08, C2.8-10, C2.8-11, C2.8-12, C2.8-13, C2.8-14, C2.9-04, C2.9-10, C2.9-12 |
+| **FAIL** (1) | C2.9-05 (`F-CANOPY-018`) |
+
+`C2.8-05` deserves note: three of the nine truth-table branches were exercised, each flagging exactly the
+offending input(s) and no others, and branch (1)'s message is **byte-identical** to cascor's own server-side
+rejection. That proves the clientside mirror matches `_validate_candidate_pool_triple` rather than merely
+looking plausible — a stronger result than a DOM-only assertion could give.
+
+### Methodology notes (segment 12)
+
+**Settle times are much longer than the arc has been assuming.** Measured this segment: `C2.8-01` toggled at
+**3.5 s**; `C2.9-12` at 3.0 s; the `cn-multi-candidate-checkbox` sub-group took **more than 8 s** to recover
+after an uncheck→re-check. At 4 s that last one read as opacity stuck at 0.5 with both count inputs dead — a
+convincing defect that I drafted and then withdrew when a longer window showed full recovery. The handoff's
+"1.5–2 s" is a floor, not a range; **poll for the expected transition, never sample once.**
+
+**Playwright's click ack is unusable on this page, and worse during a run.** Every `browser_click` timed out at
+5 s. On a quiet page the click still *lands* (the log reaches "click action done") and must be verified by
+effect — the documented trap. During an active training run the actionability wait never clears at all and the
+click genuinely does not land: a `stop-button` click was lost this way, confirmed by the absence of any
+`Control command received: stop` line. A JS `.click()` on a `<button>` drives the real callback chain — the
+same gesture produced a genuine `/ws/control` `stop` command with a `command_id` — and is the reliable path.
+The numeric wall was always about `type="number"` *value* propagation, never about button clicks.
+
+**A count on a shared box is not a measurement.** See `F-CASCOR-003b` above. The same caution applies to any
+future GPU- or process-level assertion in this arc: attribute to the leg pid, or do not claim it.
+
+**Two near-miss false findings this segment**, both caught by re-checking rather than by filing: the
+"stuck" multi-candidate sub-group (under-settled), and an apparent both-inputs-enabled violation of
+`C2.8-12`'s documented "or" (a mid-transition read at 1000 ms; the settled state is exclusive). Both would
+have been plausible, specific, and wrong.
