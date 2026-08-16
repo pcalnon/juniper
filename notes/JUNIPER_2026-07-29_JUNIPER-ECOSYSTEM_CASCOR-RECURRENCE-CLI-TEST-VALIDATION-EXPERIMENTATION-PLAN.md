@@ -735,6 +735,16 @@ Reuse the existing plotter — `CascadeCorrelationPlotter.plot_dataset` (`junipe
 | **H-14** | Prometheus target-file collision between runs. | §7.2 | One file per `RUN_ID` (`$RUN_ID.json`), written on `--up`, removed on `--down`; a leftover file from a crashed run yields a `down` target — a visible, self-healing signal rather than silent corruption. |
 | **H-15** | Results lost to sandbox/session reaping. | juniper-ml convention: `/tmp/` is prohibited for anything that must survive | `RUN_DIR` lives under `$HOME/.local/state/juniper-experiments` by default — **not** `/tmp` (a deliberate departure from `isolated_stack.bash:67`). Only ephemeral port lockdirs live under `$XDG_RUNTIME_DIR`. |
 
+> **Update (2026-08-16) — H-7's "accepted residual risk" is retired; Q-6 shipped.**
+> `JUNIPER_CASCOR_LOG_DIR` now overrides the shared `logs/juniper_cascor.log` in both tiers
+> (cascor#523, merged `3909d275`), and `util/experiment_stack.bash` exports it per run, so each run's
+> app-level log lands in `RUN_DIR/logs/`. **The row's risk statement understated it**: interleaving was
+> never the real hazard. cascor's parent logger writes *only* to that file, so a second process
+> **rotates the evidence away** rather than merely interleaving it — one other process is enough, and
+> the one-instance-per-checkout rule never protected a run from a long-lived service sharing its
+> checkout. That is how the F-P1-3 arm A/B logs were lost. Full closure record: §15.2 Q-6.
+> Wave 5.3 remains only **partly** unblocked (`run_suite.py:112`; see the Wave 5 table).
+
 ### 9.2 Concurrency invariants (the short version)
 
 1. One `RUN_DIR` per run; nothing outside it is written except the Prometheus target file, the port lockdirs, and the append-only global run registry `${JUNIPER_EXP_RUN_ROOT}/index.jsonl` (§13.3).
@@ -1094,6 +1104,23 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 | 5.4 | Fix the stale conda-env path in the cascor systemd unit (G-13) | juniper-cascor | S |
 | 5.5 | **W-12** `csv_import` corpus + matrix row (gated on Q-7) | juniper-ml / juniper-data | S |
 
+> **Update (2026-08-16) — 5.3's Q-6 dependency is DISCHARGED; 5.3 itself is not yet done.** Read the
+> row above as one item, not two. **Q-6 is resolved and shipped** (§15.2): `JUNIPER_CASCOR_LOG_DIR`
+> lands in cascor#523 and `util/experiment_stack.bash` exports it per run, so the H-7 shared-log race
+> no longer "returns otherwise" — do **not** re-open Q-6 as a precondition.
+>
+> What still blocks 5.3 is a **different** gate that did not exist when the row was written:
+> `util/experiments/run_suite.py:112` refuses `app: cascor` with `parallel > 1` because `run_suite`
+> cannot verify the **installed** cascor honours the override. Against a pre-#523 cascor the export is
+> silently ignored and parallel cells race the shared log exactly as before, **with no signal** — a
+> silent return of the evidence-destruction bug, which is why ml#1120 deliberately did not lift it.
+> The fix is a `juniper-cascor` version floor asserted at suite load, then relaxing the refusal,
+> keeping the failure loud when the floor is unmet. **It cannot be written yet**: PyPI's latest
+> `juniper-cascor` is `0.9.0`, cut 2026-08-14 *before* #523 merged, and `main`'s pyproject still reads
+> `0.9.0`, so no released version carries Q-6. Do not guess `>=0.9.1`. `tests/test_run_suite.py:152`
+> pins the `Q-6` ID in the refusal message — keep it greppable. Not urgent: sequential cascor suites
+> work, and every campaign to date has used them.
+
 ### Wave 6 — Program execution
 
 | #   | Item                                          | Repo | Size | Depends on |
@@ -1149,6 +1176,41 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 | **Q-10** | Does recurrence deserve a dedicated `JuniperRecurrence` conda env, rather than riding `JuniperCascor1`? | Probably yes for hygiene (recurrence's stack is much lighter than cascor's), but not a blocker — `JuniperCascor1` works today. Owner call. |
 | **Q-11** | Should the direct-CLI paths (`cascor main.py`, `recurrence train`) be first-class in the YAML layer, or service-mode only? | First-class as the goal — stated honestly for v1: `--config` reaches only `Settings` (the `service:` block), so **full YAML coverage is service-tier**; the direct CLIs gain the `training:`/`dataset:`/`train:` blocks via W-11 (Wave 3.6). The direct CLI remains the cheapest reproducible unit for a sweep cell. |
 | **Q-12** | Is a `JR-REC-*` ID block wanted now, or should recurrence requirements wait for the next full snapshot refresh? | Propose the block now (Wave 7.6) so this plan's recurrence work is traceable rather than orphaned. |
+
+> **Update (2026-08-16) — Q-6 is RESOLVED and shipped; its row above is spent.** The answer was
+> **yes**, and the override exists in both tiers:
+>
+> - **cascor#523** (merged `3909d275`) adds `JUNIPER_CASCOR_LOG_DIR`. Direct CLI reads it at *import*
+>   time (`src/cascor_constants/constants.py:434-438`); the service reads it at *call* time in
+>   `src/api/observability.py::_resolve_log_dir` (`:50`) and
+>   `src/api/service_launcher.py::_resolve_log_dir` (`:85`). The call-time read is load-bearing — in
+>   both helpers the `os.environ.get` precedes the `cascor_constants.constants` import, and the
+>   `except ImportError` arm returns a hardcoded path that never consults the constants, so an
+>   import-time-only override would be silently dropped exactly there.
+> - **ml#1120** exports it per run at all three `cascor_up` sites in `util/experiment_stack.bash`
+>   (`:618` announce, `:631` `record_launch_env`, `:643` live `nohup`).
+> - Unset, blank, or whitespace-only keeps `<repo>/logs` **byte-identically** (`.strip()` folds them
+>   to falsy and the `else` branch is the untouched prior expression), so no existing deployment
+>   changed behaviour. Regression: `src/tests/unit/api/test_q6_log_dir_override.py` (20 tests).
+>
+> **The framing in the original row was wrong, and that is the durable lesson.** Q-6 was filed as a
+> *concurrency* nicety and H-7 accepted the shared log as residual risk. It is an **evidence-integrity**
+> defect. cascor's parent logger writes **only** to that file — stdout carries just candidate-worker
+> lines — so the markers that decide a run's verdict (`Training completed`,
+> `src/cascade_correlation/cascade_correlation.py:1936`; `Completed solving`, `src/main.py:512`; both
+> `logger.info`) exist nowhere else. A second cascor process does not interleave the log, it **rotates
+> the evidence away**. One other process is enough, so the one-instance rule never protected an
+> individual run from a long-lived service sharing its checkout. That is how the F-P1-3 arm A/B logs
+> were lost ([F-P1-3 root cause](JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-F-P1-3-ROOT-CAUSE.md)).
+>
+> **Wave 5.3 is only PARTLY unblocked** — see the Wave 5 table and H-7. The mechanism now exists, but
+> `util/experiments/run_suite.py:112` still refuses `app: cascor` with `parallel > 1`, because
+> `run_suite` cannot verify the *installed* cascor honours the override: against a pre-#523 cascor the
+> export is silently ignored and parallel cells race the shared log exactly as before, **with no
+> signal**. Lifting it needs a `juniper-cascor` version floor asserted at suite load — and **no
+> released cascor carries #523 yet** (PyPI latest `0.9.0`, cut 2026-08-14 *before* the merge; `main`'s
+> pyproject is still `0.9.0`). The floor cannot be written until the next cascor release; **do not
+> guess `>=0.9.1`.**
 
 ---
 

@@ -91,6 +91,13 @@ checkout's own file log, while run dirs, snapshots (`JUNIPER_CASCOR_SNAPSHOTS_DI
 and sampled metrics are all per-run, so the recorded results are unaffected. The smoke-budget
 cells were small enough not to pressure the card.
 
+> **Update (2026-08-16) — "pending Q-6" is stale.** Q-6 is **resolved and shipped**:
+> `JUNIPER_CASCOR_LOG_DIR` (cascor#523), exported per run by `util/experiment_stack.bash` (ml#1120).
+> This paragraph's verdict is unchanged — these results came from per-run manifests and artifacts, not
+> the shared file log. Note the sharper framing Q-6 settled: that log is the *only* place cascor's
+> parent logger writes, so a co-tenant process **rotates** such evidence away rather than interleaving
+> it. Plan §15.2 Q-6.
+
 ---
 
 ## 4. Register status
