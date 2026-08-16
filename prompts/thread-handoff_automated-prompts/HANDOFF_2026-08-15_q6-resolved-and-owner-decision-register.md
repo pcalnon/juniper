@@ -11,11 +11,11 @@ and `§N` only for a real **section heading** — the plan document is 1213 line
 
 ## Read this first: THREE handoffs are live today, and they do not overlap
 
-| document | owns |
-|---|---|
-| [`HANDOFF_2026-08-15_wide-budget-head-to-head-campaign.md`](HANDOFF_2026-08-15_wide-budget-head-to-head-campaign.md) (ml#1122) | the wide-budget head-to-head **campaign** (64–128 units) — GPU work, a new suite, a new evidence note |
-| [`HANDOFF_2026-08-15_api-primer-defect-register-outstanding-work.md`](HANDOFF_2026-08-15_api-primer-defect-register-outstanding-work.md) (ml#1121) | the **defect register** — 91 open defects, the throttle port, consolidation |
-| **this one** | what is left of the CLI-experimentation *plan*: two engineering items, and the owner-decision / parked register |
+| document                                                                                                                                           | owns                                                                                                            |
+|----------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|
+| [`HANDOFF_2026-08-15_wide-budget-head-to-head-campaign.md`](HANDOFF_2026-08-15_wide-budget-head-to-head-campaign.md) (ml#1122)                     | the wide-budget head-to-head **campaign** (64–128 units) — GPU work, a new suite, a new evidence note           |
+| [`HANDOFF_2026-08-15_api-primer-defect-register-outstanding-work.md`](HANDOFF_2026-08-15_api-primer-defect-register-outstanding-work.md) (ml#1121) | the **defect register** — 91 open defects, the throttle port, consolidation                                     |
+| **this one**                                                                                                                                       | what is left of the CLI-experimentation *plan*: two engineering items, and the owner-decision / parked register |
 
 All three were written by different sessions on the same day and are **siblings** — none supersedes
 another. ml#1122 was authored after this session's Q-6 work landed and cites ml#1120 / cascor#523
@@ -28,12 +28,12 @@ accurately. **If you are here to run the campaign, go to ml#1122 instead.**
 All merged, all merge-commit diffs verified with `git show --stat` (squash has silently shipped only
 a first commit before), all post-merge gates green.
 
-| PR | Squash | Item |
-|---|---|---|
-| ml#1118 | `1b5cbf35` (+62/−0) | F-P1-3b refutation propagated into three stale forward-looking registers |
-| cascor#523 | `3909d275` (+215/−5) | **Q-6** — `JUNIPER_CASCOR_LOG_DIR` override, service + direct CLI |
-| ml#1120 | `181f76d8` (+62/−7) | **Q-6** launcher half — per-run export at all 3 `cascor_up` sites |
-| — | — | juniper-cascor issue **#521** closed (stale release-train HALT; v0.9.0 had already shipped to PyPI) |
+| PR         | Squash               | Item                                                                                                |
+|------------|----------------------|-----------------------------------------------------------------------------------------------------|
+| ml#1118    | `1b5cbf35` (+62/−0)  | F-P1-3b refutation propagated into three stale forward-looking registers                            |
+| cascor#523 | `3909d275` (+215/−5) | **Q-6** — `JUNIPER_CASCOR_LOG_DIR` override, service + direct CLI                                   |
+| ml#1120    | `181f76d8` (+62/−7)  | **Q-6** launcher half — per-run export at all 3 `cascor_up` sites                                   |
+| —          | —                    | juniper-cascor issue **#521** closed (stale release-train HALT; v0.9.0 had already shipped to PyPI) |
 
 Post-merge: ml `main-verify` success on `1b5cbf35` and `181f76d8`; cascor `3909d275` green on all
 five workflows (Post-Merge Main Verification, Golden Regression, Conformance, CodeQL, CI/CD
@@ -45,11 +45,11 @@ Pipeline). The four *work* worktrees and their branches were removed and pruned.
 whitespace-only keeps `<repo>/logs` **byte-identically** (`.strip()` folds them to falsy and the
 `else` branch is the untouched prior expression), so nothing changed for existing deployments.
 
-| tier | site | read |
-|---|---|---|
-| direct CLI | `constants._PROJECT_LOG_DIR_DEFAULT` (module level) | import time |
-| service | `api/observability.py::_resolve_log_dir` | **call** time |
-| service | `api/service_launcher.py::_resolve_log_dir` | **call** time |
+| tier       | site                                                | read          |
+|------------|-----------------------------------------------------|---------------|
+| direct CLI | `constants._PROJECT_LOG_DIR_DEFAULT` (module level) | import time   |
+| service    | `api/observability.py::_resolve_log_dir`            | **call** time |
+| service    | `api/service_launcher.py::_resolve_log_dir`         | **call** time |
 
 The call-time read is load-bearing and has no W-6 equivalent: in both helpers the `os.environ.get`
 precedes the `try: from cascor_constants.constants import …`, and the `except ImportError` arm
@@ -75,13 +75,13 @@ logs were lost.
 **Do this first — it is small, and leaving it is the exact defect ml#1118 existed to fix.** Five
 sites still record Q-6 as unresolved, and a successor reading any of them will re-open settled work:
 
-| site | stale text |
-|---|---|
-| plan:728 (H-7 row) | "lifting it (Wave 5.3) **requires resolving** `OPEN QUESTION Q-6`" |
-| plan:1093 (Wave 5.3 row) | "**Explicitly depends on resolving Q-6** … Until Q-6 is resolved, 5.3 is scoped to concurrent runs in **distinct checkouts** only" |
-| plan:1145 (Q-table) | "**Defer** for single-instance-per-checkout use" |
-| P4 studies note:189, :194-195 | "W-12/Q-7, F-P1-2, PF threshold ratification **and Q-6 are unchanged and still open**" … "Recommend resolving Q-6 **yes**" |
-| **P2 matrix note:84** (also :65) | "Of this paragraph's other items, **F-P1-2 and Q-6 remain genuinely open owner calls.**" |
+| site                             | stale text                                                                                                                         |
+|----------------------------------|------------------------------------------------------------------------------------------------------------------------------------|
+| plan:728 (H-7 row)               | "lifting it (Wave 5.3) **requires resolving** `OPEN QUESTION Q-6`"                                                                 |
+| plan:1093 (Wave 5.3 row)         | "**Explicitly depends on resolving Q-6** … Until Q-6 is resolved, 5.3 is scoped to concurrent runs in **distinct checkouts** only" |
+| plan:1145 (Q-table)              | "**Defer** for single-instance-per-checkout use"                                                                                   |
+| P4 studies note:189, :194-195    | "W-12/Q-7, F-P1-2, PF threshold ratification **and Q-6 are unchanged and still open**" … "Recommend resolving Q-6 **yes**"         |
+| **P2 matrix note:84** (also :65) | "Of this paragraph's other items, **F-P1-2 and Q-6 remain genuinely open owner calls.**"                                           |
 
 - plan = `notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md`
 - P4 studies note = `notes/JUNIPER_2026-08-09_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P4-STUDIES-EVIDENCE.md`
@@ -138,14 +138,14 @@ None is blocked on engineering. Do not "make progress" by guessing Paul's answer
 
 Sources in this table: **P3 rollup** = `notes/JUNIPER_2026-08-08_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P3-ACCEPTANCE-ROLLUP.md`; **P1 smoke note** = `notes/JUNIPER_2026-08-07_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P1-SMOKE-EVIDENCE.md`; plan as above.
 
-| item | nature | source |
-|---|---|---|
-| **F-P1-2** | Owner decision — a native Grafana v13.0.1 owns `:3000` (apt, systemd `active`+`enabled` since 2026-07-15, non-default creds, **binds `*:3000`**). Options package already written. | P3 rollup §3 |
-| **Q-8** | Owner call — where run-level performance baselines live. Also gates the `JR-CAS-OBS-004` targets (plan:1160). | plan:1147 |
-| **Q-10** | Owner call — dedicated `JuniperRecurrence` conda env vs riding `JuniperCascor1`. Hygiene, explicitly *not* a blocker. | plan:1149 |
-| **W-12 / Q-7** | Parked — `csv_import` corpus. The plan's Q-7 row says "Defer until a corpus is defined". It has blocked nothing. | plan:1095 (W-12), plan:1146 (Q-7) |
-| **PF threshold ratification** | The *thresholds* are Paul's. The lane itself is §2.3 above. | plan §12 |
-| **F-P1-4** | Owner's to keep or delete — snapshot `.h5` debris. | P1 smoke note:37 (§2 Findings) |
+| item                          | nature                                                                                                                                                                             | source                            |
+|-------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------|
+| **F-P1-2**                    | Owner decision — a native Grafana v13.0.1 owns `:3000` (apt, systemd `active`+`enabled` since 2026-07-15, non-default creds, **binds `*:3000`**). Options package already written. | P3 rollup §3                      |
+| **Q-8**                       | Owner call — where run-level performance baselines live. Also gates the `JR-CAS-OBS-004` targets (plan:1160).                                                                      | plan:1147                         |
+| **Q-10**                      | Owner call — dedicated `JuniperRecurrence` conda env vs riding `JuniperCascor1`. Hygiene, explicitly *not* a blocker.                                                              | plan:1149                         |
+| **W-12 / Q-7**                | Parked — `csv_import` corpus. The plan's Q-7 row says "Defer until a corpus is defined". It has blocked nothing.                                                                   | plan:1095 (W-12), plan:1146 (Q-7) |
+| **PF threshold ratification** | The *thresholds* are Paul's. The lane itself is §2.3 above.                                                                                                                        | plan §12                          |
+| **F-P1-4**                    | Owner's to keep or delete — snapshot `.h5` debris.                                                                                                                                 | P1 smoke note:37 (§2 Findings)    |
 
 **On F-P1-4, correct a claim you may find elsewhere: W-6 did NOT stop new debris.**
 `juniper-cascor/src/cascor_snapshots/` holds **27,867** `.h5` files, **65 of them from 2026-08**
@@ -174,16 +174,16 @@ already changed by today, so assume these have too.
 
 **Listeners** (one `ss` call per port):
 
-| port | bind | what |
-|---|---|---|
-| `:3000` | **`*:3000`** | native Grafana v13.0.1 — F-P1-2's subject, and it is UP |
-| `:8050` | `127.0.0.1` | operator canopy |
-| `:8200` | `127.0.0.1` **and `[::1]`** | operator cascor (container) |
-| `:8201` | `127.0.0.1` | operator cascor (host) |
-| `:8211` | `127.0.0.1` | deploy-stack recurrence |
-| `:9090` | `127.0.0.1` | Prometheus |
-| `:8051` `:8100` `:8101` `:8202` | — | **no listeners** — the isolated E2E stack is DOWN |
-| 8110-8139 / 8230-8259 / 8260-8289 | — | **no listeners** — experiment ranges clear |
+| port                              | bind                        | what                                                    |
+|-----------------------------------|-----------------------------|---------------------------------------------------------|
+| `:3000`                           | **`*:3000`**                | native Grafana v13.0.1 — F-P1-2's subject, and it is UP |
+| `:8050`                           | `127.0.0.1`                 | operator canopy                                         |
+| `:8200`                           | `127.0.0.1` **and `[::1]`** | operator cascor (container)                             |
+| `:8201`                           | `127.0.0.1`                 | operator cascor (host)                                  |
+| `:8211`                           | `127.0.0.1`                 | deploy-stack recurrence                                 |
+| `:9090`                           | `127.0.0.1`                 | Prometheus                                              |
+| `:8051` `:8100` `:8101` `:8202`   | —                           | **no listeners** — the isolated E2E stack is DOWN       |
+| 8110-8139 / 8230-8259 / 8260-8289 | —                           | **no listeners** — experiment ranges clear              |
 
 The predecessor described the E2E stack as actively training at 7/10 units; that run has ended.
 

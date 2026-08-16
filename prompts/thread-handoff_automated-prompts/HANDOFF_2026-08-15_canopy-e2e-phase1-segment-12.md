@@ -43,12 +43,12 @@ estimator. Do not "reconcile" them by loosening either.
 
 ## What is done (do not redo)
 
-| PR      | Merge     | Item                                                                             |
-|---------|-----------|----------------------------------------------------------------------------------|
-| ml#1106 | `4afaf5e` | segment 9 — W6 owner gate driven, F-CANOPY-019's open question resolved           |
-| ml#1113 | `dccd564` | segment 10 — second F-CANOPY-019 arm, first matrix bulk-fill (66 cells)           |
-| ml#1115 | `831c1ec` | segment 11 — three-source consolidation to 137/298, C2.2-04 mis-fill repaired     |
-| ml#1117 | `1932479` | segment 11 follow-up — slash enumerations + rowlog bullets, 140/298               |
+| PR      | Merge     | Item                                                                          |
+|---------|-----------|-------------------------------------------------------------------------------|
+| ml#1106 | `4afaf5e` | segment 9 — W6 owner gate driven, F-CANOPY-019's open question resolved       |
+| ml#1113 | `dccd564` | segment 10 — second F-CANOPY-019 arm, first matrix bulk-fill (66 cells)       |
+| ml#1115 | `831c1ec` | segment 11 — three-source consolidation to 137/298, C2.2-04 mis-fill repaired |
+| ml#1117 | `1932479` | segment 11 follow-up — slash enumerations + rowlog bullets, 140/298           |
 
 Closed lanes, from the matrix: §2.1 4/4, §2.2 6/6, §2.3 8/8, §3.3 topology 18/18, §3.10 replay 17/17,
 §3.11 network editor 18/18, §3.12 redis 4/4, §3.13 cassandra 4/4, §3.15 about 3/3. W-lane prose steps
@@ -60,24 +60,24 @@ have no matrix status cell, so they never appear in the fill counts.
 Every count below is reproducible from the matrix with the splitter above. Section anchors are line numbers in
 `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`.
 
-| section (line)                                   | unfilled | row ids                                        |
-|--------------------------------------------------|---------:|------------------------------------------------|
-| §2.4 WS badge (`:215`)                           |        2 | C2.4-02, C2.4-05                               |
-| §2.5 training controls (`:238`)                  |        1 | C2.5-07                                        |
-| §2.6 NN meta-parameters (`:267`)                 |       15 | C2.6-02,03,04,05,07,08,09,10,13,14,15,16,17,18,19 |
-| §2.7 dataset subsection (`:293`)                 |       10 | C2.7-01..10                                    |
-| §2.8 candidate-node meta-parameters (`:308`)     |       14 | C2.8-01..14                                    |
-| §2.9 banner trio / Apply / Experimental / Info / Pinned (`:327`) | 16 | C2.9-01..16                     |
-| §2.10 global modals + floating alerts (`:348`)   |       17 | C2.10-01..17                                   |
-| §3.1 metrics (`:390`)                            |       22 | M-METRICS-02..09,11..20,23,25,27,28             |
-| §3.2 candidates (`:429`)                         |        4 | M-CANDIDATES-07,09,10,11                       |
-| §3.4 evolution (`:474`)                          |        2 | M-EVOLUTION-04,07                              |
-| §3.5 boundaries (`:489`)                         |        8 | M-BOUNDARIES-01..08                            |
-| §3.6 dataset view (`:504`)                       |       24 | M-DATASET-01,02,03,05,07,09..27                |
-| §3.7 workers (`:558`)                            |        1 | M-WORKERS-02                                   |
-| §3.8 parameters (`:571`)                         |        4 | M-PARAMETERS-04,05,06,07                       |
-| §3.9 snapshots (`:585`)                          |       17 | M-SNAPSHOTS-04,05,07..21                       |
-| §3.14 tutorial (`:686`)                          |        1 | M-TUTORIAL-04                                  |
+| section (line)                                                   | unfilled | row ids                                           |
+|------------------------------------------------------------------|---------:|---------------------------------------------------|
+| §2.4 WS badge (`:215`)                                           |        2 | C2.4-02, C2.4-05                                  |
+| §2.5 training controls (`:238`)                                  |        1 | C2.5-07                                           |
+| §2.6 NN meta-parameters (`:267`)                                 |       15 | C2.6-02,03,04,05,07,08,09,10,13,14,15,16,17,18,19 |
+| §2.7 dataset subsection (`:293`)                                 |       10 | C2.7-01..10                                       |
+| §2.8 candidate-node meta-parameters (`:308`)                     |       14 | C2.8-01..14                                       |
+| §2.9 banner trio / Apply / Experimental / Info / Pinned (`:327`) |       16 | C2.9-01..16                                       |
+| §2.10 global modals + floating alerts (`:348`)                   |       17 | C2.10-01..17                                      |
+| §3.1 metrics (`:390`)                                            |       22 | M-METRICS-02..09,11..20,23,25,27,28               |
+| §3.2 candidates (`:429`)                                         |        4 | M-CANDIDATES-07,09,10,11                          |
+| §3.4 evolution (`:474`)                                          |        2 | M-EVOLUTION-04,07                                 |
+| §3.5 boundaries (`:489`)                                         |        8 | M-BOUNDARIES-01..08                               |
+| §3.6 dataset view (`:504`)                                       |       24 | M-DATASET-01,02,03,05,07,09..27                   |
+| §3.7 workers (`:558`)                                            |        1 | M-WORKERS-02                                      |
+| §3.8 parameters (`:571`)                                         |        4 | M-PARAMETERS-04,05,06,07                          |
+| §3.9 snapshots (`:585`)                                          |       17 | M-SNAPSHOTS-04,05,07..21                          |
+| §3.14 tutorial (`:686`)                                          |        1 | M-TUTORIAL-04                                     |
 
 **145 of the 158 are `mode: B`** — in scope for the live lane (five of them are `MANUAL`, so "in scope" is not
 "scriptable"; see the classes below). The other 13 break down as:
@@ -213,17 +213,17 @@ Four rules the filler enforces — respect them in any hand edit too:
 
 ## Tools you already have
 
-| tool                                  | use                                                             |
-|---------------------------------------|-----------------------------------------------------------------|
-| `util/isolated_stack.bash`            | `--up` / `--down` / `--status` / `--dry-run` / `--with-recurrence` — **always with `JUNIPER_E2E_RECURRENCE_PORT=8212`** |
-| `util/ad-hoc/e2e_matrix_fill.py`      | fill the matrix status column from run records (dry-run default) |
-| `util/ad-hoc/e2e_row_coverage.py`     | "which rows still need a verdict?" estimator                     |
-| `util/ad-hoc/e2e_append_statuses.py`  | dup-guarded TSV verdict append (`--replace` to rewrite in place) |
-| `util/ad-hoc/e2e_poll_status.py`      | `--until-units N` / `--until-fsm STOPPED` / `--until-pending-clear` |
-| `util/ad-hoc/e2e_w3_params_driver.py` | scripted Playwright driver + shared browser/log helpers          |
-| `util/ad-hoc/e2e_w6_dataset_driver.py`| scripted dataset/restart driver (imports the W3 helpers)         |
-| `util/ad-hoc/e2e_cascor_leg_supervise.bash` | run the cascor leg under a resident supervisor (F-ML-001)   |
-| `util/ad-hoc/e2e_snapshot_h5_compare.py` | compare snapshot `.h5` artifacts                              |
+| tool                                        | use                                                                                                                     |
+|---------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| `util/isolated_stack.bash`                  | `--up` / `--down` / `--status` / `--dry-run` / `--with-recurrence` — **always with `JUNIPER_E2E_RECURRENCE_PORT=8212`** |
+| `util/ad-hoc/e2e_matrix_fill.py`            | fill the matrix status column from run records (dry-run default)                                                        |
+| `util/ad-hoc/e2e_row_coverage.py`           | "which rows still need a verdict?" estimator                                                                            |
+| `util/ad-hoc/e2e_append_statuses.py`        | dup-guarded TSV verdict append (`--replace` to rewrite in place)                                                        |
+| `util/ad-hoc/e2e_poll_status.py`            | `--until-units N` / `--until-fsm STOPPED` / `--until-pending-clear`                                                     |
+| `util/ad-hoc/e2e_w3_params_driver.py`       | scripted Playwright driver + shared browser/log helpers                                                                 |
+| `util/ad-hoc/e2e_w6_dataset_driver.py`      | scripted dataset/restart driver (imports the W3 helpers)                                                                |
+| `util/ad-hoc/e2e_cascor_leg_supervise.bash` | run the cascor leg under a resident supervisor (F-ML-001)                                                               |
+| `util/ad-hoc/e2e_snapshot_h5_compare.py`    | compare snapshot `.h5` artifacts                                                                                        |
 
 **Try the browser MCP first** (`mcp__playwright__*`). It was available in segment 9 and unavailable in
 segment 8; when it is absent, drive the `util/ad-hoc/` scripts under

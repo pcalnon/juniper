@@ -7,13 +7,13 @@ rather than restating it.
 
 **Five handoffs are live for 2026-08-15 and none supersedes another:**
 
-| document | owns |
-| --- | --- |
-| `HANDOFF_2026-08-15_wide-budget-head-to-head-campaign.md` (ml#1122) | the wide-budget head-to-head campaign (64–128 units) |
-| `HANDOFF_2026-08-15_api-primer-defect-register-outstanding-work.md` (ml#1121) | the defect register — 91 open defects |
-| `HANDOFF_2026-08-15_q6-resolved-and-owner-decision-register.md` (ml#1124) | what is left of the CLI-experimentation *plan*, including every Q-* owner decision |
-| **this one** | the **ruleset / bypass-actor / branch-protection** family |
-| `HANDOFF_2026-08-15_branch-protection-arc-closure-evidence.md` | closure evidence for the 2026-08-14 branch-protection handoff, and two corrections to it; defers to **this** register for ml#1011 / ml#1012 |
+| document                                                                      | owns                                                                                                                                        |
+|-------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| `HANDOFF_2026-08-15_wide-budget-head-to-head-campaign.md` (ml#1122)           | the wide-budget head-to-head campaign (64–128 units)                                                                                        |
+| `HANDOFF_2026-08-15_api-primer-defect-register-outstanding-work.md` (ml#1121) | the defect register — 91 open defects                                                                                                       |
+| `HANDOFF_2026-08-15_q6-resolved-and-owner-decision-register.md` (ml#1124)     | what is left of the CLI-experimentation *plan*, including every Q-* owner decision                                                          |
+| **this one**                                                                  | the **ruleset / bypass-actor / branch-protection** family                                                                                   |
+| `HANDOFF_2026-08-15_branch-protection-arc-closure-evidence.md`                | closure evidence for the 2026-08-14 branch-protection handoff, and two corrections to it; defers to **this** register for ml#1011 / ml#1012 |
 
 **Nothing in this register is in flight**, and no engineering work is pending on it — every item is an
 owner decision or a lookup only the owner can perform. `main` moves continuously (it advanced four times
@@ -65,17 +65,17 @@ never pushes `main` directly. **Recommendation: REMOVE.**
 **Nine** actors. Every prior write-up of this roster, including the first draft of this document, listed
 eight:
 
-| Actor | Mode | Identity | Verdict |
-| --- | --- | --- | --- |
-| DeployKey (all) | `always` | writable deploy keys | identify-first |
-| RepositoryRole 5 | `always` | repository admin (the owner) | keep — but see §2.3 |
-| Integration 29110 | `always` | dependabot | keep |
-| Integration **946600** | `always` | **UNIDENTIFIED** | **identify-first** — see below |
-| Integration 1143301 | `always` | copilot-swe-agent | keep |
-| Integration 1210556 | `always` | **cursor** | **REMOVE** (ml#1012) |
-| Integration 1236702 | `always` | **claude** | **REMOVE** (ml#1012) |
-| Integration 1276151 | `always` | **Amp for GitHub** | **REMOVE** (§2.1) |
-| Integration 4362741 | `pull_request` | owner's release-train App (`vars.RELEASE_TRAIN_APP_ID`) | **KEEP** — required for the exempt archive lane |
+| Actor                  | Mode           | Identity                                                | Verdict                                         |
+|------------------------|----------------|---------------------------------------------------------|-------------------------------------------------|
+| DeployKey (all)        | `always`       | writable deploy keys                                    | identify-first                                  |
+| RepositoryRole 5       | `always`       | repository admin (the owner)                            | keep — but see §2.3                             |
+| Integration 29110      | `always`       | dependabot                                              | keep                                            |
+| Integration **946600** | `always`       | **UNIDENTIFIED**                                        | **identify-first** — see below                  |
+| Integration 1143301    | `always`       | copilot-swe-agent                                       | keep                                            |
+| Integration 1210556    | `always`       | **cursor**                                              | **REMOVE** (ml#1012)                            |
+| Integration 1236702    | `always`       | **claude**                                              | **REMOVE** (ml#1012)                            |
+| Integration 1276151    | `always`       | **Amp for GitHub**                                      | **REMOVE** (§2.1)                               |
+| Integration 4362741    | `pull_request` | owner's release-train App (`vars.RELEASE_TRAIN_APP_ID`) | **KEEP** — required for the exempt archive lane |
 
 **`946600` is the live exposure.**
 [`…STANDING-ITEMS-CLOSEOUT-AND-HARNESS-REMEDIATION-PLAN.md:139`](../../notes/JUNIPER_2026-08-09_JUNIPER-ECOSYSTEM_STANDING-ITEMS-CLOSEOUT-AND-HARNESS-REMEDIATION-PLAN.md)

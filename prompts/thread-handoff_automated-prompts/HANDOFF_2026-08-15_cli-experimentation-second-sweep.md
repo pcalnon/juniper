@@ -12,14 +12,14 @@ performance lane has never been run and no document owns it**.
 
 ## Read this first — five handoffs were archived 2026-08-15
 
-| document | owns |
-|---|---|
-| `HANDOFF_2026-08-15_api-primer-defect-register-outstanding-work.md` (ml#1121) | the **defect register** — 91 open defects |
-| `HANDOFF_2026-08-15_wide-budget-head-to-head-campaign.md` (ml#1122) | the wide-budget head-to-head **campaign** (64–128 units) |
-| `HANDOFF_2026-08-15_canopy-e2e-phase1-segment-12.md` (ml#1123) | the canopy E2E matrix — a different arc entirely |
-| `HANDOFF_2026-08-15_q6-resolved-and-owner-decision-register.md` (ml#1124) | **Q-6's closure**, its five stale register sites, `run_suite`'s parallel refusal, and the owner-decision table (F-P1-2, Q-8, Q-10, W-12/Q-7, PF **thresholds**, F-P1-4) |
-| `HANDOFF_2026-08-15_ruleset-bypass-and-branch-protection-register.md` (ml#1125) | branch protection — a different arc |
-| **this one** | §2–§8 below |
+| document                                                                        | owns                                                                                                                                                                    |
+|---------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `HANDOFF_2026-08-15_api-primer-defect-register-outstanding-work.md` (ml#1121)   | the **defect register** — 91 open defects                                                                                                                               |
+| `HANDOFF_2026-08-15_wide-budget-head-to-head-campaign.md` (ml#1122)             | the wide-budget head-to-head **campaign** (64–128 units)                                                                                                                |
+| `HANDOFF_2026-08-15_canopy-e2e-phase1-segment-12.md` (ml#1123)                  | the canopy E2E matrix — a different arc entirely                                                                                                                        |
+| `HANDOFF_2026-08-15_q6-resolved-and-owner-decision-register.md` (ml#1124)       | **Q-6's closure**, its five stale register sites, `run_suite`'s parallel refusal, and the owner-decision table (F-P1-2, Q-8, Q-10, W-12/Q-7, PF **thresholds**, F-P1-4) |
+| `HANDOFF_2026-08-15_ruleset-bypass-and-branch-protection-register.md` (ml#1125) | branch protection — a different arc                                                                                                                                     |
+| **this one**                                                                    | §2–§8 below                                                                                                                                                             |
 
 None supersedes another. **ml#1124 is the register of record for this arc** — where its scope and
 this document's touch, ml#1124 wins. If your task is named in a row above, go there instead.

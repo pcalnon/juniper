@@ -13,16 +13,17 @@ to the source notes are always written with the document named, e.g. "the smoke 
 
 ## Codenames used below
 
-| name | meaning |
-|---|---|
-| **E-A** | the P4 budget-sweep suite; its R-3 re-run (ml#1086) produced the pool-8 capacity column |
-| **E-I** | the cap-ceiling suite that extended that column to 64 and 128 units |
-| **R-3** | the fix that made `max_hidden_units` actually bind (before it, caps above `max_iterations` were unreachable) |
-| **R-5** | "why does service spiral top out near 0.670 while the CLI reaches ~0.995?" — closed |
-| **R-6** | the rule that suites must declare `execution.stall_seconds` (ml#1069) |
-| **F-P1-3 / F-P1-3b** | the direct CLI hanging after training / the claim that it had structural compute overhead — **positively refuted by measurement** in ml#1114, not merely withdrawn |
-| **F-P4-1** | the trap where the **SERVICE** path trained cascor's in-process fallback spiral instead of the configured juniper-data dataset (fixed by staging every generator through `POST /v1/training/dataset`). **Not a CLI trap** — the R-5 note records that the direct CLI does *not* generate its own spiral; it fetches from juniper-data with a mandatory pre-flight and no fallback. |
-| **c000/c010** etc. | individual suite cells, numbered in run order |
+| name                 | meaning                                                                                                                                                                                                |
+|----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **E-A**              | the P4 budget-sweep suite; its R-3 re-run (ml#1086) produced the pool-8 capacity column                                                                                                                |
+| **E-I**              | the cap-ceiling suite that extended that column to 64 and 128 units                                                                                                                                    |
+| **R-3**              | the fix that made `max_hidden_units` actually bind (before it, caps above `max_iterations` were unreachable)                                                                                           |
+| **R-5**              | "why does service spiral top out near 0.670 while the CLI reaches ~0.995?" — closed                                                                                                                    |
+| **R-6**              | the rule that suites must declare `execution.stall_seconds` (ml#1069)                                                                                                                                  |
+| **F-P1-3 / F-P1-3b** | the direct CLI hanging after training / the claim that it had structural compute overhead — **positively refuted by measurement** in ml#1114, not merely withdrawn                                     |
+| **F-P4-1**           | the trap where the **SERVICE** path trained cascor's in-process fallback spiral instead of the configured juniper-data dataset (fixed by staging every generator through `POST /v1/training/dataset`). |
+|                      | **Not a CLI trap** — the R-5 note records that the direct CLI does *not* generate its own spiral; it fetches from juniper-data with a mandatory pre-flight and no fallback.                            |
+| **c000/c010** etc.   | individual suite cells, numbered in run order                                                                                                                                                          |
 
 ---
 
@@ -31,11 +32,11 @@ to the source notes are always written with the document named, e.g. "the smoke 
 Three findings are closed and merged. Re-running them wastes GPU-hours and invites a
 contradictory write-up.
 
-| finding | closed by | result |
-|---|---|---|
-| **R-5** | **ml#1093** (`14be0e2`) | The gap was the **dataset**, not the service tier. At cap 8, moving `n_rotations` 3.0 → 1.0 took val **0.595 → 1.000**. |
-| **Head-to-head, smoke scale** | **ml#1114** (`c87a4f2`) | **No path gap** at cap 2 / pool 4: val delta **0.00 pp** (easy) and **+1.00 pp** (hard). |
-| **F-5** "genuine service-tier limitation" | ml#1093 + E-I + ml#1114 | **FALSE**, three independent lines. |
+| finding                                   | closed by               | result                                                                                                                  |
+|-------------------------------------------|-------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| **R-5**                                   | **ml#1093** (`14be0e2`) | The gap was the **dataset**, not the service tier. At cap 8, moving `n_rotations` 3.0 → 1.0 took val **0.595 → 1.000**. |
+| **Head-to-head, smoke scale**             | **ml#1114** (`c87a4f2`) | **No path gap** at cap 2 / pool 4: val delta **0.00 pp** (easy) and **+1.00 pp** (hard).                                |
+| **F-5** "genuine service-tier limitation" | ml#1093 + E-I + ml#1114 | **FALSE**, three independent lines.                                                                                     |
 
 The smoke run also recorded walls of 36 s vs 46 s and 35 s vs 35 s. **Do not quote those as a
 performance result** — the smoke note itself disowns them as a ratio (see §2.2a); they establish a
@@ -92,9 +93,9 @@ The goal is a result defensible as a **measurement** rather than as a band.
 E-I **extended** E-A's pool-8 column upward. The joined curve on the hard spiral
 (`n_rotations` 3.0, pool 8):
 
-| units | 4 | 8 | 16 | 32 | 64 | 128 |
-|---|---|---|---|---|---|---|
-| val | 0.545 | 0.595 | 0.610 | 0.735 | **0.945** | **0.995** |
+| units | 4     | 8     | 16    | 32    | 64        | 128       |
+|-------|-------|-------|-------|-------|-----------|-----------|
+| val   | 0.545 | 0.595 | 0.610 | 0.735 | **0.945** | **0.995** |
 
 Attribution, if you re-cite this: the first four points are **E-A's** (R-3 re-run, ml#1086). E-I
 ran three cells — it re-ran cap 32 as a **control** (c000, which reproduced E-A's c010 exactly)
@@ -259,19 +260,22 @@ holds `suite_dir` / `aggregate`. Do not confuse them.
 > is exactly the comparison this campaign exists to avoid. The §4 equalisation check catches it
 > after the fact; catching it beforehand is cheaper.
 
-| key | file | why |
-|---|---|---|
-| `dataset.params.n_rotations` = 3.0, set **explicitly** | run config | the only dataset knob that differs between paths by default (CLI `_SPIRAL_PROBLEM_NUM_ROTATIONS = 1` vs service baseline 3.0). Leaving it implicit is what invalidated the historical numbers. |
-| `algorithm` / `radius` **omitted** | run config | the CLI's `_W11_DATASET_KEY_MAP` carries neither, so it *cannot* send them. Omitting makes equality **structural** rather than an assumption about juniper-data's defaults. |
-| `training.params.candidate_pool_size` = **8** | run config | the value the interesting region was characterised at, and E-A settled that sweeping pool re-measures a closed question (§2.3). The smoke pair used 4. Note this alone does **not** make results E-I-comparable — see the §2.3 callout. |
-| `training.params.max_hidden_units` = 64 / 128 | run config | the axis under test. |
-| `training.params.max_iterations` ≥ largest cap (**128**) | run config | growth adds one unit per iteration, so a lower value stops growth before the cap binds — the R-3 defect in a new costume. See the two caveats after this table. |
-| `candidate_patience` **unset** | run config | see the §1 callout — the CLI cannot receive it. This is why you must not inherit `spiral-baseline.yaml`, which sets it to 100 (§2.3). |
-| `max_epochs`, `candidate_epochs`, `patience` — set **explicitly** | run config | the smoke pair carries 100 / 50 / 50; `spiral-baseline` (what E-I inherited) carries 2000 / 500 / 200. Whichever you pick, pick it **deliberately and identically for both arms**, and record it — leaving them at the smoke values silently makes every per-pass budget 4–20× smaller than the runs behind §2.1's numbers. All three are in the CLI's `_W11_TRAINING_KEY_MAP`, so both arms honour them. |
-| `outputs.max_wall_seconds` **explicit** | run config | the driver's Q-2 budget is what actually ends a run. Unset silently inherits `spiral-baseline`'s 3600 s — the E-I budget trap. E-I used **14400**. |
-| `outputs.plots: []` | run config | the CLI renders no plot files, so service-side plotting would add client work to one side of a wall-clock comparison. |
-| `suite.seed_policy` | suite | `per_cell` recommended; see §2.2b. `fixed` + copying E-I gives identical replicates. |
-| `execution.stall_seconds` = 1200 | suite | the Q-2 stall detector watches `current_epoch`, which **does not advance while the candidate pool trains**, and the candidate phase slows as the cascade widens. A healthy 128-unit cell otherwise reports `stalled`. **Nothing will catch this for you — see the warning below.** |
+| key                                                               | file       | why                                                                                                                                                                                                      |
+|-------------------------------------------------------------------|------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `dataset.params.n_rotations` = 3.0, set **explicitly**            | run config | the only dataset knob that differs between paths by default (CLI `_SPIRAL_PROBLEM_NUM_ROTATIONS = 1` vs service baseline 3.0). Leaving it implicit is what invalidated the historical numbers.           |
+| `algorithm` / `radius` **omitted**                                | run config | the CLI's `_W11_DATASET_KEY_MAP` carries neither, so it *cannot* send them. Omitting makes equality **structural** rather than an assumption about juniper-data's defaults.                              |
+| `training.params.candidate_pool_size` = **8**                     | run config | the value the interesting region was characterised at, and E-A settled that sweeping pool re-measures a closed question (§2.3). The smoke pair used 4.                                                   |
+|                                                                   |            | Note this alone does **not** make results E-I-comparable — see the §2.3 callout.                                                                                                                         |
+| `training.params.max_hidden_units` = 64 / 128                     | run config | the axis under test.                                                                                                                                                                                     |
+| `training.params.max_iterations` ≥ largest cap (**128**)          | run config | growth adds one unit per iteration, so a lower value stops growth before the cap binds — the R-3 defect in a new costume. See the two caveats after this table.                                          |
+| `candidate_patience` **unset**                                    | run config | see the §1 callout — the CLI cannot receive it. This is why you must not inherit `spiral-baseline.yaml`, which sets it to 100 (§2.3).                                                                    |
+| `max_epochs`, `candidate_epochs`, `patience` — set **explicitly** | run config | the smoke pair carries 100 / 50 / 50; `spiral-baseline` (what E-I inherited) carries 2000 / 500 / 200. Whichever you pick, pick it **deliberately and identically for both arms**, and record it         |
+|                                                                   |            | — leaving them at the smoke values silently makes every per-pass budget 4–20× smaller than the runs behind §2.1's numbers. All three are in the CLI's `_W11_TRAINING_KEY_MAP`, so both arms honour them. |
+| `outputs.max_wall_seconds` **explicit**                           | run config | the driver's Q-2 budget is what actually ends a run. Unset silently inherits `spiral-baseline`'s 3600 s — the E-I budget trap. E-I used **14400**.                                                       |
+| `outputs.plots: []`                                               | run config | the CLI renders no plot files, so service-side plotting would add client work to one side of a wall-clock comparison.                                                                                    |
+| `suite.seed_policy`                                               | suite      | `per_cell` recommended; see §2.2b. `fixed` + copying E-I gives identical replicates.                                                                                                                     |
+| `execution.stall_seconds` = 1200                                  | suite      | the Q-2 stall detector watches `current_epoch`, which **does not advance while the candidate pool trains**, and the candidate phase slows as the cascade widens.                                         |
+|                                                                   |            | A healthy 128-unit cell otherwise reports `stalled`. **Nothing will catch this for you — see the warning below.**                                                                                        |
 
 **The two `max_iterations` caveats.**
 
