@@ -16,6 +16,28 @@ which advances only during OUTPUT-layer training — nothing is reported while t
 pool trains — so every ``candidate_pool_size >= 16`` cell reads as ``stalled`` at ~130 s
 against the 120 s default while perfectly healthy. The P4 E-A grid lost its pool-16 cells
 to exactly that and had to be re-run behind an ad-hoc ``JUNIPER_SUITE_DRIVER`` shim.
+
+That contract triggered on pool size alone, which is not where the class ends. A WIDE-CAP
+suite at a modest pool reaches the same failure through a different door: the candidate
+phase gets slower every iteration as the cascade widens the input each candidate sees, so
+a healthy late-growth cell reads ``stalled`` — "the ml#1069 class, arriving through width
+instead of through pool size" (``suites/p4/e-i-cascor-cap-ceiling.yaml:46-50``). The gate
+therefore triggers on ``max_hidden_units`` as well.
+
+Third contract: a wide-cap suite must also PIN ITS WALL BUDGET, by either mechanism —
+``execution.max_wall_seconds`` or a dotted ``outputs.max_wall_seconds`` override. An
+unpinned cell inherits ``base_config``'s value (3600 s for ``spiral-baseline``) with no
+signal at all. Measured on the E-I cap sweep at fixed pool 8 (suite run
+``20260814T091542Z``): cap 32 → 1497.4 s, cap 64 → 2907.1 s, cap 128 → **4243.6 s**. Only
+the last exceeds the inherited default, but 64 clears it by just 693 s, so 64 is the first
+cap that cannot be assumed safe under the defaults.
+
+KNOWN LIMITATION — inherited values are invisible here. ``_declared_numbers`` reads only
+the suite's own ``matrix`` / ``include``, so a pool or cap coming from ``suite.base_config``
+does not trip either contract. That is deliberate: resolving ``base_config`` reaches into
+the sibling repos and would turn this structural gate into one that skips whenever the
+ecosystem is not checked out (see the paragraph above on ``expand_cells``). A suite that
+inherits a large budget shape must declare its own window regardless.
 """
 
 from __future__ import annotations
@@ -39,38 +61,80 @@ spec.loader.exec_module(run_suite)
 # The pool size at which the candidate phase reliably outruns the driver default. Measured on
 # the P4 E-A grid: pool 4 / 8 cells complete inside the window; every pool >= 16 cell stalled.
 LARGE_POOL_THRESHOLD = 16
+# The cap at which WIDTH reaches the same class. Measured on the E-I cap sweep at fixed pool 8
+# (suite run 20260814T091542Z): cap 32 -> 1497.4 s, cap 64 -> 2907.1 s, cap 128 -> 4243.6 s
+# against a 3600 s inherited driver budget. 32 is demonstrated-safe; 64 clears the budget by
+# only 693 s; 128 exceeds it outright. 64 is the first cap that cannot be assumed safe.
+LARGE_CAP_THRESHOLD = 64
 POOL_KEY = "training.params.candidate_pool_size"
+CAP_KEY = "training.params.max_hidden_units"
+WALL_OVERRIDE_KEY = "outputs.max_wall_seconds"
 
 
 def _suite_files() -> "list[Path]":
     return sorted(p for p in SUITES_ROOT.rglob("*.yaml") if p.is_file())
 
 
-def _driver_default_stall_seconds() -> float:
-    """Read DEFAULT_STALL_SECONDS out of the driver source rather than importing it.
+def _driver_default(constant: str) -> float:
+    """Read a Q-2 default out of the driver source rather than importing it.
 
-    Importing ``run_experiment`` pulls its whole module-level surface; the constant is the
-    only thing needed here, and reading it keeps this gate honest if the Q-2 default moves.
+    Importing ``run_experiment`` pulls its whole module-level surface; the constants are the
+    only thing needed here, and reading them keeps this gate honest if a default moves.
     """
-    match = re.search(r"^DEFAULT_STALL_SECONDS\s*=\s*([0-9.]+)", DRIVER_PATH.read_text(encoding="utf-8"), re.MULTILINE)
+    match = re.search(rf"^{constant}\s*=\s*([0-9.]+)", DRIVER_PATH.read_text(encoding="utf-8"), re.MULTILINE)
     if match is None:  # pragma: no cover - only if the driver constant is renamed
-        raise AssertionError(f"DEFAULT_STALL_SECONDS not found in {DRIVER_PATH}")
+        raise AssertionError(f"{constant} not found in {DRIVER_PATH}")
     return float(match.group(1))
 
 
-def _declared_pool_sizes(doc: dict) -> "list[int]":
-    """Every candidate_pool_size this suite's own YAML can produce (matrix + include)."""
-    sizes: "list[int]" = []
-    matrix_values = (doc.get("matrix") or {}).get(POOL_KEY)
+def _declared_numbers(doc: dict, key: str) -> "list[float]":
+    """Every value this suite's own YAML can produce for ``key`` (matrix + include).
+
+    Inherited ``suite.base_config`` values are invisible by design — see the module
+    docstring's KNOWN LIMITATION note.
+    """
+    values: "list[float]" = []
+
+    def _accept(value: object) -> None:
+        # bool is an int subclass; a YAML ``true`` is never a budget.
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            values.append(float(value))
+
+    matrix_values = (doc.get("matrix") or {}).get(key)
     if isinstance(matrix_values, list):
-        sizes.extend(v for v in matrix_values if isinstance(v, int))
+        for value in matrix_values:
+            _accept(value)
     for item in doc.get("include") or []:
-        if not isinstance(item, dict):
-            continue
-        value = (item.get("overrides") or {}).get(POOL_KEY)
-        if isinstance(value, int):
-            sizes.append(value)
-    return sizes
+        if isinstance(item, dict):
+            _accept((item.get("overrides") or {}).get(key))
+    return values
+
+
+def _oversize_reasons(doc: dict) -> "list[str]":
+    """Why this suite needs a raised stall window — empty when it does not."""
+    reasons: "list[str]" = []
+    pools = _declared_numbers(doc, POOL_KEY)
+    caps = _declared_numbers(doc, CAP_KEY)
+    if any(p >= LARGE_POOL_THRESHOLD for p in pools):
+        reasons.append(f"candidate_pool_size up to {int(max(pools))}")
+    if any(c >= LARGE_CAP_THRESHOLD for c in caps):
+        reasons.append(f"max_hidden_units up to {int(max(caps))}")
+    return reasons
+
+
+def _declared_wall_budgets(doc: dict) -> "list[float]":
+    """Wall budgets the suite pins itself, by either supported mechanism.
+
+    ``execution.max_wall_seconds`` forwards ``--max-wall-seconds`` to the driver; a dotted
+    ``outputs.max_wall_seconds`` override rewrites the resolved cell config. E-I uses the
+    latter, so accepting only the former would fail a correctly-budgeted suite.
+    """
+    budgets: "list[float]" = []
+    declared = (doc.get("execution") or {}).get("max_wall_seconds")
+    if isinstance(declared, (int, float)) and not isinstance(declared, bool):
+        budgets.append(float(declared))
+    budgets.extend(_declared_numbers(doc, WALL_OVERRIDE_KEY))
+    return budgets
 
 
 class SuiteYamlLoadTest(unittest.TestCase):
@@ -102,27 +166,77 @@ class SuiteYamlLoadTest(unittest.TestCase):
 
 
 class StallSecondsContractTest(unittest.TestCase):
-    """R-6 / ml#1069: large candidate pools must carry their own stall window."""
+    """R-6 / ml#1069: large pools OR wide caps must carry their own stall window."""
 
-    def test_large_pool_cascor_suites_declare_stall_seconds(self) -> None:
-        default = _driver_default_stall_seconds()
+    def test_oversize_cascor_suites_declare_stall_seconds(self) -> None:
+        default = _driver_default("DEFAULT_STALL_SECONDS")
         checked = 0
         for path in _suite_files():
             doc = run_suite.load_suite(path)
             if doc["suite"]["app"] != "cascor":
                 continue  # the recurrence train call is synchronous — no poll loop, no stall detector
-            pools = _declared_pool_sizes(doc)
-            if not any(size >= LARGE_POOL_THRESHOLD for size in pools):
+            reasons = _oversize_reasons(doc)
+            if not reasons:
                 continue
             checked += 1
             with self.subTest(suite=path.relative_to(REPO_ROOT).as_posix()):
                 declared = (doc.get("execution") or {}).get("stall_seconds")
                 self.assertIsNotNone(
                     declared,
-                    f"{path.name} sweeps candidate_pool_size up to {max(pools)} but declares no execution.stall_seconds; " f"its pool >= {LARGE_POOL_THRESHOLD} cells will be recorded as 'stalled' at the {default}s driver default while healthy",
+                    f"{path.name} sweeps {' and '.join(reasons)} but declares no execution.stall_seconds; " f"those cells will be recorded as 'stalled' at the {default}s driver default while healthy",
                 )
                 self.assertGreater(float(declared), default, f"{path.name} declares stall_seconds={declared}, at or below the {default}s driver default — no effect")
-        self.assertGreater(checked, 0, "no large-pool cascor suite was checked — the contract would pass vacuously")
+        self.assertGreater(checked, 0, "no oversize cascor suite was checked — the contract would pass vacuously")
+
+    def test_a_wide_cap_suite_at_a_small_pool_is_caught(self) -> None:
+        """Negative control for the widening: pool 8 + cap 128 must NOT slip through.
+
+        This is the exact shape that passed the pool-only gate and then lost its 128-unit
+        cells to a false ``stalled`` hours into a campaign.
+        """
+        doc = {
+            "suite": {"app": "cascor"},
+            "execution": {},
+            "matrix": {POOL_KEY: [8], CAP_KEY: [32, 64, 128]},
+        }
+        self.assertEqual(_oversize_reasons(doc), ["max_hidden_units up to 128"])
+
+    def test_a_small_suite_does_not_trip_the_contract(self) -> None:
+        """The widening must not fire on budgets demonstrated safe under the defaults."""
+        doc = {"suite": {"app": "cascor"}, "matrix": {POOL_KEY: [4, 8], CAP_KEY: [4, 8, 16, 32]}}
+        self.assertEqual(_oversize_reasons(doc), [])
+
+
+class WallBudgetContractTest(unittest.TestCase):
+    """A wide-cap suite must pin its own Q-2 wall budget rather than inherit one."""
+
+    def test_wide_cap_cascor_suites_pin_a_wall_budget(self) -> None:
+        default = _driver_default("DEFAULT_MAX_WALL_SECONDS")
+        checked = 0
+        for path in _suite_files():
+            doc = run_suite.load_suite(path)
+            if doc["suite"]["app"] != "cascor":
+                continue
+            caps = _declared_numbers(doc, CAP_KEY)
+            if not any(cap >= LARGE_CAP_THRESHOLD for cap in caps):
+                continue
+            checked += 1
+            with self.subTest(suite=path.relative_to(REPO_ROOT).as_posix()):
+                budgets = _declared_wall_budgets(doc)
+                self.assertTrue(
+                    budgets,
+                    f"{path.name} sweeps max_hidden_units up to {int(max(caps))} but pins no wall budget; " f"its cells inherit base_config's value ({default}s for spiral-baseline) with no signal — " "set execution.max_wall_seconds or override outputs.max_wall_seconds",
+                )
+                self.assertGreater(min(budgets), default, f"{path.name} pins wall budget {min(budgets)}s, at or below the {default}s inherited default — no effect")
+        self.assertGreater(checked, 0, "no wide-cap cascor suite was checked — the contract would pass vacuously")
+
+    def test_either_budget_mechanism_satisfies_the_contract(self) -> None:
+        """execution.max_wall_seconds and the dotted outputs override are equivalent."""
+        via_execution = {"execution": {"max_wall_seconds": 14400}}
+        via_override = {"matrix": {WALL_OVERRIDE_KEY: [14400]}}
+        self.assertEqual(_declared_wall_budgets(via_execution), [14400.0])
+        self.assertEqual(_declared_wall_budgets(via_override), [14400.0])
+        self.assertEqual(_declared_wall_budgets({"execution": {}}), [])
 
 
 class StallShimRetirementTest(unittest.TestCase):

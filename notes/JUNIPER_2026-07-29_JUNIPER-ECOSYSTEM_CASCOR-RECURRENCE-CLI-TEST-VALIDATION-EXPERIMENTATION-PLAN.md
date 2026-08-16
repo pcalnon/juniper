@@ -67,6 +67,31 @@ Corrections found during spot-checking are recorded in §2.3; the live repo wins
 | `juniper-deploy`             | `8657330` | `main`                                            | sole home of Prometheus config + Grafana dashboards                 |
 | `juniper-ml` (this worktree) | `4927c78` | `docs/cascor-recurrence-cli-experimentation-plan` | hosts `juniper-observability/` `0.4.0`, `juniper-service-core/`     |
 
+#### 2.2a Provenance re-pin — recurrence (F-7, closed 2026-08-16)
+
+The table above is the **authoring-time** snapshot and is deliberately left as written; a
+provenance record that gets silently overwritten is not provenance. [P0 preflight](JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md)
+finding **F-7** recorded that `juniper_recurrence` had already drifted past that snapshot
+(live `0.3.0` against the `0.2.0` recorded above) and deferred the re-pin to *"when Wave 3
+touches the recurrence repo"*. Wave 3 has shipped, so the re-pin is recorded here:
+
+| Package / repo                     | At authoring (§2.2) | Re-pinned 2026-08-16 |
+|------------------------------------|---------------------|----------------------|
+| `juniper-recurrence` HEAD          | `f23f3ba`           | `59be8de` (`main`)   |
+| app `juniper_recurrence`           | `0.2.0`             | **`0.4.0`**          |
+| model `juniper_recurrence_model`   | `0.1.5`             | **`0.2.0`**          |
+| client `juniper_recurrence_client` | `0.2.0`             | `0.2.0` (unchanged)  |
+
+Each version is read from that package's `_version.py`; all three declare
+`[tool.setuptools.dynamic] version.attr`, so the dunder **is** the version. F-7's companion
+observation — that the dist-info floor table lagged at `0.2.0` through editable-metadata
+staleness — is the STALE-metadata class now covered by
+`util/editable_install_drift_check.py --strict-version`.
+
+Note the drift is two minors on the app and one on the model: any §3 or §5.5 claim that
+depends on a *recurrence-side* API shape should be re-verified against `59be8de` rather
+than assumed from the authoring snapshot.
+
 ### 2.3 Live-host environment facts (verified 2026-07-29) and corrections to the recon digests
 
 | Fact | Evidence | Correction? |
@@ -1318,4 +1343,25 @@ Verified against [`notes/requirements/by-area/TEST.md`](requirements/by-area/TES
 
 ---
 
-**End of document.** Status: **Proposed (draft for owner review)**. Ratification requires owner decisions on Q-1 through Q-12; the independent adversarial validation pass is **complete** — three validators, findings folded in — and recorded in §2.4.
+**End of document.** Status: **Executed against; ratification partial** (updated 2026-08-16).
+The independent adversarial validation pass is **complete** — three validators, findings folded
+in — and recorded in §2.4.
+
+The original trailer read *"Proposed (draft for owner review). Ratification requires owner
+decisions on Q-1 through Q-12"*, which stayed unchanged while the whole program executed against
+this plan. The honest state of the Q-table (§13):
+
+| Q | State |
+|---|---|
+| Q-1 | **Decided** (`Yes`) — but never implemented; no `experiment.resolved.yaml` is written by any code path. Decision settled, gap open. |
+| Q-2 | **Decided and wired.** Both knobs now reach the driver from a suite: `execution.stall_seconds` (ml#1069) and `execution.max_wall_seconds`. |
+| Q-3, Q-4, Q-5 | **Decided**; Q-4 answered empirically by P0.10. |
+| Q-6 | **Resolved** by `JUNIPER_CASCOR_LOG_DIR` (juniper-cascor#523). The §13 row itself belongs to the dedicated Q-6 register-propagation change (juniper-ml#1129), which sweeps every site still calling it open; this trailer deliberately does not edit that row. |
+| Q-7, Q-8, Q-10 | **Open owner calls**, tracked in that same owner-decision register (Q-7 via W-12). |
+| Q-9 | **Decided and shipped** — every alert in `juniper-deploy/prometheus/alert_rules.yml` carries `environment!="host-experiment"`. |
+| Q-11 | **Decided**; the direct CLIs gained the `training:` / `dataset:` blocks via W-11 (Wave 3.6). |
+| Q-12 | **Decided** (`propose now`), and Wave 7.6's verb is *Propose* — the proposal exists, so the wave item is done. Ratification into the requirements snapshot is still outstanding; there are zero `JR-REC-` IDs in the index today. |
+
+So ratification is no longer blocked on twelve open questions — it is blocked on three owner calls
+(Q-7, Q-8, Q-10) plus the Q-12 snapshot refresh. §12's performance lane remains **unexecuted**, and
+§12 still describes itself as *"a design start, not a final design"*.
