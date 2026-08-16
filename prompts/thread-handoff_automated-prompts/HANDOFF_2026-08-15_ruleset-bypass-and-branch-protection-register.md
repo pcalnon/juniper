@@ -144,7 +144,7 @@ Each is one API call and each is reversible. **All are owner-gated — do not ap
   by the Release-only publisher work (tag-prefix-guarded `publish-*.yml` + the meta `publish.yml` `v*`
   guard). *Unverified* — check before investing.
 
-Every Q-* / F-P1-* / W-12 item belongs to the CLI-plan register (ml#1124), **not here**. In particular
+Every `Q-*` / `F-P1-*` / `W-12` item belongs to the CLI-plan register (ml#1124), **not here**. In particular
 **Q-6 was closed** by that session (cascor#523 + ml#1120) — any older document calling it open, including
 an earlier draft of this one, is stale.
 

@@ -197,9 +197,8 @@ This is the trap worth carrying forward. `importlib.metadata.version('juniper-ca
 **0.9.0**, pyproject says **0.9.0**, so `test_version_matches_pyproject` passes and the env looks
 clean. It is not:
 
-```
-$ /opt/miniforge3/envs/JuniperCascor1/bin/python -c \
-    "import cascor_constants.constants as c; print(c.__file__); print(hasattr(c,'_PROJECT_LOG_DIR_OVERRIDE'))"
+```bash
+$ /opt/miniforge3/envs/JuniperCascor1/bin/python -c "import cascor_constants.constants as c; print(c.__file__); print(hasattr(c,'_PROJECT_LOG_DIR_OVERRIDE'))"
 /opt/miniforge3/envs/JuniperCascor1/lib/python3.13/site-packages/cascor_constants/constants.py
 False
 ```
