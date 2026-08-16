@@ -16,7 +16,8 @@
 #   each outcome in the append-only SUITE_DIR/registry.jsonl + the global RUN_ROOT/index.jsonl, and
 #   aggregates into aggregate.csv + REPORT.md + suite_manifest.json. Wave 7.5 adds bounded
 #   parallelism (execution.mode: parallel + max_parallel; H-11 thread-budget split recorded per
-#   cell; cascor parallel>1 refused from one checkout while Q-6/H-7 stands — recurrence is free).
+#   cell; cascor parallel>1 still refused from one checkout — Q-6's override landed (cascor#523) but
+#   run_suite cannot verify the installed cascor honours it (H-7) — recurrence is free).
 #####################################################################################################################################################################################################
 """Run an experiment suite (sequential, or bounded-parallel for recurrence).
 
@@ -110,10 +111,17 @@ def load_suite(path: Path) -> dict:
         raise SuiteError("execution.max_parallel must be >= 1")
     if mode == "parallel" and max_parallel > 1 and suite.get("app") == "cascor":
         # Wave 7.5 / Q-6: cascor's file logger targets the shared checkout logs/juniper_cascor.log
-        # (H-7); N parallel cascor instances from ONE checkout race it. Until Q-6 lands a
-        # JUNIPER_CASCOR_LOG_DIR-class override, parallel cascor runs need distinct checkouts —
-        # which a single suite cannot provide. Recurrence suites parallelise freely.
-        raise SuiteError("app: cascor cannot run parallel cells from one checkout while Q-6 is unresolved (H-7 shared log race) — use mode: sequential, or distinct checkouts outside run_suite")
+        # (H-7); N parallel cascor instances from ONE checkout race it, and because that file is the
+        # ONLY place the parent logger writes, the race destroys run evidence rather than merely
+        # interleaving it. Recurrence suites parallelise freely.
+        #
+        # Q-6 has since landed the JUNIPER_CASCOR_LOG_DIR override (juniper-cascor#523), and
+        # experiment_stack.bash exports it per run — so the mechanism now exists. The refusal stays
+        # because run_suite cannot verify the *installed* cascor honours it: against an older cascor
+        # the export is silently ignored and parallel cells would race the shared log exactly as
+        # before, with no signal. Lifting this needs a cascor version floor asserted at suite load,
+        # which is a separate change — do not relax it merely because the override exists upstream.
+        raise SuiteError("app: cascor cannot run parallel cells from one checkout (Q-6 / H-7 shared-log race) — the race is only avoided when the installed cascor honours JUNIPER_CASCOR_LOG_DIR (cascor#523), which run_suite cannot yet verify; use mode: sequential, or distinct checkouts outside run_suite")
     return doc
 
 

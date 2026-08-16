@@ -981,7 +981,13 @@ Port locks use atomic `mkdir "$LOCK_ROOT/<port>.lock"` (`JUNIPER_EXP_LOCK_ROOT`,
 
 #### Concurrency (Wave 5)
 
-`cascor_up` exports `JUNIPER_CASCOR_SNAPSHOTS_DIR=$RUN_DIR/snapshots` (W-6), so each run's cascor writes snapshots into its own `RUN_DIR` instead of the repo-shared `src/snapshots` (the `.h5`-debris class); concurrent bench runs use `python -m bench.run_benchmark --results-dir` (W-7, juniper-recurrence). Two live runs are fully isolated — disjoint ports via the lockdirs, and `--down` of one run touches nothing of the other (pinned by `TestTwoRunConcurrency`). **Still standing until Q-6 is resolved**: at most one *cascor* instance per **checkout** — the app's own file logger targets the shared repo `logs/juniper_cascor.log` (H-7), so concurrent cascor runs must use distinct checkouts (worktrees). Data and recurrence instances have no such per-checkout constraint.
+`cascor_up` exports `JUNIPER_CASCOR_SNAPSHOTS_DIR=$RUN_DIR/snapshots` (W-6), so each run's cascor writes snapshots into its own `RUN_DIR` instead of the repo-shared `src/snapshots` (the `.h5`-debris class); concurrent bench runs use `python -m bench.run_benchmark --results-dir` (W-7, juniper-recurrence). Two live runs are fully isolated — disjoint ports via the lockdirs, and `--down` of one run touches nothing of the other (pinned by `TestTwoRunConcurrency`).
+
+**Q-6 is resolved (2026-08-15) and the one-cascor-per-checkout rule is retired.** `cascor_up` now also exports `JUNIPER_CASCOR_LOG_DIR=$RUN_DIR/logs` (juniper-cascor#523), so each run's cascor writes its own file log instead of the repo-shared `logs/juniper_cascor.log` (H-7). Requires `juniper-cascor` carrying that override; against an older cascor the export is simply ignored and the shared-log constraint below still applies.
+
+Why this mattered more than ordinary log interleaving: **cascor's parent logger writes only to that file** — stdout carries just candidate-worker lines — so the markers that decide a run's verdict (`Training completed`, `Completed solving …`) exist nowhere else. A second cascor process in the same checkout does not merely mix the logs, it **rotates the evidence away**, which is how the F-P1-3 arm A/B run logs were lost. One other cascor process is enough, so the previous mitigation (use a distinct checkout per instance) never actually protected a single run against a long-lived service sharing its checkout.
+
+Data and recurrence instances never had a per-checkout constraint.
 
 #### F-6 listener pid rule (binding)
 

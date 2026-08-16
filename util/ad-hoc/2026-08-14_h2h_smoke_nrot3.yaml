@@ -17,7 +17,8 @@
 #     (finding L-1). A pre-#522 checkout is NOT budget-equalised.
 #
 # Expectation worth recording BEFORE the run: at a 2-unit cap this arm should sit near chance.
-# E-A measured the same spiral at cap 4 / pool 4 at val 0.545, and the pool-8 curve only
+# E-A measured the same spiral at cap 4 / pool 8 at val 0.545 (cell c001; the cap-4/pool-4
+# cell is c000 at 0.570), and the pool-8 curve only
 # reaches 0.995 at 128 units. A floored result here is the DESIGN, not a failure -- it is the
 # control that shows the easy arm's separation is real rather than a budget artifact.
 schema_version: 1
