@@ -61,7 +61,7 @@ RUN_ID_BANNER = re.compile(r"Experiment run (\S+) is up")
 
 SUITE_KEYS = frozenset({"schema_version", "suite", "execution", "matrix", "include", "exclude", "outputs"})
 SUITE_SUITE_KEYS = frozenset({"name", "description", "app", "base_config", "seed_policy"})
-EXECUTION_KEYS = frozenset({"mode", "max_parallel", "continue_on_failure", "per_run_timeout_seconds", "stall_seconds"})
+EXECUTION_KEYS = frozenset({"mode", "max_parallel", "continue_on_failure", "per_run_timeout_seconds", "stall_seconds", "max_wall_seconds"})
 TERMINAL_OUTCOMES = frozenset({"succeeded", "failed", "stalled", "timed_out"})
 
 
@@ -302,7 +302,7 @@ def _headline_metrics(run_dir: Path) -> dict:
     return out
 
 
-def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher: Path, driver: Path, python_bin: str, extra_env: "dict[str, str] | None" = None, stall_seconds: "float | None" = None) -> dict:
+def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher: Path, driver: Path, python_bin: str, extra_env: "dict[str, str] | None" = None, stall_seconds: "float | None" = None, max_wall_seconds: "float | None" = None) -> dict:
     """--up → driver → --down for one cell; never raises for a cell-level failure.
 
     ``stall_seconds`` forwards ``execution.stall_seconds`` to the driver's Q-2 stall
@@ -312,6 +312,19 @@ def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher
     is therefore marked ``stalled`` while perfectly healthy, and the suite has no way to
     say otherwise. Observed on the P4 E-A grid: every ``candidate_pool_size >= 16`` cell
     stalled at ~130 s, then completed normally in 513–1258 s once the window was raised.
+
+    ``max_wall_seconds`` forwards ``execution.max_wall_seconds`` to the driver's Q-2
+    wall-clock budget, and is the same class of defect one field over. A suite could
+    always reach the budget through a dotted ``matrix`` / ``include`` override — the
+    widest suite in the repo does exactly that
+    (``suites/p4/e-i-cascor-cap-ceiling.yaml`` sets ``outputs.max_wall_seconds``) — but
+    an un-overridden cell silently inherited ``base_config``'s value (3600 s for
+    ``spiral-baseline``) with no signal at all. Measured on the E-I run
+    (``20260814T091542Z``), its cap-128 cell took 4243.6 s and would have been truncated by
+    that inherited default, while cap 64 cleared it by only 693 s. Note this is NOT
+    ``per_run_timeout_seconds``, which kills the driver from the OUTSIDE and records
+    ``timed_out`` where the driver would otherwise write an honest ``timed_out``
+    manifest of its own.
     """
     started = time.time()
     env = {**os.environ, **(extra_env or {})} if extra_env else None
@@ -330,6 +343,8 @@ def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher
             drv_argv = [python_bin, str(driver), "--config", str(cell_yaml), "--run-dir", str(run_dir)]
             if stall_seconds is not None:
                 drv_argv += ["--stall-seconds", str(stall_seconds)]
+            if max_wall_seconds is not None:
+                drv_argv += ["--max-wall-seconds", str(max_wall_seconds)]
             drv = subprocess.run(drv_argv, capture_output=True, text=True, timeout=timeout, env=env)
             row["exit_code"] = drv.returncode
         except subprocess.TimeoutExpired:
@@ -411,6 +426,7 @@ def main(argv: "list[str] | None" = None) -> int:
     timeout = float(execution.get("per_run_timeout_seconds", 3600))
     # None => omit the flag entirely, so the driver keeps owning its own default.
     stall_seconds = float(execution["stall_seconds"]) if execution.get("stall_seconds") is not None else None
+    max_wall_seconds = float(execution["max_wall_seconds"]) if execution.get("max_wall_seconds") is not None else None
     continue_on_failure = bool(execution.get("continue_on_failure", True))
     launcher = Path(os.environ.get("JUNIPER_SUITE_LAUNCHER", str(DEFAULT_LAUNCHER)))
     driver = Path(os.environ.get("JUNIPER_SUITE_DRIVER", str(DEFAULT_DRIVER)))
@@ -428,7 +444,8 @@ def main(argv: "list[str] | None" = None) -> int:
             print(f"  {cell['cell_id']}  config={Path(cell['config_path']).name}  overrides={json.dumps(cell['overrides'], sort_keys=True)}" + (f"  name={cell['name']}" if cell["name"] else ""))
             print(f"    $ {launcher} --up --{suite['app']} --config {suite_dir}/cells/{cell['cell_id']}/experiment.yaml --experiment {cell['cell_id']}")
             stall_flag = f" --stall-seconds {stall_seconds}" if stall_seconds is not None else ""
-            print(f"    $ {python_bin} {driver} --config …/experiment.yaml --run-dir <RUN_DIR>{stall_flag} && {launcher} --down <RUN_ID>")
+            wall_flag = f" --max-wall-seconds {max_wall_seconds}" if max_wall_seconds is not None else ""
+            print(f"    $ {python_bin} {driver} --config …/experiment.yaml --run-dir <RUN_DIR>{stall_flag}{wall_flag} && {launcher} --down <RUN_ID>")
         return 0
 
     if args.resume and not suite_dir.is_dir():
@@ -484,7 +501,7 @@ def main(argv: "list[str] | None" = None) -> int:
                 if stop.is_set():
                     break
                 print(f"[suite] {cell['cell_id']}: submitted ({json.dumps(cell['overrides'], sort_keys=True)})", flush=True)
-                futures[pool.submit(execute_cell, cell, materialised[cell["cell_id"]], suite["app"], timeout, launcher, driver, python_bin, budget, stall_seconds)] = cell
+                futures[pool.submit(execute_cell, cell, materialised[cell["cell_id"]], suite["app"], timeout, launcher, driver, python_bin, budget, stall_seconds, max_wall_seconds)] = cell
             for future in as_completed(futures):
                 cell = futures[future]
                 row = future.result()
@@ -496,7 +513,7 @@ def main(argv: "list[str] | None" = None) -> int:
     else:
         for cell in runnable:
             print(f"[suite] {cell['cell_id']}: running ({json.dumps(cell['overrides'], sort_keys=True)})", flush=True)
-            row = execute_cell(cell, materialised[cell["cell_id"]], suite["app"], timeout, launcher, driver, python_bin, budget, stall_seconds)
+            row = execute_cell(cell, materialised[cell["cell_id"]], suite["app"], timeout, launcher, driver, python_bin, budget, stall_seconds, max_wall_seconds)
             _record(cell, row)
             if row["outcome"] != "succeeded":
                 any_failed = True
