@@ -129,13 +129,15 @@ Minted in run `20260811T010700Z` (`statuses.tsv:90`) but never entered this ledg
 **F-CANOPY-018 — `params-status` has two writers, so the apply toast is always overwritten (P2, OPEN).**
 Minted in run `20260811T010700Z` (`statuses.tsv:88`, W3-08) but never entered this ledger until segment 12. `params-status.children` is written both by `apply_parameters` (the toast, via `_compose_apply_toast` `:7057`) and by `track_param_changes` (`:4385-4389`), which takes `applied-params-store` as an Input — so a successful apply re-fires the tracker, which overwrites the toast. **Segment 12 sharpened it:** the toast *is* rendered (`Parameters applied` observed at t=1800 ms) and survives **~900 ms** before being replaced by `⚠️ Unsaved changes`; the earlier "never the success toast" reading was a sampling artifact. Also: after a successful apply the form never returns to clean until a page reload. Matrix row C2.9-05 **FAIL**.
 
-**F-CANOPY-022 — the "Add Top Tier Candidates" option can never be applied (P1, OPEN; segment 12).**
+**F-CANOPY-022 — the "Add Top Tier Candidates" option can never be applied (P1; FIXED juniper-canopy#492 `0460240`).**
 canopy emits `value: "top_tier"` (`juniper-canopy/src/frontend/dashboard_manager.py:1471`); cascor accepts only `Literal["top","random","mixed"]` (`juniper-cascor/src/api/models/training.py:159`, `:327`). No translation exists — `_toggle_cn_selection_inputs_handler` (`dashboard_manager.py:6815-6821`) uses `top_tier` only for UI gating and the raw value enters the payload, so Apply returns a Pydantic `literal_error` surfaced as HTTP 502. Control: the sibling `random` arm matches cascor's literal and applies cleanly. cascor's `mixed` has no canopy option at all. Fix direction: map at the payload boundary, or change the option value.
 
-**F-CANOPY-023 — a successful apply is reported as a 502 failure (P1, OPEN; segment 12).**
-cascor's `PATCH /v1/training/params` silently ignores `epochs_max` (returns `200 success`, keeps its own value; control: `patience` writes correctly), and canopy's `_verify_apply_roundtrip` (`juniper-canopy/src/backend/cascor_service_adapter.py:~1316-1334`) fails the *whole* apply on any single key divergence. Net: whenever the sidebar's seeded `nn_max_total_epochs` is stale against cascor's live `epochs_max` — i.e. after a training run — the operator is told the apply failed while every edit actually landed. A page reload re-seeds the sidebar and the next apply succeeds. Fix direction: exclude cascor-owned keys from the verify, or degrade a single-key mismatch into the existing `mismatches` partition.
+**F-CANOPY-023 — a successful apply is reported as a 502 failure (P1; FIXED juniper-canopy#494 `56ce45f`).**
+**CORRECTED after source review — this is a canopy-only defect; the original two-repo framing was wrong.** cascor's `epochs_max` behaviour is deliberate, documented and *not* a defect: C2b / Q1 outcome (c) made it a **derived read-only** value (`epochs_max = output_epochs + effective_iterations * (candidate_epochs + output_epochs)`, `juniper-cascor/src/api/lifecycle/manager.py:1618-1640`), and cascor "accepts [it] at the request boundary (so pre-N5 canopy full-form applies keep succeeding) and report[s it] as `skipped(not-updatable)` by the C2a accounting instead of being applied" (`manager.py:3583-3586`). It is therefore **not silent** — cascor names the key in its skipped partition. My original note called this a cascor defect on the strength of a raw `curl` that only inspected the `data` block; that was an error of method, not of observation.
 
-**F-CANOPY-024 — the shipped default candidate triple is invalid (P2, OPEN; segment 12).**
+The real defect is entirely canopy-side, and is an **ordering** bug: `apply_params` runs `_verify_apply_roundtrip(mapped)` at `cascor_service_adapter.py:1325` and returns `{"ok": False, "error": "verification_failed"}` on any divergence — *before* `_extract_cascor_partition(result_data)` at `:1339` parses the very partition that explains the divergence. canopy already knows the answer: that method's own docstring states "`epochs_max` is the standing `not-updatable` case post-C2b". So a key cascor explicitly declined is compared as though it should have changed, and one expected mismatch fails an apply in which every operator edit landed. Trigger is unchanged: only when the sidebar's seeded `nn_max_total_epochs` is stale against cascor's derived `epochs_max`, i.e. after a training run has moved the granular limits; a page reload re-seeds and the next apply succeeds. Fix direction: extract the C2a partition *first* and exclude cascor-declined keys from the verify (plus a static derived-read-only set for backends that do not report one).
+
+**F-CANOPY-024 — the shipped default candidate triple is invalid (P2; FIXED juniper-canopy#493 `71b569b`).**
 A fresh dashboard ships S=1, T=1, R=1, so T+R=2≠S and the *first* Apply always fails validation. Both validators agree (identical sentence client-side and from cascor). The user cannot fix it in place because T and R both ship `disabled=True` behind `cn-multi-candidate-checkbox`. Related, not itself a defect: cascor's `candidate_selection` is never seeded into `cn-candidate-selection-radio` (which ships `value=None` by design), so a backend-configured selection is lost across a page load.
 
 ### Observations (non-finding)
@@ -1797,14 +1799,25 @@ for UI gating and the raw value enters the payload. Selecting it with an otherwi
 `random` arm matches cascor's literal exactly and applied cleanly in the same session. One of the two shipped
 options is permanently unusable; cascor's third literal `mixed` has no canopy option at all.
 
-**`F-CANOPY-023` (P1) — a successful apply is reported as a 502 failure.** Two halves, both verified:
+**`F-CANOPY-023` (P1) — a successful apply is reported as a 502 failure.** Observed as two halves:
 
-* *cascor* silently ignores `epochs_max`. `PATCH /v1/training/params -d '{"epochs_max": 115000}'` returns
-  `200 status=success` while the stored value stays `140795`. Control: the same shape with `{"patience": 77}`
-  stored 77, so the silent-ignore is specific to the key cascor owns.
+* *cascor* does not store what was sent for `epochs_max`. `PATCH /v1/training/params -d '{"epochs_max":
+  115000}'` returns `200 status=success` while the stored value stays `140795`. Control: the same shape with
+  `{"patience": 77}` stored 77.
 * *canopy* fails the whole apply on any single divergence. `_verify_apply_roundtrip`
   (`juniper-canopy/src/backend/cascor_service_adapter.py:~1316-1334`) compares every mapped key after the
   write and returns `{"ok": False, "error": "verification_failed"}` for the entire operation.
+
+> **CORRECTION (same segment, after source review).** The first bullet is **not** a cascor defect, and calling
+> it one was an error of method: I read only the `data` block of a raw `curl` response. `epochs_max` is a
+> **derived read-only** value by owner decision (C2b / Q1 outcome (c),
+> `juniper-cascor/src/api/lifecycle/manager.py:1618-1640`), and cascor deliberately accepts it at the request
+> boundary "so pre-N5 canopy full-form applies keep succeeding" while reporting it as `skipped(not-updatable)`
+> in its C2a accounting (`manager.py:3583-3586`) — so it is not silent either. **The defect is canopy-only,
+> and it is an ordering bug**: the verify at `:1325` short-circuits *before* `_extract_cascor_partition` at
+> `:1339` reads the partition that explains the divergence — and that method's own docstring already says
+> "`epochs_max` is the standing `not-updatable` case post-C2b". See the ledger entry for the corrected
+> statement.
 
 Live: canopy logged `apply_params verify mismatch: {'epochs_max': {'requested': 115000, 'applied': 140795}}`
 and showed `Failed to apply (HTTP 502) … verification_failed` — yet cascor had taken every edit, and they
@@ -1878,3 +1891,35 @@ future GPU- or process-level assertion in this arc: attribute to the leg pid, or
 "stuck" multi-candidate sub-group (under-settled), and an apparent both-inputs-enabled violation of
 `C2.8-12`'s documented "or" (a mid-transition read at 1000 ms; the settled state is exclusive). Both would
 have been plausible, specific, and wrong.
+
+### All three segment-12 findings fixed the same day (owner-directed)
+
+| finding | PR | merge | shape of the fix |
+|---|---|---|---|
+| `F-CANOPY-022` | juniper-canopy#492 | `0460240` | radio ships `top` (cascor's literal); handler accepts `top`/`top_tier`; `_CANOPY_TO_CASCOR_VALUE_MAP` translates the legacy value at the adapter boundary |
+| `F-CANOPY-024` | juniper-canopy#493 | `71b569b` | `DEFAULT_RANDOM_CANDIDATES_COUNT` 1→0 (shipped triple S=1,T=1,R=0 is valid) and the two count floors 1→0 to match cascor's `ge=0` |
+| `F-CANOPY-023` | juniper-canopy#494 | `56ce45f` | extract the C2a partition **before** the verify; exclude cascor-declined keys; static `_DERIVED_READONLY_CASCOR_PARAMS` backstop |
+
+**Each fix carries a negative control**, and in two cases the control reproduces the *live* symptom
+verbatim: disabling the `F-CANOPY-023` exclusion yields
+`{'epochs_max': {'applied': 140795, 'requested': 115000}}` — the same two numbers captured on the running
+stack — and reverting the `F-CANOPY-024` default yields
+`top_candidates+random_candidates must equal S=1 (got 1+1=2)`, the same sentence both validators printed.
+
+**A correction the fixes forced.** `F-CANOPY-023` was published as a two-repo defect. Reading cascor's
+source to write the fix showed the cascor half is deliberate, documented, and *announced* — see the
+CORRECTION block on the ledger entry. The lesson generalises past this arc: **a raw `curl` that inspects
+only the payload you expected can manufacture a defect out of a documented contract.** cascor was reporting
+`epochs_max` in its `skipped` partition the whole time; I never looked at that key of the response.
+
+**Method note for fixing, not just finding.** Each fix was developed in a throwaway `git clone` under the
+scratchpad rather than in the sibling checkout — the working tree is shared with concurrent sessions, and
+`util/open_signed_pr.py` needs no working tree anyway. Because `open_signed_pr.py` uploads *whole files*, two
+PRs touching the same file must be **merged sequentially and the second rebased**, or the second silently
+reverts the first; `F-CANOPY-023` was held back for exactly that reason while `F-CANOPY-024` (disjoint files)
+went in parallel. Local suites need `LD_LIBRARY_PATH=` cleared: invoking the env's python directly bypasses
+the conda hooks that strip it, and an ambient `rust_mudgeon` libtorch then breaks *module import* with
+`undefined symbol: _PyObject_NextNotImplemented`, which reads like a test failure and is not one.
+On this host the unmodified canopy `tests/unit` sweep fails **34** tests (19 redis, 10 cassandra, 5 metrics)
+for want of backing services — measured on a pristine clone, and identical set-for-set with the fix applied,
+so "34 failures" is the floor to compare against, not a regression.
