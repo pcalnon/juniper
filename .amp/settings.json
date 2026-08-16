@@ -1,0 +1,52 @@
+{
+  "amp.mcpServers": {
+    "context7": {
+      "command": "/home/pcalnon/.nvm/versions/node/v24.13.1/bin/npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
+    },
+    "deepwiki": {
+      "url": "https://mcp.deepwiki.com/mcp",
+      "disabled": true
+    },
+    "hf-mcp-server": {
+      "url": "https://huggingface.co/mcp",
+      "headers": {
+        "Authorization": "Bearer ${HF_TOKEN}"
+      }
+    },
+    "kaggle": {
+      "command": "/home/pcalnon/.local/share/mcp-servers/kaggle-mcp/.venv/bin/python",
+      "args": [
+        "/home/pcalnon/.local/share/mcp-servers/kaggle-mcp/src/server.py"
+      ]
+    },
+    "serena": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/oraios/serena",
+        "serena",
+        "start-mcp-server",
+        "--context",
+        "claude-code"
+      ]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest"
+      ]
+    }
+  },
+  "amp.mcpPermissions": [
+    {
+      "matches": {
+        "url": "https://mcp.deepwiki.com/mcp"
+      },
+      "action": "reject"
+    }
+  ]
+}
