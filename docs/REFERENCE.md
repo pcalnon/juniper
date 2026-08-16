@@ -479,21 +479,40 @@ Exit codes: `0` success (zero or more reaped); `2` unknown argument.
 
 Empty candidate set → `No Juniper python processes found.` and exit `0` (no kill). Loosening this filter is the false-positive class that kills foreign sessions or plain `python -m pytest` outside Juniper.
 
+#### Live-experiment protection (checked FIRST)
+
+**A live experiment stack or campaign is never an orphan, however it is parented.** `experiment_stack.bash` and `isolated_stack.bash` launch their services with `nohup` inside a subshell, so the services reparent to `systemd --user` — which is precisely the orphan predicate below. A campaign orchestrator or watchdog started with `setsid` / `disown` lands there too.
+
+Observed live on **2026-08-16** against campaign `e-j-h2h-wide-cap6`: a `--dry-run` classified the campaign **orchestrator**, the experiment **cascor service**, and the follow-on **watchdog** all as `WOULD REAP` while every one was healthy and mid-run. A live sweep would have destroyed a multi-hour campaign.
+
+Two independent protection keys, either sufficient:
+
+| Key | Catches | Mechanism |
+|-----|---------|-----------|
+| **P1** pidfile | the services | pid recorded in a `*.pid` under a run root (written by `record_listener_pid` after the health gate) |
+| **P2** cmdline | orchestrators, drivers, watchdogs | the pid's cmdline references a run root — none of these carry a pidfile |
+
+Protected candidates print `PROTECT pid=… (live experiment)` **always** (not gated on `--verbose`, so an operator sweeping during a campaign sees the decline) and are counted separately.
+
+Over-protection is deliberately the safe direction: a false protect costs one retained orphan until the next sweep; a false reap costs the campaign. A stale pidfile from a torn-down run therefore still protects.
+
 #### Orphan decision and SKIPPED races
 
-For each candidate, read `PPid:` from `${JUNIPER_REAP_PROC_ROOT:-/proc}/<pid>/status`. Mark orphan when parent is PID `1` (init), the resolved user-session `systemd --user` PID, or the parent directory is gone. Live parents → `KEEP` (printed only with `--verbose`).
+For each candidate not protected above, read `PPid:` from `${JUNIPER_REAP_PROC_ROOT:-/proc}/<pid>/status`. Mark orphan when parent is PID `1` (init), the resolved user-session `systemd --user` PID, or the parent directory is gone. Live parents → `KEEP` (printed only with `--verbose`).
 
 `SKIPPED` increments (never WOULD REAP / kill) when:
 
 - `/proc/<pid>` disappeared between `ps` and the loop (ps→gone race)
 - status is missing / unreadable / has no `PPid:` line
 
-Summary line: `N reaped, M kept (live parent), K skipped` (`would be reaped` under `--dry-run`).
+Summary line: `N reaped, M kept (live parent), P protected (live experiment), K skipped` (`would be reaped` under `--dry-run`).
 
 | Override | Default | Role |
 |----------|---------|------|
 | `JUNIPER_REAP_PROC_ROOT` | `/proc` | Synthetic proc root for hermetic tests |
 | `JUNIPER_REAP_KILL_CMD` | `kill` | Kill binary override for tests (must accept `-KILL <pid>`) |
+| `JUNIPER_EXP_RUN_ROOT` | `${HOME}/.local/state/juniper-experiments` | Experiment run root protected from reaping (same var `experiment_stack.bash` reads) |
+| `JUNIPER_E2E_RUN_DIR` | `${TMPDIR:-/tmp}/juniper-e2e` | Isolated-stack run dir protected from reaping (same var `isolated_stack.bash` reads) |
 
 Regression coverage: `tests/test_reap_pytest_orphans.py` (incl. candidate-filter + SKIPPED arms from juniper-ml#784).
 
