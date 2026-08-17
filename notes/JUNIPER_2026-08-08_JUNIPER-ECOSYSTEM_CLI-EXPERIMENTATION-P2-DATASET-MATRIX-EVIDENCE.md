@@ -82,3 +82,24 @@ P0 ✓ · P1 ✓ (F-P1-3b CLI-path completion open as a §12 perf item) · Wave 
 > ([head-to-head §5](JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-HEAD-TO-HEAD-SMOKE-EVIDENCE.md)):
 > on identical data at an identical budget the CLI is not slower at all (36 s vs 46 s; 35 s vs 35 s).
 > Of this paragraph's other items, **F-P1-2 and Q-6 remain genuinely open owner calls.**
+
+> **Update (2026-08-16) — Q-6 is RESOLVED; the line immediately above is itself now stale.** The block
+> above was committed hours before the Q-6 fix merged, so its closing sentence must be read as
+> **F-P1-2 alone** remains a genuinely open owner call. Q-6 is **closed**, and it turned out not to be
+> an owner call at all — it was an engineering item, executed:
+>
+> - **cascor#523** (merged `3909d275`) adds the `JUNIPER_CASCOR_LOG_DIR` override in both tiers;
+>   **ml#1120** exports it per run at all three `cascor_up` sites in `util/experiment_stack.bash`.
+>   Unset/blank/whitespace-only keeps `<repo>/logs` byte-identically.
+> - Also stale in §7's original paragraph: "Remaining program work: Wave 5 concurrency hardening
+>   (W-6 snapshots dir, W-7 `--results-dir`, **launcher multi-run + Q-6 log-dir class**)" — the Q-6
+>   log-dir half is done. W-6 and W-7 shipped in Wave 5; the launcher-multi-run half is the part that
+>   remains, and it is now gated on `util/experiments/run_suite.py:112` (a cascor version floor), not
+>   on Q-6. No released cascor carries #523 yet, so that floor cannot be written. Full record: the
+>   plan's §15.2 Q-6 and Wave 5 table.
+>
+> **Method note, since this document is the case study.** The stale sentence above was *created* by the
+> register-repair block that precedes it: that block corrected three F-P1-3b references and, in the
+> same breath, asserted a Q-6 status that a merge invalidated ~90 minutes later. A register-repair
+> edit can plant the next stale entry. **Re-grep the finding ID after writing the fix, not only
+> before** — and prefer naming what is closed over asserting what "remains open".

@@ -193,3 +193,30 @@ P0–P3 ✓ · Wave 4 ✓ · Wave 5 ✓ · Wave 6 ✓ · Wave 7 ✓ · **P4 ✓ 
 > current mitigation is the one-cascor-per-checkout rule (run experiments from a dedicated worktree) —
 > which is exactly the rule a `JUNIPER_CASCOR_LOG_DIR` override would retire. Recommend resolving Q-6
 > **yes**; it is now a demonstrated evidence-integrity issue, not only a concurrency nicety.
+
+> **Update (2026-08-16) — Q-6 is RESOLVED; the two Q-6 claims above are superseded.** The block
+> immediately above was written hours before the fix merged, so both of its Q-6 statements are now
+> stale and must not be picked up as work:
+>
+> - "W-12/Q-7, F-P1-2, PF threshold ratification and **Q-6** are unchanged and still open" — Q-6 is
+>   **closed**. The other three are unchanged and still open.
+> - "**Recommend resolving Q-6 yes**" — that recommendation was **accepted and executed**.
+>
+> Likewise in §6's original paragraph: "Remaining program items: … **Q-6** (log-dir override; would
+> retire the one-cascor-per-checkout rule and unlock cascor-parallel suites)" — no longer a remaining
+> item. `JUNIPER_CASCOR_LOG_DIR` ships in **cascor#523** (merged `3909d275`; direct CLI at
+> `src/cascor_constants/constants.py:434-438`, service at `api/observability.py::_resolve_log_dir` and
+> `api/service_launcher.py::_resolve_log_dir`, both reading the env at *call* time), and **ml#1120**
+> exports it per run at all three `cascor_up` sites in `util/experiment_stack.bash`. Unset/blank keeps
+> `<repo>/logs` byte-identically.
+>
+> This note's diagnosis was right and is worth preserving: the arc's lost arm A/B evidence was an
+> **evidence-integrity** failure, not a concurrency nicety, because cascor's parent logger writes only
+> to that file — a second process rotates the evidence away rather than interleaving it.
+>
+> **One half of the consequence did not follow.** "unlock cascor-parallel suites" has **not** happened:
+> `util/experiments/run_suite.py:112` still refuses `app: cascor` with `parallel > 1`, because
+> `run_suite` cannot verify the *installed* cascor honours the override — against a pre-#523 cascor the
+> export is silently ignored and parallel cells race the log again with no signal. That needs a cascor
+> version floor at suite load, and **no released cascor carries #523 yet** (PyPI latest `0.9.0`, cut
+> before the merge). See the plan's Wave 5 table and §15.2 Q-6.

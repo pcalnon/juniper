@@ -144,5 +144,12 @@ guidance (H-7, pending Q-6) discourages; the shared resource is only the checkou
 while run dirs, snapshots, ports and sampled metrics are per-run, so the recorded results are
 unaffected.
 
+> **Update (2026-08-16) — "pending Q-6" is stale.** Q-6 is **resolved and shipped**:
+> `JUNIPER_CASCOR_LOG_DIR` (cascor#523), exported per run by `util/experiment_stack.bash` (ml#1120).
+> This paragraph's verdict is unchanged — this campaign's results came from per-run manifests and
+> artifacts, not the shared file log. But note the sharper framing Q-6 settled: that log is the *only*
+> place cascor's parent logger writes, so a co-tenant process **rotates** such evidence away rather
+> than interleaving it. Plan §15.2 Q-6.
+
 Peak concurrent GPU use was 5087 MiB free (pool-32 cell), leaving ~1.7 GiB headroom — the
 7200 s per-cell timeout was never approached either, the widest cell taking 2893 s.

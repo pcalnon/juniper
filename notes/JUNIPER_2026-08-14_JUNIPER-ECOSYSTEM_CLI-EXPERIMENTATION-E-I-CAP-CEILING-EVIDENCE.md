@@ -202,6 +202,13 @@ All three cells rendered the full §8.1 plot set (5/5, zero skips). Two cascor p
 discourages; the shared resource is only the checkout's file log, while run dirs, snapshots, ports
 and sampled metrics are per-run, so the recorded results are unaffected.
 
+> **Update (2026-08-16) — "pending Q-6" is stale.** Q-6 is **resolved and shipped**:
+> `JUNIPER_CASCOR_LOG_DIR` (cascor#523), exported per run by `util/experiment_stack.bash` (ml#1120).
+> This paragraph's verdict is unchanged — these results came from per-run manifests and artifacts, not
+> the shared file log. Note the sharper framing Q-6 settled: that log is the *only* place cascor's
+> parent logger writes, so a co-tenant process **rotates** such evidence away rather than interleaving
+> it. Plan §15.2 Q-6.
+
 Artifacts: suite dir `~/.local/state/juniper-experiments/suites/e-i-cascor-cap-ceiling-20260814T091542Z`
 (`aggregate.csv`, `REPORT.md`, `registry.jsonl`, per-cell configs); GPU trace and suite log under
 `~/.local/state/juniper-experiments/traces/e-i-cap-ceiling-20260814T091542Z-*`. The trace is kept
