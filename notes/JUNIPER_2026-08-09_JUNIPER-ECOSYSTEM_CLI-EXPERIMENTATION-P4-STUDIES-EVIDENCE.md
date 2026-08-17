@@ -200,7 +200,7 @@ Remaining program items: W-12/Q-7 (csv_import corpus — parked), Q-6 (log-dir o
 > current mitigation is the one-cascor-per-checkout rule (run experiments from a dedicated worktree) —
 > which is exactly the rule a `JUNIPER_CASCOR_LOG_DIR` override would retire. Recommend resolving Q-6
 > **yes**; it is now a demonstrated evidence-integrity issue, not only a concurrency nicety.
-
+>
 > **Update (2026-08-16) — Q-6 is RESOLVED; the two Q-6 claims above are superseded.** The block
 > immediately above was written hours before the fix merged, so both of its Q-6 statements are now
 > stale and must not be picked up as work:
