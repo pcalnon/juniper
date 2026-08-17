@@ -546,6 +546,17 @@ jobs:
           # on the refs POST (ml#770 R7), and that every refusal path writes nothing.
           # util/ is outside every pre-commit Python hook's scope, so this is the gate.
           python3 -m unittest -v tests/test_open_signed_pr.py
+          # tests/test_wait_for_checks.py: util/wait_for_checks.py -- the shared
+          # required-context CI waiter. Hermetic (gh is a PATH stub replaying a
+          # SCRIPTED SEQUENCE of rollups, one per poll). Pins the two traps that
+          # broke every hand-rolled waiter: terminal defined POSITIVELY (an
+          # in-flight check run has conclusion:null and no state), and the wait
+          # anchored to the ruleset's REQUIRED contexts because the rollup grows
+          # as jobs start -- with --anchor observed kept as an executable negative
+          # control. Also pins absent-vs-running, gh-failure-is-exit-3, and the
+          # read-only mandate. util/ is outside every pre-commit Python hook's
+          # scope, so this is the gate.
+          python3 -m unittest -v tests/test_wait_for_checks.py
           # tests/test_prompt_validator_contract.py: static contract test for the
           # prompt-validator subagent (.claude/agents/prompt-validator.md) + its pinned
           # verdict JSON schema/fixtures (tests/fixtures/prompt_validator/). Asserts the

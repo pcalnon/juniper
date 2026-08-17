@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-15
+**Last Updated**: 2026-08-17
 
 ---
 
@@ -67,6 +67,7 @@ python3 -m unittest -v tests/test_template_select_preview.py
 python3 -m unittest -v tests/test_template_data_resolver.py
 python3 -m unittest -v tests/test_scaffold_template.py
 python3 -m unittest -v tests/test_open_signed_pr.py
+python3 -m unittest -v tests/test_wait_for_checks.py
 python3 -m unittest -v tests/test_prompt_validator_contract.py
 python3 -m unittest -v tests/test_template_agent_skill_lint.py
 python3 -m unittest -v tests/test_service_smoke_skill_lint.py
@@ -296,6 +297,7 @@ juniper-ml/
 │   ├── test_template_data_resolver.py    # Tests + drift gate: data layer (prompts/agent_templates/data/) + resolver
 │   ├── test_scaffold_template.py         # Behavioural: util/scaffold_template.py new-template generator (P5; drift-compliant output)
 │   ├── test_open_signed_pr.py            # Behavioural: util/open_signed_pr.py signed cross-repo PR opener (hermetic gh stub; dry-run/dup-guard/refs-ref=/deletions)
+│   ├── test_wait_for_checks.py           # Behavioural: util/wait_for_checks.py required-context CI waiter (hermetic scripted-gh stub; positive-terminal, growing-rollup + observed-anchor negative control, absent-vs-running, hard-error, read-only)
 │   ├── test_experiment_stack_script.py   # Contract + behavioural: util/experiment_stack.bash per-run launcher (§6.1 recipes, §6.4 RUN_DIR, §7.2 target file, §9.3 ranges, F-6 listener pid, dry-run + teardown; hermetic)
 │   ├── test_run_suite.py                 # Behavioural: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume; hermetic)
 │   ├── test_list_runs.py                 # Behavioural: util/experiments/list_runs.py lister/pruner (state classification, --older-than, prune safety gates; hermetic RUN_ROOT fixtures)
@@ -326,6 +328,7 @@ juniper-ml/
 └── util/                      # Utility scripts and tools
     ├── ad-hoc/                           # Single-use / temporary / unfinished scripts (see ad-hoc/README.md)
     ├── open_signed_pr.py                  # Cross-repo: open a PR on any Juniper repo with a GitHub-SIGNED commit (createCommitOnBranch)
+    ├── wait_for_checks.py                  # Cross-repo: wait for a PR's REQUIRED status checks (ruleset-anchored) to finish; read-only, exit 0/1/2/3
     ├── requirements_drift_check.py       # Drift checker for the requirements snapshot (--mode quick)
     ├── editable_install_drift_check.py   # Drift checker for juniper editable installs across conda envs
     ├── env_floor_drift_check.py          # Floor-drift checker: installed juniper-* vs target-repo pyproject floors (I-2)
@@ -467,6 +470,13 @@ juniper-ml/
   - Why it exists: `required_signatures` (2026-08-12) rejects unsigned commits fleet-wide, GPG/YubiKey signing is unavailable to a runner, and an unsigned commit **anywhere** in a branch's history blocks the merge (squash does not rescue it). GitHub signs API-authored commits, so this is the portable way to land a signed change. It needs no working tree, which also makes it the path of choice when a session is confined to one worktree and cannot commit in sibling checkouts.
   - `python util/open_signed_pr.py --repo R --branch B --add LOCAL:REPOPATH [--delete REPOPATH] --message M --title T --body-file F [--base main] [--owner pcalnon] [--dry-run]`. `--add` / `--delete` are repeatable and together express a file move; at least one is required. Exit 0 opened / 1 refused / 2 hard error.
   - Safety: refuses on an existing open PR for the branch (dup-guard -- concurrent sessions are a real hazard here) and on an existing branch (never force-updates another ref); `expectedHeadOid` is pinned to the resolved base sha so a concurrent push fails loudly rather than clobbering; `--dry-run` resolves read-only and writes nothing. Mirrors `util/release_train/propose.py`'s `create_signed_commit`. Tests: `tests/test_open_signed_pr.py`.
+- `util/wait_for_checks.py` -- Waits for a PR's **required** status checks to finish, then reports honestly. The shared replacement for the hand-rolled "wait for CI" loops that sessions keep re-writing and keep getting wrong the same two ways. Read-only (only `gh pr view` / `gh api .../rules/...` reads — never merges, updates a branch, pushes or comments), so any session can run it at any time.
+  - `python util/wait_for_checks.py --pr N [--repo juniper-cascor] [--owner pcalnon] [--anchor required|observed] [--timeout 1800] [--interval 20] [--json] [--verbose]`. Exit **0** all required green / **1** a required check failed (named) / **2** timeout with the still-running and never-reported contexts named / **3** hard error.
+  - **Trap 1 — terminal is defined POSITIVELY.** An in-flight check run carries `conclusion: null` and no `state`, so a loop written as "not in my list of pending states" reads it as finished. The pending set is open-ended (`QUEUED`/`IN_PROGRESS`/`WAITING`/`REQUESTED`/…); the finished set is closed. `is_terminal` therefore asks "is it definitely done?" and an unrecognized future conclusion reads as unfinished.
+  - **Trap 2 — the rollup GROWS, so "everything I can see is done" is not "the suite is done".** Jobs are appended to `statusCheckRollup` as they start, so a lull between waves (pre-commit matrix finished, test matrix not yet created) is indistinguishable from completion. The only stable anchor is the branch ruleset's **required** contexts; a required context that has not appeared is `absent`, not `running`. `--anchor observed` reproduces the buggy behaviour and is opt-in only — `tests/test_wait_for_checks.py` pins both anchors side by side so the difference is executable.
+  - `absent` is deliberately its own bucket: a required context that never reports may never report (the `[skip ci]` head-commit orphan class, where the aggregate rollup can read SUCCESS while the PR is permanently unmergeable), so the tool names it instead of waiting mutely.
+  - A `gh` non-zero exit is a `ProbeError` → exit 3, never a silently-empty result; that conflation is the same class as trap 1. A missing `required_status_checks` rule is likewise a hard error rather than a quiet downgrade.
+  - `mergeStateStatus` is reported but never gated on. `BEHIND` is branch freshness, not check completion — all 9 repos set `strict_required_status_checks_policy: true` ("Require branches to be up to date before merging"), which is a **different** setting from the removed `update` rule ("Restrict updates"); the signing-safe fix is `gh api repos/<owner>/<repo>/pulls/<n>/update-branch -X PUT` (server-side, therefore GitHub-signed). Tests: `tests/test_wait_for_checks.py`.
 - `util/ad-hoc/` -- Home for single-use / temporary / unfinished scripts. See `util/ad-hoc/README.md` for file-header conventions and graduation lifecycle. `/tmp/` is prohibited for script source files per the [Script placement](#script-placement-mandatory) rule.
 - Dependency-documentation generator now lives in [`juniper-ci-tools/`](juniper-ci-tools/) and is published to PyPI as `juniper-ci-tools` (Wave 4 of the dep-docs migration plan; install with `pip install juniper-ci-tools` and invoke via `juniper-generate-dep-docs`). The legacy `util/generate_dep_docs.sh` was deleted in juniper-ml#298.
 - `util/juniper_plant_all.bash` -- Starts all Juniper ecosystem services. `JUNIPER_CASCOR_HOST` defaults to `localhost` and `JUNIPER_CASCOR_PORT` defaults to `8201`; both can be overridden via the environment (e.g. `JUNIPER_CASCOR_HOST=remote.example.com JUNIPER_CASCOR_PORT=8201 util/juniper_plant_all.bash`).
