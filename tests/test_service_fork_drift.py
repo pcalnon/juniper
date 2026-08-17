@@ -126,11 +126,20 @@ GUARDS: tuple[Guard, ...] = (
         guard_id="blank-api-key-filter",
         summary=("Blank / whitespace-only API keys must be filtered before auth is enabled, or an empty secret file enables auth that then accepts an empty X-API-Key -- strictly worse than auth being off, because the deployment believes it is protected."),
         register_ids=("APD-DATA-003", "APD-CASCOR-006"),
-        status=KNOWN_GAP,
+        status=ENFORCED,
         canonical="juniper-service-core/juniper_service_core/security.py",
         sites=(
-            ForkSite("juniper-data", _DATA_SECURITY, (".strip()",)),
-            ForkSite("juniper-cascor", _CASCOR_SECURITY, (".strip()",)),
+            # Two markers, mirroring the canonical filter
+            # ``{k for k in (api_keys or []) if isinstance(k, str) and k.strip()}``.
+            # The previous bare ``.strip()`` marker was sufficient to DETECT this
+            # fix -- neither fork's security.py contained a strip beforehand -- but
+            # it is not specific to it: any unrelated strip later added to that
+            # module (normalising a header, trimming a secret-file read) would flip
+            # the guard green while the blank-key filter stayed absent. Pairing it
+            # with ``isinstance(k, str)`` ties the marker to the guard's actual
+            # shape instead of to an incidental call.
+            ForkSite("juniper-data", _DATA_SECURITY, ("isinstance(k, str)", "k.strip()")),
+            ForkSite("juniper-cascor", _CASCOR_SECURITY, ("isinstance(k, str)", "k.strip()")),
         ),
     ),
     Guard(
