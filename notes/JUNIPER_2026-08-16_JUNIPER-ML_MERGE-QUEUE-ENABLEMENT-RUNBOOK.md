@@ -3,12 +3,45 @@
 **Project**: juniper-ml
 **Author**: Paul Calnon
 **Date**: 2026-08-16
-**Status**: Ready to execute — blocked only on a UI availability check
+**Status**: **BLOCKED — merge queue is unavailable to this repository.** Retained as a conditional
+runbook; §5 becomes executable only if the repository moves to organization ownership.
 **Tracking issue**: [juniper-ml#1128](https://github.com/pcalnon/juniper-ml/issues/1128)
 
 ---
 
-## 1. Why this exists
+## 0. Finding (2026-08-16) — merge queue is unavailable, and this is not fixable by configuration
+
+**GitHub merge queues require organization ownership.** The availability statement:
+
+> Pull request merge queues are available in any public repository owned by an organization, or in
+> private repositories owned by organizations using GitHub Enterprise Cloud.
+
+`juniper-ml` is `visibility: public` but `owner.type: **User**`. It therefore does not qualify.
+
+**Confirmed empirically:** the **"Require merge queue"** rule is **not present** in the Add-rule list
+on the `juniper-ml-rules` ruleset page. Two independent confirmations — the documented availability
+scope and the rule's absence from the UI — agree.
+
+This resolves the open question the flood-remediation analysis flagged as "the one nuance
+unconfirmable by read-only API". The answer is **no**.
+
+### Consequences
+
+- **The fallback is already in force and is correct.** Flood analysis §4 decision 1 reads "queue if
+  available, else strict". `strict_required_status_checks_policy` is `true` on all 9 repos. Nothing
+  needs to change; there is no gap to close.
+- **Nothing was mis-wired.** The `merge_group:` triggers in `ci.yml` and `codeql.yml` and the
+  `release-train-archive-guard` reconciliation are inert without a queue (the `merge_group` event
+  never fires) and cost nothing. **Leave them in place** — they are the completed Step 0 for any
+  future org migration, and removing them would only have to be redone.
+- **The rebase tax that motivated #1128 is unresolved.** See §9 for what remains available.
+- Everything in §2–§3 (the required-context audit, the signing analysis) was verified before the
+  availability answer landed and stays valid. It is retained so a future org migration does not have
+  to redo it.
+
+---
+
+## 1. Why this was proposed
 
 `strict_required_status_checks_policy` ("require branches to be up to date before merging") is `true`
 on all 9 Juniper repos — the deliberate anti-storm guarantee adopted after the Cursor PR-storm damage.
@@ -91,29 +124,28 @@ verification. A rebase-method queue would push unsigned commits at `main` and de
 
 ---
 
-## 4. Availability — the one open unknown
+## 4. Availability — RESOLVED: unavailable
 
-`juniper-ml` is `visibility: public` but `owner.type: **User**`. The docs conflict:
+**Answered 2026-08-16 — see §0.** Merge queues require organization ownership; `juniper-ml` is
+User-owned, and "Require merge queue" is absent from the ruleset UI. §5 is not executable.
 
-- GitHub's merge-queue availability wording scopes it to "any public repository owned by **an
-  organization**, or private repositories owned by organizations using GitHub Enterprise Cloud" —
-  which would exclude a User-owned repo.
-- The rulesets changelog (2024-02-27, merge queue rule public beta) says the rule applies to
-  repository-level rulesets in "**personal** or organization-owned repositories", and that only
-  *organization rulesets* are unsupported.
+For the record, the ambiguity that made this worth testing: the 2024-02-27 rulesets changelog
+(merge queue rule, public beta) describes the rule as applying to repository-level rulesets in
+"personal or organization-owned repositories" and says only *organization rulesets* are unsupported —
+which reads as permitting a personal repo. The product availability statement is the narrower and
+governing one. **Do not re-litigate this from the changelog wording; the UI is the ground truth.**
 
-No read-only API call resolves this. **Step 5.1 is the definitive test.**
-
-> **The merge queue rule cannot be configured via the API** ("This feature will be available in the
-> near future" — 2024-02-27 changelog). The web UI is the only path. Do not attempt a ruleset `PATCH`.
-
-If the queue is unavailable: **stop**. `strict=true` is already in force and remains the correct
-fallback (flood analysis §4 decision 1: "queue if available, else strict"). Close ml#1128 as
-`wontfix — unavailable for User-owned repos`, or migrate the repo to an organization first.
+> **The merge queue rule also cannot be configured via the API** ("This feature will be available in
+> the near future" — 2024-02-27 changelog). Even where available, the web UI is the only path. Do not
+> attempt a ruleset `PATCH`.
 
 ---
 
-## 5. Procedure
+## 5. Procedure — NOT EXECUTABLE TODAY
+
+> **This section is conditional.** It becomes executable only if `juniper-ml` moves to organization
+> ownership (§9.3). Retained so the analysis does not have to be redone. Do not attempt §5.2 today —
+> the rule is not offered.
 
 ### 5.1 Availability check (the gate)
 
@@ -121,7 +153,7 @@ Settings → Rules → Rulesets → **juniper-ml-rules** (`13805432`) → **Add 
 
 Is **"Require merge queue"** present and selectable?
 
-- **No** → stop. See §4 fallback.
+- **No** → stop. See §0 / §4. ← **this is the current state, checked 2026-08-16**
 - **Yes** → continue.
 
 ### 5.2 Add the merge queue rule
@@ -237,7 +269,73 @@ behavior.
 
 ---
 
-## 8. References
+## 8. The rebase tax — what remains available
+
+The queue is out. The problem that motivated #1128 — PRs going `BEHIND` repeatedly under concurrent
+merges, ml#1076 needing three rebases — is unchanged. Options, cheapest first.
+
+### 8.1 Use the update-branch API instead of a local rebase (cheap, available now)
+
+```bash
+gh api -X PUT /repos/pcalnon/juniper-ml/pulls/<N>/update-branch
+```
+
+One call clears `BEHIND`. It is a **server-side merge**, so the resulting commit is GitHub-signed and
+satisfies `required_signatures` — unlike a local rebase, which rewrites commits and (for a signing
+setup that is not fully headless) can strip or re-prompt for signatures. No checkout required, which
+also makes it usable from a session confined to one worktree.
+
+This does not reduce the *number* of syncs; it reduces each one to a single API call. Most of the
+felt tax is the manual rebase ceremony, not the waiting.
+
+**Caveat, and it is a real one:** the flood analysis attributes the #801/#803 damage to exactly this
+operation — a manual Update-branch that silently re-authored wholesale doc-section deletions which
+then passed CI green, because prose deletion is invisible to the doc-link validator. That gap is now
+partly covered by the `juniper-docs-additions-check` sequence-safety screen (deleted-heading and
+`>=N`-line-deletion-run detection), which did not exist during the storm — but it is **advisory**, not
+a required context (ml#1011). Prefer update-branch over a local rebase; do not treat either as
+self-verifying.
+
+### 8.2 Batch merges into quiet windows (free, behavioural)
+
+The tax is `O(concurrent merges)`. Landing a group of PRs back-to-back in one window, rather than
+interleaved with other sessions' merges all day, collapses most of the re-sync churn. This is a
+scheduling change, not a config change.
+
+### 8.3 Move to a GitHub organization (unlocks the queue, but is a real migration)
+
+Transferring the Juniper repos to an org-owned account makes merge queues available in public repos
+at no plan cost, and §5 becomes executable as written.
+
+This is **not** a small change and should not be undertaken for the merge queue alone. Scoped from the
+tree on 2026-08-16, it touches at minimum:
+
+- **504 tracked files contain a `pcalnon/` string** (`git grep -l 'pcalnon/' | wc -l`) — overwhelmingly
+  doc and issue links, but they all rot on transfer. GitHub redirects transferred repos, so these
+  degrade rather than break immediately.
+- **Owner-coupled code**, which does break: `util/open_signed_pr.py` (`--owner` defaults to `pcalnon`,
+  line 183), `util/release_train/ceremony.py`, and `.github/workflows/publish.yml`.
+- **PyPI trusted publishing** — OIDC subjects pin the repository owner, so all 7 publishers must be
+  re-registered on PyPI *and* TestPyPI before the next release, or every publish fails at the gate.
+- **The 9 rulesets**, including the bypass-actor entries and their numeric App IDs.
+- **The release-train GitHub App** installation and its `RELEASE_TRAIN_APP_ID` repo variable.
+
+Note what is *not* affected, which narrows the job usefully: `util/release_train/registry.yaml`,
+`ECOSYSTEM_REPOS` in `docs-full-check.yml`, and `DEFAULT_REPOS` in `validate_claude_yaml_access.bash`
+all carry **bare repo names** with no owner prefix, and need no change.
+
+If it is ever considered, it should be scoped as its own arc with the merge queue as one benefit
+among several — not as the driver.
+
+### 8.4 Do nothing (defensible)
+
+`strict=true` is the documented fallback and was accepted as such when the decision was recorded. The
+tax is real but bounded, and every alternative above costs more than it saves at the current merge
+volume.
+
+---
+
+## 9. References
 
 - [`JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) — §1 queue vs strict, §4 decision 1 (approved)
 - [`JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_REQUIRED-STATUS-CHECK-CONTEXT-LISTS.md`](JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_REQUIRED-STATUS-CHECK-CONTEXT-LISTS.md) — per-repo required contexts
