@@ -24,6 +24,23 @@
 | 8 | Isolation | **PASS** | P1 live concurrent stacks (8110 vs 8111); P2 per-row run-dir isolation on one stack; Wave 5.3's `TestTwoRunConcurrency` pins `--down` scoping (run A's teardown leaves run B's pid/locks/pidfile/target intact). Distinct `dataset_id`s wherever params differ (P2 table). "Both visible in Grafana" shares the F-P1-2 shadow (§3); both visible in Prometheus. |
 | 9 | Cleanliness | **PASS** | Teardown attestations: P1.7, P2 §6, and this session's parity stack — experiment port ranges empty, target files removed, locks released, `artifacts/` preserved, `JuniperProject.pid` untouched (H-10). |
 
+> **Update (2026-08-16) — criteria 6 and 8 are now FULLY evidenced; the F-P1-2 caveats are spent.**
+> Both rows above defer their Grafana sub-arm to the F-P1-2 decision (§3). **F-P1-2 is closed and its
+> premise was false** — see the update on §3 below. The sub-arms were then positively evidenced
+> against live run `20260817T011726Z-6d05`:
+>
+> - **Criterion 6** — the `Juniper Experiments` dashboard rendered all 13 panels with real data, and
+>   the queries were additionally verified *through Grafana's datasource proxy* (the layer this row
+>   correctly noted was unproven: "the PromQL layer the dashboard reads from is proven"). The
+>   `run_id` template variable resolves; Training Loss / Accuracy / Hidden Units / Candidate
+>   Correlation / Epoch Rate / Step-Duration p50+p95 all populated.
+> - **Criterion 8** — both services appear in Grafana, run-scoped (`Targets Up = 2`, each row
+>   carrying `run_id` + `experiment`). The row's "both visible in Prometheus" is now "both visible in
+>   Grafana" as originally intended.
+>
+> Full evidence:
+> [F-P1-2 closure](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_F-P1-2-GRAFANA-RENDER-CLOSURE-EVIDENCE.md).
+
 ## 2. New arms run for this roll-up (2026-08-08)
 
 Stack `20260808T223507Z-2836` (data + recurrence only), config `p3-bench-parity.yaml`: `irregular_sine` with the bench primary's exact parameters — `n_steps 2000, lookback 32, jitter 0.6, noise_std 0.0, seed 0`; `d=16, ridge=0.0, linear readout`; 5-fold expanding walk-forward, embargo 2 (the `run_benchmark.py` primary-row recipe verbatim).
@@ -51,6 +68,34 @@ Options when a dashboard render is actually needed:
 3. **Recover the native instance's credentials** (`sudo grafana-cli admin reset-admin-password …`) and inspect whether it is actually in use before choosing 1 or 2.
 
 Recommendation when it blocks: option 1 to unblock immediately; option 3 then 2 if the native install turns out to be incidental. No action taken now per the owner's direction.
+
+> **Update (2026-08-16) — F-P1-2 is CLOSED, and every fact in this context package is wrong.**
+> Do not act on the options above; none is needed, and none was performed.
+>
+> - **The `:3000` listener was never `grafana-server`.** It is the **Domotz Pro agent** snap
+>   (`snap.domotzpro-agent-publicstore.domotzpro-agent-deamon.service`) — the served page is an
+>   AngularJS app declaring `ng-app="agent"` and loading `domotz-angular-widgets`. On `:3000`,
+>   `/api/health` and `/login` both return **404**.
+> - **The `/api/health` 200 + `database: ok`** belongs to the **deploy** Grafana on `:3001`.
+> - **The credential mystery is a phantom** — the 401s were Domotz refusing, not Grafana.
+> - **The stated consequence was already false when written.** The deploy compose has not mapped
+>   host `:3000` since **2026-05-27**: juniper-deploy `c36e52b` (#90) *"fix(grafana): default host
+>   port to 3001 (avoid system-installed grafana on 3000)"*. That predates the program plan by two
+>   months and this finding by ten weeks. There was never a bind conflict to resolve.
+>
+> The blocked arms were then evidenced directly (criteria 6/8 update above; P1.6 likewise):
+> [F-P1-2 closure](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_F-P1-2-GRAFANA-RENDER-CLOSURE-EVIDENCE.md).
+>
+> **Two real defects surfaced while probing, neither Juniper's** (closure note §5): `grafana-server`
+> is in a hard restart loop (**12,763** restarts and climbing — it can never bind a port Domotz
+> owns; owner-directed remedy is a systemd drop-in repointing it to `:3002`), and the deploy
+> Grafana mounts the repo-committed `secrets.example` placeholder while its live password comes from
+> `secrets/` — latent today (read-once at init), but a volume re-init would set a publicly-known
+> admin password.
+>
+> **Method lesson.** These probes were real and read-only, but they were probes of the *wrong
+> process*, interpreted against an assumption about the compose file that was never checked against
+> the compose file. A port probe tells you something is listening, not what.
 
 ## 4. Program state after P3
 
