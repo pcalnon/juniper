@@ -1,0 +1,87 @@
+# E-J (wide-budget head-to-head): the SERVICE arm at cap 64, three seeded replicates.
+#
+# Closes the one row the head-to-head smoke note's §8 disposition left OPEN: "Wide-budget
+# head-to-head (64-128 units)". The smoke run compared the two paths at a 2-unit cap, where the
+# hard spiral is floored near chance by design; it established the absence of a GROSS path gap
+# but explicitly did not bound a small one, and said nothing about the 64-128-unit region where
+# E-I found the interesting capacity curve. 64 and 128 are where that curve is steep and then
+# decelerating into its ceiling -- the only region where a small path gap could still hide.
+#
+# THIS SUITE DRIVES ONE ARM ONLY. run_suite is the service-path driver; the direct-CLI arm is run
+# separately by util/ad-hoc/2026-08-16_h2h_cli_arm.bash, and it must be handed the SAME
+# fully-resolved cells/<cell_id>/experiment.yaml this suite generates -- never the base config.
+# The base carries one seed; the cells carry three. Feeding the base to the CLI would give every
+# CLI replicate identical data while the service arm varied.
+#
+# ---------------------------------------------------------------------------------------------
+# WHY A 3-CELL SUITE PER CAP, AND NOT ONE 6-CELL SUITE
+#
+# run_suite has NO replicate primitive: SUITE_KEYS / EXECUTION_KEYS contain no repeat key, and
+# matrix axes must be dotted config paths. seed_policy: per_cell DERIVES a seed from the cell
+# index (base_seed + index, rewritten into BOTH experiment.seed and dataset.params.seed) but does
+# not itself create replicates. The multiplier here is a 3-valued axis on experiment.description
+# -- the only key that is legal, inert, and side-effect-free (see the base config's note).
+#
+# cell.index restarts at 0 in every suite, so this suite and its cap-128 sibling derive the SAME
+# three seeds (20260729 / 20260730 / 20260731). Because juniper-data dataset ids are
+# content-addressed on the dataset params, that pairs each cap-64 replicate with a cap-128
+# replicate on IDENTICAL data, and the whole campaign resolves to 3 dataset ids -- not 6. A
+# single 6-cell suite would derive 6 seeds and 6 ids, and the caps would share no datasets.
+# EXPECTED: 6 per-cell config files, 3 dataset ids. Seeing 6 ids means the suites were merged.
+#
+# WHAT THE SEEDS DO / DO NOT BUY -- read before quoting an error bar. Varying dataset.params.seed
+# gives a fresh DATA DRAW on both arms, but a fresh NETWORK INIT on the CLI arm only. The CLI
+# threads the dataset seed into the network (spiral_problem.py:445 passes
+# random_seed=self.random_seed, and :416-418 seed torch/numpy/random from it). The service network
+# instead seeds from self.config.random_seed or _CASCADE_CORRELATION_NETWORK_RANDOM_SEED
+# (cascade_correlation.py:667) = _PROJECT_RANDOM_SEED = 42, and NOTHING the driver can send
+# reaches it -- TrainingParams has no seed field (extra="forbid") and the start body is only
+# {start_fresh, epochs?, params}. With start_fresh: true every service replicate therefore
+# re-seeds to 42 and initialises an IDENTICAL network. So the service spread bounds data-draw
+# variance and the CLI spread bounds data-draw + init variance. They are NOT commensurate: report
+# the two spreads separately and never pool them into one resolution figure.
+#
+# The obvious alternative -- pin the dataset and vary experiment.seed for a pure init sweep -- is
+# NOT AVAILABLE and must not be attempted: experiment.seed reaches no training or network-init
+# code on either path (the driver uses it solely as a setdefault for dataset.params.seed plus a
+# manifest record), so it would produce byte-identical CLI replicates with zero variance --
+# the worst outcome, because it would look like perfect agreement.
+#
+# Do NOT copy E-I's `seed_policy: fixed`: with no seed axis it yields N identical replicates,
+# the same silent null.
+schema_version: 1
+suite:
+  name: e-j-h2h-wide-cap64
+  description: "E-J: wide-budget head-to-head, SERVICE arm, cap 64 / pool 8, 3 seeded replicates"
+  app: cascor
+  base_config: [../../../ad-hoc/2026-08-16_h2h_wide_nrot3.yaml]
+  seed_policy: per_cell
+#
+# stall_seconds is 1200, not the driver's 120 s default. The Q-2 stall detector watches
+# current_epoch, which does NOT advance while the CANDIDATE pool trains, and the candidate phase
+# gets slower every iteration as the cascade widens the input each candidate sees. A perfectly
+# healthy wide cell would otherwise be recorded `stalled` -- the ml#1069 class, arriving through
+# WIDTH instead of through pool size.
+#
+# NOTHING IN CI CATCHES THIS SUITE. The R-6 presence gate in tests/test_experiment_suite_yamls.py
+# keys solely on pool size (LARGE_POOL_THRESHOLD = 16 against candidate_pool_size) and SKIPS any
+# suite below it. This campaign runs at pool 8, so a wide-cap suite that omitted
+# execution.stall_seconds would pass the gate and ship, then lose its widest cells to a false
+# `stalled` hours in. What the gate does always enforce is key SPELLING via load_suite (the
+# `stall_second` typo class), not presence. Set it explicitly; verify it by eye.
+#
+# per_run_timeout_seconds (15600) is deliberately ABOVE the config's outputs.max_wall_seconds
+# (14400): the DRIVER must be what stops a run, because it writes an honest `timed_out` manifest
+# where a run_suite subprocess kill leaves none.
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 15600, stall_seconds: 1200}
+matrix:
+  # Single-element axis: adds no cells (expand_cells takes the cross-product), it pins the axis
+  # under test into the cell_id hash and the aggregate.csv column.
+  training.params.max_hidden_units: [64]
+  # THE REPLICATE AXIS. Three values -> three cells -> indices 0/1/2 -> derived seeds
+  # 20260729 / 20260730 / 20260731. The text is inert; only the cardinality and the order matter.
+  experiment.description:
+    - "Wide-budget head-to-head -- hard spiral, cap 64, replicate r0"
+    - "Wide-budget head-to-head -- hard spiral, cap 64, replicate r1"
+    - "Wide-budget head-to-head -- hard spiral, cap 64, replicate r2"
+outputs: {suite_dir: null, aggregate: [csv, markdown]}
