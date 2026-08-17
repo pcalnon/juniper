@@ -137,6 +137,40 @@ def _declared_wall_budgets(doc: dict) -> "list[float]":
     return budgets
 
 
+def _inherited_wall_budgets(doc: dict, suite_path: Path) -> "tuple[list[float], list[str]]":
+    """Wall budgets pinned in the suite's base configs, when those resolve locally.
+
+    THIRD mechanism, and the one that makes the wall contract honest. A budget may
+    legitimately live in ``base_config`` rather than the suite — ``e-j-h2h-wide-cap128``
+    pins ``outputs.max_wall_seconds: 14400`` in ``util/ad-hoc/2026-08-16_h2h_wide_nrot3.yaml``
+    and is correctly budgeted, which a suite-only check flunks. That is the module
+    docstring's KNOWN LIMITATION biting in the FALSE-POSITIVE direction: a blind spot that
+    merely hides problems is tolerable, one that fails correct configs is not.
+
+    Resolution reuses ``run_suite._resolve_base_config`` so this cannot drift from the real
+    resolver. In-repo base configs (``util/ad-hoc/...``) always resolve; sibling-repo ones
+    (``../../../../../juniper-cascor/...``) do not when the ecosystem is not checked out,
+    and are returned as ``unresolved`` so the caller can decline to judge rather than guess.
+    """
+    budgets: "list[float]" = []
+    unresolved: "list[str]" = []
+    for rel in (doc.get("suite") or {}).get("base_config") or []:
+        if not isinstance(rel, str):
+            continue
+        try:
+            path = run_suite._resolve_base_config(suite_path, rel)
+            base = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else None
+        except (OSError, yaml.YAMLError):
+            base = None
+        if not isinstance(base, dict):
+            unresolved.append(rel)
+            continue
+        value = (base.get("outputs") or {}).get("max_wall_seconds")
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            budgets.append(float(value))
+    return budgets, unresolved
+
+
 class SuiteYamlLoadTest(unittest.TestCase):
     """Every shipped suite must survive the validator it will be run through."""
 
@@ -213,6 +247,7 @@ class WallBudgetContractTest(unittest.TestCase):
     def test_wide_cap_cascor_suites_pin_a_wall_budget(self) -> None:
         default = _driver_default("DEFAULT_MAX_WALL_SECONDS")
         checked = 0
+        undecidable: "list[str]" = []
         for path in _suite_files():
             doc = run_suite.load_suite(path)
             if doc["suite"]["app"] != "cascor":
@@ -220,15 +255,57 @@ class WallBudgetContractTest(unittest.TestCase):
             caps = _declared_numbers(doc, CAP_KEY)
             if not any(cap >= LARGE_CAP_THRESHOLD for cap in caps):
                 continue
+            own = _declared_wall_budgets(doc)
+            inherited, unresolved = _inherited_wall_budgets(doc, path)
+            effective = own + inherited
+            if not effective and unresolved:
+                # The budget can only be in a base config this checkout cannot read.
+                # Declining to judge is the honest outcome — asserting here would fail a
+                # correctly-budgeted suite purely because the siblings are not cloned.
+                undecidable.append(f"{path.name} (unreadable base_config: {', '.join(unresolved)})")
+                continue
             checked += 1
             with self.subTest(suite=path.relative_to(REPO_ROOT).as_posix()):
-                budgets = _declared_wall_budgets(doc)
                 self.assertTrue(
-                    budgets,
-                    f"{path.name} sweeps max_hidden_units up to {int(max(caps))} but pins no wall budget; " f"its cells inherit base_config's value ({default}s for spiral-baseline) with no signal — " "set execution.max_wall_seconds or override outputs.max_wall_seconds",
+                    effective,
+                    f"{path.name} sweeps max_hidden_units up to {int(max(caps))} but no wall budget is pinned in the suite OR its base config, " f"so its cells fall back to the driver's {default}s default with no signal — " "set execution.max_wall_seconds, override outputs.max_wall_seconds, or pin it in the base config",
                 )
-                self.assertGreater(min(budgets), default, f"{path.name} pins wall budget {min(budgets)}s, at or below the {default}s inherited default — no effect")
-        self.assertGreater(checked, 0, "no wide-cap cascor suite was checked — the contract would pass vacuously")
+                self.assertGreater(min(effective), default, f"{path.name} pins wall budget {min(effective)}s, at or below the driver's {default}s default — no effect")
+        self.assertGreater(checked, 0, f"no wide-cap cascor suite was decidable — the contract would pass vacuously (undecidable: {undecidable})")
+
+    def test_a_budget_pinned_only_in_base_config_counts(self) -> None:
+        """The false-positive class this contract shipped with, caught in CI on day one.
+
+        ``e-j-h2h-wide-cap128`` pins ``outputs.max_wall_seconds: 14400`` in its base config
+        (``util/ad-hoc/2026-08-16_h2h_wide_nrot3.yaml``) and nowhere in the suite. A
+        suite-only check flunked it as "pins no wall budget" while its cells had provably
+        run 5166.7 s and 5016.9 s to ``succeeded`` — i.e. correctly budgeted all along.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "base.yaml").write_text("outputs:\n  max_wall_seconds: 14400\n", encoding="utf-8")
+            doc = {"suite": {"base_config": ["base.yaml"]}}
+            budgets, unresolved = _inherited_wall_budgets(doc, root / "suite.yaml")
+            self.assertEqual(budgets, [14400.0])
+            self.assertEqual(unresolved, [])
+
+    def test_an_unreadable_base_config_is_reported_not_guessed(self) -> None:
+        """A sibling-repo base config that is not checked out must be declined, not failed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            doc = {"suite": {"base_config": ["../../../../../juniper-cascor/conf/experiments/nope.yaml"]}}
+            budgets, unresolved = _inherited_wall_budgets(doc, Path(tmp) / "suite.yaml")
+            self.assertEqual(budgets, [])
+            self.assertEqual(len(unresolved), 1)
+
+    def test_a_base_config_without_a_budget_contributes_nothing(self) -> None:
+        """Readable but budget-less: no phantom value, and not counted as unresolved."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "base.yaml").write_text("outputs:\n  plots: []\n", encoding="utf-8")
+            doc = {"suite": {"base_config": ["base.yaml"]}}
+            budgets, unresolved = _inherited_wall_budgets(doc, root / "suite.yaml")
+            self.assertEqual(budgets, [])
+            self.assertEqual(unresolved, [])
 
     def test_either_budget_mechanism_satisfies_the_contract(self) -> None:
         """execution.max_wall_seconds and the dotted outputs override are equivalent."""
