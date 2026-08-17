@@ -104,6 +104,13 @@ class _ScriptedState:
         self.n_features = 2
         self.network_input_size = 2
         self.start_status = 200
+        # 409-preempt arms: how many /v1/training/start calls answer 409, what the
+        # lifecycle reports while they do, and how /v1/training/stop responds. A
+        # successful stop clears the override so the retried start can proceed.
+        self.start_409_remaining = 0
+        self.start_409_detail = "Training cannot be started: Training already in progress"
+        self.fsm_override: "str | None" = None
+        self.stop_status = 200
         self.completion_reason = "max_iterations"
         self.train_status = 200
         self.train_delay = 0.0
@@ -241,7 +248,10 @@ class _StubHandler(BaseHTTPRequestHandler):
                     die = True
                 else:
                     die = False
-                    if state.increment_epochs:
+                    if state.fsm_override is not None:
+                        # Preempt arms pin the lifecycle without consuming the sequence.
+                        fsm, epoch, hidden = state.fsm_override, 0, 0
+                    elif state.increment_epochs:
                         state.auto_epoch += 1
                         fsm, epoch, hidden = "STARTED", state.auto_epoch, 0
                     else:
@@ -352,7 +362,22 @@ class _StubHandler(BaseHTTPRequestHandler):
             if state.start_status == 422:
                 self._send(422, b'{"detail": "TrainingParams rejected: extra field"}')
             else:
-                self._send(200, _envelope({"started": True}))
+                with state.lock:
+                    conflict = state.start_409_remaining > 0
+                    if conflict:
+                        state.start_409_remaining -= 1
+                if conflict:
+                    self._send(409, json.dumps({"detail": state.start_409_detail}).encode("utf-8"))
+                else:
+                    self._send(200, _envelope({"started": True}))
+        elif path == "/v1/training/stop":
+            if state.stop_status == 200:
+                with state.lock:
+                    state.fsm_override = None
+                    state.start_409_remaining = 0
+                self._send(200, _envelope({"stopped": True}))
+            else:
+                self._send(state.stop_status, json.dumps({"detail": "Training cannot be stopped in the current state"}).encode("utf-8"))
         elif path == "/v1/snapshots":
             self._send(200, _envelope({"snapshot_id": "snap-stub-1"}))
         elif path == "/v1/train":
@@ -894,7 +919,90 @@ class HappyPathTest(_StubTestCase):
         self.assertEqual(series[1].split(",")[correlation_col], "")
 
 
+class PreemptArmsTest(_StubTestCase):
+    """409-on-start preemption (§3.4).
+
+    ``start_fresh: true`` does not stop a live run: the lifecycle lock is held, so the
+    409 is raised before ``start_fresh`` is consulted. After a driver-side stall or
+    budget abort the service keeps training, and the naive re-run dies on
+    ``HTTP 409: Training already in progress`` — observed across the R-5 campaign and
+    worked around with an ad-hoc attach-poller.
+    """
+
+    def test_409_from_an_active_run_is_preempted_and_retried(self) -> None:
+        self.state.start_409_remaining = 1
+        self.state.fsm_override = "STARTED"
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        self.assertEqual(_manifest(self.run_dir)["outcome"], "succeeded")
+        # One stop, and start called twice: the 409 then the successful retry.
+        self.assertEqual(len(self._posts("/v1/training/stop")), 1)
+        self.assertEqual(len(self._posts("/v1/training/start")), 2)
+
+    def test_409_from_a_non_active_lifecycle_is_not_preempted(self) -> None:
+        """`routes/training.py:117` wraps EVERY start failure as 409.
+
+        "Training data not provided" reports a non-active lifecycle; stopping there
+        would paper over a real staging bug, so the driver must refuse instead.
+        """
+        self.state.start_409_remaining = 99
+        self.state.fsm_override = "STOPPED"
+        self.state.start_409_detail = "Training cannot be started: Training data not provided"
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_RUN_FAILED)
+        self.assertEqual(self._posts("/v1/training/stop"), [])
+        self.assertEqual(len(self._posts("/v1/training/start")), 1)
+
+    def test_replaying_is_never_stopped(self) -> None:
+        """REPLAYING rejects every training command — exit is /replay/control."""
+        self.state.start_409_remaining = 99
+        self.state.fsm_override = "REPLAYING"
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_RUN_FAILED)
+        self.assertEqual(self._posts("/v1/training/stop"), [])
+
+    def test_a_refused_stop_surfaces_the_original_409(self) -> None:
+        self.state.start_409_remaining = 99
+        self.state.fsm_override = "STARTED"
+        self.state.stop_status = 409
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_RUN_FAILED)
+        self.assertEqual(len(self._posts("/v1/training/stop")), 1)
+        # Exactly one preemption attempt — no retry storm against a stuck lifecycle.
+        self.assertEqual(len(self._posts("/v1/training/start")), 1)
+
+
+class StallWindowCoherenceTest(unittest.TestCase):
+    """An inert stall window is reported, never fatal (pf3's shipped shape)."""
+
+    def test_inert_when_the_window_reaches_the_budget(self) -> None:
+        self.assertTrue(rx._stall_window_is_inert(1200.0, 600.0))
+        self.assertTrue(rx._stall_window_is_inert(600.0, 600.0))
+
+    def test_not_inert_when_the_window_fits_inside_the_budget(self) -> None:
+        self.assertFalse(rx._stall_window_is_inert(1200.0, 3600.0))
+        self.assertFalse(rx._stall_window_is_inert(120.0, 600.0))
+
+
 class FailureArmsTest(_StubTestCase):
+    def test_manifest_records_an_inert_stall_window(self) -> None:
+        """The finding reaches the evidence, not just the log."""
+        self.state.increment_epochs = True
+        cfg = _base_config()
+        cfg["outputs"]["max_wall_seconds"] = 0.5
+        config = _write_config(self.tmp, cfg)
+        _invoke(config, self.run_dir, "--stall-seconds", "600")
+        self.assertTrue(_manifest(self.run_dir)["driver"]["stall_window_inert"])
+
+    def test_manifest_records_a_healthy_stall_window(self) -> None:
+        config = _write_config(self.tmp, _base_config())
+        _invoke(config, self.run_dir, "--stall-seconds", "5")
+        self.assertFalse(_manifest(self.run_dir)["driver"]["stall_window_inert"])
+
     def test_failed_run_exits_4(self) -> None:
         self.state.status_sequence = [("STARTED", 1, 0), ("FAILED", 1, 0)]
         config = _write_config(self.tmp, _base_config())
