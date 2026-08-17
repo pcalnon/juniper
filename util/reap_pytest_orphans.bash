@@ -18,6 +18,8 @@
 #     parent (a) no longer exists OR (b) is PID 1 (init reparented).
 #     Live-parent processes are skipped — they belong to a still-running
 #     pytest session somewhere on the system.
+#   - Protects live experiment stacks / campaigns outright, whatever their
+#     parentage (see "Live-experiment protection" below).
 #
 # Usage:
 #   reap_pytest_orphans.bash [--dry-run] [--verbose]
@@ -56,7 +58,64 @@ A process is considered an orphan if:
   - its command line references a Juniper conda env or worktrees/ path
   - AND its parent is gone, is PID 1 (init), or is the user-session
     "systemd --user" (which adopts orphaned user processes)
+  - AND it is not part of a live experiment stack / campaign
+
+Environment:
+  JUNIPER_EXP_RUN_ROOT   experiment run root protected from reaping
+                         (default: \${HOME}/.local/state/juniper-experiments)
+  JUNIPER_E2E_RUN_DIR    isolated-stack run dir protected from reaping
+                         (default: \${TMPDIR:-/tmp}/juniper-e2e)
 EOF
+}
+
+# --- Live-experiment protection -------------------------------------------
+#
+# ``experiment_stack.bash`` and ``isolated_stack.bash`` launch their services
+# with ``nohup`` inside a subshell, so the services reparent to
+# ``systemd --user`` — which is precisely this script's orphan predicate. A
+# campaign orchestrator or watchdog started with setsid/disown lands there
+# too. Reaping any of them destroys a healthy, in-flight campaign, so they are
+# excluded ahead of the orphan decision on two independent keys:
+#
+#   P1  the pid is recorded in a run-dir ``*.pid`` file  — the services, which
+#       ``record_listener_pid`` pidfiles after their health gate
+#   P2  the pid's cmdline references a run root          — orchestrators,
+#       drivers and watchdog shells, none of which carry a pidfile
+#
+# Over-protection is deliberately the safe direction: the cost of a false
+# protect is one retained orphan holding RSS until the next sweep, while the
+# cost of a false reap is a destroyed multi-hour campaign.
+EXP_RUN_ROOT="${JUNIPER_EXP_RUN_ROOT:-${HOME:-}/.local/state/juniper-experiments}"
+E2E_RUN_DIR="${JUNIPER_E2E_RUN_DIR:-${TMPDIR:-/tmp}/juniper-e2e}"
+
+declare -A PROTECTED_PIDS=()
+
+collect_protected_pids() {
+    local root pidfile pid
+    for root in "${EXP_RUN_ROOT}" "${E2E_RUN_DIR}"; do
+        [[ -n "${root}" && -d "${root}" ]] || continue
+        # Service pidfiles sit at <root>/<RUN_ID>/<svc>.pid and relay pids at
+        # <root>/<RUN_ID>/relays/<svc>.pid; the isolated stack writes at depth 1.
+        while IFS= read -r pidfile; do
+            pid=$(head -n 1 "${pidfile}" 2>/dev/null || true)
+            [[ "${pid}" =~ ^[0-9]+$ ]] || continue
+            PROTECTED_PIDS["${pid}"]=1
+        done < <(find "${root}" -maxdepth 3 -type f -name '*.pid' 2>/dev/null)
+    done
+}
+
+# True when this candidate belongs to a live experiment stack / campaign.
+is_experiment_protected() {
+    local pid="$1" cmdline="$2" root
+    if [[ -n "${PROTECTED_PIDS[${pid}]:-}" ]]; then
+        return 0
+    fi
+    for root in "${EXP_RUN_ROOT}" "${E2E_RUN_DIR}"; do
+        if [[ -n "${root}" && "${cmdline}" == *"${root}"* ]]; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 # Resolve the user's systemd --user PID once (the implicit reaper for
@@ -91,6 +150,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+collect_protected_pids
+
 # Collect candidate PIDs: any Python process whose cmdline references a
 # Juniper conda env or a Juniper worktree path. ``ps -eo pid,cmd`` is
 # portable; restrict to the current user via the absent --user filter
@@ -107,6 +168,7 @@ fi
 
 REAPED=0
 KEPT=0
+PROTECTED=0
 SKIPPED=0
 
 for pid in "${CANDIDATES[@]}"; do
@@ -123,8 +185,20 @@ for pid in "${CANDIDATES[@]}"; do
         continue
     fi
 
-    # Read a short cmdline summary for logging.
-    cmd_summary=$(tr '\0' ' ' <"${PROC_ROOT}/${pid}/cmdline" 2>/dev/null | head -c 120 || echo "")
+    # Read the full cmdline (P2 matches against it) plus a short summary for
+    # logging. Substring-slice rather than ``head -c`` so ``pipefail`` cannot
+    # turn a truncated read into a script abort.
+    cmd_full=$(tr '\0' ' ' <"${PROC_ROOT}/${pid}/cmdline" 2>/dev/null || echo "")
+    cmd_summary=${cmd_full:0:120}
+
+    # A live experiment stack / campaign is never an orphan, however it is
+    # parented. Checked BEFORE the orphan predicate so the reported reason is
+    # the real one rather than an incidental live-parent coincidence.
+    if is_experiment_protected "${pid}" "${cmd_full}"; then
+        echo "PROTECT    pid=${pid} ppid=${ppid} (live experiment) cmd=${cmd_summary}"
+        PROTECTED=$((PROTECTED + 1))
+        continue
+    fi
 
     # Decide: orphan if parent is PID 1 (init), parent is the user's
     # ``systemd --user`` (the implicit reaper for orphaned user
@@ -157,7 +231,7 @@ done
 
 echo "---"
 if [[ "${DRY_RUN}" == "1" ]]; then
-    echo "Dry-run summary: ${REAPED} would be reaped, ${KEPT} kept (live parent), ${SKIPPED} skipped."
+    echo "Dry-run summary: ${REAPED} would be reaped, ${KEPT} kept (live parent), ${PROTECTED} protected (live experiment), ${SKIPPED} skipped."
 else
-    echo "Summary: ${REAPED} reaped, ${KEPT} kept (live parent), ${SKIPPED} skipped."
+    echo "Summary: ${REAPED} reaped, ${KEPT} kept (live parent), ${PROTECTED} protected (live experiment), ${SKIPPED} skipped."
 fi
