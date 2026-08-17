@@ -13,7 +13,15 @@ suite:
 # progress while it runs. The pool-16 cells would be recorded `stalled` at the 120 s driver
 # default while healthy, which would corrupt the speedup curve this suite exists to measure;
 # the num_processes: 1 leg serialises that pool and is the slowest cell in the sweep.
-execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 2400, stall_seconds: 1200}
+#
+# max_wall_seconds: the stall window above was INERT until this line existed. `spiral-smoke`
+# pins outputs.max_wall_seconds: 600, and before run_suite forwarded --max-wall-seconds there
+# was no way for a suite to raise it — so the wall budget ended every cell at 600 s and a
+# 1200 s stall window could never be reached. A healthy long candidate phase was recorded
+# `timed_out` instead of `stalled`: a different wrong label, not a working guard. 2000 s sits
+# above the stall window and below per_run_timeout_seconds, keeping the DRIVER the component
+# that stops a run (it writes an honest manifest; a subprocess kill leaves none).
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 2400, stall_seconds: 1200, max_wall_seconds: 2000}
 matrix:
   training.params.candidate_pool_size: [2, 4, 8, 16]
   runtime.num_processes: [1, 2, 4]
