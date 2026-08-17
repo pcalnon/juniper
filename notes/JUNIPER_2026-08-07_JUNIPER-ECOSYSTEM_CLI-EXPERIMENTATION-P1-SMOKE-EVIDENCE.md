@@ -70,7 +70,19 @@ Bonus observations:
 > `JUNIPER_CASCOR_SNAPSHOTS_DIR` is exported, so direct-CLI runs still write to the checkout. Per the
 > owner (2026-08-16), this is to be addressed by a **designed, validated, documented** snapshot
 > lifecycle — **not** an ad-hoc sweep; the design requirement is that historical models and runs stay
-> loadable for replay, further experimentation, training pauses, and crash recovery.
+> loadable for replay, further experimentation, training pauses, and crash recovery. That design now
+> exists:
+> [snapshot lifecycle management](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_SNAPSHOT-LIFECYCLE-MANAGEMENT-DESIGN.md).
+>
+> **Its census inverts this row.** The archive is **not debris**: a read-only census plus a stratified
+> sample verified with cascor's own `verify_saved_network` found **27,863 of 27,869 snapshots valid
+> and loadable** (88/89 sampled valid, across every cohort including the 0.3.2 files six minors
+> behind current) — 1.74 GiB of replayable models, only 6 empty stubs. A sweep sized to "reclaim
+> 1.8 GB" would have destroyed ~27.8k real assets. The actual problems are three **silent-failure**
+> defects — optimizer state discarded on every load (breaking resume-from-pause on the current
+> version), `load_network` returning `None` for corrupt *and* absent alike, and no run provenance
+> anywhere in the archive — plus the fact that `mtime` is not creation time here, so any age-based
+> retention keyed on it would misjudge every file.
 >
 > Evidence:
 > [F-P1-2 closure](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_F-P1-2-GRAFANA-RENDER-CLOSURE-EVIDENCE.md).

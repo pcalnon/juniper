@@ -906,6 +906,22 @@ This table is the W-item register. W-11 and W-12 (added by the validation pass) 
 
 **This section is a design start, not a final design.** It fixes the reuse decisions and the measurement contract; the scenario matrix and thresholds need a ratification pass of their own.
 
+> **Update (2026-08-16) — §12 development is GATED, per owner direction.** The owner concurs that
+> this lane is open engineering and requires **design → planning → verification → documentation
+> before development begins**. The four phases, their exit criteria, and their **priority relative to
+> every other outstanding and in-progress program item** are recorded in
+> [§12 phasing and work prioritisation](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md).
+>
+> Two standing inputs are banked and do not decay: the **PF suites** (six suites / 31 cells, ml#1033)
+> and the **E-B difficulty ranking**. **Q-8 is answered** — run-level baselines get a *dedicated, new
+> directory* — and that answer is a **design-phase input** here (location, layout, retention, and
+> writer are part of the design), not an implementation detail.
+>
+> Note this lane no longer has an F-P1-3b premise: that finding was withdrawn and then positively
+> refuted. The lane stands on its own inputs. The trap that produced it is a design-phase hazard
+> worth carrying: the driver's `outputs.max_wall_seconds`, not the suite's
+> `per_run_timeout_seconds`, is what actually ends a run — **a timeout is not a measurement.**
+
 ### 12.1 Reuse, do not rebuild
 
 | Asset | Reuse decision |
