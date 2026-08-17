@@ -281,7 +281,12 @@ Per standard Juniper practice, each phase ships with its own gate:
 | 6.3 fixes | **D-A: a regression test that fails on today's code** — assert `output_optimizer is not None` and its state matches after save→load. D-B: assert distinct outcomes for absent / corrupt / valid. |
 | 6.4 retention | Dry-run over the real archive must propose **zero** deletions of anything provenance-linked; a planted unattributable fixture must be proposed for *quarantine*, not deletion. |
 
-The census scripts used here are reproducible and belong in `util/ad-hoc/` when this work starts.
+The census is reproducible and preserved as
+[`util/ad-hoc/2026-08-16_snapshot_archive_census.py`](../util/ad-hoc/2026-08-16_snapshot_archive_census.py)
+(`--census` for §2's structural figures, `--sample` for §2.1's stratified verification; seed-fixed,
+read-only, and deliberately carrying **no delete path**). It reproduces every number in §2 and §2.1
+exactly. It lives in `util/ad-hoc/` rather than a scratch dir per the repo's script-placement rule —
+the rule exists because scripts of exactly this kind were lost once before.
 
 ---
 
