@@ -1121,6 +1121,20 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 > pins the `Q-6` ID in the refusal message — keep it greppable. Not urgent: sequential cascor suites
 > work, and every campaign to date has used them.
 
+> **Update (2026-08-16) — owner decisions change the standing of BOTH remaining Wave 5 rows.**
+>
+> - **5.3 — "Not urgent" above is SUPERSEDED.** The owner's Q-6 answer is *"parallel execution
+>   on-stack is becoming important."* Lifting `run_suite.py:112` is therefore demand-driven, and 5.3
+>   should be scheduled as soon as its precondition clears. The precondition is unchanged and is
+>   **external**: a `juniper-cascor` release carrying #523, which does not exist yet. Re-check
+>   `curl -s https://pypi.org/pypi/juniper-cascor/json` each pass; do not guess a floor. Everything
+>   else for 5.3 is ready.
+> - **5.5 / W-12 is UN-PARKED, and its scope grew.** Q-7 is answered **yes**, and *wider than the
+>   question asked*: the owner requires a `csv_import` option for **both the cascor and the
+>   recurrence corpus**, whereas Q-7 asked only about the cascor dataset matrix. W-12 therefore needs
+>   a sequence-shaped (3-D) import path in addition to the tabular one, and two matrix rows rather
+>   than one. **Re-estimate before scheduling** — the row's `S` predates this widening.
+
 ### Wave 6 — Program execution
 
 | #   | Item                                          | Repo | Size | Depends on |
@@ -1211,6 +1225,22 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 > released cascor carries #523 yet** (PyPI latest `0.9.0`, cut 2026-08-14 *before* the merge; `main`'s
 > pyproject is still `0.9.0`). The floor cannot be written until the next cascor release; **do not
 > guess `>=0.9.1`.**
+
+> **Owner decisions (2026-08-16) — Q-6, Q-7, Q-8, Q-10 are ANSWERED.** Recorded verbatim in intent;
+> each row above is superseded accordingly. Q-1..Q-5, Q-9, Q-11, Q-12 were ratified 2026-07-30 and
+> are unchanged.
+>
+> | ID | Decision | Consequence |
+> |---|---|---|
+> | **Q-6** | **Yes — worth doing.** "Parallel execution on-stack is becoming important." | Already shipped (cascor#523 + ml#1120). The owner's rationale **raises the priority** of the remaining half: lifting `run_suite.py:112` so cascor suites can run parallel cells. That is now demand-driven work, not opportunistic — but it still cannot land until a cascor release carries #523 (see the Q-6 block above). **Re-check the release on every pass.** |
+> | **Q-7** | **Yes — `csv_import` is needed, for BOTH corpora.** A CSV import option must be available to the **cascor** and the **recurrence** corpus. | **Un-parks W-12** (Wave 5.5), which the plan gated on this question and which has been parked since 2026-08-08. Note the scope is *wider* than the original Q-7 wording, which asked only about the **cascor dataset matrix**: the decision extends it to recurrence, so W-12 must cover a sequence-shaped (3-D) import path as well as the tabular one, and the matrix row work is now two rows. W-12's original "gated on Q-7" size estimate (S) should be re-estimated before scheduling. |
+> | **Q-8** | **A dedicated, NEW directory.** | Supersedes the recommendation above ("juniper-ml, beside the tooling that produces them"). Run-level performance baselines get their own directory rather than living beside the tooling or in per-app repos. The directory's location, name, and retention contract are part of the §12 design phase (below), not an implementation detail to be improvised — and Q-8 also gates the `JR-CAS-OBS-004` targets (§16). |
+> | **Q-10** | **Yes — juniper-recurrence gets a dedicated conda env.** | Supersedes "probably yes … but not a blocker". A `JuniperRecurrence` env joins `JuniperCanopy` / `JuniperCascor` / `JuniperData` as a first-class ecosystem environment, which makes it a documentation change as well as a provisioning one (the parent `CLAUDE.md` env table, `docs/REFERENCE.md`, and `experiment_stack.bash`'s recurrence launch path, which currently rides `JuniperCascor1`). |
+>
+> **Still open owner items after this round:** F-P1-4 (snapshot lifecycle — owner directed a
+> designed/validated/documented systems solution, explicitly **not** an ad-hoc sweep) and the §12 PF
+> threshold ratification. **F-P1-2 is CLOSED** (premise refuted —
+> [closure evidence](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_F-P1-2-GRAFANA-RENDER-CLOSURE-EVIDENCE.md)).
 
 ---
 
