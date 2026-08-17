@@ -20,20 +20,20 @@ cells is the at-scale test of the fix (§3).
 
 ## 1. The grid
 
-| cell | pool | cap | units | train | val | wall | completion | best corr |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| c000 | 4 | 4 | 4 | 0.5450 | 0.570 | 215 s | `early_stopped` | 0.073 |
-| c001 | 8 | 4 | 4 | 0.6050 | 0.545 | 286 s | `early_stopped` | 0.138 |
-| c002 | 16 | 4 | 4 | 0.6162 | 0.610 | 437 s | `early_stopped` | 0.073 |
-| c003 | 4 | 8 | 8 | 0.6350 | 0.625 | 366 s | `early_stopped` | 0.143 |
-| c004 | 8 | 8 | 8 | 0.6312 | 0.595 | 536 s | `early_stopped` | 0.138 |
-| c005 | 16 | 8 | 8 | 0.6300 | 0.580 | 744 s | `early_stopped` | 0.270 |
-| c006 | 4 | 16 | **16** | 0.6125 | 0.600 | 557 s | `early_stopped` | 0.292 |
-| c007 | 8 | 16 | **16** | 0.6312 | 0.610 | 807 s | `early_stopped` | 0.425 |
-| c008 | 16 | 16 | **16** | 0.6087 | 0.585 | 1494 s | `early_stopped` | 0.270 |
-| c009 | 4 | 32 | **32** | 0.6700 | 0.685 | 938 s | `early_stopped` | 0.347 |
-| c010 | 8 | 32 | **32** | 0.7200 | **0.735** | 1319 s | `early_stopped` | 0.425 |
-| c011 | 32 | 24 (5000 ep) | 24 | 0.7062 | 0.665 | 2893 s | `early_stopped` | 0.420 |
+| cell | pool | cap          | units  | train  | val       | wall   | completion      | best corr |
+|------|------|--------------|--------|--------|-----------|--------|-----------------|-----------|
+| c000 | 4    | 4            | 4      | 0.5450 | 0.570     | 215 s  | `early_stopped` | 0.073     |
+| c001 | 8    | 4            | 4      | 0.6050 | 0.545     | 286 s  | `early_stopped` | 0.138     |
+| c002 | 16   | 4            | 4      | 0.6162 | 0.610     | 437 s  | `early_stopped` | 0.073     |
+| c003 | 4    | 8            | 8      | 0.6350 | 0.625     | 366 s  | `early_stopped` | 0.143     |
+| c004 | 8    | 8            | 8      | 0.6312 | 0.595     | 536 s  | `early_stopped` | 0.138     |
+| c005 | 16   | 8            | 8      | 0.6300 | 0.580     | 744 s  | `early_stopped` | 0.270     |
+| c006 | 4    | 16           | **16** | 0.6125 | 0.600     | 557 s  | `early_stopped` | 0.292     |
+| c007 | 8    | 16           | **16** | 0.6312 | 0.610     | 807 s  | `early_stopped` | 0.425     |
+| c008 | 16   | 16           | **16** | 0.6087 | 0.585     | 1494 s | `early_stopped` | 0.270     |
+| c009 | 4    | 32           | **32** | 0.6700 | 0.685     | 938 s  | `early_stopped` | 0.347     |
+| c010 | 8    | 32           | **32** | 0.7200 | **0.735** | 1319 s | `early_stopped` | 0.425     |
+| c011 | 32   | 24 (5000 ep) | 24     | 0.7062 | 0.665     | 2893 s | `early_stopped` | 0.420     |
 
 ### 1.1 R-3 confirmed — the cap binds and the degenerate pairs are gone
 
@@ -43,8 +43,8 @@ above 12 was iteration-bound at 12 units.
 
 The two pairs that were **bit-identical** in the prior grid now differ:
 
-| pair | before (both) | now |
-| --- | --- | --- |
+| pair                               | before (both)       | now                                      |
+|------------------------------------|---------------------|------------------------------------------|
 | c006 / c009 (pool 4, cap 16 vs 32) | 12 units, val 0.615 | 16 units @ 0.600 vs **32 units @ 0.685** |
 | c007 / c010 (pool 8, cap 16 vs 32) | 12 units, val 0.645 | 16 units @ 0.610 vs **32 units @ 0.735** |
 
@@ -92,7 +92,7 @@ Twelve consecutive cells, no reaping between them. GPU free memory sampled every
 (354 samples); the meaningful figure is free memory at the **inter-cell idle points**, where
 only desktop processes hold the card:
 
-```
+```bash
 6840 → 6952 → 6950 → 6954 → 6956 → 6886 → 6895 → 6876 → 6891 → 6891  MiB
 ```
 
@@ -114,7 +114,7 @@ carrying the new finding — are the ones that would have silently degraded.
 
 The cap is enforced through the early-stopping path:
 
-```
+```bash
 early_stop = early_stopping and (train_accuracy_reached or max_units_reached or patience_exhausted)
 ```
 

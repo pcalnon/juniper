@@ -70,7 +70,7 @@ eight:
 | DeployKey (all)        | `always`       | writable deploy keys                                    | identify-first                                  |
 | RepositoryRole 5       | `always`       | repository admin (the owner)                            | keep — but see §2.3                             |
 | Integration 29110      | `always`       | dependabot                                              | keep                                            |
-| Integration **946600** | `always`       | **UNIDENTIFIED**                                        | **identify-first** — see below                  |
+| Integration 946600     | `always`       | copilot-code-review                                     | **REMOVE** — see below                          |
 | Integration 1143301    | `always`       | copilot-swe-agent                                       | keep                                            |
 | Integration 1210556    | `always`       | **cursor**                                              | **REMOVE** (ml#1012)                            |
 | Integration 1236702    | `always`       | **claude**                                              | **REMOVE** (ml#1012)                            |
@@ -153,16 +153,7 @@ an earlier draft of this one, is stale.
 fired 2026-08-14T22:50 on a transient `cancelled`; main CI went green on `3857d1ed` (23:45), v0.9.0 was
 released at 23:05, and PyPI has served 0.9.0 since 23:36. The HALT was moot.
 
----
-
-## 4. Worktree hygiene (started, then deferred)
-
-Session worktrees under `.claude/worktrees/` had accumulated to **38**; concurrent sessions swept them to
-**14** during this session. **Recount before acting** — this number moves fast.
-
-If you resume the sweep, use the three gates from the **`project_worktree_branch_cleanup_playbook`
-auto-memory** — **not live** (`/proc/*/cwd` prefix-match), **clean**, **merged** — with a TOCTOU re-check
-immediately before each removal. Those gates live in that memory, *not* in
+python3 util/ad-hoc/e2e_matrix_fill.py \ in
 [`WORKTREE-CLEANUP-PROCEDURE-V2.md`](../../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md),
 which covers single-worktree cleanup only.
 

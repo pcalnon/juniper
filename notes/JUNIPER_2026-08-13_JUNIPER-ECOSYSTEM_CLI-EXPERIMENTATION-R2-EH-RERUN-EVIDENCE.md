@@ -59,12 +59,12 @@ The campaign ran with the primary `juniper-cascor` checkout at `main` carrying b
 
 **#512 — pool released at end of run.** GPU free memory across the campaign:
 
-| point | free |
-| --- | --- |
+| point                                        | free     |
+|----------------------------------------------|----------|
 | before (after reaping 1 pre-existing orphan) | 4921 MiB |
-| mid-campaign, cell 0 training | 4731 MiB |
-| after cell 0 teardown | 5079 MiB |
-| after both cells | 5077 MiB |
+| mid-campaign, cell 0 training                | 4731 MiB |
+| after cell 0 teardown                        | 5079 MiB |
+| after both cells                             | 5077 MiB |
 
 Free memory **returned above its starting value** rather than dropping. The pre-fix
 signature was a loss of roughly **285 MiB per cell** with the children surviving teardown.

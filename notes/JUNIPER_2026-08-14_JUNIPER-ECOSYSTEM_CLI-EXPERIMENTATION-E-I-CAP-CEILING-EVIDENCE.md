@@ -20,17 +20,17 @@ suite doubles the cap twice more at fixed pool 8.
 
 ## 1. The ladder
 
-| cell | cap | units | epoch | train | val | val loss | F1 | ROC-AUC | wall | completion | best corr |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| c000 | 32 | 32 | 33 | 0.7200 | 0.7350 | 0.1650 | 0.735 | 0.834 | 1497 s | `early_stopped` | 0.425 |
-| c001 | 64 | 64 | 65 | 0.9613 | 0.9450 | 0.0748 | 0.945 | 0.982 | 2907 s | `early_stopped` | 0.425 |
-| c002 | 128 | 128 | 129 | 0.9975 | **0.9950** | 0.0223 | 0.995 | **1.000** | 4244 s | `early_stopped` | 0.963 |
+| cell | cap | units | epoch | train  | val        | val loss | F1    | ROC-AUC   | wall   | completion      | best corr |
+|------|-----|-------|-------|--------|------------|----------|-------|-----------|--------|-----------------|-----------|
+| c000 | 32  | 32    | 33    | 0.7200 | 0.7350     | 0.1650   | 0.735 | 0.834     | 1497 s | `early_stopped` | 0.425     |
+| c001 | 64  | 64    | 65    | 0.9613 | 0.9450     | 0.0748   | 0.945 | 0.982     | 2907 s | `early_stopped` | 0.425     |
+| c002 | 128 | 128   | 129   | 0.9975 | **0.9950** | 0.0223   | 0.995 | **1.000** | 4244 s | `early_stopped` | 0.963     |
 
 Joined to E-A's pool-8 column, the full capacity curve is:
 
-| units | 4 | 8 | 16 | 32 | 64 | 128 |
-| --- | --- | --- | --- | --- | --- | --- |
-| val | 0.545 | 0.595 | 0.610 | 0.735 | 0.945 | **0.995** |
+| units | 4     | 8     | 16    | 32    | 64    | 128       |
+|-------|-------|-------|-------|-------|-------|-----------|
+| val   | 0.545 | 0.595 | 0.610 | 0.735 | 0.945 | **0.995** |
 
 ### 1.1 The control holds exactly
 
@@ -39,10 +39,10 @@ c000 is a control, not a measurement. `seed_policy: fixed` leaves `experiment.se
 content-addressed `dataset_id`** (`spiral-1.0.0-7a9…`), so c000 trains the same network on the
 same data as E-A's c010.
 
-| | units | train | val | best corr |
-| --- | --- | --- | --- | --- |
-| E-A c010 (recorded) | 32 | 0.7200 | 0.7350 | 0.425 |
-| E-I c000 (this run) | 32 | 0.7200 | 0.7350 | 0.425 |
+|                     | units | train  | val    | best corr |
+|---------------------|-------|--------|--------|-----------|
+| E-A c010 (recorded) | 32    | 0.7200 | 0.7350 | 0.425     |
+| E-I c000 (this run) | 32    | 0.7200 | 0.7350 | 0.425     |
 
 Identical on every trained quantity. The stack has not drifted, and the two extra override keys
 c000 carries are inert exactly as designed — which is the part that matters, because the 64 and
@@ -98,11 +98,11 @@ that, because both came from citing a prior document instead of the code:
 F-5 offered three hypotheses for the gap. With both notes in hand, **the first two are true and
 the third is false** — it was never a single-cause question:
 
-| # | F-5 hypothesis | verdict | evidence |
-| --- | --- | --- | --- |
-| 1 | budget ceiling | **true** | E-I: at `n_rotations 3.0`, capacity alone takes val 0.735 → 0.995 |
-| 2 | parameterisation difference | **true** | ml#1093: at cap 8, `n_rotations` 3.0 → 1.0 takes val 0.595 → 1.000 |
-| 3 | genuine service-path limitation | **false** | both, independently |
+| # | F-5 hypothesis                  | verdict   | evidence                                                           |
+|---|---------------------------------|-----------|--------------------------------------------------------------------|
+| 1 | budget ceiling                  | **true**  | E-I: at `n_rotations 3.0`, capacity alone takes val 0.735 → 0.995  |
+| 2 | parameterisation difference     | **true**  | ml#1093: at cap 8, `n_rotations` 3.0 → 1.0 takes val 0.595 → 1.000 |
+| 3 | genuine service-path limitation | **false** | both, independently                                                |
 
 The two datasets meet on a shared anchor. ml#1093's control arm is E-A's c004 — service,
 `n_rotations 3.0`, cap 8 — at val **0.595**, which is exactly the 8-unit point of the capacity
@@ -113,9 +113,9 @@ curve in §1. The campaigns agree where they overlap and diverge only in which v
 Reading the two together gives a number neither produces alone. To reach ≈1.0 validation on the
 service tier:
 
-| spiral | units required |
-| --- | --- |
-| `n_rotations 1.0` (the CLI's) | **8** → 1.000 |
+| spiral                            | units required  |
+|-----------------------------------|-----------------|
+| `n_rotations 1.0` (the CLI's)     | **8** → 1.000   |
 | `n_rotations 3.0` (the service's) | **128** → 0.995 |
 
 Roughly a **16× capacity ratio** for three times the boundary alternations. That is what R-5's
@@ -137,7 +137,7 @@ At the four samples where the process count returned to the desktop baseline —
 where the reading is attributable to the experiment rather than to whatever is training — free
 memory read:
 
-```
+```bash
 6851 → 6848 → 6848 → 6848  MiB
 ```
 

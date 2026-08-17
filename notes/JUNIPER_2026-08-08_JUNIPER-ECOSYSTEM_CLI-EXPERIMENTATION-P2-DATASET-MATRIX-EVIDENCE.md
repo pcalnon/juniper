@@ -12,29 +12,33 @@
 
 ## 1. Scope
 
-P2 runs the smallest meaningful configuration for **every compatible dataset, per app, in service mode** (§10.3), after the Wave-4 register unblocked the last rows (W-3 staged gaussian/checkerboard, W-5 `ar_p`). Eleven rows executed this session; two more were already live-proven in P1 (`spiral` P1.1, `irregular_sine` P1.3). Deferred rows, per the plan: `mnist` (host `available=false` → 501; install path now documented in `docs/REFERENCE.md` § Generator Availability Matrix — the W-4 docs half), `csv_import` (Q-7/W-12: no experiment corpus defined), `arc_agi` (not a cascade-correlation target for this program).
+P2 runs the smallest meaningful configuration for **every compatible dataset, per app, in service mode** (§10.3), after the Wave-4 register unblocked the last rows (W-3 staged gaussian/checkerboard, W-5 `ar_p`).
+Eleven rows executed this session; two more were already live-proven in P1 (`spiral` P1.1, `irregular_sine` P1.3).
+Deferred rows, per the plan: `mnist` (host `available=false` → 501; install path now documented in `docs/REFERENCE.md` § Generator Availability Matrix — the W-4 docs half), `csv_import` (Q-7/W-12: no experiment corpus defined), `arc_agi` (not a cascade-correlation target for this program).
 
 ## 2. Method
 
 - **Stack**: one per-run experiment stack, `RUN_ID=20260808T142719Z-0145` (`util/experiment_stack.bash --up --cascor --recurrence --grafana-bridge --experiment p2-matrix`): juniper-data :8110 (`JuniperData` env), cascor :8230 + recurrence :8260 (`JuniperCascor1`), socat relays on the monitoring gateway 172.31.0.1 + the §7.2 file_sd target file. Prometheus ran as the **targeted single container** (`docker compose --profile monitoring up -d --no-deps prometheus` from juniper-deploy — the F-P1-1 stale-image workaround).
 - **Per-dataset isolation on one stack**: each row ran `util/experiments/run_experiment.py --config <yaml> --run-dir $RUN_DIR/p2/<row>` against a **per-row run-dir subdirectory** holding a copied `ports.json` — manifests, plots, and results stay separate while sharing the live services. Cascor rows rely on the driver default `start_fresh: true`; every non-spiral cascor row goes through the G-6 staging path (`POST /v1/training/dataset`) with the post-run shape assert.
-- **Configs**: seed `20260808` throughout (`experiment.seed` = `dataset.params.seed`); cascor rows use the xor-staged reference budget (`max_epochs 200 / max_iterations 4 / max_hidden_units 6 / candidate_pool_size 4`), recurrence rows the irregular-sine-smoke shape (`ridge 1.0`, 2-fold expanding CV, predict from `test`). Each row's exact YAML is preserved at `$RUN_DIR/p2/<row>/config.yaml` (durable under `~/.local/state/juniper-experiments/`, H-15). `dataset.params` use **juniper-data param names verbatim** — the driver's stage body is `{dataset_type, params}` and the generic `params` dict is forwarded verbatim (typed-field translation is the other, unit-tested path).
+- **Configs**: seed `20260808` throughout (`experiment.seed` = `dataset.params.seed`); cascor rows use the xor-staged reference budget (`max_epochs 200 / max_iterations 4 / max_hidden_units 6 / candidate_pool_size 4`), recurrence rows the irregular-sine-smoke shape (`ridge 1.0`, 2-fold expanding CV, predict from `test`).
+Each row's exact YAML is preserved at `$RUN_DIR/p2/<row>/config.yaml` (durable under `~/.local/state/juniper-experiments/`, H-15).
+`dataset.params` use **juniper-data param names verbatim** — the driver's stage body is `{dataset_type, params}` and the generic `params` dict is forwarded verbatim (typed-field translation is the other, unit-tested path).
 
 ## 3. Results — 11/11 PASS, first try
 
-| Row | Kind | Exit | Outcome | Plots (req/ok/skip) | NPZ contract | G-6 | `dataset_id` |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `p2-xor` | cascor staged | 0 | succeeded | 3/3/0 | `tabular` | OK | `xor-1.0.0-e700406e` |
-| `p2-circles` | cascor staged | 0 | succeeded | 3/3/0 | `tabular` | OK | `circles-1.0.0-290fdc5a` |
-| `p2-moon` | cascor staged | 0 | succeeded | 3/3/0 | `tabular` | OK | `moon-1.0.0-2353c687` |
-| `p2-gaussian` | cascor staged (W-3 row) | 0 | succeeded | 3/3/0 | `tabular` | OK | `gaussian-1.0.0-502adc53` |
-| `p2-checkerboard` | cascor staged (W-3 row) | 0 | succeeded | 3/3/0 | `tabular` | OK | `checkerboard-1.0.0-061fe8fe` |
-| `p2-equities` | cascor staged, networked | 0 | succeeded | 1/1/0 | `tabular` | OK | `equities-1.0.0-f37f16f3` |
-| `p2-multi-sine` | recurrence | 0 | succeeded | 5/5/0 | `sequence` | n/a | `multi_sine-1.0.0-d21bd418` |
-| `p2-mackey-glass` | recurrence | 0 | succeeded | 5/5/0 | `sequence` | n/a | `mackey_glass-1.0.0-5bed318e` |
-| `p2-delay-product` | recurrence (rff readout) | 0 | succeeded | 5/5/0 | `sequence` | n/a | `delay_product-1.0.0-9d01ba84` |
-| `p2-ar-p` | recurrence (W-5 row) | 0 | succeeded | 5/5/0 | `sequence` | n/a | `ar_p-1.0.0-a37b642c` |
-| `p2-equities-seq` | recurrence, networked | 0 | succeeded | 5/5/0 | `sequence` | n/a | `equities_seq-1.0.0-8c12baca` |
+| Row                | Kind                     | Exit | Outcome   | Plots (req/ok/skip) | NPZ contract | G-6 | `dataset_id`                   |
+|--------------------|--------------------------|------|-----------|---------------------|--------------|-----|--------------------------------|
+| `p2-xor`           | cascor staged            | 0    | succeeded | 3/3/0               | `tabular`    | OK  | `xor-1.0.0-e700406e`           |
+| `p2-circles`       | cascor staged            | 0    | succeeded | 3/3/0               | `tabular`    | OK  | `circles-1.0.0-290fdc5a`       |
+| `p2-moon`          | cascor staged            | 0    | succeeded | 3/3/0               | `tabular`    | OK  | `moon-1.0.0-2353c687`          |
+| `p2-gaussian`      | cascor staged (W-3 row)  | 0    | succeeded | 3/3/0               | `tabular`    | OK  | `gaussian-1.0.0-502adc53`      |
+| `p2-checkerboard`  | cascor staged (W-3 row)  | 0    | succeeded | 3/3/0               | `tabular`    | OK  | `checkerboard-1.0.0-061fe8fe`  |
+| `p2-equities`      | cascor staged, networked | 0    | succeeded | 1/1/0               | `tabular`    | OK  | `equities-1.0.0-f37f16f3`      |
+| `p2-multi-sine`    | recurrence               | 0    | succeeded | 5/5/0               | `sequence`   | n/a | `multi_sine-1.0.0-d21bd418`    |
+| `p2-mackey-glass`  | recurrence               | 0    | succeeded | 5/5/0               | `sequence`   | n/a | `mackey_glass-1.0.0-5bed318e`  |
+| `p2-delay-product` | recurrence (rff readout) | 0    | succeeded | 5/5/0               | `sequence`   | n/a | `delay_product-1.0.0-9d01ba84` |
+| `p2-ar-p`          | recurrence (W-5 row)     | 0    | succeeded | 5/5/0               | `sequence`   | n/a | `ar_p-1.0.0-a37b642c`          |
+| `p2-equities-seq`  | recurrence, networked    | 0    | succeeded | 5/5/0               | `sequence`   | n/a | `equities_seq-1.0.0-8c12baca`  |
 
 Cascor plot set: `dataset` + `decision_boundary` + `training_history` (equities plot-reduced to `training_history` — F=10, boundary and 2-feature scatter structurally inapplicable, requested set trimmed rather than SKIP-recorded). Recurrence plot set: `dataset_overview` + `dt_histogram` + `forecast_vs_truth` + `residuals` + `crossval_folds`.
 
@@ -62,7 +66,10 @@ Timings: recurrence rows 1.7–6.5 s total (equities_seq dominated by the 3.0 s 
 
 ## 7. Program state after P2
 
-P0 ✓ · P1 ✓ (F-P1-3b CLI-path completion open as a §12 perf item) · Wave 4 register ✓ (W-1/2/3/5/8/9/10/11 + W-4 docs) · **P2 ✓ (this document)**. The §10.4 P3 criteria are substantially evidenced by P1 (spiral reference run), the W-8 bench baseline (ratified bands PASS; `delay_product` RFF ≫ linear in-repo), and this matrix. Remaining program work: Wave 5 concurrency hardening (W-6 snapshots dir, W-7 `--results-dir`, launcher multi-run + Q-6 log-dir class), W-12/Q-7 `csv_import` corpus, and the §12 performance lane (owns F-P1-3b). Owner decisions still open: F-P1-2 (native Grafana v13 squatting :3000), stale cascor image rebuild, F-P1-3b profiling priority.
+P0 ✓ · P1 ✓ (F-P1-3b CLI-path completion open as a §12 perf item) · Wave 4 register ✓ (W-1/2/3/5/8/9/10/11 + W-4 docs) · **P2 ✓ (this document)**.
+The §10.4 P3 criteria are substantially evidenced by P1 (spiral reference run), the W-8 bench baseline (ratified bands PASS; `delay_product` RFF ≫ linear in-repo), and this matrix.
+Remaining program work: Wave 5 concurrency hardening (W-6 snapshots dir, W-7 `--results-dir`, launcher multi-run + Q-6 log-dir class), W-12/Q-7 `csv_import` corpus, and the §12 performance lane (owns F-P1-3b).
+Owner decisions still open: F-P1-2 (native Grafana v13 squatting :3000), stale cascor image rebuild, F-P1-3b profiling priority.
 
 > **Update (2026-08-15) — F-P1-3b is REFUTED; this paragraph's forward-looking items are superseded.**
 > Three references above are stale and must not be picked up as work:
