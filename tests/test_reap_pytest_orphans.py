@@ -32,12 +32,22 @@ class FakeProcessFixture:
         self.bin_dir = self.root / "bin"
         self.proc_root = self.root / "proc"
         self.kill_log = self.root / "kill.log"
+        # Redirected so a test never reads the real run roots — a live campaign
+        # on this workstation must not be able to change a test's verdict.
+        self.exp_run_root = self.root / "exp-run-root"
+        self.e2e_run_dir = self.root / "e2e-run-dir"
         self.bin_dir.mkdir()
         self.proc_root.mkdir()
 
         self._write_fake_id()
         self._write_fake_ps(ps_rows)
         self._write_fake_kill()
+
+    def add_experiment_pidfile(self, run_id: str, service: str, pid: int) -> None:
+        """Record ``pid`` the way ``experiment_stack.bash`` does (P1 key)."""
+        run_dir = self.exp_run_root / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / f"{service}.pid").write_text(f"{pid}\n", encoding="utf-8")
 
     def _write_fake_id(self) -> None:
         write_executable(
@@ -88,6 +98,8 @@ class FakeProcessFixture:
         env["KILL_LOG"] = str(self.kill_log)
         env["JUNIPER_REAP_KILL_CMD"] = str(self.bin_dir / "fake-kill")
         env["JUNIPER_REAP_PROC_ROOT"] = str(self.proc_root)
+        env["JUNIPER_EXP_RUN_ROOT"] = str(self.exp_run_root)
+        env["JUNIPER_E2E_RUN_DIR"] = str(self.e2e_run_dir)
         return env
 
 
@@ -123,7 +135,7 @@ class TestReapPytestOrphans(unittest.TestCase):
             self.assertIn("WOULD REAP pid=101 ppid=1", result.stdout)
             self.assertIn("WOULD REAP pid=102 ppid=50", result.stdout)
             self.assertIn("WOULD REAP pid=103 ppid=999", result.stdout)
-            self.assertIn("Dry-run summary: 3 would be reaped, 0 kept (live parent), 0 skipped.", result.stdout)
+            self.assertIn("Dry-run summary: 3 would be reaped, 0 kept (live parent), 0 protected (live experiment), 0 skipped.", result.stdout)
             self.assertFalse(fixture.kill_log.exists())
 
     def test_verbose_dry_run_keeps_juniper_python_process_with_live_parent(self):
@@ -142,7 +154,7 @@ class TestReapPytestOrphans(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("KEEP       pid=201 ppid=200 (live parent)", result.stdout)
-            self.assertIn("Dry-run summary: 0 would be reaped, 1 kept (live parent), 0 skipped.", result.stdout)
+            self.assertIn("Dry-run summary: 0 would be reaped, 1 kept (live parent), 0 protected (live experiment), 0 skipped.", result.stdout)
             self.assertFalse(fixture.kill_log.exists())
 
     def test_real_mode_kills_only_orphaned_juniper_python_processes(self):
@@ -163,7 +175,7 @@ class TestReapPytestOrphans(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("REAP       pid=301 ppid=1", result.stdout)
-            self.assertIn("Summary: 1 reaped, 1 kept (live parent), 0 skipped.", result.stdout)
+            self.assertIn("Summary: 1 reaped, 1 kept (live parent), 0 protected (live experiment), 0 skipped.", result.stdout)
             self.assertEqual(fixture.kill_log.read_text(encoding="utf-8"), "-KILL 301\n")
 
     def test_kill_failure_does_not_abort_and_still_counts_reaped(self):
@@ -198,7 +210,7 @@ class TestReapPytestOrphans(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             self.assertIn("REAP       pid=401 ppid=1", result.stdout)
             self.assertIn("REAP       pid=402 ppid=1", result.stdout)
-            self.assertIn("Summary: 2 reaped, 0 kept (live parent), 0 skipped.", result.stdout)
+            self.assertIn("Summary: 2 reaped, 0 kept (live parent), 0 protected (live experiment), 0 skipped.", result.stdout)
             self.assertEqual(
                 fixture.kill_log.read_text(encoding="utf-8"),
                 "-KILL 401\n-KILL 402\n",
@@ -254,7 +266,7 @@ class TestReapPytestOrphans(unittest.TestCase):
             self.assertNotIn("pid=401", result.stdout)
             self.assertNotIn("pid=402", result.stdout)
             self.assertIn(
-                "Dry-run summary: 1 would be reaped, 0 kept (live parent), 0 skipped.",
+                "Dry-run summary: 1 would be reaped, 0 kept (live parent), 0 protected (live experiment), 0 skipped.",
                 result.stdout,
             )
             self.assertFalse(fixture.kill_log.exists())
@@ -276,7 +288,7 @@ class TestReapPytestOrphans(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertNotIn("WOULD REAP", result.stdout)
             self.assertIn(
-                "Dry-run summary: 0 would be reaped, 0 kept (live parent), 1 skipped.",
+                "Dry-run summary: 0 would be reaped, 0 kept (live parent), 0 protected (live experiment), 1 skipped.",
                 result.stdout,
             )
             self.assertFalse(fixture.kill_log.exists())
@@ -302,10 +314,190 @@ class TestReapPytestOrphans(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertNotIn("WOULD REAP", result.stdout)
             self.assertIn(
-                "Dry-run summary: 0 would be reaped, 0 kept (live parent), 1 skipped.",
+                "Dry-run summary: 0 would be reaped, 0 kept (live parent), 0 protected (live experiment), 1 skipped.",
                 result.stdout,
             )
             self.assertFalse(fixture.kill_log.exists())
+
+
+class TestLiveExperimentProtection(unittest.TestCase):
+    """A live experiment stack / campaign must never be reaped.
+
+    ``experiment_stack.bash`` launches its services with ``nohup`` inside a
+    subshell, so they reparent to ``systemd --user`` — the reaper's own orphan
+    predicate. Observed live on 2026-08-16 against campaign
+    ``e-j-h2h-wide-cap6``: a ``--dry-run`` classified the campaign
+    orchestrator, the experiment cascor service, and the follow-on watchdog
+    all as ``WOULD REAP`` while every one of them was healthy and wanted.
+
+    The shapes below reproduce those three processes.
+    """
+
+    CASCOR_SERVICE = [
+        "/opt/miniforge3/envs/JuniperCascor1/bin/python3.13",
+        "/opt/miniforge3/envs/JuniperCascor1/bin/uvicorn",
+        "api.app:create_app",
+        "--factory",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8230",
+    ]
+    CASCOR_SERVICE_PS = "/opt/miniforge3/envs/JuniperCascor1/bin/python3.13 /opt/miniforge3/envs/JuniperCascor1/bin/uvicorn api.app:create_app --factory --port 8230"
+    WORKTREE_PY = "/home/pcalnon/Development/python/Juniper/worktrees/juniper-cascor--exp--h2h--3909d275/src"
+
+    def test_pidfiled_experiment_service_is_protected_not_reaped(self):
+        """P1: the service carries a run-dir pidfile, so parentage is irrelevant."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = FakeProcessFixture(
+                tmpdir,
+                [
+                    "50 testuser /usr/lib/systemd/systemd --user",
+                    f"977934 testuser {self.CASCOR_SERVICE_PS}",
+                ],
+            )
+            # Reparented to systemd --user — the orphan predicate fires.
+            fixture.add_process(977934, 50, self.CASCOR_SERVICE)
+            fixture.add_experiment_pidfile("20260816T161315Z-84c0", "juniper-cascor", 977934)
+
+            result = run_script(fixture, "--dry-run")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("PROTECT    pid=977934 ppid=50 (live experiment)", result.stdout)
+            self.assertNotIn("WOULD REAP", result.stdout)
+            self.assertIn(
+                "Dry-run summary: 0 would be reaped, 0 kept (live parent), 1 protected (live experiment), 0 skipped.",
+                result.stdout,
+            )
+            self.assertFalse(fixture.kill_log.exists())
+
+    def test_campaign_orchestrator_referencing_run_root_is_protected(self):
+        """P2: orchestrators and watchdogs carry no pidfile — the cmdline is the key."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = FakeProcessFixture(
+                tmpdir,
+                [
+                    "50 testuser /usr/lib/systemd/systemd --user",
+                    f"553615 testuser bash h2h_orchestrate.bash {self.WORKTREE_PY}",
+                    f"1765020 testuser bash -c watchdog {self.WORKTREE_PY}",
+                ],
+            )
+            suite_dir = f"{fixture.exp_run_root}/suites/e-j-h2h-wide-cap64-20260816T125456Z"
+            fixture.add_process(553615, 50, ["bash", "h2h_orchestrate.bash", suite_dir, self.WORKTREE_PY])
+            fixture.add_process(
+                1765020,
+                50,
+                ["bash", "-c", f"while kill -0 553615; do sleep 60; done; exec bash h2h_init_control.bash {fixture.exp_run_root}/h2h-wide/cli {self.WORKTREE_PY}"],
+            )
+
+            result = run_script(fixture, "--dry-run")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("PROTECT    pid=553615 ppid=50 (live experiment)", result.stdout)
+            self.assertIn("PROTECT    pid=1765020 ppid=50 (live experiment)", result.stdout)
+            self.assertNotIn("WOULD REAP", result.stdout)
+            self.assertIn(
+                "Dry-run summary: 0 would be reaped, 0 kept (live parent), 2 protected (live experiment), 0 skipped.",
+                result.stdout,
+            )
+
+    def test_isolated_stack_run_dir_is_also_protected(self):
+        """The isolated E2E stack's run dir (JUNIPER_E2E_RUN_DIR) protects too."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = FakeProcessFixture(
+                tmpdir,
+                [
+                    "50 testuser /usr/lib/systemd/systemd --user",
+                    f"8202 testuser /opt/miniforge3/envs/JuniperCascor1/bin/python -m uvicorn {self.WORKTREE_PY}",
+                ],
+            )
+            fixture.add_process(
+                8202,
+                50,
+                ["/opt/miniforge3/envs/JuniperCascor1/bin/python", "-m", "uvicorn", f"--log-config={fixture.e2e_run_dir}/logs/cascor.json"],
+            )
+
+            result = run_script(fixture, "--dry-run")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("PROTECT    pid=8202 ppid=50 (live experiment)", result.stdout)
+            self.assertNotIn("WOULD REAP", result.stdout)
+
+    def test_real_mode_kills_the_orphan_but_never_the_protected_service(self):
+        """The load-bearing arm: live mode, mixed set, only the true orphan dies."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = FakeProcessFixture(
+                tmpdir,
+                [
+                    "50 testuser /usr/lib/systemd/systemd --user",
+                    f"977934 testuser {self.CASCOR_SERVICE_PS}",
+                    "888 testuser /opt/conda/envs/JuniperCaa/bin/python -c forkserver",
+                ],
+            )
+            fixture.add_process(977934, 50, self.CASCOR_SERVICE)
+            fixture.add_experiment_pidfile("20260816T161315Z-84c0", "juniper-cascor", 977934)
+            # A genuine crashed-pytest orphan: same parentage, no pidfile, no
+            # run-root reference. Protection must not swallow it.
+            fixture.add_process(888, 50, ["/opt/conda/envs/JuniperCaa/bin/python", "-c", "forkserver"])
+
+            result = run_script(fixture)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("PROTECT    pid=977934 ppid=50 (live experiment)", result.stdout)
+            self.assertIn("REAP       pid=888 ppid=50", result.stdout)
+            self.assertIn(
+                "Summary: 1 reaped, 0 kept (live parent), 1 protected (live experiment), 0 skipped.",
+                result.stdout,
+            )
+            self.assertEqual(fixture.kill_log.read_text(encoding="utf-8"), "-KILL 888\n")
+
+    def test_stale_pidfile_protects_conservatively(self):
+        """A torn-down run's leftover pidfile errs toward keeping, never killing.
+
+        Over-protection costs one retained orphan until the next sweep; a false
+        reap costs a multi-hour campaign. The asymmetry is deliberate.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = FakeProcessFixture(
+                tmpdir,
+                [
+                    "50 testuser /usr/lib/systemd/systemd --user",
+                    "4242 testuser /opt/conda/envs/JuniperCaa/bin/python -c forkserver",
+                ],
+            )
+            fixture.add_process(4242, 1, ["/opt/conda/envs/JuniperCaa/bin/python", "-c", "forkserver"])
+            fixture.add_experiment_pidfile("20260101T000000Z-dead", "juniper-cascor", 4242)
+
+            result = run_script(fixture, "--dry-run")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("PROTECT    pid=4242 ppid=1 (live experiment)", result.stdout)
+            self.assertFalse(fixture.kill_log.exists())
+
+    def test_malformed_pidfile_does_not_abort_the_sweep(self):
+        """A non-numeric / empty pidfile is ignored, not fatal under set -euo pipefail."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fixture = FakeProcessFixture(
+                tmpdir,
+                [
+                    "50 testuser /usr/lib/systemd/systemd --user",
+                    "909 testuser /opt/conda/envs/JuniperCaa/bin/python -c forkserver",
+                ],
+            )
+            fixture.add_process(909, 1, ["/opt/conda/envs/JuniperCaa/bin/python", "-c", "forkserver"])
+            run_dir = fixture.exp_run_root / "20260816T000000Z-bad"
+            run_dir.mkdir(parents=True)
+            (run_dir / "juniper-data.pid").write_text("", encoding="utf-8")
+            (run_dir / "juniper-cascor.pid").write_text("not-a-pid\n", encoding="utf-8")
+
+            result = run_script(fixture, "--dry-run")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("WOULD REAP pid=909 ppid=1", result.stdout)
+            self.assertIn(
+                "Dry-run summary: 1 would be reaped, 0 kept (live parent), 0 protected (live experiment), 0 skipped.",
+                result.stdout,
+            )
 
 
 if __name__ == "__main__":
