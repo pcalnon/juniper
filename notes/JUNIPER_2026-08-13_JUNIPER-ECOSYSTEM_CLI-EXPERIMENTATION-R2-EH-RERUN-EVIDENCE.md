@@ -59,12 +59,12 @@ The campaign ran with the primary `juniper-cascor` checkout at `main` carrying b
 
 **#512 — pool released at end of run.** GPU free memory across the campaign:
 
-| point | free |
-| --- | --- |
+| point                                        | free     |
+|----------------------------------------------|----------|
 | before (after reaping 1 pre-existing orphan) | 4921 MiB |
-| mid-campaign, cell 0 training | 4731 MiB |
-| after cell 0 teardown | 5079 MiB |
-| after both cells | 5077 MiB |
+| mid-campaign, cell 0 training                | 4731 MiB |
+| after cell 0 teardown                        | 5079 MiB |
+| after both cells                             | 5077 MiB |
 
 Free memory **returned above its starting value** rather than dropping. The pre-fix
 signature was a loss of roughly **285 MiB per cell** with the children surviving teardown.
@@ -90,6 +90,13 @@ one-cascor-per-checkout guidance (H-7, pending Q-6) discourages; the shared reso
 checkout's own file log, while run dirs, snapshots (`JUNIPER_CASCOR_SNAPSHOTS_DIR`), ports
 and sampled metrics are all per-run, so the recorded results are unaffected. The smoke-budget
 cells were small enough not to pressure the card.
+
+> **Update (2026-08-16) — "pending Q-6" is stale.** Q-6 is **resolved and shipped**:
+> `JUNIPER_CASCOR_LOG_DIR` (cascor#523), exported per run by `util/experiment_stack.bash` (ml#1120).
+> This paragraph's verdict is unchanged — these results came from per-run manifests and artifacts, not
+> the shared file log. Note the sharper framing Q-6 settled: that log is the *only* place cascor's
+> parent logger writes, so a co-tenant process **rotates** such evidence away rather than interleaving
+> it. Plan §15.2 Q-6.
 
 ---
 

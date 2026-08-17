@@ -48,6 +48,45 @@ Bonus observations:
 
 > **Update (2026-08-14):** **P1.2 full completion is now PASS** — see [§6](#6-p12-full-completion-row--closed-2026-08-14). It was never blocked on W-11; it was blocked on a post-training `plt.show()` (cascor#517). **P1.6 interactive render remains open** against the F-P1-2 owner follow-up, unchanged. P1 smoke is therefore PASS on every arm but that one.
 
+> **Update (2026-08-16): P1 smoke is now PASS on EVERY arm — the last one closed.**
+> **P1.6 interactive render is PASS**, and **F-P1-2 is closed with its premise refuted.** The
+> `Juniper Experiments` dashboard was driven in a browser against live run
+> `20260817T011726Z-6d05` and rendered all 13 panels with data (Targets Up = 2; build info for
+> cascor 0.9.0 / data 0.11.0; training loss 0.204/0.263, accuracy 57.5%/35%, hidden units 2,
+> candidate correlation ≈0.19, step duration p50 25.5 ms / p95 48.4 ms).
+>
+> Two rows above are superseded by that finding and must not be actioned:
+>
+> - **F-P1-2's remedy** ("stop/relocate the native Grafana or remap deploy's grafana host port") —
+>   **nothing to do.** The `:3000` listener is the **Domotz Pro agent**, not Grafana, and deploy's
+>   Grafana has mapped host **`:3001`** since 2026-05-27 (juniper-deploy `c36e52b`/#90). There was
+>   never a bind conflict. Neither remedy was performed.
+> - **P1.6's "blocked by findings F-P1-1/F-P1-2"** — F-P1-1 was cleared 2026-08-09 (image rebuild);
+>   F-P1-2 is closed here. The row's own parenthetical, "the panels' underlying queries are exactly
+>   the series proven present", turned out to be exactly right.
+>
+> **F-P1-4 is unchanged and still open**, and note its "4 snapshot `.h5` files" is long superseded —
+> the directory now holds **27,867 files / 1.8 GB**, 65 of them from 2026-08. W-6 only redirects when
+> `JUNIPER_CASCOR_SNAPSHOTS_DIR` is exported, so direct-CLI runs still write to the checkout. Per the
+> owner (2026-08-16), this is to be addressed by a **designed, validated, documented** snapshot
+> lifecycle — **not** an ad-hoc sweep; the design requirement is that historical models and runs stay
+> loadable for replay, further experimentation, training pauses, and crash recovery. That design now
+> exists:
+> [snapshot lifecycle management](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_SNAPSHOT-LIFECYCLE-MANAGEMENT-DESIGN.md).
+>
+> **Its census inverts this row.** The archive is **not debris**: a read-only census plus a stratified
+> sample verified with cascor's own `verify_saved_network` found **27,863 of 27,869 snapshots valid
+> and loadable** (88/89 sampled valid, across every cohort including the 0.3.2 files six minors
+> behind current) — 1.74 GiB of replayable models, only 6 empty stubs. A sweep sized to "reclaim
+> 1.8 GB" would have destroyed ~27.8k real assets. The actual problems are three **silent-failure**
+> defects — optimizer state discarded on every load (breaking resume-from-pause on the current
+> version), `load_network` returning `None` for corrupt *and* absent alike, and no run provenance
+> anywhere in the archive — plus the fact that `mtime` is not creation time here, so any age-based
+> retention keyed on it would misjudge every file.
+>
+> Evidence:
+> [F-P1-2 closure](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_F-P1-2-GRAFANA-RENDER-CLOSURE-EVIDENCE.md).
+
 ---
 
 ## 5. P1.2 full-completion re-run (2026-08-08, post-W-11) — addendum

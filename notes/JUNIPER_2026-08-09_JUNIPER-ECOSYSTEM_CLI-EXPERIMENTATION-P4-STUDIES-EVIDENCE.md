@@ -12,7 +12,10 @@
 
 ## 1. Method
 
-Nine suite definitions under `util/experiments/suites/p4/` (committed with this document), executed by the Wave-7 `run_suite.py` — per-cell `experiment_stack --up → run_experiment → --down`, registry + aggregation per suite, `--resume` for recovery. 55 cells expanded; every suite's cells driver-validated at materialisation. Suites E-F and E-G ran in **bounded-parallel mode** (`max_parallel: 2`, the Wave-7.5 dogfood) with the H-11 thread budget recorded per cell. Seeds fixed per base config; SUITE_DIRs (registries, aggregates, cell configs) durable under `~/.local/state/juniper-experiments/suites/`.
+Nine suite definitions under `util/experiments/suites/p4/` (committed with this document), executed by the Wave-7 `run_suite.py` — per-cell `experiment_stack --up → run_experiment → --down`, registry + aggregation per suite, `--resume` for recovery.
+55 cells expanded; every suite's cells driver-validated at materialisation.
+Suites E-F and E-G ran in **bounded-parallel mode** (`max_parallel: 2`, the Wave-7.5 dogfood) with the H-11 thread budget recorded per cell.
+Seeds fixed per base config; SUITE_DIRs (registries, aggregates, cell configs) durable under `~/.local/state/juniper-experiments/suites/`.
 
 P4 cells ran **unscraped by design**: `run_suite` does not pass `--grafana-bridge`, so no Prometheus target files were written (the observability lane was proven in P1.6/P2/P3; the driver's own loopback `/metrics` sampling still fed each cell's `metrics_series.csv`).
 
@@ -87,7 +90,8 @@ Fixed budget = the `spiral-smoke` training block (`max_epochs 50, max_iterations
 | gaussian      | 1.0000                       | 0.333    | 1            | 67       |
 | checkerboard  | 0.5000                       | 0.501    | 1            | 32       |
 
-Output — difficulty ranking at the smoke budget, with an honest re-frame: **moon/gaussian easiest** (1 unit, ≥0.995), **xor/circles middle** (2 units, ≈0.96), **checkerboard beyond this budget's capacity** (0.500 ≈ majority — the P2 under-fit observation confirmed at n=2000), and **spiral unmeasurable on the service path pending F-P4-1 (§4)**: the service terminates spiral training at ≈epoch 2 with ≤1 hidden unit at every budget tested, so a fixed-budget comparison against it is degenerate rather than "hardest". The five stageable generators' ranking feeds the §12 difficulty axis; spiral's slot awaits the F-P4-1 resolution.
+Output — difficulty ranking at the smoke budget, with an honest re-frame: **moon/gaussian easiest** (1 unit, ≥0.995), **xor/circles middle** (2 units, ≈0.96), **checkerboard beyond this budget's capacity** (0.500 ≈ majority — the P2 under-fit observation confirmed at n=2000), and **spiral unmeasurable on the service path pending F-P4-1 (§4)**: the service terminates spiral training at ≈epoch 2 with ≤1 hidden unit at every budget tested, so a fixed-budget comparison against it is degenerate rather than "hardest".
+The five stageable generators' ranking feeds the §12 difficulty axis; spiral's slot awaits the F-P4-1 resolution.
 
 ### E-C — noise robustness on spiral + moon (8 cells)
 
@@ -168,7 +172,10 @@ Post-campaign attest: both experiment port ranges empty, zero port lockdirs, zer
 
 ## 6. Program state
 
-P0–P3 ✓ · Wave 4 ✓ · Wave 5 ✓ · Wave 6 ✓ · Wave 7 ✓ · **P4 ✓ (this document)**. The §10.5 outputs now exist for all nine studies. Raised to owner from this phase: **F-P4-1** (service-path spiral training termination — the priority follow-up; blocks meaningful E-A/E-B/E-C spiral surfaces and re-frames the P1.1 reference). Remaining program items: W-12/Q-7 (csv_import corpus — parked), Q-6 (log-dir override; would retire the one-cascor-per-checkout rule and unlock cascor-parallel suites), F-P1-2 (Grafana render — context package in P3), PF threshold ratification (§12), and the §12 perf lane proper (F-P1-3b profiling) — for which the PF suites and the E-B difficulty ranking are now standing inputs.
+P0–P3 ✓ · Wave 4 ✓ · Wave 5 ✓ · Wave 6 ✓ · Wave 7 ✓ · **P4 ✓ (this document)**.
+The §10.5 outputs now exist for all nine studies.
+Raised to owner from this phase: **F-P4-1** (service-path spiral training termination — the priority follow-up; blocks meaningful E-A/E-B/E-C spiral surfaces and re-frames the P1.1 reference).
+Remaining program items: W-12/Q-7 (csv_import corpus — parked), Q-6 (log-dir override; would retire the one-cascor-per-checkout rule and unlock cascor-parallel suites), F-P1-2 (Grafana render — context package in P3), PF threshold ratification (§12), and the §12 perf lane proper (F-P1-3b profiling) — for which the PF suites and the E-B difficulty ranking are now standing inputs.
 
 > **Update (2026-08-15) — register refresh.** Two entries above have moved:
 >
@@ -193,3 +200,30 @@ P0–P3 ✓ · Wave 4 ✓ · Wave 5 ✓ · Wave 6 ✓ · Wave 7 ✓ · **P4 ✓ 
 > current mitigation is the one-cascor-per-checkout rule (run experiments from a dedicated worktree) —
 > which is exactly the rule a `JUNIPER_CASCOR_LOG_DIR` override would retire. Recommend resolving Q-6
 > **yes**; it is now a demonstrated evidence-integrity issue, not only a concurrency nicety.
+>
+> **Update (2026-08-16) — Q-6 is RESOLVED; the two Q-6 claims above are superseded.** The block
+> immediately above was written hours before the fix merged, so both of its Q-6 statements are now
+> stale and must not be picked up as work:
+>
+> - "W-12/Q-7, F-P1-2, PF threshold ratification and **Q-6** are unchanged and still open" — Q-6 is
+>   **closed**. The other three are unchanged and still open.
+> - "**Recommend resolving Q-6 yes**" — that recommendation was **accepted and executed**.
+>
+> Likewise in §6's original paragraph: "Remaining program items: … **Q-6** (log-dir override; would
+> retire the one-cascor-per-checkout rule and unlock cascor-parallel suites)" — no longer a remaining
+> item. `JUNIPER_CASCOR_LOG_DIR` ships in **cascor#523** (merged `3909d275`; direct CLI at
+> `src/cascor_constants/constants.py:434-438`, service at `api/observability.py::_resolve_log_dir` and
+> `api/service_launcher.py::_resolve_log_dir`, both reading the env at *call* time), and **ml#1120**
+> exports it per run at all three `cascor_up` sites in `util/experiment_stack.bash`. Unset/blank keeps
+> `<repo>/logs` byte-identically.
+>
+> This note's diagnosis was right and is worth preserving: the arc's lost arm A/B evidence was an
+> **evidence-integrity** failure, not a concurrency nicety, because cascor's parent logger writes only
+> to that file — a second process rotates the evidence away rather than interleaving it.
+>
+> **One half of the consequence did not follow.** "unlock cascor-parallel suites" has **not** happened:
+> `util/experiments/run_suite.py:112` still refuses `app: cascor` with `parallel > 1`, because
+> `run_suite` cannot verify the *installed* cascor honours the override — against a pre-#523 cascor the
+> export is silently ignored and parallel cells race the log again with no signal. That needs a cascor
+> version floor at suite load, and **no released cascor carries #523 yet** (PyPI latest `0.9.0`, cut
+> before the merge). See the plan's Wave 5 table and §15.2 Q-6.
