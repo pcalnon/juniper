@@ -284,6 +284,7 @@ def wait_for(
     anchor: str = "required",
     timeout: int = DEFAULT_TIMEOUT,
     interval: int = DEFAULT_INTERVAL,
+    fail_fast: bool = False,
     sleeper=time.sleep,
     clock=time.monotonic,
     verbose: bool = False,
@@ -292,11 +293,18 @@ def wait_for(
 
     Returns a result dict; the caller maps it to an exit code. ``sleeper`` and
     ``clock`` are injected so tests can drive the loop without real time.
+
+    ``fail_fast`` returns as soon as any anchored context has failed. Without it
+    the loop keeps going for the full picture, which is the right default when you
+    want every failure named -- but see the ``stalled`` flag below: dogfooding this
+    tool on its own PR burned 27 polls in a state where nothing was in flight and
+    the remaining required contexts were gated behind jobs that had already failed.
     """
     facts = pr_facts(owner, repo, pr)
     if facts["state"] in CLOSED_PR_STATES:
         return {
             "status": "pr_closed",
+            "stalled": False,
             "pr_state": facts["state"],
             "merge_state": facts["merge_state"],
             "url": facts["url"],
@@ -331,14 +339,24 @@ def wait_for(
         if result["settled"]:
             status = "failed" if result["failed"] else "green"
             break
+        if fail_fast and result["failed"]:
+            status = "failed"
+            break
         if clock() >= deadline:
             status = "timeout"
             break
         sleeper(interval)
 
     merge_state = pr_facts(owner, repo, pr)["merge_state"]
+    # "Stalled": nothing anchored is in flight, yet required contexts are still
+    # absent AND something already failed. In practice those absent contexts are
+    # downstream jobs (`needs:` a failed job) that will never report, so further
+    # polling cannot change the answer. Surfaced rather than acted on -- a wrong
+    # early exit here would be the same class of bug this module exists to prevent.
+    stalled = bool(not result["running"] and result["absent"] and result["failed"])
     return {
         "status": status,
+        "stalled": stalled,
         "pr_state": facts["state"],
         "merge_state": merge_state,
         "url": facts["url"],
@@ -373,6 +391,10 @@ def render(res: dict, repo_ref: str, pr: int) -> str:
     if res["absent"]:
         lines.append("  never reported (may be permanently absent — e.g. a skip-ci head commit):")
         lines.extend(f"    {ctx}" for ctx in res["absent"])
+    if res.get("stalled"):
+        lines.append("  STALLED: nothing is in flight and a required check already failed, so the")
+        lines.append("  never-reported contexts above are almost certainly downstream jobs (`needs:` a")
+        lines.append("  failed job) that will never report. Fix the failures and push; waiting will not help.")
     return "\n".join(lines)
 
 
@@ -389,6 +411,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("required", "observed"),
         default="required",
         help="'required' (default) waits on the ruleset's required contexts -- the only correct anchor; 'observed' waits on whatever the rollup shows and can finish early when the rollup is still growing",
+    )
+    parser.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="return as soon as any required context fails, instead of waiting for the full picture",
     )
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help=f"seconds before giving up (default {DEFAULT_TIMEOUT})")
     parser.add_argument("--interval", type=int, default=DEFAULT_INTERVAL, help=f"seconds between polls (default {DEFAULT_INTERVAL})")
@@ -413,6 +440,7 @@ def main(argv: list[str] | None = None) -> int:
             anchor=args.anchor,
             timeout=args.timeout,
             interval=args.interval,
+            fail_fast=args.fail_fast,
             verbose=args.verbose,
         )
     except ProbeError as exc:

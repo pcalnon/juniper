@@ -445,6 +445,51 @@ class CliTest(unittest.TestCase):
         self.assertEqual(rc, 2, f"out={out} err={err}")
         self.assertIn("still running", out)
 
+    def test_fail_fast_returns_on_the_first_failure(self):
+        """Without --fail-fast the loop waits for the full picture; with it, it returns.
+
+        Found by dogfooding: on its own PR this tool burned 27 polls in a state
+        where nothing was in flight and the remaining required contexts were gated
+        behind jobs that had already failed.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            rollup = [_run("Alpha", conclusion="FAILURE")]  # Beta/Gamma absent
+            h = _Harness(Path(td), rollups=[rollup])
+            rc, out, err = _cli(h, ["--fail-fast"])
+        self.assertEqual(rc, 1, f"out={out} err={err}")
+        self.assertIn("Alpha", out)
+
+    def test_stalled_is_reported_when_nothing_is_in_flight(self):
+        """running=0 + failed>0 + absent>0 means further polling cannot help."""
+        with tempfile.TemporaryDirectory() as td:
+            rollup = [_run("Alpha", conclusion="FAILURE")]
+            h = _Harness(Path(td), rollups=[rollup])
+            rc, out, err = _cli(h, ["--json"])
+        self.assertEqual(rc, 2, f"out={out} err={err}")
+        self.assertTrue(json.loads(out)["stalled"])
+
+    def test_not_stalled_while_something_is_still_running(self):
+        with tempfile.TemporaryDirectory() as td:
+            rollup = [_run("Alpha", conclusion="FAILURE"), _run("Beta", status="IN_PROGRESS")]
+            h = _Harness(Path(td), rollups=[rollup])
+            rc, out, err = _cli(h, ["--json"])
+        self.assertEqual(rc, 2, f"out={out} err={err}")
+        self.assertFalse(json.loads(out)["stalled"])
+
+    def test_stalled_text_appears_in_human_output(self):
+        with tempfile.TemporaryDirectory() as td:
+            h = _Harness(Path(td), rollups=[[_run("Alpha", conclusion="FAILURE")]])
+            rc, out, _err = _cli(h)
+        self.assertEqual(rc, 2)
+        self.assertIn("STALLED", out)
+
+    def test_all_green_is_never_stalled(self):
+        with tempfile.TemporaryDirectory() as td:
+            h = _Harness(Path(td), rollups=[[_run(c, conclusion="SUCCESS") for c in REQUIRED]])
+            rc, out, err = _cli(h, ["--json"])
+        self.assertEqual(rc, 0, f"out={out} err={err}")
+        self.assertFalse(json.loads(out)["stalled"])
+
     def test_bad_interval_is_usage_error(self):
         with tempfile.TemporaryDirectory() as td:
             h = _Harness(Path(td), rollups=[[]])
