@@ -96,6 +96,29 @@ before blocked**, and **do not contend for a resource another arc is holding**.
    package — the latter closes the cascor#501 class, where a cleanup sweep deleted five modules.
    Both independent of the rest of E.
 
+> **Correction (2026-08-17) — Tier 1 is REORDERED; item 1 above was wrong.** Tracing the consumers
+> before implementing (design
+> [§4.1](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_SNAPSHOT-LIFECYCLE-MANAGEMENT-DESIGN.md)) inverted the
+> ranking:
+>
+> | | corrected standing |
+> |---|---|
+> | **D-A optimizer** | **Demoted to lowest of the three.** The TypeError is real, but a restored optimizer is **never read** — `cascade_correlation.py:2063` unconditionally *recreates* it, deliberately, because a hidden-unit insertion invalidates the prior parameter space (`:2050-2053`), and `load_state_dict` is called nowhere. Fixing it changes nothing observable; it is **log hygiene**, not a correctness bug. The claim that it "silently breaks resume" above is **withdrawn**. |
+> | **D-B `load_network` / restore** | **Promoted to Tier 1 item 1.** Confirmed reachable and user-facing: `POST /v1/snapshots/{id}/restore` returns **404 "not found or failed to load"** for a *corrupt* snapshot (`api/routes/snapshots.py:213`, `manager.py:4573`), fusing two opposite operator situations under every snapshot operation (`/restore`, `/resume`, `/replay`, `/retrain`). |
+> | **move snapshot dir out of the package** | Unchanged, Tier 1 item 2 — closes the cascor#501 class. |
+>
+> **Corrected Tier 1 order: (1) D-B restore/corrupt distinction, (2) move the snapshot dir,
+> (3) D-A type coercion — gated on S-5.**
+>
+> **New owner question S-5** (design §9): is R3 ("training pauses" *with optimizer state*) a real
+> requirement for Cascade Correlation? It cannot be satisfied by any serializer change, and the
+> architecture argues it is not meaningful. **Answering S-5 decides whether D-A is fixed or its
+> save/restore path is deleted.**
+>
+> **Implementation trap for whoever picks this up:** `load_network` has **no production callers**.
+> The live path is `lifecycle._load_snapshot_to_network`. A fix applied only to `load_network` would
+> change nothing — which is precisely the error that made D-A look important.
+
 ### Tier 2 — next
 
 3. **E-6.1 identity → E-6.2 index.** Strictly ordered, and the prerequisite for any retention

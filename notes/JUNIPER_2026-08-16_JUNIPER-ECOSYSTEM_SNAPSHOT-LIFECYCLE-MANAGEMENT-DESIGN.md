@@ -162,6 +162,47 @@ reports success.
 and continue", on the current version. The caller is told the load succeeded. This is a correctness
 defect, not a cleanliness one, and it is **the most important thing this census found.**
 
+> **Correction (2026-08-17) — the impact paragraph above is WRONG, and D-A is NOT Tier 1.** The
+> defect mechanism is real and reproduces exactly as described. **Its consequence does not.** Before
+> implementing the fix, the consumer side was traced, and it does not support the claim:
+>
+> - **`output_optimizer` has exactly ONE production consumer**: `cascade_correlation.py:2063`,
+>   `self.output_optimizer = self._create_optimizer(output_layer.parameters())`. That line **assigns**
+>   it. There is **no production read** of a previously-restored optimizer anywhere in the tree — every
+>   other reference is in `tests/`.
+> - The recreation is **deliberate and documented** at `cascade_correlation.py:2050-2053`: *"In Cascade
+>   Correlation, the output layer's parameter space changes each time a hidden unit is added
+>   (input_size grows), so the previous nn.Linear and optimizer state are **invalid**. Rebuilding from
+>   the current output_weights ensures the optimizer tracks the correct parameter tensors."* `:2062`
+>   calls it "Create or **recreate** … (see INTENTIONAL note above)".
+> - The deserializer additionally builds its optimizer over a **throwaway** `torch.nn.Linear`, and
+>   **`load_state_dict` is called nowhere in the snapshot module** — the saved `state_dict` is parsed
+>   and only logged. So even with the type error fixed, no optimizer state would be restored.
+>
+> **Therefore:** a restored optimizer is never read, and is overwritten on the next
+> `train_output_layer` call. Fixing the type error changes **nothing observable in training** — it
+> removes a WARNING. That makes D-A **log hygiene with a latent trap**, not a correctness defect, and
+> it is **not** "the most important thing this census found".
+>
+> **R3 is not deliverable by a serializer fix at all.** In Cascade Correlation the output parameter
+> space changes on every unit insertion, so prior Adam moments are invalid *by construction*. If
+> resume-with-optimizer-state is genuinely wanted it is a **training-loop design question** — and the
+> code's own comment argues it is not meaningful. **R3 should be re-examined as a requirement**, not
+> scheduled as a bug fix. Raised as **S-5** (§9).
+>
+> **The fix still has value, at low priority, and must be done carefully:** the asymmetry is that
+> `learning_rate` is *written* with `write_str_attr` (`:449`, stringifying via `np.bytes_`) but *read*
+> with a raw `opt_group.attrs.get` (`:1037`) instead of the `read_str_attr` counterpart used for
+> `optimizer_type` one line above. Coercing on read fixes every existing and future snapshot with no
+> format change. **But fixing it silences the only signal that this path is inert** — so the fix must
+> land together with a comment (and ideally a test) recording *why* optimizer restore does nothing,
+> or the next investigator will "restore" it believing it matters.
+>
+> **Method note.** This is the second time in this arc that a correct mechanism produced a wrong
+> consequence: the first was generalising from one snapshot file (§2.1). **Tracing the consumer is
+> part of establishing impact** — "this code is wrong" and "this wrongness matters" are separate
+> claims requiring separate evidence.
+
 ### 4.2 D-B — `load_network` returns `None` instead of raising
 
 `load_network` (`:861`) has four `return None` paths — missing file, `_validate_format` failure,
@@ -176,6 +217,33 @@ will mistake corruption for absence.
 Note also that `'Invalid format'` is a **misleading message**: the file's `format` *is*
 `juniper.cascor` v2. What is missing is the model payload (`arch` / `params`). The verifier should
 say which required group is absent.
+
+> **Update (2026-08-17) — D-B is CONFIRMED reachable in production, is worse than stated, and is now
+> the top item.** The same consumer-tracing that demoted D-A (§4.1) strengthened this one. The
+> conflation is not merely possible for a hypothetical caller; it is **implemented and user-facing**:
+>
+> - `POST /v1/snapshots/{id}/restore` (`api/routes/snapshots.py:213`) calls
+>   `lifecycle.load_snapshot(...)` and does
+>   `if not result["loaded"]: raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_id}' not found or failed to load")`.
+> - The manager agrees, verbatim: `manager.py:4573` returns
+>   `reason="snapshot not found or failed to load"`.
+>
+> So **a corrupt snapshot is reported to the API client as `404 Not Found`** — the two conditions are
+> fused in the status code *and* in the message text. An operator recovering from a crash (**R4**)
+> cannot tell "this snapshot never existed" from "this snapshot is damaged", which are opposite
+> situations: one means pick another snapshot, the other means investigate data loss.
+>
+> The same routes carry the other stated requirements — `resume_snapshot` (`:317`, **R3**),
+> `start_replay_endpoint` (`:379`, **R1**), `retrain_from_snapshot` (`:266`) — so the fused failure
+> mode sits under every snapshot-consuming operation, not just restore.
+>
+> **Corrected priority: D-B is Tier 1, ahead of D-A.** It is a real, reachable, user-visible defect,
+> whereas D-A is inert (§4.1). A minimal fix distinguishes *absent* (→ 404) from *corrupt/unreadable*
+> (→ 422 or 500 with the verifier's reason), leaving the `None`-returning form for back-compat.
+>
+> Note `load_network` itself has **no production callers** — the live path is
+> `lifecycle._load_snapshot_to_network`. Any fix must be applied where the service actually loads,
+> not only to `load_network`, or it will change nothing. *(That is the same trap D-A fell into.)*
 
 ### 4.3 D-C — snapshots carry no run provenance (blocks R2)
 
@@ -200,7 +268,7 @@ guessing, and guessing at deletion is exactly the failure mode being avoided.
 |---|---|---|
 | R1 replay | **Largely met** | 88/89 sampled verify; cross-version loads work back to 0.3.2. Caveat: D-B hides the failures that do occur. |
 | R2 further experimentation | **Not met** | D-C: no provenance, no index, no query path. |
-| R3 training pauses | **Broken** | D-A: optimizer silently dropped on every load. |
+| R3 training pauses | **Requirement itself in question** | *(corrected 2026-08-17)* Not "broken by D-A" — D-A is inert (§4.1). Cascor recreates the optimizer by design, so R3-as-written is unreachable via the serializer and may not be meaningful. See **S-5** (§9). |
 | R4 crash recovery | **Partially met** | Snapshots exist and load, but D-B makes "corrupt" indistinguishable from "absent", and the CLI tier has no audit trail. |
 
 ---
@@ -242,7 +310,7 @@ is ever deleted.**
 
 | id | fix | repo |
 |---|---|---|
-| **D-A** | Decode HDF5 string attrs before comparison in `_load_optimizer_state_from_hdf5_helper`; add a round-trip test asserting optimizer state **survives** save→load. Downgrade-to-`None` must become a loud, explicit outcome, never a silent WARNING on the success path. | juniper-cascor |
+| **D-A** | *(re-scoped 2026-08-17 — §4.1; **lowest** priority of the three, not the highest)* Read `learning_rate` through `read_str_attr` + float coercion, mirroring `optimizer_type` on the line above, so the load stops raising. **Do not** add a "state survives save→load" test — nothing restores state and nothing reads it. Land the fix **with a comment recording why optimizer restore is inert**, since the fix removes the only signal that it is. Gated on **S-5**: if R3 is dropped, consider deleting the save/restore path instead of repairing it. | juniper-cascor |
 | **D-B** | Give `load_network` a raising variant (or a typed result) so *absent*, *corrupt*, and *loaded* are distinguishable; keep the `None` form for back-compat callers. Fix `'Invalid format'` to name the missing group. | juniper-cascor |
 | **3.1** | Move the service snapshot root out of the importable package (`src/snapshots/` → a data dir), so no cleanup can ever again delete modules (cascor#501). | juniper-cascor |
 
@@ -315,6 +383,7 @@ note, not here.
 | **S-2** | Is the March–April 2026 cohort (27,005 files, 96.9%) of retained research value, or is it a known bulk artifact of one campaign? | Decides whether Phase 6.4 needs a real policy or whether that cohort can be quarantined wholesale once identified. **Not actionable until §6.2 can characterise it.** |
 | **S-3** | Should the service tier's `snapshot_history.jsonl` audit log be extended to the CLI tier, or replaced by the §6.2 index? | Two mechanisms or one. |
 | **S-4** | Retention horizon and cold-archive location, once §6.2 exists. | The only genuinely policy-shaped question, deliberately deferred to last. |
+| **S-5** | **Is R3 ("training pauses" with optimizer state) a real requirement for Cascade Correlation at all?** | Raised by the 2026-08-17 correction to §4.1. Cascor deliberately **recreates** the output optimizer on every `train_output_layer` call because a hidden-unit insertion changes the output parameter space, making prior optimizer moments invalid *by construction* (`cascade_correlation.py:2050-2053`). So R3-as-written cannot be satisfied by any serializer change, and may not be meaningful. If what is actually wanted is "resume training from a snapshot and continue growing", that is already what `/resume` does — and it needs no optimizer state. **Answering this decides whether any optimizer work is scheduled at all.** |
 
 ---
 
