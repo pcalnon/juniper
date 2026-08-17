@@ -57,7 +57,7 @@ Every `OPEN` in this document was confirmed by reading the file **today**. Line 
 | `juniper-ml` (meta) | 0 | 0 | 0 | 1 | 0 | **1** |
 | **Total** | **7** | **19** | **18** | **34** | **18** | **96** |
 
-**Status:** the 96 entries above were all confirmed present in current source on 2026-08-14. **Seven have since been fixed** — `APD-DATA-002`, `APD-DATA-006`, `APD-DATA-034`, `APD-DATA-036`, `APD-CASCOR-002`, and (2026-08-16) `APD-DATA-001` † / `APD-CASCOR-004` † — leaving **89 open**; each is marked at its detail entry and in its §4 table row, and all seven are recorded in [§5](#5-fixed-findings-before-and-since-the-primer) with their PR and verification. That closes every item in §2.2's ranked list. Three further findings were already fixed before this register was written and are likewise listed in §5 rather than counted in the 96: two between the primer's publication and this register, and one earlier still. No extracted claim failed to reproduce, but one claim reproduced with its provenance inverted — see `APD-SVCCORE-016`.
+**Status:** the 96 entries above were all confirmed present in current source on 2026-08-14. **Nine have since been fixed** — `APD-DATA-002`, `APD-DATA-006`, `APD-DATA-034`, `APD-DATA-036`, `APD-CASCOR-002`, (2026-08-16) `APD-DATA-001` † / `APD-CASCOR-004` †, and (2026-08-17) `APD-DATA-003` / `APD-CASCOR-006` † — leaving **87 open**; each is marked at its detail entry and in its §4 table row, and all nine are recorded in [§5](#5-fixed-findings-before-and-since-the-primer) with their PR and verification. That closes every item in §2.2's ranked list **and every copy-drift row that had a reference implementation to port**. Three further findings were already fixed before this register was written and are likewise listed in §5 rather than counted in the 96: two between the primer's publication and this register, and one earlier still. No extracted claim failed to reproduce, but one claim reproduced with its provenance inverted — see `APD-SVCCORE-016`.
 
 ### 2.1 Reachability — read this before triaging any Security entry
 
@@ -111,7 +111,7 @@ highest *potential* consequence in the register, and it is inert today only beca
 
 Fifteen entries share one shape: **a guard adopted in one copy of near-identical code and not in its siblings.** They are not all the same mechanism, and the distinction matters for what fixes them:
 
-**Copy drift** — a service maintains its own copy of shared code and misses a fix. A drift check against `juniper-service-core` would catch these.
+**Copy drift** — a service maintains its own copy of shared code and misses a fix. A drift check against `juniper-service-core` would catch these. **All of this group is now closed**: every row below with a reference implementation to port has been ported and promoted to `ENFORCED`. The one row left open is the `OPTIONS` bypass, which is deliberately not encoded because it landed in *no* copy — there is nothing to derive a marker from.
 
 > **That drift check now exists**: `juniper-ml/tests/test_service_fork_drift.py`
 > ([juniper-ml#1103](https://github.com/pcalnon/juniper-ml/pull/1103)). It encodes this table as a
@@ -129,7 +129,7 @@ Fifteen entries share one shape: **a guard adopted in one copy of near-identical
 |---|---|---|---|
 | Streaming body cap (CR-024) | `juniper-cascor`, then `juniper-service-core` | ~~`juniper-data`~~ — **fixed** (`APD-DATA-002`, data#261) | `ENFORCED` |
 | `Content-Length` parse guard (400, not 500) | `juniper-cascor`, `juniper-service-core` | ~~`juniper-data`~~ — **fixed** (`APD-DATA-036`, data#261) | `ENFORCED` |
-| Blank-API-key filter | `juniper-service-core` | `juniper-data` (`APD-DATA-003`), `juniper-cascor` (`APD-CASCOR-006` †) | `KNOWN_GAP` |
+| Blank-API-key filter | `juniper-service-core` | ~~`juniper-data`, `juniper-cascor`~~ — **both fixed** (`APD-DATA-003` data#267, `APD-CASCOR-006` † cascor#527) | `ENFORCED` |
 | Pre-auth throttle (`juniper-ml#1082`) † | `juniper-service-core` | ~~`juniper-data`, `juniper-cascor`~~ — **both fixed** (`APD-DATA-001` † data#266, `APD-CASCOR-004` † cascor#524) | `ENFORCED` |
 | `OPTIONS` bypass in the exempt check | *(nowhere)* | `juniper-cascor`, `juniper-data` (`APD-CASCOR-001b`, `APD-DATA-035` †) | *(not encoded — no reference impl)* |
 | Narrow serialisation-error handling | *(nowhere)* | ~~`juniper-cascor`, `juniper-data`~~ — **both fixed** (`APD-CASCOR-002` cascor#516, `APD-DATA-034` † data#262) | `ENFORCED` |
@@ -221,7 +221,7 @@ juniper-data/juniper_data/api/app.py:18 from .middleware import ... SecurityMidd
 | | |
 |---|---|
 | **Severity** | Security |
-| **Status** | OPEN |
+| **Status** | **FIXED** — [juniper-data#267](https://github.com/pcalnon/juniper-data/pull/267); the juniper-cascor sibling `APD-CASCOR-006` † in [juniper-cascor#527](https://github.com/pcalnon/juniper-cascor/pull/527) |
 | **Source** | `juniper-data/juniper_data/api/security.py:54`; `juniper_data/api/settings.py:155-160` |
 | **Primer** | I.5 — lines 1041-1042 |
 | **Confidence** | High |
@@ -234,6 +234,8 @@ juniper-data/juniper_data/api/app.py:18 from .middleware import ... SecurityMidd
 
 **Reachability caveat (register-derived).** The reference deployment defaults `JUNIPER_DATA_REQUIRE_AUTH` to `"true"` (`juniper-deploy/docker-compose.yml:163`). With that set, boot runs `enforce_auth_posture`, which resolves keys through `real_keys` (`juniper_service_core/auth_posture.py:59-69`, called at `:112`) — the same blank filter — so a blank key is a **boot failure**, not a silent open service.
 Triggering this defect therefore needs *both* the JSON list form `'[""]'` (the string branch filters) *and* `require_auth=false`. Real, and narrower than it first reads.
+
+**Fixed at the point of use, not by relying on the boot check** (which can be turned off). Both forks now filter blanks / whitespace-only / non-string entries in `APIKeyAuth.__init__` before deriving `_enabled`, and both settings validators filter the list branch as well — closing the string-vs-list inconsistency that made the JSON form the reachable shape. juniper-data keeps its `list` container (`hmac.compare_digest` per key, SEC-01/JD-SEC-02) rather than adopting service-core's `set`; cascor already used a set, so its line is byte-identical to the canonical one. One ordering subtlety surfaced during the fix and is worth keeping: `dict.fromkeys` hashes every element, so the filter must run **before** the de-duplication or a malformed env value containing an unhashable entry raises `TypeError` — the first draft had it backwards and a new test caught it. The `blank-api-key-filter` drift row moved `KNOWN_GAP` → `ENFORCED` with a two-marker predicate. The prior bare `.strip()` marker was sufficient to *detect* this fix — neither fork's `security.py` contained a strip beforehand — but it was not specific to it: any unrelated strip later added to that module would have flipped the guard green with the filter still absent. Pairing it with `isinstance(k, str)` ties the marker to the guard's shape rather than to an incidental call.
 
 ---
 
@@ -460,7 +462,7 @@ That is a stronger finding than a single stray hit would have been: the one pack
 |---|---|---|---|---|---|
 | APD-DATA-001 † | **FIXED (#266)** — 401 path unthrottled — the `#1082` fix never reached this copy | S | `api/middleware.py:110-150` | 1058 (mechanism) | High |
 | APD-DATA-002 | **FIXED (#261)** — Body limit bypassable by chunked request with no `Content-Length` | S | `api/middleware.py:79-83` | 757 | High |
-| APD-DATA-003 | Blank API key enables auth that accepts an empty key | S | `api/security.py:54`, `api/settings.py:155-160` | 1041 | High |
+| APD-DATA-003 | **FIXED (#267)** — Blank API key enables auth that accepts an empty key | S | `api/security.py:54`, `api/settings.py:155-160` | 1041 | High |
 | APD-DATA-004 | Batch-create echoes raw `e.detail` beside a redacting branch | S | `api/routes/datasets.py:423-431` vs `:433-447` | 4749 | High |
 | APD-DATA-005 | `APIKeyHeader` declared but never wired — no `securitySchemes` in OpenAPI | M | `api/security.py:26` | 1062, 5199 | High |
 | APD-DATA-006 | **FIXED (#263)** — `record_access` lock asymmetry — a `GET` can undo a tag edit | C | `storage/base.py:217-222` | 4197 | High |
@@ -542,7 +544,7 @@ Four carefully chosen, individually meaningful codes collapse into one opaque st
 | ID | Finding | Sev | Source | Primer | Conf |
 |---|---|---|---|---|---|
 | APD-CASCOR-004 † | **FIXED (#524)** — 401 path unthrottled — the `#1082` fix never reached this copy | S | `src/api/middleware.py:147-186` | 1058 (mechanism) | High |
-| APD-CASCOR-006 † | Blank API key enables auth that accepts an empty key — no `.strip()` filter | S | `src/api/security.py:32-33` | 1041 (data sibling) | High |
+| APD-CASCOR-006 † | **FIXED (#527)** — Blank API key enables auth that accepts an empty key — no `.strip()` filter | S | `src/api/security.py:32-33` | 1041 (data sibling) | High |
 | APD-CASCOR-001a | Middleware order comment is wrong (omits `RequestBodyLimitMiddleware`) | M | `src/api/app.py:644-646`, `:630` | 9592 | High |
 | APD-CASCOR-001b | CORS innermost → `SecurityMiddleware` answers preflights 401 | C | `src/api/app.py:621`, `:641`; `src/api/middleware.py:189-198` | 9592 | High |
 | APD-CASCOR-002 | **FIXED (#516)** — `ValueError` handler reclassifies serialisation faults as `400` | C | `src/api/app.py:678-684` | 9596 | High |
@@ -550,7 +552,7 @@ Four carefully chosen, individually meaningful codes collapse into one opaque st
 | APD-CASCOR-005 | Key comparison short-circuits on match in 2 of 3 copies (see §3 assessment) | M | `src/api/security.py:53` | 1027-1029, 9463 | Low |
 
 **`APD-CASCOR-006` detail.** `self._api_keys: set[str] = set(api_keys) if api_keys else set()` (`:32`) followed by `self._enabled = len(self._api_keys) > 0` (`:33`). A configured `[""]` therefore enables authentication and `validate("")` succeeds via `hmac.compare_digest("", "")`. `juniper-service-core/juniper_service_core/security.py:44` carries the blank filter with a comment naming exactly this failure; neither cascor nor juniper-data received it.
-Same reachability caveat as `APD-DATA-003`: the boot-time `enforce_auth_posture` check filters blanks, so triggering this needs auth-posture enforcement disabled.
+Same reachability caveat as `APD-DATA-003`: the boot-time `enforce_auth_posture` check filters blanks, so triggering this needs auth-posture enforcement disabled. **FIXED** in [juniper-cascor#527](https://github.com/pcalnon/juniper-cascor/pull/527) — the `security.py` line is now byte-identical to the canonical service-core filter, and `_parse_api_keys`'s list branch filters too.
 
 ### 4.4 `juniper-cascor-client`
 
@@ -641,7 +643,7 @@ Recorded so the register is not read as a list of live problems that includes re
 
 ### 5.1 Fixed since this register was published (2026-08-14)
 
-These seven carry their **original IDs** — they were counted in the 96, and are marked `FIXED` in place at their §4 table row and detail entry rather than renumbered or removed, so a reader following an existing reference still lands on the right entry and sees why it is closed. Working the §2.2 list is what produced them, and it is now worked through: all four of its items are closed.
+These nine carry their **original IDs** — they were counted in the 96, and are marked `FIXED` in place at their §4 table row and detail entry rather than renumbered or removed, so a reader following an existing reference still lands on the right entry and sees why it is closed. Working the §2.2 list is what produced them, and it is now worked through: all four of its items are closed.
 
 | ID | Finding | Fixed by | Verification |
 |---|---|---|---|
@@ -652,8 +654,10 @@ These seven carry their **original IDs** — they were counted in the 96, and ar
 | APD-DATA-006 | `record_access` could write a pre-edit snapshot over a committed tag edit | [juniper-data#263](https://github.com/pcalnon/juniper-data/pull/263) | New `DatasetStore.update_tags` performs the whole read-modify-write inside the same `_version_lock`, in one thread hop. The test uses `LocalFSDatasetStore` deliberately — `InMemoryDatasetStore.get_meta` returns the very object it stores, so both writers mutate one instance and the lost write **cannot be expressed**; a test written against the convenient store would have passed on the broken code. |
 | APD-DATA-001 † | 401 path unthrottled — the `#1082` fix never reached this copy; the register's #4 item | [juniper-data#266](https://github.com/pcalnon/juniper-data/pull/266) | `FailedAuthThrottle` ported into `api/security.py`; `check()` runs before authentication and `record_failure()` is gated on a 401. **Ported, not consolidated** — §2.2's loop warning about `APD-SVCCORE-003` still governs. Mirrors service-core's optional fourth constructor parameter defaulting to an *enabled* throttle, so `app.py` was unchanged and no settings field was added. 13 arms added; the half-port that matters is caught by mutation — deleting the single `record_failure` line fails 3 of them. Full suite 1173 passed. |
 | APD-CASCOR-004 † | The same gap in juniper-cascor's copy | [juniper-cascor#524](https://github.com/pcalnon/juniper-cascor/pull/524) | Same port, same shape, same mutation check. One pre-existing test needed isolating rather than weakening: `test_failed_auth_does_not_increment_rate_limit` fires **exactly** the default budget of 10 failed attempts and then asserts a valid key passes, so it now builds a generous throttle and keeps measuring the *identity-keyed limiter's* counters. That interaction is correct behaviour, not a regression — once an IP burns its failed-attempt budget it is throttled at the door regardless of the next credential, because `check()` necessarily precedes knowing the key is good. |
+| APD-DATA-003 | Blank API key enabled auth that then accepted an empty `X-API-Key` | [juniper-data#267](https://github.com/pcalnon/juniper-data/pull/267) | `APIKeyAuth.__init__` filters blanks / whitespace-only / non-string entries before deriving `_enabled`; `_parse_api_keys`'s list branch filters too, closing the string-vs-list inconsistency that made the JSON form the reachable shape. Keeps the `list` container deliberately (`hmac.compare_digest` per key, SEC-01/JD-SEC-02) rather than adopting service-core's `set`. 13 arms added; one of them caught a real ordering bug in the first draft -- `dict.fromkeys` hashes every element, so filtering after it raises `TypeError` on an unhashable entry. Fixed at the point of use rather than relying on the boot-time `enforce_auth_posture` check, which can be disabled. |
+| APD-CASCOR-006 † | The same gap in juniper-cascor's copy | [juniper-cascor#527](https://github.com/pcalnon/juniper-cascor/pull/527) | Same fix; this fork already used a `set`, so the `security.py` line is byte-identical to the canonical service-core filter. 11 arms added, complementing the request-side coverage this fork already had (`test_validate_empty_string_key_is_invalid`) with the configuration side -- a blank key must never become a valid credential in the first place. The settings half was caught here by its own new test after a first pass updated only the docstring. |
 
-The §2.3 copy-drift recommendation was built alongside them: `tests/test_service_fork_drift.py` ([juniper-ml#1103](https://github.com/pcalnon/juniper-ml/pull/1103)) now holds **four** fixed guards as `ENFORCED` so they cannot silently regress, and the one still-open row (`blank-api-key-filter`) as `KNOWN_GAP` so closing it prompts promotion. Promoting the `pre-auth-throttle` row exercised that mechanism end to end and exposed a limit worth carrying forward: a single name marker would have gone green on a bare `import`, so the promoted row asserts two markers — see the caveat under §2.3.
+The §2.3 copy-drift recommendation was built alongside them: `tests/test_service_fork_drift.py` ([juniper-ml#1103](https://github.com/pcalnon/juniper-ml/pull/1103)) now holds **all five** portable guards as `ENFORCED` so they cannot silently regress. No `KNOWN_GAP` rows remain -- the ledger's self-maintaining half fired twice (throttle, then blank-key filter) and both times did exactly what it was built to do: fail on the fix and demand promotion. Promoting the `pre-auth-throttle` row exercised that mechanism end to end and exposed a limit worth carrying forward: a single name marker would have gone green on a bare `import`, so the promoted row asserts two markers — see the caveat under §2.3.
 
 ### 5.2 Fixed before this register
 
