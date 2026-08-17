@@ -78,6 +78,11 @@ DEFAULT_REPO = "juniper-ml"
 DEFAULT_TIMEOUT = 1800
 DEFAULT_INTERVAL = 20
 
+# Bounded retry for a flaky GitHub API. Delay-only: a persistent failure still
+# raises ProbeError, so this never masks a broken probe.
+PROBE_RETRIES = 3
+PROBE_RETRY_BACKOFF = 2.0
+
 # Closed set of finished check-run conclusions. Anything outside this set -- an
 # empty string, None, QUEUED, IN_PROGRESS, or a value GitHub introduces later --
 # counts as still running. See "Trap 1" above; do not invert this into a list of
@@ -114,23 +119,41 @@ class ProbeError(RuntimeError):
     """
 
 
-def _gh(args: list[str]) -> str:
-    """Run ``gh`` and return stdout, raising :class:`ProbeError` on any failure."""
+def _gh(args: list[str], *, retries: int = PROBE_RETRIES, sleeper=time.sleep) -> str:
+    """Run ``gh`` and return stdout, raising :class:`ProbeError` if it keeps failing.
+
+    Retries are **bounded and delay-only**: they never convert a failure into a
+    success or an empty result, so the honesty property still holds -- a genuinely
+    broken probe (missing PR, no ruleset, bad auth) fails every attempt and still
+    raises. What they buy is surviving GitHub API flakiness, which is not
+    hypothetical: two of the first three live runs of this tool died on a transient
+    ``TLS handshake timeout`` and an ``unexpected EOF`` respectively, throwing away
+    a wait that was minutes from finishing.
+
+    Deliberately does not try to classify errors as transient vs permanent. That
+    classification is unreliable, and getting it wrong in the "permanent" direction
+    would mask a real failure -- the exact bug this module exists to avoid. Retrying
+    everything a few times costs a few seconds on a genuine error and is safe.
+    """
     if shutil.which("gh") is None:
         raise ProbeError("the `gh` CLI is not on PATH")
-    try:
-        proc = subprocess.run(  # nosec B603 - fixed argv, no shell
-            ["gh", *args],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError as exc:  # pragma: no cover - defensive
-        raise ProbeError(f"could not execute gh: {exc}") from exc
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip()[:500]
-        raise ProbeError(f"gh {' '.join(args)} failed (exit {proc.returncode}): {detail}")
-    return proc.stdout
+    last = ""
+    for attempt in range(max(1, retries)):
+        try:
+            proc = subprocess.run(  # nosec B603 - fixed argv, no shell
+                ["gh", *args],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError as exc:  # pragma: no cover - defensive
+            raise ProbeError(f"could not execute gh: {exc}") from exc
+        if proc.returncode == 0:
+            return proc.stdout
+        last = (proc.stderr or proc.stdout or "").strip()[:500]
+        if attempt + 1 < max(1, retries):
+            sleeper(PROBE_RETRY_BACKOFF * (attempt + 1))
+    raise ProbeError(f"gh {' '.join(args)} failed after {max(1, retries)} attempts: {last}")
 
 
 def _gh_json(args: list[str]):

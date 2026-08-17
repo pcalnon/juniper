@@ -108,12 +108,14 @@ def _ctx(name, state):
 class _Harness:
     """Tempdir with a stub `gh` that replays a scripted sequence of rollups."""
 
-    def __init__(self, tmp: Path, *, rollups, rules=None, pr_state="OPEN", merge_state="CLEAN", fail_on=None):
+    def __init__(self, tmp: Path, *, rollups, rules=None, pr_state="OPEN", merge_state="CLEAN", fail_on=None, flaky_on=None, flaky_times=0):
         self.tmp = tmp
         self.log = tmp / "gh.log"
         self.log.write_text("", encoding="utf-8")
         self.counter = tmp / "poll.n"
         self.counter.write_text("0", encoding="utf-8")
+        self.flaky_counter = tmp / "flaky.n"
+        self.flaky_counter.write_text("0", encoding="utf-8")
 
         seq_dir = tmp / "seq"
         seq_dir.mkdir()
@@ -144,8 +146,17 @@ class _Harness:
         gh.write_text(
             "#!/usr/bin/env bash\n" f'LOG="{self.log}"\n' f'SEQ="{seq_dir}"\n' f'CNT="{self.counter}"\n' f"LAST={self.last_index}\n" 'printf "%s\\n" "$*" >>"$LOG"\n'
             # Optional forced failure, to prove a bad probe is a hard error.
-            f'if [ -n "{fail_on or ""}" ]; then\n'
-            f'  case "$*" in *"{fail_on or "@@never@@"}"*) echo "boom" >&2; exit 1 ;; esac\n'
+            f'if [ -n "{fail_on or ""}" ]; then\n' f'  case "$*" in *"{fail_on or "@@never@@"}"*) echo "boom" >&2; exit 1 ;; esac\n' "fi\n"
+            # Optional FLAKY failure: fail the first N matching calls, then succeed.
+            # Models the transient TLS/EOF errors seen in live use.
+            f'if [ -n "{flaky_on or ""}" ]; then\n'
+            f'  case "$*" in *"{flaky_on or "@@never@@"}"*)\n'
+            f'    fn=$(cat "{self.flaky_counter}")\n'
+            f'    if [ "$fn" -lt {int(flaky_times)} ]; then\n'
+            f'      echo $((fn + 1)) >"{self.flaky_counter}"\n'
+            '      echo "transient: unexpected EOF" >&2; exit 1\n'
+            "    fi ;;\n"
+            "  esac\n"
             "fi\n"
             'case "$*" in\n'
             '  *"statusCheckRollup"*)\n'
@@ -359,6 +370,31 @@ class CliTest(unittest.TestCase):
         self.assertEqual(rc, 2, f"out={out} err={err}")
         self.assertIn("still running", out)
         self.assertIn("Beta", out)
+
+    def test_transient_probe_failure_is_retried(self):
+        """Bounded retry survives API flakiness without masking a real failure.
+
+        Two of the first three live runs died on a transient ``TLS handshake
+        timeout`` / ``unexpected EOF``, discarding a nearly-finished wait.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            h = _Harness(
+                Path(td),
+                rollups=[[_run(c, conclusion="SUCCESS") for c in REQUIRED]],
+                flaky_on="rules/branches",
+                flaky_times=2,
+            )
+            rc, out, err = _cli(h)
+        self.assertEqual(rc, 0, f"out={out} err={err}")
+        self.assertIn("GREEN", out)
+
+    def test_persistent_probe_failure_still_hard_errors(self):
+        """Retry is delay-only: it must never turn a real failure into success."""
+        with tempfile.TemporaryDirectory() as td:
+            h = _Harness(Path(td), rollups=[[]], fail_on="rules/branches")
+            rc, out, err = _cli(h)
+        self.assertEqual(rc, 3, f"out={out} err={err}")
+        self.assertIn("attempts", err)
 
     def test_gh_failure_is_a_hard_error_not_an_empty_result(self):
         with tempfile.TemporaryDirectory() as td:
