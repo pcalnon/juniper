@@ -33,7 +33,7 @@ unconfirmable by read-only API". The answer is **no**.
   `release-train-archive-guard` reconciliation are inert without a queue (the `merge_group` event
   never fires) and cost nothing. **Leave them in place** — they are the completed Step 0 for any
   future org migration, and removing them would only have to be redone.
-- **The rebase tax that motivated #1128 is unresolved.** See §9 for what remains available.
+- **The rebase tax that motivated #1128 is unresolved.** See §8 for what remains available.
 - Everything in §2–§3 (the required-context audit, the signing analysis) was verified before the
   availability answer landed and stays valid. It is retained so a future org migration does not have
   to redo it.
