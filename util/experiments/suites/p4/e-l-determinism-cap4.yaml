@@ -1,0 +1,33 @@
+# E-L: a CHEAP determinism instrument for the CLI-vs-service reproducibility defect.
+#
+# WHY CAP 4
+# Two direct-CLI runs of the identical cap-16 cell (same data, same network seed 42, same thread
+# setting) were bit-identical through iteration 1 and diverged at iteration 2 -- ending 10 pp apart
+# in validation accuracy (0.8650 vs 0.7650) having done 16% different candidate work. Two SERVICE
+# runs of the same cell were bit-identical throughout, iteration by iteration.
+#
+# Divergence therefore shows up within the first handful of growth iterations, so studying it does
+# not need a 25-minute cap-16 run. Cap 4 reproduces the phenomenon in ~4 minutes, which turns
+# determinism from something affordable once into something affordable a dozen times -- and
+# repeated trials are the only way to say anything sound about a stochastic effect.
+#
+# Read this suite as the SERVICE control of the pair. It exists to generate the shared cell config
+# and to confirm the service's determinism at this cap; the CLI arms run the generated cell through
+# util/ad-hoc/2026-08-17_h2h_thread_probe.bash at several thread budgets, twice each.
+#
+# seed 42 / seed_policy fixed: both arms then share dataset AND network initialisation, since the
+# service network is unconditionally seed 42 (juniper-cascor#530).
+schema_version: 1
+suite:
+  name: e-l-determinism-cap4
+  description: "E-L: cheap determinism probe (cap 4 / pool 8, seed 42) for the CLI reproducibility defect"
+  app: cascor
+  base_config: [../../../ad-hoc/2026-08-16_h2h_wide_nrot3.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 3600, stall_seconds: 1200}
+matrix:
+  training.params.max_hidden_units: [4]
+  dataset.params.seed: [42]
+  experiment.seed: [42]
+  experiment.description: ["E-L determinism probe -- SERVICE control, cap 4, seed 42"]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}
