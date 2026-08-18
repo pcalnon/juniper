@@ -79,11 +79,11 @@ work.
 
 Be precise about which measurements this threatens, because it is not all of them:
 
-| §4 component | size | status under #532 |
-| --- | --- | --- |
-| candidate **epoch count** ratio | 1.03× | **swamped** — 16% run-to-run noise is larger |
+| §4 component                       | size  | status under #532                                                                                                                                                         |
+|------------------------------------|-------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| candidate **epoch count** ratio    | 1.03× | **swamped** — 16% run-to-run noise is larger                                                                                                                              |
 | per-candidate-**epoch rate** ratio | 1.14× | **partially corroborated** — CLI n=3 across budgets (0.02394 / 0.02402 / 0.02641, itself a 10% spread) but **service n=1** (0.02102), so the denominator has no error bar |
-| candidate-phase **span** ratio | 1.17× | **essentially unmeasured** — n=1 (1485 s vs 1441 s, **3%**), and that pair **did diverge** (val 0.8650 vs 0.7650) |
+| candidate-phase **span** ratio     | 1.17× | **essentially unmeasured** — n=1 (1485 s vs 1441 s, **3%**), and that pair **did diverge** (val 0.8650 vs 0.7650)                                                         |
 
 So the honest statement is *not* "any residual number is uninterpretable". It is:
 
@@ -109,11 +109,11 @@ Divergence is **not** at the start: two cap-16 runs were bit-identical through i
 differed at iteration 2. That rules out the dataset, the network initialisation, and the first
 candidate round by construction.
 
-| configuration | first divergence | the two values (train loss) |
-| --- | --- | --- |
-| cap 16, `OMP=2` (pre-#533 tree) | iteration 2 | `0.229579` / `0.228024` |
-| cap 4, `OMP=2` via RC-1 default (pre-#533 tree) | iteration 2 | `0.229579` / `0.228024` |
-| cap 4, threads unset (post-#533 tree) | **iteration 1** | `0.235021` / `0.235058` |
+| configuration                                   | first divergence | the two values (train loss) |
+|-------------------------------------------------|------------------|-----------------------------|
+| cap 16, `OMP=2` (pre-#533 tree)                 | iteration 2      | `0.229579` / `0.228024`     |
+| cap 4, `OMP=2` via RC-1 default (pre-#533 tree) | iteration 2      | `0.229579` / `0.228024`     |
+| cap 4, threads unset (post-#533 tree)           | **iteration 1**  | `0.235021` / `0.235058`     |
 
 The divergence point and value pair are **configuration-dependent**; an earlier claim that
 divergence always lands on two values at iteration 2 was **withdrawn**. Note the last row differs in
@@ -190,6 +190,7 @@ still describes it as RC-1's cap-to-2 — that wording is stale. Record the casc
 
 Reuse ONE stack across all N CLI runs; `r5_stack_up.bash` resolves "the newest run dir with a
   `ports.json`", so do not launch anything else concurrently.
+
 - Output lands under `<OUT_DIR>/{direct_cli.log,thread_probe.json,logs/juniper_cascor.log*}`.
 
 ### 3.4 Getting N runs per arm
@@ -248,12 +249,12 @@ absence**, and a healthy cell then reports a false `stalled`.
 
 ### 3.6 Cost
 
-| item | count | each | total |
-| --- | --- | --- | --- |
-| CLI runs | 20 | ~305 s | ~1.7 h |
-| Service runs | 20 | ~229 s | ~1.3 h |
-| **characterisation subtotal** | | | **~3.0 h** |
-| post-fix re-run (§3.7a), **both arms** | 20 + 20 | ~305 / ~229 s | ~3.0 h |
+| item                                   | count   | each          | total      |
+|----------------------------------------|---------|---------------|------------|
+| CLI runs                               | 20      | ~305 s        | ~1.7 h     |
+| Service runs                           | 20      | ~229 s        | ~1.3 h     |
+| **characterisation subtotal**          |         |               | **~3.0 h** |
+| post-fix re-run (§3.7a), **both arms** | 20 + 20 | ~305 / ~229 s | ~3.0 h     |
 
 Arms must run **sequentially** (§7), and `run_suite` refuses parallel cascor cells, so there is no
 compression. Budget **~3.0-3.2 h to characterise** (the upper figure uses the 335 s top of the CLI band) and
@@ -288,12 +289,12 @@ so every §4 number becomes a many-run mean ± sd sized against the measured noi
 
 From the **cap-16 `e-k` thread probe** in cascor#531 — **not** from the wide-budget campaign:
 
-| | service | CLI @ `OMP=16` | ratio |
-| --- | --- | --- | --- |
-| candidate phase | 944 s | 1103 s | **1.17×** |
-| candidate epochs | 44,910 | 46,080 | 1.03× |
-| per-epoch rate | 0.02102 s | 0.02394 s | 1.14× |
-| output phase | 16 s | 16 s | 1.00× |
+|                  | service   | CLI @ `OMP=16` | ratio     |
+|------------------|-----------|----------------|-----------|
+| candidate phase  | 944 s     | 1103 s         | **1.17×** |
+| candidate epochs | 44,910    | 46,080         | 1.03×     |
+| per-epoch rate   | 0.02102 s | 0.02394 s      | 1.14×     |
+| output phase     | 16 s      | 16 s           | 1.00×     |
 
 **Every figure is a single run per arm**, hence §2/§3. And because the gap **compounds per growth
 iteration**, a cap-16 residual says nothing about cap 64/128 — the wide-budget campaign saw ~2.09×
@@ -360,18 +361,18 @@ record it as an accepted, documented asymmetry instead.
 
 ## 5. Deliverables and acceptance
 
-| # | artifact | done when |
-| --- | --- | --- |
-| 1 | Determinism harness under `util/ad-hoc/`, merged | N>=20 both arms, reports a rate + timing distributions (§3.5) |
-| 2 | Evidence note `notes/JUNIPER_<YYYY-MM-DD>_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-SEED-REPRODUCIBILITY-EVIDENCE.md` | design, rate, divergence localisation, noise floor, honest limits, reproduction, disposition |
-| 3 | Rate + findings posted to **cascor#532** | comment added; **also edit its title/body** — both still carry the superseded "~1 in 5" per-run rate, corrected only in a comment |
-| 4 | §3.7 outcome recorded (fixed, or characterised-and-accepted) | stated explicitly in the note's disposition |
-| 5A | §4.3 re-measure on post-#533 main | current cap-64 ratio published with the recorded cascor SHA and the pair count k (§4.3) |
-| 5B | §4.4 root cause | a named mechanism with per-path profile evidence, **or** an explicit "not identified" with what was excluded |
-| 5C | §4.5 impact | cost quantified at the caps actually used (64/128) with the perf-lane baseline implication written down |
-| 5D | §4.6 fix | cascor PR merged + a regression guard, **or** a recorded, justified accepted asymmetry |
-| 6 | Register propagation, same PR | see §5.1 |
-| 7 | Teardown attestation in the note | 0 listeners on 8110-8139 / 8230-8259 / 8260-8289, 0 stale lockdirs, `artifacts/` preserved |
+| #  | artifact                                                                                                          | done when                                                                                                                         |
+|----|-------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| 1  | Determinism harness under `util/ad-hoc/`, merged                                                                  | N>=20 both arms, reports a rate + timing distributions (§3.5)                                                                     |
+| 2  | Evidence note `notes/JUNIPER_<YYYY-MM-DD>_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-SEED-REPRODUCIBILITY-EVIDENCE.md` | design, rate, divergence localisation, noise floor, honest limits, reproduction, disposition                                      |
+| 3  | Rate + findings posted to **cascor#532**                                                                          | comment added; **also edit its title/body** — both still carry the superseded "~1 in 5" per-run rate, corrected only in a comment |
+| 4  | §3.7 outcome recorded (fixed, or characterised-and-accepted)                                                      | stated explicitly in the note's disposition                                                                                       |
+| 5A | §4.3 re-measure on post-#533 main                                                                                 | current cap-64 ratio published with the recorded cascor SHA and the pair count k (§4.3)                                           |
+| 5B | §4.4 root cause                                                                                                   | a named mechanism with per-path profile evidence, **or** an explicit "not identified" with what was excluded                      |
+| 5C | §4.5 impact                                                                                                       | cost quantified at the caps actually used (64/128) with the perf-lane baseline implication written down                           |
+| 5D | §4.6 fix                                                                                                          | cascor PR merged + a regression guard, **or** a recorded, justified accepted asymmetry                                            |
+| 6  | Register propagation, same PR                                                                                     | see §5.1                                                                                                                          |
+| 7  | Teardown attestation in the note                                                                                  | 0 listeners on 8110-8139 / 8230-8259 / 8260-8289, 0 stale lockdirs, `artifacts/` preserved                                        |
 
 **Report the honest outcome.** "The rate is X% and here is the noise floor" is a complete result.
 Manufacturing a cause, or quoting a rate from too few runs, is the failure mode this arc has already
