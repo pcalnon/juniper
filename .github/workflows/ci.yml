@@ -470,6 +470,17 @@ jobs:
           # while the registry structure checks and the matcher's negative
           # control always run.
           python3 -m unittest -v tests/test_service_fork_drift.py
+          # tests/test_publish_env_policy_drift.py: the publish environments'
+          # tag-only deployment ref policy (publish-path design §6 Option A /
+          # §12) lives in GitHub SETTINGS, not in the tree -- no diff shows when
+          # one is deleted, and the publish path just becomes permissive again.
+          # Structural checks + the detector's negative control always run. The
+          # live half probes each registry repo and verifies what this token can
+          # read: in per-PR CI the built-in GITHUB_TOKEN reaches juniper-ml only,
+          # so the siblings are NAMED as unverified rather than silently dropped,
+          # and the test refuses to pass if nothing at all was readable. Run
+          # locally with JUNIPER_DRIFT_TEST_FORCE_LOCAL=1 for full-fleet cover.
+          python3 -m unittest -v tests/test_publish_env_policy_drift.py
           # tests/test_lockfile_update_workflow.py: structural gate for the weekly
           # lockfile-update.yml refresh — juniper-generate-dep-docs (not the deleted
           # inline dep-docs shell script), SHA-pinned create-pull-request, branch/labels/
