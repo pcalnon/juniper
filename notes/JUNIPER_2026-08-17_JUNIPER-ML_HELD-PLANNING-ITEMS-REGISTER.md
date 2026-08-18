@@ -27,13 +27,13 @@ highest-leverage item here"* and the reason bypass actors accumulate.
 **The rule has never blocked anything.** Across the entire retained rule-suite window for
 juniper-ml `main` (13 suites, 7 `bypass` / 6 `pass`):
 
-| rule | pass | fail |
-|---|---|---|
-| **`code_quality`** | **13** | **0** |
-| `code_scanning` | 8 | 5 |
-| `pull_request` | 8 | 5 |
-| `required_status_checks` | 6 | 7 |
-| `required_signatures`, `creation`, `deletion`, `non_fast_forward` | 13 | 0 |
+| rule                                                              | pass   | fail  |
+|-------------------------------------------------------------------|--------|-------|
+| **`code_quality`**                                                | **13** | **0** |
+| `code_scanning`                                                   | 8      | 5     |
+| `pull_request`                                                    | 8      | 5     |
+| `required_status_checks`                                          | 6      | 7     |
+| `required_signatures`, `creation`, `deletion`, `non_fast_forward` | 13     | 0     |
 
 Reproduce:
 
@@ -75,10 +75,10 @@ deliberate action — worth keeping in mind, but not verified.
 
 ### 1.4 Options, re-ranked
 
-| # | Option | Assessment |
-|---|---|---|
-| A | **Leave it** | Now the default. Inert, passing, costs nothing. |
-| B | Drop the rule | Tidies the ruleset; removes a rule that does nothing. Low value, non-zero churn (a ruleset edit on 9 repos). |
+| # | Option                     | Assessment                                                                                                                                                                                                          |
+|---|----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| A | **Leave it**               | Now the default. Inert, passing, costs nothing.                                                                                                                                                                     |
+| B | Drop the rule              | Tidies the ruleset; removes a rule that does nothing. Low value, non-zero churn (a ruleset edit on 9 repos).                                                                                                        |
 | C | Enable GitHub Code Quality | Gives the rule teeth — but it is **public preview**, it would newly *block* merges on findings, and it was the likely source of the unwanted Copilot reviewer/bypass. Evaluate on one repo only, never fleet-first. |
 
 **Recommendation: A (leave it), and strike §2.4 from the register.** It is not a root cause and not
@@ -118,13 +118,13 @@ first, decide second** sequencing and a concrete acceptance bar.
 
 ### 3.1 The two implementations
 
-| | `util/env_floor_drift_check.py` | `juniper-env-drift-check` (ci-tools ≥0.5.0) |
-|---|---|---|
-| Distribution | in-repo, juniper-ml only | PyPI console script, fleet-wireable |
-| Version source | `*.dist-info/METADATA` | `importlib.metadata` |
-| Classes | `OK` / `BELOW_FLOOR` / `MISSING` | same |
-| Extra | env selection via `--site-packages` / `--env` / `ecosystem.yaml` `used_by` | `--check-lock` (lockfile pins vs floors), plain-wheel aware, R3.3 keep-lowest dedup |
-| Coverage | `tests/test_env_floor_drift_check.py` | ~95%, in ci-tools |
+|                | `util/env_floor_drift_check.py`                                            | `juniper-env-drift-check` (ci-tools ≥0.5.0)                                         |
+|----------------|----------------------------------------------------------------------------|-------------------------------------------------------------------------------------|
+| Distribution   | in-repo, juniper-ml only                                                   | PyPI console script, fleet-wireable                                                 |
+| Version source | `*.dist-info/METADATA`                                                     | `importlib.metadata`                                                                |
+| Classes        | `OK` / `BELOW_FLOOR` / `MISSING`                                           | same                                                                                |
+| Extra          | env selection via `--site-packages` / `--env` / `ecosystem.yaml` `used_by` | `--check-lock` (lockfile pins vs floors), plain-wheel aware, R3.3 keep-lowest dedup |
+| Coverage       | `tests/test_env_floor_drift_check.py`                                      | ~95%, in ci-tools                                                                   |
 
 The console script is the superset on distribution and lock-checking; the `util/` script's
 distinctive asset is its **env-resolution precedence** (`--site-packages` → `--env` →
@@ -156,15 +156,15 @@ point. Any ci-tools change here must keep the `[project.scripts]` guard green in
 
 The issue names juniper-recurrence #7 / #8 as known-stranded. **They are not stranded now**:
 
-```
-#7 [MERGED] base=feature/ws4b-app-skeleton  head=04f1e918   → vs main: ahead_by=0, behind_by=209
-#8 [MERGED] base=feature/ws4b-app-routes    head=06bf7a57   → vs main: ahead_by=0, behind_by=208
+```bash
+#7 [MERGED] base=feature/ws4b-app-skeleton  head=04f1e918   → vs main: ahead_by=0, behind_by=209bash
+#8 [MERGED] base=feature/ws4b-app-routes    head=06bf7a57   → vs main: ahead_by=0, behind_by=208bash
 ```
 
-`ahead_by=0` means each head commit **is** an ancestor of `main` — both diffs landed. canopy #365
-was likewise recovered by #366 at the time.
+`ahead_by=0` means each head commit **is** an ancestor of `main` — both diffs landed. canopy #365bash
+was likewise recovered by #366 at the time.bash
 
-**Consequence**: the sweep's remediation urgency is gone. What remains is (a) confirming no
+**Consequence**: the sweep's remediation urgency is gone. What remains is (abash) confirming no
 *unnamed* instance is still stranded, and (b) the forward-looking policy — which is the durable
 value.
 
@@ -197,13 +197,13 @@ and inspect the merge commit's diff. One PR settles it.
 
 ## 5. Summary of what changed in this pass
 
-| Item | Before | After |
-|---|---|---|
-| `code_quality` | "untracked root cause, highest-leverage" | **inert; passes 13/13; leave it** |
-| ml#1011 | pending | unchanged — dated ~08-21, checklist-gated |
-| #588 | "consolidate" | sequenced: audit delta → port → retire, as 3 PRs |
-| #434 | 2 known-stranded PRs | **both already landed**; re-scoped to detection + policy |
-| TestPyPI gap | one env unprotected | **all 18 envs accept any ref** — see companion doc |
+| Item           | Before                                   | After                                                    |
+|----------------|------------------------------------------|----------------------------------------------------------|
+| `code_quality` | "untracked root cause, highest-leverage" | **inert; passes 13/13; leave it**                        |
+| ml#1011        | pending                                  | unchanged — dated ~08-21, checklist-gated                |
+| #588           | "consolidate"                            | sequenced: audit delta → port → retire, as 3 PRs         |
+| #434           | 2 known-stranded PRs                     | **both already landed**; re-scoped to detection + policy |
+| TestPyPI gap   | one env unprotected                      | **all 18 envs accept any ref** — see companion doc       |
 
 ---
 

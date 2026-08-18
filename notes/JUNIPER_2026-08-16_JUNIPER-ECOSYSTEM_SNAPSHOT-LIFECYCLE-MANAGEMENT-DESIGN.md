@@ -29,12 +29,12 @@ provenance** (§5) — and they bite precisely the four use cases the owner name
 
 Snapshotting exists to allow historical models and training runs to be loaded for:
 
-| # | Use case | What it demands of the system |
-|---|---|---|
-| **R1** | **Replay** | A stored model loads and reproduces its recorded behaviour. |
-| **R2** | **Further experimentation** | A stored model can be *found* by what it is (dataset, params, run), then branched from. |
-| **R3** | **Training pauses** | Training resumes from a snapshot **with optimizer state intact** — otherwise it is a restart, not a resume. |
-| **R4** | **System crashes** | An unattended run leaves a recoverable, identifiable point. |
+| #      | Use case                    | What it demands of the system                                                                               |
+|--------|-----------------------------|-------------------------------------------------------------------------------------------------------------|
+| **R1** | **Replay**                  | A stored model loads and reproduces its recorded behaviour.                                                 |
+| **R2** | **Further experimentation** | A stored model can be *found* by what it is (dataset, params, run), then branched from.                     |
+| **R3** | **Training pauses**         | Training resumes from a snapshot **with optimizer state intact** — otherwise it is a restart, not a resume. |
+| **R4** | **System crashes**          | An unattended run leaves a recoverable, identifiable point.                                                 |
 
 R1 and R4 are largely met today. **R3 is broken** (§4.1). **R2 is unreachable** (§5) — nothing
 records which run or dataset a snapshot came from.
@@ -54,16 +54,16 @@ format                 juniper.cascor v2  (100% of loadable)
 
 Stamped writer version, and filename-date cohorts:
 
-| `juniper_version` | files | | filename year-month | files |
-|---|---|---|---|---|
-| 0.3.2 | 27,095 | | 2025-10 | 47 |
-| 0.4.0 | 520 | | 2026-02 | 84 |
-| 0.5.0 | 181 | | 2026-03 | **13,498** |
-| 0.6.0 | 64 | | 2026-04 | **13,507** |
-| 0.9.0 | 3 | | 2026-05 | 501 |
-| | | | 2026-06 | 5 |
-| | | | 2026-07 | 160 |
-| | | | 2026-08 | 67 |
+| `juniper_version` | files  |  | filename year-month | files      |
+|-------------------|--------|--|---------------------|------------|
+| 0.3.2             | 27,095 |  | 2025-10             | 47         |
+| 0.4.0             | 520    |  | 2026-02             | 84         |
+| 0.5.0             | 181    |  | 2026-03             | **13,498** |
+| 0.6.0             | 64     |  | 2026-04             | **13,507** |
+| 0.9.0             | 3      |  | 2026-05             | 501        |
+|                   |        |  | 2026-06             | 5          |
+|                   |        |  | 2026-07             | 160        |
+|                   |        |  | 2026-08             | 67         |
 
 **96.9% of the archive was written in March–April 2026** (27,005 files, ~1.65 GiB) by cascor 0.3.2.
 
@@ -100,10 +100,10 @@ attribute** (ISO-8601, written by the serializer), corroborated by the filename.
 
 ## 3. Where snapshots live today
 
-| tier | directory | resolution | naming |
-|---|---|---|---|
+| tier       | directory               | resolution                                                                         | naming                                           |
+|------------|-------------------------|------------------------------------------------------------------------------------|--------------------------------------------------|
 | direct CLI | `src/cascor_snapshots/` | `constants_hdf5.py:46-57`, `JUNIPER_CASCOR_SNAPSHOTS_DIR` at **import** time (W-6) | `cascor_snapshot_<YYYYMMDD>_<HHMMSS>_<uuid4>.h5` |
-| service | `src/snapshots/` | `manager.py:4403` `_get_snapshots_dir`, same env var at **call** time (W-6) | `snapshot_<ISO8601>Z.h5` |
+| service    | `src/snapshots/`        | `manager.py:4403` `_get_snapshots_dir`, same env var at **call** time (W-6)        | `snapshot_<ISO8601>Z.h5`                         |
 
 Two directories, **two incompatible naming schemes**, and one audit log —
 `src/snapshots/snapshot_history.jsonl` (14 entries: `restore` / `replay` actions with
@@ -264,12 +264,12 @@ guessing, and guessing at deletion is exactly the failure mode being avoided.
 
 ## 5. Gap analysis
 
-| Req | Status | Blocking gap |
-|---|---|---|
-| R1 replay | **Largely met** | 88/89 sampled verify; cross-version loads work back to 0.3.2. Caveat: D-B hides the failures that do occur. |
-| R2 further experimentation | **Not met** | D-C: no provenance, no index, no query path. |
-| R3 training pauses | **Requirement itself in question** | *(corrected 2026-08-17)* Not "broken by D-A" — D-A is inert (§4.1). Cascor recreates the optimizer by design, so R3-as-written is unreachable via the serializer and may not be meaningful. See **S-5** (§9). |
-| R4 crash recovery | **Partially met** | Snapshots exist and load, but D-B makes "corrupt" indistinguishable from "absent", and the CLI tier has no audit trail. |
+| Req                        | Status                             | Blocking gap                                                                                                                                                                                                  |
+|----------------------------|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| R1 replay                  | **Largely met**                    | 88/89 sampled verify; cross-version loads work back to 0.3.2. Caveat: D-B hides the failures that do occur.                                                                                                   |
+| R2 further experimentation | **Not met**                        | D-C: no provenance, no index, no query path.                                                                                                                                                                  |
+| R3 training pauses         | **Requirement itself in question** | *(corrected 2026-08-17)* Not "broken by D-A" — D-A is inert (§4.1). Cascor recreates the optimizer by design, so R3-as-written is unreachable via the serializer and may not be meaningful. See **S-5** (§9). |
+| R4 crash recovery          | **Partially met**                  | Snapshots exist and load, but D-B makes "corrupt" indistinguishable from "absent", and the CLI tier has no audit trail.                                                                                       |
 
 ---
 
@@ -309,8 +309,8 @@ is ever deleted.**
 ### 6.3 Phase 3 — Correctness fixes (deliver R3, harden R4)
 
 | id | fix | repo |
-|---|---|---|
-| **D-A** | *(re-scoped 2026-08-17 — §4.1; **lowest** priority of the three, not the highest)* Read `learning_rate` through `read_str_attr` + float coercion, mirroring `optimizer_type` on the line above, so the load stops raising. **Do not** add a "state survives save→load" test — nothing restores state and nothing reads it. Land the fix **with a comment recording why optimizer restore is inert**, since the fix removes the only signal that it is. Gated on **S-5**: if R3 is dropped, consider deleting the save/restore path instead of repairing it. | juniper-cascor |
+| --- | -- -| --- |
+| **D-A** | *(re-scope 2026-08-17 — §4.1; **lowest** priority)* Read `learning_rate` through `read_str_attr` + float coercion, mirroring `optimizer_type` line above, load stabalizes. **Do not** add "state survives save→load" test — state not restored or read. Land fix **with comment on why optimizer restore is inert**, (fix removes the only signal that it is.) Gated on **S-5**: if R3 dropped, consider deleting save/restore path instead of repairing it. | juniper-cascor |
 | **D-B** | Give `load_network` a raising variant (or a typed result) so *absent*, *corrupt*, and *loaded* are distinguishable; keep the `None` form for back-compat callers. Fix `'Invalid format'` to name the missing group. | juniper-cascor |
 | **3.1** | Move the service snapshot root out of the importable package (`src/snapshots/` → a data dir), so no cleanup can ever again delete modules (cascor#501). | juniper-cascor |
 
@@ -342,12 +342,12 @@ Written **as a proposal for owner ratification**, not applied. Expected shape:
 
 Per standard Juniper practice, each phase ships with its own gate:
 
-| phase | validation |
-|---|---|
-| 6.1 identity | Unit: provenance attrs round-trip save→load. Drift: a snapshot written by the launcher carries the run's `RUN_ID` (asserted in `tests/test_experiment_stack_script.py`'s live arm). |
-| 6.2 index | Behavioural tests over a synthetic snapshot tree (hermetic, mirroring `test_list_runs.py`): classification, `--json` shape, and that destructive flags do nothing without `--yes`. Plus a real read-only scan of the 27,869-file archive as a smoke. |
-| 6.3 fixes | **D-A: a regression test that fails on today's code** — assert `output_optimizer is not None` and its state matches after save→load. D-B: assert distinct outcomes for absent / corrupt / valid. |
-| 6.4 retention | Dry-run over the real archive must propose **zero** deletions of anything provenance-linked; a planted unattributable fixture must be proposed for *quarantine*, not deletion. |
+| phase         | validation                                                                                                                                                                                                                                           |
+|---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 6.1 identity  | Unit: provenance attrs round-trip save→load. Drift: a snapshot written by the launcher carries the run's `RUN_ID` (asserted in `tests/test_experiment_stack_script.py`'s live arm).                                                                  |
+| 6.2 index     | Behavioural tests over a synthetic snapshot tree (hermetic, mirroring `test_list_runs.py`): classification, `--json` shape, and that destructive flags do nothing without `--yes`. Plus a real read-only scan of the 27,869-file archive as a smoke. |
+| 6.3 fixes     | **D-A: a regression test that fails on today's code** — assert `output_optimizer is not None` and its state matches after save→load. D-B: assert distinct outcomes for absent / corrupt / valid.                                                     |
+| 6.4 retention | Dry-run over the real archive must propose **zero** deletions of anything provenance-linked; a planted unattributable fixture must be proposed for *quarantine*, not deletion.                                                                       |
 
 The census is reproducible and preserved as
 [`util/ad-hoc/2026-08-16_snapshot_archive_census.py`](../util/ad-hoc/2026-08-16_snapshot_archive_census.py)
@@ -360,7 +360,7 @@ the rule exists because scripts of exactly this kind were lost once before.
 
 ## 8. Sequencing and dependencies
 
-```text
+```bash
 6.3 D-A (optimizer)  ── independent, highest value ──> ship first
 6.3 D-B (load API)   ── independent
 6.3 3.1 (move dir)   ── independent; closes the cascor#501 class
@@ -377,13 +377,20 @@ note, not here.
 
 ## 9. Open questions for the owner
 
-| # | Question | Why it needs a decision |
-|---|---|---|
-| **S-1** | Should snapshots move out of the repo checkout entirely (e.g. under `~/.local/state/juniper-snapshots/`, mirroring the experiment `RUN_DIR` convention)? | Would make §3.1 structural rather than a fix, and stop checkout accrual permanently. Larger blast radius: changes default paths for both tiers. |
-| **S-2** | Is the March–April 2026 cohort (27,005 files, 96.9%) of retained research value, or is it a known bulk artifact of one campaign? | Decides whether Phase 6.4 needs a real policy or whether that cohort can be quarantined wholesale once identified. **Not actionable until §6.2 can characterise it.** |
-| **S-3** | Should the service tier's `snapshot_history.jsonl` audit log be extended to the CLI tier, or replaced by the §6.2 index? | Two mechanisms or one. |
-| **S-4** | Retention horizon and cold-archive location, once §6.2 exists. | The only genuinely policy-shaped question, deliberately deferred to last. |
-| **S-5** | **Is R3 ("training pauses" with optimizer state) a real requirement for Cascade Correlation at all?** | Raised by the 2026-08-17 correction to §4.1. Cascor deliberately **recreates** the output optimizer on every `train_output_layer` call because a hidden-unit insertion changes the output parameter space, making prior optimizer moments invalid *by construction* (`cascade_correlation.py:2050-2053`). So R3-as-written cannot be satisfied by any serializer change, and may not be meaningful. If what is actually wanted is "resume training from a snapshot and continue growing", that is already what `/resume` does — and it needs no optimizer state. **Answering this decides whether any optimizer work is scheduled at all.** |
+| #       | Question                                                         | Why it needs a decision                                                                                                                                                           |
+|---------|------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **S-1** | Should snapshots move out of repo checkout entirely              | Would make §3.1 structural rather than a fix, and stop checkout accrual permanently. Larger blast radius: changes default paths for both tiers.                                   |
+|         | (e.g. under `~/.local/state/juniper-snapshots/`,                 |                                                                                                                                                                                   |
+|         | mirroring the experiment `RUN_DIR` convention)?                  |                                                                                                                                                                                   |
+| **S-2** | Is the March–April 2026 cohort (27,005 files, 96.9%) of retained | Decides whether Phase 6.4 needs a real policy or whether that cohort can be quarantined wholesale once identified.                                                                |
+|         | research value, or is it a known bulk artifact of one campaign?  |   **Not actionable until §6.2 can characterise it.**                                                                                                                              |
+| **S-3** | Should the service tier's `snapshot_history.jsonl` audit log     | Two mechanisms or one.                                                                                                                                                            |
+|         | be extended to the CLI tier, or replaced by the §6.2 index?      |                                                                                                                                                                                   |
+| **S-4** | Retention horizon and cold-archive location, once §6.2 exists.   | The only genuinely policy-shaped question, deliberately deferred to last.                                                                                                         |
+| **S-5** | **Is R3 ("training pauses" with optimizer state)                 | Raised by the 2026-08-17 correction to §4.1. Cascor deliberately **recreates** the output optimizer on every `train_output_layer` call                                            |
+|         | a real requirement for Cascade Correlation at all?**             |   because a hidden-unit insertion changes the output parameter space, making prior optimizer moments invalid *by construction* (`cascade_correlation.py:2050-2053`).              |
+|         |                                                                  |   So R3-as-written cannot be satisfied by any serializer change, and may not be meaningful. If what is actually wanted is "resume training from a snapshot and continue growing", |
+|         |                                                                  |   that is already what `/resume` does — and it needs no optimizer state. **Answering this decides whether any optimizer work is scheduled at all.**                               |
 
 ---
 

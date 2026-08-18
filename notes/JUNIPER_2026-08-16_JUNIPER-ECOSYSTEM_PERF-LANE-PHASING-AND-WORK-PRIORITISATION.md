@@ -37,12 +37,12 @@ premise strong enough to build from.
 
 ### 1.1 The four gating phases
 
-| phase | deliverable | done when |
-|---|---|---|
-| **P1 — Design** | A design-of-record note: what is measured, on which tier, against which baseline, at what budget, and what a regression *means*. Must resolve the §12.3 scenario matrix from draft to fixed, and specify the Q-8 baseline directory (name, layout, retention, who writes it). | A `notes/` design doc exists and is reviewed. |
-| **P2 — Planning** | Work items with repo, size, and dependencies — the §14-style wave table this program uses everywhere else. | Items are enumerated and sequenced. |
-| **P3 — Verification** | The thresholds ratified (owner), and the measurement contract demonstrated end-to-end on a real run before anything is gated on it. | PF thresholds ratified; a dry measurement pass reproduces. |
-| **P4 — Documentation** | Operator surface in `docs/REFERENCE.md` + the cheatsheet; the baseline directory documented as a first-class artifact location. | Docs merged. |
+| phase                  | deliverable                                                                                                                                                                                                                                               | done when                                                  |
+|------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------|
+| **P1 — Design**        | Design-of-record note: what is measured, on which tier, against which baseline, at what budget, & what regression *means*. Must resolve §12.3 scenario matrix, draft -> fixed, & specify Q-8 baseline directory (name, layout, retention, who writes it). | A `notes/` design doc exists and is reviewed.              |
+| **P2 — Planning**      | Work items with repo, size, and dependencies — the §14-style wave table this program uses everywhere else.                                                                                                                                                | Items are enumerated and sequenced.                        |
+| **P3 — Verification**  | The thresholds ratified (owner), and the measurement contract demonstrated end-to-end on a real run before anything is gated on it.                                                                                                                       | PF thresholds ratified; a dry measurement pass reproduces. |
+| **P4 — Documentation** | Operator surface in `docs/REFERENCE.md` + the cheatsheet; the baseline directory documented as a first-class artifact location.                                                                                                                           | Docs merged.                                               |
 
 Only then: development.
 
@@ -67,16 +67,16 @@ measure the budget rather than the workload. This is the same class of error tha
 
 ## 2. Open and in-progress work inventory (2026-08-16)
 
-| id | work | state | owner-blocked? |
-|---|---|---|---|
-| **A** | **D-A optimizer restore defect** — optimizer state silently dropped on every snapshot load, current version included | Ready; unblocked | no |
-| **B** | **5.3 lift `run_suite` cascor-parallel refusal** (`run_suite.py:112`) | Ready except for an **external** gate: no released cascor carries #523 | no |
-| **C** | **W-12 `csv_import` corpus**, both cascor and recurrence | Un-parked by Q-7; **scope widened** beyond the original question | no |
-| **D** | **Q-10 dedicated `JuniperRecurrence` conda env** | Ready; provisioning + docs | no |
-| **E** | **F-P1-4 snapshot lifecycle** — phases 6.1 identity → 6.2 index → 6.4 retention | Designed ([design](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_SNAPSHOT-LIFECYCLE-MANAGEMENT-DESIGN.md)); 6.3 fixes ready | S-1/S-2 open |
-| **F** | **§12 perf lane** P1→P4 then development | **Gated** (this note) | PF thresholds (P3) |
-| **G** | **Wide-budget head-to-head campaign** (ml#1122) | **In progress**, concurrent session, GPU-bound | no |
-| **H** | **Defect register outstanding work** (ml#1121) — 91 open defects | In progress, separate arc | no |
+| id    | work                                                                                                                 | state                                                                                                              | owner-blocked?     |
+|-------|----------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|--------------------|
+| **A** | **D-A optimizer restore defect** — optimizer state silently dropped on every snapshot load, current version included | Ready; unblocked                                                                                                   | no                 |
+| **B** | **5.3 lift `run_suite` cascor-parallel refusal** (`run_suite.py:112`)                                                | Ready except for an **external** gate: no released cascor carries #523                                             | no                 |
+| **C** | **W-12 `csv_import` corpus**, both cascor and recurrence                                                             | Un-parked by Q-7; **scope widened** beyond the original question                                                   | no                 |
+| **D** | **Q-10 dedicated `JuniperRecurrence` conda env**                                                                     | Ready; provisioning + docs                                                                                         | no                 |
+| **E** | **F-P1-4 snapshot lifecycle** — phases 6.1 identity → 6.2 index → 6.4 retention                                      | Designed ([design](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_SNAPSHOT-LIFECYCLE-MANAGEMENT-DESIGN.md)); 6.3 fixes ready | S-1/S-2 open       |
+| **F** | **§12 perf lane** P1→P4 then development                                                                             | **Gated** (this note)                                                                                              | PF thresholds (P3) |
+| **G** | **Wide-budget head-to-head campaign** (ml#1122)                                                                      | **In progress**, concurrent session, GPU-bound                                                                     | no                 |
+| **H** | **Defect register outstanding work** (ml#1121) — 91 open defects                                                     | In progress, separate arc                                                                                          | no                 |
 
 ---
 
@@ -102,7 +102,7 @@ before blocked**, and **do not contend for a resource another arc is holding**.
 > ranking:
 >
 > | | corrected standing |
-> |---|---|
+> | --- | --- |
 > | **D-A optimizer** | **Demoted to lowest of the three.** The TypeError is real, but a restored optimizer is **never read** — `cascade_correlation.py:2063` unconditionally *recreates* it, deliberately, because a hidden-unit insertion invalidates the prior parameter space (`:2050-2053`), and `load_state_dict` is called nowhere. Fixing it changes nothing observable; it is **log hygiene**, not a correctness bug. The claim that it "silently breaks resume" above is **withdrawn**. |
 > | **D-B `load_network` / restore** | **Promoted to Tier 1 item 1.** Confirmed reachable and user-facing: `POST /v1/snapshots/{id}/restore` returns **404 "not found or failed to load"** for a *corrupt* snapshot (`api/routes/snapshots.py:213`, `manager.py:4573`), fusing two opposite operator situations under every snapshot operation (`/restore`, `/resume`, `/replay`, `/retrain`). |
 > | **move snapshot dir out of the package** | Unchanged, Tier 1 item 2 — closes the cascor#501 class. |
@@ -191,10 +191,10 @@ Tier 4   F-P1 design ──> F-P2 plan ──> F-P3 verify ──> F-P4 docs ─
 
 ## 5. Owner items still open after 2026-08-16
 
-| item | note |
-|---|---|
-| **PF threshold ratification** | Lands inside F-P3. The lane cannot finish its verification phase without it. |
+| item                               | note                                                                                                                                                                                                    |
+|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **PF threshold ratification**      | Lands inside F-P3. The lane cannot finish its verification phase without it.                                                                                                                            |
 | **S-1 / S-2** (snapshot design §9) | S-1 (move snapshots out of the checkout entirely) would make the fix structural. S-2 (is the March–April cohort of retained value?) is **deliberately not actionable** until E-6.2 can characterise it. |
-| **S-3 / S-4** | Audit-log unification and the retention horizon — both correctly deferred to last. |
+| **S-3 / S-4**                      | Audit-log unification and the retention horizon — both correctly deferred to last.                                                                                                                      |
 
 **Closed this round:** F-P1-2 (premise refuted), Q-6, Q-7, Q-8, Q-10.

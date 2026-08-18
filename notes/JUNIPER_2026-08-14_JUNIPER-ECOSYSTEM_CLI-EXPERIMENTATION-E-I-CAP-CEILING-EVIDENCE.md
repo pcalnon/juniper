@@ -155,11 +155,11 @@ either, deliberately — reaping was the workaround #512 removed the need for.
 
 Predictions were recorded in the suite file *before* the run, from two models:
 
-| | cap 64 | cap 128 |
-| --- | --- | --- |
-| linear in the cap (`derive_epochs_cap`) | 2640 s | 5280 s |
-| E-A's measured 1.66× per doubling | 2150 s | 3500 s |
-| **actual** | **2907 s** | **4244 s** |
+|                                         | cap 64     | cap 128    |
+|-----------------------------------------|------------|------------|
+| linear in the cap (`derive_epochs_cap`) | 2640 s     | 5280 s     |
+| E-A's measured 1.66× per doubling       | 2150 s     | 3500 s     |
+| **actual**                              | **2907 s** | **4244 s** |
 
 Both predictions were anchored on E-A's 1319 s for the cap-32 cell, but the right anchor is this
 campaign's own c000 at 1497 s — the same cell under this campaign's contention (§5). Re-anchored,
