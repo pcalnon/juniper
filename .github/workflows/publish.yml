@@ -31,8 +31,11 @@ on:
   #   gh workflow run publish.yml --repo pcalnon/juniper-ml --ref <tag>
   workflow_dispatch:
 
+# P4 (juniper-ml#357): `id-token: write` is scoped to the two publish jobs
+# below, NOT granted workflow-wide. The build job compiles untrusted-ish tree
+# content and has no business being able to mint a PyPI OIDC credential.
 permissions:
-  id-token: write
+  contents: read
 
 jobs:
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
@@ -61,6 +64,17 @@ jobs:
       - name: Check package
         run: twine check dist/*
 
+      # P3 (juniper-ml#357/#358): prove we are building a TAG, and that the tag's
+      # version matches the wheel actually built. Defense in depth -- the
+      # environment tag policy is the real control (it survives a workflow edit;
+      # this step does not), but this fails earlier and names the reason.
+      - name: Assert release tag matches built version
+        run: |
+          util/assert_release_tag.bash \
+            --ref "${{ github.ref }}" \
+            --dist-dir dist \
+            --expect-prefix v
+
       - name: Upload dist artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -75,6 +89,10 @@ jobs:
     name: Publish to TestPyPI
     needs: build
     runs-on: ubuntu-latest
+    # P4: OIDC minting lives here, not at workflow level.
+    permissions:
+      id-token: write
+      contents: read
     environment: testpypi
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -164,6 +182,10 @@ jobs:
     name: Publish to PyPI
     needs: testpypi
     runs-on: ubuntu-latest
+    # P4: OIDC minting lives here, not at workflow level.
+    permissions:
+      id-token: write
+      contents: read
     environment: pypi
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

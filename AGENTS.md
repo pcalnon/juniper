@@ -61,6 +61,7 @@ python3 -m unittest -v tests/test_workflow_script_paths.py
 python3 -m unittest -v tests/test_doc_tools_drift.py
 python3 -m unittest -v tests/test_service_fork_drift.py
 python3 -m unittest -v tests/test_publish_env_policy_drift.py
+python3 -m unittest -v tests/test_assert_release_tag.py
 python3 -m unittest -v tests/test_pyproject_extras.py
 python3 -m unittest -v tests/test_template_library_drift.py
 python3 -m unittest -v tests/test_template_selection.py
@@ -291,6 +292,7 @@ juniper-ml/
 │   ├── test_doc_tools_drift.py           # Lint: consumer-repo juniper-doc-tools pins still admit current version (plan §5.1)
 │   ├── test_service_fork_drift.py        # Drift gate: security guards that must not diverge across the data/cascor service-core forks (register §2.3; ENFORCED + self-maintaining KNOWN_GAP ledger)
 │   ├── test_publish_env_policy_drift.py  # Drift gate: publish envs stay tag-only ref-gated (publish-path design §6/§12); settings-not-code, so nothing else would notice a deletion
+│   ├── test_assert_release_tag.py        # Behavioural + wiring: util/assert_release_tag.bash (P3) — tag-shape + tag<->built-wheel version, and that all 7 publishers invoke it with the right prefix
 │   ├── test_pyproject_extras.py          # Lint: pyproject [project.optional-dependencies] surface matches the contract
 │   ├── test_template_library_drift.py    # Lint: custom-agent template library (prompts/agent_templates/) manifest <-> templates
 │   ├── test_template_selection.py        # Lint: custom-agent template match_signals selection coherence
@@ -327,6 +329,7 @@ juniper-ml/
 │
 └── util/                      # Utility scripts and tools
     ├── ad-hoc/                           # Single-use / temporary / unfinished scripts (see ad-hoc/README.md)
+    ├── assert_release_tag.bash            # Publish guard (P3): ref must be a TAG, and the tag's version must match the wheel actually built
     ├── open_signed_pr.py                  # Cross-repo: open a PR on any Juniper repo with a GitHub-SIGNED commit (createCommitOnBranch)
     ├── requirements_drift_check.py       # Drift checker for the requirements snapshot (--mode quick)
     ├── editable_install_drift_check.py   # Drift checker for juniper editable installs across conda envs
@@ -468,6 +471,12 @@ juniper-ml/
   - Discovery (`check_discovery`) is fail-closed unless `--no-discovery`: missing `util/prompt_discovery/cli.py`, nonzero CLI exit, non-JSON stdout, or bundle missing `schema_version` / `provenance.head_sha` → `FAIL` (never silent OK). `--no-discovery` omits the check (no `SKIP` row).
   - Operator surface: [docs/REFERENCE.md § Agent Suite Doctor](docs/REFERENCE.md#agent-suite-doctor). Tests: `tests/test_agent_suite_doctor.py`.
 - `util/agent_suite_summary.py` -- Quick-reference for the custom-agent suite (P3; the human counterpart to the doctor): lists the agents (name, model/effort, one-line description) and the templates (id, class, when-to-use). `python util/agent_suite_summary.py [--repo-root P] [--agents|--templates] [--json|--markdown]`; read-only, exit 0. Tests: `tests/test_agent_suite_summary.py`.
+- `util/assert_release_tag.bash` -- Publish-path guard invoked by all 7 publishers' build jobs (P3; [design](notes/JUNIPER_2026-08-17_JUNIPER-ECOSYSTEM_PUBLISH-PATH-AUTHORIZATION-DESIGN.md) §6 Option B, closing the surviving asks of juniper-ml#357 / #358).
+  - Asserts (1) the run is on a **tag**, not a branch, and the tag carries this package's prefix; (2) the tag's version equals the version actually built.
+  - The built version is read from the **wheel filename**, not `pyproject.toml` -- it is the version that will really be uploaded, and it works identically for static and dynamic (setuptools-scm / hatch) version backends where parsing pyproject reports nothing useful.
+  - Versions compare PEP 440-normalized, so a `v1.0.0-rc1` tag agrees with a `1.0.0rc1` wheel. `tr -d -- '-_'` needs the `--`: some `tr` builds (the Rust coreutils rewrite) parse a leading-dash SET as an option, and without it BOTH sides normalize to empty, making the mismatch check pass **vacuously**. An explicit empty-result guard backs that up.
+  - **Defense in depth, not the control.** Anyone who can edit a workflow can delete this step; the environment tag policy is what survives that. Value here is failing earlier, naming the reason, and keeping the invariant visible in the repo.
+  - `--ref-type` / `--ref-name` / `--dist-dir` / `--expect-prefix`; exit 0 pass / 1 assertion failed / 2 misuse. Tests: `tests/test_assert_release_tag.py`.
 - `util/open_signed_pr.py` -- Opens a PR on any Juniper repo whose commit is **GitHub-signed**, by creating branch + commit + PR through the API (`createCommitOnBranch`) instead of a local checkout. Promoted from `util/ad-hoc/` after it landed the ml#1099 signing fan-out across 8 repos.
   - Why it exists: `required_signatures` (2026-08-12) rejects unsigned commits fleet-wide, GPG/YubiKey signing is unavailable to a runner, and an unsigned commit **anywhere** in a branch's history blocks the merge (squash does not rescue it). GitHub signs API-authored commits, so this is the portable way to land a signed change. It needs no working tree, which also makes it the path of choice when a session is confined to one worktree and cannot commit in sibling checkouts.
   - `python util/open_signed_pr.py --repo R --branch B --add LOCAL:REPOPATH [--delete REPOPATH] --message M --title T --body-file F [--base main] [--owner pcalnon] [--dry-run]`. `--add` / `--delete` are repeatable and together express a file move; at least one is required. Exit 0 opened / 1 refused / 2 hard error.
@@ -593,6 +602,9 @@ juniper-ml/
   - A registry of named guards, each detected by a small source marker, rather than a file diff: the forks diverge legitimately and constantly (juniper-data deliberately holds API keys in a `list` for `compare_digest` timing where service-core uses a `set`), so a diff would drown the signal.
   - Two-sided by design. `ENFORCED` guards must be **present** in every fork; their disappearance is a regression. `KNOWN_GAP` guards must still be **absent** -- when someone closes one, the gate fails and instructs them to promote the row to `ENFORCED`, so the ledger cannot rot into a list of things that used to be true.
   - Cross-repo assertions gate exactly like `test_ci_tools_drift.py` (`GITHUB_ACTIONS=true` or `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`); the registry-structure checks and the matcher's negative control always run. It bites in `docs-full-check.yml`, the only job that clones the siblings. The register's "OPTIONS bypass" row is deliberately **not** encoded: it landed in no copy, so there is no reference implementation to derive a marker from.
+- `tests/test_assert_release_tag.py` -- Behavioural tests for `util/assert_release_tag.bash` plus a **wiring gate** asserting all 7 publishers invoke it with their own `--expect-prefix`, and that **no publisher grants `id-token` at workflow level** (P4).
+  - Drives synthetic dist directories: happy paths (meta, sub-package, `-rc1` normalization, alpha), and the refusals that matter -- branch ref, **empty** ref_type (must fail closed, not read as a tag), tag/version mismatch, wrong package prefix, missing dist dir, sdist-only, version-less tag, misuse exit 2.
+  - The mismatch case is a live regression guard: it originally passed because `tr -d '-_'` errored on this host and both sides normalized to empty. `util/` is outside every pre-commit Python hook's scope, so this suite is the gate.
 - `tests/test_publish_env_policy_drift.py` -- Drift gate for the **tag-only deployment ref policy** on every `pypi` / `testpypi` environment ([publish-path design](notes/JUNIPER_2026-08-17_JUNIPER-ECOSYSTEM_PUBLISH-PATH-AUTHORIZATION-DESIGN.md) §6 Option A / §12.5).
   - The control lives in GitHub **settings, not the repo**: no test covered it, no reviewer sees a diff when a policy is deleted, and the failure is silent -- the publish path just becomes permissive again.
   - Two load-bearing invariants: **no branch-type policy may exist** (adding a `main` branch policy re-opens branch dispatch while every tag pattern stays intact and the environment still looks configured -- owner decision D3 was tag-only), and **`pypi` must retain `required_reviewers`** (a `PUT` is create-or-update, so a careless payload clears the human gate while successfully setting a ref policy -- the environment then looks *more* configured while being weaker).
@@ -743,6 +755,14 @@ Jobs:
 ### Publishing (`publish.yml`)
 
 Triggered on GitHub release published. Uses OIDC trusted publishing (no API tokens). Publishes to TestPyPI first, then PyPI (`pypi needs: testpypi`). The Gate 1 verify installs `juniper-ml` bare, then `[clients]`, then `[tools]` from TestPyPI with PyPI as the extra index — never `--no-deps`, and never the heavy `[worker]` / `[servers]` / `[all]` / `[recurrence]` extras. The `build` job skips `juniper-<pkg>-v*` tags. Gate: `tests/test_publish_testpypi_verify.py`.
+
+**Publish-path authorization (all 7 publishers, 2026-08-17).** Three layers, in decreasing order of how much they survive:
+
+1. **Environment tag policies** — the actual control. Each `pypi` / `testpypi` environment admits only release tags (`v*`, `juniper-*-v*`, `rc*`, `juniper-*-rc*`, `hf*`, `juniper-*-hf*`), so a dispatch from a branch is refused **before the job starts** and no OIDC credential is minted. It is settings, not code, so it survives a workflow edit — and is guarded by `tests/test_publish_env_policy_drift.py`.
+2. **P3 `util/assert_release_tag.bash`** — the build job asserts ref-is-a-tag and tag-version-equals-built-wheel. Defense in depth: deletable by anyone editing the workflow, but fails earlier and names the reason.
+3. **P4 job-scoped `id-token`** — `id-token: write` sits on the two publish jobs, never the workflow block, so the build job cannot mint a PyPI credential at all. Job-level `permissions` **replace** the workflow block rather than merging, so each publish job restates `contents: read` for its checkout.
+
+Full design + the controls that proved it: [`notes/JUNIPER_2026-08-17_JUNIPER-ECOSYSTEM_PUBLISH-PATH-AUTHORIZATION-DESIGN.md`](notes/JUNIPER_2026-08-17_JUNIPER-ECOSYSTEM_PUBLISH-PATH-AUTHORIZATION-DESIGN.md).
 
 ### Documentation Full Check (`docs-full-check.yml`)
 
