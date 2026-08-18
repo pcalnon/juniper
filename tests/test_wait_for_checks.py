@@ -48,8 +48,8 @@ import subprocess  # nosec B404 - drives the util's CLI with a PATH-stubbed `gh`
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
-from unittest import mock
 
 from tests.redacted_env import RedactedEnv
 
@@ -306,7 +306,7 @@ class GrowingRollupTest(unittest.TestCase):
 
     def _run_wait(self, anchor):
         facts = {"base": "main", "state": "OPEN", "merge_state": "CLEAN", "url": "u"}
-        with mock.patch.object(MOD, "rollup", self._wave_feeder()), mock.patch.object(MOD, "pr_facts", lambda *a: dict(facts)), mock.patch.object(MOD, "required_contexts", lambda *a: list(REQUIRED)):
+        with unittest.mock.patch.object(MOD, "rollup", self._wave_feeder()), unittest.mock.patch.object(MOD, "pr_facts", lambda *a: dict(facts)), unittest.mock.patch.object(MOD, "required_contexts", lambda *a: list(REQUIRED)):
             return MOD.wait_for(
                 "o",
                 "r",
