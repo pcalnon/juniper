@@ -48,14 +48,23 @@ REPOS = [
     "juniper-recurrence",
 ]
 
-# Checks that must NEVER be required, even though they report on PRs.
+# Checks that are advisory BY DEFAULT -- they report on PRs but should not be required.
 #
 # * third-party fleet automation (Cursor / claude) -- not ours, may not run at all
-# * deliberately advisory gates (soak period; promotion is issue ml#1011)
+# * deliberately advisory gates awaiting promotion
 # * notification / mutation side-jobs -- they report but assert nothing
+#
+# This list is a DEFAULT, not the verdict: `advisory_predicate()` below subtracts whatever
+# the repo actually requires, so a promoted check reclassifies itself. Keeping promoted
+# names here is harmless and deliberate -- the same string may still be advisory in a
+# sibling repo that has not promoted it.
 ADVISORY_PREFIXES = ("Cursor Automation:",)
 ADVISORY_EXACT = {
     "claude",
+    # Promoted to REQUIRED on all 9 repos 2026-08-18 (ml#1011): ml publishes
+    # "Sequence Safety", the other 8 "Sequence Safety (Advisory)" (the suffix is part of
+    # the job name and cannot be dropped without breaking the required context). Retained
+    # here so the default still holds for any repo that has not promoted it.
     "Sequence Safety",
     "Sequence Safety (Advisory)",
     "Fleet PR Lint",
@@ -81,7 +90,25 @@ def _gh(args: list[str]) -> str:
 
 
 def is_advisory(name: str) -> bool:
+    """Default classification, ignoring what any particular repo requires."""
     return name in ADVISORY_EXACT or name.startswith(ADVISORY_PREFIXES)
+
+
+def advisory_predicate(required: set[str]):
+    """Per-repo advisory test: a REQUIRED context is by definition not advisory.
+
+    Without this, promoting a check leaves its name hardcoded in ``ADVISORY_EXACT`` and the
+    now-required context silently vanishes from the Tier-1 / path-gated views -- it looks
+    missing when it is fine. That happened on 2026-08-18 when ml#1011 made the
+    sequence-safety screen required on all 9 repos. Deriving the verdict from the repo's
+    live required set keeps the tool honest without needing the list edited on every
+    promotion, and keeps the default correct for repos that have not promoted the check.
+    """
+
+    def _advisory(name: str) -> bool:
+        return is_advisory(name) and name not in required
+
+    return _advisory
 
 
 def required_contexts(repo: str) -> set[str]:
@@ -145,7 +172,9 @@ def audit(repo: str) -> dict:
     always = set.intersection(*groups) if groups else set()
     freq = {name: sum(1 for g in groups if name in g) for name in reported}
 
-    tier1 = sorted(x for x in always if not is_advisory(x))
+    advisory = advisory_predicate(required)
+
+    tier1 = sorted(x for x in always if not advisory(x))
     return {
         "repo": repo,
         "prs_sampled": n,
@@ -154,9 +183,9 @@ def audit(repo: str) -> dict:
         "matched": sorted(required & reported),
         "tier1": tier1,
         "path_gated": sorted(
-            f"{x} [{freq[x]}/{n}]" for x in reported - always if not is_advisory(x)
+            f"{x} [{freq[x]}/{n}]" for x in reported - always if not advisory(x)
         ),
-        "advisory_seen": sorted(x for x in reported if is_advisory(x)),
+        "advisory_seen": sorted(x for x in reported if advisory(x)),
     }
 
 
