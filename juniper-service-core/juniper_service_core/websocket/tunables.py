@@ -56,6 +56,21 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+# Public surface. Declared explicitly because several of these exist for
+# *consumers* rather than for this module's own internals -- notably
+# ``SECURITY_TUNABLES``, which a service uses to check just the security subset
+# and which CodeQL otherwise (correctly) reports as an unused global.
+__all__ = [
+    "NEAR_MATCH_CUTOFF",
+    "SECURITY_TUNABLES",
+    "SettingsAudit",
+    "Tunable",
+    "UnknownTunableError",
+    "WS_TUNABLES",
+    "audit",
+    "resolve",
+]
+
 logger = logging.getLogger("juniper_service_core.websocket.tunables")
 
 #: Similarity threshold for treating a settings attribute as a probable misspelling.
