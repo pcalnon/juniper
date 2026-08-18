@@ -18,11 +18,11 @@ front; it is reference, not a step.
 
 ## Documents
 
-| what | path |
-|---|---|
-| matrix (the ledger) | `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md` |
-| evidence note (findings + per-segment record) | `notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md` |
-| plan (§9 verdict vocabulary, §4.5 recurrence leg, merge policy `:689-690`) | `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md` |
+| what                                                                       | path                                                                        |
+|----------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| matrix (the ledger)                                                        | `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md` |
+| evidence note (findings + per-segment record)                              | `notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`        |
+| plan (§9 verdict vocabulary, §4.5 recurrence leg, merge policy `:689-690`) | `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md`   |
 
 ## Verify your starting state first
 
@@ -60,15 +60,15 @@ the ledger's headline and was caught in validation; do not repeat it.)*
 
 ## What is done (do not redo)
 
-| PR | Merge | Item |
-|---|---|---|
-| ml#1131 | `0966f94` | segment 12 — sidebar §2.6–§2.9 driven, matrix 140→168, **AUTO-API numeric wall retired** |
-| canopy#492 | `0460240` | **F-CANOPY-022 FIXED** — `candidate_selection` ships cascor's `top` literal |
-| canopy#493 | `71b569b` | **F-CANOPY-024 FIXED** — valid default triple, count floors match cascor `ge=0` |
-| canopy#494 | `56ce45f` | **F-CANOPY-023 FIXED** — verify skips cascor-declined keys |
-| ml#1132 | `5239dfd` | fix record + **F-CANOPY-023 root cause corrected** (it is canopy-only) |
-| ml#1146 | `7bf5b3d` | segment 13 — **§2.10 CLOSED 17/17**, §2.9 tail, matrix 168→198, **new F-CANOPY-025** |
-| ml#1153 | `6ddfa21` | segment 14 — **§3.9 Snapshots 4/21→18/21**, matrix 198→212 |
+| PR         | Merge     | Item                                                                                     |
+|------------|-----------|------------------------------------------------------------------------------------------|
+| ml#1131    | `0966f94` | segment 12 — sidebar §2.6–§2.9 driven, matrix 140→168, **AUTO-API numeric wall retired** |
+| canopy#492 | `0460240` | **F-CANOPY-022 FIXED** — `candidate_selection` ships cascor's `top` literal              |
+| canopy#493 | `71b569b` | **F-CANOPY-024 FIXED** — valid default triple, count floors match cascor `ge=0`          |
+| canopy#494 | `56ce45f` | **F-CANOPY-023 FIXED** — verify skips cascor-declined keys                               |
+| ml#1132    | `5239dfd` | fix record + **F-CANOPY-023 root cause corrected** (it is canopy-only)                   |
+| ml#1146    | `7bf5b3d` | segment 13 — **§2.10 CLOSED 17/17**, §2.9 tail, matrix 168→198, **new F-CANOPY-025**     |
+| ml#1153    | `6ddfa21` | segment 14 — **§3.9 Snapshots 4/21→18/21**, matrix 198→212                               |
 
 Closed lanes (10): §2.1 4/4, §2.2 6/6, §2.3 8/8, §2.10 17/17, §3.3 topology 18/18, §3.10 replay 17/17,
 §3.11 network editor 18/18, §3.12 redis 4/4, §3.13 cassandra 4/4, §3.15 about 3/3.
@@ -78,23 +78,23 @@ Closed lanes (10): §2.1 4/4, §2.2 6/6, §2.3 8/8, §2.10 17/17, §3.3 topology
 Anchors are line numbers in the matrix. Re-grep the `###` header if one is off — the section *names* are the
 durable key.
 
-| section (line) | unfilled | row ids |
-|---|---:|---|
-| §2.4 WS badge (`:223`) | 2 | C2.4-02, C2.4-05 |
-| §2.5 training controls (`:246`) | 1 | C2.5-07 |
-| §2.6 NN meta-parameters (`:275`) | 4 | C2.6-05, 07, 10, 14 |
-| §2.7 dataset subsection (`:301`) | 6 | C2.7-02, 03, 06, 07, 08, 09 |
-| §2.8 candidate-node meta-parameters (`:316`) | 1 | C2.8-09 |
-| §2.9 banner trio / Apply / Experimental (`:335`) | 3 | C2.9-06, 14, 15 |
-| §3.1 metrics (`:405`) | 22 | M-METRICS-02..09, 11..20, 23, 25, 27, 28 |
-| §3.2 candidates (`:444`) | 4 | M-CANDIDATES-07, 09, 10, 11 |
-| §3.4 evolution (`:489`) | 2 | M-EVOLUTION-04, 07 |
-| §3.5 boundaries (`:504`) | 8 | M-BOUNDARIES-01..08 |
-| §3.6 dataset view (`:519`) | 24 | M-DATASET-01, 02, 03, 05, 07, 09..27 |
-| §3.7 workers (`:573`) | 1 | M-WORKERS-02 |
-| §3.8 parameters (`:586`) | 4 | M-PARAMETERS-04, 05, 06, 07 |
-| §3.9 snapshots (`:600`) | 3 | M-SNAPSHOTS-19, 20, 21 |
-| §3.14 tutorial (`:701`) | 1 | M-TUTORIAL-04 |
+| section (line)                                   | unfilled | row ids                                  |
+|--------------------------------------------------|---------:|------------------------------------------|
+| §2.4 WS badge (`:223`)                           |        2 | C2.4-02, C2.4-05                         |
+| §2.5 training controls (`:246`)                  |        1 | C2.5-07                                  |
+| §2.6 NN meta-parameters (`:275`)                 |        4 | C2.6-05, 07, 10, 14                      |
+| §2.7 dataset subsection (`:301`)                 |        6 | C2.7-02, 03, 06, 07, 08, 09              |
+| §2.8 candidate-node meta-parameters (`:316`)     |        1 | C2.8-09                                  |
+| §2.9 banner trio / Apply / Experimental (`:335`) |        3 | C2.9-06, 14, 15                          |
+| §3.1 metrics (`:405`)                            |       22 | M-METRICS-02..09, 11..20, 23, 25, 27, 28 |
+| §3.2 candidates (`:444`)                         |        4 | M-CANDIDATES-07, 09, 10, 11              |
+| §3.4 evolution (`:489`)                          |        2 | M-EVOLUTION-04, 07                       |
+| §3.5 boundaries (`:504`)                         |        8 | M-BOUNDARIES-01..08                      |
+| §3.6 dataset view (`:519`)                       |       24 | M-DATASET-01, 02, 03, 05, 07, 09..27     |
+| §3.7 workers (`:573`)                            |        1 | M-WORKERS-02                             |
+| §3.8 parameters (`:586`)                         |        4 | M-PARAMETERS-04, 05, 06, 07              |
+| §3.9 snapshots (`:600`)                          |        3 | M-SNAPSHOTS-19, 20, 21                   |
+| §3.14 tutorial (`:701`)                          |        1 | M-TUTORIAL-04                            |
 
 **Four of these carry a stale non-terminal `pending …` record** — `C2.4-02`, `C2.4-05`
 (`rowlog.md:73`, `| C2.4-04/05 | pending W14 |`), `M-WORKERS-02` and `M-TUTORIAL-04`. They need a *terminal*
@@ -180,6 +180,7 @@ Finish §3.1 / §3.2 / §3.4 / §3.5 on one run *before* restarting for the data
    > still reads `status: "ok"`; only `demo_mode: true` betrays it. Every verdict scored after that is
    > against the demo backend. W14 also records that in-memory training state is expected lost (`:1029`), so
    > this induction **destroys the run** — finish items 1–4 first.
+
 6. **§3.8 parameters (4)** — do these BEFORE the dataset block; they need only a loaded dataset, not a fresh run.
    M-PARAMETERS-04..06 are the pin checkboxes feeding `pinned-params-store`;
    M-PARAMETERS-07 is a different mechanism (table refresh after Apply).
@@ -334,19 +335,19 @@ is a convention the tool will not police for you:
 
 ## Tools you already have
 
-| tool | use |
-|---|---|
-| `util/isolated_stack.bash` | `--up` / `--down` / `--status` / `--dry-run` — **always with both env overrides** |
-| `util/ad-hoc/e2e_matrix_fill.py` | fill the status column from run records (dry-run default) |
-| `util/ad-hoc/e2e_row_coverage.py` | coverage **estimator** — do not plan the work from its section list |
-| `util/ad-hoc/e2e_append_statuses.py` | dup-guarded TSV verdict append (`--replace` to rewrite) |
-| `util/ad-hoc/e2e_poll_status.py` | `--until-units N` / `--until-fsm STOPPED` / `--until-pending-clear` |
-| `util/ad-hoc/e2e_w3_params_driver.py` | shared browser/log helpers — **`--steps`** (comma/range, e.g. `1-9`) |
-| `util/ad-hoc/e2e_w6_dataset_driver.py` | dataset staging driver — **`--steps`** (plural, **comma-only — no ranges**, despite its docstring); **stops before the W6 restart confirm by design** |
-| `util/ad-hoc/e2e_seg13_modals_driver.py` | §2.10 + §2.9 tail, **and `--step live_switch` starts a training run** — **`--step`** (single name); `probe`, `_click`, `_set_number`, `_set_checkbox`, `_wait_present` |
-| `util/ad-hoc/e2e_seg14_snapshots_driver.py` | §3.9 — **`--step`**; re-query-before-click + retry, `full_text`, wire capture |
-| `util/ad-hoc/e2e_cascor_leg_supervise.bash` | run the cascor leg under a resident supervisor (F-ML-001) |
-| `util/ad-hoc/e2e_snapshot_h5_compare.py` | compare snapshot `.h5` artifacts |
+| tool                                        | use                                                                                                                                                                    |
+|---------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `util/isolated_stack.bash`                  | `--up` / `--down` / `--status` / `--dry-run` — **always with both env overrides**                                                                                      |
+| `util/ad-hoc/e2e_matrix_fill.py`            | fill the status column from run records (dry-run default)                                                                                                              |
+| `util/ad-hoc/e2e_row_coverage.py`           | coverage **estimator** — do not plan the work from its section list                                                                                                    |
+| `util/ad-hoc/e2e_append_statuses.py`        | dup-guarded TSV verdict append (`--replace` to rewrite)                                                                                                                |
+| `util/ad-hoc/e2e_poll_status.py`            | `--until-units N` / `--until-fsm STOPPED` / `--until-pending-clear`                                                                                                    |
+| `util/ad-hoc/e2e_w3_params_driver.py`       | shared browser/log helpers — **`--steps`** (comma/range, e.g. `1-9`)                                                                                                   |
+| `util/ad-hoc/e2e_w6_dataset_driver.py`      | dataset staging driver — **`--steps`** (plural, **comma-only — no ranges**, despite its docstring); **stops before the W6 restart confirm by design**                  |
+| `util/ad-hoc/e2e_seg13_modals_driver.py`    | §2.10 + §2.9 tail, **and `--step live_switch` starts a training run** — **`--step`** (single name); `probe`, `_click`, `_set_number`, `_set_checkbox`, `_wait_present` |
+| `util/ad-hoc/e2e_seg14_snapshots_driver.py` | §3.9 — **`--step`**; re-query-before-click + retry, `full_text`, wire capture                                                                                          |
+| `util/ad-hoc/e2e_cascor_leg_supervise.bash` | run the cascor leg under a resident supervisor (F-ML-001)                                                                                                              |
+| `util/ad-hoc/e2e_snapshot_h5_compare.py`    | compare snapshot `.h5` artifacts                                                                                                                                       |
 
 **Try the browser MCP first** (`mcp__playwright__*`). It was available in segments 9 and 12, **absent in 8, 13
 and 14**. When absent, drive the scripts under `/opt/miniforge3/envs/JuniperCanopy1/bin/python` — the only
@@ -435,31 +436,27 @@ Ledger: evidence note §"Findings ledger (Phase 1)" (`:96`) — **but several fi
 sections instead**: F-CANOPY-009 at `:403`, F-CANOPY-010 at `:471`, F-CASCOR-003b at `:1847`. Grep the whole
 file, not just the ledger section.
 
-| finding | bearing on segment 15 |
-|---|---|
-| **F-CANOPY-002** (P0) | WS metrics fast path dead in every live run — **score §3.1 against the REST oracle** |
-| **F-CANOPY-003** (P1) | control buttons never re-enable after a successful ack; the 2 s sweep lands at 30 s–minutes, so **a raced command wedges start/pause/resume disabled until the next control action fires the sweep** (observed >8 min) |
-| **F-CANOPY-004** (P0/P1) | server callbacks lag 30 s–minutes during a run; budget settle windows accordingly |
-| **F-CANOPY-005** (P0) | the WS send-promise races its 3 s timeout, so the REST fallback **double-fires state-changing commands** — an apparently-failed command may already have succeeded |
-| **F-CANOPY-006** (P0) | topology counts never update; stale counters (e.g. `monitor.current_hidden_units` reading 0 against a live 10-unit network) belong here, **not** a new finding |
-| **F-CANOPY-009 / -010** (P1) | snapshot detail panel wiped ~7 s later; op-confirm modal self-closes ~3.6 s, early-out returns `(False, "", None)` |
-| **F-CANOPY-025** (P1) | Live Dataset Switch gate never emits → **W7 hot swap unreachable from the UI**; W6 cold restart is the only route to a dataset-swap event |
-| **F-ML-001** (P1) | never run the orphan reaper while the stack is up |
-| **F-CASCOR-003b** | unsettled, and its original observation used the discredited box-wide counting method — **re-take with per-leg attribution** |
+| finding                      | bearing on segment 15                                                                                                                                                                                                  |
+|------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **F-CANOPY-002** (P0)        | WS metrics fast path dead in every live run — **score §3.1 against the REST oracle**                                                                                                                                   |
+| **F-CANOPY-003** (P1)        | control buttons never re-enable after a successful ack; the 2 s sweep lands at 30 s–minutes, so **a raced command wedges start/pause/resume disabled until the next control action fires the sweep** (observed >8 min) |
+| **F-CANOPY-004** (P0/P1)     | server callbacks lag 30 s–minutes during a run; budget settle windows accordingly                                                                                                                                      |
+| **F-CANOPY-005** (P0)        | the WS send-promise races its 3 s timeout, so the REST fallback **double-fires state-changing commands** — an apparently-failed command may already have succeeded                                                     |
+| **F-CANOPY-006** (P0)        | topology counts never update; stale counters (e.g. `monitor.current_hidden_units` reading 0 against a live 10-unit network) belong here, **not** a new finding                                                         |
+| **F-CANOPY-009 / -010** (P1) | snapshot detail panel wiped ~7 s later; op-confirm modal self-closes ~3.6 s, early-out returns `(False, "", None)`                                                                                                     |
+| **F-CANOPY-025** (P1)        | Live Dataset Switch gate never emits → **W7 hot swap unreachable from the UI**; W6 cold restart is the only route to a dataset-swap event                                                                              |
+| **F-ML-001** (P1)            | never run the orphan reaper while the stack is up                                                                                                                                                                      |
+| **F-CASCOR-003b**            | unsettled, and its original observation used the discredited box-wide counting method — **re-take with per-leg attribution**                                                                                           |
 
 Fixed this arc, **do not re-file**: F-CANOPY-017 (canopy#489), -022 (#492), -023 (#494), -024 (#493).
 
 ## Still open from earlier segments
 
-- **W7 is not blocked by its own preconditions** — "LIVE lane; training **running**", no recurrence
-  dependency (`:881`). But **F-CANOPY-025 means the UI entry point is dead**, so W7 is blocked by that
-  finding. Record it that way; do not re-file it as a precondition problem.
+- **W7 is not blocked by its own preconditions** — "LIVE lane; training **running**", no recurrence dependency (`:881`). But **F-CANOPY-025 means the UI entry point is dead**, so W7 is blocked by that finding. Record it that way; do not re-file it as a precondition problem.
 - **W8 is `N-A`, not BLOCKED**, while the recurrence leg is down (`:904-906`).
 - **W6-21** (staging-failure arm) needs the shared juniper-data leg stopped — MANUAL, never attempted.
-- **W5-30 + the DEMO lane** — each demo arm must 501 and render `❌ Operation not supported in this mode`.
-  Needs the hand-launched DEMO posture above.
-- **C2.9-06 / -14 / -15** — not driven in segment 13 for stated reasons (the form never dirtied during a live
-  run; the pin gesture is unsolved). Instrument limits, not defects.
+- **W5-30 + the DEMO lane** — each demo arm must 501 and render `❌ Operation not supported in this mode`. Needs the hand-launched DEMO posture above.
+- **C2.9-06 / -14 / -15** — not driven in segment 13 for stated reasons (the form never dirtied during a live run; the pin gesture is unsolved). Instrument limits, not defects.
 
 ## Landing the segment
 
@@ -496,12 +493,14 @@ Then:
    **23–24 contexts, of which 17 are SUCCESS** and the rest NEUTRAL/SKIPPED, so guard on
    **`SUCCESS >= 17 AND pending == 0`** — *not* on `total >= 17`, which is satisfied six checks early. Better:
    wait on a **named** required check.
-6. After merging: `gh run list --workflow=main-verify.yml -c "$(gh pr view <N> --json mergeCommit -q .mergeCommit.oid)" --json conclusion,url` (**`-c` matches only FULL 40-char SHAs** — a 7-char SHA silently returns `[]`, which reads like "no run yet") (**`-c`**, not
-   `--limit 1`, which returns the newest run repo-wide and routinely reports another session's). **main-verify
-   goes red periodically** from an inherited docs-deletion finding carried forward by the G3.1 catch-up base
-   — it was failing on `604fefc` when this handoff was cut, and green again a few merges later, so check the
-   state yourself rather than assuming either. Confirm the failing paths are not yours before acting. If your own diff trips `juniper-docs-additions-check`, add an `Allow-Docs-Rewrite: <path>` commit
-   trailer **and carry it into the squash commit message**. A paired status-cell swap does not trip it.
+6. After merging:
+   `gh run list --workflow=main-verify.yml -c "$(gh pr view <N> --json mergeCommit -q .mergeCommit.oid)" --json conclusion,url`
+     - (**`-c` matches only FULL 40-char SHAs** — a 7-char SHA silently returns `[]`, which reads like "no run yet")
+     - (**`-c`**, not `--limit 1`, which returns the newest run repo-wide and routinely reports another session's).
+   **main-verify goes red periodically** from an inherited docs-deletion finding carried forward by the G3.1 catch-up base — it was failing on `604fefc` when this handoff was cut, and green again a few merges later, so check the state yourself rather than assuming either.
+   Confirm the failing paths are not yours before acting.
+   If your own diff trips `juniper-docs-additions-check`, add an `Allow-Docs-Rewrite: <path>` commit trailer **and carry it into the squash commit message**.
+   A paired status-cell swap does not trip it.
 7. Clean up your worktree and branch.
 
 **Before you emit the segment-16 handoff, validate it independently** — this arc's handoffs inherit errors

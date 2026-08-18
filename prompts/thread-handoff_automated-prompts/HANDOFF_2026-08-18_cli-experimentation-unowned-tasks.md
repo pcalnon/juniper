@@ -41,13 +41,13 @@ what you copy, and verify what a reviewer tells you.**
 
 ### 0.1 Merged in juniper-ml
 
-| PR | landed | what |
-|----|--------|------|
-| ml#1133 | `b7f7ec2` | the orphan reaper no longer kills a live experiment stack or campaign |
-| ml#1142 | `e4f05f5` | `execution.max_wall_seconds` forwarding, R-6 gate widened to cap, pf3 fix, 4 doc true-ups |
-| ml#1152 | `652724e` | driver preempts a 409 on start; reports an inert stall window |
+| PR      | landed    | what                                                                                                        |
+|---------|-----------|-------------------------------------------------------------------------------------------------------------|
+| ml#1133 | `b7f7ec2` | the orphan reaper no longer kills a live experiment stack or campaign                                       |
+| ml#1142 | `e4f05f5` | `execution.max_wall_seconds` forwarding, R-6 gate widened to cap, pf3 fix, 4 doc true-ups                   |
+| ml#1152 | `652724e` | driver preempts a 409 on start; reports an inert stall window                                               |
 | ml#1159 | `49cc073` | **guards the `max_epochs`/`output_epochs` trap** + the 2× root-cause tooling (creates the E-K / E-L suites) |
-| ml#1160 | `9fd5b1a` | determinism analyzer refuses to compare an in-flight run |
+| ml#1160 | `9fd5b1a` | determinism analyzer refuses to compare an in-flight run                                                    |
 
 `main-verify` green on the first three. **ml#1159 and ml#1160 are not this session's work** — they
 belong to the determinism / 2×-penalty arc (`Refs juniper-cascor#532`). ml#1159 is listed because
@@ -81,11 +81,11 @@ own survey flags** (§1.2).
 
 The predecessor's §9 declared three residual clauses it did not re-derive. Their status today:
 
-| clause | status |
-|--------|--------|
-| R-6 "retire the ad-hoc shim" | **CLOSED.** `util/ad-hoc/2026-08-10_driver_stall_shim.py` is gone; `tests/test_experiment_suite_yamls.py:319 StallShimRetirementTest` anti-resurrects it. |
-| R-2 tooling-generalization | **CLOSED.** `util/ad-hoc/2026-08-10_ea_aggregate_clean.py` now takes a suite prefix + run root ("Originally E-A-only (hence the filename); now takes the suite prefix, run root, and expected…"). |
-| R-1 second clause — *do not report `succeeded` when zero candidates were installable* | **UNVERIFIED and homeless.** cascor#509 is closed but this clause was never independently confirmed. It is **not** adopted here; see §9. |
+| clause                                                                                | status                                                                                                                                                                                            |
+|---------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| R-6 "retire the ad-hoc shim"                                                          | **CLOSED.** `util/ad-hoc/2026-08-10_driver_stall_shim.py` is gone; `tests/test_experiment_suite_yamls.py:319 StallShimRetirementTest` anti-resurrects it.                                         |
+| R-2 tooling-generalization                                                            | **CLOSED.** `util/ad-hoc/2026-08-10_ea_aggregate_clean.py` now takes a suite prefix + run root ("Originally E-A-only (hence the filename); now takes the suite prefix, run root, and expected…"). |
+| R-1 second clause — *do not report `succeeded` when zero candidates were installable* | **UNVERIFIED and homeless.** cascor#509 is closed but this clause was never independently confirmed. It is **not** adopted here; see §9.                                                          |
 
 ---
 
@@ -121,11 +121,11 @@ Full survey of all 23 suites, resolving each `base_config` the way `_resolve_bas
 
 **INVERTED — subprocess kills first (3):**
 
-| suite | timeout | effective budget | app |
-|-------|---------|------------------|-----|
-| `p4/e-k-thread-probe-cap16.yaml:37` | 7200 | 14400 | cascor |
-| `p4/e-l-determinism-cap4.yaml:27` | 3600 | 14400 | cascor |
-| `recurrence-d-sweep.yaml:17` | **600** | **900** | recurrence |
+| suite                               | timeout | effective budget | app        |
+|-------------------------------------|---------|------------------|------------|
+| `p4/e-k-thread-probe-cap16.yaml:37` | 7200    | 14400            | cascor     |
+| `p4/e-l-determinism-cap4.yaml:27`   | 3600    | 14400            | cascor     |
+| `recurrence-d-sweep.yaml:17`        | **600** | **900**          | recurrence |
 
 **EQUAL — a race, whichever fires first (6):** `cascor-budget-sweep.yaml` (3600/3600),
 `p4/e-c-cascor-noise-robustness.yaml:26` (3600/3600), `p4/e-d-recurrence-d-sweep.yaml` (900/900),
@@ -147,10 +147,10 @@ Two things that survey changes:
 
 No run has been truncated. Measured on this host:
 
-| suite | measured wall | its timeout | outcome |
-|-------|---------------|-------------|---------|
-| E-K (`e-k-thread-probe-cap16-20260817T211146Z`) | **981.6 s** | 7200 | `succeeded` |
-| E-L (`e-l-determinism-cap4-20260818T032548Z`) | **229.0 s** | 3600 | `succeeded` |
+| suite                                           | measured wall | its timeout | outcome     |
+|-------------------------------------------------|---------------|-------------|-------------|
+| E-K (`e-k-thread-probe-cap16-20260817T211146Z`) | **981.6 s**   | 7200        | `succeeded` |
+| E-L (`e-l-determinism-cap4-20260818T032548Z`)   | **229.0 s**   | 3600        | `succeeded` |
 
 It is a misconfiguration waiting for a slower host or a wider cell, not an active failure. Say so.
 
