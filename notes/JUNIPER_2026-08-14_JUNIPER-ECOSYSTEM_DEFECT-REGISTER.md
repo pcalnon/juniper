@@ -57,7 +57,7 @@ Every `OPEN` in this document was confirmed by reading the file **today**. Line 
 | `juniper-ml` (meta) | 0 | 0 | 0 | 1 | 0 | **1** |
 | **Total** | **7** | **19** | **18** | **34** | **18** | **96** |
 
-**Status:** the 96 entries above were all confirmed present in current source on 2026-08-14. **Eleven have since been fixed** — `APD-DATA-002`, `APD-DATA-006`, `APD-DATA-034`, `APD-DATA-036`, `APD-CASCOR-002`, (2026-08-16) `APD-DATA-001` † / `APD-CASCOR-004` †, and (2026-08-17) `APD-DATA-003` / `APD-CASCOR-006` † plus `APD-SVCCORE-003` / `APD-SVCCORE-010` — leaving **85 open**; each is marked at its detail entry and in its §4 table row, and all eleven are recorded in [§5](#5-fixed-findings-before-and-since-the-primer) with their PR and verification. That closes every item in §2.2's ranked list **and every copy-drift row that had a reference implementation to port**. Three further findings were already fixed before this register was written and are likewise listed in §5 rather than counted in the 96: two between the primer's publication and this register, and one earlier still. No extracted claim failed to reproduce, but one claim reproduced with its provenance inverted — see `APD-SVCCORE-016`.
+**Status:** the 96 entries above were all confirmed present in current source on 2026-08-14. **Twelve have since been fixed** — `APD-DATA-002`, `APD-DATA-006`, `APD-DATA-034`, `APD-DATA-036`, `APD-CASCOR-002`, (2026-08-16) `APD-DATA-001` † / `APD-CASCOR-004` †, and (2026-08-17) `APD-DATA-003` / `APD-CASCOR-006` † plus `APD-SVCCORE-003` / `APD-SVCCORE-010` / `APD-OBS-001` — leaving **84 open**; each is marked at its detail entry and in its §4 table row, and all twelve are recorded in [§5](#5-fixed-findings-before-and-since-the-primer) with their PR and verification. That closes every item in §2.2's ranked list **and every copy-drift row that had a reference implementation to port**. Three further findings were already fixed before this register was written and are likewise listed in §5 rather than counted in the 96: two between the primer's publication and this register, and one earlier still. No extracted claim failed to reproduce, but one claim reproduced with its provenance inverted — see `APD-SVCCORE-016`.
 
 ### 2.1 Reachability — read this before triaging any Security entry
 
@@ -305,7 +305,7 @@ That is what moves this from Security to Robustness: the real defect is the miss
 | | |
 |---|---|
 | **Severity** | Maintainability |
-| **Status** | OPEN |
+| **Status** | **FIXED** — ml#PR4 |
 | **Source** | `juniper-observability/juniper_observability/middleware/request_id.py:36` (ingest), `:40` (echo) |
 | **Primer** | I.10 — lines 1109, 2101-2103 |
 | **Confidence** | Medium |
@@ -319,6 +319,8 @@ That is what moves this from Security to Robustness: the real defect is the miss
 
 **What remains, and why it is still worth fixing.** An unvalidated external value flows into a `ContextVar` that any consumer may write to a line-oriented sink, and the containment above is entirely incidental — it depends on the h11 defaults and the JSON formatter's `json.dumps` escaping, neither of which this package controls or asserts.
 Restate the work item as: **apply a length cap and a character allowlist on ingress, before that containment is assumed.** The house helper for exactly this class already exists — `_sanitize_for_log` in `juniper-service-core/juniper_service_core/websocket/control_security.py:29` — and is simply not applied here.
+
+**Fixed (ml#PR4) — as restated, on ingress.** `is_valid_request_id` applies a 128-character cap and an allowlist (`[A-Za-z0-9._:-]`, anchored at both ends), and an inbound value that fails either is **replaced with a fresh UUID4** rather than sanitized: stripping characters would propagate an ID the client never sent, correlating to nothing on either side, whereas a fresh UUID is at least honestly this server's own. Rejection is deliberately **silent** — logging every rejected header would hand an attacker the log-flood lever this guard exists to bound. The allowlist was chosen to keep real correlation IDs working (UUID, ULID, W3C `traceparent`, `service:id`), all pinned by tests. Verified by mutation: making the validator return `True` fails 7 arms. The containment the caveat above describes is now asserted locally instead of borrowed from h11's defaults.
 
 **Provenance (register-derived).** Two claims in the earlier text were not the primer's: that `juniper-data-client` propagates the value outbound across service hops (the primer's client-side references read `X-Request-ID` *off responses*, the opposite direction), and that `_sanitize_for_log` exists and is unapplied (`_sanitize_for_log` appears zero times in the primer). Both are verified against source; neither is an extraction.
 
@@ -612,7 +614,7 @@ What reproduces is broader: `self.base_url = base_url.rstrip("/")` (`:82`) is th
 
 | ID | Finding | Sev | Source | Primer | Conf |
 |---|---|---|---|---|---|
-| APD-OBS-001 | `X-Request-ID` accepted unvalidated — contained by h11, not by this package | M | `middleware/request_id.py:36`, `:40` | 1109, 2101 | Med |
+| APD-OBS-001 | **FIXED (ml#PR4)** — `X-Request-ID` accepted unvalidated — contained by h11, not by this package | M | `middleware/request_id.py:36`, `:40` | 1109, 2101 | Med |
 | APD-OBS-002 | No `py.typed` — every consumer sees `[import-untyped]` | M | package root; `pyproject.toml` | 7598 | High |
 | APD-OBS-003 | `register_info_or_update -> Any` beside three siblings returning `T` | M | `prometheus_helpers.py:214-218` | 7669 | Med |
 | APD-OBS-004 | Two `__all__` lists must agree; nothing checks it | M | `middleware/__init__.py:13-22`, `__init__.py:52-90` | 6250 | Med |
@@ -647,7 +649,7 @@ Recorded so the register is not read as a list of live problems that includes re
 
 ### 5.1 Fixed since this register was published (2026-08-14)
 
-These eleven carry their **original IDs** — they were counted in the 96, and are marked `FIXED` in place at their §4 table row and detail entry rather than renumbered or removed, so a reader following an existing reference still lands on the right entry and sees why it is closed. Working the §2.2 list is what produced them, and it is now worked through: all four of its items are closed.
+These twelve carry their **original IDs** — they were counted in the 96, and are marked `FIXED` in place at their §4 table row and detail entry rather than renumbered or removed, so a reader following an existing reference still lands on the right entry and sees why it is closed. Working the §2.2 list is what produced them, and it is now worked through: all four of its items are closed.
 
 | ID | Finding | Fixed by | Verification |
 |---|---|---|---|
@@ -662,6 +664,7 @@ These eleven carry their **original IDs** — they were counted in the 96, and a
 | APD-CASCOR-006 † | The same gap in juniper-cascor's copy | [juniper-cascor#527](https://github.com/pcalnon/juniper-cascor/pull/527) | Same fix; this fork already used a `set`, so the `security.py` line is byte-identical to the canonical service-core filter. 11 arms added, complementing the request-side coverage this fork already had (`test_validate_empty_string_key_is_invalid`) with the configuration side -- a blank key must never become a valid credential in the first place. The settings half was caught here by its own new test after a first pass updated only the docstring. |
 | APD-SVCCORE-003 | `_setting` silently defaulted a misspelled settings field — six of the eleven tunables are security controls | ml#1154 | `websocket/tunables.py` declares all eleven with defaults + a `security` flag; both handlers resolve through it. The decoupling is kept (no import of a service settings class); what changes is that the default is declared rather than repeated at 13 call sites, and a near-miss on the settings object is logged at WARNING naming both spellings — the `..._per_second` case now produces a log line instead of silence. `audit(settings)` reports defaulted security controls and suspected typos at boot; an undeclared name raises. Verified by mutation: deleting the near-match lookup fails the warning arm. |
 | APD-SVCCORE-010 | `_setting` duplicated byte-identically in two modules | ml#1154 | Closed by the same change — one shared resolver, two thin delegating wrappers. A source-scan test asserts neither handler re-implements the `getattr(settings, name, default)` body, so the duplication cannot grow back. |
+| APD-OBS-001 | `X-Request-ID` accepted unvalidated into a process-wide ContextVar and echoed back | ml#PR4 | 128-char cap + anchored allowlist `[A-Za-z0-9._:-]` on ingress; a failing value is **replaced** with a fresh UUID4, not sanitized — a stripped value would correlate to nothing on either side. Rejection is silent on purpose (logging it is the log-flood lever the guard bounds). UUID / ULID / W3C `traceparent` / `service:id` all still pass, pinned by tests. Moves the containment from h11's incidental defaults into this package. Mutation: a always-true validator fails 7 arms. |
 
 The §2.3 copy-drift recommendation was built alongside them: `tests/test_service_fork_drift.py` ([juniper-ml#1103](https://github.com/pcalnon/juniper-ml/pull/1103)) now holds **all five** portable guards as `ENFORCED` so they cannot silently regress. No `KNOWN_GAP` rows remain -- the ledger's self-maintaining half fired twice (throttle, then blank-key filter) and both times did exactly what it was built to do: fail on the fix and demand promotion. Promoting the `pre-auth-throttle` row exercised that mechanism end to end and exposed a limit worth carrying forward: a single name marker would have gone green on a bare `import`, so the promoted row asserts two markers — see the caveat under §2.3.
 
