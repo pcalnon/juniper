@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-17
+**Last Updated**: 2026-08-18
 
 ---
 
@@ -60,6 +60,7 @@ python3 -m unittest -v tests/test_fleet_supervisor_contract.py
 python3 -m unittest -v tests/test_workflow_script_paths.py
 python3 -m unittest -v tests/test_doc_tools_drift.py
 python3 -m unittest -v tests/test_service_fork_drift.py
+python3 -m unittest -v tests/test_publish_env_policy_drift.py
 python3 -m unittest -v tests/test_pyproject_extras.py
 python3 -m unittest -v tests/test_template_library_drift.py
 python3 -m unittest -v tests/test_template_selection.py
@@ -289,6 +290,7 @@ juniper-ml/
 │   ├── test_workflow_script_paths.py     # Lint: every .github/workflows/*.yml script path exists
 │   ├── test_doc_tools_drift.py           # Lint: consumer-repo juniper-doc-tools pins still admit current version (plan §5.1)
 │   ├── test_service_fork_drift.py        # Drift gate: security guards that must not diverge across the data/cascor service-core forks (register §2.3; ENFORCED + self-maintaining KNOWN_GAP ledger)
+│   ├── test_publish_env_policy_drift.py  # Drift gate: publish envs stay tag-only ref-gated (publish-path design §6/§12); settings-not-code, so nothing else would notice a deletion
 │   ├── test_pyproject_extras.py          # Lint: pyproject [project.optional-dependencies] surface matches the contract
 │   ├── test_template_library_drift.py    # Lint: custom-agent template library (prompts/agent_templates/) manifest <-> templates
 │   ├── test_template_selection.py        # Lint: custom-agent template match_signals selection coherence
@@ -591,6 +593,12 @@ juniper-ml/
   - A registry of named guards, each detected by a small source marker, rather than a file diff: the forks diverge legitimately and constantly (juniper-data deliberately holds API keys in a `list` for `compare_digest` timing where service-core uses a `set`), so a diff would drown the signal.
   - Two-sided by design. `ENFORCED` guards must be **present** in every fork; their disappearance is a regression. `KNOWN_GAP` guards must still be **absent** -- when someone closes one, the gate fails and instructs them to promote the row to `ENFORCED`, so the ledger cannot rot into a list of things that used to be true.
   - Cross-repo assertions gate exactly like `test_ci_tools_drift.py` (`GITHUB_ACTIONS=true` or `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`); the registry-structure checks and the matcher's negative control always run. It bites in `docs-full-check.yml`, the only job that clones the siblings. The register's "OPTIONS bypass" row is deliberately **not** encoded: it landed in no copy, so there is no reference implementation to derive a marker from.
+- `tests/test_publish_env_policy_drift.py` -- Drift gate for the **tag-only deployment ref policy** on every `pypi` / `testpypi` environment ([publish-path design](notes/JUNIPER_2026-08-17_JUNIPER-ECOSYSTEM_PUBLISH-PATH-AUTHORIZATION-DESIGN.md) §6 Option A / §12.5).
+  - The control lives in GitHub **settings, not the repo**: no test covered it, no reviewer sees a diff when a policy is deleted, and the failure is silent -- the publish path just becomes permissive again.
+  - Two load-bearing invariants: **no branch-type policy may exist** (adding a `main` branch policy re-opens branch dispatch while every tag pattern stays intact and the environment still looks configured -- owner decision D3 was tag-only), and **`pypi` must retain `required_reviewers`** (a `PUT` is create-or-update, so a careless payload clears the human gate while successfully setting a ref policy -- the environment then looks *more* configured while being weaker).
+  - Structural checks + the detector's **negative control** always run offline (a gate that cannot fail is not a gate; an untyped policy must read as `branch`, never `tag`). The live half is gated on `GITHUB_ACTIONS=true` / `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1` and is read-only (`gh api` GETs).
+  - **No silent caps**: per-PR CI's built-in `GITHUB_TOKEN` reaches juniper-ml only, so the live half partitions the registry repos into readable / unreadable, verifies the readable ones, **names** the unverified ones, and refuses to pass if nothing at all was readable. A repo that IS readable but whose environment 404s is a real finding (deleted environment), not a permission skip. Full-fleet cover: `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`.
+  - Repair: `util/ad-hoc/2026-08-17_apply_env_tag_policies.bash --apply <repo> <env>`.
 - `tests/test_pyproject_extras.py` -- Lint test pinning the `[project.optional-dependencies]` surface (`clients`, `worker`, `servers`, `tools`, `doc-tools`, `all`). Asserts the exact set of extras, the exact membership of each, that `[all]` aggregates every non-alias extra exactly once, and that `[project].version` is semver-ish. Added pre-0.5.0 after juniper-ml#295 introduced `[servers]` + `[tools]` without regression coverage; any future edit to extras must update the lint contract in the same PR.
   - juniper-ml's own pin check runs every PR; the cross-repo assertion auto-skips when siblings aren't on disk and additionally skips local runs by default. Set `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1` to opt in locally.
 - `tests/test_template_library_drift.py` -- Lint test enforcing manifest <-> template consistency for the custom-agent template library (`prompts/agent_templates/`): every registered template exists and every template is registered; each follows the canonical section skeleton in order; every `{{placeholder}}` matches the systematic convention; the `generic` fallback always matches.
