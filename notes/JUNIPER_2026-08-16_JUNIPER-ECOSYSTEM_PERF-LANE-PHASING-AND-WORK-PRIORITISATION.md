@@ -121,6 +121,25 @@ before blocked**, and **do not contend for a resource another arc is holding**.
 > The live path is `lifecycle._load_snapshot_to_network`. A fix applied only to `load_network` would
 > change nothing — which is precisely the error that made D-A look important.
 
+> **RETRACTION (2026-08-17, later same day) — the reorder above is ITSELF wrong; D-A returns to
+> Tier 1 item 1.** Friendly and adversarial reviews both refuted the "inert" finding. Decisive
+> evidence: (a) `output_optimizer` has 3-4 production sites, incl. `manager.py:4127` read from
+> `PATCH /v1/network/weights`; (b) `load_snapshot`'s own docstring (`manager.py:4551-4554`) says a
+> restored network **"cannot start training directly"** — restore/retrain/resume are distinct verbs,
+> so nothing overwrites the restored optimizer on the restore path; (c) **a load → save cycle
+> silently destroys optimizer state** (save guard `:430` skips when `None`, with no warning) — data
+> loss, reproduced; (d) `optimizer_type` has no other home in the snapshot, so restoring an SGD
+> snapshot makes `GET` training params report a fabricated `"Adam"` (97 real SGD files).
+>
+> **Corrected Tier 1 order: (1) D-A optimizer restore — data destruction, (2) D-B absent-vs-corrupt,
+> (3) move the snapshot dir out of the package.** D-B's promotion still stands on its own evidence;
+> D-A simply outranks it. Full record: design doc §4.1 retraction.
+>
+> **The fix must not be naive** — `load_state_dict` on the raw parsed JSON is *accepted but inert*
+> (string keys match no `Parameter`), converting a loud failure into a silent one across ~27.5k
+> snapshots, with both existing test suites passing either way. Restore failure must **warn and
+> degrade to `None`**, never raise (~97 SGD loads succeed today and must keep succeeding).
+
 ### Tier 2 — next
 
 3. **E-6.1 identity → E-6.2 index.** Strictly ordered, and the prerequisite for any retention

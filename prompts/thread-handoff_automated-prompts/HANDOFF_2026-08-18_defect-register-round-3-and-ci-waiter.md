@@ -69,12 +69,12 @@ git -C ../juniper-data log --oneline -1 && git -C ../juniper-cascor log --onelin
 
 ## What closed — and what is about to
 
-| Entry | Fork PRs | juniper-ml PR |
-| --- | --- | --- |
-| `APD-DATA-001` † / `APD-CASCOR-004` † — unthrottled 401 path | [data#266](https://github.com/pcalnon/juniper-data/pull/266) `cdff3fb`, [cascor#524](https://github.com/pcalnon/juniper-cascor/pull/524) `8295987` | [ml#1130](https://github.com/pcalnon/juniper-ml/pull/1130) `53751fa` |
-| `APD-DATA-003` / `APD-CASCOR-006` † — blank API key enables auth | [data#267](https://github.com/pcalnon/juniper-data/pull/267) `8fd002b`, [cascor#527](https://github.com/pcalnon/juniper-cascor/pull/527) `7fa2e66` | [ml#1145](https://github.com/pcalnon/juniper-ml/pull/1145) `132832f` |
-| `APD-SVCCORE-003` / `APD-SVCCORE-010` — unvalidated settings lookup + its duplicate | — | [ml#1154](https://github.com/pcalnon/juniper-ml/pull/1154) **pending** |
-| `APD-OBS-001` — unvalidated `X-Request-ID` | — | [ml#1156](https://github.com/pcalnon/juniper-ml/pull/1156) **pending** |
+| Entry                                                                               | Fork PRs                                                                                                                                           | juniper-ml PR                                                          |
+|-------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------|
+| `APD-DATA-001` † / `APD-CASCOR-004` † — unthrottled 401 path                        | [data#266](https://github.com/pcalnon/juniper-data/pull/266) `cdff3fb`, [cascor#524](https://github.com/pcalnon/juniper-cascor/pull/524) `8295987` | [ml#1130](https://github.com/pcalnon/juniper-ml/pull/1130) `53751fa`   |
+| `APD-DATA-003` / `APD-CASCOR-006` † — blank API key enables auth                    | [data#267](https://github.com/pcalnon/juniper-data/pull/267) `8fd002b`, [cascor#527](https://github.com/pcalnon/juniper-cascor/pull/527) `7fa2e66` | [ml#1145](https://github.com/pcalnon/juniper-ml/pull/1145) `132832f`   |
+| `APD-SVCCORE-003` / `APD-SVCCORE-010` — unvalidated settings lookup + its duplicate | —                                                                                                                                                  | [ml#1154](https://github.com/pcalnon/juniper-ml/pull/1154) **pending** |
+| `APD-OBS-001` — unvalidated `X-Request-ID`                                          | —                                                                                                                                                  | [ml#1156](https://github.com/pcalnon/juniper-ml/pull/1156) **pending** |
 
 `†` = **register-original**: verified against source, not asserted by the primer (the register's §1).
 **Retired and split IDs**: `APD-CCLIENT-003` was merged into `-004` and **its number must never be
@@ -106,12 +106,12 @@ reference implementation to port is now `ENFORCED`, and **zero `KNOWN_GAP` guard
 
 ## In flight — check all four before starting
 
-| PR | What | State when written |
-| --- | --- | --- |
-| [ml#1141](https://github.com/pcalnon/juniper-ml/pull/1141) | `util/wait_for_checks.py` + tests + `ci.yml` wiring — see §1 | **MERGED** `f219594` |
-| [ml#1154](https://github.com/pcalnon/juniper-ml/pull/1154) | service-core WS tunable registry | **MERGED** `63af765` |
-| [ml#1156](https://github.com/pcalnon/juniper-ml/pull/1156) | observability `X-Request-ID` validation | open, auto-merge armed |
-| [ml#1155](https://github.com/pcalnon/juniper-ml/pull/1155) | publish-env policy drift guard — **a concurrent session's** | merged during validation |
+| PR                                                         | What                                                         | State when written       |
+|------------------------------------------------------------|--------------------------------------------------------------|--------------------------|
+| [ml#1141](https://github.com/pcalnon/juniper-ml/pull/1141) | `util/wait_for_checks.py` + tests + `ci.yml` wiring — see §1 | **MERGED** `f219594`     |
+| [ml#1154](https://github.com/pcalnon/juniper-ml/pull/1154) | service-core WS tunable registry                             | **MERGED** `63af765`     |
+| [ml#1156](https://github.com/pcalnon/juniper-ml/pull/1156) | observability `X-Request-ID` validation                      | open, auto-merge armed   |
+| [ml#1155](https://github.com/pcalnon/juniper-ml/pull/1155) | publish-env policy drift guard — **a concurrent session's**  | merged during validation |
 
 **Zero approvals are required** — `required_approving_review_count` is **0** on all nine repos. But
 `required_review_thread_resolution` is **`true`** fleet-wide, so a single unresolved review thread
@@ -197,17 +197,17 @@ and unrelated commits have landed since, so anchors are staler than that date su
 
 ### Open counts (computed from the register's §4 `FIXED` markers; sums to 84)
 
-| Repository | Open | Original | Register |
-| --- | ---: | ---: | --- |
-| `juniper-data` | **30** | 36 | §4.1 — still the largest group |
-| `juniper-service-core` | **14** | 16 | §4.2 — read its preamble first |
-| `juniper-cascor-client` | 12 | 12 | §4.4 |
-| `juniper-data-client` | 8 | 8 | §4.5 |
-| Cross-client / ecosystem / meta | 8 | 8 | §4.8 |
-| `juniper-recurrence-client` | 5 | 5 | §4.6 |
-| `juniper-cascor` | **4** | 7 | §4.3 |
-| `juniper-observability` | **3** | 4 | §4.7 |
-| **Total** | **84** | 96 | |
+| Repository                      |   Open | Original | Register                       |
+|---------------------------------|-------:|---------:|--------------------------------|
+| `juniper-data`                  | **30** |       36 | §4.1 — still the largest group |
+| `juniper-service-core`          | **14** |       16 | §4.2 — read its preamble first |
+| `juniper-cascor-client`         |     12 |       12 | §4.4                           |
+| `juniper-data-client`           |      8 |        8 | §4.5                           |
+| Cross-client / ecosystem / meta |      8 |        8 | §4.8                           |
+| `juniper-recurrence-client`     |      5 |        5 | §4.6                           |
+| `juniper-cascor`                |  **4** |        7 | §4.3                           |
+| `juniper-observability`         |  **3** |        4 | §4.7                           |
+| **Total**                       | **84** |       96 |                                |
 
 **`juniper-canopy` and `juniper-cascor-worker` have no rows because the primer barely visited them, not
 because they are clean** (the register's §6). Most of `juniper-cascor` is in the same position. An
@@ -337,11 +337,9 @@ A green `ENFORCED` is a structural proxy; behavioural coverage lives in each for
    `gh pr merge` refused with *"the base branch policy prohibits the merge"*. The cause was one
    `github-advanced-security` review thread each — an unused-global on a new module, and `unittest`
    imported both `import` and `import from`. Find them with:
-   ```bash
-   gh api graphql -f query='{repository(owner:"pcalnon",name:"juniper-ml"){pullRequest(number:N){
-     reviewThreads(first:20){nodes{isResolved path comments(first:1){nodes{body}}}}}}}' \
-     --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false)'
-   ```
+       ```bash
+       gh api graphql -f query='{repository(owner:"pcalnon",name:"juniper-ml"){pullRequest(number:N){ reviewThreads(first:20){nodes{isResolved path comments(first:1){nodes{body}}}}}}}' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false)'
+       ```
    Both findings were legitimate, so fix the code rather than resolving the thread — the alert going
    away resolves it. Budget for this: it is invisible to `gh pr checks` and to the waiter in §1, which
    report only status contexts.

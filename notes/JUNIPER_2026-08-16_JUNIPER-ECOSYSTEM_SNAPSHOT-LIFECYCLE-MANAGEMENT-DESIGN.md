@@ -203,6 +203,99 @@ defect, not a cleanliness one, and it is **the most important thing this census 
 > part of establishing impact** — "this code is wrong" and "this wrongness matters" are separate
 > claims requiring separate evidence.
 
+> **RETRACTION (2026-08-17, later same day) — the correction immediately above is ITSELF wrong.
+> D-A is a DATA-DESTRUCTION defect and is the top item.** Independent friendly and adversarial
+> reviews were run over the "inert" conclusion; both refuted it, on evidence neither the original
+> analysis nor the correction had. What follows supersedes both.
+>
+> **1. The "one production consumer" premise is false.** `output_optimizer` has three to four
+> production sites. The decisive one is `api/lifecycle/manager.py:4127`, `_zero_optimizer_state_for`,
+> which **reads** it — called from `PATCH /v1/network/weights` (`:4080`, `:4091`), FSM-gated to
+> `Investigating`. That is a manual weight-edit endpoint, not the training loop. `manager.py:4259`
+> and `:4344` also null it after topology surgery.
+>
+> **2. The restore path never trains, and says so in its own docstring.** `manager.py:4551-4554`:
+> *"The FSM transitions to `INVESTIGATING` so the user can edit meta-params, replace the dataset, and
+> re-snapshot, **but cannot start training directly.** To enter a training state, the user must
+> invoke `restore_for_retrain` … or `resume_from_snapshot`."* Restore / retrain / resume are
+> deliberately distinct verbs. The recreation at `cascade_correlation.py:2063` happens on the
+> **training** verbs — so on the restore path **nothing overwrites the restored optimizer**. The
+> "inert" argument assumed a verb the user did not invoke.
+>
+> **3. A load → save cycle SILENTLY DESTROYS optimizer state.** The save guard at `:430` is
+> `if hasattr(...) and network.output_optimizer is not None:`. Load sets it to `None` (`:1028`).
+> So re-saving a loaded network writes **no optimizer group at all**, and unlike the load side the
+> save side emits **no warning whatsoever**. The documented "restore → edit → re-snapshot" workflow
+> therefore strips momentum and step counters permanently. Reproduced end-to-end. **This is data
+> loss, not log hygiene, and it alone defeats the inert conclusion.**
+>
+> **4. The largest fidelity loss is optimizer IDENTITY, not momentum.** `optimizer_type` is **not**
+> persisted in the snapshot's `config` group — `OptimizerConfig` falls through `_config_to_dict`'s
+> skip-complex-types branch (`:1673`), and `_load_config_to_network` does not restore it. The
+> corrupted optimizer group is the **only** record of which optimizer was used. So after restoring
+> one of the **97 real SGD snapshots**, `GET` training params returns a fabricated **`"Adam"`**
+> (`_read_optimizer_type`, `manager.py:42-48`, feeding `get_training_params` at `:3555`) — a
+> metaparameter the API reports confidently and wrongly.
+>
+> **Scale:** of 27,878 snapshots, **~27,500 carry an optimizer group and 100% of those store
+> `learning_rate` as `np.bytes_`.** This fires on essentially the whole corpus.
+>
+> **THE FIX IS DANGEROUS IF DONE NAIVELY — both reviews flagged the same trap independently.**
+> Decoding the attribute and calling `load_state_dict` on the parsed JSON **does not raise**. It is
+> accepted, but `state` is keyed by the strings `'0'` / `'1'`, which match no `Parameter`, so
+> training silently restarts from a fresh optimizer while every observer reports "restored" — and
+> **both existing test suites pass in either state**. A type mismatch is worse: SGD state into Adam
+> raises immediately; Adam state into SGD raises **deferred, mid-training**, at `.step()`.
+>
+> **Contract the fix must meet.** After `load_network`, `output_optimizer` is a live optimizer **of
+> the class recorded at save time**, whose `state_dict()` is structurally equal to the persisted one
+> (same `param_groups` hyperparameters modulo tuple/list, same per-param state keys, buffers
+> elementwise equal), built over parameters shaped as the output layer was at save time. A snapshot
+> with no optimizer restores `None`. A restore that cannot honour the contract **warns and degrades
+> to `None`** — it must not raise, or the ~97 SGD loads that succeed today would start failing.
+>
+> This is a **state-fidelity** contract, not a promise of trajectory reproduction: `train_output_layer`
+> genuinely does rebuild the optimizer on growth, so older claims of "resume training exactly where it
+> left off" (`notes/history/P1_FIXES_COMPLETE.md:219-222`) remain over-claims and must not be repeated.
+>
+> **Why it survived:** `tests/unit/test_p1_fixes.py:96` asserts `hasattr(loaded_network,
+> "output_optimizer")` — **true when the value is `None`** — then prints
+> `"✅ PASS: Optimizer saved and restored successfully"`. Feasibility is **proven**: real Adam and SGD
+> snapshots were reconstructed from disk, and the float32 JSON round-trip is exactly lossless.
+>
+> **Method note, third occurrence.** The first error generalised from one file; the second traced
+> consumers but stopped at the training path and never read the restore path's own docstring.
+> **"I checked the consumers" is not the same as "I checked all the consumers."**
+>
+> **SHIPPED 2026-08-18 — juniper-cascor `main` `cb8a30e` (fix commit `5f15a45`, +228/-19).**
+> All five cascor main workflows green (Post-Merge Main Verification, Golden Regression,
+> Conformance, CodeQL, CI/CD Pipeline). What landed:
+>
+> - `_coerce_optimizer_lr` — accepts bytes / str / numpy scalar / float, so the historical string
+>   form and a plain numeric attribute both round-trip.
+> - `_rehydrate_optimizer_state` — int keys and real tensors, closing the inert-restore trap.
+> - `optimizer_type` honoured via `getattr(torch.optim, ...)`; an unresolvable name still falls back
+>   to Adam but **skips** state loading (Adam and SGD carry different buffers).
+> - `lr` preferred from `param_groups[0]["lr"]` over the attribute; the save side now records the
+>   optimizer's actual lr.
+> - Restore failure **warns and degrades** — it does not raise, so the ~97 SGD loads that succeeded
+>   before still succeed.
+> - The save guard now warns instead of silently dropping an optimizer group.
+>
+> **Verification.** All three new tests **fail on unpatched code and pass with the fix**; full
+> `tests/unit/` exit 0; pre-commit clean; and against the real corpus a 0.3.2-era **Adam** snapshot
+> restores with `step` preserved and `Parameter`-keyed state, a real **SGD** snapshot restores *as
+> SGD* with `momentum_buffer` intact, and the optimizer group survives a load → save → load cycle.
+>
+> **The weak assertion that hid this for years is fixed**: `test_p1_fixes.py` asserted only
+> `hasattr(loaded_network, "output_optimizer")` — true when the value is `None` — then printed a
+> success banner. It now asserts `is not None`, same class, and non-string state keys.
+>
+> **Extra evidence for §3.1 found while landing it:** `.gitignore` carries **nine** overlapping rules
+> blanket-ignoring `src/snapshots/`, so editing the tracked Python modules in that directory requires
+> `git add -f`. That is the artifact/source coupling §3.1 proposes to remove, showing up as day-to-day
+> friction on top of the cascor#501 deletion risk.
+
 ### 4.2 D-B — `load_network` returns `None` instead of raising
 
 `load_network` (`:861`) has four `return None` paths — missing file, `_validate_format` failure,
