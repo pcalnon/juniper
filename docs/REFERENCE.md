@@ -138,6 +138,41 @@ pip install juniper-ml[all]       # Everything
 | juniper-canopy           | 8050                     | 8050             | `/v1/health`                |
 | juniper-cascor-worker    | n/a                      | 8210             | `/v1/health/ready`          |
 
+#### Startup port overrides (juniper-deploy)
+
+Every published host port is settable **at startup via an environment variable**, so no Juniper port
+is hard-coded into an image. The defaults below are the Juniper-specific values declared in the
+project tree (`juniper-deploy/docker-compose.yml`); export the variable to override.
+
+| Service       | Host port default | Startup env var        | Bind host                |
+|---------------|-------------------|------------------------|--------------------------|
+| juniper-cascor      | `8201`      | `CASCOR_HOST_PORT`     | `${BIND_HOST:-127.0.0.1}` |
+| juniper-recurrence  | `8211`      | `RECURRENCE_HOST_PORT` | `${BIND_HOST:-127.0.0.1}` |
+| juniper-canopy      | `8050`      | `CANOPY_PORT`          | `${BIND_HOST:-127.0.0.1}` |
+| Grafana             | `3001`      | `GRAFANA_HOST_PORT`    | `127.0.0.1` (fixed)       |
+| Prometheus          | `9090`      | **none — hard-coded**  | `127.0.0.1` (fixed)       |
+
+Notes, and two gaps worth knowing before you rely on this table:
+
+- **Grafana defaults to `3001`, not `3000`, deliberately.** `docker-compose.yml:921-931` records why:
+  port `3000` is commonly held by a system-installed Grafana or another agent. On the development
+  host it is held by an unrelated Domotz agent — see
+  [the F-P1-2 closure evidence](../notes/JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_F-P1-2-GRAFANA-RENDER-CLOSURE-EVIDENCE.md).
+  Do not "fix" this back to `3000`.
+- **Prometheus is the one exception to the rule above.** `docker-compose.yml:864` publishes a literal
+  `127.0.0.1:9090:9090` with **no environment variable**, so its host port cannot be changed at
+  startup the way every other service's can. A second stack, or any other `:9090` listener, collides
+  with no override available.
+- **The monitoring tier does not honour `BIND_HOST`.** Grafana and Prometheus pin `127.0.0.1`
+  literally while the application tier uses `${BIND_HOST:-127.0.0.1}`. The effect is a safe default
+  (loopback-only), but it means `BIND_HOST` does not move the monitoring surface with the rest of the
+  stack.
+- `juniper-data` publishes no host port in the default compose profile — it is reached over the
+  compose network. The host-level `juniper_plant_all.bash` stack is what exposes `8100`.
+- Experiment runs never use any port in this table; they draw from the disjoint ranges in
+  [Experiment Stack Utilities](#experiment-stack-utilities) (data `8110-8139`, cascor `8230-8259`,
+  recurrence `8260-8289`).
+
 ### Rate Limiting Defaults
 
 The three services intentionally ship with **different** `rate_limit_enabled` defaults — `juniper-data` enables rate limiting out of the box; `juniper-cascor` and `juniper-canopy` leave it disabled by default for local-dev ergonomics. The per-minute threshold is uniform across services (60 req/min) so only the enable flag varies.
