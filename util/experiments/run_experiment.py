@@ -207,6 +207,45 @@ LOGGER_NAME = "run_experiment"
 log = logging.getLogger(LOGGER_NAME)
 
 
+def _warn_epoch_budget_split(training_params: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """Flag ``max_epochs`` set without ``output_epochs`` -- they are NOT the same budget.
+
+    The two keys mean different things on the two paths, and the difference is silent:
+
+    * SERVICE -- ``TrainingParams.max_epochs`` is forwarded to ``fit()`` as the **initial**
+      output-training pass budget only. Every later per-round pass reads
+      ``self.output_epochs`` (``cascade_correlation.py:4591`` / ``:4768`` / ``:4820``), which falls
+      back to ``_PROJECT_MODEL_OUTPUT_EPOCHS = 10000`` when the config leaves it unset
+      (``:716``). The network source states it outright at ``:1876-1882``: *"The two therefore
+      agree only while a caller leaves max_epochs unset"*.
+    * DIRECT CLI -- ``_W11_TRAINING_KEY_MAP`` aliases ``max_epochs -> output_epochs``
+      (``main.py:238-249``), so it bounds **every** output pass; an explicit ``output_epochs``
+      wins over the alias (``main.py:291-292``).
+
+    So a config carrying only ``max_epochs: N`` runs the CLI at N epochs per output pass and the
+    service at N for the first pass and 10000 for every pass after it. On a run that grows 64-128
+    units that is a several-fold per-pass asymmetry, and it makes the service arm both slower and
+    better-trained than the config appears to ask for. It cost the wide-budget head-to-head
+    campaign a rerun to notice (juniper-ml#1143 SS2.2); at a 1-2 unit cap there is only the initial
+    pass, so smoke-scale runs cannot surface it.
+
+    This WARNS rather than raises: a service-only run may legitimately want the split, and the
+    canonical ``spiral-baseline.yaml`` ships that way. The warning is also recorded on the config
+    so the manifest carries it into the run's evidence rather than living only in a log nobody
+    re-reads.
+    """
+    if "max_epochs" in training_params and "output_epochs" not in training_params:
+        note = (
+            f"training.params.max_epochs={training_params['max_epochs']!r} is set without output_epochs: "
+            "on the SERVICE this bounds only the INITIAL output pass (later passes fall back to the "
+            "output_epochs default 10000), while the direct CLI aliases max_epochs onto EVERY output "
+            "pass. Set BOTH to the same value for a like-for-like budget, or set output_epochs "
+            "explicitly to confirm the split is intended (juniper-ml#1143 SS2.2)."
+        )
+        config.setdefault("validation_warnings", []).append(note)
+        log.warning("config: %s", note)
+
+
 class ConfigError(Exception):
     """Invalid CLI usage or experiment YAML -> exit 2."""
 
@@ -540,6 +579,7 @@ def load_config(path: Path) -> Dict[str, Any]:
     training = _require_mapping(cfg.get("training", {}) or {}, "training block")
     _reject_unknown_keys(training, TRAINING_KEYS, "training")
     training_params = _require_mapping(training.get("params", {}) or {}, "training.params")
+    _warn_epoch_budget_split(training_params, config)
     config["training"] = {
         # Experiment runs default to a clean-launch start (SS6.3 drives start with
         # start_fresh: true); YAML may opt out for continual-training experiments.
@@ -1479,6 +1519,9 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
             "config_sha256": config_sha,
             "config_path": str(config_path),
             "config_copy_path": str(config_copy),
+            # Non-fatal config findings (e.g. the max_epochs/output_epochs budget split) travel
+            # with the run's evidence rather than living only in a log nobody re-reads.
+            "validation_warnings": config.get("validation_warnings", []),
             "dataset": {
                 "dataset_id": dataset_response.get("dataset_id"),
                 "generator": generator,
@@ -1741,6 +1784,9 @@ def _run_recurrence(args: argparse.Namespace, config: Dict[str, Any], config_pat
             "config_sha256": config_sha,
             "config_path": str(config_path),
             "config_copy_path": str(config_copy),
+            # Non-fatal config findings (e.g. the max_epochs/output_epochs budget split) travel
+            # with the run's evidence rather than living only in a log nobody re-reads.
+            "validation_warnings": config.get("validation_warnings", []),
             "dataset": {
                 "dataset_id": dataset_response.get("dataset_id"),
                 "generator": generator,
