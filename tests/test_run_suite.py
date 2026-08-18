@@ -272,6 +272,68 @@ class MainLoopTest(unittest.TestCase):
         for argv in argvs:
             self.assertNotIn("--stall-seconds", argv)
 
+    def test_max_wall_seconds_is_forwarded_to_the_driver(self) -> None:
+        """execution.max_wall_seconds must reach the driver's Q-2 wall-clock budget.
+
+        The ml#1069 class, one field over. A suite could always reach the budget through
+        a dotted ``matrix`` / ``include`` override -- ``suites/p4/e-i-cascor-cap-ceiling
+        .yaml`` sets ``outputs.max_wall_seconds`` exactly that way -- but an un-overridden
+        cell silently inherited ``base_config``'s value (3600 s) with no signal. Measured
+        on the E-I run (``20260814T091542Z``): cap 32 -> 1497.4 s, cap 64 -> 2907.1 s,
+        cap 128 -> 4243.6 s, so the cap-128 cell would have been truncated by that
+        inherited default and cap 64 cleared it by only 693 s.
+        """
+        root, _suite_dir, _markers, run_root = self._setup()
+        suite_yaml = root / "suite.yaml"
+        suite_yaml.write_text(suite_yaml.read_text().replace("  per_run_timeout_seconds: 60", "  per_run_timeout_seconds: 60\n  max_wall_seconds: 14400"))
+        rc, out = self._main("--suite", str(suite_yaml))
+        self.assertEqual(rc, 0, msg=out)
+        argvs = self._driver_argvs(run_root)
+        self.assertTrue(argvs, "no driver invocations recorded")
+        for argv in argvs:
+            self.assertIn("--max-wall-seconds", argv)
+            self.assertEqual(argv[argv.index("--max-wall-seconds") + 1], "14400.0")
+
+    def test_absent_max_wall_seconds_leaves_the_driver_default_alone(self) -> None:
+        """Omitting the key must not pass the flag at all (the driver owns its default)."""
+        root, _suite_dir, _markers, run_root = self._setup()
+        rc, out = self._main("--suite", str(root / "suite.yaml"))
+        self.assertEqual(rc, 0, msg=out)
+        argvs = self._driver_argvs(run_root)
+        self.assertTrue(argvs, "no driver invocations recorded")
+        for argv in argvs:
+            self.assertNotIn("--max-wall-seconds", argv)
+
+    def test_both_budget_flags_forward_independently(self) -> None:
+        """stall_seconds and max_wall_seconds are orthogonal Q-2 knobs."""
+        root, _suite_dir, _markers, run_root = self._setup()
+        suite_yaml = root / "suite.yaml"
+        suite_yaml.write_text(suite_yaml.read_text().replace("  per_run_timeout_seconds: 60", "  per_run_timeout_seconds: 60\n  stall_seconds: 900\n  max_wall_seconds: 14400"))
+        rc, out = self._main("--suite", str(suite_yaml))
+        self.assertEqual(rc, 0, msg=out)
+        argvs = self._driver_argvs(run_root)
+        self.assertTrue(argvs, "no driver invocations recorded")
+        for argv in argvs:
+            self.assertEqual(argv[argv.index("--stall-seconds") + 1], "900.0")
+            self.assertEqual(argv[argv.index("--max-wall-seconds") + 1], "14400.0")
+
+    def test_max_wall_seconds_typo_still_rejected(self) -> None:
+        """The allow-list widens by exactly one -- a near-miss spelling must still fail."""
+        root, _suite_dir, _markers, _run_root = self._setup()
+        suite_yaml = root / "suite.yaml"
+        suite_yaml.write_text(suite_yaml.read_text().replace("  per_run_timeout_seconds: 60", "  per_run_timeout_seconds: 60\n  max_wall_second: 14400"))
+        rc, _out = self._main("--suite", str(suite_yaml))
+        self.assertEqual(rc, 2)
+
+    def test_dry_run_shows_the_max_wall_flag(self) -> None:
+        """The dry-run preview must show the budget an operator is about to spend."""
+        root, _suite_dir, _markers, _run_root = self._setup()
+        suite_yaml = root / "suite.yaml"
+        suite_yaml.write_text(suite_yaml.read_text().replace("  per_run_timeout_seconds: 60", "  per_run_timeout_seconds: 60\n  max_wall_seconds: 14400"))
+        rc, out = self._main("--suite", str(suite_yaml), "--dry-run")
+        self.assertEqual(rc, 0, msg=out)
+        self.assertIn("--max-wall-seconds 14400.0", out)
+
     def test_unknown_execution_key_still_rejected(self) -> None:
         """The new key widens the allow-list by exactly one — typos must still fail."""
         root, _suite_dir, _markers, _run_root = self._setup()

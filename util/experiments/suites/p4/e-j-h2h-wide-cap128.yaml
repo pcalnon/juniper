@@ -1,0 +1,54 @@
+# E-J (wide-budget head-to-head): the SERVICE arm at cap 128, three seeded replicates.
+#
+# Sibling of e-j-h2h-wide-cap64.yaml, which carries the full rationale for the design: why one
+# 3-cell suite PER CAP rather than a single 6-cell suite, why experiment.description is the
+# replicate axis, why stall_seconds must be set by hand at pool 8, and -- the honesty constraint
+# that governs how these numbers may be quoted -- why the SERVICE and CLI seed spreads are NOT
+# commensurate (the CLI threads the dataset seed into network init; the service always re-seeds
+# to 42 and cannot be told otherwise). Read that file before reading these results.
+#
+# This suite differs from its sibling in exactly TWO of its keys: suite.name and the cap on
+# training.params.max_hidden_units (plus the replicate labels, which are inert text). Every
+# budget key comes from the shared base config, unchanged.
+#
+# max_iterations stays at the base's 128 for BOTH caps rather than being tuned per cap: 128 is
+# exactly enough for this cap (growth adds one unit per iteration) and inert at 64, so holding it
+# constant keeps the two suites differing in the axis under test alone.
+#
+# REDUCED TO TWO REPLICATES -- deliberately, and this is the record of it.
+#
+# Cap 128 is the expensive half: E-I measured 4244 s against 2907 s at cap 64. The campaign's own
+# cap-64 measurements then made the real cost clear -- the direct-CLI arm runs ~1.8x its service
+# counterpart (7109-7412 s vs 3570-4481 s), because candidates are ~98% of the span and the CLI
+# runs ~1.44x the candidate epochs. Projected to this cap that is ~3 h per CLI arm, and the full
+# 3-replicate design across both arms came to roughly 23 h rather than the ~12 h the campaign was
+# scoped against.
+#
+# Two replicates here, and the hours bought back are spent on e-j-h2h-wide-cap64-init42.yaml --
+# the init-control cell, which is the only measurement in the campaign that makes a path effect
+# quantifiable at all rather than confounded with the un-removable service/CLI initialisation
+# asymmetry. A third seed at this cap would have tightened an error bar on a comparison whose
+# central estimate was not yet interpretable; the control makes it interpretable. That is the
+# better trade, but it IS a trade and the write-up must say so.
+#
+# CONSEQUENCE, to be stated in the note and never papered over: there is NO 3-seed spread at 128
+# units. n = 2. Quote the two paired deltas and the n, never a spread this design did not measure.
+# Indices still start at 0, so these two replicates derive seeds 20260729 / 20260730 -- the same
+# first two the cap-64 suite used, so the cross-cap pairing is preserved exactly.
+schema_version: 1
+suite:
+  name: e-j-h2h-wide-cap128
+  description: "E-J: wide-budget head-to-head, SERVICE arm, cap 128 / pool 8, 3 seeded replicates"
+  app: cascor
+  base_config: [../../../ad-hoc/2026-08-16_h2h_wide_nrot3.yaml]
+  # per_cell, and cell.index restarts at 0 here, so this suite derives the SAME three seeds as
+  # the cap-64 suite (20260729 / 20260730 / 20260731) and therefore the same three
+  # content-addressed dataset ids. That pairing is the design working, not a collision.
+  seed_policy: per_cell
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 15600, stall_seconds: 1200}
+matrix:
+  training.params.max_hidden_units: [128]
+  experiment.description:
+    - "Wide-budget head-to-head -- hard spiral, cap 128, replicate r0"
+    - "Wide-budget head-to-head -- hard spiral, cap 128, replicate r1"
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

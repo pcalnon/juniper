@@ -1,0 +1,179 @@
+# WIDE-BUDGET HEAD-TO-HEAD, n_rotations 3.0 (the HARD spiral) -- ONE config, BOTH arms.
+#
+# Project:     juniper-ml
+# Sub-Project: ad-hoc tooling
+# Author:      Paul Calnon
+# Created:     2026-08-16
+# Status:      ad-hoc -- one-off (wide-budget head-to-head campaign)
+# Retire when: the wide-budget head-to-head evidence note is merged; delete then.
+# Related:     util/experiments/suites/p4/e-j-h2h-wide-cap{64,128}.yaml (the two suites that
+#              override max_hidden_units and multiply this into three seeded replicates);
+#              util/ad-hoc/2026-08-16_h2h_cli_arm.bash (the direct-CLI arm runner).
+#
+# This is the BASE config. The SERVICE arm never reads this file directly: run_suite writes a
+# fully-resolved <suite_dir>/cells/<cell_id>/experiment.yaml per cell and the driver runs THAT.
+# The direct-CLI arm must be handed the SAME generated cell file -- feeding it this base would
+# give every CLI replicate one seed while the service arm varied, silently destroying the
+# comparison this campaign exists to make.
+#
+# ---------------------------------------------------------------------------------------------
+# EQUALISATION DOCTRINE
+#
+# The direct CLI can only receive the YAML keys carried by main.py's _W11_DATASET_KEY_MAP /
+# _W11_TRAINING_KEY_MAP (juniper-cascor/src/main.py:228-249). Every key below is therefore
+# classified into exactly one of three buckets, and nothing is left to chance:
+#
+#   MAPPED   -- in the CLI map; both arms honour the configured value. Set it explicitly.
+#   EQUALISE -- NOT in the CLI map, but setting it on the service makes the service behave the
+#               way the CLI already does by default. Set it, and prove it from the logs.
+#   OMIT     -- NOT in the CLI map, and setting it would change one arm only. Leave it unset so
+#               BOTH arms fall through to the same cascor_constants default. Equality then is
+#               structural, not an assumption about anyone's defaults.
+#
+# The OMIT bucket is why this file must NOT inherit juniper-cascor/conf/experiments/
+# spiral-baseline.yaml the way E-I did: that file sets `candidate_patience: 100`, which the CLI
+# cannot receive, so the two arms would differ on a candidate knob and the head-to-head would be
+# invalid. Consequence, stated plainly: absolute accuracies here will NOT sit on E-I's capacity
+# curve. That curve is a TARGETING rationale (it is what identified 64-128 units as the region
+# where a small path gap could still hide), not a comparison baseline.
+#
+# ---------------------------------------------------------------------------------------------
+# THE max_epochs TRAP (found 2026-08-16; not present in the smoke pair's reasoning)
+#
+# `max_epochs` and `output_epochs` are NOT interchangeable across the two paths:
+#
+#   * CLI      -- _W11_TRAINING_KEY_MAP aliases max_epochs -> output_epochs, so max_epochs sets
+#                 the budget for EVERY output pass.
+#   * SERVICE  -- TrainingParams.max_epochs is the INITIAL output pass only. Every later
+#                 per-round pass reads self.output_epochs (cascade_correlation.py:4591/4768/4820),
+#                 which falls back to _PROJECT_MODEL_OUTPUT_EPOCHS = 10000 when unset
+#                 (cascade_correlation.py:716). The source says so at :1876-1882: "The two
+#                 therefore agree only while a caller leaves max_epochs unset".
+#
+# So `max_epochs: 2000` ALONE would give the CLI 2000 epochs per pass and the service 10000 on
+# every round after the first -- a 5x per-pass asymmetry across 64-128 rounds, which would both
+# slow the service arm and train it harder. Setting BOTH keys to the same value removes the
+# question entirely: the CLI takes explicit output_epochs (which wins over the alias) and the
+# service gets initial == per-round. The smoke pair set only max_epochs; at a 2-unit cap it had
+# one round and the trap could not bite.
+#
+# ---------------------------------------------------------------------------------------------
+# BUDGET
+#
+# Per-pass budgets are spiral-baseline's (2000 / 500 / patience 200), NOT the smoke pair's
+# (100 / 50 / 50). Deliberate: the smoke values are 4-20x smaller, and under-training each of
+# 64-128 units would compress both arms toward a floor and destroy the very resolution this
+# campaign is buying. patience 200 is what actually ends an output pass, so output_epochs 2000
+# is a ceiling that is rarely reached -- behaviourally equivalent to E-I's 10000 ceiling at the
+# same patience, but explicit on both paths.
+#
+# outputs.max_wall_seconds is 14400 (E-I's value). Unset it inherits the driver's 3600 s default,
+# which is the E-I budget trap: the widest E-A cell came within 707 s of a 3600 s budget its
+# write-up never mentioned. per_run_timeout_seconds in the suites is set ABOVE this so the DRIVER
+# is what stops a run -- it writes an honest `timed_out` manifest where a subprocess kill leaves
+# none.
+schema_version: 1
+experiment:
+  name: h2h-wide-nrot3
+  # OVERRIDDEN PER CELL. The suites use experiment.description as the replicate axis: it is the
+  # only config key that is legal (driver EXPERIMENT_KEYS), inert (recorded in the manifest,
+  # never sent to any service -- run_experiment.py:1390), and free of side effects, so a
+  # 3-valued axis on it multiplies the suite into three cells WITHOUT perturbing the experiment.
+  # run_suite has no replicate primitive; this is the structure chosen instead of improvising.
+  description: "Wide-budget head-to-head -- hard spiral, base (overridden per replicate)"
+  # Base seed. seed_policy: per_cell rewrites BOTH this and dataset.params.seed to
+  # base_seed + cell.index, so the replicates are 20260729 / 20260730 / 20260731. Because
+  # cell.index restarts at 0 in each suite, the cap-64 and cap-128 suites derive the SAME three
+  # seeds -- which is the point: each cap-64 replicate is paired with a cap-128 replicate on
+  # identical data, and the whole campaign resolves to 3 dataset ids, not 6.
+  seed: 20260729
+
+service:
+  log_level: INFO
+  metrics_enabled: true      # code default is FALSE; required for /metrics sampling (G-3)
+  auto_start: false          # the driver starts training
+  auto_start_data_service: false
+
+dataset:
+  generator: spiral
+  persist: true
+  tags: ["h2h", "wide", "nrot3"]
+  ttl_seconds: 86400
+  params:
+    n_spirals: 2                 # MAPPED
+    n_points_per_spiral: 500     # MAPPED
+    # MAPPED, and the ONLY dataset knob that differs between the paths by DEFAULT
+    # (CLI _SPIRAL_PROBLEM_NUM_ROTATIONS = 1 vs the service surface's 3.0). Leaving it implicit
+    # is what silently invalidated the historical CLI-vs-service numbers.
+    n_rotations: 3.0
+    noise: 0.05                  # MAPPED
+    train_ratio: 0.8             # MAPPED
+    test_ratio: 0.2              # MAPPED
+    # MAPPED (-> random_seed). REWRITTEN PER CELL by seed_policy: per_cell -- the rewrite is
+    # conditional on the key already existing, so it must stay present here.
+    seed: 20260729
+    # OMIT: `algorithm` and `radius` are absent from _W11_DATASET_KEY_MAP, so the CLI *cannot*
+    # send them. Omitting means NEITHER arm sends them and both take juniper-data's default.
+    # spiral-baseline sets `algorithm: modern`; inheriting it would be a one-sided dataset knob.
+
+training:
+  start_fresh: true
+  params:
+    # --- MAPPED: both arms honour these ---
+    max_hidden_units: 64         # THE AXIS UNDER TEST; overridden to 64 / 128 by the suites
+    candidate_pool_size: 8       # the value the interesting region was characterised at.
+                                 # NOT swept: E-A settled that pool raises candidate correlation
+                                 # but not accuracy, so a pool column would re-measure a closed
+                                 # question. (The smoke pair used 4.)
+    learning_rate: 0.05
+    correlation_threshold: 0.2
+    patience: 200
+    candidate_epochs: 500
+    # Both set, to the same value -- see THE max_epochs TRAP above. Do not drop either.
+    max_epochs: 2000             # service: initial output pass. CLI: alias -> output_epochs.
+    output_epochs: 2000          # service: every per-round output pass. CLI: wins over the alias.
+
+    # --- EQUALISE: service-only keys whose value matches what the CLI already does ---
+    # max_iterations is absent from _W11_TRAINING_KEY_MAP, so it binds the SERVICE only; the
+    # CLI's growth is bounded by max_hidden_units alone (its log reports max_iterations
+    # 1000000). Setting it makes the service stop growing where the CLI already stops -- the
+    # opposite of the candidate_patience case, where setting it would change one arm only. It
+    # must CLEAR the largest cap or that cap can never bind and the R-3 defect returns in a new
+    # costume: growth adds one unit per iteration, so 128 is exactly enough for cap 128 and
+    # inert at cap 64. Confirm it worked by checking units == max_hidden_units on both arms.
+    #
+    # Do NOT cite derive_epochs_cap as the reason the cap binds: its own docstring
+    # (api/lifecycle/manager.py:1636-1639) calls min(max_iterations, max_hidden_units) a
+    # reporting/display budget and says enforcement "stays with the granular limits themselves".
+    max_iterations: 128
+    # early_stopping is likewise unmapped, and the CLI's default is True (its smoke-run
+    # fit:1918 line reads "early stopping: True" with nothing in the YAML able to set it).
+    # Setting it True here makes the service match. Both arms PRINT the resolved value on that
+    # same line, so max_epochs / max_iterations / early_stopping are all provable from the logs.
+    early_stopping: true
+
+    # --- OMIT: unmapped, and setting them would move one arm only ---
+    # candidate_patience             -> both take _PROJECT_MODEL_CANDIDATE_PATIENCE = 50.
+    #   This is the juniper-cascor#514 knob. spiral-baseline sets it to 100, which is exactly
+    #   why this file does not inherit that config. If a non-default candidate patience is ever
+    #   genuinely wanted, this comparison is NOT AVAILABLE until _W11_TRAINING_KEY_MAP carries
+    #   the key -- say so rather than running it.
+    # candidate_learning_rate        -> both take the module default.
+    # convergence_threshold          -> both take the module default.
+    # candidate_convergence_threshold-> both take the module default.
+
+runtime:
+  num_processes: 4
+  blas_threads: 2
+  # false: gates ONLY the extra F1/precision/recall/ROC-AUC forward pass
+  # (api/lifecycle/manager.py:1893). train_accuracy / val_accuracy are unaffected, so the
+  # headline metric survives while an extra service-side forward pass stays out of the
+  # wall-clock comparison. Same reasoning as plots: [] below.
+  eval_metrics_enabled: false
+
+outputs:
+  # The CLI renders no plot FILES at all, so service-side plotting would add client work to one
+  # side of a wall-clock comparison.
+  plots: []
+  snapshot_at_end: false
+  max_wall_seconds: 14400

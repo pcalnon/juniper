@@ -2021,3 +2021,90 @@ withdrew a P1 for.
 
 **Playwright's `page.hover()` fails the same way its `click()` does** (30 s timeout), so tooltip proof came
 from dispatching `pointerover`/`mouseover`/`mouseenter` directly.
+
+---
+
+## Phase 1 — segment 14 (2026-08-17): §3.9 Snapshots, and instruments that lie
+
+Run id `20260817T101500Z`. Stack: canopy `56ce45f`, cascor `3909d27`, data `4db9544`; health-gated on
+`demo_mode:false` + `juniper_data_available:true`, with the 4-snapshot corpus present (backed up first —
+a failed `--up` calls `do_down` internally, which deletes it). Matrix **198 → 212 of 298**.
+
+**§3.9 goes 4/21 → 18/21.** Fourteen rows, all PASS. New driver
+`util/ad-hoc/e2e_seg14_snapshots_driver.py`.
+
+### The headline result
+
+**M-SNAPSHOTS-15** is proved three independent ways, which matters because the canopy POST is server-side
+and therefore invisible to the browser:
+
+1. UI — `-restore-status` rendered `✅ Restored from snapshot 'snapshot_20260813T051936Z'`
+2. Backend FSM — `STOPPED` → `INVESTIGATING`
+3. `GET /v1/network` — `hidden_units: 10`, the snapshot's topology genuinely rehydrated from 0
+
+**M-SNAPSHOTS-16** carries the row's distinguishing claim: a confirmed *replay* also moved
+`visualization-tabs.active_tab` from `Snapshots` to `Replay` (the third `active_tab` writer, D-1), with
+`✅ Snapshot replay started`.
+
+### Three instruments that produced confident, meaningless numbers
+
+This segment's real lesson is not any single row — it is that **the obvious measurement was wrong three
+separate times**, and each wrong measurement supported a plausible verdict.
+
+1. **Browser-request counting for the refresh rows.** `M-SNAPSHOTS-04` first read as "zero GETs, never
+   refreshes". The list fetch is issued *server-side* from the Dash callback, so zero browser requests is
+   the expected state — the arc's own standing rule, re-learned. Re-measured on the canopy log as a rate:
+   idle baseline 7 fetches/60 s (2.33 per 20 s), driven 4 clicks in 20 s → **4 fetches**, a clean 1:1
+   above noise.
+2. **A single timing window.** The first `M-SNAPSHOTS-05` sample gave gaps of 0.33 s to 92 s — all
+   self-inflicted, because the driver was clicking throughout. On two *strictly idle* 60 s windows it
+   settles to 5 and 7 fetches (median gap 8.77 s), bracketing the source-declared
+   `DEFAULT_REFRESH_INTERVAL_MS = 10000` once F-CANOPY-004 jitter is allowed for. Recorded as
+   consistent-with-10 s, not as an exact period.
+3. **A stale element id.** Every click in this panel races the 10 s table rebuild — the same mechanism
+   behind F-CANOPY-009 and F-CANOPY-010. Each step now re-queries its target immediately before clicking
+   and retries; `M-SNAPSHOTS-16` needed **3 attempts**, `-17` needed 2.
+
+### A finding I did not file
+
+Restore failed to open twice while its three siblings opened cleanly. Two attempts, consistent, and
+op-specific — a convincing defect. On the focused re-run it **inverted**: restore opened at 750 ms and
+*resume* failed. The wire gave the real cause — F-CANOPY-010's early-out, returning exactly the documented
+`(False, "", None)`:
+
+    {"restore-modal": {"is_open": false}, "restore-modal-body": {"children": ""}, "restore-pending-id": …}
+
+The failure is **racy, not op-specific**. This is the fourth plausible-but-wrong finding this arc has
+avoided by re-checking rather than filing (after the multi-candidate "stuck" control, the C2.8-12 "or"
+violation, and the F-CANOPY-023 root cause). The rule is now well enough evidenced to state plainly:
+**on this dashboard a first-pass anomaly is more often the instrument or a documented race than a new
+defect — reproduce it a second way before writing it down.**
+
+F-CANOPY-009 was also observed directly rather than inferred: the wire shows `-selected-id` receiving
+`{"data": null}` and *then* the snapshot id, which is why a DOM-only read of the detail panel reported
+"never rendered" (it would have been a wrong FAIL for `M-SNAPSHOTS-07`/`-08`).
+
+### Three rows deliberately unfilled
+
+* **M-SNAPSHOTS-19** — `MANUAL (native menu)`, a right-click context menu.
+* **M-SNAPSHOTS-20 / -21** — `DEAD-EXPECTED`, and **unreachable**: those buttons render only inside
+  dataset-swap cards, and the panel reports "No dataset swaps recorded yet." Scoring them needs a real
+  dataset swap (W6/W7) to exist first. A `DEAD-CONFIRMED` verdict requires clicking a control that does
+  not currently render, so no verdict is honest here.
+
+The same precondition bounds **M-SNAPSHOTS-18**, recorded as `PASS (empty branch)`: the empty state renders
+correctly, the populated paired-diff cards are unproven.
+
+### Other measurements
+
+`M-SNAPSHOTS-13`'s ⚠️ line was initially "missing" because the driver's own `probe()` helper slices
+`textContent` to 120 chars. Read untruncated, the body carries all three documented parts (248 chars),
+ending `⚠️ Training must be paused or stopped before any snapshot operation.` A reading artifact, not a
+product gap — and a reminder that a helper's convenience truncation can manufacture a finding.
+
+`M-SNAPSHOTS-14` is clean: modal open at 750 ms, Cancel, gone 300 ms later, and the POST hook recorded
+`posts_seen: []` — no request of any kind, exactly as the row requires.
+
+Also logged as an **F-CANOPY-006 observation, not a new finding**: after the restore, `monitor.
+current_hidden_units` read 0 while `/v1/network` read 10 — the same stale-counter class segment 9 already
+withdrew a P1 for.

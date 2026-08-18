@@ -26,11 +26,11 @@ Two genuine host defects surfaced while probing, neither of them Juniper's — b
 The [P3 acceptance rollup §3](JUNIPER_2026-08-08_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P3-ACCEPTANCE-ROLLUP.md)
 context package states three facts. All three are wrong.
 
-| P3 rollup §3 claim | Probed 2026-08-16 |
-|---|---|
+| P3 rollup §3 claim                                                       | Probed 2026-08-16                                                                                                                                                                                                                                                                                |
+|--------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | "The listener on `:3000` is a **system-level `grafana-server.service`**" | **False.** It is the **Domotz Pro agent**, a snap (`snap.domotzpro-agent-publicstore.domotzpro-agent-deamon.service`, active/running). The served HTML is an AngularJS app declaring `ng-app="agent"` and loading `domotz-angular-widgets`. `grafana-server` *wants* `:3000` and cannot have it. |
-| "`/api/health` returns 200 with `database: ok`" | **False for `:3000`.** `GET :3000/api/health` → **404**; `GET :3000/login` → **404**; `GET :3000/` → 200 serving the Domotz agent UI. The 200/`database: ok` belongs to the **deploy** Grafana on `:3001`. |
-| "Credentials are non-default (anonymous 401; `admin:admin` rejected)" | **A phantom.** That was the Domotz agent refusing, not Grafana. There is no Grafana credential mystery on `:3000` because there is no Grafana on `:3000`. |
+| "`/api/health` returns 200 with `database: ok`"                          | **False for `:3000`.** `GET :3000/api/health` → **404**; `GET :3000/login` → **404**; `GET :3000/` → 200 serving the Domotz agent UI. The 200/`database: ok` belongs to the **deploy** Grafana on `:3001`.                                                                                       |
+| "Credentials are non-default (anonymous 401; `admin:admin` rejected)"    | **A phantom.** That was the Domotz agent refusing, not Grafana. There is no Grafana credential mystery on `:3000` because there is no Grafana on `:3000`.                                                                                                                                        |
 
 And the consequence the finding drew from those facts:
 
@@ -89,14 +89,14 @@ Queried via Grafana's datasource proxy, so this exercises Grafana's own datasour
 dashboard's template-variable mechanism — the layer P2/P3 had only ever evidenced at the Prometheus
 level:
 
-| check | result |
-|---|---|
-| `run_id` template variable (`label_values(up{environment="host-experiment"}, run_id)`) | `['20260817T011726Z-6d05']` |
-| Host-Experiment Scrape Targets | 2 series, value 1 |
-| Targets Up | 2 |
-| `juniper_cascor_build_info` / `juniper_data_build_info` | 1 series each |
-| `juniper_cascor_training_loss` | 2 series, 0.20409207046031952 |
-| `juniper_cascor_hidden_units_total` | 2 |
+| check                                                                                  | result                        |
+|----------------------------------------------------------------------------------------|-------------------------------|
+| `run_id` template variable (`label_values(up{environment="host-experiment"}, run_id)`) | `['20260817T011726Z-6d05']`   |
+| Host-Experiment Scrape Targets                                                         | 2 series, value 1             |
+| Targets Up                                                                             | 2                             |
+| `juniper_cascor_build_info` / `juniper_data_build_info`                                | 1 series each                 |
+| `juniper_cascor_training_loss`                                                         | 2 series, 0.20409207046031952 |
+| `juniper_cascor_hidden_units_total`                                                    | 2                             |
 
 ### 2.4 Interactive render — the arm that was actually blocked
 
@@ -146,12 +146,12 @@ landed in its own `RUN_DIR/logs/`. The hazard H-7 described did not occur.
 
 ## 4. Disposition
 
-| arm | before | now |
-|---|---|---|
-| **F-P1-2** | Owner decision, parked since 2026-08-07 | **CLOSED — premise false; no action taken or needed** |
-| **P1.6** interactive render | the only non-PASS arm of P1 smoke | **PASS** (§2.4) |
-| **P3 criterion 6** Grafana sub-arm | "pending the F-P1-2 decision" | **PASS** (§2.3, §2.4) |
-| **P3 criterion 8** "both visible in Grafana" | "shares the F-P1-2 shadow" | **PASS** — both services visible, run-scoped (§2.4) |
+| arm                                          | before                                  | now                                                   |
+|----------------------------------------------|-----------------------------------------|-------------------------------------------------------|
+| **F-P1-2**                                   | Owner decision, parked since 2026-08-07 | **CLOSED — premise false; no action taken or needed** |
+| **P1.6** interactive render                  | the only non-PASS arm of P1 smoke       | **PASS** (§2.4)                                       |
+| **P3 criterion 6** Grafana sub-arm           | "pending the F-P1-2 decision"           | **PASS** (§2.3, §2.4)                                 |
+| **P3 criterion 8** "both visible in Grafana" | "shares the F-P1-2 shadow"              | **PASS** — both services visible, run-scoped (§2.4)   |
 
 P1 smoke and P3 acceptance now have **no** arms outstanding.
 
@@ -187,11 +187,11 @@ Requires sudo, so it is left for the operator; nothing in this program depends o
 > hard-coded root-level fix. **All three are natively supported**, and two were demonstrated on this
 > host **without root**, by running the packaged binary as an unprivileged user against scratch dirs:
 >
-> | mechanism | form | probe result |
-> |---|---|---|
-> | **command line** | `grafana server cfg:server.http_port=3002` (the `--configOverrides` / `cfg:` syntax) | **bound `:3002`**, `/api/health` → 200, `database: ok` |
-> | **environment variable** | `GF_SERVER_HTTP_PORT=3002` (the standard `GF_<SECTION>_<KEY>` form) | **bound `:3002`**, `/api/health` → 200 |
-> | **config file** | `[server] http_port` in an ini passed via `--config` | supported; not separately probed — `/etc/grafana/grafana.ini` is `root:grafana 0640` and unreadable here |
+> | mechanism                | form                                                                                 | probe result                                                                                             |
+> |--------------------------|--------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
+> | **command line**         | `grafana server cfg:server.http_port=3002` (the `--configOverrides` / `cfg:` syntax) | **bound `:3002`**, `/api/health` → 200, `database: ok`                                                   |
+> | **environment variable** | `GF_SERVER_HTTP_PORT=3002` (the standard `GF_<SECTION>_<KEY>` form)                  | **bound `:3002`**, `/api/health` → 200                                                                   |
+> | **config file**          | `[server] http_port` in an ini passed via `--config`                                 | supported; not separately probed — `/etc/grafana/grafana.ini` is `root:grafana 0640` and unreadable here |
 >
 > No residual listener after the probe. **The port is hard-coded nowhere** — `grafana.ini`'s default
 > is simply what applies when nothing overrides it.

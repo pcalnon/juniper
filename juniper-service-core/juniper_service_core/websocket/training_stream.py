@@ -35,16 +35,21 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from juniper_service_core.websocket.manager import ReplayOutOfRange, ws_authenticate
 from juniper_service_core.websocket.messages import create_initial_metrics_message, create_state_message
+from juniper_service_core.websocket.tunables import resolve
 
 __all__ = ["training_stream_handler"]
 
 logger = logging.getLogger("juniper_service_core.websocket.training")
 
 
-def _setting(websocket: WebSocket, name: str, default):
-    """Read a tunable off ``app.state.settings`` with a default (no service settings import)."""
-    settings = getattr(websocket.app.state, "settings", None)
-    return getattr(settings, name, default) if settings is not None else default
+def _setting(websocket: WebSocket, name: str):
+    """Resolve a declared tunable off ``app.state.settings`` (no service settings import).
+
+    The default now lives in :data:`~juniper_service_core.websocket.tunables.WS_TUNABLES`
+    rather than at each call site, and a miss that looks like a misspelling is logged
+    loudly instead of silently defaulting -- see that module for why (APD-SVCCORE-003).
+    """
+    return resolve(getattr(websocket.app.state, "settings", None), name)
 
 
 async def _await_resume_frame(websocket: WebSocket, ws_manager, resume_timeout: float) -> tuple[bool, bool]:
@@ -190,8 +195,8 @@ async def training_stream_handler(websocket: WebSocket) -> None:
     if not connected:
         return
 
-    resume_timeout = _setting(websocket, "ws_resume_handshake_timeout_s", 5.0)
-    initial_metrics_count = _setting(websocket, "ws_initial_metrics_count", 100)
+    resume_timeout = _setting(websocket, "ws_resume_handshake_timeout_s")
+    initial_metrics_count = _setting(websocket, "ws_initial_metrics_count")
 
     try:
         resumed, disconnected = await _await_resume_frame(websocket, ws_manager, resume_timeout)
@@ -207,8 +212,8 @@ async def training_stream_handler(websocket: WebSocket) -> None:
 
         # Broadcasts come from the training thread via ws_manager.broadcast_from_thread() (wired
         # by the lifecycle bridge). The recv loop handles pong responses and subscribe_metrics.
-        hb_interval = _setting(websocket, "ws_heartbeat_interval_sec", 30)
-        hb_timeout = _setting(websocket, "ws_heartbeat_pong_timeout_sec", 10)
+        hb_interval = _setting(websocket, "ws_heartbeat_interval_sec")
+        hb_timeout = _setting(websocket, "ws_heartbeat_pong_timeout_sec")
         pong_received = asyncio.Event()
         pong_received.set()  # No outstanding ping at start
 
