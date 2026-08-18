@@ -34,6 +34,10 @@ from pathlib import Path
 
 RE_ITER = re.compile(r"grow_network:\d+\].*Iteration (\d+) - Train Loss: ([0-9.]+), Train Accuracy: ([0-9.]+)")
 RE_ACC = re.compile(r"calculate_accuracy:\d+\].*Calculated accuracy: ([0-9.]+)")
+# A run is only comparable once training has actually finished. Without this the tool will happily
+# diff an IN-FLIGHT log against a finished one and report a confident divergence that is really
+# just "one of these is still running" -- which it did, to me, on first use.
+RE_DONE = re.compile(r"fit:\d+\].*Training completed\.")
 
 
 def _segments(d: Path) -> "list[Path]":
@@ -52,6 +56,7 @@ def _segments(d: Path) -> "list[Path]":
 def trace(run_dir: Path) -> dict:
     iters: "list[tuple[int, str, str]]" = []
     accs: "list[str]" = []
+    complete = False
     for seg in _segments(run_dir):
         with seg.open(encoding="utf-8", errors="replace") as fh:
             for line in fh:
@@ -59,8 +64,10 @@ def trace(run_dir: Path) -> dict:
                     iters.append((int(m.group(1)), m.group(2), m.group(3)))
                 elif (m := RE_ACC.search(line)):
                     accs.append(m.group(1))
+                elif RE_DONE.search(line):
+                    complete = True
     # SpiralProblem.evaluate calls calculate_accuracy on (train) then (test) last.
-    return {"dir": run_dir, "iters": iters, "train": accs[-2] if len(accs) >= 2 else None, "val": accs[-1] if len(accs) >= 2 else None}
+    return {"dir": run_dir, "iters": iters, "complete": complete, "train": accs[-2] if len(accs) >= 2 else None, "val": accs[-1] if len(accs) >= 2 else None}
 
 
 def main() -> int:
@@ -80,9 +87,17 @@ def main() -> int:
     for label, runs in sorted(groups.items()):
         print(f"\n=== {label} ({len(runs)} run(s)) ===")
         for r in runs:
-            print(f"  {r['dir'].name:<18} iterations={len(r['iters']):<4} train={r['train']} val={r['val']}")
+            state = "" if r["complete"] else "  <-- IN FLIGHT (no 'Training completed.')"
+            print(f"  {r['dir'].name:<18} iterations={len(r['iters']):<4} train={r['train']} val={r['val']}{state}")
         if len(runs) < 2:
             print("  (need two runs to judge determinism)")
+            continue
+        unfinished = [r for r in runs if not r["complete"]]
+        if unfinished:
+            # Refuse rather than guess. A partial trace diffs as a divergence, and a false
+            # NONDETERMINISTIC verdict is worse than no verdict on a question this tool exists
+            # to answer carefully.
+            print(f"  VERDICT: UNCOMPARABLE -- {len(unfinished)} run(s) still in flight; re-run once training has completed")
             continue
         a, b = runs[0], runs[1]
         first = None
