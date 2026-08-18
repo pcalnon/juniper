@@ -235,9 +235,36 @@ class PublishTestPyPIVerifyStructuralTest(unittest.TestCase):
         self.assertIn("importlib.metadata", self.script)
 
     def test_testpypi_environment_and_oidc(self) -> None:
+        """Environments are declared, and OIDC is scoped to the publish jobs only.
+
+        P4 (juniper-ml#357) moved ``id-token: write`` off the workflow block and
+        onto the two publish jobs.  The build job compiles the tree and must not
+        be able to mint a PyPI credential; job-level ``permissions`` REPLACE the
+        workflow block rather than merging with it, so each publish job restates
+        ``contents: read`` for its checkout.
+        """
         self.assertEqual(self.doc["jobs"]["testpypi"].get("environment"), "testpypi")
         self.assertEqual(self.doc["jobs"]["pypi"].get("environment"), "pypi")
-        self.assertEqual(self.doc.get("permissions"), {"id-token": "write"})
+
+        self.assertEqual(self.doc.get("permissions"), {"contents": "read"}, "workflow-level permissions must NOT grant id-token; scope it to the publish jobs")
+
+        for job in ("testpypi", "pypi"):
+            with self.subTest(job=job):
+                self.assertEqual(self.doc["jobs"][job].get("permissions"), {"id-token": "write", "contents": "read"})
+
+        self.assertNotIn("permissions", self.doc["jobs"]["build"], "the build job must not be granted OIDC minting rights")
+
+    def test_build_asserts_release_tag_matches_built_version(self) -> None:
+        """P3: the build job proves it is building a tag whose version it actually built."""
+        steps = self.doc["jobs"]["build"]["steps"]
+        run_bodies = "\n".join(str(s.get("run", "")) for s in steps)
+        self.assertIn("util/assert_release_tag.bash", run_bodies)
+        self.assertIn("--expect-prefix v", run_bodies)
+        # `github.ref` (fully-formed, documented as refs/tags/<tag> for a release
+        # event) rather than `github.ref_name` -- the script keys on the
+        # `refs/tags/` prefix, so a bare name would be refused.
+        self.assertIn("github.ref }}", run_bodies, "the check must be fed the real github.ref, not a hardcoded value")
+        self.assertNotIn("github.ref_name", run_bodies)
 
     def test_testpypi_upload_skips_existing_but_pypi_stays_strict(self) -> None:
         # A re-cut Release republishes a version TestPyPI already holds (immutable upload).

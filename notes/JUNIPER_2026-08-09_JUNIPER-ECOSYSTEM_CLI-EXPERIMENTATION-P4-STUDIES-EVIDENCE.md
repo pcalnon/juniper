@@ -105,6 +105,28 @@ The five stageable generators' ranking feeds the §12 difficulty axis; spiral's 
 
 Output (accuracy-vs-noise): the **moon curve** is the study's deliverable — flat at 1.0 through noise 0.10 (recruiting a second unit at 0.10), dipping to 0.965 at 0.20: graceful noise robustness. The four **spiral rows are F-P4-1-degenerate** (all ≈chance regardless of noise; the three that first ran inside the broken-checkout window were re-run after cascor#501 and complete mechanically with the same F-P4-1 signature).
 
+> **KNOWINGLY STALE (recorded 2026-08-16).** The table above is the **pre-rebudget** E-C surface
+> and has not been re-measured. `util/experiments/suites/p4/e-c-cascor-noise-robustness.yaml` was
+> rebased onto `spiral-baseline` and given E-A-class budgets on **2026-08-13 00:43** (`ff4e2ca`,
+> juniper-ml#1075), but the newest E-C run on this host is
+> `e-c-cascor-noise-robustness-20260811T095213Z` — **two days earlier**; all six E-C runs are
+> 08-09/08-11. So every spiral row here still reflects the 2-unit smoke cap.
+>
+> Read the spiral rows accordingly: per **F-6** of the [spiral-resurface evidence](JUNIPER_2026-08-12_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P4-SPIRAL-RESURFACE-EVIDENCE.md),
+> *"the curve is flat because the unit cap binds, not because spiral is noise-robust."* Flatness
+> here is **not** a noise-robustness result. The moon curve is unaffected — it clears the cap at
+> one to two units and is the study's actual deliverable.
+>
+> This is a note about evidence currency only. The **R-4 disposition is closed and is not
+> reopened here**: the owner call was to give E-C's spiral rows an E-A-class budget rather than
+> reduce E-C to a moon-only study, and that call stands — the suite already encodes it. What is
+> outstanding is purely the re-run that would replace this table. Anyone publishing an E-C noise
+> claim must either re-run under the current suite or cite this note.
+>
+> Related and separately unowned: juniper-cascor#514 changed candidate patience, and R-5 §5.1
+> established that spiral figures are not comparable across it — so the published **E-A** and
+> **E-I** grids, both of which predate #514, carry the same currency caveat.
+
 ### E-H (cascor) — real equities vs spiral control (2 cells)
 
 | cell                    | val acc                | majority                  | hidden | wall (s) |

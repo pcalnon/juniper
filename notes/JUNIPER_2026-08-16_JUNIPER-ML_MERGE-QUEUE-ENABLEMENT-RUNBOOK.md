@@ -3,8 +3,7 @@
 **Project**: juniper-ml
 **Author**: Paul Calnon
 **Date**: 2026-08-16
-**Status**: **BLOCKED — merge queue is unavailable to this repository.** Retained as a conditional
-runbook; §5 becomes executable only if the repository moves to organization ownership.
+**Status**: **BLOCKED — merge queue is unavailable to this repository.** Retained as a conditional runbook; §5 becomes executable only if the repository moves to organization ownership.
 **Tracking issue**: [juniper-ml#1128](https://github.com/pcalnon/juniper-ml/issues/1128)
 
 ---
@@ -34,7 +33,7 @@ unconfirmable by read-only API". The answer is **no**.
   `release-train-archive-guard` reconciliation are inert without a queue (the `merge_group` event
   never fires) and cost nothing. **Leave them in place** — they are the completed Step 0 for any
   future org migration, and removing them would only have to be redone.
-- **The rebase tax that motivated #1128 is unresolved.** See §9 for what remains available.
+- **The rebase tax that motivated #1128 is unresolved.** See §8 for what remains available.
 - Everything in §2–§3 (the required-context audit, the signing analysis) was verified before the
   availability answer landed and stays valid. It is retained so a future org migration does not have
   to redo it.
@@ -62,32 +61,32 @@ merge-or-eject, replacing the manual Update-branch that authored the #801/#803 d
 
 ## 2. Preconditions — all verified 2026-08-16
 
-| Precondition | Status |
-| --- | --- |
-| `merge_group:` wired in `ci.yml` (line 54) | ✅ done |
-| `merge_group:` wired in `codeql.yml` | ✅ done |
-| `release-train-archive-guard` reconciled for `merge_group` | ✅ `ci.yml:706` runs + green short-circuit |
-| All 14 required contexts report on `merge_group` | ✅ audited job-by-job (§3) |
-| Quality Gate `needs:` free of merge_group-skipped jobs | ✅ all 8 needs unconditional |
-| `allow_auto_merge` | ✅ `true` |
-| `required_approving_review_count` | ✅ `0` (no review gate to block headless auto-merge) |
+| Precondition                                               | Status                                               |
+|------------------------------------------------------------|------------------------------------------------------|
+| `merge_group:` wired in `ci.yml` (line 54)                 | ✅ done                                              |
+| `merge_group:` wired in `codeql.yml`                       | ✅ done                                              |
+| `release-train-archive-guard` reconciled for `merge_group` | ✅ `ci.yml:706` runs + green short-circuit           |
+| All 14 required contexts report on `merge_group`           | ✅ audited job-by-job (§3)                           |
+| Quality Gate `needs:` free of merge_group-skipped jobs     | ✅ all 8 needs unconditional                         |
+| `allow_auto_merge`                                         | ✅ `true`                                            |
+| `required_approving_review_count`                          | ✅ `0` (no review gate to block headless auto-merge) |
 
 ### Required-context audit
 
 All 14 contexts in the `required_status_checks` rule post on a `merge_group` event:
 
-| Source | Contexts | How it reports on `merge_group` |
-| --- | --- | --- |
-| `ci.yml` `pre-commit` | `Pre-commit (Python 3.12/3.13/3.14)` | unconditional job |
-| `ci.yml` `tests` | `Regression Tests (Python 3.12/3.13/3.14)` | unconditional job |
-| `ci.yml` `build` | `Build and Validate Package` | unconditional job |
-| `ci.yml` `docs` | `Documentation Links` | unconditional job |
-| `ci.yml` `security` | `Security Scan` | unconditional job |
-| `ci.yml` `claude-yaml-audit` | `Claude.yml Access Audit` | unconditional job |
-| `ci.yml` `dependency-docs` | `Dependency Documentation` | unconditional job |
-| `ci.yml` `release-train-archive-guard` | `Release-Train Archive Guard` | `if: pull_request \|\| merge_group`; green notice before any base-ref diffing |
-| `ci.yml` `required-checks` | `Quality Gate` | `if: always()`; `needs:` are all unconditional |
-| `codeql.yml` `analyze` | `Analyze (python)` | `merge_group:` wired |
+| Source                                 | Contexts                                   | How it reports on `merge_group`                                               |
+|----------------------------------------|--------------------------------------------|-------------------------------------------------------------------------------|
+| `ci.yml` `pre-commit`                  | `Pre-commit (Python 3.12/3.13/3.14)`       | unconditional job                                                             |
+| `ci.yml` `tests`                       | `Regression Tests (Python 3.12/3.13/3.14)` | unconditional job                                                             |
+| `ci.yml` `build`                       | `Build and Validate Package`               | unconditional job                                                             |
+| `ci.yml` `docs`                        | `Documentation Links`                      | unconditional job                                                             |
+| `ci.yml` `security`                    | `Security Scan`                            | unconditional job                                                             |
+| `ci.yml` `claude-yaml-audit`           | `Claude.yml Access Audit`                  | unconditional job                                                             |
+| `ci.yml` `dependency-docs`             | `Dependency Documentation`                 | unconditional job                                                             |
+| `ci.yml` `release-train-archive-guard` | `Release-Train Archive Guard`              | `if: pull_request \|\| merge_group`; green notice before any base-ref diffing |
+| `ci.yml` `required-checks`             | `Quality Gate`                             | `if: always()`; `needs:` are all unconditional                                |
+| `codeql.yml` `analyze`                 | `Analyze (python)`                         | `merge_group:` wired                                                          |
 
 The advisory `sequence-safety` and `fleet-pr-lint` jobs are deliberately **absent** from the Quality
 Gate `needs:`, so their skips cannot redden the gate.
@@ -160,15 +159,15 @@ Is **"Require merge queue"** present and selectable?
 
 Configure exactly:
 
-| Setting | Value | Why |
-| --- | --- | --- |
-| **Merge method** | **Squash and merge** | The signing constraint (§3). **Never `rebase`.** |
-| **Maximum pull requests to merge** | **1** | See the strict-compatibility note below. |
-| **Minimum pull requests to merge** | 1 | — |
-| **Wait time to meet minimum** | 5 min (default) | Irrelevant at group size 1. |
-| **Build concurrency** | 5 (default) | Number of `merge_group` webhooks dispatched. |
-| **Only merge non-failing pull requests** | **on** | Never land a group whose members failed. |
-| **Status check timeout** | 60 min (default) | ml's full battery + CodeQL fits comfortably. |
+| Setting                                  | Value                | Why                                              |
+|------------------------------------------|----------------------|--------------------------------------------------|
+| **Merge method**                         | **Squash and merge** | The signing constraint (§3). **Never `rebase`.** |
+| **Maximum pull requests to merge**       | **1**                | See the strict-compatibility note below.         |
+| **Minimum pull requests to merge**       | 1                    | —                                                |
+| **Wait time to meet minimum**            | 5 min (default)      | Irrelevant at group size 1.                      |
+| **Build concurrency**                    | 5 (default)          | Number of `merge_group` webhooks dispatched.     |
+| **Only merge non-failing pull requests** | **on**               | Never land a group whose members failed.         |
+| **Status check timeout**                 | 60 min (default)     | ml's full battery + CodeQL fits comfortably.     |
 
 > **Group size 1 vs. strict.** "Require branches to be up to date before merging" is **not compatible
 > with a batch size > 1** and must be unset in that case. Two coherent configurations:

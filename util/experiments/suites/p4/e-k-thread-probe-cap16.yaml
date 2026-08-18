@@ -1,0 +1,43 @@
+# E-K: the SERVICE reference point for the CLI-vs-service thread-asymmetry probe.
+#
+# WHY THIS EXISTS
+# The wide-budget head-to-head (ml#1143) measured a real ~2x direct-CLI wall-clock penalty,
+# localised entirely to the candidate phase, and eliminated configuration, initialisation and host
+# contention as causes. Root-causing it turned up a structural asymmetry in the two entry points:
+#
+#   juniper-cascor/src/main.py:48-50   (the DIRECT CLI entry point)
+#       os.environ.setdefault("OMP_NUM_THREADS", "2")
+#       os.environ.setdefault("MKL_NUM_THREADS", "2")
+#       os.environ.setdefault("OPENBLAS_NUM_THREADS", "2")
+#
+# Its own comment calls this "PARALLEL-FIX (RC-1)" and states the load-bearing detail: the values
+# "are read once when the BLAS library is first loaded; setting them after import has no effect."
+# The SERVICE enters through `uvicorn api.app:create_app` and never executes main.py -- and
+# `git grep -nE "NUM_THREADS|set_num_threads" -- src/api` returns NOTHING. So the two paths load
+# BLAS with different thread pools, and because the pool is fixed at load time, the candidate
+# workers forked from each parent inherit that difference permanently. `worker_thread_count`
+# defaults to 1, so both paths call torch.set_num_threads(1) in the worker, but that governs
+# torch's intra-op pool only -- it cannot resize an OpenMP pool that is already built.
+#
+# Cap 16 rather than 64: the per-iteration candidate cost difference is visible from the first
+# iterations (the cap-64 replicates showed a 1.31-1.42x ratio over iterations 0-11), so a quarter
+# of the capacity answers the question at a quarter of the cost. This suite is a REFERENCE POINT,
+# not a capacity measurement -- do not read its accuracy against E-I or against ml#1143.
+#
+# seed 42 and seed_policy: fixed, matching ml#1143's init control, so this run shares BOTH the
+# dataset and the network initialisation with the CLI arms it is compared against. That removes
+# the two confounds ml#1143 had to spend a separate control on.
+schema_version: 1
+suite:
+  name: e-k-thread-probe-cap16
+  description: "E-K: service reference for the RC-1 thread-asymmetry probe (cap 16 / pool 8, seed 42)"
+  app: cascor
+  base_config: [../../../ad-hoc/2026-08-16_h2h_wide_nrot3.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 7200, stall_seconds: 1200}
+matrix:
+  training.params.max_hidden_units: [16]
+  dataset.params.seed: [42]
+  experiment.seed: [42]
+  experiment.description: ["E-K thread probe -- SERVICE reference, cap 16, seed 42"]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

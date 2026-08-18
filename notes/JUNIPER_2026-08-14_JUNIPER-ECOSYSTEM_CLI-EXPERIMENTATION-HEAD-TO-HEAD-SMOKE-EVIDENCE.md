@@ -109,6 +109,13 @@ data at an identical budget, the CLI is **not slower at all** — 36 s vs 46 s a
 withdrawal in the F-P1-3 note rested on "no gap was ever measured"; this run measures it and finds
 none.
 
+> **Scale qualifier added 2026-08-17.** "Not slower at all" is true *at this cap* and does not
+> generalise. The [wide-budget head-to-head](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-WIDE-BUDGET-HEAD-TO-HEAD-EVIDENCE.md)
+> measures **1.99 ± 0.21×** at caps 64/128, entirely in the candidate phase — a term that compounds
+> per growth iteration and is therefore near-absent at a 2-unit cap. F-P1-3b's specific claim
+> (structural, ~25×) stays refuted; "there is no wall-clock difference between the paths" was never
+> a safe reading of these two cells and is now known to be wrong at wide budgets.
+
 **There is no service-tier limitation.** This is now the third independent line of evidence, after
 ml#1093 (service aces the easy spiral at a small budget) and E-I (service aces the hard spiral given
 capacity). The remaining question F-5 raised — is the service tier itself handicapped — is answered
@@ -176,4 +183,4 @@ stale lockdirs, **0** reapable orphans, `artifacts/` preserved.
 | F-P1-3b | **REFUTED** (§5) — was withdrawn for lack of evidence; now measured and absent |
 | F-5 "genuine service-tier limitation" | **FALSE**, third independent confirmation |
 | L-1 fix (cascor#522) | **field-verified** (§3) — `max_epochs: 100`, initial pass caps at 100 |
-| Wide-budget head-to-head (64–128 units) | **OPEN** — optional; §6 bounds what this run does not cover |
+| Wide-budget head-to-head (64–128 units) | **CLOSED** by [the wide-budget evidence note](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-WIDE-BUDGET-HEAD-TO-HEAD-EVIDENCE.md) (2026-08-16/17, 6 paired replicates at caps 64 and 128). **Accuracy: this run's finding holds** — +0.75 ± 0.52 pp, no gap worth acting on. **Wall clock: it does not.** §6's refusal to quote a ratio was right for a different reason than it gave: with a shared denominator the direct CLI takes **1.99 ± 0.21×**, wholly in the candidate phase. That term compounds per growth iteration, so a 2-unit cap has almost none of it — which is why the 36/46 s and 35/35 s figures here show no sign of it |

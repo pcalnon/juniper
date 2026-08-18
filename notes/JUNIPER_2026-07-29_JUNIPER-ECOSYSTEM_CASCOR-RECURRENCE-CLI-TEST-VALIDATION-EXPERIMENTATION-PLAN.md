@@ -67,6 +67,31 @@ Corrections found during spot-checking are recorded in §2.3; the live repo wins
 | `juniper-deploy`             | `8657330` | `main`                                            | sole home of Prometheus config + Grafana dashboards                 |
 | `juniper-ml` (this worktree) | `4927c78` | `docs/cascor-recurrence-cli-experimentation-plan` | hosts `juniper-observability/` `0.4.0`, `juniper-service-core/`     |
 
+#### 2.2a Provenance re-pin — recurrence (F-7, closed 2026-08-16)
+
+The table above is the **authoring-time** snapshot and is deliberately left as written; a
+provenance record that gets silently overwritten is not provenance. [P0 preflight](JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md)
+finding **F-7** recorded that `juniper_recurrence` had already drifted past that snapshot
+(live `0.3.0` against the `0.2.0` recorded above) and deferred the re-pin to *"when Wave 3
+touches the recurrence repo"*. Wave 3 has shipped, so the re-pin is recorded here:
+
+| Package / repo                     | At authoring (§2.2) | Re-pinned 2026-08-16 |
+|------------------------------------|---------------------|----------------------|
+| `juniper-recurrence` HEAD          | `f23f3ba`           | `59be8de` (`main`)   |
+| app `juniper_recurrence`           | `0.2.0`             | **`0.4.0`**          |
+| model `juniper_recurrence_model`   | `0.1.5`             | **`0.2.0`**          |
+| client `juniper_recurrence_client` | `0.2.0`             | `0.2.0` (unchanged)  |
+
+Each version is read from that package's `_version.py`; all three declare
+`[tool.setuptools.dynamic] version.attr`, so the dunder **is** the version. F-7's companion
+observation — that the dist-info floor table lagged at `0.2.0` through editable-metadata
+staleness — is the STALE-metadata class now covered by
+`util/editable_install_drift_check.py --strict-version`.
+
+Note the drift is two minors on the app and one on the model: any §3 or §5.5 claim that
+depends on a *recurrence-side* API shape should be re-verified against `59be8de` rather
+than assumed from the authoring snapshot.
+
 ### 2.3 Live-host environment facts (verified 2026-07-29) and corrections to the recon digests
 
 | Fact | Evidence | Correction? |
@@ -181,26 +206,41 @@ Corrections were applied in the same change that added this record; the pre-vali
 
 ## 4. Gap Analysis
 
-| ID | Gap | Evidence | Severity |
-| --- | --- | --- | --- |
-| **G-1** | No experiment-config file layer in either app. Hyperparameters and dataset choices are constants-file or env-only, so an experiment cannot be captured as a versionable artifact. | cascor `src/api/settings.py:124-129` (env/`.env` only) + `src/cascor_constants/`; recurrence `settings.py:38` (no `env_file`), no YAML loader | **High** |
-| **G-2** | No host→Prometheus path. A CLI-launched cascor/recurrence on an experiment port is invisible to Grafana. | five `static_configs` container targets only (`juniper-deploy/prometheus/prometheus.yml:61-126`); no `extra_hosts`/`host.docker.internal` in juniper-deploy | **High** |
-| **G-3** | cascor Prometheus metrics are **off by default**, so a naive CLI launch exports nothing. | `metrics_enabled: bool = False` (`juniper-cascor/src/api/settings.py:373`, const `:67-68`) | **High** |
-| **G-4** | No juniper-recurrence Grafana dashboard exists, despite recurrence exporting seven domain collectors. | zero `recurrence` matches under `juniper-deploy/grafana/`; collectors `juniper_recurrence/metrics.py:29-36` | **Medium** |
-| **G-5** | Recurrence has **zero plotting code**; there is no forecast-vs-truth, residual, or dataset visual anywhere. | no `matplotlib`/`pyplot` in the monorepo; analysis is the markdown bands report `bench/run_benchmark.py:260-324` | **High** |
-| **G-6** | cascor's in-process training-start fallback **silently ignores** every generator except `spiral` — an experiment asking for `xor` trains on whatever data is already loaded, with no error. | `src/api/routes/training.py:75` (`== "spiral"` only); no else-branch | **High** |
-| **G-7** | cascor's staged `dataset_type` Literal admits only 6 names, omitting `gaussian`, `checkerboard`, sequence generators; `gaussian` reachable only as untyped passthrough. | `src/api/models/training.py:188`; `manager.py:3289-3292` names `gaussian` in comment, no typed field | **Medium** |
-| **G-8** | `ar_p` is fully implemented in juniper-data but **not registered** in recurrence's bench registry, so it is unreachable from `bench/`. | registry `juniper-data/juniper_data/api/routes/generators.py:137`; absent from `bench/datasets.py:244-262` | **Medium** |
-| **G-9** | `delay_product` (the DP-3 nonlinear-capacity probe) is registered in bench but has **no committed result**, so the capacity claim has no reproducible in-repo artifact. | `bench/datasets.py:137-182`; `git ls-files bench/results/` has no `delay_product.json` | **Medium** |
-| **G-10** | `juniper-data-client` lacks name constants for all 7 newer generators (6 sequence/regression + `equities`), and its parity gate cannot catch this because `EXPECTED_SERVER_GENERATORS` is a **stale hand-maintained mirror** of 9 names. | `juniper_data_client/constants.py:138-150`; `tests/test_generator_parity.py:27-39,72-76` | **Medium** |
-| **G-11** | Fixed shared output paths make two same-checkout runs unsafe: cascor service `src/snapshots/`, cascor CLI `src/cascor_snapshots/`, shared `logs/juniper_cascor.log`, recurrence `bench/results/`. | `manager.py:4300-4304`; `constants_hdf5.py:45-46`; `constants.py:460-461`; `bench/run_benchmark.py:29` | **High** |
-| **G-12** | On-host port collision: juniper-recurrence binds `8210` by default, which is also `JUNIPER_WORKER_HEALTH_PORT`'s default in the operator stack. | `juniper_recurrence/settings.py:47`; `juniper-ml/util/juniper_plant_all.bash:183` | **Medium** |
-| **G-13** | The cascor systemd unit points at a conda env that no longer exists on this host (`JuniperCascor`, now `-DEPRECATED`). | `juniper-cascor/scripts/juniper-cascor.service:30`; `ls /opt/miniforge3/envs/` | **Low** |
-| **G-14** | No per-run identity in metrics, and the ecosystem's cardinality discipline forbids inventing a high-cardinality `run_id` sample label. | no `run_id` precedent; R1.1 anti-precedent `juniper-cascor/src/api/observability.py:384-389` | **Medium** |
-| **G-15** | No concurrent-session port-allocation policy anywhere; `check_port_available()` is a bare pre-flight with a TOCTOU window, and `JuniperProject.pid` is a single shared file. | `plant:192-202`, `plant:84-85`; nothing in `notes/concurrency/` covers multi-session | **High** |
-| **G-16** | `mnist` is unavailable on this host (HF `datasets` absent from both candidate envs), so a cascor mnist experiment 501s at juniper-data. | live `generator_available()` = `False`; 501 mapping `juniper-data/juniper_data/api/routes/datasets.py:165-168` | **Low** |
-| **G-17** | Recurrence has no `performance` pytest marker and its bench emits **no Prometheus metrics** — offline JSON only, so recurrence benchmark timings cannot land in Grafana today. | no `pytest.mark.performance` in the monorepo; `bench/run_benchmark.py` writes files only | **Medium** |
-| **G-18** | Recurrence's server-side model is memory-only, so a service-mode experiment leaves no model artifact unless the driver saves one. | `juniper_recurrence/state.py` docstring ("deferred to WS-8") | **Low** |
+| ID       | Gap                                                                                                                  | Evidence                                                                                                         | Severity   |
+|----------|----------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------|------------|
+| **G-1**  | No experiment-config file layer in either app. Hyperparameters and dataset choices are constants-file                | cascor `src/api/settings.py:124-129` (env/`.env` only) + `src/cascor_constants/`;                                | **High**   |
+|          |   or env-only, so an experiment cannot be captured as a versionable artifact.                                        |   recurrence `settings.py:38` (no `env_file`), no YAML loader                                                    |            |
+| **G-2**  | No host→Prometheus path. A CLI-launched cascor/recurrence on an experiment port is invisible to Grafana.             | five `static_configs` container targets only (`juniper-deploy/prometheus/prometheus.yml:61-126`);                | **High**   |
+|          |                                                                                                                      |   no `extra_hosts`/`host.docker.internal` in juniper-deploy                                                      |            |
+| **G-3**  | cascor Prometheus metrics are **off by default**, so a naive CLI launch exports nothing.                             | `metrics_enabled: bool = False` (`juniper-cascor/src/api/settings.py:373`, const `:67-68`)                       | **High**   |
+| **G-4**  | No juniper-recurrence Grafana dashboard exists, despite recurrence exporting seven domain collectors.                | zero `recurrence` matches under `juniper-deploy/grafana/`; collectors `juniper_recurrence/metrics.py:29-36`      | **Medium** |
+| **G-5**  | Recurrence has **zero plotting code**; there is no forecast-vs-truth, residual, or dataset visual anywhere.          | no `matplotlib`/`pyplot` in the monorepo; analysis is the markdown bands report `bench/run_benchmark.py:260-324` | **High**   |
+| **G-6**  | cascor's in-process training-start fallback **silently ignores** every generator except `spiral` —                   | `src/api/routes/training.py:75` (`== "spiral"` only); no else-branch                                             | **High**   |
+|          |   an experiment asking for `xor` trains on whatever data is already loaded, with no error.                           |                                                                                                                  |            |
+| **G-7**  | cascor's staged `dataset_type` Literal admits only 6 names, omitting `gaussian`, `checkerboard`,                     | `src/api/models/training.py:188`; `manager.py:3289-3292` names `gaussian` in comment, no typed field             | **Medium** |
+|          |   sequence generators; `gaussian` reachable only as untyped passthrough.                                             |                                                                                                                  |            |
+| **G-8**  | `ar_p` is fully implemented in juniper-data but **not registered** in recurrence's bench registry,                   | registry `juniper-data/juniper_data/api/routes/generators.py:137`; absent from `bench/datasets.py:244-262`       | **Medium** |
+|          |   so it is unreachable from `bench/`.                                                                                |                                                                                                                  |            |
+| **G-9**  | `delay_product` (the DP-3 nonlinear-capacity probe) is registered in bench but has **no committed result**,          | `bench/datasets.py:137-182`; `git ls-files bench/results/` has no `delay_product.json`                           | **Medium** |
+|          |   so the capacity claim has no reproducible in-repo artifact.                                                        |                                                                                                                  |            |
+| **G-10** | `juniper-data-client` lacks name constants for all 7 newer generators (6 sequence/regression + `equities`), and      | `juniper_data_client/constants.py:138-150`; `tests/test_generator_parity.py:27-39,72-76`                         | **Medium** |
+|          |   parity gate cann't catch this because `EXPECTED_SERVER_GENERATORS` is **stale hand-maintained mirror** of 9 names. |                                                                                                                  |            |
+| **G-11** | Fixed shared output paths make two same-checkout runs unsafe: cascor service `src/snapshots/`, cascor CLI            | `manager.py:4300-4304`; `constants_hdf5.py:45-46`; `constants.py:460-461`; `bench/run_benchmark.py:29`           | **High**   |
+|          |   `src/cascor_snapshots/`, shared `logs/juniper_cascor.log`, recurrence `bench/results/`.                            |                                                                                                                  |            |
+| **G-12** | On-host port collision: juniper-recurrence binds `8210` by default, which is also                                    | `juniper_recurrence/settings.py:47`; `juniper-ml/util/juniper_plant_all.bash:183`                                | **Medium** |
+|          |   `JUNIPER_WORKER_HEALTH_PORT`'s default in the operator stack.                                                      |                                                                                                                  |            |
+| **G-13** | The cascor systemd unit points at a conda env that no longer exists on this host                                     | `juniper-cascor/scripts/juniper-cascor.service:30`; `ls /opt/miniforge3/envs/`                                   | **Low**    |
+|          |   (`JuniperCascor`, now `-DEPRECATED`).                                                                              | _                                                                                                                |            |
+| **G-14** | No per-run identity in metrics, and the ecosystem's cardinality discipline forbids inventing                         | no `run_id` precedent; R1.1 anti-precedent `juniper-cascor/src/api/observability.py:384-389`                     | **Medium** |
+|          |   a high-cardinality `run_id` sample label.                                                                          |                                                                                                                  |            |
+| **G-15** | No concurrent-session port-allocation policy anywhere; `check_port_available()`                                      | `plant:192-202`, `plant:84-85`; nothing in `notes/concurrency/` covers multi-session                             | **High**   |
+|          |   is a bare pre-flight with a TOCTOU window, and `JuniperProject.pid` is a single shared file.                       |                                                                                                                  |            |
+| **G-16** | `mnist` is unavailable on this host (HF `datasets` absent from both candidate envs), so a cascor mnist               | live `generator_available()` = `False`; 501 mapping `juniper-data/juniper_data/api/routes/datasets.py:165-168`   | **Low**    |
+|          |   experiment 501s at juniper-data.                                                                                   |                                                                                                                  |            |
+| **G-17** | Recurrence has no `performance` pytest marker and its bench emits **no Prometheus metrics** — offline JSON only,     | no `pytest.mark.performance` in the monorepo; `bench/run_benchmark.py` writes files only                         | **Medium** |
+|          |   so recurrence benchmark timings cannot land in Grafana today.                                                      |                                                                                                                  |            |
+| **G-18** | Recurrence's server-side model is memory-only, so a service-mode experiment leaves no model artifact                 | `juniper_recurrence/state.py` docstring ("deferred to WS-8")                                                     | **Low**    |
+|          |   unless the driver saves one.                                                                                       |                                                                                                                  |            |
 
 ---
 
@@ -388,7 +428,14 @@ outputs:                               # PROPOSED driver-consumed block
 4. `dataset.generator` is checked against the live `GET /v1/generators` response (which reports `available`) **before** the run starts, so an unavailable generator (e.g. `mnist` on this host) fails fast with the install hint instead of surfacing as a mid-run 501.
 5. Values are range-validated by the existing pydantic models — the YAML source feeds the same `Settings` / `TrainingParams` / `TrainRequest` validators, so no new range logic is written.
 6. **Infrastructure keys are rejected, not honoured**: `service.host`, `service.port`, and `service.juniper_data_url` in an experiment YAML → error. Infrastructure is launcher-owned (CLI flags / process env, §6); experiment YAML owns science parameters only. `service.eval_metrics_enabled` is likewise invalid — it is not a `Settings` field and belongs in `runtime:` (§5.4).
-7. `OPEN QUESTION Q-1`: should the loader also *emit* a fully-resolved YAML (every default materialised) into the run dir, alongside the as-written file? A resolved copy is far better provenance but doubles the artifacts and can drift from the app's own defaults if the dump is hand-rolled. Recommendation: yes, dumped from the live `Settings` object rather than reconstructed.
+7. **`max_epochs` without `output_epochs` → WARN, recorded on the manifest** (added 2026-08-17 from juniper-ml#1143 §2.2). The two keys are not the same budget and the difference is silent:
+   * **service** — `TrainingParams.max_epochs` bounds only the **initial** output pass; every later per-round pass reads `self.output_epochs` (`cascade_correlation.py:4591`/`:4768`/`:4820`), which falls back to `_PROJECT_MODEL_OUTPUT_EPOCHS = 10000` when unset (`:716`). The network says so at `:1876-1882` — *"The two therefore agree only while a caller leaves `max_epochs` unset"*.
+   * **direct CLI** — `_W11_TRAINING_KEY_MAP` **aliases** `max_epochs → output_epochs` (`main.py:238-249`), so it bounds every pass; an explicit `output_epochs` wins over the alias (`:291-292`).
+
+   A config carrying only `max_epochs: N` therefore runs the CLI at N epochs per output pass and the service at N then **10000** — a several-fold per-pass asymmetry over a 64–128-unit run, which makes the service arm both slower and better-trained than the config appears to request. It is invisible at smoke scale, where there is only the initial pass.
+
+   **Standard procedure**: any config used for a CLI-vs-service comparison MUST set `max_epochs` and `output_epochs` **to the same value**; a service-only config MAY set only `max_epochs`, and the warning then documents that the split is deliberate. Deliberately non-fatal — `spiral-baseline.yaml` ships with the split, so erroring would break the canonical baseline and every suite inheriting it. Gate: `ConfigValidationTest.test_max_epochs_without_output_epochs_warns`.
+8. `OPEN QUESTION Q-1`: should the loader also *emit* a fully-resolved YAML (every default materialised) into the run dir, alongside the as-written file? A resolved copy is far better provenance but doubles the artifacts and can drift from the app's own defaults if the dump is hand-rolled. Recommendation: yes, dumped from the live `Settings` object rather than reconstructed.
 
 ---
 
@@ -515,7 +562,7 @@ Responsibilities, in order:
 
 ### 6.4 RUN_DIR layout (PROPOSED)
 
-```text
+```bash
 ${JUNIPER_EXP_RUN_ROOT:-~/.local/state/juniper-experiments}/
 └── 20260729T143012Z-9f2a/                     # RUN_ID = <UTC timestamp>-<4 hex>
     ├── manifest.json                          # run manifest (§13.4)
@@ -689,14 +736,15 @@ Reuse the existing plotter — `CascadeCorrelationPlotter.plot_dataset` (`junipe
 
 ### 8.2 recurrence plot set (entirely new — G-5)
 
-| Plot | Data source |
-| --- | --- |
-| `dataset_overview.png` — a few sampled windows of `X` with the target marked | fetched NPZ — `X_{split}` plus the target key: `y_{split}` for the synthetics (`irregular_sine`, `multi_sine`, `mackey_glass`, `delay_product`, `ar_p`), `y_reg_{split}` for `equities_seq` only (or normalize via the data-client contract helper) |
-| `dt_histogram.png` — distribution of per-step Δt plus `target_dt`; the irregularity signature | `dt_{split}` `(W,L)` and `target_dt_{split}` `(W,)` (`juniper-data/juniper_data/generators/_sequence.py:203-207,291-295`) |
-| `forecast_vs_truth.png` — predicted vs actual over the held-out window index | `POST /v1/predict` response vs the test-split target (`y_test` for the synthetics, `y_reg_test` for `equities_seq`) |
-| `residuals.png` — residual series + histogram + optional residual-vs-`target_dt` scatter | same |
-| `crossval_folds.png` — per-fold r²/MSE bars with the aggregate line | `CrossValResponse` folds (`schemas.py:248-266`) |
-| `metrics_table.png` / `stats.json` | final + CV metrics |
+| Plot                                                                                          | Data source                                                                                                                                              |
+|-----------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `dataset_overview.png` — a few sampled windows of `X` with the target marked                  | fetched NPZ — `X_{split}` plus the target key: `y_{split}` for the synthetics (`irregular_sine`, `multi_sine`, `mackey_glass`, `delay_product`, `ar_p`), |
+|                                                                                               |   `y_reg_{split}` for `equities_seq` only (or normalize via the data-client contract helper)                                                             |
+| `dt_histogram.png` — distribution of per-step Δt plus `target_dt`; the irregularity signature | `dt_{split}` `(W,L)` and `target_dt_{split}` `(W,)` (`juniper-data/juniper_data/generators/_sequence.py:203-207,291-295`)                                |
+| `forecast_vs_truth.png` — predicted vs actual over the held-out window index                  | `POST /v1/predict` response vs the test-split target (`y_test` for the synthetics, `y_reg_test` for `equities_seq`)                                      |
+| `residuals.png` — residual series + histogram + optional residual-vs-`target_dt` scatter      | same                                                                                                                                                     |
+| `crossval_folds.png` — per-fold r²/MSE bars with the aggregate line                           | `CrossValResponse` folds (`schemas.py:248-266`)                                                                                                          |
+| `metrics_table.png` / `stats.json`                                                            | final + CV metrics                                                                                                                                       |
 
 **Why there is no training-history plot in this set**: it is API-infeasible today — `TrainResponse` exposes only `final_metrics` / `n_epochs` / `stopped_reason` (`schemas.py:145`), no per-epoch series. Revisit if WS-8 or an mlp-readout history endpoint lands; until then the CV-fold bars are the interim training-performance surface.
 
@@ -719,7 +767,9 @@ Reuse the existing plotter — `CascadeCorrelationPlotter.plot_dataset` (`junipe
 
 | ID | Hazard | Evidence | Mitigation |
 | --- | --- | --- | --- |
-| **H-1** | Two runs bind the same port; cascor and recurrence both have fixed defaults (8200 / 8210). | `juniper-cascor/src/api/settings.py:133`; `juniper_recurrence/settings.py:47` | Per-run allocation from the dedicated ranges in §9.3 (lockdir + `ss` probe), never the defaults. The lockdir serialises experiment launchers against each other; the residual race vs non-participating processes is detected by the service's own bind failure, which the health gate surfaces. |
+| **H-1** | Two runs bind the same port; cascor and recurrence both have fixed defaults (8200 / 8210). | `juniper-cascor/src/api/settings.py:133`; `juniper_recurrence/settings.py:47` | Per-run allocation from the dedicated ranges in §9.3 (lockdir + `ss` probe), never the defaults. |
+| |                                                                                            |                                                                               | The lockdir serialises experiment launchers against each other; the residual race vs non-participating processes is detected by the service's own bind failure, which the health gate surfaces. |
+
 | **H-2** | An experiment recurrence on `8210` collides with the operator stack's worker health listener. | `juniper-ml/util/juniper_plant_all.bash:183` | Experiment recurrence range starts at **8260**; `8210`/`8211` are never used by this program. |
 | **H-3** | Shared `.env` cross-talk: cascor loads `.env` from CWD via pydantic-settings and `load_dotenv()`. | `src/api/settings.py:126`; `src/main.py:172` | **Process env only.** The launcher never creates, edits, or deletes any `.env`. Per-run values are exported into the child process. |
 | **H-4** | cascor **service** snapshots use a hard-coded `<repo>/src/snapshots/` with no env override; the collision-suffix check is existence-then-write — a cross-process TOCTOU. | `manager.py:4300-4304`, ID logic `:4305-4323` | **PROPOSED setting `JUNIPER_CASCOR_SNAPSHOTS_DIR`** (W-6) so each run writes to `RUN_DIR/snapshots/`. **Interim rule: one cascor instance per checkout** — a second run needs a second worktree, enforced by a per-checkout lockdir (refuse, exit 1). |
@@ -727,6 +777,7 @@ Reuse the existing plotter — `CascadeCorrelationPlotter.plot_dataset` (`junipe
 | **H-6** | recurrence `bench/` writes a fixed `bench/results/` — concurrent bench runs in one checkout clobber each other's JSON and `REPORT.md`. | `bench/run_benchmark.py:29` | **PROPOSED `--results-dir` flag** on `bench.run_benchmark` (W-7); until then, one bench run per checkout, enforced by the same lock. |
 | **H-7** | Shared `logs/juniper_cascor.log` — interleaved writes and rotation-under-write across instances. | `src/cascor_constants/constants.py:418,460-461` | Launcher redirects each service's stdout/stderr to `RUN_DIR/logs/<svc>.log`. The app's own file logger still targets repo `logs/`; **accepted residual risk** under the one-instance-per-checkout rule — *conditional on that rule*: lifting it (Wave 5.3) requires resolving `OPEN QUESTION Q-6`: is a `JUNIPER_CASCOR_LOG_DIR` override worth a work item? |
 | **H-8** | Shared juniper-data storage: a `name`-based ref can resolve to a *newer* version created by a concurrent run. | `create_dataset(..., persist=True)` (`manager.py:3360`); `get_latest(name)` (`data.py:40`) | **Dedicated per-run data instance by default** (`JUNIPER_DATA_STORAGE_PATH=$RUN_DIR/data`), reaped with the run; datasets addressed by `dataset_id` or `generator+params`, **never bare `name`**. Shared-instance fallback: `ttl_seconds` + run-scoped `tags` (`client.py:421-422`). |
+
 | **H-9** | Shared equities cache across processes. | `JUNIPER_DATA_EQUITIES_CACHE_DIR`, default `~/.cache/juniper_data/equities` (`juniper-data/juniper_data/generators/equities/generator.py:83`) | Point it at `$RUN_DIR/equities-cache` per data instance. Trade-off: repeated network fetches. `--shared-equities-cache` opt-in for iterating on equities experiments (read-mostly, so low risk). |
 | **H-10** | `JuniperProject.pid` clobber / cross-session reaping: `plant` truncates it, `chop` can kill another session's services. | `plant:84-85,515-523`; `chop:285-299` | The experiment stack **never touches** `JuniperProject.pid`. It keeps per-run pidfiles in `RUN_DIR` and tears down only pids it recorded. |
 | **H-11** | CPU oversubscription: the candidate pool is sized from `sched_getaffinity` unless overridden; the direct CLI sets BLAS threads to 2 but the **server path does not**. | `cascade_correlation.py:2281-2299`; `src/main.py:48-50` | Launcher exports `OMP/MKL/OPENBLAS_NUM_THREADS` + `CASCOR_NUM_PROCESSES` from the YAML `runtime:` block, defaulting to a **budget split** (`max(1, floor(nproc / (2 * max_runs)))`, BLAS = 2) recorded in the manifest, so timings are compared only across equal budgets. |
@@ -905,7 +956,6 @@ This table is the W-item register. W-11 and W-12 (added by the validation pass) 
 ## 12. Performance Testing, Benchmarking & Optimization — Design Beginning
 
 **This section is a design start, not a final design.** It fixes the reuse decisions and the measurement contract; the scenario matrix and thresholds need a ratification pass of their own.
-
 > **Update (2026-08-16) — §12 development is GATED, per owner direction.** The owner concurs that
 > this lane is open engineering and requires **design → planning → verification → documentation
 > before development begins**. The four phases, their exit criteria, and their **priority relative to
@@ -921,6 +971,7 @@ This table is the W-item register. W-11 and W-12 (added by the validation pass) 
 > refuted. The lane stands on its own inputs. The trap that produced it is a design-phase hazard
 > worth carrying: the driver's `outputs.max_wall_seconds`, not the suite's
 > `per_run_timeout_seconds`, is what actually ends a run — **a timeout is not a measurement.**
+
 
 ### 12.1 Reuse, do not rebuild
 
@@ -1067,12 +1118,13 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 
 ### Wave 1 — Observability bridge (unblocks every "in Grafana" requirement)
 
-| #   | Item                                                                                                                                                                                                                                                            | Repo           | Size | Depends on    |
-|-----|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------|------|---------------|
-| 1.1 | Prometheus `extra_hosts` gateway mapping + `juniper-host-experiments` `file_sd_configs` job + `prometheus/targets/.gitkeep`                                                                                                                                     | juniper-deploy | S    | 0.2b          |
-| 1.2 | `tests/test_prometheus_host_sd.py` structural gate                                                                                                                                                                                                              | juniper-deploy | S    | 1.1 (same PR) |
-| 1.3 | `grafana/provisioning/dashboards/juniper-recurrence.json` (closes G-4) + extend the three `juniper:http_request_duration_seconds:*` recording rules with recurrence's as-built generic `juniper_http_request_duration_seconds_bucket` series (§12.1, corrected) | juniper-deploy | M    | 1.1           |
-| 1.4 | `grafana/provisioning/dashboards/juniper-experiments.json` (run-scoped, templated)                                                                                                                                                                              | juniper-deploy | M    | 1.1           |
+| #   | Item                                                                                                                                | Repo           | Size | Depends on    |
+|-----|-------------------------------------------------------------------------------------------------------------------------------------|----------------|------|---------------|
+| 1.1 | Prometheus `extra_hosts` gateway mapping + `juniper-host-experiments` `file_sd_configs` job + `prometheus/targets/.gitkeep`         | juniper-deploy | S    | 0.2b          |
+| 1.2 | `tests/test_prometheus_host_sd.py` structural gate                                                                                  | juniper-deploy | S    | 1.1 (same PR) |
+| 1.3 | `grafana/provisioning/dashboards/juniper-recurrence.json` (closes G-4) + extend the three `juniper:http_request_duration_seconds:*` | juniper-deploy | M    | 1.1           |
+|     | recording rules with recurrence's as-built generic `juniper_http_request_duration_seconds_bucket` series (§12.1, corrected)         |                |      |               |
+| 1.4 | `grafana/provisioning/dashboards/juniper-experiments.json` (run-scoped, templated)                                                  | juniper-deploy | M    | 1.1           |
 
 ### Wave 2 — Launcher + driver (the usable core)
 
@@ -1112,13 +1164,15 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 
 ### Wave 5 — Concurrency hardening (unblocks parallel suites)
 
-| # | Item | Repo | Size |
-| --- | --- | --- | --- |
-| 5.1 | **W-6** `JUNIPER_CASCOR_SNAPSHOTS_DIR` (service + direct CLI) | juniper-cascor | M |
-| 5.2 | **W-7** `bench.run_benchmark --results-dir` | juniper-recurrence | S |
-| 5.3 | Drop the one-instance-per-checkout restriction in the launcher; add a two-run concurrency test. **Explicitly depends on resolving Q-6** (a per-run `JUNIPER_CASCOR_LOG_DIR`-class item): W-6/W-7 cover snapshots and bench results only, so the shared `logs/juniper_cascor.log` race (H-7) returns otherwise. Until Q-6 is resolved, 5.3 is scoped to concurrent runs in **distinct checkouts** only | juniper-ml | S |
-| 5.4 | Fix the stale conda-env path in the cascor systemd unit (G-13) | juniper-cascor | S |
-| 5.5 | **W-12** `csv_import` corpus + matrix row (gated on Q-7) | juniper-ml / juniper-data | S |
+| #   | Item                                                                                                                                       | Repo                      | Size |
+|-----|--------------------------------------------------------------------------------------------------------------------------------------------|---------------------------|------|
+| 5.1 | **W-6** `JUNIPER_CASCOR_SNAPSHOTS_DIR` (service + direct CLI)                                                                              | juniper-cascor            | M    |
+| 5.2 | **W-7** `bench.run_benchmark --results-dir`                                                                                                | juniper-recurrence        | S    |
+| 5.3 | Drop the one-instance-per-checkout restriction in the launcher; add a two-run concurrency test. **Explicitly depends on resolving Q-6**    | juniper-ml                | S    |
+|     |   (a per-run `JUNIPER_CASCOR_LOG_DIR`-class item): W-6/W-7 cover snapshots and bench results only, so the shared `logs/juniper_cascor.log` |                           |      |
+|     |   race (H-7) returns otherwise. Until Q-6 is resolved, 5.3 is scoped to concurrent runs in **distinct checkouts** only                     |                           |      |
+| 5.4 | Fix the stale conda-env path in the cascor systemd unit (G-13)                                                                             | juniper-cascor            | S    |
+| 5.5 | **W-12** `csv_import` corpus + matrix row (gated on Q-7)                                                                                   | juniper-ml / juniper-data | S    |
 
 > **Update (2026-08-16) — 5.3's Q-6 dependency is DISCHARGED; 5.3 itself is not yet done.** Read the
 > row above as one item, not two. **Q-6 is resolved and shipped** (§15.2): `JUNIPER_CASCOR_LOG_DIR`
@@ -1136,7 +1190,6 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 > `0.9.0`, so no released version carries Q-6. Do not guess `>=0.9.1`. `tests/test_run_suite.py:152`
 > pins the `Q-6` ID in the refusal message — keep it greppable. Not urgent: sequential cascor suites
 > work, and every campaign to date has used them.
-
 > **Update (2026-08-16) — owner decisions change the standing of BOTH remaining Wave 5 rows.**
 >
 > - **5.3 — "Not urgent" above is SUPERSEDED.** The owner's Q-6 answer is *"parallel execution
@@ -1150,6 +1203,7 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 >   recurrence corpus**, whereas Q-7 asked only about the cascor dataset matrix. W-12 therefore needs
 >   a sequence-shaped (3-D) import path in addition to the tabular one, and two matrix rows rather
 >   than one. **Re-estimate before scheduling** — the row's `S` predates this widening.
+
 
 ### Wave 6 — Program execution
 
@@ -1192,20 +1246,26 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 
 ### 15.2 Open questions (owner decisions)
 
-| ID | Question | Recommendation |
-| --- | --- | --- |
-| **Q-1** | Should the driver emit a fully-resolved `experiment.resolved.yaml` beside the verbatim config? | Yes — dumped from the live `Settings` object, not hand-reconstructed. |
-| **Q-2** | cascor completion detection: what wall-clock budget and stall threshold? | Budget from YAML (`outputs.max_wall_seconds`, default 3600); stall = 120 s without epoch progress → `outcome: "stalled"`, exit 1. Never hang silently. |
-| **Q-3** | Prometheus target-file location: nested in the existing `:ro` mount, or a separate dir + second mount? | Nested at `./prometheus/targets/`, no second mount (Prometheus only reads; the host writes). |
-| **Q-4** | Gateway-IP discovery + relay reachability: does the launcher-owned §7.3 `socat` relay make the container→host scrape land? (Re-scoped — **not** an allowlist question.) | Answered empirically by P0.10 (step 0.2b): without the relay expect **connection refused** (a gateway-addressed connection can never land on a loopback bind); with it the `juniper-host-experiments` targets report `up == 1`. No allowlist change; never bind non-loopback (cascor's attestation guard, `src/api/settings.py:143-161`) |
-| **Q-5** | `juniper-experiments.json`: provisioned + templated, or API-generated per run? | Provisioned + templated on `run_id`. |
-| **Q-6** | Is a `JUNIPER_CASCOR_LOG_DIR` override worth a work item, or is run-dir stdout capture enough? | Defer for single-instance-per-checkout use — but note it is now a **precondition for Wave 5.3** (lifting the one-instance rule); until resolved, 5.3 is scoped to distinct checkouts (H-7). |
-| **Q-7** | Should `csv_import` be in the cascor dataset matrix, and if so with what corpus? | Defer until a corpus is defined (W-12 tracks defining it and adding the matrix row); it is the one generator whose params are entirely dataset-specific. |
-| **Q-8** | Where do run-level performance baselines live — juniper-ml `notes/`, a dedicated dir, or per-app repos? | juniper-ml, beside the tooling that produces them; per-app repos keep only their micro-baselines. Owner call. |
-| **Q-9** | Should `environment="host-experiment"` targets be excluded from the existing alert rules? | Yes — exclude, then add experiment-scoped alerts if wanted. A deliberate stress benchmark must not page. |
-| **Q-10** | Does recurrence deserve a dedicated `JuniperRecurrence` conda env, rather than riding `JuniperCascor1`? | Probably yes for hygiene (recurrence's stack is much lighter than cascor's), but not a blocker — `JuniperCascor1` works today. Owner call. |
-| **Q-11** | Should the direct-CLI paths (`cascor main.py`, `recurrence train`) be first-class in the YAML layer, or service-mode only? | First-class as the goal — stated honestly for v1: `--config` reaches only `Settings` (the `service:` block), so **full YAML coverage is service-tier**; the direct CLIs gain the `training:`/`dataset:`/`train:` blocks via W-11 (Wave 3.6). The direct CLI remains the cheapest reproducible unit for a sweep cell. |
-| **Q-12** | Is a `JR-REC-*` ID block wanted now, or should recurrence requirements wait for the next full snapshot refresh? | Propose the block now (Wave 7.6) so this plan's recurrence work is traceable rather than orphaned. |
+| ID       | Question                                                                                                        | Recommendation                                                                                                                                                         |
+|----------|-----------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Q-1**  | Should the driver emit a fully-resolved `experiment.resolved.yaml` beside the verbatim config?                  | Yes — dumped from the live `Settings` object, not hand-reconstructed.                                                                                                  |
+| **Q-2**  | cascor completion detection: what wall-clock budget and stall threshold?                                        | Budget from YAML (`outputs.max_wall_seconds`, default 3600); stall = 120 s without epoch progress → `outcome: "stalled"`, exit 1. Never hang silently.                 |
+| **Q-3**  | Prometheus target-file location: nested in the existing `:ro` mount, or a separate dir + second mount?          | Nested at `./prometheus/targets/`, no second mount (Prometheus only reads; the host writes).                                                                           |
+| **Q-4**  | Gateway-IP discovery + relay reachability: does the launcher-owned §7.3 `socat` relay make the                  | Answered empirically by P0.10 (step 0.2b): without the relay expect **connection refused** (a gateway-addressed connection can never land on a loopback bind); with it |
+|          | container→host scrape land? (Re-scoped — **not** an allowlist question.)                                        | the `juniper-host-experiments` targets report `up == 1`. No allowlist change; never bind non-loopback (cascor's attestation guard, `src/api/settings.py:143-161`)      |
+| **Q-5**  | `juniper-experiments.json`: provisioned + templated, or API-generated per run?                                  | Provisioned + templated on `run_id`.                                                                                                                                   |
+| **Q-6**  | Is a `JUNIPER_CASCOR_LOG_DIR` override worth a work item, or is run-dir stdout capture enough?                  | Defer for single-instance-per-checkout use — but note it is now a **precondition for Wave 5.3** (lifting the one-instance rule);                                       |
+|          |                                                                                                                 | until resolved, 5.3 is scoped to distinct checkouts (H-7).                                                                                                             |
+| **Q-7**  | Should `csv_import` be in the cascor dataset matrix, and if so with what corpus?                                | Defer until a corpus is defined (W-12 tracks defining it and adding the matrix row); it is the one generator whose params are entirely dataset-specific.               |
+| **Q-8**  | Where do run-level performance baselines live — juniper-ml `notes/`, a dedicated dir, or per-app repos?         | juniper-ml, beside the tooling that produces them; per-app repos keep only their micro-baselines. Owner call.                                                          |
+| **Q-9**  | Should `environment="host-experiment"` targets be excluded from the existing alert rules?                       | Yes — exclude, then add experiment-scoped alerts if wanted. A deliberate stress benchmark must not page.                                                               |
+| **Q-10** | Does recurrence deserve a dedicated `JuniperRecurrence` conda env, rather than riding `JuniperCascor1`?         | Probably yes for hygiene (recurrence's stack is much lighter than cascor's), but not a blocker — `JuniperCascor1` works today. Owner call.                             |
+| **Q-11** | Should the direct-CLI paths (`cascor main.py`, `recurrence train`) be first-class in the YAML layer,            | First-class as the goal — stated honestly for v1: `--config` reaches only `Settings` (the `service:` block), so **full YAML coverage is service-tier**;                |
+|          | or service-mode only?                                                                                           | the direct CLIs gain the `training:`/`dataset:`/`train:` blocks via W-11 (Wave 3.6). The direct CLI remains the cheapest reproducible unit for a sweep cell.           |
+| **Q-12** | Is a `JR-REC-*` ID block wanted now, or should recurrence requirements wait for the next full snapshot refresh? | Propose the block now (Wave 7.6) so this plan's recurrence work is traceable rather than orphaned.                                                                     |
+
+
+
 
 > **Update (2026-08-16) — Q-6 is RESOLVED and shipped; its row above is spent.** The answer was
 > **yes**, and the override exists in both tiers:
@@ -1241,7 +1301,6 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 > released cascor carries #523 yet** (PyPI latest `0.9.0`, cut 2026-08-14 *before* the merge; `main`'s
 > pyproject is still `0.9.0`). The floor cannot be written until the next cascor release; **do not
 > guess `>=0.9.1`.**
-
 > **Owner decisions (2026-08-16) — Q-6, Q-7, Q-8, Q-10 are ANSWERED.** Recorded verbatim in intent;
 > each row above is superseded accordingly. Q-1..Q-5, Q-9, Q-11, Q-12 were ratified 2026-07-30 and
 > are unchanged.
@@ -1257,6 +1316,7 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 > designed/validated/documented systems solution, explicitly **not** an ad-hoc sweep) and the §12 PF
 > threshold ratification. **F-P1-2 is CLOSED** (premise refuted —
 > [closure evidence](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_F-P1-2-GRAFANA-RENDER-CLOSURE-EVIDENCE.md)).
+
 
 ---
 
@@ -1318,4 +1378,28 @@ Verified against [`notes/requirements/by-area/TEST.md`](requirements/by-area/TES
 
 ---
 
-**End of document.** Status: **Proposed (draft for owner review)**. Ratification requires owner decisions on Q-1 through Q-12; the independent adversarial validation pass is **complete** — three validators, findings folded in — and recorded in §2.4.
+**End of document.** Status: **Executed against; ratification partial** (updated 2026-08-16).
+The independent adversarial validation pass is **complete** — three validators, findings folded
+in — and recorded in §2.4.
+
+The original trailer read *"Proposed (draft for owner review). Ratification requires owner
+decisions on Q-1 through Q-12"*, which stayed unchanged while the whole program executed against
+this plan. The honest state of the Q-table (§13):
+
+| Q | State |
+|---|---|
+| Q-1 | **Decided** (`Yes`) — but never implemented; no `experiment.resolved.yaml` is written by any code path. Decision settled, gap open. |
+| Q-2 | **Decided and wired.** Both knobs now reach the driver from a suite: `execution.stall_seconds` (ml#1069) and `execution.max_wall_seconds`. |
+| Q-3, Q-4, Q-5 | **Decided**; Q-4 answered empirically by P0.10. |
+| Q-6 | **Resolved** by `JUNIPER_CASCOR_LOG_DIR` (juniper-cascor#523). The §13 row itself belongs to the dedicated Q-6 register-propagation change (juniper-ml#1129), which sweeps every site still calling it open; this trailer deliberately does not edit that row. |
+| Q-7, Q-8, Q-10 | **ANSWERED 2026-08-16** (ml#1136) — see the owner-decision block above. Q-7 yes, for BOTH corpora (un-parks W-12, scope widened); Q-8 a dedicated NEW directory; Q-10 yes, a `JuniperRecurrence` env. This row previously read "open owner calls", which contradicted that block; corrected here. |
+| Q-9 | **Decided and shipped** — every alert in `juniper-deploy/prometheus/alert_rules.yml` carries `environment!="host-experiment"`. |
+| Q-11 | **Decided**; the direct CLIs gained the `training:` / `dataset:` blocks via W-11 (Wave 3.6). |
+| Q-12 | **Decided** (`propose now`), and Wave 7.6's verb is *Propose* — the proposal exists, so the wave item is done. Ratification into the requirements snapshot is still outstanding; there are zero `JR-REC-` IDs in the index today. |
+
+So ratification is no longer blocked on twelve open questions. **Every Q-1…Q-12 is now answered** —
+Q-6/Q-7/Q-8/Q-10 by the 2026-08-16 owner round (ml#1136) recorded above. What remains is not a
+question but follow-through: Q-1's emitter is unimplemented, Q-12 awaits a requirements snapshot
+refresh, and §12's performance lane is **GATED** behind its design→planning→verification→documentation
+phasing (see the §12 block above) and remains **unexecuted**. §12 still describes itself as *"a design
+start, not a final design"*.

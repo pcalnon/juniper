@@ -3,7 +3,8 @@
 **Project**: Juniper
 **Sub-Project**: juniper-ecosystem (all 9 repos)
 **Author**: Paul Calnon
-**Status**: DESIGN / PLANNING — no changes applied
+**Status**: **APPLIED 2026-08-17** — owner decisions D1–D4 answered; P1 + P2 rolled out fleet-wide
+and proven by a negative and a positive control (§12). P3 / P4 remain planned.
 **Date**: 2026-08-17
 **Supersedes**: nothing. **Closes analysis for**: juniper-ml#357, juniper-ml#358, and the
 "TestPyPI gap" raised in the 2026-08-15 ruleset register.
@@ -26,10 +27,13 @@ Four owner decisions are listed in §9. Nothing here has been applied.
 
 ### 2.1 Environment protection, all 9 repos
 
-| Repo | `pypi` env | `testpypi` env |
-|---|---|---|
+> **Superseded by §12** — this section records the state that motivated the design. All 16 publish
+> environments were remediated on 2026-08-17; juniper-deploy's two were deleted.
+
+| Repo                   | `pypi` env                                       | `testpypi` env              |
+|------------------------|--------------------------------------------------|-----------------------------|
 | all 8 publishing repos | `reviewers(pcalnon)` + `wait(5m)`, **refs: ANY** | **no rules**, **refs: ANY** |
-| juniper-deploy | **no rules**, refs: ANY | **no rules**, refs: ANY |
+| juniper-deploy         | **no rules**, refs: ANY                          | **no rules**, refs: ANY     |
 
 Every environment on every repo has `deployment_branch_policy: null` — i.e. **any ref may deploy
 to any environment**. This is the core finding, and it is wider than the original "TestPyPI gap":
@@ -64,7 +68,7 @@ jobs (#357's third ask, unaddressed).
 
 Empirically, every publish run on ml and cascor is `event=release` with the ref being the **tag**:
 
-```
+```bash
 2026-08-09  event=release  ref=v0.7.1                       success
 2026-08-09  event=release  ref=juniper-service-core-v0.5.1  skipped
 2026-08-14  event=release  ref=v0.9.0                       success   (cascor)
@@ -109,16 +113,16 @@ may invoke the publisher*, not about stealing a long-lived token.
 
 ## 4. Best practices identified
 
-| # | Practice | Adopted? |
-|---|---|---|
-| B1 | Trusted publishing via OIDC; no long-lived API tokens | **Yes** |
-| B2 | Dedicated environment per index | **Yes** (`pypi`, `testpypi`) |
-| B3 | Required reviewers on the production environment | **Yes** (`pypi` only) |
-| B4 | **Deployment branch/tag policies restricting which refs may deploy** | **No — the gap** |
-| B5 | **PyPI-side trusted publisher bound to the environment name** | **Unknown — §5** |
-| B6 | Treat a Trusted Publisher as an API token: if code shouldn't reach the token, it shouldn't reach the publisher | partial |
-| B7 | Scope `id-token: write` to the publishing job only | **No** |
-| B8 | Review Trusted Publishers on maintainer offboarding (they attach to the *project*, not the user) | n/a (solo) |
+| #  | Practice                                                                                                       | Adopted?                     |
+|----|----------------------------------------------------------------------------------------------------------------|------------------------------|
+| B1 | Trusted publishing via OIDC; no long-lived API tokens                                                          | **Yes**                      |
+| B2 | Dedicated environment per index                                                                                | **Yes** (`pypi`, `testpypi`) |
+| B3 | Required reviewers on the production environment                                                               | **Yes** (`pypi` only)        |
+| B4 | **Deployment branch/tag policies restricting which refs may deploy**                                           | **No — the gap**             |
+| B5 | **PyPI-side trusted publisher bound to the environment name**                                                  | **Unknown — §5**             |
+| B6 | Treat a Trusted Publisher as an API token: if code shouldn't reach the token, it shouldn't reach the publisher | partial                      |
+| B7 | Scope `id-token: write` to the publishing job only                                                             | **No**                       |
+| B8 | Review Trusted Publishers on maintainer offboarding (they attach to the *project*, not the user)               | n/a (solo)                   |
 
 B4 is the control that matches this threat model. GitHub evaluates environment protection rules
 **before the job starts** and independently of the trigger — *"the job won't start until all of the
@@ -178,22 +182,22 @@ creates the tag; the publisher fires `release: published` on the tag ref; the ta
 TestPyPI publishes **with no human in the loop**; PyPI still waits at Gate 2. Nothing about the
 agentic path changes.
 
-| Pros | Cons / constraints |
-|---|---|
-| Structural — survives workflow edits | Per-repo × per-env config (18 environments); no ruleset-style fleet template |
-| Non-breaking (§2.3: all historical runs pass) | Tag patterns must be kept in sync if a new tag convention appears |
-| No new human gate; automation preserved | Blocks a *branch* dispatch even for legitimate debugging — intended, but a workflow change |
-| Uses a first-class GitHub feature, no custom code | Does nothing if D1 (PyPI binding) is unset — see §5 |
+| Pros                                              | Cons / constraints                                                                         |
+|---------------------------------------------------|--------------------------------------------------------------------------------------------|
+| Structural — survives workflow edits              | Per-repo × per-env config (18 environments); no ruleset-style fleet template               |
+| Non-breaking (§2.3: all historical runs pass)     | Tag patterns must be kept in sync if a new tag convention appears                          |
+| No new human gate; automation preserved           | Blocks a *branch* dispatch even for legitimate debugging — intended, but a workflow change |
+| Uses a first-class GitHub feature, no custom code | Does nothing if D1 (PyPI binding) is unset — see §5                                        |
 
 ### Option B — In-workflow ref + version assertion
 
 A step asserting `github.ref` matches the expected tag pattern **and** that the tag version equals
 `pyproject.toml`'s version (closing #357's second ask).
 
-| Pros | Cons |
-|---|---|
+| Pros                                                  | Cons                                                               |
+|-------------------------------------------------------|--------------------------------------------------------------------|
 | In-repo, reviewable, unit-testable, fleet-templatable | **Defeatable by editing the workflow** — the exact threat in §3(4) |
-| Closes the tag↔version gap, which A does not | Runs after checkout; is a check, not an authorization boundary |
+| Closes the tag↔version gap, which A does not          | Runs after checkout; is a check, not an authorization boundary     |
 
 **Verdict**: worth doing as defense-in-depth and for the version-consistency value, but it is not a
 substitute for A. Pairs naturally with a `tests/test_publish_*.py` lint gate, matching the existing
@@ -232,13 +236,13 @@ from the build job entirely.
 
 **C + A first (they are the actual control), then B and F as hardening.**
 
-| Phase | Action | Scope | Reversible |
-|---|---|---|---|
-| P0 | Verify/settle the PyPI-side environment binding (D1) | 18 project↔index pairs | n/a (read) |
-| P1 | Tag policies on `pypi` + `testpypi` | 8 repos × 2 envs | Yes — delete the policy or set `deployment_branch_policy: null` |
-| P2 | Decide juniper-deploy's vestigial envs (D4) | 1 repo | Yes |
-| P3 | In-workflow ref + tag↔version assert, with a lint gate | 7 publishers in ml, then fleet | Yes — revert the PR |
-| P4 | Scope `id-token: write` to publish jobs | all publishers | Yes |
+| Phase | Action                                                 | Scope                          | Reversible                                                      |
+|-------|--------------------------------------------------------|--------------------------------|-----------------------------------------------------------------|
+| P0    | Verify/settle the PyPI-side environment binding (D1)   | 18 project↔index pairs         | n/a (read)                                                      |
+| P1    | Tag policies on `pypi` + `testpypi`                    | 8 repos × 2 envs               | Yes — delete the policy or set `deployment_branch_policy: null` |
+| P2    | Decide juniper-deploy's vestigial envs (D4)            | 1 repo                         | Yes                                                             |
+| P3    | In-workflow ref + tag↔version assert, with a lint gate | 7 publishers in ml, then fleet | Yes — revert the PR                                             |
+| P4    | Scope `id-token: write` to publish jobs                | all publishers                 | Yes                                                             |
 
 **Rollout order matters**: do P1 on **juniper-ml's `testpypi` only** first, then cut one throwaway
 sub-package release to prove the tag policy admits a real release-train run end to end, before
@@ -266,35 +270,110 @@ gh run list --workflow publish.yml --limit 1     # expect the publish job blocke
 # positive control — a real release-train ceremony still completes hands-free to TestPyPI
 ```
 
-The negative control is the acceptance test for this whole design: **a branch dispatch must not
-reach TestPyPI.** Until that has been observed, P1 is not proven.
+The negative control is the acceptance test for this whole design: **a branch dispatch must not reach TestPyPI.** Until that has been observed, P1 is not proven.
 
 ---
 
-## 9. Owner decisions
+## 9. Owner decisions — **all four ANSWERED 2026-08-17**
 
-- **D1 — PyPI/TestPyPI Trusted Publisher environment binding.** Are the 18 project↔index publisher
-  configs registered with an Environment name? If not, everything in §6 is decorative until they
-  are. *Owner-only lookup; blocks P1's value.*
-- **D2 — Tag patterns.** Confirm `v*` + `juniper-*-v*` is the complete set of refs that may ever
-  deploy. Any other convention (release candidates, hotfix tags) must be enumerated now.
-- **D3 — Branch dispatch.** Accept that dispatching a publisher from a branch becomes impossible?
-  (Recovery remains available from a tag, which is already the documented procedure.)
-- **D4 — juniper-deploy.** Its `pypi` / `testpypi` environments are unprotected and unused. Delete
-  them, or protect them to match the fleet? An unprotected environment named `pypi` on a repo with
-  no package is a latent foothold.
+- **D1 — Trusted Publisher environment binding. → CONFIRMED BOUND.** Every publisher config names
+  its environment (`pypi` for PyPI, `testpypi` for TestPyPI), e.g. juniper-cascor /
+  `publish-cascor-model.yml` / Environment name: `pypi`. **This is the finding that makes the rest
+  load-bearing**: because PyPI checks the `environment` claim only when the publisher declares one
+  (§5), and ours do, the GitHub-side environment gates are genuinely enforced rather than
+  decorative. P1 was therefore worth applying.
+- **D2 — Tag patterns. → `v*`, `juniper-*-v*`, plus `rc*`, `juniper-*-rc*`, `hf*`, `juniper-*-hf*`**
+  added for future release-candidate and hotfix conventions. Six patterns, tag-type only.
+- **D3 — Branch dispatch. → TAG-ONLY; `main` is NOT an allowed deploy ref.** Dispatching a
+  publisher from any branch is refused at the environment gate. Recovery remains
+  `gh workflow run publish.yml --ref <tag>`, already the documented procedure (`publish.yml:31`).
+- **D4 — juniper-deploy. → DELETED.** Both `pypi` and `testpypi` environments removed
+  (2026-08-17). Verified first that no juniper-deploy workflow referenced an environment and that
+  both held zero secrets and zero variables. Only the unrelated `copilot` environment remains.
+
+---
+
+## 12. Implementation record (2026-08-17)
+
+### 12.1 What was applied
+
+| Change                                                      | Scope                                                        | Result            |
+|-------------------------------------------------------------|--------------------------------------------------------------|-------------------|
+| Tag policies (6 patterns, `type=tag`)                       | **16 publish environments** = 8 repos × {`pypi`, `testpypi`} | applied, verified |
+| `deployment_branch_policy` → `custom_branch_policies: true` | same 16                                                      | applied           |
+| Environment deletion                                        | juniper-deploy `pypi` + `testpypi`                           | deleted           |
+
+Every `pypi` environment **retained** `reviewers(pcalnon)` + `wait(5m)`; the new
+`branch_policy` rule is additive. Post-state captured by
+`util/ad-hoc/2026-08-17_env_protection_sweep.bash`; applied by
+`util/ad-hoc/2026-08-17_apply_env_tag_policies.bash` (dry-run default, idempotent).
+
+### 12.2 Controls — both passed
+
+**Negative control** (the acceptance test in §8) — `gh workflow run publish.yml --ref main`,
+run `32069779425`:
+
+```bash
+Build and Validate:  completed/success
+Publish to TestPyPI: completed/failure   <- 0 steps executed
+Publish to PyPI:     completed/skipped
+```
+
+Annotation: **`Branch "main" is not allowed to deploy to testpypi due to environment protection
+rules.`** The job recorded **zero steps**, i.e. it was refused *before starting* — no OIDC
+credential was minted and no upload was attempted. This is the property an in-workflow `if:` cannot
+provide.
+
+**Positive control** — `gh workflow run publish.yml --ref v0.7.1`, run `32070020620`:
+
+```bash
+Build and Validate:  completed/success
+Publish to TestPyPI: completed/success   <- tag admitted, full publish + verify
+Publish to PyPI:     waiting             <- reviewer gate, as designed
+```
+
+The release path is intact. The run was cancelled at the PyPI reviewer gate rather than approved
+(deploy approvals are the owner's). Together the two controls prove the policy discriminates on
+ref, not on trigger.
+
+### 12.3 A `PUT` caveat, tested rather than assumed
+
+`PUT /repos/{owner}/{repo}/environments/{env}` is documented as create-or-update, which raised the
+risk that a payload carrying only `deployment_branch_policy` would **clear** the reviewer and
+wait-timer rules on the `pypi` environments. Verified empirically on a throwaway
+`scratch-policy-test` environment (created with reviewers + wait timer, then PUT with the
+branch-policy payload alone): the rules **survived** —
+`rules: [required_reviewers, wait_timer, branch_policy]`. The scratch environment was deleted.
+**Do not generalise this** to payloads that do carry `reviewers` / `wait_timer`.
+
+### 12.4 Tag-coverage audit
+
+All release tags across the 8 publishing repos were checked against the six patterns before rollout.
+**80 of 82 matched.** The two exceptions are both dead juniper-ml one-offs from early 2026:
+
+- `juniper-observability.v0.1.0a2` — a **dot** before `v`, where the convention uses a dash
+- `juniper-v0.1.0-alpha` — no package segment between `juniper-` and `-v`
+
+Neither is the live convention (`v<semver>` / `juniper-<pkg>-v<semver>`), both are historical, and
+no future release would use either shape. **No live convention is blocked.** Re-run the audit if a
+new tag shape is ever introduced — a too-strict policy blocking a real release is the failure mode
+that matters most here.
+
+### 12.5 Residual gaps (still open)
+
+- **P3** — in-workflow ref + tag↔version assertion (Option B). Unstarted.
+- **P4** — scope `id-token: write` to the publish jobs (Option F). Unstarted.
+- **No drift gate.** Nothing prevents an environment policy from being removed later. A lint in the
+  `test_*_workflow.py` family, or a scheduled run of the sweep script, would close this.
+- `copilot` environments (ml / cascor / data-client / deploy) remain ANY-REF. They are unrelated to
+  publishing and were deliberately left alone.
 
 ---
 
 ## 10. Relationship to the open issues
 
-- **#358 / #357** — this document is their analysis. Their literal subject
-  (`juniper-cascor-core`'s publisher) no longer exists in juniper-ml, but three of the flagged
-  gaps survive verbatim: dispatch-bypasses-tag-guard, no tag↔version check, workflow-level
-  `id-token`. Recommend re-scoping both issues onto this design rather than closing them as stale.
-- **ml#1012 / ml#1011** — unrelated family (branch protection). Recorded here only to note that
-  `RepositoryRole 5` bypass does **not** interact with environment protection: environment rules
-  are not ruleset rules and have no bypass-actor list.
+- **#358 / #357** — this document is their analysis. Their literal subject (`juniper-cascor-core`'s publisher) no longer exists in juniper-ml, but three of the flagged gaps survive verbatim: dispatch-bypasses-tag-guard, no tag↔version check, workflow-level `id-token`. Recommend re-scoping both issues onto this design rather than closing them as stale.
+- **ml#1012 / ml#1011** — unrelated family (branch protection). Recorded here only to note that `RepositoryRole 5` bypass does **not** interact with environment protection: environment rules are not ruleset rules and have no bypass-actor list.
 
 ---
 
