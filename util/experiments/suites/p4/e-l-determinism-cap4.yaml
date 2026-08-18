@@ -4,7 +4,10 @@
 # Two direct-CLI runs of the identical cap-16 cell (same data, same network seed 42, same thread
 # setting) were bit-identical through iteration 1 and diverged at iteration 2 -- ending 10 pp apart
 # in validation accuracy (0.8650 vs 0.7650) having done 16% different candidate work. Two SERVICE
-# runs of the same cell were bit-identical throughout, iteration by iteration.
+# runs of the same cell reproduced bit-identically. That last observation was later WITHDRAWN as a
+# determinism claim: two agreeing runs is far too small a sample against an effect that diverged in
+# 3 of 5 pairs, and the service arm has never been sampled at N>=20. Treat the service as UNTESTED,
+# not immune (juniper-cascor#532).
 #
 # Divergence therefore shows up within the first handful of growth iterations, so studying it does
 # not need a 25-minute cap-16 run. Cap 4 reproduces the phenomenon in ~4 minutes, which turns

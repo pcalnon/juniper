@@ -14,7 +14,9 @@
 # Two direct-CLI runs of one cap-16 cell -- same data, same network seed, same thread setting --
 # were bit-identical through iteration 1, diverged at iteration 2, and finished 10 pp apart in
 # validation accuracy. Two SERVICE runs of the same cell were bit-identical throughout. So the CLI
-# has a reproducibility defect the service does not, and an earlier attribution of the accuracy
+# has a reproducibility defect -- whether the SERVICE shares it is UNKNOWN, since two agreeing
+# service runs is far too small a sample against an effect that diverged in 3 of 5 pairs (an
+# earlier claim that the service was deterministic has been withdrawn) -- and an attribution of the accuracy
 # spread to thread count had to be withdrawn: single runs cannot separate a thread effect from
 # run-to-run variance.
 #
