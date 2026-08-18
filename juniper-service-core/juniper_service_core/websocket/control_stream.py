@@ -37,6 +37,7 @@ from juniper_service_core.websocket.commands import DEFAULT_COMMANDS
 from juniper_service_core.websocket.control_security import HandshakeCooldown, LeakyBucket, validate_control_origin
 from juniper_service_core.websocket.manager import ws_authenticate
 from juniper_service_core.websocket.messages import create_control_ack_message
+from juniper_service_core.websocket.tunables import resolve
 
 __all__ = ["control_stream_handler"]
 
@@ -63,10 +64,14 @@ _COMMAND_TIMEOUTS: dict[str, float] = {
 }
 
 
-def _setting(websocket: WebSocket, name: str, default):
-    """Read a tunable off ``app.state.settings`` with a default (no service settings import)."""
-    settings = getattr(websocket.app.state, "settings", None)
-    return getattr(settings, name, default) if settings is not None else default
+def _setting(websocket: WebSocket, name: str):
+    """Resolve a declared tunable off ``app.state.settings`` (no service settings import).
+
+    The default now lives in :data:`~juniper_service_core.websocket.tunables.WS_TUNABLES`
+    rather than at each call site, and a miss that looks like a misspelling is logged
+    loudly instead of silently defaulting -- see that module for why (APD-SVCCORE-003).
+    """
+    return resolve(getattr(websocket.app.state, "settings", None), name)
 
 
 def _get_client_ip(websocket: WebSocket) -> str:
@@ -86,9 +91,9 @@ def _get_cooldown(websocket: WebSocket) -> HandshakeCooldown:
     cooldown = getattr(app.state, "ws_control_cooldown", None)
     if cooldown is None:
         cooldown = HandshakeCooldown(
-            max_rejections=_setting(websocket, "ws_control_cooldown_rejections", 10),
-            window_sec=_setting(websocket, "ws_control_cooldown_window_sec", 60),
-            block_sec=_setting(websocket, "ws_control_cooldown_block_sec", 300),
+            max_rejections=_setting(websocket, "ws_control_cooldown_rejections"),
+            window_sec=_setting(websocket, "ws_control_cooldown_window_sec"),
+            block_sec=_setting(websocket, "ws_control_cooldown_block_sec"),
         )
         app.state.ws_control_cooldown = cooldown
     return cooldown
@@ -96,7 +101,7 @@ def _get_cooldown(websocket: WebSocket) -> HandshakeCooldown:
 
 async def _check_handshake_gates(websocket: WebSocket, client_ip: str) -> bool:
     """Run pre-accept handshake gates. Returns ``True`` if the connection may proceed."""
-    if _setting(websocket, "disable_ws_control_endpoint", False):
+    if _setting(websocket, "disable_ws_control_endpoint"):
         await websocket.close(code=1013, reason="Control endpoint disabled")
         return False
 
@@ -111,7 +116,7 @@ async def _check_handshake_gates(websocket: WebSocket, client_ip: str) -> bool:
         cooldown.record_rejection(client_ip)
         return False
 
-    allowed_origins = _setting(websocket, "ws_control_allowed_origins", None)
+    allowed_origins = _setting(websocket, "ws_control_allowed_origins")
     if allowed_origins:
         if not validate_control_origin(websocket, allowed_origins):
             cooldown.record_rejection(client_ip)
@@ -243,12 +248,12 @@ async def control_stream_handler(websocket: WebSocket) -> None:
     if ws_manager is not None:
         ws_manager.register_endpoint_connection(websocket, "control")
 
-    rate_limit = _setting(websocket, "ws_control_rate_limit_per_sec", 10)
+    rate_limit = _setting(websocket, "ws_control_rate_limit_per_sec")
     bucket = LeakyBucket(capacity=rate_limit, refill_rate=float(rate_limit))
-    idle_timeout = _setting(websocket, "ws_control_idle_timeout_sec", 120)
+    idle_timeout = _setting(websocket, "ws_control_idle_timeout_sec")
 
-    hb_interval = _setting(websocket, "ws_heartbeat_interval_sec", 30)
-    hb_timeout = _setting(websocket, "ws_heartbeat_pong_timeout_sec", 10)
+    hb_interval = _setting(websocket, "ws_heartbeat_interval_sec")
+    hb_timeout = _setting(websocket, "ws_heartbeat_pong_timeout_sec")
     pong_received = asyncio.Event()
     pong_received.set()  # No outstanding ping at start
 

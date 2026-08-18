@@ -1,7 +1,7 @@
 # requirements_ci.txt - Generated 2026-07-06
 # Python: 3.12.13
 
-juniper-ci-tools==0.7.0
+juniper-ci-tools==0.8.0
 packaging==26.3
 pip==26.2.1
 PyYAML==6.0.3

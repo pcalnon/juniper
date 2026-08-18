@@ -26,11 +26,11 @@ Two genuine host defects surfaced while probing, neither of them Juniper's — b
 The [P3 acceptance rollup §3](JUNIPER_2026-08-08_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P3-ACCEPTANCE-ROLLUP.md)
 context package states three facts. All three are wrong.
 
-| P3 rollup §3 claim | Probed 2026-08-16 |
-|---|---|
+| P3 rollup §3 claim                                                       | Probed 2026-08-16                                                                                                                                                                                                                                                                                |
+|--------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | "The listener on `:3000` is a **system-level `grafana-server.service`**" | **False.** It is the **Domotz Pro agent**, a snap (`snap.domotzpro-agent-publicstore.domotzpro-agent-deamon.service`, active/running). The served HTML is an AngularJS app declaring `ng-app="agent"` and loading `domotz-angular-widgets`. `grafana-server` *wants* `:3000` and cannot have it. |
-| "`/api/health` returns 200 with `database: ok`" | **False for `:3000`.** `GET :3000/api/health` → **404**; `GET :3000/login` → **404**; `GET :3000/` → 200 serving the Domotz agent UI. The 200/`database: ok` belongs to the **deploy** Grafana on `:3001`. |
-| "Credentials are non-default (anonymous 401; `admin:admin` rejected)" | **A phantom.** That was the Domotz agent refusing, not Grafana. There is no Grafana credential mystery on `:3000` because there is no Grafana on `:3000`. |
+| "`/api/health` returns 200 with `database: ok`"                          | **False for `:3000`.** `GET :3000/api/health` → **404**; `GET :3000/login` → **404**; `GET :3000/` → 200 serving the Domotz agent UI. The 200/`database: ok` belongs to the **deploy** Grafana on `:3001`.                                                                                       |
+| "Credentials are non-default (anonymous 401; `admin:admin` rejected)"    | **A phantom.** That was the Domotz agent refusing, not Grafana. There is no Grafana credential mystery on `:3000` because there is no Grafana on `:3000`.                                                                                                                                        |
 
 And the consequence the finding drew from those facts:
 
@@ -89,14 +89,14 @@ Queried via Grafana's datasource proxy, so this exercises Grafana's own datasour
 dashboard's template-variable mechanism — the layer P2/P3 had only ever evidenced at the Prometheus
 level:
 
-| check | result |
-|---|---|
-| `run_id` template variable (`label_values(up{environment="host-experiment"}, run_id)`) | `['20260817T011726Z-6d05']` |
-| Host-Experiment Scrape Targets | 2 series, value 1 |
-| Targets Up | 2 |
-| `juniper_cascor_build_info` / `juniper_data_build_info` | 1 series each |
-| `juniper_cascor_training_loss` | 2 series, 0.20409207046031952 |
-| `juniper_cascor_hidden_units_total` | 2 |
+| check                                                                                  | result                        |
+|----------------------------------------------------------------------------------------|-------------------------------|
+| `run_id` template variable (`label_values(up{environment="host-experiment"}, run_id)`) | `['20260817T011726Z-6d05']`   |
+| Host-Experiment Scrape Targets                                                         | 2 series, value 1             |
+| Targets Up                                                                             | 2                             |
+| `juniper_cascor_build_info` / `juniper_data_build_info`                                | 1 series each                 |
+| `juniper_cascor_training_loss`                                                         | 2 series, 0.20409207046031952 |
+| `juniper_cascor_hidden_units_total`                                                    | 2                             |
 
 ### 2.4 Interactive render — the arm that was actually blocked
 
@@ -146,12 +146,12 @@ landed in its own `RUN_DIR/logs/`. The hazard H-7 described did not occur.
 
 ## 4. Disposition
 
-| arm | before | now |
-|---|---|---|
-| **F-P1-2** | Owner decision, parked since 2026-08-07 | **CLOSED — premise false; no action taken or needed** |
-| **P1.6** interactive render | the only non-PASS arm of P1 smoke | **PASS** (§2.4) |
-| **P3 criterion 6** Grafana sub-arm | "pending the F-P1-2 decision" | **PASS** (§2.3, §2.4) |
-| **P3 criterion 8** "both visible in Grafana" | "shares the F-P1-2 shadow" | **PASS** — both services visible, run-scoped (§2.4) |
+| arm                                          | before                                  | now                                                   |
+|----------------------------------------------|-----------------------------------------|-------------------------------------------------------|
+| **F-P1-2**                                   | Owner decision, parked since 2026-08-07 | **CLOSED — premise false; no action taken or needed** |
+| **P1.6** interactive render                  | the only non-PASS arm of P1 smoke       | **PASS** (§2.4)                                       |
+| **P3 criterion 6** Grafana sub-arm           | "pending the F-P1-2 decision"           | **PASS** (§2.3, §2.4)                                 |
+| **P3 criterion 8** "both visible in Grafana" | "shares the F-P1-2 shadow"              | **PASS** — both services visible, run-scoped (§2.4)   |
 
 P1 smoke and P3 acceptance now have **no** arms outstanding.
 
@@ -180,6 +180,58 @@ sudo systemctl daemon-reload && sudo systemctl restart grafana-server
 ```
 
 Requires sudo, so it is left for the operator; nothing in this program depends on it.
+
+> **Update (2026-08-17) — the port IS configurable at start time, proven three ways; and the drop-in
+> above is NOT the best form.** The owner asked (correctly) whether the port could be set at server
+> start via command line, environment variable, or config file, rather than settling for a
+> hard-coded root-level fix. **All three are natively supported**, and two were demonstrated on this
+> host **without root**, by running the packaged binary as an unprivileged user against scratch dirs:
+>
+> | mechanism                | form                                                                                 | probe result                                                                                             |
+> |--------------------------|--------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
+> | **command line**         | `grafana server cfg:server.http_port=3002` (the `--configOverrides` / `cfg:` syntax) | **bound `:3002`**, `/api/health` → 200, `database: ok`                                                   |
+> | **environment variable** | `GF_SERVER_HTTP_PORT=3002` (the standard `GF_<SECTION>_<KEY>` form)                  | **bound `:3002`**, `/api/health` → 200                                                                   |
+> | **config file**          | `[server] http_port` in an ini passed via `--config`                                 | supported; not separately probed — `/etc/grafana/grafana.ini` is `root:grafana 0640` and unreadable here |
+>
+> No residual listener after the probe. **The port is hard-coded nowhere** — `grafana.ini`'s default
+> is simply what applies when nothing overrides it.
+>
+> **Better remedy than the drop-in above.** The packaged unit already declares
+> `EnvironmentFile=/etc/default/grafana-server`, and its `ExecStart` already uses the `cfg:`
+> mechanism for the four path settings. So the designed extension point is a **single line** in that
+> file — no new systemd unit fragment, and no edit to the 94 KB packaged `grafana.ini` conffile:
+>
+> ```bash
+> echo 'GF_SERVER_HTTP_PORT=3002' | sudo tee -a /etc/default/grafana-server
+> sudo systemctl restart grafana-server
+> # verify: systemctl show grafana-server -p NRestarts --value   # must stop climbing
+> #         curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3002/api/health   # expect 200
+> # revert: sudo sed -i '/^GF_SERVER_HTTP_PORT=/d' /etc/default/grafana-server && sudo systemctl restart grafana-server
+> ```
+>
+> The drop-in recommendation above was written before the unit was read; it works, but it adds a file
+> where the packaging already provides one. Prefer the line above.
+>
+> **What is genuinely not solvable without root, and why it is not a Juniper concern.** The blocker
+> was never the mechanism — it is **file ownership**. `grafana-server` is a *system* service
+> (`User=grafana`, unit under `/usr/lib/systemd/system`, `grafana.ini` `root:grafana 0640`,
+> `/etc/default/grafana-server` `root:root 0644`). Reconfiguring a system service means writing a
+> root-owned file, by design; `systemctl edit` is likewise root. That is a property of system
+> services, not a Grafana limitation, and **nothing in juniper-ml can or should route around it** —
+> this Grafana is an apt package with no Juniper dependency, and putting host system configuration
+> inside an application repo would cross a boundary the ecosystem otherwise keeps clean.
+>
+> **The Juniper-scoped Grafana already has exactly the configurability being asked for.** The deploy
+> stack's Grafana takes `GRAFANA_HOST_PORT` (compose `:931`, default `3001`) — an environment
+> variable, settable per deployment, no root. That surface needs nothing added.
+>
+> **Question worth answering before spending root on this at all:** does the native `grafana-server`
+> need to run? Nothing in Juniper uses it — the ecosystem's dashboards are the container on `:3001` —
+> and it has never successfully bound since Domotz took `:3000`. If it is not wanted,
+> `sudo systemctl disable --now grafana-server` ends the restart loop outright and leaves
+> `/var/lib/grafana` intact; if it is wanted, the one-line env var above gives it a working port.
+> Either way the loop stops. Probe script:
+> [`util/ad-hoc/2026-08-17_grafana_port_probe.sh`](../util/ad-hoc/2026-08-17_grafana_port_probe.sh).
 
 **D-2 — the deploy Grafana's mounted admin secret does not match its live password.** The running
 container mounts **`secrets.example/grafana_admin_password.txt`** (the repo-committed 28-char

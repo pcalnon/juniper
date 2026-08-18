@@ -140,12 +140,39 @@ class PublishSubpackageStructuralTest(unittest.TestCase):
                 self.assertNotIn("push", on, f"{pkg}: must not subscribe to push:tags (ml#555 race)")
 
     def test_permissions_are_oidc_plus_contents_read(self) -> None:
+        """OIDC is scoped to the publish jobs; the workflow block grants only reads.
+
+        P4 (juniper-ml#357) moved ``id-token: write`` off the workflow block --
+        the build job compiles the tree and must not be able to mint a PyPI
+        credential.  Job-level ``permissions`` REPLACE the workflow block rather
+        than merging with it, so each publish job restates ``contents: read``.
+        """
         for pkg, info in self.loaded.items():
+            doc = info["doc"]
+            jobs = doc.get("jobs") or {}
             with self.subTest(pkg=pkg):
-                self.assertEqual(
-                    info["doc"].get("permissions"),
-                    {"id-token": "write", "contents": "read"},
-                )
+                self.assertEqual(doc.get("permissions"), {"contents": "read"}, f"{pkg}: workflow-level permissions must NOT grant id-token; scope it to the publish jobs")
+                for job_name in ("publish-testpypi", "publish-pypi"):
+                    self.assertEqual(
+                        (jobs.get(job_name) or {}).get("permissions"),
+                        {"id-token": "write", "contents": "read"},
+                        f"{pkg}: {job_name} must carry its own OIDC grant",
+                    )
+                self.assertNotIn("permissions", jobs.get("build") or {}, f"{pkg}: the build job must not be granted OIDC minting rights")
+
+    def test_build_asserts_release_tag_matches_built_version(self) -> None:
+        """P3: each build job proves it is building a tag whose version it actually built."""
+        for _suffix, pkg, _subdir in SHARED_PACKAGES:
+            doc = self.loaded[pkg]["doc"]
+            steps = ((doc.get("jobs") or {}).get("build") or {}).get("steps") or []
+            run_bodies = "\n".join(str(s.get("run", "")) for s in steps)
+            with self.subTest(pkg=pkg):
+                self.assertIn("assert_release_tag.bash", run_bodies)
+                self.assertIn(f"--expect-prefix {pkg}-v", run_bodies)
+                # `github.ref` (documented as refs/tags/<tag> for a release event),
+                # not `github.ref_name` -- the script keys on the refs/tags/ prefix.
+                self.assertIn("github.ref }}", run_bodies)
+                self.assertNotIn("github.ref_name", run_bodies)
 
     def test_concurrency_serializes_per_ref_without_cancel(self) -> None:
         for pkg, info in self.loaded.items():
