@@ -140,6 +140,10 @@ The real defect is entirely canopy-side, and is an **ordering** bug: `apply_para
 **F-CANOPY-024 — the shipped default candidate triple is invalid (P2; FIXED juniper-canopy#493 `71b569b`).**
 A fresh dashboard ships S=1, T=1, R=1, so T+R=2≠S and the *first* Apply always fails validation. Both validators agree (identical sentence client-side and from cascor). The user cannot fix it in place because T and R both ship `disabled=True` behind `cn-multi-candidate-checkbox`. Related, not itself a defect: cascor's `candidate_selection` is never seeded into `cn-candidate-selection-radio` (which ships `value=None` by design), so a backend-configured selection is lost across a page load.
 
+**F-CANOPY-025 — the Live Dataset Switch is unreachable: its gate callback never emits (P1, OPEN; segment 13).**
+`live-dataset-switch-button` ships `disabled=True` (`dashboard_manager.py:1279-1280`) and the sole writer of that prop is `gate_live_switch_button` (`:4894-4901`), whose handler returns `not (flags_ok and running)` (`:5732-5741`). The callback **is** registered — `GET /dashboard/_dash-dependencies` lists it among 182 callbacks with output `live-dataset-switch-button.disabled` and inputs `['experimental-flags-store', 'training-status-store']` — and **both inputs are provably correct on the wire**: `_dash-update-component` responses repeatedly carry `{"training-status-store": {"data": {"is_running": true, "phase": "candidate"}}}` and `{"experimental-flags-store": {"data": {"experimental_functions": true}}}`. Yet **zero** responses ever carry `live-dataset-switch-button`, across a 120 s watch (24 samples at 5 s), a full page reload with the response hook armed from before load, and a forced experimental OFF→ON transition. Registered, inputs live, never fires. **Root cause not isolated — fix-phase work** (same disposition as F-CANOPY-016). Blast radius: C2.7-10 FAIL, C2.10-02 / C2.10-03 BLOCKED, and workflow **W7's hot-swap cannot be entered from the UI at all**.
+**Why it hid for five segments:** the only prior record of this surface is `W7-step1 PASS` (`reports/e2e/20260810T002233Z/statuses.tsv:63`) — the **deny** arm, *"exp toggle OFF + training running → button disabled"*. A gate that never opens satisfies every should-be-disabled assertion, so the deny arm passing is not evidence the gate works; the **allow** arm had never been driven. Distinct from F-CANOPY-004's server-callback lag: the same page demonstrably updated other surfaces throughout (`network-info-panel` moved from 0 to 6 hidden units), and 120 s exceeds the documented lag while both stores were already correct.
+
 ### Observations (non-finding)
 
 - **Badge render lag**: `ws-connection-indicator` trails the client state machine by ~1–2 s in both directions (client `closed/reconnecting` at +0.8 s rendered amber at +2.8 s; client re-`open` rendered green ~2 s later). No latency contract exists in the matrix; recorded as §7.3 context.
@@ -1923,3 +1927,184 @@ the conda hooks that strip it, and an ambient `rust_mudgeon` libtorch then break
 On this host the unmodified canopy `tests/unit` sweep fails **34** tests (19 redis, 10 cassandra, 5 metrics)
 for want of backing services — measured on a pristine clone, and identical set-for-set with the fix applied,
 so "34 failures" is the floor to compare against, not a regression.
+
+---
+
+## Phase 1 — segment 13 (2026-08-17): §2.10 closed, and a shipped feature found unreachable
+
+Run id `20260817T093715Z`. Stack: canopy **`56ce45f`** (all three segment-12 fixes present and verified in the
+launched tree), cascor `3909d27`, juniper-data `4db9544`; health-gated on `demo_mode:false` +
+`juniper_data_available:true`. Matrix **168 → 198 of 298**. 30 rows, plus one new P1.
+
+The browser MCP was unavailable again (present in segments 9 and 12, absent in 8 and here), so driving used
+the arc's script fallback — a new `util/ad-hoc/e2e_seg13_modals_driver.py` reusing the segment-8 w3 helpers,
+run under `JuniperCanopy1` with `LD_LIBRARY_PATH=` cleared.
+
+### §2.10 is closed — 17 of 17
+
+15 PASS, and the two BLOCKED rows are blocked by the finding below rather than by anything about themselves.
+
+* **C2.10-01 / -04** — both modals open on demand (1500 ms / 1000 ms) with every declared child present.
+  `restart-modal-baseline` is the one absentee and is *not* a missing surface: it is a `dcc.Store`
+  (`:2045`), which Dash 3.x emits no DOM node for.
+* **`keyboard=False` proved behaviourally**, not by reading a prop: Escape left `restart-confirm-modal`
+  open, while the same keypress closed the model picker — which is documented *without* that flag.
+* **C2.10-05 / -06** — the floating alerts stack exactly where the matrix says, read as computed style:
+  `training-control-outcome-alert` 144px = **9rem**, `restart-outcome-alert` 208px = **13rem**,
+  `dataset-stage-outcome-alert` 272px = **17rem**.
+
+### The T-22 "MANUAL-only" limitation is retired
+
+The matrix stated the *modify* half of the 11 granular restart fields "is not drivable by any documented
+automated method". That rested on the numeric wall canopy#489 removed. Measured: **all 10** numeric fields
+now report `valid=true` / `stepMismatch=false` on the `float="any"` / `int=1` pattern — **including the six
+`restart-p-*` fields segment 10 explicitly flagged as never re-tested**. All 10 were then driven, each
+re-rendering `#restart-confirm-summary` with its delta in 1400–2800 ms, plus `restart-ds-type`
+(Spirals→XOR) at 700 ms. The param fields render into their own section:
+
+    Parameter changes to apply before restart:
+    Learning rate: 0.01 → 0.0733 · Max hidden units: 1000 → 7 · Patience: 50 → 77
+
+The matrix's LIMITATION block is struck through with the measurement, and the `auto` column flagged stale.
+
+### F-CANOPY-025 (P1) — the Live Dataset Switch cannot be reached
+
+See the ledger entry for the full evidence. The short form: the gate callback is **registered**, both of its
+store inputs are **provably true on the wire**, and it **never emits** — zero `_dash-update-component`
+responses carry the button across 120 s, a reload, and a forced toggle. The hot-swap surface (C2.7-10,
+C2.10-02/03, workflow **W7**) is unreachable from the dashboard.
+
+The instructive part is *why five segments missed it*. The only prior record is `W7-step1 PASS` — the **deny**
+arm. A gate that never opens passes every "should be disabled" assertion. **A negative-arm pass is not
+evidence a gate works**, and this arc should treat any deny-only row as unproven until its allow arm runs.
+
+### §2.9's tail — 9 of 12
+
+PASS: C2.9-01 (both paths — opened by Apply Dataset at 2500 ms, *and* reconciled from
+`/api/status.pending_dataset` at 5000 ms on a cold load with no gesture), -02, -03 (`pending_dataset` →
+`null`, banner closed 2100 ms), -07, -08, -09, -11, -13, -16.
+
+`C2.9-16` was scored from both ends: `CONTROL_TOOLTIPS` has exactly **23** entries including
+`apply-params-button` — matching the matrix's "22 parameter inputs + apply-params-button" — and hovering
+rendered the right text per target.
+
+**Three rows deliberately left unfilled**, because the instrument failed rather than the app:
+
+* **C2.9-14 / -15** (pinned card + list) — the pin checkbox could not be driven. Neither the native-setter
+  idiom nor a trusted `page.check()` reached its Dash `value` prop. The wire shows the chain is *correct*:
+  `pinned-params-store` received `data: []` and `sidebar-pinned-card` correctly got `display:none` for an
+  empty store. Recording this as NOT DRIVEN rather than a defect.
+* **C2.9-06** (apply-in-flight interval clamp) — the form never dirtied during a live run, so no apply was
+  ever in flight and there was nothing to score.
+
+### Methodology notes (segment 13)
+
+**The JS-click rule needs a caveat.** Segment 12 established that a raw `.click()` drives the real callback
+chain where Playwright's ack times out. That holds for `<button>` — it opened both modals, the banner
+buttons and the granular toggle. It is **inert on `dbc.Switch` checkboxes**: on
+`experimental-functions-toggle` a `.click()` left `.checked` *and* the backend untouched across a 10-sample
+fast poll, while the native-`checked`-descriptor + `change` idiom flipped the backend to `enabled: true`.
+Switches need the numeric-input technique, not the button technique — and `dbc.Checkbox` (the pin controls)
+resisted **both**, so the family is not uniform.
+
+**Closed means absent.** Modals and the pending-dataset banner are not in the DOM at all while closed;
+`getElementById` returning null is the normal shipped state, so every check polls for *appearance*. The
+floating alerts are the opposite — always present, height 0 — which is why their `top` offsets are readable
+at rest.
+
+**Prove a refill with a value that moves.** Sampling `network-info-panel` twice on an idle network shows
+identical text and proves nothing; against a live run it moved from "Input Nodes: 0 / Hidden Units: 0" to
+"Input Nodes: 2, Hidden Units: 6 / 10, Training Step: 6". Same for the details panel (empty → populated).
+One observation logged against **F-CANOPY-006** rather than filed fresh: those details totals read
+`Total Nodes 0` while the live network held 6 hidden units — the topology-counts class segment 9 already
+withdrew a P1 for.
+
+**Playwright's `page.hover()` fails the same way its `click()` does** (30 s timeout), so tooltip proof came
+from dispatching `pointerover`/`mouseover`/`mouseenter` directly.
+
+---
+
+## Phase 1 — segment 14 (2026-08-17): §3.9 Snapshots, and instruments that lie
+
+Run id `20260817T101500Z`. Stack: canopy `56ce45f`, cascor `3909d27`, data `4db9544`; health-gated on
+`demo_mode:false` + `juniper_data_available:true`, with the 4-snapshot corpus present (backed up first —
+a failed `--up` calls `do_down` internally, which deletes it). Matrix **198 → 212 of 298**.
+
+**§3.9 goes 4/21 → 18/21.** Fourteen rows, all PASS. New driver
+`util/ad-hoc/e2e_seg14_snapshots_driver.py`.
+
+### The headline result
+
+**M-SNAPSHOTS-15** is proved three independent ways, which matters because the canopy POST is server-side
+and therefore invisible to the browser:
+
+1. UI — `-restore-status` rendered `✅ Restored from snapshot 'snapshot_20260813T051936Z'`
+2. Backend FSM — `STOPPED` → `INVESTIGATING`
+3. `GET /v1/network` — `hidden_units: 10`, the snapshot's topology genuinely rehydrated from 0
+
+**M-SNAPSHOTS-16** carries the row's distinguishing claim: a confirmed *replay* also moved
+`visualization-tabs.active_tab` from `Snapshots` to `Replay` (the third `active_tab` writer, D-1), with
+`✅ Snapshot replay started`.
+
+### Three instruments that produced confident, meaningless numbers
+
+This segment's real lesson is not any single row — it is that **the obvious measurement was wrong three
+separate times**, and each wrong measurement supported a plausible verdict.
+
+1. **Browser-request counting for the refresh rows.** `M-SNAPSHOTS-04` first read as "zero GETs, never
+   refreshes". The list fetch is issued *server-side* from the Dash callback, so zero browser requests is
+   the expected state — the arc's own standing rule, re-learned. Re-measured on the canopy log as a rate:
+   idle baseline 7 fetches/60 s (2.33 per 20 s), driven 4 clicks in 20 s → **4 fetches**, a clean 1:1
+   above noise.
+2. **A single timing window.** The first `M-SNAPSHOTS-05` sample gave gaps of 0.33 s to 92 s — all
+   self-inflicted, because the driver was clicking throughout. On two *strictly idle* 60 s windows it
+   settles to 5 and 7 fetches (median gap 8.77 s), bracketing the source-declared
+   `DEFAULT_REFRESH_INTERVAL_MS = 10000` once F-CANOPY-004 jitter is allowed for. Recorded as
+   consistent-with-10 s, not as an exact period.
+3. **A stale element id.** Every click in this panel races the 10 s table rebuild — the same mechanism
+   behind F-CANOPY-009 and F-CANOPY-010. Each step now re-queries its target immediately before clicking
+   and retries; `M-SNAPSHOTS-16` needed **3 attempts**, `-17` needed 2.
+
+### A finding I did not file
+
+Restore failed to open twice while its three siblings opened cleanly. Two attempts, consistent, and
+op-specific — a convincing defect. On the focused re-run it **inverted**: restore opened at 750 ms and
+*resume* failed. The wire gave the real cause — F-CANOPY-010's early-out, returning exactly the documented
+`(False, "", None)`:
+
+    {"restore-modal": {"is_open": false}, "restore-modal-body": {"children": ""}, "restore-pending-id": …}
+
+The failure is **racy, not op-specific**. This is the fourth plausible-but-wrong finding this arc has
+avoided by re-checking rather than filing (after the multi-candidate "stuck" control, the C2.8-12 "or"
+violation, and the F-CANOPY-023 root cause). The rule is now well enough evidenced to state plainly:
+**on this dashboard a first-pass anomaly is more often the instrument or a documented race than a new
+defect — reproduce it a second way before writing it down.**
+
+F-CANOPY-009 was also observed directly rather than inferred: the wire shows `-selected-id` receiving
+`{"data": null}` and *then* the snapshot id, which is why a DOM-only read of the detail panel reported
+"never rendered" (it would have been a wrong FAIL for `M-SNAPSHOTS-07`/`-08`).
+
+### Three rows deliberately unfilled
+
+* **M-SNAPSHOTS-19** — `MANUAL (native menu)`, a right-click context menu.
+* **M-SNAPSHOTS-20 / -21** — `DEAD-EXPECTED`, and **unreachable**: those buttons render only inside
+  dataset-swap cards, and the panel reports "No dataset swaps recorded yet." Scoring them needs a real
+  dataset swap (W6/W7) to exist first. A `DEAD-CONFIRMED` verdict requires clicking a control that does
+  not currently render, so no verdict is honest here.
+
+The same precondition bounds **M-SNAPSHOTS-18**, recorded as `PASS (empty branch)`: the empty state renders
+correctly, the populated paired-diff cards are unproven.
+
+### Other measurements
+
+`M-SNAPSHOTS-13`'s ⚠️ line was initially "missing" because the driver's own `probe()` helper slices
+`textContent` to 120 chars. Read untruncated, the body carries all three documented parts (248 chars),
+ending `⚠️ Training must be paused or stopped before any snapshot operation.` A reading artifact, not a
+product gap — and a reminder that a helper's convenience truncation can manufacture a finding.
+
+`M-SNAPSHOTS-14` is clean: modal open at 750 ms, Cancel, gone 300 ms later, and the POST hook recorded
+`posts_seen: []` — no request of any kind, exactly as the row requires.
+
+Also logged as an **F-CANOPY-006 observation, not a new finding**: after the restore, `monitor.
+current_hidden_units` read 0 while `/v1/network` read 10 — the same stale-counter class segment 9 already
+withdrew a P1 for.

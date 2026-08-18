@@ -1,0 +1,52 @@
+# E-J INIT CONTROL: the one cell where BOTH arms start from the SAME network initialisation.
+#
+# WHY THIS EXISTS
+# The main campaign (e-j-h2h-wide-cap{64,128}.yaml) can equalise everything about the two paths
+# EXCEPT the network init, and that turned out to matter. The service network always seeds from
+# _CASCADE_CORRELATION_NETWORK_RANDOM_SEED = _PROJECT_RANDOM_SEED = 42
+# (cascade_correlation.py:667) and nothing the driver can send reaches it -- TrainingParams has no
+# seed field. The direct CLI instead threads the DATASET seed into the network
+# (spiral_problem.py:445). So across the main campaign's three replicates the service ran ONE init
+# (42) three times while the CLI ran three different inits, and every service-vs-CLI difference is
+# confounded with "seed 42 vs the CLI's seeds" -- with n=1 on the service's init axis, which means
+# the confound cannot even be estimated from those cells.
+#
+# It showed up as a real effect, not a theoretical worry. On identical data at an identical budget
+# the two arms did identical OUTPUT work (130,000 epochs; phase ratio 1.03-1.04x) but the CLI ran
+# ~1.44x the CANDIDATE epochs and 1.59-2.09x the candidate wall. Candidates are ~98% of the
+# training span, so that difference is the whole headline -- and it cannot be attributed to the
+# path while init is uncontrolled.
+#
+# THE TRICK: because the CLI derives its init from dataset.params.seed, setting that seed to 42
+# puts the CLI's network init at 42 -- exactly where the service's already is, unconditionally.
+# Both arms then share dataset AND initialisation, and every remaining difference is the path
+# itself plus host conditions. This is the only cell in the campaign where "path effect" is a
+# measurable quantity rather than a confounded one.
+#
+# seed_policy MUST be `fixed` here. per_cell would rewrite dataset.params.seed to
+# base_seed + index and destroy the entire point of the cell.
+#
+# One cell, cap 64 -- the campaign's own cap, so no one can object that the control was measured
+# somewhere else. Read it beside the cap-64 main suite, never on its own: it answers "is there a
+# path effect once init is held equal?", not "how accurate is cascor at 64 units?".
+schema_version: 1
+suite:
+  name: e-j-h2h-wide-cap64-init42
+  description: "E-J init control: cap 64 / pool 8, dataset seed 42 so BOTH arms initialise identically"
+  app: cascor
+  base_config: [../../../ad-hoc/2026-08-16_h2h_wide_nrot3.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 15600, stall_seconds: 1200}
+matrix:
+  training.params.max_hidden_units: [64]
+  # 42 == _PROJECT_RANDOM_SEED. On the CLI this seeds the dataset AND the network; on the service
+  # it seeds the dataset only, because the network is already unconditionally 42. That asymmetry
+  # is precisely what makes this value the one that equalises the two arms.
+  dataset.params.seed: [42]
+  # Pinned to match dataset.params.seed purely so the manifest's seeds block reads coherently.
+  # experiment.seed reaches no training or network-init code on either path -- the driver uses it
+  # only as a setdefault for dataset.params.seed (a no-op once that key is set) plus a manifest
+  # record -- so this changes nothing about the run. Single-element axes add no cells.
+  experiment.seed: [42]
+  experiment.description: ["Wide-budget head-to-head -- INIT CONTROL, cap 64, dataset+init seed 42"]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

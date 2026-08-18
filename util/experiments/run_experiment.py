@@ -182,6 +182,13 @@ STAGEABLE_GENERATOR_ALIASES: Dict[str, str] = {
 
 FSM_TERMINAL_OK = "COMPLETED"
 FSM_TERMINAL_FAIL = "FAILED"
+# Lifecycle states holding an ACTIVE training run, i.e. the ones a `stop` can clear.
+# Deliberately NOT the whole "start is rejected" set: REPLAYING rejects every training
+# command (exit is /replay/control) and INVESTIGATING needs /retrain or /resume, so a
+# stop there fails and buries the real reason (juniper-cascor state_machine.py:21-52).
+FSM_ACTIVE = frozenset({"STARTED", "PAUSED"})
+PREEMPT_TIMEOUT_SECONDS = 120.0
+PREEMPT_POLL_SECONDS = 2.0
 
 EXIT_SUCCESS = 0
 EXIT_ACCEPTANCE = 1
@@ -648,6 +655,39 @@ def stage_dataset(cascor_url: str, dataset_cfg: Dict[str, Any]) -> Dict[str, Any
     return _unwrap(payload) or {}
 
 
+def _training_fsm(cascor_url: str) -> str:
+    """Current lifecycle status name, uppercased; ``""`` when unreadable."""
+    try:
+        _code, payload = _http_json("GET", f"{cascor_url}/v1/training/status")
+    except (ServiceUnreachable, RunFailed):
+        return ""
+    data = _unwrap(payload)
+    if not isinstance(data, dict):
+        return ""
+    return str(((data.get("state_machine") or {}).get("status")) or "").upper()
+
+
+def preempt_training(cascor_url: str, timeout: float = PREEMPT_TIMEOUT_SECONDS) -> bool:
+    """``POST /v1/training/stop`` an active run, then wait for it to leave that state.
+
+    Returns True when the lifecycle is startable again, False otherwise. Never raises:
+    a failed preemption falls back to surfacing the original 409.
+    """
+    code, payload = _http_json("POST", f"{cascor_url}/v1/training/stop", body={}, timeout=60.0)
+    if code != 200:
+        log.error("POST /v1/training/stop -> HTTP %s: %s", code, _detail(payload))
+        return False
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        fsm = _training_fsm(cascor_url)
+        if fsm and fsm not in FSM_ACTIVE:
+            log.info("preempted the in-flight session -- lifecycle is %s, retrying start", fsm)
+            return True
+        time.sleep(PREEMPT_POLL_SECONDS)
+    log.error("in-flight session did not leave %s within %.0fs of the stop", "/".join(sorted(FSM_ACTIVE)), timeout)
+    return False
+
+
 def start_training(cascor_url: str, config: Dict[str, Any]) -> Dict[str, Any]:
     """``POST /v1/training/start`` against the staged (pending) dataset config.
 
@@ -657,6 +697,21 @@ def start_training(cascor_url: str, config: Dict[str, Any]) -> Dict[str, Any]:
     ignored) instead of the configured juniper-data dataset, which pinned
     candidate correlation at ~2.7e-4 and terminated every service spiral run
     below_threshold with zero hidden units.
+
+    A 409 gets ONE preemption attempt, and only from an active state.
+    ``start_fresh: true`` does not stop a live run — the lifecycle lock is held, so
+    the 409 is raised before ``start_fresh`` is ever consulted. After a driver-side
+    stall/budget abort the service keeps training, and the naive re-run then dies on
+    ``HTTP 409: Training already in progress`` (observed across the R-5 campaign,
+    worked around with an ad-hoc attach-poller).
+
+    The discrimination matters: ``routes/training.py:117`` wraps EVERY start failure
+    as 409, including "Training data not provided". Preempting on that would paper
+    over a real staging bug, so the decision is made on the lifecycle state, not the
+    message text. Only ``STARTED`` / ``PAUSED`` are stoppable: ``REPLAYING`` rejects
+    every training command (exit is ``/replay/control``) and ``INVESTIGATING`` needs
+    ``/retrain`` or ``/resume`` — issuing a stop in either would fail and then mask
+    the real reason.
     """
     training = config["training"]
     body: Dict[str, Any] = {"start_fresh": training["start_fresh"]}
@@ -665,6 +720,14 @@ def start_training(cascor_url: str, config: Dict[str, Any]) -> Dict[str, Any]:
     if training.get("params"):
         body["params"] = training["params"]
     code, payload = _http_json("POST", f"{cascor_url}/v1/training/start", body=body, timeout=60.0)
+    if code == 409:
+        fsm = _training_fsm(cascor_url)
+        if fsm in FSM_ACTIVE:
+            log.warning("POST /v1/training/start -> 409 with lifecycle %s: %s -- preempting", fsm, _detail(payload))
+            if preempt_training(cascor_url):
+                code, payload = _http_json("POST", f"{cascor_url}/v1/training/start", body=body, timeout=60.0)
+        else:
+            log.error("POST /v1/training/start -> 409 with lifecycle %r -- not an active run, not preempting", fsm)
     if code == 422:
         raise ConfigError(f"POST /v1/training/start rejected (422 -- TrainingParams is extra='forbid'): {_detail(payload)}")
     if code != 200:
@@ -1258,9 +1321,34 @@ def run(args: argparse.Namespace) -> int:
     return _run_cascor(args, config, config_path, run_dir)
 
 
+def _stall_window_is_inert(stall_seconds: float, max_wall_seconds: float) -> bool:
+    """True when the wall budget ends the run before the stall window can elapse.
+
+    Both Q-2 knobs are resolved here and nowhere else, which makes this the only place
+    their INTERACTION is visible: a suite sets `stall_seconds`, the budget arrives from
+    `outputs.max_wall_seconds` (possibly inherited from a base config), and neither
+    layer can see the other. `pf3-cascor-pool-scaling` shipped `stall_seconds: 1200`
+    against a 600 s inherited budget for exactly that reason — its stall guard could
+    never fire, and a healthy long candidate phase was labelled `timed_out` instead of
+    `stalled`: a different wrong label, not protection.
+
+    Reported, never fatal. The run is still valid — only its stall guard is weaker than
+    declared — and refusing to start would destroy a legitimate experiment over a
+    configuration smell. The manifest carries the finding so the evidence says so too.
+    """
+    return stall_seconds >= max_wall_seconds
+
+
 def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: Path, run_dir: Path) -> int:
     data_url, cascor_url, ports = resolve_endpoints(run_dir, args.data_url, args.cascor_url, kind="cascor")
     max_wall = float(args.max_wall_seconds) if args.max_wall_seconds is not None else config["outputs"]["max_wall_seconds"]
+    stall_inert = _stall_window_is_inert(float(args.stall_seconds), float(max_wall))
+    if stall_inert:
+        log.warning(
+            "stall window %.0fs >= wall budget %.0fs -- the Q-2 stall detector can NEVER fire; a healthy long candidate phase will be recorded 'timed_out' rather than 'stalled'. Raise outputs.max_wall_seconds (or execution.max_wall_seconds in a suite) above the stall window.",
+            float(args.stall_seconds),
+            float(max_wall),
+        )
 
     results_dir = run_dir / "artifacts" / "results"
     plots_dir = run_dir / "artifacts" / "plots"
@@ -1423,6 +1511,7 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
                 "poll_interval": args.poll_interval,
                 "stall_seconds": args.stall_seconds,
                 "max_wall_seconds": max_wall,
+                "stall_window_inert": stall_inert,
                 "metric_families": list(METRIC_FAMILIES),
                 "plots": plots_record,
             },
