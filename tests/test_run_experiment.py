@@ -525,6 +525,35 @@ class ConfigValidationTest(unittest.TestCase):
             self._load(cfg)
         self.assertIn(fragment, str(ctx.exception))
 
+    def test_max_epochs_without_output_epochs_warns(self) -> None:
+        """The budget-split trap: WARN, never raise, and carry it on the config.
+
+        ``max_epochs`` bounds every output pass on the direct CLI but only the INITIAL pass on the
+        service, where later passes fall back to the ``output_epochs`` default of 10000. A config
+        setting one and not the other therefore runs the two paths at different per-pass budgets,
+        silently -- it cost the wide-budget head-to-head a rerun to catch (juniper-ml#1143 SS2.2).
+        It must not raise: a service-only run may want the split, and ``spiral-baseline.yaml``
+        ships that way.
+        """
+        cfg = _base_config()
+        cfg["training"]["params"]["max_epochs"] = 2000
+        config = self._load(cfg)
+        warnings = config.get("validation_warnings", [])
+        self.assertEqual(len(warnings), 1, f"expected exactly one budget-split warning, got {warnings}")
+        self.assertIn("output_epochs", warnings[0])
+        self.assertIn("10000", warnings[0], "the warning must name the default the service actually falls back to")
+
+    def test_both_epoch_keys_set_is_silent(self) -> None:
+        """Setting both to the same value is the equalised form and must produce no warning."""
+        cfg = _base_config()
+        cfg["training"]["params"]["max_epochs"] = 2000
+        cfg["training"]["params"]["output_epochs"] = 2000
+        self.assertEqual(self._load(cfg).get("validation_warnings", []), [])
+
+    def test_neither_epoch_key_set_is_silent(self) -> None:
+        """No warning when the caller never asks for an output budget at all."""
+        self.assertEqual(self._load(_base_config()).get("validation_warnings", []), [])
+
     def test_valid_config_loads(self) -> None:
         config = self._load(_base_config())
         self.assertEqual(config["kind"], "cascor")
