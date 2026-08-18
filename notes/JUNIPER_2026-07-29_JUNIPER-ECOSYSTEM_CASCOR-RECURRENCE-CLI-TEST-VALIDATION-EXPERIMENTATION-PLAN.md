@@ -956,6 +956,22 @@ This table is the W-item register. W-11 and W-12 (added by the validation pass) 
 ## 12. Performance Testing, Benchmarking & Optimization — Design Beginning
 
 **This section is a design start, not a final design.** It fixes the reuse decisions and the measurement contract; the scenario matrix and thresholds need a ratification pass of their own.
+> **Update (2026-08-16) — §12 development is GATED, per owner direction.** The owner concurs that
+> this lane is open engineering and requires **design → planning → verification → documentation
+> before development begins**. The four phases, their exit criteria, and their **priority relative to
+> every other outstanding and in-progress program item** are recorded in
+> [§12 phasing and work prioritisation](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md).
+>
+> Two standing inputs are banked and do not decay: the **PF suites** (six suites / 31 cells, ml#1033)
+> and the **E-B difficulty ranking**. **Q-8 is answered** — run-level baselines get a *dedicated, new
+> directory* — and that answer is a **design-phase input** here (location, layout, retention, and
+> writer are part of the design), not an implementation detail.
+>
+> Note this lane no longer has an F-P1-3b premise: that finding was withdrawn and then positively
+> refuted. The lane stands on its own inputs. The trap that produced it is a design-phase hazard
+> worth carrying: the driver's `outputs.max_wall_seconds`, not the suite's
+> `per_run_timeout_seconds`, is what actually ends a run — **a timeout is not a measurement.**
+
 
 ### 12.1 Reuse, do not rebuild
 
@@ -1174,6 +1190,20 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 > `0.9.0`, so no released version carries Q-6. Do not guess `>=0.9.1`. `tests/test_run_suite.py:152`
 > pins the `Q-6` ID in the refusal message — keep it greppable. Not urgent: sequential cascor suites
 > work, and every campaign to date has used them.
+> **Update (2026-08-16) — owner decisions change the standing of BOTH remaining Wave 5 rows.**
+>
+> - **5.3 — "Not urgent" above is SUPERSEDED.** The owner's Q-6 answer is *"parallel execution
+>   on-stack is becoming important."* Lifting `run_suite.py:112` is therefore demand-driven, and 5.3
+>   should be scheduled as soon as its precondition clears. The precondition is unchanged and is
+>   **external**: a `juniper-cascor` release carrying #523, which does not exist yet. Re-check
+>   `curl -s https://pypi.org/pypi/juniper-cascor/json` each pass; do not guess a floor. Everything
+>   else for 5.3 is ready.
+> - **5.5 / W-12 is UN-PARKED, and its scope grew.** Q-7 is answered **yes**, and *wider than the
+>   question asked*: the owner requires a `csv_import` option for **both the cascor and the
+>   recurrence corpus**, whereas Q-7 asked only about the cascor dataset matrix. W-12 therefore needs
+>   a sequence-shaped (3-D) import path in addition to the tabular one, and two matrix rows rather
+>   than one. **Re-estimate before scheduling** — the row's `S` predates this widening.
+
 
 ### Wave 6 — Program execution
 
@@ -1271,6 +1301,22 @@ Dependency-ordered. Size: S ≈ one focused sitting, M ≈ a day, L ≈ multi-da
 > released cascor carries #523 yet** (PyPI latest `0.9.0`, cut 2026-08-14 *before* the merge; `main`'s
 > pyproject is still `0.9.0`). The floor cannot be written until the next cascor release; **do not
 > guess `>=0.9.1`.**
+> **Owner decisions (2026-08-16) — Q-6, Q-7, Q-8, Q-10 are ANSWERED.** Recorded verbatim in intent;
+> each row above is superseded accordingly. Q-1..Q-5, Q-9, Q-11, Q-12 were ratified 2026-07-30 and
+> are unchanged.
+>
+> | ID | Decision | Consequence |
+> |---|---|---|
+> | **Q-6** | **Yes — worth doing.** "Parallel execution on-stack is becoming important." | Already shipped (cascor#523 + ml#1120). The owner's rationale **raises the priority** of the remaining half: lifting `run_suite.py:112` so cascor suites can run parallel cells. That is now demand-driven work, not opportunistic — but it still cannot land until a cascor release carries #523 (see the Q-6 block above). **Re-check the release on every pass.** |
+> | **Q-7** | **Yes — `csv_import` is needed, for BOTH corpora.** A CSV import option must be available to the **cascor** and the **recurrence** corpus. | **Un-parks W-12** (Wave 5.5), which the plan gated on this question and which has been parked since 2026-08-08. Note the scope is *wider* than the original Q-7 wording, which asked only about the **cascor dataset matrix**: the decision extends it to recurrence, so W-12 must cover a sequence-shaped (3-D) import path as well as the tabular one, and the matrix row work is now two rows. W-12's original "gated on Q-7" size estimate (S) should be re-estimated before scheduling. |
+> | **Q-8** | **A dedicated, NEW directory.** | Supersedes the recommendation above ("juniper-ml, beside the tooling that produces them"). Run-level performance baselines get their own directory rather than living beside the tooling or in per-app repos. The directory's location, name, and retention contract are part of the §12 design phase (below), not an implementation detail to be improvised — and Q-8 also gates the `JR-CAS-OBS-004` targets (§16). |
+> | **Q-10** | **Yes — juniper-recurrence gets a dedicated conda env.** | Supersedes "probably yes … but not a blocker". A `JuniperRecurrence` env joins `JuniperCanopy` / `JuniperCascor` / `JuniperData` as a first-class ecosystem environment, which makes it a documentation change as well as a provisioning one (the parent `CLAUDE.md` env table, `docs/REFERENCE.md`, and `experiment_stack.bash`'s recurrence launch path, which currently rides `JuniperCascor1`). |
+>
+> **Still open owner items after this round:** F-P1-4 (snapshot lifecycle — owner directed a
+> designed/validated/documented systems solution, explicitly **not** an ad-hoc sweep) and the §12 PF
+> threshold ratification. **F-P1-2 is CLOSED** (premise refuted —
+> [closure evidence](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_F-P1-2-GRAFANA-RENDER-CLOSURE-EVIDENCE.md)).
+
 
 ---
 
@@ -1346,11 +1392,14 @@ this plan. The honest state of the Q-table (§13):
 | Q-2 | **Decided and wired.** Both knobs now reach the driver from a suite: `execution.stall_seconds` (ml#1069) and `execution.max_wall_seconds`. |
 | Q-3, Q-4, Q-5 | **Decided**; Q-4 answered empirically by P0.10. |
 | Q-6 | **Resolved** by `JUNIPER_CASCOR_LOG_DIR` (juniper-cascor#523). The §13 row itself belongs to the dedicated Q-6 register-propagation change (juniper-ml#1129), which sweeps every site still calling it open; this trailer deliberately does not edit that row. |
-| Q-7, Q-8, Q-10 | **Open owner calls**, tracked in that same owner-decision register (Q-7 via W-12). |
+| Q-7, Q-8, Q-10 | **ANSWERED 2026-08-16** (ml#1136) — see the owner-decision block above. Q-7 yes, for BOTH corpora (un-parks W-12, scope widened); Q-8 a dedicated NEW directory; Q-10 yes, a `JuniperRecurrence` env. This row previously read "open owner calls", which contradicted that block; corrected here. |
 | Q-9 | **Decided and shipped** — every alert in `juniper-deploy/prometheus/alert_rules.yml` carries `environment!="host-experiment"`. |
 | Q-11 | **Decided**; the direct CLIs gained the `training:` / `dataset:` blocks via W-11 (Wave 3.6). |
 | Q-12 | **Decided** (`propose now`), and Wave 7.6's verb is *Propose* — the proposal exists, so the wave item is done. Ratification into the requirements snapshot is still outstanding; there are zero `JR-REC-` IDs in the index today. |
 
-So ratification is no longer blocked on twelve open questions — it is blocked on three owner calls
-(Q-7, Q-8, Q-10) plus the Q-12 snapshot refresh. §12's performance lane remains **unexecuted**, and
-§12 still describes itself as *"a design start, not a final design"*.
+So ratification is no longer blocked on twelve open questions. **Every Q-1…Q-12 is now answered** —
+Q-6/Q-7/Q-8/Q-10 by the 2026-08-16 owner round (ml#1136) recorded above. What remains is not a
+question but follow-through: Q-1's emitter is unimplemented, Q-12 awaits a requirements snapshot
+refresh, and §12's performance lane is **GATED** behind its design→planning→verification→documentation
+phasing (see the §12 block above) and remains **unexecuted**. §12 still describes itself as *"a design
+start, not a final design"*.
