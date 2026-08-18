@@ -32,8 +32,10 @@ on:
   # Manual dispatch so operators can re-fire a publish against any tag.
   workflow_dispatch:
 
+# P4 (juniper-ml#357): `id-token: write` is scoped to the two publish jobs
+# below, NOT granted workflow-wide. The build job has no business being able
+# to mint a PyPI OIDC credential.
 permissions:
-  id-token: write
   contents: read
 
 concurrency:
@@ -95,6 +97,18 @@ jobs:
       - name: Validate distribution metadata
         run: twine check dist/*
 
+      # P3 (juniper-ml#357/#358): prove we are building a TAG, and that the tag's
+      # version matches the wheel actually built. Defense in depth -- the
+      # environment tag policy is the real control (it survives a workflow edit;
+      # this step does not), but this fails earlier and names the reason.
+      # `../` because this job runs with working-directory: juniper-observability
+      - name: Assert release tag matches built version
+        run: |
+          ../util/assert_release_tag.bash \
+            --ref "${{ github.ref }}" \
+            --dist-dir dist \
+            --expect-prefix juniper-observability-v
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -110,6 +124,10 @@ jobs:
     name: Publish to TestPyPI
     needs: build
     runs-on: ubuntu-latest
+    # P4: OIDC minting lives here, not at workflow level.
+    permissions:
+      id-token: write
+      contents: read
     environment:
       name: testpypi
       url: https://test.pypi.org/p/juniper-observability
@@ -160,6 +178,10 @@ jobs:
     name: Publish to PyPI
     needs: publish-testpypi
     runs-on: ubuntu-latest
+    # P4: OIDC minting lives here, not at workflow level.
+    permissions:
+      id-token: write
+      contents: read
     environment:
       name: pypi
       url: https://pypi.org/p/juniper-observability
