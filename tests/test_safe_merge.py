@@ -105,6 +105,14 @@ class SafeMergeTestBase(unittest.TestCase):
         self._restore.append((obj, name, getattr(obj, name)))
         setattr(obj, name, val)
 
+    def run_merge_installed(self, harness, **kw):
+        kw.setdefault("execute", True)
+        kw.setdefault("method", "squash")
+        kw.setdefault("timeout", 60)
+        kw.setdefault("verbose", False)
+        kw.setdefault("log", lambda *a, **k: None)
+        return safe_merge.safe_merge("o", "r", 1, **kw)
+
     def run_merge(self, harness, **kw):
         harness.install(self)
         kw.setdefault("execute", True)
@@ -328,6 +336,170 @@ class HeadMovedTest(SafeMergeTestBase):
                 verbose=False,
                 log=lambda *a, **k: None,
             )
+
+
+class KillResilienceTest(SafeMergeTestBase):
+    """Regressions for the killed-mid-wait incident (a second PR never merged).
+
+    Root causes, all reproduced before fixing: the waiter was ORPHANED when the parent was
+    killed (proven: it kept polling GitHub until its own 32-minute timeout); a kill produced
+    no distinct exit state; and --dry-run blocked on the full wait, so the safe default was
+    the expensive one.
+    """
+
+    def test_dry_run_does_not_wait_for_checks(self):
+        """The cheap mode must be cheap -- it must not invoke the waiter at all."""
+        h = Harness([_state()])
+        out = self.run_merge(h, execute=False)
+        self.assertIn("DRY-RUN", out)
+        self.assertEqual(h.waits, 0, "dry-run must not block on required checks")
+
+    def test_waiter_is_spawned_with_a_parent_death_signal(self):
+        """Signal handlers cannot run on SIGKILL, so the kernel must enforce this."""
+        import inspect
+
+        src = inspect.getsource(safe_merge.wait_for_required)
+        self.assertIn("preexec_fn=_die_with_parent", src)
+        self.assertIn("Popen", src)
+        self.assertNotIn("subprocess.run(", src)
+
+    def test_die_with_parent_is_best_effort_and_never_raises(self):
+        """Hardening must never be able to block a merge on an unsupported platform."""
+        safe_merge._die_with_parent()  # must not raise here either
+
+    def test_interrupted_exit_code_is_distinct(self):
+        codes = {1, 2, 3}
+        self.assertNotIn(safe_merge.EXIT_INTERRUPTED, codes)
+        self.assertIn("INTERRUPTED", safe_merge.__doc__)
+
+    def test_signal_handlers_kill_the_child_and_exit_interrupted(self):
+        killed = {"n": 0}
+        self.monkey(safe_merge, "_kill_child", lambda: killed.__setitem__("n", killed["n"] + 1))
+        captured = {}
+
+        def fake_signal(sig, handler):
+            captured[sig] = handler
+
+        self.monkey(safe_merge.signal, "signal", fake_signal)
+        safe_merge._install_signal_handlers(lambda *a, **k: None)
+        self.assertIn(safe_merge.signal.SIGTERM, captured)
+        self.assertIn(safe_merge.signal.SIGINT, captured)
+
+        exits = {}
+        self.monkey(safe_merge.os, "_exit", lambda c: exits.__setitem__("code", c))
+        captured[safe_merge.signal.SIGTERM](15, None)
+        self.assertEqual(killed["n"], 1, "a signal must reap the waiter")
+        self.assertEqual(exits["code"], safe_merge.EXIT_INTERRUPTED)
+
+    def test_default_timeout_is_sized_from_measurement(self):
+        """1800 s was ~5x the observed worst case; a stuck run should fail fast, not be
+        killed opaquely by whatever supervisor is running the script."""
+        self.assertLessEqual(safe_merge.DEFAULT_TIMEOUT, 900)
+        self.assertGreaterEqual(safe_merge.DEFAULT_TIMEOUT, 600)
+
+
+class AutoMergeNetTest(SafeMergeTestBase):
+    """RC-4: hand the merge to GitHub so a killed run does not strand the PR.
+
+    The gate is load-bearing. Where `allow_auto_merge` is false, `gh pr merge --auto` does NOT
+    arm -- it falls back to an immediate merge, which with the owner's `always` bypass can land
+    a PR whose checks never finished. Arming blind would reintroduce the exact bug this tool
+    prevents.
+    """
+
+    def _harness(self, allow, state="BLOCKED"):
+        # safe_merge reads pr_state once for the pre-loop guard and again at the top of the
+        # cycle, so the state the LOOP should see must survive the guard's read.
+        h = Harness([_state(mergeStateStatus=state), _state(mergeStateStatus=state), _state()])
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: allow)
+        return h
+
+    def test_net_is_armed_while_checks_are_pending(self):
+        h = self._harness(allow=True)
+        self.run_merge_installed(h)
+        autos = [c for c in h.calls if c[:2] == ["pr", "merge"] and "--auto" in c]
+        self.assertEqual(len(autos), 1, "the net should be armed exactly once")
+
+    def test_net_is_NOT_armed_when_the_repo_forbids_auto_merge(self):
+        h = self._harness(allow=False)
+        self.run_merge_installed(h)
+        autos = [c for c in h.calls if "--auto" in c]
+        self.assertEqual(autos, [], "arming blind would risk an immediate untested merge")
+
+    def test_net_is_not_armed_on_an_already_green_pr(self):
+        """`--auto` on a green PR merges at once, skipping the head pinning."""
+        h = self._harness(allow=True, state="CLEAN")
+        self.run_merge_installed(h)
+        self.assertEqual([c for c in h.calls if "--auto" in c], [])
+
+    def test_net_winning_the_race_is_reported_as_success(self):
+        h = Harness([_state(mergeStateStatus="BLOCKED"), _state(mergeStateStatus="BLOCKED"), _state(state="MERGED")])
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: True)
+        out = self.run_merge_installed(h)
+        self.assertIn("MERGED", out)
+        self.assertIn("auto-merge net", out)
+
+    def test_no_auto_fallback_disables_the_net(self):
+        h = self._harness(allow=True)
+        self.run_merge_installed(h, auto_fallback=False)
+        self.assertEqual([c for c in h.calls if "--auto" in c], [])
+
+    def test_repo_gate_fails_closed_on_a_probe_error(self):
+        def boom(args, timeout=120):
+            raise safe_merge.HardError("gh api failed")
+
+        self.monkey(safe_merge, "_gh", boom)
+        self.assertFalse(safe_merge.repo_allows_auto_merge("o", "r"))
+
+
+class MergeabilityGateTest(SafeMergeTestBase):
+    """Green checks are NOT the same as mergeable.
+
+    ml's ruleset sets `required_review_thread_resolution: true`, so ONE unresolved review
+    thread blocks the merge with every required context green -- and `gh pr checks` does not
+    show it. Found live on ml#1183: two `github-advanced-security` CodeQL threads left the PR
+    BLOCKED/MERGEABLE with zero failing checks, and merging blind produced a confusing
+    "add the --auto flag" hard error instead of naming the blocker.
+    """
+
+    def test_blocked_with_green_checks_refuses_and_names_the_threads(self):
+        h = Harness([_state(mergeStateStatus="BLOCKED"), _state(mergeStateStatus="BLOCKED")])
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: False)
+        self.monkey(
+            safe_merge,
+            "unresolved_threads",
+            lambda o, r, p: ["github-advanced-security: CodeQL / Empty except"],
+        )
+        with self.assertRaises(safe_merge.Refused) as ctx:
+            self.run_merge_installed(h)
+        msg = str(ctx.exception)
+        self.assertIn("unresolved review thread", msg)
+        self.assertIn("github-advanced-security", msg)
+        self.assertEqual([c for c in h.calls if c[:2] == ["pr", "merge"]], [])
+
+    def test_blocked_without_threads_still_names_the_state(self):
+        h = Harness([_state(mergeStateStatus="BLOCKED"), _state(mergeStateStatus="BLOCKED")])
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: False)
+        self.monkey(safe_merge, "unresolved_threads", lambda o, r, p: [])
+        with self.assertRaises(safe_merge.Refused) as ctx:
+            self.run_merge_installed(h)
+        self.assertIn("mergeStateStatus=BLOCKED", str(ctx.exception))
+
+    def test_unstable_is_still_mergeable(self):
+        """UNSTABLE = a NON-required check is red. Required ones passed, so merge."""
+        h = Harness([_state(mergeStateStatus="UNSTABLE"), _state(mergeStateStatus="UNSTABLE")])
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: False)
+        out = self.run_merge_installed(h)
+        self.assertIn("MERGED", out)
+
+    def test_thread_probe_failure_never_blocks_the_merge(self):
+        self.monkey(safe_merge, "_gh", lambda *a, **k: (_ for _ in ()).throw(safe_merge.HardError("x")))
+        self.assertEqual(safe_merge.unresolved_threads("o", "r", 1), [])
 
 
 class ContractTest(unittest.TestCase):
