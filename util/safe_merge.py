@@ -79,6 +79,8 @@ Exit codes
     conflicts / not open / head moved). Nothing was merged.
 2   misuse (bad arguments)
 3   hard error (``gh`` missing or failing, PR not found)
+4   INTERRUPTED -- a signal arrived mid-wait. Nothing was merged; the child waiter was
+    killed. Distinct from 1 and 3 so a killed run is never read as a decision.
 
 A refusal is never silent and never degrades to a merge.
 """
@@ -86,16 +88,23 @@ A refusal is never silent and never degrades to a merge.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
+import os
 import pathlib
 import shutil
+import signal
 import subprocess  # nosec B404 - shells out to the `gh` CLI by design
 import sys
 import time
 
 DEFAULT_OWNER = "pcalnon"
 DEFAULT_REPO = "juniper-ml"
-DEFAULT_TIMEOUT = 1800
+# Sized from measurement, not habit: ci.yml PR runs on this fleet have a median of 251 s
+# and a max of 333 s (20-run sample, 2026-08-19). 900 s is ~3x the observed worst case, so a
+# run that blows through it is stuck, not slow -- and it fails fast enough to be noticed
+# rather than being killed opaquely by whatever supervisor is running the script.
+DEFAULT_TIMEOUT = 900
 # A sync restarts CI, so a BEHIND repair must be followed by another wait. Bounded: under
 # sustained concurrent merges a PR can be re-BEHINDed indefinitely, and looping forever
 # would be its own failure mode. Refuse instead and let a human decide.
@@ -103,6 +112,10 @@ MAX_SYNC_CYCLES = 3
 # update-branch is 202 Accepted; the ref moves asynchronously. Poll until it actually does.
 REF_SETTLE_POLLS = 20
 REF_SETTLE_INTERVAL = 3.0
+# Exit code for "interrupted": distinct from refused (1) and hard error (3) so a killed run
+# is never mistaken for a decision the tool made.
+EXIT_INTERRUPTED = 4
+PR_SET_PDEATHSIG = 1  # <linux/prctl.h>
 
 WAITER = pathlib.Path(__file__).with_name("wait_for_checks.py")
 
@@ -167,6 +180,52 @@ def update_branch(owner: str, repo: str, pr: int, *, sleeper=time.sleep) -> str 
     return None
 
 
+_CHILD: subprocess.Popen | None = None
+
+
+def _die_with_parent() -> None:
+    """Ask the kernel to SIGTERM this child when its parent dies (Linux only).
+
+    Signal handlers cannot run when the parent is SIGKILLed, so a handler alone cannot
+    prevent an orphan. ``prctl(PR_SET_PDEATHSIG)`` is enforced by the kernel and therefore
+    survives even that. Verified: without it, killing the parent leaves the waiter polling
+    GitHub until its own 32-minute timeout. Best-effort -- a platform without prctl simply
+    keeps the previous behaviour.
+    """
+    try:
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
+    except Exception:  # nosec B110 - best-effort hardening; never block the merge on it
+        pass
+
+
+def _kill_child() -> None:
+    child, globals()["_CHILD"] = _CHILD, None
+    if child and child.poll() is None:
+        child.kill()
+        try:
+            child.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def _install_signal_handlers(log) -> None:
+    """Turn a supervisor's SIGTERM/SIGINT into an honest, non-zero, self-cleaning exit."""
+
+    def _handler(signum, _frame):
+        _kill_child()
+        log(
+            f"\nINTERRUPTED by signal {signum}: nothing was merged. "
+            "The PR keeps whatever base refresh already landed; re-run to resume."
+        )
+        os._exit(EXIT_INTERRUPTED)
+
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        try:
+            signal.signal(sig, _handler)
+        except (ValueError, OSError):
+            pass
+
+
 def wait_for_required(owner: str, repo: str, pr: int, timeout: int, verbose: bool) -> dict:
     """Delegate to util/wait_for_checks.py and map its exit code.
 
@@ -190,18 +249,32 @@ def wait_for_required(owner: str, repo: str, pr: int, timeout: int, verbose: boo
     ]
     if verbose:
         cmd.append("--verbose")
-    proc = subprocess.run(  # nosec B603
-        cmd, capture_output=True, text=True, timeout=timeout + 120, check=False
+    global _CHILD
+    proc = subprocess.Popen(  # nosec B603
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        preexec_fn=_die_with_parent,  # nosec B606
     )
+    _CHILD = proc
+    try:
+        out, err = proc.communicate(timeout=timeout + 120)
+    except subprocess.TimeoutExpired:
+        _kill_child()
+        raise
+    finally:
+        _CHILD = None
+
     payload: dict = {}
-    if proc.stdout.strip():
+    if (out or "").strip():
         try:
-            payload = json.loads(proc.stdout)
+            payload = json.loads(out)
         except json.JSONDecodeError:
             payload = {}
     payload["_exit"] = proc.returncode
     if proc.returncode == 3:
-        raise HardError(f"wait_for_checks hard error: {proc.stderr.strip()[:300]}")
+        raise HardError(f"wait_for_checks hard error: {(err or '').strip()[:300]}")
     return payload
 
 
@@ -259,6 +332,14 @@ def safe_merge(
         if not head:
             raise HardError(f"PR #{pr} has no resolvable head SHA")
 
+        if not execute:
+            # A dry run must be cheap, or nobody will use it. Blocking here for up to the
+            # full timeout made the SAFE default the expensive one -- report and return.
+            return (
+                f"DRY-RUN: would wait for required checks on {head[:8]} "
+                f"(mergeStateStatus={state}), then merge via {method}"
+            )
+
         log(f"  waiting on required checks for {head[:8]} …")
         result = wait_for_required(owner, repo, pr, timeout, verbose)
         code = result.get("_exit")
@@ -276,14 +357,9 @@ def safe_merge(
         after = pr_state(owner, repo, pr)
         if after.get("mergeStateStatus") == "BEHIND":
             log("  went BEHIND while waiting — re-syncing")
-            if not execute:
-                return "DRY-RUN: went BEHIND during wait; would re-sync and re-wait"
             if update_branch(owner, repo, pr) is None:
                 raise Refused("branch refresh did not land within the settle budget")
             continue
-
-        if not execute:
-            return f"DRY-RUN: would merge {head[:8]} via {method} (all required checks green)"
 
         log(f"  all required checks green — merging {head[:8]} ({method})")
         try:
@@ -354,6 +430,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.execute:
         print("*** DRY RUN — nothing will be merged (pass --execute) ***")
+    else:
+        _install_signal_handlers(print)
 
     try:
         print(safe_merge(

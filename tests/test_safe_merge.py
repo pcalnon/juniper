@@ -330,6 +330,66 @@ class HeadMovedTest(SafeMergeTestBase):
             )
 
 
+class KillResilienceTest(SafeMergeTestBase):
+    """Regressions for the killed-mid-wait incident (a second PR never merged).
+
+    Root causes, all reproduced before fixing: the waiter was ORPHANED when the parent was
+    killed (proven: it kept polling GitHub until its own 32-minute timeout); a kill produced
+    no distinct exit state; and --dry-run blocked on the full wait, so the safe default was
+    the expensive one.
+    """
+
+    def test_dry_run_does_not_wait_for_checks(self):
+        """The cheap mode must be cheap -- it must not invoke the waiter at all."""
+        h = Harness([_state()])
+        out = self.run_merge(h, execute=False)
+        self.assertIn("DRY-RUN", out)
+        self.assertEqual(h.waits, 0, "dry-run must not block on required checks")
+
+    def test_waiter_is_spawned_with_a_parent_death_signal(self):
+        """Signal handlers cannot run on SIGKILL, so the kernel must enforce this."""
+        import inspect
+
+        src = inspect.getsource(safe_merge.wait_for_required)
+        self.assertIn("preexec_fn=_die_with_parent", src)
+        self.assertIn("Popen", src)
+        self.assertNotIn("subprocess.run(", src)
+
+    def test_die_with_parent_is_best_effort_and_never_raises(self):
+        """Hardening must never be able to block a merge on an unsupported platform."""
+        safe_merge._die_with_parent()  # must not raise here either
+
+    def test_interrupted_exit_code_is_distinct(self):
+        codes = {1, 2, 3}
+        self.assertNotIn(safe_merge.EXIT_INTERRUPTED, codes)
+        self.assertIn("INTERRUPTED", safe_merge.__doc__)
+
+    def test_signal_handlers_kill_the_child_and_exit_interrupted(self):
+        killed = {"n": 0}
+        self.monkey(safe_merge, "_kill_child", lambda: killed.__setitem__("n", killed["n"] + 1))
+        captured = {}
+
+        def fake_signal(sig, handler):
+            captured[sig] = handler
+
+        self.monkey(safe_merge.signal, "signal", fake_signal)
+        safe_merge._install_signal_handlers(lambda *a, **k: None)
+        self.assertIn(safe_merge.signal.SIGTERM, captured)
+        self.assertIn(safe_merge.signal.SIGINT, captured)
+
+        exits = {}
+        self.monkey(safe_merge.os, "_exit", lambda c: exits.__setitem__("code", c))
+        captured[safe_merge.signal.SIGTERM](15, None)
+        self.assertEqual(killed["n"], 1, "a signal must reap the waiter")
+        self.assertEqual(exits["code"], safe_merge.EXIT_INTERRUPTED)
+
+    def test_default_timeout_is_sized_from_measurement(self):
+        """1800 s was ~5x the observed worst case; a stuck run should fail fast, not be
+        killed opaquely by whatever supervisor is running the script."""
+        self.assertLessEqual(safe_merge.DEFAULT_TIMEOUT, 900)
+        self.assertGreaterEqual(safe_merge.DEFAULT_TIMEOUT, 600)
+
+
 class ContractTest(unittest.TestCase):
     """The tool must keep saying what it is, so nobody mistakes it for enforcement."""
 
