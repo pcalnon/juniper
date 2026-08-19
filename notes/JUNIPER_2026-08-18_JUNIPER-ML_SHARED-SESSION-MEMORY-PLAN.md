@@ -220,6 +220,89 @@ self-locating style), then the cut, repo by repo.
 
 ---
 
+## 4a. Execution log — P0 and P1 (2026-08-19)
+
+### P0 — `MEMORY.md` eviction: DONE
+
+Tool: [`util/ad-hoc/2026-08-19_memory_index_evict.py`](../util/ad-hoc/2026-08-19_memory_index_evict.py)
+(explicit reviewed keep/evict lists; SHA-256 guard refuses to write if the file
+changed underneath — not theoretical, see below).
+
+| | Before | After |
+|---|---:|---:|
+| Lines | 140 | **123** |
+| Bytes | 19,212 | **16,933** |
+| % of the 25,000 cap | 77% | **68%** |
+| Headroom | 5,788 B | **8,067 B** |
+| Days to silent truncation @1.06/day | ~23 | **~32** |
+
+All 155 topic files remain on disk; eviction demotes a row from resident to
+on-demand, it does not delete. Spot-verified two evicted topics.
+
+**The plan's estimate was optimistic — corrected.** §4 P0 claimed eviction
+"recovers 90–148% of the 4,612-byte headroom". That came from marker-regex byte
+counts, which include rows carrying **live** state. Judgement-based eviction of
+the 17 genuinely-closed rows frees **2,374 bytes** — worth roughly **+9 days**,
+not the projected ~35. Five rows matching a closure marker were deliberately
+**kept** and are recorded in the tool.
+
+Compression cannot close the gap: the longest rows cluster at 173–215 chars
+against a 146.7 mean, so there is no outlier to trim. **`MEMORY.md` therefore
+needs recurring curation, not a one-time pass** — which promotes D's forward-only
+per-entry cap from optional to part of P0.
+
+### A new rule, learned the hard way: status may not be demoted
+
+While P0 ran, a **concurrent session** compressed the
+`project_cascor_recurrence_cli_experimentation_plan.md` index row from ~900 chars
+to ~150 — dropping an **open** `BLOCKER cascor#532`, the residual 1.17× wall gap,
+the handoff pointer, three named traps, and the N≥20 method rule. Confirmed from
+the pre-eviction backup: the loss predated this work.
+
+The detail survives in the 89,048-byte topic file, so nothing was destroyed. But
+the resident row was left reading *"all waves CLOSED"* while a blocker is open —
+**worse than omission**, because nothing would prompt a reader to look further. A
+95-byte status marker was restored, keeping the compression.
+
+> **Rule for C's whole thesis, not just `MEMORY.md`: detail may be demoted to the
+> corpus; STATUS may not.** An index row that misreports open/closed is a trap,
+> not a pointer. Any relocation must leave the resident line carrying an accurate
+> open/closed signal.
+
+### P1 — the worktree ancestor canary: RESOLVED, and it changes the picture
+
+Probe: [`util/ad-hoc/2026-08-19_build_ancestor_canary_probe.bash`](../util/ad-hoc/2026-08-19_build_ancestor_canary_probe.bash).
+Positive control passed; the decisive probe returned **both** canaries.
+
+**H-a (content dedup) is CONFIRMED, H-b refuted.** When the ancestor and worktree
+`AGENTS.md` differ, **both load**. Full evidence:
+[mechanism facts §8c-RESOLVED](JUNIPER_2026-08-18_JUNIPER-ML_CLAUDE-CODE-MEMORY-MECHANISM-FACTS.md).
+
+**And it is not merely a migration hazard — it is the current state.** Of the 23
+live worktrees, **11 distinct `AGENTS.md` contents exist and only 1 matches the
+main checkout.** So **22 of 23 worktrees already load two full copies**: a session
+in `cached-roaming-hamster` carries **344,450 chars ≈ 43% of a 200k window**,
+against 204,889 (~26%) for the deduped case.
+
+**The measured problem is roughly twice the baseline for almost every session.**
+
+This adds a phase, and it is the cheapest win in the entire plan:
+
+### P0b — worktree hygiene *(new; no authoring cost)*
+
+Prune merged worktrees and rebase the rest so their `AGENTS.md` converges with
+the main checkout. Every stale worktree is a permanent second copy of the file in
+every session it hosts; converging one recovers **~170K chars per session** with
+no content edit at all. It compounds with P3 rather than competing — after the
+cut, a divergent worktree costs 2 × 32K instead of 2 × 173K.
+
+Ordering consequence for **P3**: a trimmed worktree against an untrimmed main
+checkout is the *worst* configuration (32K + 173K ≈ 205K — trimming would make
+context go **up**). The cut must land on `main` with the primary checkout pulled
+before worktrees carry the trimmed file.
+
+---
+
 ## 5. Owner decisions
 
 | # | Decision                                | Recommendation                                                                                              |
