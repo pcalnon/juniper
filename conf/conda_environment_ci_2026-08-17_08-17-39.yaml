@@ -9,7 +9,7 @@
 # Config Path:   Juniper/juniper/conf/
 #
 # Date:          2025-12-06
-# Last Modified: 2026-08-17
+# Last Modified: 2026-08-10
 #
 # License:       MIT License
 # Copyright:     Copyright (c) 2024-2026 Paul Calnon
@@ -19,7 +19,7 @@
 #
 #####################################################################################################################################################################################################
 # Notes:
-#     created-by: conda 2026.08.17
+#     created-by: conda 2026.08.10
 #     platform: linux-64
 #     python: 3.12.13
 #
@@ -61,16 +61,16 @@ dependencies:
   - anaconda-channel-guide=0.1.1
   - anaconda-cli-base=0.9.1
   - annotated-doc=0.0.4
-  - annotated-types=0.7.0
+  - annotated-types=0.6.0
   - anyio=4.12.1
   - archspec=0.2.6
   - boltons=25.0.0
   - brotlicffi=1.2.0.0
   - bzip2=1.0.8
   - c-ares=1.34.7
-  - ca-certificates=2026.7.16
+  - ca-certificates=2026.5.14
   - certifi=2026.6.17
-  - cffi=2.1.0
+  - cffi=2.0.0
   - charset-normalizer=3.4.7
   - click=8.4.1
   - conda=26.5.3
@@ -78,13 +78,13 @@ dependencies:
   - conda-anaconda-tos=0.2.2
   - conda-content-trust=0.3.2
   - conda-index=0.12.1
-  - conda-libmamba-solver=26.7.0
-  - conda-lockfiles=0.2.1
+  - conda-libmamba-solver=26.6.0
+  - conda-lockfiles=0.2.0
   - conda-package-handling=2.5.0
   - conda-package-streaming=0.13.0
   - conda-pypi=0.11.0
   - conda-rattler-solver=0.1.1
-  - conda-self=0.2.1
+  - conda-self=0.2.0
   - cpp-expected=1.1.0
   - cryptography=49.0.0
   - dbus=1.16.2
@@ -110,13 +110,13 @@ dependencies:
   - jsonpointer=3.1.1
   - keyring=25.7.0
   - ld_impl_linux-64=2.44
-  - libarchive=3.8.8
+  - libarchive=3.8.7
   - libasprintf=0.25.1
   - libasprintf-devel=0.25.1
   - libbrotlicommon=1.2.0
   - libbrotlidec=1.2.0
   - libbrotlienc=1.2.0
-  - libcurl=8.21.0
+  - libcurl=8.20.0
   - libev=4.33
   - libexpat=2.8.2
   - libffi=3.4.8
@@ -138,14 +138,14 @@ dependencies:
   - libunistring=1.4.2
   - libuuid=1.41.5
   - libxcb=1.17.0
-  - libxml2=2.15.3
+  - libxml2=2.14.6
   - libzlib=1.3.2
-  - lmdb=1.0.0
+  - lmdb=0.9.31
   - lz4-c=1.9.4
   - markdown-it-py=4.0.0
   - markupsafe=3.0.3
   - mdurl=0.1.2
-  - menuinst=2.5.2
+  - menuinst=2.5.1
   - more-itertools=11.0.2
   - msgpack-python=1.2.1
   - ncurses=6.5
@@ -155,7 +155,7 @@ dependencies:
   - pcre2=10.46
   - pip=26.1.2
   - pkce=1.0.3
-  - platformdirs=4.11.0
+  - platformdirs=4.9.4
   - pluggy=1.6.0
   - pthread-stubs=0.3
   - py-rattler=0.25.0
@@ -170,9 +170,9 @@ dependencies:
   - pyproject_hooks=1.2.0
   - pysocks=1.7.1
   - python=3.14.6
-  - python-build=1.5.1
+  - python-build=1.3.0
   - python-dotenv=1.2.1
-  - python-installer=1.0.1
+  - python-installer=1.0.0
   - python_abi=3.14
   - readchar=4.2.2
   - readline=8.3
@@ -184,21 +184,21 @@ dependencies:
   - ruamel.yaml.clib=0.2.14
   - secretstorage=3.5.0
   - semver=3.0.4
-  - setuptools=83.0.0
+  - setuptools=82.0.1
   - shellingham=1.5.4
   - simdjson=3.10.1
   - sqlite=3.53.2
   - tk=8.6.15
   - tomli=2.4.0
   - tomli-w=1.2.0
-  - tomlkit=0.15.1
+  - tomlkit=0.13.3
   - tqdm=4.68.2
   - truststore=0.10.4
   - typer=0.25.1
-  - typing-extensions=4.16.0
+  - typing-extensions=4.15.0
   - typing-inspection=0.4.2
-  - typing_extensions=4.16.0
-  - tzdata=2026c
+  - typing_extensions=4.15.0
+  - tzdata=2026b
   - unearth=0.18.2
   - urllib3=2.7.0
   - wheel=0.47.0
