@@ -246,6 +246,9 @@ def _install_signal_handlers(log) -> None:
         try:
             signal.signal(sig, _handler)
         except (ValueError, OSError):
+            # Best-effort only: some runtimes/threads/platforms reject installing specific
+            # handlers (for example, "signal only works in main thread"). Keep running with
+            # whatever handlers were accepted rather than failing the merge flow.
             pass
 
 
