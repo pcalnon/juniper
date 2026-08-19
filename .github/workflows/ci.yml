@@ -481,6 +481,35 @@ jobs:
           # and the test refuses to pass if nothing at all was readable. Run
           # locally with JUNIPER_DRIFT_TEST_FORCE_LOCAL=1 for full-fleet cover.
           python3 -m unittest -v tests/test_publish_env_policy_drift.py
+          # tests/test_assert_release_tag.py: behavioural + wiring gate for
+          # util/assert_release_tag.bash (publish-path design §6 Option B, P3).
+          # util/ is outside EVERY pre-commit Python hook's scope (flake8/bandit
+          # scope to scripts/ + tests/), so this unittest IS the gate. It pins the
+          # refusals that matter -- branch ref, EMPTY ref_type, tag/version
+          # mismatch, wrong prefix -- plus the wiring assertion that all 7
+          # publishers invoke the guard with their own --expect-prefix and that no
+          # publisher grants id-token at workflow level (P4). The mismatch arm is a
+          # live regression guard: it once passed VACUOUSLY because `tr -d '-_'`
+          # errored on this host and both sides normalized to empty.
+          python3 -m unittest -v tests/test_assert_release_tag.py
+          # tests/test_memory_budget_check.py: the gate for util/memory_budget_check.py
+          # (P2 of the shared-session-memory plan). util/ is outside every pre-commit
+          # Python hook's scope, so this suite IS the gate -- the same gap that left
+          # test_assert_release_tag.py unwired. Pins the no-worsening rule (over-ceiling
+          # alone must NOT fail, or one bad file on main blocks every unrelated PR and
+          # the gate gets disabled rather than obeyed), the ratchet never loosening, the
+          # waiver being a LOAN that does not move the ceiling, and five machinery
+          # negative controls -- a gate that cannot fail is not a gate.
+          python3 -m unittest -v tests/test_memory_budget_check.py
+          # tests/test_relocation_check.py: the gate for util/relocation_check.py (G3).
+          # Its load-bearing case is test_identifiers_carried_but_prose_dropped_fails --
+          # a token-level completeness check PASSES on exactly that loss, because the
+          # identifiers survive in the destination while the reasoning does not. If G3
+          # ships tautological the P3 migration has NO content-loss control, since the
+          # docs screen is blind to pointer-shaped deletion at any magnitude. Also pins
+          # the containment ASYMMETRY (needle-in-candidate is a merge; candidate-in-needle
+          # is a fragment and must not match) and four machinery negative controls.
+          python3 -m unittest -v tests/test_relocation_check.py
           # tests/test_lockfile_update_workflow.py: structural gate for the weekly
           # lockfile-update.yml refresh — juniper-generate-dep-docs (not the deleted
           # inline dep-docs shell script), SHA-pinned create-pull-request, branch/labels/
@@ -775,6 +804,74 @@ jobs:
           # fetch-depth: 0, so the full message bodies are present.
           git log --format=%B FETCH_HEAD..HEAD > archive-guard-trailers.txt
           python3 util/release_train/archive_guard.py --base FETCH_HEAD --head HEAD --trailers-file archive-guard-trailers.txt
+
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  # Memory Budget (ADVISORY, standalone): P2 of the shared-session-memory plan
+  # (notes/JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md).
+  #
+  # AGENTS.md grew ~20x in six months WHILE UNDER four active CI gates -- every one of them enforces
+  # structure or currency and none enforces size. 172 of 200 main-line merges grew it. This is the
+  # ratchet that makes a cut durable, and per correction C1 it ships BEFORE the cut.
+  #
+  # ADVISORY during the soak: standalone, and deliberately ABSENT from the Quality Gate `needs:` so
+  # a skip on push can never fail the gate -- the same pattern Sequence Safety used before it was
+  # promoted in the ruleset. Promote this the same way (ruleset), never via the QG `needs:`.
+  #
+  # The ceiling starts at the size on the day it landed, so it governs GROWTH only and is
+  # satisfiable today with no destination -- the rate axis, which needs nothing from P3.
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  memory-budget:
+    name: Memory Budget
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # need the base tip to apply the no-worsening rule
+
+      - name: Set up Python ${{ env.PYTHON_TEST_VERSION }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_TEST_VERSION }}
+
+      - name: Check memory-file size budget
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║       juniper-ml - Memory File Size Budget (advisory)      ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          # merge_group has no github.base_ref; fall back to main so the job still reports.
+          BASE_REF="${{ github.base_ref || 'main' }}"
+          git fetch --no-tags origin "$BASE_REF"
+          # Allow-Budget-Overrun is a LOAN, not a pass: it suppresses the failure without moving
+          # the ceiling, so the debt still blocks the next author. Trailers are injected from an
+          # explicit file (the checker never shells out for them) so the classifier stays pure.
+          # Two-dot FETCH_HEAD..HEAD = exactly the commits this PR adds on top of base.
+          git log --format=%B FETCH_HEAD..HEAD > memory-budget-trailers.txt
+          python3 util/memory_budget_check.py \
+            --base-ref FETCH_HEAD \
+            --trailers-file memory-budget-trailers.txt \
+            --advisory
+
+      - name: Check relocation completeness (G3)
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║       juniper-ml - Relocation Completeness G3 (advisory)   ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          # The docs-deletion screen CANNOT see a relocation: its FAIL predicate needs
+          # `added == 0`, so "delete a block, leave a pointer, keep the heading" is a WARN at
+          # any magnitude. Without G3 the P3 migration has no content-loss control at all.
+          # Deliberately prose-level, not token-level: a relocation that carries the
+          # identifiers while dropping the reasoning is the loss this repo actually suffers,
+          # and a token check waves it through.
+          BASE_REF="${{ github.base_ref || 'main' }}"
+          git fetch --no-tags origin "$BASE_REF"
+          python3 util/relocation_check.py \
+            --base FETCH_HEAD --head HEAD \
+            --source AGENTS.md --dest docs/REFERENCE.md \
+            --advisory
 
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
   # Sequence Safety (ADVISORY, standalone): the per-PR compositional-loss screen (Proposal P2 gates

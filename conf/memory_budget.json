@@ -1,0 +1,25 @@
+{
+  "_README": [
+    "Character ceilings for always-loaded memory files. P2 of the shared-session-memory",
+    "plan: notes/JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md",
+    "",
+    "Enforced by util/memory_budget_check.py via the standalone advisory 'Memory Budget'",
+    "job in ci.yml. CHARACTERS, not bytes -- the shipped Claude Code check compares",
+    "content.length (mechanism-facts section 1).",
+    "",
+    "The ceiling starts at the size on the day the gate landed, so it is satisfiable",
+    "immediately and governs only GROWTH. That is deliberate: the rate axis ships first",
+    "and needs no destination, while the level axis waits for P3. Ratchet it down after",
+    "each cut with:  python util/memory_budget_check.py --ratchet",
+    "",
+    "docs/REFERENCE.md is deliberately NOT governed. It is the migration DESTINATION;",
+    "capping it would penalise exactly the relocation this plan wants, and it is not an",
+    "always-loaded memory file -- it is read on demand, which is the entire point."
+  ],
+  "files": {
+    "AGENTS.md": {
+      "ceiling_chars": 137263,
+      "_note": "Seeded 2026-08-19 at the then-current size. Target after P3: 32443."
+    }
+  }
+}
