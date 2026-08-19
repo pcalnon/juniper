@@ -454,6 +454,54 @@ class AutoMergeNetTest(SafeMergeTestBase):
         self.assertFalse(safe_merge.repo_allows_auto_merge("o", "r"))
 
 
+class MergeabilityGateTest(SafeMergeTestBase):
+    """Green checks are NOT the same as mergeable.
+
+    ml's ruleset sets `required_review_thread_resolution: true`, so ONE unresolved review
+    thread blocks the merge with every required context green -- and `gh pr checks` does not
+    show it. Found live on ml#1183: two `github-advanced-security` CodeQL threads left the PR
+    BLOCKED/MERGEABLE with zero failing checks, and merging blind produced a confusing
+    "add the --auto flag" hard error instead of naming the blocker.
+    """
+
+    def test_blocked_with_green_checks_refuses_and_names_the_threads(self):
+        h = Harness([_state(mergeStateStatus="BLOCKED"), _state(mergeStateStatus="BLOCKED")])
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: False)
+        self.monkey(
+            safe_merge,
+            "unresolved_threads",
+            lambda o, r, p: ["github-advanced-security: CodeQL / Empty except"],
+        )
+        with self.assertRaises(safe_merge.Refused) as ctx:
+            self.run_merge_installed(h)
+        msg = str(ctx.exception)
+        self.assertIn("unresolved review thread", msg)
+        self.assertIn("github-advanced-security", msg)
+        self.assertEqual([c for c in h.calls if c[:2] == ["pr", "merge"]], [])
+
+    def test_blocked_without_threads_still_names_the_state(self):
+        h = Harness([_state(mergeStateStatus="BLOCKED"), _state(mergeStateStatus="BLOCKED")])
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: False)
+        self.monkey(safe_merge, "unresolved_threads", lambda o, r, p: [])
+        with self.assertRaises(safe_merge.Refused) as ctx:
+            self.run_merge_installed(h)
+        self.assertIn("mergeStateStatus=BLOCKED", str(ctx.exception))
+
+    def test_unstable_is_still_mergeable(self):
+        """UNSTABLE = a NON-required check is red. Required ones passed, so merge."""
+        h = Harness([_state(mergeStateStatus="UNSTABLE"), _state(mergeStateStatus="UNSTABLE")])
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: False)
+        out = self.run_merge_installed(h)
+        self.assertIn("MERGED", out)
+
+    def test_thread_probe_failure_never_blocks_the_merge(self):
+        self.monkey(safe_merge, "_gh", lambda *a, **k: (_ for _ in ()).throw(safe_merge.HardError("x")))
+        self.assertEqual(safe_merge.unresolved_threads("o", "r", 1), [])
+
+
 class ContractTest(unittest.TestCase):
     """The tool must keep saying what it is, so nobody mistakes it for enforcement."""
 

@@ -211,8 +211,12 @@ def _die_with_parent() -> None:
     """
     try:
         ctypes.CDLL("libc.so.6", use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
-    except Exception:  # nosec B110 - best-effort hardening; never block the merge on it
-        pass
+    except Exception:  # nosec B110
+        # Swallowed on purpose, and the breadth is deliberate. This runs in the child between
+        # fork and exec, where raising anything would fail the merge for a reason that has
+        # nothing to do with the merge. A platform without prctl (or a different libc soname)
+        # simply keeps the previous, orphan-prone behaviour -- degraded, not broken.
+        return
 
 
 def _kill_child() -> None:
@@ -259,6 +263,35 @@ def repo_allows_auto_merge(owner: str, repo: str) -> bool:
         return json.loads(_gh(["api", f"/repos/{owner}/{repo}", "--jq", ".allow_auto_merge"]).strip())
     except (HardError, json.JSONDecodeError):
         return False
+
+
+def unresolved_threads(owner: str, repo: str, pr: int) -> list[str]:
+    """Unresolved review threads, which block a merge INVISIBLY to `gh pr checks`.
+
+    ml's ruleset sets `required_review_thread_resolution: true`, so one unresolved thread
+    blocks the merge with every required context green. A `github-advanced-security` CodeQL
+    thread is the usual source. Best-effort: a probe failure returns [] so it can never be the
+    thing that fails a merge.
+    """
+    q = (
+        'query { repository(owner:"%s",name:"%s"){ pullRequest(number:%d){ '
+        "reviewThreads(first:50){ nodes { isResolved comments(first:1){ nodes { "
+        "author { login } body } } } } } } }" % (owner, repo, pr)
+    )
+    try:
+        raw = _gh(["api", "graphql", "-f", f"query={q}"])
+        nodes = json.loads(raw)["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+    except (HardError, json.JSONDecodeError, KeyError, TypeError):
+        return []
+    out = []
+    for n in nodes:
+        if n.get("isResolved"):
+            continue
+        c = (n.get("comments") or {}).get("nodes") or [{}]
+        who = ((c[0].get("author") or {}).get("login")) or "?"
+        body = " ".join((c[0].get("body") or "").split())[:80]
+        out.append(f"{who}: {body}")
+    return out
 
 
 def arm_auto_merge(owner: str, repo: str, pr: int, method: str, log) -> bool:
@@ -395,8 +428,9 @@ def safe_merge(
                 f"(mergeStateStatus={state}), then merge via {method}"
             )
 
+        armed = False
         if auto_fallback and state == "BLOCKED":
-            arm_auto_merge(owner, repo, pr, method, log)
+            armed = arm_auto_merge(owner, repo, pr, method, log)
 
         log(f"  waiting on required checks for {head[:8]} …")
         result = wait_for_required(owner, repo, pr, timeout, verbose)
@@ -422,6 +456,27 @@ def safe_merge(
             if update_branch(owner, repo, pr) is None:
                 raise Refused("branch refresh did not land within the settle budget")
             continue
+
+        # Green checks are NOT the same as mergeable. `mergeStateStatus` can be BLOCKED with
+        # every required context passing -- an unresolved review thread does exactly that, and
+        # `gh pr checks` does not show it. Merging blind here produced a confusing hard error
+        # ("add the --auto flag") instead of naming the real blocker.
+        final = after.get("mergeStateStatus")
+        if final not in ("CLEAN", "UNSTABLE", "HAS_HOOKS"):
+            threads = unresolved_threads(owner, repo, pr)
+            detail = (
+                f"{len(threads)} unresolved review thread(s): " + "; ".join(threads[:3])
+                if threads
+                else f"mergeStateStatus={final}"
+            )
+            tail = (
+                " — the armed auto-merge net will complete it once this clears"
+                if armed
+                else ""
+            )
+            raise Refused(
+                f"required checks are green but GitHub will not merge {head[:8]}: {detail}{tail}"
+            )
 
         log(f"  all required checks green — merging {head[:8]} ({method})")
         try:
