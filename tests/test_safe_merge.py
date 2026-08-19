@@ -105,6 +105,14 @@ class SafeMergeTestBase(unittest.TestCase):
         self._restore.append((obj, name, getattr(obj, name)))
         setattr(obj, name, val)
 
+    def run_merge_installed(self, harness, **kw):
+        kw.setdefault("execute", True)
+        kw.setdefault("method", "squash")
+        kw.setdefault("timeout", 60)
+        kw.setdefault("verbose", False)
+        kw.setdefault("log", lambda *a, **k: None)
+        return safe_merge.safe_merge("o", "r", 1, **kw)
+
     def run_merge(self, harness, **kw):
         harness.install(self)
         kw.setdefault("execute", True)
@@ -388,6 +396,62 @@ class KillResilienceTest(SafeMergeTestBase):
         killed opaquely by whatever supervisor is running the script."""
         self.assertLessEqual(safe_merge.DEFAULT_TIMEOUT, 900)
         self.assertGreaterEqual(safe_merge.DEFAULT_TIMEOUT, 600)
+
+
+class AutoMergeNetTest(SafeMergeTestBase):
+    """RC-4: hand the merge to GitHub so a killed run does not strand the PR.
+
+    The gate is load-bearing. Where `allow_auto_merge` is false, `gh pr merge --auto` does NOT
+    arm -- it falls back to an immediate merge, which with the owner's `always` bypass can land
+    a PR whose checks never finished. Arming blind would reintroduce the exact bug this tool
+    prevents.
+    """
+
+    def _harness(self, allow, state="BLOCKED"):
+        # safe_merge reads pr_state once for the pre-loop guard and again at the top of the
+        # cycle, so the state the LOOP should see must survive the guard's read.
+        h = Harness([_state(mergeStateStatus=state), _state(mergeStateStatus=state), _state()])
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: allow)
+        return h
+
+    def test_net_is_armed_while_checks_are_pending(self):
+        h = self._harness(allow=True)
+        self.run_merge_installed(h)
+        autos = [c for c in h.calls if c[:2] == ["pr", "merge"] and "--auto" in c]
+        self.assertEqual(len(autos), 1, "the net should be armed exactly once")
+
+    def test_net_is_NOT_armed_when_the_repo_forbids_auto_merge(self):
+        h = self._harness(allow=False)
+        self.run_merge_installed(h)
+        autos = [c for c in h.calls if "--auto" in c]
+        self.assertEqual(autos, [], "arming blind would risk an immediate untested merge")
+
+    def test_net_is_not_armed_on_an_already_green_pr(self):
+        """`--auto` on a green PR merges at once, skipping the head pinning."""
+        h = self._harness(allow=True, state="CLEAN")
+        self.run_merge_installed(h)
+        self.assertEqual([c for c in h.calls if "--auto" in c], [])
+
+    def test_net_winning_the_race_is_reported_as_success(self):
+        h = Harness([_state(mergeStateStatus="BLOCKED"), _state(mergeStateStatus="BLOCKED"), _state(state="MERGED")])
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: True)
+        out = self.run_merge_installed(h)
+        self.assertIn("MERGED", out)
+        self.assertIn("auto-merge net", out)
+
+    def test_no_auto_fallback_disables_the_net(self):
+        h = self._harness(allow=True)
+        self.run_merge_installed(h, auto_fallback=False)
+        self.assertEqual([c for c in h.calls if "--auto" in c], [])
+
+    def test_repo_gate_fails_closed_on_a_probe_error(self):
+        def boom(args, timeout=120):
+            raise safe_merge.HardError("gh api failed")
+
+        self.monkey(safe_merge, "_gh", boom)
+        self.assertFalse(safe_merge.repo_allows_auto_merge("o", "r"))
 
 
 class ContractTest(unittest.TestCase):

@@ -37,6 +37,23 @@ owner's ``RepositoryRole 5`` bypass, which is a separate decision with its own c
 entitlement is genuinely load-bearing -- see the bypass analysis in ml#1012). Use this
 because merging untested code is undesirable, not because something forces you to.
 
+Surviving being killed
+----------------------
+A long wait is a liability: the script can be killed (session end, an operator stopping the
+task) and then nothing finishes the merge. So while the PR is still ``BLOCKED``, the merge is
+also handed to GitHub via ``gh pr merge --auto`` -- a **server-side** net that completes even
+if this process dies. Auto-merge merges only once the required checks pass on the current
+head, so it carries the same guarantee this tool enforces locally.
+
+The net is **gated on the repo's ``allow_auto_merge``**, and that gate is load-bearing: where
+the setting is false, ``--auto`` does not arm at all -- it silently falls back to an
+**immediate merge**, which with the owner's ``always`` ruleset bypass can land a PR whose
+checks never finished. Arming blind would reintroduce the exact bug this tool prevents.
+(Enabled fleet-wide 2026-08-19; the gate stays because a setting can be turned off again.)
+
+It is deliberately NOT armed on an already-green PR: there ``--auto`` merges on the spot,
+skipping the head pinning below. ``--no-auto-fallback`` opts out entirely.
+
 The TOCTOU problem, and how it is handled
 -----------------------------------------
 Waiting for checks and then merging is a two-step operation, and the head can move in
@@ -226,6 +243,43 @@ def _install_signal_handlers(log) -> None:
             pass
 
 
+def repo_allows_auto_merge(owner: str, repo: str) -> bool:
+    """Is server-side auto-merge available on this repo?
+
+    Load-bearing gate. Where `allow_auto_merge` is FALSE, `gh pr merge --auto` does not arm
+    -- it silently falls back to an IMMEDIATE merge, which combined with the owner's `always`
+    ruleset bypass can land a PR whose required checks never finished. That is the exact
+    failure this tool exists to prevent, so the net must never be armed blind.
+
+    Enabled fleet-wide 2026-08-19 (`util/ad-hoc/2026-08-19_enable_allow_auto_merge.py`); this
+    check stays because a repo setting can be turned off again, and because this tool is used
+    cross-repo.
+    """
+    try:
+        return json.loads(_gh(["api", f"/repos/{owner}/{repo}", "--jq", ".allow_auto_merge"]).strip())
+    except (HardError, json.JSONDecodeError):
+        return False
+
+
+def arm_auto_merge(owner: str, repo: str, pr: int, method: str, log) -> bool:
+    """Hand the merge to GitHub as a net, so a killed script does not strand the PR.
+
+    Armed only while the PR is still BLOCKED -- i.e. when there is genuinely something to wait
+    for. On an already-green PR `--auto` merges on the spot, which would skip the head pinning
+    below, so that case is deliberately left to the local path.
+    """
+    if not repo_allows_auto_merge(owner, repo):
+        log("  auto-merge net UNAVAILABLE (allow_auto_merge is false) — local wait only")
+        return False
+    try:
+        _gh(["pr", "merge", str(pr), "--repo", f"{owner}/{repo}", "--auto", f"--{method}"])
+    except HardError as exc:
+        log(f"  could not arm auto-merge net ({str(exc)[:80]}) — continuing with local wait")
+        return False
+    log("  auto-merge net armed — GitHub will complete this merge even if this run dies")
+    return True
+
+
 def wait_for_required(owner: str, repo: str, pr: int, timeout: int, verbose: bool) -> dict:
     """Delegate to util/wait_for_checks.py and map its exit code.
 
@@ -295,6 +349,7 @@ def safe_merge(
     method: str,
     timeout: int,
     verbose: bool,
+    auto_fallback: bool = True,
     log=print,
 ) -> str:
     info = pr_state(owner, repo, pr)
@@ -340,6 +395,9 @@ def safe_merge(
                 f"(mergeStateStatus={state}), then merge via {method}"
             )
 
+        if auto_fallback and state == "BLOCKED":
+            arm_auto_merge(owner, repo, pr, method, log)
+
         log(f"  waiting on required checks for {head[:8]} …")
         result = wait_for_required(owner, repo, pr, timeout, verbose)
         code = result.get("_exit")
@@ -355,6 +413,10 @@ def safe_merge(
             raise HardError(f"unexpected wait_for_checks exit {code}")
 
         after = pr_state(owner, repo, pr)
+        if after.get("state") == "MERGED":
+            # The armed net got there first. Same guarantee -- GitHub merges only once the
+            # required checks pass on the current head -- so this is a success, not a race lost.
+            return f"MERGED #{pr} by the armed auto-merge net (required checks green)"
         if after.get("mergeStateStatus") == "BEHIND":
             log("  went BEHIND while waiting — re-syncing")
             if update_branch(owner, repo, pr) is None:
@@ -413,6 +475,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help=f"seconds to wait per cycle (default {DEFAULT_TIMEOUT})")
     ap.add_argument("--execute", action="store_true", help="actually merge (default: dry-run)")
+    ap.add_argument(
+        "--no-auto-fallback",
+        action="store_true",
+        help="do not arm GitHub auto-merge as a kill-proof net (strict local control)",
+    )
     ap.add_argument("--verbose", action="store_true", help="pass --verbose to the waiter")
     args = ap.parse_args(argv)
 
@@ -442,6 +509,7 @@ def main(argv: list[str] | None = None) -> int:
             method=args.merge_method,
             timeout=args.timeout,
             verbose=args.verbose,
+            auto_fallback=not args.no_auto_fallback,
         ))
     except Refused as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
