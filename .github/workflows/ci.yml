@@ -501,6 +501,15 @@ jobs:
           # waiver being a LOAN that does not move the ceiling, and five machinery
           # negative controls -- a gate that cannot fail is not a gate.
           python3 -m unittest -v tests/test_memory_budget_check.py
+          # tests/test_relocation_check.py: the gate for util/relocation_check.py (G3).
+          # Its load-bearing case is test_identifiers_carried_but_prose_dropped_fails --
+          # a token-level completeness check PASSES on exactly that loss, because the
+          # identifiers survive in the destination while the reasoning does not. If G3
+          # ships tautological the P3 migration has NO content-loss control, since the
+          # docs screen is blind to pointer-shaped deletion at any magnitude. Also pins
+          # the containment ASYMMETRY (needle-in-candidate is a merge; candidate-in-needle
+          # is a fragment and must not match) and four machinery negative controls.
+          python3 -m unittest -v tests/test_relocation_check.py
           # tests/test_lockfile_update_workflow.py: structural gate for the weekly
           # lockfile-update.yml refresh — juniper-generate-dep-docs (not the deleted
           # inline dep-docs shell script), SHA-pinned create-pull-request, branch/labels/
@@ -844,6 +853,24 @@ jobs:
           python3 util/memory_budget_check.py \
             --base-ref FETCH_HEAD \
             --trailers-file memory-budget-trailers.txt \
+            --advisory
+
+      - name: Check relocation completeness (G3)
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║       juniper-ml - Relocation Completeness G3 (advisory)   ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          # The docs-deletion screen CANNOT see a relocation: its FAIL predicate needs
+          # `added == 0`, so "delete a block, leave a pointer, keep the heading" is a WARN at
+          # any magnitude. Without G3 the P3 migration has no content-loss control at all.
+          # Deliberately prose-level, not token-level: a relocation that carries the
+          # identifiers while dropping the reasoning is the loss this repo actually suffers,
+          # and a token check waves it through.
+          BASE_REF="${{ github.base_ref || 'main' }}"
+          git fetch --no-tags origin "$BASE_REF"
+          python3 util/relocation_check.py \
+            --base FETCH_HEAD --head HEAD \
+            --source AGENTS.md --dest docs/REFERENCE.md \
             --advisory
 
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
