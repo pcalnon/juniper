@@ -53,13 +53,14 @@ class Harness:
     case -- the merge command returns 0 but the PR did not actually merge.
     """
 
-    def __init__(self, states, wait_result=None, merge_succeeds=True):
+    def __init__(self, states, wait_result=None, merge_succeeds=True, settle_fails=False):
         self._states = list(states)
         self.calls: list[list[str]] = []
         self.wait_result = wait_result if wait_result is not None else {"_exit": 0}
         self.waits = 0
         self.merged = False
         self.merge_succeeds = merge_succeeds
+        self.settle_fails = settle_fails
 
     def gh(self, args, timeout=120):
         self.calls.append(list(args))
@@ -76,10 +77,20 @@ class Harness:
         self.waits += 1
         return dict(self.wait_result)
 
+    def update_branch(self, owner, repo, pr, **kw):
+        """Stubbed so tests neither sleep through the real settle-poll nor hit the network.
+
+        Records a synthetic marker so the existing "was the server-side API used?"
+        assertions still hold, and returns a settled head by default.
+        """
+        self.calls.append(["api", f"repos/{owner}/{repo}/pulls/{pr}/update-branch", "-X", "PUT"])
+        return None if self.settle_fails else "e" * 40
+
     def install(self, tc):
         tc.monkey(safe_merge, "_gh", self.gh)
         tc.monkey(safe_merge, "pr_state", self.pr_state)
         tc.monkey(safe_merge, "wait_for_required", self.wait)
+        tc.monkey(safe_merge, "update_branch", self.update_branch)
 
 
 class SafeMergeTestBase(unittest.TestCase):
@@ -231,6 +242,85 @@ class CliTest(unittest.TestCase):
         else:
             self.assertFalse(ns.execute)
             self.assertEqual(ns.merge_method, "squash")
+
+
+class AsyncRefSettleTest(SafeMergeTestBase):
+    """update-branch is 202 Accepted; the ref moves asynchronously.
+
+    Regression for the defect this tool's FIRST live run exposed (ml#1170): reading the PR
+    immediately after update-branch returned the OLD head, so the tool waited on that head's
+    already-green checks and tried to merge a SHA that no longer existed. Only
+    `--match-head-commit` stopped it.
+    """
+
+    def test_update_branch_polls_until_the_ref_actually_moves(self):
+        old, new = "a" * 40, "d" * 40
+        seq = [{"headRefOid": old}, {"headRefOid": old}, {"headRefOid": new}]
+        calls = {"n": 0}
+
+        def fake_state(owner, repo, pr):
+            if calls["n"] == 0:  # the pre-update read
+                calls["n"] += 1
+                return {"headRefOid": old}
+            return seq.pop(0) if len(seq) > 1 else seq[0]
+
+        self.monkey(safe_merge, "pr_state", fake_state)
+        self.monkey(safe_merge, "_gh", lambda *a, **k: "")
+        got = safe_merge.update_branch("o", "r", 1, sleeper=lambda _s: None)
+        self.assertEqual(got, new, "must return the NEW head, not the stale one")
+
+    def test_update_branch_returns_none_if_ref_never_moves(self):
+        self.monkey(safe_merge, "pr_state", lambda *a, **k: {"headRefOid": "a" * 40})
+        self.monkey(safe_merge, "_gh", lambda *a, **k: "")
+        self.assertIsNone(safe_merge.update_branch("o", "r", 1, sleeper=lambda _s: None))
+
+    def test_unsettled_ref_refuses_rather_than_merging(self):
+        h = Harness(
+            [_state(mergeStateStatus="BEHIND"), _state(mergeStateStatus="BEHIND")],
+            settle_fails=True,
+        )
+        with self.assertRaises(safe_merge.Refused) as ctx:
+            self.run_merge(h)
+        self.assertIn("settle", str(ctx.exception).lower())
+        self.assertEqual([c for c in h.calls if c[:2] == ["pr", "merge"]], [])
+
+
+class HeadMovedTest(SafeMergeTestBase):
+    """A moved head is a REFUSAL (nothing merged), never a hard error."""
+
+    def test_head_branch_was_modified_is_a_refusal(self):
+        def gh(args, timeout=120):
+            if list(args[:2]) == ["pr", "merge"]:
+                raise safe_merge.HardError(
+                    "gh pr merge 1… failed: GraphQL: Head branch was modified. "
+                    "Review and try the merge again. (mergePullRequest)"
+                )
+            return ""
+
+        self.monkey(safe_merge, "pr_state", lambda *a, **k: _state())
+        self.monkey(safe_merge, "_gh", gh)
+        self.monkey(safe_merge, "wait_for_required", lambda *a, **k: {"_exit": 0})
+        with self.assertRaises(safe_merge.Refused) as ctx:
+            safe_merge.safe_merge(
+                "o", "r", 1, execute=True, method="squash", timeout=5,
+                verbose=False, log=lambda *a, **k: None,
+            )
+        self.assertIn("head moved", str(ctx.exception).lower())
+
+    def test_other_merge_errors_stay_hard_errors(self):
+        def gh(args, timeout=120):
+            if list(args[:2]) == ["pr", "merge"]:
+                raise safe_merge.HardError("gh pr merge 1… failed: 500 Internal Server Error")
+            return ""
+
+        self.monkey(safe_merge, "pr_state", lambda *a, **k: _state())
+        self.monkey(safe_merge, "_gh", gh)
+        self.monkey(safe_merge, "wait_for_required", lambda *a, **k: {"_exit": 0})
+        with self.assertRaises(safe_merge.HardError):
+            safe_merge.safe_merge(
+                "o", "r", 1, execute=True, method="squash", timeout=5,
+                verbose=False, log=lambda *a, **k: None,
+            )
 
 
 class ContractTest(unittest.TestCase):
