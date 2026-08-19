@@ -219,6 +219,34 @@ Update-branch that authored the damage), so they are NOT equivalent.
   never self-merge — the owner merges everything — so the queue's teeth come from the owner routing every
   merge through "Merge when ready," not from bypass state.
 
+> **CORRECTION 2026-08-18 — the `strict=true` column below is REFUTED. Verified score: 0 of 8, not ~5 of 8.**
+> Two independent audits re-checked every row against the actual merges.
+> For all 10 incident merges the next *completed* `main` CI run was `success` — the damage was
+> invisible to CI, so a strict re-test running that same CI would have been green too. Individual rows
+> are also wrong: **#759** was already non-black-clean **on its own branch** (so it is not a union
+> effect at all, and it merged red with pre-commit still running); **#729** and **#782** lost nothing
+> at merge (0 symbols, 0 new duplicates); **#751**'s head passed all 20 contexts including Regression
+> Tests; and **#801/#803** were pure *additions* — the victims of a later stale merge, not its
+> perpetrators (the real docs-deleting merges were #775, #780, #824, #829).
+>
+> The loss-carrying operation was the manual **"Update branch" conflict resolution** — which
+> `strict` mandates *more* of, adding only a CI re-run that was green on the damaged result every time.
+> Three incident branches (#751/#729/#738) already carried such a merge and the damage landed anyway.
+>
+> What *does* see this damage class is the **sequence-safety symbol screen**, which FAILs on every
+> incident that truly destroyed content (#738 → 8 lost symbols, #751 → 4 lost + 1 weakened, #759 → 8,
+> the 23:01Z batch → 6). It became a required check on all 9 repos on 2026-08-18 (ml#1011).
+>
+> The **merge queue** column is moot: merge queues require organization ownership and are permanently
+> unavailable to these User-owned repos — see
+> [`JUNIPER_2026-08-16_JUNIPER-ML_MERGE-QUEUE-ENABLEMENT-RUNBOOK.md`](JUNIPER_2026-08-16_JUNIPER-ML_MERGE-QUEUE-ENABLEMENT-RUNBOOK.md).
+>
+> `strict=true` was nonetheless **kept** on all 9 — on cost grounds, not on this table. Its marginal
+> cost is only ≈ +0.20 syncs/merge and it has 2 verified saves. Full analysis:
+> [`JUNIPER_2026-08-18_JUNIPER-ECOSYSTEM_STRICT-POLICY-COST-BENEFIT-AUDIT.md`](JUNIPER_2026-08-18_JUNIPER-ECOSYSTEM_STRICT-POLICY-COST-BENEFIT-AUDIT.md)
+> and [`…_BRANCH-PROTECTION-INVESTIGATION-SYNTHESIS.md`](JUNIPER_2026-08-18_JUNIPER-ECOSYSTEM_BRANCH-PROTECTION-INVESTIGATION-SYNTHESIS.md).
+
+
 | Incident                                                           | Damage                                                                    | strict=true (M2: re-test the manual merge result)                                                 | Merge queue (M1 clean-merge-or-eject + M2)                                                                |
 |--------------------------------------------------------------------|---------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
 | **#751** (member of the 23:01Z batch)                              | conflict-res → empty always-pass stub + NameError                         | **PREVENTED** — NameError → Regression Tests red (a stub-only-if-green portion would slip)        | **PREVENTED** — conflict → eject; NameError red                                                           |

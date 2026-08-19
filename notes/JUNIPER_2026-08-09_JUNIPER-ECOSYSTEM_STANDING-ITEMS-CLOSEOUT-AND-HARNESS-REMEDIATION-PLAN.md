@@ -201,6 +201,23 @@ Job / context names **[repo]**:
 
 ### 3.6 The `code_quality` rule has no reporting tool — corroboration
 
+> **CORRECTION 2026-08-18 — the three signals below are individually accurate but the CONCLUSION drawn
+> from them is false.** "No reporting tool" is true and irrelevant: `code_quality` has no tools
+> parameter *by design*, and GitHub documents "a required tool is not configured" as a blocking
+> condition of **`code_scanning`**, a different rule. `code_quality` gates on the GitHub Code Quality
+> product, which returns 404 "not available for this repository" on all 9 (it requires Team/GHEC;
+> these are User-owned), so none of its three documented blocking conditions can fire. Measured:
+> **779/785** and **399/399** rule-suite evaluations `pass`, **0 fail**, across 2,632 merges. The
+> real blocker in the cited period was the **`update` rule** (suite `3485854412` shows `update: fail`
+> beside `code_quality: pass`), removed fleet-wide 2026-08-10. Signal 3 below — that GraphQL omits
+> `CODE_QUALITY` while REST reports it — remains correct and is the signature of a preview-stage rule,
+> not of a mis-wired one. Full evidence:
+> [`JUNIPER_2026-08-18_JUNIPER-ECOSYSTEM_CODE-QUALITY-RULE-AUDIT.md`](JUNIPER_2026-08-18_JUNIPER-ECOSYSTEM_CODE-QUALITY-RULE-AUDIT.md).
+>
+> **Forward risk (CQ-9):** all 9 rulesets are already armed at `severity: errors`. Moving the fleet to
+> an organization on Team/GHEC — the same change that would make merge queues available — would arm
+> this rule live on all 9 with no soak period. Drop or downgrade it in that same change.
+
 Three independent signals, none of which requires owner UI:
 
 1. **[research]** `notes/JUNIPER_2026-08-05_JUNIPER-ML_BYPASS-ACTOR-RESEARCH.md:32` states the rule has no reporting tool behind it, and that this is *why* the release-train App (`4362741`) holds a `pull_request` bypass.
