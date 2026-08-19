@@ -949,6 +949,94 @@ Exit **0** pass or advisory / **1** over budget / **2** misuse or broken machine
 
 ---
 
+## Relocation Completeness (G3)
+
+`util/relocation_check.py` — gate **G3** of the
+[shared-session-memory plan](../notes/JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md).
+Runs as an advisory step of the `Memory Budget` job.
+
+**Why it must exist before the P3 cut.** The repo's only mechanical content-loss
+alarm cannot see a relocation:
+
+- `juniper-docs-additions-check` FAILs only when `added == 0`. *"Delete a block,
+  leave a pointer, keep the heading"* — exactly what a relocation looks like — is a
+  WARN at any magnitude.
+- A **token-level** check does not help either. A relocation that carries the
+  identifiers but drops the surrounding reasoning scores as complete, because the
+  identifiers survive in the destination while the prose that explained them does
+  not. That is the loss this repo actually suffers.
+
+So without G3 the migration would proceed with **no** content-loss control.
+
+### What it asserts
+
+Every substantive line **removed** from the source between BASE and HEAD must have
+a sufficiently similar line **present** in the destination at HEAD. Similarity is
+computed on normalised prose (markdown emphasis, link syntax, list markers and
+backticks stripped; whitespace collapsed; lowercased), so a faithfully reworded
+relocation passes while a dropped explanation does not.
+
+It is not a plagiarism check — the default threshold of `0.72` is below 1.0 because
+relocation legitimately rewrites lead-ins, but high enough that losing a sentence
+fails.
+
+Ignored as non-substantive: blank lines, headings, fence delimiters, table rules,
+and anything under `--min-chars` (default 40).
+
+### The containment asymmetry — the anti-tautology property
+
+| Direction | Verdict | Why |
+|-----------|---------|-----|
+| `needle in candidate` | **full match** | The destination contains the whole removed line — a merge, not a loss. |
+| `candidate in needle` | **not a match** | The destination holds only a *fragment* — the bare identifier survived and the reasoning did not. |
+
+Getting this backwards makes the gate tautological. It is pinned directly by
+`ContainmentAsymmetryTest` and by
+`test_identifiers_carried_but_prose_dropped_fails`.
+
+### "Lost" means gone from both files
+
+The haystack is the destination **and** the source as it stands at HEAD. An
+in-place reword — keep the bullet in `AGENTS.md`, just rewrite it — appears in the
+diff exactly like a relocation, and searching only the destination would report it
+as content loss. Found by running the gate on its own PR.
+
+### Known limitation: it is line-granular
+
+A removed line whose content is **redistributed** across several destination lines
+scores low and is reported, even though nothing was lost. This false-positive class
+is left in deliberately:
+
+- the gate is advisory, and *"this line's prose is no longer findable as a unit —
+  check it"* is a useful thing to say;
+- the fix would be union/coverage matching, where an arbitrary scatter of tokens
+  can cover any needle — which is how this gate would decay into the token-level
+  check it exists to replace.
+
+For P3 the distinction matters little: relocation moves prose largely intact.
+Compression-and-redistribution is a different operation, and a human should verify
+it when flagged.
+
+### Vacuous-pass resistance
+
+Hard exit 2, never a pass, when the source or destination is absent at HEAD, a git
+invocation fails, or `--expect-removals` was set and the diff removed nothing (the
+check would otherwise have passed on empty input).
+
+### Usage
+
+```bash
+python util/relocation_check.py --base origin/main --head HEAD \
+    --source AGENTS.md --dest docs/REFERENCE.md
+python util/relocation_check.py --advisory        # report, always exit 0
+python util/relocation_check.py --expect-removals # refuse a vacuous pass
+```
+
+Exit **0** complete (or advisory) / **1** content lost / **2** misuse or broken
+machinery.
+
+---
+
 ## Post-Merge Main Verification
 
 `.github/workflows/main-verify.yml` is the bypass-proof compositional-loss net (flood-remediation P2 gate G3). It runs on every `push` to `main` (plus `workflow_dispatch`) so a merge that skipped or greenwashed per-PR checks still gets screened after it lands. Design notes: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 item 8.
