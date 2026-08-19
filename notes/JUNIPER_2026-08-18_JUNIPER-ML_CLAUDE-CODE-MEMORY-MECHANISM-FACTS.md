@@ -507,7 +507,70 @@ session start. Cycle-guarded; depth root + 4.
   limit (N chars) · /memory to free up context`), suggesting two surfaces. Not
   material to any design decision.
 
-### 8c. Worktree ancestor behaviour — an untested migration hazard
+### 8c-RESOLVED. Worktree ancestor behaviour — TESTED 2026-08-19: it is content dedup
+
+**The hypothesis below was resolved empirically. H-a (content dedup) is
+CONFIRMED; H-b (worktree-aware root detection) is REFUTED.** The original
+statement of the question is retained afterwards for provenance.
+
+Probe: `util/ad-hoc/2026-08-19_build_ancestor_canary_probe.bash` builds a
+synthetic repo whose root and `.claude/worktrees/wt/` carry **deliberately
+different** plain-text canaries (never an HTML comment — those are stripped
+before injection, §4d, which would give a false H-b).
+
+| Probe | cwd | Result |
+|-------|-----|--------|
+| **A — positive control** | `repo/plain_sub/` | `CANARY_ANCESTOR_7Q2X` — ancestor loads, method sound |
+| **B — the question** | `repo/.claude/worktrees/wt/` | **`CANARY_ANCESTOR_7Q2X` *and* `CANARY_WORKTREE_7Q2X`** |
+
+Both canaries appear. **When the ancestor and the worktree file differ, BOTH
+load.** The complementary branch is evidenced by this very session: the two files
+were byte-identical and only three memory files were injected, the ancestor
+absent. Identical → deduped; different → both.
+
+#### This is not only a migration hazard. It is happening now.
+
+Measured 2026-08-19 across the 23 live worktrees under
+`juniper-ml/.claude/worktrees/`:
+
+| Distinct `AGENTS.md` contents | 11 |
+|---|---|
+| Worktrees matching the main checkout | **1 of 23** |
+| Worktrees that therefore load **both** files | **22 of 23** |
+
+Cost of a session in a divergent worktree (`cached-roaming-hamster`):
+
+| Component | Chars |
+|-----------|------:|
+| worktree `AGENTS.md` | 139,561 |
+| **main-checkout `AGENTS.md` (ancestor, differs → also loads)** | **173,591** |
+| `Juniper/CLAUDE.md` | 11,016 |
+| `~/.claude/CLAUDE.md` | 3,349 |
+| `MEMORY.md` (post-P0) | 16,933 |
+| **Total** | **344,450 ≈ 86k tokens ≈ 43% of a 200k window** |
+
+Against ~204,889 chars (~26%) for a session whose files happen to match. **The
+measured problem is roughly twice as large as the baseline assumed, for 22 of 23
+worktrees**, and the baseline's 204,890 figure describes only the deduped case.
+
+#### Consequences for the plan
+
+1. **P3 ordering is now determined.** A trimmed worktree against an untrimmed
+   main checkout is the *worst* configuration: 32K + 173K ≈ 205K, i.e. trimming
+   would make context go **up**. The cut must land on `main` and the primary
+   checkout must be pulled, before worktrees carry the trimmed file — or the
+   trim must be performed such that both converge together.
+2. **Worktree hygiene is itself a memory control.** Every stale worktree is a
+   permanent second copy of `AGENTS.md` in every session it hosts. Pruning merged
+   worktrees, or keeping them rebased, recovers ~170K per session at zero
+   authoring cost — plausibly a larger and cheaper win than any content edit.
+3. **It compounds with the cut rather than competing.** After the cut, a
+   divergent worktree costs 2 × 32K instead of 2 × 173K, so the two remedies
+   multiply.
+
+---
+
+### 8c (original statement, retained for provenance). An untested migration hazard
 
 Raised by Proposal B, independently reproduced here. It must be settled **before**
 any migration begins, because getting it wrong inverts the result.
