@@ -226,6 +226,8 @@ def _kill_child() -> None:
         try:
             child.wait(timeout=10)
         except subprocess.TimeoutExpired:
+            # Best-effort reap: child was already sent SIGKILL; do not block or
+            # fail interruption/cleanup flow if process exit notification lags.
             pass
 
 
