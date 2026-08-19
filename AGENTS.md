@@ -33,6 +33,7 @@ pip install -e ".[clients]"    # client libraries
 pip install -e ".[worker]"     # distributed worker
 pip install -e ".[servers]"    # canopy + cascor + data service packages
 pip install -e ".[tools]"      # ci-tools + doc-tools + observability
+P1 — the worktree canary, which gates P3's ordering. Two facts are already established that make it a clean two-way test: claudeMdExcludes is absent from .claude/settings.local.json, and the marker must be plain text, not an HTML comment (those are stripped before injection, which would make ABSENT ambiguous in the dangerous direction). It needs a positive control first.
 pip install -e ".[doc-tools]"  # markdown link validator (back-compat alias)
 pip install -e ".[all]"        # everything (multi-GB; pulls torch via worker)
 
@@ -116,6 +117,7 @@ and the release notes are authored from
 [`notes/templates/TEMPLATE_RELEASE_NOTES.md`](notes/templates/TEMPLATE_RELEASE_NOTES.md) and
 **archived under `notes/releases/`** (`RELEASE_NOTES_v<version>.md` for the meta-package;
 `RELEASE_NOTES_<pkg>_v<version>.md` for a shared / sub-package). For the meta-package the Release
+P1 — the worktree canary, which gates P3's ordering. Two facts are already established that make it a clean two-way test: claudeMdExcludes is absent from .claude/settings.local.json, and the marker must be plain text, not an HTML comment (those are stripped before injection, which would make ABSENT ambiguous in the dangerous direction). It needs a positive control first.
 event triggers `publish.yml`; for a shared / sub-package, cutting the Release **creates** the
 `juniper-<pkg>-v*` tag and fires its `publish-<pkg>.yml` through `release: published` (those
 workflows deliberately do **not** also subscribe to `push: tags` — that double-fire raced the
@@ -327,7 +329,8 @@ juniper-ml/
 │   ├── test_release_train_archive_guard.py # Behavioural: util/release_train/archive_guard.py exempt notes-archive structural guard (add-only/path-confined/name-valid/single-purpose; SKIP for non-archive; hermetic) (plan §7.2 / step 3.1)
 │   ├── test_release_train_ceremony.py    # Behavioural: util/release_train/ceremony.py exempt-archive + Release ceremony (§8 HALTs, happy-path, signed-archive HALT/parse edges, dup-guard/idempotent, R7 gh-surface, dry-run; hermetic) (plan §7/§8/§9.3 / step 3.2)
 │   └── fixtures/
-│       └── prompt_validator/             # PR 3: verdict.schema.json + verdict.sample.{pass,fail}.json (validator contract)
+│       └── prompt_validator/             # PR 3: verdict.schema.json + verdict.sample.{pass,fail}.json (validator contr
+P1 — the worktree canary, which gates P3's ordering. Two facts are already established that make it a clean two-way test: claudeMdExcludes is absent from .claude/settings.local.json, and the marker must be plain text, not an HTML comment (those are stripped before injection, which would make ABSENT ambiguous in the dangerous direction). It needs a positive control first.act)
 │   # Doc-link validator regression tests moved to juniper-doc-tools/tests/
 │   # (Wave 4 of the doc-link migration plan; published under the dedicated
 │   #  juniper-doc-tools PyPI package).
@@ -357,6 +360,7 @@ juniper-ml/
     ├── worktree_wipeout.bash             # Bulk removal by pattern
     ├── remove_stale_worktrees.bash       # Removes all stale worktrees
     ├── cleanup_open_worktrees.bash       # Removes all active worktrees
+P1 — the worktree canary, which gates P3's ordering. Two facts are already established that make it a clean two-way test: claudeMdExcludes is absent from .claude/settings.local.json, and the marker must be plain text, not an HTML comment (those are stripped before injection, which would make ABSENT ambiguous in the dangerous direction). It needs a positive control first.
     ├── prune_git_branches_without_working_dirs.bash  # Branch hygiene
     ├── juniper_plant_all.bash            # Starts all Juniper ecosystem services
     ├── juniper_chop_all.bash             # Stops all Juniper ecosystem services
@@ -705,7 +709,9 @@ Weekly schedule (Monday 08:00 UTC) and manual dispatch, permissions exactly `con
 like any dependency change — never auto-merged. The legacy `util/generate_dep_docs.sh` was deleted in juniper-ml#298; this workflow must keep the console-script path. Gates: `tests/test_lockfile_update_workflow.py` +
 `tests/test_ci_tools_drift.py`.
 
+P1 — the worktree canary, which gates P3's ordering. Two facts are already established that make it a clean two-way test: claudeMdExcludes is absent from .claude/settings.local.json, and the marker must be plain text, not an HTML comment (those are stripped before injection, which would make ABSENT ambiguous in the dangerous direction). It needs a positive control first.
 ### Release Train (`release-train.yml`)
+P1 — the worktree canary, which gates P3's ordering. Two facts are already established that make it a clean two-way test: claudeMdExcludes is absent from .claude/settings.local.json, and the marker must be plain text, not an HTML comment (those are stripped before injection, which would make ABSENT ambiguous in the dangerous direction). It needs a positive control first.
 
 Daily schedule (13:00 UTC = 08:00 America/Chicago CDT; Q-CADENCE) and manual dispatch. Phase 1 report-only detection for the PyPI release train ([plan](notes/JUNIPER_2026-07-11_JUNIPER-ECOSYSTEM_PYPI-RELEASE-TRAIN-WORKFLOW-PLAN.md) §12 step 1.3): full-history clones of the 7 sibling package repos, then `util/release_train/detect.py --json` classifies all 18 registry packages; the run publishes the release-manifest artifact plus a step-summary table.
 
@@ -806,6 +812,7 @@ This repo is part of the broader Juniper ecosystem. See the parent directory's `
 
 ### Script placement (mandatory)
 
+P1 — the worktree canary, which gates P3's ordering. Two facts are already established that make it a clean two-way test: claudeMdExcludes is absent from .claude/settings.local.json, and the marker must be plain text, not an HTML comment (those are stripped before injection, which would make ABSENT ambiguous in the dangerous direction). It needs a positive control first.
 Utility, single-use, temporary, and unfinished scripts MUST be created under `util/`:
 
 | Script type                                    | Destination                    |

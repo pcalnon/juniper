@@ -50,6 +50,47 @@ import sys
 from pathlib import Path
 
 
+def rewrite_links(body: list[str], source: str, dest: str) -> list[str]:
+    """Fix relative links for the body's new home.
+
+    Learned the hard way on the P3.2 increment: moving 202 lines from a
+    repo-root file into ``docs/`` silently invalidated 16 links, and the
+    doc-link validator surfaced only ONE of them (the source-internal anchor).
+    The rest resolved to plausible-but-wrong paths like ``docs/docs/REFERENCE.md``
+    and would have rotted quietly.
+
+    Four rewrites, and THE ORDER IS LOad-BEARING:
+
+    1. ``](#anchor)``        -> ``](<rel-to-source>#anchor)`` ... was
+       source-internal, must now point back at the source file. **Must run
+       first**: before any other rewrite a bare ``](#x)`` is unambiguously
+       source-internal, whereas step 2 *creates* bare ``](#x)`` that means the
+       opposite. Running these in the other order silently redirects every
+       destination anchor back at the source.
+    2. ``](<dest>#anchor)``  -> ``](#anchor)``         ... now an in-page anchor
+    3. ``](<dest>)``         -> ``](<dest-basename>)`` ... same directory
+    4. ``](<root-rel>/...)`` -> ``](../<root-rel>/...)`` ... one level deeper
+    """
+    dest_dir = Path(dest).parent
+    depth = len(dest_dir.parts)
+    up = "../" * depth
+    dest_base = Path(dest).name
+    back_to_source = f"{up}{source}"
+
+    out = []
+    for line in body:
+        # 1. FIRST: source-internal anchors, while a bare ](#x) still means that.
+        line = re.sub(r"\]\(#([A-Za-z0-9_-]+)\)", rf"]({back_to_source}#\1)", line)
+        # 2. Links at the destination file become in-page anchors.
+        line = line.replace(f"]({dest}#", "](#")
+        # 3. Links to the destination file itself are now same-directory.
+        line = line.replace(f"]({dest})", f"]({dest_base})")
+        # 4. Any remaining repo-root-relative target gains the climb-out prefix.
+        line = re.sub(r"\]\((?!https?:|#|\.\./|/)([A-Za-z0-9_.-]+/)", r"](../\1", line)
+        out.append(line)
+    return out
+
+
 def heading_level(line: str) -> int:
     m = re.match(r"^(#{1,6})\s", line)
     return len(m.group(1)) if m else 0
@@ -97,6 +138,8 @@ def main() -> int:
         body.pop(0)
     while body and not body[-1].strip():           # trim trailing blank lines
         body.pop()
+
+    body = rewrite_links(body, args.source, args.dest)
 
     anchors = [i for i, ln in enumerate(dst) if ln.rstrip("\n") == args.insert_before]
     if len(anchors) != 1:
