@@ -884,6 +884,71 @@ Do not assume trailer-less docs deletions that pass `--min-run` on main-verify w
 | Expecting docs screen == `docs_additions_check.py` | Same trailer escape hatch, different FAIL threshold — see honesty table above |
 | Agent closes / merges PRs | Forbidden — `fleet-supervisor` is read-only; DUP-CLOSE needs overlap **and** owner confirmation |
 
+## Memory File Size Budget
+
+P2 of the [shared-session-memory plan](../notes/JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md).
+`util/memory_budget_check.py` enforces a character ceiling on always-loaded memory
+files, declared in `conf/memory_budget.json`. Run by the standalone **advisory**
+`Memory Budget` job in `ci.yml`.
+
+**Why it exists.** `AGENTS.md` grew ~20× in six months *while under four active CI
+gates* — every one of them enforces structure or currency, none enforces size. 172
+of 200 main-line merges grew it; 14 shrank it, by 2,628 bytes between them. A
+one-time cut is undone in ~44 days, so the ratchet is what makes a cut durable.
+
+**Characters, not bytes.** The shipped Claude Code check compares `content.length`.
+`AGENTS.md` is 173,591 bytes but 171,765 characters; using bytes overstates by ~1%.
+
+### The three rules
+
+| Rule | Behaviour |
+|------|-----------|
+| **Ceiling** | Each governed file has a `ceiling_chars` in `conf/memory_budget.json`. |
+| **No-worsening** | Over-ceiling alone does **not** fail — the change must *also* grow the file. |
+| **Ratchet** | `--ratchet` rewrites ceilings **downward only**; it can never loosen one. |
+
+The no-worsening rule is load-bearing and is stated by none of the source
+proposals. Without it, a single over-budget file on `main` blocks every unrelated
+PR until someone fixes it — which is how a gate gets disabled rather than obeyed.
+A PR that *shrinks* an over-ceiling file always passes, so the gate never punishes
+the cleanup it is asking for.
+
+### The waiver is a loan, not a pass
+
+`Allow-Budget-Overrun: <path>` in a commit message suppresses the failure for that
+path **without moving the ceiling** — the debt is still owed and the next author
+still sees it. That is the property the house `Allow-Symbol-Loss:` idiom lacks.
+Waivers are always reported, never silent. Carry the trailer into the **squash**
+commit message; trailers travel in git history.
+
+### Not governed: `docs/REFERENCE.md`
+
+Deliberately absent from the budget. It is the migration **destination**; capping it
+would penalise exactly the relocation the plan wants, and it is not an always-loaded
+memory file — it is read on demand, which is the entire point.
+`tests/test_memory_budget_check.py` pins this.
+
+### Vacuous-pass resistance
+
+This repo has a documented class where a check's machinery breaks and reports
+SUCCESS. Each way this gate could go blind is a hard exit 2, with a negative
+control in the test suite: a governed file that is **missing**, an **empty**
+governed set, an **unreadable** or **absent** budget file, and a non-positive
+ceiling. A gate that cannot fail is not a gate.
+
+### Usage
+
+```bash
+python util/memory_budget_check.py                      # check (exit 0/1/2)
+python util/memory_budget_check.py --advisory           # report, always exit 0
+python util/memory_budget_check.py --json               # machine-readable
+python util/memory_budget_check.py --ratchet            # tighten to current sizes
+```
+
+Exit **0** pass or advisory / **1** over budget / **2** misuse or broken machinery.
+
+---
+
 ## Post-Merge Main Verification
 
 `.github/workflows/main-verify.yml` is the bypass-proof compositional-loss net (flood-remediation P2 gate G3). It runs on every `push` to `main` (plus `workflow_dispatch`) so a merge that skipped or greenwashed per-PR checks still gets screened after it lands. Design notes: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 item 8.

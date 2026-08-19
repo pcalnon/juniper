@@ -492,6 +492,15 @@ jobs:
           # live regression guard: it once passed VACUOUSLY because `tr -d '-_'`
           # errored on this host and both sides normalized to empty.
           python3 -m unittest -v tests/test_assert_release_tag.py
+          # tests/test_memory_budget_check.py: the gate for util/memory_budget_check.py
+          # (P2 of the shared-session-memory plan). util/ is outside every pre-commit
+          # Python hook's scope, so this suite IS the gate -- the same gap that left
+          # test_assert_release_tag.py unwired. Pins the no-worsening rule (over-ceiling
+          # alone must NOT fail, or one bad file on main blocks every unrelated PR and
+          # the gate gets disabled rather than obeyed), the ratchet never loosening, the
+          # waiver being a LOAN that does not move the ceiling, and five machinery
+          # negative controls -- a gate that cannot fail is not a gate.
+          python3 -m unittest -v tests/test_memory_budget_check.py
           # tests/test_lockfile_update_workflow.py: structural gate for the weekly
           # lockfile-update.yml refresh — juniper-generate-dep-docs (not the deleted
           # inline dep-docs shell script), SHA-pinned create-pull-request, branch/labels/
@@ -786,6 +795,56 @@ jobs:
           # fetch-depth: 0, so the full message bodies are present.
           git log --format=%B FETCH_HEAD..HEAD > archive-guard-trailers.txt
           python3 util/release_train/archive_guard.py --base FETCH_HEAD --head HEAD --trailers-file archive-guard-trailers.txt
+
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  # Memory Budget (ADVISORY, standalone): P2 of the shared-session-memory plan
+  # (notes/JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md).
+  #
+  # AGENTS.md grew ~20x in six months WHILE UNDER four active CI gates -- every one of them enforces
+  # structure or currency and none enforces size. 172 of 200 main-line merges grew it. This is the
+  # ratchet that makes a cut durable, and per correction C1 it ships BEFORE the cut.
+  #
+  # ADVISORY during the soak: standalone, and deliberately ABSENT from the Quality Gate `needs:` so
+  # a skip on push can never fail the gate -- the same pattern Sequence Safety used before it was
+  # promoted in the ruleset. Promote this the same way (ruleset), never via the QG `needs:`.
+  #
+  # The ceiling starts at the size on the day it landed, so it governs GROWTH only and is
+  # satisfiable today with no destination -- the rate axis, which needs nothing from P3.
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  memory-budget:
+    name: Memory Budget
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # need the base tip to apply the no-worsening rule
+
+      - name: Set up Python ${{ env.PYTHON_TEST_VERSION }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_TEST_VERSION }}
+
+      - name: Check memory-file size budget
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║       juniper-ml - Memory File Size Budget (advisory)      ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          # merge_group has no github.base_ref; fall back to main so the job still reports.
+          BASE_REF="${{ github.base_ref || 'main' }}"
+          git fetch --no-tags origin "$BASE_REF"
+          # Allow-Budget-Overrun is a LOAN, not a pass: it suppresses the failure without moving
+          # the ceiling, so the debt still blocks the next author. Trailers are injected from an
+          # explicit file (the checker never shells out for them) so the classifier stays pure.
+          # Two-dot FETCH_HEAD..HEAD = exactly the commits this PR adds on top of base.
+          git log --format=%B FETCH_HEAD..HEAD > memory-budget-trailers.txt
+          python3 util/memory_budget_check.py \
+            --base-ref FETCH_HEAD \
+            --trailers-file memory-budget-trailers.txt \
+            --advisory
 
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
   # Sequence Safety (ADVISORY, standalone): the per-PR compositional-loss screen (Proposal P2 gates
