@@ -710,7 +710,9 @@ like any dependency change — never auto-merged. The legacy `util/generate_dep_
 `tests/test_ci_tools_drift.py`.
 
 P1 — the worktree canary, which gates P3's ordering. Two facts are already established that make it a clean two-way test: claudeMdExcludes is absent from .claude/settings.local.json, and the marker must be plain text, not an HTML comment (those are stripped before injection, which would make ABSENT ambiguous in the dangerous direction). It needs a positive control first.
+
 ### Release Train (`release-train.yml`)
+
 P1 — the worktree canary, which gates P3's ordering. Two facts are already established that make it a clean two-way test: claudeMdExcludes is absent from .claude/settings.local.json, and the marker must be plain text, not an HTML comment (those are stripped before injection, which would make ABSENT ambiguous in the dangerous direction). It needs a positive control first.
 
 Daily schedule (13:00 UTC = 08:00 America/Chicago CDT; Q-CADENCE) and manual dispatch. Phase 1 report-only detection for the PyPI release train ([plan](notes/JUNIPER_2026-07-11_JUNIPER-ECOSYSTEM_PYPI-RELEASE-TRAIN-WORKFLOW-PLAN.md) §12 step 1.3): full-history clones of the 7 sibling package repos, then `util/release_train/detect.py --json` classifies all 18 registry packages; the run publishes the release-manifest artifact plus a step-summary table.
