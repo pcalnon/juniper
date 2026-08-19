@@ -22,6 +22,15 @@ root cause"* — that because it carries `{severity: errors}` with no reporting 
 non-bypass auto-merge waits forever on a check that never arrives"*, making it *"the
 highest-leverage item here"* and the reason bypass actors accumulate.
 
+> **CONFIRMED AND STRENGTHENED 2026-08-18.** This section's correction was right. Two later
+> independent audits widened the sample from 13 suites to **785** (779 pass / 0 fail) and **399**
+> (399 pass / 0 fail) across 2,632 merges, and identified the actual July blocker: the **`update`
+> ("Restrict updates") rule**, which suite `3485854412` shows failing beside `code_quality: pass` in
+> the same suite. Also established: `code_quality` has no tools parameter by design and is inert
+> because the GitHub Code Quality product 404s on all 9 (needs Team/GHEC; these are User-owned).
+> **Forward risk CQ-9:** an org migration would arm it live at `severity: errors` on all 9 with no
+> soak. See [`JUNIPER_2026-08-18_JUNIPER-ECOSYSTEM_CODE-QUALITY-RULE-AUDIT.md`](JUNIPER_2026-08-18_JUNIPER-ECOSYSTEM_CODE-QUALITY-RULE-AUDIT.md).
+
 ### 1.2 What the live evidence shows
 
 **The rule has never blocked anything.** Across the entire retained rule-suite window for

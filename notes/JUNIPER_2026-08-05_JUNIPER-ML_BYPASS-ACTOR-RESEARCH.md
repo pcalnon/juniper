@@ -28,8 +28,20 @@ The ruleset does **not** have six *always*-bypass actors. Live JSON shows **five
 ## §2 Identification evidence and cross-repo state
 
 - Resolved via public `gh api /apps/<slug>`: cursor=1210556, claude=1236702, dependabot=29110, copilot-swe-agent=1143301, and cursor-automation=**3544784** (a real but *different* app — ruling it out for either mystery id).
-- **juniper-cascor's ruleset `15081045`** bypass list = {DeployKey, Role5, 29110 dependabot, 1143301 copilot-swe-agent, 1210556 cursor, 1236702 claude, **1276151**}, all `always` — the per-repo lists are curated **differently** (ml lacks dependabot/copilot entries; cascor lacks the release-train App).
-- **Why 4362741 exists (root cause):** the ruleset's `code_quality (severity=errors)` rule has **no reporting tool behind it**, so every non-bypass auto-merge waits forever on a check that never arrives; the App's `pull_request`-mode bypass is a **workaround** for that mis-wired rule (§6 item 4 proposes the clean fix).
+- **juniper-cascor's ruleset `15081045`** bypass list = {DeployKey, Role5, 29110 dependabot, 1143301 copilot-swe-agent, 1210556 cursor, 1236702 claude, **1276151**}, all `always` — ~~the per-repo lists are curated **differently** (ml lacks dependabot/copilot entries; cascor lacks the release-train App)~~ — **STALE 2026-08-18:** after the ml#1012 removals all 9 rosters are identical (`DeployKey`, `RepositoryRole 5`, `29110`, `1143301`, `4362741` in `pull_request` mode), except juniper-deploy which correctly lacks `4362741` (no PyPI package).
+- ~~**Why 4362741 exists (root cause):** the ruleset's `code_quality (severity=errors)` rule has **no reporting tool behind it**, so every non-bypass auto-merge waits forever on a check that never arrives; the App's `pull_request`-mode bypass is a **workaround** for that mis-wired rule (§6 item 4 proposes the clean fix).~~
+  > **CORRECTION 2026-08-18 — this root cause is FALSE.** Two independent audits found `code_quality`
+  > has never blocked anything: **779/785** and **399/399** rule-suite evaluations `pass`, **0 fail**,
+  > across 2,632 merges. The actual blocker was the **`update` ("Restrict updates") rule** — suite
+  > `3485854412` (ml#860) records `update: fail` **while `code_quality: pass` in the same suite**.
+  > `update` was removed fleet-wide 2026-08-10. The premise was also a category error: "a required tool
+  > is not configured" is a documented blocking condition of **`code_scanning`**, not `code_quality`,
+  > which has no tools parameter at all. See
+  > [`JUNIPER_2026-08-18_JUNIPER-ECOSYSTEM_CODE-QUALITY-RULE-AUDIT.md`](JUNIPER_2026-08-18_JUNIPER-ECOSYSTEM_CODE-QUALITY-RULE-AUDIT.md).
+  > **Implication:** the stated justification for the `4362741` bypass entry does not hold. That does
+  > not by itself mean the entry should be dropped — it is narrowly scoped (`pull_request` mode) and
+  > also covers the strict up-to-date policy during serial ceremony merges — but it should be
+  > re-justified on those grounds, not this one.
 
 ## §3 DeployKey audit path (owner-side)
 
