@@ -481,6 +481,17 @@ jobs:
           # and the test refuses to pass if nothing at all was readable. Run
           # locally with JUNIPER_DRIFT_TEST_FORCE_LOCAL=1 for full-fleet cover.
           python3 -m unittest -v tests/test_publish_env_policy_drift.py
+          # tests/test_assert_release_tag.py: behavioural + wiring gate for
+          # util/assert_release_tag.bash (publish-path design §6 Option B, P3).
+          # util/ is outside EVERY pre-commit Python hook's scope (flake8/bandit
+          # scope to scripts/ + tests/), so this unittest IS the gate. It pins the
+          # refusals that matter -- branch ref, EMPTY ref_type, tag/version
+          # mismatch, wrong prefix -- plus the wiring assertion that all 7
+          # publishers invoke the guard with their own --expect-prefix and that no
+          # publisher grants id-token at workflow level (P4). The mismatch arm is a
+          # live regression guard: it once passed VACUOUSLY because `tr -d '-_'`
+          # errored on this host and both sides normalized to empty.
+          python3 -m unittest -v tests/test_assert_release_tag.py
           # tests/test_lockfile_update_workflow.py: structural gate for the weekly
           # lockfile-update.yml refresh — juniper-generate-dep-docs (not the deleted
           # inline dep-docs shell script), SHA-pinned create-pull-request, branch/labels/
