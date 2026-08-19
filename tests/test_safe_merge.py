@@ -233,9 +233,7 @@ class CliTest(unittest.TestCase):
         self.assertEqual(rc, 2)
 
     def test_parser_defaults_to_dry_run_and_squash(self):
-        ns = safe_merge.build_parser().parse_args(["--pr", "1"]) if hasattr(
-            safe_merge, "build_parser"
-        ) else None
+        ns = safe_merge.build_parser().parse_args(["--pr", "1"]) if hasattr(safe_merge, "build_parser") else None
         if ns is None:  # module exposes only main(); assert via the docstring contract
             self.assertIn("--execute", safe_merge.__doc__)
             self.assertIn("dry-run", safe_merge.__doc__.lower())
@@ -291,10 +289,7 @@ class HeadMovedTest(SafeMergeTestBase):
     def test_head_branch_was_modified_is_a_refusal(self):
         def gh(args, timeout=120):
             if list(args[:2]) == ["pr", "merge"]:
-                raise safe_merge.HardError(
-                    "gh pr merge 1… failed: GraphQL: Head branch was modified. "
-                    "Review and try the merge again. (mergePullRequest)"
-                )
+                raise safe_merge.HardError("gh pr merge 1… failed: GraphQL: Head branch was modified. " "Review and try the merge again. (mergePullRequest)")
             return ""
 
         self.monkey(safe_merge, "pr_state", lambda *a, **k: _state())
@@ -302,8 +297,14 @@ class HeadMovedTest(SafeMergeTestBase):
         self.monkey(safe_merge, "wait_for_required", lambda *a, **k: {"_exit": 0})
         with self.assertRaises(safe_merge.Refused) as ctx:
             safe_merge.safe_merge(
-                "o", "r", 1, execute=True, method="squash", timeout=5,
-                verbose=False, log=lambda *a, **k: None,
+                "o",
+                "r",
+                1,
+                execute=True,
+                method="squash",
+                timeout=5,
+                verbose=False,
+                log=lambda *a, **k: None,
             )
         self.assertIn("head moved", str(ctx.exception).lower())
 
@@ -318,8 +319,14 @@ class HeadMovedTest(SafeMergeTestBase):
         self.monkey(safe_merge, "wait_for_required", lambda *a, **k: {"_exit": 0})
         with self.assertRaises(safe_merge.HardError):
             safe_merge.safe_merge(
-                "o", "r", 1, execute=True, method="squash", timeout=5,
-                verbose=False, log=lambda *a, **k: None,
+                "o",
+                "r",
+                1,
+                execute=True,
+                method="squash",
+                timeout=5,
+                verbose=False,
+                log=lambda *a, **k: None,
             )
 
 
