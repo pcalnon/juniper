@@ -481,6 +481,50 @@ note, not here.
 |         | be extended to the CLI tier, or replaced by the §6.2 index?      |                                                                                                                                                                                   |
 | **S-4** | Retention horizon and cold-archive location, once §6.2 exists.   | The only genuinely policy-shaped question, deliberately deferred to last.                                                                                                         |
 | **S-5** | **Is R3 ("training pauses" with optimizer state)                 | Raised by the 2026-08-17 correction to §4.1. Cascor deliberately **recreates** the output optimizer on every `train_output_layer` call                                            |
+
+> **S-5 ANSWERED (2026-08-18) — R3 IS a real requirement, and it is NOT yet delivered.**
+>
+> The owner's answer: *"ideally, my preference would be to resume training on a restored network. The
+> workflow would be something like: restore a snapshotted network, observe replay to gain insight
+> into its training, edit the network based on that insight, and then resume training … this
+> functionality would allow an iterative, experimental approach to network training that gets at one
+> of the key purposes of the Juniper project."*
+>
+> So **restore → replay → edit → resume** is a first-class workflow, not a hypothetical, and R3 stands
+> as written. The earlier suggestion that R3 might be dropped is withdrawn.
+>
+> **What the cascor#523-era fix does and does not buy.** The shipped fix (cascor `cb8a30e`) makes the
+> restored optimizer *faithful* — correct class, `Parameter`-keyed state, real buffers, true `lr`.
+> That satisfies **R1 (replay)**, **R2 (further experimentation)** and **R4 (crash recovery)**, and it
+> is what makes the first three steps of the owner's workflow trustworthy.
+>
+> **It does not yet satisfy R3**, because the fourth step throws the state away:
+>
+> - `resume_from_snapshot` (`manager.py:4660`) calls `_load_snapshot_to_network` — so the faithful
+>   optimizer *is* loaded — then computes `_resume_point_epoch` and `mark_resume_ready()`. It does not
+>   touch the optimizer again.
+> - But the subsequent training pass runs `train_output_layer`, whose `:2063` is an **unconditional**
+>   `self.output_optimizer = self._create_optimizer(output_layer.parameters())`. The restored
+>   optimizer is replaced before its first step.
+>
+> **The recreation is right, but over-broad.** Its own comment (`:2049-2053`) justifies it precisely:
+> *"the output layer's parameter space changes each time a hidden unit is added … so the previous
+> nn.Linear and optimizer state are invalid."* That is true **when a unit was added**. It is not true
+> for a resume that has not (yet) grown the network — exactly the owner's case, where the operator
+> edits weights or metaparameters and continues. The code applies the always-invalid rule to a
+> sometimes-invalid situation.
+>
+> **Proposed shape (not yet implemented, and deliberately not bundled with the restore fix):** reuse
+> the existing `output_optimizer` when it is still valid for the current parameter space — same
+> optimizer class, and `param_groups` shapes matching the rebuilt `nn.Linear` — and recreate only when
+> that check fails. Growth then still recreates, as designed, while a resume that has not changed the
+> parameter space carries its momentum forward.
+>
+> **Risk to respect:** this touches the live training loop, not a serializer, so it needs its own
+> change with its own evidence — a test that resumes from a snapshot and asserts the optimizer's
+> `step` continues rather than restarting, plus a test that growth still forces a rebuild. Getting
+> this wrong trains on stale moments against reshaped parameters, which is silently wrong rather than
+> loudly broken. **Tracked as a follow-on to D-A; not started.**
 |         | a real requirement for Cascade Correlation at all?**             |   because a hidden-unit insertion changes the output parameter space, making prior optimizer moments invalid *by construction* (`cascade_correlation.py:2050-2053`).              |
 |         |                                                                  |   So R3-as-written cannot be satisfied by any serializer change, and may not be meaningful. If what is actually wanted is "resume training from a snapshot and continue growing", |
 |         |                                                                  |   that is already what `/resume` does — and it needs no optimizer state. **Answering this decides whether any optimizer work is scheduled at all.**                               |
