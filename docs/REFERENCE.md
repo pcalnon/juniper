@@ -149,8 +149,8 @@ project tree (`juniper-deploy/docker-compose.yml`); export the variable to overr
 | juniper-cascor      | `8201`      | `CASCOR_HOST_PORT`     | `${BIND_HOST:-127.0.0.1}` |
 | juniper-recurrence  | `8211`      | `RECURRENCE_HOST_PORT` | `${BIND_HOST:-127.0.0.1}` |
 | juniper-canopy      | `8050`      | `CANOPY_PORT`          | `${BIND_HOST:-127.0.0.1}` |
-| Grafana             | `3001`      | `GRAFANA_HOST_PORT`    | `127.0.0.1` (fixed)       |
-| Prometheus          | `9090`      | **none — hard-coded**  | `127.0.0.1` (fixed)       |
+| Grafana             | `3001`      | `GRAFANA_HOST_PORT`    | `${BIND_HOST:-127.0.0.1}` |
+| Prometheus          | `9090`      | `PROMETHEUS_HOST_PORT` | `${BIND_HOST:-127.0.0.1}` |
 
 Notes, and two gaps worth knowing before you rely on this table:
 
@@ -159,14 +159,12 @@ Notes, and two gaps worth knowing before you rely on this table:
   host it is held by an unrelated Domotz agent — see
   [the F-P1-2 closure evidence](../notes/JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_F-P1-2-GRAFANA-RENDER-CLOSURE-EVIDENCE.md).
   Do not "fix" this back to `3000`.
-- **Prometheus is the one exception to the rule above.** `docker-compose.yml:864` publishes a literal
-  `127.0.0.1:9090:9090` with **no environment variable**, so its host port cannot be changed at
-  startup the way every other service's can. A second stack, or any other `:9090` listener, collides
-  with no override available.
-- **The monitoring tier does not honour `BIND_HOST`.** Grafana and Prometheus pin `127.0.0.1`
-  literally while the application tier uses `${BIND_HOST:-127.0.0.1}`. The effect is a safe default
-  (loopback-only), but it means `BIND_HOST` does not move the monitoring surface with the rest of the
-  stack.
+- **Both former gaps are now closed** (juniper-deploy #183 and #186, 2026-08-18). Prometheus
+  previously published a literal `127.0.0.1:9090:9090` with **no** environment variable — the one
+  service whose host port could not be set at startup — and the monitoring tier pinned `127.0.0.1`
+  literally while the application tier honoured `${BIND_HOST}`, so one variable did not move the
+  whole stack. Both now follow the same pattern as every other service. Defaults are unchanged:
+  with nothing set, every port still binds loopback on the values above.
 - `juniper-data` publishes no host port in the default compose profile — it is reached over the
   compose network. The host-level `juniper_plant_all.bash` stack is what exposes `8100`.
 - Experiment runs never use any port in this table; they draw from the disjoint ranges in
