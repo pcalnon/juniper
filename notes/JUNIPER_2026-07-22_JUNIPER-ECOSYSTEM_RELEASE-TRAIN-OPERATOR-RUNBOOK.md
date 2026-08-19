@@ -562,10 +562,24 @@ monitors the triggered publish run.
   security-posture change.) **Owner one-click is now only the degraded/manual fallback** — e.g. if
   `allow_auto_merge` is off (a graceful degrade, not a HALT) or the auto-merge never lands.
 
-- **Ruleset `code_quality` blocked the armed auto-merge (2026-07-29) — resolved via App bypass actor.**
-  The juniper-ml ruleset's `code_quality` (severity: errors) rule has **no reporting tool behind it**, so
+- **The armed auto-merge was blocked (2026-07-29) — resolved via App bypass actor.**
+  > **CORRECTION 2026-08-18 — the rule named below is the WRONG one.** The block was real, but
+  > `code_quality` was not its cause. Rule suite `3485854412`, which is ml#860's own merge, records
+  > `update: fail "Cannot update this protected ref"` **while `code_quality: pass` in the same suite**.
+  > The `update` ("Restrict updates") rule is unsatisfiable by construction for a non-bypass actor; it
+  > was removed fleet-wide 2026-08-10, after which the next App-armed auto-merge (ml#1108) fired unaided
+  > in 3 m 07 s with `code_quality` still present at `severity: errors`. The ml#864 probe cited below
+  > is confounded twice — its commit was unsigned against an active `required_signatures` rule, and
+  > `update` was still in force — so it isolated nothing. Across 785 rule suites `code_quality` is
+  > 779 pass / 0 fail. See
+  > [`JUNIPER_2026-08-18_JUNIPER-ECOSYSTEM_CODE-QUALITY-RULE-AUDIT.md`](JUNIPER_2026-08-18_JUNIPER-ECOSYSTEM_CODE-QUALITY-RULE-AUDIT.md).
+  >
+  > **Do not act on the last sentence of this bullet.** Removing the `code_quality` rule would not
+  > release the `4362741` bypass entry, because that rule was never what the entry was working around.
+
+  ~~The juniper-ml ruleset's `code_quality` (severity: errors) rule has **no reporting tool behind it**, so
   it can never be satisfied and every **non-bypass** merge stays `BLOCKED` even with all required checks
-  green, a Verified commit, and a current base (archive PRs #860–#863; probe-confirmed on ml#864). The
+  green, a Verified commit, and a current base (archive PRs #860–#863; probe-confirmed on ml#864).~~ The
   release-train App (Integration `4362741`) is now a ruleset **bypass actor in `pull_request` mode**, so
   the armed `--auto` merge completes again — this also covers the strict up-to-date policy when a
   multi-package ceremony's serial archive PRs go stale as their siblings merge. If the `code_quality`
