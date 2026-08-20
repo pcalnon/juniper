@@ -86,7 +86,13 @@ def parse(run_dir: Path) -> dict:
                 elif (m := RE_CORR.search(line)):
                     if rounds:
                         rounds[-1].append(m.group(2))
-                        arrival[-1].append(m.group(1)[:8])
+                        # Arrival order is tracked as the sequence of correlation VALUES, not the
+                        # candidate UUIDs. ``CandidateUnit`` mints a fresh ``uuid.uuid4()`` per
+                        # instantiation (candidate_unit.py:1154), so a UUID sequence differs
+                        # between two runs unconditionally -- comparing those would "detect"
+                        # reordering in 100% of pairs including bit-identical ones, which is a
+                        # check that cannot fail and therefore measures nothing.
+                        arrival[-1].append(m.group(2))
                 elif (m := RE_ITER.search(line)):
                     iters.append((m.group(1), m.group(2), m.group(3)))
     return {
@@ -119,13 +125,22 @@ def main() -> int:
 
     print("\n=== pairwise localisation ===")
     verdicts = {"agree": 0, "math": 0, "selection": 0}
+    reorder_pairs = 0
     for a, b in itertools.combinations(usable, 2):
         n = min(len(a["rounds"]), len(b["rounds"]))
         corr_div = next((k for k in range(n) if a["rounds"][k] != b["rounds"][k]), None)
         trace_div = next((k for k, (x, y) in enumerate(zip(a["iters"], b["iters"])) if x != y), None)
-        # Arrival order is expected to vary; it is reported only to show whether a round whose
-        # correlations agree nonetheless completed in a different order (the tie-break setup).
-        arrival_div = next((k for k in range(n) if a["arrival"][k] != b["arrival"][k]), None)
+        # Whether the pool genuinely completed in a different order. Only meaningful for a round
+        # whose SORTED correlations agree: same multiset, different sequence == pure reordering,
+        # which is precisely the condition under which a stable sort keyed on correlation alone
+        # could install a different candidate. If reordering happens in rounds that nonetheless
+        # produce identical downstream traces, the tie-break is being exercised and is NOT the
+        # cause of the divergences seen elsewhere.
+        reordered = next(
+            (k for k in range(n)
+             if a["rounds"][k] == b["rounds"][k] and a["arrival"][k] != b["arrival"][k]),
+            None,
+        )
 
         if corr_div is None and trace_div is None:
             verdicts["agree"] += 1
@@ -147,7 +162,9 @@ def main() -> int:
             detail = (f"correlations identical in all {n} rounds, but trace diverges at "
                       f"iteration {a['iters'][trace_div][0]} "
                       f"({a['iters'][trace_div][1]} vs {b['iters'][trace_div][1]})")
-        arr = "" if arrival_div is None else f"  [arrival order first differs in round {arrival_div}]"
+        if reordered is not None:
+            reorder_pairs += 1
+        arr = "" if reordered is None else f"  [pool REORDERED in round {reordered}, same correlations]"
         print(f"  {a['name'][:22]:<22} vs {b['name'][:22]:<22} {label:<15} {detail}{arr}")
 
     total = sum(verdicts.values())
@@ -155,6 +172,8 @@ def main() -> int:
     print(f"  agree                       : {verdicts['agree']}")
     print(f"  diverge in CANDIDATE MATH   : {verdicts['math']}")
     print(f"  diverge in SELECTION only   : {verdicts['selection']}")
+    print(f"  pool reordered, same corrs  : {reorder_pairs}  "
+          "(the stable-sort tie-break was exercised in these)")
     if verdicts["math"] and not verdicts["selection"]:
         print("\n  -> Divergence originates in candidate TRAINING, not in the arrival-order\n"
               "     tie-break. A deterministic secondary sort key would not have prevented these.")
