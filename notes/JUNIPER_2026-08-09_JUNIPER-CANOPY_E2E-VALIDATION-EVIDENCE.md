@@ -144,6 +144,19 @@ A fresh dashboard ships S=1, T=1, R=1, so T+R=2≠S and the *first* Apply always
 `live-dataset-switch-button` ships `disabled=True` (`dashboard_manager.py:1279-1280`) and the sole writer of that prop is `gate_live_switch_button` (`:4894-4901`), whose handler returns `not (flags_ok and running)` (`:5732-5741`). The callback **is** registered — `GET /dashboard/_dash-dependencies` lists it among 182 callbacks with output `live-dataset-switch-button.disabled` and inputs `['experimental-flags-store', 'training-status-store']` — and **both inputs are provably correct on the wire**: `_dash-update-component` responses repeatedly carry `{"training-status-store": {"data": {"is_running": true, "phase": "candidate"}}}` and `{"experimental-flags-store": {"data": {"experimental_functions": true}}}`. Yet **zero** responses ever carry `live-dataset-switch-button`, across a 120 s watch (24 samples at 5 s), a full page reload with the response hook armed from before load, and a forced experimental OFF→ON transition. Registered, inputs live, never fires. **Root cause not isolated — fix-phase work** (same disposition as F-CANOPY-016). Blast radius: C2.7-10 FAIL, C2.10-02 / C2.10-03 BLOCKED, and workflow **W7's hot-swap cannot be entered from the UI at all**.
 **Why it hid for five segments:** the only prior record of this surface is `W7-step1 PASS` (`reports/e2e/20260810T002233Z/statuses.tsv:63`) — the **deny** arm, *"exp toggle OFF + training running → button disabled"*. A gate that never opens satisfies every should-be-disabled assertion, so the deny arm passing is not evidence the gate works; the **allow** arm had never been driven. Distinct from F-CANOPY-004's server-callback lag: the same page demonstrably updated other surfaces throughout (`network-info-panel` moved from 0 to 6 hidden units), and 120 s exceeds the documented lag while both stores were already correct.
 
+**F-CANOPY-026 — phase duration is inflated by the host's UTC offset: cascor emits naive LOCAL time, canopy stamps it as UTC (P2, OPEN; segment 15).**
+`metrics-panel-phase-duration` read **"Phase Duration: 300m 37s"** on a run that had been alive for 37 seconds. Mechanism, both halves proven in source and live: cascor writes `phase_started_at=datetime.now().isoformat()` — **naive, LOCAL** — at `juniper-cascor/src/api/lifecycle/manager.py:1781` (candidate phase) and `:2326` (output phase); canopy's `_update_phase_duration_handler` (`juniper-canopy/src/frontend/components/metrics_panel.py:1375-1376`) does `if started.tzinfo is None: started = started.replace(tzinfo=timezone.utc)` and then subtracts from `datetime.now(timezone.utc)`. Stamping a local timestamp as UTC shifts it by the host offset, so the displayed elapsed time is inflated by exactly that offset. Measured live: `phase_started_at = 2026-08-20T03:11:17.347900` with the box on CDT (`date +%z` → `-0500`); canopy's arithmetic yields 302m29s where the correct value is 2m29s — **delta exactly 18000 s = 5 h**. The counter ticks correctly at 1 s/s (300m37s → 301m18s across 41 s wall), so this is a pure constant offset, not a broken clock. **Invisible in any UTC-0 environment** (CI, most containers), which is why 14 segments on this dashboard never surfaced it. Matrix row M-METRICS-03 **FAIL**. Fix direction: emit tz-aware UTC from cascor (`datetime.now(timezone.utc).isoformat()`), which also makes canopy's naive branch unreachable; treating a naive value as local on the canopy side would be the compatible stopgap.
+
+**F-CANOPY-027 — store-fill → render chains do not propagate: the Candidate Metrics and Decision Boundary panels stay frozen at mount defaults through a whole live run (P0/P1, OPEN; segment 15; root cause NOT isolated).**
+Two panels, identical signature: their data store is demonstrably filled on the wire, and the server-side `@app.callback` renderers that take that store as their sole/primary `Input` never emit a single output.
+*Candidate Metrics*: `candidate-metrics-panel-training-state-store` received fresh payloads repeatedly (`{"candidate_pool_status":"Training","candidate_pool_size":40,"top_candidate_id":"31","top_candidate_score":0.181,"second_candidate_id":"11"}`), while `/api/state` carried a full pool (`candidate_pool_size 40`, `candidates_trained 40/40`, `candidate_epoch 351/400`, 40 `all_correlations`). The panel rendered `Inactive` / `Idle` / `0` / "No active candidate pool" / "No candidate data available" / "No pool history yet" for the entire run. `update_status_display`, `update_epoch_progress`, `update_pool_info` (`candidate_metrics_panel.py:251-300`) are plain server-side `@app.callback`s on `Input(-training-state-store,"data")`; **zero** `candidate-metrics-panel-status-badge` outputs across 252 responses / 45 s, and zero again across 200 responses / 49 s on a second, independent trigger path (forcing `visualization-tabs.active_tab` to change rather than riding the interval).
+*Decision Boundary*: `decision-boundary-boundary-data` filled 12×/61 s and 22×/60 s (the latter including a direct `decision-boundary-refresh-btn` click), while `decision-boundary-plot` and `-status` emitted **0** outputs and the status stayed `"Status: No network loaded"` — even though `GET /api/decision_boundary?resolution=50` returns a full `xx` meshgrid and cascor reported `current_hidden_units: 7`. `update_boundary_plot` (`decision_boundary.py:172-183`) is likewise a server-side `@app.callback`.
+**Ruled out, each explicitly:** instrument truncation (the first probes sliced responses to 3000 chars while the largest real response was **675,891** chars — re-measured with full-text matching); buffer overflow (the first counter capped at 250 entries and silently shifted — replaced with uncapped counters); duplicate component ids (all `count == 1`); "the store isn't in the layout" (`dcc.Store`/`dcc.Interval` render no DOM at all — the *working* `metrics-panel-metrics-store` and `fast-update-interval` also return 0 nodes, so DOM absence proves nothing); a server-side exception (canopy log clean — the only ERRORs are pre-run `No network created` lines); clientside callbacks (grep for `clientside_callback` in both panel files returns nothing); and too-short settle windows (49 s, 121 s, and 120 s watches, well past F-CANOPY-004's documented 30 s–minutes).
+**Blast radius / why it matters for scoring:** M-CANDIDATES-07 **FAIL**, M-CANDIDATES-09/-10/-11 and M-BOUNDARIES-02/-03 **BLOCKED**, M-BOUNDARIES-04 **FAIL**, M-BOUNDARIES-01 half-failed. It also means **M-CANDIDATES-01/-02/-03/-04/-06 carry `PASS` recorded against the panel's mount DEFAULTS** — the same negative-arm trap that hid F-CANOPY-025 for five segments (`-02`'s and `-03`'s stated expectations literally name the defaults `"Idle"` and `"0"`). Those five rows should be treated as unproven and re-driven once this is fixed.
+
+**F-CANOPY-028 — pinned params are silently discarded on the first pin after any reload (P2, OPEN; segment 15).**
+`pinned-params-store` is `storage_type="local"` and survives reload correctly, but the `{"type":"param-pin"}` checkboxes in the Parameters tables **do not rehydrate from it** — after a reload they all render unchecked while the store and the sidebar card still show the pinned set. Because the single pattern-matched writer (`dashboard_manager.py:3948-3952`) *collects the state of every checkbox*, the next pin action writes a list built from the un-rehydrated DOM, dropping everything pinned before the reload. Reproduced end-to-end: pinned `learning_rate` → `pinned-params-store` `["learning_rate"]`, sidebar card `display:block` showing "Learning Rate" → full page reload → `localStorage["pinned-params-store"]` still `["learning_rate"]`, card still shown, **but the `learning_rate` checkbox reads `checked:false`** → pinning `max_iterations` → store and localStorage both become `["max_iterations"]`, `learning_rate` gone with no warning. Matrix rows M-PARAMETERS-04/-05/-06 still **PASS** on their own stated expectations (the store write, the card reveal, and persistence all work); this is the cross-cutting defect those rows sit on top of.
+
 ### Observations (non-finding)
 
 - **Badge render lag**: `ws-connection-indicator` trails the client state machine by ~1–2 s in both directions (client `closed/reconnecting` at +0.8 s rendered amber at +2.8 s; client re-`open` rendered green ~2 s later). No latency contract exists in the matrix; recorded as §7.3 context.
@@ -2108,3 +2121,147 @@ product gap — and a reminder that a helper's convenience truncation can manufa
 Also logged as an **F-CANOPY-006 observation, not a new finding**: after the restore, `monitor.
 current_hidden_units` read 0 while `/v1/network` read 10 — the same stale-counter class segment 9 already
 withdrew a P1 for.
+
+---
+
+## Phase 1 — segment 15 (2026-08-20): the live-run block, three new findings, and the checkbox gesture solved
+
+Run id `20260820T080544Z`. Matrix **212 → 266 of 298** (54 rows). Stack: isolated trio at data 8101 /
+cascor 8202 / canopy 8051, health-gated on `demo_mode:false` + `juniper_data_available:true`; leg pids
+data 1349777 / cascor 1349995 / canopy 1350263 (recorded at bring-up for per-leg attribution). Sibling
+checkouts verified current before driving: canopy `955e8d4` (≥ `56ce45f`, all three fix greps 1/3/1),
+cascor `4bec1be`, both clean on `main`. The browser MCP **was** available this segment.
+
+Sections closed outright: **§3.1 metrics 22/22**, **§3.2 candidates 4/4**, **§3.4 evolution 2/2**,
+**§3.5 boundaries 8/8**, **§3.8 parameters 4/4**, **§2.6 4/4**, **§2.7 6/6**, **§2.8 1/1**, **§2.9 3/3**.
+Not reached: §3.6 dataset (24), §3.7 workers (1), §3.9 snapshots tail (3), §3.14 tutorial (1), and the
+four special-posture rows (C2.4-02, C2.4-05, C2.5-07) — 32 rows, all still unfilled.
+
+### Corpus state on arrival — the seg14 backup was never restored
+
+`juniper-cascor/src/snapshots/` held **zero** `.h5` files, not the 4 the handoff described. The four files
+were sitting in `backups/e2e-snapshots-seg14/` — segment 14 took its backup and never ran the restore half.
+They were restored before bring-up (so the snapshots panel had a corpus) and re-backed-up flat to
+`backups/e2e-snapshots-seg15/`. **Successors: verify the corpus itself, not the handoff's count** — the
+handoff's "4 `.h5` files currently live in …" was true as of the backup, not as of the handoff.
+
+### Two unresolved questions from earlier segments, now settled
+
+**The segment-7 "1-in-15" full-history poll cadence is modulus 5 × a tick that is not 1 Hz.**
+Measured in `full` display mode during a live run: 4 `metrics-panel-metrics-store` fills in 61 s, gaps
+9.9 / 11.3 / 13.6 s — i.e. ~15.3 s per fill, reproducing segment 7's 1-in-15 against a
+`FULL_HISTORY_POLL_TICK_MODULUS` of **5** (`canopy_constants.py:368`, applied at
+`dashboard_manager.py:6380` as `n % 5 != 0 → skip`). The missing factor is the tick itself: instrumenting
+`fast-update-interval`'s `n_intervals` off the request bodies gave **17 ticks in 42.7 s = a 2.51 s period**
+against a declared `FAST_UPDATE_INTERVAL_MS` of 1000 (`canopy_constants.py:350`). 5 × 2.51 s ≈ 12.6 s,
+matching the observed 10–14 s gaps. **The constant is correct as written; the effective wall-clock cadence
+is modulus × the *actual* tick period, and the tick period is inflated ~2.5× by the same server-callback
+congestion F-CANOPY-004 describes.** No new finding — but any future row scored "starved" must measure the
+real tick before attributing anything to the modulus.
+
+**The `dbc.Checkbox` gesture that defeated segment 13 is solved.** Recipe:
+
+```js
+box._valueTracker.setValue(String(!target));   // tracker must hold the OPPOSITE of the target
+Object.getOwnPropertyDescriptor(Object.getPrototypeOf(box), 'checked').set.call(box, target);
+box.dispatchEvent(new Event('click', {bubbles: true}));   // React drives checkbox onChange off CLICK
+```
+
+Two things were missing before: React's `_valueTracker` must be **desynced** (React's ChangeEventPlugin
+ignores a write whose tracked value already equals the new one — my own first attempt set the tracker *to*
+the target and produced exactly the segment-13 symptom), and the event must be **`click`**, not `change`.
+Proven by the carried value in the response, not the DOM: `pinned-params-store` → `{"data":["learning_rate"]}`.
+This unlocked M-PARAMETERS-04/-05/-06, C2.6-10, C2.9-14/-15 — six rows the handoff listed as blocked on it.
+`dcc.RadioItems`, by contrast, responds to a plain raw `.click()`; the widget family is still not uniform.
+
+### Findings
+
+Three new, all written into the ledger above rather than left in this section: **F-CANOPY-026** (phase
+duration inflated by exactly the host UTC offset — cascor emits naive local, canopy stamps it UTC;
+invisible in any UTC-0 container), **F-CANOPY-027** (store-fill → render chains dead in the Candidate
+Metrics and Decision Boundary panels; root cause NOT isolated), **F-CANOPY-028** (pinned params silently
+discarded on the first pin after any reload).
+
+**F-CANOPY-027 also re-opens five already-`PASS` rows.** M-CANDIDATES-01/-02/-03/-04/-06 were scored
+against the panel's mount defaults — and `-02`/`-03`'s stated expectations literally name those defaults
+(`"Idle"`, `"0"`). That is the F-CANOPY-025 negative-arm trap repeating in a second section. They are left
+`PASS` (this segment did not overwrite prior cells) but should be re-driven once the chain is fixed.
+
+**Three findings were *avoided* by the reproduce-a-second-way rule**, worth recording because each looked
+solid on first pass:
+
+1. *"The candidate panel's store isn't in the layout"* — `dcc.Store` and `dcc.Interval` render **no DOM**,
+   so a `querySelectorAll('[id=…]').length` of 0 is normal. The control that killed it: the demonstrably
+   *working* `metrics-panel-metrics-store` and `fast-update-interval` also return 0.
+2. *"NN → CN multi-node checkbox mirror is broken"* — `_sync_multi_node_checkboxes_handler`
+   (`dashboard_manager.py:6841-6852`) is deliberately **one-directional**: the
+   `cn-multi-candidate-checkbox` branch writes NN, and the NN-triggered branch returns
+   `no_update, no_update` by design. The matrix's "mirrored with the CN twin" wording on C2.6-10 is
+   imprecise; the twin is `cn-multi-candidate-checkbox`, not a `cn-multi-node-*` id.
+3. *"The pinned sidebar card is inconsistent with its store"* — it was simply lagging; it settled to
+   `display:block` with the right label a few seconds later.
+
+### Instrument traps hit this segment (all self-inflicted, all documented in the handoff)
+
+- **My own wire buffer capped at 250 entries** and silently shifted — the exact shape of the documented
+  `performance.getEntriesByType('resource')` trap. It reported 1 metrics-store fill where uncapped counters
+  found 4. Replaced with counters that never evict.
+- **My response capture sliced to 3000 chars** while the largest real Dash response this session was
+  **675,891** chars. Every `includes()` must run against the full text before slicing — this alone nearly
+  manufactured the F-CANOPY-027 write-up in a wrong shape.
+- **A loose substring filter** (`'status-badge'`) matched another panel's badge and reported 15 phantom
+  outputs; the precise id returned 0.
+- **Real keystrokes do not land on this page.** `elementHandle.type()` timed out at 5 s *and* left the
+  value untouched with no wire traffic — unlike clicks, which land despite the ack timing out. The
+  native-setter idiom remains the only working numeric path.
+- Probing a control immediately after a tab switch reports `ABSENT` for elements that exist —
+  `nn-init-output-weights-dropdown` "vanished" and reappeared once the sidebar settled.
+
+### Selected evidence
+
+- **§3.1 layout CRUD** round-tripped fully against the API oracle: save → 8→9 layouts with `seg15_layout`
+  at head and the name input cleared; load → status `saved`→`loaded`; delete → 9→8 and dropdown cleared.
+  Settle times 11.0 s / 4.8 s / 17.2 s — more datapoints for F-CANOPY-004.
+- **M-METRICS-20's clamp is effectively dead for typed out-of-range input**: `dbc.Input` reports invalid,
+  Dash sends `None`, and `window_size or 100` (`metrics_panel.py:1174`) yields **100**, not the boundary
+  1000. In-range 250 round-trips correctly. The store never holds an out-of-range value, so the safety
+  property holds; only the mechanism differs from the row's wording.
+- **M-BOUNDARIES-01's resolution arm proved by mesh density**, not by the plot: ArrowRight moved the thumb
+  100 → 125 (step 25) and the refetched `xx` row spacing tightened from 0.441 (res 50) to 0.219.
+- **C2.6-05 confirms DIVERGENCE D-2 twice over**: changing `nn-init-output-weights` alone never enabled
+  Apply across a 30 s watch, yet after an unrelated Apply `/api/state` reads
+  `nn_init_output_weights = random` — the value travels on the 28-State gather while sitting outside the
+  27-input dirty-tracking set, exactly as C2.9-04 documents.
+- **C2.7 dataset staging shape differs by generator**: spirals stages **flat**
+  (`{dataset_type, n_samples, noise, rotations, n_spirals}`) while circles nests under `params{}`
+  (`{dataset_type:"circles", params:{n_samples:777, …}}`). Both accepted by `/api/stage_dataset`.
+- **C2.9-06's interval clamp**: `apply-in-flight` was set and released to `false` in the same response that
+  carried "Parameters applied" — the `:3209` release path, not the `:3241` watchdog — with 1187 Dash
+  responses spanning the window, so the dashboard demonstrably never froze. The two interval `disabled`
+  Outputs produce **no** wire traffic because `:3213-3226` is a clientside callback; 0 hits there is
+  expected, not a miss.
+- **F-CANOPY-006 got two starker live confirmations**: canopy `/api/status` reported `hidden_units: 0`
+  while `/api/metrics` reported `network_topology.hidden_units: 1`, and later `0` against cascor's
+  `current_hidden_units: 7`. Post-run the tile correctly read `10 / 10`.
+- The run **completed on its own** (`fsm_status: COMPLETED`, 10/10 hidden units) partway through the
+  replay work — which is *why* the §3.1 replay controls became visible, and it supplied the post-run
+  reading for M-METRICS-23 (accuracy `96.00%`).
+
+### Why §3.1's replay block (M-METRICS-11..18) came out BLOCKED
+
+The controls revealed correctly at COMPLETED (`display:block`, h=95) and `metrics-panel-replay-position`
+shows its documented ship value `0 / 0` — but the replay **timeline never materialises**: position stays
+`0 / 0` and the slider at 0 even though `metrics-panel-metrics-store` is filling 18×/30 s with real data,
+and the loss plot carries 3 traces but a single point. With `max_index` 0 every documented index
+transition clamps to 0, so none of them has an observable. **M-METRICS-13 is the discriminator to re-drive
+first**: its "icon becomes ⏸ while playing" claim is data-independent and it also failed, with zero wire
+output across 196 responses. Whether that is a third face of F-CANOPY-027 or its own defect is not
+established, and is deliberately not claimed here.
+
+### Tooling added
+
+`util/ad-hoc/e2e_unfilled_rows.py` — lists the still-unfilled rows **straight from the ledger**, grouped by
+`###` section with line anchors, reusing `e2e_matrix_fill`'s own pipe-splitting and placeholder set so it
+cannot drift from what the filler will write. This exists because segment 15's own handoff draft published
+the *estimator's* row list under the ledger's headline and was caught only in validation. Run it, and diff
+its table against the filler's dry run, before planning any segment.
