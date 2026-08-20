@@ -252,13 +252,77 @@ two independent fingerprints it is now supported — for this cell, this cap, th
 It also discharges the open caveat on **#533**'s safety check, which rested on the same two runs:
 the service tier's behaviour is unchanged and stable at N=20.
 
-### 4.2 Direct-CLI arm (N=20)
+### 4.2 Direct-CLI arm — nondeterministic, 120 / 190 pairs
 
-<!-- PENDING — in flight. -->
+| statistic | trace fingerprint | correlation fingerprint |
+| --- | --- | --- |
+| runs | 20 | 20 |
+| pairs | 190 | 190 |
+| **divergent pairs** | **120** | **146** |
+| **rate** (95% CI, run-level bootstrap) | **0.632** [0.416, 0.747] | **0.768** [0.553, 0.847] |
+| distinct outcomes | **5** | **7** |
 
-### 4.3 Cross-arm
+Outcome histogram (trace): `649f5366ac0c` ×11, `6bdea2933bc7` ×6, and three singletons.
 
-<!-- PENDING — in flight. -->
+**The trace fingerprint undercounts, exactly as anticipated in §1.2.** 26 pairs share a trace and
+still did different candidate arithmetic. It is visible in the run table without any tooling: runs
+`cli-08` and `cli-12` carry the modal trace fingerprint `649f5366ac0c` yet finish at
+train 0.6613 / val 0.6300 where the other nine carry 0.6587 / 0.6350. A cap-4 run's **fourth**
+candidate round has no `grow_network` line, so a divergence there is invisible to the trace and
+lands only in the final accuracy. **Quote 0.768, not 0.632.**
+
+### 4.2a Where it starts — never round 0
+
+First divergent candidate round, over the 146 divergent pairs:
+
+| round | pairs |
+| ---: | ---: |
+| 0 | **0** |
+| 1 | 103 |
+| 2 | 17 |
+| 3 | 26 |
+
+Round 0 is byte-identical across all 20 CLI runs and never begins a divergence. That is
+structural, not luck: at round 0 the candidates see only the raw 2-D input, and from round 1 the
+input carries the installed hidden activations and grows with the network. Whatever the mechanism
+is, it does not engage at the smallest input width.
+
+### 4.2b Localisation at N=20 reproduces the historical finding
+
+| observation | pairs |
+| --- | ---: |
+| pool completed in a **different order** on a round whose sorted correlations are equal | **189 / 190** |
+| pairs that agree completely | 44 |
+| divergent pairs localising to **candidate math** | **146** |
+| divergent pairs localising to **selection given equal correlations** | **0** |
+
+Identical in shape to the 8-run historical set (§3.2), now at 190 pairs. The §3.4 precision limit
+still applies to the "candidate math" attribution.
+
+### 4.3 Cross-arm — the two paths do not start from the same state
+
+This is *not* a reproducibility result; each arm is internally consistent about it. But it is
+visible the moment both arms are put side by side on one cell, and it matters for §4 of the
+successor arc, which compares the arms:
+
+| | service | direct CLI |
+| --- | --- | --- |
+| iteration 0 train loss / accuracy | `0.239994` / `0.6088` | `0.239272` / `0.5775` |
+| round-0 candidate correlations | `.032619 .032643 .032975 .033128` `.090884 .090908 .090983 .091058` | `.032521 .033113 .033281` `.091006 .091072 .091138 .091184 .091185` |
+| candidate epochs (modal) | 11,360 | 10,510 |
+
+Both arms ran the **same materialised cell**, resolved the **same content-addressed dataset**
+(`spiral-1.0.0-cc74e49e366cfc9f`), on the **same cascor SHA**, and both default their network seed
+to 42 (`_CASCOR_RANDOM_SEED` and `_CASCADE_CORRELATION_NETWORK_RANDOM_SEED` both resolve to
+`_PROJECT_RANDOM_SEED = 42`). They nevertheless produce different candidates from round 0 — note
+the *clustering* differs, 4+4 on the service against 3+5 on the CLI, so this is not a small
+numerical offset.
+
+The cause is **not identified here** and is out of scope for a reproducibility campaign. Recording
+it because a wall-clock comparison between two arms that begin from different states is measuring
+something other than the path difference, and the wide-budget campaign's equalisation doctrine
+(which checked every key the config file can express) would not have caught it — the same blind
+spot that hid the BLAS entry-point asymmetry in #531.
 
 ### 4.4 What the timing columns show, and why they are still not a noise floor
 
@@ -303,11 +367,26 @@ Host load was sampled throughout
 ([`2026-08-20_load_sampler.bash`](../util/ad-hoc/2026-08-20_load_sampler.bash)) so the contention is
 attributable rather than mysterious.
 
-### 5.2 The rate itself may be load-dependent
+### 5.2 Load is excluded as the driver — by an accident of scheduling
 
-If the mechanism is scheduling variability under an oversubscribed thread pool, then the *rate* is
-plausibly a function of host load too. A rate measured at load 38 is not necessarily the rate at
-load 2. This is a genuine external-validity limit and is not resolved here.
+The concern was real before the data arrived: if the mechanism were scheduling variability under
+an oversubscribed thread pool, the *rate* would be a function of host load, and a campaign run on a
+busy machine would not generalise.
+
+The campaign happens to contain the control. The two arms ran at **opposite** ends of the
+contention range, and each contradicts the load explanation in the direction that matters:
+
+| arm | host load during the arm | span cv | divergence rate |
+| --- | --- | ---: | ---: |
+| service | **heavy** — load1 up to 39.5, wall 825 s → 190 s | 67.4% | **0.000** |
+| direct CLI | **quiet** — load1 5.6 – 9.7 throughout | **5.2%** | **0.768** |
+
+High load did not break the service; low load did not save the CLI. A rate of 0 across 190 pairs on
+a machine at load 38, against 0.768 across 190 pairs on the same machine at load 6, is not what a
+contention-driven effect looks like.
+
+It also means the CLI arm's *timing* is comparatively clean (cv 5.2%) — but it is still not usable
+as a cross-arm noise floor, because the service arm it would be compared against is not (§5.1).
 
 ### 5.3 Cross-arm accuracy provenance
 
