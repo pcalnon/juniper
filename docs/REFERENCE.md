@@ -882,6 +882,70 @@ Do not assume trailer-less docs deletions that pass `--min-run` on main-verify w
 | Expecting docs screen == `docs_additions_check.py` | Same trailer escape hatch, different FAIL threshold — see honesty table above |
 | Agent closes / merges PRs | Forbidden — `fleet-supervisor` is read-only; DUP-CLOSE needs overlap **and** owner confirmation |
 
+## Worktree Divergence Is a Memory Cost
+
+**A stale worktree silently doubles the memory bill of every session run inside it.**
+The mechanism is entirely non-obvious, which is why it went unnoticed for months.
+
+### Why
+
+Claude Code deduplicates memory files **by content**. The main checkout's `AGENTS.md`
+is a filesystem *ancestor* of `.claude/worktrees/<name>/`, so:
+
+| Worktree `AGENTS.md` vs main checkout | Result |
+|---------------------------------------|--------|
+| identical | injected **once** |
+| differs | **both load** |
+
+Confirmed empirically by the P1 canary probe
+([`util/ad-hoc/2026-08-19_build_ancestor_canary_probe.bash`](../util/ad-hoc/2026-08-19_build_ancestor_canary_probe.bash)):
+a synthetic tree with deliberately different plain-text canaries at root and
+worktree level returned **both** canaries, with a positive control confirming the
+method. Full evidence:
+[mechanism facts §8c](../notes/JUNIPER_2026-08-18_JUNIPER-ML_CLAUDE-CODE-MEMORY-MECHANISM-FACTS.md).
+
+### The scale of it, measured
+
+On 2026-08-19, of 23 live worktrees there were **11 distinct `AGENTS.md` contents
+and only 1 matched the main checkout** — so 22 of 23 sessions were loading two full
+copies. A session in a divergent worktree carried **344,450 characters (~43% of a
+200k window)** against 204,889 (~26%) for a matching one.
+
+**The baseline understated the real cost by roughly 2× for almost every session.**
+
+### What to do
+
+- **Prune worktrees on merge.** A merged, clean worktree left lying around is a
+  permanent second copy of `AGENTS.md` in every future session that lands in it.
+- **Keep long-lived worktrees rebased**, so their `AGENTS.md` converges with main
+  and dedup keeps working.
+- This **compounds with** the P3 relocation rather than competing: after the cut a
+  divergent worktree costs 2 × 45K instead of 2 × 173K.
+
+### Before removing anything: check for a live session
+
+`scripts/cleanup_session_worktrees.py` gates on *branch* state — merged, clean, not
+the current cwd. Those are necessary and **not sufficient: merged-and-clean does not
+mean idle.** A session can have just merged its PR and be about to start the next
+task in the same worktree.
+
+The `locked` flag is the only built-in liveness signal and it is advisory — during
+the 2026-08-20 sweep, both worktrees locked earlier in the effort had released.
+
+So run
+[`util/ad-hoc/2026-08-20_worktree_liveness_probe.py`](../util/ad-hoc/2026-08-20_worktree_liveness_probe.py)
+first. It walks `/proc/<pid>/cwd` and reports any process working inside a
+candidate. **On its first use it caught `piped-drifting-dragon`** — which passed
+every gate the cleaner has while a live session held it, with MCP servers rooted
+inside.
+
+A hit is a hard stop for that worktree. **No hits is corroboration, not proof:** a
+session idling elsewhere in the filesystem while holding the worktree open would not
+be seen. Remove worktrees individually and **never with `--force`**, so git's own
+dirty-check stays live as a time-of-check/time-of-use guard.
+
+---
+
 ## Memory File Size Budget
 
 P2 of the [shared-session-memory plan](../notes/JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md).
