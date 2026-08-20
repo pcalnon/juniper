@@ -17,6 +17,36 @@ This is `juniper-ml`, a **meta-package** for the Juniper ML research platform. I
 
 There is no importable Python application package in this repository. Functional behavior here is primarily package metadata (`pyproject.toml`) plus shell tooling in `scripts/` and `util/`, with regression coverage in `tests/`.
 
+## Hazards (resident — do not relocate)
+
+Directives whose **non-application destroys work**. Everything else in this file may
+be demoted to [`docs/REFERENCE.md`](docs/REFERENCE.md) under the memory budget; these
+may not, because a pointer only helps an agent that already knows to look. Adding a
+new hazard here is legitimate — ratchet space out of a reference section in the same
+PR rather than waiving the budget gate.
+
+- **The orphan reaper can kill live experiments.** `util/reap_pytest_orphans.bash`
+  treats reparenting to `systemd --user` as the orphan predicate — and
+  `experiment_stack.bash` / `isolated_stack.bash` launch services under `nohup`, so
+  healthy experiment services, orchestrators and watchdogs land there too. Two
+  protection keys, either sufficient: the pid appears in a run-dir `*.pid`, or its
+  cmdline references a run root. Observed 2026-08-16: a dry run called the
+  orchestrator, the live cascor service and the watchdog all `WOULD REAP`.
+- **`KILL_WORKERS=1` is opt-in and kills worker processes.** Default `0` in
+  `util/juniper_chop_all.bash`; nohup-only, ignored under `--systemd`. Do not set it
+  to "be thorough".
+- **A CI-skip marker on the head commit orphans every required check.** The PR
+  becomes permanently unmergeable while the aggregate rollup can still read SUCCESS —
+  every context sits at "expected" forever. Never put that marker on a PR head; the
+  repair is the server-side `update-branch` API, not a force-push.
+- **`max_epochs` alone silently diverges the service from the CLI.** The service
+  applies it only to the *initial* output pass; later passes read `output_epochs`,
+  which falls back to 10000. The direct CLI aliases the two. **Any CLI-vs-service
+  comparison must set both, to the same value**, or the service is quietly
+  better-trained and slower than the config appears to ask for.
+
+---
+
 ## Build & Package Commands
 
 ```bash
@@ -163,19 +193,7 @@ Tests touching these collectors should use `juniper_observability.testing.reset_
 
 ## Shared Service-Core Contracts
 
-`juniper-service-core` (this repo's `juniper-service-core/` subdirectory) owns the shared FastAPI middleware, the `/ws/control` security + command dispatch, and the distributed worker pool that model services inject executors into. The load-bearing invariants — the ones a well-meaning refactor silently breaks:
-
-- **CR-024 body limit** — `RequestBodyLimitMiddleware` treats `Content-Length` as an early-reject hint only and **always** stream-caps `POST` / `PUT` / `PATCH` against the cumulative limit (default 10 MiB), so an under-declared header or a chunked body with none still 413s. Skipping the stream when the declared length is present-and-small is the classic bypass.
-- **Auth before rate limit** — with API keys configured, `APIKeyAuth` runs first, so a 401 never consumes a rate-limit token. Blank / whitespace-only configured keys are filtered out (the `auth_posture.real_keys` rule) so an empty secret file cannot enable auth that then accepts an empty `X-API-Key`.
-- **429 header passthrough** — `RateLimiter` raises `HTTPException` carrying `Retry-After` + `X-RateLimit-*`; `SecurityMiddleware.dispatch` must rebuild `JSONResponse(..., headers=exc.headers)`. RateLimiter unit tests alone do not exercise that catch path.
-- **Control-WS log sanitizing** — reject logs that interpolate untrusted Origin / command text go through the module-local `_sanitize_for_log` helpers (`control_security` strips `\r`/`\n`; `control_stream` also drops other C0 controls, keeping tab) so CRLF cannot forge multi-line control-plane records. Sanitizing changes log records only, never handshake outcomes or ack JSON.
-- **Zero rate limit** — `ws_control_rate_limit_per_sec=0` builds a `LeakyBucket` with no refill; `retry_after` returns `3600.0` (hard backoff) rather than dividing by zero and tearing down the receive loop.
-- **`/ws/workers` fail-closed** — a bad/missing `X-API-Key` closes **4001** without accepting; a non-object or shape-invalid registration closes **4008** with no `registration_ack`; `submit_result` rejects wrong-worker / unassigned results before the protocol parse; binary attachments over 100 MB get `Binary frame too large`. Control receive rejects malformed / non-object JSON with close **1003** rather than an `AttributeError`.
-- **WS tunables are declared, not implicit** — `websocket/tunables.py` holds all eleven settings fields the WebSocket handlers read, each with its default and a `security` flag. Six are security controls: the Origin allowlist, the control-endpoint kill switch, the control rate limit, and the three handshake-cooldown parameters. Call sites pass only a name; the default lives in the registry.
-  - The `getattr`-based decoupling is deliberate and kept — the shared package still never imports a consuming service's settings class. What changes is that a miss which looks like a misspelling now logs a WARNING naming both spellings, instead of silently reverting a security control to a library default forever (`ws_control_rate_limit_per_second` vs `..._per_sec`).
-  - `resolve()` on an undeclared name raises rather than defaulting; `audit(settings)` is the boot-time counterpart, reporting defaulted security controls and suspected typos. Closes APD-SVCCORE-003 / -010. `tests/test_ws_tunables.py` pins the pre-refactor defaults byte-for-byte and source-scans both handlers so registry and call sites cannot drift.
-
-Operator surface: [`docs/REFERENCE.md` § juniper-service-core](docs/REFERENCE.md#juniper-service-core).
+The load-bearing invariants a well-meaning refactor silently breaks in the shared FastAPI service tier. Moved to [`docs/REFERENCE.md` § Shared Service-Core Contracts](docs/REFERENCE.md#shared-service-core-contracts) — read it when working on this area.
 
 ## Repository Structure
 
