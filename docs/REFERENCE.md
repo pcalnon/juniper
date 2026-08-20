@@ -886,8 +886,23 @@ Do not assume trailer-less docs deletions that pass `--min-run` on main-verify w
 
 P2 of the [shared-session-memory plan](../notes/JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md).
 `util/memory_budget_check.py` enforces a character ceiling on always-loaded memory
-files, declared in `conf/memory_budget.json`. Run by the standalone **advisory**
-`Memory Budget` job in `ci.yml`.
+files, declared in `conf/memory_budget.json`. Run by the standalone `Memory Budget`
+job in `ci.yml`.
+
+> **BLOCKING as of 2026-08-20 (P4).** The budget step no longer passes `--advisory`;
+> a violation exits 1 and fails the check. The companion **G3** step in the same job
+> stays advisory — see [Relocation Completeness](#relocation-completeness-g3) for why.
+>
+> To make it actually gate a merge it must also be a **required context** in the branch
+> ruleset. That is a settings change, not a repo change, and it is deliberately promoted
+> there rather than through the Quality Gate `needs:` — a standalone job that skips on
+> `push` must never be able to fail the aggregate gate.
+>
+> **If it blocks you:** relocate the content to this file and leave a pointer that keeps
+> an accurate open/closed status. If the growth is genuinely warranted, add
+> `Allow-Budget-Overrun: AGENTS.md` and **carry it into the squash message** — that is a
+> loan, not a pass: the ceiling does not move, so the debt blocks the next author until
+> someone relocates.
 
 **Why it exists.** `AGENTS.md` grew ~20× in six months *while under four active CI
 gates* — every one of them enforces structure or currency, none enforces size. 172

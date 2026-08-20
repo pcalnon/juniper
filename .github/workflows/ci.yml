@@ -817,8 +817,23 @@ jobs:
   # a skip on push can never fail the gate -- the same pattern Sequence Safety used before it was
   # promoted in the ruleset. Promote this the same way (ruleset), never via the QG `needs:`.
   #
-  # The ceiling starts at the size on the day it landed, so it governs GROWTH only and is
-  # satisfiable today with no destination -- the rate axis, which needs nothing from P3.
+  # STATUS (P4, 2026-08-20). The two steps below are deliberately at DIFFERENT strengths:
+  #
+  #   Memory File Size Budget  BLOCKING  -- no `--advisory`. Exits 1 on a violation.
+  #   Relocation Completeness  advisory  -- keeps `--advisory`.
+  #
+  # The budget check has no known false-positive class: its no-worsening rule means a PR only
+  # fails when it BOTH exceeds the ceiling AND grew the file, so an already-over `main` never
+  # blocks unrelated work and a shrinking PR always passes.
+  #
+  # G3 stays advisory because it DOES have one: it is line-granular, so a removed line whose
+  # content is legitimately REDISTRIBUTED across several destination lines scores low and is
+  # reported although nothing was lost. Blocking on that would punish correct relocations. The
+  # fix would be union/coverage matching, which is how G3 would decay into the token-level check
+  # it exists to replace -- so the false positive is kept and the gate is left advisory instead.
+  #
+  # The ceiling started at the size on the day the gate landed, so it governs GROWTH only, and
+  # ratchets down after each cut (`python util/memory_budget_check.py --ratchet`).
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
   memory-budget:
     name: Memory Budget
@@ -840,7 +855,7 @@ jobs:
       - name: Check memory-file size budget
         run: |
           echo "╔════════════════════════════════════════════════════════════╗"
-          echo "║       juniper-ml - Memory File Size Budget (advisory)      ║"
+          echo "║       juniper-ml - Memory File Size Budget (BLOCKING)      ║"
           echo "╚════════════════════════════════════════════════════════════╝"
           # merge_group has no github.base_ref; fall back to main so the job still reports.
           BASE_REF="${{ github.base_ref || 'main' }}"
@@ -850,10 +865,17 @@ jobs:
           # explicit file (the checker never shells out for them) so the classifier stays pure.
           # Two-dot FETCH_HEAD..HEAD = exactly the commits this PR adds on top of base.
           git log --format=%B FETCH_HEAD..HEAD > memory-budget-trailers.txt
+          # P4: BLOCKING as of 2026-08-20. `--advisory` is deliberately absent -- a
+          # violation now exits 1 and fails this check. Promotion to a REQUIRED context
+          # happens in the branch ruleset, never via the Quality Gate `needs:`.
+          #
+          # Escape hatch, when the growth is genuinely warranted: add the commit trailer
+          #   Allow-Budget-Overrun: AGENTS.md
+          # and carry it into the SQUASH message. That is a LOAN -- the ceiling does not
+          # move, so the debt blocks the next author until someone relocates.
           python3 util/memory_budget_check.py \
             --base-ref FETCH_HEAD \
-            --trailers-file memory-budget-trailers.txt \
-            --advisory
+            --trailers-file memory-budget-trailers.txt
 
       - name: Check relocation completeness (G3)
         run: |
