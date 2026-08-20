@@ -17,6 +17,13 @@
 # stops advancing looks exactly like a slow host until you check, and "still waiting" is the
 # failure mode that quietly eats an afternoon.
 #
+# NOT-STARTED IS NOT STALLED. The first version applied the stall counter from the first poll, so
+# it fired "STALLED at 0/20" while the campaign was healthily working through the SERVICE arm --
+# the CLI arm legitimately has zero runs until the service arm finishes, which is 20 cells and
+# well over an hour. A count that has never moved off zero means "not started"; only a count that
+# advanced and then stopped means "stalled". The two are distinguished here, and liveness while
+# at zero is established from the campaign driver still being alive rather than from the clock.
+#
 # Usage: util/ad-hoc/2026-08-20_determinism_await.bash <TARGET> [OUT_ROOT] [POLL] [STALL_POLLS]
 set -uo pipefail
 
@@ -33,6 +40,19 @@ while true; do
         echo "CLI arm COMPLETE: ${count}/${TARGET} runs at $(date -u +%H:%M:%SZ)"
         exit 0
     fi
+
+    if ((count == 0)); then
+        # Not started. The campaign is presumably still in the service arm; the only thing worth
+        # checking is that it is still alive at all, since a driver that died leaves a count that
+        # will never move and no other signal.
+        if ! pgrep -f 2026-08-20_determinism_campaign.bash >/dev/null 2>&1; then
+            echo "CLI arm NOT STARTED and the campaign driver is gone ($(date -u +%H:%M:%SZ)) -- check the campaign log"
+            exit 1
+        fi
+        sleep "${POLL}"
+        continue
+    fi
+
     if ((count == last)); then
         stalled=$((stalled + 1))
         if ((stalled >= STALL_POLLS)); then
