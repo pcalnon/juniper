@@ -274,6 +274,44 @@ class ClassifyTest(unittest.TestCase):
         res = MOD.classify(REQUIRED, rows)
         self.assertTrue(res["settled"])
 
+    def test_duplicate_context_takes_the_LATEST_run_not_the_first(self):
+        """A retargeted PR keeps BOTH runs on the same head; GitHub counts the latest.
+
+        Measured 2026-08-20 on juniper-recurrence#120 (throwaway probe, ml#434): a PR
+        opened against a non-default base failed the base-branch guard, was retargeted to
+        main, and the guard re-ran and passed. Both runs stayed attached to the unchanged
+        head SHA, and `gh pr checks` reported the context as **pass**.
+
+        This module previously kept the FIRST occurrence and therefore reported FAILURE
+        against a context GitHub considered satisfied -- declaring a recoverable PR
+        permanently failed. Rollup order is oldest-first.
+        """
+        rows = [
+            {"name": "Alpha", "conclusion": "FAILURE", "state": ""},  # stale
+            {"name": "Alpha", "conclusion": "SUCCESS", "state": ""},  # current
+            {"name": "Beta", "conclusion": "SUCCESS", "state": ""},
+            {"name": "Gamma", "conclusion": "SUCCESS", "state": ""},
+        ]
+        res = MOD.classify(REQUIRED, rows)
+        self.assertEqual(res["failed"], [], "stale duplicate must not gate the merge")
+        self.assertTrue(res["settled"])
+        self.assertIn(("Alpha", "SUCCESS"), res["done"])
+
+    def test_duplicate_context_still_reports_a_genuine_later_failure(self):
+        """The inverse: latest-wins must not hide a real regression either.
+
+        If the newest run FAILED, an earlier success must not mask it -- otherwise the fix
+        for the stale-failure case would silently convert a red context into a green one.
+        """
+        rows = [
+            {"name": "Alpha", "conclusion": "SUCCESS", "state": ""},  # stale
+            {"name": "Alpha", "conclusion": "FAILURE", "state": ""},  # current
+            {"name": "Beta", "conclusion": "SUCCESS", "state": ""},
+            {"name": "Gamma", "conclusion": "SUCCESS", "state": ""},
+        ]
+        res = MOD.classify(REQUIRED, rows)
+        self.assertEqual([c for c, _ in res["failed"]], ["Alpha"])
+
 
 class GrowingRollupTest(unittest.TestCase):
     """Trap 2: a lull between job waves must not read as completion.

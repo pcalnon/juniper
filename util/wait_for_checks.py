@@ -268,9 +268,24 @@ def classify(contexts: list[str], rows: list[dict]) -> dict:
     """
     by_name = {}
     for row in rows:
-        # Keep the first occurrence; re-runs append rather than replace, and the
-        # earliest entry is the one whose name matches the required context.
-        by_name.setdefault(row["name"], row)
+        # Keep the LAST occurrence, which is what GitHub itself counts.
+        #
+        # This used to `setdefault` -- keep the FIRST -- on the reasoning that "re-runs
+        # append rather than replace, and the earliest entry is the one whose name matches
+        # the required context." That is wrong, and it mis-reports the one case where it
+        # matters most: a PR whose base was retargeted.
+        #
+        # Measured 2026-08-20 on juniper-recurrence#120 (throwaway probe, ml#434). A PR
+        # opened against a non-default base failed the base-branch guard, was retargeted to
+        # main, and the guard re-ran and passed. BOTH runs stay attached to the unchanged
+        # head SHA 435f95e2:
+        #     Guard PR base branch  failure  23:24:33
+        #     Guard PR base branch  success  23:24:48
+        # `gh pr checks` -- GitHub's own view -- reports that context as **pass**. Keeping
+        # the first occurrence made this module report FAILURE against a context GitHub
+        # considers satisfied, i.e. it would declare a recoverable PR permanently failed
+        # and send the operator to fix a problem that no longer exists.
+        by_name[row["name"]] = row
 
     done: list[tuple[str, str]] = []
     running: list[str] = []
