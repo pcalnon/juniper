@@ -338,6 +338,29 @@ say which required group is absent.
 > `lifecycle._load_snapshot_to_network`. Any fix must be applied where the service actually loads,
 > not only to `load_network`, or it will change nothing. *(That is the same trap D-A fell into.)*
 
+> **CORRECTION (2026-08-19) — the "no production callers" claim above is FALSE, and inverted.**
+> Caught by an independent validator while checking the successor handoff. `load_network`
+> (`snapshot_serializer.py:877`) **is** the live loader:
+>
+> - `_load_snapshot_to_network` (`manager.py:4504`) — the function this document names as "the
+>   live path" — **calls it** at `manager.py:4523`: `network = serializer.load_network(matches[0])`.
+> - `cascade_correlation.py:5130` calls it too, inside the public `load_from_hdf5`.
+> - References are not confined to one test file either — ~16 files under `src/` reference it.
+>
+> So the guidance "a fix applied only to `load_network` would change nothing" is exactly
+> backwards: `load_network` is where absent and corrupt both collapse to `None` (a missing-file
+> return, a `_validate_format` failure, and a catch-all), and therefore **the only place that can
+> separate them**. A fix belongs there, paired with error-mapping in `_load_snapshot_to_network`,
+> which currently flattens every failure to `return False` (`:4524-4526`), and in the four route
+> raise sites.
+>
+> **How the error happened, because it is the more useful lesson:** the original check was a
+> `grep` piped through `head -12`. The test file's matches filled the window and the two
+> production callers were cut off. That is the *same* truncation mistake that hid a cross-repo
+> reference earlier in this arc — the reason
+> `util/ad-hoc/2026-08-19_ecosystem_reference_sweep.bash` prints full per-group counts. **Never
+> truncate a reference sweep.**
+
 ### 4.3 D-C — snapshots carry no run provenance (blocks R2)
 
 `meta` records `network_uuid`, `created`, `python_version`, `torch_version`, `serializer_version`,
