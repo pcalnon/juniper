@@ -293,14 +293,20 @@ split, and hence their floating-point accumulation order.
 ([`2026-08-20_cascor_thread_context_diag.patch`](../util/ad-hoc/2026-08-20_cascor_thread_context_diag.patch))
 wraps the CLI's `sp.evaluate(...)` in the same executor shape and changes nothing else:
 
-| CLI arm | runs | pairs | divergent (trace / correlations) | rate |
+| CLI arm | runs | pairs | trace rate | **correlation rate** |
 | --- | ---: | ---: | ---: | ---: |
-| baseline — `fit()` on the main thread | 20 | 190 | 120 / **146** | **0.768** |
-| probe — `fit()` on a pool thread | 6 | 15 | 0 / **0** | **0.000** |
+| baseline — `fit()` on the main thread | 20 | 190 | 0.632 | **0.768** [0.553, 0.847] |
+| probe — `fit()` on a pool thread | 6 | 15 | 0.000 | **0.000** |
+| **verification — same probe** | **20** | **190** | **0.000** | **0.337** [0.100, 0.505] |
 
-Identical candidate work in every probe run (10,960 epochs, `sd = 0`), one distinct outcome, and
-**no wall-clock cost** — 284.3 ± 5.9 s against the baseline's 280.8 ± 14.7 s. The N=20 confirmation
-required by the exit condition is reported in §4.5.
+**Read the third row, not the second.** At n=6 the probe looked like a complete fix — 0/15 on both
+fingerprints. At N=20 the trace rate is still 0, but the correlation fingerprint finds **64 of 190
+pairs** divergent. The screen was not wrong, it was underpowered, and it is the second time in this
+campaign that a six-run result would have been published as a clean zero.
+
+So the honest statement is a **large mitigation, not a cure**: thread context is a dominant
+contributor — it removes trace-level divergence entirely and cuts the correlation rate by more than
+half — but a residual mechanism survives it. Details in §4.4.
 
 ---
 
@@ -423,7 +429,40 @@ something other than the path difference, and the wide-budget campaign's equalis
 (which checked every key the config file can express) would not have caught it — the same blind
 spot that hid the BLAS entry-point asymmetry in #531.
 
-### 4.4 What the timing columns show, and why they are still not a noise floor
+### 4.4 The thread-context mitigation, verified at N=20 — large, cheap, and incomplete
+
+Direct CLI, `fit()` moved onto a `ThreadPoolExecutor` worker, nothing else changed, 20 runs:
+
+| | baseline | with the mitigation |
+| --- | ---: | ---: |
+| trace-fingerprint rate | 0.632 | **0.000** |
+| correlation-fingerprint rate | 0.768 [0.553, 0.847] | **0.337** [0.100, 0.505] |
+| distinct trace outcomes | 5 | **1** |
+| distinct correlation outcomes | 7 | **2** |
+| training span | 280.8 ± 14.7 s | 282.9 ± 5.7 s |
+
+**Cost: none measurable.** 282.9 s against 280.8 s, and the mitigated arm's span cv is *lower*
+(2.0% vs 5.2%). Whatever this does, it is not buying reproducibility with throughput — unlike
+capping BLAS threads, which #531 measured at up to 1.30× on the candidate phase and which §3.8
+shows does not work anyway.
+
+**What survives, precisely.** The 20 runs split **16 / 4**:
+
+| group | runs | train | val | candidate epochs |
+| --- | ---: | --- | --- | ---: |
+| A | 16 | 0.6637 | **0.6350** | 10,960 |
+| B | 4 | 0.6625 | **0.6400** | 10,950 |
+
+All 20 share one trace fingerprint because the three logged `grow_network` iterations are identical
+in every run — the surviving divergence lives entirely in the **fourth and final candidate round**,
+which never gets an iteration line. It is not cosmetic: it moves validation accuracy by **0.5 pp**
+and candidate work by 10 epochs. A campaign reading only the iteration trace would call this arm
+perfectly reproducible and be wrong about the number it actually reports.
+
+This is the concrete payoff of carrying two fingerprints (§1.2) and of N=20 over n=6. Either
+shortcut alone would have published "fixed".
+
+### 4.5 What the timing columns show, and why they are still not a noise floor
 
 Worth reading precisely because it is such a clean demonstration of §5.1. Across the 20 service
 runs:

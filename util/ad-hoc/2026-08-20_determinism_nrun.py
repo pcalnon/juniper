@@ -418,6 +418,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--arm", action="append", nargs="+", default=[],
                     metavar="NAME RUN_DIR", help="arm label followed by its run directories; repeatable")
+    ap.add_argument("--dir-arm", action="append", nargs=2, default=[],
+                    metavar=("NAME", "PARENT_DIR"),
+                    help="arm label plus a parent directory; uses every immediate subdirectory "
+                         "that contains a logs/ folder. Avoids expanding 20 paths on a command line.")
     ap.add_argument("--suite-arm", action="append", nargs=2, default=[],
                     metavar=("NAME", "REGISTRY_JSONL"),
                     help="arm label plus a suite registry.jsonl; expands to that suite's run_dirs. "
@@ -428,8 +432,8 @@ def main() -> int:
     ap.add_argument("--boot-seed", type=int, default=20260820, help="bootstrap RNG seed")
     args = ap.parse_args()
 
-    if not args.arm and not args.suite_arm:
-        print("need at least one --arm or --suite-arm", file=sys.stderr)
+    if not args.arm and not args.suite_arm and not args.dir_arm:
+        print("need at least one --arm, --dir-arm or --suite-arm", file=sys.stderr)
         return 2
 
     results = []
@@ -438,6 +442,13 @@ def main() -> int:
             print(f"--arm needs a label and at least one directory, got {spec!r}", file=sys.stderr)
             return 2
         results.append(report_arm(spec[0], [Path(p) for p in spec[1:]], args.boot, args.boot_seed))
+    for label, parent in args.dir_arm:
+        kids = sorted((p for p in Path(parent).iterdir() if (p / "logs").is_dir()),
+                      key=lambda p: p.name)
+        if not kids:
+            print(f"--dir-arm: no run directories with a logs/ folder under {parent}", file=sys.stderr)
+            return 2
+        results.append(report_arm(label, kids, args.boot, args.boot_seed))
     for label, registry in args.suite_arm:
         try:
             rows = [json.loads(line) for line in Path(registry).read_text().splitlines() if line.strip()]
