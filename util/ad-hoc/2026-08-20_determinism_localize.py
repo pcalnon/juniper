@@ -40,6 +40,29 @@ READING THE OUTPUT
   DIFFERENT correlations at round k        -> (a) candidate math; look at threading, not sorting
   identical correlations, different trace  -> (b) selection/tie-break, or a parent-side cause
 
+PRECISION LIMIT -- READ THIS BEFORE QUOTING A VERDICT
+-----------------------------------------------------
+``CandidateUnit.train`` logs its correlation with ``:.6f`` (candidate_unit.py:670). "Identical
+correlations" here therefore means identical TO SIX DECIMAL PLACES, and that is not the same as
+identical. It matters concretely: in the cap-4 cell the top two round-0 correlations are
+``0.091185`` and ``0.091184`` -- adjacent at the printed precision. If the underlying floats
+differ somewhere below 1e-6 and that ordering flips, a DIFFERENT hidden unit is installed, every
+later round sees a different candidate input, and the round-1 correlations then differ by tens of
+percent rather than by float jitter. This tool would classify that pair as (a) CANDIDATE MATH,
+because round 1 is where it first sees a difference -- even though the operative event was a
+selection flip at round 0.
+
+So (a) should be read as "the first difference OBSERVABLE AT LOGGED PRECISION is in candidate
+correlations", not as "selection is exonerated". Distinguishing the two needs the installed
+candidate's identity, and ``_add_best_candidate`` currently logs ``{best_candidate}`` -- the
+default object repr, i.e. a memory address (cascade_correlation.py:4850) -- so the identity is
+not recoverable from any existing log. Settling it requires instrumentation: log the installed
+``candidate_index`` and the correlations at full precision.
+
+What survives the precision limit either way: a deterministic SECONDARY sort key would not have
+prevented any of this. A secondary key only engages on an EXACT tie; floats that differ at 1e-8
+are already ordered by the primary key.
+
 Usage: python util/ad-hoc/2026-08-20_determinism_localize.py <RUN_DIR> [<RUN_DIR> ...]
        A RUN_DIR is any directory containing logs/juniper_cascor.log (+ rotated .N segments).
 Exit:  0 on a report; 2 if fewer than two runs carried a parseable candidate round.
@@ -175,11 +198,17 @@ def main() -> int:
     print(f"  pool reordered, same corrs  : {reorder_pairs}  "
           "(the stable-sort tie-break was exercised in these)")
     if verdicts["math"] and not verdicts["selection"]:
-        print("\n  -> Divergence originates in candidate TRAINING, not in the arrival-order\n"
-              "     tie-break. A deterministic secondary sort key would not have prevented these.")
+        print("\n  -> The first difference observable at logged precision (6 dp) is in candidate\n"
+              "     CORRELATIONS, not in which candidate was installed given equal ones. A\n"
+              "     deterministic secondary sort key would not have prevented any of these: a\n"
+              "     secondary key engages only on an EXACT tie.\n"
+              "     NOT established: whether a sub-1e-6 difference flipped a NEAR-tie at an\n"
+              "     earlier round, installing a different unit. See PRECISION LIMIT in --help;\n"
+              "     the installed candidate's identity is not currently logged.")
     elif verdicts["selection"] and not verdicts["math"]:
-        print("\n  -> Candidates train identically; a different one is installed. This is the\n"
-              "     stable-sort tie-break on arrival order -- fixable with a secondary key.")
+        print("\n  -> Candidates train identically to 6 dp; a different one is installed. Consistent\n"
+              "     with the stable-sort tie-break on arrival order -- but confirm the correlations\n"
+              "     are equal below print precision before calling a secondary key the fix.")
     return 0
 
 
