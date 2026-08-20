@@ -5,9 +5,11 @@
 **Date**: 2026-08-19
 **Harness**: Claude Code **2.1.236** — every §2/§3 finding is a property of this build. Re-probe after a
 client upgrade before relying on them.
-**Status**: Incident identified. **Killer mechanism UNDETERMINED and still open** — a prior
-"resolved" claim was spurious and is withdrawn (§3.3). The mechanism is bounded and characterised, and
-a cheap decisive test is named (§3.3) that has **not** been run.
+**Status**: Incident identified, **and its killer mechanism identified 2026-08-20** (§3.4): the task
+outlived the `[bg]` spare worker hosting it, whose lease is a hard ~3600 s — matched to **0.426 s**.
+The supervisor-restart candidate is **refuted** as the general cause. **Still open:** the ~20 short
+kills (16–456 s), which share a co-death signature that daemon.log cannot resolve because the daemon
+was down across them. The earlier "resolved" claim (§3.3) remains withdrawn and is unrelated to this.
 **Scope**: **Document only.** No code, config, ruleset or repository setting was changed by this
 investigation.
 **Related**: [ml#1183](https://github.com/pcalnon/juniper-ml/pull/1183) (kill-resilience fixes),
@@ -37,7 +39,7 @@ identified cause. It is not special; it is the one that was noticed.
 | Killed by a timeout? | **No.** The `timeout` parameter is not consulted for background tasks (§2.1) |
 | Killed by duration at all? | **No.** Same session: kills at 37/46/60/229 s **alongside** completions at 248–932 s |
 | Killed by the operator? | **No `TaskStop` call exists** in that session's transcript |
-| Root mechanism | **UNDETERMINED and still open** — no prior fix resolved it; an earlier "resolved" claim was spurious (§3.3). Best unexplored candidate: the `[bg]` supervisor's restart/adopt cycle (§3.2) |
+| Root mechanism | **IDENTIFIED 2026-08-20 (§3.4)** — the host `[bg]` **spare worker's ~3600 s lease expired**. Task launched onto a worker already 3372 s old, inheriting 229 s of runway; killed at 229.4 s. Matches to **0.426 s**. The §3.2 supervisor-restart candidate is **refuted** as the general cause |
 | Was anything lost? | Yes — nothing server-side existed to finish the merge. That is RC-4, fixed afterwards in ml#1183, **partially** (§4) |
 
 > **A first draft of this document identified the wrong incident** (`juniper-cascor#536`). That draft
@@ -130,6 +132,28 @@ Elapsed-at-kill (18 of the 19 have a resolvable start): 16, 37, 45, 46, 48, 48, 
 > **Caveat on "no `TaskStop` anywhere":** this establishes no *`TaskStop` tool call* was made. It does
 > not establish that no stop occurred by another path (§2.2).
 
+> **POPULATION CORRECTED 2026-08-20 — the figures above are an undercount.** A third, fully
+> instrumented extraction (`util/ad-hoc/2026-08-20_kill_daemon_crossref.py`, provenance emitted per
+> row) over all 378 transcripts / 175,009 lines / **0 unparseable** finds:
+>
+> | | this doc (08-19) | re-extraction (08-20) |
+> | --- | --- | --- |
+> | terminal notifications | 231 tasks (flagged UNVERIFIED, §6) | **890** — `completed` 811, `failed` 43, `killed` 35, `stopped` 1 |
+> | signature A (`TaskStop`) | 9 | **2** |
+> | signature B (unexplained) | **19** | **33** |
+>
+> Only **3** of the extra sig-B kills postdate this document (08-19 21:31–21:34), so the gap is a
+> method difference, not new data. The likely cause: a terminal notification is written **twice** —
+> once as a `queue-operation`/`enqueue` and once as the delivered `user` record — and an extraction
+> keying on only one of them undercounts. The new tool captures both and anchors on the earlier
+> `enqueue`. Sig-A dropping 9 → 2 is the same effect in reverse: this doc counted *files matching a
+> `TaskStop` to the second*, whereas the re-extraction resolves the actual `task_id` argument.
+>
+> The **elapsed** list is likewise incomplete — the corrected set contains a cohort at
+> **3599.2–3600.0 s** that the 18 values above omit entirely, and that cohort is what identifies the
+> mechanism (§3.4). Treat the corrected figures as canonical; they are reproducible from the in-repo
+> tool, which is why it was kept.
+
 ### 3.2 What the clustering shows — and the candidate mechanism
 
 Four pairs died within milliseconds: two pairs at the same millisecond inside one session, and **two
@@ -161,11 +185,19 @@ incident, so it does not explain that kill. What it establishes is that the mech
 this host and was never checked.
 
 > **Correction to the first pass:** it noted the daemon log was "silent at three of four kill windows"
-> and treated that as disconfirming. That reasoning is invalid — the log records **supervisor
-> lifecycle only**, never per-task kills, so its silence is uninformative by construction. Absence of
-> evidence was mistaken for evidence of absence in a log that structurally cannot contain it.
+> and treated that as disconfirming. That reasoning is invalid — but **not for the reason given here.**
+>
+> **This paragraph was itself wrong and is superseded by §3.4.** It claimed the log "records
+> supervisor lifecycle only, never per-task kills, so its silence is uninformative *by
+> construction*." daemon.log demonstrably carries **per-worker** `[bg]` records — `bg spawned`,
+> `bg claimed-spare`, `bg settled <id> (done|crashed|killed)`, `bg adopt`, `orphan-spare reap` — so
+> its content around a kill window *is* informative. The silence is uninformative for a
+> **contingent** reason instead: the daemon was **down or not logging** for most of the kill
+> population's timespan (32 of 33 kills sit in a stretch with no event within 10 minutes either
+> side). Right conclusion, wrong premise — and the wrong premise would have retired the log as
+> evidence permanently, which is how §3.3 nearly went unrun.
 
-### 3.3 The cheap decisive test — not run
+### 3.3 The cheap decisive test — **RUN 2026-08-20, see §3.4**
 
 **Cross-reference all 19 kill timestamps against `daemon.log`'s `supervisor` / `bg adopt` /
 `orphan-spare reap` / `post-takeover` lines.** If kills coincide with supervisor lifecycle events, the
@@ -185,6 +217,89 @@ fallbacks **after** the cheap test.
 > whatever analysis produced it. This investigation produced its own confidently wrong attribution (§5)
 > that survived until an adversarial pass — the same failure mode, one link earlier in the chain. Grade
 > a resolution claim like any other claim (§6).
+
+---
+
+### 3.4 Result of the §3.3 test — **the incident is identified**
+
+Run 2026-08-20 by `util/ad-hoc/2026-08-20_kill_daemon_crossref.py` (in-repo, re-runnable). It performs
+two independent extractions — the kill population from `~/.claude/projects/**/*.jsonl`, the event
+population from `daemon.log` — and joins them mechanically, reporting nearest-neighbour distances with
+no threshold and no expected signature. daemon.log was snapshotted first to
+`~/.local/state/juniper-forensics-snapshots/` (sha256 `a0bc414a…`) because it rotates.
+
+**Mechanism: a background task cannot outlive the `[bg]` worker hosting it, and spare workers hold a
+hard ~3600 s lease.**
+
+Three independent legs, none of which relies on the others:
+
+**(a) The lease exists.** Pairing every `bg spawned|claimed-spare <id>` with its `bg settled <id>`:
+
+| kind | n | lifetime |
+| --- | --- | --- |
+| `fleet` | 4 | 0.07 – 0.58 s (all `crashed`) |
+| `spare` (natural expiry) | **7** | **3600.365, 3600.430, 3600.518, 3600.684, 3600.977, 3612.256, 3780.325 s** |
+| `spare` (killed early) | 2 | 12.6, 602.1 s |
+| `slash` | 5 | 30,544 – 84,962 s (8.5 – 23.6 h) |
+
+**(b) The ceiling shows up in the kills, without touching daemon.log.** Elapsed-at-kill for the 28
+signature-B kills with a resolvable launch:
+
+```text
+16.2  37.3  38.3  40.0  46.1  47.8  48.4  54.6  59.7  66.6  83.6 101.1 121.1 126.9
+207.5 208.2 218.3 219.7 229.4 455.6 | 3599.2 3599.7 3599.9 3599.9 3600.0 | 9835.6 13012.1 25680.7
+```
+
+Five kills land within **0.8 s of exactly 3600**. The control is decisive: across **434 completed**
+tasks, the band [3550, 3650] s contains **zero** completions and **five** kills. It is a pure kill
+zone. (Five completions *do* exceed 3600 s — 4222 / 7549 / 8649 / 10,594 / 59,783 s — which is exactly
+what the model predicts for tasks hosted by a long-lived `slash` worker rather than a spare.)
+
+**(c) The incident matches the lease to 0.426 s.**
+
+| quantity | value |
+| --- | --- |
+| worker `e7e92976` spawned | `01:50:27.572Z` |
+| worker `e7e92976` settled `(done)` | `02:50:28.549Z` — lease **3600.977 s** |
+| task `bi5a42rgc` launched | `02:46:39.577Z` — worker already **3372.005 s** old |
+| lease **remaining** at launch | **228.972 s** |
+| task elapsed at kill (enqueue) | **229.398 s** |
+| **discrepancy** | **0.426 s** |
+
+The task was killed when its host worker's hour ran out. It had inherited 229 s of runway.
+
+> **This also resolves the validator's own caveat.** They flagged that `e7e92976` is the *spare*
+> worker, "not the incident session's", and that `settled … (done)` reads as a normal transition —
+> and held back from calling it. Both observations are correct and both are consistent with the
+> mechanism rather than against it: a spare **is** what a background task gets placed onto, and
+> `(done)` is what normal lease expiry looks like from the supervisor's side. The 3600.977 s interval
+> they noted as "an almost exact 1-hour spare-lifetime expiry" was the finding, not a confound.
+>
+> **Timestamp correction.** The published figure was **455 ms**, measured to the *delivered*
+> notification (`02:50:29.004Z`). The `queue-operation`/`enqueue` record at `02:50:28.975Z` is 29 ms
+> earlier and is the better anchor, giving **426 ms**. Both records are emitted by the tooling now.
+
+**What this does NOT establish.** Honest scope:
+
+- **daemon.log tests only 1 of 33 kills.** 32 sit in stretches with no event within 10 min either
+  side — the daemon was **down** across multi-day spans (e.g. 08-15T20:20 → 08-19T01:50, 77.5 h)
+  while background tasks kept running and kept dying. For those, a miss is uninformative.
+- **The supervisor restart/upgrade hypothesis (§3.2) is REFUTED as the general cause.** One hit in 33,
+  and the hit is a *worker lease expiry*, not a restart. The nearest daemon event to any other kill is
+  **19 minutes** away.
+- **The ~20 short kills (16–456 s) are not individually explained.** They carry the co-death
+  signature — six pairs die 0–4 ms apart, including across independent sessions — which is consistent
+  with shared-worker teardown, but the trigger for those teardowns is not in the log. If they were
+  simply adoptions onto aged spares, remaining-lease would be roughly uniform on (0, 3600) and roughly
+  half would exceed 1800 s; **none do**. Something else bounds that cohort.
+- The `P(X ≥ 1) ≈ 0.0026` uniform null in the tool output is an **upper bound on significance** —
+  kills and daemon events both concentrate in working hours, so the true p is larger.
+
+**Practical consequence, and it is the important part:** the ceiling is real but the *runway is not
+knowable in advance*. A background task launched onto a fresh spare gets an hour; the same command
+launched a minute later onto an aged spare gets seconds. This is why elapsed-at-kill carries no
+duration signal (§1.1) and why "it ran fine last time" predicts nothing. §7's conclusion is unchanged
+and now has a mechanism behind it: **hold the completion condition off-process.**
 
 ---
 
@@ -264,7 +379,12 @@ real: `safe_merge` mutating a branch an operator is editing.
 | The 231-task population figures | **UNVERIFIED** — an independent validator could not reproduce the extraction. Not refuted; the §1.1 same-session data carries §2.1 without it. |
 | Per-task timers excluded for the clustered kills | **PROVEN** (11 ms cross-session co-death) |
 | A single external event causes the clustered kills | **INFERRED** |
-| The `[bg]` supervisor restart is that event | **CANDIDATE — untested** (§3.3) |
+| ~~The `[bg]` supervisor restart is that event~~ | **REFUTED as the general cause** (§3.4) — 1 hit in 33; nearest event to any other kill is 19 min |
+| `[bg]` spare workers hold a ~3600 s lease | **PROVEN** (§3.4a — 7 natural expiries, 3600.4–3780.3 s) |
+| A ~3600 s ceiling kills background tasks | **PROVEN** (§3.4b — 5 kills in [3550,3650]; **zero** of 434 completions in that band) |
+| The incident is that lease expiring | **PROVEN to 0.426 s** (§3.4c) |
+| The ~20 short kills (16–456 s) share that cause | **NOT ESTABLISHED** — remaining-lease would be ~uniform on (0,3600); none exceed 456 s (§3.4) |
+| daemon.log can test the other 32 kills | **NO** — the daemon was down/silent across them (§3.4) |
 | Session-end is excluded | **NOT ESTABLISHED** (§2.2) |
 | cascor#536 was the incident | **REFUTED** (§5) |
 | D1–D4 in ml#1183 | **PROVEN by code reading**; D1's `UNKNOWN` window is **INFERRED** from observed `UNKNOWN` states, not from a captured failure |
@@ -315,7 +435,8 @@ reaped shortly after completion, and files vanished mid-investigation. Capture p
 
 | Item | State |
 | --- | --- |
-| Run the §3.3 timestamp cross-reference against `daemon.log` | **not done** — no issue filed |
+| Run the §3.3 timestamp cross-reference against `daemon.log` | **DONE 2026-08-20** — §3.4. Incident identified (worker-lease expiry, 0.426 s); supervisor-restart class refuted; tool preserved at `util/ad-hoc/2026-08-20_kill_daemon_crossref.py` |
+| Explain the ~20 short kills (16–456 s) | **OPEN** — co-death signature present, trigger not in daemon.log; needs a live capture, not archaeology (§3.4) |
 | D1–D4 in `util/safe_merge.py` | **not fixed** — no issue filed; this investigation was document-only |
 | Size `DEFAULT_TIMEOUT` per-repo, or from the slowest repo | **not done** — no issue filed |
 | ~~Reconcile with the "resolved in a concurrent session" claim~~ | **closed** — the claim was spurious (§3.3); there is nothing to reconcile |

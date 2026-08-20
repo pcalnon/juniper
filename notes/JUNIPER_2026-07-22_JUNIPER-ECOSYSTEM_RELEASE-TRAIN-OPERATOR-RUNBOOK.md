@@ -960,9 +960,19 @@ tree; sibling checkouts remain **read-only** inputs.
 
 **Ruleset bypass (2026-07-29).** Beyond the workflow-side R7 fence above, the App is a juniper-ml
 **repository-ruleset bypass actor** in `pull_request` mode — the narrowest scope that lets the armed
-archive-lane auto-merge clear the unsatisfiable `code_quality` rule (and the strict up-to-date policy on
-serial archive PRs). The bypass applies **only to merging PRs on juniper-ml**; it grants nothing on the
-`pypi` environments (Gate 2 stays owner-only) and nothing outside pull-request merges.
+archive-lane auto-merge clear the strict up-to-date policy on serial archive PRs. The bypass applies
+**only to merging PRs on juniper-ml**; it grants nothing on the `pypi` environments (Gate 2 stays
+owner-only) and nothing outside pull-request merges.
+
+> **The stated justification is void, and the row is still KEEP — do not conflate the two.** The
+> original wording said the bypass existed to clear the *"unsatisfiable `code_quality` rule"*; that
+> rule is now measured **INERT** (§8 item 5), so that justification no longer holds and is struck
+> above. It does **not** follow that the row is removable: the bypass-actor research marks it
+> **KEEP** ("re-breaks the hands-free archive-PR auto-merge"), and the up-to-date policy on serial
+> archive PRs remains a live reason on its own. **Void justification ≠ demonstrated redundancy.**
+> The named test — arm an archive PR with the row temporarily absent and see whether it still
+> merges — has **not** been run. Either run it or leave the row alone.
+> Census evidence: [`…_BYPASS-ACTOR-CENSUS.md`](JUNIPER_2026-08-20_JUNIPER-ECOSYSTEM_BYPASS-ACTOR-CENSUS.md).
 
 ## 8. Known limitations (accepted)
 
@@ -1020,13 +1030,27 @@ serial archive PRs). The bypass applies **only to merging PRs on juniper-ml**; i
    Structural pin: juniper-ml#718 (`tests/test_release_train_workflow_guard.py` invariant `(g)`).
 
 
-5. **`code_quality` ruleset rule blocks all non-bypass merges (fleet-wide).** Most repo rulesets carry a
-   `code_quality` (severity: errors) rule with **no code-quality tool reporting**, so ordinary auto-merge
-   can never complete anywhere — only bypass actors (owner-admin, or the App on juniper-ml) merge.
-   Accepted for now (option B, 2026-07-29): removal (option A) is deferred until the code-signing work is
-   configured, at which point the rule set can be revisited repo-by-repo. Related: PRs with **unsigned**
-   runner-side commits are additionally held by `required_signatures` (by design — owner YubiKey flow;
-   the archive lane avoids it via API-created, GitHub-signed commits).
+5. **~~`code_quality` ruleset rule blocks all non-bypass merges (fleet-wide).~~ — REFUTED 2026-08,
+   and the deferred action here is now FORBIDDEN. Do not act on the struck text.**
+
+   > **Why this stanza was dangerous.** It said removal was *"deferred until the code-signing work is
+   > configured"*. Code-signing **was** configured 2026-08-07 — so as written it instructed the next
+   > reader to go and perform exactly the removal that is now on the do-not-relitigate list. A
+   > condition that has since been met turns a deferral into a work order.
+
+   The blocking claim is **refuted by measurement**: `code_quality` is **INERT**, not blocking —
+   779/785 and 399/399 evaluations pass, **0 fail**. The real July blocker was the **`update` rule**,
+   removed 2026-08-10.
+
+   **Do not remove or "fix" `code_quality`.** The audit's finding is *"Do not drop the rule."* It is
+   already configured at `severity: errors` on all 9 repos and is inert only because GitHub Code
+   Quality is unavailable on **User** accounts — the same constraint that makes merge queues
+   unavailable (ml#1128). An org migration would make the already-configured rule **start
+   evaluating**, with unknown blast radius; the recommendation is to **enable on one repo first and
+   watch**, not to drop the rule and not to do all nine at once. (Tracked as CQ-9.)
+
+   Still accurate: PRs with **unsigned** runner-side commits are held by `required_signatures` (by
+   design — owner YubiKey flow; the archive lane avoids it via API-created, GitHub-signed commits).
 
 ## 9. Quick reference
 

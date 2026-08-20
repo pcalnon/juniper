@@ -291,9 +291,16 @@ felt tax is the manual rebase ceremony, not the waiting.
 operation — a manual Update-branch that silently re-authored wholesale doc-section deletions which
 then passed CI green, because prose deletion is invisible to the doc-link validator. That gap is now
 partly covered by the `juniper-docs-additions-check` sequence-safety screen (deleted-heading and
-`>=N`-line-deletion-run detection), which did not exist during the storm — but it is **advisory**, not
-a required context (ml#1011). Prefer update-branch over a local rebase; do not treat either as
-self-verifying.
+`>=N`-line-deletion-run detection), which did not exist during the storm. ~~but it is **advisory**, not
+a required context (ml#1011).~~ **Stale — ml#1011 CLOSED 2026-08-18:** `Sequence Safety` is now a
+**required** context on all 9 repos (and was renamed to drop the `(Advisory)` suffix on the 8
+siblings). Prefer update-branch over a local rebase; do not treat either as self-verifying.
+
+> **Required still does not mean enforced for the owner.** `RepositoryRole 5` holds an `always`
+> bypass on all 9, and the census measured it exercised **614 times in one month**
+> ([`…_BYPASS-ACTOR-CENSUS.md`](JUNIPER_2026-08-20_JUNIPER-ECOSYSTEM_BYPASS-ACTOR-CENSUS.md)), so a
+> required check does not constrain the owner's own merges. ml#1011 was never the fix for that
+> failure mode. `util/safe_merge.py` is the discipline that covers it.
 
 ### 8.2 Batch merges into quiet windows (free, behavioural)
 
@@ -322,6 +329,31 @@ tree on 2026-08-16, it touches at minimum:
 Note what is *not* affected, which narrows the job usefully: `util/release_train/registry.yaml`,
 `ECOSYSTEM_REPOS` in `docs-full-check.yml`, and `DEFAULT_REPOS` in `validate_claude_yaml_access.bash`
 all carry **bare repo names** with no owner prefix, and need no change.
+
+**CQ-9 — `code_quality` starts evaluating on migration. Budget for it explicitly.**
+
+This item existed in four other notes documents but **not here**, in the one document that *is* the
+migration plan — so the migration was scoped without it. It is not a rot-and-relink item like the
+504 `pcalnon/` strings; it is a behavioural change that fires on day one.
+
+`code_quality` is **already configured at `severity: errors` on all 9 repos**. It is inert *only*
+because GitHub Code Quality is unavailable on **User** accounts — the very same constraint that makes
+merge queues unavailable and motivates this whole section. **Moving to an org lifts both at once.**
+The rule stops being a no-op and starts evaluating, on nine repos, with no prior signal about what it
+will flag: measured today it is 779/785 and 399/399 passing with **0 fail**, but those numbers are
+what an *unavailable* checker reports, not a passing one.
+
+Consequences to plan for:
+
+- Do **not** treat "0 fail today" as a prediction of post-migration behaviour. It is the null result
+  of a checker that never ran.
+- **Enable on one repo first and watch** — the audit's explicit recommendation. Not all nine at once,
+  and not as a side effect of the transfer completing.
+- **Do not "pre-solve" this by dropping the rule.** The audit's finding is *"Do not drop the rule."*
+  Removal is on the do-not-relitigate list; the July blocker was the `update` rule (removed
+  2026-08-10), not this one. See the release-train runbook §8 item 5.
+- Sequence the transfer so a repo's first post-migration merge is a low-stakes one, because a
+  newly-live `errors`-severity rule blocks non-bypass merges if it does fire.
 
 If it is ever considered, it should be scoped as its own arc with the merge queue as one benefit
 among several — not as the driver.
