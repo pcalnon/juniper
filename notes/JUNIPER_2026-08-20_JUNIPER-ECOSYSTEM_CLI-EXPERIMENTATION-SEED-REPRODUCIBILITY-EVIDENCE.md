@@ -582,12 +582,79 @@ python util/ad-hoc/2026-08-20_determinism_nrun.py \
 python util/ad-hoc/2026-08-20_determinism_localize.py <RUN_DIRS...>
 ```
 
+Diagnostic arms (§3.6, §3.8, §3.9) additionally need a stack up with an explicitly pinned
+`DATA_URL` and one of the two preserved patches applied to a throwaway cascor worktree:
+
+```bash
+eval "$(util/ad-hoc/2026-08-14_r5_stack_up.bash)"     # then VERIFY $DATA_URL against
+                                                      # <RUN_DIR>/ports.json before proceeding
+git -C <DIAG_WT> apply util/ad-hoc/2026-08-20_cascor_candidate_identity_diag.patch
+DATA_URL=... util/ad-hoc/2026-08-20_determinism_arm.bash <DIAG_WT>/src <CELL> <OUT> <LABEL> <N> default
+python util/ad-hoc/2026-08-20_determinism_diag.py <OUT>/<LABEL>/run-*
+```
+
 ### 7.1 Teardown attestation
 
-<!-- PENDING -->
+Checked after the last arm, with `util/experiment_stack.bash --down <RUN_ID>` run for every stack:
+
+| check | result |
+| --- | --- |
+| listeners on 8110–8139 / 8230–8259 / 8260–8289 | **0** |
+| port lockdirs in `/run/user/1000/juniper-experiments` | **0** |
+| orphaned Juniper python processes (`util/reap_pytest_orphans.bash --dry-run`) | **0** ("No Juniper python processes found") |
+| `artifacts/` preserved | yes — teardown reports "never deleted" and the trees are present |
+
+Per-cell teardown was also verified *during* the service arm: exactly two lockdirs and two
+listeners at any moment, matching the one live cell.
 
 ---
 
 ## 8. Disposition
 
-<!-- PENDING — §3.7 outcome: (a) fixed, or (b) characterised and accepted. -->
+**§3.7 outcome: (b) characterised — with the cause identified and a mitigation measured, but not
+removed.** Stating that precisely, because it sits between the handoff's two branches:
+
+| the handoff's exit condition | met? |
+| --- | --- |
+| (a) root cause identified | **yes** — §3.9, tested by intervention, not inferred |
+| (a) a cascor PR lands | **no** — not authored; see below |
+| (a) re-run at N≥20 shows a divergence rate of **0** | **no** — 0.000 on the trace, **0.337** on correlations |
+| (b) rate, divergence points and noise floor published | rate and divergence points **yes**; noise floor **deferred** (§5.1) |
+
+So this is not "we could not find it", which the handoff rightly refuses as an exit. The cause is
+identified and demonstrated: **the two entry points execute `fit()` on different threads**, and
+moving the CLI's call onto a pool thread removes trace-level divergence entirely and cuts the
+correlation-fingerprint rate from 0.768 to 0.337 at no measurable wall-clock cost.
+
+**Why no fix PR yet.** A mitigation that halves a reproducibility defect is not the same as a fix,
+and shipping `ThreadPoolExecutor` into `main.py` would encode a *symptom-shaped* workaround into the
+CLI entry point before the residual 0.337 is understood. The right sequence is: understand the
+residual, then decide whether the correct change is at the entry point at all or in how the trainer
+configures its thread pool. Two things should land regardless, and both are cheap:
+
+1. **Observability.** `_add_best_candidate` logs `{best_candidate}` — a `CandidateUnit` with no
+   `__repr__`, so a memory address (`cascade_correlation.py:4850`). The installed unit's identity is
+   the single fact that separates a selection flip from arithmetic jitter, and it is unrecoverable
+   from any shipped log. Log `candidate_index`; consider full-precision correlations behind a debug
+   level. Patch: [`2026-08-20_cascor_candidate_identity_diag.patch`](../util/ad-hoc/2026-08-20_cascor_candidate_identity_diag.patch).
+2. **A latent seeding defect, found in passing and not the cause of anything here.**
+   `CandidateUnit._initialize_randomness` seeds numpy, *then* draws its roll count from the
+   **stdlib `random`** stream (`candidate_unit.py:317` → `:364`) — which at that point has not yet
+   been seeded for this candidate (`random.seed` happens on the *next* call, `:319`). numpy's stream
+   position therefore depends on leftover interpreter state. It is inert today only because nothing
+   in candidate training draws from `np.random`; the torch stream, which *does* seed the weights, is
+   rolled after `random.seed` and is deterministic. Any future use of `np.random` in that path would
+   silently inherit run-to-run nondeterminism.
+
+### 8.1 What this unblocks, and what it does not
+
+**Unblocked:** the service tier. 0/190 pairs on both fingerprints means service-arm single-run
+results carry no reproducibility caveat at this cap and seed, and #533's safety check is discharged.
+
+**Still qualified:** every **direct-CLI single-run** result. At 0.768 the CLI path cannot support a
+single-run A/B, and the successor arc's §4 residual measurement must therefore be many-run on that
+arm — the handoff's §4.3 "k pairs" branch, not its one-pair branch. The k should be sized against a
+noise floor this campaign deliberately did not publish (§5.1).
+
+**Newly opened:** §4.3 — the two arms do not start from the same state on an identical cell. A
+wall-clock comparison between them is measuring that as well as the path difference.
