@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Status**: Living register — verified against working copies on 2026-08-14
-**Last Updated**: 2026-08-14
+**Last Updated**: 2026-08-20
 **Source**: [`JUNIPER_2026-08-13_JUNIPER-ECOSYSTEM_API-DESIGN-AND-IMPLEMENTATION-PRIMER.md`](JUNIPER_2026-08-13_JUNIPER-ECOSYSTEM_API-DESIGN-AND-IMPLEMENTATION-PRIMER.md)
 
 ---
@@ -58,8 +58,8 @@ Every `OPEN` in this document was confirmed by reading the file **today**. Line 
 | **Total**                   |    **7** |      **19** |     **18** |          **34** |     **18** | **96** |
 
 **Status:** the 96 entries above were all confirmed present in current source on 2026-08-14.
-**Twelve have since been fixed** — `APD-DATA-002`, `APD-DATA-006`, `APD-DATA-034`, `APD-DATA-036`, `APD-CASCOR-002`, (2026-08-16) `APD-DATA-001` † / `APD-CASCOR-004` †, and (2026-08-17) `APD-DATA-003` / `APD-CASCOR-006` † plus `APD-SVCCORE-003` / `APD-SVCCORE-010` / `APD-OBS-001` — leaving **84 open**; each is marked at its detail entry and in its §4 table row, and all twelve are recorded in [§5](#5-fixed-findings-before-and-since-the-primer) with their PR and verification.
-That closes every item in §2.2's ranked list **and every copy-drift row that had a reference implementation to port**.
+**Fifteen have since been fixed** — `APD-DATA-002`, `APD-DATA-006`, `APD-DATA-034`, `APD-DATA-036`, `APD-CASCOR-002`, (2026-08-16) `APD-DATA-001` † / `APD-CASCOR-004` †, (2026-08-17) `APD-DATA-003` / `APD-CASCOR-006` † plus `APD-SVCCORE-003` / `APD-SVCCORE-010` / `APD-OBS-001`, and (2026-08-20) `APD-DATA-035` † / `APD-CASCOR-001b` plus `APD-CASCOR-001a` — leaving **81 open**; each is marked at its detail entry and in its §4 table row, and all fifteen are recorded in [§5](#5-fixed-findings-before-and-since-the-primer) with their PR and verification.
+That closes every item in §2.2's ranked list **and every copy-drift row in §2.3** — the `OPTIONS`/CORS row was the last one open, and fixing it in both forks is what finally made it encodable as a drift gate.
 Three further findings were already fixed before this register was written and are likewise listed in §5 rather than counted in the 96: two between the primer's publication and this register, and one earlier still.
 No extracted claim failed to reproduce, but one claim reproduced with its provenance inverted — see `APD-SVCCORE-016`.
 
@@ -118,7 +118,7 @@ highest *potential* consequence in the register, and it is inert today only beca
 
 Fifteen entries share one shape: **a guard adopted in one copy of near-identical code and not in its siblings.** They are not all the same mechanism, and the distinction matters for what fixes them:
 
-**Copy drift** — a service maintains its own copy of shared code and misses a fix. A drift check against `juniper-service-core` would catch these. **All of this group is now closed**: every row below with a reference implementation to port has been ported and promoted to `ENFORCED`. The one row left open is the `OPTIONS` bypass, which is deliberately not encoded because it landed in *no* copy — there is nothing to derive a marker from.
+**Copy drift** — a service maintains its own copy of shared code and misses a fix. A drift check against `juniper-service-core` would catch these. **All of this group is now closed, and every row is encoded**: each has been ported (or, for the two rows with no shared implementation, fixed independently in both forks) and promoted to `ENFORCED`. The `OPTIONS`/CORS row was the last one open — it had landed in *no* copy, so there was nothing to derive a marker from until both forks were fixed.
 
 > **That drift check now exists**: `juniper-ml/tests/test_service_fork_drift.py`
 > ([juniper-ml#1103](https://github.com/pcalnon/juniper-ml/pull/1103)). It encodes this table as a
@@ -127,10 +127,13 @@ Fifteen entries share one shape: **a guard adopted in one copy of near-identical
 > `compare_digest` runs per key without a set-membership timing side-channel, where service-core uses
 > a `set`; a diff would bury the signal). It is **two-sided**: rows already fixed are `ENFORCED` and
 > must stay present, and rows still open are `KNOWN_GAP` and asserted to be still *absent*, so
-> closing one fails the gate and prompts promotion rather than letting the ledger rot. The
-> `OPTIONS` row is deliberately not encoded — it landed in no copy, so there is no reference
-> implementation to derive a marker from. The gate runs against sibling checkouts in
-> `docs-full-check.yml`.
+> closing one fails the gate and prompts promotion rather than letting the ledger rot. **No
+> `KNOWN_GAP` rows remain**; all six guards are `ENFORCED`. The last one promoted,
+> `cors-outside-auth`, needed a mechanism the others did not: its regression shape is two
+> `add_middleware` calls swapping places, so every marker is present either way and a presence-only
+> check would pass on the very defect it guards. That row is an **ordered** site — the markers must
+> appear in a declared sequence — with its own negative controls in the always-on structural class.
+> The gate runs against sibling checkouts in `docs-full-check.yml`.
 
 | Guard                                       | Landed in                                     | Missing from                                                                                                     | Gate                                |
 |---------------------------------------------|-----------------------------------------------|------------------------------------------------------------------------------------------------------------------|-------------------------------------|
@@ -138,7 +141,7 @@ Fifteen entries share one shape: **a guard adopted in one copy of near-identical
 | `Content-Length` parse guard (400, not 500) | `juniper-cascor`, `juniper-service-core`      | ~~`juniper-data`~~ — **fixed** (`APD-DATA-036`, data#261)                                                        | `ENFORCED`                          |
 | Blank-API-key filter                        | `juniper-service-core`                        | ~~`juniper-data`, `juniper-cascor`~~ — **both fixed** (`APD-DATA-003` data#267, `APD-CASCOR-006` † cascor#527)   | `ENFORCED`                          |
 | Pre-auth throttle (`juniper-ml#1082`) †     | `juniper-service-core`                        | ~~`juniper-data`, `juniper-cascor`~~ — **both fixed** (`APD-DATA-001` † data#266, `APD-CASCOR-004` † cascor#524) | `ENFORCED`                          |
-| `OPTIONS` bypass in the exempt check        | *(nowhere)*                                   | `juniper-cascor`, `juniper-data` (`APD-CASCOR-001b`, `APD-DATA-035` †)                                           | *(not encoded — no reference impl)* |
+| CORS outside auth (was: `OPTIONS` bypass)   | *(nowhere)*                                   | ~~`juniper-cascor`, `juniper-data`~~ — **both fixed** (`APD-CASCOR-001b` cascor#540, `APD-DATA-035` † data#273)   | `ENFORCED`                          |
 | Narrow serialisation-error handling         | *(nowhere)*                                   | ~~`juniper-cascor`, `juniper-data`~~ — **both fixed** (`APD-CASCOR-002` cascor#516, `APD-DATA-034` † data#262)   | `ENFORCED`                          |
 
 The pre-auth-throttle row is `†`: the pairing of the shared fix against the two unpatched copies is register-original, not a primer claim.
@@ -361,7 +364,7 @@ The containment the caveat above describes is now asserted locally instead of bo
 |                |                                                                                           |
 |----------------|-------------------------------------------------------------------------------------------|
 | **Severity**   | Maintainability                                                                           |
-| **Status**     | OPEN                                                                                      |
+| **Status**     | **FIXED** — [juniper-cascor#540](https://github.com/pcalnon/juniper-cascor/pull/540)      |
 | **Source**     | `juniper-cascor/src/api/app.py:644-646` (the comment); `:621` (CORS), `:630` (body limit) |
 | **Primer**     | Appendix A Q57 — lines 9592-9594                                                          |
 | **Confidence** | High                                                                                      |
@@ -372,6 +375,8 @@ The containment the caveat above describes is now asserted locally instead of bo
 
 **Fix.** A one-line comment edit. Split from `APD-CASCOR-001b` precisely because the fixes are disjoint: this one is a comment, that one changes request handling and needs tests.
 
+**Fixed together after all.** The split was sound as analysis but not as sequencing: `001b`'s fix *is* a reorder, and a reorder cannot land beside an ordering comment that the reorder has just made doubly wrong. Rewriting the comment was forced by the code change, so both closed in cascor#540. The same wrong comment existed verbatim in `juniper-data` — a sibling the register never recorded, because `APD-CASCOR-001a` was filed as cascor-only — and was corrected in data#273.
+
 ---
 
 ### APD-CASCOR-001b — CORS sits behind auth, so preflights are answered 401
@@ -379,7 +384,7 @@ The containment the caveat above describes is now asserted locally instead of bo
 |                |                                                                                                                                                        |
 |----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Severity**   | Correctness                                                                                                                                            |
-| **Status**     | OPEN                                                                                                                                                   |
+| **Status**     | **FIXED** — [juniper-cascor#540](https://github.com/pcalnon/juniper-cascor/pull/540); the juniper-data sibling `APD-DATA-035` † in [juniper-data#273](https://github.com/pcalnon/juniper-data/pull/273) |
 | **Source**     | `juniper-cascor/src/api/app.py:621` (CORS registered first → innermost), `:641` (`SecurityMiddleware`); `src/api/middleware.py:189-198` (`_is_exempt`) |
 | **Primer**     | Appendix A Q57 — lines 9592-9594                                                                                                                       |
 | **Confidence** | High                                                                                                                                                   |
@@ -389,6 +394,10 @@ The containment the caveat above describes is now asserted locally instead of bo
 **Impact.** A preflight to any non-exempt `/v1/*` path is answered 401 rather than with CORS headers, so browser clients on a configured origin cannot preflight authenticated endpoints — preflights carry no `X-API-Key` by specification.
 
 **Fix.** Either an `OPTIONS` bypass in `_is_exempt` or a middleware reorder. Both change request handling and need tests, which is why this is tracked separately from the comment fix. `APD-DATA-035` † is the same defect in `juniper-data`.
+
+**Fixed by the reorder, deliberately.** The two options are not equivalent. An `OPTIONS` bypass in `_is_exempt` exempts *every* `OPTIONS` request from auth **and** rate limiting; `CORSMiddleware` short-circuits only a genuine preflight — one carrying `Access-Control-Request-Method` — so a plain `OPTIONS` request still authenticates. Both forks now pin that distinction as a test in its own right, so the narrower surface cannot regress silently.
+
+**A second symptom, not recorded in the original entry:** with CORS innermost, an ordinary cross-origin request rejected by auth also returned **no** CORS headers, so a browser reported an opaque CORS failure instead of surfacing the 401. Running CORS outermost fixes both, which is likely why this was hard to diagnose from the client side. Verified before and after against the real app factories; mutation-tested (4 of 5 new arms fail against the unfixed ordering in each fork).
 
 ---
 
@@ -530,7 +539,7 @@ That is a stronger finding than a single stray hit would have been: the one pack
 | APD-DATA-032   | Access counters live in the representation, blocking a strong metadata `ETag`                                                          | E   | `core/models.py:84-85`, `api/routes/datasets.py:672`                     | 4247                  | Low  |
 | APD-DATA-033   | Rate-limit window is the one knob of three an operator cannot set                                                                      | E   | `api/app.py:123-126`, `api/settings.py:164-165`                          | 1380                  | Low  |
 | APD-DATA-034 † | **FIXED (#262)** — Blanket `ValueError` handler reports server faults as `400` — and no `coerce_native_scalars` equivalent exists here | C   | `api/app.py:152-158`                                                     | 9596 (cascor sibling) | High |
-| APD-DATA-035 † | CORS registered innermost → `SecurityMiddleware` 401s preflights; path-only `_is_exempt`                                               | C   | `api/app.py:104-138`, `api/middleware.py:152-160`                        | 9592 (cascor sibling) | High |
+| APD-DATA-035 † | **FIXED (#273)** — CORS registered innermost → `SecurityMiddleware` 401s preflights; path-only `_is_exempt`                            | C   | `api/app.py:104-138`, `api/middleware.py:152-160`                        | 9592 (cascor sibling) | High |
 | APD-DATA-036   | **FIXED (#261)** — Unguarded `int(content_length)` — `Content-Length: abc` is a 500, not a 400                                         | R   | `api/middleware.py:81`                                                   | 758                   | High |
 
 **`APD-DATA-005` cross-reference.** `APD-DATA-024` nullifies it further: because `openapi_url` is `None` whenever any API key is configured (`api/app.py:91`, `:99`), a secured deployment serves **no OpenAPI document at all** — so the missing `securitySchemes` block is unobservable exactly where it would matter. The severity is `M`, not `S`: there is no attacker and no gain, only an absent schema stanza. `api_key_header` is instantiated at `api/security.py:26` and referenced nowhere else in the repository.
@@ -581,8 +590,8 @@ Four carefully chosen, individually meaningful codes collapse into one opaque st
 |------------------|------------------------------------------------------------------------------------------------|-----|---------------------------------------------------------------|---------------------|------|
 | APD-CASCOR-004 † | **FIXED (#524)** — 401 path unthrottled — the `#1082` fix never reached this copy              | S   | `src/api/middleware.py:147-186`                               | 1058 (mechanism)    | High |
 | APD-CASCOR-006 † | **FIXED (#527)** — Blank API key enables auth that accepts an empty key — no `.strip()` filter | S   | `src/api/security.py:32-33`                                   | 1041 (data sibling) | High |
-| APD-CASCOR-001a  | Middleware order comment is wrong (omits `RequestBodyLimitMiddleware`)                         | M   | `src/api/app.py:644-646`, `:630`                              | 9592                | High |
-| APD-CASCOR-001b  | CORS innermost → `SecurityMiddleware` answers preflights 401                                   | C   | `src/api/app.py:621`, `:641`; `src/api/middleware.py:189-198` | 9592                | High |
+| APD-CASCOR-001a  | **FIXED (#540)** — Middleware order comment is wrong (omits `RequestBodyLimitMiddleware`)      | M   | `src/api/app.py:644-646`, `:630`                              | 9592                | High |
+| APD-CASCOR-001b  | **FIXED (#540)** — CORS innermost → `SecurityMiddleware` answers preflights 401                | C   | `src/api/app.py:621`, `:641`; `src/api/middleware.py:189-198` | 9592                | High |
 | APD-CASCOR-002   | **FIXED (#516)** — `ValueError` handler reclassifies serialisation faults as `400`             | C   | `src/api/app.py:678-684`                                      | 9596                | High |
 | APD-CASCOR-003   | 46 of 47 routes declare no `response_model`                                                    | M   | `src/api/routes/` (only `health.py:130`)                      | 7761                | High |
 | APD-CASCOR-005   | Key comparison short-circuits on match in 2 of 3 copies (see §3 assessment)                    | M   | `src/api/security.py:53`                                      | 1027-1029, 9463     | Low  |
@@ -679,7 +688,7 @@ Recorded so the register is not read as a list of live problems that includes re
 
 ### 5.1 Fixed since this register was published (2026-08-14)
 
-These twelve carry their **original IDs** — they were counted in the 96, and are marked `FIXED` in place at their §4 table row and detail entry rather than renumbered or removed, so a reader following an existing reference still lands on the right entry and sees why it is closed. Working the §2.2 list is what produced them, and it is now worked through: all four of its items are closed.
+These fifteen carry their **original IDs** — they were counted in the 96, and are marked `FIXED` in place at their §4 table row and detail entry rather than renumbered or removed, so a reader following an existing reference still lands on the right entry and sees why it is closed. Working the §2.2 list is what produced the first of them, and it is now worked through: all four of its items are closed. The §2.3 copy-drift list is now worked through too.
 
 | ID | Finding | Fixed by | Verification |
 | --- | --- | --- | --- |
@@ -697,10 +706,14 @@ These twelve carry their **original IDs** — they were counted in the 96, and a
 | APD-CASCOR-006 † | The same gap in juniper-cascor's copy | [juniper-cascor#527](https://github.com/pcalnon/juniper-cascor/pull/527) | Same fix; this fork already used a `set`, so the `security.py` line is byte-identical to the canonical service-core filter. 11 arms added, complementing the request-side coverage this fork already had (`test_validate_empty_string_key_is_invalid`) with the configuration side -- a blank key must never become a valid credential in the first place. The settings half was caught here by its own new test after a first pass updated only the docstring. |
 | APD-DATA-034 † | The same handler in juniper-data, which had **no** `coerce_native_scalars` equivalent | [juniper-data#262](https://github.com/pcalnon/juniper-data/pull/262) | Same narrowing. This was the worse of the two: with no helper standing in the way, every serialisation fault here was reported as a client error. Both fixes confirmed to bite by reverting them (`assert 400 == 500`). |
 | APD-CASCOR-004 † | The same gap in juniper-cascor's copy | [juniper-cascor#524](https://github.com/pcalnon/juniper-cascor/pull/524) | Same port, same shape, same mutation check. One pre-existing test needed isolating rather than weakening: `test_failed_auth_does_not_increment_rate_limit` fires **exactly** the default budget of 10 failed attempts and then asserts a valid key passes, so it now builds a generous throttle and keeps measuring the *identity-keyed limiter's* counters. That interaction is correct behaviour, not a regression — once an IP burns its failed-attempt budget it is throttled at the door regardless of the next credential, because `check()` necessarily precedes knowing the key is good. |
+| APD-DATA-035 † | CORS registered innermost, so `SecurityMiddleware` answered every browser preflight 401 | [juniper-data#273](https://github.com/pcalnon/juniper-data/pull/273) | Fixed by **reordering** the middleware — CORS registered last, so it executes outermost — not by an `OPTIONS` bypass in `_is_exempt`, which would have exempted every `OPTIONS` request from auth *and* rate limiting. CORS short-circuits only a genuine preflight (one carrying `Access-Control-Request-Method`), so a plain `OPTIONS` still authenticates; that distinction is pinned as its own test. Reproduced first: `OPTIONS /v1/generators` with a valid `Origin` returned 401 and no `Access-Control-Allow-Origin`. Negative control confirms the reorder did **not** widen the origin allowlist — a preflight from a disallowed origin still gets 400 with no ACAO. 5 arms added; mutation-tested, 4 of the 5 fail against the unfixed ordering (the fifth guards the OPTIONS-bypass alternative and holds either way, by design). |
+| APD-CASCOR-001b | The same defect in juniper-cascor's copy | [juniper-cascor#540](https://github.com/pcalnon/juniper-cascor/pull/540) | Same reorder, same five arms, same 4-of-5 mutation result, verified on the real non-exempt route `/v1/network/stats`. Both forks also gained a **second** fix the original entries did not name: with CORS innermost an ordinary cross-origin request rejected by auth carried no CORS headers either, so a browser saw an opaque CORS failure rather than the real 401. |
+| APD-CASCOR-001a | Middleware ordering comment omitted `RequestBodyLimitMiddleware` | [juniper-cascor#540](https://github.com/pcalnon/juniper-cascor/pull/540) | Folded into `001b` rather than shipped separately as the register anticipated: a reorder cannot land beside an ordering comment it has just made doubly wrong. The identical comment existed in `juniper-data` — an unrecorded sibling, since this ID was filed as cascor-only — and was corrected in data#273. Both repos' `AGENTS.md` middleware tables documented the old order and were corrected too. |
 
-The §2.3 copy-drift recommendation was built alongside them: `tests/test_service_fork_drift.py` ([juniper-ml#1103](https://github.com/pcalnon/juniper-ml/pull/1103)) now holds **all five** portable guards as `ENFORCED` so they cannot silently regress.
+The §2.3 copy-drift recommendation was built alongside them: `tests/test_service_fork_drift.py` ([juniper-ml#1103](https://github.com/pcalnon/juniper-ml/pull/1103)) now holds **all six** copy-drift guards as `ENFORCED` so they cannot silently regress — every row in §2.3's table.
 No `KNOWN_GAP` rows remain -- the ledger's self-maintaining half fired twice (throttle, then blank-key filter) and both times did exactly what it was built to do: fail on the fix and demand promotion.
 Promoting the `pre-auth-throttle` row exercised that mechanism end to end and exposed a limit worth carrying forward: a single name marker would have gone green on a bare `import`, so the promoted row asserts two markers — see the caveat under §2.3.
+The final row, `cors-outside-auth`, could not be expressed as markers at all. Its regression shape is two `add_middleware` calls **swapping places**, so both markers are present either way and any presence-only check would report SUCCESS on the exact defect it exists to catch — the vacuous-pass class. It is encoded instead as an **ordered** site: `RequestIdMiddleware` must be registered before `CORSMiddleware`, which is precisely "CORS is registered last, so it runs outermost". The ordering matcher carries its own negative controls, and both of them are killed by disabling the order check — deliberately placed in the always-on structural class, so they still run in `ci.yml` where the cross-repo arms skip.
 
 ### 5.2 Fixed before this register
 
