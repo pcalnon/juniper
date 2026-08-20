@@ -162,7 +162,11 @@ A deterministic secondary key (e.g. on `candidate_id`) engages **only on an exac
 differ anywhere below the primary key's resolution are already ordered by the primary key. No
 divergence observed here required an exact tie, so this fix would have prevented none of them.
 
-### 3.4 What is NOT established — the precision limit
+### 3.4 What is NOT established from shipped logs — the precision limit
+
+> **Resolved in §3.6 by an instrumented build.** The hypothesis raised here turned out to be
+> **wrong**, which is exactly why it was worth building the instrument rather than reasoning
+> further. Kept as written because the reasoning that motivated the instrument is the useful part.
 
 `CandidateUnit.train` logs its correlation with `:.6f` (`candidate_unit.py:670`). "Identical
 correlations" above therefore means **identical to six decimal places**, and in this cell that
@@ -202,6 +206,101 @@ the same inputs, to logged precision, and returned different correlations — th
 the worker side of that boundary, not in the parent's output-layer training.
 
 The same 6-dp caveat applies: identical printed loss does not prove identical weights.
+
+### 3.6 Resolved with exact floats — the near-tie hypothesis is refuted
+
+A diagnostic cascor build ([`2026-08-20_cascor_candidate_identity_diag.patch`](../util/ad-hoc/2026-08-20_cascor_candidate_identity_diag.patch))
+adds two INFO records: per candidate, its `candidate_index` with the **full-repr** correlation and
+epoch count; per installed unit, the iteration and `installed_index`. Eight CLI runs, read by
+[`2026-08-20_determinism_diag.py`](../util/ad-hoc/2026-08-20_determinism_diag.py):
+
+| over 105 pair-rounds, to first difference | count |
+| --- | ---: |
+| rounds identical (index→correlation map **and** installed index) | 92 |
+| **NEAR-TIE FLIP** (identical correlations, different unit installed) | **0** |
+| **JITTER** (same `candidate_index`, different correlation) | **13** |
+
+Rounds 0 and 1 are bit-identical in all eight runs — installed index `7` then `3`, at correlations
+`0.09118530330282648` and `0.07080879140992169` **to the last digit**. No ordering change occurs
+anywhere in the campaign.
+
+**Both of #532's original code leads are therefore dead**, on independent grounds: the arrival-order
+tie-break is exercised in 189/190 pairs without ever causing a divergence (§4.2b), and no exact or
+near tie is ever resolved differently.
+
+### 3.7 What actually varies — a shared input, not per-worker noise
+
+"Jitter" is too vague for what the DIAG records show. When round 2 first differs between two runs,
+**all 8 of 8 candidates differ** — they did not independently wobble, their common input changed.
+Tracing the boundary:
+
+| | run-1 | run-3 |
+| --- | --- | --- |
+| output pass feeding round 2 | `0.235021` | `0.235021` |
+| round-2 candidate `index=0` | `0.022853421257993008` (118 epochs) | `0.023402814673351112` (126 epochs) |
+| output pass **after** round 2 | `0.229579` | `0.228024` |
+
+So the perturbation is **below 6 dp when it enters the candidate pool** and plainly visible after
+it. The amplifier is candidate early stopping: the same candidate runs 118 epochs in one run and
+126 in the other, and a patience-based stop is a discontinuous function of a continuous quantity.
+
+That is the signature of a sub-precision difference in the **parent's** output-layer weights, not of
+arithmetic noise inside the workers.
+
+### 3.8 Thread count is NOT the driver — a hypothesis of this document, refuted
+
+An intervention arm at `OMP_/MKL_/OPENBLAS_NUM_THREADS=1`:
+
+| arm | correlation-fingerprint rate | 95% CI |
+| --- | ---: | --- |
+| CLI baseline (N=20) | 0.768 | [0.553, 0.847] |
+| CLI at `threads=1` (n=6) | **0.600** | [0.000, 0.800] |
+
+Capping BLAS to a single thread does not fix it, and the intervals overlap heavily — no thread
+effect is demonstrated.
+
+Recording this as a correction, because an earlier reading in this investigation went the other
+way. Eight historical cap-4 runs split 0/6 divergent pairs at bounded thread counts against 5/6 at
+unset, which looked like a clean modulation. It was four runs per group. §6's rule — *no small
+sample supports a mechanism claim on a ~50%-of-pairs effect* — applies to the analyst as readily as
+to anyone else, and #532's own body had already declined to claim a thread effect on the same data.
+
+The refutation is informative rather than merely negative: with MKL single-threaded, the remaining
+multithreading in the training path is the **parent's** ATen pool, which
+`torch.set_num_threads(max(2, worker_thread_count * 2))` floors at **2** and which no environment
+variable reaches.
+
+### 3.9 The cause — the two entry points run `fit()` on different threads
+
+One structural difference survives every check. The service executes training on a worker thread:
+
+```python
+self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="cascor-train")
+# api/lifecycle/manager.py:2237 — and then self.model.fit(...) at :2359
+```
+
+The direct CLI calls it inline, on the **main** thread (`main.py`, `sp.evaluate(...)`). Everything
+else matches: same commit, same materialised cell, same content-addressed dataset, same 7-process
+candidate pool, same (unset) BLAS environment.
+
+This is a plausible cause rather than a coincidence. OpenMP's `nthreads-var` is a **per-thread**
+internal control variable, and `torch.set_num_threads()` sets it for the *calling* thread. A `fit()`
+running on a different thread from the one that configured the pool therefore meets parallel regions
+under a different thread count than the main-thread path does — which changes how reductions are
+split, and hence their floating-point accumulation order.
+
+**Tested directly.** A second diagnostic build
+([`2026-08-20_cascor_thread_context_diag.patch`](../util/ad-hoc/2026-08-20_cascor_thread_context_diag.patch))
+wraps the CLI's `sp.evaluate(...)` in the same executor shape and changes nothing else:
+
+| CLI arm | runs | pairs | divergent (trace / correlations) | rate |
+| --- | ---: | ---: | ---: | ---: |
+| baseline — `fit()` on the main thread | 20 | 190 | 120 / **146** | **0.768** |
+| probe — `fit()` on a pool thread | 6 | 15 | 0 / **0** | **0.000** |
+
+Identical candidate work in every probe run (10,960 epochs, `sd = 0`), one distinct outcome, and
+**no wall-clock cost** — 284.3 ± 5.9 s against the baseline's 280.8 ± 14.7 s. The N=20 confirmation
+required by the exit condition is reported in §4.5.
 
 ---
 
