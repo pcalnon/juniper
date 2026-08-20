@@ -13,7 +13,14 @@ execution:
   mode: sequential
   max_parallel: 1
   continue_on_failure: true
-  per_run_timeout_seconds: 3600
+  # 3600 -> 7200. This is run_suite's SUBPROCESS ceiling, not a budget: at exactly 3600 it tied
+  # spiral-baseline's outputs.max_wall_seconds (:61), and a tie is a loss — the driver must
+  # survive its own deadline long enough to write a manifest, so a simultaneous subprocess kill
+  # records `timed_out` with exit_code null and NO manifest at all, destroying the evidence
+  # rather than degrading it. 7200 is what the P4 form of this suite
+  # (p4/e-a-cascor-budget-sweep.yaml:20) uses against the same base. The DRIVER must be what
+  # stops a run — see p4/e-j-h2h-wide-cap64.yaml:73-75.
+  per_run_timeout_seconds: 7200
   # The Q-2 stall detector watches current_epoch, which advances only during OUTPUT-layer
   # training — nothing is reported while the CANDIDATE pool trains. Every pool >= 16 cell
   # therefore reads as `stalled` at ~130 s against the 120 s driver default while healthy;

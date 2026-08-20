@@ -66,6 +66,15 @@ class ForkSite:
     repo: str
     path: str
     markers: tuple[str, ...]
+    #: When True, the markers must also appear in this ORDER in the source.
+    #:
+    #: Some guards are an ordering, not a token. Middleware registration is the
+    #: case in hand: Starlette's ``add_middleware`` prepends, so the layer
+    #: registered LAST executes OUTERMOST. "CORS runs outside auth" is therefore
+    #: a statement about where two ``add_middleware`` calls sit relative to each
+    #: other, and substring presence cannot express it -- both calls are present
+    #: either way. First-occurrence order can.
+    ordered: bool = False
 
 
 @dataclass(frozen=True)
@@ -159,22 +168,61 @@ GUARDS: tuple[Guard, ...] = (
             ForkSite("juniper-cascor", _CASCOR_MIDDLEWARE, ("FailedAuthThrottle", "record_failure")),
         ),
     ),
+    Guard(
+        guard_id="cors-outside-auth",
+        summary=("CORS must execute OUTSIDE SecurityMiddleware. add_middleware prepends, so the LAST registration runs outermost -- registering CORS first put auth in front of it and every browser preflight to a non-exempt path was answered 401. A preflight carries no X-API-Key by construction, so no browser client on a configured origin could reach a protected endpoint at all."),
+        register_ids=("APD-CASCOR-001b", "APD-DATA-035"),
+        status=ENFORCED,
+        canonical="(no shared implementation -- both services fixed independently)",
+        sites=(
+            # An ORDERED pair, and it has to be: both markers are present whether
+            # or not the guard holds, because the bug was never a missing call --
+            # it was the same two calls in the wrong sequence. Requiring
+            # ``RequestIdMiddleware`` to be registered BEFORE ``CORSMiddleware``
+            # is exactly the invariant "CORS is registered last, so it runs
+            # outermost". A plain presence marker here would be vacuous.
+            #
+            # ``CORSMiddleware,`` (with the comma) matches the add_middleware
+            # argument and not the import line, which has no trailing comma.
+            ForkSite("juniper-data", _DATA_APP, ("app.add_middleware(RequestIdMiddleware)", "CORSMiddleware,"), ordered=True),
+            ForkSite("juniper-cascor", _CASCOR_APP, ("app.add_middleware(RequestIdMiddleware)", "CORSMiddleware,"), ordered=True),
+        ),
+    ),
 )
 
-# Register §2.3 also lists an "OPTIONS bypass in the exempt check" row. It is
-# deliberately NOT encoded here: it landed in *no* copy, so there is no reference
-# implementation to derive a marker from, and a marker invented here would assert
-# a shape nobody has agreed to. It stays tracked in the register
-# (APD-CASCOR-001b / APD-DATA-035) until one copy establishes the pattern.
+# Register §2.3's "OPTIONS bypass in the exempt check" row is the guard above.
+# It was tracked unencoded while it had landed in *no* copy -- there was no
+# reference implementation to derive a marker from. juniper-data#273 and
+# juniper-cascor#540 fixed both copies (by reordering the middleware rather than
+# adding an OPTIONS bypass, which would have exempted every OPTIONS request from
+# auth), which is what made the pattern encodable.
+
+
+def markers_out_of_order(source: str, site: ForkSite) -> list[str]:
+    """Return the markers that break ``site``'s declared order, else ``[]``.
+
+    Only meaningful for ``ordered`` sites. Absence is *not* reported here: a
+    missing marker is a different failure with a different message, and folding
+    the two together would blame a reorder for a deletion.
+    """
+    if not site.ordered:
+        return []
+    positions = [source.find(marker) for marker in site.markers]
+    if any(position < 0 for position in positions):
+        return []
+    return [site.markers[i] for i in range(1, len(positions)) if positions[i] < positions[i - 1]]
 
 
 def guard_is_present(source: str, site: ForkSite) -> bool:
     """Return True when every marker for ``site`` appears in ``source``.
 
     All markers must be present: a guard that needs two cooperating pieces (the
-    stream read *and* the method gate) is not implemented by either alone.
+    stream read *and* the method gate) is not implemented by either alone. For
+    an ``ordered`` site they must additionally appear in the declared order.
     """
-    return all(marker in source for marker in site.markers)
+    if not all(marker in source for marker in site.markers):
+        return False
+    return not markers_out_of_order(source, site)
 
 
 def _find_ecosystem_root(juniper_ml_root: Path) -> Path | None:
@@ -216,6 +264,8 @@ class GuardRegistryStructureTest(unittest.TestCase):
                     self.assertTrue(site.markers, "a site with no markers always passes")
                     for marker in site.markers:
                         self.assertTrue(marker.strip(), "an empty marker matches everything")
+                    if site.ordered:
+                        self.assertGreaterEqual(len(site.markers), 2, "an ordered site needs two markers; one can never be out of order, so the flag would be decorative")
 
     def test_register_ids_look_like_register_ids(self):
         for guard in GUARDS:
@@ -229,6 +279,28 @@ class GuardRegistryStructureTest(unittest.TestCase):
         self.assertTrue(guard_is_present("alpha and beta", site))
         self.assertFalse(guard_is_present("alpha only", site))
         self.assertFalse(guard_is_present("", site))
+
+    def test_ordered_matcher_requires_the_declared_order(self):
+        """Negative control: for an ordered site, presence alone must not pass.
+
+        This is the whole point of the flag. ``cors-outside-auth`` regresses by
+        the markers SWAPPING, never by one going missing, so a matcher that only
+        counted presence would report SUCCESS on the defect it exists to catch.
+        """
+        ordered = ForkSite("juniper-data", "x.py", ("alpha", "beta"), ordered=True)
+        self.assertTrue(guard_is_present("alpha then beta", ordered))
+        self.assertFalse(guard_is_present("beta then alpha", ordered))
+        self.assertFalse(guard_is_present("alpha only", ordered))
+
+        # The flag is opt-in: an unordered site keeps matching either sequence.
+        unordered = ForkSite("juniper-data", "x.py", ("alpha", "beta"))
+        self.assertTrue(guard_is_present("beta then alpha", unordered))
+
+    def test_out_of_order_report_does_not_double_report_absence(self):
+        """A missing marker is a deletion, not a reorder; the messages differ."""
+        ordered = ForkSite("juniper-data", "x.py", ("alpha", "beta"), ordered=True)
+        self.assertEqual(markers_out_of_order("alpha only", ordered), [])
+        self.assertEqual(markers_out_of_order("beta then alpha", ordered), ["beta"])
 
 
 class ServiceForkDriftTest(unittest.TestCase):
@@ -271,6 +343,11 @@ class ServiceForkDriftTest(unittest.TestCase):
                     self.assertFalse(
                         missing,
                         f"Guard '{guard.guard_id}' is missing from {site.repo}/{site.path} " f"(absent markers: {missing}). This guard is ENFORCED because it was " f"already fixed there; its disappearance is a regression of " f"{', '.join(guard.register_ids)}. Canonical implementation: {guard.canonical}. " f"What it protects: {guard.summary}",
+                    )
+                    disordered = markers_out_of_order(source, site)
+                    self.assertFalse(
+                        disordered,
+                        f"Guard '{guard.guard_id}' has all its markers in {site.repo}/{site.path} " f"but in the WRONG ORDER (first out of place: {disordered}). For an ordered " f"site the sequence IS the guard -- every marker being present proves nothing. " f"This is a regression of {', '.join(guard.register_ids)}. " f"What it protects: {guard.summary}",
                     )
 
     def test_known_gaps_are_still_open_or_get_promoted(self):
