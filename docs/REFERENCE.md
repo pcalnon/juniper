@@ -1370,6 +1370,207 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 
 ---
 
+## Repository Structure Reference
+
+Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it is read on demand rather than loaded into every session.
+
+```bash
+juniper-ml/
+├── AGENTS.md                  # This file (CLAUDE.md is a symlink to this)
+├── CHANGELOG.md               # Version history (Keep a Changelog format)
+├── LICENSE                    # MIT License
+├── MANIFEST.in                # Source distribution includes
+├── README.md                  # PyPI landing page content
+├── pyproject.toml             # Package metadata, version, dependency extras
+├── claudey                    # Symlink -> scripts/claude_interactive.bash
+│
+├── .claude/                   # Custom-agent suite surface (git-tracked via .gitignore negation; design D-6)
+│   ├── agents/
+│   │   ├── prompt-validator.md  # PR 3: headless validator subagent (applies RUBRIC R1-R5 -> pinned typed JSON verdict)
+│   │   ├── planner.md           # Round-2: Planning subagent -> design/plan/analysis doc in notes/ (read-heavy + Write)
+│   │   ├── auditor.md           # Round-2: Audit subagent -> findings report in notes/ (read-heavy + WebFetch + Write)
+│   │   ├── mock-seam-auditor.md # E-5: read-only masked-seam hunter (autouse/session mocks of an integration boundary)
+│   │   ├── task-executor.md     # Round-2: Task subagent -> code changes via PR (worktree isolation; may fan out)
+│   │   └── fleet-supervisor.md  # Flood §4 item 7: read-only open-PR-set triage (predicted-merge via util/fleet_triage; cluster/order/dup; never pushes)
+│   └── skills/
+│       └── template-agent/SKILL.md  # PR 5: interactive orchestrator Skill (bounded state machine; opus + effort max)
+│
+├── .github/
+│   ├── CODEOWNERS             # Code ownership (@pcalnon)
+│   ├── dependabot.yml         # Automated dependency updates (pip + actions)
+│   └── workflows/
+│       ├── ci.yml             # Main CI pipeline (pre-commit, tests, build, docs, security)
+│       ├── main-verify.yml    # Post-merge main verification (G3: symbol/docs-loss screen + gated battery + notify)
+│       ├── publish.yml        # PyPI publishing (TestPyPI + PyPI, OIDC)
+│       ├── docs-full-check.yml# Weekly full documentation link validation (cross-repo; ECOSYSTEM_REPOS clone list)
+│       ├── security-scan.yml  # Weekly pip-audit --strict security scanning
+│       ├── lockfile-update.yml# Weekly juniper-generate-dep-docs -> chore/lockfile-update PR
+│       ├── ci-*.yml           # Six shared sub-package CIs (ci-tools/config-tools/doc-tools/model-core/observability/service-core)
+│       ├── publish-*.yml      # Six shared sub-package PyPI publishers (Release-tag-prefix guarded)
+│       ├── release-train.yml  # Daily PyPI release-train detection (report-only, Phase 1)
+│       └── claude.yml         # Claude Code action for issue/PR automation
+│
+├── .serena/                   # Serena code agent integration config
+│   └── project.yml            # Project: juniper_ml, language: python
+│
+├── juniper-ci-tools/          # Published sub-package: dependency-docs generator (juniper-generate-dep-docs)
+├── juniper-config-tools/      # Published sub-package: env-prefix migration helpers (stdlib-only)
+├── juniper-doc-tools/         # Published sub-package: markdown link validator (juniper-check-doc-links)
+├── juniper-model-core/        # Published sub-package: model-core conformance kit + crossval layer
+├── juniper-observability/     # Published sub-package: shared prometheus/middleware/logging helpers
+├── juniper-service-core/      # Published sub-package: shared FastAPI service-tier primitives
+│
+├── docs/                      # User-facing documentation
+│   ├── DOCUMENTATION_OVERVIEW.md         # Navigation index for all docs
+│   ├── QUICK_START.md                    # Installation and verification guide
+│   ├── REFERENCE.md                      # Extras, compatibility, env vars, service ports
+│   └── DEVELOPER_CHEATSHEET_JUNIPER-ML.md# Quick-reference card for development tasks
+│
+├── conf/                      # Project configuration files
+├── images/                    # Project branding (logos v0-v9 in PNG/XCF/ICO, tree photos)
+├── logs/                      # Runtime log output (.gitkeep)
+├── papers/                    # Research papers and references
+├── reports/                   # Per-run evidence artifacts (e2e/<RUN_ID>/statuses.tsv — canopy E2E arc verdicts)
+├── resources/                 # External resources (AppImages, etc.)
+│
+├── notes/                     # Development notes, plans, and procedures
+│   ├── JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md       # Worktree creation procedure
+│   ├── JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md  # Worktree cleanup procedure (CWD-safe)
+│   ├── JUNIPER_2026-02-23_JUNIPER-ML_THREAD-HANDOFF-PROCEDURE.md       # Thread handoff protocol
+│   ├── JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md              # Secrets encryption guide
+│   ├── backups/               # Backup analysis/plan documents
+│   ├── concurrency/           # Concurrency-related handoff notes
+│   ├── development/           # Development analysis documents
+│   ├── documentation/         # Documentation audit plans
+│   ├── history/               # Historical plans and procedures
+│   ├── proposals/             # Research proposals
+│   ├── pull_requests/         # PR description archives
+│   └── templates/             # Document templates (roadmap, issue, PR, release notes)
+│
+├── prompts/                   # Claude Code session prompts (chronological archive)
+│   ├── agent_templates/       # Custom-agent prompt templates: manifest.yaml + generic.md + RUBRIC (drift-linted)
+│   │   └── data/              # PR 6b: data layer (standing_rules/anti_hallucination/conventions/ecosystem/known_misses .yaml)
+│   └── generated/             # PR 5: emission target for /template-agent output (.gitkeep)
+│
+├── scripts/                   # Claude Code launcher and test scripts
+│   ├── wake_the_claude.bash              # Core launcher: flag parsing, session persistence, resume
+│   ├── claude_interactive.bash           # Interactive Claude Code agent launcher
+│   ├── default_interactive_session_claude_code.bash  # Config template for interactive sessions
+│   ├── activate_conda_env.bash           # Conda environment management
+│   ├── resume_session.bash               # Session resume convenience wrapper
+│   ├── cleanup_session_worktrees.py      # Bulk-clean Claude Code session worktrees in .claude/worktrees/
+│   ├── test.bash                         # End-to-end test harness for launcher flows
+│   ├── test_resume_file_safety.bash      # Regression: invalid --resume input safety
+│   ├── test_prompt-*.md                  # Test prompt files for launcher testing
+│   ├── sessions/                         # Session ID storage (.gitkeep)
+│   └── backups/                          # Backup copies of older script versions
+│
+├── tests/                     # Regression test suites (Python unittest)
+│   ├── test_wake_the_claude.py           # Launcher script regression (1470 lines)
+│   ├── redacted_env.py                   # RedactedEnv helper: subprocess env mapping with masked repr (secret-leak class)
+│   ├── test_env_repr_safety.py           # Lint gate: no raw os.environ-derived subprocess env in tests/ + RedactedEnv behaviour
+│   ├── test_worktree_cleanup.py          # Worktree cleanup script tests (225 lines)
+│   ├── test_worktree_sweep_scripts.py    # Ad-hoc sweep script safety/contract tests
+│   ├── test_cleanup_session_worktrees.py # Session .claude/worktrees cleaner (merged-PR fail-closed + dry-run)
+│   ├── test_reap_pytest_orphans.py       # Orphan pytest process reaper tests
+│   ├── test_kill_helpers.py              # Emergency kill helpers: process-filter / kill-path (hermetic PATH stubs)
+│   ├── test_check_conda_env_torch.py     # Hermetic P-5 torch._C shadow diagnostic exit matrix (0/1/2/3/4)
+│   ├── test_requirements_drift_check.py  # Requirements snapshot drift checker tests
+│   ├── test_editable_install_drift_check.py # Editable-install drift checker tests (orphaned / worktree-pinned)
+│   ├── test_env_floor_drift_check.py     # Lint/behavioural: util/env_floor_drift_check.py floor-drift (I-2; synthetic dist-info)
+│   ├── test_prompt_discovery.py          # Behavioural: util/prompt_discovery/ grounding-bundle (schema + provenance + cold/empty)
+│   ├── test_symbol_overlay.py            # Serena symbol overlay (OQ-8) deterministic merge (Serena wins, grep fallback)
+│   ├── test_generated_prompt_index.py    # Behavioural: util/generated_prompt_index.py index + safety-gated prune/archive (P4)
+│   ├── test_thread_handoff_archive.py    # Drift: archived handoff prompt filenames + top-level note references
+│   ├── test_install_agents.py            # Behavioural: util/install_agents.bash ~/.claude mirror (idempotent/reversible/dry-run/no-clobber)
+│   ├── test_agent_suite_doctor.py        # Behavioural: util/agent_suite_doctor.py suite health check (dogfood; consumes every layer)
+│   ├── test_agent_suite_summary.py       # Behavioural: util/agent_suite_summary.py suite quick-reference (P3)
+│   ├── test_predict_merge.py             # Behavioural: util/fleet_triage/predict_merge.py predicted-merge (4 verdicts, TRUE-delta, cluster/order, no-mutate, exit codes; hermetic)
+│   ├── test_fleet_supervisor_contract.py # Lint: fleet-supervisor subagent frontmatter + body wiring (predict_merge.py, 4 verdicts, read-only/never-push, two-key DUP-CLOSE)
+│   ├── test_workflow_script_paths.py     # Lint: every .github/workflows/*.yml script path exists
+│   ├── test_doc_tools_drift.py           # Lint: consumer-repo juniper-doc-tools pins still admit current version (plan §5.1)
+│   ├── test_service_fork_drift.py        # Drift gate: security guards that must not diverge across the data/cascor service-core forks (register §2.3; ENFORCED + self-maintaining KNOWN_GAP ledger)
+│   ├── test_publish_env_policy_drift.py  # Drift gate: publish envs stay tag-only ref-gated (publish-path design §6/§12); settings-not-code, so nothing else would notice a deletion
+│   ├── test_assert_release_tag.py        # Behavioural + wiring: util/assert_release_tag.bash (P3) — tag-shape + tag<->built-wheel version, and that all 7 publishers invoke it with the right prefix
+│   ├── test_pyproject_extras.py          # Lint: pyproject [project.optional-dependencies] surface matches the contract
+│   ├── test_template_library_drift.py    # Lint: custom-agent template library (prompts/agent_templates/) manifest <-> templates
+│   ├── test_template_selection.py        # Lint: custom-agent template match_signals selection coherence
+│   ├── test_template_select_preview.py   # Behavioural: util/template_select_preview.py offline match_signals selector (P2)
+│   ├── test_template_data_resolver.py    # Tests + drift gate: data layer (prompts/agent_templates/data/) + resolver
+│   ├── test_scaffold_template.py         # Behavioural: util/scaffold_template.py new-template generator (P5; drift-compliant output)
+│   ├── test_open_signed_pr.py            # Behavioural: util/open_signed_pr.py signed cross-repo PR opener (hermetic gh stub; dry-run/dup-guard/refs-ref=/deletions)
+│   ├── test_wait_for_checks.py           # Behavioural: util/wait_for_checks.py required-context CI waiter (hermetic scripted-gh stub; positive-terminal, growing-rollup + observed-anchor negative control, absent-vs-running, hard-error, read-only)
+│   ├── test_experiment_stack_script.py   # Contract + behavioural: util/experiment_stack.bash per-run launcher (§6.1 recipes, §6.4 RUN_DIR, §7.2 target file, §9.3 ranges, F-6 listener pid, dry-run + teardown; hermetic)
+│   ├── test_run_suite.py                 # Behavioural: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume, both Q-2 budget flags; hermetic)
+│   ├── test_list_runs.py                 # Behavioural: util/experiments/list_runs.py lister/pruner (state classification, --older-than, prune safety gates; hermetic RUN_ROOT fixtures)
+│   ├── test_run_experiment.py            # Behavioural: util/experiments/run_experiment.py cascor + recurrence driver (§6.3 drive loops, Q-2 stall/budget, F-1 redirect sampling, G-6 staging, §5.5 blocks + G-18 save_model, §8.1/§8.2 plot sets, §8.3 stats/summary, §13.4 manifest, exit matrix 0-4; hermetic stub HTTP)
+│   ├── test_experiment_config_schemas.py # Drift gate (Wave 3.5): sibling conf/experiments/*.yaml ↔ driver load_config + AST-extracted app Settings fields (CI/force-local gated; always-on extractor self-check)
+│   ├── test_experiment_suite_yamls.py    # Drift gate (R-6): every util/experiments/suites/**/*.yaml passes run_suite.load_suite + oversize cascor suites (pool >= 16 OR cap >= 64) declare execution.stall_seconds (ml#1069) + wide-cap suites pin a wall budget; anti-resurrection for the ad-hoc stall shim
+│   ├── test_prompt_validator_contract.py # Lint: prompt-validator subagent frontmatter + pinned verdict schema/fixtures
+│   ├── test_template_agent_skill_lint.py # Lint: template-agent Skill frontmatter + wiring to real artifacts (PR 5)
+│   ├── test_service_smoke_skill_lint.py  # Lint: service-smoke Skill frontmatter (declared browser MCP for opt-in --ui, NO Agent) + teardown wiring (E-1 Stage 1/2)
+│   ├── test_ui_test_author_skill_lint.py # Lint: ui-test-author Skill frontmatter (Write + declared browser MCP, NO Agent) + models canopy src/tests/ui/ + teardown (E-6)
+│   ├── test_agents_frontmatter.py        # Lint: every .claude/agents/*.md honours the suite frontmatter contract (opus+max)
+│   ├── test_agents_md_version_drift.py   # Lint: AGENTS.md **Version** header matches pyproject.toml [project].version
+│   ├── test_agents_md_header_schema.py   # Lint: AGENTS.md canonical header schema (6 required fields, ISO date format)
+│   ├── test_agents_md_tree_drift.py       # Lint: every tracked top-level dir appears in the Repository-Structure tree (G-3)
+│   ├── test_coverage_gap_mapper_drift.py  # Dogfood/drift (E-4): juniper-coverage-gap-map console script registered + version/pin coherent (ci-tools)
+│   ├── test_env_drift_check_drift.py      # Dogfood/drift (§10.1): juniper-env-drift-check entry point registered + every cli*.py wired (0.5.1 #580-clobber guard)
+│   ├── test_release_train_registry.py    # Lint + drift gate: util/release_train/registry.yaml (18 packages/8 repos/enums) <-> pyproject resolution (plan §4.1) + the ml#701 static-package pyproject==dunder lockstep gate
+│   ├── test_release_train_detect.py      # Behavioural: util/release_train/detect.py detection engine (classifications, substantive-hunk, SemVer, exit codes; hermetic)
+│   ├── test_release_train_propose.py     # Behavioural: util/release_train/{propose,notes_render}.py proposal-PR generator (dry-run bump+CHANGELOG move+notes, dup-guard, conflict refusal; hermetic) (plan §5.4)
+│   ├── test_release_train_archive_guard.py # Behavioural: util/release_train/archive_guard.py exempt notes-archive structural guard (add-only/path-confined/name-valid/single-purpose; SKIP for non-archive; hermetic) (plan §7.2 / step 3.1)
+│   ├── test_release_train_ceremony.py    # Behavioural: util/release_train/ceremony.py exempt-archive + Release ceremony (§8 HALTs, happy-path, signed-archive HALT/parse edges, dup-guard/idempotent, R7 gh-surface, dry-run; hermetic) (plan §7/§8/§9.3 / step 3.2)
+│   └── fixtures/
+│       └── prompt_validator/             # PR 3: verdict.schema.json + verdict.sample.{pass,fail}.json (validator contr
+│   # Doc-link validator regression tests moved to juniper-doc-tools/tests/
+│   # (Wave 4 of the doc-link migration plan; published under the dedicated
+│   #  juniper-doc-tools PyPI package).
+│
+└── util/                      # Utility scripts and tools
+    ├── ad-hoc/                           # Single-use / temporary / unfinished scripts (see ad-hoc/README.md)
+    ├── assert_release_tag.bash            # Publish guard (P3): ref must be a TAG, and the tag's version must match the wheel actually built
+    ├── open_signed_pr.py                  # Cross-repo: open a PR on any Juniper repo with a GitHub-SIGNED commit (createCommitOnBranch)
+    ├── wait_for_checks.py                  # Cross-repo: wait for a PR's REQUIRED status checks (ruleset-anchored) to finish; read-only, exit 0/1/2/3
+    ├── requirements_drift_check.py       # Drift checker for the requirements snapshot (--mode quick)
+    ├── editable_install_drift_check.py   # Drift checker for juniper editable installs across conda envs
+    ├── env_floor_drift_check.py          # Floor-drift checker: installed juniper-* vs target-repo pyproject floors (I-2)
+    ├── release_train/                     # PyPI release-train: registry.yaml (18-package registry) + detect.py (report-only "needs deploy?" engine, Phase 1) + propose.py/notes_render.py (manifest -> proposal-PR content, dry-run, Phase 2.1) + archive_guard.py (exempt notes-archive PR structural guard, Phase 3.1) + ceremony.py (exempt-archive + Release ceremony, dry-run, Phase 3.2)
+    ├── prompt_discovery/                  # Custom-agent suite (PR 4): env-discovery probes -> JSON grounding bundle (path-invoked, --repo-root)
+    ├── fleet_triage/                      # Flood §4 item 7 (Stage-0 supervisor script layer): predict_merge.py -- detached-clone predicted-merge per PR (4 verdicts, TRUE delta, cluster map + order; delegates the 2 screens to juniper-ci-tools console scripts); --pr N | --batch, exit 0/2
+    ├── generated_prompt_index.py         # Custom-agent suite (P4): index + safety-gated prune of prompts/generated/
+    ├── template_data_resolver.py         # Custom-agent suite (PR 6b): loads prompts/agent_templates/data/*.yaml (data-layer resolver)
+    ├── template_select_preview.py        # Custom-agent suite (P2): offline preview of the Template Agent's match_signals selection
+    ├── install_agents.bash               # Custom-agent suite (PR 6a): mirror .claude/{agents,skills} -> ~/.claude (idempotent, reversible)
+    ├── scaffold_template.py              # Custom-agent suite (P5): generate a new prompts/agent_templates/ template + manifest stanza
+    ├── agent_suite_doctor.py             # Custom-agent suite: read-only health check (dogfood; OK/WARN/FAIL over every layer)
+    ├── agent_suite_summary.py            # Custom-agent suite (P3): quick-reference listing of agents + templates
+    ├── worktree_cleanup.bash             # V2 cleanup orchestrator (CWD-safe)
+    ├── worktree_new.bash                 # Creates new git worktree
+    ├── worktree_activate.bash            # Bash helper for worktree activation
+    ├── worktree_close.bash               # Removes a worktree, branch, and prunes
+    ├── worktree_wipeout.bash             # Bulk removal by pattern
+    ├── remove_stale_worktrees.bash       # Removes all stale worktrees
+    ├── cleanup_open_worktrees.bash       # Removes all active worktrees
+    ├── prune_git_branches_without_working_dirs.bash  # Branch hygiene
+    ├── juniper_plant_all.bash            # Starts all Juniper ecosystem services
+    ├── juniper_chop_all.bash             # Stops all Juniper ecosystem services
+    ├── isolated_stack.bash               # Isolated training-runtime E2E trio (data 8101 / cascor 8202 / canopy 8051): --up/--down/--status/--dry-run
+    ├── experiment_stack.bash             # Per-run experiment launcher (data 8110-8139 / cascor 8230-8259 / recurrence 8260-8289): --up/--down/--status/--dry-run
+    ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py single-run cascor + recurrence driver (§6.3) + plots_cascor.py / plots_recurrence.py (§8.1 + §8.2 plot sets; 2.5 closes G-5) + stats_summary.py (§8.3 stats.json + summary.md) + list_runs.py (Wave 7.2: safety-gated lister/pruner) + run_suite.py + suites/ (Waves 7.1+7.5: suite driver — matrix expansion, per-cell up→drive→down, registry/index/aggregate; parallel + H-11 split, cascor refused per Q-6)
+    ├── get_cascor_status.bash            # GET /v1/training/status
+    ├── get_cascor_metrics.bash           # GET /v1/metrics
+    ├── get_cascor_history.bash           # GET /v1/metrics/history?count=10
+    ├── get_cascor_history-plus.bash      # GET /v1/metrics/history?count=100
+    ├── get_cascor_network.bash           # GET /v1/network
+    ├── get_cascor_topology.bash          # GET /v1/network/topology
+    ├── kill_all_pythons.bash             # Emergency Python process terminator
+    ├── search_file_in_all_repos_and_worktrees.bash   # Cross-repo file search
+    └── global_text_replace.bash          # Batch sed find-and-replace
+```
+
+---
+
 ## Post-Merge Main Verification
 
 `.github/workflows/main-verify.yml` is the bypass-proof compositional-loss net (flood-remediation P2 gate G3). It runs on every `push` to `main` (plus `workflow_dispatch`) so a merge that skipped or greenwashed per-PR checks still gets screened after it lands. Design notes: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 item 8.
