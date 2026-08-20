@@ -351,6 +351,12 @@ Two things make this stronger than the count alone:
    a fresh fit — on a grow pass the output parameter space changes every call, so the adopt branch
    never fires.
 
+**And it is the cleanest available refutation of the tie-break lead.** Localising the service arm
+returns `190 / 190 pairs agree` — alongside `pool reordered, same corrs: 190`. In other words the
+candidate pool completed in a **different order in every single pair** of an arm that is
+*perfectly* reproducible. Arrival order varies constantly and changes nothing; a defect that
+tracked it would have shown up here first.
+
 **This retires the withdrawn claim properly.** *"The service is deterministic"* was asserted on two
 agreeing runs and correctly withdrawn as unsupported against a ~50%-of-pairs effect. At 190 pairs on
 two independent fingerprints it is now supported — for this cell, this cap, this seed, this host.
