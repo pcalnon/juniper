@@ -207,13 +207,77 @@ The same 6-dp caveat applies: identical printed loss does not prove identical we
 
 ## 4. Results
 
-<!-- RESULTS PENDING — the N=20 campaign is in flight. -->
+Suite `e-l-determinism-cap4-20260820T080932Z`, 20/20 cells `succeeded`. Direct-CLI arm under
+`~/.local/state/juniper-experiments/determinism-n20/cli-*`, one stack
+(`20260820T100406Z-d4da`, `DATA_URL` verified against that run's own `ports.json` before the arm
+proceeded). All cells resolved the same content-addressed dataset
+`spiral-1.0.0-cc74e49e366cfc9f`.
 
-### 4.1 Service arm (N=20)
+### 4.1 Service arm — deterministic, 0 / 190 pairs
+
+| statistic | trace fingerprint | correlation fingerprint |
+| --- | --- | --- |
+| runs | 20 | 20 |
+| pairs | 190 | 190 |
+| **divergent pairs** | **0** | **0** |
+| rate (95% CI, run-level bootstrap) | 0.000 [0.000, 0.000] | 0.000 [0.000, 0.000] |
+| distinct outcomes | **1** | **1** |
+
+Every one of the 20 runs produced the identical trajectory:
+
+```
+Iteration 0 - Train Loss: 0.239994, Train Accuracy: 0.6088, Early stop: False
+Iteration 1 - Train Loss: 0.239165, Train Accuracy: 0.5713, Early stop: False
+Iteration 2 - Train Loss: 0.235091, Train Accuracy: 0.5913, Early stop: False
+```
+
+and the identical **11,360** candidate epochs (`sd = 0`, cv 0.0%) and the identical 32 candidate
+correlations per run, round by round.
+
+Two things make this stronger than the count alone:
+
+1. **It holds on the finer fingerprint.** A rate of 0 on the logged iteration trace would not by
+   itself be a determinism result — a cap-4 run trains 32 candidates but logs only 3 iterations,
+   and the final candidate round never gets an iteration line. The correlation fingerprint covers
+   all 32, and it is also 0/190.
+2. **It holds across a cascor code change.** The 2026-08-18 service run of the same cell, on the
+   **pre-#539** tree, produced a byte-identical trace. That is 21 runs across two trees with one
+   outcome, and it independently confirms #539 (`_adopt_prior_output_optimizer_state`) is inert for
+   a fresh fit — on a grow pass the output parameter space changes every call, so the adopt branch
+   never fires.
+
+**This retires the withdrawn claim properly.** *"The service is deterministic"* was asserted on two
+agreeing runs and correctly withdrawn as unsupported against a ~50%-of-pairs effect. At 190 pairs on
+two independent fingerprints it is now supported — for this cell, this cap, this seed, this host.
+It also discharges the open caveat on **#533**'s safety check, which rested on the same two runs:
+the service tier's behaviour is unchanged and stable at N=20.
 
 ### 4.2 Direct-CLI arm (N=20)
 
+<!-- PENDING — in flight. -->
+
 ### 4.3 Cross-arm
+
+<!-- PENDING — in flight. -->
+
+### 4.4 What the timing columns show, and why they are still not a noise floor
+
+Worth reading precisely because it is such a clean demonstration of §5.1. Across the 20 service
+runs:
+
+| quantity | mean ± sd | cv |
+| --- | --- | ---: |
+| candidate **epochs** | 11360 ± 0 | **0.0%** |
+| training **span** | 311.0 ± 209.5 s | **67.4%** |
+| s / candidate epoch | 0.02659 ± 0.01769 s | 66.5% |
+
+The work is *byte-identical* — same epochs, same correlations, same trajectory, twenty times over —
+and the wall clock still ranges from **825 s to 190 s**, a 4.3× spread. Every bit of that is the
+host: the early cells ran against a concurrent training stack and a 21-hour `clamscan` at load ~38,
+the later ones at load ~6.
+
+A 67% cv is not the trainer's noise floor, it is a busy laptop's. Reporting it as one would size
+the §4 residual measurement against an interval more than an order of magnitude too wide.
 
 ---
 
