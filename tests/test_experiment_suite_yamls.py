@@ -6,9 +6,11 @@ R-6, so a malformed suite — an unknown ``execution:`` key, a ``stall_second`` 
 campaign cell failed hours into a GPU run. This unittest is the gate.
 
 Hermetic by construction: it calls ``run_suite.load_suite``, which validates the document
-structure only. It deliberately does NOT call ``expand_cells``, because that resolves
-``suite.base_config`` into the sibling repos (``../../../../../juniper-cascor/...``) and
-would turn a structural gate into one that skips whenever the ecosystem is not checked out.
+structure only. Contracts that need an INHERITED value additionally resolve
+``suite.base_config`` — see ``_cell_specs`` — but never require it to resolve: a sibling-repo
+reference (``../../../../../juniper-cascor/...``) is unreadable in a checkout that has only
+juniper-ml, which is every CI run, and is reported as ``unresolved`` so the caller declines to
+judge rather than guessing. No contract here fails because the ecosystem is absent.
 
 Second contract (R-6, ml#1069): a cascor suite that trains a large candidate pool must
 declare its own stall window. The driver's Q-2 stall detector watches ``current_epoch``,
@@ -32,12 +34,33 @@ signal at all. Measured on the E-I cap sweep at fixed pool 8 (suite run
 the last exceeds the inherited default, but 64 clears it by just 693 s, so 64 is the first
 cap that cannot be assumed safe under the defaults.
 
-KNOWN LIMITATION — inherited values are invisible here. ``_declared_numbers`` reads only
-the suite's own ``matrix`` / ``include``, so a pool or cap coming from ``suite.base_config``
-does not trip either contract. That is deliberate: resolving ``base_config`` reaches into
-the sibling repos and would turn this structural gate into one that skips whenever the
-ecosystem is not checked out (see the paragraph above on ``expand_cells``). A suite that
-inherits a large budget shape must declare its own window regardless.
+Fourth contract: ``execution.per_run_timeout_seconds`` must sit ABOVE the wall budget the
+driver will enforce. That timeout is run_suite's SUBPROCESS ceiling, not a budget. When it
+is at or below the driver's own budget, run_suite kills the driver from outside and records
+``timed_out`` with ``exit_code: null`` (``run_suite.py:350-354``), returning BEFORE the
+manifest read at ``:355`` — so the driver never writes a manifest and the honest ``timed_out``
+record is destroyed rather than degraded. The rule was stated in-repo by a suite author
+(``suites/p4/e-j-h2h-wide-cap64.yaml:73-75``: "the DRIVER must be what stops a run") and then
+not carried to the suites that needed it. EQUAL is a loss, not a tie: the driver still has to
+write its manifest after hitting its deadline, so a simultaneous subprocess kill pre-empts it.
+The predicate is therefore ``timeout > budget``, not ``>=``.
+
+Cascor only, as with the two contracts above. The recurrence path has the same defect —
+``_run_recurrence`` (``run_experiment.py:1617``) resolves ``max_wall`` identically at ``:1619``
+and passes it as the SOCKET timeout on the synchronous ``POST /v1/train`` (``:1697``), logging
+its own honest ``timed_out`` — but retuning a recurrence timeout is a separate analysis of that
+failure mode, and one of the five affected suites (``perf/pf5-recurrence-d-scaling``) is inside
+the gated perf lane. Surveyed 2026-08-20 and left deliberately unfixed:
+``recurrence-d-sweep`` (600/900, inverted) and ``p4/e-d``, ``p4/e-f``, ``p4/e-g``,
+``perf/pf5`` (900/900, equal). See ``util/ad-hoc/2026-08-20_wall_ordering_survey.py``.
+
+KNOWN LIMITATION — partially lifted. ``_declared_numbers`` still reads only the suite's own
+``matrix`` / ``include``; ``_effective_numbers`` and ``_effective_wall_budgets`` resolve the
+per-cell value the driver actually sees, so an inherited pool, cap or budget is no longer
+invisible. Per-cell resolution matters in BOTH directions: a suite may inherit a large value
+(the blind spot) or override an inherited one DOWNWARD — ``e-k-thread-probe-cap16`` and
+``e-l-determinism-cap4`` both inherit ``max_hidden_units: 64`` and cap it at 16 and 4, so
+reading the base alone would flag them as wide-cap suites they are not.
 """
 
 from __future__ import annotations
@@ -110,11 +133,24 @@ def _declared_numbers(doc: dict, key: str) -> "list[float]":
     return values
 
 
-def _oversize_reasons(doc: dict) -> "list[str]":
-    """Why this suite needs a raised stall window — empty when it does not."""
+def _oversize_reasons(doc: dict, suite_path: "Path | None" = None) -> "list[str]":
+    """Why this suite needs a raised stall window — empty when it does not.
+
+    With ``suite_path`` the per-cell effective values are folded in, so a pool or cap
+    inherited from ``base_config`` trips the contract too (the asymmetry ml#1142 left behind:
+    it taught the WALL contract to read a base config and left this one matrix-only).
+
+    Declared values are UNIONED with effective ones rather than replaced by them. A base that
+    does not resolve yields no effective values at all, and in CI no sibling-repo base ever
+    resolves — so reading effective values alone would silently stop this contract firing on
+    every suite it currently catches. The union can only ever add reasons, never remove one.
+    """
     reasons: "list[str]" = []
     pools = _declared_numbers(doc, POOL_KEY)
     caps = _declared_numbers(doc, CAP_KEY)
+    if suite_path is not None:
+        pools = pools + _effective_numbers(doc, suite_path, POOL_KEY)[0]
+        caps = caps + _effective_numbers(doc, suite_path, CAP_KEY)[0]
     if any(p >= LARGE_POOL_THRESHOLD for p in pools):
         reasons.append(f"candidate_pool_size up to {int(max(pools))}")
     if any(c >= LARGE_CAP_THRESHOLD for c in caps):
@@ -171,6 +207,102 @@ def _inherited_wall_budgets(doc: dict, suite_path: Path) -> "tuple[list[float], 
     return budgets, unresolved
 
 
+def _run_suite_default_timeout() -> float:
+    """run_suite's own ``per_run_timeout_seconds`` fallback, read from source not duplicated."""
+    source = (REPO_ROOT / "util" / "experiments" / "run_suite.py").read_text(encoding="utf-8")
+    match = re.search(r'per_run_timeout_seconds",\s*([0-9.]+)', source)
+    if match is None:  # pragma: no cover - only if run_suite's default is restructured
+        raise AssertionError("run_suite's per_run_timeout_seconds default not found")
+    return float(match.group(1))
+
+
+def _dotted_get(config: dict, dotted: str) -> object:
+    """Read a dotted path out of a resolved config, or None if any segment is missing."""
+    node: object = config
+    for part in dotted.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return None
+        node = node[part]
+    return node
+
+
+def _cell_specs(doc: dict, suite_path: Path) -> "tuple[list[tuple[dict, dict]], list[str]]":
+    """``(base config, overrides)`` for every cell this suite expands to.
+
+    Pairs each cell with the base config it will actually be materialised from, exactly as
+    ``run_suite.materialise_cell`` does — so an inherited value becomes visible and a
+    per-cell override is applied on top of the right base. Bases that do not resolve are
+    returned as ``unresolved`` rather than guessed, mirroring ``_inherited_wall_budgets``.
+
+    ``expand_cells`` does not raise on an unresolvable reference — ``_resolve_base_config``
+    returns the non-existent literal path — so this stays decidable-or-declined, never fatal.
+    """
+    try:
+        cells = run_suite.expand_cells(doc, suite_path)
+    except Exception as exc:  # noqa: BLE001 - a malformed suite is the load contract's job
+        return [], [f"{suite_path.name}: expand_cells failed: {exc}"]
+
+    loaded: "dict[Path, dict | None]" = {}
+    specs: "list[tuple[dict, dict]]" = []
+    unresolved: "list[str]" = []
+    for cell in cells:
+        path = Path(cell["config_path"])
+        if path not in loaded:
+            try:
+                base = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else None
+            except (OSError, yaml.YAMLError):
+                base = None
+            loaded[path] = base if isinstance(base, dict) else None
+        base = loaded[path]
+        if base is None:
+            if str(path) not in unresolved:
+                unresolved.append(str(path))
+            continue
+        specs.append((base, cell["overrides"]))
+    return specs, unresolved
+
+
+def _effective_numbers(doc: dict, suite_path: Path, key: str) -> "tuple[list[float], list[str]]":
+    """Every value ``key`` actually takes across this suite's cells: override, else inherited.
+
+    The per-cell resolution is the point. Taking the union of suite and base values instead
+    would flag ``e-k-thread-probe-cap16`` and ``e-l-determinism-cap4`` as sweeping the cap 64
+    they inherit and then override down to 16 and 4 — a false positive on two shipped suites.
+    """
+    specs, unresolved = _cell_specs(doc, suite_path)
+    values: "list[float]" = []
+    for base, overrides in specs:
+        value = overrides[key] if key in overrides else _dotted_get(base, key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            values.append(float(value))
+    return values, unresolved
+
+
+def _effective_wall_budgets(doc: dict, suite_path: Path) -> "tuple[list[float], list[str]]":
+    """The wall budget the DRIVER will enforce on each cell, by the driver's own precedence.
+
+    ``run_experiment.py:1883`` documents it: ``CLI > YAML outputs.max_wall_seconds > default``.
+    A suite that sets ``execution.max_wall_seconds`` has run_suite forward
+    ``--max-wall-seconds``, which wins outright for every cell — so that short-circuits, and a
+    matrix override underneath it would never be read. Otherwise each cell resolves its own
+    override, then its base config, then the driver default; a cell that pins nothing anywhere
+    still HAS a budget, and that default is exactly what makes the inherited case bite.
+    """
+    declared = (doc.get("execution") or {}).get("max_wall_seconds")
+    if isinstance(declared, (int, float)) and not isinstance(declared, bool):
+        return [float(declared)], []
+    default = _driver_default("DEFAULT_MAX_WALL_SECONDS")
+    specs, unresolved = _cell_specs(doc, suite_path)
+    budgets: "list[float]" = []
+    for base, overrides in specs:
+        value = overrides[WALL_OVERRIDE_KEY] if WALL_OVERRIDE_KEY in overrides else _dotted_get(base, WALL_OVERRIDE_KEY)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            budgets.append(float(value))
+        else:
+            budgets.append(default)
+    return budgets, unresolved
+
+
 class SuiteYamlLoadTest(unittest.TestCase):
     """Every shipped suite must survive the validator it will be run through."""
 
@@ -209,7 +341,7 @@ class StallSecondsContractTest(unittest.TestCase):
             doc = run_suite.load_suite(path)
             if doc["suite"]["app"] != "cascor":
                 continue  # the recurrence train call is synchronous — no poll loop, no stall detector
-            reasons = _oversize_reasons(doc)
+            reasons = _oversize_reasons(doc, path)
             if not reasons:
                 continue
             checked += 1
@@ -240,6 +372,48 @@ class StallSecondsContractTest(unittest.TestCase):
         doc = {"suite": {"app": "cascor"}, "matrix": {POOL_KEY: [4, 8], CAP_KEY: [4, 8, 16, 32]}}
         self.assertEqual(_oversize_reasons(doc), [])
 
+    def test_a_pool_inherited_from_a_base_config_is_caught(self) -> None:
+        """The blind spot ml#1142 left behind, and the reason it had to close.
+
+        ``e-l-determinism-cap4`` declares only ``max_hidden_units``; its
+        ``candidate_pool_size: 8`` comes from ``util/ad-hoc/2026-08-16_h2h_wide_nrot3.yaml``
+        and was invisible to this contract. Pool 8 is under the threshold so nothing tripped —
+        a suite inheriting pool 32 the same way would have slipped straight through.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "base.yaml").write_text("training:\n  params:\n    candidate_pool_size: 32\n", encoding="utf-8")
+            doc = {"suite": {"app": "cascor", "base_config": ["base.yaml"]}}
+            self.assertEqual(_oversize_reasons(doc), [], "precondition: invisible without a suite_path")
+            self.assertEqual(_oversize_reasons(doc, root / "suite.yaml"), ["candidate_pool_size up to 32"])
+
+    def test_a_downward_override_of_an_inherited_cap_does_not_trip(self) -> None:
+        """The false-positive class the per-cell resolution exists to avoid.
+
+        ``e-k-thread-probe-cap16`` and ``e-l-determinism-cap4`` inherit ``max_hidden_units:
+        64`` — exactly the threshold — from the shared base and override it DOWN to 16 and 4.
+        Reading the base alone would flag both as wide-cap suites they are not.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "base.yaml").write_text("training:\n  params:\n    max_hidden_units: 64\n", encoding="utf-8")
+            doc = {"suite": {"app": "cascor", "base_config": ["base.yaml"]}, "matrix": {CAP_KEY: [4]}}
+            self.assertEqual(_oversize_reasons(doc, root / "suite.yaml"), [])
+
+    def test_an_unresolvable_base_never_weakens_the_contract(self) -> None:
+        """A declared value must still fire when the base config cannot be read — the CI case.
+
+        Every sibling-repo base is unreadable in CI. Resolving effective values INSTEAD of
+        declared ones would have silently stopped this contract firing on every suite it
+        already catches; the union is what prevents that.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            doc = {
+                "suite": {"app": "cascor", "base_config": ["../../../../../juniper-cascor/conf/experiments/nope.yaml"]},
+                "matrix": {POOL_KEY: [32]},
+            }
+            self.assertEqual(_oversize_reasons(doc, Path(tmp) / "suite.yaml"), ["candidate_pool_size up to 32"])
+
 
 class WallBudgetContractTest(unittest.TestCase):
     """A wide-cap suite must pin its own Q-2 wall budget rather than inherit one."""
@@ -255,9 +429,13 @@ class WallBudgetContractTest(unittest.TestCase):
             caps = _declared_numbers(doc, CAP_KEY)
             if not any(cap >= LARGE_CAP_THRESHOLD for cap in caps):
                 continue
-            own = _declared_wall_budgets(doc)
-            inherited, unresolved = _inherited_wall_budgets(doc, path)
-            effective = own + inherited
+            # Was ``_declared_wall_budgets(doc) + _inherited_wall_budgets(doc, path)[0]``, which
+            # unioned values that are ALTERNATIVES, not co-existing constraints, and then took
+            # their min. E-I overrides its base's 3600 to 14400 in the matrix, so the driver only
+            # ever sees 14400 — but the union produced [14400, 3600] and min() flunked a correctly
+            # budgeted suite. CI never saw it: there the sibling base is unresolvable, so the
+            # union was [14400] and passed. Resolving per-cell, override-beats-base, is the fix.
+            effective, unresolved = _effective_wall_budgets(doc, path)
             if not effective and unresolved:
                 # The budget can only be in a base config this checkout cannot read.
                 # Declining to judge is the honest outcome — asserting here would fail a
@@ -307,6 +485,24 @@ class WallBudgetContractTest(unittest.TestCase):
             self.assertEqual(budgets, [])
             self.assertEqual(unresolved, [])
 
+    def test_an_override_beats_the_base_it_replaces(self) -> None:
+        """E-I's real shape: a matrix override raising a base's budget must not read as the base.
+
+        ``e-i-cascor-cap-ceiling`` inherits ``outputs.max_wall_seconds: 3600`` from
+        ``spiral-baseline`` and overrides it to 14400 in its matrix, so every cell runs at
+        14400 — its measured cap-128 cell took 4243.6 s, which only 14400 permits. Unioning
+        the two and taking the min reported 3600 and failed the suite. The failure was
+        invisible in CI, where the sibling base does not resolve and the union is [14400]:
+        a contract that passes for the wrong reason wherever it runs.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "base.yaml").write_text("outputs:\n  max_wall_seconds: 3600\n", encoding="utf-8")
+            doc = {"suite": {"app": "cascor", "base_config": ["base.yaml"]}, "matrix": {WALL_OVERRIDE_KEY: [14400]}}
+            self.assertEqual(_effective_wall_budgets(doc, root / "suite.yaml"), ([14400.0], []))
+            legacy = _declared_wall_budgets(doc) + _inherited_wall_budgets(doc, root / "suite.yaml")[0]
+            self.assertEqual(min(legacy), 3600.0, "precondition: the union-and-min arithmetic this replaced")
+
     def test_either_budget_mechanism_satisfies_the_contract(self) -> None:
         """execution.max_wall_seconds and the dotted outputs override are equivalent."""
         via_execution = {"execution": {"max_wall_seconds": 14400}}
@@ -314,6 +510,116 @@ class WallBudgetContractTest(unittest.TestCase):
         self.assertEqual(_declared_wall_budgets(via_execution), [14400.0])
         self.assertEqual(_declared_wall_budgets(via_override), [14400.0])
         self.assertEqual(_declared_wall_budgets({"execution": {}}), [])
+
+
+class TimeoutOrderingContractTest(unittest.TestCase):
+    """The DRIVER must be what stops a run — never run_suite's subprocess timeout."""
+
+    def test_cascor_suites_time_out_after_the_driver_stops(self) -> None:
+        """``per_run_timeout_seconds`` must sit strictly above the effective wall budget.
+
+        Below or equal, run_suite's ``subprocess.run(timeout=...)`` fires first and returns at
+        ``run_suite.py:354`` before the manifest read at ``:355``: the row is recorded
+        ``timed_out`` with ``exit_code: null`` and the driver's own manifest is never written.
+        The evidence is destroyed, not degraded — which is why this is fatal where ml#1152's
+        inert-stall-window check is advisory: there the run itself stays valid.
+
+        Survey of 2026-08-20 (``util/ad-hoc/2026-08-20_wall_ordering_survey.py``, full
+        ecosystem checked out): 3 inverted, 6 equal, 14 correct. The four cascor offenders are
+        fixed in the PR that added this gate; the five recurrence ones are deliberately out of
+        scope per the module docstring.
+        """
+        default_timeout = _run_suite_default_timeout()
+        checked = 0
+        undecidable: "list[str]" = []
+        for path in _suite_files():
+            doc = run_suite.load_suite(path)
+            if doc["suite"]["app"] != "cascor":
+                continue
+            raw = (doc.get("execution") or {}).get("per_run_timeout_seconds")
+            timeout = float(raw) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else default_timeout
+            budgets, unresolved = _effective_wall_budgets(doc, path)
+            if not budgets:
+                # Every cell's base config is a sibling repo this checkout cannot read, so the
+                # budget is unknowable. Declining is the honest outcome — the same call
+                # _inherited_wall_budgets made, and the reason CI judges 7 suites of 23.
+                undecidable.append(f"{path.name} (unreadable base_config: {', '.join(unresolved)})")
+                continue
+            checked += 1
+            with self.subTest(suite=path.relative_to(REPO_ROOT).as_posix()):
+                worst = max(budgets)
+                self.assertGreater(
+                    timeout,
+                    worst,
+                    f"{path.name} sets per_run_timeout_seconds={timeout:g} against an effective wall budget of {worst:g}s, " f"so run_suite's subprocess kill pre-empts the driver: the cell is recorded 'timed_out' with exit_code null " f"and NO manifest is written. Raise per_run_timeout_seconds above {worst:g}, or lower the budget via " "execution.max_wall_seconds — the driver must be what stops a run (suites/p4/e-j-h2h-wide-cap64.yaml:73-75)",
+                )
+        self.assertGreater(checked, 0, f"no cascor suite was decidable — the contract would pass vacuously (undecidable: {undecidable})")
+
+    def test_an_inverted_ordering_is_caught(self) -> None:
+        """Negative control: a timeout below an inherited budget must be visible here."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "base.yaml").write_text("outputs:\n  max_wall_seconds: 14400\n", encoding="utf-8")
+            doc = {"suite": {"app": "cascor", "base_config": ["base.yaml"]}, "execution": {"per_run_timeout_seconds": 3600}}
+            budgets, unresolved = _effective_wall_budgets(doc, root / "suite.yaml")
+            self.assertEqual((budgets, unresolved), ([14400.0], []))
+            self.assertLess(3600, max(budgets), "the shape e-k and e-l shipped with")
+
+    def test_an_equal_ordering_is_caught_too(self) -> None:
+        """EQUAL is a loss, not a tie — hence ``assertGreater`` rather than ``assertGreaterEqual``.
+
+        Six shipped suites sat exactly here. The driver has to survive its own deadline long
+        enough to write a manifest; a subprocess kill at the same instant pre-empts that.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "base.yaml").write_text("outputs:\n  max_wall_seconds: 3600\n", encoding="utf-8")
+            doc = {"suite": {"app": "cascor", "base_config": ["base.yaml"]}, "execution": {"per_run_timeout_seconds": 3600}}
+            budgets, _ = _effective_wall_budgets(doc, root / "suite.yaml")
+            self.assertFalse(3600 > max(budgets), "an equal ordering must NOT satisfy the contract")
+
+    def test_a_correct_ordering_passes(self) -> None:
+        """Positive control: the e-j convention (15600 over 14400) must not be flagged."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "base.yaml").write_text("outputs:\n  max_wall_seconds: 14400\n", encoding="utf-8")
+            doc = {"suite": {"app": "cascor", "base_config": ["base.yaml"]}, "execution": {"per_run_timeout_seconds": 15600}}
+            budgets, _ = _effective_wall_budgets(doc, root / "suite.yaml")
+            self.assertGreater(15600, max(budgets))
+
+    def test_a_cell_pinning_no_budget_anywhere_still_has_one(self) -> None:
+        """The inherited case that bites: no budget in suite or base means the driver default.
+
+        Reporting no budget here would let a suite whose base pins nothing pass by default,
+        which is precisely the ``cascor-budget-sweep`` / ``e-c`` shape against 3600.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "base.yaml").write_text("outputs:\n  plots: []\n", encoding="utf-8")
+            doc = {"suite": {"app": "cascor", "base_config": ["base.yaml"]}}
+            budgets, unresolved = _effective_wall_budgets(doc, root / "suite.yaml")
+            self.assertEqual(budgets, [_driver_default("DEFAULT_MAX_WALL_SECONDS")])
+            self.assertEqual(unresolved, [])
+
+    def test_execution_max_wall_seconds_wins_over_the_base_config(self) -> None:
+        """CLI precedence: the forwarded flag overrides whatever the resolved config says.
+
+        ``run_experiment.py:1883`` — ``CLI > YAML outputs.max_wall_seconds > default``. Reading
+        the base here would compare the timeout against a budget the driver will never enforce.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "base.yaml").write_text("outputs:\n  max_wall_seconds: 14400\n", encoding="utf-8")
+            doc = {"suite": {"app": "cascor", "base_config": ["base.yaml"]}, "execution": {"max_wall_seconds": 2000}}
+            self.assertEqual(_effective_wall_budgets(doc, root / "suite.yaml"), ([2000.0], []))
+
+    def test_an_unreadable_base_config_is_declined_not_guessed(self) -> None:
+        """A sibling-repo base that is not checked out must yield no verdict — the CI case."""
+        with tempfile.TemporaryDirectory() as tmp:
+            doc = {"suite": {"app": "cascor", "base_config": ["../../../../../juniper-cascor/conf/experiments/nope.yaml"]}}
+            budgets, unresolved = _effective_wall_budgets(doc, Path(tmp) / "suite.yaml")
+            self.assertEqual(budgets, [])
+            self.assertEqual(len(unresolved), 1)
 
 
 class StallShimRetirementTest(unittest.TestCase):

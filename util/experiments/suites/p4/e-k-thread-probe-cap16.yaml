@@ -34,7 +34,15 @@ suite:
   app: cascor
   base_config: [../../../ad-hoc/2026-08-16_h2h_wide_nrot3.yaml]
   seed_policy: fixed
-execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 7200, stall_seconds: 1200}
+# per_run_timeout_seconds 7200 -> 15600, matching the three e-j suites that share this base
+# config. The base pins outputs.max_wall_seconds: 14400, so the old 7200 sat BELOW the driver's
+# own budget: run_suite's subprocess kill would have fired first and recorded `timed_out` with
+# exit_code null and NO manifest, destroying the evidence instead of degrading it. Latent only —
+# this cap-16 probe measured 981.6 s (20260817T211146Z) and 926.4 s (20260818T022157Z) — but the
+# DRIVER must be what stops a run (see e-j-h2h-wide-cap64.yaml:73-75). The budget is left at the
+# campaign's 14400 rather than retuned: this suite belongs to the determinism arc, and moving the
+# timeout is a harness-only change where moving the budget would alter what it measures.
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 15600, stall_seconds: 1200}
 matrix:
   training.params.max_hidden_units: [16]
   dataset.params.seed: [42]
