@@ -18,12 +18,16 @@ suite:
   app: cascor
   base_config: [../../../../../juniper-cascor/conf/experiments/spiral-baseline.yaml]
   seed_policy: fixed
-# per_run_timeout_seconds raised to E-A's 3600: the widest E-A cell took 2494 s, so the old 1800 s
-# would have truncated the slower baseline-budget cells. stall_seconds is defensive rather than
-# required — the Q-2 detector only misreads pools >= 16 and baseline's pool is 8 (E-A's pool-8
-# cells all completed clean) — but a noise-0.2 cell is the slowest thing here, and a false
-# "stalled" is expensive to re-run.
-execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 3600, stall_seconds: 1200}
+# per_run_timeout_seconds raised to E-A's 7200: the widest E-A cell took 2494 s, so the original
+# 1800 s would have truncated the slower baseline-budget cells. The first raise landed on 3600 —
+# EXACTLY spiral-baseline's outputs.max_wall_seconds (:61), which is a race, not a ceiling: the
+# driver must survive its own deadline long enough to write a manifest, and a subprocess kill at
+# the same instant pre-empts that, recording `timed_out` with exit_code null and NO manifest.
+# 7200 is p4/e-a-cascor-budget-sweep.yaml's value against the same base and the same 3600 budget.
+# stall_seconds is defensive rather than required — the Q-2 detector only misreads pools >= 16 and
+# baseline's pool is 8 (E-A's pool-8 cells all completed clean) — but a noise-0.2 cell is the
+# slowest thing here, and a false "stalled" is expensive to re-run.
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 7200, stall_seconds: 1200}
 matrix:
   dataset.params.noise: [0.0, 0.05, 0.1, 0.2]
 include:
