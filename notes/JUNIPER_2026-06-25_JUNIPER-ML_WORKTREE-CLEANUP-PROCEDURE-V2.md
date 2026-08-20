@@ -175,6 +175,23 @@ gh pr create \
 
 **PREREQUISITE**: CWD must be in the new worktree (verified in Step 6).
 
+> **Two reasons this phase matters more than it looks** — see
+> [`docs/REFERENCE.md` § Worktree Divergence Is a Memory Cost](../docs/REFERENCE.md#worktree-divergence-is-a-memory-cost).
+>
+> 1. **A stale worktree is a permanent second copy of `AGENTS.md` in every session
+>    run inside it.** Claude Code dedupes memory files by content, and the main
+>    checkout is a filesystem ancestor of `.claude/worktrees/<name>/` — so an
+>    `AGENTS.md` that *differs* from main's causes **both** to load. Measured
+>    2026-08-19: 22 of 23 worktrees were in that state.
+> 2. **Merged-and-clean does not mean idle.** Before removing a worktree you did not
+>    personally just leave, run
+>    [`util/ad-hoc/2026-08-20_worktree_liveness_probe.py`](../util/ad-hoc/2026-08-20_worktree_liveness_probe.py).
+>    On its first use it caught a worktree that passed every gate — merged, clean,
+>    unlocked — while a live session was working in it.
+>
+> Never pass `--force` to `git worktree remove`: git's dirty-check is the
+> time-of-check/time-of-use guard.
+
 ### Step 9: Remove Old Worktree Directory
 
 ```bash
