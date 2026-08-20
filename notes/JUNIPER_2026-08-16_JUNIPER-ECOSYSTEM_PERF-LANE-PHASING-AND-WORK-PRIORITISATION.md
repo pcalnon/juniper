@@ -117,16 +117,20 @@ before blocked**, and **do not contend for a resource another arc is holding**.
 > architecture argues it is not meaningful. **Answering S-5 decides whether D-A is fixed or its
 > save/restore path is deleted.**
 >
-> **Implementation trap for whoever picks this up:** `load_network` has **no production callers**.
+> ~~**Implementation trap for whoever picks this up:** `load_network` has **no production callers**.
 > The live path is `lifecycle._load_snapshot_to_network`. A fix applied only to `load_network` would
-> change nothing — which is precisely the error that made D-A look important.
+> change nothing — which is precisely the error that made D-A look important.~~
+>
+> ⛔ **RETRACTED — this paragraph is FALSE. Do not act on it.** `load_network` is the live loader
+> and is the only place that can separate *absent* from *corrupt*. See the correction immediately
+> below.
 
 > **CORRECTION (2026-08-19) — the "no production callers" claim above is FALSE, and inverted.**
 > Caught by an independent validator while checking the successor handoff. `load_network`
 > (`snapshot_serializer.py:877`) **is** the live loader:
 >
-> - `_load_snapshot_to_network` (`manager.py:4504`) — the function this document names as "the
->   live path" — **calls it** at `manager.py:4523`: `network = serializer.load_network(matches[0])`.
+> - `_load_snapshot_to_network` (`manager.py:4561`) — the function this document names as "the
+>   live path" — **calls it** at `manager.py:4580`: `network = serializer.load_network(matches[0])`.
 > - `cascade_correlation.py:5130` calls it too, inside the public `load_from_hdf5`.
 > - References are not confined to one test file either — ~16 files under `src/` reference it.
 >
@@ -134,8 +138,16 @@ before blocked**, and **do not contend for a resource another arc is holding**.
 > backwards: `load_network` is where absent and corrupt both collapse to `None` (a missing-file
 > return, a `_validate_format` failure, and a catch-all), and therefore **the only place that can
 > separate them**. A fix belongs there, paired with error-mapping in `_load_snapshot_to_network`,
-> which currently flattens every failure to `return False` (`:4524-4526`), and in the four route
-> raise sites.
+> which currently flattens every failure to `return False` (`:4575` absent / `:4583` corrupt), and
+> in the four route raise sites.
+>
+> ⚠ **Line numbers in this block were re-derived against juniper-cascor `4bec1be`** (2026-08-20).
+> juniper-cascor#539 shifted `manager.py` by ~66 lines, so the pre-#539 citations elsewhere in this
+> document (`:4504`, `:4523`, `:4573`) are stale by that amount.
+>
+> **D-B now has its own design of record:**
+> [`JUNIPER_2026-08-20_JUNIPER-CASCOR_SNAPSHOT-ERROR-TAXONOMY-DESIGN.md`](JUNIPER_2026-08-20_JUNIPER-CASCOR_SNAPSHOT-ERROR-TAXONOMY-DESIGN.md)
+> (juniper-ml#1193).
 >
 > **How the error happened, because it is the more useful lesson:** the original check was a
 > `grep` piped through `head -12`. The test file's matches filled the window and the two

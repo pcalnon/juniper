@@ -334,16 +334,20 @@ say which required group is absent.
 > whereas D-A is inert (§4.1). A minimal fix distinguishes *absent* (→ 404) from *corrupt/unreadable*
 > (→ 422 or 500 with the verifier's reason), leaving the `None`-returning form for back-compat.
 >
-> Note `load_network` itself has **no production callers** — the live path is
+> ~~Note `load_network` itself has **no production callers** — the live path is
 > `lifecycle._load_snapshot_to_network`. Any fix must be applied where the service actually loads,
-> not only to `load_network`, or it will change nothing. *(That is the same trap D-A fell into.)*
+> not only to `load_network`, or it will change nothing. *(That is the same trap D-A fell into.)*~~
+>
+> ⛔ **RETRACTED — this paragraph is FALSE. Do not act on it.** `load_network` is the live loader
+> and is the only place that can separate *absent* from *corrupt*. See the correction immediately
+> below.
 
 > **CORRECTION (2026-08-19) — the "no production callers" claim above is FALSE, and inverted.**
 > Caught by an independent validator while checking the successor handoff. `load_network`
 > (`snapshot_serializer.py:877`) **is** the live loader:
 >
-> - `_load_snapshot_to_network` (`manager.py:4504`) — the function this document names as "the
->   live path" — **calls it** at `manager.py:4523`: `network = serializer.load_network(matches[0])`.
+> - `_load_snapshot_to_network` (`manager.py:4561`) — the function this document names as "the
+>   live path" — **calls it** at `manager.py:4580`: `network = serializer.load_network(matches[0])`.
 > - `cascade_correlation.py:5130` calls it too, inside the public `load_from_hdf5`.
 > - References are not confined to one test file either — ~16 files under `src/` reference it.
 >
@@ -351,8 +355,17 @@ say which required group is absent.
 > backwards: `load_network` is where absent and corrupt both collapse to `None` (a missing-file
 > return, a `_validate_format` failure, and a catch-all), and therefore **the only place that can
 > separate them**. A fix belongs there, paired with error-mapping in `_load_snapshot_to_network`,
-> which currently flattens every failure to `return False` (`:4524-4526`), and in the four route
-> raise sites.
+> which currently flattens every failure to `return False` (`:4575` absent / `:4583` corrupt), and
+> in the four route raise sites.
+>
+> ⚠ **Line numbers in this block were re-derived against juniper-cascor `4bec1be`** (2026-08-20).
+> juniper-cascor#539 shifted `manager.py` by ~66 lines, so the pre-#539 citations that appear
+> elsewhere in this document (`:4504`, `:4523`, `:4573`) are stale by that amount.
+>
+> **D-B now has its own design of record**, which supersedes this section for implementation
+> purposes: [`JUNIPER_2026-08-20_JUNIPER-CASCOR_SNAPSHOT-ERROR-TAXONOMY-DESIGN.md`](JUNIPER_2026-08-20_JUNIPER-CASCOR_SNAPSHOT-ERROR-TAXONOMY-DESIGN.md)
+> (juniper-ml#1193). It carries the full taxonomy, the four wire-contract options, the blast radius,
+> and the `start_replay`-returns-`bool` asymmetry that decides the size of the change.
 >
 > **How the error happened, because it is the more useful lesson:** the original check was a
 > `grep` piped through `head -12`. The test file's matches filled the window and the two
@@ -384,7 +397,7 @@ guessing, and guessing at deletion is exactly the failure mode being avoided.
 |----------------------------|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | R1 replay                  | **Largely met**                    | 88/89 sampled verify; cross-version loads work back to 0.3.2. Caveat: D-B hides the failures that do occur.                                                                                                   |
 | R2 further experimentation | **Not met**                        | D-C: no provenance, no index, no query path.                                                                                                                                                                  |
-| R3 training pauses         | **Requirement itself in question** | *(corrected 2026-08-17)* Not "broken by D-A" — D-A is inert (§4.1). Cascor recreates the optimizer by design, so R3-as-written is unreachable via the serializer and may not be meaningful. See **S-5** (§9). |
+| R3 training pauses         | **MET (2026-08-20)**               | ⚠ The former "requirement itself in question" entry was based on the retracted D-A-is-inert position and is **withdrawn** — see **S-5 ANSWERED** (§9). Restore is faithful (cascor `5f15a45`); resume now *continues* the restored optimizer rather than discarding it (cascor#539). Golden-neutral. |
 | R4 crash recovery          | **Partially met**                  | Snapshots exist and load, but D-B makes "corrupt" indistinguishable from "absent", and the CLI tier has no audit trail.                                                                                       |
 
 ---
@@ -426,7 +439,7 @@ is ever deleted.**
 
 | id | fix | repo |
 | --- | -- -| --- |
-| **D-A** | *(re-scope 2026-08-17 — §4.1; **lowest** priority)* Read `learning_rate` through `read_str_attr` + float coercion, mirroring `optimizer_type` line above, load stabalizes. **Do not** add "state survives save→load" test — state not restored or read. Land fix **with comment on why optimizer restore is inert**, (fix removes the only signal that it is.) Gated on **S-5**: if R3 dropped, consider deleting save/restore path instead of repairing it. | juniper-cascor |
+| **D-A** | ✅ **SHIPPED.** Restore made faithful in cascor `5f15a45`; resume follow-on (R3) in cascor#539. ⚠ The 2026-08-17 re-scope that stood here is **retracted in full** — it called D-A inert, ranked it lowest, and said "**Do not** add a state-survives save→load test". All three were wrong: that test is precisely what now guards the fix (`test_snapshot_serializer_coverage_final.py::TestOutputOptimizerStateReuse`, `test_p1_fixes.py::test_2b_optimizer_state_survives_resume`). Not gated on S-5 — S-5 was ANSWERED yes (§9). | juniper-cascor |
 | **D-B** | Give `load_network` a raising variant (or a typed result) so *absent*, *corrupt*, and *loaded* are distinguishable; keep the `None` form for back-compat callers. Fix `'Invalid format'` to name the missing group. | juniper-cascor |
 | **3.1** | Move the service snapshot root out of the importable package (`src/snapshots/` → a data dir), so no cleanup can ever again delete modules (cascor#501). | juniper-cascor |
 
@@ -537,17 +550,39 @@ note, not here.
 > edits weights or metaparameters and continues. The code applies the always-invalid rule to a
 > sometimes-invalid situation.
 >
-> **Proposed shape (not yet implemented, and deliberately not bundled with the restore fix):** reuse
+> ~~**Proposed shape (not yet implemented, and deliberately not bundled with the restore fix):** reuse
 > the existing `output_optimizer` when it is still valid for the current parameter space — same
 > optimizer class, and `param_groups` shapes matching the rebuilt `nn.Linear` — and recreate only when
-> that check fails. Growth then still recreates, as designed, while a resume that has not changed the
-> parameter space carries its momentum forward.
+> that check fails.~~
 >
-> **Risk to respect:** this touches the live training loop, not a serializer, so it needs its own
-> change with its own evidence — a test that resumes from a snapshot and asserts the optimizer's
-> `step` continues rather than restarting, plus a test that growth still forces a rebuild. Getting
-> this wrong trains on stale moments against reshaped parameters, which is silently wrong rather than
-> loudly broken. **Tracked as a follow-on to D-A; not started.**
+> ⛔ **THE PROPOSED SHAPE ABOVE IS A TRAP — RETRACTED (2026-08-20). Do not implement it.** Reusing the
+> optimizer **object** passes that exact check by construction and then silently stops training. The
+> snapshot loader binds the restored optimizer to a *throwaway* `nn.Linear` it builds itself
+> (`snapshot_serializer.py:1119`, bound at `:1135`), which is not the layer `train_output_layer`
+> creates. Shapes match, so the check passes — then `loss.backward()` fills `.grad` on the new
+> layer's parameters while `optimizer.step()` iterates the old ones, whose `.grad` is `None`. The
+> unchanged weights are copied back, loss is still logged, callbacks still fire. Measured against a
+> deliberate implementation of this shape: **output weights byte-identical after 2 epochs.**
+>
+> ✅ **SHIPPED SHAPE (cascor#539):** keep building the optimizer with `_create_optimizer`, then
+> transfer the prior state with `new_opt.load_state_dict(old_opt.state_dict())` — torch's optimizer
+> `state_dict` is **positionally indexed**, so it re-binds to the freshly created parameters.
+> Guarded by class equality and a parameter-shape check.
+>
+> Two constraints the original sketch missed:
+>
+> - `load_state_dict` replaces `param_groups` wholesale, so it silently reverts a live
+>   `PATCH /v1/training/params` learning rate to the snapshot's. Capture the fresh optimizer's
+>   hyperparameters and re-apply them after: **current config wins for hyperparameters, snapshot
+>   wins for state.**
+> - `_zero_optimizer_state_for` (the `PATCH /v1/network/weights` guard) was **inert** — it looked up
+>   state by the network-level tensor, never the `nn.Linear` `Parameter` the optimizer keys by. Under
+>   reuse that would step an edited weight with pre-edit moments, so it had to be fixed in the same
+>   change.
+>
+> **Evidence contract met:** a test that resumes and asserts `step` *continues*, a negative control
+> that growth still forces a rebuild, and a test that the layer's weights actually **move** — the
+> last being the only one that catches the trap. Golden trajectory unchanged, locally and in CI.
 |         | a real requirement for Cascade Correlation at all?**             |   because a hidden-unit insertion changes the output parameter space, making prior optimizer moments invalid *by construction* (`cascade_correlation.py:2050-2053`).              |
 |         |                                                                  |   So R3-as-written cannot be satisfied by any serializer change, and may not be meaningful. If what is actually wanted is "resume training from a snapshot and continue growing", |
 |         |                                                                  |   that is already what `/resume` does — and it needs no optimizer state. **Answering this decides whether any optimizer work is scheduled at all.**                               |
