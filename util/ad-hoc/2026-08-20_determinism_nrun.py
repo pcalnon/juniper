@@ -119,6 +119,7 @@ RE_CAND_START = re.compile(r"train_candidates: Executing candidate training with
 RE_OUT_PROGRESS = re.compile(r"train_output_layer: Output Layer Training - Epoch (\d+), Loss:")
 RE_OUT_FINAL = re.compile(r"train_output_layer: Final output layer training loss:")
 RE_CAND_EPOCH = re.compile(r"CandidateUnit: train: Epoch (\d+) - Norm Output:")
+RE_CORR = re.compile(r"CandidateUnit: train: Final Correlation: UUID: [0-9a-f-]+, Final correlation value: ([0-9.eE+-]+)")
 RE_UNITS = re.compile(r"grow_network: .*?(\d+) hidden units")
 
 #: ``CandidateUnit._display_training_progress`` emits one INFO record every
@@ -159,6 +160,7 @@ def parse_run(run_dir: Path) -> dict:
     cand_epoch_records = 0
     cand_epoch_max = 0
     processes = None
+    corr_rounds: "list[list[str]]" = []
 
     for seg in segments(run_dir):
         try:
@@ -170,6 +172,10 @@ def parse_run(run_dir: Path) -> dict:
                 if (m := RE_CAND_EPOCH.search(line)):
                     cand_epoch_records += 1
                     cand_epoch_max = max(cand_epoch_max, int(m.group(1)))
+                    continue
+                if (m := RE_CORR.search(line)):
+                    if corr_rounds:
+                        corr_rounds[-1].append(m.group(1))
                     continue
                 if (m := RE_ITER.search(line)):
                     iters.append((m.group(1), m.group(2), m.group(3), m.group(4)))
@@ -190,6 +196,7 @@ def parse_run(run_dir: Path) -> dict:
                 elif (m := RE_CAND_START.search(line)):
                     processes = int(m.group(1))
                     cand_start, out_start = ts, None
+                    corr_rounds.append([])
                 elif RE_OUT_PROGRESS.search(line):
                     # The first output-progress record after a candidate phase closes it.
                     if cand_start is not None and out_start is None and ts is not None:
@@ -201,6 +208,11 @@ def parse_run(run_dir: Path) -> dict:
                     cand_start = out_start = None
 
     trace_key = "|".join(",".join(t) for t in iters)
+    # SECOND, FINER FINGERPRINT. A cap-4 run logs only 3 `grow_network` iterations but trains 32
+    # candidates, so two runs can share a trace fingerprint while their arithmetic differed -- most
+    # obviously in the final candidate round, whose iteration line is never logged. Sorted per
+    # round, because log order is worker arrival order and varies by construction.
+    corr_key = "|".join(",".join(sorted(r)) for r in corr_rounds)
     span = (fit_end - fit_start).total_seconds() if fit_start and fit_end else None
     cand_total = sum(cand_spans) if cand_spans else None
     cand_epochs = cand_epoch_records * CAND_DISPLAY_FREQUENCY
@@ -210,8 +222,11 @@ def parse_run(run_dir: Path) -> dict:
         "complete": complete,
         "n_iterations": len(iters),
         "iters": iters,
-        # A content fingerprint for grouping identical traces, not a security primitive.
+        # Content fingerprints for grouping identical runs, not security primitives.
         "fingerprint": hashlib.sha1(trace_key.encode(), usedforsecurity=False).hexdigest()[:12] if iters else None,
+        "corr_fingerprint": hashlib.sha1(corr_key.encode(), usedforsecurity=False).hexdigest()[:12] if corr_rounds else None,
+        "corr_rounds": len(corr_rounds),
+        "corr_values": sum(len(r) for r in corr_rounds),
         # SpiralProblem.evaluate logs train then test last; see CROSS-ARM ACCURACY CAVEAT.
         "train_acc": accs[-2] if len(accs) >= 2 else None,
         "val_acc": accs[-1] if len(accs) >= 2 else None,
@@ -244,9 +259,9 @@ def _fmt(mean, sd, n, unit: str = "", places: int = 1) -> str:
     return f"{mean:.{places}f}{sd_txt}{unit}  [n={n}]{cv}"
 
 
-def pair_stats(runs: "list[dict]") -> dict:
+def pair_stats(runs: "list[dict]", key: str = "fingerprint") -> dict:
     """Pairwise divergence rate + the first-divergent-iteration histogram."""
-    fps = [r["fingerprint"] for r in runs]
+    fps = [r[key] for r in runs]
     n = len(fps)
     n_pairs = n * (n - 1) // 2
     divergent = 0
@@ -278,14 +293,14 @@ def pair_stats(runs: "list[dict]") -> dict:
     }
 
 
-def bootstrap_ci(runs: "list[dict]", draws: int, seed: int) -> "tuple[float, float] | None":
+def bootstrap_ci(runs: "list[dict]", draws: int, seed: int, key: str = "fingerprint") -> "tuple[float, float] | None":
     """Run-level bootstrap interval for the pairwise divergence rate.
 
     Resamples RUNS (not pairs). The pairs share runs, so they are not independent and a binomial
     interval on ``n_divergent_pairs / n_pairs`` would be far too narrow; resampling the
     underlying i.i.d. units is the correct move for a U-statistic.
     """
-    fps = [r["fingerprint"] for r in runs]
+    fps = [r[key] for r in runs]
     n = len(fps)
     if n < 3 or draws <= 0:
         return None
@@ -348,6 +363,29 @@ def report_arm(name: str, run_dirs: "list[Path]", draws: int, seed: int) -> dict
         print(f"  length-mismatch pairs: {stats['length_mismatch_pairs']} "
               f"(traces agree on the overlap but growth stopped at different iterations)")
 
+    # The finer fingerprint. A run that matches on the logged trace can still have done different
+    # arithmetic -- the final candidate round never gets a `grow_network` line -- so a rate of 0
+    # on the trace alone is not a determinism result. Report both; the correlation rate is the
+    # strictly stronger statement and is the one to quote when claiming a fix worked.
+    corr_stats = None
+    if all(r.get("corr_fingerprint") for r in usable):
+        corr_stats = pair_stats(usable, key="corr_fingerprint")
+        corr_ci = bootstrap_ci(usable, draws, seed, key="corr_fingerprint")
+        c_rate = corr_stats["pair_divergence_rate"]
+        rounds = {r["corr_rounds"] for r in usable}
+        values = {r["corr_values"] for r in usable}
+        print(f"\n  --- finer fingerprint: per-round candidate correlations "
+              f"(rounds={sorted(rounds)}, values/run={sorted(values)}) ---")
+        if c_rate is not None:
+            c_txt = f"   95% CI [{corr_ci[0]:.3f}, {corr_ci[1]:.3f}]" if corr_ci else ""
+            print(f"  pair divergence rate : {corr_stats['n_divergent_pairs']}/{corr_stats['n_pairs']} "
+                  f"= {c_rate:.3f}{c_txt}")
+        print(f"  distinct outcomes    : {corr_stats['distinct_outcomes']} of {corr_stats['n_runs']} runs")
+        if rate is not None and c_rate is not None and c_rate > rate:
+            print(f"  NOTE: the correlations diverge more often than the trace does "
+                  f"({c_rate:.3f} vs {rate:.3f}) -- runs that look identical in the iteration\n"
+                  f"        trace did measurably different candidate arithmetic.")
+
     timing = {}
     print("\n  --- timing noise floor ---")
     for key, label, unit, places in (
@@ -371,18 +409,28 @@ def report_arm(name: str, run_dirs: "list[Path]", draws: int, seed: int) -> dict
         "bootstrap_seed": seed,
         "runs": [{k: v for k, v in r.items() if k != "iters"} for r in usable],
         "timing": timing,
+        "correlation_fingerprint": corr_stats,
         **stats,
     }
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--arm", action="append", nargs="+", required=True,
+    ap.add_argument("--arm", action="append", nargs="+", default=[],
                     metavar="NAME RUN_DIR", help="arm label followed by its run directories; repeatable")
+    ap.add_argument("--suite-arm", action="append", nargs=2, default=[],
+                    metavar=("NAME", "REGISTRY_JSONL"),
+                    help="arm label plus a suite registry.jsonl; expands to that suite's run_dirs. "
+                         "A service arm's run dirs carry unique run ids, so listing them by hand is "
+                         "both tedious and a place to silently drop one.")
     ap.add_argument("--json", type=Path, default=None, help="also write the full result as JSON")
     ap.add_argument("--boot", type=int, default=10000, help="bootstrap draws (0 disables)")
     ap.add_argument("--boot-seed", type=int, default=20260820, help="bootstrap RNG seed")
     args = ap.parse_args()
+
+    if not args.arm and not args.suite_arm:
+        print("need at least one --arm or --suite-arm", file=sys.stderr)
+        return 2
 
     results = []
     for spec in args.arm:
@@ -390,6 +438,19 @@ def main() -> int:
             print(f"--arm needs a label and at least one directory, got {spec!r}", file=sys.stderr)
             return 2
         results.append(report_arm(spec[0], [Path(p) for p in spec[1:]], args.boot, args.boot_seed))
+    for label, registry in args.suite_arm:
+        try:
+            rows = [json.loads(line) for line in Path(registry).read_text().splitlines() if line.strip()]
+        except (OSError, ValueError) as exc:
+            print(f"--suite-arm: could not read {registry}: {exc}", file=sys.stderr)
+            return 2
+        # Report cells the suite itself did not complete, rather than quietly analysing a subset:
+        # a rate over 17 surviving cells reported as "N=20" is a real way to overstate a result.
+        bad = [r.get("cell_id") for r in rows if r.get("outcome") != "succeeded"]
+        if bad:
+            print(f"\n  NOTE [{label}]: {len(bad)} cell(s) did not succeed and carry no usable run: {bad}")
+        results.append(report_arm(label, [Path(r["run_dir"]) for r in rows if r.get("run_dir")],
+                                  args.boot, args.boot_seed))
 
     usable_total = sum(r.get("usable", 0) for r in results)
     if not usable_total:
