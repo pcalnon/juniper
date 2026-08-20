@@ -392,9 +392,27 @@ class KillResilienceTest(SafeMergeTestBase):
         self.assertEqual(exits["code"], safe_merge.EXIT_INTERRUPTED)
 
     def test_default_timeout_is_sized_from_measurement(self):
-        """1800 s was ~5x the observed worst case; a stuck run should fail fast, not be
-        killed opaquely by whatever supervisor is running the script."""
-        self.assertLessEqual(safe_merge.DEFAULT_TIMEOUT, 900)
+        """A stuck run should fail fast, not be killed opaquely by its supervisor.
+
+        This assertion used to read `DEFAULT_TIMEOUT <= 900`. The INTENT (fail fast) is
+        kept; the literal 900 is not, because it was derived from one workflow on one repo
+        (ml's `ci.yml` median) and re-measurement across all required contexts showed it sat
+        at juniper-canopy's MEDIAN -- turning roughly half of canopy's healthy merges into
+        "checks did not finish" refusals. Fast failure is now expressed per repo, as a ratio
+        to that repo's own measured p90, which is what "fast" actually meant.
+        """
+        measured_p90 = {
+            "juniper-ml": 263,
+            "juniper-data": 1100,
+            "juniper-cascor": 1065,
+            "juniper-canopy": 1371,
+            "juniper-cascor-worker": 1122,
+        }
+        for repo, p90 in measured_p90.items():
+            with self.subTest(repo=repo):
+                budget = safe_merge.timeout_for(repo)
+                self.assertGreater(budget, p90, f"{repo} would refuse healthy CI")
+                self.assertLessEqual(budget, 4 * p90, f"{repo} budget is so loose a stuck run looks slow")
         self.assertGreaterEqual(safe_merge.DEFAULT_TIMEOUT, 600)
 
 
@@ -502,6 +520,237 @@ class MergeabilityGateTest(SafeMergeTestBase):
         self.assertEqual(safe_merge.unresolved_threads("o", "r", 1), [])
 
 
+class AutoMergeNetDefectTest(SafeMergeTestBase):
+    """D1-D4 from the kill-forensics doc section 4.
+
+    NAMING, deliberately: this must NOT be called `AutoMergeNetTest` -- that name is already
+    taken at line ~419 (the RC-4 arming/gating suite). A second class of the same name does
+    not merge with the first, it REPLACES it in the module namespace, and unittest then
+    discovers only the survivor. Six existing tests silently stopped running that way before
+    mypy's `no-redef` caught it; the suite still reported OK, just with less in it.
+
+    These four shipped together in ml#1183's RC-4 net and three of them are in the net
+    itself. The ORDERING matters and is encoded here: D1 (arm on more paths) strictly
+    INCREASES the number of refusals that would leave a live net, so the D3 disarm has to
+    hold before D1 widens the exposure. A regression that reverts D3 while keeping D1 is
+    worse than the original bug, so `test_refusal_disarms_the_net` is the load-bearing one.
+    """
+
+    def _arming(self, harness):
+        return [c for c in harness.calls if c[:2] == ["pr", "merge"] and "--auto" in c]
+
+    def _disarming(self, harness):
+        return [c for c in harness.calls if "--disable-auto" in c]
+
+    # ---- D3: a refusal must never leave a live net ------------------------
+    def test_refusal_disarms_the_net(self):
+        """Observed live on ml#1185: refused, then merged itself once checks passed."""
+        h = Harness(
+            [_state(mergeStateStatus="BLOCKED"), _state(mergeStateStatus="BLOCKED")],
+            wait_result={"_exit": 1},
+        )
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: True)
+        with self.assertRaises(safe_merge.Refused):
+            self.run_merge_installed(h)
+        self.assertTrue(self._arming(h), "expected a net to be armed on BLOCKED")
+        self.assertTrue(self._disarming(h), "a refusal MUST take the net back down")
+
+    def test_refusal_that_cannot_disarm_says_so_loudly(self):
+        """The one state where a refusal and a live net coexist must never be silent."""
+        h = Harness(
+            [_state(mergeStateStatus="BLOCKED"), _state(mergeStateStatus="BLOCKED")],
+            wait_result={"_exit": 1},
+        )
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: True)
+
+        real_gh = h.gh
+
+        def gh(args, timeout=120):
+            if "--disable-auto" in list(args):
+                raise safe_merge.HardError("boom")
+            return real_gh(args, timeout=timeout)
+
+        self.monkey(safe_merge, "_gh", gh)
+        with self.assertRaises(safe_merge.Refused) as ctx:
+            self.run_merge_installed(h)
+        msg = str(ctx.exception)
+        self.assertIn("could NOT be disarmed", msg)
+        self.assertIn("still", msg.lower())
+
+    def test_no_net_armed_means_no_disarm_call(self):
+        h = Harness(
+            [_state(mergeStateStatus="BLOCKED"), _state(mergeStateStatus="BLOCKED")],
+            wait_result={"_exit": 1},
+        )
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: False)
+        with self.assertRaises(safe_merge.Refused):
+            self.run_merge_installed(h)
+        self.assertEqual(self._disarming(h), [])
+
+    def test_armed_state_does_not_leak_between_invocations(self):
+        """`_ARMED` is module-global so the signal handler can read it.
+
+        That makes it survive across calls in one process. A stale entry would make
+        `arm_auto_merge` short-circuit and report a net that was never armed for the NEW
+        pr -- a silent loss of the guarantee. Found by cross-test contamination.
+        """
+        h1 = Harness(
+            [_state(mergeStateStatus="BLOCKED"), _state(mergeStateStatus="BLOCKED")],
+            wait_result={"_exit": 1},
+        )
+        h1.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: True)
+        with self.assertRaises(safe_merge.Refused):
+            self.run_merge_installed(h1)
+
+        # Second invocation, net UNAVAILABLE. It must not inherit the first run's net.
+        h2 = Harness(
+            [_state(mergeStateStatus="BLOCKED"), _state(mergeStateStatus="BLOCKED")],
+            wait_result={"_exit": 1},
+        )
+        h2.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: False)
+        with self.assertRaises(safe_merge.Refused):
+            self.run_merge_installed(h2)
+        self.assertEqual(self._disarming(h2), [], "second run disarmed a net it never armed")
+        self.assertIsNone(safe_merge._ARMED)
+
+    # ---- D1: arm on the BEHIND -> UNKNOWN path ----------------------------
+    def test_behind_path_arms_the_net_before_syncing(self):
+        """The post-sync CI re-run is the longest, most kill-exposed wait there is.
+
+        It was also the only one entered with no net: the BEHIND branch `continue`d past
+        the arming site. This is the exact shape of the incident.
+        """
+        # NOTE the doubled first state: the preflight `pr_state` consumes one before the
+        # cycle loop ever runs. A single BEHIND here makes the loop see CLEAN, and the test
+        # passes without exercising the BEHIND path at all.
+        h = Harness(
+            [
+                _state(mergeStateStatus="BEHIND"),
+                _state(mergeStateStatus="BEHIND"),
+                _state(),
+                _state(),
+            ],
+        )
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: True)
+        self.run_merge_installed(h)
+        armed = self._arming(h)
+        self.assertTrue(armed, "BEHIND must arm a net before the sync")
+        sync = [i for i, c in enumerate(h.calls) if c[:1] == ["api"]]
+        self.assertTrue(sync, "expected an update-branch call")
+        first_arm = h.calls.index(armed[0])
+        self.assertLess(first_arm, sync[0], "arm BEFORE the update-branch, not after")
+
+    def test_unknown_state_arms_the_net(self):
+        """GitHub reports UNKNOWN while recomputing -- routinely right after a sync."""
+        h = Harness(
+            [
+                _state(mergeStateStatus="UNKNOWN"),
+                _state(mergeStateStatus="UNKNOWN"),
+                _state(),
+                _state(),
+            ],
+        )
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: True)
+        self.run_merge_installed(h)
+        self.assertTrue(self._arming(h), "UNKNOWN was armable-but-unarmed (D1)")
+
+    def test_clean_pr_is_never_armed(self):
+        """On a green PR `--auto` merges on the spot, skipping the head pin. Keep it local."""
+        h = Harness([_state(mergeStateStatus="CLEAN")])
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: True)
+        self.run_merge_installed(h)
+        self.assertEqual(self._arming(h), [])
+
+    def test_arming_is_idempotent_across_cycles(self):
+        """Genuinely crosses a BEHIND sync into a second cycle -- otherwise 'armed once' is
+        trivially true because only one cycle ever ran."""
+        h = Harness(
+            [
+                _state(mergeStateStatus="BEHIND"),  # consumed by preflight
+                _state(mergeStateStatus="BEHIND"),  # cycle 1 -> arm + sync + continue
+                _state(mergeStateStatus="BLOCKED"),  # cycle 2 -> arm again (no-op)
+                _state(),
+                _state(),
+            ],
+        )
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: True)
+        self.run_merge_installed(h)
+        self.assertTrue([c for c in h.calls if c[:1] == ["api"]], "expected the BEHIND sync to run")
+        self.assertEqual(len(self._arming(h)), 1, "net must be armed once, not per cycle")
+
+    def test_armable_states_cover_the_three_waiting_states(self):
+        self.assertEqual(set(safe_merge.ARMABLE_STATES), {"BLOCKED", "BEHIND", "UNKNOWN"})
+
+    # ---- D2: UNKNOWN at the merge gate is not a verdict -------------------
+    def test_unknown_at_the_gate_repolls_instead_of_refusing(self):
+        """A spurious refusal here reads exactly like a real blocker, and did."""
+        # The UNKNOWN must land on the POST-wait read (`after`), which is where the gate
+        # lives. Sequence: preflight, cycle-1 state, then `after` -> UNKNOWN -> re-poll.
+        seq = [
+            _state(mergeStateStatus="BLOCKED"),  # preflight
+            _state(mergeStateStatus="BLOCKED"),  # cycle 1 state
+            _state(mergeStateStatus="UNKNOWN"),  # `after` -- the gate
+            _state(mergeStateStatus="CLEAN"),  # re-poll resolves
+        ]
+        h = Harness(seq)
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: False)
+        self.monkey(safe_merge.time, "sleep", lambda s: None)
+        out = self.run_merge_installed(h)
+        self.assertIn("MERGED", out)
+
+    def test_unknown_stuck_at_the_gate_eventually_refuses(self):
+        h = Harness(
+            [
+                _state(mergeStateStatus="BLOCKED"),
+                _state(mergeStateStatus="BLOCKED"),
+                _state(mergeStateStatus="UNKNOWN"),
+            ],
+        )
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: False)
+        self.monkey(safe_merge.time, "sleep", lambda s: None)
+        with self.assertRaises(safe_merge.Refused) as ctx:
+            self.run_merge_installed(h)
+        self.assertIn("UNKNOWN", str(ctx.exception))
+
+    def test_mergeability_repoll_is_bounded(self):
+        self.assertGreaterEqual(safe_merge.MERGEABILITY_POLLS, 1)
+        self.assertLessEqual(safe_merge.MERGEABILITY_POLLS * safe_merge.MERGEABILITY_INTERVAL, 120)
+
+
+class NetGuaranteeDocTest(unittest.TestCase):
+    """D4: the net carries a WEAKER guarantee than the local path. Say so.
+
+    The complaint D4 records is not that the trade is wrong -- on a strict repo GitHub
+    moves the head itself, so pinning would fight the net -- but that it was made
+    SILENTLY. These assertions keep it stated.
+    """
+
+    def test_docstring_states_the_net_is_not_head_pinned(self):
+        doc = safe_merge.__doc__
+        self.assertIn("--match-head-commit", doc)
+        self.assertRegex(doc, r"net does \*\*not\*\*|NOT carry|not head-pinned")
+
+    def test_docstring_states_refusal_disarms(self):
+        self.assertIn("--disable-auto", safe_merge.__doc__)
+
+    def test_interrupt_path_is_documented_as_leaving_the_net_up(self):
+        """Exit 4 deliberately does NOT disarm -- surviving the kill is the whole point."""
+        doc = safe_merge.__doc__
+        self.assertIn("INTERRUPTED", doc)
+        self.assertIn("left up", doc.lower())
+
+
 class ContractTest(unittest.TestCase):
     """The tool must keep saying what it is, so nobody mistakes it for enforcement."""
 
@@ -516,6 +765,59 @@ class ContractTest(unittest.TestCase):
     def test_sync_cycles_are_bounded(self):
         self.assertGreaterEqual(safe_merge.MAX_SYNC_CYCLES, 1)
         self.assertLessEqual(safe_merge.MAX_SYNC_CYCLES, 10)
+
+
+class TimeoutSizingTest(unittest.TestCase):
+    """The CI budget is per-repo because fleet CI spans differ by ~6x.
+
+    Measured 2026-08-20 (all required contexts on one head, not one workflow):
+    ml max 273 s, data 1196 s, cascor 1547 s, canopy 1719 s. The prior single 900 s sat at
+    canopy's MEDIAN, so about half of canopy's merges would have refused with "checks did
+    not finish" while the checks were healthy.
+    """
+
+    def test_every_repo_budget_clears_its_measured_max(self):
+        """cascor-client is deliberately absent: its max (15,616 s) is a QUEUED check, not
+        CI working, and a budget that absorbed it could no longer tell stuck from slow."""
+        measured_max = {
+            "juniper-ml": 273,
+            "juniper-data": 1196,
+            "juniper-cascor": 1547,
+            "juniper-cascor-worker": 1717,
+            "juniper-canopy": 1719,
+        }
+        for repo, observed in measured_max.items():
+            with self.subTest(repo=repo):
+                self.assertGreater(
+                    safe_merge.timeout_for(repo),
+                    observed,
+                    f"{repo} budget is below its own observed worst case",
+                )
+
+    def test_unmeasured_repo_falls_back_to_the_standard_tier(self):
+        self.assertEqual(safe_merge.timeout_for("juniper-nonesuch"), safe_merge.DEFAULT_TIMEOUT)
+        self.assertGreater(safe_merge.DEFAULT_TIMEOUT, 1196)
+
+    def test_no_budget_exceeds_the_worker_lease_ceiling(self):
+        """A local wait cannot outlive the process doing it.
+
+        Kill forensics section 3.4: `[bg]` spare workers hold a ~3600 s lease and a task
+        cannot outlive its host worker, so a budget above that is unreachable for any
+        background-run invocation. Past the ceiling the armed net is the answer, not a
+        longer wait.
+        """
+        self.assertLessEqual(safe_merge.TIMEOUT_CEILING, 3600)
+        for repo, budget in safe_merge.REPO_TIMEOUTS.items():
+            with self.subTest(repo=repo):
+                self.assertLessEqual(budget, safe_merge.TIMEOUT_CEILING)
+        self.assertLessEqual(safe_merge.DEFAULT_TIMEOUT, safe_merge.TIMEOUT_CEILING)
+
+    def test_omitted_timeout_resolves_per_repo_not_to_a_constant(self):
+        self.assertNotEqual(
+            safe_merge.timeout_for("juniper-ml"),
+            safe_merge.timeout_for("juniper-canopy"),
+            "a single fleet-wide budget is the bug this table replaces",
+        )
 
 
 if __name__ == "__main__":

@@ -39,11 +39,19 @@ because merging untested code is undesirable, not because something forces you t
 
 Surviving being killed
 ----------------------
-A long wait is a liability: the script can be killed (session end, an operator stopping the
-task) and then nothing finishes the merge. So while the PR is still ``BLOCKED``, the merge is
-also handed to GitHub via ``gh pr merge --auto`` -- a **server-side** net that completes even
-if this process dies. Auto-merge merges only once the required checks pass on the current
-head, so it carries the same guarantee this tool enforces locally.
+A long wait is a liability: the script can be killed and then nothing finishes the merge. This
+is not hypothetical and it is not rare -- see
+``notes/JUNIPER_2026-08-19_JUNIPER-ECOSYSTEM_SAFE-MERGE-KILL-FORENSICS.md``. The measured
+mechanism (§3.4): a background task runs on a ``[bg]`` worker, spare workers hold a hard
+**~3600 s lease**, and a task **cannot outlive its host worker**. A task placed on a fresh
+spare gets an hour; the same command placed on a spare that is already 3372 s old gets 229 s.
+The incident that motivated this net died exactly that way, matching the lease to 0.426 s.
+**The runway is not knowable in advance and "it worked last time" predicts nothing.**
+
+So whenever there is something to wait for, the merge is also handed to GitHub via
+``gh pr merge --auto`` -- a **server-side** net that completes even if this process dies.
+Auto-merge merges only once the required checks pass on the current head, so it carries the
+same checks-green guarantee this tool enforces locally.
 
 The net is **gated on the repo's ``allow_auto_merge``**, and that gate is load-bearing: where
 the setting is false, ``--auto`` does not arm at all -- it silently falls back to an
@@ -53,6 +61,20 @@ checks never finished. Arming blind would reintroduce the exact bug this tool pr
 
 It is deliberately NOT armed on an already-green PR: there ``--auto`` merges on the spot,
 skipping the head pinning below. ``--no-auto-fallback`` opts out entirely.
+
+**What the net does NOT carry (stated, because it used to be silent).** The local merge path
+pins the exact head with ``--match-head-commit``; the armed net does **not**. So the net
+guarantees *"merges only when required checks are green"* but not *"merges only the SHA this
+run vouched for"*. On a repo with ``strict=true`` that difference is deliberate -- GitHub
+updates the branch itself to satisfy the up-to-date rule, which moves the head by design, and
+a pin would fight that. It is still a real reduction in guarantee versus the local path, and
+callers who need the stronger one should pass ``--no-auto-fallback`` and keep the run alive.
+
+**A refusal takes the net back down.** Any refusal after arming calls ``--disable-auto``
+before propagating, so a refusal cannot quietly become a merge once the blocker clears. If
+that teardown itself fails, the refusal says so **loudly** and names the PR -- that is the one
+state where a stated refusal and a live server-side net coexist, and it must never be
+silent.
 
 The TOCTOU problem, and how it is handled
 -----------------------------------------
@@ -96,10 +118,13 @@ Exit codes
     conflicts / not open / head moved). Nothing was merged.
 2   misuse (bad arguments)
 3   hard error (``gh`` missing or failing, PR not found)
-4   INTERRUPTED -- a signal arrived mid-wait. Nothing was merged; the child waiter was
-    killed. Distinct from 1 and 3 so a killed run is never read as a decision.
+4   INTERRUPTED -- a signal arrived mid-wait. This run merged nothing and the child waiter
+    was killed. Distinct from 1 and 3 so a killed run is never read as a decision. NOTE: if
+    an auto-merge net was armed it is **deliberately left up** -- surviving the kill is the
+    entire point of the net -- so the PR may still merge server-side once its checks pass.
+    The interrupt message says so explicitly.
 
-A refusal is never silent and never degrades to a merge.
+A refusal is never silent, and a refusal takes the auto-merge net down before returning.
 """
 
 from __future__ import annotations
@@ -117,11 +142,59 @@ import time
 
 DEFAULT_OWNER = "pcalnon"
 DEFAULT_REPO = "juniper-ml"
-# Sized from measurement, not habit: ci.yml PR runs on this fleet have a median of 251 s
-# and a max of 333 s (20-run sample, 2026-08-19). 900 s is ~3x the observed worst case, so a
-# run that blows through it is stuck, not slow -- and it fails fast enough to be noticed
-# rather than being killed opaquely by whatever supervisor is running the script.
-DEFAULT_TIMEOUT = 900
+# CI-wait budget. RE-MEASURED 2026-08-20 by
+# `util/ad-hoc/2026-08-20_measure_required_check_span.py`, which spans ALL required contexts
+# on one head (max completed_at - min started_at) rather than timing a single workflow.
+#
+# The previous 900 s was sized off "ci.yml median 251 s" -- one workflow, one repo. Measured
+# properly, the fleet spans differ by ~6x and 900 s was BELOW the observed max on three of
+# the four repos sampled:
+#
+#   repo                   min  median    p90     max     n
+#   juniper-ml             233     248     263     273    18
+#   juniper-data           270     462    1100    1196    10
+#   juniper-cascor         538     614    1065    1547    12
+#   juniper-canopy         785     886    1371    1719    10
+#
+# 900 s sat essentially AT canopy's median, so roughly half of canopy's merges would have
+# refused with "checks did not finish" while the checks were in fact still healthy. A
+# spurious refusal is not harmless here: it is indistinguishable from a real blocker.
+#
+# Sizing is off the **p90, not the max**, and that is deliberate. Two more repos measured the
+# same day show why max is the wrong statistic:
+#
+#   juniper-cascor-worker  314    493    1122    1717     8
+#   juniper-cascor-client  177    564    6799   15616     8
+#
+# cascor-client's 15,616 s (4h20m) is a check sitting QUEUED, not CI doing work. Sizing to
+# cover that would mean a stuck check is indistinguishable from a slow one -- which is
+# precisely the distinction this timeout exists to make. A budget must clear the typical
+# worst case and then FIRE on the pathological tail. So: tiers at roughly 2x p90.
+#
+# The CEILING is not arbitrary. A local wait cannot outlive the process doing the waiting,
+# and the kill forensics (§3.4) measured the hard bound on that: `[bg]` spare workers hold a
+# ~3600 s lease and a task cannot outlive its host worker. A budget above ~3600 s is therefore
+# unreachable for any background-run invocation -- it would be killed before it could expire.
+# Past the ceiling the armed auto-merge net, not a longer local wait, is the answer.
+TIMEOUT_CEILING = 3300
+DEFAULT_TIMEOUT = 2400  # unmeasured repos: the "standard" tier
+REPO_TIMEOUTS = {
+    # fast tier -- p90 263 s
+    "juniper-ml": 900,
+    # standard tier -- p90 1065-1122 s
+    "juniper-data": 2400,
+    "juniper-cascor": 2400,
+    "juniper-cascor-worker": 2400,
+    # slow tier -- p90 1371 s (canopy); cascor-client is ceiling-bound because its tail is
+    # queue time, and the timeout SHOULD fire on that rather than absorb it.
+    "juniper-canopy": 3300,
+    "juniper-cascor-client": 3300,
+}
+
+
+def timeout_for(repo: str) -> int:
+    """Per-repo CI budget, falling back to a fleet-safe default for unmeasured repos."""
+    return REPO_TIMEOUTS.get(repo, DEFAULT_TIMEOUT)
 # A sync restarts CI, so a BEHIND repair must be followed by another wait. Bounded: under
 # sustained concurrent merges a PR can be re-BEHINDed indefinitely, and looping forever
 # would be its own failure mode. Refuse instead and let a human decide.
@@ -129,6 +202,11 @@ MAX_SYNC_CYCLES = 3
 # update-branch is 202 Accepted; the ref moves asynchronously. Poll until it actually does.
 REF_SETTLE_POLLS = 20
 REF_SETTLE_INTERVAL = 3.0
+# GitHub reports mergeStateStatus=UNKNOWN while it recomputes mergeability -- routinely for
+# several seconds after an update-branch. That is a "not yet", not a "no", so it gets a
+# bounded re-poll instead of a refusal (D2).
+MERGEABILITY_POLLS = 10
+MERGEABILITY_INTERVAL = 3.0
 # Exit code for "interrupted": distinct from refused (1) and hard error (3) so a killed run
 # is never mistaken for a decision the tool made.
 EXIT_INTERRUPTED = 4
@@ -236,10 +314,24 @@ def _install_signal_handlers(log) -> None:
 
     def _handler(signum, _frame):
         _kill_child()
-        log(
-            f"\nINTERRUPTED by signal {signum}: nothing was merged. "
-            "The PR keeps whatever base refresh already landed; re-run to resume."
-        )
+        # "nothing was merged" was true of the run and false of the outcome: with a net armed
+        # the PR can still merge server-side seconds later. Saying so is the difference
+        # between an operator re-running safely and an operator merging the same PR twice.
+        if _ARMED is not None:
+            tail = (
+                f"This run merged nothing, but an auto-merge net IS ARMED on "
+                f"{_ARMED['owner']}/{_ARMED['repo']}#{_ARMED['pr']} and will merge it once "
+                f"the required checks pass — that is intentional, it is what survives this "
+                f"kill. To cancel it:\n"
+                f"     gh pr merge {_ARMED['pr']} --repo "
+                f"{_ARMED['owner']}/{_ARMED['repo']} --disable-auto"
+            )
+        else:
+            tail = (
+                "Nothing was merged and no net is armed. The PR keeps whatever base refresh "
+                "already landed; re-run to resume."
+            )
+        log(f"\nINTERRUPTED by signal {signum}: {tail}")
         os._exit(EXIT_INTERRUPTED)
 
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
@@ -299,13 +391,37 @@ def unresolved_threads(owner: str, repo: str, pr: int) -> list[str]:
     return out
 
 
+# States in which arming the net is correct: there is genuinely something to wait for, and
+# `--auto` will therefore ARM rather than merge on the spot.
+#
+#   BLOCKED  -- required checks pending (or a blocker such as an unresolved thread)
+#   BEHIND   -- base moved; on a strict repo GitHub will sync AND merge for us
+#   UNKNOWN  -- GitHub is recomputing mergeability, which is the NORMAL state for several
+#               seconds after an update-branch
+#
+# UNKNOWN and BEHIND were both missing before (D1). That was the worst possible omission: the
+# post-sync full CI re-run is the LONGEST and most kill-exposed wait this tool ever performs,
+# and it was the one wait entered with no net. It is also the exact shape of the incident.
+ARMABLE_STATES = ("BLOCKED", "BEHIND", "UNKNOWN")
+
+# Module-level so the signal handler can report the net truthfully. A per-cycle local (the
+# previous shape) also silently forgot the net across a BEHIND re-sync, so a refusal on cycle
+# 2 could not have disarmed a net armed on cycle 1 even if it had tried to.
+_ARMED: dict | None = None
+
+
 def arm_auto_merge(owner: str, repo: str, pr: int, method: str, log) -> bool:
     """Hand the merge to GitHub as a net, so a killed script does not strand the PR.
 
-    Armed only while the PR is still BLOCKED -- i.e. when there is genuinely something to wait
-    for. On an already-green PR `--auto` merges on the spot, which would skip the head pinning
-    below, so that case is deliberately left to the local path.
+    Idempotent: arming twice is a no-op, so callers may call this on every cycle.
+
+    Armed only in ARMABLE_STATES -- on an already-green PR ``--auto`` merges on the spot,
+    which would skip the head pinning the local path performs, so that case is deliberately
+    left to the local path.
     """
+    global _ARMED
+    if _ARMED is not None:
+        return True
     if not repo_allows_auto_merge(owner, repo):
         log("  auto-merge net UNAVAILABLE (allow_auto_merge is false) — local wait only")
         return False
@@ -314,7 +430,40 @@ def arm_auto_merge(owner: str, repo: str, pr: int, method: str, log) -> bool:
     except HardError as exc:
         log(f"  could not arm auto-merge net ({str(exc)[:80]}) — continuing with local wait")
         return False
-    log("  auto-merge net armed — GitHub will complete this merge even if this run dies")
+    _ARMED = {"owner": owner, "repo": repo, "pr": pr}
+    log(
+        "  auto-merge net armed — GitHub will complete this merge even if this run dies "
+        "(net is checks-green-gated but NOT head-pinned; see module docstring)"
+    )
+    return True
+
+
+def disarm_auto_merge(log) -> bool:
+    """Take the server-side net down. Called before every refusal.
+
+    Without this, ``safe_merge`` could state a refusal and then merge the PR anyway minutes
+    later when the blocker cleared -- which is the precise opposite of what a refusal means,
+    and which was observed live on ml#1185 (2026-08-20T00:23:51Z).
+
+    Returns True if the net is down (or was never up). A False return is a genuinely
+    dangerous state and callers MUST surface it rather than swallow it.
+    """
+    global _ARMED
+    if _ARMED is None:
+        return True
+    owner, repo, pr = _ARMED["owner"], _ARMED["repo"], _ARMED["pr"]
+    try:
+        _gh(["pr", "merge", str(pr), "--repo", f"{owner}/{repo}", "--disable-auto"])
+    except HardError as exc:
+        log(
+            f"  !! COULD NOT DISARM the auto-merge net on {owner}/{repo}#{pr} "
+            f"({str(exc)[:80]}). A LIVE net remains: this PR may merge itself once its "
+            f"checks pass, despite the refusal below. Disarm manually:\n"
+            f"     gh pr merge {pr} --repo {owner}/{repo} --disable-auto"
+        )
+        return False
+    _ARMED = None
+    log("  auto-merge net disarmed")
     return True
 
 
@@ -390,6 +539,52 @@ def safe_merge(
     auto_fallback: bool = True,
     log=print,
 ) -> str:
+    """Public entry point. Guarantees a refusal never leaves a live auto-merge net.
+
+    The disarm lives HERE, wrapping every refusal path at once, rather than at each
+    ``raise Refused`` site. There are seven of those and the count grows; a rule enforced at
+    one choke point cannot be forgotten by the eighth.
+    """
+    # `_ARMED` is module-global so the signal handler can read it, which makes it survive
+    # across calls in one process. That is a hazard, not a feature: a stale entry makes
+    # `arm_auto_merge` short-circuit and report a net that was never armed for THIS pr --
+    # a silent loss of the guarantee, worse than the D3 bug this whole change fixes. Scope
+    # it to the invocation. (Caught by test_safe_merge cross-test leakage, not by review.)
+    global _ARMED
+    _ARMED = None
+    try:
+        return _safe_merge_inner(
+            owner,
+            repo,
+            pr,
+            execute=execute,
+            method=method,
+            timeout=timeout,
+            verbose=verbose,
+            auto_fallback=auto_fallback,
+            log=log,
+        )
+    except Refused as exc:
+        if not disarm_auto_merge(log):
+            raise Refused(
+                f"{exc} [WARNING: the auto-merge net could NOT be disarmed and is still "
+                f"live on {owner}/{repo}#{pr} — this refusal may still become a merge]"
+            ) from exc
+        raise
+
+
+def _safe_merge_inner(
+    owner: str,
+    repo: str,
+    pr: int,
+    *,
+    execute: bool,
+    method: str,
+    timeout: int,
+    verbose: bool,
+    auto_fallback: bool = True,
+    log=print,
+) -> str:
     info = pr_state(owner, repo, pr)
 
     if info.get("state") != "OPEN":
@@ -411,6 +606,13 @@ def safe_merge(
             if not execute:
                 log("  [dry-run] would update-branch, then wait for the restarted checks")
                 return "DRY-RUN: would sync and re-wait, then merge if green"
+            # D1: arm BEFORE the sync, not after. The sync restarts CI, and the wait that
+            # follows it is the longest this tool performs -- so it is the wait that most
+            # needs a net, and it was previously the one wait entered without one (this
+            # branch `continue`s straight past the arming site below). Arming first also
+            # covers the sync itself, which is not instantaneous.
+            if auto_fallback:
+                arm_auto_merge(owner, repo, pr, method, log)
             if update_branch(owner, repo, pr) is None:
                 raise Refused(
                     "branch refresh did not land within the settle budget — "
@@ -433,9 +635,11 @@ def safe_merge(
                 f"(mergeStateStatus={state}), then merge via {method}"
             )
 
-        armed = False
-        if auto_fallback and state == "BLOCKED":
-            armed = arm_auto_merge(owner, repo, pr, method, log)
+        # D1: was `state == "BLOCKED"`. After an update-branch GitHub commonly reports
+        # UNKNOWN while it recomputes mergeability, so the post-sync cycle routinely arrived
+        # here in a state that armed nothing.
+        if auto_fallback and state in ARMABLE_STATES:
+            arm_auto_merge(owner, repo, pr, method, log)
 
         log(f"  waiting on required checks for {head[:8]} …")
         result = wait_for_required(owner, repo, pr, timeout, verbose)
@@ -466,7 +670,37 @@ def safe_merge(
         # every required context passing -- an unresolved review thread does exactly that, and
         # `gh pr checks` does not show it. Merging blind here produced a confusing hard error
         # ("add the --auto flag") instead of naming the real blocker.
+        # D2: UNKNOWN is not a verdict, it is GitHub still computing. Refusing on it produced
+        # spurious failures, most often right after a sync -- exactly when the checks had in
+        # fact just gone green. Re-poll for a bounded spell before treating it as a blocker.
         final = after.get("mergeStateStatus")
+        if final == "UNKNOWN":
+            log("  mergeStateStatus=UNKNOWN (GitHub recomputing) — re-polling")
+            for _ in range(MERGEABILITY_POLLS):
+                time.sleep(MERGEABILITY_INTERVAL)
+                after = pr_state(owner, repo, pr)
+                if after.get("state") == "MERGED":
+                    return f"MERGED #{pr} by the armed auto-merge net (required checks green)"
+                final = after.get("mergeStateStatus")
+                if final != "UNKNOWN":
+                    break
+            else:
+                raise Refused(
+                    f"GitHub did not resolve mergeability for {head[:8]} within "
+                    f"{MERGEABILITY_POLLS * MERGEABILITY_INTERVAL:.0f}s "
+                    "(mergeStateStatus stuck at UNKNOWN) — re-run to retry"
+                )
+            log(f"  mergeability resolved: {final}")
+
+        if final == "BEHIND":
+            # Can surface here as well as at the top of the cycle -- the base can move during
+            # the UNKNOWN re-poll above. Route it back through the sync path rather than
+            # refusing, which is what the top-of-loop handler is for.
+            log("  resolved to BEHIND while waiting — re-syncing")
+            if update_branch(owner, repo, pr) is None:
+                raise Refused("branch refresh did not land within the settle budget")
+            continue
+
         if final not in ("CLEAN", "UNSTABLE", "HAS_HOOKS"):
             threads = unresolved_threads(owner, repo, pr)
             detail = (
@@ -474,13 +708,10 @@ def safe_merge(
                 if threads
                 else f"mergeStateStatus={final}"
             )
-            tail = (
-                " — the armed auto-merge net will complete it once this clears"
-                if armed
-                else ""
-            )
+            # The net is about to be disarmed by the caller, so promising that it "will
+            # complete this once the blocker clears" would be a lie -- and was, until D3.
             raise Refused(
-                f"required checks are green but GitHub will not merge {head[:8]}: {detail}{tail}"
+                f"required checks are green but GitHub will not merge {head[:8]}: {detail}"
             )
 
         log(f"  all required checks green — merging {head[:8]} ({method})")
@@ -533,7 +764,16 @@ def main(argv: list[str] | None = None) -> int:
         help="default squash; rebase re-creates commits UNSIGNED and required_signatures "
         "will reject them — do not use it on a Juniper repo",
     )
-    ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help=f"seconds to wait per cycle (default {DEFAULT_TIMEOUT})")
+    # default=None so an explicit --timeout still wins, but an omitted one resolves
+    # PER REPO once --repo is known. A single default cannot serve a fleet whose CI spans
+    # differ by ~6x (see REPO_TIMEOUTS).
+    ap.add_argument(
+        "--timeout",
+        type=int,
+        default=None,
+        help="seconds to wait per cycle (default: per-repo, see REPO_TIMEOUTS; "
+        f"fallback {DEFAULT_TIMEOUT})",
+    )
     ap.add_argument("--execute", action="store_true", help="actually merge (default: dry-run)")
     ap.add_argument(
         "--no-auto-fallback",
@@ -555,6 +795,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    if args.timeout is None:
+        args.timeout = timeout_for(args.repo)
+        print(f"CI budget: {args.timeout}s for {args.repo} (measured; override with --timeout)")
     if not args.execute:
         print("*** DRY RUN — nothing will be merged (pass --execute) ***")
     else:
