@@ -303,6 +303,75 @@ before worktrees carry the trimmed file.
 
 ---
 
+## 4b. Execution log — P0b, P3 and P4 (2026-08-19 / 20): COMPLETE
+
+### P3 — the cut: DONE, in four increments
+
+| Increment | Section | Result |
+|-----------|---------|--------|
+| P3.1 | `### Tests` | −34,999 |
+| P3.2 | `### Utilities` | −57,554 |
+| P3.3 | `## Repository Structure` (partial — gate-minimal tree stays) | −18,764 |
+| P3.4 | `## CI/CD Pipelines` | −15,861 |
+
+**`AGENTS.md` 170,137 → 45,084 characters (−73.5%)**, ceiling ratcheted at each step.
+
+Relocation was performed **by script, byte-for-byte**, so G3 passes *by
+construction* rather than by the author's judgement — the failure this effort
+exists to prevent is a well-meaning author keeping the identifiers and dropping the
+prose.
+
+**G3 caught two real losses that human judgement had approved.** Repairing a
+concurrent session's accidental revert, it stopped four lines of that session's new
+`safe_merge` documentation being destroyed. In P3.4 it refused a deletion of prose
+that a table "obviously" superseded — the table lacked four specifics.
+
+**The gates are complementary, not redundant.** G3 skips headings; the docs screen
+is blind to prose-dropped-but-identifiers-kept. P3.4 needed both.
+
+### P4 — the budget gate is BLOCKING and REQUIRED: DONE
+
+`--advisory` removed, and `Memory Budget` added as a required context in the
+`juniper-ml-rules` ruleset (15 → 16). Negative controls were run **before**
+promoting — clean tree exit 0, +500 chars exit 1, waiver exit 0 — because a
+blocking gate that cannot fail is worse than none.
+
+**G3 deliberately stays advisory**: it has a documented false-positive class
+(line-granular redistribution) and blocking on it would punish correct relocations.
+
+### P0b — worktree hygiene: DONE, and it validated its own extra check
+
+7 of 8 candidates removed; 17 worktrees remain, 2 now matching main.
+
+**The liveness probe justified itself on first use.** `piped-drifting-dragon`
+passed *every* gate `scripts/cleanup_session_worktrees.py` has — merged, clean,
+unlocked, not the current cwd — while a live session held it, MCP servers rooted
+inside. It was skipped. See
+[`docs/REFERENCE.md` § Worktree Divergence Is a Memory Cost](../docs/REFERENCE.md#worktree-divergence-is-a-memory-cost).
+
+Re-running the dry run first also mattered: state had moved from 23 worktrees /
+7 candidates to 24 / 8 in the intervening hours.
+
+### Combined effect, measured
+
+| Session | Before | After |
+|---------|-------:|------:|
+| Divergent worktree | 344,450 | **~213,400** |
+| Matching worktree (deduped) | 204,889 | **~110,900** |
+| % of a 200k window (deduped) | ~26% | **~14%** |
+
+P3 and P0b **compound**: the ancestor every session loads is now 45K rather than
+173K, so even an un-converged worktree pays a far smaller duplicate.
+
+### What remains
+
+The 32,443 target is not reached (45,084). The remainder is many small sections
+rather than one block, so the per-PR return has fallen sharply. The rate axis —
+which is what actually prevents regression — is now in place and enforced, and
+that was always the load-bearing half.
+
+---
+
 ## 5. Owner decisions
 
 | # | Decision                                | Recommendation                                                                                              |
