@@ -5,8 +5,9 @@
 **Date**: 2026-08-19
 **Harness**: Claude Code **2.1.236** — every §2/§3 finding is a property of this build. Re-probe after a
 client upgrade before relying on them.
-**Status**: Incident identified. **Killer mechanism UNDETERMINED**, bounded, characterised, and with a
-cheap decisive test named (§3.3) that has **not** been run.
+**Status**: Incident identified. **Killer mechanism UNDETERMINED and still open** — a prior
+"resolved" claim was spurious and is withdrawn (§3.3). The mechanism is bounded and characterised, and
+a cheap decisive test is named (§3.3) that has **not** been run.
 **Scope**: **Document only.** No code, config, ruleset or repository setting was changed by this
 investigation.
 **Related**: [ml#1183](https://github.com/pcalnon/juniper-ml/pull/1183) (kill-resilience fixes),
@@ -36,7 +37,7 @@ identified cause. It is not special; it is the one that was noticed.
 | Killed by a timeout? | **No.** The `timeout` parameter is not consulted for background tasks (§2.1) |
 | Killed by duration at all? | **No.** Same session: kills at 37/46/60/229 s **alongside** completions at 248–932 s |
 | Killed by the operator? | **No `TaskStop` call exists** in that session's transcript |
-| Root mechanism | **UNDETERMINED.** Best unexplored candidate: the `[bg]` supervisor's restart/adopt cycle (§3.2) |
+| Root mechanism | **UNDETERMINED and still open** — no prior fix resolved it; an earlier "resolved" claim was spurious (§3.3). Best unexplored candidate: the `[bg]` supervisor's restart/adopt cycle (§3.2) |
 | Was anything lost? | Yes — nothing server-side existed to finish the merge. That is RC-4, fixed afterwards in ml#1183, **partially** (§4) |
 
 > **A first draft of this document identified the wrong incident** (`juniper-cascor#536`). That draft
@@ -175,10 +176,15 @@ The first pass instead proposed three expensive options — a debug log that is 
 2026-04-06), an `execsnoop`/audit trace, and a one-hour multi-session reproduction. Those remain valid
 fallbacks **after** the cheap test.
 
-> **Open question, unreconciled:** the operator stated on 2026-08-19T23:54:36Z that "the safe_merge,
-> `wait_for_checks`, `gh --watch` kill issue has been **resolved** in a concurrent session." This
-> document could not locate or verify that resolution. If it exists, §3 should be superseded by it
-> rather than duplicated.
+> **A prior "resolved" claim is WITHDRAWN — do not go looking for it.** On 2026-08-19T23:54:36Z it was
+> stated that "the safe_merge, `wait_for_checks`, `gh --watch` kill issue has been **resolved** in a
+> concurrent session." The operator has since confirmed that claim was **spurious**: it rested on an
+> analysis that was later disproved. There is no resolution to find, and §3 is not duplicating one.
+>
+> Keep the shape of the error, not just the correction: a *"resolved"* claim inherits the confidence of
+> whatever analysis produced it. This investigation produced its own confidently wrong attribution (§5)
+> that survived until an adversarial pass — the same failure mode, one link earlier in the chain. Grade
+> a resolution claim like any other claim (§6).
 
 ---
 
@@ -312,6 +318,6 @@ reaped shortly after completion, and files vanished mid-investigation. Capture p
 | Run the §3.3 timestamp cross-reference against `daemon.log` | **not done** — no issue filed |
 | D1–D4 in `util/safe_merge.py` | **not fixed** — no issue filed; this investigation was document-only |
 | Size `DEFAULT_TIMEOUT` per-repo, or from the slowest repo | **not done** — no issue filed |
-| Reconcile with the "resolved in a concurrent session" claim (§3.3) | **not done** |
+| ~~Reconcile with the "resolved in a concurrent session" claim~~ | **closed** — the claim was spurious (§3.3); there is nothing to reconcile |
 
 The trail ends here. Nothing above is tracked anywhere else.
