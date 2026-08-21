@@ -611,11 +611,23 @@ data_up() {
 # Bring-up: juniper-cascor (uvicorn factory CLI owns the bind, plan §6.1)
 ###########################################################################################################################################################################################################
 cascor_up() {
-    local uvicorn_bin config_env=""
+    local uvicorn_bin config_env="" git_sha
     uvicorn_bin="$(env_bin "${CASCOR_CONDA}" uvicorn)"
     [[ -n "${CONFIG_PATH}" ]] && config_env="JUNIPER_CASCOR_CONFIG_FILE=${RUN_DIR}/config/experiment.yaml "
+    # D-C snapshot provenance. RUN_ID and EXPERIMENT are the launcher's own; CELL_ID and
+    # DATASET_ID pass through from whoever knows them (run_suite exports CELL_ID) and are
+    # simply blank otherwise, which cascor reads as "unset" rather than recording an
+    # empty string. Named explicitly here rather than relying on env inheritance so the
+    # values appear in the announce line and in record_launch_env — an operator reading
+    # the run dir can see exactly what identity the process was given.
+    #
+    # The git SHA is resolved INLINE rather than through a helper: the regression
+    # harness extracts this function body on its own, so anything it calls at file scope
+    # is undefined there. Best-effort — no git, or a non-repo checkout, yields empty,
+    # and cascor treats blank as unset rather than recording a lie.
+    git_sha="$(git -C "${CASCOR_SRC_DIR}" rev-parse --short=12 HEAD 2>/dev/null || true)"
     banner "juniper-cascor  ->  http://127.0.0.1:${CASCOR_PORT}  (${CASCOR_CONDA})"
-    announce "cd ${CASCOR_SRC_DIR} && LD_LIBRARY_PATH= JUNIPER_CASCOR_METRICS_ENABLED=true JUNIPER_CASCOR_AUTO_START=false JUNIPER_CASCOR_AUTO_START_DATA_SERVICE=false JUNIPER_CASCOR_LOG_LEVEL=INFO JUNIPER_CASCOR_SNAPSHOTS_DIR=${RUN_DIR}/snapshots JUNIPER_CASCOR_LOG_DIR=${LOG_DIR} JUNIPER_DATA_URL=${DATA_URL} ${config_env}${uvicorn_bin} api.app:create_app --factory --host 127.0.0.1 --port ${CASCOR_PORT}   # nohup -> ${LOG_DIR}/juniper-cascor.log"
+    announce "cd ${CASCOR_SRC_DIR} && LD_LIBRARY_PATH= JUNIPER_CASCOR_METRICS_ENABLED=true JUNIPER_CASCOR_AUTO_START=false JUNIPER_CASCOR_AUTO_START_DATA_SERVICE=false JUNIPER_CASCOR_LOG_LEVEL=INFO JUNIPER_CASCOR_SNAPSHOTS_DIR=${RUN_DIR}/snapshots JUNIPER_CASCOR_LOG_DIR=${LOG_DIR} JUNIPER_DATA_URL=${DATA_URL} JUNIPER_CASCOR_RUN_ID=${RUN_ID:-} JUNIPER_CASCOR_EXPERIMENT=${JUNIPER_CASCOR_EXPERIMENT:-${EXPERIMENT:-}} JUNIPER_CASCOR_CELL_ID=${JUNIPER_CASCOR_CELL_ID:-} JUNIPER_CASCOR_DATASET_ID=${JUNIPER_CASCOR_DATASET_ID:-} JUNIPER_CASCOR_GIT_SHA=${git_sha} ${config_env}${uvicorn_bin} api.app:create_app --factory --host 127.0.0.1 --port ${CASCOR_PORT}   # nohup -> ${LOG_DIR}/juniper-cascor.log"
     if is_dry; then return 0; fi
 
     # See data_up: ``cascor_up || failed=1`` disables set -e inside this body.
@@ -630,6 +642,11 @@ cascor_up() {
         "JUNIPER_CASCOR_SNAPSHOTS_DIR=${RUN_DIR}/snapshots" \
         "JUNIPER_CASCOR_LOG_DIR=${LOG_DIR}" \
         "JUNIPER_DATA_URL=${DATA_URL}" \
+        "JUNIPER_CASCOR_RUN_ID=${RUN_ID:-}" \
+        "JUNIPER_CASCOR_EXPERIMENT=${JUNIPER_CASCOR_EXPERIMENT:-${EXPERIMENT:-}}" \
+        "JUNIPER_CASCOR_CELL_ID=${JUNIPER_CASCOR_CELL_ID:-}" \
+        "JUNIPER_CASCOR_DATASET_ID=${JUNIPER_CASCOR_DATASET_ID:-}" \
+        "JUNIPER_CASCOR_GIT_SHA=${git_sha}" \
         "JUNIPER_CASCOR_CONFIG_FILE=${CONFIG_PATH:+${RUN_DIR}/config/experiment.yaml}"
     if [[ "${CONDA_ACTIVATE}" == "1" ]]; then activate_conda "${CASCOR_CONDA}" || return 1; fi
     (
@@ -642,6 +659,11 @@ cascor_up() {
             JUNIPER_CASCOR_SNAPSHOTS_DIR="${RUN_DIR}/snapshots" \
             JUNIPER_CASCOR_LOG_DIR="${LOG_DIR}" \
             JUNIPER_DATA_URL="${DATA_URL}" \
+            JUNIPER_CASCOR_RUN_ID="${RUN_ID:-}" \
+            JUNIPER_CASCOR_EXPERIMENT="${JUNIPER_CASCOR_EXPERIMENT:-${EXPERIMENT:-}}" \
+            JUNIPER_CASCOR_CELL_ID="${JUNIPER_CASCOR_CELL_ID:-}" \
+            JUNIPER_CASCOR_DATASET_ID="${JUNIPER_CASCOR_DATASET_ID:-}" \
+            JUNIPER_CASCOR_GIT_SHA="${git_sha}" \
             JUNIPER_CASCOR_CONFIG_FILE="${CONFIG_PATH:+${RUN_DIR}/config/experiment.yaml}" \
             nohup "${uvicorn_bin}" api.app:create_app --factory --host 127.0.0.1 --port "${CASCOR_PORT}" >"${LOG_DIR}/juniper-cascor.log" 2>&1 &
     )
