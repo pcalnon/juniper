@@ -107,13 +107,13 @@ Tracks the `76e4513b` content loss, **healed by ml#1165** (merged 08-18T08:16:03
 
 **The roster is five rows on every repo**, not two:
 
-| Actor | Mode | Disposition |
-| --- | --- | --- |
-| `DeployKey` (null) | `always` | **IDENTIFY-FIRST, unresolved** — the widest entitlement in the roster (push / force-push / **delete** `main` past all checks). Tracked in no other handoff. |
-| `RepositoryRole 5` (owner) | `always` | **KEEP** — load-bearing (§1 caveat) |
-| `29110` dependabot | `always` | **candidate for removal** |
-| `1143301` Copilot SWE Agent | `always` | **candidate for removal** |
-| `4362741` release-train App | `pull_request` | **DO NOT TOUCH** — see below |
+| Actor                       | Mode           | Disposition                                                                                                                                                 |
+|-----------------------------|----------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `DeployKey` (null)          | `always`       | **IDENTIFY-FIRST, unresolved** — the widest entitlement in the roster (push / force-push / **delete** `main` past all checks). Tracked in no other handoff. |
+| `RepositoryRole 5` (owner)  | `always`       | **KEEP** — load-bearing (§1 caveat)                                                                                                                         |
+| `29110` dependabot          | `always`       | **candidate for removal**                                                                                                                                   |
+| `1143301` Copilot SWE Agent | `always`       | **candidate for removal**                                                                                                                                   |
+| `4362741` release-train App | `pull_request` | **DO NOT TOUCH** — see below                                                                                                                                |
 
 The decision covers **only `29110` and `1143301`**. Both work solely via PRs on their own branches, and
 the rulesets target `~DEFAULT_BRANCH` only — the same structural argument that retired cursor / claude /
