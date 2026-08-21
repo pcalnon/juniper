@@ -23,21 +23,54 @@ records what closed, what is still in flight, and the three things worth carryin
 
 ---
 
-## 2. IN FLIGHT — check this first
+## 2. Merge wave — COMPLETE (this section corrected after the fact)
 
-`util/ad-hoc/base_branch_guard/merge_all.py --set final` was merging 11 PRs serially when the
-session ended. At last read: **1 merged** (deploy#192), **2 armed** (ml#1228, cascor#557 —
-these self-complete server-side), **8 not yet reached**.
+An earlier draft of this handoff said 8 PRs were still pending and the merger had probably
+been killed. **It finished.** All 11 merged; the last, ml#1228, needed a symbol-loss waiver
+first. Nothing is outstanding. `merge_all.py` is re-entrant if you want to confirm —
+already-merged PRs report `REFUSED: not OPEN` and are skipped.
 
-The merger is itself a background task and therefore subject to the ~3600 s worker lease this
-session documented, so **assume it was killed mid-run**. Re-check and finish:
+Two things surfaced while closing it out, both worth more than the merge itself.
 
-```bash
-python3 util/ad-hoc/base_branch_guard/merge_all.py --set final    # dry-run first
-python3 util/ad-hoc/base_branch_guard/merge_all.py --set final --execute
+### 2a. NEW DEFECT in `safe_merge` — the net-won race is handled in one place, not two
+
+ml#1228, verbatim:
+
+```text
+auto-merge net armed pinned to 38df160a
+waiting on required checks for 188a5259 …
+all required checks green — merging 188a5259 (squash)
+ERROR: gh pr merge 1228… failed: GraphQL: Pull Request is not mergeable (mergePullRequest)
 ```
 
-It is dup-guarded and re-entrant: already-merged PRs report REFUSED (`not OPEN`) and are skipped.
+The PR **merged correctly** (`14e7af41`, 23:30:06Z) — the armed net won. But `safe_merge`
+called it a **hard error (exit 3)**.
+
+`safe_merge` already handles "the net got there first" at the post-wait state check
+(`if after.get("state") == "MERGED"` → success). The window it misses is between that check
+and the local `gh pr merge`: if the net merges in there, the local merge hits
+`Pull Request is not mergeable` and falls through to the generic `raise`.
+
+**The D1 fix makes this MORE likely, not less** — arming on `BLOCKED`/`BEHIND`/`UNKNOWN`
+means a net is live far more often than before. Fix shape: in the `except HardError` block
+that already special-cases *"head branch was modified"*, also re-read the PR — if it is now
+`MERGED`, that is the net-won success path, not an error. Untouched; no issue filed.
+
+### 2b. A NEAR-MISS worth more than the defect
+
+Returning to the D4 branch to add the waiver revealed that the **DeployKey commit had never
+been pushed**. `git merge-base --is-ancestor` said no. The census correction, the audit tool,
+and the withdrawn dependabot verdict were sitting on a local branch in a worktree, while §1 of
+this handoff listed them as closed.
+
+It was caught only because a *different* PR was refused and sent me back to that branch. Had
+ml#1228 merged cleanly the session would have ended and the work would have gone with the
+worktree.
+
+> **The rule this earns:** verifying that PRs merged is not verifying that everything
+> committed was pushed. Before wrapping, check every branch touched:
+> `git merge-base --is-ancestor HEAD origin/<branch>`. "The arc is complete" is a claim about
+> the remote, and it needs remote evidence.
 
 ---
 
@@ -74,6 +107,9 @@ immediately after a successful auth and ~30 same-day pushes.
   struck; read §3c.
 - **F-5 `concurrency:`** — closed as a reasoned no-change, rationale in the workflow header.
   Revisit only with a measurement that a *superseded* `cancelled` run does not gate.
+- **The §2a net-won race** — a real defect, small fix, no issue filed. It reports a successful
+  merge as a hard error, so it costs trust rather than correctness; worth doing before the next
+  batch merge, since D1 made it more frequent.
 
 ---
 
