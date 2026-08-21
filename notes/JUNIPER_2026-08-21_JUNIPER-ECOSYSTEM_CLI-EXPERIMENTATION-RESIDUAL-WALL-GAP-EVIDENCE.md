@@ -193,12 +193,92 @@ is the output layer.
 **It also means neither cap licenses an extrapolation to cap 64** — the two terms move in opposite
 directions, so the product is not something to fit a line through. Hence §3.3.
 
-### 3.3 Cap 64
+### 3.3 Cap 64 — paired, k=4, and the result splits in two
 
-<!-- PENDING — k=4 campaign in flight (suite e-m-h2h-paired-cap64, ~10 h).
-     k derived from §3.2's span-ratio sd of 0.154: k=4 gives a 95% half-width of ~0.15,
-     i.e. ±8% on a ~2x ratio. The 0.05 half-width the analyser reports as "ideal" needs k=37,
-     which at ~2.5 h per pair is ~90 h and is not affordable; that limit is stated, not hidden. -->
+Suite `e-m-h2h-paired-cap64-20260821T111154Z`, one `config_sha256` (`2bf1b3c6af6a`), one verified
+stack, ~10 h. Per-leg load1 3.77–7.14.
+
+| pair | svc span | cli span | span× | svc epochs | cli epochs | work× | rate× |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 2737 | 5780 | 2.112 | 134,500 | 221,580 | 1.647 | 1.289 |
+| **2** | 2478 | **2967** | **1.197** | 134,500 | **122,840** | **0.913** | **1.316** |
+| 3 | 2372 | 5195 | 2.190 | 134,500 | 212,020 | 1.576 | 1.402 |
+| 4 | 2500 | 5492 | 2.197 | 134,500 | 225,980 | 1.680 | 1.317 |
+
+| paired ratio | mean ± sd | 95% CI |
+| --- | ---: | --- |
+| training span | 1.924 ± 0.486 | [1.448, 2.400] |
+| candidate phase | 1.937 ± 0.492 | [1.455, 2.420] |
+| output phase | 0.900 ± 0.271 | [0.635, 1.166] |
+| **candidate work** | **1.454 ± 0.363** | [1.098, 1.810] |
+| **per-candidate-epoch rate** | **1.331 ± 0.049** | [1.283, 1.379] |
+
+Ratio-of-means 1.927 against ratio-of-pairs 1.924 — the pairs saw comparable hosts.
+
+**Pair 2 is not an anomaly to discard; it is the reproducibility defect in the wall clock.** Its CLI
+leg did **122,840** candidate epochs where the other three did 212k–226k — roughly half the work,
+on a byte-identical config. The service leg did **exactly 134,500** in all four pairs. That is
+cascor#532 (direct-CLI divergence rate 0.768) expressed as wall time.
+
+#### 3.3a The finding: one stable term and one stochastic term
+
+The single most useful thing in this table is that **the rate ratio barely moves while the work
+ratio swings 2×**:
+
+| pair | work× | rate× |
+| ---: | ---: | ---: |
+| 1 | 1.647 | 1.289 |
+| 2 | **0.913** | 1.316 |
+| 3 | 1.576 | 1.402 |
+| 4 | 1.680 | 1.317 |
+
+Work ranges 0.913–1.680 (sd 0.363, cv 25%). Rate ranges 1.289–1.402 (sd 0.049, **cv 3.7%**), and
+pair 2 — the one that did half the work — sits in the middle of the rate band.
+
+The analyser's own sizing says the same thing: for a 0.05 half-width the span needs **k=363** and
+the rate needs **k=4, already SUFFICIENT**.
+
+So "the CLI is ~1.9× slower" is a poor headline. The gap is:
+
+> **a STABLE ~1.33× per-candidate-epoch throughput penalty — the genuine path difference —
+> multiplied by a VARIABLE amount of work the CLI happens to do, which is cascor#532 and not a
+> performance property at all.**
+
+Those are different defects with different owners. The rate term is what §4.6 should fix. The work
+term is already tracked as G1/G1a and is only reducible by making the CLI path reproducible.
+
+#### 3.3b The cap series — the compounding is entirely the work term
+
+| cap | span× | work× | rate× | output× | work × rate | measured phase× |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 4 | 1.459 | 0.945 | 1.555 | 0.978 | 1.469 | 1.470 |
+| 16 | 1.735 | 1.206 | 1.415 | 0.969 | 1.706 | 1.706 |
+| 64 | 1.924 | 1.454 | 1.331 | 0.900 | 1.935 | 1.937 |
+
+The decomposition closes to within 0.002 at every cap, so the two terms are a complete account of
+the candidate phase.
+
+Read across the rows: **work grows monotonically (0.945 → 1.454) while rate falls monotonically
+(1.555 → 1.331).** The much-quoted "the gap compounds per growth iteration" is true of the total —
+and it is *entirely* the work term doing it. The per-epoch penalty actually *improves* with cap, as
+larger matrices amortise a fixed overhead.
+
+This is why §3.2b warned against extrapolating: a fit through the total would have been fitting the
+product of two opposing trends.
+
+#### 3.3c #533 did not measurably reduce the cap-64 gap
+
+The wide-budget campaign measured **1.99 ± 0.21×** pre-#533, with the CLI arm carrying `main.py`'s
+`OMP=2` cap that juniper-cascor#531 valued at **1.30× of a 1.52×** candidate-phase penalty at
+cap 16. Removing that cap should therefore have moved the cap-64 headline substantially.
+
+Measured post-#533 at k=4: **1.924 ± 0.486** — squarely overlapping the pre-#533 1.99 ± 0.21.
+
+Two caveats before this is read as "#533 achieved nothing": the designs differ (ml#1143 used three
+*different* seeds, this uses one seed × four replicates), and my interval is wide because of the
+work term. But the comparison is informative in the same direction as §3.2a: **#531's 1.30×
+thread-cap attribution also rests on single runs**, and single-run attributions in this system have
+now twice failed to survive k=4. Testing that is the OMP control in §6.
 
 ---
 
