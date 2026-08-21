@@ -225,6 +225,11 @@ class _StubHandler(BaseHTTPRequestHandler):
             self._send(200, json.dumps({"status": "ok"}).encode("utf-8"))
         elif path == "/v1/health/ready":
             self._send(200, json.dumps({"status": "ready"}).encode("utf-8"))
+        elif path == "/v1/training/params":
+            # Q-1: the service's own training-parameter echo. Wrapped in {"data": ...}
+            # exactly as cascor's success_response() does, so the driver's unwrapping is
+            # exercised rather than assumed.
+            self._send(200, json.dumps({"data": {"max_iterations": 2, "candidate_pool_size": 4}}).encode("utf-8"))
         elif path == "/v1/generators":
             self._send(
                 200,
@@ -1826,6 +1831,102 @@ class StatsSummaryUnitTest(unittest.TestCase):
         self.assertTrue(any("eval_metrics" in note for note in notes))
         self.assertTrue(any("G-6" in note for note in notes))
         self.assertTrue(any("eval metrics disabled" in note for note in notes))
+
+
+class ResolvedConfigTest(_StubTestCase):
+    """Q-1: ``config/experiment.resolved.yaml`` beside the verbatim copy."""
+
+    def test_cascor_run_writes_both_halves(self) -> None:
+        """The happy path: driver-resolved config plus the service's own echo, each tagged.
+
+        Q-1 asked for a dump of the live ``Settings`` object. The driver is an HTTP client
+        and never constructs one, so this file records only what it can verify and says so
+        in ``_meta.scope``. The test asserts BOTH halves are present and that the service
+        half really came from the endpoint, because a file carrying only the driver's view
+        while looking authoritative is the failure mode Q-1 exists to prevent.
+        """
+        config = _write_config(self.tmp, _base_config())
+        code, stdout = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS, stdout)
+
+        resolved_path = self.run_dir / "config" / "experiment.resolved.yaml"
+        self.assertTrue(resolved_path.is_file(), "Q-1 artifact was not written")
+        doc = yaml.safe_load(resolved_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(doc["_meta"]["schema"], rx.RESOLVED_CONFIG_SCHEMA)
+        self.assertEqual(doc["_meta"]["app"], "cascor")
+        self.assertIn("NOT COVERED", doc["_meta"]["scope"], "the file must state what it does not cover")
+
+        # Half one: the driver's own resolved view, defaults materialised.
+        self.assertEqual(doc["driver_resolved"]["experiment"]["name"], "stub-exp")
+        self.assertIn("max_wall_seconds", doc["driver_resolved"]["outputs"])
+
+        # Half two: the service's echo, unwrapped from success_response()'s {"data": ...}.
+        service = doc["service_training_params"]
+        self.assertTrue(service["available"], service)
+        self.assertIsNone(service["reason"])
+        self.assertTrue(service["source"].endswith("/v1/training/params"))
+        self.assertEqual(service["params"], {"max_iterations": 2, "candidate_pool_size": 4})
+
+    def test_the_manifest_points_at_it(self) -> None:
+        """A provenance artifact nobody can find is not provenance."""
+        config = _write_config(self.tmp, _base_config())
+        code, stdout = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS, stdout)
+
+        recorded = _manifest(self.run_dir)["config_resolved_path"]
+        self.assertEqual(Path(recorded), self.run_dir / "config" / "experiment.resolved.yaml")
+
+    def test_it_sits_beside_the_verbatim_copy_without_replacing_it(self) -> None:
+        """Both files exist: the resolved one ADDS provenance, it does not substitute for it."""
+        config = _write_config(self.tmp, _base_config())
+        code, stdout = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS, stdout)
+
+        self.assertTrue((self.run_dir / "config" / "experiment.yaml").is_file())
+        self.assertTrue((self.run_dir / "config" / "experiment.resolved.yaml").is_file())
+
+
+class ResolvedConfigUnitTest(unittest.TestCase):
+    """The service half degrades to a STATED reason, never to silence or a crash."""
+
+    def _write(self, app: str, url, tmp) -> dict:
+        out = rx.write_resolved_config(Path(tmp), {"experiment": {"name": "u", "seed": 1}}, "RID", app, url)
+        self.assertIsNotNone(out)
+        return yaml.safe_load(out.read_text(encoding="utf-8"))
+
+    def test_recurrence_reports_no_endpoint_rather_than_omitting_the_key(self) -> None:
+        """recurrence exposes no equivalent at all — that is a fact to record, not a gap.
+
+        Omitting the key would make "no such endpoint" and "we forgot to look" identical
+        to a reader.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            doc = self._write("recurrence", "http://127.0.0.1:1", tmp)
+        service = doc["service_training_params"]
+        self.assertFalse(service["available"])
+        self.assertIn("no training-parameters endpoint", service["reason"])
+        self.assertIsNone(service["params"])
+
+    def test_a_missing_service_url_is_stated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            doc = self._write("cascor", None, tmp)
+        self.assertIn("no service URL", doc["service_training_params"]["reason"])
+
+    def test_an_unreachable_service_is_recorded_not_raised(self) -> None:
+        """Provenance must never be able to fail a run that otherwise succeeded."""
+        with tempfile.TemporaryDirectory() as tmp:
+            doc = self._write("cascor", "http://127.0.0.1:1", tmp)
+        service = doc["service_training_params"]
+        self.assertFalse(service["available"])
+        self.assertIsNotNone(service["reason"])
+        self.assertTrue(service["source"].endswith("/v1/training/params"))
+
+    def test_the_driver_half_is_always_present(self) -> None:
+        """Whatever happens to the service half, the driver's own view is recorded."""
+        with tempfile.TemporaryDirectory() as tmp:
+            doc = self._write("cascor", "http://127.0.0.1:1", tmp)
+        self.assertEqual(doc["driver_resolved"]["experiment"]["name"], "u")
 
 
 class SubprocessSmokeTest(unittest.TestCase):

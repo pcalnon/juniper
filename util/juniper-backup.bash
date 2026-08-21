@@ -52,6 +52,8 @@ MEDIA_NAME="DFF3-2782"
 TAR_EXT="tgz"
 GPG_EXT="gpg"
 
+
+#######################################################################################################################################################################################################################################################
 # MULTIPLE RECIPIENTS, deliberately. gpg encrypts a session key to each, so ANY ONE of these keys
 # can decrypt the archive independently. This is the mitigation for the restore-side single point of
 # failure: `gpg -r <pub> -e` needs no YubiKey to WRITE a backup, only to READ one -- so with a single
@@ -67,13 +69,18 @@ ENCRYPT_KEYS=(
 
 #######################################################################################################################################################################################################################################################
 # Derived paths
+
 ROOT_DIR="${HOME}/${DEVELOPMENT_NAME}/${LANGUAGE_NAME}"
 PROJECT_DIR="${ROOT_DIR}/${PROJECT_NAME}"
 EXT_DRIVE="/${MOUNT_NAME}/${USER_NAME}/${MEDIA_NAME}"
 
+
+#######################################################################################################################################################################################################################################################
+# Parse and Validate Command line arguments
+
 DRY_RUN=0
 
-while [[ $# -gt 0 ]]; do
+while (( $# > 0 )); do
     case "$1" in
         --dry-run) DRY_RUN=1; shift ;;
         --source)  PROJECT_DIR="${2:?--source requires a DIR}"; shift 2 ;;
@@ -82,6 +89,10 @@ while [[ $# -gt 0 ]]; do
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
+
+
+#######################################################################################################################################################################################################################################################
+# Define archive paths
 
 DATE_STAMP="$(date +%Y%m%d_%H%M%S.%N-%Z)"
 UUID_VALUE="$(uuidgen)"
@@ -95,7 +106,21 @@ SOURCE_LEAF="$(basename "${PROJECT_DIR}")"
 
 
 #######################################################################################################################################################################################################################################################
+# Define function to cleanup partial archive on failure. If Archive + encrypt, streamed fails, a partial output is removed on failure rather than be left to look like a backup.
+
+function cleanup_partial() {
+    local rc=$?
+    if (( rc != 0 )) && [[ -f "${GPG_PATH}" ]]; then
+        echo "FAILED (exit ${rc}) -- removing partial archive ${GPG_PATH}" >&2
+        rm -f "${GPG_PATH}"
+    fi
+    return "${rc}"
+}
+
+
+#######################################################################################################################################################################################################################################################
 # Preflight -- every one of these is a way the draft failed silently
+
 [[ -d "${PROJECT_DIR}" ]] || { echo "FATAL: source not found: ${PROJECT_DIR}" >&2; exit 1; }
 
 # The destination is a REMOVABLE drive. If it is not mounted, ${EXT_DRIVE} may still exist as an
@@ -107,8 +132,10 @@ if ! mountpoint -q "${EXT_DRIVE}" 2>/dev/null; then
 fi
 [[ -w "${EXT_DRIVE}" ]] || { echo "FATAL: not writable: ${EXT_DRIVE}" >&2; exit 1; }
 
-# Every recipient must resolve BEFORE we spend an hour building a tarball. A missing key here is
-# also the failure that would quietly halve the redundancy this list exists to provide.
+
+#######################################################################################################################################################################################################################################################
+# Every recipient must resolve BEFORE we spend an hour building a tarball. A missing key here is also the failure that would quietly halve the redundancy this list exists to provide.
+
 GPG_RECIPIENT_ARGS=()
 for _key in "${ENCRYPT_KEYS[@]}"; do
     gpg --list-keys "${_key}" >/dev/null 2>&1 \
@@ -132,30 +159,19 @@ if (( DRY_RUN )); then
     exit 0
 fi
 
-
-#######################################################################################################################################################################################################################################################
-# Archive + encrypt, streamed. A partial output on failure is removed rather than left to look
-# like a backup.
-cleanup_partial() {
-    local rc=$?
-    if (( rc != 0 )) && [[ -f "${GPG_PATH}" ]]; then
-        echo "FAILED (exit ${rc}) -- removing partial archive ${GPG_PATH}" >&2
-        rm -f "${GPG_PATH}"
-    fi
-    return "${rc}"
-}
 trap cleanup_partial EXIT
 
-# -C so paths are stored relative to the parent ("Juniper/..."), not as absolute paths that tar
-# would strip with a warning and that restore into an unexpected location.
-tar -czf - -C "${SOURCE_PARENT}" "${SOURCE_LEAF}" \
-    | gpg --batch --yes "${GPG_RECIPIENT_ARGS[@]}" -e -o "${GPG_PATH}"
+
+#######################################################################################################################################################################################################################################################
+# tar with -C switch so paths are stored relative to the parent ("Juniper/..."), not as absolute paths that tar would strip with a warning and that restore into an unexpected location.
+
+tar -czf - -C "${SOURCE_PARENT}" "${SOURCE_LEAF}" | gpg --batch --yes "${GPG_RECIPIENT_ARGS[@]}" -e -o "${GPG_PATH}"
 
 
 #######################################################################################################################################################################################################################################################
-# Verify. `--list-packets` parses the OpenPGP structure and confirms the recipient key id WITHOUT
-# needing the YubiKey, so it is safe to run unattended. It does NOT prove the tar inside is intact
-# -- a real restore drill is the only thing that does, and that belongs in the backup design arc.
+# Verify. `--list-packets` parses the OpenPGP structure and confirms the recipient key id WITHOUT needing the YubiKey, so it is safe to run unattended.
+# It does NOT prove the tar inside is intact -- a real restore drill is the only thing that does, and that belongs in the backup design arc.
+
 [[ -s "${GPG_PATH}" ]] || { echo "FATAL: archive is empty: ${GPG_PATH}" >&2; exit 1; }
 
 if ! gpg --list-packets --list-only "${GPG_PATH}" >/dev/null 2>&1; then
@@ -163,9 +179,11 @@ if ! gpg --list-packets --list-only "${GPG_PATH}" >/dev/null 2>&1; then
     exit 1
 fi
 
-# Count the pubkey-encrypted session-key packets. One per recipient -- so this proves the redundancy
-# actually landed, rather than assuming it did because the command line asked for it. Neither check
-# needs a YubiKey, so both are safe unattended.
+
+#######################################################################################################################################################################################################################################################
+# Count the pubkey-encrypted session-key packets. One per recipient -- so this proves the redundancy actually landed, rather than assuming it did because the command line asked for it.
+# Neither check needs a YubiKey, so both are safe unattended.
+
 FOUND_RECIPIENTS="$(gpg --list-packets --list-only "${GPG_PATH}" 2>/dev/null | grep -c '^:pubkey enc packet:' || true)"
 if [[ "${FOUND_RECIPIENTS}" -ne "${#ENCRYPT_KEYS[@]}" ]]; then
     echo "FATAL: archive encrypted to ${FOUND_RECIPIENTS} recipient(s), expected ${#ENCRYPT_KEYS[@]}" >&2
