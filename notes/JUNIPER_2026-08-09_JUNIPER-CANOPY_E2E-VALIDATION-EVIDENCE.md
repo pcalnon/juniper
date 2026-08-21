@@ -154,8 +154,34 @@ Two panels, identical signature: their data store is demonstrably filled on the 
 **Ruled out, each explicitly:** instrument truncation (the first probes sliced responses to 3000 chars while the largest real response was **675,891** chars — re-measured with full-text matching); buffer overflow (the first counter capped at 250 entries and silently shifted — replaced with uncapped counters); duplicate component ids (all `count == 1`); "the store isn't in the layout" (`dcc.Store`/`dcc.Interval` render no DOM at all — the *working* `metrics-panel-metrics-store` and `fast-update-interval` also return 0 nodes, so DOM absence proves nothing); a server-side exception (canopy log clean — the only ERRORs are pre-run `No network created` lines); clientside callbacks (grep for `clientside_callback` in both panel files returns nothing); and too-short settle windows (49 s, 121 s, and 120 s watches, well past F-CANOPY-004's documented 30 s–minutes).
 **Blast radius / why it matters for scoring:** M-CANDIDATES-07 **FAIL**, M-CANDIDATES-09/-10/-11 and M-BOUNDARIES-02/-03 **BLOCKED**, M-BOUNDARIES-04 **FAIL**, M-BOUNDARIES-01 half-failed. It also means **M-CANDIDATES-01/-02/-03/-04/-06 carry `PASS` recorded against the panel's mount DEFAULTS** — the same negative-arm trap that hid F-CANOPY-025 for five segments (`-02`'s and `-03`'s stated expectations literally name the defaults `"Idle"` and `"0"`). Those five rows should be treated as unproven and re-driven once this is fixed.
 
+**THIRD INSTANCE (segment 16) — the Dataset View plotter.** Same signature, now on a third panel:
+`dataset-plotter-dataset-store` filled **13 times in 90 s** with real data
+(`num_samples 1000, num_features 2, num_classes 2, train 800 / test 200`, plus `inputs` arrays), while the
+6-output consumer (`dataset_plotter.py:496-532`, which writes both plots AND all four stat tiles) emitted
+**ZERO** outputs across **409** `_dash-update-component` responses. The tiles sat at `0 / 0 / 0 / N/A` and both
+plots at `1102x0` with no traces. Full-text response matching, uncapped counters, tab active throughout.
+Rows: M-DATASET-13 / -15 / -16 **FAIL**.
+**Two more mechanisms tested and REFUTED here** (recorded so nobody re-runs them): (i) *"a callback Input is
+missing from the rendered tree, so Dash cannot dispatch it"* — after a 90 s settle all four sequence selectors
+among the nine Inputs **are** rendered; (ii) *"the component is absent from the served layout"* — every Input
+is present in `/dashboard/_dash-layout`. Also learned the hard way: this panel **rebuilds continuously**, so
+`getElementById` against it is racy and a short settle produces false "absent" readings (one nearly became a
+filed defect for `dataset-plotter-split-selector`, which renders fine). Root cause still NOT isolated.
+
 **F-CANOPY-028 — pinned params are silently discarded on the first pin after any reload (P2, OPEN; segment 15).**
 `pinned-params-store` is `storage_type="local"` and survives reload correctly, but the `{"type":"param-pin"}` checkboxes in the Parameters tables **do not rehydrate from it** — after a reload they all render unchecked while the store and the sidebar card still show the pinned set. Because the single pattern-matched writer (`dashboard_manager.py:3948-3952`) *collects the state of every checkbox*, the next pin action writes a list built from the un-rehydrated DOM, dropping everything pinned before the reload. Reproduced end-to-end: pinned `learning_rate` → `pinned-params-store` `["learning_rate"]`, sidebar card `display:block` showing "Learning Rate" → full page reload → `localStorage["pinned-params-store"]` still `["learning_rate"]`, card still shown, **but the `learning_rate` checkbox reads `checked:false`** → pinning `max_iterations` → store and localStorage both become `["max_iterations"]`, `learning_rate` gone with no warning. Matrix rows M-PARAMETERS-04/-05/-06 still **PASS** on their own stated expectations (the store write, the card reveal, and persistence all work); this is the cross-cutting defect those rows sit on top of.
+
+**F-CANOPY-029 — the Dataset View "Generate Dataset" modal can never open: its callback 500s on every click (P1, OPEN; segment 16; root-caused, one-line fix).**
+`toggle_generate_modal` (`dashboard_manager.py:3869-3870`) does `ctx = get_callback_context()` and then reads **`ctx.triggered_id`**. `get_callback_context()` returns canopy's **own** `CallbackContextAdapter` (`frontend/callback_context.py:53`), whose only accessor is **`get_triggered_id()`** (`:78`) — there is no `triggered_id` property. Every click therefore raises `AttributeError: 'CallbackContextAdapter' object has no attribute 'triggered_id'. Did you mean: 'get_triggered_id'?` and Dash returns **HTTP 500**; the browser console shows `Callback error updating dataset-plotter-generate-modal.is_open`, and the canopy log carries the full traceback. Deterministic — reproduced on every attempt. The other three production `.triggered_id` reads (`dashboard_manager.py:2411`, `:2429`, `callback_context.py:92`) are on the genuine `dash.callback_context`, which is why the model-selection modal (C2.6-18) still passes; this one call site mixes the adapter object with the raw-dash attribute name. Fix: `ctx.get_triggered_id()`.
+**Why the suite is green:** `test_toggle_generate_modal_open` / `_close` (`src/tests/unit/frontend/test_dashboard_manager_gate_coverage_inner1.py:375-388`) patch `get_callback_context` with a bare `MagicMock()` and then set `fake_ctx.triggered_id = ...`. A `MagicMock` fabricates any attribute on demand, so the test asserts against a shape the production object has never had. Hardening: give the mock `spec=CallbackContextAdapter` — that alone would have failed the test. This is the mock-seam / vacuous-pass class in its purest form.
+**Blast radius:** M-DATASET-01 **FAIL**; M-DATASET-02 / -03 / -05 / -07 / -09 **BLOCKED** — the tabs, the generate params, the CSV upload contract, the URL input and the cancel button all live inside a modal that never opens.
+
+**F-CANOPY-031 — the snapshots panel never renders against the migrated shared corpus (P1, OPEN; segment 16).**
+`hdf5-snapshots-panel-status` is stuck at **"Loading snapshots…"**, `hdf5-snapshots-panel-table-body` has **0 rows**, and `hdf5-snapshots-panel-empty-state` is `display:none` (so the user sees neither data nor an empty state), while `GET /api/v1/snapshots` answers successfully with **27,903 entries — a 10.4 MB payload taking 4.9 s to serve**. The route works; the panel never leaves its loading state. Newly exposed by the S-1 storage-convention migration (`notes/JUNIPER_2026-08-20_JUNIPER-ECOSYSTEM_SNAPSHOT-STORAGE-CONVENTION-DESIGN.md`): segment 15 drove this same panel successfully when the corpus held **4** files, and the panel then rendered per-row op buttons. The list endpoint takes no `limit`/pagination, so the panel asks for the entire asset store every refresh. NB the fetch is **not** hammering — 18 logged fetches over ~25 min, tab-gated — so this is a render/scale failure, not a polling storm.
+**Blast radius:** M-SNAPSHOTS-19 **BLOCKED** — with no snapshot row rendered there is nothing to right-click. Independently, the two attributes `snapshot_context_menu.js` requires to build its menu, `data-snapshot-row` and `data-snapshot-id` (`:29-30`), appear on **zero** elements in the DOM, so that menu would not open even with rows present — worth checking as a second defect once the panel renders.
+
+**F-CANOPY-032 — the worker panel's "Worker data degraded" alert never renders even though canopy's own API reports the error (P2, OPEN; segment 16).**
+`worker_panel.py:226-227` renders a dismissable `dbc.Alert(f"Worker data degraded: {upstream_error}")` when `upstream_error` is set. Driven under **both** upstream failure modes — control-WS-only outage (`stream_health.overall == "degraded"`) and cascor fully down (`overall == "reconnecting"`) — `worker-panel-error-display` stayed present-but-empty (`display:block`, 860x0, text `""`) across 60 s each, with the panel showing `NO WORKERS` and all-zero tiles. Yet with cascor down canopy's own endpoints carry the error explicitly: `GET /api/v1/workers/list` → `{"workers":[],"count":0,"local_reported":false,"error":"Upstream error","error_id":"dd1a84f727da"}` and `/api/v1/workers/stats` → `{...,"error":"Upstream error","error_id":"450850d9f349"}`. So the signal exists end-to-end and the alert branch never fires. Matrix row M-WORKERS-02 **FAIL**. Consistent with the F-CANOPY-027 filled-data / dead-render class, though the store fill itself was not separately instrumented here.
 
 ### Observations (non-finding)
 
@@ -2278,3 +2304,102 @@ established, and is deliberately not claimed here.
 cannot drift from what the filler will write. This exists because segment 15's own handoff draft published
 the *estimator's* row list under the ledger's headline and was caught only in validation. Run it, and diff
 its table against the filler's dry run, before planning any segment.
+
+---
+
+## Phase 1 — segment 16 (2026-08-21): the last 32 rows — matrix COMPLETE at 298/298
+
+Run id `20260821T212306Z`. Matrix **266 → 298 of 298**. **Phase 1 row coverage is complete**: every row in
+the matrix now carries a terminal verdict, including the four that had sat on a non-terminal `pending …`
+since earlier segments (`C2.4-02`, `C2.4-05`, `M-WORKERS-02`, `M-TUTORIAL-04`). Sections closed this segment:
+**§2.4 6/6**, **§2.5 10/10**, **§3.6 27/27**, **§3.7 8/8**, **§3.9 21/21**, **§3.14 4/4**.
+
+The browser MCP was **absent** this segment (as in 8, 13, 14), so everything was driven through a new script,
+`util/ad-hoc/e2e_seg16_dataset_driver.py`, under `LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python`.
+
+Three stack postures were used: the default isolated trio; a second cycle with
+`JUNIPER_CANOPY_ENABLE_WS_CONTROL_BUTTONS=false` for `C2.5-07`; and a hand-launched DEMO canopy on port 8053
+for `C2.4-02`. The corpus needed **no** backup — the S-1 migration moved the root to
+`juniper-cascor/cascor-snapshots/` and teardown no longer sweeps it (verified by `--dry-run --down`, and by
+counting 27,906 `.h5` intact after the final teardown).
+
+### Findings
+
+Three new, all in the ledger above: **F-CANOPY-029** (the Dataset View generate modal 500s on every click —
+root-caused to a single line, with a green-but-vacuous unit test explaining why nobody noticed),
+**F-CANOPY-031** (the snapshots panel never renders against the 27,903-entry migrated corpus),
+**F-CANOPY-032** (the worker "data degraded" alert never renders although canopy's own API reports the error).
+**F-CANOPY-027 gained a third instance** — the Dataset View plotter — and two candidate mechanisms for it
+were tested and refuted; see its entry.
+
+**F-CANOPY-029 is the most actionable defect this arc has produced.** It is deterministic, one line, and the
+error message names its own fix (`Did you mean: 'get_triggered_id'?`). The reason it survived is worth more
+than the bug: the unit tests patch `get_callback_context` with a bare `MagicMock()` and then set
+`fake_ctx.triggered_id`, so they assert against a shape the production adapter never had. `spec=` on the mock
+would have caught it. That is the same "green tests / dead app" seam class the mock-seam auditor exists for.
+
+### Corrections to the handoff, made from measurement
+
+- **`C2.4-05` and `M-WORKERS-02` do NOT share an induction.** The handoff said they did. `degraded` requires
+  the relay **healthy** and the control stream **unhealthy** (`cascor_service_adapter.py:1004-1006`), so
+  taking cascor down yields `reconnecting`, not `degraded` — which is exactly why segment 4 got the wrong
+  state. The working induction is to restart **cascor only** with
+  `JUNIPER_CASCOR_WS_CONTROL_ALLOWED_ORIGINS` pointed at a bogus origin, leaving canopy untouched (W14's T-2
+  respected — `/v1/health demo_mode` stayed `False` throughout). That produced `overall='degraded'`,
+  `relay='healthy'`, `control='reconnecting'` and the badge `WS: Upstream degraded` on `#ffc107`. The worker
+  alert then still did not render under either mode — hence F-CANOPY-032.
+- **`M-TUTORIAL-04` and `M-SNAPSHOTS-19` are not "native menu" rows.** Both are *custom JS* menus
+  (`frontend/assets/context_menus.js`, `snapshot_context_menu.js`), so both are automatable. M-TUTORIAL-04
+  was driven end-to-end: dispatching a `contextmenu` MouseEvent with real coordinates on a tooltipped control
+  opened `#juniper-context-menu` (360x114) and clicking "View tutorial →" flipped `active_tab` to `Tutorial`.
+  (The Playwright *locator* right-click times out, like every other click on this page — the dispatched event
+  is what lands.)
+- **The DEMO canopy must be launched with `LD_LIBRARY_PATH=` cleared.** The demo backend imports torch
+  (`demo_backend.py:45`) where the service backend does not, so the first hand-launch died on
+  `undefined symbol: _PyObject_NextNotImplemented` during startup — the documented rust_mudgeon trap, in a
+  place the launcher never had to handle.
+
+### Instrument discipline — one wrong finding caught, three probes rebuilt
+
+I stated `dataset-plotter-split-selector` "definitively" never renders, on the strength of a served-layout /
+DOM comparison (7 children served, 6 rendered) — and it was **wrong**. The very next step drove all three of
+its values cleanly (`All Data` → `Training Only` → `Test Only`, 0 requests). The panel rebuilds continuously,
+so a short settle produces false "absent" readings. **M-DATASET-12 is a PASS and there is no defect there.**
+That is the arc's "reproduce a second way" rule earning its keep for the second segment running.
+
+Three of my own probes had to be rebuilt mid-segment, each after producing a plausible wrong answer:
+an unscoped `[role=option]` sweep that captured *other* open Radix menus and manufactured a 24-entry option
+list (scoping by `aria-controls` gives the true 16); a `table tbody tr` count that was reading the Network
+Info table and reported 63 snapshot rows that did not exist (the panel's own
+`hdf5-snapshots-panel-table-body` has 0); and a theme-flip comparison that reported "changed" only because
+the second sample carried an extra key, while the toggle had not fired at all — M-DATASET-14 is recorded
+**BLOCKED** on that instrument limit rather than scored.
+
+### Selected evidence
+
+- **§3.6 data is real, not metadata-only.** The matrix's service-mode caveat (metadata tiles with empty
+  plots) did not apply: `/api/dataset` returned `loaded:true` with `num_samples 1000`, `train 800 / test 200`
+  **and** populated `inputs`/`targets`. The tiles and plots are empty anyway — F-CANOPY-027, not the caveat.
+- **M-DATASET-10** options, scoped properly, are exactly the 16 from `GET /api/dataset/generators`, default
+  `Spiral`, and selecting `Xor` produced **zero** `/api/dataset*` requests — select-alone-is-inert confirmed.
+- **M-DATASET-11's LIVE arm** verified twice: the UI wrote `❌ Dataset generation only available in demo mode`
+  into `-load-status`, and a direct `POST /api/dataset/generate` returned **400** with the same message.
+- **M-DATASET-27** is a genuine PASS on the 2-D inverse: with spirals loaded, `seq-controls`,
+  `seq-group-windows`, `seq-grid-container` and `seq-char-companion` are all `display:none` and every other
+  `seq-*` element is 0x0 and empty.
+- **The sequence set (M-DATASET-17..26) is BLOCKED for a structural reason**, not a timing one: a sequence
+  dataset cannot be loaded in the LIVE lane at all. `POST /api/dataset/generate` is demo-gated (400), and the
+  two sequence-capable registry entries — `equities` and `equities_seq` — both report `available:false` from
+  `GET /api/dataset/generators`. Reaching these ten rows needs either the DEMO lane or a 3-D model posture.
+- **C2.5-07's posture was proven three ways** rather than assumed: the flag in `/proc/<pid>/environ`, the
+  *absence* of the clientside branch's log line (`dashboard_manager.py:4158` logs only in the `if` branch, so
+  its absence proves the `else` ran), and the command working end-to-end.
+
+### What Phase 1 completion does and does not mean
+
+Every row has a verdict; that is not the same as every row passing. The matrix now carries a substantial
+BLOCKED population whose common cause is a small number of open findings — chiefly **F-CANOPY-027** (three
+panels), **F-CANOPY-029** (six §3.6 rows behind one dead modal), **F-CANOPY-025** (W7 and the swap cards) and
+the LIVE-lane dataset gate (ten sequence rows). Fixing F-CANOPY-029 alone re-opens six rows for real scoring;
+fixing F-CANOPY-027 re-opens roughly a dozen and also invalidates the five §3.2 rows currently carrying a
+mount-default `PASS`. **Phase 2 should be ordered by that leverage, not by section number.**
