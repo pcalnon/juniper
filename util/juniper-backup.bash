@@ -11,10 +11,11 @@
 # Description:
 #     Archive the Juniper project tree and encrypt it to an external drive, in one streamed pass.
 #
-#     Encryption is ASYMMETRIC (`gpg -r <recipient> -e`), to the YubiKey-backed public key. That
-#     means the YubiKey is NOT required to run this script -- only to RESTORE. Which is also the
-#     risk: lose the YubiKey and every archive it produced is unrecoverable. Keep a revocation
-#     certificate and/or a second recipient off-device.
+#     Encryption is ASYMMETRIC (`gpg -r <recipient> -e`), to YubiKey-backed public keys. So no
+#     YubiKey is needed to RUN this script -- only to RESTORE from its output. The consequence is
+#     that key loss is a RESTORE-side single point of failure, which is why ENCRYPT_KEYS below holds
+#     TWO independent recipients: any one of them can decrypt any archive. Add recipients before
+#     writing archives; you cannot retro-fit one onto an archive already written.
 #
 # Usage:
 #     util/juniper-backup.bash [--dry-run] [--source DIR] [--dest DIR]
@@ -51,7 +52,17 @@ MEDIA_NAME="DFF3-2782"
 TAR_EXT="tgz"
 GPG_EXT="gpg"
 
-ENCRYPT_KEY="Paul Calnon (PaulCalnon_overtoad.research@gmail.com_Yubikey-3c_2026-08-06) <paul.calnon@gmail.com>"
+# MULTIPLE RECIPIENTS, deliberately. gpg encrypts a session key to each, so ANY ONE of these keys
+# can decrypt the archive independently. This is the mitigation for the restore-side single point of
+# failure: `gpg -r <pub> -e` needs no YubiKey to WRITE a backup, only to READ one -- so with a single
+# recipient, losing that one key makes every archive it ever produced unrecoverable.
+#
+# Cost of an extra recipient is a few hundred bytes per archive, once. Add more here rather than
+# re-encrypting later; you cannot retro-fit a recipient onto archives already written.
+ENCRYPT_KEYS=(
+    "Paul Calnon (PaulCalnon_overtoad.research@gmail.com_Yubikey-3c_2026-08-06) <paul.calnon@gmail.com>"
+    "Paul Calnon (PaulCalnon_overtoad.research@gmail.com_Yubikey-3a_2026-08-11) <paul.calnon@gmail.com>"
+)
 
 
 #######################################################################################################################################################################################################################################################
@@ -96,8 +107,15 @@ if ! mountpoint -q "${EXT_DRIVE}" 2>/dev/null; then
 fi
 [[ -w "${EXT_DRIVE}" ]] || { echo "FATAL: not writable: ${EXT_DRIVE}" >&2; exit 1; }
 
-gpg --list-keys "${ENCRYPT_KEY}" >/dev/null 2>&1 \
-    || { echo "FATAL: gpg recipient not found: ${ENCRYPT_KEY}" >&2; exit 1; }
+# Every recipient must resolve BEFORE we spend an hour building a tarball. A missing key here is
+# also the failure that would quietly halve the redundancy this list exists to provide.
+GPG_RECIPIENT_ARGS=()
+for _key in "${ENCRYPT_KEYS[@]}"; do
+    gpg --list-keys "${_key}" >/dev/null 2>&1 \
+        || { echo "FATAL: gpg recipient not found: ${_key}" >&2; exit 1; }
+    GPG_RECIPIENT_ARGS+=(-r "${_key}")
+done
+echo "recipients: ${#ENCRYPT_KEYS[@]} (archive is readable by any one of them)"
 
 SOURCE_KB="$(du -sk "${PROJECT_DIR}" | cut -f1)"
 DEST_KB="$(df -Pk "${EXT_DRIVE}" | awk 'NR==2 {print $4}')"
@@ -110,7 +128,7 @@ if (( DEST_KB < SOURCE_KB / 2 )); then
 fi
 
 if (( DRY_RUN )); then
-    echo "[dry-run] would run: tar -czf - -C ${SOURCE_PARENT} ${SOURCE_LEAF} | gpg -r <key> -e -o ${GPG_PATH}"
+    echo "[dry-run] would run: tar -czf - -C ${SOURCE_PARENT} ${SOURCE_LEAF} | gpg ${GPG_RECIPIENT_ARGS[*]} -e -o ${GPG_PATH}"
     exit 0
 fi
 
@@ -131,7 +149,7 @@ trap cleanup_partial EXIT
 # -C so paths are stored relative to the parent ("Juniper/..."), not as absolute paths that tar
 # would strip with a warning and that restore into an unexpected location.
 tar -czf - -C "${SOURCE_PARENT}" "${SOURCE_LEAF}" \
-    | gpg --batch --yes -r "${ENCRYPT_KEY}" -e -o "${GPG_PATH}"
+    | gpg --batch --yes "${GPG_RECIPIENT_ARGS[@]}" -e -o "${GPG_PATH}"
 
 
 #######################################################################################################################################################################################################################################################
@@ -140,12 +158,20 @@ tar -czf - -C "${SOURCE_PARENT}" "${SOURCE_LEAF}" \
 # -- a real restore drill is the only thing that does, and that belongs in the backup design arc.
 [[ -s "${GPG_PATH}" ]] || { echo "FATAL: archive is empty: ${GPG_PATH}" >&2; exit 1; }
 
-if gpg --list-packets --list-only "${GPG_PATH}" >/dev/null 2>&1; then
-    echo "verified: valid OpenPGP message"
-else
+if ! gpg --list-packets --list-only "${GPG_PATH}" >/dev/null 2>&1; then
     echo "FATAL: output is not a parseable OpenPGP message: ${GPG_PATH}" >&2
     exit 1
 fi
+
+# Count the pubkey-encrypted session-key packets. One per recipient -- so this proves the redundancy
+# actually landed, rather than assuming it did because the command line asked for it. Neither check
+# needs a YubiKey, so both are safe unattended.
+FOUND_RECIPIENTS="$(gpg --list-packets --list-only "${GPG_PATH}" 2>/dev/null | grep -c '^:pubkey enc packet:' || true)"
+if [[ "${FOUND_RECIPIENTS}" -ne "${#ENCRYPT_KEYS[@]}" ]]; then
+    echo "FATAL: archive encrypted to ${FOUND_RECIPIENTS} recipient(s), expected ${#ENCRYPT_KEYS[@]}" >&2
+    exit 1
+fi
+echo "verified: valid OpenPGP message, ${FOUND_RECIPIENTS} recipient(s)"
 
 sync
 echo "OK  $(du -h "${GPG_PATH}" | cut -f1)  ${GPG_PATH}"
