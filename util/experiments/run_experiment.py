@@ -1560,6 +1560,10 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
             },
         }
         _emit_stats(manifest, results_dir, run_dir, artifacts, "cascor", series_rows=_read_series_rows(series_path) if series_path.is_file() else [], metrics_final=extras.get("metrics_final"))
+        # Q-1: the resolved-config artifact, written unconditionally alongside the manifest.
+        resolved_path = write_resolved_config(config_dir, config, run_id, "cascor", cascor_url)
+        if resolved_path is not None:
+            manifest["config_resolved_path"] = str(resolved_path)
         manifest_path = run_dir / "manifest.json"
         try:
             _write_json(manifest_path, manifest)
@@ -1568,6 +1572,84 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
 
     _print_summary(run_id, experiment_name, generator, dataset_response, outcome, exit_code, acceptance_reasons, timings, loop_stats, run_dir, kind="cascor")
     return exit_code
+
+
+RESOLVED_CONFIG_SCHEMA = "juniper-experiment-resolved/v1"
+
+#: What Q-1 asked for, what this file actually is, and why those differ. Carried IN the
+#: artifact rather than only in the plan, because the gap is the thing a reader must not
+#: mistake: an ``experiment.resolved.yaml`` that silently omitted the app's own Settings
+#: would look authoritative while being partial, which is the hand-reconstruction error
+#: class Q-1 was written to kill.
+RESOLVED_CONFIG_SCOPE = """Q-1 asked for a fully-resolved config 'dumped from the live Settings object'.
+The driver is an HTTP client and never constructs the app's Settings: cascor exposes no
+settings endpoint (GET /v1/training/params covers TrainingParams only) and the recurrence
+service exposes no equivalent at all. This file therefore records only what can be
+VERIFIED, each half tagged with its source, rather than reconstructing anything:
+
+  driver_resolved         - the input YAML after run_experiment's own defaulting. True by
+                            construction; this is what the driver acted on.
+  service_training_params - the service's own echo of its training parameters, where such
+                            an endpoint exists. Authoritative for those fields.
+
+NOT COVERED: app-level Settings (environment, .env, process defaults) are not represented
+here. Reading this file as a complete picture of the run's configuration would be wrong."""
+
+
+def _service_training_params(app_url: Optional[str], app: str) -> Dict[str, Any]:
+    """The service's own training-parameter echo, or a stated reason there is none.
+
+    Never raises: this is provenance, and a run must not fail because an optional echo was
+    unavailable. A failure is RECORDED, because "we could not read it" and "it was empty"
+    must not look the same to a reader.
+    """
+    if app != "cascor":
+        return {"available": False, "reason": f"the {app} service exposes no training-parameters endpoint", "source": None, "params": None}
+    if not app_url:
+        return {"available": False, "reason": "no service URL was resolved for this run", "source": None, "params": None}
+    source = f"{app_url}/v1/training/params"
+    try:
+        code, payload = _http_json("GET", source, timeout=15.0)
+    except Exception as exc:  # noqa: BLE001 - provenance must not break a run
+        return {"available": False, "reason": f"GET failed: {exc}", "source": source, "params": None}
+    if code == 404:
+        # The documented 404: the endpoint requires a live network. A run that failed
+        # before network creation legitimately has nothing to report here.
+        return {"available": False, "reason": "HTTP 404 - no network existed when the echo was requested", "source": source, "params": None}
+    if code != 200 or not isinstance(payload, dict):
+        return {"available": False, "reason": f"HTTP {code}", "source": source, "params": None}
+    # success_response() wraps the payload in {"data": ...}; keep the inner object when present.
+    params = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    return {"available": True, "reason": None, "source": source, "params": params}
+
+
+def write_resolved_config(config_dir: Path, config: Dict[str, Any], run_id: str, app: str, app_url: Optional[str]) -> Optional[Path]:
+    """Write ``config/experiment.resolved.yaml`` beside the verbatim copy (Q-1).
+
+    Written from the same ``finally`` that writes the manifest, so every run has one --
+    succeeded, failed, stalled or timed_out -- for the same reason the manifest is
+    unconditional: a run's provenance is most valuable exactly when the run went wrong.
+
+    Returns the path, or None when it could not be written (logged, never fatal).
+    """
+    resolved = {
+        "_meta": {
+            "schema": RESOLVED_CONFIG_SCHEMA,
+            "generated_by": "util/experiments/run_experiment.py",
+            "run_id": run_id,
+            "app": app,
+            "scope": RESOLVED_CONFIG_SCOPE,
+        },
+        "driver_resolved": config,
+        "service_training_params": _service_training_params(app_url, app),
+    }
+    out = config_dir / "experiment.resolved.yaml"
+    try:
+        out.write_text(yaml.safe_dump(resolved, sort_keys=False), encoding="utf-8")
+    except (OSError, yaml.YAMLError) as exc:
+        log.error("cannot write %s: %s", out, exc)
+        return None
+    return out
 
 
 def _lmu_hyperparams(train_block: Dict[str, Any]) -> Dict[str, Any]:
@@ -1829,6 +1911,12 @@ def _run_recurrence(args: argparse.Namespace, config: Dict[str, Any], config_pat
             },
         }
         _emit_stats(manifest, results_dir, run_dir, artifacts, "recurrence", train_summary=train_summary, crossval=crossval_full, train_config=config["train"])
+        # Q-1: same artifact on this path. The service half is recorded as unavailable with
+        # a reason rather than omitted -- recurrence exposes no training-parameters
+        # endpoint, and "there is nothing to read" must be legible as a fact, not a gap.
+        resolved_path = write_resolved_config(config_dir, config, run_id, "recurrence", app_url)
+        if resolved_path is not None:
+            manifest["config_resolved_path"] = str(resolved_path)
         manifest_path = run_dir / "manifest.json"
         try:
             _write_json(manifest_path, manifest)
