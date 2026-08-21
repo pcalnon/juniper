@@ -193,4 +193,3 @@ echo "verified: valid OpenPGP message, ${FOUND_RECIPIENTS} recipient(s)"
 
 sync
 echo "OK  $(du -h "${GPG_PATH}" | cut -f1)  ${GPG_PATH}"
-
