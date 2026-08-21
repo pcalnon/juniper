@@ -9,3 +9,8 @@
 *.gif filter=lfs diff=lfs merge=lfs -text
 *.tiff filter=lfs diff=lfs merge=lfs -text
 *.webp filter=lfs diff=lfs merge=lfs -text
+
+# Append-only soak ledger: union-merge so ~24 concurrent worktrees can each
+# append an observation without conflicting (plan section 7.7). Rows carry a
+# (session, seq) key, so a duplicate produced by union merge is deduped on read.
+reports/soak/*.jsonl merge=union

@@ -510,6 +510,27 @@ jobs:
           # the containment ASYMMETRY (needle-in-candidate is a merge; candidate-in-needle
           # is a fragment and must not match) and four machinery negative controls.
           python3 -m unittest -v tests/test_relocation_check.py
+          # tests/test_soak_ledger.py: the gate for util/soak_ledger.py (plan §6, the
+          # pointer-follow soak). util/ is outside every pre-commit Python hook's scope,
+          # so this suite IS the gate. It pins the properties that let the soak FALSIFY
+          # the relocation bet instead of confirming it -- v0.1 could not, because its
+          # denominator was conditioned on the outcome and every error term shared a sign:
+          #   * the SEEDED arm decides and the organic arm only describes, because an
+          #     agent that never knew a fact existed cannot self-report the miss;
+          #   * verdicts are on the Wilson INTERVAL, not a point estimate, and are named
+          #     after what was proven -- "BET-HOLDS" must never be printable;
+          #   * scope fails CLOSED when the marker is undecidable (the worktrees lacking
+          #     it are exactly the stale pre-cut ones);
+          #   * escalations are reported ALONGSIDE the verdict and can be DISCHARGED, so
+          #     one hazard miss cannot mask a failing rate or pin the soak dark forever;
+          #   * two DISTINCT rows sharing a session cannot silently delete one another
+          #     (subagents inherit the parent CLAUDE_CODE_SESSION_ID, so that collision
+          #     is routine across ~24 concurrent worktrees);
+          #   * a lost, empty or corrupt ledger reports NO-DATA/DEGRADED, never health.
+          python3 -m unittest -v tests/test_soak_ledger.py
+          # The probe registry is the seeded arm's denominator. A dangling pointer
+          # silently invalidates a probe, so verify it in CI rather than on trust.
+          python3 util/soak_ledger.py verify-probes
           # tests/test_lockfile_update_workflow.py: structural gate for the weekly
           # lockfile-update.yml refresh — juniper-generate-dep-docs (not the deleted
           # inline dep-docs shell script), SHA-pinned create-pull-request, branch/labels/

@@ -1,0 +1,454 @@
+# Pointer-Follow Soak — Protocol and Ledger
+
+**Project**: juniper-ml
+**Author**: Paul Calnon
+**Status**: OPEN — instrument **v0.2 (seeded arm)** built and gated; soak **not yet
+started**, 0 / 35 probe runs. v0.1 was withdrawn on 2026-08-21 after three independent
+analyses found it could not falsify the bet it existed to test; what changed and why is
+§11. The remaining work is *running* the probes, which no code can do.
+**Plan**: [`JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md`](JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md) §6
+**Instrument**: `util/soak_ledger.py` · **Data**: `reports/soak/pointer_follow_soak.jsonl`
+**Last Updated**: 2026-08-21
+
+---
+
+## 1. What this measures, and why it is the whole bet
+
+P3 moved ~124,000 characters out of `AGENTS.md` — which every session loads — into
+`docs/REFERENCE.md`, which a session reads only if it follows a pointer. The plan is
+blunt about what that costs:
+
+> The pointer-follow rate is the one load-bearing quantity nobody can measure in
+> advance. — plan §6
+
+and lists it first among the residual risks:
+
+> **The pointer-follow rate remains unmeasured until the soak.** This is the central
+> bet. — plan §7.1
+
+If agents follow the pointers, the cut was free. If they do not, the cut traded
+context for silent wrongness — the worst possible outcome, because nothing fails
+loudly. The soak is the falsification test, and it could not begin because there was
+no instrument: no definition of a miss, nowhere to put an observation, no start
+marker. This document is the protocol; `util/soak_ledger.py` is the mechanism.
+
+**Everything in §3–§6 is fixed in advance.** That is deliberate and it is the point:
+thresholds chosen after seeing the data are not thresholds, they are rationalisations.
+
+---
+
+## 2. Start marker and scope
+
+The soak counts only what happens at or after **`500508b`** (#1196, *"restore the
+resident hazard list P3 was required to keep"*) — the first commit at which
+`AGENTS.md` is in its final post-P3, hazards-correct shape (43,720 chars).
+
+A session whose `HEAD` does not descend from that commit is **out of scope**. Its
+observations are still recorded — they are not lies, they are just about a different
+file — but they never count toward the rate. `soak_ledger.py` computes this
+automatically via `git merge-base --is-ancestor` and stores it as `in_scope`.
+
+This matters more than it sounds: at the time of writing, **18 of 24 worktrees still
+carry a pre-cut `AGENTS.md`**, some as large as 147,840 chars. An observation from one
+of those is an observation about the *old* architecture.
+
+---
+
+## 3. The two arms
+
+### 3.1 Seeded — the verdict-bearing arm
+
+Each row is one run of a **pre-registered probe** from
+[`conf/soak_probes.json`](../conf/soak_probes.json): a task that cannot be done correctly
+without a specific relocated fact. Hand it to a fresh session, score retrieval
+externally, and **the denominator is fixed before the session starts**.
+
+That is the whole point. It is the only arrangement in which a miss by ignorance is
+observable, because the scorer holds the fact list and the session does not know which
+fact is under test.
+
+Each probe carries, frozen in the registry:
+
+| Field | Why it is pre-registered rather than judged at scoring time |
+|---|---|
+| `severity` | So the hazard stratum cannot be defined after the observation |
+| `area` | So rung 3 cannot be reached by tagging, or evaded by omitting a tag |
+| `pointer` | So a dangling pointer is a *repo* defect, caught by `verify-probes` in CI |
+| `discriminator` | So "did they use the fact?" is checkable without reading the agent's mind |
+
+**Frozen before run 1.** Editing a probe after runs begin invalidates the arm; add a new
+probe with a new id instead.
+
+### 3.2 Organic — descriptive only, never a verdict
+
+Opportunistic self-report during ordinary work. Retained because it is free, but it
+**cannot** produce a verdict and the tool refuses to let it (`NO-SEEDED-DATA`). Its rate
+is printed as an explicit **upper bound** with a `q_miss` sensitivity row beside it,
+because §11 D1 is not a caveat on this arm — it is the arm's defining property.
+
+### 3.3 The unit is an occasion
+
+One row per **occasion**: a moment where a fact behind a pointer was relevant. In the
+seeded arm one probe run is exactly one occasion, which is what makes the arithmetic
+honest. `N` — the plan's "N ≥ 20 sessions" — is now a *diversity floor* rather than a
+stopping rule; the stop is on **precision** (§6), because the rate is over occasions and
+a session count controls none of its variance.
+
+---
+
+## 4. Definitions: follow, miss
+
+**FOLLOW** — the session demonstrably retrieved the fact (opened the destination,
+grepped it, or otherwise read it) **before** acting.
+
+**MISS** — the fact was relevant, and the session **acted, or presented a conclusion,
+without it**.
+
+> **A miss does not require a wrong answer.** If the session reached a correct result
+> without consulting the fact, that is *still a miss*: the retrieval mechanism failed
+> and correctness was coincidence. Scoring on outcome instead of on retrieval is
+> exactly how this measurement would rationalise itself into a pass.
+
+### Not an occasion (excluded, fixed in advance)
+
+| Situation | Why excluded |
+|---|---|
+| The fact was already in context from earlier in the same session | No retrieval was required; nothing was tested |
+| The user supplied the fact | Ditto |
+| The fact is in the resident `## Hazards` section of `AGENTS.md` | Never relocated — it is always loaded by design |
+| The fact was never relocated (still inline) | Not a pointer-follow event |
+
+---
+
+## 5. Miss classes → the ladder
+
+The plan fixes the escalation ladder in advance (§6). Each recordable class maps onto
+exactly one rung, so an observation selects its own remedy and no one has to argue:
+
+| `--class` | Meaning | Remedy (ladder rung) |
+|---|---|---|
+| `discoverability` | The agent never knew to look | **1** — add an index row |
+| `hazard` | The missed fact was hazard-class | **2** — promote to a CI gate or hook |
+| `pointer-defect` | The pointer was wrong or stale | *Off-ladder* — fix the pointer, not the architecture |
+| *(derived)* `area-systematic` | ≥3 misses in one area **and** significant against the pooled miss rate after Bonferroni | **3** — path-scoped rule for that area |
+
+Two deliberate asymmetries:
+
+- **`area-systematic` is not recordable.** It is derived, and refused at the CLI. If an
+  author could type it, the escalation could be *declared* rather than earned — the
+  rationalisation the plan forbids. It is also a **rate** test, not a count: a bare count
+  is an absorbing barrier that fires eventually under the null (§6).
+- **`pointer-defect` is excluded from the architectural rate**, and still reported.
+  The agent *did* try to follow, so discoverability worked and the target was broken;
+  folding it in would blame the architecture for a typo. Reporting it separately means
+  a pile of broken pointers can never read as success.
+
+### Never re-inline
+
+> **Never re-inline.** Re-inlining is how the file got here. — plan §6
+
+There is no rung that returns content to `AGENTS.md`. Additions relocate, with a
+pointer that keeps an accurate open/closed status.
+
+**Caveat on rung 3** (plan §7.6): a path-scoped rule is **lost at compaction**. If the
+ladder reaches rung 3, that limitation must be stated in the same breath as the remedy.
+
+---
+
+## 6. Verdicts — on the interval, not the point estimate
+
+`python3 util/soak_ledger.py status`. Computed on the **seeded arm only**.
+
+### Why not a point estimate against 0.90
+
+v0.1 compared an observed rate to 0.90. That threshold is unreachable, and the reason is
+arithmetic rather than opinion. Wilson 95% intervals at an observed 0.900:
+
+| occasions | 95% CI | width |
+|---|---|---|
+| 20 | [0.699, 0.972] | 27.3 pts |
+| 30 | [0.744, 0.965] | 22.2 pts |
+| 60 | [0.799, 0.953] | 15.5 pts |
+
+The old decision band was 20 points wide, so at 30 occasions **the interval was wider
+than the band it was being compared against**. For a lower bound to clear 0.90 takes 35
+*consecutive perfect* runs; an observed 0.900 approaches 0.90 from below at every n and
+never arrives. The old rule also had ~55% power against its own hypothesis: at a true
+rate of exactly 0.90 it printed `BET-HOLDS` only 55.4% of the time.
+
+### The rule
+
+**One boundary, `0.75`, tested against the interval.**
+
+| Verdict | Condition | Action |
+|---|---|---|
+| `NO-DATA` / `DEGRADED` | ledger absent, empty, or unparseable | **exit 2** — the instrument is broken, not the architecture |
+| `NO-SEEDED-DATA` | organic rows only | exit 2 — the organic arm cannot decide |
+| `IN-PROGRESS` | < 35 runs or < 15 distinct probes | Keep running probes |
+| `INCONCLUSIVE` | the interval spans 0.75, **or** the hazard stratum is empty | Rung 1 — add index rows. The cheap no-regret action when the data cannot decide |
+| `HOLDS-AT-0.75` | lower bound ≥ 0.75 | The strongest claim this study size supports |
+| `BET-FAILING` | upper bound < 0.75 | Revisit owner decision #7. **Never re-inline** |
+
+**0.75 is not a lowered ambition, it is the reachable claim.** `LB ≥ 0.80` needs ~62
+clean runs; `LB ≥ 0.90` needs an observed 0.96+. 0.90 survives here only as a
+descriptive line in `report`, never as a trigger.
+
+**The verdict is named after what was proven.** `BET-HOLDS` asserted something no
+feasible study here can carry, and it is the word that would unblock the P5 rollout
+across nine repos. Per §10, promoting a status's strength is the same sin as demoting
+it — so the tool cannot print it, and a test pins that.
+
+**An empty hazard stratum cannot pass.** If no hazard-severity probe was ever run, the
+verdict is `INCONCLUSIVE`, not a pass — otherwise the stratum the design cares most
+about would be vacuously clean.
+
+### Escalations are reported *alongside* the verdict
+
+Not instead of it. In v0.1 an if/elif chain let one hazard miss mask an 11% follow rate
+and report it as "add a CI gate", and — the ledger being append-only with no discharge —
+pinned the verdict there permanently, so the soak went dark on its first real finding.
+
+| Escalation | Fires when | Rung |
+|---|---|---|
+| `hazard` | any **unresolved** hazard-severity miss | 2 — CI gate or hook |
+| `area-systematic` | ≥3 misses in one area **and** `binom_sf(k, n_area, p_miss) ≤ 0.05/A` | 3 — path-scoped rule |
+| `pointer-defect` | >10% of seeded runs blocked by a broken pointer | 0 — fix the pointers |
+
+Discharge one with `soak_ledger.py resolve --obs-id <id> --ref <PR>`.
+
+**The area rule is a rate rule on purpose.** A fixed count is an absorbing barrier:
+re-evaluated on every append it fires eventually under the null — measured 47%
+family-wise at 60 occasions, rising to 100% with exposure — so the escalation it produces
+carries no information. Raising the count only postpones it.
+
+**Caveat on rung 3** (plan §7.6): a path-scoped rule is **lost at compaction**. State
+that in the same breath as the remedy.
+
+---
+
+## 7. How to run and record
+
+### Seeded (the real measurement)
+
+1. Pick a probe from [`conf/soak_probes.json`](../conf/soak_probes.json).
+2. Hand its `task` to a **fresh session**. Do not mention the soak, the fact, or the
+   pointer — priming the session is what invalidated option A (§11 D2).
+3. Score it against the probe's `discriminator`, using the session's tool log as the
+   evidence of retrieval.
+4. Record:
+
+```bash
+python3 util/soak_ledger.py probe-run \
+    --probe-id P02-assert-release-tag-ref \
+    --outcome follow \
+    --session <that session's id> \
+    --scored-by <who scored it>
+```
+
+A miss also needs `--class discoverability|hazard|pointer-defect`. `severity` and `area`
+are taken from the frozen registry and **cannot** be passed at the CLI.
+
+If the probe's pointer no longer resolves, that is a repo defect: fix the pointer and
+**do not score the run**. `verify-probes` runs in CI to catch this before it costs a run.
+
+### Organic (optional, descriptive)
+
+```bash
+python3 util/soak_ledger.py record --outcome miss --class discoverability \
+    --fact 'ECOSYSTEM_REPOS-must-match-registry' \
+    --pointer 'docs/REFERENCE.md#docs-full-check' \
+    --area docs-ci --task 'adding a sibling repo to the weekly screen'
+```
+
+Never contributes to a verdict.
+
+### Reading it
+
+```bash
+python3 util/soak_ledger.py report          # both arms, with the sensitivity row
+python3 util/soak_ledger.py status          # verdict + escalations; exit 1 action due, 2 no data
+python3 util/soak_ledger.py verify-probes   # registry integrity; also runs in CI
+```
+
+### Why JSONL, and why `obs_id`
+
+Plan §7.7 names the ~24-worktree central ledger as specified-but-unsolved. A markdown
+table conflicts on every concurrent append; an append-only JSONL under `merge=union` does
+not. Rows are keyed on a **uuid4 `obs_id`** — v0.1 keyed on `(session, seq)` with `seq`
+computed at record time, so two worktrees recording concurrently both computed `seq=1`
+and the loader *deleted* one, with the survivor decided by merge order. Subagents inherit
+the parent's `CLAUDE_CODE_SESSION_ID`, which makes that collision routine, not exotic.
+
+---
+
+## 8. Discoverability — resolved 2026-08-21
+
+The question was how a session learns the instrument exists. Three options were costed
+in character terms, and that framing was wrong.
+
+**Option A shipped and was then reverted.** A 698-char always-loaded `AGENTS.md` section
+told every session that pointer-following was being measured and that `docs/REFERENCE.md`
+holds facts it may need. That (a) primes the behaviour under test and (b) partially
+re-supplies the discoverability whose absence *is* the bet — so the soak would have
+measured a configuration that does not ship. Reverted; `AGENTS.md` is byte-identical to
+its pre-soak state and headroom is back to **1,364**.
+
+**The seeded arm dissolves the question.** A probe is handed to a session deliberately
+kept ignorant of the soak, so no always-loaded notice is wanted, needed, or harmless.
+Discoverability is now a property being *measured*, not a thing to be advertised.
+
+The organic arm therefore has no discovery surface and will stay sparse. That is
+accepted: it is descriptive only.
+
+---
+
+## 9. Ledger
+
+The ledger itself is [`reports/soak/pointer_follow_soak.jsonl`](../reports/soak/pointer_follow_soak.jsonl);
+read it with `python3 util/soak_ledger.py report`. It is deliberately **not** mirrored
+into a hand-maintained table here — a table that must be regenerated by someone
+remembering to regenerate it is a fourth vacuous pass waiting to happen, and a §9 reading
+`IN-PROGRESS` over a ledger reading `BET-FAILING` is exactly the drift §10 forbids.
+
+**Verdict**: `IN-PROGRESS`
+
+---
+
+## 10. Status may not be demoted
+
+Per the rule learned in P0 (plan §4a) and restated in the segment handoff: **detail may
+be demoted; STATUS may not.** When this document is summarised anywhere — an index row,
+a handoff, `MEMORY.md` — the summary must carry that the soak is **OPEN and not
+started**, not merely that the instrument was built. A row reading "soak instrument
+shipped" over a soak that never ran is worse than omission.
+
+---
+
+## 11. Validation findings — 2026-08-21 (thresholds withdrawn)
+
+Three independent agents reviewed this design: a statistical/measurement lens, a
+decision-theoretic/cost-asymmetry lens, and an adversarial lens. They were not shown
+each other's work. **All three independently identified the same dominant defect.**
+
+### The finding that withdraws the thresholds
+
+**D1 / Flag 4 — ascertainment bias. The denominator is conditioned on the outcome.**
+An occasion is recorded only if someone *notices* a relocated fact was relevant. The
+dominant failure of a pointer architecture is *the agent never knew the fact existed* —
+and that agent cannot notice. So `P(record | follow) ≈ 1` while
+`P(record | miss-by-ignorance) ≪ 1`. Those events enter neither numerator nor
+denominator; they do not even dilute.
+
+Let `q_m` be the probability a miss is ever logged. Observed rate
+`= p / (p + (1−p)·q_m)`:
+
+| true rate | q_m = 1.00 | 0.50 | 0.30 | 0.25 | 0.10 |
+|---|---|---|---|---|---|
+| 0.70 | 0.700 | 0.824 | 0.886 | **0.903** | 0.959 |
+| 0.60 | 0.600 | 0.750 | 0.833 | 0.857 | 0.938 |
+
+**At `q_m` ≈ 0.26, a true 0.70 — a BET-FAILING rate — prints as exactly 0.900,
+BET-HOLDS, with no sampling noise required.** This bias is undetectable by `analyse()`,
+its sign is known, and it points at the flattering answer. §3's relevance test already
+named the required observer — *"would a reviewer **holding that fact**…"* — and this
+protocol never staffed the role.
+
+**No threshold change fixes this.** It is larger than the sampling error by an order of
+magnitude.
+
+### D2 — the instrument now lives inside the surface it measures
+
+Option A (§8) added an always-loaded section telling every session that pointer-following
+is being measured and that `docs/REFERENCE.md` holds facts it may need. That (a) primes
+the behaviour under test, and (b) partially re-supplies the discoverability whose absence
+*is* the bet. The soak would measure a configuration that does not ship. §8 presented
+A/B/C as a pure character-cost trade; it is not — **A costs validity and B maximises D1.
+There is no option that avoids both.**
+
+### Why 0.90 was never reachable
+
+Wilson 95% intervals at an observed 0.900:
+
+| occasions | 95% CI | width |
+|---|---|---|
+| 20 | [0.699, 0.972] | 27.3 pts |
+| 30 | [0.744, 0.965] | 22.2 pts |
+| 60 | [0.799, 0.953] | 15.5 pts |
+
+The whole LADDER-1 band is 20 points wide; at 30 occasions the interval is **wider than
+the decision band**. For a Wilson lower bound to clear 0.90 needs **35 consecutive
+perfect occasions**, or 53 with one miss. An observed 0.900 never certifies ≥0.90 at any
+n — it approaches from below. With a Jeffreys prior, `P(p ≥ 0.90 | 90/100) = 0.482`.
+
+Three further consequences, each measured:
+
+- **The design cannot confirm its own hypothesis.** At a true rate of exactly 0.90 the
+  current rule prints `BET-HOLDS` only **55.4%** of the time — ~55% power against its
+  own point alternative.
+- **Occasions cluster within sessions.** At ρ=0.3 the design effect is ≈1.75: discount
+  logged occasions by ~43%. As ρ→1, `n_eff` collapses to the *session* count.
+- **`AREA_SYSTEMATIC_THRESHOLD = 3` is an absorbing barrier.** A fixed absolute count,
+  re-evaluated on every append, fires eventually under the null: family-wise false-positive
+  rate **47% at 60 occasions** (74.5% with realistic non-uniform area usage), → 100% with
+  exposure. Raising the count only postpones it.
+
+### Verdict-flipping defects in the implementation
+
+| ID | Defect | Demonstrated effect |
+|---|---|---|
+| D5 | `pointer-defect` is a reporter-chosen ejector from the denominator; `--pointer` unvalidated | 20 follows + 20 pointer-defect misses → `BET-HOLDS` at a 50% miss rate |
+| D6 | `sessions` counted over all in-scope rows, not rate-bearing ones | 19 pointer-defect sessions + 1 follow → `BET-HOLDS` on n=1 |
+| D7 | if/elif precedence + append-only ledger, no discharge | An 11% rate reports as "add a CI gate"; one old hazard miss pins the verdict permanently |
+| D4 | Scope gate fails **open** when the marker object is absent | Stale pre-cut worktrees are exactly the ones lacking it |
+| D3 | `seq` computed at record time collides under concurrency | Distinct observations **deleted**; survivor depends on merge order. Subagents inherit the parent `CLAUDE_CODE_SESSION_ID` |
+| D8 | Absent/empty/corrupt ledger → `IN-PROGRESS`, exit 0; nothing invokes `status` | A destroyed instrument reads healthy |
+| D9 | `--area` optional and free-text, tallied only over misses | Rung 3 is opt-in and defeated by spelling; no per-area denominator |
+| D11 | Ledger path follows `cwd` | A `cd` into a subdirectory forks a phantom ledger, silently |
+
+Three tests in `tests/test_soak_ledger.py` are themselves **vacuous passes**: the
+union-merge test writes the *identical* line three times (pinning the harmless case and
+never the harmful one), the scope test hand-writes `in_scope=False` without ever calling
+`at_or_after_marker`, and `test_excluded_from_architectural_rate_but_reported` asserts
+D5's behaviour is correct.
+
+### What all three agreed on
+
+**Every error term in this design has the same sign.** Nothing in it can make the
+measured rate look worse than the truth. That is a confirmation procedure with error
+bars, not a falsification test.
+
+The unanimous recommendation is a **seeded arm**: pre-register ~15 tasks whose correct
+execution provably requires a specific relocated fact, hand them to fresh sessions, and
+score retrieval externally. The denominator is then known by construction, so
+`q_m = q_f = 1` and the estimate is unbiased. **Fifteen seeded occasions are worth more
+than sixty self-reported ones** — 14/15 alone gives a lower bound of 0.681.
+
+And name the verdict after what was proven: `BET-HOLDS` asserts something no feasible
+study here can carry, and — per §10 — promoting the *strength* of a status is the same
+sin as demoting it. A verdict that authorises the P5 fleet rollout across nine repos
+must not be printable off a 0.75-grade interval.
+
+### What was done about it (v0.2, same day)
+
+| Finding | Resolution |
+|---|---|
+| D1 ascertainment bias | **Seeded arm** (§3.1) — a pre-registered probe registry makes the denominator known before the session starts. The organic arm survives as descriptive-only and prints its rate as an upper bound with a `q_miss` sensitivity row |
+| D2 the notice primes the measurement | Option A **reverted**; `AGENTS.md` is byte-identical to its pre-soak state. The seeded arm needs no discovery surface — see §8 |
+| 0.90 unreachable, 55% power | Verdicts moved to the **Wilson interval** against a single reachable boundary, 0.75, and renamed after what they prove |
+| Area rule an absorbing barrier | Replaced with a **rate** test: ≥3 misses *and* binomial significance against the pooled rate, Bonferroni-corrected over observed areas |
+| D3 `seq` collision deleted rows | Keyed on **uuid4 `obs_id`** |
+| D4 scope failed open | Fails **closed**; `--force-scope` is an explicit, recorded override |
+| D5 pointer-defect ejector | Own escalation at >10% of runs; cannot reach a `HOLDS` verdict |
+| D6 N padded by non-rate-bearing rows | Sessions counted only from follows and misses |
+| D7 masking + no discharge | Escalations reported **alongside** the verdict; `resolve` discharges them |
+| D8 broken instrument read healthy | `NO-DATA` / `DEGRADED` / `NO-SEEDED-DATA`, all exit 2 |
+| D9 `--area` opt-in and free-text | Taken from the frozen registry for seeded runs; required and normalised for organic misses |
+| D11 `cwd`-following ledger | Root resolved with `git rev-parse --show-toplevel` |
+| Three vacuous tests | Each replaced by one that fails if the defect returns — distinct rows colliding on a key, a real repo missing the marker, and a defect-heavy ledger not reading as success |
+| Suite unwired in CI | Wired into `ci.yml` Regression Tests, plus `verify-probes` so a dangling probe pointer fails the build |
+
+**Not fixed, and deliberately so.** Probe runs of the *same* probe are not fully
+independent (same fact, same pointer), so the Wilson interval is mildly optimistic at the
+probe level. Recorded rather than modelled: the correction is smaller than the bias it
+would sit on top of, and the honest mitigation is running ≥15 distinct probes, which the
+tool enforces.
