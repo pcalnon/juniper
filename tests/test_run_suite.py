@@ -451,3 +451,51 @@ class ParallelModeTest(MainLoopTest):
         rec = run_suite.thread_budget_env("recurrence", max_parallel=2)
         self.assertEqual(rec["OMP_NUM_THREADS"], str(max(1, nproc // 4)))
         self.assertNotIn("CASCOR_NUM_PROCESSES", rec)
+
+
+class ProvenanceEnvTest(unittest.TestCase):
+    """D-C: the suite is the only layer that knows the cell id and the suite name.
+
+    ``experiment_stack.bash`` forwards both into cascor's process env, so every snapshot a
+    cell writes records which cell produced it. Without this the launcher is invoked with
+    ``--experiment <cell_id>`` and the SUITE identity is lost -- which is exactly the half of
+    "find the model from the E-I cap-128 cell" that the census could not answer.
+    """
+
+    def _capture_up_env(self, *, suite_name: "str | None") -> dict:
+        import subprocess as _subprocess
+        from unittest import mock
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        cell_yaml = Path(tmp.name) / "experiment.yaml"
+        cell_yaml.write_text("schema_version: 1\n")
+        captured: dict = {}
+
+        def fake_run(argv, **kwargs):
+            captured.setdefault("env", kwargs.get("env"))
+            return _subprocess.CompletedProcess(argv, 1, stdout="", stderr="stub: no banner")
+
+        cell = {"cell_id": "c007-9f3ab12c", "name": "cap-128", "overrides": {}}
+        with mock.patch.object(run_suite.subprocess, "run", side_effect=fake_run):
+            run_suite.execute_cell(cell, cell_yaml, "cascor", 5.0, Path("/bin/true"), Path("/bin/true"), sys.executable, None, None, None, suite_name)
+        self.assertIsNotNone(captured.get("env"), "execute_cell must pass an explicit env so provenance reaches the launcher")
+        return captured["env"]
+
+    def test_cell_id_reaches_the_launcher(self) -> None:
+        env = self._capture_up_env(suite_name="e-i-cap-ceiling")
+        self.assertEqual(env["JUNIPER_CASCOR_CELL_ID"], "c007-9f3ab12c")
+
+    def test_suite_name_is_the_experiment_not_the_cell_id(self) -> None:
+        """The launcher receives ``--experiment <cell_id>``; without this override the
+        recorded experiment would duplicate the cell id and the suite would be unrecoverable."""
+        env = self._capture_up_env(suite_name="e-i-cap-ceiling")
+        self.assertEqual(env["JUNIPER_CASCOR_EXPERIMENT"], "e-i-cap-ceiling")
+        self.assertNotEqual(env["JUNIPER_CASCOR_EXPERIMENT"], env["JUNIPER_CASCOR_CELL_ID"])
+
+    def test_absent_suite_name_leaves_the_launcher_default(self) -> None:
+        """No suite name -> no override, so ``experiment_stack.bash`` falls back to its own
+        ``EXPERIMENT``. Setting an empty string instead would blank the identity."""
+        env = self._capture_up_env(suite_name=None)
+        self.assertNotIn("JUNIPER_CASCOR_EXPERIMENT", env)
+        self.assertEqual(env["JUNIPER_CASCOR_CELL_ID"], "c007-9f3ab12c")
