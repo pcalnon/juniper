@@ -2,10 +2,9 @@
 
 **Project**: juniper-ml
 **Author**: Paul Calnon
-**Status**: OPEN — instrument **v0.2 (seeded arm)** built and gated; soak **not yet
-started**, 0 / 35 probe runs. v0.1 was withdrawn on 2026-08-21 after three independent
-analyses found it could not falsify the bet it existed to test; what changed and why is
-§11. The remaining work is *running* the probes, which no code can do.
+**Status**: OPEN — instrument **v0.2** built and gated; pilot run 2026-08-21 produced
+**5 valid observations of 35** and a corrected instrument, NOT a rate. The registry holds
+6 valid probes against a floor of 15 (9 retired as invalid — see §12). Soak continues.
 **Plan**: [`JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md`](JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md) §6
 **Instrument**: `util/soak_ledger.py` · **Data**: `reports/soak/pointer_follow_soak.jsonl`
 **Last Updated**: 2026-08-21
@@ -452,3 +451,87 @@ independent (same fact, same pointer), so the Wilson interval is mildly optimist
 probe level. Recorded rather than modelled: the correction is smaller than the bias it
 would sit on top of, and the honest mitigation is running ≥15 distinct probes, which the
 tool enforces.
+
+---
+
+## 12. Pilot run — 2026-08-21 (15 probes, 5 valid observations)
+
+All 15 registered probes were run against fresh sessions. **The pilot's product is a
+corrected instrument, not a rate.**
+
+### Calibration (not a probe)
+
+A subagent confirmed it loads `AGENTS.md` (via the `CLAUDE.md` symlink), quoted a pointer
+stub verbatim, and did so with **zero tool calls** — so the pointer surface really is
+in-context. Subagents are a valid proxy for a fresh session. It also showed `MEMORY.md`
+is auto-loaded, widening the always-loaded surface beyond `AGENTS.md`.
+
+### Three defects the pilot found in this instrument
+
+**1. Nine of fifteen probes were invalid.** Their facts had never been relocated — still
+resident in `AGENTS.md`. One (P01) tested a fact in the resident `## Hazards` list, which
+§4 explicitly excludes from being an occasion. `verify-probes` checked that a pointer
+**resolved** and never that the fact had **left**. Fixed: every probe now declares
+`must_be_absent_from_source`, and the gate fails the build if any phrase is still in the
+source. The nine are in the registry's `retired` list with reasons.
+
+**2. The answer key is inside the repo the subject searches.** `conf/soak_probes.json`
+carries every `fact` and `discriminator` verbatim, so a keyword grep for a probe's own
+subject matter can surface it. One run (P14) hit it. `util/ad-hoc/2026-08-21_soak_probe_evidence.py`
+now flags any run that touched the registry or this document; contaminated runs are
+discarded. **Not structurally fixed** — the leak remains.
+
+**3. There is a third outcome: SOURCE-RECOVERED.** Four probes produced a *correct*
+answer without ever opening `docs/REFERENCE.md`, by reading the code and tests instead.
+That is neither a pointer-follow nor ignorance. Scored as misses — the conservative
+direction, since it pushes the rate down — but counted separately, because *"the code is
+the real reference"* is a different conclusion from *"agents follow pointers"*.
+
+### The five valid observations
+
+| Probe | Answer | Retrieval |
+|---|---|---|
+| P06 expect-removals scope | correct — refused, and *ran* the command to demonstrate exit 2 | **follow** |
+| P07 budget no-worsening | correct — "nothing. It passes"; cited the negative-control test | **follow** |
+| P08 waiver is a loan | correct — "a loan, not a pass" | **follow** |
+| P02 assert-release-tag `--ref` | correct, with the fail-EVERY-publish rationale | miss — source-recovered |
+| P15 worktree converge | **wrong** — proposed removal, not convergence | miss — source-recovered |
+
+3 follows / 2 misses over 5 runs. Verdict `IN-PROGRESS`: 5 of 35 runs, 5 of 15 distinct
+probes. **No rate should be read from this**; the interval is [0.231, 0.882].
+
+### An interaction worth naming
+
+Scoring source-recovery as a miss has a side effect: P02 is hazard-severity, so the one
+source-recovered hazard row fires a rung-2 escalation for a fact the agent got *right*.
+That escalation is left **open** rather than discharged — resolving it to tidy the
+dashboard is precisely the rationalisation §6 forbids. It is recorded here as a known
+artifact of the conservative scoring choice.
+
+### Live defects the probes found as a side effect
+
+Unrelated to the soak, each independently verified, each worth its own PR:
+
+- **`scripts/cleanup_session_worktrees.py` never reads git's `locked` flag** — zero
+  occurrences of "lock" in the file. The documented removal path would delete live
+  session worktrees. (P15)
+- **`main-verify`'s catch-up base ratchets on GREEN, not on SCREENED**, so one finding
+  freezes the base and every later merge re-screens the same window — each red guarantees
+  the next, and innocent commits get failed. Confirmed against the 2026-08-18 streak. (P13)
+- **Both `pip-audit` jobs audit an empty dependency set** (`dependencies = []`), so they
+  scan the scanner's own tree and report green. (P05)
+- **`juniper-recurrence` ships no `claude.yml`**, so the weekly audit silently covers 8 of
+  9 repos and exits 0 — and a test codifies that exit 0. (P04)
+- **`_ecosystem.py` is an ungated third repo list missing `juniper-recurrence`.** (P03)
+- **11 tags exist with no GitHub Release**, and the guard meant to catch that has been
+  unreachable dead code since `push:` was removed from `on:`. (P11)
+- **79% of the TestPyPI verify step is one unconditional `sleep 30`.** (P10)
+- **`AGENTS.md`'s stacked-PR remedy is backwards on durability** — re-bumping the base has
+  a one-day shelf life; having the child bump the line is stable. (P09)
+
+### What the pilot says about the architecture
+
+Very little, and that is the honest answer at n=5. The one suggestive signal is that
+**the fact deliberately kept resident was applied correctly and thoroughly** (P01 took
+*both* reaper protection keys and measured the hazard before proposing anything) — which
+is an argument for the `## Hazards` carve-out, not against relocation.

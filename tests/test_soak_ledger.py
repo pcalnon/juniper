@@ -419,12 +419,12 @@ class RecordValidation(unittest.TestCase):
         # undecidable, and the tool fails CLOSED. That is correct behaviour; this
         # test is about severity provenance, so it opts out of the scope gate
         # rather than depending on the repo's git history.
-        r = cli("probe-run", "--probe-id", "P01-reaper-protection-keys", "--outcome", "follow", "--session", "S", "--force-scope", "--dry-run", cwd=REPO_ROOT)
+        r = cli("probe-run", "--probe-id", "P02-assert-release-tag-ref", "--outcome", "follow", "--session", "S", "--force-scope", "--dry-run", cwd=REPO_ROOT)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout)["severity"], "hazard")
 
     def test_probe_run_has_no_severity_flag(self) -> None:
-        r = cli("probe-run", "--probe-id", "P01-reaper-protection-keys", "--outcome", "follow", "--session", "S", "--severity", "reference", "--dry-run", cwd=REPO_ROOT)
+        r = cli("probe-run", "--probe-id", "P02-assert-release-tag-ref", "--outcome", "follow", "--session", "S", "--severity", "reference", "--dry-run", cwd=REPO_ROOT)
         self.assertNotEqual(r.returncode, 0)
 
     def test_miss_requires_class(self) -> None:
@@ -454,7 +454,7 @@ class RecordValidation(unittest.TestCase):
         # dry-run path at all. Asserting exit 0 pins that it really got there.
         with TemporaryDirectory() as t:
             p = Path(t) / "l.jsonl"
-            r = cli("--ledger", str(p), "probe-run", "--probe-id", "P01-reaper-protection-keys", "--outcome", "follow", "--session", "S", "--force-scope", "--dry-run", cwd=REPO_ROOT)
+            r = cli("--ledger", str(p), "probe-run", "--probe-id", "P02-assert-release-tag-ref", "--outcome", "follow", "--session", "S", "--force-scope", "--dry-run", cwd=REPO_ROOT)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertFalse(p.exists())
 
@@ -462,7 +462,7 @@ class RecordValidation(unittest.TestCase):
         # The CI-visible consequence of failing closed, pinned deliberately: in a
         # checkout without the marker object (depth-1, as CI does) a real record
         # is refused, not silently marked in-scope. v0.1 marked it in-scope.
-        r = cli("probe-run", "--probe-id", "P01-reaper-protection-keys", "--outcome", "follow", "--session", "S", "--dry-run", cwd=REPO_ROOT)
+        r = cli("probe-run", "--probe-id", "P02-assert-release-tag-ref", "--outcome", "follow", "--session", "S", "--dry-run", cwd=REPO_ROOT)
         self.assertIn(r.returncode, (0, 2))
         if r.returncode == 2:
             self.assertIn("fails CLOSED", r.stderr)
@@ -475,9 +475,32 @@ class ProbeRegistry(unittest.TestCase):
         r = cli("verify-probes", cwd=REPO_ROOT)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
-    def test_registry_meets_the_distinct_probe_floor(self) -> None:
+    def test_an_under_populated_registry_cannot_reach_a_verdict(self) -> None:
+        # The real invariant. The shipped registry currently holds 6 valid probes
+        # against a floor of 15 -- the 2026-08-21 pilot retired 9 as invalid
+        # (their facts had never left AGENTS.md). That shortfall must SHOW as
+        # IN-PROGRESS rather than quietly permitting a terminal verdict off a
+        # thin registry, and it must not be a permanently red build either.
         reg = sl.load_probes(REPO_ROOT / sl.DEFAULT_PROBES)
-        self.assertGreaterEqual(len(reg["probes"]), sl.MIN_DISTINCT_PROBES)
+        n = len(reg["probes"])
+        rows = [obs(session=f"s{i}", probe_id=f"P{i % max(1, n):02d}") for i in range(60)]
+        st = sl.analyse(rows)
+        if n < sl.MIN_DISTINCT_PROBES:
+            self.assertEqual(st["verdict"], "IN-PROGRESS")
+            self.assertIn("distinct probes", st["note"])
+
+    def test_every_shipped_probe_is_structurally_complete(self) -> None:
+        reg = sl.load_probes(REPO_ROOT / sl.DEFAULT_PROBES)
+        for p in reg["probes"]:
+            for field in ("probe_id", "severity", "area", "fact", "pointer", "task", "discriminator", "must_be_absent_from_source"):
+                self.assertTrue(p.get(field), f"{p.get('probe_id')}: {field}")
+
+    def test_retired_probes_record_why(self) -> None:
+        # Retiring a probe silently would erase the pilot's most useful finding.
+        reg = sl.load_probes(REPO_ROOT / sl.DEFAULT_PROBES)
+        for p in reg.get("retired", []):
+            self.assertTrue(p.get("reason"), p.get("probe_id"))
+            self.assertIn("INVALID", p["reason"])
 
     def test_registry_has_hazard_probes(self) -> None:
         reg = sl.load_probes(REPO_ROOT / sl.DEFAULT_PROBES)
@@ -529,6 +552,106 @@ class Constants(unittest.TestCase):
         with TemporaryDirectory() as t:
             p = write(Path(t), seeded_run(14, 26))
             self.assertIn("NEVER re-inline", cli("--ledger", str(p), "status").stdout)
+
+
+class ResidencyGate(unittest.TestCase):
+    """A probe whose fact never left the source tests nothing.
+
+    The 2026-08-21 pilot ran 15 probes; NINE were invalid because their facts
+    were still resident in AGENTS.md, and one of those tested a fact in the
+    resident ``## Hazards`` list that the protocol explicitly excludes. Checking
+    that a pointer RESOLVES says nothing about whether the fact LEFT.
+    """
+
+    def _registry(self, root: Path, probe_extra: dict) -> None:
+        (root / "docs").mkdir(exist_ok=True)
+        (root / "docs" / "REFERENCE.md").write_text("## Real Section\n", encoding="utf-8")
+        (root / "conf").mkdir(exist_ok=True)
+        probe = {
+            "probe_id": "X",
+            "severity": "hazard",
+            "area": "a",
+            "fact": "f",
+            "pointer": "docs/REFERENCE.md#real-section",
+            "task": "t",
+            "discriminator": "d",
+        }
+        probe.update(probe_extra)
+        (root / "conf" / "soak_probes.json").write_text(json.dumps({"source_file": "AGENTS.md", "probes": [probe]}), encoding="utf-8")
+
+    def test_missing_declaration_is_refused(self) -> None:
+        with TemporaryDirectory() as t:
+            root = Path(t)
+            (root / "AGENTS.md").write_text("nothing relevant\n", encoding="utf-8")
+            self._registry(root, {})
+            r = cli("--repo-root", str(root), "verify-probes")
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("must_be_absent_from_source", r.stdout)
+
+    def test_resident_phrase_invalidates_the_probe(self) -> None:
+        with TemporaryDirectory() as t:
+            root = Path(t)
+            (root / "AGENTS.md").write_text("the KILL_WORKERS hazard\n", encoding="utf-8")
+            self._registry(root, {"must_be_absent_from_source": ["KILL_WORKERS"]})
+            r = cli("--repo-root", str(root), "verify-probes")
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("still resident", r.stdout)
+
+    def test_genuinely_relocated_phrase_passes(self) -> None:
+        with TemporaryDirectory() as t:
+            root = Path(t)
+            (root / "AGENTS.md").write_text("nothing relevant\n", encoding="utf-8")
+            self._registry(root, {"must_be_absent_from_source": ["KILL_WORKERS"]})
+            r = cli("--repo-root", str(root), "verify-probes")
+            self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_shipped_registry_declares_residency_for_every_probe(self) -> None:
+        reg = sl.load_probes(REPO_ROOT / sl.DEFAULT_PROBES)
+        for p in reg["probes"]:
+            self.assertTrue(p.get("must_be_absent_from_source"), p["probe_id"])
+
+
+class Invalidation(unittest.TestCase):
+    """A run against a defective probe must leave the denominator by an
+    auditable append, never by deleting the line."""
+
+    def test_invalidated_row_leaves_the_denominator(self) -> None:
+        r = obs(session="s1", outcome="miss", miss_class="discoverability")
+        rows = [r] + seeded_run(4, 0)
+        self.assertEqual(sl.analyse(rows)["seeded"]["misses"], 1)
+        rows.append({"obs_id": str(uuid.uuid4()), "kind": "invalidate", "invalidates": r["obs_id"], "reason": "probe was defective"})
+        after = sl.analyse(rows)["seeded"]
+        self.assertEqual(after["misses"], 0)
+        self.assertEqual(after["runs"], 4)
+
+    def test_the_original_row_is_not_deleted(self) -> None:
+        with TemporaryDirectory() as t:
+            r = obs()
+            p = write(Path(t), [r, {"obs_id": str(uuid.uuid4()), "kind": "invalidate", "invalidates": r["obs_id"], "reason": "why"}])
+            # Still on disk: the ledger records what was RUN, not only what counted.
+            self.assertEqual(len(sl.load_rows(p)[0]), 2)
+            self.assertEqual(sl.analyse(sl.load_rows(p)[0])["seeded"]["runs"], 0)
+
+    def test_requires_a_real_obs_id(self) -> None:
+        with TemporaryDirectory() as t:
+            p = write(Path(t), [obs()])
+            r = cli("--ledger", str(p), "invalidate", "--obs-id", "nope", "--reason", "x")
+            self.assertEqual(r.returncode, 2)
+
+    def test_requires_a_reason(self) -> None:
+        with TemporaryDirectory() as t:
+            rec = obs()
+            p = write(Path(t), [rec])
+            r = cli("--ledger", str(p), "invalidate", "--obs-id", rec["obs_id"], "--reason", " ")
+            self.assertEqual(r.returncode, 2)
+
+    def test_invalidate_does_not_discharge_an_escalation(self) -> None:
+        # invalidate says "this was never data"; resolve says "this was real and
+        # is fixed". Conflating them would let a live hazard be tidied away.
+        m = obs(session="hz", outcome="miss", miss_class="hazard", severity="hazard")
+        rows = seeded_run(38, 0) + [m]
+        rows.append({"obs_id": str(uuid.uuid4()), "kind": "resolve", "resolves": m["obs_id"], "ref": "ml#1"})
+        self.assertEqual(sl.analyse(rows)["seeded"]["runs"], 39)
 
 
 if __name__ == "__main__":
