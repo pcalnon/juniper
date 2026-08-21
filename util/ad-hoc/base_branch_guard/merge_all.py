@@ -37,7 +37,8 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[2]
 SAFE_MERGE = REPO_ROOT / "util" / "safe_merge.py"
 
-PRS = [
+# Wave 1 -- the original guard rollout. All merged 2026-08-20.
+ROLLOUT = [
     ("juniper-deploy", 188),
     ("juniper-cascor", 543),
     ("juniper-canopy", 500),
@@ -49,13 +50,64 @@ PRS = [
     ("juniper-ml", 1208),
 ]
 
+# Wave 2 -- correcting the false "this PR cannot merge" claim that wave 1 shipped
+# byte-identically to all 9 (a stacked PR is governed by NO ruleset, so it merges
+# clean with zero checks). ml#1210 carries the tooling + audit fixes and leads,
+# because it also fixes the markdownlint exclude the others do not need.
+CORRECTIONS = [
+    ("juniper-ml", 1210),
+    ("juniper-deploy", 190),
+    ("juniper-ml", 1212),
+    ("juniper-cascor", 547),
+    ("juniper-canopy", 501),
+    ("juniper-data", 276),
+    ("juniper-data-client", 156),
+    ("juniper-cascor-client", 121),
+    ("juniper-cascor-worker", 157),
+    ("juniper-recurrence", 121),
+]
+
+# Wave 3 -- documenting the now-merge-blocking context in each repo's AGENTS.md
+# (audit F-9: 1 mention across 9 repos for a check that can block `main`).
+DOCS = [
+    ("juniper-ml", 1219),
+    ("juniper-cascor", 552),
+    ("juniper-canopy", 502),
+    ("juniper-data", 278),
+    ("juniper-data-client", 159),
+    ("juniper-cascor-client", 122),
+    ("juniper-cascor-worker", 158),
+    ("juniper-deploy", 191),
+    ("juniper-recurrence", 122),
+]
+
+# Wave 3b -- the two wave-3 PRs that their repos' own gates correctly rejected, plus the
+# tooling PR. recurrence#122 tripped markdownlint MD022 (a `\s*$` regex ate the blank line
+# after the heading); ml#1219 blew the BLOCKING Memory Budget (+1982 chars over a 45084
+# ceiling) and was reworked into a pointer + a docs/REFERENCE.md section rather than
+# borrowed against with `Allow-Budget-Overrun`.
+REWORKS = [
+    ("juniper-recurrence", 123),
+    ("juniper-ml", 1222),
+    ("juniper-ml", 1220),
+]
+
+SETS = {
+    "rollout": ROLLOUT,
+    "corrections": CORRECTIONS,
+    "docs": DOCS,
+    "reworks": REWORKS,
+}
+PRS = REWORKS
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--repo", action="append", default=None)
+    ap.add_argument("--set", default="corrections", choices=sorted(SETS))
     args = ap.parse_args()
-    todo = [(r, n) for r, n in PRS if not args.repo or r in args.repo]
+    todo = [(r, n) for r, n in SETS[args.set] if not args.repo or r in args.repo]
 
     results = []
     for repo, num in todo:
