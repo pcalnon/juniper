@@ -1,0 +1,187 @@
+{
+  "_README": [
+    "PRE-REGISTERED PROBE REGISTRY for the pointer-follow soak (seeded arm).",
+    "Protocol: notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md",
+    "",
+    "WHY THIS FILE EXISTS. The organic arm cannot measure the thing it was built",
+    "to measure: an occasion is recorded only if someone NOTICES a relocated fact",
+    "was relevant, and the dominant failure mode is an agent that never knew the",
+    "fact existed -- which cannot notice. Follows get logged at ~100%, misses by",
+    "ignorance at ~0%, and the rate converges to 1.0 independent of the truth.",
+    "",
+    "A probe fixes that by construction. Each entry below is a task that CANNOT be",
+    "done correctly without a specific relocated fact. Hand it to a fresh session,",
+    "score retrieval externally, and the denominator is known before the session",
+    "starts -- so q_miss == q_follow == 1 and the estimate is unbiased.",
+    "",
+    "RULES.",
+    "1. FROZEN BEFORE OBSERVATION 1. Adding or editing a probe after runs begin",
+    "   invalidates the arm. Add a new probe with a new id; never edit a run one.",
+    "2. severity is a property of the PROBE, pre-registered here -- never a",
+    "   judgement made at scoring time. That is what keeps the hazard stratum",
+    "   from being defined after the fact.",
+    "3. Every probe must name an `evidence` file:line that a scorer can open, and",
+    "   a `discriminator` that is checkable without reading the agent's mind.",
+    "4. A probe whose `pointer` no longer resolves is a POINTER DEFECT in the",
+    "   repo, not a miss by the session. Fix the pointer; do not score the run.",
+    "",
+    "SCORING. follow = the session demonstrably retrieved the fact before acting",
+    "(opened/grepped the destination). miss = it acted without. A correct answer",
+    "reached WITHOUT retrieval is still a miss -- the mechanism failed and",
+    "correctness was coincidence."
+  ],
+  "version": 1,
+  "frozen_at": null,
+  "probes": [
+    {
+      "probe_id": "P01-reaper-protection-keys",
+      "severity": "hazard",
+      "area": "orchestration",
+      "fact": "The orphan reaper protects a pid by one of two keys: the pid appears in a run-dir *.pid, or its cmdline references a run root.",
+      "pointer": "docs/REFERENCE.md#pytest-orphan-reaper",
+      "evidence": "docs/REFERENCE.md:521,1251",
+      "task": "Add a new long-running watchdog service to util/experiment_stack.bash, launched under nohup like the others.",
+      "discriminator": "Does the change give the new process a run-dir *.pid entry or a cmdline referencing the run root? Launching it under nohup with neither is the miss -- the reaper will kill it."
+    },
+    {
+      "probe_id": "P02-assert-release-tag-ref",
+      "severity": "hazard",
+      "area": "publish",
+      "fact": "util/assert_release_tag.bash takes --ref with the fully-formed github.ref; the --ref-type/--ref-name two-flag form was deliberately rejected.",
+      "pointer": "docs/REFERENCE.md#utility-script-reference",
+      "evidence": "docs/REFERENCE.md:1325-1326",
+      "task": "Wire util/assert_release_tag.bash into a new sibling publisher workflow's build job.",
+      "discriminator": "Does the call pass --ref \"${{ github.ref }}\"? Passing --ref-type/--ref-name is the miss: exit 2, unknown argument, on every publisher."
+    },
+    {
+      "probe_id": "P03-ecosystem-repos-lockstep",
+      "severity": "hazard",
+      "area": "docs-ci",
+      "fact": "ECOSYSTEM_REPOS must equal the registry's publishing repos minus juniper-ml plus juniper-deploy; omitting a sibling silently drops it from every weekly screen.",
+      "pointer": "docs/REFERENCE.md#docs-full-check",
+      "evidence": "docs/REFERENCE.md:1704,2167-2171",
+      "task": "A new publishing sibling package has been added to the release-train registry. Make the weekly documentation screen cover it.",
+      "discriminator": "Does the change update env.ECOSYSTEM_REPOS in docs-full-check.yml? Registering only in registry.yaml is the miss."
+    },
+    {
+      "probe_id": "P04-default-repos-orthogonal",
+      "severity": "hazard",
+      "area": "docs-ci",
+      "fact": "validate_claude_yaml_access.bash iterates a hard-coded DEFAULT_REPOS array, orthogonal to ECOSYSTEM_REPOS; the two lists must move together.",
+      "pointer": "docs/REFERENCE.md#claudeyml-access-validation",
+      "evidence": "docs/REFERENCE.md:2299-2301",
+      "task": "A new publishing sibling was added to env.ECOSYSTEM_REPOS. Confirm the weekly claude.yml audit now covers it, and fix it if not.",
+      "discriminator": "Does the session find and update DEFAULT_REPOS in the bash source? Concluding that ECOSYSTEM_REPOS alone suffices is the miss -- a silent audit gap."
+    },
+    {
+      "probe_id": "P05-security-scan-asymmetry",
+      "severity": "operational",
+      "area": "security-ci",
+      "fact": "The weekly scan uses pip-audit --strict after an editable install; the per-PR job uses --skip-editable and omits --strict. Neither contract may be copied onto the other path.",
+      "pointer": "docs/REFERENCE.md#scheduled-security-scan-and-lockfile-update",
+      "evidence": "docs/REFERENCE.md:2183",
+      "task": "Make the per-PR security job and the weekly security scan consistent with each other.",
+      "discriminator": "Does the session recognise the asymmetry is deliberate and decline to unify them? Harmonising the flags is the miss -- an unreleased editable meta install would fail every PR."
+    },
+    {
+      "probe_id": "P06-expect-removals-scope",
+      "severity": "operational",
+      "area": "relocation",
+      "fact": "relocation_check.py --expect-removals hard-fails (exit 2) on a PR that removes nothing; it is for relocation PRs only.",
+      "pointer": "docs/REFERENCE.md#relocation-completeness-g3",
+      "evidence": "docs/REFERENCE.md:1100,1109",
+      "task": "Add util/relocation_check.py --expect-removals to the standard local pre-flight that every PR runs.",
+      "discriminator": "Does the session scope the flag to relocation PRs, or refuse? Adding it unconditionally is the miss -- every non-relocation PR would fail at exit 2."
+    },
+    {
+      "probe_id": "P07-budget-no-worsening",
+      "severity": "operational",
+      "area": "memory-budget",
+      "fact": "The budget gate's no-worsening rule: a file over its ceiling fails only if the change also makes it bigger, so one bad file on main cannot block every unrelated PR.",
+      "pointer": "docs/REFERENCE.md#memory-file-size-budget",
+      "evidence": "docs/REFERENCE.md:987",
+      "task": "AGENTS.md is currently over its ceiling on main. An unrelated PR needs to merge. Explain what happens and what the author must do.",
+      "discriminator": "Does the session state the PR passes as long as it does not grow the file? Claiming the author must first cut AGENTS.md, or must take a waiver, is the miss."
+    },
+    {
+      "probe_id": "P08-waiver-is-a-loan",
+      "severity": "operational",
+      "area": "memory-budget",
+      "fact": "Allow-Budget-Overrun is a loan: it suppresses the failure without moving the ceiling, so the debt blocks the next author.",
+      "pointer": "docs/REFERENCE.md#memory-file-size-budget",
+      "evidence": "docs/REFERENCE.md:949",
+      "task": "A PR needs to add 900 chars to AGENTS.md but only 400 of headroom remain. Advise the author.",
+      "discriminator": "Does the session explain the waiver does not move the ceiling and the debt passes to the next author? Treating it as a clean pass is the miss."
+    },
+    {
+      "probe_id": "P09-agents-md-already-today",
+      "severity": "operational",
+      "area": "agents-md",
+      "fact": "The date check passes on either arm: the value already equals today's UTC date, OR the line changed in this PR. A stacked PR whose base carries the bump passes on the value alone.",
+      "pointer": "docs/REFERENCE.md#agentsmd-date-check",
+      "evidence": "docs/REFERENCE.md:2247",
+      "task": "A stacked PR touches AGENTS.md but its diff does not contain the Last Updated line, because the base branch already bumped it. CI is red. Diagnose.",
+      "discriminator": "Does the session identify the already-today arm and check whether the date is stale rather than editing the child? Editing the child's date is the miss."
+    },
+    {
+      "probe_id": "P10-publish-gate1-extras",
+      "severity": "hazard",
+      "area": "publish",
+      "fact": "The TestPyPI Gate 1 verify goes bare then [clients] then [tools]; never --no-deps, and never the heavy extras.",
+      "pointer": "docs/REFERENCE.md#build-and-release",
+      "evidence": "docs/REFERENCE.md:2441",
+      "task": "The TestPyPI verify step in publish.yml is slow. Speed it up.",
+      "discriminator": "Does the session preserve the no---no-deps rule and avoid adding heavy extras? Adding --no-deps to speed it up is the miss -- it defeats the extras-resolution check the gate exists for."
+    },
+    {
+      "probe_id": "P11-sibling-publishers-release-only",
+      "severity": "hazard",
+      "area": "publish",
+      "fact": "Sibling publishers are Release-only and deliberately do not subscribe to push:tags; the double-fire raced the immutable TestPyPI upload in juniper-ml#555.",
+      "pointer": "docs/REFERENCE.md#sibling-packages",
+      "evidence": "docs/REFERENCE.md:2313",
+      "task": "A sibling package publisher did not fire after a tag was pushed. Make it trigger reliably.",
+      "discriminator": "Does the session keep the Release-only trigger and explain the tag must come from cutting a Release? Adding push:tags is the miss -- it reintroduces the #555 race."
+    },
+    {
+      "probe_id": "P12-subpackage-ci-path-filters",
+      "severity": "operational",
+      "area": "ci-workflows",
+      "fact": "A shared-package CI's path filters must include both the subdirectory and the workflow's own path; only ci-tools may --omit __main__.py from coverage.",
+      "pointer": "docs/REFERENCE.md#shared-package-ci-workflows",
+      "evidence": "docs/REFERENCE.md:2120",
+      "task": "Add a CI workflow for a new in-repo shared sub-package.",
+      "discriminator": "Do the path filters include the workflow's own path as well as the subdir? Filtering only on the subdir is the miss -- edits to the workflow itself never trigger it."
+    },
+    {
+      "probe_id": "P13-main-verify-catchup-base",
+      "severity": "operational",
+      "area": "main-verify",
+      "fact": "The G3.1 catch-up base is the last successful main-verify tip that is an ancestor of HEAD, else github.event.before, else HEAD^1.",
+      "pointer": "docs/REFERENCE.md#post-merge-main-verification",
+      "evidence": "docs/REFERENCE.md:1781",
+      "task": "main-verify is red and the screen appears to be re-reporting findings from commits that already passed. Diagnose the base selection.",
+      "discriminator": "Does the session reproduce the three-tier fallback? Assuming the base is simply HEAD^1 or the previous push is the miss."
+    },
+    {
+      "probe_id": "P14-per-run-timeout-ordering",
+      "severity": "hazard",
+      "area": "experiments",
+      "fact": "per_run_timeout_seconds is only the subprocess timeout and kills the driver from outside; size it ABOVE max_wall_seconds so the driver is what stops the run.",
+      "pointer": "docs/REFERENCE.md#experiment-stack-utilities",
+      "evidence": "docs/REFERENCE.md:1458",
+      "task": "An experiment suite is overrunning its budget. Tighten the per-run timeout so runs stop on time.",
+      "discriminator": "Does the session keep per_run_timeout_seconds above the wall budget and tighten max_wall_seconds instead? Lowering the subprocess timeout below the wall budget is the miss -- honest timed_out manifests are replaced by outside kills."
+    },
+    {
+      "probe_id": "P15-worktree-converge-not-remove",
+      "severity": "reference",
+      "area": "worktrees",
+      "fact": "The remedy for a diverging worktree is to converge it, not remove it; removal requires the four ordered gates and a liveness probe.",
+      "pointer": "docs/REFERENCE.md#worktree-divergence-is-a-memory-cost",
+      "evidence": "docs/REFERENCE.md:885",
+      "task": "Several worktrees carry a stale AGENTS.md and are inflating every session's context. Clean this up.",
+      "discriminator": "Does the session propose converging (merge origin/main) rather than removing? Proposing removal, or removing without the ordered gates, is the miss."
+    }
+  ]
+}
