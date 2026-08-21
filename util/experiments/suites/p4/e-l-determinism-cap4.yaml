@@ -1,29 +1,47 @@
-# E-L: a CHEAP determinism instrument for the CLI-vs-service reproducibility defect.
+# E-L: a CHEAP determinism instrument for the seeded-run reproducibility defect
+# (juniper-cascor#532). This is the SERVICE arm, at N=20.
 #
 # WHY CAP 4
-# Two direct-CLI runs of the identical cap-16 cell (same data, same network seed 42, same thread
-# setting) were bit-identical through iteration 1 and diverged at iteration 2 -- ending 10 pp apart
-# in validation accuracy (0.8650 vs 0.7650) having done 16% different candidate work. Two SERVICE
-# runs of the same cell reproduced bit-identically. That last observation was later WITHDRAWN as a
-# determinism claim: two agreeing runs is far too small a sample against an effect that diverged in
-# 3 of 5 pairs, and the service arm has never been sampled at N>=20. Treat the service as UNTESTED,
-# not immune (juniper-cascor#532).
+# Repeated direct-CLI runs of one identical cell (same content-addressed dataset, same network
+# seed 42, same thread setting, same checkout, same host) diverge mid-training -- ending up to
+# 10 pp apart in validation accuracy having done up to 16% different candidate work. Divergence
+# shows up inside the first two or three growth iterations, so studying it does not need a
+# 25-minute cap-16 run: cap 4 reproduces the phenomenon in ~4 minutes. That turns determinism
+# from something affordable once into something affordable twenty times, and repeated trials are
+# the only way to say anything sound about a stochastic effect.
 #
-# Divergence therefore shows up within the first handful of growth iterations, so studying it does
-# not need a 25-minute cap-16 run. Cap 4 reproduces the phenomenon in ~4 minutes, which turns
-# determinism from something affordable once into something affordable a dozen times -- and
-# repeated trials are the only way to say anything sound about a stochastic effect.
+# WHY 20 CELLS AND NOT A PAIR
+# The effect fires in roughly HALF of run-pairs. Two runs that agree are therefore not evidence
+# of determinism, and two that differ are not evidence of a mechanism. Three claims in this
+# investigation were made and withdrawn on exactly that error, including "the service is
+# deterministic" -- which rested on two agreeing service runs. The service is UNTESTED, not
+# immune, and this suite is what tests it: a RATE over 20 runs, not a verdict over a pair.
 #
-# Read this suite as the SERVICE control of the pair. It exists to generate the shared cell config
-# and to confirm the service's determinism at this cap; the CLI arms run the generated cell through
-# util/ad-hoc/2026-08-17_h2h_thread_probe.bash at several thread budgets, twice each.
+# The replicate axis is `experiment.description`, which is the only config key that is legal
+# (driver EXPERIMENT_KEYS), inert (recorded on the manifest, never sent to any service), and free
+# of side effects. run_suite has no replicate primitive; this is the structure chosen instead of
+# improvising one. The same idea appears as `include:` entries in
+# util/experiments/suites/perf/pf1-cascor-spiral-repeats.yaml.
 #
-# seed 42 / seed_policy fixed: both arms then share dataset AND network initialisation, since the
-# service network is unconditionally seed 42 (juniper-cascor#530).
+# seed_policy MUST STAY `fixed`. `per_cell` rewrites both seeds to base_seed + cell.index, which
+# would silently turn this 20-cell expansion into a 20-SEED SWEEP and report a false "20 distinct
+# outcomes, 100% nondeterministic" -- the exact conclusion the suite exists to test. With `fixed`,
+# all 20 cells share dataset seed 42 AND network seed 42 (the service network seed is
+# unconditionally 42, juniper-cascor#530), so every difference between cells is the defect.
+#
+# stall_seconds 1200 is load-bearing: the R-6 CI gate in tests/test_experiment_suite_yamls.py
+# triggers on candidate_pool_size >= 16 OR max_hidden_units >= 64, and this suite is cap 4 /
+# pool 8, so NEITHER fires and CI will not catch its absence. Without it a healthy cell reports
+# a false `stalled`.
+#
+# The direct-CLI arm is NOT run from here. It runs the cell config this suite materialises
+# through util/ad-hoc/2026-08-17_h2h_thread_probe.bash, 20 times against one stack. Both arms are
+# then read by util/ad-hoc/2026-08-20_determinism_nrun.py, which reports the divergence rate and
+# the timing noise floor per arm.
 schema_version: 1
 suite:
   name: e-l-determinism-cap4
-  description: "E-L: cheap determinism probe (cap 4 / pool 8, seed 42) for the CLI reproducibility defect"
+  description: "E-L: determinism probe (cap 4 / pool 8, seed 42) -- SERVICE arm, 20 replicates"
   app: cascor
   base_config: [../../../ad-hoc/2026-08-16_h2h_wide_nrot3.yaml]
   seed_policy: fixed
@@ -39,5 +57,26 @@ matrix:
   training.params.max_hidden_units: [4]
   dataset.params.seed: [42]
   experiment.seed: [42]
-  experiment.description: ["E-L determinism probe -- SERVICE control, cap 4, seed 42"]
+  # The replicate axis. 20 inert values -> 20 cells of one identical experiment.
+  experiment.description:
+    - "E-L determinism -- SERVICE replicate 01 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 02 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 03 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 04 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 05 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 06 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 07 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 08 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 09 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 10 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 11 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 12 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 13 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 14 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 15 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 16 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 17 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 18 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 19 of 20, cap 4, seed 42"
+    - "E-L determinism -- SERVICE replicate 20 of 20, cap 4, seed 42"
 outputs: {suite_dir: null, aggregate: [csv, markdown]}

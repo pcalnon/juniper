@@ -70,9 +70,17 @@ repos:
         name: Check JSON syntax
       - id: end-of-file-fixer
         name: Fix end of files
+        # A .patch/.diff must stay byte-exact. `git apply` requires a leading space on EVERY
+        # context line, blank ones included, and a trailing newline it did not author can also
+        # corrupt the final hunk -- so "tidying" one silently produces a patch that no longer
+        # applies. Observed 2026-08-20 on util/ad-hoc/*_diag.patch.
+        exclude: '\.(patch|diff)$'
       - id: trailing-whitespace
         name: Trim trailing whitespace
         args: [--markdown-linebreak-ext=md]
+        # Same reason as end-of-file-fixer above: this hook strips the single leading space that
+        # marks a blank CONTEXT line, which is exactly the byte `git apply` needs.
+        exclude: '\.(patch|diff)$'
       - id: check-merge-conflict
         name: Check for merge conflicts
       - id: check-added-large-files
