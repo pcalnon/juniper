@@ -798,6 +798,22 @@ class TimeoutSizingTest(unittest.TestCase):
         self.assertEqual(safe_merge.timeout_for("juniper-nonesuch"), safe_merge.DEFAULT_TIMEOUT)
         self.assertGreater(safe_merge.DEFAULT_TIMEOUT, 1196)
 
+    def test_ceiling_is_actually_ENFORCED_not_merely_declared(self):
+        """`TIMEOUT_CEILING` was a dead constant: defined, asserted against, never used.
+
+        The other tests in this class check the TABLE's values, which is exactly the shape
+        of assertion that passes while the runtime guarantee does not exist -- an explicit
+        `--timeout 7200` went through unclamped. Test the code path, not the data.
+        """
+        msgs = []
+        self.assertEqual(safe_merge.clamp_timeout(7200, log=msgs.append), safe_merge.TIMEOUT_CEILING)
+        self.assertTrue(msgs, "clamping must be announced, not silent")
+        self.assertIn("clamping", " ".join(msgs))
+        # under the ceiling passes through untouched and says nothing
+        quiet = []
+        self.assertEqual(safe_merge.clamp_timeout(900, log=quiet.append), 900)
+        self.assertEqual(quiet, [])
+
     def test_no_budget_exceeds_the_worker_lease_ceiling(self):
         """A local wait cannot outlive the process doing it.
 
