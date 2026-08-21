@@ -67,7 +67,8 @@ EXCLUDES=(
     --exclude-dir=.pytest_cache --exclude-dir=.ruff_cache --exclude-dir=node_modules
     --exclude-dir=.venv --exclude-dir=venv --exclude-dir=htmlcov --exclude-dir=dist
     --exclude-dir=build --exclude-dir=site-packages --exclude-dir=worktrees
-    --exclude-dir=cascor_snapshots --exclude-dir=snapshots --exclude-dir=logs
+    --exclude-dir=cascor-snapshots --exclude-dir=cascor_snapshots
+    --exclude-dir=snapshots --exclude-dir=logs
     --exclude=*.log --exclude=*.log.* --exclude=*.h5 --exclude=*.ipynb
 )
 

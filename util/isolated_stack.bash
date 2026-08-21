@@ -102,15 +102,25 @@ CANOPY_ORIGIN="http://127.0.0.1:${CANOPY_PORT}"
 CANOPY_WS_ALLOWLIST="[\"http://127.0.0.1:${CANOPY_PORT}\",\"http://localhost:${CANOPY_PORT}\"]"
 
 # Snapshot directory (F-E2E-007 / F-CANOPY-007): canopy CREATES snapshots by proxying to the
-# cascor backend (which writes under its own src/snapshots), but LISTS and resolves them by
-# reading a LOCAL directory — JUNIPER_CANOPY_SNAPSHOT_DIR, else the legacy CASCOR_SNAPSHOT_DIR,
-# else "./snapshots" relative to canopy's CWD (canopy src/main.py:1713-1726, read path
-# :1838-1909 / :1764-1806). The shipped docker topology co-mounts one volume
-# (juniper-cascor-snapshots:/app/data) into both services, so the local read resolves; two host
-# processes with different CWDs do NOT share it, and the list endpoint then returns a silent
+# cascor backend, but LISTS and resolves them by reading a LOCAL directory —
+# JUNIPER_CANOPY_SNAPSHOT_DIR, else the legacy CASCOR_SNAPSHOT_DIR, else "./snapshots" relative
+# to canopy's CWD (canopy src/main.py:1713-1725). Two host processes with different CWDs do NOT
+# share that, and the list endpoint then returns a silent
 # {"snapshots": [], "message": "No snapshots available"} while cascor holds the .h5 — no error,
-# no warning. Point canopy at cascor's real snapshot dir so the whole W5 lifecycle is honest.
-CANOPY_SNAPSHOT_DIR="${JUNIPER_E2E_CANOPY_SNAPSHOT_DIR:-${CASCOR_SRC_DIR}/snapshots}"
+# no warning. Point canopy at cascor's real snapshot root so the whole W5 lifecycle is honest.
+#
+# That root is now <cascor repo>/cascor-snapshots (storage-convention ruling 2026-08-20, juniper-ml
+# notes/JUNIPER_2026-08-20_JUNIPER-ECOSYSTEM_SNAPSHOT-STORAGE-CONVENTION-DESIGN.md) — the ONE root
+# shared by the direct CLI, the service, and the container. It is NOT ${CASCOR_SRC_DIR}/snapshots
+# any more: that directory is the importable serializer PACKAGE and receives no artifacts.
+#
+# A prior version of this comment claimed the docker topology "co-mounts one volume
+# (juniper-cascor-snapshots:/app/data) into both services". It does not, and did not: compose
+# mounts that volume into the two cascor services ONLY, at a path neither tier writes, and sets no
+# snapshot env var at all — so canopy's containerized snapshot list has always been empty. Fixed
+# in the compose change that accompanies this one, not papered over here.
+CASCOR_SNAPSHOT_ROOT="${PROJECT_DIR}/juniper-cascor/cascor-snapshots"
+CANOPY_SNAPSHOT_DIR="${JUNIPER_E2E_CANOPY_SNAPSHOT_DIR:-${CASCOR_SNAPSHOT_ROOT}}"
 
 DRY_RUN=0
 ACTION=""
@@ -459,15 +469,24 @@ do_down() {
     stop_port "${DATA_PORT}" "juniper-data"
 
     announce "rm -rf ${RUN_DIR}/data ${DATA_VENV} ${RUN_DIR}/*.pid   # run artifacts"
-    announce "rm -f ${CASCOR_SRC_DIR}/snapshots/snapshot_*.h5 ${CANOPY_SRC_DIR}/snapshots/snapshot_*.h5   # snapshot artifacts (.h5 ONLY)"
+    announce "rm -f ${CANOPY_SRC_DIR}/snapshots/snapshot_*.h5   # canopy-local snapshot artifacts (.h5 ONLY)"
     if is_dry; then return 0; fi
     rm -rf "${RUN_DIR}/data" "${DATA_VENV}" || true
     rm -f "${RUN_DIR}"/*.pid || true
-    # .h5 ONLY — cascor's src/snapshots/ is a PYTHON PACKAGE whose modules are named
-    # snapshot_*.py; a bare snapshot_* glob deletes the source code alongside the runtime
-    # artifacts (reproduced 2026-08-09; the same sweep pattern as the cascor 4081f5b
-    # over-deletion that broke main).
-    rm -f "${CASCOR_SRC_DIR}"/snapshots/snapshot_*.h5 2>/dev/null || true
+    # -- DO NOT ADD A SWEEP OF ${CASCOR_SNAPSHOT_ROOT} HERE. --------------------------------------
+    # Teardown used to rm ${CASCOR_SRC_DIR}/snapshots/snapshot_*.h5, back when the service wrote
+    # into that package directory. The service writes to the SHARED root now, and that root is a
+    # project ASSET store holding tens of thousands of .h5 files that outlive every stack, are
+    # captured by the whole-tree offline backup, and are explicitly protected from deletion. A
+    # --down of one experiment must never touch it. The obvious "fix" of repointing this glob at
+    # the new root is precisely the mistake this comment exists to prevent; if a teardown ever
+    # needs per-run snapshots, give the run its OWN root via JUNIPER_CASCOR_SNAPSHOTS_DIR (as
+    # experiment_stack.bash does) and sweep that instead.
+    #
+    # .h5 ONLY on the canopy line -- cascor's src/snapshots/ is a PYTHON PACKAGE whose modules are
+    # named snapshot_*.py, and a bare snapshot_* glob deletes source alongside artifacts
+    # (reproduced 2026-08-09; the same sweep pattern as the cascor 4081f5b over-deletion that
+    # broke main).
     rm -f "${CANOPY_SRC_DIR}"/snapshots/snapshot_*.h5 2>/dev/null || true
     log "Teardown complete"
 }

@@ -456,7 +456,8 @@ Fixed this arc, **do not re-file**: F-CANOPY-017 (canopy#489), -022 (#492), -023
 - **W8 is `N-A`, not BLOCKED**, while the recurrence leg is down (`:904-906`).
 - **W6-21** (staging-failure arm) needs the shared juniper-data leg stopped — MANUAL, never attempted.
 - **W5-30 + the DEMO lane** — each demo arm must 501 and render `❌ Operation not supported in this mode`. Needs the hand-launched DEMO posture above.
-- **C2.9-06 / -14 / -15** — not driven in segment 13 for stated reasons (the form never dirtied during a live run; the pin gesture is unsolved). Instrument limits, not defects.
+- **C2.9-06 / -14 / -15** — not driven in segment 13 for stated reasons (the form never dirtied during a live
+  run; the pin gesture is unsolved). Instrument limits, not defects.
 
 ## Landing the segment
 
