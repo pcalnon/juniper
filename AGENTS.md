@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-20
+**Last Updated**: 2026-08-21
 
 ---
 
@@ -300,6 +300,16 @@ Per-suite descriptions for every regression test, and the failure class each one
 ## CI/CD Pipelines
 
 What each workflow does, its triggers, and the contract each job must not break. Moved to [`docs/REFERENCE.md` § CI/CD Pipeline Reference](docs/REFERENCE.md#cicd-pipeline-reference) — read it when working on this area.
+
+### PR base-branch guard (required check)
+
+`.github/workflows/pr-base-branch-guard.yml` fails any PR whose base is not the default
+branch. Its job name -- **`Guard PR base branch`** -- is a **required status check**, so
+renaming the job or deleting the file makes `main` unmergeable until it is un-required.
+A stacked PR is governed by **no ruleset at all** (both are `~DEFAULT_BRANCH`-scoped), so
+it merges with zero checks; this guard is the only thing that runs there. Moved to
+[`docs/REFERENCE.md` § PR Base-Branch Guard](docs/REFERENCE.md#pr-base-branch-guard) --
+read it when working on this area.
 
 ## Pre-commit Hooks
 
