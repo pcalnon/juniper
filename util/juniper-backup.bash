@@ -159,7 +159,6 @@ if (( DRY_RUN )); then
     exit 0
 fi
 
-
 trap cleanup_partial EXIT
 
 
