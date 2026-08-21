@@ -273,7 +273,7 @@ sections instead** (F-CANOPY-009 `:403`, F-CANOPY-010 `:471`, F-CASCOR-003b `:18
 | **F-CANOPY-005** (P0)    | REST fallback **double-fires** state-changing commands — an apparently-failed command may already have succeeded |
 | **F-CANOPY-006** (P0)    | topology counts never update; segment 15 saw `/api/status` report 0 against cascor's 7 — belongs here            |
 | **F-CANOPY-025** (P1)    | Live Dataset Switch gate never emits → W7 unreachable from the UI; W6 cold restart is the only swap route        |
-| **F-CANOPY-027** (P0/P1) | **NEW** — Candidate Metrics + Decision Boundary render chains dead; taints five §3.2 `PASS` rows                  |
+| **F-CANOPY-027** (P0/P1) | **NEW** — Candidate Metrics + Decision Boundary render chains dead; taints five §3.2 `PASS` rows                 |
 | **F-ML-001** (P1)        | never run `util/reap_pytest_orphans.bash` while the stack is up — it kills the nohup cascor leg                  |
 | **F-CASCOR-003b**        | unsettled; original observation used the discredited box-wide counting method — re-take per-leg                  |
 
@@ -286,10 +286,13 @@ Still open from earlier segments: **W7** is blocked by F-CANOPY-025, not by its 
 
 ## Landing the segment
 
-One PR. Deliverables (segment 15 = **ml#1203** for shape): **(a)** a `## Phase 1 — segment 16 (YYYY-MM-DD):
-<title>` section appended to the evidence note; **(b)** `reports/e2e/<RUN_ID>/statuses.tsv`;
-**(c)** `reports/e2e/CURRENT_RUN_ID`; **(d)** matrix cells **and** the `As of segment N: **X of 298**`
-counter (`:77`); **(e)** any new `util/ad-hoc/` driver.
+One PR. Deliverables (segment 15 = **ml#1203** for shape):
+
+- **(a)** a `## Phase 1 — segment 16 (YYYY-MM-DD): <title>` section appended to the evidence note;
+- **(b)** `reports/e2e/<RUN_ID>/statuses.tsv`;
+- **(c)** `reports/e2e/CURRENT_RUN_ID`;
+- **(d)** matrix cells **and** the `As of segment N: **X of 298**` counter (`:77`);
+- **(e)** any new `util/ad-hoc/` driver.
 
 1. Branch from a freshly fetched `origin/main`.
 2. **Check `gh pr list` immediately before you push**, and re-verify your worktree diff against the pushed
