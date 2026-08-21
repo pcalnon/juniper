@@ -212,7 +212,16 @@ def norm_area(a: str | None) -> str | None:
 def analyse(rows: list[dict], bad_lines: int = 0) -> dict:
     """Reduce the ledger. The seeded arm decides; the organic arm describes."""
     resolved = {r.get("resolves") for r in rows if r.get("kind") == "resolve"}
-    obs = [r for r in rows if r.get("kind") != "resolve"]
+
+    # An observation against a probe later found DEFECTIVE is not data. It must
+    # leave the denominator -- but by an auditable append, never by deleting the
+    # line, or the ledger stops being a record of what was actually run. The
+    # 2026-08-21 pilot needed this: 9 of 15 probes turned out to test facts that
+    # had never been relocated, so their runs measured nothing.
+    invalidated = {r.get("invalidates") for r in rows if r.get("kind") == "invalidate"}
+    obs = [r for r in rows
+           if r.get("kind") not in ("resolve", "invalidate")
+           and r.get("obs_id") not in invalidated]
 
     # in_scope must be EXPLICITLY true. v0.1 used `is not False`, so a missing
     # key, None, 0 or "no" all counted as in-scope -- fail-open on exactly the
@@ -479,6 +488,32 @@ def cmd_resolve(args: argparse.Namespace) -> int:
     return _write(ledger, row, args.dry_run)
 
 
+def cmd_invalidate(args: argparse.Namespace) -> int:
+    """Retire an observation whose PROBE was defective.
+
+    Distinct from ``resolve``: resolve discharges an escalation that was real and
+    has been fixed; invalidate says the observation should never have counted.
+    Both are appends -- the original row stays in the file, so the record shows
+    what was run as well as what was counted.
+    """
+    root = args.repo_root or repo_root(Path.cwd())
+    ledger = args.ledger or (root / DEFAULT_LEDGER)
+    rows, _ = load_rows(ledger)
+    if not any(r.get("obs_id") == args.obs_id for r in rows):
+        return _reject(f"no observation with obs_id {args.obs_id!r} in {ledger}")
+    if not (args.reason or "").strip():
+        return _reject("--reason is required: say why the observation is not data")
+    row = {
+        "obs_id": str(uuid.uuid4()),
+        "kind": "invalidate",
+        "ts": _utcnow(),
+        "invalidates": args.obs_id,
+        "reason": args.reason.strip(),
+        "note": args.note,
+    }
+    return _write(ledger, row, args.dry_run)
+
+
 def _slugs(path: Path) -> set[str]:
     out = set()
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -491,13 +526,31 @@ def _slugs(path: Path) -> set[str]:
 
 
 def cmd_verify_probes(args: argparse.Namespace) -> int:
-    """Every probe pointer must resolve. A dangling one is a repo defect."""
+    """Every probe pointer must resolve, and every probe fact must actually have
+    been relocated.
+
+    The second half is the gate this instrument shipped without, and the 2026-08-21
+    pilot paid for it: 9 of 15 probes tested facts that were still RESIDENT in
+    ``AGENTS.md``, so they measured nothing about pointer-following at all. One of
+    them (P01) tested a fact in the resident ``## Hazards`` list -- a section the
+    protocol explicitly excludes from being an occasion.
+
+    Checking that a pointer RESOLVES says nothing about whether the fact LEFT the
+    source. Each probe therefore declares ``must_be_absent_from_source``: phrases
+    that must not appear in ``AGENTS.md``. If one does, the fact is still always
+    loaded and the probe is invalid by construction.
+    """
     root = args.repo_root or repo_root(Path.cwd())
     reg = load_probes(args.probes or (root / DEFAULT_PROBES))
     probes = reg.get("probes", [])
     problems: list[str] = []
     if not probes:
         problems.append("registry is empty")
+
+    source = root / reg.get("source_file", "AGENTS.md")
+    source_text = source.read_text(encoding="utf-8").lower() if source.exists() else None
+    if source_text is None:
+        problems.append(f"source file {source} not found; residency cannot be checked")
     ids = [p.get("probe_id") for p in probes]
     if len(set(ids)) != len(ids):
         problems.append("duplicate probe_id")
@@ -521,6 +574,20 @@ def cmd_verify_probes(args: argparse.Namespace) -> int:
             cache[rel] = _slugs(target)
         if anchor not in cache[rel]:
             problems.append(f"{p.get('probe_id')}: anchor #{anchor} not found in {rel}")
+
+        # THE RESIDENCY GATE. A probe whose fact never left AGENTS.md tests
+        # nothing: the agent already has it, so there is no pointer to follow.
+        absent = p.get("must_be_absent_from_source")
+        if not absent:
+            problems.append(
+                f"{p.get('probe_id')}: no must_be_absent_from_source -- residency "
+                "unverifiable, so the probe cannot be shown to test a RELOCATED fact")
+        elif source_text is not None:
+            for phrase in absent:
+                if phrase.lower() in source_text:
+                    problems.append(
+                        f"{p.get('probe_id')}: INVALID -- {phrase!r} is still resident "
+                        f"in {source.name}; the fact was never relocated")
     if problems:
         print("PROBE REGISTRY DEFECTIVE:")
         for x in problems:
@@ -644,7 +711,15 @@ def main() -> int:
     rs.add_argument("--dry-run", action="store_true")
     rs.set_defaults(func=cmd_resolve)
 
-    vp = sub.add_parser("verify-probes", help="check the registry and that pointers resolve")
+    inv = sub.add_parser("invalidate", help="retire an observation whose probe was defective")
+    inv.add_argument("--obs-id", required=True)
+    inv.add_argument("--reason", required=True)
+    inv.add_argument("--note", default=None)
+    inv.add_argument("--dry-run", action="store_true")
+    inv.set_defaults(func=cmd_invalidate)
+
+    vp = sub.add_parser("verify-probes",
+                        help="check pointers resolve AND facts actually left the source")
     vp.set_defaults(func=cmd_verify_probes)
 
     rp = sub.add_parser("report", help="render both arms")
