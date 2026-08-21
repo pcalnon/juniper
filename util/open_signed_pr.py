@@ -114,7 +114,7 @@ def create_branch(owner: str, repo: str, branch: str, sha: str) -> None:
     )
 
 
-def create_signed_commit(owner: str, repo: str, branch: str, message: str, additions: list, expected_head_oid: str, deletions: "list | None" = None) -> str:
+def create_signed_commit(owner: str, repo: str, branch: str, message: str, additions: list, expected_head_oid: str, deletions: "list | None" = None, commit_body: "str | None" = None) -> str:
     """Land ``additions`` (and any ``deletions``) as ONE GitHub-signed commit on ``branch``.
 
     Mirrors util/release_train/propose.py::create_signed_commit -- the whole
@@ -124,6 +124,15 @@ def create_signed_commit(owner: str, repo: str, branch: str, message: str, addit
 
     ``deletions`` is omitted from the payload entirely when empty rather than sent
     as ``[]``, keeping the request byte-identical to the additions-only form.
+
+    ``commit_body`` fills the message BODY. Without it this helper could only set a
+    headline, which meant it could not carry a **commit trailer** -- and trailers are
+    the only way to waive a sequence-safety finding
+    (``Allow-Symbol-Loss:`` / ``Allow-Docs-Rewrite:``). Since ``required_signatures``
+    makes this script the only way to land a commit at all, "no body" meant "no waiver",
+    which meant closing and re-cutting the PR by hand. The trailer must live in a commit
+    message rather than PR prose because it has to survive the squash-merge, and it must
+    be in the FIRST commit because squash keeps only that message.
     """
     file_changes: dict = {"additions": [{"path": path, "contents": contents} for path, contents in additions]}
     if deletions:
@@ -133,7 +142,7 @@ def create_signed_commit(owner: str, repo: str, branch: str, message: str, addit
         "variables": {
             "input": {
                 "branch": {"repositoryNameWithOwner": f"{owner}/{repo}", "branchName": branch},
-                "message": {"headline": message},
+                "message": ({"headline": message, "body": commit_body} if commit_body else {"headline": message}),
                 "expectedHeadOid": expected_head_oid,
                 "fileChanges": file_changes,
             }
@@ -187,6 +196,18 @@ def main(argv: list) -> int:
     ap.add_argument("--add", action="append", default=[], type=parse_add, metavar="LOCAL:REPOPATH")
     ap.add_argument("--delete", action="append", default=[], metavar="REPOPATH", help="repo path to delete in the same commit (repeatable)")
     ap.add_argument("--message", required=True, help="commit headline")
+    ap.add_argument(
+        "--commit-body",
+        default=None,
+        help="commit message BODY -- put sequence-safety waiver trailers here "
+        "(Allow-Symbol-Loss: method:Class.name), not in the PR description; "
+        "the trailer must survive squash-merge",
+    )
+    ap.add_argument(
+        "--commit-body-file",
+        default=None,
+        help="read the commit message body from a file (mutually exclusive with --commit-body)",
+    )
     ap.add_argument("--title", required=True)
     ap.add_argument("--body-file", required=True)
     ap.add_argument("--dry-run", action="store_true")
@@ -205,6 +226,18 @@ def main(argv: list) -> int:
             print(f"ERROR: cannot read {local}: {exc}", file=sys.stderr)
             return 2
         additions.append((repo_path, base64.b64encode(raw).decode("ascii")))
+
+    if args.commit_body and args.commit_body_file:
+        print("ERROR: --commit-body and --commit-body-file are mutually exclusive", file=sys.stderr)
+        return 2
+    commit_body = args.commit_body
+    if args.commit_body_file:
+        try:
+            with open(args.commit_body_file, encoding="utf-8") as fh:
+                commit_body = fh.read()
+        except OSError as exc:
+            print(f"ERROR: cannot read --commit-body-file {args.commit_body_file}: {exc}", file=sys.stderr)
+            return 2
 
     try:
         with open(args.body_file, encoding="utf-8") as fh:
@@ -231,6 +264,10 @@ def main(argv: list) -> int:
             for repo_path in args.delete:
                 print(f"  delete {repo_path}")
             print(f"  commit {args.message}")
+            if commit_body:
+                print("  commit body:")
+                for line in commit_body.splitlines():
+                    print(f"    {line}")
             print(f"  title  {args.title}")
             print("  (nothing written)")
             return 0
@@ -240,7 +277,9 @@ def main(argv: list) -> int:
             return 1
         create_branch(args.owner, args.repo, args.branch, base_sha)
 
-        oid = create_signed_commit(args.owner, args.repo, args.branch, args.message, additions, base_sha, args.delete)
+        oid = create_signed_commit(
+            args.owner, args.repo, args.branch, args.message, additions, base_sha, args.delete, commit_body
+        )
         print(f"signed commit {oid[:12]} on {slug}:{args.branch}")
 
         with tempfile.NamedTemporaryFile("w", suffix=".md", encoding="utf-8", delete=False) as fh:

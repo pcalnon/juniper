@@ -543,11 +543,14 @@ exit 0
         log_dir = run_dir / "logs"
         effective_recurrence_bin = recurrence_bin or str(conda_dir / "envs" / "JuniperCascor1" / "bin" / "juniper-recurrence")
         # F-CANOPY-007 remediation: canopy_up exports JUNIPER_CANOPY_SNAPSHOT_DIR, whose script-level
-        # default is "${CASCOR_SRC_DIR}/snapshots". The harness enumerates every variable the function
-        # reads and runs under `set -u`, so a new script-level variable MUST be declared here or the
-        # function aborts on an unbound expansion rather than on anything the test is asserting.
+        # default is the SHARED snapshot root "${PROJECT_DIR}/juniper-cascor/cascor-snapshots" (the
+        # 2026-08-20 storage-convention ruling; it was "${CASCOR_SRC_DIR}/snapshots" until the
+        # service stopped writing into the serializer package). The harness enumerates every
+        # variable the function reads and runs under `set -u`, so a new script-level variable MUST
+        # be declared here or the function aborts on an unbound expansion rather than on anything
+        # the test is asserting.
         cascor_src_dir = src_dir if fn_name == "cascor_up" else src_dir.parent / "cascor-src"
-        snapshot_dir = cascor_src_dir / "snapshots"
+        snapshot_dir = cascor_src_dir.parent / "cascor-snapshots"
         harness = f"""
             set -euo pipefail
             SCRIPT_NAME="isolated_stack.bash"
@@ -742,7 +745,7 @@ class TestCanopyUp(_CondaServiceUpHarness):
             # the .h5. canopy_up must point canopy at cascor's real snapshot dir, or the whole
             # W5 snapshot lifecycle is unreachable from the UI.
             self.assertIn("JUNIPER_CANOPY_SNAPSHOT_DIR=", env_text)
-            self.assertRegex(env_text, r"JUNIPER_CANOPY_SNAPSHOT_DIR=\S*/cascor-src/snapshots\n")
+            self.assertRegex(env_text, r"JUNIPER_CANOPY_SNAPSHOT_DIR=\S*/cascor-snapshots\n")
 
             pid_path = run_dir / "juniper-canopy.pid"
             self.assertTrue(pid_path.is_file(), "canopy_up must write juniper-canopy.pid")
@@ -1492,6 +1495,7 @@ class TestLiveDown(unittest.TestCase):
             for sub in (
                 "juniper-data",
                 "juniper-cascor/src/snapshots",
+                "juniper-cascor/cascor-snapshots",
                 "juniper-canopy/src/snapshots",
             ):
                 (project_dir / sub).mkdir(parents=True)
@@ -1504,6 +1508,11 @@ class TestLiveDown(unittest.TestCase):
             (run_dir / "juniper-cascor.pid").write_text("2\n")
             (project_dir / "juniper-cascor/src/snapshots/snapshot_20260809T000000Z.h5").write_text("x")
             (project_dir / "juniper-canopy/src/snapshots/snapshot_20260809T000001Z.h5").write_text("y")
+            # The SHARED snapshot root. Teardown must not touch it: it is a project asset store
+            # that outlives every stack, and a --down of one experiment deleting another
+            # researcher's models is the failure this assertion exists to prevent.
+            (project_dir / "juniper-cascor/cascor-snapshots/snapshot_20260809T000002Z.h5").write_text("keep")
+            (project_dir / "juniper-cascor/cascor-snapshots/cascor_snapshot_20260813_010101_abc.h5").write_text("keep")
             # cascor's src/snapshots/ is a PYTHON PACKAGE: snapshot_*.py source modules
             # MUST survive teardown (a bare snapshot_* glob deleted them — the 4081f5b
             # over-deletion class, reproduced 2026-08-09).
@@ -1535,13 +1544,26 @@ class TestLiveDown(unittest.TestCase):
             self.assertFalse(data_dir.exists(), "run data dir must be removed")
             self.assertFalse((run_dir / "juniper-data.pid").exists())
             self.assertFalse((run_dir / "juniper-cascor.pid").exists())
-            self.assertFalse(
+            # SHARED ROOT: never swept. Both naming schemes present in that directory are checked
+            # because the tempting-but-wrong "fix" is to repoint the teardown glob at the new root,
+            # and the service-tier name (snapshot_<ISO>Z.h5) is exactly what the old glob matched.
+            self.assertTrue(
+                (project_dir / "juniper-cascor/cascor-snapshots/snapshot_20260809T000002Z.h5").exists(),
+                "the SHARED snapshot root must survive teardown -- it is a project asset store, " "not run scratch (storage-convention ruling 2026-08-20)",
+            )
+            self.assertTrue(
+                (project_dir / "juniper-cascor/cascor-snapshots/cascor_snapshot_20260813_010101_abc.h5").exists(),
+                "direct-CLI-named artifacts in the shared root must survive teardown too",
+            )
+            # cascor's src/snapshots/ receives no artifacts since the service moved to the shared
+            # root, so teardown no longer sweeps it either. Pinned so a revert is visible.
+            self.assertTrue(
                 (project_dir / "juniper-cascor/src/snapshots/snapshot_20260809T000000Z.h5").exists(),
-                "cascor snapshot_*.h5 must be cleaned",
+                "teardown must not sweep the serializer package directory",
             )
             self.assertFalse(
                 (project_dir / "juniper-canopy/src/snapshots/snapshot_20260809T000001Z.h5").exists(),
-                "canopy snapshot_*.h5 must be cleaned",
+                "canopy-local snapshot_*.h5 must be cleaned",
             )
             self.assertTrue(
                 (project_dir / "juniper-cascor/src/snapshots/snapshot_cli.py").exists(),
@@ -1775,6 +1797,7 @@ class TestDoUpPartialFailureTeardown(unittest.TestCase):
             for sub in (
                 "juniper-data",
                 "juniper-cascor/src/snapshots",
+                "juniper-cascor/cascor-snapshots",
                 "juniper-canopy/src/snapshots",
             ):
                 (project_dir / sub).mkdir(parents=True)
