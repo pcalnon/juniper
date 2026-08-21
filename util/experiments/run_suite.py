@@ -302,7 +302,7 @@ def _headline_metrics(run_dir: Path) -> dict:
     return out
 
 
-def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher: Path, driver: Path, python_bin: str, extra_env: "dict[str, str] | None" = None, stall_seconds: "float | None" = None, max_wall_seconds: "float | None" = None) -> dict:
+def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher: Path, driver: Path, python_bin: str, extra_env: "dict[str, str] | None" = None, stall_seconds: "float | None" = None, max_wall_seconds: "float | None" = None, suite_name: "str | None" = None) -> dict:
     """--up → driver → --down for one cell; never raises for a cell-level failure.
 
     ``stall_seconds`` forwards ``execution.stall_seconds`` to the driver's Q-2 stall
@@ -327,7 +327,15 @@ def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher
     manifest of its own.
     """
     started = time.time()
-    env = {**os.environ, **(extra_env or {})} if extra_env else None
+    # D-C: the suite is the only layer that knows the cell id, and the launcher passes
+    # it through to cascor's process env so every snapshot this cell writes records
+    # which cell produced it. Note the launcher is invoked with ``--experiment
+    # cell_id`` below, so without this the cell id would be the ONLY identity recorded
+    # and the suite it belongs to would be lost.
+    provenance_env = {"JUNIPER_CASCOR_CELL_ID": cell["cell_id"]}
+    if suite_name:
+        provenance_env["JUNIPER_CASCOR_EXPERIMENT"] = suite_name
+    env = {**os.environ, **provenance_env, **(extra_env or {})}
     row = {"cell_id": cell["cell_id"], "name": cell["name"], "overrides": cell["overrides"], "config_sha256": hashlib.sha256(cell_yaml.read_bytes()).hexdigest(), "run_id": None, "outcome": "failed", "exit_code": None, "error": None, "thread_budget": dict(extra_env) if extra_env else None}
     up = subprocess.run(["/bin/bash", str(launcher), "--up", f"--{app}", "--config", str(cell_yaml), "--experiment", cell["cell_id"]], capture_output=True, text=True, timeout=max(timeout, 300), env=env)
     match = RUN_ID_BANNER.search(up.stdout + up.stderr)
@@ -501,7 +509,7 @@ def main(argv: "list[str] | None" = None) -> int:
                 if stop.is_set():
                     break
                 print(f"[suite] {cell['cell_id']}: submitted ({json.dumps(cell['overrides'], sort_keys=True)})", flush=True)
-                futures[pool.submit(execute_cell, cell, materialised[cell["cell_id"]], suite["app"], timeout, launcher, driver, python_bin, budget, stall_seconds, max_wall_seconds)] = cell
+                futures[pool.submit(execute_cell, cell, materialised[cell["cell_id"]], suite["app"], timeout, launcher, driver, python_bin, budget, stall_seconds, max_wall_seconds, suite["name"])] = cell
             for future in as_completed(futures):
                 cell = futures[future]
                 row = future.result()
@@ -513,7 +521,7 @@ def main(argv: "list[str] | None" = None) -> int:
     else:
         for cell in runnable:
             print(f"[suite] {cell['cell_id']}: running ({json.dumps(cell['overrides'], sort_keys=True)})", flush=True)
-            row = execute_cell(cell, materialised[cell["cell_id"]], suite["app"], timeout, launcher, driver, python_bin, budget, stall_seconds, max_wall_seconds)
+            row = execute_cell(cell, materialised[cell["cell_id"]], suite["app"], timeout, launcher, driver, python_bin, budget, stall_seconds, max_wall_seconds, suite["name"])
             _record(cell, row)
             if row["outcome"] != "succeeded":
                 any_failed = True

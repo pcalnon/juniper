@@ -440,6 +440,46 @@ class TestLaunchLines(unittest.TestCase):
         # updated deliberately rather than the two drifting apart unnoticed.
         self.assertEqual(cascor_up.count("JUNIPER_CASCOR_SNAPSHOTS_DIR"), 3)
 
+    def test_dc_provenance_exported_at_every_cascor_site(self) -> None:
+        """D-C: all five provenance vars, at all three synchronized cascor_up sites.
+
+        Same standing failure mode as the Q-6 export above — updating only the live nohup
+        leaves the dry-run line and the recorded ``env/launch.env`` describing a launch that
+        did not happen. That matters more here than usual: ``env/launch.env`` is what an
+        operator reads to find out which run identity a snapshot was written under, so a
+        drifted copy is actively misleading rather than merely stale.
+        """
+        cascor_up = _extract_experiment_fn("cascor_up")
+        # Vars the launcher OWNS are named once per site: ``NAME=${SOURCE:-}``.
+        for var in ("JUNIPER_CASCOR_RUN_ID", "JUNIPER_CASCOR_GIT_SHA"):
+            self.assertEqual(cascor_up.count(var), 3, f"expected {var} at all 3 cascor_up sites (announce / record_launch_env / nohup)")
+        # Vars that PASS THROUGH name themselves twice per site — ``NAME=${NAME:-}`` — so
+        # the expected count is 6, not 3. Asserting 3 here would fail against correct code.
+        for var in ("JUNIPER_CASCOR_EXPERIMENT", "JUNIPER_CASCOR_CELL_ID", "JUNIPER_CASCOR_DATASET_ID"):
+            self.assertEqual(cascor_up.count(var), 6, f"expected {var} at all 3 cascor_up sites, named twice each as a pass-through")
+
+    def test_dc_provenance_survives_unset_run_identity(self) -> None:
+        """Every provenance expansion must tolerate an unset variable under ``set -u``.
+
+        ``cascor_up`` is also executed standalone by this suite's harness, where the file-scope
+        ``RUN_ID=""`` / ``EXPERIMENT=""`` defaults do not exist. An unguarded ``${RUN_ID}``
+        aborts the whole bring-up with ``unbound variable`` — which is how this was caught.
+        """
+        cascor_up = _extract_experiment_fn("cascor_up")
+        self.assertNotIn("${RUN_ID}", cascor_up, "RUN_ID must be expanded as ${RUN_ID:-} so an unset value cannot abort cascor_up")
+        self.assertNotIn("${EXPERIMENT}", cascor_up, "EXPERIMENT must be expanded with a :- default")
+
+    def test_dc_git_sha_is_resolved_inline(self) -> None:
+        """The SHA lookup must not live in a file-scope helper.
+
+        The harness extracts ``cascor_up`` on its own, so anything it calls at file scope is
+        undefined there and the bring-up dies. Keeping the lookup inline is the constraint,
+        not a style preference.
+        """
+        cascor_up = _extract_experiment_fn("cascor_up")
+        self.assertIn("rev-parse", cascor_up, "the git SHA must be resolved inside cascor_up, not via a file-scope helper")
+        self.assertIn("|| true", cascor_up, "a missing git or non-repo checkout must yield empty, not fail the launch")
+
     def test_q6_log_dir_exists_before_cascor_launch(self) -> None:
         """The target dir must be created before the service starts.
 
