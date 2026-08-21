@@ -150,10 +150,17 @@ def default_archive() -> Path:
 
 
 def archive_sample(archive: Path, sample_size: int, seed: int) -> int:
-    """How many REAL archive snapshots would a reject-at-load change newly refuse?
+    """How many REAL archive snapshots does the load-time integrity gate refuse?
 
     Read-only: opens each file through the production loader and re-runs
     ``_validate_shapes`` on the result. Writes nothing, deletes nothing.
+
+    ``allow_invalid=True`` is REQUIRED here, and is the whole reason this function still
+    works. D-E (juniper-cascor#551) made ``load_network`` fail closed, so without the
+    flag every shape-invalid file comes back ``None`` and lands in
+    ``load_returned_none`` -- collapsing the two categories this sample exists to tell
+    apart, and reporting ``SHAPE_INVALID: 0`` as though the archive were clean. The
+    measurement tool has to opt out of the gate it is measuring.
     """
     serializer = CascadeHDF5Serializer()
     files = sorted(p for p in archive.glob("*.h5"))
@@ -167,7 +174,7 @@ def archive_sample(archive: Path, sample_size: int, seed: int) -> int:
     offenders = []
     for path in chosen:
         try:
-            network = serializer.load_network(path, restore_multiprocessing=False)
+            network = serializer.load_network(path, restore_multiprocessing=False, allow_invalid=True)
         except Exception:  # noqa: BLE001 - counted, not handled
             counts["load_raised"] += 1
             continue
@@ -187,7 +194,8 @@ def archive_sample(archive: Path, sample_size: int, seed: int) -> int:
     loaded = counts["shape_ok"] + counts["SHAPE_INVALID"]
     if loaded:
         pct = 100.0 * counts["SHAPE_INVALID"] / loaded
-        print(f"\n  Of snapshots that LOAD today, {pct:.2f}% would be newly refused by a reject-at-load change.")
+        print(f"\n  Of snapshots that deserialize, {pct:.2f}% are refused by the D-E integrity gate")
+        print("  (reachable for inspection only via load_network(..., allow_invalid=True)).")
     if offenders:
         print("  first offenders: " + ", ".join(offenders))
     return 0
@@ -201,10 +209,12 @@ def inspect_one(path: Path) -> int:
     trains on garbage)?
     """
     serializer = CascadeHDF5Serializer()
-    network = serializer.load_network(path, restore_multiprocessing=False)
+    # allow_invalid: the whole point is to inspect a file the D-E gate refuses.
+    network = serializer.load_network(path, restore_multiprocessing=False, allow_invalid=True)
     if network is None:
-        print(f"{path.name}: load_network returned None")
+        print(f"{path.name}: load_network returned None even with allow_invalid — not deserializable at all")
         return 1
+    print(f"  strict load (production path): {'ACCEPTED' if serializer.load_network(path, restore_multiprocessing=False) is not None else 'REFUSED by the integrity gate'}")
 
     print(f"\n=== {path.name} ===")
     print(f"  input_size={network.input_size} output_size={network.output_size} hidden={len(network.hidden_units)}")
@@ -256,11 +266,16 @@ def main() -> int:
             shutil.copy(good, broken)
             replace_dataset(broken, dataset, make_array())
 
-            loaded = serializer.load_network(broken, restore_multiprocessing=False)
             print(f"--- {label}")
-            print(f"    load_network returned : {'a NETWORK' if loaded is not None else 'None'}")
+            # The production path now refuses these (D-E). Report that, then re-load
+            # with the forensic flag so the rest of the probe can still show WHAT the
+            # broken network would have done -- which is the evidence this script
+            # exists to produce, and which is no longer reachable any other way.
+            strict = serializer.load_network(broken, restore_multiprocessing=False)
+            print(f"    strict load           : {'ACCEPTED' if strict is not None else 'REFUSED by the integrity gate'}")
+            loaded = serializer.load_network(broken, restore_multiprocessing=False, allow_invalid=True)
             if loaded is None:
-                print("    (rejected at load — nothing further to probe)\n")
+                print("    (not deserializable even with allow_invalid — nothing further to probe)\n")
                 continue
 
             print(f"    _validate_shapes      : {serializer._validate_shapes(loaded)}  (False = detected)")
