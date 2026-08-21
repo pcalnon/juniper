@@ -222,8 +222,24 @@ def required_contexts(owner: str, repo: str, branch: str) -> list[str]:
 
 
 def rollup(owner: str, repo: str, pr: int) -> list[dict]:
-    """Return the PR's status-check rollup as ``[{name, conclusion, state}, ...]``."""
-    data = _gh_json(["pr", "view", str(pr), "--repo", f"{owner}/{repo}", "--json", "statusCheckRollup"])
+    """Return the rollup as ``[{name, conclusion, state, started, completed}, ...]``.
+
+    The timestamps are carried because :func:`classify` needs them to pick between several
+    runs sharing one context name, and it CANNOT do that from array position -- see the
+    note there. They were previously dropped here, which is what made the bug in
+    ``classify`` unfixable in place.
+    """
+    data = _gh_json(
+        [
+            "pr",
+            "view",
+            str(pr),
+            "--repo",
+            f"{owner}/{repo}",
+            "--json",
+            "statusCheckRollup",
+        ]
+    )
     rows = data.get("statusCheckRollup")
     if rows is None:
         raise ProbeError("statusCheckRollup missing from gh output")
@@ -236,6 +252,9 @@ def rollup(owner: str, repo: str, pr: int) -> list[dict]:
                 "name": row.get("name") or row.get("context") or "",
                 "conclusion": (row.get("conclusion") or "").upper(),
                 "state": (row.get("state") or "").upper(),
+                # `startedAt` for a check run; legacy commit statuses carry `createdAt`.
+                "started": row.get("startedAt") or row.get("createdAt") or "",
+                "completed": row.get("completedAt") or "",
             }
         )
     return out
@@ -259,6 +278,18 @@ def outcome_of(row: dict) -> str:
     return ""
 
 
+def _recency(row: dict) -> tuple:
+    """Sort key for 'which run of this name is the current one'.
+
+    ISO-8601 UTC strings compare correctly as plain strings, so no parsing is needed.
+    `started` leads because a run that STARTED later is the newer attempt even if it has
+    not finished -- and a newer in-flight run must read as *running*, not inherit an older
+    run's verdict. A row with no timestamps sorts oldest, so a real timestamped row always
+    beats it rather than losing to insertion order.
+    """
+    return (row.get("started") or "", row.get("completed") or "")
+
+
 def classify(contexts: list[str], rows: list[dict]) -> dict:
     """Bucket ``contexts`` against ``rows`` into done / running / absent / failed.
 
@@ -266,26 +297,29 @@ def classify(contexts: list[str], rows: list[dict]) -> dict:
     appeared may never appear (the ``[skip ci]`` orphan class), and telling the two
     apart is the difference between "be patient" and "this PR is stuck".
     """
-    by_name = {}
+    # Several runs can share one context name -- every trigger type produces its own, and
+    # they ALL stay attached to the head SHA. GitHub counts the NEWEST; `gh pr checks`
+    # collapses them to a single row pointing at it. So must this module.
+    #
+    # Pick by TIMESTAMP, never by array position. Two earlier attempts both got this
+    # wrong, in opposite directions, and both "worked" on the example that motivated them:
+    #
+    #   `setdefault` (first wins)  -- reported FAILURE for a context GitHub calls pass,
+    #                                 declaring a recoverable PR permanently failed.
+    #   `by_name[...] = row` (last) -- assumed array order tracks recency. It does not.
+    #
+    # Measured on juniper-recurrence#120: rollup index 0 is 23:27:17 and index 1 is
+    # 23:24:30 -- not sorted. In that one payload, three of four duplicate-named groups
+    # had array-last != newest (`Lint (ruff)`, `Test (Python ...)`, `Build distribution`).
+    # Either positional rule is a coin flip on undocumented connection ordering; the
+    # first-wins rule would have been *correct* for those three groups and wrong for the
+    # guard. Only the timestamp is load-bearing.
+    by_name: dict = {}
     for row in rows:
-        # Keep the LAST occurrence, which is what GitHub itself counts.
-        #
-        # This used to `setdefault` -- keep the FIRST -- on the reasoning that "re-runs
-        # append rather than replace, and the earliest entry is the one whose name matches
-        # the required context." That is wrong, and it mis-reports the one case where it
-        # matters most: a PR whose base was retargeted.
-        #
-        # Measured 2026-08-20 on juniper-recurrence#120 (throwaway probe, ml#434). A PR
-        # opened against a non-default base failed the base-branch guard, was retargeted to
-        # main, and the guard re-ran and passed. BOTH runs stay attached to the unchanged
-        # head SHA 435f95e2:
-        #     Guard PR base branch  failure  23:24:33
-        #     Guard PR base branch  success  23:24:48
-        # `gh pr checks` -- GitHub's own view -- reports that context as **pass**. Keeping
-        # the first occurrence made this module report FAILURE against a context GitHub
-        # considers satisfied, i.e. it would declare a recoverable PR permanently failed
-        # and send the operator to fix a problem that no longer exists.
-        by_name[row["name"]] = row
+        key = row["name"]
+        prev = by_name.get(key)
+        if prev is None or _recency(row) >= _recency(prev):
+            by_name[key] = row
 
     done: list[tuple[str, str]] = []
     running: list[str] = []

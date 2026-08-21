@@ -274,43 +274,72 @@ class ClassifyTest(unittest.TestCase):
         res = MOD.classify(REQUIRED, rows)
         self.assertTrue(res["settled"])
 
-    def test_duplicate_context_takes_the_LATEST_run_not_the_first(self):
-        """A retargeted PR keeps BOTH runs on the same head; GitHub counts the latest.
+    def test_duplicate_context_is_resolved_by_TIMESTAMP_not_array_position(self):
+        """The load-bearing one: array order does NOT track recency.
 
-        Measured 2026-08-20 on juniper-recurrence#120 (throwaway probe, ml#434): a PR
-        opened against a non-default base failed the base-branch guard, was retargeted to
-        main, and the guard re-ran and passed. Both runs stayed attached to the unchanged
-        head SHA, and `gh pr checks` reported the context as **pass**.
+        Several runs share one context name whenever more than one trigger fires, and they
+        all stay attached to the head SHA. GitHub counts the newest.
 
-        This module previously kept the FIRST occurrence and therefore reported FAILURE
-        against a context GitHub considered satisfied -- declaring a recoverable PR
-        permanently failed. Rollup order is oldest-first.
+        Measured on juniper-recurrence#120: rollup index 0 was `23:27:17` and index 1 was
+        `23:24:30` -- not sorted. In that single payload three of four duplicate-named
+        groups had array-last != newest. So BOTH positional rules are coin flips, and two
+        successive attempts here picked one each:
+
+          first-wins -> reported FAILURE for a context GitHub calls pass
+          last-wins  -> assumed array order was chronological; it is not
+
+        This case is built so that the newest row is NOT last and NOT first, which fails
+        under either positional rule and passes only under timestamp selection.
         """
         rows = [
-            {"name": "Alpha", "conclusion": "FAILURE", "state": ""},  # stale
-            {"name": "Alpha", "conclusion": "SUCCESS", "state": ""},  # current
-            {"name": "Beta", "conclusion": "SUCCESS", "state": ""},
-            {"name": "Gamma", "conclusion": "SUCCESS", "state": ""},
+            {"name": "Alpha", "conclusion": "FAILURE", "state": "", "started": "2026-08-20T23:24:30Z", "completed": "2026-08-20T23:24:33Z"},
+            # newest, deliberately in the MIDDLE
+            {"name": "Alpha", "conclusion": "SUCCESS", "state": "", "started": "2026-08-20T23:27:17Z", "completed": "2026-08-20T23:27:19Z"},
+            {"name": "Alpha", "conclusion": "FAILURE", "state": "", "started": "2026-08-20T23:24:45Z", "completed": "2026-08-20T23:24:48Z"},
+            {"name": "Beta", "conclusion": "SUCCESS", "state": "", "started": "", "completed": ""},
+            {"name": "Gamma", "conclusion": "SUCCESS", "state": "", "started": "", "completed": ""},
         ]
         res = MOD.classify(REQUIRED, rows)
-        self.assertEqual(res["failed"], [], "stale duplicate must not gate the merge")
-        self.assertTrue(res["settled"])
+        self.assertEqual(res["failed"], [], "newest Alpha run passed; it must not gate")
         self.assertIn(("Alpha", "SUCCESS"), res["done"])
+        self.assertTrue(res["settled"])
 
-    def test_duplicate_context_still_reports_a_genuine_later_failure(self):
-        """The inverse: latest-wins must not hide a real regression either.
+    def test_duplicate_context_still_reports_a_genuine_LATER_failure(self):
+        """The inverse: newest-wins must not hide a real regression.
 
-        If the newest run FAILED, an earlier success must not mask it -- otherwise the fix
-        for the stale-failure case would silently convert a red context into a green one.
+        Newest row is again in the middle, so a positional rule cannot pass this either.
         """
         rows = [
-            {"name": "Alpha", "conclusion": "SUCCESS", "state": ""},  # stale
-            {"name": "Alpha", "conclusion": "FAILURE", "state": ""},  # current
-            {"name": "Beta", "conclusion": "SUCCESS", "state": ""},
-            {"name": "Gamma", "conclusion": "SUCCESS", "state": ""},
+            {"name": "Alpha", "conclusion": "SUCCESS", "state": "", "started": "2026-08-20T23:24:30Z", "completed": "2026-08-20T23:24:33Z"},
+            {"name": "Alpha", "conclusion": "FAILURE", "state": "", "started": "2026-08-20T23:27:17Z", "completed": "2026-08-20T23:27:19Z"},
+            {"name": "Alpha", "conclusion": "SUCCESS", "state": "", "started": "2026-08-20T23:24:45Z", "completed": "2026-08-20T23:24:48Z"},
+            {"name": "Beta", "conclusion": "SUCCESS", "state": "", "started": "", "completed": ""},
+            {"name": "Gamma", "conclusion": "SUCCESS", "state": "", "started": "", "completed": ""},
         ]
         res = MOD.classify(REQUIRED, rows)
         self.assertEqual([c for c, _ in res["failed"]], ["Alpha"])
+
+    def test_newer_in_flight_run_does_not_inherit_an_older_verdict(self):
+        """A re-run that has STARTED but not finished must read as running, not as the
+        older run's conclusion -- otherwise a merge gate passes on a stale green."""
+        rows = [
+            {"name": "Alpha", "conclusion": "SUCCESS", "state": "", "started": "2026-08-20T23:24:30Z", "completed": "2026-08-20T23:24:33Z"},
+            {"name": "Alpha", "conclusion": "", "state": "", "started": "2026-08-20T23:27:17Z", "completed": ""},
+            {"name": "Beta", "conclusion": "SUCCESS", "state": "", "started": "", "completed": ""},
+            {"name": "Gamma", "conclusion": "SUCCESS", "state": "", "started": "", "completed": ""},
+        ]
+        res = MOD.classify(REQUIRED, rows)
+        self.assertIn("Alpha", res["running"])
+        self.assertFalse(res["settled"])
+
+    def test_rollup_carries_the_timestamps_classify_needs(self):
+        """Structural: `rollup()` used to drop startedAt/completedAt, which made the
+        duplicate-name bug unfixable in place. Keep them."""
+        import inspect
+
+        src = inspect.getsource(MOD.rollup)
+        self.assertIn("startedAt", src)
+        self.assertIn("completedAt", src)
 
 
 class GrowingRollupTest(unittest.TestCase):

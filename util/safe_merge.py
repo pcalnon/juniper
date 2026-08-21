@@ -171,11 +171,18 @@ DEFAULT_REPO = "juniper-ml"
 # precisely the distinction this timeout exists to make. A budget must clear the typical
 # worst case and then FIRE on the pathological tail. So: tiers at roughly 2x p90.
 #
-# The CEILING is not arbitrary. A local wait cannot outlive the process doing the waiting,
-# and the kill forensics (§3.4) measured the hard bound on that: `[bg]` spare workers hold a
-# ~3600 s lease and a task cannot outlive its host worker. A budget above ~3600 s is therefore
-# unreachable for any background-run invocation -- it would be killed before it could expire.
-# Past the ceiling the armed auto-merge net, not a longer local wait, is the answer.
+# The CEILING is a RISK threshold, not a hard bound -- an earlier version of this comment
+# claimed it was the latter and that was wrong. What is measured (kill forensics §3.4):
+# `[bg]` SPARE workers hold a ~3600 s lease, and 5 background tasks died at 3599.2-3600.0 s.
+# What is NOT true is "a budget above 3600 s is unreachable": 8 background tasks in the same
+# corpus ran past 3600 s and completed normally, the longest at 59,783 s (16.6 h). Those were
+# presumably hosted by long-lived `slash` workers (30k-134k s) rather than spares -- but that
+# is an inference, and the host kind is not knowable in advance from inside the task.
+#
+# So the honest statement: a wait longer than ~3600 s MAY be cut short depending on which
+# worker happens to host it, and the caller cannot tell which. Capping below that keeps the
+# local wait inside the window that is reliably available; past it, the armed auto-merge net
+# is the answer rather than a longer local wait.
 TIMEOUT_CEILING = 3300
 DEFAULT_TIMEOUT = 2400  # unmeasured repos: the "standard" tier
 REPO_TIMEOUTS = {
@@ -195,6 +202,27 @@ REPO_TIMEOUTS = {
 def timeout_for(repo: str) -> int:
     """Per-repo CI budget, falling back to a fleet-safe default for unmeasured repos."""
     return REPO_TIMEOUTS.get(repo, DEFAULT_TIMEOUT)
+
+
+def clamp_timeout(seconds: int, log=print) -> int:
+    """Hold any budget -- including an explicit --timeout -- at TIMEOUT_CEILING.
+
+    TIMEOUT_CEILING used to be a DEAD CONSTANT: defined, asserted against in tests, and
+    never consulted at runtime, so `--timeout 7200` sailed straight through. The tests
+    passed the whole time because they checked the table's values rather than the code
+    path, which is the tidiest way to have a guarantee that does not exist.
+
+    Clamps loudly rather than silently: a caller who asked for two hours should be told
+    they are getting 3300 s, not left to infer it from a log timestamp later.
+    """
+    if seconds > TIMEOUT_CEILING:
+        log(
+            f"  --timeout {seconds}s exceeds TIMEOUT_CEILING ({TIMEOUT_CEILING}s); "
+            f"clamping. A longer local wait may be cut short by the host worker's lease "
+            f"anyway -- rely on the armed auto-merge net instead."
+        )
+        return TIMEOUT_CEILING
+    return seconds
 # A sync restarts CI, so a BEHIND repair must be followed by another wait. Bounded: under
 # sustained concurrent merges a PR can be re-BEHINDed indefinitely, and looping forever
 # would be its own failure mode. Refuse instead and let a human decide.
@@ -798,6 +826,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.timeout is None:
         args.timeout = timeout_for(args.repo)
         print(f"CI budget: {args.timeout}s for {args.repo} (measured; override with --timeout)")
+    args.timeout = clamp_timeout(args.timeout)
     if not args.execute:
         print("*** DRY RUN — nothing will be merged (pass --execute) ***")
     else:

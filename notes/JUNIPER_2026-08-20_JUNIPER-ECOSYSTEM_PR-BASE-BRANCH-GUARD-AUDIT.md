@@ -13,6 +13,58 @@ ahead. Nothing below has been rewritten to match the outcome.
 
 ---
 
+## -2. F-03 is REFUTED — and it is the finding everything else was reasoned from
+
+Found by an independent fact-check run against live state after the rollout, not by the audit
+and not by the rollout author. It matters more than any other correction here, because F-03 was
+used to argue the guard had ~zero protective value, and that argument was written into the
+workflow header, the rollout PR bodies, and the owner-facing recommendation.
+
+**F-03 claimed:** a base≠`main` PR triggers none of the repo's 10–22 required contexts, they sit
+at `expected`, and *"a stacked PR is already unmergeable; the guard only replaces a silent stall
+with a legible message."*
+
+**Measured live:**
+
+```console
+$ gh api repos/pcalnon/juniper-ml/rules/branches/feature%2Fsome-stacked-base --jq length
+0
+$ gh api repos/pcalnon/juniper-ml/rules/branches/main --jq length
+9
+```
+
+Both rulesets on every repo are scoped `~DEFAULT_BRANCH`. A PR whose base is a feature branch is
+therefore governed by **no ruleset at all**. Its required contexts do not sit at `expected` —
+**they do not apply.** It has zero required status checks and **merges clean**, green badge, with
+nothing having run.
+
+That is not a footnote to F-03; it is the opposite of F-03, and it is the mechanism by which
+`juniper-recurrence#7`/`#8` and `juniper-canopy#365` stranded their content in the first place.
+
+**Consequences:**
+
+| | before the guard | after |
+| --- | --- | --- |
+| stacked PR | merges silently, **zero** checks run | **one red failing check**, named reason |
+
+- The guard is the **only** signal that fires on a stacked PR (it carries no `branches:` filter).
+  Its value is materially higher than the audit concluded.
+- It still cannot **block** such a PR — no ruleset applies to that base, so the failure is
+  advisory *there* whatever the ruleset says. Requiring the context does a different job: on a
+  PR targeting the default branch it guarantees the guard actually ran, so a deleted or broken
+  workflow cannot silently stop protecting.
+- The `stacked-pr` label's meaning is unchanged, but the reason is: it silences a check that was
+  never blocking that PR anyway.
+
+**Why the audit got it wrong, and why the rollout author did too.** The audit cited a true GitHub
+doc sentence — *"A pull request that requires those checks to be successful will be blocked"* —
+and applied it to a PR for which those checks are **not required**. The rollout author then
+verified the branch-filter half of the claim (`ci.yml` really is scoped to `[main, develop]`),
+found it true, and treated that as confirming the whole. **Confirming the premise is not
+confirming the conclusion.** The missing step was one API call against a non-default branch.
+
+---
+
 ## -1. Resolution — what was done about each blocking finding (added 2026-08-20, post-rollout)
 
 This section was appended after the audit, by the rollout. **The audit body below is unedited**, so
@@ -26,7 +78,7 @@ Three of the audit's findings were then tested empirically on throwaway PRs
 | --- | --- |
 | **F-01** label hatch unactuatable (`labeled` missing from `types:`) | **CONFIRMED EMPIRICALLY, then FIXED.** On `#118` the label was applied at `23:21:06Z` and produced **zero** new workflow runs; the failed check stood. `labeled` + `unlabeled` added to `types:` in the rolled-out file. |
 | **F-02** `stacked-pr` label absent from all 9 repos | **FIXED.** Created on all 9 (`util/ad-hoc/base_branch_guard/make_labels.py`). |
-| **F-03** stacked PRs already unmergeable, so requiring adds ~no protection | **ACCEPTED AS TRUE, and it reframed the change.** The guard is a **legibility** measure — a named failure instead of a silent stall — not the thing that stops the merge. The rolled-out file and its PR body now say so explicitly rather than implying the label makes a stacked PR mergeable. Owner decided to proceed on that understanding. |
+| **F-03** stacked PRs already unmergeable, so requiring adds ~no protection | **REFUTED — see §-2. Its premise is wrong and the conclusion inverts.** A stacked PR is not blocked by never-reporting contexts; it is governed by **no ruleset at all**, so it merges with **zero** required checks. The guard is the only thing that fires on it. |
 | **F-04** rollout ordering wedges open PRs | **HANDLED.** Workflow landed on all 9 default branches first; the require step is gated by a pre-flight (`2026-08-20_require_context_safely.py`) that **refuses** to require a context nothing has been observed publishing. The 4 open PRs fleet-wide were then unstuck with `update-branch`. |
 | **F-06** context-string fragility | **PINNED.** Job `name:` asserted exactly `Guard PR base branch` by parsing before rollout; header now records that renaming the job or deleting the file requires un-requiring first. |
 | **F-07** no `DEFAULT_BRANCH` sanity check → could fail every PR | **FIXED.** Empty expansion now warns and `exit 0` (fails **open**), instead of falling through to the failure arm. |

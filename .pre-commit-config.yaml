@@ -223,7 +223,14 @@ repos:
           - --config=./.markdownlint.yaml
           - --fix
         files: \.(md|markdown)$
-        exclude: ^(CHANGELOG\.md|notes/|docs/|prompts/|scripts/test_prompt-.*\.md)
+        # `util/ad-hoc/*/PR_BODY*.md` / `PROBE*.md` are PR-body and issue-comment
+        # PAYLOADS handed to `gh --body-file`, not documentation. MD041 wants a leading
+        # H1, but a PR body conventionally starts at `##` -- GitHub already renders the
+        # title as the heading. Adding an H1 to satisfy the linter would make the shipped
+        # artifact worse, so the payloads are excluded rather than deformed.
+        # `util/ad-hoc/README.md` and every other util/ markdown stays linted.
+        exclude: >-
+          ^(CHANGELOG\.md|notes/|docs/|prompts/|scripts/test_prompt-.*\.md|util/ad-hoc/[^/]+/(PR_BODY|PROBE).*\.md)
 
   # ═══════════════════════════════════════════════════════════════════════════
   # Documentation link validation (juniper-doc-tools)
