@@ -116,13 +116,89 @@ Three things follow:
 > purely a scheduling difference. The *rate* ratio is the more robust of the two figures because it
 > is normalised by the work each arm actually did.
 
-### 3.2 Cap 16 — paired, interleaved
+### 3.2 Cap 16 — paired and interleaved, k=4
 
-<!-- PENDING — campaign in flight. -->
+Suite `e-k-thread-probe-cap16-20260821T083547Z`, one `config_sha256` (`2a60040aff9d`) across all
+four service legs and the CLI's cell, one stack (`20260821T085116Z-85cd`, `DATA_URL` verified).
+Per-leg load1 ranged 2.66–7.13 across the whole campaign.
+
+| pair | svc span | cli span | span× | svc cand | cli cand | cand× | svc epochs | cli epochs | work× | rate× |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 908 | 1607 | 1.770 | 890 | 1554 | 1.746 | 44,910 | 57,450 | 1.279 | 1.365 |
+| 2 | 833 | 1306 | 1.568 | 816 | 1253 | 1.536 | 44,910 | 50,350 | 1.121 | 1.370 |
+| 3 | 790 | 1525 | 1.930 | 773 | 1472 | 1.904 | 44,910 | 55,340 | 1.232 | 1.545 |
+| 4 | 777 | 1299 | 1.672 | 761 | 1248 | 1.640 | 44,910 | 53,420 | 1.189 | 1.379 |
+
+| paired ratio (CLI / service) | mean ± sd | 95% CI |
+| --- | ---: | --- |
+| **training span** | **1.735 ± 0.154** | [1.584, 1.886] |
+| **candidate phase** | **1.706 ± 0.157** | [1.552, 1.861] |
+| output phase | 0.969 ± 0.108 | [0.863, 1.075] |
+| **candidate work (epochs)** | **1.206 ± 0.067** | [1.140, 1.271] |
+| **per-candidate-epoch rate** | **1.415 ± 0.087** | [1.329, 1.500] |
+
+**The design validated itself.** Ratio-of-means is **1.734** against ratio-of-pairs **1.735** — they
+agree to three decimals, which is what "the pairs saw comparable hosts" looks like. Had they
+diverged, the campaign would have needed re-running rather than re-interpreting.
+
+**The service column is the reproducibility result made visible.** All four service legs did
+**exactly 44,910** candidate epochs — the 0/190 divergence rate in operational form. The CLI legs
+ranged **50,350 to 57,450**, a 14% spread. That is precisely why k-pairing was mandatory here: a
+single CLI run could have reported a work ratio of 1.12 *or* 1.28 with equal honesty.
+
+#### 3.2a This supersedes the cap-16 figure the arc has been carrying
+
+The residual has been tracked as **~1.17×** from the cap-16 `e-k` thread probe in juniper-cascor#531.
+That probe was **one run per arm**:
+
+| cap-16 candidate phase | #531 probe (n=1/arm) | this campaign (k=4, paired) |
+| --- | ---: | ---: |
+| phase ratio | 1.17× | **1.706×** [1.552, 1.861] |
+| work ratio | 1.03× | **1.206×** [1.140, 1.271] |
+| rate ratio | 1.14× | **1.415×** [1.329, 1.500] |
+
+The single-run figures sit outside the k=4 intervals on every line. Two candidate explanations, and
+they are not mutually exclusive:
+
+1. **Sampling.** The CLI's candidate work varies 14% run to run (above), so a single CLI draw can
+   land anywhere in a wide band. `1.03×` is inside that band.
+2. **A real methodological difference.** #531's probe set `OMP_NUM_THREADS=16` **explicitly** on the
+   CLI; this campaign runs the CLI at `default`, i.e. the variables **unset**, which is the shipped
+   post-#533 behaviour and what the service does. Those are *intended* to be the same 16 threads,
+   but "unset, library picks" and "explicitly 16" are not guaranteed to resolve identically —
+   OpenMP and MKL both have defaulting heuristics that an explicit value bypasses.
+
+**Not resolved here**, and worth stating plainly rather than picking the flattering reading. It is
+cheaply testable — a few CLI legs at explicit `16` against the existing `default` legs — and is
+recorded in §6 as an open item rather than folded into the headline.
+
+#### 3.2b The gap grows with cap, but not in the way the decomposition suggests
+
+| | cap 4 | cap 16 |
+| --- | ---: | ---: |
+| candidate phase | 1.470× | **1.706×** |
+| candidate work | 0.945× | **1.206×** |
+| per-epoch rate | 1.555× | **1.415×** |
+| output phase | 0.978× | 0.969× |
+
+The total gap grows, and it is the **work** term that drives it — flipping from the CLI doing 5.5%
+*less* work at cap 4 to 20.6% *more* at cap 16. The **rate** term moves the other way, easing from
+1.555× to 1.415×.
+
+That is consistent with two separate effects rather than one: a roughly constant per-epoch overhead
+that matters less as the matrices grow, plus a divergence in *when candidate early stopping fires*
+that compounds as the network deepens. The output phase stays at ~1.0× throughout, so none of this
+is the output layer.
+
+**It also means neither cap licenses an extrapolation to cap 64** — the two terms move in opposite
+directions, so the product is not something to fit a line through. Hence §3.3.
 
 ### 3.3 Cap 64
 
-<!-- PENDING — k to be sized from §3.2. -->
+<!-- PENDING — k=4 campaign in flight (suite e-m-h2h-paired-cap64, ~10 h).
+     k derived from §3.2's span-ratio sd of 0.154: k=4 gives a 95% half-width of ~0.15,
+     i.e. ±8% on a ~2x ratio. The 0.05 half-width the analyser reports as "ideal" needs k=37,
+     which at ~2.5 h per pair is ~90 h and is not affordable; that limit is stated, not hidden. -->
 
 ---
 

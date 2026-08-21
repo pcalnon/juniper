@@ -1,0 +1,39 @@
+# E-M: the SERVICE leg of the paired cap-64 wall-clock comparison, post-#533.
+#
+# WHY THIS EXISTS RATHER THAN REUSING e-j-h2h-wide-cap64
+# e-j is a SEED SWEEP: `seed_policy: per_cell` turns its three `experiment.description` values into
+# derived seeds 20260729 / 20260730 / 20260731, so its three cells are three different experiments
+# on three different datasets. That is the right shape for asking "does the accuracy conclusion
+# hold across seeds"; it is the wrong shape for a wall-clock ratio, where every replicate must be
+# the SAME work so the only thing varying between pairs is the host.
+#
+# This suite is therefore the cap-64 analogue of e-k-thread-probe-cap16: one cell, `seed_policy:
+# fixed`, seed 42 on both axes, invoked once per pair by
+# util/ad-hoc/2026-08-21_h2h_paired_campaign.bash. Seed 42 keeps it on the same content-addressed
+# dataset as the cap-4 (e-l) and cap-16 (e-k) points, so the three caps form one comparable series.
+#
+# WHY CAP 64 AT ALL, GIVEN CAP 16 IS MEASURED
+# The candidate-phase gap COMPOUNDS per growth iteration, so a cap-16 ratio licenses nothing at the
+# caps campaigns actually run. Measured post-#533: 1.470x at cap 4, 1.706x at cap 16 — and the
+# decomposition moves as well as the total, with the work ratio flipping from 0.945x (the CLI doing
+# LESS work) to 1.206x (doing 20% MORE). Extrapolating that to cap 64 would be a guess.
+#
+# BUDGET ORDERING (the T1 trap, ml#1200)
+# per_run_timeout_seconds (15600) must stay ABOVE the base config's outputs.max_wall_seconds
+# (14400) so the DRIVER is what stops a long run. At or below it, run_suite's subprocess kill
+# returns before the manifest read and the honest `timed_out` record is destroyed rather than
+# degraded — a wall-clock study that loses its manifest loses the record it exists to produce.
+schema_version: 1
+suite:
+  name: e-m-h2h-paired-cap64
+  description: "E-M: paired cap-64 wall-clock comparison, SERVICE leg (cap 64 / pool 8, seed 42)"
+  app: cascor
+  base_config: [../../../ad-hoc/2026-08-16_h2h_wide_nrot3.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 15600, stall_seconds: 1200}
+matrix:
+  training.params.max_hidden_units: [64]
+  dataset.params.seed: [42]
+  experiment.seed: [42]
+  experiment.description: ["E-M paired cap-64 -- SERVICE leg, seed 42"]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}
