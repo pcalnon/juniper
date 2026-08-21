@@ -2145,6 +2145,19 @@ They were restored before bring-up (so the snapshots panel had a corpus) and re-
 `backups/e2e-snapshots-seg15/`. **Successors: verify the corpus itself, not the handoff's count** — the
 handoff's "4 `.h5` files currently live in …" was true as of the backup, not as of the handoff.
 
+> **SUPERSEDED 2026-08-21 — do not carry this ceremony forward.** The snapshot root moved to
+> `<Juniper>/juniper-cascor/cascor-snapshots/` under the S-1 storage-convention ruling
+> ([`notes/JUNIPER_2026-08-20_JUNIPER-ECOSYSTEM_SNAPSHOT-STORAGE-CONVENTION-DESIGN.md`](JUNIPER_2026-08-20_JUNIPER-ECOSYSTEM_SNAPSHOT-STORAGE-CONVENTION-DESIGN.md),
+> ml#1197/#1211), and `isolated_stack.bash` now reads it via `CASCOR_SNAPSHOT_ROOT` (`:122`).
+> `juniper-cascor/src/snapshots/` is the importable serializer **package** and receives no artifacts, so the
+> backup glob above matches nothing. **`--down` no longer sweeps the cascor corpus** — the script carries an
+> explicit `-- DO NOT ADD A SWEEP OF ${CASCOR_SNAPSHOT_ROOT} HERE --` guard (`:476`), because that root is a
+> protected asset store (**27,896 `.h5` / 1.8 GB**, measured 2026-08-21) that outlives every stack. There is
+> nothing to back up and nothing to restore. Note the shared root is large enough that `ls *.h5` overflows
+> the shell argument limit and reports **0** — count with `find <root> -maxdepth 1 -name '*.h5' | wc -l`.
+> The paragraph's *general* lesson survives intact: verify the corpus and the script yourself rather than
+> trusting a path or count quoted in a handoff.
+
 ### Two unresolved questions from earlier segments, now settled
 
 **The segment-7 "1-in-15" full-history poll cadence is modulus 5 × a tick that is not 1 Hz.**
