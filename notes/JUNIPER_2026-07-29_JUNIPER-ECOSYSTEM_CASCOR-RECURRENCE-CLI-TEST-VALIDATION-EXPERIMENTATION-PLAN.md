@@ -568,7 +568,7 @@ ${JUNIPER_EXP_RUN_ROOT:-~/.local/state/juniper-experiments}/
     ├── manifest.json                          # run manifest (§13.4)
     ├── config/
     │   ├── experiment.yaml                    # verbatim copy of the input YAML
-    │   └── experiment.resolved.yaml           # PROPOSED: fully-materialised defaults (Q-1)
+    │   └── experiment.resolved.yaml           # SHIPPED (Q-1): driver-resolved config + the service's own params echo, each tagged
     ├── env/
     │   └── launch.env                         # exact env each service was launched with (secrets redacted)
     ├── ports.json                             # {"data":8110,"cascor":8230,"recurrence":null}
@@ -1388,7 +1388,7 @@ this plan. The honest state of the Q-table (§13):
 
 | Q | State |
 |---|---|
-| Q-1 | **Decided** (`Yes`) — but never implemented; no `experiment.resolved.yaml` is written by any code path. Decision settled, gap open. |
+| Q-1 | **SHIPPED 2026-08-21**, re-scoped by owner decision. `config/experiment.resolved.yaml` is now written on both app paths, from the same `finally` that writes the manifest (so every run has one, including failed / stalled / timed-out). The original wording — *dumped from the live `Settings` object* — is **not implementable as written**: the driver is an HTTP client and never constructs the app's `Settings`; cascor exposes no settings endpoint (`GET /v1/training/params` covers `TrainingParams` only) and recurrence exposes no equivalent at all. Building one would also mean designing redaction — cascor's `Settings` carries `api_keys` among 56 fields — which is the hand-maintained-artifact class Q-1 was written to avoid. The file therefore records only what can be **verified**, each half tagged with its source: `driver_resolved` (the input YAML after the driver's own defaulting) and `service_training_params` (the service's echo, or a stated reason there is none). `_meta.scope` names what is **not** covered — app-level `Settings` — inside the artifact, so it cannot be mistaken for a complete picture. Nothing is reconstructed. |
 | Q-2 | **Decided and wired.** Both knobs now reach the driver from a suite: `execution.stall_seconds` (ml#1069) and `execution.max_wall_seconds`. |
 | Q-3, Q-4, Q-5 | **Decided**; Q-4 answered empirically by P0.10. |
 | Q-6 | **Resolved** by `JUNIPER_CASCOR_LOG_DIR` (juniper-cascor#523). The §13 row itself belongs to the dedicated Q-6 register-propagation change (juniper-ml#1129), which sweeps every site still calling it open; this trailer deliberately does not edit that row. |
