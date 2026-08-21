@@ -4,84 +4,107 @@ Project:     Juniper
 Sub-Project: juniper-ml
 Application: util
 Author:      Paul Calnon
-Version:     0.1.0
+Version:     0.2.0
 License:     MIT License
 
 Pointer-follow soak instrument -- section 6 of the shared-session-memory plan
 (``notes/JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md``).
+Protocol: ``notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md``.
 
-Why this exists
----------------
-P3 relocated ~124,000 characters out of ``AGENTS.md`` (always loaded) into
-``docs/REFERENCE.md`` (read on demand, reachable only through a pointer). The
-plan calls the pointer-follow rate "the one load-bearing quantity nobody can
-measure in advance" and stakes the whole architecture on it. The soak is the
-falsification test: N >= 20 sessions, tracking whether agents actually retrieve
-relocated facts when those facts are relevant.
+WHY v0.2 EXISTS -- v0.1 could not falsify the bet
+--------------------------------------------------
+Three independent reviews (statistical, decision-theoretic, adversarial) found
+the same dominant defect: **the denominator was conditioned on the outcome.**
+An occasion was recorded only if someone NOTICED a relocated fact was relevant,
+but the dominant failure of a pointer architecture is *the agent never knew the
+fact existed* -- and that agent cannot notice. Follows were logged at ~100%,
+ignorance-misses at ~0%. At q_miss ~ 0.26 a true 0.70 printed as exactly 0.900.
 
-The soak could not start because there was no instrument -- no definition of a
-miss, no place to put an observation, no start marker. This is that instrument.
-The protocol, the miss definition and the escalation thresholds live in
-``notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md``; this file
-is the mechanism that makes them measurable.
+Every error term in v0.1 had the same sign. Nothing in it could make the
+measured rate look worse than the truth. That is a confirmation procedure with
+error bars, not a falsification test.
 
-Why JSONL and not a markdown table
-----------------------------------
-Plan section 7.7: ~24 concurrent worktrees make any central ledger "a
-coordination problem that this plan specifies but does not solve". A markdown
-table conflicts on every concurrent append. An append-only JSONL under
-``merge=union`` does not -- union merge on a file whose lines are only ever
-added is exactly its intended use. Rows carry a ``(session, seq)`` key so the
-reader stays correct even if union merge duplicates a line.
+THE TWO ARMS
+------------
+**seeded** (verdict-bearing). Each row is one run of a PRE-REGISTERED PROBE from
+``conf/soak_probes.json`` -- a task that cannot be done correctly without a
+specific relocated fact. The denominator is fixed before the session starts, so
+q_miss == q_follow == 1 and the estimate is unbiased. Fifteen seeded runs are
+worth more than sixty self-reported ones.
 
-The unit of observation is an OCCASION, not a session
------------------------------------------------------
-A session may present zero occasions to retrieve a relocated fact, or several.
-Counting one row per session would inflate the denominator with sessions that
-never tested anything and make the follow rate look good for free. So: one row
-per occasion, and N is the number of DISTINCT SESSIONS that produced at least
-one occasion. That preserves the plan's "N >= 20 sessions" while keeping the
-rate honest.
+**organic** (descriptive only). Opportunistic self-report. Retained because it
+is free and occasionally shows something, but it is NEVER used for a verdict and
+is reported explicitly as an UPPER BOUND with a q_miss sensitivity row.
+
+VERDICTS ARE ON THE INTERVAL, NOT THE POINT ESTIMATE
+----------------------------------------------------
+v0.1 compared a point estimate to 0.90. That threshold is unreachable: a Wilson
+lower bound clearing 0.90 needs 35 consecutive perfect runs, and at a TRUE rate
+of exactly 0.90 the old rule fired BET-HOLDS only 55% of the time -- ~55% power
+against its own hypothesis. v0.2 tests the Wilson interval against a single
+reachable boundary and NAMES THE VERDICT AFTER WHAT WAS PROVEN, so a 0.75-grade
+interval cannot print a word that authorises the P5 fleet rollout.
 
 Exit codes
 ----------
-``record``  0 written, 2 rejected (validation)
-``report``  0 always
-``status``  0 in progress or bet holds, 1 an escalation is due, 2 bad input
+``record`` / ``probe-run`` / ``resolve``  0 written, 2 rejected
+``report``                                0 always
+``status``                                0 in progress or holds, 1 action due, 2 no data
+``verify-probes``                         0 registry sound, 1 defective
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
+import re
 import subprocess
 import sys
+import uuid
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-# The soak counts only what happened at or after the cut was complete. 500508b
-# is #1196, "restore the resident hazard list P3 was required to keep" -- the
-# first commit at which AGENTS.md is in its post-P3, hazards-correct shape.
+# #1196 -- the first commit at which AGENTS.md is in its post-P3, hazards-correct
+# shape. Full SHA: a 7-char abbreviation can go ambiguous, and this predicate
+# fails CLOSED, so an ambiguous marker would refuse every write.
 START_MARKER = "500508b"
 
 DEFAULT_LEDGER = Path("reports/soak/pointer_follow_soak.jsonl")
+DEFAULT_PROBES = Path("conf/soak_probes.json")
 
-TARGET_SESSIONS = 20
-RATE_BET_HOLDS = 0.90
-RATE_BET_FAILING = 0.70
-AREA_SYSTEMATIC_THRESHOLD = 3
+# Seeded runs needed before a terminal verdict. At an observed 0.90 a Wilson
+# lower bound clears 0.75 at n=33; 35 is that, rounded up. This is a PRECISION
+# target -- v0.1's session count controlled nothing, because the rate was over
+# occasions while the stop was over sessions.
+TARGET_PROBE_RUNS = 35
+MIN_DISTINCT_PROBES = 15
+
+# One boundary, tested against the interval. 0.75 is the strongest claim
+# reachable inside a soak this project will actually run: LB >= 0.80 needs ~62
+# clean runs and LB >= 0.90 needs an observed 0.96+, which no honest study here
+# reaches. 0.90 survives only as a descriptive line, never as a trigger.
+DECISION_BOUNDARY = 0.75
+Z_95 = 1.959963984540054
+
+# Area escalation is a RATE rule, not a count rule. A fixed absolute count is an
+# absorbing barrier: re-evaluated on every append it fires eventually under the
+# null (measured 47% family-wise at 60 occasions, -> 100% with exposure), so the
+# escalation it produces carries no information. Bonferroni over observed areas.
+AREA_MIN_MISSES = 3
+AREA_ALPHA = 0.05
 
 OUTCOMES = ("follow", "miss")
+ARMS = ("seeded", "organic")
+SEVERITIES = ("hazard", "operational", "reference")
 
-# Recorded miss classes map 1:1 onto the plan's fixed escalation ladder.
-# "area-systematic" is deliberately NOT recordable -- it is DERIVED from >=3
-# misses sharing an area. Letting a human type it would let the ladder be
-# jumped by assertion, which is the rationalisation the plan forbids.
+# "area-systematic" is deliberately absent: it is DERIVED. Letting an author type
+# it would let the escalation be declared rather than earned.
 MISS_CLASSES = {
-    "discoverability": "agent never knew to look -> ladder 1: add an index row",
-    "hazard": "the missed fact was hazard-class -> ladder 2: CI gate or hook",
+    "discoverability": "agent never knew to look -> rung 1: add an index row",
+    "hazard": "the missed fact was hazard-class -> rung 2: CI gate or hook",
     "pointer-defect": "pointer wrong/stale -> fix the pointer, not the architecture",
 }
 
@@ -90,296 +113,545 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _git(repo_root: Path, *args: str) -> str | None:
+def _run(cwd: Path, *args: str) -> tuple[int, str]:
     try:
-        out = subprocess.run(
-            ["git", *args], cwd=repo_root, capture_output=True, text=True, check=False
-        )
+        p = subprocess.run(list(args), cwd=cwd, capture_output=True, text=True, check=False)
     except OSError:
+        return 127, ""
+    return p.returncode, p.stdout.strip()
+
+
+def repo_root(start: Path) -> Path:
+    """Resolve the real repo root.
+
+    v0.1 trusted ``Path.cwd()``, so a session that had cd'd into a subdirectory
+    silently created a brand-new ledger there -- never merged, never read, never
+    committed, and reported success.
+    """
+    rc, out = _run(start, "git", "rev-parse", "--show-toplevel")
+    return Path(out) if rc == 0 and out else start
+
+
+def wilson(k: int, n: int, z: float = Z_95) -> tuple[float, float] | tuple[None, None]:
+    """Wilson score interval.
+
+    Not Wald: at k/n near 1 Wald produces impossible bounds (27/30 -> upper
+    1.007) and its coverage collapses, so 20/20 would read as certainty.
+    """
+    if n <= 0:
+        return (None, None)
+    p = k / n
+    zz = z * z
+    denom = 1 + zz / n
+    centre = (p + zz / (2 * n)) / denom
+    half = (z / denom) * math.sqrt(p * (1 - p) / n + zz / (4 * n * n))
+    return (max(0.0, centre - half), min(1.0, centre + half))
+
+
+def binom_sf(k: int, n: int, p: float) -> float:
+    """P(X >= k) for X ~ Bin(n, p)."""
+    if k <= 0:
+        return 1.0
+    if k > n:
+        return 0.0
+    return sum(math.comb(n, i) * (p**i) * ((1 - p) ** (n - i)) for i in range(k, n + 1))
+
+
+def at_or_after_marker(root: Path) -> bool | None:
+    """True if HEAD descends from the marker. None if undecidable."""
+    rc, _ = _run(root, "git", "rev-parse", "--verify", f"{START_MARKER}^{{commit}}")
+    if rc != 0:
         return None
-    if out.returncode != 0:
-        return None
-    return out.stdout.strip()
+    rc, _ = _run(root, "git", "merge-base", "--is-ancestor", START_MARKER, "HEAD")
+    return rc == 0
 
 
-def at_or_after_marker(repo_root: Path) -> bool | None:
-    """True if HEAD descends from the start marker. None if undecidable."""
-    if _git(repo_root, "rev-parse", "--verify", f"{START_MARKER}^{{commit}}") is None:
-        return None
-    res = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", START_MARKER, "HEAD"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return res.returncode == 0
+def load_probes(path: Path) -> dict:
+    if not path.exists():
+        return {"probes": []}
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
-def load_rows(ledger: Path) -> list[dict]:
-    """Read the ledger, tolerating union-merge duplicates and blank lines."""
+def load_rows(ledger: Path) -> tuple[list[dict], int]:
+    """Read the ledger. Returns (rows, bad_line_count).
+
+    Dedup is on ``obs_id`` (uuid4). v0.1 keyed on ``(session, seq)`` with ``seq``
+    computed at record time -- so two worktrees recording concurrently both
+    computed seq=1 and the loader DELETED one, with the survivor decided by merge
+    order. Subagents inherit the parent's CLAUDE_CODE_SESSION_ID, which makes
+    that collision routine rather than exotic.
+    """
     if not ledger.exists():
-        return []
+        return [], 0
     rows: list[dict] = []
-    seen: set[tuple] = set()
-    for lineno, line in enumerate(ledger.read_text(encoding="utf-8").splitlines(), 1):
+    seen: set[str] = set()
+    bad = 0
+    for line in ledger.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
             continue
         try:
             row = json.loads(line)
         except json.JSONDecodeError:
-            print(f"warning: {ledger}:{lineno}: unparseable, skipped", file=sys.stderr)
+            bad += 1
             continue
-        if not isinstance(row, dict):
+        if not isinstance(row, dict) or not row.get("obs_id"):
+            bad += 1
             continue
-        key = (row.get("session"), row.get("seq"))
-        if key in seen:
+        if row["obs_id"] in seen:
             continue
-        seen.add(key)
+        seen.add(row["obs_id"])
         rows.append(row)
-    return rows
+    return rows, bad
 
 
-def next_seq(rows: list[dict], session: str) -> int:
-    used = [r.get("seq", 0) for r in rows if r.get("session") == session]
-    return (max(used) + 1) if used else 1
+def norm_area(a: str | None) -> str | None:
+    return a.strip().lower() if a and a.strip() else None
 
 
-def analyse(rows: list[dict]) -> dict:
-    """Reduce the ledger to the numbers the ladder is defined over."""
-    in_scope = [r for r in rows if r.get("in_scope") is not False]
-    out_of_scope = len(rows) - len(in_scope)
+def analyse(rows: list[dict], bad_lines: int = 0) -> dict:
+    """Reduce the ledger. The seeded arm decides; the organic arm describes."""
+    resolved = {r.get("resolves") for r in rows if r.get("kind") == "resolve"}
+    obs = [r for r in rows if r.get("kind") != "resolve"]
 
-    # pointer-defect misses are excluded from the ARCHITECTURAL rate: the agent
-    # did try to follow, so discoverability worked and the target was broken.
-    # Folding them in would blame the architecture for a typo. They are still
-    # reported, and every one is an immediate fix.
-    architectural = [r for r in in_scope if r.get("miss_class") != "pointer-defect"]
+    # in_scope must be EXPLICITLY true. v0.1 used `is not False`, so a missing
+    # key, None, 0 or "no" all counted as in-scope -- fail-open on exactly the
+    # hand-written retrospective rows the organic arm depends on.
+    in_scope = [r for r in obs if r.get("in_scope") is True]
+    out_of_scope = len(obs) - len(in_scope)
 
-    follows = [r for r in architectural if r.get("outcome") == "follow"]
-    misses = [r for r in architectural if r.get("outcome") == "miss"]
-    pointer_defects = [r for r in in_scope if r.get("miss_class") == "pointer-defect"]
+    seeded = [r for r in in_scope if r.get("arm") == "seeded"]
+    organic = [r for r in in_scope if r.get("arm") == "organic"]
 
-    denom = len(follows) + len(misses)
-    rate = (len(follows) / denom) if denom else None
+    def rate_of(rs: list[dict]) -> dict:
+        # pointer-defect is excluded from the ARCHITECTURAL rate (the agent did
+        # try to follow; the target was broken) but is counted and thresholded
+        # separately, so a pile of broken pointers cannot read as success.
+        arch = [r for r in rs if r.get("miss_class") != "pointer-defect"]
+        f = [r for r in arch if r.get("outcome") == "follow"]
+        m = [r for r in arch if r.get("outcome") == "miss"]
+        pd = [r for r in rs if r.get("miss_class") == "pointer-defect"]
+        n = len(f) + len(m)
+        lo, hi = wilson(len(f), n)
+        return {
+            "runs": len(rs),
+            "follows": len(f),
+            "misses": len(m),
+            "pointer_defects": len(pd),
+            "denom": n,
+            "rate": (len(f) / n) if n else None,
+            "ci_low": lo,
+            "ci_high": hi,
+            # An unclassifiable row is neither follow nor miss nor defect. v0.1
+            # let those inflate the occasion count while contributing nothing.
+            "unclassified": len(rs) - len(f) - len(m) - len(pd),
+            "_follows": f,
+            "_misses": m,
+        }
 
-    sessions = sorted({r.get("session") for r in in_scope if r.get("session")})
+    s = rate_of(seeded)
+    o = rate_of(organic)
 
-    by_class = Counter(r.get("miss_class") for r in misses if r.get("miss_class"))
-    by_area: dict[str, int] = defaultdict(int)
-    for r in misses:
-        if r.get("area"):
-            by_area[r["area"]] += 1
-    systematic = sorted(a for a, n in by_area.items() if n >= AREA_SYSTEMATIC_THRESHOLD)
+    # N counts only sessions that contributed a RATE-BEARING row. v0.1 counted
+    # every in-scope session, so 19 pointer-defect sessions plus one follow
+    # reached "N=20" on a denominator of 1.
+    sessions = {r.get("session") for r in (s["_follows"] + s["_misses"]) if r.get("session")}
+    probes_run = {r.get("probe_id") for r in seeded if r.get("probe_id")}
 
-    hazard_misses = [r for r in misses if r.get("miss_class") == "hazard"]
+    # Severity strata. Severity comes from the probe registry, never from a
+    # judgement at scoring time, so the hazard stratum cannot be defined post hoc.
+    haz = [r for r in seeded if r.get("severity") == "hazard"]
+    haz_misses = [r for r in haz if r.get("outcome") == "miss" and r.get("miss_class") != "pointer-defect"]
+    haz_open = [r for r in haz_misses if r.get("obs_id") not in resolved]
 
-    # Verdict. Hazard and area escalations fire regardless of N: a hazard miss
-    # is a live defect, not a statistic to be accumulated.
-    if hazard_misses:
-        verdict, ladder = "ESCALATE-HAZARD", 2
-    elif systematic:
-        verdict, ladder = "ESCALATE-AREA", 3
-    elif len(sessions) < TARGET_SESSIONS:
-        verdict, ladder = "IN-PROGRESS", 0
-    elif rate is None:
-        verdict, ladder = "IN-PROGRESS", 0
-    elif rate >= RATE_BET_HOLDS:
-        verdict, ladder = "BET-HOLDS", 0
-    elif rate >= RATE_BET_FAILING:
-        verdict, ladder = "LADDER-1", 1
+    # Area escalation: rate rule with Bonferroni over observed areas.
+    by_area_miss: dict[str, int] = defaultdict(int)
+    by_area_n: dict[str, int] = defaultdict(int)
+    for r in seeded + organic:
+        a = norm_area(r.get("area"))
+        if not a:
+            continue
+        by_area_n[a] += 1
+        if r.get("outcome") == "miss" and r.get("miss_class") != "pointer-defect":
+            by_area_miss[a] += 1
+    pooled = s["rate"]
+    pooled_miss = (1 - pooled) if pooled is not None else None
+    n_areas = max(1, len(by_area_n))
+    systematic = []
+    if pooled_miss is not None and pooled_miss > 0:
+        for a, k in sorted(by_area_miss.items()):
+            if k < AREA_MIN_MISSES:
+                continue
+            if binom_sf(k, by_area_n[a], pooled_miss) <= AREA_ALPHA / n_areas:
+                systematic.append(a)
+
+    # Escalations are reported ALONGSIDE the verdict, never instead of it. In
+    # v0.1 an if/elif chain let a single hazard miss mask an 11% follow rate,
+    # and -- the ledger being append-only with no discharge -- pinned the
+    # verdict there permanently, so the soak went dark on its first real finding.
+    escalations = []
+    if haz_open:
+        escalations.append({"kind": "hazard", "rung": 2, "count": len(haz_open),
+                            "obs_ids": [r["obs_id"] for r in haz_open]})
+    if systematic:
+        escalations.append({"kind": "area-systematic", "rung": 3, "areas": systematic})
+    if s["runs"] and s["pointer_defects"] / s["runs"] > 0.10:
+        escalations.append({"kind": "pointer-defect", "rung": 0,
+                            "count": s["pointer_defects"]})
+
+    # Verdict. Data-integrity states outrank everything: a destroyed instrument
+    # must not read as a healthy one.
+    if bad_lines:
+        verdict, note = "DEGRADED", f"{bad_lines} unparseable ledger line(s)"
+    elif not obs:
+        verdict, note = "NO-DATA", "ledger absent or empty"
+    elif s["denom"] == 0:
+        verdict, note = "NO-SEEDED-DATA", "no seeded runs; the organic arm cannot decide"
+    elif s["runs"] < TARGET_PROBE_RUNS or len(probes_run) < MIN_DISTINCT_PROBES:
+        verdict, note = "IN-PROGRESS", (
+            f"{s['runs']}/{TARGET_PROBE_RUNS} runs, "
+            f"{len(probes_run)}/{MIN_DISTINCT_PROBES} distinct probes")
+    elif not haz:
+        # A hazard stratum with zero observations cannot vacuously pass.
+        verdict, note = "INCONCLUSIVE", "hazard stratum is empty; run hazard probes"
+    elif s["ci_low"] is not None and s["ci_low"] >= DECISION_BOUNDARY:
+        verdict, note = f"HOLDS-AT-{DECISION_BOUNDARY}", "lower bound clears the boundary"
+    elif s["ci_high"] is not None and s["ci_high"] < DECISION_BOUNDARY:
+        verdict, note = "BET-FAILING", "upper bound is below the boundary"
     else:
-        verdict, ladder = "BET-FAILING", 3
+        verdict, note = "INCONCLUSIVE", "the interval spans the boundary"
 
     return {
-        "occasions": len(in_scope),
-        "out_of_scope": out_of_scope,
-        "sessions": len(sessions),
-        "target_sessions": TARGET_SESSIONS,
-        "follows": len(follows),
-        "misses": len(misses),
-        "pointer_defects": len(pointer_defects),
-        "follow_rate": rate,
-        "miss_classes": dict(by_class),
-        "misses_by_area": dict(by_area),
-        "systematic_areas": systematic,
         "verdict": verdict,
-        "ladder_step": ladder,
+        "note": note,
+        "escalations": escalations,
+        "seeded": {k: v for k, v in s.items() if not k.startswith("_")},
+        "organic": {k: v for k, v in o.items() if not k.startswith("_")},
+        "sessions": len(sessions),
+        "distinct_probes": len(probes_run),
+        "target_runs": TARGET_PROBE_RUNS,
+        "min_distinct_probes": MIN_DISTINCT_PROBES,
+        "boundary": DECISION_BOUNDARY,
+        "hazard_runs": len(haz),
+        "hazard_misses_open": len(haz_open),
+        "out_of_scope": out_of_scope,
+        "bad_lines": bad_lines,
         "start_marker": START_MARKER,
     }
 
 
-def cmd_record(args: argparse.Namespace) -> int:
-    if args.outcome not in OUTCOMES:
-        print(f"error: --outcome must be one of {OUTCOMES}", file=sys.stderr)
-        return 2
-    if args.outcome == "miss" and not args.miss_class:
-        print("error: a miss requires --class", file=sys.stderr)
-        return 2
-    if args.outcome == "follow" and args.miss_class:
-        print("error: --class is only meaningful on a miss", file=sys.stderr)
-        return 2
-    if args.miss_class and args.miss_class not in MISS_CLASSES:
-        print(
-            f"error: --class must be one of {sorted(MISS_CLASSES)}; "
-            "'area-systematic' is derived from >=3 misses in one area, never recorded",
-            file=sys.stderr,
-        )
-        return 2
+def sensitivity(rate: float | None) -> list[tuple[float, float]]:
+    """What true rate an observed organic rate implies at various q_miss.
 
-    session = args.session or os.environ.get("CLAUDE_CODE_SESSION_ID") or "unknown"
-    ledger = args.ledger or (args.repo_root / DEFAULT_LEDGER)
-    rows = load_rows(ledger)
-    scope = at_or_after_marker(args.repo_root)
+    observed = p / (p + (1-p)*q)  =>  p = observed*q / (1 - observed + observed*q)
+    """
+    if rate is None:
+        return []
+    out = []
+    for q in (1.0, 0.5, 0.25, 0.1):
+        p = rate * q / (1 - rate + rate * q)
+        out.append((q, p))
+    return out
 
-    row = {
+
+def _reject(msg: str) -> int:
+    print(f"error: {msg}", file=sys.stderr)
+    return 2
+
+
+def _base_row(args: argparse.Namespace, root: Path) -> dict | int:
+    session = args.session or os.environ.get("CLAUDE_CODE_SESSION_ID") or ""
+    if not session.strip() or session.strip().lower() == "unknown":
+        return _reject("a real --session is required (CLAUDE_CODE_SESSION_ID was empty/unknown)")
+    scope = at_or_after_marker(root)
+    if scope is None and not args.force_scope:
+        return _reject(
+            f"cannot decide whether HEAD descends from {START_MARKER} "
+            "(marker object missing -- `git fetch`?). Refusing to write: this "
+            "predicate fails CLOSED because the worktrees lacking the marker are "
+            "exactly the stale pre-cut ones. Override with --force-scope.")
+    return {
+        "obs_id": str(uuid.uuid4()),
+        "kind": "observation",
         "ts": _utcnow(),
-        "session": session,
-        "seq": next_seq(rows, session),
-        "outcome": args.outcome,
-        "fact": args.fact,
-        "pointer": args.pointer,
-        "task": args.task,
-        "area": args.area,
-        "miss_class": args.miss_class,
-        "worktree": args.repo_root.name,
-        "commit": _git(args.repo_root, "rev-parse", "--short=8", "HEAD"),
-        "in_scope": True if scope is None else scope,
+        "session": session.strip(),
+        "in_scope": bool(scope),
+        "worktree": root.name,
+        "commit": _run(root, "git", "rev-parse", "--short=8", "HEAD")[1] or None,
         "note": args.note,
     }
 
+
+def _write(ledger: Path, row: dict, dry_run: bool) -> int:
     line = json.dumps(row, sort_keys=True, ensure_ascii=False)
-    if args.dry_run:
+    if dry_run:
         print(line)
         return 0
-
     ledger.parent.mkdir(parents=True, exist_ok=True)
     with ledger.open("a", encoding="utf-8") as fh:
         fh.write(line + "\n")
-    print(f"recorded {row['outcome']} ({session} seq={row['seq']}) -> {ledger}")
-    if row["in_scope"] is False:
-        print(
-            f"  note: HEAD does not descend from {START_MARKER}; "
-            "row is OUT OF SCOPE and will not count toward the rate",
-            file=sys.stderr,
-        )
+    print(f"recorded {row.get('kind')} {row.get('outcome') or ''} -> {ledger} [{row['obs_id']}]")
+    if row.get("in_scope") is False:
+        print(f"  warning: HEAD does not descend from {START_MARKER}; row is OUT OF SCOPE",
+              file=sys.stderr)
     return 0
 
 
-def _render_markdown(rows: list[dict], stats: dict) -> str:
-    lines = [
-        "| # | Date | Session | Task | Fact needed | Pointer | Outcome | Class |",
-        "|---|------|---------|------|-------------|---------|---------|-------|",
-    ]
-    for i, r in enumerate(sorted(rows, key=lambda x: (x.get("ts") or "")), 1):
-        sess = (r.get("session") or "?")[-8:]
-        mark = "follow" if r.get("outcome") == "follow" else "**MISS**"
-        cells = [
-            str(i),
-            (r.get("ts") or "")[:10],
-            sess,
-            r.get("task") or "",
-            r.get("fact") or "",
-            f"`{r['pointer']}`" if r.get("pointer") else "",
-            mark,
-            r.get("miss_class") or "",
-        ]
-        lines.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
-    if len(lines) == 2:
-        lines.append("| _no observations recorded yet_ | | | | | | | |")
-    rate = stats["follow_rate"]
-    lines += [
-        "",
-        f"**Sessions** {stats['sessions']}/{stats['target_sessions']} &nbsp;&nbsp; "
-        f"**Occasions** {stats['occasions']} &nbsp;&nbsp; "
-        f"**Follows** {stats['follows']} &nbsp;&nbsp; "
-        f"**Misses** {stats['misses']} &nbsp;&nbsp; "
-        f"**Pointer defects** {stats['pointer_defects']} &nbsp;&nbsp; "
-        f"**Follow rate** {'n/a' if rate is None else format(rate, '.1%')}",
-        "",
-        f"**Verdict**: `{stats['verdict']}`"
-        + (f" (ladder step {stats['ladder_step']})" if stats["ladder_step"] else ""),
-    ]
-    return "\n".join(lines)
+def cmd_probe_run(args: argparse.Namespace) -> int:
+    root = args.repo_root or repo_root(Path.cwd())
+    reg = load_probes(args.probes or (root / DEFAULT_PROBES))
+    probe = next((p for p in reg.get("probes", []) if p["probe_id"] == args.probe_id), None)
+    if probe is None:
+        return _reject(f"unknown --probe-id {args.probe_id!r}; see conf/soak_probes.json")
+    if args.outcome == "miss" and not args.miss_class:
+        return _reject("a miss requires --class")
+    if args.outcome == "follow" and args.miss_class:
+        return _reject("--class is only meaningful on a miss")
+
+    base = _base_row(args, root)
+    if isinstance(base, int):
+        return base
+    base.update({
+        "arm": "seeded",
+        "probe_id": probe["probe_id"],
+        "outcome": args.outcome,
+        "miss_class": args.miss_class,
+        # severity and area come from the FROZEN registry, never the CLI.
+        "severity": probe["severity"],
+        "area": norm_area(probe.get("area")),
+        "fact": probe["fact"],
+        "pointer": probe["pointer"],
+        "scored_by": args.scored_by,
+    })
+    return _write(args.ledger or (root / DEFAULT_LEDGER), base, args.dry_run)
+
+
+def cmd_record(args: argparse.Namespace) -> int:
+    root = args.repo_root or repo_root(Path.cwd())
+    if args.outcome == "miss" and not args.miss_class:
+        return _reject("a miss requires --class")
+    if args.outcome == "follow" and args.miss_class:
+        return _reject("--class is only meaningful on a miss")
+    if args.outcome == "miss" and not norm_area(args.area):
+        return _reject("a miss requires --area (a miss you cannot localise is one you cannot remedy)")
+    for name in ("fact", "pointer", "task"):
+        if not (getattr(args, name) or "").strip():
+            return _reject(f"--{name} must not be empty")
+
+    base = _base_row(args, root)
+    if isinstance(base, int):
+        return base
+    base.update({
+        "arm": "organic",
+        "outcome": args.outcome,
+        "miss_class": args.miss_class,
+        "severity": args.severity,
+        "area": norm_area(args.area),
+        "fact": args.fact.strip(),
+        "pointer": args.pointer.strip(),
+        "task": args.task.strip(),
+    })
+    return _write(args.ledger or (root / DEFAULT_LEDGER), base, args.dry_run)
+
+
+def cmd_resolve(args: argparse.Namespace) -> int:
+    """Discharge an escalation.
+
+    Without this the ledger is append-only and `analyse` scans all history, so
+    one long-since-fixed hazard miss pinned the verdict forever and every future
+    `status` exited 1 -- which is exactly how a real signal gets ignored.
+    """
+    root = args.repo_root or repo_root(Path.cwd())
+    ledger = args.ledger or (root / DEFAULT_LEDGER)
+    rows, _ = load_rows(ledger)
+    if not any(r.get("obs_id") == args.obs_id for r in rows):
+        return _reject(f"no observation with obs_id {args.obs_id!r} in {ledger}")
+    if not (args.ref or "").strip():
+        return _reject("--ref is required: name the PR or gate that discharged this")
+    row = {
+        "obs_id": str(uuid.uuid4()),
+        "kind": "resolve",
+        "ts": _utcnow(),
+        "resolves": args.obs_id,
+        "ref": args.ref.strip(),
+        "note": args.note,
+    }
+    return _write(ledger, row, args.dry_run)
+
+
+def _slugs(path: Path) -> set[str]:
+    out = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"^(#{2,6})\s+(.*)", line)
+        if m:
+            s = m.group(2).strip().lower()
+            s = re.sub(r"[^a-z0-9 _-]", "", s).replace(" ", "-")
+            out.add(s)
+    return out
+
+
+def cmd_verify_probes(args: argparse.Namespace) -> int:
+    """Every probe pointer must resolve. A dangling one is a repo defect."""
+    root = args.repo_root or repo_root(Path.cwd())
+    reg = load_probes(args.probes or (root / DEFAULT_PROBES))
+    probes = reg.get("probes", [])
+    problems: list[str] = []
+    if not probes:
+        problems.append("registry is empty")
+    ids = [p.get("probe_id") for p in probes]
+    if len(set(ids)) != len(ids):
+        problems.append("duplicate probe_id")
+    cache: dict[str, set[str]] = {}
+    for p in probes:
+        for field in ("probe_id", "severity", "area", "fact", "pointer", "task", "discriminator"):
+            if not (p.get(field) or "").strip():
+                problems.append(f"{p.get('probe_id')}: missing {field}")
+        if p.get("severity") not in SEVERITIES:
+            problems.append(f"{p.get('probe_id')}: severity {p.get('severity')!r} not in {SEVERITIES}")
+        ptr = p.get("pointer") or ""
+        if "#" not in ptr:
+            problems.append(f"{p.get('probe_id')}: pointer has no anchor")
+            continue
+        rel, anchor = ptr.split("#", 1)
+        target = root / rel
+        if not target.exists():
+            problems.append(f"{p.get('probe_id')}: {rel} does not exist")
+            continue
+        if rel not in cache:
+            cache[rel] = _slugs(target)
+        if anchor not in cache[rel]:
+            problems.append(f"{p.get('probe_id')}: anchor #{anchor} not found in {rel}")
+    if problems:
+        print("PROBE REGISTRY DEFECTIVE:")
+        for x in problems:
+            print(f"  - {x}")
+        return 1
+    print(f"OK: {len(probes)} probes, all pointers resolve, severities valid.")
+    return 0
 
 
 def cmd_report(args: argparse.Namespace) -> int:
-    ledger = args.ledger or (args.repo_root / DEFAULT_LEDGER)
-    rows = load_rows(ledger)
-    in_scope = [r for r in rows if r.get("in_scope") is not False]
-    stats = analyse(rows)
+    root = args.repo_root or repo_root(Path.cwd())
+    ledger = args.ledger or (root / DEFAULT_LEDGER)
+    rows, bad = load_rows(ledger)
+    st = analyse(rows, bad)
     if args.json:
-        print(json.dumps(stats, indent=2, sort_keys=True))
-    elif args.markdown:
-        print(_render_markdown(in_scope, stats))
-    else:
-        print("=== pointer-follow soak ===")
-        print(f"  ledger        {ledger}")
-        print(f"  start marker  {START_MARKER}")
-        print(f"  sessions      {stats['sessions']} / {stats['target_sessions']}")
-        extra = f"  (+{stats['out_of_scope']} out of scope)" if stats["out_of_scope"] else ""
-        print(f"  occasions     {stats['occasions']}{extra}")
-        print(f"  follows       {stats['follows']}")
-        print(f"  misses        {stats['misses']}  {stats['miss_classes'] or ''}")
-        print(f"  ptr defects   {stats['pointer_defects']}")
-        rate = stats["follow_rate"]
-        print(f"  follow rate   {'n/a' if rate is None else format(rate, '.1%')}")
-        print(f"  verdict       {stats['verdict']}")
+        print(json.dumps(st, indent=2, sort_keys=True))
+        return 0
+    s, o = st["seeded"], st["organic"]
+    print("=== pointer-follow soak ===")
+    print(f"  ledger         {ledger}")
+    print(f"  verdict        {st['verdict']}  ({st['note']})")
+    print()
+    print("  -- seeded arm (verdict-bearing; denominator known by construction) --")
+    print(f"     runs        {s['runs']}/{st['target_runs']}   "
+          f"distinct probes {st['distinct_probes']}/{st['min_distinct_probes']}   "
+          f"sessions {st['sessions']}")
+    print(f"     follows     {s['follows']}   misses {s['misses']}   "
+          f"ptr-defects {s['pointer_defects']}   unclassified {s['unclassified']}")
+    if s["rate"] is not None:
+        print(f"     rate        {s['rate']:.1%}   95% CI "
+              f"[{s['ci_low']:.3f}, {s['ci_high']:.3f}]   boundary {st['boundary']}")
+    print(f"     hazard      {st['hazard_runs']} runs, {st['hazard_misses_open']} open misses")
+    print()
+    print("  -- organic arm (DESCRIPTIVE ONLY -- an UPPER BOUND, never a verdict) --")
+    print(f"     runs        {o['runs']}   follows {o['follows']}   misses {o['misses']}")
+    if o["rate"] is not None:
+        print(f"     observed    {o['rate']:.1%}  <-- biased UP; misses are under-logged")
+        for q, p in sensitivity(o["rate"]):
+            print(f"       if misses logged at {q:>4.0%} of follows -> true rate ~ {p:.1%}")
+    if st["escalations"]:
+        print()
+        print("  -- escalations (independent of the verdict) --")
+        for e in st["escalations"]:
+            print(f"     rung {e['rung']}: {e['kind']} {e.get('areas') or e.get('count')}")
+    if st["out_of_scope"] or st["bad_lines"]:
+        print()
+        print(f"  out-of-scope rows {st['out_of_scope']}   unparseable lines {st['bad_lines']}")
     return 0
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    ledger = args.ledger or (args.repo_root / DEFAULT_LEDGER)
-    stats = analyse(load_rows(ledger))
+    root = args.repo_root or repo_root(Path.cwd())
+    ledger = args.ledger or (root / DEFAULT_LEDGER)
+    rows, bad = load_rows(ledger)
+    st = analyse(rows, bad)
     if args.json:
-        print(json.dumps(stats, indent=2, sort_keys=True))
+        print(json.dumps(st, indent=2, sort_keys=True))
     else:
-        rate = stats["follow_rate"]
-        print(
-            f"{stats['verdict']}  sessions={stats['sessions']}/{stats['target_sessions']} "
-            f"rate={'n/a' if rate is None else format(rate, '.1%')} "
-            f"misses={stats['misses']} ptr_defects={stats['pointer_defects']}"
-        )
-        if stats["verdict"] == "ESCALATE-HAZARD":
-            print("  -> ladder 2: promote the missed hazard to a CI gate or hook. "
+        s = st["seeded"]
+        ci = (f"[{s['ci_low']:.3f}, {s['ci_high']:.3f}]" if s["ci_low"] is not None else "n/a")
+        print(f"{st['verdict']}  seeded={s['runs']}/{st['target_runs']} "
+              f"rate={'n/a' if s['rate'] is None else format(s['rate'], '.1%')} "
+              f"ci={ci} escalations={len(st['escalations'])}  ({st['note']})")
+        for e in st["escalations"]:
+            if e["kind"] == "hazard":
+                print("  -> rung 2: promote the missed hazard to a CI gate or hook. "
+                      "NEVER re-inline. Discharge with `soak_ledger.py resolve`.")
+            elif e["kind"] == "area-systematic":
+                print(f"  -> rung 3: path-scoped rule for {e['areas']}. "
+                      "Caveat (plan 7.6): a path-scoped rule is LOST AT COMPACTION.")
+            else:
+                print("  -> fix the broken pointers; these are repo defects, not "
+                      "architecture failures.")
+        if st["verdict"] == "BET-FAILING":
+            print("  -> the relocation bet is failing; revisit owner decision 7. "
                   "NEVER re-inline.")
-        elif stats["verdict"] == "ESCALATE-AREA":
-            print(f"  -> ladder 3: path-scoped rule for {stats['systematic_areas']}. "
-                  "Caveat (plan 7.6): a path-scoped rule is LOST AT COMPACTION.")
-        elif stats["verdict"] == "LADDER-1":
-            print("  -> ladder 1: add index rows for the missed facts, then re-soak.")
-        elif stats["verdict"] == "BET-FAILING":
-            print("  -> the relocation bet is failing; revisit owner decision 7 "
-                  "(Proposal A skills probe). NEVER re-inline.")
-    return 1 if stats["ladder_step"] else 0
+        elif st["verdict"] == "INCONCLUSIVE":
+            print("  -> rung 1: add index rows for the missed facts, then keep soaking. "
+                  "This is the cheap no-regret action when the data cannot decide.")
+    if st["verdict"] in ("NO-DATA", "DEGRADED", "NO-SEEDED-DATA"):
+        return 2
+    return 1 if (st["escalations"] or st["verdict"] == "BET-FAILING") else 0
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Pointer-follow soak ledger.")
-    ap.add_argument("--repo-root", type=Path, default=Path.cwd())
+    ap.add_argument("--repo-root", type=Path, default=None)
     ap.add_argument("--ledger", type=Path, default=None)
+    ap.add_argument("--probes", type=Path, default=None)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    rec = sub.add_parser("record", help="append one observation")
+    pr = sub.add_parser("probe-run", help="record one run of a pre-registered probe (SEEDED)")
+    pr.add_argument("--probe-id", required=True)
+    pr.add_argument("--outcome", required=True, choices=OUTCOMES)
+    pr.add_argument("--class", dest="miss_class", default=None, choices=sorted(MISS_CLASSES))
+    pr.add_argument("--session", default=None)
+    pr.add_argument("--scored-by", default=None, help="who scored this run")
+    pr.add_argument("--note", default=None)
+    pr.add_argument("--force-scope", action="store_true")
+    pr.add_argument("--dry-run", action="store_true")
+    pr.set_defaults(func=cmd_probe_run)
+
+    rec = sub.add_parser("record", help="opportunistic observation (ORGANIC -- descriptive only)")
     rec.add_argument("--outcome", required=True, choices=OUTCOMES)
-    rec.add_argument("--fact", required=True, help="short slug for the fact needed")
-    rec.add_argument("--pointer", required=True, help="destination path (+anchor)")
-    rec.add_argument("--task", required=True, help="one line: the work in hand")
-    rec.add_argument("--area", default=None, help="area slug (drives ladder step 3)")
-    rec.add_argument("--class", dest="miss_class", default=None,
-                     choices=sorted(MISS_CLASSES))
+    rec.add_argument("--fact", required=True)
+    rec.add_argument("--pointer", required=True)
+    rec.add_argument("--task", required=True)
+    rec.add_argument("--area", default=None)
+    rec.add_argument("--severity", default="reference", choices=SEVERITIES)
+    rec.add_argument("--class", dest="miss_class", default=None, choices=sorted(MISS_CLASSES))
     rec.add_argument("--session", default=None)
     rec.add_argument("--note", default=None)
+    rec.add_argument("--force-scope", action="store_true")
     rec.add_argument("--dry-run", action="store_true")
     rec.set_defaults(func=cmd_record)
 
-    rep = sub.add_parser("report", help="render the ledger and the rates")
-    rep.add_argument("--json", action="store_true")
-    rep.add_argument("--markdown", action="store_true")
-    rep.set_defaults(func=cmd_report)
+    rs = sub.add_parser("resolve", help="discharge an escalation")
+    rs.add_argument("--obs-id", required=True)
+    rs.add_argument("--ref", required=True, help="PR or gate that discharged it")
+    rs.add_argument("--note", default=None)
+    rs.add_argument("--dry-run", action="store_true")
+    rs.set_defaults(func=cmd_resolve)
 
-    st = sub.add_parser("status", help="verdict against the fixed thresholds")
+    vp = sub.add_parser("verify-probes", help="check the registry and that pointers resolve")
+    vp.set_defaults(func=cmd_verify_probes)
+
+    rp = sub.add_parser("report", help="render both arms")
+    rp.add_argument("--json", action="store_true")
+    rp.set_defaults(func=cmd_report)
+
+    st = sub.add_parser("status", help="verdict + escalations")
     st.add_argument("--json", action="store_true")
     st.set_defaults(func=cmd_status)
 

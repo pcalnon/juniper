@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-21
+**Last Updated**: 2026-08-20
 
 ---
 
@@ -44,20 +44,6 @@ PR rather than waiving the budget gate.
   which falls back to 10000. The direct CLI aliases the two. **Any CLI-vs-service
   comparison must set both, to the same value**, or the service is quietly
   better-trained and slower than the config appears to ask for.
-
----
-
-## Pointer-Follow Soak (active)
-
-P3 moved ~124K chars behind pointers; this measures whether that worked. **If a fact you needed sat behind a pointer** (`docs/REFERENCE.md`, etc.), record one line — `follow` if you read it before acting, `miss` if you acted without it. **A correct answer reached without consulting the fact is still a miss.**
-
-```bash
-python3 util/soak_ledger.py record --outcome follow|miss --fact <slug> \
-    --pointer <path#anchor> --task '<work in hand>' [--area <slug>] \
-    [--class discoverability|hazard|pointer-defect]
-```
-
-Protocol, miss definition and thresholds: [pointer-follow soak ledger](notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md).
 
 ---
 
