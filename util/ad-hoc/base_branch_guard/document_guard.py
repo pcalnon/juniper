@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import argparse
 import base64
-import json
 import re
 import subprocess  # nosec B404 - shells out to the `gh` CLI by design
 import sys
@@ -154,8 +153,13 @@ def transform(text: str, today: str):
     # 2026-08-18, and this change adds a second required one directly beneath it. Leaving
     # it would file two merge-blocking checks under a heading that calls them advisory --
     # precisely the kind of stale qualifier that gets believed later.
+    # `[ \t]*$`, NOT `\s*$`. In Python `\s` matches `\n`, so `\s*$` under MULTILINE
+    # swallowed the blank line AFTER the heading as well -- tripping markdownlint MD022
+    # (headings must be surrounded by blank lines) and failing juniper-recurrence's
+    # Pre-commit gate. The tell was in the diffstat (-3 deletions where -2 was expected)
+    # and was rationalised rather than read.
     out, adv = re.subn(
-        r"^(## Sequence-safety nets )\(advisory CI\)\s*$",
+        r"^(## Sequence-safety nets )\(advisory CI\)[ \t]*$",
         r"\g<1>(required CI)",
         out,
         count=1,

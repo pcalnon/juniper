@@ -81,8 +81,24 @@ DOCS = [
     ("juniper-recurrence", 122),
 ]
 
-SETS = {"rollout": ROLLOUT, "corrections": CORRECTIONS, "docs": DOCS}
-PRS = DOCS
+# Wave 3b -- the two wave-3 PRs that their repos' own gates correctly rejected, plus the
+# tooling PR. recurrence#122 tripped markdownlint MD022 (a `\s*$` regex ate the blank line
+# after the heading); ml#1219 blew the BLOCKING Memory Budget (+1982 chars over a 45084
+# ceiling) and was reworked into a pointer + a docs/REFERENCE.md section rather than
+# borrowed against with `Allow-Budget-Overrun`.
+REWORKS = [
+    ("juniper-recurrence", 123),
+    ("juniper-ml", 1222),
+    ("juniper-ml", 1220),
+]
+
+SETS = {
+    "rollout": ROLLOUT,
+    "corrections": CORRECTIONS,
+    "docs": DOCS,
+    "reworks": REWORKS,
+}
+PRS = REWORKS
 
 
 def main() -> int:
