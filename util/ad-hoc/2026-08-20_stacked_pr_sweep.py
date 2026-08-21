@@ -18,8 +18,13 @@ A PR whose `baseRefName` is another feature branch (a "stacked" PR) can show **M
 while its diff never reaches `main` -- the squash lands on the intermediate branch, and if
 that branch is never itself merged, the work is stranded with a green checkmark on it.
 
-Known instances: canopy#365 (recovered by #366), juniper-recurrence#7 + #8 (stranded --
-routes + publish workflow never landed, leaving the app unpublishable).
+Known instances, ALL THREE NOW REMEDIATED (adjudicated 2026-08-20; an earlier version of
+this docstring still described #7/#8 as stranded, which stopped being true on 2026-06-17):
+canopy#365 (re-landed by #366), juniper-recurrence#7 and #8 (re-landed by #9 -- the routers
+are on main today and the app has shipped v0.2.0 through v0.4.0).
+
+The sweep reports `NOT-ON-MAIN`, which is a mechanical fact about one PR's merge commit and
+NOT a claim that the work is missing. Adjudicate every hit before acting on it.
 
 Two traps this tool is built around
 -----------------------------------
@@ -121,14 +126,21 @@ def main() -> int:
     ap.add_argument("--owner", default="pcalnon")
     ap.add_argument("--repo", action="append", default=None)
     ap.add_argument("--since", default="2026-06-01", help="window start, YYYY-MM-DD")
-    ap.add_argument("--limit", type=int, default=1000)
+    # 1000 truncated juniper-ml, which has 1133 merged PRs. Window coverage was still
+    # sound (the oldest RETRIEVED row predated the window, so nothing in-window was
+    # missed) -- but the printed "merged" column then understated the repo and invited
+    # the retrieval total to be quoted as a merged-PR count. Both are now shown.
+    ap.add_argument("--limit", type=int, default=2000)
     args = ap.parse_args()
     repos = args.repo or REPOS
 
     print(f"window: mergedAt >= {args.since}   repos: {len(repos)}")
     print()
-    print(f"{'repo':<24} {'merged':>7} {'oldest seen':<12} {'coverage':<12} {'stacked':>8}")
-    print("-" * 74)
+    print(
+        f"{'repo':<24} {'retrieved':>9} {'in-window':>9} {'oldest seen':<12} "
+        f"{'coverage':<12} {'stacked':>8}"
+    )
+    print("-" * 88)
 
     incomplete, flagged = [], []
     for repo in repos:
@@ -151,14 +163,12 @@ def main() -> int:
             incomplete.append((repo, len(prs), oldest))
         else:
             note = "ok (all)" if exhausted else "ok"
-        stacked = [
-            p
-            for p in prs
-            if (p["mergedAt"] or "")[:10] >= args.since and p["baseRefName"] not in TRUNK
-        ]
+        in_window = [p for p in prs if (p["mergedAt"] or "")[:10] >= args.since]
+        stacked = [p for p in in_window if p["baseRefName"] not in TRUNK]
         flagged.extend((repo, p) for p in stacked)
         print(
-            f"{repo:<24} {len(prs):>7} {oldest[:10]:<12} {note:<12} {len(stacked):>8}"
+            f"{repo:<24} {len(prs):>9} {len(in_window):>9} {oldest[:10]:<12} "
+            f"{note:<12} {len(stacked):>8}"
         )
 
     if incomplete:
