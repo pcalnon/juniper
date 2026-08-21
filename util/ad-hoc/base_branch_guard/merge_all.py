@@ -92,13 +92,31 @@ REWORKS = [
     ("juniper-ml", 1220),
 ]
 
+# Wave 4 -- audit findings F-6 (merge_group trigger + its mandatory early-exit) and F-5
+# (concurrency, closed as a reasoned no-change). Plus the D4 fix, which is unrelated to the
+# guard but part of the same arc.
+FINAL = [
+    ("juniper-ml", 1228),  # D4: pin the armed net
+    ("juniper-deploy", 192),
+    ("juniper-cascor", 557),
+    ("juniper-canopy", 503),
+    ("juniper-data", 279),
+    ("juniper-data-client", 160),
+    ("juniper-cascor-client", 125),
+    ("juniper-cascor-worker", 159),
+    ("juniper-recurrence", 125),
+    ("juniper-ml", 1235),  # ml's copy of the guard
+    ("juniper-ml", 1236),  # the tooling
+]
+
 SETS = {
     "rollout": ROLLOUT,
     "corrections": CORRECTIONS,
     "docs": DOCS,
     "reworks": REWORKS,
+    "final": FINAL,
 }
-PRS = REWORKS
+PRS = FINAL
 
 
 def main() -> int:
