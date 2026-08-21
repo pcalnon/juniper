@@ -510,6 +510,19 @@ jobs:
           # the containment ASYMMETRY (needle-in-candidate is a merge; candidate-in-needle
           # is a fragment and must not match) and four machinery negative controls.
           python3 -m unittest -v tests/test_relocation_check.py
+          # tests/test_soak_ledger.py: the gate for util/soak_ledger.py (plan §6, the
+          # pointer-follow soak). util/ is outside every pre-commit Python hook's scope,
+          # so this suite IS the gate. What it pins is not arithmetic but the properties
+          # that let the soak FALSIFY the relocation bet instead of confirming it: the
+          # ladder cannot be jumped by assertion (area-systematic is derived from >=3
+          # misses, never recordable); a hazard miss escalates immediately without
+          # waiting for N=20, because it is a live defect and not a statistic; the
+          # denominator cannot be padded (out-of-scope rows never count, and N counts
+          # DISTINCT SESSIONS so one session cannot satisfy N=20 by itself); pointer
+          # defects are excluded from the architectural rate yet still surfaced, so a
+          # pile of broken pointers can never read as success; and union-merge duplicates
+          # do not double-count, which ~24 concurrent worktrees make a certainty.
+          python3 -m unittest -v tests/test_soak_ledger.py
           # tests/test_lockfile_update_workflow.py: structural gate for the weekly
           # lockfile-update.yml refresh — juniper-generate-dep-docs (not the deleted
           # inline dep-docs shell script), SHA-pinned create-pull-request, branch/labels/
