@@ -61,13 +61,13 @@ row from closing.**
   `M-TUTORIAL-04` closes §3.14 outright.
 - **M-SNAPSHOTS-20/-21 remain UNREACHABLE.** `DEAD-EXPECTED`, but the buttons render only inside
   dataset-swap cards and none exist. `record_dataset_swap_event` has one caller, inside `swap_dataset_live`
-  (`juniper-cascor/src/api/lifecycle/manager.py:3079`, def `:2801`), reachable only from
+  (`juniper-cascor/src/api/lifecycle/manager.py:3081`, def `:2803`), reachable only from
   `POST /v1/training/dataset/swap`; canopy's cold restart is stop → await → start and never touches it.
   F-CANOPY-025 kills the *button*, but the server route
   (`juniper-canopy/src/main.py:3937 /api/live_dataset_swap`) still exists — that API induction is the only
   candidate. **Do not burn a destructive restart on them.** If no swap card exists, record `BLOCKED` with
   the reason — not `N-A`, not blank. *(Segment 15 did not attempt them.)*
-- **DEMO-lane only (2)** — `C2.4-02` and `M-DATASET-03`. `isolated_stack.bash:369` hard-codes
+- **DEMO-lane only (2)** — `C2.4-02` and `M-DATASET-03`. `isolated_stack.bash:379` hard-codes
   `JUNIPER_CANOPY_DEMO_MODE=0` inside its `nohup env` list, so it **cannot** produce this lane; launch
   canopy by hand from `juniper-canopy/src` with the same env block minus that line. Segment 15 re-confirmed
   `extra_env` only ever carries the recurrence URL, so no override reaches it.
@@ -96,30 +96,52 @@ sidebar (`C2.7-09`): Apply Dataset opens `pending-dataset-banner` and the config
 
 ## Standing up the stack
 
-**The isolated trio is DOWN** as of this handoff, and the snapshot corpus **has been restored** (4 `.h5` in
-`juniper-cascor/src/snapshots/`, backed up flat at `backups/e2e-snapshots-seg15/`).
+**The isolated trio is DOWN** as of this handoff.
 
-> **Verify the corpus yourself; do not trust a count in a handoff.** Segment 15 arrived to find **zero**
-> `.h5` files where its handoff claimed 4 — segment 14 had taken its backup and never run the restore half.
+> ### The snapshot root MOVED — the old backup ceremony is obsolete AND harmful
+>
+> **Corrected 2026-08-21**, after concurrent sessions landed the S-1 storage-convention ruling
+> (`notes/JUNIPER_2026-08-20_JUNIPER-ECOSYSTEM_SNAPSHOT-STORAGE-CONVENTION-DESIGN.md`, ml#1211/#1197).
+> Segment 15's original text told you to back up `juniper-cascor/src/snapshots/snapshot_*.h5` before every
+> `--up`. **Do not do that.** All three premises are now false:
+>
+> 1. **The root is `<Juniper>/juniper-cascor/cascor-snapshots/`** — the ONE root shared by the direct CLI,
+>    the service and the container (`isolated_stack.bash:122`, `CASCOR_SNAPSHOT_ROOT`). `src/snapshots/` is
+>    now the importable serializer **PACKAGE** and receives no artifacts; the old glob matches **nothing**.
+> 2. **`--down` no longer touches the cascor corpus.** Teardown removes only canopy-local `.h5`; the script
+>    carries an explicit `-- DO NOT ADD A SWEEP OF ${CASCOR_SNAPSHOT_ROOT} HERE --` guard at `:476`
+>    explaining that the root is a protected project **asset store** that outlives every stack. **Backing it
+>    up is unnecessary.**
+> 3. **Copying it would be actively bad.** The root holds **27,896 `.h5` files / 1.8 GB** (measured
+>    2026-08-21). A `cp .../*.h5` against it dies with *Argument list too long* — `ls *.h5 | wc -l` silently
+>    reports **0** for the same reason, so do not read a zero as "empty"; count with
+>    `find <root> -maxdepth 1 -name '*.h5' | wc -l`.
+>
+> The script's own comment names the trap: *"the obvious 'fix' of repointing this glob at the new root is
+> precisely the mistake this comment exists to prevent."* If a run ever needs disposable snapshots, give it
+> its **own** root via `JUNIPER_CASCOR_SNAPSHOTS_DIR` (as `experiment_stack.bash` does) and sweep that.
+>
+> Segment 15's four `.h5` files were **not** migrated into the new root (different name pattern); they
+> survive at `backups/e2e-snapshots-seg15/`. You almost certainly do not need them — the shared root already
+> gives the snapshots panel a corpus — but that is where they are.
 
 ```bash
-mkdir -p /home/pcalnon/Development/python/Juniper/backups/e2e-snapshots-seg16
-cp /home/pcalnon/Development/python/Juniper/juniper-cascor/src/snapshots/snapshot_*.h5 \
-   /home/pcalnon/Development/python/Juniper/backups/e2e-snapshots-seg16/     # flat copy, never `cp -a <dir>`
-
 cd /home/pcalnon/Development/python/Juniper/juniper-ml
 JUNIPER_E2E_PROJECT_DIR=/home/pcalnon/Development/python/Juniper \
 JUNIPER_E2E_RECURRENCE_PORT=8212 util/isolated_stack.bash --up     # data 8101 · cascor 8202 · canopy 8051
-# ... teardown uses the SAME overrides, then restore the corpus from the backup.
+# teardown uses the SAME overrides. No corpus backup, no restore.
 ```
 
-Three ways the script hurts you (all re-confirmed in segment 15): `--down` stops the recurrence port
-**unconditionally** and defaults to **8211, the port the live juniper-deploy container holds**
-(`isolated_stack.bash:83`, stop at `:457`) — `--up` is pre-checked, teardown is not; `--down` **deletes the
-snapshot corpus** (`:470-471`); and `PROJECT_DIR` derives from the script's own location (`:62`), so running
-from a worktree resolves siblings to non-existent paths unless `JUNIPER_E2E_PROJECT_DIR` is set. Segment 15's
-teardown was verified clean: it stopped exactly the three recorded leg pids and reported "nothing listening"
-on 8212.
+Two ways the script still hurts you: `--down` stops the recurrence port **unconditionally** and defaults to
+**8211, the port the live juniper-deploy container holds** (`isolated_stack.bash:83`, stop at `:467`) —
+`--up` is pre-checked, teardown is not, so **always pass `JUNIPER_E2E_RECURRENCE_PORT=8212`**; and
+`PROJECT_DIR` derives from the script's own location (`:62`), so running from a worktree resolves siblings
+to non-existent paths unless `JUNIPER_E2E_PROJECT_DIR` is set. Segment 15's teardown was verified clean: it
+stopped exactly the three recorded leg pids and reported "nothing listening" on 8212.
+
+**The general lesson from segment 15 still stands, even though its specifics expired: verify the corpus and
+the script yourself; do not trust a path or a count quoted in a handoff.** Segment 15 arrived to find zero
+`.h5` where its own handoff claimed four — and then wrote the paragraph this box had to correct.
 
 Gate every live check on canopy `/v1/health` reporting `demo_mode:false` **and**
 `juniper_data_available:true` — HTTP 200 alone is not the gate. Record the leg pids at bring-up; a count on
@@ -325,9 +347,17 @@ validators returned FAIL on a draft whose work table came from the estimator.
 
 ## Git state at handoff
 
-Cut from `27d3fc1` with **ml#1203** open (segment 15). **`origin/main` moves several times a day** — always
-branch from a freshly fetched `origin/main`, never from that SHA. A peer PR **ml#1197** (snapshot-root
-decision brief) was open and touches no file this arc owns.
+Segment 15 shipped as **ml#1203** (`24aee3d`) and this handoff as **ml#1204** (`847e84e`); both merged,
+both main-verify green. This document was then **corrected in place on 2026-08-21** (see the snapshot-root
+box above) once concurrent sessions landed the S-1 storage-convention ruling — at that point `origin/main`
+was `d52c626`. **`origin/main` moves several times a day** — always branch from a freshly fetched
+`origin/main`, never from any SHA quoted here, and **re-derive every line anchor in this document before
+relying on it**: the 2026-08-21 pass alone had to move `isolated_stack.bash:369→:379` and `:457→:467`, and
+`manager.py:3079→:3081` / `:2801→:2803`, purely from other sessions' edits.
+
+Verified still correct on `d52c626`: matrix `:77` (the counter), `:223` / `:246` / `:519` / `:573` / `:600` /
+`:701`; evidence note `:96`; plan `:689`; `isolated_stack.bash:62` / `:83` / `:122`;
+`dashboard_manager.py:6841`; `juniper-canopy/src/main.py:3937`.
 
 Matrix at **266 of 298**. Verdict records: `reports/e2e/20260809T223851Z/rowlog.md`,
 `20260810T002233Z/`, `20260811T010700Z/`, `20260816T124231Z/`, `20260817T093715Z/`, `20260817T101500Z/`,
