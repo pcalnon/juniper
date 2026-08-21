@@ -37,7 +37,9 @@ USAGE
     python <juniper-ml>/util/ad-hoc/2026-08-16_snapshot_archive_census.py --census
     python <juniper-ml>/util/ad-hoc/2026-08-16_snapshot_archive_census.py --sample --per-bucket 12
 
-    --dir DIR       snapshot root (default: juniper-cascor/src/cascor_snapshots)
+    --dir DIR       snapshot root (default: juniper-cascor/cascor-snapshots -- the ONE root
+                    shared by the CLI, service and container tiers since the 2026-08-20
+                    storage-convention ruling; was juniper-cascor/src/cascor_snapshots)
     --census        structural census: count, bytes, loadable vs stub, writer versions
     --sample        stratified verify_saved_network sample (needs the cascor tree on sys.path)
     --per-bucket N  sample size per filename year-month (default 12)
@@ -53,7 +55,7 @@ import random
 import sys
 
 DEFAULT_DIR = pathlib.Path(
-    "/home/pcalnon/Development/python/Juniper/juniper-cascor/src/cascor_snapshots"
+    "/home/pcalnon/Development/python/Juniper/juniper-cascor/cascor-snapshots"
 )
 
 
