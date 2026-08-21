@@ -1,0 +1,32 @@
+diff --git a/src/candidate_unit/candidate_unit.py b/src/candidate_unit/candidate_unit.py
+index 05368cb..b66a361 100755
+--- a/src/candidate_unit/candidate_unit.py
++++ b/src/candidate_unit/candidate_unit.py
+@@ -668,6 +668,11 @@ class CandidateUnit:
+         if candidate_training_result and candidate_training_result.success and candidate_training_result.correlation != 0.0:
+             self.correlation = float(candidate_training_result.correlation)
+             self.logger.info(f"CandidateUnit: train: Final Correlation: UUID: {self.uuid}, Final correlation value: {self.correlation:.6f}, Best Corr Index: {candidate_training_result.best_corr_idx}")
++            # DIAGNOSTIC (juniper-cascor#532, NOT for merge as-is): the line above rounds to 6 dp,
++            # and in the cap-4 cell the top two round-0 correlations are 0.091185 / 0.091184 --
++            # adjacent at that precision. Whether identically-seeded runs agree BELOW 1e-6 is
++            # exactly the question, so print the exact float and the candidate's identity.
++            self.logger.info(f"CandidateUnit: train: DIAG: candidate_index={self.candidate_index} correlation_exact={self.correlation!r} epochs_completed={candidate_training_result.epochs_completed}")
+         else:
+             self.correlation = 0.0
+             self.logger.warning("CandidateUnit: train: No valid correlations found, setting correlation to 0.0")
+diff --git a/src/cascade_correlation/cascade_correlation.py b/src/cascade_correlation/cascade_correlation.py
+index 4c23a42..5ec656b 100755
+--- a/src/cascade_correlation/cascade_correlation.py
++++ b/src/cascade_correlation/cascade_correlation.py
+@@ -4848,6 +4848,11 @@ class CascadeCorrelationNetwork:
+     ) -> Optional[Tuple[float, float]]:
+         if self.logger.isEnabledFor(logging.INFO):
+             self.logger.info(f"CascadeCorrelationNetwork: _add_best_candidate: Adding best candidate {best_candidate} at iteration {iteration}")
++            # DIAGNOSTIC (juniper-cascor#532, NOT for merge as-is): the line above interpolates the
++            # CandidateUnit itself, which has no __repr__, so what lands in the log is a memory
++            # address -- it identifies nothing and differs every run. WHICH candidate was installed
++            # is the one fact that separates "a near-tie flipped" from "the math jittered".
++            self.logger.info(f"CascadeCorrelationNetwork: _add_best_candidate: DIAG: iteration={iteration} installed_index={getattr(best_candidate, 'candidate_index', None)} correlation_exact={getattr(best_candidate, 'correlation', None)!r}")
+         if best_candidate is None:
+             self.logger.warning("CascadeCorrelationNetwork: _add_best_candidate: Best candidate is None, cannot add to network")
+             return None, None

@@ -1,0 +1,71 @@
+diff --git a/src/main.py b/src/main.py
+index c6a6119..2e2d405 100755
+--- a/src/main.py
++++ b/src/main.py
+@@ -34,6 +34,7 @@
+ #
+ #####################################################################################################################################################################################################
+ import argparse
++import concurrent.futures as _concurrent_futures  # DIAGNOSTIC (juniper-cascor#532) -- see main()
+ import logging
+ import logging.config
+ import os
+@@ -503,20 +504,44 @@ def main(generate_plots: bool = _CASCOR_GENERATE_PLOTS_DEFAULT):
+ 
+     # Solve the two spiral problem using the SpiralProblem instance
+     logger.info("Main: Solving SpiralProblem instance")
+-    sp.evaluate(
+-        n_points=_w11.get("n_points", _CASCOR_NUMBER_POINTS_PER_SPIRAL),
+-        n_spirals=_w11.get("n_spirals", _CASCOR_NUM_SPIRALS),
+-        n_rotations=_w11.get("n_rotations", _CASCOR_NUM_ROTATIONS),
+-        clockwise=_CASCOR_CLOCKWISE,
+-        distribution=_CASCOR_DISTRIBUTION_FACTOR,
+-        random_value_scale=_CASCOR_RANDOM_VALUE_SCALE,
+-        default_origin=_CASCOR_DEFAULT_ORIGIN,
+-        default_radius=_CASCOR_DEFAULT_RADIUS,
+-        train_ratio=_w11.get("train_ratio", _CASCOR_TRAIN_RATIO),
+-        test_ratio=_w11.get("test_ratio", _CASCOR_TEST_RATIO),
+-        noise=_w11.get("noise", _CASCOR_NOISE_FACTOR_DEFAULT),
+-        plot=generate_plots,
+-    )
++
++    # DIAGNOSTIC (juniper-cascor#532, NOT for merge as-is): run the identical call on a
++    # ThreadPoolExecutor worker instead of the main thread, and change nothing else.
++    #
++    # This is the one structural difference between the two entry points that survives every
++    # other check. The service executes training as
++    #     ThreadPoolExecutor(max_workers=1, thread_name_prefix="cascor-train")
++    # (api/lifecycle/manager.py:2237), i.e. on a NON-MAIN thread; the direct CLI calls it inline
++    # on the main thread. Both paths otherwise run the same code, the same config, the same
++    # dataset, the same 7-process candidate pool and the same (unset) BLAS environment -- and the
++    # service reproduces 0/190 pairs while the CLI diverges 146/190.
++    #
++    # It is a plausible cause rather than a stretch: OpenMP's `nthreads-var` is a PER-THREAD
++    # internal control variable, and `torch.set_num_threads()` sets it for the CALLING thread. A
++    # `fit()` running on a different thread from the one that configured the pool therefore
++    # encounters parallel regions under a different thread count than the main-thread path does,
++    # which changes how reductions are split and hence their floating-point accumulation order.
++    #
++    # If wrapping the call flips the CLI to 0 divergence, that identifies the mechanism.
++    _diag_pool = _concurrent_futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="cascor-train")
++    try:
++        _diag_pool.submit(
++            sp.evaluate,
++            n_points=_w11.get("n_points", _CASCOR_NUMBER_POINTS_PER_SPIRAL),
++            n_spirals=_w11.get("n_spirals", _CASCOR_NUM_SPIRALS),
++            n_rotations=_w11.get("n_rotations", _CASCOR_NUM_ROTATIONS),
++            clockwise=_CASCOR_CLOCKWISE,
++            distribution=_CASCOR_DISTRIBUTION_FACTOR,
++            random_value_scale=_CASCOR_RANDOM_VALUE_SCALE,
++            default_origin=_CASCOR_DEFAULT_ORIGIN,
++            default_radius=_CASCOR_DEFAULT_RADIUS,
++            train_ratio=_w11.get("train_ratio", _CASCOR_TRAIN_RATIO),
++            test_ratio=_w11.get("test_ratio", _CASCOR_TEST_RATIO),
++            noise=_w11.get("noise", _CASCOR_NOISE_FACTOR_DEFAULT),
++            plot=generate_plots,
++        ).result()   # .result() re-raises in the caller, so a failure still surfaces normally
++    finally:
++        _diag_pool.shutdown(wait=True)
+     logger.info("Main: Completed solving SpiralProblem instance")
+ 
+ 

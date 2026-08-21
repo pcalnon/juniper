@@ -115,6 +115,11 @@ none.
 > per growth iteration and is therefore near-absent at a 2-unit cap. F-P1-3b's specific claim
 > (structural, ~25×) stays refuted; "there is no wall-clock difference between the paths" was never
 > a safe reading of these two cells and is now known to be wrong at wide budgets.
+>
+> **Magnitude superseded 2026-08-20.** The `1.99×` was measured pre-#531/#533, when `main.py`
+> capped BLAS threads to 2 on the CLI path and the service path was uncapped — worth 1.30× of a
+> 1.52× candidate-phase penalty at cap 16. The *direction and the compounding* stand; the *number*
+> does not, and the gap on post-#533 `main` is unmeasured. Quote the qualifier, not the ratio.
 
 **There is no service-tier limitation.** This is now the third independent line of evidence, after
 ml#1093 (service aces the easy spiral at a small budget) and E-I (service aces the hard spiral given
