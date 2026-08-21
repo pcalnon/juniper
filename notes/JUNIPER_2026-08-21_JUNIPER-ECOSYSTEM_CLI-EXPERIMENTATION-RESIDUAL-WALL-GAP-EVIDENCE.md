@@ -305,9 +305,87 @@ service arm under a matched load window sat at 192.5 s. The thread-context diffe
 Recording this as an elimination rather than a footnote: it was the leading hypothesis going in,
 and it is cheap for a later reader to re-propose.
 
-### 4.2 Remaining hypotheses
+### 4.2 The work term — the two paths train DIFFERENT CANDIDATES, by three draws
 
-<!-- PENDING -->
+`candidate_seeds` are drawn once per growth iteration from the **parent's stdlib `random` stream**
+(`cascade_correlation.py:2298`), not derived from the configured `random_seed`. Logged on both arms
+from one instrumented build:
+
+```
+SERVICE round 0: [698594025, 1525876051, 2878380452, 2727210979, 1051454923, 1985392498, 240251661, 3529615275]
+CLI     round 0: [                                    2727210979, 1051454923, 1985392498, 240251661, 3529615275, 3457645390, 1722989659, 284277889]
+SERVICE round 1: [3457645390, 1722989659, 284277889, 3083418319, …]
+```
+
+Line them up. The CLI's round-0 list **begins at the service's 4th element**, and its last three are
+the service's **round-1 first three**. Both arms walk the *same* deterministic stream — the CLI is
+simply **offset by exactly three draws**, and stays offset for the whole run.
+
+**So the two paths do not train the same candidates, and never did.** Not because of a seed
+mismatch — `network_seed=42` on both — but because something on the CLI path consumes three extra
+values from `random` before the first candidate round, and candidate seeds are *positional* on that
+stream.
+
+Consequences, in order of how much they matter:
+
+1. **Part of the measured work ratio is "different candidates", not "slower path".** A candidate
+   seeded differently trains for a different number of epochs. The work term (0.945× / 1.206× /
+   1.454× across the caps) is therefore *not* purely a path property, and any fix that equalises
+   the seeds will move it.
+2. **It is fragile in a way nothing declares.** Adding a single `random` call anywhere on either
+   path — logging, a retry, a shuffle — silently re-seeds every candidate in every subsequent
+   round. Nothing would fail; the numbers would just change.
+3. **It makes any cross-path comparison structurally suspect** unless the two paths happen to have
+   consumed the same number of draws first, which nothing checks or guarantees.
+
+The fix is small and obvious: derive candidate seeds from `(network_seed, iteration,
+candidate_index)` rather than by drawing from a shared global stream. That makes them a function of
+configuration alone and independent of draw history. Carried into §4.6.
+
+### 4.3 The rate term — NOT pool packing; the penalty is real
+
+§3.3a's stable ~1.33× per-epoch penalty was measured as candidate-phase wall ÷ **total** epochs.
+That is not a per-epoch cost. A round runs 8 candidates over 7 workers, so at least one worker runs
+two sequentially and the round's wall is set by the **busiest worker's critical path**, not the
+total. A path whose candidates finish unevenly looks slower per epoch than one whose candidates
+finish together, at identical arithmetic cost.
+
+[`2026-08-21_h2h_pool_balance.py`](../util/ad-hoc/2026-08-21_h2h_pool_balance.py) computes the
+critical path per round (LPT: sort candidates descending, greedily assign to the least-loaded
+worker) and an imbalance figure — critical ÷ perfect-split:
+
+| arm | rounds | total epochs | critical epochs | imbalance |
+| --- | ---: | ---: | ---: | ---: |
+| service | 16 | 45,199 | 9,685 | 1.533 ± 0.460 |
+| CLI | 16 | 56,095 | 12,561 | 1.552 ± 0.280 |
+| **CLI / service** | | **1.241×** | **1.297×** | **1.012×** |
+
+**Imbalance is 1.012× — the two arms pack equally badly.** Both waste ~53% over a perfect split,
+and neither is worse than the other. Pool packing is therefore *not* what separates them, and the
+rate penalty is a genuine per-epoch cost difference: **profiling should target the worker
+environment, not the scheduler.**
+
+One correction falls out of the same table, and it goes against the headline. The correct
+denominator (critical epochs, 1.297×) is larger than the one the rate column uses (total epochs,
+1.241×), so measuring against totals **overstates the per-epoch penalty by ~4.5%**. Applied to the
+cap-16 figure, 1.415× becomes ≈**1.354×**; the cap-64 1.331× shifts similarly. The penalty is real
+and substantial either way, but the published rate numbers should be read as a slight over-estimate
+until recomputed against critical path across a full campaign.
+
+> Caveat: this is **one pair**, run under host load 25–28. That does not affect it — every quantity
+> here is an epoch *count*, not a time — but the imbalance figures are n=1 per arm and would be
+> worth confirming across the k=4 campaigns before being leaned on hard.
+
+### 4.4 Remaining hypotheses
+
+With packing eliminated (§4.3) and thread context eliminated (§4.1), what is left for the ~1.33×
+per-epoch penalty is the **worker environment**: the candidate workers are forked from a
+`uvicorn` parent on one path and a bare `python main.py` parent on the other. Forkserver preload
+set, allocator state, copy-on-write layout and inherited interpreter state all differ, and none of
+them are visible from the logs.
+
+That is what §4.6's profiling pass has to discriminate, and it is now correctly aimed: a per-epoch
+cost difference inside the worker, not a scheduling or ordering effect.
 
 ---
 
