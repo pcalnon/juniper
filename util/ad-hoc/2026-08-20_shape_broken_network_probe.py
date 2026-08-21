@@ -137,11 +137,16 @@ def default_archive() -> Path:
     git worktree nested inside juniper-ml, where walking up parent directories lands
     somewhere that does not exist.  Honour the shared override first, then fall back to
     the documented usage (run from ``<juniper-cascor>/src``).
+
+    The leaf name is ``cascor-snapshots`` since the 2026-08-20 storage-convention ruling --
+    one root at the cascor repo root, shared by the CLI, service and container tiers.
+    From ``<juniper-cascor>/src`` the cwd-relative fallback no longer lands on it, so pass
+    ``--archive`` or export ``JUNIPER_CASCOR_SNAPSHOTS_DIR`` when sampling the real archive.
     """
     override = os.environ.get("JUNIPER_CASCOR_SNAPSHOTS_DIR", "").strip()
     if override:
         return Path(override).expanduser()
-    return Path.cwd() / "cascor_snapshots"
+    return Path.cwd() / "cascor-snapshots"
 
 
 def archive_sample(archive: Path, sample_size: int, seed: int) -> int:
@@ -221,7 +226,7 @@ def inspect_one(path: Path) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1], add_help=True)
     ap.add_argument("--archive-sample", type=int, default=0, help="instead of the corruption cases, sample N real archive snapshots for shape validity")
-    ap.add_argument("--archive", type=Path, default=None, help="snapshot root (default: $JUNIPER_CASCOR_SNAPSHOTS_DIR, else ./cascor_snapshots)")
+    ap.add_argument("--archive", type=Path, default=None, help="snapshot root (default: $JUNIPER_CASCOR_SNAPSHOTS_DIR, else ./cascor-snapshots)")
     ap.add_argument("--inspect", type=Path, default=None, help="classify one real snapshot's shape violation")
     ap.add_argument("--seed", type=int, default=20260820)
     args = ap.parse_args()
