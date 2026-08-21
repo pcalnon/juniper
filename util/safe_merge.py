@@ -62,13 +62,23 @@ checks never finished. Arming blind would reintroduce the exact bug this tool pr
 It is deliberately NOT armed on an already-green PR: there ``--auto`` merges on the spot,
 skipping the head pinning below. ``--no-auto-fallback`` opts out entirely.
 
-**What the net does NOT carry (stated, because it used to be silent).** The local merge path
-pins the exact head with ``--match-head-commit``; the armed net does **not**. So the net
-guarantees *"merges only when required checks are green"* but not *"merges only the SHA this
-run vouched for"*. On a repo with ``strict=true`` that difference is deliberate -- GitHub
-updates the branch itself to satisfy the up-to-date rule, which moves the head by design, and
-a pin would fight that. It is still a real reduction in guarantee versus the local path, and
-callers who need the stronger one should pass ``--no-auto-fallback`` and keep the run alive.
+**What the net does and does not carry (D4).** Both paths now pass ``--match-head-commit``:
+the local one at merge time, the net at ARMING time. But they are not the same guarantee, and
+the difference is the part worth knowing.
+
+``expectedHeadOid`` on ``enablePullRequestAutoMerge`` is an **enable-time** check, measured
+rather than assumed (probe ml#1225: armed with a pin, pushed a commit to move the head, and
+``autoMergeRequest`` was still present with an unchanged ``enabledAt``). So pinning the net
+guards against **arming over a stale read** -- if the head moved between reading the PR and
+arming, GitHub refuses instead of arming over a SHA this run never verified.
+
+It does **not** keep pinning afterwards. Once armed, the net merges whatever head is current
+when the checks pass. That is deliberate rather than merely tolerated: on a ``strict=true``
+repo GitHub moves the head itself to satisfy the up-to-date rule, and a continuously-enforced
+pin would kill the net exactly when it is needed. So the net still guarantees *"merges only
+when required checks are green"* and not *"merges only the SHA this run vouched for"*.
+Callers who need the stronger property should pass ``--no-auto-fallback`` and keep the run
+alive.
 
 **A refusal takes the net back down.** Any refusal after arming calls ``--disable-auto``
 before propagating, so a refusal cannot quietly become a merge once the blocker clears. If
@@ -438,7 +448,7 @@ ARMABLE_STATES = ("BLOCKED", "BEHIND", "UNKNOWN")
 _ARMED: dict | None = None
 
 
-def arm_auto_merge(owner: str, repo: str, pr: int, method: str, log) -> bool:
+def arm_auto_merge(owner: str, repo: str, pr: int, method: str, log, head: str = "") -> bool:
     """Hand the merge to GitHub as a net, so a killed script does not strand the PR.
 
     Idempotent: arming twice is a no-op, so callers may call this on every cycle.
@@ -446,6 +456,26 @@ def arm_auto_merge(owner: str, repo: str, pr: int, method: str, log) -> bool:
     Armed only in ARMABLE_STATES -- on an already-green PR ``--auto`` merges on the spot,
     which would skip the head pinning the local path performs, so that case is deliberately
     left to the local path.
+
+    ``head`` pins the arming to a specific SHA (D4). MEASURED before adding, because a wrong
+    guess here would be silent and total: probe ml#1225 armed a net with
+    ``--match-head-commit``, pushed a new commit to move the head, and re-read the PR --
+    ``autoMergeRequest`` was still present with an UNCHANGED ``enabledAt``, so it had not
+    been dropped and had not been silently re-armed.
+
+    So ``expectedHeadOid`` on ``enablePullRequestAutoMerge`` is an ENABLE-TIME
+    optimistic-concurrency guard, not a continuous constraint. That matters: had it been
+    continuous, the net would evaporate the moment GitHub moved the head itself to satisfy
+    ``strict``, which is exactly when it is needed -- silently negating D1. A push is a
+    stronger head move than GitHub's own sync, and the net survived it.
+
+    What pinning buys: the arming cannot be based on a stale read. If the head moved between
+    ``pr_state`` and here, GitHub rejects the mutation instead of arming a net over a SHA
+    this run never verified. The net still carries the weaker guarantee AFTER arming (it
+    merges whatever head is current once checks pass) -- that part of D4 remains a stated
+    trade, not a fixed one, and the docstring says so.
+
+    Passing ``head=""`` skips the pin, which is the pre-D4 behaviour.
     """
     global _ARMED
     if _ARMED is not None:
@@ -453,15 +483,21 @@ def arm_auto_merge(owner: str, repo: str, pr: int, method: str, log) -> bool:
     if not repo_allows_auto_merge(owner, repo):
         log("  auto-merge net UNAVAILABLE (allow_auto_merge is false) — local wait only")
         return False
+    argv = ["pr", "merge", str(pr), "--repo", f"{owner}/{repo}", "--auto", f"--{method}"]
+    if head:
+        # Must be the full 40-char OID: an abbreviated SHA is rejected with
+        # "Could not coerce value ... to GitObjectID". `headRefOid` is already full-length.
+        argv += ["--match-head-commit", head]
     try:
-        _gh(["pr", "merge", str(pr), "--repo", f"{owner}/{repo}", "--auto", f"--{method}"])
+        _gh(argv)
     except HardError as exc:
         log(f"  could not arm auto-merge net ({str(exc)[:80]}) — continuing with local wait")
         return False
     _ARMED = {"owner": owner, "repo": repo, "pr": pr}
+    pinned = f" pinned to {head[:8]}" if head else " (UNPINNED)"
     log(
-        "  auto-merge net armed — GitHub will complete this merge even if this run dies "
-        "(net is checks-green-gated but NOT head-pinned; see module docstring)"
+        f"  auto-merge net armed{pinned} — GitHub will complete this merge even if this run "
+        "dies (net is checks-green-gated; it does not re-pin the head after arming)"
     )
     return True
 
@@ -640,7 +676,14 @@ def _safe_merge_inner(
             # branch `continue`s straight past the arming site below). Arming first also
             # covers the sync itself, which is not instantaneous.
             if auto_fallback:
-                arm_auto_merge(owner, repo, pr, method, log)
+                # Pin to the PRE-SYNC head. The update-branch immediately below moves it,
+                # and that is fine: the pin is an enable-time guard (measured, ml#1225), so
+                # the net survives the very sync this branch is about to perform. What it
+                # still buys here is that we cannot arm over a head that moved between the
+                # `pr_state` read above and this call.
+                arm_auto_merge(
+                    owner, repo, pr, method, log, head=info.get("headRefOid") or ""
+                )
             if update_branch(owner, repo, pr) is None:
                 raise Refused(
                     "branch refresh did not land within the settle budget — "
@@ -667,7 +710,9 @@ def _safe_merge_inner(
         # UNKNOWN while it recomputes mergeability, so the post-sync cycle routinely arrived
         # here in a state that armed nothing.
         if auto_fallback and state in ARMABLE_STATES:
-            arm_auto_merge(owner, repo, pr, method, log)
+            # Pin to the SAME head the local path is about to vouch for, so arming and
+            # verifying agree on what is being merged.
+            arm_auto_merge(owner, repo, pr, method, log, head=head)
 
         log(f"  waiting on required checks for {head[:8]} …")
         result = wait_for_required(owner, repo, pr, timeout, verbose)

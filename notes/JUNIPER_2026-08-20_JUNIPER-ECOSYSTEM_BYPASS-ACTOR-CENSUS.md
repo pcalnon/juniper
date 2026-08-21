@@ -3,7 +3,9 @@
 **Project**: Juniper (ecosystem)
 **Author**: Paul Calnon
 **Date**: 2026-08-20
-**Status**: Census COMPLETE. **One of the two removal candidates is refuted by evidence.**
+**Status**: Census COMPLETE; **two later corrections folded in (§3b, §3c)** — `DeployKey`
+is IDENTIFIED, and §1's dependabot verdict is WITHDRAWN. Both removal candidates are now
+**UNDETERMINED**, on the same absence-from-history evidence §1 itself called insufficient.
 **Scope**: **Read-only.** No ruleset, bypass row, or repository setting was changed.
 **Related**: `HANDOFF_2026-08-19` §2.5; ml#1012;
 [`…_BRANCH-PROTECTION-INVESTIGATION-SYNTHESIS.md`](JUNIPER_2026-08-18_JUNIPER-ECOSYSTEM_BRANCH-PROTECTION-INVESTIGATION-SYNTHESIS.md)
@@ -21,18 +23,29 @@ The census was run. It splits the two candidates:
 
 | Actor | Suites (1 month, 9 repos) | Verdict |
 | --- | --- | --- |
-| `29110` **dependabot[bot]** | **bypass 24 / pass 0 / fail 0** | **DO NOT REMOVE — refuted** |
+| `29110` **dependabot[bot]** | bypass 24 / pass 0 — but **all 2026-07-20 → 08-10** | **UNDETERMINED** — §1's verdict is WITHDRAWN, see §3c. It created branches on 08-17 with no suite at all. |
 | `1143301` **Copilot SWE Agent** | **absent entirely** | removal argument survives |
 | `RepositoryRole 5` **pcalnon** | bypass 614 / pass 208 / fail 1 | **KEEP** — confirms the §1 caveat, emphatically |
 | `4362741` release-train App | pass 1 | consistent with *"test it or leave it"*; nothing new |
-| `DeployKey` (null) | absent | still **IDENTIFY-FIRST**; absence is not identification |
+| `DeployKey` (null) | absent | **IDENTIFIED 2026-08-21 (§3b)** — this operator's own machines, 17 write-enabled keys. Absent from suites because the row is barely exercisable, not because the actor was unknown. |
 
 Tools (both in-repo, re-runnable):
 `util/ad-hoc/2026-08-20_bypass_actor_census.py`, `util/ad-hoc/2026-08-20_creation_rule_scan.py`.
 
 ---
 
-## 1. Why the dependabot argument fails — the premise is true AND insufficient
+## 1. ~~Why the dependabot argument fails~~ — **WITHDRAWN 2026-08-21, see §3c**
+
+> **Do not act on this section.** Its reasoning was sound for the configuration in force
+> 2026-07-20 → 2026-08-10, which is the whole window its 24 events fall in. Dependabot
+> created branches again on 2026-08-17 and produced **no rule suite at all**, so the
+> `creation` rule is no longer firing on them and no bypass is being consumed. The error
+> was reading a one-month event window as a statement about today without checking whether
+> the configuration changed inside it. It did. §3c has the detail.
+
+The original text follows unedited, because the reasoning is still the right shape — it is
+the currency of its evidence that failed.
+
 
 The removal argument rests on the rulesets being scoped to `~DEFAULT_BRANCH`, so an actor
 that only ever pushes its own branches never meets them. **That scoping claim is correct.**
@@ -131,6 +144,84 @@ one day back, on repos with months of history.
 
 The tool now defaults to `--time-period month` and prints the window on every run, because a
 census that cannot state its own coverage is not a census.
+
+---
+
+## 3b. `DeployKey` — IDENTIFIED 2026-08-21
+
+The one row the census left unresolved, and the widest in the roster. `actor_id: null` means
+**any deploy key on that repo**, so the entitlement is exactly as wide as the set of
+write-enabled deploy keys — and a repo with none would have an inert row.
+
+**It is not a third party. It is the operator's own machines.**
+`util/ad-hoc/2026-08-21_deploykey_bypass_audit.py` matches every repo's deploy keys against
+this host's `~/.ssh/*.pub`:
+
+| family | count | matches this host | `added_by` | `last_used` |
+| --- | ---: | --- | --- | --- |
+| `<repo> deploy key` (+ `local-dev-key` on deploy) | 9 | **yes**, `id_ed25519_gh_*` | `pcalnon` | current |
+| `… Deploy Key - Turing` | 8 | no — a second machine | `pcalnon` | **all 2026-05-07** |
+
+17 write-enabled keys across 9 repos. Every one is `read_only: false` and `added_by: pcalnon`.
+
+Confirmed by asking GitHub directly rather than inferring:
+
+```console
+$ ssh -T git@github.com-juniper-ml
+Hi pcalnon/juniper-ml! You've successfully authenticated, ...
+```
+
+`Hi <owner>/<repo>!` is the **deploy-key** response; a user key answers `Hi <user>!`. So this
+workstation's every `git push` to these repos authenticates as the DeployKey bypass actor.
+
+> **`last_used` IS NOT A RECENCY SIGNAL — do not retire a key on it.** The juniper-ml key
+> reported `last_used: 2026-08-17` immediately after a successful `ssh -T` *and* after ~30
+> pushes the same day. The "Turing" family reads 2026-05-07, which is consistent with a
+> retired machine but does **not** establish one.
+
+**What the row actually enables, and what it does not.** The primary ruleset is
+`~DEFAULT_BRANCH`-scoped, and `juniper-no-direct-push` (`bypass_actors: []`) binds deploy keys
+like everyone else — so this row **cannot** enable a direct push to `main`. Pushes to feature
+branches are not evaluated at all (zero rule suites on non-`main` refs). The residual is
+narrow but real: the primary ruleset's `deletion` and `non_fast_forward` rules on `main`,
+which a deploy key bypasses. Whether `no-direct-push`'s `pull_request` rule independently
+blocks a *deletion* is **UNTESTED** — and not a thing to test on a live default branch.
+
+**Disposition, for the owner:**
+
+1. **Lowest-risk hygiene, no ruleset edit:** if the "Turing" machine is retired, delete those
+   **8 keys**. That narrows the entitlement by nearly half and touches no ruleset.
+2. **The row itself:** removal looks low-impact — this host's normal operations (feature-branch
+   pushes, `gh`-API merges under a token as `pcalnon`) do not appear to rely on it — but
+   "appears not to" is not "does not", and the safe order is (1) first, then re-census.
+
+---
+
+## 3c. CORRECTION to §1 — the dependabot conclusion does not hold as stated
+
+§1 concluded that removing row `29110` **"stops dependency PRs fleet-wide"**, on 24 bypass
+events all showing `creation: fail`. That conclusion is **withdrawn**; the evidence does not
+support it for the *current* configuration.
+
+All 24 events fall between **2026-07-20 and 2026-08-10**. Dependabot created branches again on
+**2026-08-17** (cascor-client #117, #118) and produced **no rule suite at all** — not a bypass,
+not a failure, nothing. So its branch creations are no longer being evaluated, and no bypass is
+being consumed.
+
+I could not pin the cause: the ruleset's `creation` rule and `~DEFAULT_BRANCH` scoping are
+unchanged since at least 2026-08-12, and `do_not_enforce_on_create` is unset in both the
+current and historical versions. So **why** it changed is UNDETERMINED — but **that** it
+changed is not.
+
+> **The method error, which is the reusable part.** I read a one-month bypass window and drew
+> a conclusion about today, without checking whether the ruleset changed *inside* that window.
+> It did, on 2026-08-10. This is the trap the kill-forensics doc states explicitly — *"anchor
+> on the ruleset version in effect at the event, never the current one"* — applied in reverse:
+> I anchored on events and assumed the configuration was constant. **A bypass census is a
+> statement about a configuration, and the configuration has a version.**
+
+Current status of the two removal candidates: **both UNDETERMINED**, on the same evidence
+type (absence-from-recent-history), which is exactly the standard §1 said was insufficient.
 
 ---
 
