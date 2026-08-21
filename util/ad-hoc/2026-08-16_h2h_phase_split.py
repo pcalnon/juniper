@@ -21,10 +21,10 @@ HOW
 A cascade iteration in the parent log looks like:
 
     train_candidates:2166        <- candidate phase begins
-    train_candidate_worker:...   <- pool members (8 per iteration)
-    train_output_layer:2100      <- output pass progress, one record per 10 epochs
-    train_output_layer:2120      <- "Final output layer training loss" = iteration boundary
-    grow_network:4650            <- iteration summary
+    "Executing candidate training with N processes"  <- candidate phase begins
+    "Output Layer Training - Epoch N, Loss: ..."     <- output pass progress, one per 10 epochs
+    "Final output layer training loss: ..."          <- iteration boundary
+    "Iteration N - Train Loss: ..."                  <- iteration summary
 
 So within an iteration the candidate phase runs from its start to the FIRST output-progress
 record, and the output pass runs from there to the boundary. Timestamps are second-resolution,
@@ -45,7 +45,27 @@ from datetime import datetime
 from pathlib import Path
 
 TS = re.compile(r"\((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\)")
-MARK = re.compile(r"(train_candidates:2166|train_output_layer:2100|train_output_layer:2120|fit:1918|fit:1936)")
+
+# ANCHORED ON MESSAGE TEXT, NOT ON `file.py: func:LINE`.
+#
+# This originally matched the five markers as `train_candidates:2166`, `train_output_layer:2100`,
+# `train_output_layer:2120`, `fit:1918`, `fit:1936`. Those tokens are the emitting SOURCE LINE
+# NUMBERS, and juniper-cascor#539 shifted cascade_correlation.py by ~90 lines: on a current log
+# all three of the candidate/output anchors now point at statements that log nothing, and this
+# script reported "nothing parseable" against a perfectly good run (2026-08-20).
+#
+# The loud failure was luck, not design. `analyse()` only bails when BOTH phase lists are empty,
+# so a shift that broke one anchor and spared the others would have produced a confident,
+# silently wrong phase split -- the exact failure class this campaign is trying to avoid. Message
+# text moves only when someone edits the message, which is a reviewable change; a line number
+# moves whenever anyone edits the file at all.
+MARKS = (
+    ("cand_start", re.compile(r"train_candidates: Executing candidate training with \d+ processes")),
+    ("out_progress", re.compile(r"train_output_layer: Output Layer Training - Epoch \d+, Loss:")),
+    ("out_final", re.compile(r"train_output_layer: Final output layer training loss:")),
+    ("fit_start", re.compile(r"fit: Starting main training loop with max_epochs:")),
+    ("fit_end", re.compile(r"fit: Training completed\.")),
+)
 
 
 def segments(d: Path) -> "list[Path]":
@@ -61,12 +81,12 @@ def events(d: Path):
     for seg in segments(d):
         with seg.open(encoding="utf-8", errors="replace") as fh:
             for line in fh:
-                m = MARK.search(line)
-                if not m:
+                kind = next((name for name, rx in MARKS if rx.search(line)), None)
+                if kind is None:
                     continue
                 t = TS.search(line)
                 if t:
-                    yield m.group(1), datetime.strptime(t.group(1), "%Y-%m-%d %H:%M:%S")
+                    yield kind, datetime.strptime(t.group(1), "%Y-%m-%d %H:%M:%S")
 
 
 def analyse(d: Path) -> dict | None:
@@ -76,18 +96,18 @@ def analyse(d: Path) -> dict | None:
     out_secs: list[float] = []
     fit0 = fit1 = None
     for kind, ts in events(d):
-        if kind == "fit:1918":
+        if kind == "fit_start":
             fit0 = ts
-        elif kind == "fit:1936":
+        elif kind == "fit_end":
             fit1 = ts
-        elif kind == "train_candidates:2166":
+        elif kind == "cand_start":
             cand_start, out_start = ts, None
-        elif kind == "train_output_layer:2100":
+        elif kind == "out_progress":
             # First output-progress record after a candidate phase closes that phase.
             if cand_start is not None and out_start is None:
                 cand_secs.append((ts - cand_start).total_seconds())
                 out_start = ts
-        elif kind == "train_output_layer:2120":
+        elif kind == "out_final":
             if out_start is not None:
                 out_secs.append((ts - out_start).total_seconds())
             cand_start = out_start = None
