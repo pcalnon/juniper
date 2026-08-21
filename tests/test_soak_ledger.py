@@ -413,7 +413,13 @@ class RecordValidation(unittest.TestCase):
     def test_probe_run_takes_severity_from_the_frozen_registry(self) -> None:
         # Severity must not be settable at the CLI, or the hazard stratum can be
         # defined after the observation.
-        r = cli("probe-run", "--probe-id", "P01-reaper-protection-keys", "--outcome", "follow", "--session", "S", "--dry-run", cwd=REPO_ROOT)
+        #
+        # --force-scope is load-bearing here, not incidental: CI checks out at
+        # depth 1, so the START_MARKER object is absent, the scope predicate is
+        # undecidable, and the tool fails CLOSED. That is correct behaviour; this
+        # test is about severity provenance, so it opts out of the scope gate
+        # rather than depending on the repo's git history.
+        r = cli("probe-run", "--probe-id", "P01-reaper-protection-keys", "--outcome", "follow", "--session", "S", "--force-scope", "--dry-run", cwd=REPO_ROOT)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout)["severity"], "hazard")
 
@@ -442,10 +448,26 @@ class RecordValidation(unittest.TestCase):
         self.assertNotIn("area-systematic", sl.MISS_CLASSES)
 
     def test_dry_run_writes_nothing(self) -> None:
+        # --force-scope keeps this honest. Without it, under CI's depth-1
+        # checkout the command is REFUSED at exit 2 and writes nothing for the
+        # wrong reason -- the assertion would hold while never exercising the
+        # dry-run path at all. Asserting exit 0 pins that it really got there.
         with TemporaryDirectory() as t:
             p = Path(t) / "l.jsonl"
-            cli("--ledger", str(p), "probe-run", "--probe-id", "P01-reaper-protection-keys", "--outcome", "follow", "--session", "S", "--dry-run", cwd=REPO_ROOT)
+            r = cli("--ledger", str(p), "probe-run", "--probe-id", "P01-reaper-protection-keys", "--outcome", "follow", "--session", "S", "--force-scope", "--dry-run", cwd=REPO_ROOT)
+            self.assertEqual(r.returncode, 0, r.stderr)
             self.assertFalse(p.exists())
+
+    def test_shallow_checkout_refuses_rather_than_guessing(self) -> None:
+        # The CI-visible consequence of failing closed, pinned deliberately: in a
+        # checkout without the marker object (depth-1, as CI does) a real record
+        # is refused, not silently marked in-scope. v0.1 marked it in-scope.
+        r = cli("probe-run", "--probe-id", "P01-reaper-protection-keys", "--outcome", "follow", "--session", "S", "--dry-run", cwd=REPO_ROOT)
+        self.assertIn(r.returncode, (0, 2))
+        if r.returncode == 2:
+            self.assertIn("fails CLOSED", r.stderr)
+        else:
+            self.assertIs(json.loads(r.stdout)["in_scope"], True)
 
 
 class ProbeRegistry(unittest.TestCase):
