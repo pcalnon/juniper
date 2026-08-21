@@ -759,7 +759,7 @@ Confirm with `rg -n 'if ! conda activate' util/isolated_stack.bash`. A missing `
 
 `--down` does **not** use `JuniperProject.pid`. It stops canopy → cascor → data via `stop_port`, which asks `ss -tlnpH "sport = :<port>"` for the first `pid=N` (`port_pid`), then `kill`s that PID.
 
-Soft-fail when `ss` is missing, exits nonzero, or reports no `pid=` (logs "nothing listening"; not a failure). `--dry-run --down` announces the kill line but never kills. After stop, live mode removes `${RUN_DIR}/data`, the data venv, `*.pid`, and `snapshot_*` under cascor/canopy `src/snapshots/` (non-matching snapshot names are left alone).
+Soft-fail when `ss` is missing, exits nonzero, or reports no `pid=` (logs "nothing listening"; not a failure). `--dry-run --down` announces the kill line but never kills. After stop, live mode removes `${RUN_DIR}/data`, the data venv, `*.pid`, and `snapshot_*.h5` under canopy `src/snapshots/` (non-matching names are left alone). It deliberately does **not** touch cascor's shared snapshot root `juniper-cascor/cascor-snapshots/` — that is a project asset store outliving every stack, and repointing the teardown glob at it is the mistake the in-script comment guards against. Per-run snapshot sweeping is done by giving the run its own `JUNIPER_CASCOR_SNAPSHOTS_DIR`, as `experiment_stack.bash` does.
 
 Orphaned listeners on `8101`/`8202`/`8051` after a broken teardown collide with the next `--up` — prefer `--down`, then `ss -tlnH 'sport = :8101 or sport = :8202 or sport = :8051'` (should print nothing).
 
@@ -1929,7 +1929,7 @@ Port locks use atomic `mkdir "$LOCK_ROOT/<port>.lock"` (`JUNIPER_EXP_LOCK_ROOT`,
 
 #### Concurrency (Wave 5)
 
-`cascor_up` exports `JUNIPER_CASCOR_SNAPSHOTS_DIR=$RUN_DIR/snapshots` (W-6), so each run's cascor writes snapshots into its own `RUN_DIR` instead of the repo-shared `src/snapshots` (the `.h5`-debris class); concurrent bench runs use `python -m bench.run_benchmark --results-dir` (W-7, juniper-recurrence). Two live runs are fully isolated — disjoint ports via the lockdirs, and `--down` of one run touches nothing of the other (pinned by `TestTwoRunConcurrency`).
+`cascor_up` exports `JUNIPER_CASCOR_SNAPSHOTS_DIR=$RUN_DIR/snapshots` (W-6), so each run's cascor writes snapshots into its own `RUN_DIR` instead of the shared root `juniper-cascor/cascor-snapshots/` (the `.h5`-debris class). This is the sanctioned use of the override: the shared root is the default precisely so CLI, service and container runs find each other's models, and a per-run root is the opt-out for isolated experiments; concurrent bench runs use `python -m bench.run_benchmark --results-dir` (W-7, juniper-recurrence). Two live runs are fully isolated — disjoint ports via the lockdirs, and `--down` of one run touches nothing of the other (pinned by `TestTwoRunConcurrency`).
 
 **Q-6 is resolved (2026-08-15) and the one-cascor-per-checkout rule is retired.** `cascor_up` now also exports `JUNIPER_CASCOR_LOG_DIR=$RUN_DIR/logs` (juniper-cascor#523), so each run's cascor writes its own file log instead of the repo-shared `logs/juniper_cascor.log` (H-7). Requires `juniper-cascor` carrying that override; against an older cascor the export is simply ignored and the shared-log constraint below still applies.
 

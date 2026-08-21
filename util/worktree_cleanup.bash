@@ -388,6 +388,31 @@ phase_3_merge_and_pr() {
 phase_4_cleanup() {
     log_step "Phase 4: Remove Old Worktree"
 
+    # Snapshot-archive guard. `git worktree remove` deletes the whole directory, and an
+    # IGNORED directory does not make a worktree dirty -- so a worktree that accrued
+    # snapshots is removed WITHOUT --force and the models go with it, silently. cascor's
+    # snapshot root defaults to <checkout>/cascor-snapshots, so any cascor worktree that
+    # ran the CLI or the service without JUNIPER_CASCOR_SNAPSHOTS_DIR has one.
+    #
+    # Refuse rather than warn: the artifacts are unrecoverable and the operator can either
+    # move them into the primary checkout's shared root or re-run with
+    # WORKTREE_CLEANUP_DISCARD_SNAPSHOTS=1 having decided they are disposable.
+    local _snap_root="${OLD_WORKTREE}/cascor-snapshots"
+    if [[ -d "${_snap_root}" ]]; then
+        local _snap_count
+        _snap_count=$(find "${_snap_root}" -maxdepth 1 -name '*.h5' 2>/dev/null | wc -l)
+        if [[ "${_snap_count}" -gt 0 ]]; then
+            if [[ "${WORKTREE_CLEANUP_DISCARD_SNAPSHOTS:-0}" == "1" ]]; then
+                log_warn "Discarding ${_snap_count} snapshot(s) in ${_snap_root} (WORKTREE_CLEANUP_DISCARD_SNAPSHOTS=1)"
+            else
+                log_error "Refusing to remove ${OLD_WORKTREE}: it holds ${_snap_count} snapshot .h5 file(s) in cascor-snapshots/."
+                log_error "  These are gitignored, so 'git worktree remove' would delete them without --force and without warning."
+                log_error "  Move them to the shared root first, or re-run with WORKTREE_CLEANUP_DISCARD_SNAPSHOTS=1 to discard."
+                return 1
+            fi
+        fi
+    fi
+
     # Remove old worktree
     log_info "Removing worktree: ${OLD_WORKTREE}"
     run_cmd git -C "${MAIN_REPO}" worktree remove "${OLD_WORKTREE}" || {
