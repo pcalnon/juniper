@@ -100,6 +100,9 @@ python3 -m unittest -v tests/test_template_data_resolver.py
 python3 -m unittest -v tests/test_scaffold_template.py
 python3 -m unittest -v tests/test_open_signed_pr.py
 python3 -m unittest -v tests/test_wait_for_checks.py
+python3 -m unittest -v tests/test_safe_merge.py
+python3 -m unittest -v tests/test_subpackage_py_typed.py
+python3 -m unittest -v tests/test_requirements_consolidate.py
 python3 -m unittest -v tests/test_prompt_validator_contract.py
 python3 -m unittest -v tests/test_template_agent_skill_lint.py
 python3 -m unittest -v tests/test_service_smoke_skill_lint.py
