@@ -19,20 +19,20 @@ Citations are `file:NNN`. Line numbers drift constantly in `manager.py` / `snaps
 
 ## 1. Shipped this arc — do NOT redo
 
-| PR | repo | what |
-|---|---|---|
-| cascor#539 | juniper-cascor | **R3** — resume continues the restored optimizer (golden-neutral) |
-| ml#1193 | juniper-ml | D-B design-of-record |
-| ml#1195 | juniper-ml | retracted the false `load_network` claim **in place** |
-| ml#1199 | juniper-ml | D-E design + shape probe |
-| cascor#542 | juniper-cascor | **D-B** — corrupt snapshot is 422, not 404 |
-| cascor#551 | juniper-cascor | **D-E** — enforce the load-time integrity gates |
-| cascor#553 | juniper-cascor | D-E gap — the **two hidden-unit checksum gates** (six→eight) |
-| cascor#554 + ml#1230 | both | **D-C** — provenance capability + launcher wiring |
-| ml#1218 | juniper-ml | probe fix (D-E had broken its own evidence tool) |
-| ml#1238 + ml#1244 | juniper-ml | **§6.2 index + query**, and the `dataset_id` join |
-| cascor#558 | juniper-cascor | test suite no longer leaks snapshots into the archive |
-| ml#1247 | juniper-ml | **S-2 cohort characterisation** (findings, no policy) |
+| PR                   | repo           | what                                                              |
+|----------------------|----------------|-------------------------------------------------------------------|
+| cascor#539           | juniper-cascor | **R3** — resume continues the restored optimizer (golden-neutral) |
+| ml#1193              | juniper-ml     | D-B design-of-record                                              |
+| ml#1195              | juniper-ml     | retracted the false `load_network` claim **in place**             |
+| ml#1199              | juniper-ml     | D-E design + shape probe                                          |
+| cascor#542           | juniper-cascor | **D-B** — corrupt snapshot is 422, not 404                        |
+| cascor#551           | juniper-cascor | **D-E** — enforce the load-time integrity gates                   |
+| cascor#553           | juniper-cascor | D-E gap — the **two hidden-unit checksum gates** (six→eight)      |
+| cascor#554 + ml#1230 | both           | **D-C** — provenance capability + launcher wiring                 |
+| ml#1218              | juniper-ml     | probe fix (D-E had broken its own evidence tool)                  |
+| ml#1238 + ml#1244    | juniper-ml     | **§6.2 index + query**, and the `dataset_id` join                 |
+| cascor#558           | juniper-cascor | test suite no longer leaks snapshots into the archive             |
+| ml#1247              | juniper-ml     | **S-2 cohort characterisation** (findings, no policy)             |
 
 ---
 
@@ -98,13 +98,36 @@ dysfunctional networks.
    dataset; the cohort is uniformly 2-in/2-out synthetic (§4.3), so a generated spiral/moons set
    is the plausible stand-in. **Whether accuracy against a *substitute* dataset is meaningful is
    an open question for the owner** — the original dataset identity is unrecoverable (§4.2).
+
+       **Inference pass to infer dataset:** for any snapshot with hidden nodes, it's a reasonable, initial assumption that some amount of training has taken place on an existing dataset.
+       since inference is computationally cheap, network accuracy per dataset can be calculated for all cascor, 2-in -> 2-out datasets.
+       getting a better than random accuracy for a dataset, is a strong--but not definitive--indicator that the network trained on that dataset.
+       in the--perhaps unlikely?--scenario of a network scoring better than chance on multiple, 2-in -> 2-out datasets, the stronger--but still not definitive--conclusion would be to select the dataset associated with the largest increase in accuracy over chance.
+
 3. **Training probe for the zero-node subset** — separates *formerly broken* (trains) from *fails
    to train* (dysfunctional). This is the expensive step: ~11,751 networks.
 4. **Backfill** — write the recovered attributes somewhere. **Do not write into the snapshots**
    without an explicit decision: they are read-only project assets and the index is the natural
    home.
+
+       **Metadata backfill for research value:** my instinct here is that backfilling metadata would tend to increase the research value of snapshots.
+       caveating backfilled snapshots with a clear and visible label capturing the approximate, inferred, or recreated nature of their metadata would be a potentially important caution against naive reasoning.
+       for the broken datasets, root causing their issues seems likely to be the greatest value contributor.
+       in particular, root cause determination of the formatting or data issues affecting the "fails to load" snapshots would be helpful.
+       research value of "fails to train" snapshots would likely benefit from determining root causes of the network topology issues preventing training.
+       once root-causing has been carried out on the broken snapshot categories, any further value seems unlikely.
+       saving a compressed, encrypted archive of the entire project tree--including snapshots--using the new juniper_backup.bash script seems likely to be a sufficient safeguard against future need for potentially removed snapshots.
+
 5. **§6.4 retention** — the owner's call, now informed.
+
+       **Retention Criterion:** future research value seems like an obvious first approximation of a criterion for evaluating snapshot retention.
+
 6. **Inert-metadata defect (§4.1)** → defect-register entry + a cascor writer fix. Not started.
+
+       **Supporting Infrastructure:** what this section seems to argue for is the addition of tooling, infrastructure, and automation supporting the snapshot classification process.
+       ideally, this tooling would include implementation of scripting to root cause the formatting or data issues affecting the "fails to load" snapshots.
+       for "fails to train" snapshots, scripting to determine the network topology issues preventing training would be significant.
+       this tooling and infrastructure seems likely to be invaluable going forward to investigate future instances of failing networks.
 
 ---
 
@@ -132,10 +155,10 @@ cohort has neither. Do not propose retroactive attribution — it was checked an
 
 27,005 snapshots (96.8% of archive), 1.7 GiB, 16,462 networks, all readable, cascor 0.3.2/0.4.0.
 
-| | networks | snapshots | bytes |
-|---|---|---|---|
-| grew ≥1 hidden unit | 4,711 | 15,057 | 1.17 GiB |
-| never grew | 11,751 | 11,948 | 499 MiB |
+|                     | networks | snapshots | bytes    |
+|---------------------|----------|-----------|----------|
+| grew ≥1 hidden unit | 4,711    | 15,057    | 1.17 GiB |
+| never grew          | 11,751   | 11,948    | 499 MiB  |
 
 Never-grew are **not untrained** — 200/200 sampled had non-zero `output_weights`. Architecture is
 uniformly (2 in, 2 out) with 0–3 hidden: the synthetic-generator family, not equities.
@@ -145,24 +168,24 @@ uniformly (2 in, 2 out) with 0–3 hidden: the synthetic-generator family, not e
 Per the owner's instruction, cascor PRs merged in the 3–5 days before 2026-03-31 were reviewed.
 The window is dense with directly relevant work:
 
-| PR | date | title |
-|---|---|---|
-| #43–#57 | 03-29/30 | metrics emission, candidate-progress streaming, TrainingMonitor refactors |
-| #58 | 04-02 | resolve resource tracker KeyErrors |
-| #60, #61 | 04-03 | **critical training failure** / resource leak from OPT-5 SharedMemory |
-| #64 | 04-04 | **rename epoch → iteration in `grow_network` for correct CasCor semantics** |
-| #66 | 04-04 | resolve training stalling, add growth iteration semantics |
+| PR       | date     | title                                                                       |
+|----------|----------|-----------------------------------------------------------------------------|
+| #43–#57  | 03-29/30 | metrics emission, candidate-progress streaming, TrainingMonitor refactors   |
+| #58      | 04-02    | resolve resource tracker KeyErrors                                          |
+| #60, #61 | 04-03    | **critical training failure** / resource leak from OPT-5 SharedMemory       |
+| #64      | 04-04    | **rename epoch → iteration in `grow_network` for correct CasCor semantics** |
+| #66      | 04-04    | resolve training stalling, add growth iteration semantics                   |
 
 **The tempting conclusion — "the OPT-5 training failure caused the never-grow cluster" — is not
 supported.** Both categories spike together and collapse together:
 
-| day | never-grew | grew |
-|---|---|---|
-| 03-31 | 1,263 | 1,548 |
-| 04-01 | 2,059 | 3,738 |
-| 04-02 | 751 | 1,103 |
-| 04-03 | 1,962 | 1,417 |
-| **04-04** | **71** | **87** |
+| day       | never-grew | grew   |
+|-----------|------------|--------|
+| 03-31     | 1,263      | 1,548  |
+| 04-01     | 2,059      | 3,738  |
+| 04-02     | 751        | 1,103  |
+| 04-03     | 1,962      | 1,417  |
+| **04-04** | **71**     | **87** |
 
 The never-grew *fraction* during the cluster (~44%) matches the cohort-wide rate. So it is the
 heaviest experimentation period in the archive — a debugging campaign against exactly those
