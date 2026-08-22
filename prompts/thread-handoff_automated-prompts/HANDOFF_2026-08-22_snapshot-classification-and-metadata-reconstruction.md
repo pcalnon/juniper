@@ -129,10 +129,10 @@ this tooling and infrastructure seems likely to be invaluable going forward to i
 
 6. **Inert-metadata defect (§4.1)** → defect-register entry + a cascor writer fix. Not started.
 
-       **Supporting Infrastructure:** what this section seems to argue for is the addition of tooling, infrastructure, and automation supporting the snapshot classification process.
-       ideally, this tooling would include implementation of scripting to root cause the formatting or data issues affecting the "fails to load" snapshots.
-       for "fails to train" snapshots, scripting to determine the network topology issues preventing training would be significant.
-       this tooling and infrastructure seems likely to be invaluable going forward to investigate future instances of failing networks.
+**Supporting Infrastructure:** what this section seems to argue for is the addition of tooling, infrastructure, and automation supporting the snapshot classification process.
+ideally, this tooling would include implementation of scripting to root cause the formatting or data issues affecting the "fails to load" snapshots.
+for "fails to train" snapshots, scripting to determine the network topology issues preventing training would be significant.
+this tooling and infrastructure seems likely to be invaluable going forward to investigate future instances of failing networks.
 
 ---
 
