@@ -2,13 +2,13 @@
 
 **Area**: observability — metrics, logging, tracing, dashboards, alerting
 
-**Total entries**: 192
+**Total entries**: 193
 
-**By status**: proposed=151 | designed=12 | in-progress=3 | shipped=16 | deferred=9 | rejected=1
+**By status**: proposed=151 | designed=12 | in-progress=3 | shipped=17 | deferred=9 | rejected=1
 
-**By priority**: P0=23 | P1=49 | P2=108 | P3=12
+**By priority**: P0=23 | P1=49 | P2=109 | P3=12
 
-**By owner**: ml=149 | can=19 | dep=12 | dat=7 | cas=5
+**By owner**: ml=149 | can=19 | dep=12 | dat=7 | cas=5 | rec=1
 
 ---
 
@@ -2566,3 +2566,15 @@ logger.py instead of actual call site. Use inspect.stack() to get caller.
 **Notes**:
 
 After R5 completion; scope TBD.
+
+### JR-REC-OBS-001 — Experiment-lane observability toggles
+
+**Status**: shipped  **Priority**: P2  **Category**: OBS  **Owner**: rec
+
+**Sources**:
+- `juniper-ml/notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md` (lines 444-456)
+- `juniper-ml/util/experiment_stack.bash` (lines 7-19)
+
+**Detail**:
+
+Metrics exposition on + rate-limit off for per-run scrape lanes; targets labeled `service`/`environment=host-experiment`/`run_id`/`experiment` via the launcher's file_sd bridge.

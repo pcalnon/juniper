@@ -2,13 +2,13 @@
 
 **Area**: data-pipeline — dataset generation, NPZ contracts, ingestion
 
-**Total entries**: 52
+**Total entries**: 53
 
-**By status**: proposed=40 | shipped=8 | deferred=2 | rejected=2
+**By status**: proposed=40 | shipped=9 | deferred=2 | rejected=2
 
-**By priority**: P0=7 | P1=10 | P2=34 | P3=1
+**By priority**: P0=8 | P1=10 | P2=34 | P3=1
 
-**By owner**: ml=41 | dat=7 | can=4
+**By owner**: ml=41 | dat=7 | can=4 | rec=1
 
 ---
 
@@ -719,3 +719,15 @@ Several `CascorServiceAdapter` methods catch only `JuniperCascorClientError`, wh
 [v4 brief repaired; was: '9.3 juniper-cascor-client (Phase 4 only)']
 
 ---
+
+### JR-REC-DATA-001 — 3-D irregular-Δt NPZ sequence contract consumption
+
+**Status**: shipped  **Priority**: P0  **Category**: DATA  **Owner**: rec
+
+**Sources**:
+- `juniper-ml/notes/JUNIPER_2026-06-05_JUNIPER-RECURRENCE_RECURSE-DELTA-T-HANDLING.md` (lines 1-13)
+- `juniper-data-client/juniper_data_client/contract.py` (lines 41-53)
+
+**Detail**:
+
+Consume `{X,y,dt,target_dt,observed_mask}_{train,test,full}` with `dt[:,0]==0`; equities sequences use the stationary `y_reg_*` log-return target (the r²≈−50 raw-price artifact class), never the one-hot direction label.

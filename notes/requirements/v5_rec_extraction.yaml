@@ -1,0 +1,153 @@
+# v5 refresh -- juniper-recurrence (rec) starter block.
+#
+# GENERATED from notes/JUNIPER_2026-08-08_JUNIPER-RECURRENCE_JR-REC-REQUIREMENTS-BLOCK-PROPOSAL.md
+# by util/ad-hoc/2026-08-21_v5_rec_extraction.py. Edit the PROPOSAL and re-run; do not
+# hand-edit this file -- the proposal is the ratified text and must stay the single source.
+#
+# IDs are explicit because the proposal reserved them and PR descriptions already cite
+# them as (proposed); minting fresh numbers would break those references.
+- id: JR-REC-TRAIN-001
+  owner: rec
+  category: TRAIN
+  status: shipped
+  priority: P0
+  brief: Δt-native LMU sequence regressor with ratified acceptance bands
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-06-18_JUNIPER-RECURRENCE_EVALUATION-DESIGN.md
+    line_start: 97
+    line_end: 109
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/bench/run_benchmark.py
+    line_start: 137
+    line_end: 149
+  detail: The variable-Δt LMU must (band 1) cut RMSE ≥ 25% vs the fixed-Δt control on irregular-Δt data, (band 2) beat naive persistence and match/beat the linear ridge baseline on every primary dataset, and (band 3) tie fixed-Δt on regular grids. The pre-registered `PRIMARY_DATASETS` + `evaluate_bands` are the sole scoring authority (DP-5 guardrail).
+- id: JR-REC-TRAIN-002
+  owner: rec
+  category: TRAIN
+  status: shipped
+  priority: P1
+  brief: Readout spectrum (linear / RFF / MLP) with a capacity instrument
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-06-20_JUNIPER-RECURRENCE_DP3-READOUT-SPECTRUM-DESIGN.md
+    line_start: 31
+    line_end: 43
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/bench/datasets.py
+    line_start: 15
+    line_end: 27
+  detail: 'Nonlinear readouts must demonstrate capacity the linear readout provably lacks on the bilinear `delay_product` target (measured gaps: RFF +0.83, MLP +0.87 r²) while merely tying linear on near-linear synthetics. A miss is a finding to record, never a threshold to tune.'
+- id: JR-REC-DATA-001
+  owner: rec
+  category: DATA
+  status: shipped
+  priority: P0
+  brief: 3-D irregular-Δt NPZ sequence contract consumption
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-06-05_JUNIPER-RECURRENCE_RECURSE-DELTA-T-HANDLING.md
+    line_start: 1
+    line_end: 13
+  - path: /home/pcalnon/Development/python/Juniper/juniper-data-client/juniper_data_client/contract.py
+    line_start: 41
+    line_end: 53
+  detail: Consume `{X,y,dt,target_dt,observed_mask}_{train,test,full}` with `dt[:,0]==0`; equities sequences use the stationary `y_reg_*` log-return target (the r²≈−50 raw-price artifact class), never the one-hot direction label.
+- id: JR-REC-API-001
+  owner: rec
+  category: API
+  status: shipped
+  priority: P1
+  brief: Service train/predict/crossval referencing content-addressed datasets
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md
+    line_start: 363
+    line_end: 375
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/juniper-recurrence/juniper_recurrence/routers/training.py
+    line_start: 37
+    line_end: 49
+  detail: Synchronous `POST /v1/train` (response = completion); `predict`/`crossval` reference `dataset_id` only (never bare `name`); crossval reuses the train hyperparameters for bench comparability. Raw pydantic response bodies (no envelope) — a deliberate contrast with cascor's `{status,data,meta}`.
+- id: JR-REC-TEST-001
+  owner: rec
+  category: TEST
+  status: shipped
+  priority: P1
+  brief: Bench harness with pre-registered scope as scoring authority
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/bench/run_benchmark.py
+    line_start: 137
+    line_end: 149
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/bench/datasets.py
+    line_start: 262
+    line_end: 274
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/bench/test_bench_smoke.py
+    line_start: 1
+    line_end: 13
+  detail: Primary bands scored only on the pre-registered set; extensions (noise sweep, `ar_p` linear floor, `delay_product` capacity, `equities_seq` real data) are informational. Committed `bench/results/` baselines are reproducible from seeds.
+- id: JR-REC-TEST-002
+  owner: rec
+  category: TEST
+  status: proposed
+  priority: P2
+  brief: Service-vs-bench parity as a regression criterion
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-08-08_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P3-ACCEPTANCE-ROLLUP.md
+    line_start: 1
+    line_end: 13
+  detail: A service-mode run with bench-primary-matched params must land inside the same OQ-14 bands as the offline bench; divergence is a service-path defect. Candidate for a periodic (release-gate or scheduled) automated check once `run_suite.py` (Wave 7.1) exists.
+- id: JR-REC-TOOL-001
+  owner: rec
+  category: TOOL
+  status: shipped
+  priority: P1
+  brief: Experiment YAML config layer (`service:` projection)
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md
+    line_start: 264
+    line_end: 276
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/juniper-recurrence/juniper_recurrence/settings.py
+    line_start: 60
+    line_end: 72
+  detail: '`JUNIPER_RECURRENCE_CONFIG_FILE` activates a `service:`-block-only projection with precedence CLI/init > YAML > env > defaults; forbidden infra keys (`host`/`port`/`juniper_data_url`) fail loud; deliberately **no** `.env` tier (env-file-leak doctrine).'
+- id: JR-REC-TOOL-002
+  owner: rec
+  category: TOOL
+  status: shipped
+  priority: P2
+  brief: Direct-CLI `train:` block seeding (W-11)
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/juniper-recurrence/juniper_recurrence/main.py
+    line_start: 96
+    line_end: 108
+  detail: The `train` subcommand seeds unset argparse flags from the experiment YAML's `train:` block; explicit CLI flags win; unmodeled keys warn and are never silently applied.
+- id: JR-REC-TEST-003
+  owner: rec
+  category: TEST
+  status: shipped
+  priority: P2
+  brief: Concurrent bench runs (per-run results dir)
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/bench/run_benchmark.py
+    line_start: 4
+    line_end: 16
+  detail: '`python -m bench.run_benchmark --results-dir DIR` routes per-dataset JSON + REPORT.md; the default stays the committed `bench/results/` byte-identically.'
+- id: JR-REC-OBS-001
+  owner: rec
+  category: OBS
+  status: shipped
+  priority: P2
+  brief: Experiment-lane observability toggles
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md
+    line_start: 444
+    line_end: 456
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/util/experiment_stack.bash
+    line_start: 7
+    line_end: 19
+  detail: Metrics exposition on + rate-limit off for per-run scrape lanes; targets labeled `service`/`environment=host-experiment`/`run_id`/`experiment` via the launcher's file_sd bridge.
+- id: JR-REC-DEP-001
+  owner: rec
+  category: DEP
+  status: deferred
+  priority: P3
+  brief: Dedicated conda environment decision (Q-10)
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md
+    line_start: 1262
+    line_end: 1274
+  detail: Recurrence currently rides `JuniperCascor1` (works today; editable install + console script live there). A dedicated lighter env is probably right for hygiene — explicitly an owner call; nothing blocks on it.

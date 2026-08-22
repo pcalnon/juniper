@@ -2,13 +2,13 @@
 
 **Area**: API contracts — schemas, versioning, compatibility, migrations
 
-**Total entries**: 153
+**Total entries**: 154
 
-**By status**: proposed=123 | designed=1 | shipped=24 | deferred=4 | rejected=1
+**By status**: proposed=123 | designed=1 | shipped=25 | deferred=4 | rejected=1
 
-**By priority**: P0=10 | P1=63 | P2=73 | P3=7
+**By priority**: P0=10 | P1=64 | P2=73 | P3=7
 
-**By owner**: ml=90 | can=39 | cas=14 | dat=6 | ccl=4
+**By owner**: ml=90 | can=39 | cas=14 | dat=6 | ccl=4 | rec=1
 
 ---
 
@@ -2129,3 +2129,15 @@ Identified by v7 (unique finding). Caused by ISS-13 (state sync bypasses adapter
 **Detail**:
 
 | Task 2 Phase 2: `GET /v1/dataset/data` endpoint in cascor | ❌ NOT STARTED |
+
+### JR-REC-API-001 — Service train/predict/crossval referencing content-addressed datasets
+
+**Status**: shipped  **Priority**: P1  **Category**: API  **Owner**: rec
+
+**Sources**:
+- `juniper-ml/notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md` (lines 363-375)
+- `juniper-recurrence/juniper-recurrence/juniper_recurrence/routers/training.py` (lines 37-49)
+
+**Detail**:
+
+Synchronous `POST /v1/train` (response = completion); `predict`/`crossval` reference `dataset_id` only (never bare `name`); crossval reuses the train hyperparameters for bench comparability. Raw pydantic response bodies (no envelope) — a deliberate contrast with cascor's `{status,data,meta}`.

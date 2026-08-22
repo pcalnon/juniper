@@ -2,13 +2,13 @@
 
 **Area**: deployment-config — Docker, Compose, K8s, Helm, image build
 
-**Total entries**: 65
+**Total entries**: 66
 
-**By status**: proposed=53 | designed=6 | shipped=5 | deferred=1
+**By status**: proposed=53 | designed=6 | shipped=5 | deferred=2
 
-**By priority**: P0=6 | P1=20 | P2=31 | P3=8
+**By priority**: P0=6 | P1=20 | P2=31 | P3=9
 
-**By owner**: ml=50 | dep=6 | can=6 | dat=1 | cwk=1 | cas=1
+**By owner**: ml=50 | dep=6 | can=6 | dat=1 | cwk=1 | cas=1 | rec=1
 
 ---
 
@@ -821,3 +821,14 @@ curl-based probe (add curl to base image) for more flexible checks.
 **Detail**:
 
 docker-compose config for 3-service deployment not tested end-to-end.
+
+### JR-REC-DEP-001 — Dedicated conda environment decision (Q-10)
+
+**Status**: deferred  **Priority**: P3  **Category**: DEP  **Owner**: rec
+
+**Sources**:
+- `juniper-ml/notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md` (lines 1262-1274)
+
+**Detail**:
+
+Recurrence currently rides `JuniperCascor1` (works today; editable install + console script live there). A dedicated lighter env is probably right for hygiene — explicitly an owner call; nothing blocks on it.

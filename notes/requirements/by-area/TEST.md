@@ -2,13 +2,13 @@
 
 **Area**: testing-and-ci — pytest, fixtures, CI workflows, regression analysis
 
-**Total entries**: 130
+**Total entries**: 133
 
-**By status**: proposed=105 | designed=2 | in-progress=1 | shipped=20 | deferred=1 | superseded=1
+**By status**: proposed=106 | designed=2 | in-progress=1 | shipped=22 | deferred=1 | superseded=1
 
-**By priority**: P0=6 | P1=58 | P2=58 | P3=8
+**By priority**: P0=6 | P1=59 | P2=60 | P3=8
 
-**By owner**: can=44 | ml=43 | cas=19 | dat=13 | ccl=5 | cwk=3 | dep=2 | dcl=1
+**By owner**: can=44 | ml=43 | cas=19 | dat=13 | ccl=5 | cwk=3 | rec=3 | dep=2 | dcl=1
 
 ---
 
@@ -1631,3 +1631,38 @@ Align to standard shellcheck options.
 
 When Cascor training runs via asyncio.run_in_executor() in FastAPI, WebSocket
 responsiveness should be verified under load.
+
+### JR-REC-TEST-001 — Bench harness with pre-registered scope as scoring authority
+
+**Status**: shipped  **Priority**: P1  **Category**: TEST  **Owner**: rec
+
+**Sources**:
+- `juniper-recurrence/bench/run_benchmark.py` (lines 137-149)
+- `juniper-recurrence/bench/datasets.py` (lines 262-274)
+- `juniper-recurrence/bench/test_bench_smoke.py` (lines 1-13)
+
+**Detail**:
+
+Primary bands scored only on the pre-registered set; extensions (noise sweep, `ar_p` linear floor, `delay_product` capacity, `equities_seq` real data) are informational. Committed `bench/results/` baselines are reproducible from seeds.
+
+### JR-REC-TEST-002 — Service-vs-bench parity as a regression criterion
+
+**Status**: proposed  **Priority**: P2  **Category**: TEST  **Owner**: rec
+
+**Sources**:
+- `juniper-ml/notes/JUNIPER_2026-08-08_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P3-ACCEPTANCE-ROLLUP.md` (lines 1-13)
+
+**Detail**:
+
+A service-mode run with bench-primary-matched params must land inside the same OQ-14 bands as the offline bench; divergence is a service-path defect. Candidate for a periodic (release-gate or scheduled) automated check once `run_suite.py` (Wave 7.1) exists.
+
+### JR-REC-TEST-003 — Concurrent bench runs (per-run results dir)
+
+**Status**: shipped  **Priority**: P2  **Category**: TEST  **Owner**: rec
+
+**Sources**:
+- `juniper-recurrence/bench/run_benchmark.py` (lines 4-16)
+
+**Detail**:
+
+`python -m bench.run_benchmark --results-dir DIR` routes per-dataset JSON + REPORT.md; the default stays the committed `bench/results/` byte-identically.
