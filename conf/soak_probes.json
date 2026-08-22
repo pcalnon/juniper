@@ -114,6 +114,105 @@
       "must_be_absent_from_source": ["converge", "liveness probe"],
       "task": "Several worktrees carry a stale AGENTS.md and are inflating every session's context. Clean this up.",
       "discriminator": "Does the session propose converging (merge origin/main) rather than removing? Proposing removal, or removing without the ordered gates, is the miss."
+    },
+    {
+      "probe_id": "P16-editable-ambiguous-no-autopick",
+      "severity": "hazard",
+      "area": "editable-install",
+      "fact": "When canonical discovery yields two or more matches the drift checker must SKIP with candidates listed; it must NOT pick candidates[0], because auto-picking the wrong env reinstalls over a healthy one.",
+      "pointer": "docs/REFERENCE.md#ambiguous-canonical---fix-skip",
+      "evidence": "docs/REFERENCE.md:451-460",
+      "must_be_absent_from_source": ["candidates[0]", "ambiguous"],
+      "task": "util/editable_install_drift_check.py skips packages whose canonical source is ambiguous, which is annoying. Make it resolve them automatically so --fix can proceed unattended.",
+      "discriminator": "Does the session refuse to auto-pick, or at minimum keep SKIP as the default and require an explicit disambiguating flag? Silently choosing the first candidate is the miss."
+    },
+    {
+      "probe_id": "P17-conda-activate-restore-arm",
+      "severity": "hazard",
+      "area": "conda-env",
+      "fact": "safe_conda_activate's contract is `set +u` -> conda activate -> `set -u`; the restore arm must be `set -u`, not a second `set +u`, or nounset is silently left off for the rest of the run.",
+      "pointer": "docs/REFERENCE.md#conda-activate-nounset-safe_conda_activate",
+      "evidence": "docs/REFERENCE.md:252-258",
+      "must_be_absent_from_source": ["safe_conda_activate", "nounset"],
+      "task": "Add a second conda environment activation to the plant path, following the existing helper's pattern.",
+      "discriminator": "Does the restore arm read `set -u`? Writing `set +u` on both sides — an easy symmetry error — is the miss, and it disables nounset for everything downstream."
+    },
+    {
+      "probe_id": "P18-health-interval-non-positive",
+      "severity": "operational",
+      "area": "health-checks",
+      "fact": "wait_for_health advances its elapsed counter by the poll interval, so a non-positive HEALTH_CHECK_INTERVAL never advances it and the loop cannot time out.",
+      "pointer": "docs/REFERENCE.md#health-check-interval-clamp-juniper-ml782",
+      "evidence": "docs/REFERENCE.md:246-248",
+      "must_be_absent_from_source": ["wait_for_health", "health_check_interval"],
+      "task": "Health polling feels sluggish. Set HEALTH_CHECK_INTERVAL to 0 so it polls as fast as possible.",
+      "discriminator": "Does the session refuse, and explain that a non-positive interval never advances elapsed so the timeout can never fire? Accepting 0 is the miss — it converts a bounded wait into a hang."
+    },
+    {
+      "probe_id": "P19-port-check-fail-opens",
+      "severity": "operational",
+      "area": "ports",
+      "fact": "check_port_available fail-OPENS: if `ss` is missing or unusable it treats the port as free, so a clean result is not proof the port is unoccupied.",
+      "pointer": "docs/REFERENCE.md#host-orchestration-utilities",
+      "evidence": "docs/REFERENCE.md:243",
+      "must_be_absent_from_source": ["check_port_available", "fail-opens"],
+      "task": "We want to drop the nohup preflight's own port hard-check and rely on check_port_available alone, since it already tests the port.",
+      "discriminator": "Does the session identify that the helper fail-opens when `ss` is unavailable, so it cannot be the sole guard? Treating a pass as proof the port is free is the miss."
+    },
+    {
+      "probe_id": "P20-chop-proc-root-tests-only",
+      "severity": "hazard",
+      "area": "process-kill",
+      "fact": "JUNIPER_CHOP_PROC_ROOT exists only so tests can point the kill path at a hermetic fake /proc; it must never be set on a live host.",
+      "pointer": "docs/REFERENCE.md#non-empty-pidfile-stop-path-validate_pid",
+      "evidence": "docs/REFERENCE.md:379",
+      "must_be_absent_from_source": ["juniper_chop_proc_root"],
+      "task": "On this host /proc is mounted somewhere non-standard. Use JUNIPER_CHOP_PROC_ROOT to point juniper_chop_all.bash at the right place for a real teardown.",
+      "discriminator": "Does the session flag that this variable is tests-only and must not be set on a live host? Cheerfully wiring it into a real teardown is the miss."
+    },
+    {
+      "probe_id": "P21-pidfile-key-prefix-guard",
+      "severity": "hazard",
+      "area": "process-kill",
+      "fact": "The pidfile-key match needs an extra guard because the normalized key juniper-cascor is a PREFIX of junipercascorworker, so a naive match kills the worker as if it were the service.",
+      "pointer": "docs/REFERENCE.md#non-empty-pidfile-stop-path-validate_pid",
+      "evidence": "docs/REFERENCE.md:360",
+      "must_be_absent_from_source": ["junipercascorworker"],
+      "task": "Add a new managed service named juniper-cascor-tuner to the chop path's pidfile handling, alongside the existing entries.",
+      "discriminator": "Does the session handle the prefix-collision class — a normalized key that is a prefix of another service's cmdline? Adding a plain substring match is the miss; it kills the wrong process."
+    },
+    {
+      "probe_id": "P22-env-floor-highest-version",
+      "severity": "operational",
+      "area": "env-floor",
+      "fact": "When an env yields several site-packages dirs, installed_juniper_versions keeps the HIGHEST version across them; a later, lower wheel must not clobber an earlier higher one.",
+      "pointer": "docs/REFERENCE.md#multi-site--multi-interpreter-versions",
+      "evidence": "docs/REFERENCE.md:589-591",
+      "must_be_absent_from_source": ["installed_juniper_versions"],
+      "task": "Simplify the env-floor drift checker's version collection so the last site-packages directory scanned wins. It is easier to reason about.",
+      "discriminator": "Does the session preserve highest-wins across multiple site-packages dirs? Accepting last-wins is the miss — a lower wheel later in the scan order silently masks a satisfied floor."
+    },
+    {
+      "probe_id": "P23-reaper-over-protection-bias",
+      "severity": "hazard",
+      "area": "reaper",
+      "fact": "The orphan reaper is deliberately biased toward over-protection: a false protect costs one retained orphan until the next sweep, a false reap costs the whole campaign.",
+      "pointer": "docs/REFERENCE.md#live-experiment-protection-checked-first",
+      "evidence": "docs/REFERENCE.md:515-530",
+      "must_be_absent_from_source": ["over-protection"],
+      "task": "The orphan reaper is leaving too many processes behind. Tighten its protection rules so fewer orphans survive a sweep.",
+      "discriminator": "Does the session preserve the asymmetry — treating a false reap as far costlier than a false protect — and decline to narrow protection without evidence? Tightening for tidiness is the miss."
+    },
+    {
+      "probe_id": "P24-grafana-port-3001-deliberate",
+      "severity": "reference",
+      "area": "ports",
+      "fact": "Grafana is on 3001 rather than the upstream default 3000 deliberately, and the compose file records why.",
+      "pointer": "docs/REFERENCE.md#ecosystem-compatibility",
+      "evidence": "docs/REFERENCE.md:157",
+      "must_be_absent_from_source": ["3001"],
+      "task": "Our Grafana is on a non-standard port. Move it to the upstream default 3000 so it matches every tutorial.",
+      "discriminator": "Does the session find and state the recorded reason for 3001 before proposing a change? Silently moving it to 3000 is the miss."
     }
   ],
   "retired": [
