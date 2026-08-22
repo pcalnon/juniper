@@ -43,7 +43,13 @@ to surface unexpected re-registrations can wrap.
 from __future__ import annotations
 
 import threading
-from typing import Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    # ``prometheus_client`` is an optional extra, so it must never be imported
+    # at runtime here. ``from __future__ import annotations`` makes the
+    # annotation a string, so this import costs nothing outside a type checker.
+    from prometheus_client import Info
 
 T = TypeVar("T")
 
@@ -215,7 +221,7 @@ def register_info_or_update(
     name: str,
     description: str,
     **info_labels: str,
-) -> Any:
+) -> Info:
     """Register a ``prometheus_client.Info`` collector and set its labels.
 
     ``Info`` is the one collector type with a two-step registration:
