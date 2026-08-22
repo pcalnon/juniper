@@ -531,6 +531,26 @@ def disarm_auto_merge(log) -> bool:
     return True
 
 
+def _merged_by_other(pr: int, note: str = "") -> str:
+    """Success message for a PR that merged out from under this run's local merge path.
+
+    Worded from ``_ARMED`` rather than assumed. The armed net is the *likely* merger, but it
+    is only the merger if this run actually armed one -- with ``--no-auto-fallback``, or on a
+    repo where ``allow_auto_merge`` is false, nothing was armed and a concurrent session or a
+    human did it. Naming the net regardless would be a claim the machinery could not have
+    produced, which is the failure shape this file spends most of its length guarding against.
+
+    Either way it is a SUCCESS: the PR is merged, and GitHub gates its own merges on the same
+    required checks this run was waiting for.
+    """
+    who = (
+        "by the armed auto-merge net (required checks green)"
+        if _ARMED is not None
+        else "concurrently -- this run armed no net, so another actor merged it"
+    )
+    return f"MERGED #{pr} {who}{note}"
+
+
 def wait_for_required(owner: str, repo: str, pr: int, timeout: int, verbose: bool) -> dict:
     """Delegate to util/wait_for_checks.py and map its exit code.
 
@@ -732,7 +752,7 @@ def _safe_merge_inner(
         if after.get("state") == "MERGED":
             # The armed net got there first. Same guarantee -- GitHub merges only once the
             # required checks pass on the current head -- so this is a success, not a race lost.
-            return f"MERGED #{pr} by the armed auto-merge net (required checks green)"
+            return _merged_by_other(pr)
         if after.get("mergeStateStatus") == "BEHIND":
             log("  went BEHIND while waiting — re-syncing")
             if update_branch(owner, repo, pr) is None:
@@ -753,7 +773,7 @@ def _safe_merge_inner(
                 time.sleep(MERGEABILITY_INTERVAL)
                 after = pr_state(owner, repo, pr)
                 if after.get("state") == "MERGED":
-                    return f"MERGED #{pr} by the armed auto-merge net (required checks green)"
+                    return _merged_by_other(pr)
                 final = after.get("mergeStateStatus")
                 if final != "UNKNOWN":
                     break
@@ -811,6 +831,34 @@ def _safe_merge_inner(
                     f"head moved during the wait (verified {head[:8]}); "
                     "nothing merged — re-run to verify the new head"
                 ) from exc
+            # The armed net can win the race in the window between the mergeability read
+            # above and this call. GitHub then answers "Pull Request is not mergeable" to the
+            # local merge -- because it is already MERGED -- and this handler used to report a
+            # completed merge as a hard error (ml#1228 landed as 14e7af41 while this path
+            # exited 3). The state check before the merge covers the net winning EARLIER;
+            # only this window was uncovered, and D1 widened it: arming on
+            # BLOCKED/BEHIND/UNKNOWN keeps a net live far more often than arming on BLOCKED
+            # alone did. So ask the PR rather than trusting the error text -- on ANY failure,
+            # not just "not mergeable", because a merge that landed and then failed to report
+            # (a timeout, a 5xx on the response) is the same situation and the same answer.
+            try:
+                raced = pr_state(owner, repo, pr)
+            except (HardError, subprocess.TimeoutExpired):
+                raced = {}  # best-effort probe; a failed re-read must not mask the real error
+            if raced.get("state") == "MERGED":
+                landed = raced.get("headRefOid")
+                if landed != head:
+                    # Merged, but not at the head this run verified -- so the checks this run
+                    # waited on do not describe what shipped. Not a success to claim, and too
+                    # surprising to fold into the underlying gh error.
+                    raise HardError(
+                        f"PR #{pr} is MERGED at {str(landed)[:8]}, but this run verified and "
+                        f"tried to merge {head[:8]} — a head this run never vouched for "
+                        f"landed; inspect before trusting it (gh reported: {exc})"
+                    ) from exc
+                return _merged_by_other(
+                    pr, f" at {head[:8]}, winning the race against this run's own merge"
+                )
             raise
         final = pr_state(owner, repo, pr)
         if final.get("state") != "MERGED":
