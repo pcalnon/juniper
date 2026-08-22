@@ -373,6 +373,10 @@ jobs:
           # Listed in AGENTS.md's "Run all tests" but never wired into this CI list
           # (audit finding F14) -- added here.
           python3 -m unittest -v tests/test_requirements_drift_check.py
+          # tests/test_requirements_consolidate.py: util/requirements_consolidate.py --
+          # the JR-ID snapshot round-trip (1,814 entries / 15 area files). Wired
+          # 2026-08-22; it had never run in CI. Slowest suite here at ~24s.
+          python3 -m unittest -v tests/test_requirements_consolidate.py
           python3 -m unittest -v tests/test_validate_claude_yaml_access.py
           python3 -m unittest -v tests/test_workflow_script_paths.py
           # tests/test_ci_precommit_g4.py: YAML-extraction rehearsal for ci.yml's
@@ -406,6 +410,11 @@ jobs:
           # (tag-prefix guard, no push:tags #555 race, skip-existing, --no-deps
           # without PyPI fallback, subdirectory working-directory / artifact path).
           python3 -m unittest -v tests/test_publish_subpackage_workflows.py
+          # tests/test_subpackage_py_typed.py: asserts all six published sub-packages
+          # ship a py.typed marker AND declare it as package data (APD-SVCCORE-008 /
+          # APD-OBS-002, fixed in ml#1237). Wired 2026-08-22; the gate for that fix had
+          # never run in CI, so a regression would have shipped silently.
+          python3 -m unittest -v tests/test_subpackage_py_typed.py
           # The flood-remediation sequence-safety screens (Proposal P2 gates G1/G2)
           # now ship as the PyPI package juniper-ci-tools (>=0.8.0); the per-PR
           # `sequence-safety` job above installs it and runs the console scripts
@@ -624,6 +633,17 @@ jobs:
           # read-only mandate. util/ is outside every pre-commit Python hook's
           # scope, so this is the gate.
           python3 -m unittest -v tests/test_wait_for_checks.py
+          # tests/test_safe_merge.py: util/safe_merge.py -- the R4 merge gate, which is
+          # the ONLY sanctioned path to main now that direct pushes are blocked on all 9
+          # repos. Hermetic (_gh + wait_for_required replaced with recorders): no network,
+          # no gh, no PR is ever touched. Pins every path that must REFUSE, the
+          # --match-head-commit invariant that makes the gate meaningful (ml#924), the
+          # auto-merge net's arm/disarm contract (D1-D4), and the net-won race in which a
+          # completed merge was reported as a hard error (ml#1228/#1242). Wired 2026-08-22:
+          # the suite existed but was never listed here, so 65 tests guarding the merge
+          # tool had never once run in CI. util/ is outside every pre-commit Python hook's
+          # scope, so this is the gate.
+          python3 -m unittest -v tests/test_safe_merge.py
           # tests/test_prompt_validator_contract.py: static contract test for the
           # prompt-validator subagent (.claude/agents/prompt-validator.md) + its pinned
           # verdict JSON schema/fixtures (tests/fixtures/prompt_validator/). Asserts the
