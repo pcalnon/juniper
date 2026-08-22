@@ -1,17 +1,18 @@
 """Hermetic tests for scripts/cleanup_session_worktrees.py.
 
-The session-worktree cleaner force-removes ``.claude/worktrees/*`` plus local
+The session-worktree cleaner removes ``.claude/worktrees/*`` plus local
 and remote branches when a tip is on ``origin/main`` or a MERGED PR exists.
 Wrong fail-open on ``_has_merged_pr`` (gh failure / bad JSON treated as
-merged) would delete unmerged session work. Dirty / self-cwd / detached-HEAD
-keeps prevent data loss mid-session.
+merged) would delete unmerged session work. Locked / dirty / self-cwd /
+detached-HEAD keeps prevent data loss mid-session -- the LOCK gate landed
+2026-08-21 and is the one that recognises a LIVE session (see LockGateTest).
 
 Distinct from contested ``util/worktree_cleanup.bash`` (V2 orchestrator).
 Policy / keep arms use real temp git worktrees + monkeypatched ``_run`` for
 gh under ``dry_run=True``. Live ``_remove_worktree`` (``dry_run=False``) is
 covered separately: unit matrix stubs every ``_run`` call; integration arms
-exercise real ``git worktree remove --force`` + ``branch -D`` while stubbing
-only ``fetch`` / ``push`` / ``gh`` (no network).
+exercise real ``git worktree remove`` (no ``--force``) + ``branch -D`` while
+stubbing only ``fetch`` / ``push`` / ``gh`` (no network).
 """
 
 from __future__ import annotations
@@ -350,10 +351,13 @@ class RemoveWorktreeUnitTest(unittest.TestCase):
             ok, message = cleanup._remove_worktree(Path("/repo"), Path("/wt"), "worktree-x", dry_run=False)
         self.assertTrue(ok)
         self.assertEqual(message, "local-branch:deleted, remote-branch:deleted")
+        # No --force (2026-08-21): dirty and locked are both refused by the
+        # caller, so force could only mask a surprise git is right to raise --
+        # and it is one step from `-f -f`, which DOES delete a live session.
         self.assertEqual(
             seen,
             [
-                ["git", "-C", "/repo", "worktree", "remove", "/wt", "--force"],
+                ["git", "-C", "/repo", "worktree", "remove", "/wt"],
                 ["git", "-C", "/repo", "branch", "-D", "worktree-x"],
                 ["git", "-C", "/repo", "push", "origin", "--delete", "worktree-x"],
             ],
@@ -516,6 +520,137 @@ class LiveRemoveWorktreeTest(unittest.TestCase):
             self.assertEqual(report.skipped_remove_failed, ["sess-fail"])
             self.assertEqual(report.removed, [])
             self.assertTrue(wt.exists(), "failed remove must leave the worktree directory intact")
+
+
+class LockGateTest(unittest.TestCase):
+    """The gate this script shipped without.
+
+    Claude Code locks a live session's worktree, naming the session and pid in
+    the lock reason -- so git's lock flag is this fleet's liveness signal, and
+    the cleaner never read it. Measured against the real worktree set on
+    2026-08-21: the old code reported ``removed=8``, three of which were LOCKED
+    live sessions, one of them holding the head branch of an OPEN pull request.
+
+    A single ``--force`` does not defeat a lock (git refuses), so a live run
+    could not actually delete a session. The damage was to the PLAN: ``--dry-run``
+    said "WOULD REMOVE" for trees a real run refuses, and the operator who
+    reconciles that contradiction reaches for ``-f -f`` or unlocks by hand.
+    """
+
+    def _stub_net(self, repo: Path):
+        real_run = cleanup._run
+
+        def wrapper(args, cwd=None):
+            if args[:4] == ["git", "-C", str(repo), "fetch"]:
+                return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+            if args[:4] == ["git", "-C", str(repo), "push"]:
+                return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+            if args and args[0] == "gh":
+                return subprocess.CompletedProcess(args=args, returncode=1, stdout="", stderr="no-gh")
+            return real_run(args, cwd=cwd)
+
+        return mock.patch.object(cleanup, "_run", side_effect=wrapper)
+
+    def test_locked_worktree_is_parsed_with_its_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "juniper-ml"
+            _init_repo(repo)
+            wt = _add_worktree(repo, "sess-lock", "worktree-lock")
+            _run_git(repo, "worktree", "lock", str(wt), "--reason", "claude session (pid 4242)")
+            locked = cleanup._locked_worktrees(repo)
+            self.assertIn(wt.resolve(), locked)
+            self.assertIn("pid 4242", locked[wt.resolve()])
+
+    def test_bare_locked_line_without_a_reason_still_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "juniper-ml"
+            _init_repo(repo)
+            wt = _add_worktree(repo, "sess-bare", "worktree-bare")
+            _run_git(repo, "worktree", "lock", str(wt))
+            locked = cleanup._locked_worktrees(repo)
+            self.assertIn(wt.resolve(), locked)
+            self.assertTrue(locked[wt.resolve()])
+
+    def test_an_otherwise_removable_locked_worktree_is_kept(self) -> None:
+        # THE regression. Clean + merged, so every pre-existing gate passes.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "juniper-ml"
+            _init_repo(repo)
+            wt = _add_worktree(repo, "sess-live-session", "worktree-live-session")
+            _run_git(repo, "worktree", "lock", str(wt), "--reason", "claude session (pid 99)")
+            with self._stub_net(repo):
+                report = cleanup.cleanup_session_worktrees(
+                    repo=repo,
+                    root=repo / ".claude" / "worktrees",
+                    gh_repo="pcalnon/juniper-ml",
+                    dry_run=False,
+                    allow_cwd=True,
+                )
+            self.assertEqual(report.kept_locked, ["sess-live-session"])
+            self.assertEqual(report.removed, [])
+            self.assertTrue(wt.exists())
+
+    def test_the_dry_run_plan_does_not_promise_to_remove_a_locked_tree(self) -> None:
+        # The actual defect: a live run refuses, but the PLAN said it would go.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "juniper-ml"
+            _init_repo(repo)
+            wt = _add_worktree(repo, "sess-plan", "worktree-plan")
+            _run_git(repo, "worktree", "lock", str(wt), "--reason", "claude session (pid 7)")
+            with self._stub_net(repo):
+                report = cleanup.cleanup_session_worktrees(
+                    repo=repo,
+                    root=repo / ".claude" / "worktrees",
+                    gh_repo="pcalnon/juniper-ml",
+                    dry_run=True,
+                    allow_cwd=True,
+                )
+            self.assertNotIn("sess-plan", report.removed)
+            self.assertEqual(report.kept_locked, ["sess-plan"])
+
+    def test_unlocking_makes_the_same_worktree_removable(self) -> None:
+        # Proves the lock is what held it, not some unrelated gate.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "juniper-ml"
+            _init_repo(repo)
+            wt = _add_worktree(repo, "sess-unlock", "worktree-unlock")
+            _run_git(repo, "worktree", "lock", str(wt), "--reason", "held")
+            root = repo / ".claude" / "worktrees"
+            with self._stub_net(repo):
+                held = cleanup.cleanup_session_worktrees(
+                    repo=repo,
+                    root=root,
+                    gh_repo="pcalnon/juniper-ml",
+                    dry_run=False,
+                    allow_cwd=True,
+                )
+            self.assertEqual(held.kept_locked, ["sess-unlock"])
+            _run_git(repo, "worktree", "unlock", str(wt))
+            with self._stub_net(repo):
+                freed = cleanup.cleanup_session_worktrees(
+                    repo=repo,
+                    root=root,
+                    gh_repo="pcalnon/juniper-ml",
+                    dry_run=False,
+                    allow_cwd=True,
+                )
+            self.assertEqual(freed.removed, ["sess-unlock"])
+            self.assertFalse(wt.exists())
+
+    def test_remove_is_never_called_with_force(self) -> None:
+        # Anti-resurrection. Dirty and locked are both refused above the call,
+        # so --force can only mask a surprise -- and it is one step from `-f -f`,
+        # which DOES delete a live session's tree.
+        src = (REPO_ROOT / "scripts" / "cleanup_session_worktrees.py").read_text(encoding="utf-8")
+        self.assertNotIn('"--force"', src)
+        self.assertNotIn("'-f'", src)
+        self.assertNotIn('"-f"', src)
+
+    def test_summary_line_reports_the_locked_bucket(self) -> None:
+        # A held live session must be visible in the one line an operator reads.
+        r = cleanup.CleanupReport(kept_locked=["a", "b"])
+        self.assertIn("kept_locked=2", r.summary_line())
+        self.assertEqual(r.total(), 2)
 
 
 if __name__ == "__main__":

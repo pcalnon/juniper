@@ -924,13 +924,26 @@ copies. A session in a divergent worktree carried **344,450 characters (~43% of 
 
 ### Before removing anything: check for a live session
 
-`scripts/cleanup_session_worktrees.py` gates on *branch* state — merged, clean, not
-the current cwd. Those are necessary and **not sufficient: merged-and-clean does not
-mean idle.** A session can have just merged its PR and be about to start the next
-task in the same worktree.
+`scripts/cleanup_session_worktrees.py` gates on **not locked**, then on *branch*
+state — merged, clean, not the current cwd. Even together those are necessary and
+**not sufficient: merged-and-clean does not mean idle.** A session can have just
+merged its PR and be about to start the next task in the same worktree.
 
-The `locked` flag is the only built-in liveness signal and it is advisory — during
-the 2026-08-20 sweep, both worktrees locked earlier in the effort had released.
+The `locked` flag is the built-in liveness signal — Claude Code locks a live
+session's worktree and names the session and pid in the lock reason. **The script
+did not read it until 2026-08-21.** Measured against the real set that day, the old
+code reported `removed=8`, of which **three were locked live sessions**, one holding
+the head branch of an open PR: merge state says nothing about whether someone is
+working in there right now. A single `--force` does not defeat a lock (git refuses),
+so a live run could never actually delete a session — the damage was to the *plan*,
+because `--dry-run` promised removals a real run would refuse, and the operator who
+reconciles that contradiction reaches for `-f -f` or unlocks by hand. The removal
+call no longer passes `--force` at all. Gate: `tests/test_cleanup_session_worktrees.py`
+`LockGateTest`.
+
+The flag is still only a *supplement* to judgement: a session idling elsewhere while
+holding a worktree open is invisible to it, and during the 2026-08-20 sweep both
+worktrees locked earlier in that effort had already released.
 
 So run
 [`util/ad-hoc/2026-08-20_worktree_liveness_probe.py`](../util/ad-hoc/2026-08-20_worktree_liveness_probe.py)
@@ -1123,7 +1136,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - Doc-link validator regression tests live in [`juniper-doc-tools/tests/`](juniper-doc-tools/tests/) (Wave 4 of the doc-link migration; exercised by the dedicated `CI -- juniper-doc-tools` workflow).
 - `tests/test_worktree_cleanup.py` -- Tests for `util/worktree_cleanup.bash` argument parsing, dry-run, and error handling; Phase 1 dirty porcelain exit-1 gate (juniper-ml#747) and clean push / Phase 2 path-collision arms (open #753) drive fixture repos via sourced `phase_1_save_and_push` / `phase_2_create_new_worktree`
 - `tests/test_worktree_sweep_scripts.py` -- Tests for `util/ad-hoc/worktree_sweep_*.bash`: survey/apply row compatibility, `SAFE`-only removal, and unknown-repo skips
-- `tests/test_cleanup_session_worktrees.py` -- Hermetic tests for `scripts/cleanup_session_worktrees.py`: `_has_merged_pr` fail-closed (gh fail / bad JSON), dirty/unmerged/detached keeps, self-cwd skip, and `--dry-run` remove of main-ancestor / MERGED-PR clean tips
+- `tests/test_cleanup_session_worktrees.py` -- Hermetic tests for `scripts/cleanup_session_worktrees.py`: `_has_merged_pr` fail-closed (gh fail / bad JSON), dirty/unmerged/detached keeps, self-cwd skip, and `--dry-run` remove of main-ancestor / MERGED-PR clean tips. `LockGateTest` pins the 2026-08-21 liveness gate against real locked worktrees: an otherwise-removable locked tree is kept, the `--dry-run` plan does not promise to remove it, unlocking the same tree makes it removable again (proving the lock is what held it), and an anti-resurrection arm asserts the source never passes `--force`/`-f` to `worktree remove`
 - `tests/test_reap_pytest_orphans.py` -- Tests for `util/reap_pytest_orphans.bash` dry-run, live-parent safety, orphan detection, and isolated kill invocation
   - `TestLiveExperimentProtection`: the P1 pidfile + P2 cmdline keys, reproducing the three shapes a 2026-08-16 dry run would have killed (service / orchestrator / watchdog); the load-bearing live-mode arm proving a genuine orphan still dies while the protected service does not; stale-pidfile conservatism; and a malformed pidfile not aborting the sweep under `set -euo pipefail`
 - `tests/test_kill_helpers.py` -- Hermetic process-filter / kill-path tests for `util/kill_all_pythons.bash` and `util/juniper_worker_kill.bash` (PATH-stubbed `ps`/`sudo`/`kill`; bash `kill` builtin disabled; never touches live PIDs)
