@@ -2,9 +2,9 @@
 
 **Project**: juniper-ml
 **Author**: Paul Calnon
-**Status**: OPEN — instrument **v0.2** built and gated; pilot run 2026-08-21 produced
-**5 valid observations of 35** and a corrected instrument, NOT a rate. The registry holds
-6 valid probes against a floor of 15 (9 retired as invalid — see §12). Soak continues.
+**Status**: OPEN — instrument v0.2; **11 of 35 valid runs**, 11/15 distinct probes,
+7 follows / 4 misses (rate 63.6%, CI [0.354, 0.848]). Verdict `IN-PROGRESS` — the interval
+spans the boundary, so no conclusion. Every run so far produced a CORRECT answer (§13).
 **Plan**: [`JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md`](JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md) §6
 **Instrument**: `util/soak_ledger.py` · **Data**: `reports/soak/pointer_follow_soak.jsonl`
 **Last Updated**: 2026-08-21
@@ -535,3 +535,68 @@ Very little, and that is the honest answer at n=5. The one suggestive signal is 
 **the fact deliberately kept resident was applied correctly and thoroughly** (P01 took
 *both* reaper protection keys and measured the hazard before proposing anything) — which
 is an argument for the `## Hazards` carve-out, not against relocation.
+
+---
+
+## 13. Batch 2 — 2026-08-21 (9 probes, 7 recorded)
+
+The registry was rebuilt to 15 valid probes (§12 retired 9) and the nine new ones run.
+
+### Two methodology improvements over the pilot
+
+**The answer key was moved out of the tree for the run window.** `conf/soak_probes.json`
+was held aside while the nine ran, so a keyword grep could not surface it. Detection
+(§12 D2) was the pilot's only defence; this is prevention. Two runs still tripped the
+contamination flag via the protocol document, which was *not* moved — **P16** and **P23**
+are discarded.
+
+**The evidence scorer had a false negative, and it changed verdicts.** It inspected only
+tool *inputs*, so a directory-wide `grep -rn <term> docs/` retrieved `docs/REFERENCE.md`
+content without the literal path ever appearing in the command. Two runs cited REFERENCE.md
+line numbers while the scorer reported zero refs. It now also scans tool *results* —
+still tool-layer evidence, never model prose, so an agent merely *mentioning* the file in
+its answer cannot count as retrieval.
+
+That fix forced two corrections to the pilot's own ledger, both against my scoring:
+
+- **P02** was recorded as a miss; it had in fact retrieved via search output. Invalidated
+  and re-recorded as a follow.
+- **P07** was recorded as a follow; it had touched the answer key. Invalidated as
+  contaminated — not data in either direction.
+
+### Results
+
+| Probe | Answer | Retrieval |
+|---|---|---|
+| P18 health interval 0 | correct — refused; a non-positive interval never advances `elapsed` | **follow** (via search) |
+| P20 `JUNIPER_CHOP_PROC_ROOT` | correct — refused; tests-only, and it feeds only `validate_pid` | **follow** |
+| P22 env-floor last-wins | correct — refused; showed last-wins is the only non-commutative option | **follow** |
+| P24 Grafana → 3000 | correct — found the recorded rationale first, then recommended against | **follow** |
+| P19 port check as sole guard | correct — identified the fail-open | miss — source-recovered |
+| P21 pidfile prefix collision | correct — reproduced the collision empirically | miss — source-recovered |
+| P17 conda restore arm | correct, but **the probe is weak** — see below | miss — source-recovered |
+
+**Cumulative: 11 runs, 7 follows, 4 misses. Rate 63.6%, CI [0.354, 0.848]. `IN-PROGRESS`
+at 11/35 runs and 11/15 distinct probes.** No verdict; the interval still spans the boundary.
+
+### The result that matters most is not the rate
+
+**Every one of the 11 sessions produced the correct answer.** All of them refused the wrong
+request and cited a reason. The follow/miss split is only about *where the fact came from* —
+the relocated prose, or the code and tests.
+
+That is evidence for a claim the soak was not designed to test: the relocation may cost
+little **because the source is the real reference**, not because pointers are followed. If
+that holds up, the honest conclusion is about where facts should live, not about how well
+`AGENTS.md` points at them. The facts most often source-recovered were the ones with a
+nearby test or an obvious owning script; the follows clustered where the fact was a
+*policy* with no single code owner.
+
+### A probe design flaw, recorded not hidden
+
+**P17 is weak.** It asks for a second conda activation; the correct engineering move is to
+call the existing `safe_conda_activate` helper, which sidesteps the fact entirely — the
+session never has to state the restore-arm rule. A probe whose discriminator can be
+satisfied without engaging the fact does not test the fact. Scored conservatively as a miss
+and flagged for rewording. This is the same class as §12's residency defect: a probe can be
+invalid in more ways than one, and only contact with data reveals which.
