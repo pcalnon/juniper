@@ -20,6 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: System :: Monitoring",
+    "Typing :: Typed",
 ]
 dependencies = [
     "pydantic>=2.0",
@@ -47,6 +48,9 @@ Issues = "https://github.com/pcalnon/juniper-ml/issues"
 
 [tool.setuptools.packages.find]
 include = ["juniper_observability*"]
+
+[tool.setuptools.package-data]
+juniper_observability = ["py.typed"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
