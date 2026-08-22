@@ -9,7 +9,13 @@
 
 **Status**: FINDINGS — measured, not proposed. Ships the classifier
 (`juniper-ml/util/snapshot_classify.py`) and reports what a full-archive load pass says.
-No snapshot was modified and none was deleted. Line numbers are against juniper-cascor
+No snapshot was modified and none was deleted.
+
+**Since first written, root causes A and C have been FIXED** — juniper-cascor#560 (A, 239
+recovered) and juniper-cascor#559 (C, 14 recovered), together recovering **253 of the 526**.
+B's 273 truncated writes remain refused because their data loss is real. §4.4 and §6 record
+what shipped, including one place where the fix that shipped is deliberately narrower than
+the one this document first proposed. Line numbers are against juniper-cascor
 `7e06dc6` and drift constantly in `snapshot_serializer.py` / `cascade_correlation.py` —
 **re-derive before editing**.
 
@@ -106,8 +112,6 @@ prejudge the decision.
 ---
 
 ## 3. The population
-
-Full load pass over all 27,908 files, `snapshot_classify.py --stage load --write`.
 
 Full load pass over all 27,908 files, `snapshot_classify.py --stage load --write`:
 **846.6 s (14.1 min), 30.3 ms/file**, sidecar written.
@@ -209,10 +213,30 @@ In every case `weights.shape == (input_size + len(hidden_units), 3)` and
   refused*.
 - **Two candidate fixes, and they are not alternatives:**
   - *Writer (root)*: keep `network.config` in sync on resize, or stop writing
-    `config_json` from a source that can diverge from the tensors.
+    `config_json` from a source that can diverge from the tensors. **Not yet done.**
   - *Loader (recovery)*: prefer `arch` over `config_json` for structural dimensions when
     they disagree. **Only this one unblocks the existing archive**, because the affected
-    files are already written.
+    files are already written. **SHIPPED — juniper-cascor#560.** 239/239 recovered.
+
+> ⚠ **The loader fix that shipped is NARROWER than the one described above, and the
+> difference is load-bearing.** "Prefer `arch`" written unconditionally builds the network
+> *from* `arch`, so it can never disagree with `arch` — which makes `SNAPSHOT_ARCH_MISMATCH`
+> **unreachable**. That retires a status D-E added deliberately, that four API routes map to
+> their own 422 code, and that exists to tell an operator an arch disagreement is a
+> different investigation from damage; a deliberately corrupted arch was reported as generic
+> shape damage instead. Six tests in `tests/unit/api/test_snapshot_integrity_gates.py`
+> caught it — nothing else would have.
+>
+> What ships instead: adopt `arch` **only when the stored tensors corroborate it**
+> (`_tensors_corroborate_arch`). The justification for preferring arch was always *"three
+> independent records agree with it against `config_json`'s one"* — so the loader now
+> **verifies** that agreement rather than assuming it. All 239 recover anyway, because in
+> every one of them the tensors do agree, which is itself independent confirmation of the
+> root cause.
+>
+> Generalisable: before shipping a fix that reconciles source A against source B, ask what
+> error state existed *because* they could disagree, and whether the fix makes it
+> unreachable.
 
 ---
 
@@ -338,6 +362,20 @@ must be extended by hand for each removal, and nothing prompts anyone to do so.
 
 Fix: filter `config_dict` to the dataclass's actual fields (an allowlist derived from
 `inspect.signature`) and log the dropped keys, instead of popping a fixed five.
+**SHIPPED — juniper-cascor#559.** 14/14 recovered.
+
+Two details the implementation had to get right, neither obvious from this section:
+
+- **The five explicit drops stay.** `activation_functions_dict` and `log_config` *are*
+  accepted by `__init__`, so an allowlist keeps them — but `json.dumps` ran with
+  `default=str`, so they round-trip as repr strings rather than live objects. Replacing the
+  denylist with the allowlist would have passed that junk to the constructor. The two
+  filters do different jobs and neither subsumes the other.
+- **The allowlist is guarded.** A filter with a wrong allowlist drops *real* config
+  silently, which is worse than the `TypeError` it fixes. If `__init__` ever reports
+  `**kwargs` (a decorator without `functools.wraps` is enough), every name is legal and the
+  allowlist would be `{args, kwargs}` — stripping the entire config. That case now skips
+  filtering; an uninspectable constructor falls back to prior behaviour.
 
 ---
 
@@ -404,16 +442,23 @@ Vacuous-pass class; fix is to move the guard to the end of the file.
   under study.
 - **Items 4–6** (backfill, retention, the inert-metadata writer fix).
 
-**Owner decisions this work newly requires:**
+**Owner decisions — ANSWERED 2026-08-22:**
 
-1. Ratify or overturn the two-axis reading of §2.4 (§2).
-2. Whether the §4 loader-side recovery ships — it is the only thing that makes A's 239
-   files (0.86% of the archive) loadable again, and it is the only fix that reaches
-   snapshots already written.
-3. Whether §5's established data loss changes B's 265 files' retention standing (§6.4).
-4. **Priority of the §6 fix.** A and B are historical; C is the only root cause still
-   accruing, and it does so silently at every config-schema change. It is also the
-   cheapest of the three to fix.
+1. **Two-axis reading of §2.4 — RATIFIED.** `CATEGORY_PRECEDENCE` stands as the encoding.
+2. **The §4 loader-side recovery SHIPS** — juniper-cascor#560, narrowed to require tensor
+   corroboration (see the ⚠ in §4.4). 239/239 recovered.
+3. **The §6 fix was PRIORITISED** and shipped first — juniper-cascor#559. 14/14 recovered.
+4. **B's retention standing (§6.4) remains open.** Their loss is now established rather
+   than suspected, which is the input that decision was waiting on.
+
+**Still open:**
+
+- The *writer-side* half of A: nothing keeps `network.config` in sync on resize, so the
+  config object still goes stale. The loader now tolerates it; the divergence remains.
+- The **non-atomic write** behind all of B (§5.1). It is a live defect and will keep
+  producing partial files.
+- Handoff items 2–6 (inference pass, training probe, backfill, retention, the inert-metadata
+  writer fix).
 
 ---
 
