@@ -4,8 +4,11 @@
 **Author**: Paul Calnon
 **Date**: 2026-08-20
 **Status**: Census COMPLETE; **two later corrections folded in (§3b, §3c)** — `DeployKey`
-is IDENTIFIED, and §1's dependabot verdict is WITHDRAWN. Both removal candidates are now
+is IDENTIFIED, and §1's dependabot verdict is WITHDRAWN. Both removal candidates were left
 **UNDETERMINED**, on the same absence-from-history evidence §1 itself called insufficient.
+**SUPERSEDED 2026-08-22 for both candidates and for `DeployKey`** — see §4 and
+[`…_BYPASS-CANDIDATE-DETERMINATION.md`](JUNIPER_2026-08-22_JUNIPER-ECOSYSTEM_BYPASS-CANDIDATE-DETERMINATION.md).
+The census's per-repo data (§2) and its two method lessons (§3, §3c) remain valid as written.
 **Scope**: **Read-only.** No ruleset, bypass row, or repository setting was changed.
 **Related**: `HANDOFF_2026-08-19` §2.5; ml#1012;
 [`…_BRANCH-PROTECTION-INVESTIGATION-SYNTHESIS.md`](JUNIPER_2026-08-18_JUNIPER-ECOSYSTEM_BRANCH-PROTECTION-INVESTIGATION-SYNTHESIS.md)
@@ -227,13 +230,25 @@ type (absence-from-recent-history), which is exactly the standard §1 said was i
 
 ## 4. What is still open
 
-- **`DeployKey` (null) — IDENTIFY-FIRST, unresolved.** Absent from a month of suites, which is
-  *not* identification. It remains the widest entitlement in the roster (push / force-push /
-  **delete** `main` past all checks) and nothing here narrows it.
-- **`1143301` Copilot SWE Agent.** Absent from the window. The removal argument survives, but
-  note it survives on the *same* evidence type that proved insufficient for dependabot —
-  absence-from-history. Before removing, check whether it needs branch **creation**; if it
-  does, §1 applies to it verbatim and the row is load-bearing for the same reason.
+> **RESOLVED 2026-08-22 for the first three bullets.** Both candidate rows are DETERMINED,
+> and `DeployKey` is decided. See
+> [`…_BYPASS-CANDIDATE-DETERMINATION.md`](JUNIPER_2026-08-22_JUNIPER-ECOSYSTEM_BYPASS-CANDIDATE-DETERMINATION.md).
+> The determination did **not** come from a wider history window — it came from the ruleset
+> **version history**, which makes the scope in force at any past moment readable. §3c's
+> UNDETERMINED cause was a scope change from `~ALL` to `~DEFAULT_BRANCH` on 2026-08-10, one
+> day outside the interval §3c examined. Only the `4362741` bullet below is still open.
+
+- ~~**`DeployKey` (null) — IDENTIFY-FIRST, unresolved.**~~ **RETAIN, decided 2026-08-22.**
+  §3b's identification stands; the operator confirms the 17 keys are two live development
+  machines (this workstation plus "Turing", a macOS laptop used away from it). The deletion
+  option §3b raised is declined — the second machine is in use, not retired.
+- ~~**`1143301` Copilot SWE Agent.**~~ **REMOVABLE** — and the check this bullet asked for was
+  run. It does *not* need branch creation under the current scoping: `~DEFAULT_BRANCH` does
+  not evaluate `creation` off `main`. Better, the row is shown unnecessary by demonstration
+  rather than by absence — Copilot opened ml#629 (2026-07-06) while its row **did not exist**
+  on `juniper-ml`.
+- ~~**`29110` dependabot[bot]** (§3c)~~ — **REMOVABLE**, on the same two grounds: inert 9/9,
+  and 10 PRs created on `juniper-ml` between 2026-05-19 and 2026-07-13 with no row present.
 - **`4362741` release-train App — still DO NOT TOUCH.** One `pass` suite in a month is not
   evidence of redundancy. The handoff's trap stands: its recorded justification (the
   `code_quality` deadlock) is refuted, but *void justification ≠ demonstrated redundancy*.
