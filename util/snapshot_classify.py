@@ -20,7 +20,8 @@ Usage:
     python util/snapshot_classify.py --stats                     # index stage (~1s), population table
     python util/snapshot_classify.py --stage load --sample 300   # cost probe on a random sample
     python util/snapshot_classify.py --stage load --write        # full load pass, persist the sidecar
-    python util/snapshot_classify.py --category fails_to_load --limit 20
+    python util/snapshot_classify.py --from-sidecar --category fails_to_load   # ~0.5s, stored verdicts
+    python util/snapshot_classify.py --category fails_to_load --limit 20       # re-derives; index stage only
 
 THE SCHEME (handoff 2026-08-22 §2.4)
     1. fails_to_load       — the loader refuses it
@@ -73,6 +74,12 @@ WHY THE SIDECAR IS REWRITTEN, NOT APPENDED
     becomes ``loads_hidden_nodes`` after the load stage. Appending would leave two
     contradictory rows for one path and make the newest answer a matter of file order.
     So the sidecar is keyed by path and replaced atomically.
+
+    ``--from-sidecar`` reads it back. Without that the tool could WRITE a verdict it could
+    not READ: only the load stage can set ``fails_to_load``, so a later
+    ``--category fails_to_load`` re-derived from the index and reported "no matching
+    snapshots" against a sidecar holding 526 of them. A 14-minute pass whose answers are
+    unqueryable afterwards is a pass nobody runs twice. Reading them back costs ~0.5s.
 
 WHY THERE IS NO --prune
     Retention is design §6.4 and is gated on classification, which is what this tool
@@ -440,6 +447,29 @@ def summarise(verdicts: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def read_sidecar(root: Path) -> List[Dict[str, Any]]:
+    """Load previously-written verdicts, skipping any line that is not a JSON object.
+
+    Same tolerance as ``snapshot_index.read_index``: a run killed mid-write costs that
+    one record, not the whole file.
+    """
+    sidecar = root / SIDECAR_NAME
+    if not sidecar.exists():
+        return []
+    verdicts = []
+    for line in sidecar.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            verdict = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(verdict, dict):
+            verdicts.append(verdict)
+    return verdicts
+
+
 def write_sidecar(root: Path, verdicts: List[Dict[str, Any]]) -> Path:
     """Replace the sidecar atomically, keyed by path.
 
@@ -468,6 +498,25 @@ def _print_rows(verdicts: List[Dict[str, Any]], as_json: bool) -> None:
         print(f"{str(verdict.get('name', '')):<62} {str(verdict.get('category', '')):<20} {str(verdict.get('health', '')):<16} {str(units if units is not None else '-'):<8} {verdict.get('reason', '')}")
 
 
+def _report(verdicts: List[Dict[str, Any]], args: argparse.Namespace) -> int:
+    """Filter, then either summarise or list. Shared by the derive path and --from-sidecar
+    so a stored verdict and a freshly-computed one are reported identically."""
+    selected = verdicts
+    if args.category:
+        selected = [v for v in selected if v.get("category") == args.category]
+    if args.health:
+        selected = [v for v in selected if v.get("health") == args.health]
+
+    if args.stats:
+        print(json.dumps(summarise(selected), indent=2))
+        return 0
+
+    if args.limit is not None:
+        selected = selected[: args.limit]
+    _print_rows(selected, args.json)
+    return 0
+
+
 def main(argv: "list[str] | None" = None) -> int:
     """Render every operator refusal the same way: one stderr line, exit 2."""
     try:
@@ -482,6 +531,7 @@ def _dispatch(argv: "list[str] | None" = None) -> int:  # noqa: C901 - a CLI dis
     parser.add_argument("--root", type=Path, default=None, help=f"Snapshot root (default: ${DEFAULT_ROOT_ENV}, else {DEFAULT_ROOT_FALLBACK})")
     parser.add_argument("--stage", choices=STAGES, default="index", help="How deep to classify (default: index)")
     parser.add_argument("--cascor-src", type=Path, default=None, help=f"Cascor source tree for the load stage (default: ${DEFAULT_CASCOR_SRC_ENV}, else {DEFAULT_CASCOR_SRC_FALLBACK})")
+    parser.add_argument("--from-sidecar", action="store_true", help=f"Query the verdicts already in {SIDECAR_NAME} instead of re-deriving them (instant; keeps the load stage's answers)")
     parser.add_argument("--sample", type=int, default=None, help="Classify a random sample of N rows instead of the whole archive (cost probe)")
     parser.add_argument("--seed", type=int, default=20260822, help="Sample seed, so a probe is repeatable")
     parser.add_argument("--write", action="store_true", help=f"Persist the verdicts to {SIDECAR_NAME} in the snapshot root")
@@ -497,6 +547,25 @@ def _dispatch(argv: "list[str] | None" = None) -> int:  # noqa: C901 - a CLI dis
     if not root.is_dir():
         print(f"ERROR: snapshot root not found: {root}", file=sys.stderr)
         return 2
+
+    if args.from_sidecar:
+        # Read back what a previous run decided. Without this the tool could WRITE a
+        # verdict it could not READ: `--category fails_to_load` re-derived from the index
+        # and reported "no matching snapshots" against a sidecar holding 526 of them,
+        # because only the load stage can set that category. A 14-minute pass whose
+        # answers are unqueryable afterwards is a pass nobody runs twice.
+        if args.stage != "index":
+            print("ERROR: --from-sidecar reads stored verdicts; it cannot be combined with --stage", file=sys.stderr)
+            return 2
+        if args.write:
+            print("ERROR: --from-sidecar with --write would rewrite the sidecar from itself", file=sys.stderr)
+            return 2
+        verdicts = read_sidecar(root)
+        if not verdicts:
+            print(f"ERROR: no verdicts at {root / SIDECAR_NAME} — run '--stage load --write' first", file=sys.stderr)
+            return 2
+        return _report(verdicts, args)
+
     index_path = root / INDEX_NAME
     if not index_path.exists():
         print(f"ERROR: no index at {index_path} — run 'python util/snapshot_index.py --scan' first", file=sys.stderr)
@@ -543,21 +612,7 @@ def _dispatch(argv: "list[str] | None" = None) -> int:  # noqa: C901 - a CLI dis
         sidecar = write_sidecar(root, verdicts)
         print(f"wrote {len(verdicts)} verdict(s) -> {sidecar}", file=sys.stderr)
 
-    selected = verdicts
-    if args.category:
-        selected = [v for v in selected if v.get("category") == args.category]
-    if args.health:
-        selected = [v for v in selected if v.get("health") == args.health]
-
-    if args.stats:
-        summary = summarise(selected)
-        print(json.dumps(summary, indent=2) if args.json else json.dumps(summary, indent=2))
-        return 0
-
-    if args.limit is not None:
-        selected = selected[: args.limit]
-    _print_rows(selected, args.json)
-    return 0
+    return _report(verdicts, args)
 
 
 if __name__ == "__main__":

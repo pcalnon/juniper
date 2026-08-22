@@ -214,6 +214,26 @@ class SidecarTest(unittest.TestCase):
         sc.write_sidecar(self.root, [sc.classify_index_stage(index_row())])
         self.assertEqual([p.name for p in self.root.iterdir()], [sc.SIDECAR_NAME])
 
+    def test_round_trips_a_load_stage_verdict(self) -> None:
+        """The write/read pair must preserve the one thing only the load stage knows.
+
+        ``fails_to_load`` cannot be re-derived from the index, so if the sidecar did not
+        round-trip it the 14-minute pass would have to be repeated for every query.
+        """
+        written = [sc.apply_load_result(sc.classify_index_stage(index_row()), "snapshot_corrupt", "Missing required group: random", "ok")]
+        sc.write_sidecar(self.root, written)
+        restored = sc.read_sidecar(self.root)
+        self.assertEqual(len(restored), 1)
+        self.assertEqual(restored[0]["category"], sc.FAILS_TO_LOAD)
+        self.assertEqual(restored[0]["load"]["detail"], "Missing required group: random")
+
+    def test_absent_sidecar_reads_as_empty_not_an_error(self) -> None:
+        self.assertEqual(sc.read_sidecar(self.root), [])
+
+    def test_truncated_line_costs_one_record_not_the_file(self) -> None:
+        (self.root / sc.SIDECAR_NAME).write_text(json.dumps(sc.classify_index_stage(index_row())) + "\n{ truncated")
+        self.assertEqual(len(sc.read_sidecar(self.root)), 1)
+
 
 class MuffleStdoutTest(unittest.TestCase):
     """The cascor log leak that breaks ``--json``.
@@ -301,6 +321,37 @@ class CliTest(unittest.TestCase):
         self._write_index([index_row(arch={"num_hidden_units": 2}), index_row(arch={"num_hidden_units": 0})])
         _, text = self._run("--category", sc.LOADS_HIDDEN_NODES, "--json")
         self.assertEqual(len(json.loads(text)), 1)
+
+    def test_from_sidecar_returns_the_stored_load_verdicts(self) -> None:
+        """The gap this closed: `--category fails_to_load` reported "no matching
+        snapshots" against a sidecar holding 526 of them, because re-deriving from the
+        index can never produce that category."""
+        self._write_index([index_row()])
+        sc.write_sidecar(self.root, [sc.apply_load_result(sc.classify_index_stage(index_row()), "snapshot_corrupt", "boom", "ok")])
+        code, text = self._run("--from-sidecar", "--category", sc.FAILS_TO_LOAD, "--json")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(json.loads(text)), 1)
+
+    def test_from_sidecar_without_one_exits_2_and_names_the_fix(self) -> None:
+        self._write_index([index_row()])
+        code, text = self._run("--from-sidecar", "--stats")
+        self.assertEqual(code, 2)
+        self.assertIn("--stage load --write", text)
+
+    def test_from_sidecar_refuses_to_combine_with_a_stage(self) -> None:
+        """Stored verdicts and a fresh classification are different answers; silently
+        preferring one would make the output depend on flag order."""
+        self._write_index([index_row()])
+        sc.write_sidecar(self.root, [sc.classify_index_stage(index_row())])
+        code, _ = self._run("--from-sidecar", "--stage", "load")
+        self.assertEqual(code, 2)
+
+    def test_from_sidecar_refuses_to_write(self) -> None:
+        self._write_index([index_row()])
+        sc.write_sidecar(self.root, [sc.classify_index_stage(index_row())])
+        code, text = self._run("--from-sidecar", "--write")
+        self.assertEqual(code, 2)
+        self.assertIn("rewrite the sidecar from itself", text)
 
     def test_empty_index_exits_2_rather_than_reporting_a_clean_archive(self) -> None:
         """A zero-row summary reads as 'nothing wrong here', which is the vacuous-pass class."""
