@@ -1877,6 +1877,16 @@ Screens then run as `juniper-{symbol-loss,docs-additions}-check --base <BASE> --
 
 Do not expect a label hatch to green main after merge. Blanket `Allow-Symbol-Loss: *` is rejected.
 
+**The trailer must ride on the commit that survives the squash — a waiver added as a *second* commit is silently discarded.** Squash-and-merge composes the merge commit's message from the PR's *first* commit, so a correct, well-argued waiver commit pushed on top of an existing branch never reaches `main`, and the screen behaves exactly as if it had never been written. Observed 2026-08-21 on ml#1228: waiver commit `38df160a` carried a valid `Allow-Symbol-Loss:` trailer, the PR merged as `14e7af4` **without** it, and main-verify then failed on every subsequent merge via the G3.1 catch-up base. Before merging a PR that removes a symbol, verify the trailer is where it will land:
+
+```bash
+# the trailer must appear in the FIRST commit of the PR branch, not a follow-up
+git log --format='%B' origin/main..HEAD | grep -c 'Allow-Symbol-Loss'   # expect >= 1
+git log -1 --format='%B' <squashed-merge-sha> | grep 'Allow-Symbol-Loss'  # after merge
+```
+
+If it did not land, the repair is a follow-up PR whose **own first commit** carries the trailer; the symbol does not need restoring and no code change is required beyond whatever that PR legitimately does.
+
 #### Battery path gate (detector + fail-open)
 
 The `battery` job runs its own `Detect relevant path changes` step (P2 S3 burst-cost mitigation). Base resolution, in order:
@@ -1906,6 +1916,7 @@ gh run download <run-id> -n sequence-safety-report
 | Symptom | Check / Fix |
 |---------|-------------|
 | Red `symbol-screen` after a “green” PR | Per-PR job may have been `--advisory` via labels, or BASE was narrower than G3.1 catch-up. Download `sequence-safety-report`; waive with a **commit trailer** on a follow-up commit, or restore the deleted symbol/docs. |
+| Waiver was written but main is still red | Check the *merged* commit, not the branch: `git log -1 --format='%B' <sha> \| grep Allow-Symbol-Loss`. Squash ships the **first** commit's message, so a waiver added as a second commit never lands. Repair with a follow-up PR whose own first commit carries the trailer. |
 | Suspected `[skip ci]` gap | Open the next main-verify run's step summary — look for `catch-up from <sha> (N commits)`. That run screens every merge since the last successful tip. |
 | Docs-only merge, no battery | Expected — `battery` path-gate skips; `symbol-screen` still always runs. |
 | Initial / force-push tip never ran the battery | The detector must fail-open to `run=true` when no parent base resolves — inspect the `Detect relevant path changes` step log. |
