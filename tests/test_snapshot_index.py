@@ -265,3 +265,81 @@ class NoDestructivePathTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DatasetJoinTest(TempRoot):
+    """``dataset_id`` is DERIVED from the run manifest, not stored in the snapshot.
+
+    It is content-addressed by ``generate_dataset_id(generator, version, params)``, and
+    the generator *version* comes from a live query against juniper-data that happens
+    only after ``run_experiment`` starts driving -- long after cascor's process env was
+    fixed at exec. So no launch-env plumbing can put it in the file. The join recovers
+    it from ``<RUN_ROOT>/<run_id>/manifest.json`` instead, which also works for
+    snapshots written before any of this existed.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._runs = tempfile.TemporaryDirectory()
+        self.addCleanup(self._runs.cleanup)
+        self.run_root = Path(self._runs.name)
+
+    def _write_manifest(self, run_id: str, dataset: "dict | None") -> None:
+        run_dir = self.run_root / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "manifest.json").write_text(json.dumps({"run_id": run_id, "dataset": dataset}))
+
+    def test_resolves_dataset_id_from_the_run_manifest(self) -> None:
+        self._write_manifest("run-1", {"dataset_id": "spiral-1.0.0-abc", "generator": "spiral", "version": "1.0.0"})
+        resolved = snapshot_index.resolve_dataset("run-1", self.run_root, {})
+        assert resolved is not None
+        self.assertEqual(resolved["dataset_id"], "spiral-1.0.0-abc")
+        self.assertEqual(resolved["generator"], "spiral")
+
+    def test_absent_manifest_resolves_to_none(self) -> None:
+        """A snapshot whose run dir has been pruned is unresolvable, not an error."""
+        self.assertIsNone(snapshot_index.resolve_dataset("gone", self.run_root, {}))
+
+    def test_no_run_id_resolves_to_none(self) -> None:
+        """The whole pre-D-C archive is in this state."""
+        self.assertIsNone(snapshot_index.resolve_dataset(None, self.run_root, {}))
+
+    def test_unreadable_manifest_is_tolerated(self) -> None:
+        run_dir = self.run_root / "run-bad"
+        run_dir.mkdir(parents=True)
+        (run_dir / "manifest.json").write_text("{ truncated")
+        self.assertIsNone(snapshot_index.resolve_dataset("run-bad", self.run_root, {}))
+
+    def test_result_is_cached_per_run(self) -> None:
+        """One manifest read per run, not per snapshot — a run emits many snapshots."""
+        self._write_manifest("run-1", {"dataset_id": "d1"})
+        cache: dict = {}
+        snapshot_index.resolve_dataset("run-1", self.run_root, cache)
+        (self.run_root / "run-1" / "manifest.json").unlink()
+        self.assertEqual(snapshot_index.resolve_dataset("run-1", self.run_root, cache)["dataset_id"], "d1")
+
+    def test_dataset_id_filter_matches_the_derived_value(self) -> None:
+        """The filter must consult the join, not only the (normally blank) env field."""
+        write_snapshot(self.root, "cascor_snapshot_j.h5", provenance={"run_id": "run-1", "experiment": "e"})
+        write_snapshot(self.root, "cascor_snapshot_k.h5", provenance={"run_id": "run-2", "experiment": "e"})
+        self._write_manifest("run-1", {"dataset_id": "spiral-1.0.0-abc"})
+        self._write_manifest("run-2", {"dataset_id": "moons-1.0.0-xyz"})
+        snapshot_index.scan(self.root)
+
+        rc, out = self.run_cli("--dataset-id", "spiral-1.0.0-abc", "--run-root", str(self.run_root), "--json")
+
+        self.assertEqual(rc, 0)
+        rows = json.loads(out)
+        self.assertEqual([r["name"] for r in rows], ["cascor_snapshot_j.h5"])
+        self.assertEqual(rows[0]["dataset"]["dataset_id"], "spiral-1.0.0-abc")
+
+    def test_join_is_opt_in(self) -> None:
+        """Without --resolve-datasets (or --dataset-id) no manifest is read at all."""
+        write_snapshot(self.root, "cascor_snapshot_j.h5", provenance={"run_id": "run-1"})
+        self._write_manifest("run-1", {"dataset_id": "spiral-1.0.0-abc"})
+        snapshot_index.scan(self.root)
+
+        rc, out = self.run_cli("--json")
+
+        self.assertEqual(rc, 0)
+        self.assertNotIn("dataset", json.loads(out)[0], "the join must not run unless asked — it reads outside the snapshot root")
