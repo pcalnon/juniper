@@ -1651,7 +1651,7 @@ juniper-ml/
     ├── prune_git_branches_without_working_dirs.bash  # Branch hygiene
     ├── juniper_plant_all.bash            # Starts all Juniper ecosystem services
     ├── juniper_chop_all.bash             # Stops all Juniper ecosystem services
-    ├── snapshot_index.py                 # Snapshot archive index + query (design §6.2, delivers R2): --scan builds an append-only snapshots_index.jsonl per snapshot root; queries filter on the D-C provenance (--experiment/--cell-id/--run-id), tier and attribution. READ-ONLY BY CONSTRUCTION — no prune/delete path, because retention is §6.4 and gated on this index existing; an AST test enforces it. Records which groups a file has rather than judging validity, so cascor keeps sole ownership of the format policy (--verify opts into cascor's own verifier).
+    ├── snapshot_index.py                 # Snapshot archive index + query (design §6.2, delivers R2): --scan builds an append-only snapshots_index.jsonl per snapshot root; queries filter on the D-C provenance (--experiment/--cell-id/--run-id), tier and attribution. `dataset_id` is DERIVED, not stored — it is content-addressed on a generator version only known from a live juniper-data query after bring-up, so `--resolve-datasets` (implied by `--dataset-id`) joins run_id -> <RUN_ROOT>/<run_id>/manifest.json instead; opt-in because it reads outside the snapshot root. READ-ONLY BY CONSTRUCTION — no prune/delete path, because retention is §6.4 and gated on this index existing; an AST test enforces it. Records which groups a file has rather than judging validity, so cascor keeps sole ownership of the format policy (--verify opts into cascor's own verifier).
     ├── isolated_stack.bash               # Isolated training-runtime E2E trio (data 8101 / cascor 8202 / canopy 8051): --up/--down/--status/--dry-run
     ├── experiment_stack.bash             # Per-run experiment launcher (data 8110-8139 / cascor 8230-8259 / recurrence 8260-8289): --up/--down/--status/--dry-run
     ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py single-run cascor + recurrence driver (§6.3) + plots_cascor.py / plots_recurrence.py (§8.1 + §8.2 plot sets; 2.5 closes G-5) + stats_summary.py (§8.3 stats.json + summary.md) + list_runs.py (Wave 7.2: safety-gated lister/pruner) + run_suite.py + suites/ (Waves 7.1+7.5: suite driver — matrix expansion, per-cell up→drive→down, registry/index/aggregate; parallel + H-11 split, cascor refused per Q-6)
@@ -1877,6 +1877,16 @@ Screens then run as `juniper-{symbol-loss,docs-additions}-check --base <BASE> --
 
 Do not expect a label hatch to green main after merge. Blanket `Allow-Symbol-Loss: *` is rejected.
 
+**The trailer must ride on the commit that survives the squash — a waiver added as a *second* commit is silently discarded.** Squash-and-merge composes the merge commit's message from the PR's *first* commit, so a correct, well-argued waiver commit pushed on top of an existing branch never reaches `main`, and the screen behaves exactly as if it had never been written. Observed 2026-08-21 on ml#1228: waiver commit `38df160a` carried a valid `Allow-Symbol-Loss:` trailer, the PR merged as `14e7af4` **without** it, and main-verify then failed on every subsequent merge via the G3.1 catch-up base. Before merging a PR that removes a symbol, verify the trailer is where it will land:
+
+```bash
+# the trailer must appear in the FIRST commit of the PR branch, not a follow-up
+git log --format='%B' origin/main..HEAD | grep -c 'Allow-Symbol-Loss'   # expect >= 1
+git log -1 --format='%B' <squashed-merge-sha> | grep 'Allow-Symbol-Loss'  # after merge
+```
+
+If it did not land, the repair is a follow-up PR whose **own first commit** carries the trailer; the symbol does not need restoring and no code change is required beyond whatever that PR legitimately does.
+
 #### Battery path gate (detector + fail-open)
 
 The `battery` job runs its own `Detect relevant path changes` step (P2 S3 burst-cost mitigation). Base resolution, in order:
@@ -1906,6 +1916,7 @@ gh run download <run-id> -n sequence-safety-report
 | Symptom | Check / Fix |
 |---------|-------------|
 | Red `symbol-screen` after a “green” PR | Per-PR job may have been `--advisory` via labels, or BASE was narrower than G3.1 catch-up. Download `sequence-safety-report`; waive with a **commit trailer** on a follow-up commit, or restore the deleted symbol/docs. |
+| Waiver was written but main is still red | Check the *merged* commit, not the branch: `git log -1 --format='%B' <sha> \| grep Allow-Symbol-Loss`. Squash ships the **first** commit's message, so a waiver added as a second commit never lands. Repair with a follow-up PR whose own first commit carries the trailer. |
 | Suspected `[skip ci]` gap | Open the next main-verify run's step summary — look for `catch-up from <sha> (N commits)`. That run screens every merge since the last successful tip. |
 | Docs-only merge, no battery | Expected — `battery` path-gate skips; `symbol-screen` still always runs. |
 | Initial / force-push tip never ran the battery | The detector must fail-open to `run=true` when no parent base resolves — inspect the `Detect relevant path changes` step log. |
