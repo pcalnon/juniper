@@ -2,13 +2,13 @@
 
 **Area**: training — cascor algorithm, candidates, convergence, model state
 
-**Total entries**: 154
+**Total entries**: 156
 
-**By status**: proposed=106 | designed=10 | shipped=33 | deferred=2 | rejected=1 | superseded=2
+**By status**: proposed=106 | designed=10 | shipped=35 | deferred=2 | rejected=1 | superseded=2
 
-**By priority**: P0=21 | P1=54 | P2=70 | P3=9
+**By priority**: P0=22 | P1=55 | P2=70 | P3=9
 
-**By owner**: ml=106 | cas=35 | can=12 | ccl=1
+**By owner**: ml=106 | cas=35 | can=12 | rec=2 | ccl=1
 
 ---
 
@@ -1992,3 +1992,27 @@ Current architecture embeds CasCor within Canopy process. Deferral justified by 
 **Notes**:
 
 Complex refactor; deferred to later phase.
+
+### JR-REC-TRAIN-001 — Δt-native LMU sequence regressor with ratified acceptance bands
+
+**Status**: shipped  **Priority**: P0  **Category**: TRAIN  **Owner**: rec
+
+**Sources**:
+- `juniper-ml/notes/JUNIPER_2026-06-18_JUNIPER-RECURRENCE_EVALUATION-DESIGN.md` (lines 97-109)
+- `juniper-recurrence/bench/run_benchmark.py` (lines 137-149)
+
+**Detail**:
+
+The variable-Δt LMU must (band 1) cut RMSE ≥ 25% vs the fixed-Δt control on irregular-Δt data, (band 2) beat naive persistence and match/beat the linear ridge baseline on every primary dataset, and (band 3) tie fixed-Δt on regular grids. The pre-registered `PRIMARY_DATASETS` + `evaluate_bands` are the sole scoring authority (DP-5 guardrail).
+
+### JR-REC-TRAIN-002 — Readout spectrum (linear / RFF / MLP) with a capacity instrument
+
+**Status**: shipped  **Priority**: P1  **Category**: TRAIN  **Owner**: rec
+
+**Sources**:
+- `juniper-ml/notes/JUNIPER_2026-06-20_JUNIPER-RECURRENCE_DP3-READOUT-SPECTRUM-DESIGN.md` (lines 31-43)
+- `juniper-recurrence/bench/datasets.py` (lines 15-27)
+
+**Detail**:
+
+Nonlinear readouts must demonstrate capacity the linear readout provably lacks on the bilinear `delay_product` target (measured gaps: RFF +0.83, MLP +0.87 r²) while merely tying linear on near-linear synthetics. A miss is a finding to record, never a threshold to tune.

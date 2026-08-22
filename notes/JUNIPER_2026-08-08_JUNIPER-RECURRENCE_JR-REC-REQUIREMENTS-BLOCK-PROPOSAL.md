@@ -4,7 +4,8 @@
 **Sub-Project**: Requirements snapshot — juniper-recurrence owner block
 **Author**: Paul Calnon
 **Date**: 2026-08-08
-**Status**: PROPOSAL — IDs become official only at the next snapshot refresh
+**Status**: **RATIFIED 2026-08-21** — ingested by the v5 snapshot refresh; all 11 IDs are official. Drop the *(proposed)* qualifier when citing `JR-REC-*` in PR descriptions.
+**Ratification record**: `notes/requirements/v5_rec_extraction.yaml` (generated from this document by `util/ad-hoc/2026-08-21_v5_rec_extraction.py`) merged via `util/requirements_consolidate.py`. This document remains the source of the text; the requirements tree is the generated artifact.
 **Motivating gap**: [CLI experimentation plan](JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md) §16 — *"No `JR-REC-*` requirement IDs exist… juniper-recurrence postdates the snapshot"* (Q-12: propose the block now so recurrence work is traceable rather than orphaned).
 
 ---
@@ -27,8 +28,7 @@ Statuses reflect as-built reality at proposal time (most items shipped before th
 
 **Status**: shipped  **Priority**: P0  **Category**: TRAIN  **Owner**: rec
 **Sources**: `juniper-ml/notes/JUNIPER_2026-06-18_JUNIPER-RECURRENCE_EVALUATION-DESIGN.md` (OQ-14 bands); `juniper-recurrence/bench/run_benchmark.py` (`evaluate_bands`)
-**Detail**: The variable-Δt LMU must (band 1) cuDocumentation Links
-Build Pt RMSE ≥ 25% vs the fixed-Δt control on irregular-Δt data, (band 2) beat naive persistence and match/beat the linear ridge baseline on every primary dataset, and (band 3) tie fixed-Δt on regular grids. The pre-registered `PRIMARY_DATASETS` + `evaluate_bands` are the sole scoring authority (DP-5 guardrail).
+**Detail**: The variable-Δt LMU must (band 1) cut RMSE ≥ 25% vs the fixed-Δt control on irregular-Δt data, (band 2) beat naive persistence and match/beat the linear ridge baseline on every primary dataset, and (band 3) tie fixed-Δt on regular grids. The pre-registered `PRIMARY_DATASETS` + `evaluate_bands` are the sole scoring authority (DP-5 guardrail).
 
 ### JR-REC-TRAIN-002 — Readout spectrum (linear / RFF / MLP) with a capacity instrument
 
@@ -92,6 +92,7 @@ Build Pt RMSE ≥ 25% vs the fixed-Δt control on irregular-Δt data, (band 2) b
 
 ## 3. Process notes
 
-- IDs above are **reserved by this proposal** but become official only when the snapshot refresh (`requirements-next-steps` §7 rewrite mode) ingests them; until then PR descriptions may reference them with the `References JR-REC-…` verb marked *(proposed)*.
+- IDs above were reserved by this proposal and became **official at the v5 refresh (2026-08-21)**; PR descriptions should now cite `JR-REC-…` without the *(proposed)* qualifier.
 - Interim PR descriptions during Waves 4–5 used descriptive placeholders (e.g. `JR-RECURRENCE-BENCH-001`); the refresh should map those to `JR-REC-TEST-001`/`JR-REC-TEST-003` rather than minting the long-form spellings.
-- `by-repo/rec.md` and `id_assignments.yaml` entries are generated artifacts of the refresh — this proposal deliberately edits neither.
+- `by-repo/rec.md` and `id_assignments.yaml` entries are generated artifacts of the refresh — this proposal deliberately edits neither, and v5 honoured that: both were produced by `util/requirements_consolidate.py`.
+- **Corrected at ratification**: JR-REC-TRAIN-001's Detail read `cuDocumentation Links / Build Pt RMSE ≥ 25%` — CI job names spliced into the sentence. Repaired to `cut RMSE ≥ 25%`, matching the cited source (`EVALUATION-DESIGN.md:97`, *"target **≥25% lower RMSE**"*).

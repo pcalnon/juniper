@@ -1,6 +1,8 @@
 # Juniper Requirements — Output Tree
 
-This directory is the consolidated, deduplicated v1 snapshot of all explicit and (aggressive-threshold) implicit requirements identified across the 8 active Juniper repositories' `notes/` directories, as of 2026-05-12.
+This directory is the consolidated, deduplicated snapshot of all explicit and (aggressive-threshold) implicit requirements identified across the active Juniper repositories' `notes/` directories.
+
+**Current revision: v5 (2026-08-21)** — 1,814 entries. v1–v4 covered the 8 repos active as of 2026-05-12; **v5 added the `rec` owner block** (`juniper-recurrence`, 11 entries) because that repo joined the ecosystem after the snapshot froze, which is the §8 *"a new major repo joins the ecosystem"* refresh trigger. Citation drift measured 0.00% (1,915/1,915 OK) before v5 and 0.00% (1,934/1,934) after, so per §8 the scope was a minimal refresh plus the new owner block — no re-extraction of the existing corpus.
 
 **Source plan**: `../JUNIPER_2026-05-11_JUNIPER-ECOSYSTEM_REQUIREMENTS-IDENTIFICATION-PLAN.md`
 **Top-level navigation**: `../JUNIPER_2026-05-18_JUNIPER-ECOSYSTEM_REQUIREMENTS-INDEX.md`
@@ -17,7 +19,7 @@ Each requirement entry includes:
 | `Status` | yes | One of: `proposed`, `designed`, `in-progress`, `shipped`, `deferred`, `rejected`, `superseded` |
 | `Priority` | yes | One of: `P0`, `P1`, `P2`, `P3`. Inferred from source-doc language per plan §5.1 |
 | `Category` | yes | One of the 15 locked area codes (see below) |
-| `Owner` | yes | Canonical owning repo (cas/can/dat/dep/ml/cwk/ccl/dcl) |
+| `Owner` | yes | Canonical owning repo (cas/can/dat/dep/ml/cwk/ccl/dcl/rec) |
 | `Sources` | yes (≥1) | List of source-doc paths with line ranges. Hallucination check anchor |
 | `Detail` | when non-trivial | Multi-line description |
 | `Design` | optional | Design sketch from source doc |

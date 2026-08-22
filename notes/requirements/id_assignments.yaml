@@ -22149,3 +22149,159 @@
   - path: /home/pcalnon/Development/python/Juniper/juniper-cascor/notes/history/INTEGRATION_ROADMAP-01.md
     line_start: 594
     line_end: 603
+- id: JR-REC-TRAIN-001
+  owner: rec
+  category: TRAIN
+  status: shipped
+  priority: P0
+  brief: Δt-native LMU sequence regressor with ratified acceptance bands
+  merged_count: 1
+  notes: null
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-06-18_JUNIPER-RECURRENCE_EVALUATION-DESIGN.md
+    line_start: 97
+    line_end: 109
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/bench/run_benchmark.py
+    line_start: 137
+    line_end: 149
+- id: JR-REC-TRAIN-002
+  owner: rec
+  category: TRAIN
+  status: shipped
+  priority: P1
+  brief: Readout spectrum (linear / RFF / MLP) with a capacity instrument
+  merged_count: 1
+  notes: null
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-06-20_JUNIPER-RECURRENCE_DP3-READOUT-SPECTRUM-DESIGN.md
+    line_start: 31
+    line_end: 43
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/bench/datasets.py
+    line_start: 15
+    line_end: 27
+- id: JR-REC-DATA-001
+  owner: rec
+  category: DATA
+  status: shipped
+  priority: P0
+  brief: 3-D irregular-Δt NPZ sequence contract consumption
+  merged_count: 1
+  notes: null
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-06-05_JUNIPER-RECURRENCE_RECURSE-DELTA-T-HANDLING.md
+    line_start: 1
+    line_end: 13
+  - path: /home/pcalnon/Development/python/Juniper/juniper-data-client/juniper_data_client/contract.py
+    line_start: 41
+    line_end: 53
+- id: JR-REC-API-001
+  owner: rec
+  category: API
+  status: shipped
+  priority: P1
+  brief: Service train/predict/crossval referencing content-addressed datasets
+  merged_count: 1
+  notes: null
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md
+    line_start: 363
+    line_end: 375
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/juniper-recurrence/juniper_recurrence/routers/training.py
+    line_start: 37
+    line_end: 49
+- id: JR-REC-TEST-001
+  owner: rec
+  category: TEST
+  status: shipped
+  priority: P1
+  brief: Bench harness with pre-registered scope as scoring authority
+  merged_count: 1
+  notes: null
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/bench/run_benchmark.py
+    line_start: 137
+    line_end: 149
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/bench/datasets.py
+    line_start: 262
+    line_end: 274
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/bench/test_bench_smoke.py
+    line_start: 1
+    line_end: 13
+- id: JR-REC-TEST-002
+  owner: rec
+  category: TEST
+  status: proposed
+  priority: P2
+  brief: Service-vs-bench parity as a regression criterion
+  merged_count: 1
+  notes: null
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-08-08_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P3-ACCEPTANCE-ROLLUP.md
+    line_start: 1
+    line_end: 13
+- id: JR-REC-TOOL-001
+  owner: rec
+  category: TOOL
+  status: shipped
+  priority: P1
+  brief: Experiment YAML config layer (`service:` projection)
+  merged_count: 1
+  notes: null
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md
+    line_start: 264
+    line_end: 276
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/juniper-recurrence/juniper_recurrence/settings.py
+    line_start: 60
+    line_end: 72
+- id: JR-REC-TOOL-002
+  owner: rec
+  category: TOOL
+  status: shipped
+  priority: P2
+  brief: Direct-CLI `train:` block seeding (W-11)
+  merged_count: 1
+  notes: null
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/juniper-recurrence/juniper_recurrence/main.py
+    line_start: 96
+    line_end: 108
+- id: JR-REC-TEST-003
+  owner: rec
+  category: TEST
+  status: shipped
+  priority: P2
+  brief: Concurrent bench runs (per-run results dir)
+  merged_count: 1
+  notes: null
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-recurrence/bench/run_benchmark.py
+    line_start: 4
+    line_end: 16
+- id: JR-REC-OBS-001
+  owner: rec
+  category: OBS
+  status: shipped
+  priority: P2
+  brief: Experiment-lane observability toggles
+  merged_count: 1
+  notes: null
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md
+    line_start: 444
+    line_end: 456
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/util/experiment_stack.bash
+    line_start: 7
+    line_end: 19
+- id: JR-REC-DEP-001
+  owner: rec
+  category: DEP
+  status: deferred
+  priority: P3
+  brief: Dedicated conda environment decision (Q-10)
+  merged_count: 1
+  notes: null
+  sources:
+  - path: /home/pcalnon/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md
+    line_start: 1262
+    line_end: 1274

@@ -316,7 +316,7 @@ A refresh becomes worthwhile when one or more of:
 ### Open decisions
 
 - **Cadence**: do nothing scheduled; refresh when drift triggers it. Avoid calendar-driven refreshes if nothing has drifted.
-- **Where does the consolidation script live permanently?** Permanent destination is `util/requirements_consolidate.py`. **As of 2026-05-18 the script does not exist** (the original `/tmp/phase4_consolidate.py` is irrecoverable per the note above). v5 must rebuild it from scratch as a v5-entry task; the plan-doc §11 phase descriptions are the canonical spec. **This is a hard v5 prerequisite.**
+- **Where does the consolidation script live permanently?** **RESOLVED 2026-08-21** — it exists at [`util/requirements_consolidate.py`](../util/requirements_consolidate.py), rebuilt as the v5-1 task. The hard prerequisite is discharged; future refreshes are no longer blocked. Note it is deliberately **not** a reimplementation of `phase4_consolidate.py`: that script consumed the Phase-3 extraction YAMLs, which were also `/tmp`-resident and are gone, so the corpus is now parsed from the shipped views. See plan-doc §11 rows v5-1/v5-2 for the two findings that forced the redesign (the ledger carries no `detail`; the three view families disagree with each other).
 
 ---
 
