@@ -256,3 +256,62 @@ class TestLazyRegisterOrReuse:
             t.join()
         # All eight workers see the same collector.
         assert len({id(c) for c in results}) == 1
+
+
+class TestPublicReturnAnnotations:
+    """APD-OBS-003: ``register_info_or_update`` returned ``Any``, unlike its siblings.
+
+    ``prometheus_client`` is an optional extra, so the collector types cannot be imported
+    at module scope -- which is why this one helper was left as ``Any`` while
+    ``register_or_reuse`` / ``register_fresh`` / ``lazy_register_or_reuse`` all return
+    ``T``. ``Any`` silently disables checking at every call site: with it, assigning the
+    result to an ``int`` type-checks clean.
+
+    The fix is a ``TYPE_CHECKING``-only import, so these tests pin BOTH halves -- the
+    annotation is a real type, and the runtime import cost stays zero. Checking only the
+    annotation would pass a change that imports ``prometheus_client`` eagerly and breaks
+    every consumer that installed the package without the extra.
+    """
+
+    def test_no_public_helper_returns_bare_any(self):
+        import typing
+
+        from juniper_observability import prometheus_helpers as helpers
+
+        for name in helpers.__all__:
+            # ``Info`` is a TYPE_CHECKING-only import, so it is genuinely absent from the
+            # module's runtime globals -- supply it, exactly as a type checker would.
+            hints = typing.get_type_hints(getattr(helpers, name), localns={"Info": Info})
+            assert hints["return"] is not typing.Any, f"{name} returns bare Any -- every call site loses checking"
+
+    def test_register_info_or_update_is_annotated_as_info(self):
+        import typing
+
+        from juniper_observability.prometheus_helpers import register_info_or_update
+
+        hints = typing.get_type_hints(register_info_or_update, localns={"Info": Info})
+        assert hints["return"] is Info
+
+    def test_the_annotation_is_not_resolvable_without_the_optional_extra(self):
+        """The TYPE_CHECKING guard is real, not decorative.
+
+        ``get_type_hints`` above needs ``localns`` precisely because ``Info`` is absent
+        from the module's runtime namespace. If someone "fixes" the import by hoisting it
+        to module scope this raises nothing and the test fails -- which is the point:
+        that hoist is what breaks installs without the ``prometheus`` extra.
+        """
+        import typing
+
+        from juniper_observability.prometheus_helpers import register_info_or_update
+
+        with pytest.raises(NameError):
+            typing.get_type_hints(register_info_or_update)
+
+    def test_importing_the_module_does_not_import_prometheus_client(self):
+        """The TYPE_CHECKING guard must keep the optional extra optional."""
+        import subprocess
+        import sys
+
+        probe = "import juniper_observability.prometheus_helpers as h, sys; print('prometheus_client' in sys.modules)"
+        out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True)
+        assert out.stdout.strip() == "False", "prometheus_client was imported at module scope -- the optional extra is no longer optional"
