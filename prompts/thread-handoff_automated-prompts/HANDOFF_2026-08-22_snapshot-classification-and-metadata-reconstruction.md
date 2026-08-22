@@ -117,6 +117,7 @@ dysfunctional networks.
        research value of "fails to train" snapshots would likely benefit from determining root causes of the network topology issues preventing training.
        once root-causing has been carried out on the broken snapshot categories, any further value seems unlikely.
        saving a compressed, encrypted archive of the entire project tree--including snapshots--using the new juniper_backup.bash script seems likely to be a sufficient safeguard against future need for potentially removed snapshots.
+       alertnately, using the index rather than write into the snapshots also seems like an option worth investigating.
 
 5. **§6.4 retention** — the owner's call, now informed.
 
