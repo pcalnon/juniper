@@ -8,28 +8,29 @@ that arc's central constraint turned out to rest on a backup process nobody had 
 planned, systems based solution … designed, validated, and documented iaw standard juniper operating
 procedures"* — never an ad-hoc sweep or a one-off script.
 
-> ## 🔴 READ FIRST — there is a live outage, and it is not a design problem
+> ## 🔴 STATUS 2026-08-21 evening — the outage is REAL and mid-remediation
 >
-> **Duplicati's last successful backup finished 2026-07-09. It has been dead for 42 days.**
+> **Duplicati went 42 days without a successful backup** (last: 2026-07-09). Root cause: the backend
+> filled (quota hit 4 KiB free on 2026-07-12), a dblock volume wedged mid-upload, and every
+> subsequent run refused on the resulting inconsistency. The owner has since freed ~1 TB.
 >
-> | | |
+> **Remediation in flight at time of writing** — do not re-diagnose from scratch, check the outcome:
+>
+> | step | outcome |
 > |---|---|
-> | `Metadata.LastBackupDate` | **`20260709T142349Z`** (finished `155302Z`, ran 1h29m) |
-> | `Metadata.LastErrorDate` | `20260713T123608Z` |
-> | `LastErrorMessage` | *"remote volume `duplicati-bb634e17…dblock.zip.gpg` is in uploading state, partially uploaded, and **strict mode is on**"* |
-> | Quota | **16.3 GB free of 3.94 TB — 0.41 %** |
-> | Schedule | daily; last ran **2026-07-13 07:03**, next due 07-14 — **never ran** |
+> | Owner freed destination space | ✅ 1.1 TB free on `/dev/sda1` |
+> | Repair + Resume (server had been **PAUSED**) | ✅ done — but Repair did **not** clear the stale record |
+> | Scheduled run fired 17:19 | ❌ failed, same volume, now reported *"missing … in uploading state"* |
+> | **Database Recreate** | ⏳ **running**, expected several hours |
 >
-> The failure chain is recorded on the host: quota exhaustion (2026-07-12) → a wedged
-> partially-uploaded volume → a server-startup crash (`ReWriteAllFieldsIfEncryptionChanged`, the
-> 2026-07-12 crashlog). The strict-mode error is **sticky** — it re-fails every run until the partial
-> volume is manually repaired. **This needs an operator, not a designer, and it should not wait for
-> the design.**
+> The stuck volume postdates the last good restore point (2026-07-11), so it should not be
+> referenced by any completed version. **First thing to check: did the Recreate finish, and did a
+> backup then complete?** If yes, this banner is history. If it failed, the documented next step is
+> `list-broken-files` (read-only) → `purge-broken-files --dry-run` → apply.
 >
-> Everything created since 2026-07-09 — including every snapshot written during the storage-convention
-> arc — has never been in a Duplicati backup.
+> ⚠ **There is no `--disable-strict-mode` option in 2.3.0.4.** It looks like the obvious escape from
+> the error message and it does not exist; do not spend time on it.
 
----
 
 ## 0. How to run this arc
 
@@ -59,12 +60,28 @@ tree. This arc closes that — and the verification found the constraint is not 
 
 ## 2. What actually exists — verified 2026-08-21
 
-Two mechanisms, **neither of which covers the system**.
+Two mechanisms, **neither of which covers the system** — and, critically, **two Duplicati
+instances**, which is what made this take three rounds to diagnose.
 
 | leg | scope | destination | state |
 |---|---|---|---|
-| `tar -czf` (owner-described) | `Juniper/` tree only | temporarily-attached external drive | **no artifact ever found** — see O-0 |
-| Duplicati job `SJTCQIIZSJ` ("Ubuntu") | `%HOME%` | `/mnt/Backups/Ubuntu` on `/dev/sda1` | **dead 42 days** (banner) |
+| `util/juniper-backup.bash` | `Juniper/` tree only | external drive `DFF3-2782` | **FIXED 2026-08-21** — see O-0 |
+| Duplicati **`Ubuntu`** job (`SJTCQIIZSJ`) | `%HOME%` | `/mnt/Backups/Ubuntu` on `/dev/sda1` | the real one; see banner |
+
+### 2.0 ⚠ TWO Duplicati instances — get this right before touching anything
+
+| port | process | runs as | config | job | state |
+|---|---|---|---|---|---|
+| **8300** | `/usr/bin/duplicati` | **pcalnon** | `/home/pcalnon/.config/Duplicati/` | **`Ubuntu`** | **THE REAL ONE** — 21 versions, 1.29 TiB source, 3.38 TiB stored |
+| 8200 | `duplicati-server` | **root** | `/root/.config/Duplicati/` | `yamaguchi` | **never completed a backup** — "Last successful backup: N/A" |
+
+The root instance on 8200 is enabled, scheduled daily, and produces nothing. It is a strong candidate
+for **removal rather than migration**. Its existence is why an earlier draft of this document
+concluded the real job was "orphaned in a dormant config" — see §2.6.
+
+**The owner wants Duplicati moved off root to a dedicated system user.** Note that reframes: the job
+that matters runs in a *user-session* instance that dies with the session, which is plausibly the
+root cause of a 42-day silent outage. The migration target is the **8300** instance, not the root one.
 
 ### 2.1 The structural finding — C-2 is violated by construction
 
@@ -81,9 +98,13 @@ That is the arc's real headline, and it is independent of the outage.
 
 ### 2.2 Even when healthy, Duplicati drops most of the tree
 
-- **`--skip-files-larger-than = 50MB`** — measured: **69 files, 117.16 GB** of `Juniper/` silently
+- **`--skip-files-larger-than = 50MB` — CONFIRMED ON THE LIVE `Ubuntu` JOB** (UI: Source Data →
+  Exclude → "Files larger than", ON, 50 MB). Measured: **69 files, 117.16 GB** of `Juniper/` silently
   skipped (juniper-data 102.52, juniper-legacy 10.62, juniper-cascor 2.82, juniper-canopy 0.72,
   juniper-ml 0.48). Roughly **93 % of the tree by volume**.
+  *(This finding was once retracted in error, after being read against the wrong job. It stands.
+  Do not confuse it with the `Ubuntu` job's "Limit the size of the volumes = 1 GB", which is
+  `--dblock-size` — the remote chunk size, and entirely normal.)*
 - **37 exclude filters**, four inside the tree: `Juniper/logs/`, `Juniper/resources/` (live, 45 MB),
   `Juniper/data/` and `Juniper/jupyter/backups/.ipynb_checkpoints/` (both stale paths, masked by
   `--allow-missing-source=true`).
@@ -132,6 +153,25 @@ in it 21 times. The other two are invisible because `juniper-legacy` is absent f
 script's `REPOS` array. See §7.
 
 ---
+
+### 2.6 ⛔ RETRACTED — "the job is orphaned in a dormant config"
+
+An earlier round of this investigation reasoned: the live listener is on **8200**; pcalnon's database
+records `last-webserver-port=8300`; a server rewrites that field on startup; pcalnon's DB has not been
+written since the last-error timestamp. **Therefore** the running server is not using pcalnon's
+config, and the `Ubuntu` job is orphaned.
+
+**Every premise was true and the conclusion was false.** There are simply *two* servers. The pcalnon
+instance was not running at the moment of that probe, so only 8200 appeared in `ss`; the `8300` it
+recorded was correct all along. `Ubuntu` was never orphaned — it was paused and wedged.
+
+The tell that should have been chased instead of reasoned past: `ss -tlnp` showed a listener with no
+owning process visible (a root-owned process, invisible to a non-root `ss`), which is *itself*
+evidence of a second instance rather than of a single misconfigured one.
+
+Recorded because this is the arc's third instance of the same failure shape — a correct mechanism
+paired with a wrong consequence — and because a future reader will otherwise find the "orphaned"
+framing in the git history and act on it.
 
 ## 3. Inventory — what the design must account for
 
@@ -192,17 +232,33 @@ restore leaves a root-owned snapshot root that silently EPERMs every container s
 
 ## 6. Open questions for the owner
 
-- **O-0 — what is the exact `tar` command line?** No script, alias, cron entry, systemd unit, or
-  `.tar*` artifact was found anywhere on `/home` or `/mnt`; the external drive is not attached.
-  **Whether the tar leg has ever produced an artifact is unknown**, and it decides whether gitignored
-  snapshots are captured. Highest-value question in this document.
+- **O-0 — ANSWERED and FIXED.** The tar leg is `util/juniper-backup.bash`. It had **never produced
+  an artifact**: it assigned `ENCRPYTED` but used `${ENCRYPTED}`, so `gpg -o ""`, and with no `set -u`
+  it exited 0 while doing nothing. That is why no `.tar*` existed anywhere. Landed and fixed in
+  **juniper-ml#1221** (streamed `tar | gpg`, mount-point guard, free-space check, partial-output
+  cleanup, `--dry-run`) and **#1223** (second recipient). It uses a plain `tar -czf` with no
+  `--exclude-vcs-ignores`, so gitignored snapshots **are** captured — the `.gitignore` question is
+  settled.
 - **O-1** — is `juniper-data`'s ~102 GB genuinely regenerable, or is any of it unique?
 - **O-2** — has `sops-backup-key.sh` ever been run, and where is its output?
-- **O-3** — is the Duplicati GPG passphrase recorded anywhere off this host?
-- **O-4** — was the ~1 TB freed from `/mnt/Backups` since 2026-07-12 a deliberate cleanup, or loss?
+- **O-3 — PARTLY ANSWERED.** *Archive* encryption uses YubiKey-backed public keys, and the owner
+  confirms multiple offline key backups exist in several modalities. A **second recipient**
+  (Yubikey-3a) was added in #1223, so no single key loss can strand an archive written from now on.
+  ⚠ Still open, and **a different secret**: the **Duplicati** GPG *passphrase* (symmetric,
+  `enc-v1:`-wrapped in the server DB). Is it recorded off this host?
+- **O-4 — ANSWERED.** Deliberate: Duplicati agent cleanup after the partition filled, with retention
+  frequency turned down. Confirmed on disk — 1.1 TB free. Not data loss.
 - **O-5** — is offsite in scope, or is on-site redundancy the accepted posture? Note `/dev/sda1` is an
   **internal, non-removable** disk — it shares a failure domain with `/home`.
-- **O-6** — has a restore *ever* been performed from either leg?
+- **O-6** — has a restore *ever* been performed from either leg? **21 versions have accumulated and
+  none has been restored.** A backup is a hypothesis until one is; a single-small-file restore drill
+  is the cheapest way to convert it into a fact, and should arguably gate calling this leg healthy.
+- **O-7 (new)** — should the root `duplicati-server` on 8200, with its never-run `yamaguchi` job, be
+  **removed** rather than migrated? It produces nothing, runs privileged, and its existence is what
+  made this outage take three rounds to diagnose.
+- **O-8 (new)** — the 50 MB skip excludes ~117 GB, essentially all of `juniper-data`. Deliberate
+  (regenerable) or accidental (an old setting)? It needs to become an explicit, recorded decision
+  either way.
 
 ---
 
