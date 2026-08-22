@@ -449,7 +449,8 @@ Direct CLI, `fit()` moved onto a `ThreadPoolExecutor` worker, nothing else chang
 
 **Cost: none measurable.** 282.9 s against 280.8 s, and the mitigated arm's span cv is *lower*
 (2.0% vs 5.2%). Whatever this does, it is not buying reproducibility with throughput — unlike
-capping BLAS threads, which #531 measured at up to 1.30× on the candidate phase and which §3.8
+capping BLAS threads, which #531 measured at up to 1.30× on the candidate phase (re-measured
+rep-paired at k=3 on 2026-08-22: **1.016× [0.885, 1.148]** — no effect demonstrated) and which §3.8
 shows does not work anyway.
 
 **What survives, precisely.** The 20 runs split **16 / 4**:

@@ -376,6 +376,44 @@ until recomputed against critical path across a full campaign.
 > here is an epoch *count*, not a time — but the imbalance figures are n=1 per arm and would be
 > worth confirming across the k=4 campaigns before being leaned on hard.
 
+### 4.3a The thread-budget control — `unset` ≡ 16, and the OMP=2 cap costs nothing
+
+Three conditions at cap 16 on one cell, conditions **rotated inside each replicate** so every
+condition saw the same slice of the day, 3 reps
+([`2026-08-21_h2h_thread_sweep.bash`](../util/ad-hoc/2026-08-21_h2h_thread_sweep.bash)):
+
+| condition | candidate phase | candidate epochs | s / candidate epoch |
+| --- | ---: | ---: | ---: |
+| `unset` (shipped post-#533) | 1292.0 ± 178.4 s | 49,460 ± 3,851 | 0.02613 ± 0.00320 |
+| explicit `16` (what #531 used) | 1436.7 ± 151.9 s | 53,500 ± 3,181 | 0.02693 ± 0.00340 |
+| `2` (the pre-#533 cap) | 1316.3 ± 236.6 s | 49,550 ± 2,791 | 0.02644 ± 0.00328 |
+
+Per-arm means carry ~12% cv purely from host drift, so the comparison is made **rep-paired** —
+the rotation makes a replicate a valid pairing unit, the same argument as §2.2:
+
+| rep-paired rate ratio vs `unset` | mean ± sd | 95% CI | |
+| --- | ---: | --- | --- |
+| explicit `16` | 1.033 ± 0.095 | [0.926, 1.141] | includes 1.0 |
+| `2` | 1.016 ± 0.116 | [0.885, 1.148] | includes 1.0 |
+
+**`unset` is the same configuration as explicit 16.** That closes §3.2a's second candidate
+explanation: this campaign and #531's probe were measuring the same thread budget, so the gap
+between 1.706× and 1.17× is **sampling**, full stop.
+
+**And the OMP=2 cap does not cost 1.30×.** juniper-cascor#531 attributed **1.30× of a 1.52×**
+candidate-phase penalty to `main.py`'s pre-#533 cap, acting through throughput *and* epoch count.
+Measured here: rate **1.016×**, work **1.002×** (49,460 vs 49,550 epochs) — a combined phase effect
+of ~**1.018×**. The interval's upper bound is 1.148, so 1.30× is excluded; the data is consistent
+with anything from 0.885 to 1.148, and n=3 cannot rule out a modest ~10% effect.
+
+This is the **third** single-run attribution in this arc to fail under replication, and it explains
+§3.3c: #533 did not move the cap-64 headline because there was little there to remove.
+
+> **#533 is still the right change.** One BLAS policy called from both entry points is correct
+> engineering whatever the number says, and it fixed a genuine asymmetry. What does not survive is
+> its *performance* justification. Anywhere the 1.30× is quoted as a measured saving — including
+> the supersession banner this author added to the wide-budget note — needs the same correction.
+
 ### 4.4 Remaining hypotheses
 
 With packing eliminated (§4.3) and thread context eliminated (§4.1), what is left for the ~1.33×
