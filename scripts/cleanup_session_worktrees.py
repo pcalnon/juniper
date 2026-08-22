@@ -9,13 +9,26 @@ procedure to every session worktree at once.
 
 A worktree is removed iff:
 
-1. Its working tree is clean (no uncommitted or untracked changes).
-2. Its branch tip is reachable from ``origin/main`` (the work was merged),
+1. It is **not locked**. Claude Code locks a live session's worktree, naming
+   the session and pid in the lock reason, so git's lock flag is this fleet's
+   liveness signal.
+2. Its working tree is clean (no uncommitted or untracked changes).
+3. Its branch tip is reachable from ``origin/main`` (the work was merged),
    OR a MERGED pull request exists for the branch on GitHub.
 
-Worktrees that fail either gate are left alone and reported. The current
+Worktrees that fail any gate are left alone and reported. The current
 process's CWD is also always skipped — git refuses to remove the active
 worktree of a running process.
+
+Gate 1 was missing until 2026-08-21: this script read merge state and
+cleanliness but never the lock. ``git worktree remove`` with a single
+``--force`` does refuse a locked tree, so a live run could never actually
+delete a session — the damage was to the PLAN. ``--dry-run`` printed
+"WOULD REMOVE" for worktrees a real run would refuse, and an operator
+reconciling that contradiction reaches for ``-f -f`` or unlocks by hand,
+either of which *does* destroy live work. The removal call no longer passes
+``--force`` at all: dirty and locked are both refused above it, so force
+could only mask a surprise git is right to raise.
 
 When a worktree is removed, the script also deletes the corresponding
 local branch (force) and the matching branch on ``origin`` (best-effort —
@@ -60,6 +73,7 @@ class CleanupReport:
     removed: list[str] = field(default_factory=list)
     kept_dirty: list[str] = field(default_factory=list)
     kept_unmerged: list[str] = field(default_factory=list)
+    kept_locked: list[str] = field(default_factory=list)
     skipped_self: list[str] = field(default_factory=list)
     skipped_remove_failed: list[str] = field(default_factory=list)
 
@@ -70,13 +84,14 @@ class CleanupReport:
                 self.removed,
                 self.kept_dirty,
                 self.kept_unmerged,
+                self.kept_locked,
                 self.skipped_self,
                 self.skipped_remove_failed,
             )
         )
 
     def summary_line(self) -> str:
-        return f"Summary: removed={len(self.removed)} kept_dirty={len(self.kept_dirty)} " f"kept_unmerged={len(self.kept_unmerged)} skipped_self={len(self.skipped_self)} " f"failed={len(self.skipped_remove_failed)} (total={self.total()})"
+        return f"Summary: removed={len(self.removed)} kept_dirty={len(self.kept_dirty)} " f"kept_unmerged={len(self.kept_unmerged)} kept_locked={len(self.kept_locked)} " f"skipped_self={len(self.skipped_self)} " f"failed={len(self.skipped_remove_failed)} (total={self.total()})"
 
 
 # ─── Git helpers ─────────────────────────────────────────────────────────────
@@ -137,6 +152,32 @@ def _has_merged_pr(gh_repo: str, branch: str) -> bool:
 # ─── Cleanup ─────────────────────────────────────────────────────────────────
 
 
+def _locked_worktrees(repo: Path) -> dict[Path, str]:
+    """Map every LOCKED worktree path to its lock reason.
+
+    Claude Code marks a live session's worktree by locking it, with the reason
+    naming the session and pid -- so git's lock flag is the fleet's liveness
+    signal, and this script previously never read it. ``git worktree remove``
+    with a single ``--force`` does refuse a locked tree, so a live run could not
+    actually delete one; the damage was to the PLAN. ``--dry-run`` reported
+    "WOULD REMOVE" for trees a real run would refuse, which is how an operator
+    ends up reaching for ``-f -f`` or unlocking by hand to make the tool agree
+    with itself.
+
+    Porcelain emits a bare ``locked`` line, or ``locked <reason>``.
+    """
+    out = _run(["git", "-C", str(repo), "worktree", "list", "--porcelain"]).stdout
+    locked: dict[Path, str] = {}
+    current: Path | None = None
+    for line in out.splitlines():
+        if line.startswith("worktree "):
+            current = Path(line[len("worktree ") :].strip())
+        elif line.startswith("locked") and current is not None:
+            reason = line[len("locked") :].strip()
+            locked[current.resolve()] = reason or "(no reason given)"
+    return locked
+
+
 def _is_self_cwd(wt: Path) -> bool:
     """Return True iff ``wt`` is (or contains) the current working directory.
 
@@ -162,7 +203,11 @@ def _remove_worktree(repo: Path, wt: Path, branch: str, dry_run: bool) -> tuple[
     if dry_run:
         return True, "DRY-RUN: would remove worktree + branches"
 
-    r = _run(["git", "-C", str(repo), "worktree", "remove", str(wt), "--force"])
+    # No --force. The caller has already refused dirty and locked worktrees, so
+    # force can only mask a surprise git is right to raise -- and normalising it
+    # here is the step before someone reaches for `-f -f`, which DOES delete a
+    # live session's tree.
+    r = _run(["git", "-C", str(repo), "worktree", "remove", str(wt)])
     if r.returncode != 0:
         return False, f"worktree remove failed: {r.stderr.strip()}"
 
@@ -207,12 +252,22 @@ def cleanup_session_worktrees(
     if not main_tip:
         raise SystemExit(f"could not resolve origin/main in {repo}")
 
+    # Read the lock table once, before any decision. A locked worktree is a
+    # LIVE SESSION and is a hard stop -- ahead of dirty/merged, because merge
+    # state says nothing about whether someone is working in there right now.
+    locked = _locked_worktrees(repo)
+
     for wt in sorted(root.iterdir()):
         if not wt.is_dir() or not (wt / ".git").exists():
             continue
         if not allow_cwd and _is_self_cwd(wt):
             print(f"SKIP {wt.name}: current session cwd")
             report.skipped_self.append(wt.name)
+            continue
+        lock_reason = locked.get(wt.resolve())
+        if lock_reason is not None:
+            print(f"KEEP {wt.name}: LOCKED — {lock_reason}")
+            report.kept_locked.append(wt.name)
             continue
 
         branch = _branch_of(wt)

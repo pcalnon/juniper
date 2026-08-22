@@ -338,6 +338,112 @@ class HeadMovedTest(SafeMergeTestBase):
             )
 
 
+class NetWonRaceTest(SafeMergeTestBase):
+    """ml#1228: the armed net merging DURING the local `gh pr merge` was reported as exit 3.
+
+    Observed verbatim -- "all required checks green — merging 188a5259 (squash)" followed by
+    "ERROR: … Pull Request is not mergeable (mergePullRequest)" -- on a PR that had in fact
+    merged correctly (14e7af41, 23:30:06Z). The armed net won.
+
+    The pre-merge state check already covers the net winning EARLIER. This is the window
+    between that check and the merge call, and D1 widened it: arming on BLOCKED/BEHIND/UNKNOWN
+    keeps a net live far more often than arming on BLOCKED alone did. The cost is trust rather
+    than correctness -- the merge lands either way -- which is exactly why it needs pinning:
+    a tool that reports its successes as failures stops being believed about its failures.
+    """
+
+    NOT_MERGEABLE = "gh pr merge 1… failed: GraphQL: Pull Request is not mergeable (mergePullRequest)"
+    VERIFIED = "a" * 40  # OPEN_CLEAN's headRefOid -- the head this run vouches for
+    OTHER = "b" * 40
+
+    def _install(self, *, merge_error=NOT_MERGEABLE, probe=None, probe_raises=False, arm=True):
+        """Serve pre-merge states until `gh pr merge` is attempted, then serve `probe`.
+
+        `arm=True` drives the real arming path (BLOCKED at the cycle top) rather than poking
+        `_ARMED` directly, so the message wording is asserted against a net this run actually
+        armed. `arm=False` leaves every state CLEAN, which is not ARMABLE -- so nothing arms.
+        """
+        box: dict = {"attempted": False, "merges": []}
+        pre = [_state(mergeStateStatus="BLOCKED"), _state(mergeStateStatus="BLOCKED"), _state()] if arm else [_state()]
+
+        def gh(args, timeout=120):
+            if list(args[:2]) == ["pr", "merge"]:
+                box["merges"].append(list(args))
+                if "--auto" in args:
+                    return ""  # arming the net succeeds
+                box["attempted"] = True
+                raise safe_merge.HardError(merge_error)
+            return ""
+
+        def pr_state(owner, repo, pr):
+            if box["attempted"]:
+                if probe_raises:
+                    raise safe_merge.HardError("gh pr view 1… failed: network is unreachable")
+                return probe
+            return pre.pop(0) if len(pre) > 1 else pre[0]
+
+        # Restored on tearDown: the success path deliberately does NOT disarm, so without
+        # this a leaked `_ARMED` would short-circuit `arm_auto_merge` in a later test.
+        self.monkey(safe_merge, "_ARMED", None)
+        self.monkey(safe_merge, "_gh", gh)
+        self.monkey(safe_merge, "pr_state", pr_state)
+        self.monkey(safe_merge, "wait_for_required", lambda *a, **k: {"_exit": 0})
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: True)
+        return box
+
+    def test_net_winning_inside_the_merge_call_is_a_success(self):
+        box = self._install(probe=_state(state="MERGED", headRefOid=self.VERIFIED))
+        out = self.run_merge_installed(None)
+        self.assertIn("MERGED", out)
+        self.assertTrue(box["attempted"], "the local merge must actually have been attempted")
+
+    def test_the_success_names_the_armed_net_and_the_verified_head(self):
+        self._install(probe=_state(state="MERGED", headRefOid=self.VERIFIED))
+        out = self.run_merge_installed(None)
+        self.assertIn("auto-merge net", out)
+        self.assertIn(self.VERIFIED[:8], out)
+
+    def test_success_never_claims_a_net_that_was_not_armed(self):
+        """The message is read off `_ARMED`, not assumed -- see `_merged_by_other`."""
+        box = self._install(arm=False, probe=_state(state="MERGED", headRefOid=self.VERIFIED))
+        out = self.run_merge_installed(None)
+        self.assertEqual([c for c in box["merges"] if "--auto" in c], [], "nothing should arm on CLEAN")
+        self.assertIn("MERGED", out)
+        self.assertNotIn("armed auto-merge net", out)
+        self.assertIn("armed no net", out)
+
+    def test_a_merge_at_an_unverified_head_is_a_hard_error(self):
+        """MERGED is not enough. It has to be merged at the head this run waited on."""
+        self._install(probe=_state(state="MERGED", headRefOid=self.OTHER))
+        with self.assertRaises(safe_merge.HardError) as ctx:
+            self.run_merge_installed(None)
+        msg = str(ctx.exception)
+        self.assertIn(self.OTHER[:8], msg)
+        self.assertIn(self.VERIFIED[:8], msg)
+        self.assertNotIn("MERGED #1 by", msg)
+
+    def test_any_merge_failure_is_re_checked_not_just_not_mergeable(self):
+        """A merge that landed and then failed to REPORT is the same situation, same answer."""
+        self._install(
+            merge_error="gh pr merge 1… failed: 502 Bad Gateway",
+            probe=_state(state="MERGED", headRefOid=self.VERIFIED),
+        )
+        self.assertIn("MERGED", self.run_merge_installed(None))
+
+    def test_a_still_open_pr_keeps_the_hard_error(self):
+        """The probe must not become a swallow-everything: an unmerged PR still fails loudly."""
+        self._install(merge_error="gh pr merge 1… failed: 502 Bad Gateway", probe=_state())
+        with self.assertRaises(safe_merge.HardError) as ctx:
+            self.run_merge_installed(None)
+        self.assertIn("502", str(ctx.exception))
+
+    def test_a_failed_probe_never_masks_the_original_error(self):
+        self._install(probe_raises=True)
+        with self.assertRaises(safe_merge.HardError) as ctx:
+            self.run_merge_installed(None)
+        self.assertIn("not mergeable", str(ctx.exception))
+
+
 class KillResilienceTest(SafeMergeTestBase):
     """Regressions for the killed-mid-wait incident (a second PR never merged).
 
@@ -690,6 +796,47 @@ class AutoMergeNetDefectTest(SafeMergeTestBase):
     def test_armable_states_cover_the_three_waiting_states(self):
         self.assertEqual(set(safe_merge.ARMABLE_STATES), {"BLOCKED", "BEHIND", "UNKNOWN"})
 
+    def test_the_armed_net_pins_the_head_it_was_armed_on(self):
+        """D4: arming must not be based on a head this run never read.
+
+        Measured enable-time-only (probe ml#1225), so pinning is safe -- the net survives
+        the base-sync that follows on the BEHIND path.
+        """
+        head = "c" * 40
+        h = Harness([_state(mergeStateStatus="BLOCKED", headRefOid=head), _state(mergeStateStatus="BLOCKED", headRefOid=head), _state(headRefOid=head)])
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: True)
+        self.run_merge_installed(h)
+        armed = self._arming(h)
+        self.assertTrue(armed, "expected a net")
+        argv = armed[0]
+        self.assertIn("--match-head-commit", argv)
+        self.assertEqual(argv[argv.index("--match-head-commit") + 1], head)
+
+    def test_behind_path_pins_the_pre_sync_head(self):
+        """The BEHIND arm fires before update-branch, so it pins the pre-sync head.
+
+        That is correct BECAUSE the pin is enable-time only: the sync moves the head
+        moments later and the net survives it. If the pin were continuous this would be
+        the bug that silently disarms every BEHIND merge.
+        """
+        head = "d" * 40
+        h = Harness(
+            [
+                _state(mergeStateStatus="BEHIND", headRefOid=head),
+                _state(mergeStateStatus="BEHIND", headRefOid=head),
+                _state(),
+                _state(),
+            ]
+        )
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: True)
+        self.run_merge_installed(h)
+        armed = self._arming(h)
+        self.assertTrue(armed)
+        argv = armed[0]
+        self.assertEqual(argv[argv.index("--match-head-commit") + 1], head)
+
     # ---- D2: UNKNOWN at the merge gate is not a verdict -------------------
     def test_unknown_at_the_gate_repolls_instead_of_refusing(self):
         """A spurious refusal here reads exactly like a real blocker, and did."""
@@ -729,17 +876,40 @@ class AutoMergeNetDefectTest(SafeMergeTestBase):
 
 
 class NetGuaranteeDocTest(unittest.TestCase):
-    """D4: the net carries a WEAKER guarantee than the local path. Say so.
+    """D4: the net's guarantee differs from the local path's. Say exactly how.
 
-    The complaint D4 records is not that the trade is wrong -- on a strict repo GitHub
-    moves the head itself, so pinning would fight the net -- but that it was made
-    SILENTLY. These assertions keep it stated.
+    This class previously asserted the net was NOT pinned at all, which was true of the
+    code and is no longer. The complaint D4 records was never "the trade is wrong" -- it was
+    that the trade was made SILENTLY. So these assertions keep the *current* trade stated,
+    and are updated with it rather than being deleted.
     """
 
-    def test_docstring_states_the_net_is_not_head_pinned(self):
+    def test_docstring_states_the_net_is_pinned_at_ARMING_time_only(self):
         doc = safe_merge.__doc__
         self.assertIn("--match-head-commit", doc)
-        self.assertRegex(doc, r"net does \*\*not\*\*|NOT carry|not head-pinned")
+        self.assertIn("expectedHeadOid", doc)
+        # the enable-time-vs-continuous distinction is the whole finding
+        self.assertRegex(doc, r"enable-time|ARMING time")
+        self.assertRegex(doc, r"does \*\*not\*\* keep pinning|not .*continuous")
+
+    def test_docstring_cites_the_measurement_not_an_assumption(self):
+        """A guess here is silent and total, so the docstring must show its evidence.
+
+        The wrong answer -- assuming the pin is continuous -- would have meant NOT pinning,
+        leaving the stale-read hole open forever on reasoning nobody ever checked.
+        """
+        doc = safe_merge.__doc__
+        self.assertRegex(doc, r"measured|probe ml#1225")
+
+    def test_arm_auto_merge_accepts_and_forwards_a_head_pin(self):
+        """Structural: the parameter exists and reaches the gh argv."""
+        import inspect
+
+        sig = inspect.signature(safe_merge.arm_auto_merge)
+        self.assertIn("head", sig.parameters)
+        self.assertEqual(sig.parameters["head"].default, "")
+        src = inspect.getsource(safe_merge.arm_auto_merge)
+        self.assertIn("--match-head-commit", src)
 
     def test_docstring_states_refusal_disarms(self):
         self.assertIn("--disable-auto", safe_merge.__doc__)

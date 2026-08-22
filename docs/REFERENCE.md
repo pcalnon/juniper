@@ -924,13 +924,26 @@ copies. A session in a divergent worktree carried **344,450 characters (~43% of 
 
 ### Before removing anything: check for a live session
 
-`scripts/cleanup_session_worktrees.py` gates on *branch* state — merged, clean, not
-the current cwd. Those are necessary and **not sufficient: merged-and-clean does not
-mean idle.** A session can have just merged its PR and be about to start the next
-task in the same worktree.
+`scripts/cleanup_session_worktrees.py` gates on **not locked**, then on *branch*
+state — merged, clean, not the current cwd. Even together those are necessary and
+**not sufficient: merged-and-clean does not mean idle.** A session can have just
+merged its PR and be about to start the next task in the same worktree.
 
-The `locked` flag is the only built-in liveness signal and it is advisory — during
-the 2026-08-20 sweep, both worktrees locked earlier in the effort had released.
+The `locked` flag is the built-in liveness signal — Claude Code locks a live
+session's worktree and names the session and pid in the lock reason. **The script
+did not read it until 2026-08-21.** Measured against the real set that day, the old
+code reported `removed=8`, of which **three were locked live sessions**, one holding
+the head branch of an open PR: merge state says nothing about whether someone is
+working in there right now. A single `--force` does not defeat a lock (git refuses),
+so a live run could never actually delete a session — the damage was to the *plan*,
+because `--dry-run` promised removals a real run would refuse, and the operator who
+reconciles that contradiction reaches for `-f -f` or unlocks by hand. The removal
+call no longer passes `--force` at all. Gate: `tests/test_cleanup_session_worktrees.py`
+`LockGateTest`.
+
+The flag is still only a *supplement* to judgement: a session idling elsewhere while
+holding a worktree open is invisible to it, and during the 2026-08-20 sweep both
+worktrees locked earlier in that effort had already released.
 
 So run
 [`util/ad-hoc/2026-08-20_worktree_liveness_probe.py`](../util/ad-hoc/2026-08-20_worktree_liveness_probe.py)
@@ -1123,7 +1136,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - Doc-link validator regression tests live in [`juniper-doc-tools/tests/`](juniper-doc-tools/tests/) (Wave 4 of the doc-link migration; exercised by the dedicated `CI -- juniper-doc-tools` workflow).
 - `tests/test_worktree_cleanup.py` -- Tests for `util/worktree_cleanup.bash` argument parsing, dry-run, and error handling; Phase 1 dirty porcelain exit-1 gate (juniper-ml#747) and clean push / Phase 2 path-collision arms (open #753) drive fixture repos via sourced `phase_1_save_and_push` / `phase_2_create_new_worktree`
 - `tests/test_worktree_sweep_scripts.py` -- Tests for `util/ad-hoc/worktree_sweep_*.bash`: survey/apply row compatibility, `SAFE`-only removal, and unknown-repo skips
-- `tests/test_cleanup_session_worktrees.py` -- Hermetic tests for `scripts/cleanup_session_worktrees.py`: `_has_merged_pr` fail-closed (gh fail / bad JSON), dirty/unmerged/detached keeps, self-cwd skip, and `--dry-run` remove of main-ancestor / MERGED-PR clean tips
+- `tests/test_cleanup_session_worktrees.py` -- Hermetic tests for `scripts/cleanup_session_worktrees.py`: `_has_merged_pr` fail-closed (gh fail / bad JSON), dirty/unmerged/detached keeps, self-cwd skip, and `--dry-run` remove of main-ancestor / MERGED-PR clean tips. `LockGateTest` pins the 2026-08-21 liveness gate against real locked worktrees: an otherwise-removable locked tree is kept, the `--dry-run` plan does not promise to remove it, unlocking the same tree makes it removable again (proving the lock is what held it), and an anti-resurrection arm asserts the source never passes `--force`/`-f` to `worktree remove`
 - `tests/test_reap_pytest_orphans.py` -- Tests for `util/reap_pytest_orphans.bash` dry-run, live-parent safety, orphan detection, and isolated kill invocation
   - `TestLiveExperimentProtection`: the P1 pidfile + P2 cmdline keys, reproducing the three shapes a 2026-08-16 dry run would have killed (service / orchestrator / watchdog); the load-bearing live-mode arm proving a genuine orphan still dies while the protected service does not; stale-pidfile conservatism; and a malformed pidfile not aborting the sweep under `set -euo pipefail`
 - `tests/test_kill_helpers.py` -- Hermetic process-filter / kill-path tests for `util/kill_all_pythons.bash` and `util/juniper_worker_kill.bash` (PATH-stubbed `ps`/`sudo`/`kill`; bash `kill` builtin disabled; never touches live PIDs)
@@ -1345,7 +1358,11 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
     **Ordering is load-bearing:** D1 strictly increases the number of refusals that would leave a live net, so D3 must hold before D1 widens the exposure. Never ship D1 alone.
     Exit **4 (INTERRUPTED) deliberately does NOT disarm** — surviving the kill is the entire point of the net — and the interrupt message now says so and prints the `--disable-auto` command, instead of the previous flat "nothing was merged".
   - **`UNKNOWN` is re-polled, not refused** (fixes D2). GitHub reports `mergeStateStatus=UNKNOWN` while recomputing mergeability, routinely for seconds after an `update-branch`; treating it as a verdict produced spurious refusals indistinguishable from real blockers. Bounded by `MERGEABILITY_POLLS` x `MERGEABILITY_INTERVAL`.
-  - **The armed net is NOT head-pinned** (D4, stated rather than fixed). The local path pins with `--match-head-commit`; the net cannot, because on a `strict=true` repo GitHub moves the head itself to satisfy the up-to-date rule. So the net carries *"merges only when required checks are green"* but not *"merges only the SHA this run vouched for"*. The trade is real and was previously silent; callers needing the stronger guarantee use `--no-auto-fallback`.
+  - **The armed net is pinned at ARMING time only** (D4, now fixed — and the fix rests on a measurement, not a reading of the docs). Both paths pass `--match-head-commit`: the local one at merge time, the net via `EnablePullRequestAutoMergeInput.expectedHeadOid`.
+    **Measured (probe ml#1225, 2026-08-21):** armed a net *with* a pin, pushed a commit to move the head, re-read the PR — `autoMergeRequest` was **still present with an unchanged `enabledAt`**, so it had neither been dropped nor silently re-armed. `expectedHeadOid` is therefore an **enable-time optimistic-concurrency guard**, not a continuous constraint.
+    That distinction was load-bearing and is why it was measured rather than assumed: had it been continuous, pinning would kill the net the moment GitHub moved the head itself to satisfy `strict` — i.e. exactly when the net matters — silently negating the D1 fix. A *push* is a stronger head move than GitHub's own sync, so the probe settles the case that mattered.
+    What pinning buys: the net cannot be armed over a **stale read**. What it still does not buy: once armed, the net merges whatever head is current when the checks pass. So the net carries *"merges only when required checks are green"* but not *"merges only the SHA this run vouched for"* — callers needing the stronger property use `--no-auto-fallback`.
+    Note the flag needs the **full 40-char OID** (`headRefOid`); an abbreviated SHA is rejected with `Could not coerce value ... to GitObjectID`.
   - **Not enforcement.** A script can be skipped; the owner's `always` ruleset bypass is what makes required checks advisory for that actor. `python util/safe_merge.py --pr N [--repo R] [--execute]`; **`--dry-run` is the default**. Exit 0 merged / 1 refused / 2 misuse / 3 hard error / **4 interrupted**. Tests: `tests/test_safe_merge.py`.
 - `util/memory_budget_check.py` + `util/relocation_check.py` -- Memory-size gates (ADVISORY `Memory Budget` job). **Don't grow `AGENTS.md`: relocate to `docs/REFERENCE.md`, leaving a pointer that keeps an accurate open/closed status.** G3 proves a relocation moved the *prose*, not just the identifiers — the docs screen cannot see that shape. `Allow-Budget-Overrun:` is a loan, not a pass. [Budget](#memory-file-size-budget) / [G3](#relocation-completeness-g3).
 - `util/open_signed_pr.py` -- Opens a PR on any Juniper repo whose commit is **GitHub-signed**, by creating branch + commit + PR through the API (`createCommitOnBranch`) instead of a local checkout. Promoted from `util/ad-hoc/` after it landed the ml#1099 signing fan-out across 8 repos.
@@ -1594,6 +1611,7 @@ juniper-ml/
 │   ├── test_experiment_stack_script.py   # Contract + behavioural: util/experiment_stack.bash per-run launcher (§6.1 recipes, §6.4 RUN_DIR, §7.2 target file, §9.3 ranges, F-6 listener pid, dry-run + teardown; hermetic)
 │   ├── test_run_suite.py                 # Behavioural: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume, both Q-2 budget flags; hermetic)
 │   ├── test_list_runs.py                 # Behavioural: util/experiments/list_runs.py lister/pruner (state classification, --older-than, prune safety gates; hermetic RUN_ROOT fixtures)
+│   ├── test_snapshot_index.py            # Behavioural: util/snapshot_index.py snapshot index/query (design §6.2) — bytes-attr decode, append-only rescan, --limit deferred-vs-present counting, D-C provenance filters, and an AST anti-resurrection guard that the tool stays READ-ONLY (retention is §6.4 and gated)
 │   ├── test_run_experiment.py            # Behavioural: util/experiments/run_experiment.py cascor + recurrence driver (§6.3 drive loops, Q-2 stall/budget, F-1 redirect sampling, G-6 staging, §5.5 blocks + G-18 save_model, §8.1/§8.2 plot sets, §8.3 stats/summary, §13.4 manifest, exit matrix 0-4; hermetic stub HTTP)
 │   ├── test_experiment_config_schemas.py # Drift gate (Wave 3.5): sibling conf/experiments/*.yaml ↔ driver load_config + AST-extracted app Settings fields (CI/force-local gated; always-on extractor self-check)
 │   ├── test_experiment_suite_yamls.py    # Drift gate (R-6): every util/experiments/suites/**/*.yaml passes run_suite.load_suite + oversize cascor suites (pool >= 16 OR cap >= 64) declare execution.stall_seconds (ml#1069) + wide-cap suites pin a wall budget; anti-resurrection for the ad-hoc stall shim
@@ -1646,6 +1664,7 @@ juniper-ml/
     ├── prune_git_branches_without_working_dirs.bash  # Branch hygiene
     ├── juniper_plant_all.bash            # Starts all Juniper ecosystem services
     ├── juniper_chop_all.bash             # Stops all Juniper ecosystem services
+    ├── snapshot_index.py                 # Snapshot archive index + query (design §6.2, delivers R2): --scan builds an append-only snapshots_index.jsonl per snapshot root; queries filter on the D-C provenance (--experiment/--cell-id/--run-id), tier and attribution. `dataset_id` is DERIVED, not stored — it is content-addressed on a generator version only known from a live juniper-data query after bring-up, so `--resolve-datasets` (implied by `--dataset-id`) joins run_id -> <RUN_ROOT>/<run_id>/manifest.json instead; opt-in because it reads outside the snapshot root. READ-ONLY BY CONSTRUCTION — no prune/delete path, because retention is §6.4 and gated on this index existing; an AST test enforces it. Records which groups a file has rather than judging validity, so cascor keeps sole ownership of the format policy (--verify opts into cascor's own verifier).
     ├── isolated_stack.bash               # Isolated training-runtime E2E trio (data 8101 / cascor 8202 / canopy 8051): --up/--down/--status/--dry-run
     ├── experiment_stack.bash             # Per-run experiment launcher (data 8110-8139 / cascor 8230-8259 / recurrence 8260-8289): --up/--down/--status/--dry-run
     ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py single-run cascor + recurrence driver (§6.3) + plots_cascor.py / plots_recurrence.py (§8.1 + §8.2 plot sets; 2.5 closes G-5) + stats_summary.py (§8.3 stats.json + summary.md) + list_runs.py (Wave 7.2: safety-gated lister/pruner) + run_suite.py + suites/ (Waves 7.1+7.5: suite driver — matrix expansion, per-cell up→drive→down, registry/index/aggregate; parallel + H-11 split, cascor refused per Q-6)
@@ -1871,6 +1890,16 @@ Screens then run as `juniper-{symbol-loss,docs-additions}-check --base <BASE> --
 
 Do not expect a label hatch to green main after merge. Blanket `Allow-Symbol-Loss: *` is rejected.
 
+**The trailer must ride on the commit that survives the squash — a waiver added as a *second* commit is silently discarded.** Squash-and-merge composes the merge commit's message from the PR's *first* commit, so a correct, well-argued waiver commit pushed on top of an existing branch never reaches `main`, and the screen behaves exactly as if it had never been written. Observed 2026-08-21 on ml#1228: waiver commit `38df160a` carried a valid `Allow-Symbol-Loss:` trailer, the PR merged as `14e7af4` **without** it, and main-verify then failed on every subsequent merge via the G3.1 catch-up base. Before merging a PR that removes a symbol, verify the trailer is where it will land:
+
+```bash
+# the trailer must appear in the FIRST commit of the PR branch, not a follow-up
+git log --format='%B' origin/main..HEAD | grep -c 'Allow-Symbol-Loss'   # expect >= 1
+git log -1 --format='%B' <squashed-merge-sha> | grep 'Allow-Symbol-Loss'  # after merge
+```
+
+If it did not land, the repair is a follow-up PR whose **own first commit** carries the trailer; the symbol does not need restoring and no code change is required beyond whatever that PR legitimately does.
+
 #### Battery path gate (detector + fail-open)
 
 The `battery` job runs its own `Detect relevant path changes` step (P2 S3 burst-cost mitigation). Base resolution, in order:
@@ -1900,6 +1929,7 @@ gh run download <run-id> -n sequence-safety-report
 | Symptom | Check / Fix |
 |---------|-------------|
 | Red `symbol-screen` after a “green” PR | Per-PR job may have been `--advisory` via labels, or BASE was narrower than G3.1 catch-up. Download `sequence-safety-report`; waive with a **commit trailer** on a follow-up commit, or restore the deleted symbol/docs. |
+| Waiver was written but main is still red | Check the *merged* commit, not the branch: `git log -1 --format='%B' <sha> \| grep Allow-Symbol-Loss`. Squash ships the **first** commit's message, so a waiver added as a second commit never lands. Repair with a follow-up PR whose own first commit carries the trailer. |
 | Suspected `[skip ci]` gap | Open the next main-verify run's step summary — look for `catch-up from <sha> (N commits)`. That run screens every merge since the last successful tip. |
 | Docs-only merge, no battery | Expected — `battery` path-gate skips; `symbol-screen` still always runs. |
 | Initial / force-push tip never ran the battery | The detector must fail-open to `run=true` when no parent base resolves — inspect the `Detect relevant path changes` step log. |

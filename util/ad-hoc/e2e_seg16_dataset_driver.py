@@ -166,7 +166,13 @@ def step_toolbar(page, capture):
     open_tab(page, DATASET_TAB)
     log(f"  modal before open: {vis(page, 'dataset-plotter-generate-modal')}")
     page.evaluate("""() => { const b=document.getElementById('dataset-plotter-generate-btn'); if(b) b.click(); }""")
-    page.wait_for_timeout(3000)
+    # Settle times on this dashboard run long -- the generate modal was measured at
+    # ~39s to appear under live-run callback congestion (F-CANOPY-004). A 3s sample
+    # reports the FIXED modal as still dead; poll for the transition instead.
+    for _ in range(20):
+        page.wait_for_timeout(2000)
+        if vis(page, "dataset-plotter-generate-modal").get("present"):
+            break
     log(f"  M-DATASET-01 modal after click: {vis(page, 'dataset-plotter-generate-modal')}")
 
     tabs = page.evaluate(
@@ -181,7 +187,12 @@ def step_toolbar(page, capture):
 
     n_before = len(capture)
     page.evaluate("""() => { const b=document.getElementById('dataset-plotter-gen-cancel'); if(b) b.click(); }""")
-    page.wait_for_timeout(3000)
+    # Closed means ABSENT for modals here -- poll for the element to disappear,
+    # with the same patience the open transition needed.
+    for _ in range(20):
+        page.wait_for_timeout(2000)
+        if not vis(page, "dataset-plotter-generate-modal").get("present"):
+            break
     new_reqs = [c for c in capture[n_before:] if "/api/" in (c.get("url") or "")]
     log(f"  M-DATASET-09 modal after cancel: {vis(page, 'dataset-plotter-generate-modal')}")
     log(f"  M-DATASET-09 /api/ requests during cancel: {len(new_reqs)} -> {json.dumps(new_reqs)[:300]}")

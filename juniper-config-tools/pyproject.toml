@@ -22,6 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
 ]
 dependencies = []
 
@@ -38,6 +39,9 @@ Issues = "https://github.com/pcalnon/juniper-ml/issues"
 
 [tool.setuptools.packages.find]
 include = ["juniper_config_tools*"]
+
+[tool.setuptools.package-data]
+juniper_config_tools = ["py.typed"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

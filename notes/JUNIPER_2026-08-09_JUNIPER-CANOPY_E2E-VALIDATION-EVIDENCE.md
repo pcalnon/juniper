@@ -171,10 +171,12 @@ filed defect for `dataset-plotter-split-selector`, which renders fine). Root cau
 **F-CANOPY-028 — pinned params are silently discarded on the first pin after any reload (P2, OPEN; segment 15).**
 `pinned-params-store` is `storage_type="local"` and survives reload correctly, but the `{"type":"param-pin"}` checkboxes in the Parameters tables **do not rehydrate from it** — after a reload they all render unchecked while the store and the sidebar card still show the pinned set. Because the single pattern-matched writer (`dashboard_manager.py:3948-3952`) *collects the state of every checkbox*, the next pin action writes a list built from the un-rehydrated DOM, dropping everything pinned before the reload. Reproduced end-to-end: pinned `learning_rate` → `pinned-params-store` `["learning_rate"]`, sidebar card `display:block` showing "Learning Rate" → full page reload → `localStorage["pinned-params-store"]` still `["learning_rate"]`, card still shown, **but the `learning_rate` checkbox reads `checked:false`** → pinning `max_iterations` → store and localStorage both become `["max_iterations"]`, `learning_rate` gone with no warning. Matrix rows M-PARAMETERS-04/-05/-06 still **PASS** on their own stated expectations (the store write, the card reveal, and persistence all work); this is the cross-cutting defect those rows sit on top of.
 
-**F-CANOPY-029 — the Dataset View "Generate Dataset" modal can never open: its callback 500s on every click (P1, OPEN; segment 16; root-caused, one-line fix).**
+**F-CANOPY-029 — the Dataset View "Generate Dataset" modal can never open: its callback 500s on every click (P1; FIXED juniper-canopy#504, `041eb69`; found segment 16).**
 `toggle_generate_modal` (`dashboard_manager.py:3869-3870`) does `ctx = get_callback_context()` and then reads **`ctx.triggered_id`**. `get_callback_context()` returns canopy's **own** `CallbackContextAdapter` (`frontend/callback_context.py:53`), whose only accessor is **`get_triggered_id()`** (`:78`) — there is no `triggered_id` property. Every click therefore raises `AttributeError: 'CallbackContextAdapter' object has no attribute 'triggered_id'. Did you mean: 'get_triggered_id'?` and Dash returns **HTTP 500**; the browser console shows `Callback error updating dataset-plotter-generate-modal.is_open`, and the canopy log carries the full traceback. Deterministic — reproduced on every attempt. The other three production `.triggered_id` reads (`dashboard_manager.py:2411`, `:2429`, `callback_context.py:92`) are on the genuine `dash.callback_context`, which is why the model-selection modal (C2.6-18) still passes; this one call site mixes the adapter object with the raw-dash attribute name. Fix: `ctx.get_triggered_id()`.
 **Why the suite is green:** `test_toggle_generate_modal_open` / `_close` (`src/tests/unit/frontend/test_dashboard_manager_gate_coverage_inner1.py:375-388`) patch `get_callback_context` with a bare `MagicMock()` and then set `fake_ctx.triggered_id = ...`. A `MagicMock` fabricates any attribute on demand, so the test asserts against a shape the production object has never had. Hardening: give the mock `spec=CallbackContextAdapter` — that alone would have failed the test. This is the mock-seam / vacuous-pass class in its purest form.
-**Blast radius:** M-DATASET-01 **FAIL**; M-DATASET-02 / -03 / -05 / -07 / -09 **BLOCKED** — the tabs, the generate params, the CSV upload contract, the URL input and the cancel button all live inside a modal that never opens.
+**Blast radius (as found):** M-DATASET-01 **FAIL**; M-DATASET-02 / -03 / -05 / -07 / -09 **BLOCKED** — the tabs, the generate params, the CSV upload contract, the URL input and the cancel button all live inside a modal that never opens.
+**Fix (Phase 2, `juniper-canopy#504` → `041eb69`).** `ctx.triggered_id` → `ctx.get_triggered_id()`, plus the test hardening below. **The hardening was verified to bite**: with the production fix temporarily reverted, the updated tests fail with precisely the production error (`AttributeError: Mock object has no attribute 'triggered_id'. Did you mean: 'get_triggered_id'?`) — the same tests passed against that same broken code beforehand. Three adapter fakes are now `MagicMock(spec=CallbackContextAdapter)` and a new `test_toggle_generate_modal_rejects_raw_dash_attribute` pins the adapter's interface directly. Full `tests/unit/frontend/` suite green; canopy CI green on 20/20 required contexts including the Playwright UI sub-suite.
+**Re-driven live after the fix** (run `20260822T014138Z`): canopy log carries **zero** callback errors, and all five rows now **PASS** — modal opens `display:flex` 500x1044; the three tabs render (Generate active / Upload File / Fetch URL); the file input carries `accept=".csv,text/csv"` + `multiple:false` with the confirm shipping disabled; the URL input is `type="url"` and fills; Cancel closes to ABSENT with **0** `/api/` requests. Only M-DATASET-03 remains BLOCKED, on its own DEMO-lane precondition rather than on this defect. **Timing note for re-drivers: the fixed modal takes ~39 s to appear** under live-run callback congestion (F-CANOPY-004) — a short settle reports it as still dead, which it briefly did here.
 
 **F-CANOPY-031 — the snapshots panel never renders against the migrated shared corpus (P1, OPEN; segment 16).**
 `hdf5-snapshots-panel-status` is stuck at **"Loading snapshots…"**, `hdf5-snapshots-panel-table-body` has **0 rows**, and `hdf5-snapshots-panel-empty-state` is `display:none` (so the user sees neither data nor an empty state), while `GET /api/v1/snapshots` answers successfully with **27,903 entries — a 10.4 MB payload taking 4.9 s to serve**. The route works; the panel never leaves its loading state. Newly exposed by the S-1 storage-convention migration (`notes/JUNIPER_2026-08-20_JUNIPER-ECOSYSTEM_SNAPSHOT-STORAGE-CONVENTION-DESIGN.md`): segment 15 drove this same panel successfully when the corpus held **4** files, and the panel then rendered per-row op buttons. The list endpoint takes no `limit`/pagination, so the panel asks for the entire asset store every refresh. NB the fetch is **not** hammering — 18 logged fetches over ~25 min, tab-gated — so this is a render/scale failure, not a polling storm.
@@ -2403,3 +2405,46 @@ panels), **F-CANOPY-029** (six §3.6 rows behind one dead modal), **F-CANOPY-025
 the LIVE-lane dataset gate (ten sequence rows). Fixing F-CANOPY-029 alone re-opens six rows for real scoring;
 fixing F-CANOPY-027 re-opens roughly a dozen and also invalidates the five §3.2 rows currently carrying a
 mount-default `PASS`. **Phase 2 should be ordered by that leverage, not by section number.**
+
+---
+
+## Phase 2 — fix 1 (2026-08-22): F-CANOPY-029, and what it says about the test suite
+
+Run id `20260822T014138Z`. First **code** fix of the arc; everything before this was evidence capture.
+Shipped as **juniper-canopy#504** (`041eb69`), canopy CI green on 20/20 required contexts including the
+Playwright UI sub-suite, canopy main-verify green.
+
+**The fix is one line** — `ctx.triggered_id` → `ctx.get_triggered_id()` in `toggle_generate_modal`. The
+object is canopy's own `CallbackContextAdapter`, not `dash.callback_context`; the adapter exposes only
+`get_triggered_id()`. The same file's *other* adapter call site
+(`dashboard_manager.py:6621`) already used the correct accessor, so this was a single-site slip with a
+correct in-file precedent, and the sweep confirmed the three other `.triggered_id` reads are on the genuine
+dash context and are fine.
+
+**The interesting part is why it shipped, and that generalises.** The two unit tests covering this callback
+patched `get_callback_context` with a bare `MagicMock()` and set `fake_ctx.triggered_id` — an attribute the
+adapter has never had. A bare MagicMock fabricates any attribute on demand, so the tests asserted against a
+shape production never had and stayed green while every real click returned HTTP 500. Fixed by spec'ing the
+fakes (`MagicMock(spec=CallbackContextAdapter)`), which makes the mock reject the wrong name.
+
+**The hardening was checked against the defect rather than assumed.** With the production fix temporarily
+reverted, the updated tests fail with exactly the production error; before the hardening they passed against
+that same broken code. That before/after is the evidence the new tests are not themselves vacuous — worth
+repeating for every mock-seam fix in this phase, because a hardened test that passes both ways buys nothing.
+
+**Leverage confirmed.** Segment 16 predicted that fixing F-CANOPY-029 alone would re-open five rows. Re-driven
+live: all five now PASS (M-DATASET-01 / -02 / -05 / -07 / -09). M-DATASET-03 stays BLOCKED on its own
+DEMO-lane precondition, not on this defect. Matrix stays at **298 of 298**, with five cells moving
+FAIL/BLOCKED → PASS.
+
+**Two process notes for the rest of Phase 2:**
+
+- **A fixed control can still look dead.** The repaired modal takes **~39 s** to appear under live-run
+  callback congestion (F-CANOPY-004). My first post-fix probe used a 3 s settle and reported it still broken;
+  only a polling re-drive showed the fix working. Every Phase 2 verification needs the same patience the
+  Phase 1 driving did — otherwise a good fix gets reverted on a bad measurement.
+- **Re-scoring rows needs a scalpel, not `--overwrite`.** `e2e_matrix_fill.py --overwrite` rewrites every
+  cell any source covers, which would clobber the hand-authored cells earlier segments left
+  (`INCONCLUSIVE`, `DIVERGENCE D-1 CONFIRMED …`). Added `util/ad-hoc/e2e_matrix_rescore.py`, which touches
+  exactly the named rows, reuses the filler's pipe splitting, and refuses to write a line whose cell count
+  changes.
