@@ -99,10 +99,10 @@ dysfunctional networks.
    is the plausible stand-in. **Whether accuracy against a *substitute* dataset is meaningful is
    an open question for the owner** — the original dataset identity is unrecoverable (§4.2).
 
-       **Inference pass to infer dataset:** for any snapshot with hidden nodes, it's a reasonable, initial assumption that some amount of training has taken place on an existing dataset.
-       since inference is computationally cheap, network accuracy per dataset can be calculated for all cascor, 2-in -> 2-out datasets.
-       getting a better than random accuracy for a dataset, is a strong--but not definitive--indicator that the network trained on that dataset.
-       in the--perhaps unlikely?--scenario of a network scoring better than chance on multiple, 2-in -> 2-out datasets, the stronger--but still not definitive--conclusion would be to select the dataset associated with the largest increase in accuracy over chance.
+**Inference pass to infer dataset:** for any snapshot with hidden nodes, it's a reasonable, initial assumption that some amount of training has taken place on an existing dataset.
+since inference is computationally cheap, network accuracy per dataset can be calculated for all cascor, 2-in -> 2-out datasets.
+getting a better than random accuracy for a dataset, is a strong--but not definitive--indicator that the network trained on that dataset.
+in the--perhaps unlikely?--scenario of a network scoring better than chance on multiple, 2-in -> 2-out datasets, the stronger--but still not definitive--conclusion would be to select the dataset associated with the largest increase in accuracy over chance.
 
 3. **Training probe for the zero-node subset** — separates *formerly broken* (trains) from *fails
    to train* (dysfunctional). This is the expensive step: ~11,751 networks.
@@ -110,25 +110,24 @@ dysfunctional networks.
    without an explicit decision: they are read-only project assets and the index is the natural
    home.
 
-       **Metadata backfill for research value:** my instinct here is that backfilling metadata would tend to increase the research value of snapshots.
-       caveating backfilled snapshots with a clear and visible label capturing the approximate, inferred, or recreated nature of their metadata would be a potentially important caution against naive reasoning.
-       for the broken datasets, root causing their issues seems likely to be the greatest value contributor.
-       in particular, root cause determination of the formatting or data issues affecting the "fails to load" snapshots would be helpful.
-       research value of "fails to train" snapshots would likely benefit from determining root causes of the network topology issues preventing training.
-       once root-causing has been carried out on the broken snapshot categories, any further value seems unlikely.
-       saving a compressed, encrypted archive of the entire project tree--including snapshots--using the new juniper_backup.bash script seems likely to be a sufficient safeguard against future need for potentially removed snapshots.
-       alertnately, using the index rather than write into the snapshots also seems like an option worth investigating.
+**Metadata backfill for research value:** my instinct here is that backfilling metadata would tend to increase the research value of snapshots.
+caveating backfilled snapshots with a clear and visible label capturing the approximate, inferred, or recreated nature of their metadata would be a potentially important caution against naive reasoning.
+for the broken datasets, root causing their issues seems likely to be the greatest value contributor.
+in particular, root cause determination of the formatting or data issues affecting the "fails to load" snapshots would be helpful.
+research value of "fails to train" snapshots would likely benefit from determining root causes of the network topology issues preventing training.
+once root-causing has been carried out on the broken snapshot categories, any further value seems unlikely.
+saving a compressed, encrypted archive of the entire project tree--including snapshots--using the new juniper_backup.bash script seems likely to be a sufficient safeguard against future need for potentially removed snapshots.
+alertnately, using the index rather than write into the snapshots also seems like an option worth investigating.
 
 5. **§6.4 retention** — the owner's call, now informed.
 
-       **Retention Criterion:** future research value seems like an obvious first approximation of a criterion for evaluating snapshot retention.
+**Retention Criterion:** future research value seems like an obvious first approximation of a criterion for evaluating snapshot retention.
+**Supporting Infrastructure:** what this section seems to argue for is the addition of tooling, infrastructure, and automation supporting the snapshot classification process.
+ideally, this tooling would include implementation of scripting to root cause the formatting or data issues affecting the "fails to load" snapshots.
+for "fails to train" snapshots, scripting to determine the network topology issues preventing training would be significant.
+this tooling and infrastructure seems likely to be invaluable going forward to investigate future instances of failing networks.
 
 6. **Inert-metadata defect (§4.1)** → defect-register entry + a cascor writer fix. Not started.
-
-       **Supporting Infrastructure:** what this section seems to argue for is the addition of tooling, infrastructure, and automation supporting the snapshot classification process.
-       ideally, this tooling would include implementation of scripting to root cause the formatting or data issues affecting the "fails to load" snapshots.
-       for "fails to train" snapshots, scripting to determine the network topology issues preventing training would be significant.
-       this tooling and infrastructure seems likely to be invaluable going forward to investigate future instances of failing networks.
 
 ---
 
@@ -161,13 +160,11 @@ cohort has neither. Do not propose retroactive attribution — it was checked an
 | grew ≥1 hidden unit | 4,711    | 15,057    | 1.17 GiB |
 | never grew          | 11,751   | 11,948    | 499 MiB  |
 
-Never-grew are **not untrained** — 200/200 sampled had non-zero `output_weights`. Architecture is
-uniformly (2 in, 2 out) with 0–3 hidden: the synthetic-generator family, not equities.
+Never-grew are **not untrained** — 200/200 sampled had non-zero `output_weights`. Architecture is uniformly (2 in, 2 out) with 0–3 hidden: the synthetic-generator family, not equities.
 
 ### 4.4 ⚠ The four-day cluster is a VOLUME event, not a failure event
 
-Per the owner's instruction, cascor PRs merged in the 3–5 days before 2026-03-31 were reviewed.
-The window is dense with directly relevant work:
+Per the owner's instruction, cascor PRs merged in the 3–5 days before 2026-03-31 were reviewed.  The window is dense with directly relevant work:
 
 | PR       | date     | title                                                                       |
 |----------|----------|-----------------------------------------------------------------------------|
@@ -177,8 +174,7 @@ The window is dense with directly relevant work:
 | #64      | 04-04    | **rename epoch → iteration in `grow_network` for correct CasCor semantics** |
 | #66      | 04-04    | resolve training stalling, add growth iteration semantics                   |
 
-**The tempting conclusion — "the OPT-5 training failure caused the never-grow cluster" — is not
-supported.** Both categories spike together and collapse together:
+**The tempting conclusion — "the OPT-5 training failure caused the never-grow cluster" — is not supported.** Both categories spike together and collapse together:
 
 | day       | never-grew | grew   |
 |-----------|------------|--------|
@@ -188,10 +184,7 @@ supported.** Both categories spike together and collapse together:
 | 04-03     | 1,962      | 1,417  |
 | **04-04** | **71**     | **87** |
 
-The never-grew *fraction* during the cluster (~44%) matches the cohort-wide rate. So it is the
-heaviest experimentation period in the archive — a debugging campaign against exactly those
-training failures — that ended abruptly on 04-04 when #64/#66 landed. Note #64 renamed epoch →
-iteration for correct CasCor semantics, which is the same distinction §2.1 draws.
+The never-grew *fraction* during the cluster (~44%) matches the cohort-wide rate. So it is the heaviest experimentation period in the archive — a debugging campaign against exactly those training failures — that ended abruptly on 04-04 when #64/#66 landed. Note #64 renamed epoch → iteration for correct CasCor semantics, which is the same distinction §2.1 draws.
 
 ---
 
@@ -242,8 +235,7 @@ python "$JUNIPER/juniper-ml/util/ad-hoc/2026-08-22_s2_cohort_characterisation.py
 # cascor gates that must stay green for any snapshot-path change
 cd "$JUNIPER/juniper-cascor/src"
 python -m pytest tests/unit -q --slow
-OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 CASCOR_NUM_PROCESSES=1 \
-  python -m pytest -m golden --golden --slow --integration tests/integration/test_golden_trajectory.py
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 CASCOR_NUM_PROCESSES=1 python -m pytest -m golden --golden --slow --integration tests/integration/test_golden_trajectory.py
 ```
 
 **Archive:** `$JUNIPER/juniper-cascor/cascor-snapshots/` — 27,908 `.h5`, 1.7 GiB, plus
