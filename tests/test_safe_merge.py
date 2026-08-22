@@ -690,6 +690,47 @@ class AutoMergeNetDefectTest(SafeMergeTestBase):
     def test_armable_states_cover_the_three_waiting_states(self):
         self.assertEqual(set(safe_merge.ARMABLE_STATES), {"BLOCKED", "BEHIND", "UNKNOWN"})
 
+    def test_the_armed_net_pins_the_head_it_was_armed_on(self):
+        """D4: arming must not be based on a head this run never read.
+
+        Measured enable-time-only (probe ml#1225), so pinning is safe -- the net survives
+        the base-sync that follows on the BEHIND path.
+        """
+        head = "c" * 40
+        h = Harness([_state(mergeStateStatus="BLOCKED", headRefOid=head), _state(mergeStateStatus="BLOCKED", headRefOid=head), _state(headRefOid=head)])
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: True)
+        self.run_merge_installed(h)
+        armed = self._arming(h)
+        self.assertTrue(armed, "expected a net")
+        argv = armed[0]
+        self.assertIn("--match-head-commit", argv)
+        self.assertEqual(argv[argv.index("--match-head-commit") + 1], head)
+
+    def test_behind_path_pins_the_pre_sync_head(self):
+        """The BEHIND arm fires before update-branch, so it pins the pre-sync head.
+
+        That is correct BECAUSE the pin is enable-time only: the sync moves the head
+        moments later and the net survives it. If the pin were continuous this would be
+        the bug that silently disarms every BEHIND merge.
+        """
+        head = "d" * 40
+        h = Harness(
+            [
+                _state(mergeStateStatus="BEHIND", headRefOid=head),
+                _state(mergeStateStatus="BEHIND", headRefOid=head),
+                _state(),
+                _state(),
+            ]
+        )
+        h.install(self)
+        self.monkey(safe_merge, "repo_allows_auto_merge", lambda o, r: True)
+        self.run_merge_installed(h)
+        armed = self._arming(h)
+        self.assertTrue(armed)
+        argv = armed[0]
+        self.assertEqual(argv[argv.index("--match-head-commit") + 1], head)
+
     # ---- D2: UNKNOWN at the merge gate is not a verdict -------------------
     def test_unknown_at_the_gate_repolls_instead_of_refusing(self):
         """A spurious refusal here reads exactly like a real blocker, and did."""
@@ -729,17 +770,40 @@ class AutoMergeNetDefectTest(SafeMergeTestBase):
 
 
 class NetGuaranteeDocTest(unittest.TestCase):
-    """D4: the net carries a WEAKER guarantee than the local path. Say so.
+    """D4: the net's guarantee differs from the local path's. Say exactly how.
 
-    The complaint D4 records is not that the trade is wrong -- on a strict repo GitHub
-    moves the head itself, so pinning would fight the net -- but that it was made
-    SILENTLY. These assertions keep it stated.
+    This class previously asserted the net was NOT pinned at all, which was true of the
+    code and is no longer. The complaint D4 records was never "the trade is wrong" -- it was
+    that the trade was made SILENTLY. So these assertions keep the *current* trade stated,
+    and are updated with it rather than being deleted.
     """
 
-    def test_docstring_states_the_net_is_not_head_pinned(self):
+    def test_docstring_states_the_net_is_pinned_at_ARMING_time_only(self):
         doc = safe_merge.__doc__
         self.assertIn("--match-head-commit", doc)
-        self.assertRegex(doc, r"net does \*\*not\*\*|NOT carry|not head-pinned")
+        self.assertIn("expectedHeadOid", doc)
+        # the enable-time-vs-continuous distinction is the whole finding
+        self.assertRegex(doc, r"enable-time|ARMING time")
+        self.assertRegex(doc, r"does \*\*not\*\* keep pinning|not .*continuous")
+
+    def test_docstring_cites_the_measurement_not_an_assumption(self):
+        """A guess here is silent and total, so the docstring must show its evidence.
+
+        The wrong answer -- assuming the pin is continuous -- would have meant NOT pinning,
+        leaving the stale-read hole open forever on reasoning nobody ever checked.
+        """
+        doc = safe_merge.__doc__
+        self.assertRegex(doc, r"measured|probe ml#1225")
+
+    def test_arm_auto_merge_accepts_and_forwards_a_head_pin(self):
+        """Structural: the parameter exists and reaches the gh argv."""
+        import inspect
+
+        sig = inspect.signature(safe_merge.arm_auto_merge)
+        self.assertIn("head", sig.parameters)
+        self.assertEqual(sig.parameters["head"].default, "")
+        src = inspect.getsource(safe_merge.arm_auto_merge)
+        self.assertIn("--match-head-commit", src)
 
     def test_docstring_states_refusal_disarms(self):
         self.assertIn("--disable-auto", safe_merge.__doc__)
