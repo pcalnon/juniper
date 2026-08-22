@@ -85,6 +85,55 @@ PROVENANCE_FIELDS = ("run_id", "experiment", "cell_id", "dataset_id", "git_sha")
 
 ARCH_FIELDS = ("input_size", "output_size", "num_hidden_units", "activation_function_name")
 
+#: Experiment run root, holding <run_id>/manifest.json. Mirrors the drivers' own default.
+DEFAULT_RUN_ROOT_ENV = "JUNIPER_EXP_RUN_ROOT"
+DEFAULT_RUN_ROOT_FALLBACK = Path.home() / ".local" / "state" / "juniper-experiments"
+
+
+def default_run_root() -> Path:
+    override = os.environ.get(DEFAULT_RUN_ROOT_ENV, "").strip()
+    return Path(override).expanduser() if override else DEFAULT_RUN_ROOT_FALLBACK
+
+
+def resolve_dataset(run_id: Optional[str], run_root: Path, cache: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Recover a snapshot's dataset identity by joining on ``run_id``.
+
+    ``dataset_id`` is DERIVED, not stored in the snapshot, and that is deliberate.
+    It is content-addressed by ``generate_dataset_id(generator, version, params)``,
+    and the generator *version* comes from a live query against juniper-data --
+    which happens only after ``run_experiment`` starts driving, long after cascor's
+    process env was fixed at exec. So no amount of launch-env plumbing can put it
+    in the file; it is simply not knowable at bring-up.
+
+    It does not need to be. ``run_experiment`` already writes it to the run's
+    ``manifest.json``, and D-C records ``run_id`` in the snapshot, so the join
+    recovers it exactly -- and works for snapshots written before this tool
+    existed, provided they carry a run_id.
+
+    Resolving at QUERY time rather than baking it into the index also avoids a
+    stale miss: a snapshot is written during training, while the manifest is
+    written when the run ends, so a scan mid-run would record "no dataset"
+    permanently.
+
+    Returns the dataset block, or None when there is no run_id or no manifest.
+    """
+    if not run_id:
+        return None
+    if run_id in cache:
+        return cache[run_id]
+    manifest_path = run_root / run_id / "manifest.json"
+    resolved: Optional[Dict[str, Any]] = None
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (OSError, ValueError):
+            manifest = {}
+        dataset = manifest.get("dataset") if isinstance(manifest, dict) else None
+        if isinstance(dataset, dict):
+            resolved = {key: dataset.get(key) for key in ("dataset_id", "generator", "version") if dataset.get(key) is not None} or None
+    cache[run_id] = resolved
+    return resolved
+
 
 def default_root() -> Path:
     override = os.environ.get(DEFAULT_ROOT_ENV, "").strip()
@@ -254,7 +303,15 @@ def matches(row: dict, args: argparse.Namespace) -> bool:
         return False
     for field in PROVENANCE_FIELDS:
         wanted = getattr(args, field, None)
-        if wanted and provenance.get(field) != wanted:
+        if not wanted:
+            continue
+        found = provenance.get(field)
+        # ``dataset_id`` is normally DERIVED via the run_id join rather than stored
+        # in the snapshot, so accept either source. The env pass-through remains a
+        # manual escape hatch; the join is the path that actually populates it.
+        if field == "dataset_id" and found is None:
+            found = (row.get("dataset") or {}).get("dataset_id")
+        if found != wanted:
             return False
     if args.tier and row.get("tier") != args.tier:
         return False
@@ -292,10 +349,18 @@ def _print_rows(rows: "list[dict]", as_json: bool) -> None:
     if not rows:
         print("(no matching snapshots)")
         return
-    print(f"{'name':<62} {'tier':<8} {'experiment':<24} {'cell_id':<18} {'created':<26}")
+    # Only widen the table when the join actually ran, so the default listing stays
+    # narrow rather than carrying a column of dashes.
+    show_dataset = any("dataset" in row for row in rows)
+    header = f"{'name':<62} {'tier':<8} {'experiment':<24} {'cell_id':<18}"
+    print(f"{header} {'dataset_id':<34} {'created':<26}" if show_dataset else f"{header} {'created':<26}")
     for row in rows:
         provenance = row.get("provenance") or {}
-        print(f"{row.get('name', ''):<62} {row.get('tier', ''):<8} {str(provenance.get('experiment') or '-'):<24} {str(provenance.get('cell_id') or '-'):<18} {str(row.get('created') or '-'):<26}")
+        line = f"{row.get('name', ''):<62} {row.get('tier', ''):<8} {str(provenance.get('experiment') or '-'):<24} {str(provenance.get('cell_id') or '-'):<18}"
+        if show_dataset:
+            dataset_id = (row.get("dataset") or {}).get("dataset_id") or provenance.get("dataset_id") or "-"
+            line += f" {str(dataset_id):<34}"
+        print(f"{line} {str(row.get('created') or '-'):<26}")
 
 
 def main(argv: "list[str] | None" = None) -> int:
@@ -311,6 +376,8 @@ def main(argv: "list[str] | None" = None) -> int:
     parser.add_argument("--attributed", action="store_true", help="Only snapshots carrying D-C provenance")
     parser.add_argument("--unattributed", action="store_true", help="Only snapshots with no provenance (the pre-D-C archive)")
     parser.add_argument("--unreadable", action="store_true", help="Only snapshots that could not be opened")
+    parser.add_argument("--resolve-datasets", action="store_true", help="Join each snapshot's run_id to the run manifest to recover dataset_id (implied by --dataset-id)")
+    parser.add_argument("--run-root", type=Path, default=None, help=f"Experiment run root for the dataset join (default: ${DEFAULT_RUN_ROOT_ENV}, else {DEFAULT_RUN_ROOT_FALLBACK})")
     for field in PROVENANCE_FIELDS:
         parser.add_argument(f"--{field.replace('_', '-')}", dest=field, default=None, help=f"Filter by provenance {field}")
     args = parser.parse_args(argv)
@@ -333,7 +400,14 @@ def main(argv: "list[str] | None" = None) -> int:
     if not index_path.exists():
         print(f"ERROR: no index at {index_path} — run --scan first", file=sys.stderr)
         return 2
-    rows = [row for row in read_index(index_path) if matches(row, args)]
+    rows = read_index(index_path)
+    # Enrich BEFORE filtering, so --dataset-id can match a derived value.
+    if args.resolve_datasets or args.dataset_id:
+        run_root = args.run_root or default_run_root()
+        cache: Dict[str, Any] = {}
+        for row in rows:
+            row["dataset"] = resolve_dataset((row.get("provenance") or {}).get("run_id"), run_root, cache)
+    rows = [row for row in rows if matches(row, args)]
     if args.stats:
         summary = summarise(rows)
         print(json.dumps(summary, indent=2) if args.json else "\n".join(f"{k:>16}: {v}" for k, v in summary.items()))

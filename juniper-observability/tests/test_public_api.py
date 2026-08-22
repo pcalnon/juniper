@@ -63,6 +63,40 @@ def test_no_unexpected_public_symbols():
     assert not missing, f"juniper_observability.__all__ missing expected symbols: {missing}"
 
 
+def test_middleware_all_is_fully_reexported_by_the_package():
+    """APD-OBS-004: two ``__all__`` lists must agree, and nothing checked it.
+
+    ``juniper_observability.middleware.__all__`` and the ``# Middleware`` block of
+    ``juniper_observability.__all__`` are maintained by hand in two files. The package
+    deliberately re-exports the whole middleware surface, so a name added to the submodule
+    and forgotten here breaks ``from juniper_observability import <name>`` for every
+    consumer -- silently, because each list is internally consistent.
+
+    Asserted as a subset, not equality: the package list also carries health, logging,
+    prometheus and sentry names that must NOT appear in the middleware submodule.
+    """
+    from juniper_observability import middleware
+
+    submodule = set(middleware.__all__)
+    package = set(juniper_observability.__all__)
+    orphaned = submodule - package
+    assert not orphaned, f"exported by juniper_observability.middleware but not re-exported by the package: {sorted(orphaned)}"
+
+
+def test_middleware_reexports_are_the_same_objects():
+    """A name present in both lists must still resolve to one object.
+
+    The subset check above passes on a name that both files merely *mention*. This pins
+    that the package re-export is the submodule's object rather than a shadowing
+    redefinition -- the failure a names-only check cannot see.
+    """
+    from juniper_observability import middleware
+
+    for name in middleware.__all__:
+        assert hasattr(juniper_observability, name), f"{name} is in middleware.__all__ but not importable from the package"
+        assert getattr(juniper_observability, name) is getattr(middleware, name), f"juniper_observability.{name} is not the object exported by .middleware"
+
+
 def test_version_is_stable_string():
     """0.4.0 — additive minor: build provenance. ``set_build_info`` gains
     keyword-only ``git_sha`` / ``build_date`` passthrough labels, and
