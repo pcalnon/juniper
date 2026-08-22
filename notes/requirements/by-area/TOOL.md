@@ -2,13 +2,13 @@
 
 **Area**: dev tooling / scripts / workflow — worktree procs, claude-code launchers
 
-**Total entries**: 66
+**Total entries**: 68
 
-**By status**: proposed=58 | designed=1 | shipped=7
+**By status**: proposed=58 | designed=1 | shipped=9
 
-**By priority**: P0=1 | P1=8 | P2=54 | P3=3
+**By priority**: P0=1 | P1=9 | P2=55 | P3=3
 
-**By owner**: ml=48 | cas=10 | cwk=3 | dat=2 | dep=2 | can=1
+**By owner**: ml=48 | cas=10 | cwk=3 | dat=2 | dep=2 | rec=2 | can=1
 
 ---
 
@@ -657,3 +657,26 @@ Priority P3 (folded, low-visibility change).
 
 **Sources**:
 - `juniper-cascor/notes/development/JUNIPER-CASCOR_POST-RELEASE_DEVELOPMENT-ROADMAP.md` (lines 275-279)
+
+### JR-REC-TOOL-001 — Experiment YAML config layer (`service:` projection)
+
+**Status**: shipped  **Priority**: P1  **Category**: TOOL  **Owner**: rec
+
+**Sources**:
+- `juniper-ml/notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md` (lines 264-276)
+- `juniper-recurrence/juniper-recurrence/juniper_recurrence/settings.py` (lines 60-72)
+
+**Detail**:
+
+`JUNIPER_RECURRENCE_CONFIG_FILE` activates a `service:`-block-only projection with precedence CLI/init > YAML > env > defaults; forbidden infra keys (`host`/`port`/`juniper_data_url`) fail loud; deliberately **no** `.env` tier (env-file-leak doctrine).
+
+### JR-REC-TOOL-002 — Direct-CLI `train:` block seeding (W-11)
+
+**Status**: shipped  **Priority**: P2  **Category**: TOOL  **Owner**: rec
+
+**Sources**:
+- `juniper-recurrence/juniper-recurrence/juniper_recurrence/main.py` (lines 96-108)
+
+**Detail**:
+
+The `train` subcommand seeds unset argparse flags from the experiment YAML's `train:` block; explicit CLI flags win; unmodeled keys warn and are never silently applied.

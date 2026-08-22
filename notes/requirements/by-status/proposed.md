@@ -1,12 +1,12 @@
 # Requirements — status: proposed
 
-**Total entries**: 1444
+**Total entries**: 1445
 
-**By priority**: P0=123 | P1=524 | P2=723 | P3=74
+**By priority**: P0=123 | P1=524 | P2=724 | P3=74
 
-**By category**: ARCH=275 | SEC=191 | WS=157 | OBS=151 | API=123 | TRAIN=106 | TEST=105 | UI=85 | TOOL=58 | DEP=53 | DOC=46 | DATA=40 | PERF=30 | OPS=16 | LOCK=8
+**By category**: ARCH=275 | SEC=191 | WS=157 | OBS=151 | API=123 | TEST=106 | TRAIN=106 | UI=85 | TOOL=58 | DEP=53 | DOC=46 | DATA=40 | PERF=30 | OPS=16 | LOCK=8
 
-**By owner**: ml=1119 | can=180 | cas=74 | dep=26 | ccl=17 | dat=14 | dcl=10 | cwk=4
+**By owner**: ml=1119 | can=180 | cas=74 | dep=26 | ccl=17 | dat=14 | dcl=10 | cwk=4 | rec=1
 
 ---
 
@@ -17054,3 +17054,14 @@ Also in AGENTS_MD_UPDATE_ROADMAP (Tasks 4.1, 4.2, 4.3) and AGENTS_MD_UPDATE_PLAN
 **Detail**:
 
 docker-compose config for 3-service deployment not tested end-to-end.
+
+### JR-REC-TEST-002 — Service-vs-bench parity as a regression criterion
+
+**Status**: proposed  **Priority**: P2  **Category**: TEST  **Owner**: rec
+
+**Sources**:
+- `juniper-ml/notes/JUNIPER_2026-08-08_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P3-ACCEPTANCE-ROLLUP.md` (lines 1-13)
+
+**Detail**:
+
+A service-mode run with bench-primary-matched params must land inside the same OQ-14 bands as the offline bench; divergence is a service-path defect. Candidate for a periodic (release-gate or scheduled) automated check once `run_suite.py` (Wave 7.1) exists.

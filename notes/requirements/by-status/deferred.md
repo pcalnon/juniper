@@ -1,12 +1,12 @@
 # Requirements — status: deferred
 
-**Total entries**: 39
+**Total entries**: 40
 
-**By priority**: P0=8 | P1=9 | P2=7 | P3=15
+**By priority**: P0=8 | P1=9 | P2=7 | P3=16
 
-**By category**: SEC=13 | OBS=9 | API=4 | DATA=2 | TRAIN=2 | WS=2 | ARCH=2 | PERF=2 | UI=1 | TEST=1 | DEP=1
+**By category**: SEC=13 | OBS=9 | API=4 | DATA=2 | TRAIN=2 | WS=2 | ARCH=2 | PERF=2 | DEP=2 | UI=1 | TEST=1
 
-**By owner**: ml=31 | cas=4 | dat=3 | dep=1
+**By owner**: ml=31 | cas=4 | dat=3 | dep=1 | rec=1
 
 ---
 
@@ -502,3 +502,14 @@ remove legacy spiral generator from spiral_problem.py.
 
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-04_JUNIPER-CASCOR_CODE-REVIEW-FINDINGS.md` (lines 260-294)
+
+### JR-REC-DEP-001 — Dedicated conda environment decision (Q-10)
+
+**Status**: deferred  **Priority**: P3  **Category**: DEP  **Owner**: rec
+
+**Sources**:
+- `juniper-ml/notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md` (lines 1262-1274)
+
+**Detail**:
+
+Recurrence currently rides `JuniperCascor1` (works today; editable install + console script live there). A dedicated lighter env is probably right for hygiene — explicitly an owner call; nothing blocks on it.
