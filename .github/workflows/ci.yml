@@ -195,6 +195,12 @@ jobs:
           # backend; the driver loads it lazily only when outputs.plots
           # requests something).
           pip install "matplotlib>=3.8"
+          # h5py is required by the two snapshot suites below. Both are hermetic
+          # -- they build HDF5 fixtures directly and never touch the real ~27.9k
+          # archive -- but the modules under test import h5py at module scope, so
+          # without it the suites cannot even be collected. Wheels exist for the
+          # whole 3.12/3.13/3.14 matrix, so this never builds from source.
+          pip install "h5py>=3.11"
 
       - name: Run Python regression tests
         run: |
@@ -730,6 +736,19 @@ jobs:
           # safety-gated run lister/pruner -- state classification, --older-than, and the prune
           # safety gates, over synthetic RUN_ROOT fixtures. Also previously unwired.
           python3 -m unittest -v tests/test_list_runs.py
+          # tests/test_snapshot_index.py: hermetic tests for util/snapshot_index.py, the design
+          # §6.2 snapshot index/query -- bytes-attr decode, append-only rescan, the
+          # deferred-vs-present --limit counting, the D-C provenance filters, and the AST
+          # anti-resurrection guard that the tool stays READ-ONLY (retention is §6.4 and gated).
+          # Shipped unwired in ml#1238; wired here with the h5py dependency it needs.
+          python3 -m unittest -v tests/test_snapshot_index.py
+          # tests/test_snapshot_classify.py: hermetic tests for util/snapshot_classify.py, the
+          # owner-scheme classifier over that index. Pins the two-axis category/health rule, that
+          # the index's `readable` flag is NOT loadability (7/300 measured refusals), that the
+          # inert meta.current_epoch is never read as progress, the replace-not-append sidecar,
+          # fd-level stdout muffling, the train-stage scratch-root refusal, and its own AST
+          # read-only guard.
+          python3 -m unittest -v tests/test_snapshot_classify.py
           # tests/test_experiment_suite_yamls.py: drift gate over the shipped suites in
           # util/experiments/suites/**. Every suite must pass run_suite.load_suite (catching the
           # unknown-key / `stall_second` typo class that otherwise surfaces hours into a GPU
