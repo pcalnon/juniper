@@ -152,42 +152,48 @@ so it was never a committed restore point.)
 
 ## 4a. Restore drill — damage CONFIRMED; the "intact" arm is PROVISIONAL
 
-> ## ⚠ THE GOOD-SIDE RESULT IS NOT YET TRUSTWORTHY (adversarial review, 2026-08-23)
+> ## ⚠ THE "INTACT" ARM IS UNINFORMATIVE — MEASURED, NOT SUSPECTED
 >
-> `duplicati_drill_select.py` computes `--version=N` by indexing within the **10 surviving**
-> filesets. But the archived database used as `--dbpath` predates the 2026-07-13 deletion and still
-> holds **all 21** filesets, with no record that 11 of them would later be removed. **If
-> `duplicati-cli` resolves `--version` over all database rows — which is likely, since the local
-> database is the authority for version resolution — then the indices are wrong:**
+> `duplicati_drill_select.py` computed `--version=N` by indexing within the **10 surviving**
+> filesets. The archived database used as `--dbpath` predates the 2026-07-13 deletion and still holds
+> **all 21**, and the database is what resolves `--version`. Measured directly against that database:
 >
-> | script used | script intended | all-rows index actually gives |
+> | passed | intended | index over ALL rows gives |
 > |---|---|---|
-> | `--version=0` (DAMAGED) | 2026-07-11 | **2026-07-12** — a deleted fileset |
-> | `--version=5` (INTACT) | 2025-11-12 | **2026-07-06** — a *damaged* fileset |
+> | `--version=0` (damaged arm) | 2026-07-11 (id 585) | **2026-07-12 (id 586)** — a deleted fileset |
+> | `--version=5` (intact arm) | 2025-11-12 (id 341) | **2026-07-06 (id 580)** — a *damaged* fileset |
 >
-> **Effect on each arm:**
+> **And the sample provably cannot tell the difference.** All four auto-restored files carry the
+> **same `BlocksetID` in both candidate filesets**:
 >
-> * **DAMAGE — unaffected.** Whether the run read 2026-07-11 or 2026-07-12, both belong to the
->   damaged cohort, and the exhaustive offline census independently classifies both as damaged. The
->   0-byte result stands.
-> * **INTACT — NOT ESTABLISHED.** The run may never have touched 2025-11-12. And the sample cannot
->   distinguish the two cases: roughly two thirds of files in a July fileset are undamaged, and every
->   sampled file was static content (conda headers, an editor plugin's `.d.ts`, a Steam locale file)
->   that plausibly did not change between Nov 2025 and Jul 2026. For unchanged content Duplicati
->   reuses the same `BlocksetID`, so **both filesets would yield identical correct output** and the
->   bug would be invisible. A passing result is therefore consistent with both "the mapping is right"
->   and "the mapping is wrong but the files were unchanged".
+> ```
+> task.d.ts                    BlocksetID 496406 in BOTH
+> _linalg_eigh_cpu_dispatch.h  BlocksetID 421812 in BOTH
+> c_862.nls                    BlocksetID 205576 in BOTH
+> hardtanh_cpu_dispatch.h      BlocksetID 420338 in BOTH
+> ```
 >
-> **Until this is settled, do not rely on this section for the claim that 2025-11-12 restores.** That
-> claim currently rests on the offline census plus the volume-integrity scan, not on the drill.
-> The hand-extracted 5th file (below) **is** unaffected — it was located by direct blockset/volume ID
-> rather than by `--version`.
+> Identical blocksets mean byte-identical output whichever fileset was selected. The 4/5 SHA-256
+> matches were therefore **guaranteed either way** and are not evidence that the indexing was
+> correct. (One review argued the matches "would be a wild coincidence if the index pointed at the
+> wrong fileset"; the blockset data shows they would be no coincidence at all.)
 >
-> **Settling it:** run `duplicati-cli list <dest> --dbpath=<disposable copy>
-> --no-backend-verification=true` and compare its version table against the script's, once the
-> database is not contended; or restore a file whose content *differs* between the two candidate
-> filesets and see which version's bytes come back. Then re-run the intact arm with the corrected
-> number.
+> **What each arm still supports:**
+>
+> * **DAMAGE — unaffected.** 2026-07-11 and 2026-07-12 are both in the damaged cohort and the offline
+>   census classifies both as damaged, so the 0-byte result stands either way.
+> * **INTACT — NOT ESTABLISHED.** What was actually demonstrated is narrower and worth stating
+>   precisely: *those four specific blocksets are recoverable from the archive.* That is real, and it
+>   holds for 2025-11-12 too since it references the same blocksets. It is **not** a demonstration
+>   that the 2025-11-12 fileset as a whole restores.
+>
+> The hand-extracted 5th file is unaffected — located by direct blockset/volume ID, not by `--version`.
+>
+> **Fixed for future runs:** both scripts now select by **`--time=<fileset timestamp>`**, which names
+> exactly one fileset regardless of how versions are numbered. The selector no longer emits a
+> positional index at all, and the runner refuses a candidates file produced by the old one.
+> Re-running the intact arm with `--time` would settle it properly.
+
 
 
 

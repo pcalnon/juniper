@@ -77,6 +77,10 @@ def main() -> int:
     ap.add_argument("--hash-sample", type=int, default=40,
                     help="how many present volumes to fully hash (0 = none, -1 = all)")
     ap.add_argument("--seed", type=int, default=20260823)
+    ap.add_argument("--min-present", type=int, default=100,
+                    help="refuse if fewer than this many recorded volumes are found "
+                         "at --dest. Guards against a wrong or unmounted destination, "
+                         "which would otherwise report '0 mismatches' and exit 0.")
     args = ap.parse_args()
 
     rng = random.Random(args.seed)
@@ -96,6 +100,23 @@ def main() -> int:
         else:
             absent += 1
     log(f"  present on disk: {len(present)}   absent: {absent}")
+
+    # REFUSE rather than report a vacuous pass. With a wrong or unmounted --dest
+    # every row is "absent", the size loop never executes, the hash stage takes
+    # the `not hashable` branch, and the script prints "0 mismatches" and exits
+    # 0 -- indistinguishable from a genuine clean bill of health. This is the
+    # tool someone consults before trusting a restore point, so a false "all
+    # clear" here is the most expensive failure in the whole toolkit.
+    if not os.path.isdir(args.dest):
+        log(f"!! REFUSING: --dest is not a directory: {args.dest}")
+        return 2
+    if len(present) < args.min_present:
+        log(f"!! REFUSING: only {len(present)} of {len(rows)} recorded volumes were "
+            f"found under {args.dest} (floor --min-present={args.min_present}).")
+        log("   That is what a wrong, mistyped, or UNMOUNTED destination looks like.")
+        log(f"   Verify first:  mountpoint -q {args.dest} || echo 'NOT MOUNTED'")
+        log("   Refusing rather than reporting '0 mismatches', which would read as a pass.")
+        return 2
     print(flush=True)
 
     # ---- size check over every present volume --------------------------------
@@ -133,7 +154,10 @@ def main() -> int:
     # ---- hash check over a sample --------------------------------------------
     hashable = [(r, p) for r, p in present if r["Hash"]]
     if args.hash_sample == 0 or not hashable:
-        print("=== HASH check skipped ===")
+        if not hashable:
+            print("=== HASH check: NO volume carries a recorded hash — nothing verified ===")
+            return 2
+        print("=== HASH check skipped (--hash-sample 0) ===")
         return 0 if size_bad == 0 else 1
     sample = hashable if args.hash_sample < 0 else rng.sample(
         hashable, min(args.hash_sample, len(hashable)))

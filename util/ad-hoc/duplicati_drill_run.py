@@ -82,13 +82,17 @@ def sha256_b64(path: str) -> str:
     return base64.b64encode(h.digest()).decode()
 
 
-def restore(dest: str, dbpath: str, version: int, paths: list[str],
+def restore(dest: str, dbpath: str, when: str, paths: list[str],
             out_dir: str, passphrase: str, timeout: int) -> tuple[int, str]:
     cmd = [
         "duplicati-cli", "restore", dest, *paths,
         f"--dbpath={dbpath}",
         "--encryption-module=gpg",
-        f"--version={version}",
+        # --time, NOT --version. A positional index computed over surviving
+        # filesets disagrees with one computed over all database rows, and the
+        # database is what resolves --version. A timestamp names exactly one
+        # fileset either way.
+        f"--time={when}",
         f"--restore-path={out_dir}",
         "--restore-permissions=false",
         "--overwrite=true",
@@ -174,11 +178,18 @@ def main() -> int:
         os.makedirs(out_dir, exist_ok=True)
         paths = [f["path"] for f in blk["files"]]
         print()
-        print(f"=== {group.upper()}  fileset {blk['fileset']}  --version={blk['version']} ===")
+        sel = blk.get("time")
+        if not sel:
+            print(f"!! candidates file has no 'time' for group {group}; it was "
+                  f"produced by an older selector that emitted a positional "
+                  f"--version index. Regenerate it -- that index is not reliable.")
+            return 2
+        print(f"=== {group.upper()}  fileset {blk['fileset']} "
+              f"(id {blk.get('fileset_id')})  --time={sel} ===")
         print(f"    prediction: {blk['predicted']}")
         for p in paths:
             print(f"      {p}")
-        rc, out = restore(args.dest, args.dbpath, blk["version"], paths,
+        rc, out = restore(args.dest, args.dbpath, sel, paths,
                           out_dir, passphrase, args.timeout)
         print(f"    restore exit code: {rc}")
         tail = [ln for ln in out.splitlines() if ln.strip()][-12:]
@@ -191,12 +202,21 @@ def main() -> int:
         # files -- which looks identical to "every file failed" unless we say so.
         # Reporting that as damage would be a false positive of exactly the kind
         # this drill exists to rule out.
-        produced = sum(1 for _ in os.walk(out_dir) for _ in _[2])
+        produced = sum(len(files) for _, _, files in os.walk(out_dir))
         aborted = any(marker in out for marker in (
             "The operation Restore has failed",
             "ErrorID: MissingRemoteFiles",
             "Fatal error",
         ))
+        # A TIMEOUT is an abort too, and it carries none of those text markers.
+        # Without this, a restore killed at the deadline produces no files, every
+        # damaged-group candidate scores NOT_RESTORED, and NOT_RESTORED counts as
+        # "as predicted" -- so a run that tested nothing reports as confirmation.
+        # Not hypothetical: list-broken-files on this database was killed at 90
+        # minutes without finishing.
+        if rc == 124:
+            aborted = True
+            print("    !! restore TIMED OUT — this is an abort, not a result.")
         if aborted and produced == 0:
             print("    !! OPERATION ABORTED before any file was attempted -- "
                   "this run tests NOTHING about the individual files.")

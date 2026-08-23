@@ -96,17 +96,34 @@ def main() -> int:
 
     filesets = fileset_by_date(conn, present)
     surviving = [f for f in filesets if f["on_disk"]]
-    print("surviving filesets, newest first (index == duplicati --version):")
-    for i, f in enumerate(surviving):
-        print(f"  version {i}: {f['date']}  fileset_id={f['id']}")
+
+    # DO NOT emit a positional --version index. The archived database predates
+    # the deletion and still holds ALL filesets, including those whose dlist is
+    # gone; indexing within the surviving subset does NOT agree with indexing
+    # over every database row, and it is the database that resolves --version.
+    # Measured on this archive: surviving-index 5 is 2025-11-12 (id 341) while
+    # all-rows index 5 is 2026-07-06 (id 580) -- a DAMAGED fileset. Worse, the
+    # error is invisible to a drill whose sampled files are unchanged between
+    # the two, because Duplicati reuses the BlocksetID and both selections then
+    # produce byte-identical output. Select by TIMESTAMP instead, which names
+    # exactly one fileset regardless of how versions are numbered.
+    print("filesets in the archived DB (ALL rows, newest first):")
+    for i, f in enumerate(filesets):
+        mark = "on-disk" if f["on_disk"] else "DELETED"
+        print(f"  all-idx {i:>2}  {f['date']}  id={f['id']:>4}  {mark}")
+    print()
+    print("NOTE: positional --version is deliberately NOT reported; the drill "
+          "selects by --time= instead. See the comment in this file.")
     print()
 
     good_fs = next(f for f in surviving if f["date"].startswith(args.good_fileset))
     bad_fs = next(f for f in surviving if f["date"].startswith(args.bad_fileset))
-    good_ver = surviving.index(good_fs)
-    bad_ver = surviving.index(bad_fs)
-    print(f"GOOD    fileset {good_fs['date']} -> --version={good_ver}")
-    print(f"DAMAGED fileset {bad_fs['date']} -> --version={bad_ver}")
+    # Duplicati's --time selects the version at-or-before the given instant, so
+    # naming the fileset's own timestamp identifies it unambiguously.
+    good_time = dt.datetime.fromtimestamp(good_fs["ts"]).strftime("%Y-%m-%dT%H:%M:%S")
+    bad_time = dt.datetime.fromtimestamp(bad_fs["ts"]).strftime("%Y-%m-%dT%H:%M:%S")
+    print(f"GOOD    fileset {good_fs['date']} (id {good_fs['id']}) -> --time={good_time}")
+    print(f"DAMAGED fileset {bad_fs['date']} (id {bad_fs['id']}) -> --time={bad_time}")
     print()
 
     # ---- missing volumes -----------------------------------------------------
@@ -183,9 +200,11 @@ def main() -> int:
 
     payload = {
         "generated": "seed=%d" % args.seed,
-        "good": {"fileset": good_fs["date"], "version": good_ver,
+        "good": {"fileset": good_fs["date"], "fileset_id": good_fs["id"],
+                 "time": good_time,
                  "predicted": "RESTORES OK", "files": good},
-        "damaged": {"fileset": bad_fs["date"], "version": bad_ver,
+        "damaged": {"fileset": bad_fs["date"], "fileset_id": bad_fs["id"],
+                    "time": bad_time,
                     "predicted": "RESTORE FAILS OR HASH MISMATCH", "files": damaged},
     }
     with open(args.out, "w") as fh:
