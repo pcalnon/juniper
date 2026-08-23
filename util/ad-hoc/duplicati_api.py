@@ -26,31 +26,53 @@ Usage
 Environment
 -----------
     DUPLICATI_URL        default http://127.0.0.1:8300
-    DUPLICATI_PW_FILE    default resources/duplicati.env
+    DUPLICATI_PW_FILE    default .env  (the WEB-UI password, not the archive passphrase)
+
+TWO DIFFERENT SECRETS -- do not conflate them:
+  * the **web-UI password** (used by duplicati_api.py to authenticate to :8300)
+  * the **archive GPG passphrase** (used to decrypt volumes; restores, purges,
+    passphrase verification)
+They were the same value once and are not any more. Pointing an archive-passphrase
+consumer at the UI-password file fails as "Bad session key", which reads like a
+corrupt archive rather than the wrong secret.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
 
 BASE = os.environ.get("DUPLICATI_URL", "http://127.0.0.1:8300").rstrip("/")
-PW_FILE = os.environ.get("DUPLICATI_PW_FILE", "resources/duplicati.env")
+# The WEB-UI password. Distinct from the archive GPG passphrase -- see the
+# module docstring. resources/duplicati.env was removed when the UI password
+# was rotated 2026-08-23; the current value lives in the repo-root .env.
+PW_FILE = os.environ.get("DUPLICATI_PW_FILE", ".env")
 
 
 def _password() -> str:
+    """Read the secret from either `KEY=VALUE` (optionally `export`-prefixed) or a
+    bare-secret file.
+
+    The previous heuristic split on the first `=` and then required the left side
+    to be uppercase-or-alphabetic. `export PASSPHRASE=...` defeats both tests --
+    the key becomes "export PASSPHRASE", which is neither `.isupper()` (lowercase
+    "export") nor `.isalpha()` (embedded space) -- so it silently returned the
+    ENTIRE line, prefix included, and every request 401'd. Use an anchored regex
+    instead, matching duplicati_drill_run.read_passphrase().
+    """
     with open(PW_FILE) as fh:
-        raw = fh.read().strip()
-    # Accept either a bare password or a KEY=VALUE line.
-    if "=" in raw.split("\n")[0] and not raw.startswith("="):
-        head = raw.split("\n")[0]
-        key, _, val = head.partition("=")
-        if key.isupper() or key.replace("_", "").isalpha():
-            return val.strip().strip("'\"")
-    return raw
+        raw = fh.read()
+    m = re.search(r"^[ \t]*(?:export[ \t]+)?[A-Za-z_][A-Za-z0-9_]*=(.*)$", raw, re.M)
+    if m:
+        val = m.group(1).strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in "'\"":
+            val = val[1:-1]
+        return val
+    return raw.strip()
 
 
 def login() -> str:

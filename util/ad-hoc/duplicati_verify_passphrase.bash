@@ -23,7 +23,15 @@
 set -uo pipefail
 
 DEST="${1:-/mnt/Backups/Ubuntu}"
-ENVFILE="${2:-.env}"
+# No default. .env now holds the WEB-UI password, a DIFFERENT secret from the
+# archive GPG passphrase this script verifies; defaulting to it would report
+# "passphrase did NOT produce a ZIP stream" for a perfectly good archive.
+ENVFILE="${2:-}"
+if [ -z "$ENVFILE" ]; then
+    echo "usage: $0 <dest_dir> <archive-passphrase-file>" >&2
+    echo "NOTE: the archive passphrase is NOT the web-UI password in .env." >&2
+    exit 2
+fi
 
 if [ ! -r "$ENVFILE" ]; then
     echo "FAIL: cannot read env file: $ENVFILE" >&2

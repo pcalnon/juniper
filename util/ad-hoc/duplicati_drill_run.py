@@ -41,8 +41,16 @@ Usage
         --candidates drill_candidates.json \
         --dbpath /path/to/disposable-copy.sqlite \
         --dest file:///mnt/Backups/Ubuntu \
-        --passphrase-file resources/duplicati.env \
+        --passphrase-file <archive-passphrase-file> \
         --out-dir /path/to/restore-scratch
+
+TWO DIFFERENT SECRETS -- do not conflate them:
+  * the **web-UI password** (used by duplicati_api.py to authenticate to :8300)
+  * the **archive GPG passphrase** (used to decrypt volumes; restores, purges,
+    passphrase verification)
+They were the same value once and are not any more. Pointing an archive-passphrase
+consumer at the UI-password file fails as "Bad session key", which reads like a
+corrupt archive rather than the wrong secret.
 """
 
 from __future__ import annotations
@@ -158,7 +166,11 @@ def main() -> int:
     ap.add_argument("--candidates", required=True)
     ap.add_argument("--dbpath", required=True, help="DISPOSABLE copy; it gets migrated")
     ap.add_argument("--dest", default="file:///mnt/Backups/Ubuntu")
-    ap.add_argument("--passphrase-file", default="resources/duplicati.env")
+    ap.add_argument("--passphrase-file", required=True,
+                    help="file holding the ARCHIVE GPG passphrase (bare secret or "
+                         "PASSPHRASE=...). NOT the web-UI password: they are "
+                         "different secrets, and the wrong one fails as "
+                         "'Bad session key', which reads like a corrupt archive.")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--timeout", type=int, default=5400)
     ap.add_argument("--only", choices=["good", "damaged"], default=None)
