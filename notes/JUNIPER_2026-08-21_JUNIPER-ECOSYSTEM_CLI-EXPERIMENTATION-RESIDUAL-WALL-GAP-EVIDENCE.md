@@ -564,25 +564,61 @@ not the allocator, not scheduling. It is `inspect.getmodule`.
 
 #### Why `getmodule` is slower on one path
 
+> **Correction (owner review).** An earlier version of this section said the workers are "forked, so
+> each inherits its parent's `sys.modules` wholesale". **That is wrong.** Candidate workers are
+> created from a **forkserver**, verified in source:
+> `_PROJECT_MODEL_CANDIDATE_TRAINING_CONTEXT = "forkserver"`
+> (`constants_model.py:54`), consumed at `cascade_correlation.py:1064`, and the persistent pool
+> builds each worker with `self._mp_ctx.Process(...)` (`:3772`). Workers self-report
+> `start_method=forkserver`. A forkserver is a *fresh interpreter* spawned via `sys.executable` —
+> not a fork of the launcher — so nothing is inherited "wholesale". The conclusion below survives;
+> the mechanism had to be measured rather than assumed.
+
 `getmodule`'s cache-miss path scans the whole module table (`inspect.py:1023`, §4.3d), so its cost
-is **O(len(sys.modules))**. The two entry points do not have the same module table:
+is **O(len(sys.modules))**. The question is therefore what module table a *worker* actually ends up
+with. Measured inside the workers themselves, one line per process:
 
-| parent process | `len(sys.modules)` |
-| --- | ---: |
-| direct CLI — `import main` | **1,867** |
-| service — `import api.app` | **1,416** |
-| **ratio** | **1.319×** |
+| | `len(sys.modules)` | heavy packages present |
+| --- | ---: | --- |
+| direct-CLI worker | **1,871** | matplotlib, **fastapi, pydantic**, torch |
+| service worker | **1,410** | matplotlib, uvicorn, torch |
+| **ratio** | **1.327×** | |
 
-The candidate workers are **forked**, so each inherits its parent's `sys.modules` wholesale and
-pays the larger scan for the entire run. The chain is:
+For reference, the launchers themselves are 1,867 (`import main`) and 1,416 (`import api.app`), and
+a clean forkserver table is far smaller: the preload set alone is **1,091**, and adding
+`cascade_correlation` — which every worker must import to unpickle its target — reaches **1,333**.
 
-1. `main.py` pulls in ~450 more modules than `api.app`.
-2. Workers fork from that parent and inherit the table.
+So the workers do **not** get the forkserver's small table; each ends up within a handful of modules
+of its own launcher's. The forkserver is not delivering the isolation its use implies (§4.4a).
+
+And the direct CLI's table is the larger one for a reason worth stating plainly: **`import main`
+pulls in `fastapi` and `pydantic`** — verified directly — along with matplotlib. The direct CLI
+never serves HTTP and never validates a request model; it is carrying the entire web/validation
+stack into every candidate worker, and paying for it on every log record.
+
+The corrected chain:
+
+1. The CLI entry point's import graph is ~1.33× the service's, largely from `fastapi` / `pydantic` /
+   `matplotlib` it does not use.
+2. Workers end up with tables tracking their launcher (1,871 vs 1,410) despite the forkserver.
 3. The logger resolves each record's caller with `inspect.getmodule`.
-4. On a cache miss `getmodule` copies and scans `sys.modules` — O(n), so ~1.32× more work per call
+4. On a cache miss `getmodule` copies and scans `sys.modules` — O(n), so ~1.33× more work per call
    on the CLI.
 5. That resolution is ~78% of worker CPU (§4.3d).
-6. ⇒ the CLI's per-candidate-epoch cost is ~1.3–1.8× the service's.
+6. ⇒ the CLI's per-candidate-epoch cost is ~1.33× the service's, rising at small caps where logging
+   is a larger share of the epoch.
+
+#### The quantitative check this makes available
+
+| quantity | value |
+| --- | ---: |
+| worker module-table ratio (CLI / service) | **1.327×** |
+| measured per-epoch **rate** ratio at cap 64 | **1.331×** |
+
+Those agree to **0.3%**. And the interpretation is specific rather than a coincidence to be admired:
+the module-table ratio is the **floor** the rate ratio converges to as the cap grows and real
+arithmetic crowds logging out of the epoch. At cap 16 the rate ratio is 1.415 and at cap 4 it is
+1.555 — above the floor, by more the smaller the cap, exactly as the mechanism requires.
 
 **Independent corroboration from the cProfile pass.** `getmodule` calls *per epoch* are equal —
 5,466,060/13,140 = 416 on the service against 4,727,550/11,310 = 418 on the CLI — while cost *per
@@ -616,6 +652,67 @@ predicts the *shape* of a curve it was not fitted to is the strongest evidence a
 - Measured at **cap 4**, where logging's share is largest. The mechanism predicts a smaller
   contribution at cap 64, consistent with the 1.331 there, but the frame-level profile at cap 64 was
   not taken.
+
+### 4.4a The forkserver is used — but its preload set is mismatched to its job
+
+The architecture is intact. `_init_multiprocessing` resolves
+`candidate_training_context_type` → `"forkserver"` and calls `set_forkserver_preload`
+(`cascade_correlation.py:1063–1079`); the persistent pool creates every worker with
+`self._mp_ctx.Process` (`:3772`); workers self-report `start_method=forkserver`.
+
+> Worth tidying while here: `:1061–1062` still carries a commented-out
+> `self._mp_ctx = mp.get_context("forkserver")` above a garbled note —
+> *"This is unnecessary: Changing Context type did not corrUse 'fork' context for better
+> compatibility with BaseManager on Linux"* — which reads as though the code uses `fork`. It does
+> not. A reader checking this exact question is actively misled.
+
+#### What the preload set costs and what it buys
+
+Preloaded: `["os", "uuid", "torch", "numpy", "random", "logging", "datetime"]`. Marginal cost of
+each, measured (bare interpreter = 77 modules):
+
+| entry | + modules | import time | assessment |
+| --- | ---: | ---: | --- |
+| `os` | 0 | 0.000 s | already imported by the interpreter — a no-op |
+| `uuid` | 2 | 0.001 s | negligible |
+| `random` | 5 | 0.006 s | negligible |
+| `logging` | 10 | 0.013 s | negligible |
+| `datetime` | 2 | 0.001 s | negligible |
+| `numpy` | 109 | 0.153 s | worth preloading |
+| **`torch`** | **886** | **2.938 s** | the entire point of the mechanism |
+| **total** | **1,014** | **~3.11 s** | |
+
+`torch` and `numpy` are **98% of the modules and 99% of the time**. The other five together are 19
+modules and 21 ms — they neither help nor hurt, but they suggest the list was written for
+plausibility rather than measured.
+
+**What is missing is the expensive part.** Every worker must import `cascade_correlation` to
+unpickle its target, and that import is **242 modules and 1.822 s** (and is what drags in
+matplotlib). It is *not* preloaded, so it is paid **after** the fork, in each worker
+independently:
+
+- **~12.8 s of duplicated CPU per pool creation** (7 workers × 1.82 s), on every `fit()`.
+- **242 modules × 7 of duplicated memory**, where preloading would have made them copy-on-write
+  shared from a single forkserver copy.
+- And it inflates each worker's `sys.modules`, which is the O(n) term in §4.4.
+
+Preloading it would move that import into the forkserver once. **One correctness precondition
+before that becomes a recommendation:** preloading executes the module's import-time side effects
+*in the forkserver*, and every worker then inherits them across a fork. Logger handles, file
+descriptors, or any resource opened at import would be shared rather than per-worker — the classic
+fork-safety hazard, and the reason a preload list is not simply "add everything". That audit is not
+done here.
+
+#### The forkserver is not currently buying the isolation it implies
+
+The measurements in §4.4 show workers ending up within a handful of modules of their launcher
+(1,871 vs 1,867; 1,410 vs 1,416) rather than near the forkserver's own 1,091–1,333. Whatever path
+carries the launcher's import graph into the workers, the practical effect is that **the entry
+point's imports reach the candidate workers anyway** — which is why `main.py` importing `fastapi`
+and `pydantic` costs real time in a training loop that never serves a request.
+
+Tracing the precise import route is **not** done here and is the obvious next question for anyone
+acting on this section.
 
 ### 4.5 Remaining hypotheses
 
