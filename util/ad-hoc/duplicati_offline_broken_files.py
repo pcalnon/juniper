@@ -74,21 +74,52 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", required=True)
     ap.add_argument("--dest", required=True)
-    ap.add_argument("--verify-no-newer", default="2026-07-12")
+    ap.add_argument("--verify-no-newer", default="2026-07-12 03:35:45",
+                    help="refuse to run if the destination holds a volume newer than "
+                         "this. Full 'YYYY-MM-DD HH:MM:SS' or a bare date (treated as "
+                         "00:00:00 that day). Default is the archived snapshot's own "
+                         "timestamp, read conservatively.")
+    ap.add_argument("--min-volumes", type=int, default=100,
+                    help="refuse if fewer than this many volumes are visible at "
+                         "--dest. Guards against an unmounted destination, which "
+                         "lists as empty and would otherwise report total loss.")
     args = ap.parse_args()
 
+    if not os.path.isdir(args.dest):
+        log(f"!! REFUSING: --dest is not a directory: {args.dest}")
+        return 2
     present = {n for n in os.listdir(args.dest) if n.endswith(".gpg")}
     log(f"destination volumes present: {len(present)}")
+    # An UNMOUNTED mount point lists as empty without raising. Every volume then
+    # reads as missing, every block as lost, and the tool cheerfully reports
+    # "DAMAGE FOUND in N of N restore points" -- a maximal false total-loss
+    # verdict produced by a mundane unmounted drive. Refuse instead: an empty or
+    # implausibly small destination is a configuration error, not a finding.
+    if len(present) < args.min_volumes:
+        log(f"!! REFUSING: only {len(present)} volumes found under {args.dest}, "
+            f"below --min-volumes={args.min_volumes}. This is what an UNMOUNTED "
+            f"destination looks like. Verify the mount before re-running:")
+        log(f"     mountpoint -q {args.dest} || echo 'NOT MOUNTED'")
+        return 2
 
     newest = max((os.path.getmtime(os.path.join(args.dest, n)) for n in present),
                  default=0.0)
     newest_s = dt.datetime.fromtimestamp(newest).strftime("%Y-%m-%d %H:%M:%S")
     log(f"newest destination volume mtime: {newest_s}")
-    if newest_s[:10] > args.verify_no_newer:
-        log("!! PRECONDITION FAILED: destination has volumes newer than the "
-            "archived DB; Block.VolumeID may be stale. Refusing.")
+    # Compare the FULL timestamp, not just the date. Comparing `newest_s[:10]`
+    # against a date string let a volume written later on the snapshot's own day
+    # slip through undetected -- the guard would pass while Block.VolumeID was
+    # already stale. Inert at the time it was found (newest was a day earlier),
+    # but the whole point of this guard is to be correct when it is not inert.
+    cutoff = args.verify_no_newer.strip()
+    if len(cutoff) == 10:            # bare date -> start of that day, the conservative reading
+        cutoff += " 00:00:00"
+    if newest_s > cutoff:
+        log(f"!! PRECONDITION FAILED: destination holds a volume newer than {cutoff}; "
+            "a replacement volume may have been written, so Block.VolumeID may be "
+            "stale and this analysis would be invalid. Refusing.")
         return 3
-    log("precondition OK: deletion-only since the archived snapshot")
+    log(f"precondition OK: nothing written since {cutoff} (deletion-only)")
 
     conn = connect_immutable(args.db)
     conn.execute("PRAGMA temp_store = MEMORY")

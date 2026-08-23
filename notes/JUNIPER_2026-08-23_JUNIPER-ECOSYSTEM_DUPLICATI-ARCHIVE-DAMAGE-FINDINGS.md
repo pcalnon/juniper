@@ -19,6 +19,23 @@ Anything changed on the workstation since 2025-11-12 exists in exactly one place
 This retires the open question in the predecessor handoff §5 ("was the Jul-13 deletion retention, or
 damage?"). It was damage.
 
+> **Volume integrity has since been verified** (`util/ad-hoc/duplicati_verify_volumes.py`,
+> 2026-08-23): all **5,366** present volumes match the size recorded in the archived database
+> exactly (0 mismatches), and a random sample of **30** volumes totalling 12.39 GiB match their
+> recorded SHA-256 exactly (0 bad). So the surviving volumes are *intact*, not merely *present* —
+> which was a real gap in the original analysis, since it decided survival by filename alone.
+>
+> **What is proven, and what is inferred.** The damage to the 2026-07 restore points is *proven* in
+> the strong sense: those filesets reference blocks that lived in volumes which are demonstrably
+> absent from the destination, verified 1,208/1,208 by direct filesystem check. The word
+> **"restorable"** applied to the five older points is weaker — this analysis establishes that no
+> block they reference sits in a *known-missing* volume, which is necessary but not sufficient. It
+> does **not** verify the byte-integrity of the volumes that are still present (the check is
+> filename-presence, not size or hash), and until this document was written no restore had ever been
+> performed from this archive. Treat "2025-11-12 is restorable" as the best-supported hypothesis by a
+> wide margin, not as a demonstrated fact, until the restore drill in §11 has run. This distinction
+> was sharpened by adversarial review; the original phrasing overstated the evidence by one step.
+
 ---
 
 ## 2. What actually happened
@@ -35,7 +52,7 @@ That did not happen here:
 
 | evidence | value |
 |---|---|
-| newest file anywhere in the destination | 2026-07-11 09:58:23 |
+| newest file anywhere in the destination | 2026-07-11 09:58:38 (a `dindex`) |
 | destination directory mtime | 2026-07-13 17:26 |
 | `temp/` subdirectory mtime | 2026-07-13 17:09 |
 | replacement volumes written on 2026-07-13 | **zero** |
@@ -98,9 +115,19 @@ unrecoverable. 993,226 blocksets and 598,690 metadatasets are affected. The bloc
 path contributed **+0** additional blocksets.
 
 > **Caveat on the denominator**: "entries" counts `FilesetEntry` rows, which include directories and
-> symlinks. Those carry sentinel blockset IDs and can never be counted damaged, so the true damaged
-> *fraction of real files* is higher than `damaged / entries` suggests. The damaged counts themselves
-> are exact.
+> symlinks, so the true damaged *fraction of ordinary files* is higher than `damaged / entries`
+> suggests. The damaged counts themselves are exact: `FilesetEntry` has a composite primary key
+> `(FilesetID, FileID)` and `FileLookup.ID` is the rowid, so the join matches at most one row per
+> entry — no fan-out, no double counting.
+>
+> One precision point, corrected after adversarial review: a directory or symlink cannot be flagged
+> through the **content** path, because its `FileLookup.BlocksetID` is a sentinel
+> (`FOLDER_BLOCKSET_ID` / `SYMLINK_BLOCKSET_ID`) that can never match a real lost blockset. But
+> directories and symlinks **do** carry ordinary metadata blocksets, so the `MetadataID` arm of the
+> query can legitimately flag one when its metadata block is lost. That is arguably correct — the
+> metadata really is unrecoverable — but it means the damaged counts are not composed purely of
+> ordinary files. An earlier phrasing here said such entries "can never be counted damaged", which
+> was too absolute.
 
 ### Which filesets were deleted
 
