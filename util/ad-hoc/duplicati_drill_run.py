@@ -65,15 +65,20 @@ import subprocess
 import sys
 
 
-def read_passphrase(path: str) -> str:
-    """Accept either `KEY=VALUE` (optionally `export`-prefixed) or a bare secret.
+def read_passphrase(path: str, key: str = "PASSPHRASE") -> str:
+    """Read a NAMED secret from `KEY=VALUE` form, or a bare-secret file.
 
-    Never source the file: a bare password containing `$` or a backtick would be
-    expanded or executed by the shell.
+    The key must be selectable. This file may hold several same-length secrets
+    (a new set's passphrase, an old archive's, a UI password), so hardcoding one
+    name silently uses whichever the file happens to bind to it -- and that
+    binding has already changed once mid-session while a backup was running.
+
+    Never source the file: a secret containing `$` would be expanded and one
+    containing a backtick would be EXECUTED.
     """
     with open(path) as fh:
         raw = fh.read()
-    m = re.search(r"^[ \t]*(?:export[ \t]+)?PASSPHRASE=(.*)$", raw, re.M)
+    m = re.search(rf"^[ \t]*(?:export[ \t]+)?{re.escape(key)}=(.*)$", raw, re.M)
     if m:
         val = m.group(1).strip()
         if len(val) >= 2 and val[0] == val[-1] and val[0] in "'\"":
@@ -166,6 +171,9 @@ def main() -> int:
     ap.add_argument("--candidates", required=True)
     ap.add_argument("--dbpath", required=True, help="DISPOSABLE copy; it gets migrated")
     ap.add_argument("--dest", default="file:///mnt/Backups/Ubuntu")
+    ap.add_argument("--passphrase-key", default="PASSPHRASE",
+                    help="which KEY= entry to read. Same-length secrets are "
+                         "indistinguishable by length, so name the key.")
     ap.add_argument("--passphrase-file", required=True,
                     help="file holding the ARCHIVE GPG passphrase (bare secret or "
                          "PASSPHRASE=...). NOT the web-UI password: they are "
@@ -178,8 +186,14 @@ def main() -> int:
 
     with open(args.candidates) as fh:
         payload = json.load(fh)
-    passphrase = read_passphrase(args.passphrase_file)
-    print(f"passphrase: {len(passphrase)} chars from {args.passphrase_file}")
+    passphrase = read_passphrase(args.passphrase_file, args.passphrase_key)
+    if not passphrase:
+        print(f"REFUSING: no {args.passphrase_key}= entry in {args.passphrase_file}")
+        return 2
+    import hashlib
+    print(f"passphrase: {len(passphrase)} chars from {args.passphrase_file} "
+          f"key={args.passphrase_key} "
+          f"sha256[:16]={hashlib.sha256(passphrase.encode()).hexdigest()[:16]}")
 
     groups = [g for g in ("good", "damaged") if args.only in (None, g)]
     all_results: dict[str, list[dict]] = {}
