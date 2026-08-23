@@ -12,14 +12,26 @@
     "and needs no destination, while the level axis waits for P3. Ratchet it down after",
     "each cut with:  python util/memory_budget_check.py --ratchet",
     "",
+    "BUT --ratchet TIGHTENS TO THE EXACT CURRENT SIZE, leaving ZERO headroom, so the",
+    "very next author to add one character fails. After a real cut, prefer a hand-edit",
+    "to a value with DELIBERATE SLACK -- enough working room for the observed burn rate",
+    "(measured 2026-08-23: +937 chars over four days / five PRs, median +58, but a single",
+    "documentation PR took +605). --ratchet has no slack option; that is why the ceiling",
+    "is edited by hand here. Lowering never trips the anti-loosening guard.",
+    "",
+    "RAISING a ceiling FAILS the gate (rule 4, added 2026-08-23). If a raise is genuinely",
+    "intended, declare it with an  Allow-Ceiling-Raise: <path>  commit trailer -- which is",
+    "deliberately NOT the same trailer as Allow-Budget-Overrun, because an overrun borrows",
+    "against a ceiling that still stands while a raise moves it and erases the debt.",
+    "",
     "docs/REFERENCE.md is deliberately NOT governed. It is the migration DESTINATION;",
     "capping it would penalise exactly the relocation this plan wants, and it is not an",
     "always-loaded memory file -- it is read on demand, which is the entire point."
   ],
   "files": {
     "AGENTS.md": {
-      "ceiling_chars": 45084,
-      "_note": "Seeded 2026-08-19 at the then-current size. Target after P3: 32443."
+      "ceiling_chars": 38000,
+      "_note": "Ratcheted 2026-08-23 from 45084 after the CI/CD Workflows relocation (ml#1271) took the file to 36792. Deliberately 38000, NOT 36792: --ratchet tightens to the exact current size, which leaves ZERO headroom and fails the very next author. The 1208-char slack is about five days of working room at the measured burn (+937 over four days / five PRs, median +58 but one docs PR took +605). Target after P3 is still 32443."
     }
   }
 }
