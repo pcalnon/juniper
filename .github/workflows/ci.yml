@@ -644,6 +644,14 @@ jobs:
           # tool had never once run in CI. util/ is outside every pre-commit Python hook's
           # scope, so this is the gate.
           python3 -m unittest -v tests/test_safe_merge.py
+          # tests/test_ci_test_wiring_drift.py: closes the class that ml#1254 and
+          # ml#1259 each fixed one instance of -- a tests/test_*.py that exists but is
+          # never invoked here, so it reports nothing and reads as passing. Asserts
+          # tests/ and this step's invocation list agree exactly, in both directions.
+          # Deliberately checks the INVOCATION, not a substring: this run block is a
+          # literal scalar, so its '#' lines are string content and a suite named only
+          # in a comment would satisfy a naive `in` check while never running.
+          python3 -m unittest -v tests/test_ci_test_wiring_drift.py
           # tests/test_prompt_validator_contract.py: static contract test for the
           # prompt-validator subagent (.claude/agents/prompt-validator.md) + its pinned
           # verdict JSON schema/fixtures (tests/fixtures/prompt_validator/). Asserts the

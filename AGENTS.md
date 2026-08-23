@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-22
+**Last Updated**: 2026-08-23
 
 ---
 
@@ -101,6 +101,7 @@ python3 -m unittest -v tests/test_scaffold_template.py
 python3 -m unittest -v tests/test_open_signed_pr.py
 python3 -m unittest -v tests/test_wait_for_checks.py
 python3 -m unittest -v tests/test_safe_merge.py
+python3 -m unittest -v tests/test_ci_test_wiring_drift.py
 python3 -m unittest -v tests/test_subpackage_py_typed.py
 python3 -m unittest -v tests/test_requirements_consolidate.py
 python3 -m unittest -v tests/test_prompt_validator_contract.py
