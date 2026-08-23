@@ -68,20 +68,28 @@ import sys
 def secret_fingerprint(secret: str) -> str:
     """Non-reversible identity for a secret, safe to log.
 
-    Returns only a character count and a truncated SHA-256 -- never any part of
-    the value. This exists because two same-length secrets are indistinguishable
-    by length alone, and this project's credential file holds several; the
-    fingerprint is what lets a later reader tell which secret a run actually
-    used. It caught a live incident where a backup's in-memory passphrase had
-    silently diverged from the file it was read from.
+    Returns a character count and a short PBKDF2-HMAC-SHA256 tag -- never any
+    part of the value.
 
-    The hash is a one-way function, so the return value is not sensitive data.
-    CodeQL's clear-text-logging query does not model truncated hashing as a
-    sanitiser and flags any password-derived value reaching a log sink, hence
-    the suppression at the single call sites rather than here.
+    Why this exists: two same-length secrets are indistinguishable by length,
+    and this project's credential file holds several. The tag is what lets a
+    later reader tell which secret a run actually used. That mattered in a live
+    incident where a running backup's in-memory passphrase had silently diverged
+    from the file it was read from -- a drift no check that only reads the file
+    can see.
+
+    Why PBKDF2 and not a bare SHA-256: a plain digest of a secret is a weak
+    construction (CodeQL's py/weak-sensitive-data-hashing flags it, correctly as
+    a general rule), and a truncated one invites the assumption that it is
+    reversible-resistant by accident rather than by design. PBKDF2 with a fixed,
+    published, non-secret salt gives a stable per-secret tag with a real work
+    factor. The salt is deliberately constant: the tag must be comparable across
+    processes and runs, which a random salt would defeat.
     """
-    digest = hashlib.sha256(secret.encode()).hexdigest()[:16]
-    return f"{len(secret)} chars, sha256[:16]={digest}"
+    tag = hashlib.pbkdf2_hmac(
+        "sha256", secret.encode(), b"juniper-duplicati-fingerprint-v1", 200_000
+    ).hex()[:16]
+    return f"{len(secret)} chars, tag={tag}"
 
 
 def read_passphrase(path: str, key: str = "PASSPHRASE") -> str:
@@ -209,7 +217,6 @@ def main() -> int:
     if not passphrase:
         print(f"REFUSING: no {args.passphrase_key}= entry in {args.passphrase_file}")
         return 2
-    # codeql[py/clear-text-logging-sensitive-data] -- fingerprint only
     print(f"credential: {args.passphrase_file} key={args.passphrase_key} "
           f"({secret_fingerprint(passphrase)})")
 

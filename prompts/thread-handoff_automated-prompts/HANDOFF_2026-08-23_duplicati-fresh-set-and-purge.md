@@ -33,6 +33,12 @@ captured value        DECRYPTS THE FRESH SET
 **The value is captured** at `~/duplicati-Ubuntu-fresh-passphrase-RECOVERED.env` (mode 0600, outside
 the repo, key `PASSPHRASE_UBUNTU_FRESH`, `sha256[:16]=6d8b263f6d064556`).
 
+> **Two fingerprint formats exist — do not compare them.** The value above is a plain
+> `sha256[:16]`, recorded when it was captured. The runners now emit a PBKDF2 `tag=` instead
+> (CodeQL flags a bare digest of a secret as a weak construction). The two are *not*
+> comparable; recompute whichever form you need from the same secret rather than matching
+> across formats. `util/ad-hoc/duplicati_drill_run.py:secret_fingerprint()` is the current one.
+
 **Before anything else:**
 
 1. Record that value in a password manager. It protects the only current copy of everything since
