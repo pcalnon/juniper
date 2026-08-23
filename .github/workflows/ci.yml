@@ -777,6 +777,14 @@ jobs:
           # fd-level stdout muffling, the train-stage scratch-root refusal, and its own AST
           # read-only guard.
           python3 -m unittest -v tests/test_snapshot_classify.py
+          # tests/test_snapshot_attribute.py: hermetic tests for util/snapshot_attribute.py, the
+          # dataset-attribution pass (handoff §3.2). Pins the permutation-corrected score (raw
+          # accuracy reports an inverted-label network as BELOW chance), that the null floor is
+          # the untrained MAXIMUM not its p95 (a p95 floor attributed 327 zero-hidden-unit
+          # networks to a non-linearly-separable problem), that a dataset an untrained network
+          # aces can never be an answer, the partial-sidecar write guards, and an AST read-only
+          # guard. Hermetic -- no cascor tree, no juniper-data tree, no archive.
+          python3 -m unittest -v tests/test_snapshot_attribute.py
           # tests/test_experiment_suite_yamls.py: drift gate over the shipped suites in
           # util/experiments/suites/**. Every suite must pass run_suite.load_suite (catching the
           # unknown-key / `stall_second` typo class that otherwise surfaces hours into a GPU
