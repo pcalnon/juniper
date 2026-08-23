@@ -92,6 +92,18 @@ def restore(dest: str, dbpath: str, version: int, paths: list[str],
         f"--restore-path={out_dir}",
         "--restore-permissions=false",
         "--overwrite=true",
+        # Without this, pre-flight RemoteListAnalysis aborts the WHOLE operation
+        # ("Found N files that are missing from the remote storage") before any
+        # individual file is attempted -- which reads as "every file failed" and
+        # tests nothing. We are deliberately restoring from an archive with known
+        # missing volumes; that is the point of the drill.
+        "--no-backend-verification=true",
+        # CRITICAL for validity. Defaults to FALSE, meaning Duplicati will happily
+        # rebuild a file from blocks it finds on the LOCAL disk. Most of these
+        # files still exist locally, so leaving this off would let a restore
+        # "succeed" without reading the archive at all -- a false pass that proves
+        # nothing about whether the backup is recoverable.
+        "--no-local-blocks=true",
     ]
     env = dict(os.environ, PASSPHRASE=passphrase)   # never on the command line
     try:
@@ -172,6 +184,27 @@ def main() -> int:
         tail = [ln for ln in out.splitlines() if ln.strip()][-12:]
         for ln in tail:
             print(f"    | {ln}")
+
+        # An operation-level abort is NOT evidence about any individual file.
+        # Duplicati can refuse the whole restore during pre-flight (missing
+        # remote volumes, bad passphrase, unreadable database), producing zero
+        # files -- which looks identical to "every file failed" unless we say so.
+        # Reporting that as damage would be a false positive of exactly the kind
+        # this drill exists to rule out.
+        produced = sum(1 for _ in os.walk(out_dir) for _ in _[2])
+        aborted = any(marker in out for marker in (
+            "The operation Restore has failed",
+            "ErrorID: MissingRemoteFiles",
+            "Fatal error",
+        ))
+        if aborted and produced == 0:
+            print("    !! OPERATION ABORTED before any file was attempted -- "
+                  "this run tests NOTHING about the individual files.")
+            all_results[group] = [
+                {**f, "verdict": "INCONCLUSIVE",
+                 "detail": "restore aborted at operation level; file never attempted"}
+                for f in blk["files"]]
+            continue
         all_results[group] = judge(blk["files"], out_dir)
 
     print()
@@ -179,19 +212,28 @@ def main() -> int:
     print("DRILL RESULTS")
     print("=" * 78)
     expected = {"good": "RESTORED_OK", "damaged": "NOT_RESTORED/RESTORED_CORRUPT"}
-    surprises = 0
+    surprises = inconclusive = 0
     for group, rows in all_results.items():
         print(f"\n--- {group.upper()} (predicted {expected[group]}) ---")
         for r in rows:
-            ok = (r["verdict"] == "RESTORED_OK") if group == "good" \
-                else (r["verdict"] in ("NOT_RESTORED", "RESTORED_CORRUPT"))
-            flag = "as predicted" if ok else "*** SURPRISE ***"
-            if not ok:
-                surprises += 1
+            if r["verdict"] == "INCONCLUSIVE":
+                inconclusive += 1
+                flag = "NOT TESTED"
+            else:
+                ok = (r["verdict"] == "RESTORED_OK") if group == "good" \
+                    else (r["verdict"] in ("NOT_RESTORED", "RESTORED_CORRUPT"))
+                flag = "as predicted" if ok else "*** SURPRISE ***"
+                if not ok:
+                    surprises += 1
             print(f"  {r['verdict']:<17} {flag:<16} {r['size']:>10,} B  {r['path']}")
             print(f"      {r['detail']}")
     print()
-    print(f"SURPRISES: {surprises}")
+    print(f"SURPRISES: {surprises}   INCONCLUSIVE: {inconclusive}")
+    if inconclusive:
+        print("VERDICT: INCONCLUSIVE -- the restore did not run to the point of "
+              "testing individual files. This is NOT evidence for or against the "
+              "offline analysis. Fix the invocation and re-run.")
+        return 2
     print("The drill CONFIRMS the offline analysis." if surprises == 0
           else "The drill CONTRADICTS the offline analysis in at least one case.")
     return 0 if surprises == 0 else 1
