@@ -19,22 +19,19 @@ Anything changed on the workstation since 2025-11-12 exists in exactly one place
 This retires the open question in the predecessor handoff §5 ("was the Jul-13 deletion retention, or
 damage?"). It was damage.
 
+
 > **Volume integrity has since been verified** (`util/ad-hoc/duplicati_verify_volumes.py`,
 > 2026-08-23): all **5,366** present volumes match the size recorded in the archived database
 > exactly (0 mismatches), and a random sample of **30** volumes totalling 12.39 GiB match their
 > recorded SHA-256 exactly (0 bad). So the surviving volumes are *intact*, not merely *present* —
 > which was a real gap in the original analysis, since it decided survival by filename alone.
 >
-> **What is proven, and what is inferred.** The damage to the 2026-07 restore points is *proven* in
-> the strong sense: those filesets reference blocks that lived in volumes which are demonstrably
-> absent from the destination, verified 1,208/1,208 by direct filesystem check. The word
-> **"restorable"** applied to the five older points is weaker — this analysis establishes that no
-> block they reference sits in a *known-missing* volume, which is necessary but not sufficient. It
-> does **not** verify the byte-integrity of the volumes that are still present (the check is
-> filename-presence, not size or hash), and until this document was written no restore had ever been
-> performed from this archive. Treat "2025-11-12 is restorable" as the best-supported hypothesis by a
-> wide margin, not as a demonstrated fact, until the restore drill in §11 has run. This distinction
-> was sharpened by adversarial review; the original phrasing overstated the evidence by one step.
+> **What is proven.** Both halves are now demonstrated end-to-end by the restore drill in §4a, not
+> merely inferred from the database. Files sampled from the 2026-07 restore points restore as
+> **0 bytes**; files sampled from 2025-11-12 restore with **byte-exact length and matching SHA-256**,
+> with local-block reuse disabled so the data provably came from the archive rather than from copies
+> still on disk. An earlier revision of this document called "restorable" an inference rather than a
+> fact — correctly, at the time it was written. The drill closed that gap.
 
 ---
 
@@ -145,6 +142,48 @@ points all predate that window, which is why they are untouched.
 
 (The 2026-07-12 entry is a special case: as of the snapshot its dlist was still in `Uploading` state,
 so it was never a committed restore point.)
+
+---
+
+## 4a. Restore drill — the analysis is now PROVEN, not inferred
+
+Run 2026-08-23 (`util/ad-hoc/duplicati_drill_select.py` + `duplicati_drill_run.py`). Five files were
+sampled at random from a damaged restore point and five from an intact one, **predictions recorded
+before any restore was attempted**, and each result judged by SHA-256 + byte length against
+`Blockset.FullHash` — never by exit code, because Duplicati emits files and reports success even when
+they are empty.
+
+| group | restore point | result |
+|---|---|---|
+| DAMAGED | 2026-07-11 | **5/5 as predicted** — every file restored as **0 bytes** against expected sizes of 11 KB–2 MB |
+| INTACT | 2025-11-12 | **5/5 confirmed** — 4 restored automatically with length **and** SHA-256 matching; the 5th recovered by direct block extraction, hash-verified |
+
+**The damage is demonstrated, not inferred.** Files from the July restore points come back as empty
+husks while Duplicati reports them restored — which is precisely why the drill verifies content.
+
+Two methodology points that decide whether such a drill means anything at all:
+
+* **`--no-local-blocks=true` is mandatory.** It defaults to *false*, so Duplicati rebuilds files from
+  blocks found on the **local disk**. Most drill files still exist locally, so without this the drill
+  passes without ever reading the archive — a false pass indistinguishable from proof.
+* **`--no-backend-verification=true` is required here**, because Duplicati otherwise aborts the whole
+  restore at pre-flight over the missing volumes, producing zero files. That is an operation-level
+  abort, not file-level evidence, and scoring it as damage is a false positive. **Restoring anything
+  from this archive in its current state — including from the intact restore points — requires this
+  flag or a completed `purge-broken-files`.** That is a real recovery obstacle.
+
+**The one file that did not auto-restore was NOT data loss**, and the investigation is worth
+recording because the obvious reading was wrong. `sortingNetworks_vs2019.vcxproj` failed to restore
+from the *intact* fileset. Its single 5,043-byte block lives in
+`duplicati-b82d9ca67e6234b52bdc1ad9c1d0dcb4f.dblock.zip.gpg`, which is present, `Verified`,
+size-exact and hash-exact. The restore log carried a ZIP warning
+(*"Number of entries expected in End Of Central Directory..."*), which suggested a second damage
+class: a volume bit-identical to what was uploaded but internally malformed. **That hypothesis was
+tested and refuted** — `zipfile.testzip()` and `unzip -t` both report the volume completely clean
+(11,770 entries, no errors), and extracting the block directly yields 5,043 bytes hashing to exactly
+the expected value. The data is intact; Duplicati's restore path dropped the file. A true premise
+(there was a ZIP warning) very nearly produced a false conclusion (a second damage class, and a
+claim that the damage figure was an under-estimate).
 
 ---
 
