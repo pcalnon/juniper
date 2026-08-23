@@ -26,12 +26,17 @@ damage?"). It was damage.
 > recorded SHA-256 exactly (0 bad). So the surviving volumes are *intact*, not merely *present* —
 > which was a real gap in the original analysis, since it decided survival by filename alone.
 >
-> **What is proven.** Both halves are now demonstrated end-to-end by the restore drill in §4a, not
-> merely inferred from the database. Files sampled from the 2026-07 restore points restore as
-> **0 bytes**; files sampled from 2025-11-12 restore with **byte-exact length and matching SHA-256**,
-> with local-block reuse disabled so the data provably came from the archive rather than from copies
-> still on disk. An earlier revision of this document called "restorable" an inference rather than a
-> fact — correctly, at the time it was written. The drill closed that gap.
+> **What is proven, and what is not.** The **damage** is demonstrated end-to-end by the restore drill
+> in §4a: files sampled from the 2026-07 cohort restore as **0 bytes**, with local-block reuse
+> disabled so the result provably reflects the archive rather than copies still on disk. That half is
+> solid.
+>
+> The claim that **2025-11-12 restores** is *not* established by the drill. Adversarial review found
+> that the drill's `--version` index is computed over surviving filesets while the database it used
+> holds all 21, so the "intact" arm may have read 2026-07-06 instead — see the banner in §4a. That
+> claim currently rests on the offline census and the volume-integrity scan (5,366/5,366 sizes exact,
+> 30/30 sampled hashes exact), which are strong but are *not* an actual restore. Treat "2025-11-12 is
+> restorable" as very well supported and not yet demonstrated.
 
 ---
 
@@ -145,7 +150,46 @@ so it was never a committed restore point.)
 
 ---
 
-## 4a. Restore drill — the analysis is now PROVEN, not inferred
+## 4a. Restore drill — damage CONFIRMED; the "intact" arm is PROVISIONAL
+
+> ## ⚠ THE GOOD-SIDE RESULT IS NOT YET TRUSTWORTHY (adversarial review, 2026-08-23)
+>
+> `duplicati_drill_select.py` computes `--version=N` by indexing within the **10 surviving**
+> filesets. But the archived database used as `--dbpath` predates the 2026-07-13 deletion and still
+> holds **all 21** filesets, with no record that 11 of them would later be removed. **If
+> `duplicati-cli` resolves `--version` over all database rows — which is likely, since the local
+> database is the authority for version resolution — then the indices are wrong:**
+>
+> | script used | script intended | all-rows index actually gives |
+> |---|---|---|
+> | `--version=0` (DAMAGED) | 2026-07-11 | **2026-07-12** — a deleted fileset |
+> | `--version=5` (INTACT) | 2025-11-12 | **2026-07-06** — a *damaged* fileset |
+>
+> **Effect on each arm:**
+>
+> * **DAMAGE — unaffected.** Whether the run read 2026-07-11 or 2026-07-12, both belong to the
+>   damaged cohort, and the exhaustive offline census independently classifies both as damaged. The
+>   0-byte result stands.
+> * **INTACT — NOT ESTABLISHED.** The run may never have touched 2025-11-12. And the sample cannot
+>   distinguish the two cases: roughly two thirds of files in a July fileset are undamaged, and every
+>   sampled file was static content (conda headers, an editor plugin's `.d.ts`, a Steam locale file)
+>   that plausibly did not change between Nov 2025 and Jul 2026. For unchanged content Duplicati
+>   reuses the same `BlocksetID`, so **both filesets would yield identical correct output** and the
+>   bug would be invisible. A passing result is therefore consistent with both "the mapping is right"
+>   and "the mapping is wrong but the files were unchanged".
+>
+> **Until this is settled, do not rely on this section for the claim that 2025-11-12 restores.** That
+> claim currently rests on the offline census plus the volume-integrity scan, not on the drill.
+> The hand-extracted 5th file (below) **is** unaffected — it was located by direct blockset/volume ID
+> rather than by `--version`.
+>
+> **Settling it:** run `duplicati-cli list <dest> --dbpath=<disposable copy>
+> --no-backend-verification=true` and compare its version table against the script's, once the
+> database is not contended; or restore a file whose content *differs* between the two candidate
+> filesets and see which version's bytes come back. Then re-run the intact arm with the corrected
+> number.
+
+
 
 Run 2026-08-23 (`util/ad-hoc/duplicati_drill_select.py` + `duplicati_drill_run.py`). Five files were
 sampled at random from a damaged restore point and five from an intact one, **predictions recorded
