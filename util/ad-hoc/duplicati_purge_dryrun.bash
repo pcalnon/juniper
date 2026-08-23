@@ -29,12 +29,18 @@
 # Applying the purge for real is a SEPARATE, deliberate act. This script cannot
 # do it: it hard-codes --dry-run and verifies its presence.
 #
-# Usage: util/ad-hoc/duplicati_purge_dryrun.bash [dbpath] [dest-url]
+# Usage: util/ad-hoc/duplicati_purge_dryrun.bash [dbpath] [dest-url] [timeout-seconds]
+#
+# NOTE ON TIMEOUT: Duplicati's own list-broken-files spent 90 minutes on this
+# database without completing (it contends with an in-flight Recreate). A run
+# killed by timeout is NOT a result -- it tells you nothing either way -- so the
+# default here is deliberately generous.
 
 set -uo pipefail
 
 DBPATH="${1:-/media/pcalnon/temp_backups/_drill_scratch/drill.sqlite}"
 DEST="${2:-file:///mnt/Backups/Ubuntu}"
+TIMEOUT="${3:-28800}"   # 8h default; a killed run is not a result
 MOUNT=/mnt/Backups/Ubuntu
 
 if ! mountpoint -q "$MOUNT"; then
@@ -85,6 +91,6 @@ echo "command:"
 printf '  %q' "${CMD[@]}"; echo
 echo
 echo "start: $(date +%H:%M:%S)"
-timeout 5400 "${CMD[@]}" 2>&1
+timeout "$TIMEOUT" "${CMD[@]}" 2>&1
 echo "rc: $?"
 echo "end: $(date +%H:%M:%S)"
