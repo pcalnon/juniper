@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""
+Project     : Juniper
+Sub-Project : juniper-ml
+Application : Canopy E2E arc tooling (ad-hoc)
+Author      : Paul Calnon
+Version     : 0.1.0
+License     : MIT License
+
+Triage the canopy E2E findings ledger by priority and open/fixed status.
+
+Phase 2's exit criterion (plan §6.3) is "every P0 and P1 closed or explicitly
+deferred with owner sign-off", so the arc needs a mechanical count of what is
+still open at each priority rather than a hand-maintained list that drifts.
+
+Reads the evidence note's ledger entries -- each is a ``**F-<AREA>-<NNN> — …**``
+bold header carrying its priority and status inline -- and prints a triage table
+plus totals.
+
+    python3 util/ad-hoc/e2e_finding_triage.py
+    python3 util/ad-hoc/e2e_finding_triage.py --open-only
+
+See ``util/ad-hoc/README.md`` for the ad-hoc script convention.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+DEFAULT_NOTE = "notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md"
+ORDER = {"P0": 0, "P0/P1": 1, "P1": 2, "P2": 3, "CRITICAL": 0, "LEDGER": 4, "?": 5}
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--note", default=DEFAULT_NOTE)
+    ap.add_argument("--open-only", action="store_true")
+    args = ap.parse_args()
+
+    text = Path(args.note).read_text(encoding="utf-8")
+    rows, seen = [], set()
+    for m in re.finditer(r"^\*\*(F-[A-Z0-9]+-\d+[a-z]?) — (.*?)\*\*", text, re.M | re.S):
+        fid, body = m.group(1), " ".join(m.group(2).split())
+        if fid in seen:
+            continue
+        seen.add(fid)
+        fixed = bool(re.search(r"\bFIXED\b|\bHEALED\b", body[-170:], re.I))
+        pm = re.search(r"\b(P0/P1|P0|P1|P2|CRITICAL|LEDGER)\b", body)
+        pri = pm.group(1) if pm else "?"
+        rows.append({"id": fid, "pri": pri, "fixed": fixed, "short": body.split(":")[0][:78]})
+
+    shown = [r for r in rows if not (args.open_only and r["fixed"])]
+    shown.sort(key=lambda r: (r["fixed"], ORDER.get(r["pri"], 9), r["id"]))
+    for r in shown:
+        state = "FIXED " if r["fixed"] else "OPEN  "
+        print(f"{state} {r['pri']:<6} {r['id']:<15} {r['short']}")
+
+    op = [r for r in rows if not r["fixed"]]
+    print()
+    print(f"total findings : {len(rows)}")
+    print(f"  fixed        : {sum(1 for r in rows if r['fixed'])}")
+    print(f"  open         : {len(op)}")
+    for p in ("P0", "P0/P1", "P1", "P2", "CRITICAL", "LEDGER", "?"):
+        n = sum(1 for r in op if r["pri"] == p)
+        if n:
+            print(f"      open {p:<8}: {n}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
