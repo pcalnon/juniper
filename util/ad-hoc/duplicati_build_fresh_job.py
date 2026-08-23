@@ -36,7 +36,6 @@ Usage
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sys
@@ -199,7 +198,16 @@ def main() -> int:
     }
     st, body = call("backups", "POST", payload)
     print(f"create -> HTTP {st}")
-    print(json.dumps(body, indent=1) if not isinstance(body, str) else body)
+    # Echo only the identifier, never the response body. The request payload
+    # carried the passphrase, so anything derived from that exchange is
+    # secret-adjacent -- Duplicati happens to return just {ID, Temporary}, but
+    # relying on that is exactly the assumption that turns into a leak when the
+    # API changes.
+    if isinstance(body, dict) and body.get("ID"):
+        print(f"created job id: {body['ID']}")
+    elif st not in (200, 201):
+        print("create FAILED; response withheld (may echo the request payload). "
+              "Inspect the server log or re-run with a debugger if needed.")
     return 0 if st in (200, 201) else 1
 
 
