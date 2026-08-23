@@ -17,7 +17,9 @@ Suites `e-j-h2h-wide-cap64-20260816T125456Z`, `e-j-h2h-wide-cap128-20260816T2224
 `oom == 0`.
 > **SUPERSEDED HEADLINE (2026-08-20).** The `1.99 ± 0.21×` below was measured on cascor `3909d27`,
 > which is **pre-#531/#533**: the CLI arm carried `main.py`'s `OMP=2` BLAS cap and the service arm
-> did not, and that cap alone is worth 1.30× of a 1.52× candidate-phase penalty at cap 16. **Do not
+> did not. (#531 valued that cap at 1.30× of a 1.52× candidate-phase penalty; a k=3 rep-paired
+> re-measurement on 2026-08-22 puts it at **1.016× [0.885, 1.148]** — see the correction in §6
+> limit 1.) **Do not
 > quote 1.99× as the current gap.** What survives: the difference is wholly in the candidate phase
 > and it compounds per growth iteration. See §6 limit 1 and §8.
 
@@ -493,7 +495,7 @@ is confined to the candidate phase, and survives both the initialisation control
 check. But the sentence "Every configuration explanation was checked and eliminated (§3), which
 narrows it to the runtime level" did not hold: **juniper-cascor#531** found that the two entry
 points loaded BLAS with *different thread pools* — `main.py` capped `OMP_/MKL_/OPENBLAS_NUM_THREADS`
-to 2, `uvicorn api.app:create_app` never executed that code — and that cap accounted for **1.30× of
+to 2, `uvicorn api.app:create_app` never executed that code — and #531 reported that cap as **1.30× of
 a 1.52×** candidate-phase penalty at cap 16, acting through throughput *and* through epoch count
 (thread count changes BLAS reduction order, hence where a patience-based early stop fires).
 
@@ -637,7 +639,9 @@ have offered to kill.
 | `n_rotations` 3.0 floored by a 2-unit cap (smoke §6 limit 3) | **RESOLVED** — at 64–128 units the hard spiral reaches 0.97–1.00 on both arms |
 | Host state (smoke §6 limit 4) | **PARTIALLY REPAIRED** — per-minute load sampling from 13:26; the control has both arms sampled (load1 8.7 vs 9.4). The cap-64 pairs predate the sampler (§6 limit 5) |
 | F-5 "genuine service-tier limitation" | **STILL FALSE** — a fourth independent line; the service matches on accuracy at half the wall clock |
-| **Why the CLI's candidate phase costs ~2×** | **SUPERSEDED by juniper-cascor#531/#533** — see the row below. As written this row says "Configuration is excluded (§3)", and that turned out to be wrong in a specific and load-bearing way: the *entry point* was setting BLAS thread counts differently on the two paths (`main.py` capped OMP/MKL/OPENBLAS to 2; `uvicorn api.app:create_app` never ran that code), which is a configuration cause and accounted for **1.30× of a 1.52×** candidate-phase penalty at cap 16. §3's equalisation checked every key the *config file* can express; it could not see a decision made by which file the process started in. Initialisation (§4.4) and contention remain excluded |
+| **Why the CLI's candidate phase costs ~2×** | **SUPERSEDED by juniper-cascor#531/#533** — see the row below. As written this row says "Configuration is excluded (§3)", and that turned out to be wrong in a specific and load-bearing way: the *entry point* was setting BLAS thread counts differently on the two paths (`main.py` capped OMP/MKL/OPENBLAS to 2; `uvicorn api.app:create_app` never ran that code), which is a configuration cause. (#531 sized it at **1.30× of a 1.52×** at cap 16; re-measured
+rep-paired at k=3 on 2026-08-22 it is **1.016× [0.885, 1.148]** — the asymmetry was real, its cost
+was not. See the 2026-08-21 residual note §4.3a.) §3's equalisation checked every key the *config file* can express; it could not see a decision made by which file the process started in. Initialisation (§4.4) and contention remain excluded |
 | **The 1.99 ± 0.21× headline** | **SUPERSEDED — do not quote as current.** Every one of the 12 runs was cascor `3909d27`, i.e. **pre-#531/#533**: the CLI arm carried `main.py`'s `OMP=2` cap and the service arm did not. The gap on post-#533 `main` has never been measured; doing so is a deliverable of the successor arc. What survives unchanged: 100% of the difference is the candidate phase (output 1.03–1.05×), and it compounds per growth iteration, so a residual measured at cap 16 licenses nothing at cap 64/128 |
 | **Reproducibility of every single-run number here** | **QUALIFIED by [juniper-cascor#532](https://github.com/pcalnon/juniper-cascor/issues/532)** — identically-seeded runs do not reliably reproduce. Pairing cancels the data-draw term but not this, so the paired Δval above is sound while any *single-run* figure carries an undeclared spread. Characterised at N=20 in [`JUNIPER_2026-08-20_…SEED-REPRODUCIBILITY-EVIDENCE.md`](JUNIPER_2026-08-20_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-SEED-REPRODUCIBILITY-EVIDENCE.md) |
 | 3-seed spread at cap 128 | **NOT MEASURED** — deliberately traded for the init control; n = 2 there (§6 limit 4) |
