@@ -102,6 +102,7 @@ python3 -m unittest -v tests/test_open_signed_pr.py
 python3 -m unittest -v tests/test_wait_for_checks.py
 python3 -m unittest -v tests/test_safe_merge.py
 python3 -m unittest -v tests/test_ci_test_wiring_drift.py
+python3 -m unittest -v tests/test_ruleset_scope_guard.py
 python3 -m unittest -v tests/test_subpackage_py_typed.py
 python3 -m unittest -v tests/test_requirements_consolidate.py
 python3 -m unittest -v tests/test_prompt_validator_contract.py
