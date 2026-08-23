@@ -69,7 +69,6 @@ evidence that decision needs and performs none of it.
 from __future__ import annotations
 
 import argparse
-import ast  # noqa: F401  - imported so the read-only guard test can assert on this module's own AST surface
 import json
 import sys
 from pathlib import Path

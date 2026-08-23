@@ -292,8 +292,6 @@ def score_network(network, datasets, torch) -> Dict[str, float]:
     A dataset whose width does not match the network is skipped rather than coerced: scoring a
     2-output network against a 3-class problem would compare different questions.
     """
-    import numpy as np
-
     results: Dict[str, float] = {}
     for name, data in datasets.items():
         if getattr(network, "input_size", None) != data["input_size"] or getattr(network, "output_size", None) != data["output_size"]:
