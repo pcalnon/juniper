@@ -223,6 +223,54 @@ performance number, because F1 already captures it.
 
 Recorded here so the two are not conflated; the redesign warrants its own analysis document.
 
+## 8a. F1 — IMPLEMENTED AND VERIFIED (cascor `a520c07`, branch `fix/logger-frame-resolution`)
+
+### Correctness
+
+- **Equivalence pinned** against the previous implementation at stack depths 0 / 1 / 5 / 12, both
+  resolvers applied to the *same* frame.
+- **Console and file output compared byte-for-byte** before and after — `+[<string>: 3] (…) [INFO] …`
+  and `+[<string>: <module>:3] (…) [INFO] …` render identically.
+- **86 tests pass** (`test_logger_coverage.py` 80 + `test_logger_frame_resolution.py` 6).
+- **The regression guard was verified to FAIL** by temporarily re-introducing `getouterframes`. An
+  untested guard is a vacuous check, and this arc has already shipped one of those.
+
+### Effect, cap 4, one run per arm
+
+| | service before | service after | CLI before | CLI after |
+| --- | ---: | ---: | ---: | ---: |
+| candidate phase | 187.8 s | **16.0 s** | 276.1 s | **15.0 s** |
+| candidate epochs | 11,360 | 11,360 | 10,734 | 11,900 |
+| s / candidate epoch | 0.01652 | **0.00141** | 0.02571 | **0.00126** |
+| **speedup (per epoch)** | | **11.7×** | | **20.4×** |
+
+The CLI run did **more** candidate work than its baseline (11,900 vs 10,734) and still finished in
+15 s against 276 s, so this is not a truncated run.
+
+### The gap closed, and closed for the predicted reason
+
+**CLI / service per-epoch rate ratio: 1.555 → 0.894.**
+
+The prediction in §1 was that the gap is a *consequence* of the logging cost, so removing the cost
+should remove the gap without any CLI-specific change. It did. And the asymmetry in the benefit is
+the mechanism's own signature: the CLI gained **20.4×** where the service gained **11.7×**, because
+`getmodule` was scanning the CLI's 1,871-module table against the service's 1,410. The arm with
+more to lose lost more.
+
+> n=1 per arm. The **magnitude** (11–20×) is far outside any plausible noise, but the **ratio**
+> (0.894 vs 1.0) is a single pair and should not be quoted as "the CLI is now faster" — the honest
+> reading is that the gap is gone. A k=4 paired cap-16 campaign is the publishable number, and it
+> is now affordable in minutes rather than hours because the runs got ~15× shorter.
+
+### What this does to F2 and F3
+
+- **F2 (CLI import hygiene)** is no longer a performance fix. Its 1.33× module-table ratio only
+  mattered because every log record scanned that table; nothing does now. It remains worth doing
+  for import time, memory, and hygiene — the direct CLI should not be dragging FastAPI and pydantic
+  into a training loop — but it drops out of the critical path.
+- **F3 (forkserver preload)** is unaffected: the ~12.8 s per pool creation is import cost, not
+  logging cost.
+
 ## 9. Risks
 
 | risk | mitigation |
