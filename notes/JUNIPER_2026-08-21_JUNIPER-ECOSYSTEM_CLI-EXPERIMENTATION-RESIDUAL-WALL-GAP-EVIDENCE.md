@@ -481,6 +481,65 @@ arms, so it explains nothing about the CLI-vs-service gap, but it is a large unc
 inside the hottest loop in the system and it is worth its own issue independent of this
 investigation.
 
+### 4.3d Native profiling finds something larger than the gap: ~78% of worker CPU is logging
+
+`py-spy record --native --subprocesses` on the service arm, 296,815 samples over the whole run.
+Self time by frame:
+
+| self frame | share |
+| --- | ---: |
+| `getmodule (inspect.py:1024)` | **33.46%** |
+| `_get_code_position (inspect.py:1668)` | 15.58% |
+| `getmodule (inspect.py:1023)` | 10.22% |
+| `getmodule (inspect.py:1026)` | 7.38% |
+| `ismodule (inspect.py:302)` | 5.05% |
+| `getmodule (inspect.py:1025)` | 4.52% |
+| `ismodule (inspect.py:300)` + `getframeinfo` | ~1.7% |
+| **`inspect`-based caller resolution, total** | **≈ 78%** |
+
+The candidate-training loop — the hottest code in the system — spends roughly **four fifths of its
+CPU deciding which module each log record came from**, and under 2% in `libc` / `torch` frames.
+
+This is not a profiler artefact. It reproduces the cProfile pass's independent finding (§4.3c,
+`inspect` ≈ two thirds of profiled CPU, 1.46 × 10⁹ `hasattr` calls) using a *sampling native*
+profiler with entirely different distortion characteristics.
+
+#### The mechanism is a known CPython pathology, not merely "logging is slow"
+
+`inspect.getmodule` keeps a `modulesbyfile` cache. On a miss it does this
+(`inspect.py:1023`, the second-hottest line here):
+
+```python
+for modname, module in sys.modules.copy().items():
+    if ismodule(module) and hasattr(module, '__file__'):
+```
+
+— it **copies the whole of `sys.modules` and scans it**, which is O(len(sys.modules)) per call and
+allocates a dict of every loaded module each time. That is survivable if it populates the cache.
+
+The trap is what happens when the scan finds *nothing* for that filename: `modulesbyfile` is never
+updated for it, so the next call rescans, and every call after that. A single frame whose file is
+not resolvable to a loaded module converts a cached lookup into an unbounded repeated full scan —
+which is exactly the shape of a profile where six of the top seven frames are inside `getmodule`.
+
+#### Why this matters more than the thing it was looking for
+
+- It is **unconditional** — not a CLI-vs-service asymmetry, not a configuration, not opt-in. It is
+  paid by every candidate epoch on **both** paths, including every campaign the service tier has
+  ever run.
+- It dwarfs the effect under investigation. The CLI-vs-service candidate-phase gap is 1.33–1.55×
+  on the per-epoch term; this is ~78% of the per-epoch term itself, on both arms.
+- It is plausibly cheap to fix — logging need not resolve a caller's module by scanning
+  `sys.modules` at all — and a fix would benefit every consumer of cascor's trainer.
+
+**This warrants its own cascor issue and should not be folded into the wall-gap work.** Recorded
+here because this campaign is what found it; it is not a finding *about* the wall gap.
+
+> **Caveat.** The share is measured on the SERVICE arm at cap 4 under `py-spy --native` at 100 Hz
+> blocking. The absolute wall inflates under any profiler; the *relative* share should not, and it
+> agrees with a second instrument. Whether the same ~78% holds at cap 64, where the matrices are
+> larger and the math per epoch is greater, is **not** established here.
+
 ### 4.4 Remaining hypotheses
 
 With packing eliminated (§4.3) and thread context eliminated (§4.1), what is left for the ~1.33×
