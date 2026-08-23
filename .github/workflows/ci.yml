@@ -792,6 +792,14 @@ jobs:
           # aces can never be an answer, the partial-sidecar write guards, and an AST read-only
           # guard. Hermetic -- no cascor tree, no juniper-data tree, no archive.
           python3 -m unittest -v tests/test_snapshot_attribute.py
+          # tests/test_snapshot_backfill.py: hermetic tests for util/snapshot_backfill.py, the
+          # consolidated recovered-metadata record (handoff §3.4). The caveats ARE the feature:
+          # pins that a SAMPLED cohort result (380 of 15,927 zero-node snapshots trained) stays
+          # quarantined in the `population` bucket instead of being written onto 15,547 files
+          # nobody trained, that an inferred dataset never reads as observed/measured, that run
+          # identity is never invented (no run dirs survive from before 2026-07-30), that every
+          # failing snapshot gets a named root cause, and an AST read-only guard.
+          python3 -m unittest -v tests/test_snapshot_backfill.py
           # tests/test_experiment_suite_yamls.py: drift gate over the shipped suites in
           # util/experiments/suites/**. Every suite must pass run_suite.load_suite (catching the
           # unknown-key / `stall_second` typo class that otherwise surfaces hours into a GPU
