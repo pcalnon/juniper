@@ -144,6 +144,54 @@ The suite artifacts (12 registries, aggregates, per-cell manifests) are the repr
 
 ## 4. Findings
 
+### F-P4-6 — the T6 re-baseline's first attempt: E-A partial, and why its timings are NOT usable
+
+**Status: INCOMPLETE. Do not cite the wall-clock deltas below as a cascor#514 measurement.**
+
+The T6 re-baseline (E-A → E-I → E-C against one post-#514 cascor) was attempted 2026-08-23 with
+cascor pinned at `341ffa3`. **E-A completed 10 of 12 cells in 11,221 s; E-I was killed ~4 minutes
+in; E-C never started.** Artifacts: `~/.local/state/juniper-experiments/t6-rebaseline-20260823T200328Z`
+and suite dir `e-a-cascor-budget-sweep-20260823T200329Z`.
+
+Matched-cell wall time against the pre-#514 grid (2026-08-14) came out **+16.9%** (6,381 s →
+7,457 s), nine of ten cells slower (+6.5% to +52.8%) and one *faster* (−27.8% at pool 4 / cap 32).
+
+**That number is confounded and must not be attributed to #514.** The host was chosen on a
+load-average lull of 4.09; across the campaign the 15-minute average was **19.55**, with a
+`duplicati` backup consuming >200% CPU throughout. A single cell moving the other way is also not
+what a uniform code-induced slowdown looks like. Separating the two needs a control — either a
+re-run on a genuinely quiet host, or the same grid re-measured at the pre-#514 commit under the
+same conditions. **The re-baseline is therefore still owed**, and the E-C table at §3 keeps its
+KNOWINGLY STALE marker.
+
+Two cell-level results DO stand, because neither depends on wall-clock precision:
+
+- **`wide-pool-long` (pool 32 / `max_epochs` 5000) no longer fits the inherited 3,600 s budget.**
+  It ran 2,893.1 s pre-#514 and was stopped at 3,616.1 s. The driver stopped it and wrote an honest
+  `timed_out` manifest — the ordering ml#1200 fixed — so the truncation is recorded rather than
+  silent. Budget raised to 5,400 s (still 1,800 s below the suite's 7,200 s subprocess timeout, so
+  the driver still wins); rationale in the suite file. Note the suite had already raised the
+  *timeout* 3,600 → 7,200 "for the R-3 unit budget" while leaving the driver's budget at the base's
+  3,600 — headroom the driver could never reach. This is the other half of that change.
+- **`c010` (pool 8 / cap 32) was killed externally, not by the experiment.** `torn_down_early`,
+  exit 3 (`EXIT_UNREACHABLE`), service `Connection refused` 141 s in, with no CUDA OOM, no kernel
+  OOM and 60 GB RAM free. Infrastructure, not a finding; the cell needs re-running.
+
+**Method note that generalises — long campaigns cannot run as harness background tasks.** The
+campaign itself was killed, as was `c010`'s service. This is the population documented in
+[`JUNIPER_2026-08-19_JUNIPER-ECOSYSTEM_SAFE-MERGE-KILL-FORENSICS.md`](JUNIPER_2026-08-19_JUNIPER-ECOSYSTEM_SAFE-MERGE-KILL-FORENSICS.md)
+§3.4: the host `[bg]` worker holds a ~3,600 s lease and the task dies when it expires, with no
+per-task cause — 19 such kills were catalogued before this one. A 7–9 h campaign must therefore be
+launched **detached** (`setsid`), not via a tracked background task, and the driver
+(`util/ad-hoc/2026-08-23_t6_rebaseline_campaign.bash`) re-checks the cascor SHA around every suite
+so a kill-and-restart cannot silently split the baseline across two commits.
+
+A killed campaign also leaves its stack up, and the reaper **protects** it — a live run-dir pidfile
+still exists even though the driver is gone (ml#1133's guard inverted into a false positive). Tear
+it down with `experiment_stack.bash --down <RUN_ID>` rather than waiting for the reaper. The
+2026-08-21 orphan found during T1 was the same class.
+
+
 ### F-P4-1 — the cascor SERVICE path does not train spiral (study-blocking for spiral surfaces; raised to owner)
 
 At **every budget tested** — the smoke block (E-B/E-C/E-H control cells) and the full baseline block (`max_epochs 2000 × max_iterations 12 × max_hidden_units ≤32`, patience 200; all 12 E-A cells) — a service-mode spiral run completes in 30–50 s with `train_accuracy ≈ 0.505` (chance), **0–1 hidden units recruited**, and `metrics_final` reporting epoch ≈ 2.

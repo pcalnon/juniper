@@ -42,6 +42,26 @@ exclude:
 include:
   # Inherits the base cap of 24, so it needs its own iteration budget — include entries are
   # independent of the matrix and would otherwise keep the base's 12.
+  #
+  # outputs.max_wall_seconds 3600 -> 5400 (2026-08-23, T6 re-baseline). MEASURED, not guessed:
+  # this cell ran 2893.1 s pre-cascor#514 and was cut off at 3616.1 s on the post-#514 re-baseline,
+  # against spiral-baseline's inherited 3600 s budget. The DRIVER stopped it and wrote an honest
+  # `timed_out` manifest — the ordering ml#1200 fixed — so the truncation is recorded rather than
+  # silent, but a timed-out cell contributes no accuracy numbers and leaves a hole in the grid.
+  #
+  # The suite already anticipated this cell outgrowing its limits: per_run_timeout_seconds was
+  # raised 3600 -> 7200 above "for the R-3 unit budget". That raised only run_suite's SUBPROCESS
+  # ceiling while the driver's own budget stayed at the base's 3600, so the extra headroom was
+  # unreachable — the driver always stopped first. This override is the other half of that change.
+  #
+  # 5400 is 1.87x the pre-#514 time and 1.49x the truncation point, and sits 1800 s BELOW
+  # per_run_timeout_seconds (7200) so the driver still wins the race. Do not raise it past 7200
+  # without raising the timeout too: at or above it, run_suite's kill pre-empts the driver and the
+  # manifest is lost entirely (tests/test_experiment_suite_yamls.py::TimeoutOrderingContractTest).
+  #
+  # NOTE the wall figures this is sized against were measured under heavy ambient load (15-min
+  # load average 19.55, a duplicati backup at >200% CPU), so they are an upper bound on the cell's
+  # real cost, not a clean post-#514 measurement. The headroom is deliberate for that reason.
   - name: wide-pool-long
-    overrides: {training.params.candidate_pool_size: 32, training.params.max_epochs: 5000, training.params.max_iterations: 32}
+    overrides: {training.params.candidate_pool_size: 32, training.params.max_epochs: 5000, training.params.max_iterations: 32, outputs.max_wall_seconds: 5400}
 outputs: {suite_dir: null, aggregate: [csv, markdown]}
