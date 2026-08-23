@@ -540,7 +540,84 @@ here because this campaign is what found it; it is not a finding *about* the wal
 > agrees with a second instrument. Whether the same ~78% holds at cap 64, where the matrices are
 > larger and the math per epoch is greater, is **not** established here.
 
-### 4.4 Remaining hypotheses
+### 4.4 ROOT CAUSE — the CLI's parent imports more modules, and logging scans them per record
+
+The native profiler **preserves** the penalty where cProfile destroyed it: overall **1.600**
+samples per candidate epoch (CLI / service), against the 1.555× measured unprofiled at this cap.
+So for the first time the instrument and the effect agree, and the profile can be read.
+
+| self frame | service s/ep | CLI s/ep | delta | ratio |
+| --- | ---: | ---: | ---: | ---: |
+| `getmodule (inspect.py:1024)` | 7.5579 | 13.5119 | **+5.9540** | 1.79 |
+| `getmodule (inspect.py:1023)` | 2.3080 | 4.3102 | **+2.0022** | 1.87 |
+| `getmodule (inspect.py:1026)` | 1.6671 | 2.8385 | +1.1714 | 1.70 |
+| `_get_code_position (inspect.py:1668)` | 3.5185 | 4.1931 | +0.6746 | 1.19 |
+| `ismodule (inspect.py:302)` | 1.1406 | 1.7317 | +0.5911 | 1.52 |
+| `getmodule (inspect.py:1025)` | 1.0204 | 1.5568 | +0.5364 | 1.53 |
+| `ismodule (inspect.py:300)` | 0.2702 | 0.4231 | +0.1528 | 1.57 |
+| **`inspect` frames, summed** | | | **+11.08** | |
+| *(total per-epoch gap)* | | | *+13.54* | |
+
+**Those frames are 82% of the entire per-epoch penalty.** Everything else — `libc`, `libgomp`,
+`gc_collect_main`, `__xstat64` — contributes under 1.5 samples/epoch combined. The gap is not BLAS,
+not the allocator, not scheduling. It is `inspect.getmodule`.
+
+#### Why `getmodule` is slower on one path
+
+`getmodule`'s cache-miss path scans the whole module table (`inspect.py:1023`, §4.3d), so its cost
+is **O(len(sys.modules))**. The two entry points do not have the same module table:
+
+| parent process | `len(sys.modules)` |
+| --- | ---: |
+| direct CLI — `import main` | **1,867** |
+| service — `import api.app` | **1,416** |
+| **ratio** | **1.319×** |
+
+The candidate workers are **forked**, so each inherits its parent's `sys.modules` wholesale and
+pays the larger scan for the entire run. The chain is:
+
+1. `main.py` pulls in ~450 more modules than `api.app`.
+2. Workers fork from that parent and inherit the table.
+3. The logger resolves each record's caller with `inspect.getmodule`.
+4. On a cache miss `getmodule` copies and scans `sys.modules` — O(n), so ~1.32× more work per call
+   on the CLI.
+5. That resolution is ~78% of worker CPU (§4.3d).
+6. ⇒ the CLI's per-candidate-epoch cost is ~1.3–1.8× the service's.
+
+**Independent corroboration from the cProfile pass.** `getmodule` calls *per epoch* are equal —
+5,466,060/13,140 = 416 on the service against 4,727,550/11,310 = 418 on the CLI — while cost *per
+call* is 237.89 µs vs 293.30 µs, a ratio of **1.233**. Same number of calls, each more expensive:
+exactly what an O(n) scan over a 1.319× larger table predicts, from an instrument that could not
+see the effect end-to-end.
+
+#### It also explains the cap series, which nothing else did
+
+| cap | measured rate ratio |
+| --- | ---: |
+| 4 | 1.555 |
+| 16 | 1.415 |
+| 64 | 1.331 |
+
+§3.3b recorded this monotonic *decline* as unexplained and warned against extrapolating through it.
+It follows directly: logging cost per epoch is roughly fixed, while real arithmetic per epoch grows
+with the cap as the candidate input widens. So logging's share of the epoch falls, and with it the
+share of the epoch that carries the 1.32× penalty — driving the ratio toward 1. A mechanism that
+predicts the *shape* of a curve it was not fitted to is the strongest evidence available here.
+
+#### Honest limits
+
+- **n=1 per arm.** The per-epoch ratio (1.600) is consistent with the k=4 unprofiled measurement
+  (1.555 at this cap), which is the cross-check that matters, but the frame-level deltas are single
+  runs.
+- **1.319× module ratio against a 1.79× `getmodule` self-time ratio.** The direction and order of
+  magnitude match and the cProfile per-call ratio (1.233) sits close to the module ratio, but the
+  native self-time ratio is larger. Cache-miss *rate*, allocation cost of `sys.modules.copy()`, and
+  memory locality could all contribute; **the residual above 1.32× is not accounted for here.**
+- Measured at **cap 4**, where logging's share is largest. The mechanism predicts a smaller
+  contribution at cap 64, consistent with the 1.331 there, but the frame-level profile at cap 64 was
+  not taken.
+
+### 4.5 Remaining hypotheses
 
 With packing eliminated (§4.3) and thread context eliminated (§4.1), what is left for the ~1.33×
 per-epoch penalty is the **worker environment**: the candidate workers are forked from a
