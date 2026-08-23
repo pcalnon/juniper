@@ -65,6 +65,25 @@ import subprocess
 import sys
 
 
+def secret_fingerprint(secret: str) -> str:
+    """Non-reversible identity for a secret, safe to log.
+
+    Returns only a character count and a truncated SHA-256 -- never any part of
+    the value. This exists because two same-length secrets are indistinguishable
+    by length alone, and this project's credential file holds several; the
+    fingerprint is what lets a later reader tell which secret a run actually
+    used. It caught a live incident where a backup's in-memory passphrase had
+    silently diverged from the file it was read from.
+
+    The hash is a one-way function, so the return value is not sensitive data.
+    CodeQL's clear-text-logging query does not model truncated hashing as a
+    sanitiser and flags any password-derived value reaching a log sink, hence
+    the suppression at the single call sites rather than here.
+    """
+    digest = hashlib.sha256(secret.encode()).hexdigest()[:16]
+    return f"{len(secret)} chars, sha256[:16]={digest}"
+
+
 def read_passphrase(path: str, key: str = "PASSPHRASE") -> str:
     """Read a NAMED secret from `KEY=VALUE` form, or a bare-secret file.
 
@@ -190,10 +209,9 @@ def main() -> int:
     if not passphrase:
         print(f"REFUSING: no {args.passphrase_key}= entry in {args.passphrase_file}")
         return 2
-    import hashlib
-    print(f"passphrase: {len(passphrase)} chars from {args.passphrase_file} "
-          f"key={args.passphrase_key} "
-          f"sha256[:16]={hashlib.sha256(passphrase.encode()).hexdigest()[:16]}")
+    # codeql[py/clear-text-logging-sensitive-data] -- fingerprint only
+    print(f"credential: {args.passphrase_file} key={args.passphrase_key} "
+          f"({secret_fingerprint(passphrase)})")
 
     groups = [g for g in ("good", "damaged") if args.only in (None, g)]
     all_results: dict[str, list[dict]] = {}

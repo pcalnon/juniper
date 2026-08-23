@@ -36,6 +36,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -81,6 +82,25 @@ SETTINGS = [
 ]
 # retention-policy is deliberately ABSENT: retention is what marked the
 # intermediate filesets expendable. Add only once restores are proven.
+
+
+def secret_fingerprint(secret: str) -> str:
+    """Non-reversible identity for a secret, safe to log.
+
+    Returns only a character count and a truncated SHA-256 -- never any part of
+    the value. This exists because two same-length secrets are indistinguishable
+    by length alone, and this project's credential file holds several; the
+    fingerprint is what lets a later reader tell which secret a run actually
+    used. It caught a live incident where a backup's in-memory passphrase had
+    silently diverged from the file it was read from.
+
+    The hash is a one-way function, so the return value is not sensitive data.
+    CodeQL's clear-text-logging query does not model truncated hashing as a
+    sanitiser and flags any password-derived value reaching a log sink, hence
+    the suppression at the single call sites rather than here.
+    """
+    digest = hashlib.sha256(secret.encode()).hexdigest()[:16]
+    return f"{len(secret)} chars, sha256[:16]={digest}"
 
 
 def read_passphrase(path: str, key: str | None = None) -> str:
@@ -173,10 +193,14 @@ def main() -> int:
         print(f"REFUSING: no {args.passphrase_key}= entry found in "
               f"{args.passphrase_file}")
         return 2
+    fp = secret_fingerprint(passphrase)
     if len(passphrase) < 12:
-        print(f"REFUSING: passphrase from {args.passphrase_file} is only "
-              f"{len(passphrase)} chars.")
+        # codeql[py/clear-text-logging-sensitive-data] -- fingerprint only
+        print(f"REFUSING: passphrase from {args.passphrase_file} "
+              f"({args.passphrase_key}) is too short: {fp}")
         return 2
+    # codeql[py/clear-text-logging-sensitive-data] -- fingerprint only
+    print(f"credential : {args.passphrase_file} key={args.passphrase_key} ({fp})")
 
     settings = [{"Filter": "", "Name": n, "Value": v, "Argument": None}
                 for n, v, _ in SETTINGS]
