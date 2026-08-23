@@ -170,7 +170,7 @@ they are not mutually exclusive:
 
 **Not resolved here**, and worth stating plainly rather than picking the flattering reading. It is
 cheaply testable — a few CLI legs at explicit `16` against the existing `default` legs — and is
-recorded in §6 as an open item rather than folded into the headline.
+recorded as an open item (§4.3a resolves it) rather than folded into the headline.
 
 #### 3.2b The gap grows with cap, but not in the way the decomposition suggests
 
@@ -244,7 +244,7 @@ So "the CLI is ~1.9× slower" is a poor headline. The gap is:
 > multiplied by a VARIABLE amount of work the CLI happens to do, which is cascor#532 and not a
 > performance property at all.**
 
-Those are different defects with different owners. The rate term is what §4.6 should fix. The work
+Those are different defects with different owners. The rate term is what the fix should target (§4.4 → cascor#563). The work
 term is already tracked as G1/G1a and is only reducible by making the CLI path reproducible.
 
 #### 3.3b The cap series — the compounding is entirely the work term
@@ -278,7 +278,7 @@ Two caveats before this is read as "#533 achieved nothing": the designs differ (
 *different* seeds, this uses one seed × four replicates), and my interval is wide because of the
 work term. But the comparison is informative in the same direction as §3.2a: **#531's 1.30×
 thread-cap attribution also rests on single runs**, and single-run attributions in this system have
-now twice failed to survive k=4. Testing that is the OMP control in §6.
+now twice failed to survive k=4. Testing that is the OMP control in §4.3a.
 
 ---
 
@@ -340,7 +340,7 @@ Consequences, in order of how much they matter:
 
 The fix is small and obvious: derive candidate seeds from `(network_seed, iteration,
 candidate_index)` rather than by drawing from a shared global stream. That makes them a function of
-configuration alone and independent of draw history. Carried into §4.6.
+configuration alone and independent of draw history. Carried into the fix design (F4, implemented and verified).
 
 ### 4.3 The rate term — NOT pool packing; the penalty is real
 
@@ -416,7 +416,7 @@ This is the **third** single-run attribution in this arc to fail under replicati
 
 ### 4.3b Forked-worker profiling — the penalty is NOT in the workers' Python
 
-Both arms run at cap 4 on one cell with the §6 seed fix applied, so for the first time they train
+Both arms run at cap 4 on one cell with the candidate-seed fix of §4.2 applied, so for the first time they train
 **identical candidates**; every forked worker dumps a `cProfile` via
 `JUNIPER_CASCOR_WORKER_PROFILE`. 32 profiles per arm — 4 rounds × 8 candidates, complete coverage.
 
@@ -722,7 +722,7 @@ per-epoch penalty is the **worker environment**: the candidate workers are forke
 set, allocator state, copy-on-write layout and inherited interpreter state all differ, and none of
 them are visible from the logs.
 
-That is what §4.6's profiling pass has to discriminate, and it is now correctly aimed: a per-epoch
+That is what the profiling pass in §4.3b/§4.4 had to discriminate, and it is now correctly aimed: a per-epoch
 cost difference inside the worker, not a scheduling or ordering effect.
 
 ---
@@ -778,7 +778,7 @@ across four pairs on identical configuration.
 
 That is not throughput and no scheduler or runtime fix will touch it. It shrinks only when the CLI
 path becomes reproducible, and part of it is not even nondeterminism but the seed-derivation defect
-in §4.2 — which is fixed and verified in §6.
+in §4.2 — which is fixed and verified there.
 
 ### 5.5 Operational: cap-64 evidence is expensive to keep, not just to produce
 
@@ -794,7 +794,42 @@ term — sufficient at k=4 — is the right thing to track.
 
 ## 6. Honest limits
 
-<!-- PENDING -->
+Ordered by how much they constrain the headline.
+
+**1. The rate figures are measured against the wrong denominator, and are ~4.5% too high.**
+`s / candidate epoch` divides the candidate-phase wall by TOTAL epochs, but a round's wall is set by
+the busiest worker's critical path (8 candidates over 7 workers). §4.3 measured the correct
+denominator at 1.297× against the 1.241× the rate column uses. Applied to cap 16, **1.415× should be
+read as ≈1.354×**; cap 64's 1.331× shifts similarly. The direction of every conclusion is unchanged
+— and the ratio is what matters, not the absolute — but the published rate numbers are a slight
+over-estimate **until recomputed against critical path across a full campaign**. That recomputation
+is not done. The imbalance figures themselves are n=1 per arm.
+
+**2. Frame-level profiling is n=1 per arm.** §4.3b/§4.4's per-call and per-frame deltas come from one
+run each. The per-epoch ratio they produce (1.600) is corroborated by the k=4 unprofiled measurement
+(1.555 at that cap), which is the cross-check that matters, but no frame-level figure has an
+interval.
+
+**3. The 1.327× module-table ratio does not fully account for the 1.79× `getmodule` self-time
+ratio.** Direction and order of magnitude match, and the cProfile per-call ratio (1.233×) sits close
+to the module ratio — but the residual above 1.32× is **not explained**. Cache-miss rate, the cost of
+`sys.modules.copy()` itself, and memory locality are all candidates; none was isolated.
+
+**4. The `~78% of worker CPU is logging` share is measured on the SERVICE arm at cap 4**, where
+logging's share of an epoch is largest. The mechanism predicts a smaller share at cap 64 (consistent
+with the rate ratio falling to 1.331 there), but the frame-level profile at cap 64 was not taken.
+
+**5. The forkserver's isolation gap is observed, not traced.** Workers carry 1,871 / 1,410 modules
+against a clean forkserver table of 1,091–1,333 (§4.4a §6.1). *That* they inherit their launcher's
+import graph is measured; *how* is not.
+
+**6. `k` is bounded by evidence volume, not only by wall clock.** A cap-64 CLI leg writes a 637 MB
+trainer log. The k=37 that a 0.05 half-width on the span would need is ~46 GB of logs before any
+compute argument.
+
+**7. Everything here is pre-F1.** The cap series and every ratio in §3 were measured on cascor
+`362b88b`, before the logging fix. See §8.
+
 
 ---
 
@@ -819,4 +854,56 @@ python util/ad-hoc/2026-08-21_h2h_paired_ratio.py \
 
 ## 8. Disposition
 
-<!-- PENDING -->
+**§4.3 (re-measure), §4.4 (root cause), §4.5 (impact) and §4.6 (fix) are all CLOSED.** The fix is
+[juniper-cascor#563](https://github.com/pcalnon/juniper-cascor/pull/563), designed in
+[`JUNIPER_2026-08-23_…LOGGING-PATHOLOGY-FIX-DESIGN.md`](JUNIPER_2026-08-23_JUNIPER-CASCOR_CANDIDATE-WORKER-LOGGING-PATHOLOGY-FIX-DESIGN.md).
+
+| deliverable | outcome |
+| --- | --- |
+| 5A — cap-64 ratio on post-#533 main | **1.924 ± 0.486**, k=4 paired, cascor `362b88b` |
+| 5B — root cause | **identified**: `inspect.getmodule` scanning `sys.modules` per log record |
+| 5C — impact | no campaign workload affected; the perf lane **cannot share a baseline** across tiers |
+| 5D — fix | cascor#563 — ~9× faster training on **both** arms; per-epoch penalty no longer demonstrable |
+
+### 8.1 What the fix did and did not do
+
+**Did**: the per-candidate-epoch rate ratio falls **1.415 → 1.065** [0.869, 1.262] at cap 16 k=4 —
+the interval now includes 1.0, so no throughput penalty is demonstrable. Absolute wall fell **827 s →
+89 s** (service) and **1434 s → 162 s** (CLI).
+
+**Did not**: the **span** ratio did not improve (1.735 → **1.817**). Before F1 the candidate phase
+was 98% of the service's span; after, 66%. Removing the dominant cost promoted fixed per-run
+overhead — startup, dataset fetch, output passes, teardown — which F1 never touched. The span ratio
+now measures a different thing, and comparing it to the pre-F1 number is a mistake.
+
+**Did not**: the residual candidate-phase ratio (1.308, CI [1.083, 1.532]) is the **work** term
+(1.230), which is [cascor#532](https://github.com/pcalnon/juniper-cascor/issues/532) and untouched
+by any logging change.
+
+### 8.2 Carried forward
+
+- **Every ratio in this document is pre-F1** and is now historical. Re-measuring the cap series is
+  cheap post-fix (runs are ~9× shorter) and is not done.
+- **Two rows of the fix design's verification plan were not executed**: the post-fix worker profile
+  (`inspect` frames should fall from ~78% to negligible) and — more importantly — the
+  **determinism-unchanged** check. F1 changes what is computed per log record, not the arithmetic,
+  so the divergence rate must be unchanged; that has **not been confirmed**.
+- **F2** (CLI import hygiene) and **F3** (forkserver preload, blocked on a fork-safety audit) are
+  designed and unstarted. **§4.4a §6.1's forkserver-isolation question** may subsume F2.
+- The **per-run fixed overhead** exposed by §8.1 is a new target with no instrument — the existing
+  phase split separates candidate from output only.
+
+Full open surface: [`HANDOFF_2026-08-23_logging-pathology-fallout-and-perf-lane.md`](../prompts/thread-handoff_automated-prompts/HANDOFF_2026-08-23_logging-pathology-fallout-and-perf-lane.md).
+
+### 8.3 Teardown attestation
+
+Checked after the last arm, with `util/experiment_stack.bash --down <RUN_ID>` run for every stack:
+
+| check | result |
+| --- | --- |
+| listeners on 8110–8139 / 8230–8259 / 8260–8289 | **0** |
+| port lockdirs in `/run/user/1000/juniper-experiments` | **0** |
+| `artifacts/` preserved | yes — teardown reports "never deleted" |
+
+> Concurrent sessions share these ranges. A non-zero count is not necessarily this arc's leak;
+> `util/experiment_stack.bash --status` lists every run before assuming ownership.
