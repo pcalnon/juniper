@@ -429,7 +429,66 @@ cost difference inside the worker, not a scheduling or ordering effect.
 
 ## 5. Impact
 
-<!-- PENDING -->
+### 5.1 No campaign workload is affected — the framework never uses the CLI path
+
+`run_experiment.py` drives training entirely through the service REST API
+(`POST /v1/training/dataset`, `POST /v1/training/start`) and **never invokes `main.py`**. Every
+suite, every campaign, and every PF suite therefore runs the **service** tier — the arm measured at
+0/190 divergence and the faster of the two.
+
+So the headline is narrower than it sounds: **a ~1.9× gap on a path nothing in the experiment
+framework executes.** No campaign is silently paying it.
+
+### 5.2 Where it does bite: the perf lane cannot share a baseline across tiers
+
+The §12 plan reuses cascor's `--profile` / `--profile-memory` entry points and shows them driven as
+
+```bash
+JUNIPER_DATA_URL=… python main.py --profile --profile-output "$RUN_DIR/profiles"
+```
+
+— i.e. the **direct CLI** — while its PF-1…PF-6 scenario suites run through the driver, i.e. the
+**service**. Those two tiers differ by ~1.9× in candidate-phase wall at cap 64 and ~1.7× at cap 16.
+
+**Consequence for P3, stated as a constraint rather than a suggestion:** a regression threshold
+calibrated on one tier and applied to the other is wrong by 70–90% before any regression exists.
+Either the lane measures one tier, or it keeps **two** baselines and never compares across them.
+This is the concrete answer to the handoff's question of whether CLI and service numbers can share
+a baseline: **they cannot.**
+
+### 5.3 Sizing it where the caps are actually used
+
+Per *pair* of runs at the caps this program uses, measured, on a quiet host:
+
+| cap | service | direct CLI | extra CLI wall |
+| --- | ---: | ---: | ---: |
+| 16 | ~827 s | ~1421 s | **+594 s** (+10 min) |
+| 64 | ~2522 s | ~4859 s | **+2337 s** (+39 min) |
+
+A cap-64 CLI run costs about **40 minutes more** than the same work through the service. For a
+campaign of a dozen cap-64 cells that is ~8 hours — real, but only payable by someone deliberately
+running the CLI path.
+
+### 5.4 The part that is not a performance cost at all
+
+Roughly **half** the cap-64 gap is the work term (1.454×), and that term is
+[cascor#532](https://github.com/pcalnon/juniper-cascor/issues/532) — the CLI doing a variable
+amount of extra candidate training because its trajectory diverges. Its own spread is 0.913×–1.680×
+across four pairs on identical configuration.
+
+That is not throughput and no scheduler or runtime fix will touch it. It shrinks only when the CLI
+path becomes reproducible, and part of it is not even nondeterminism but the seed-derivation defect
+in §4.2 — which is fixed and verified in §6.
+
+### 5.5 Operational: cap-64 evidence is expensive to keep, not just to produce
+
+A single cap-64 CLI leg writes a **637 MB** trainer log; the four-pair campaign wrote ~5 GB, and the
+experiment state directory now holds **38 GB**. Analysis is correspondingly slow — parsing one
+campaign takes minutes, which is why the readers here stream rather than slurp.
+
+This is a real constraint on `k` independent of wall-clock: a k=37 campaign at cap 64 (what a 0.05
+half-width on the span would need) would produce ~46 GB of logs. It is another reason the **rate**
+term — sufficient at k=4 — is the right thing to track.
 
 ---
 
