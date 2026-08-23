@@ -1,0 +1,34 @@
+# E-N: the SERVICE leg of the forked-worker profiling comparison.
+#
+# WHY CAP 4 FOR A PROFILE
+# The per-candidate-epoch penalty is LARGEST at the smallest cap -- 1.555x at cap 4 against 1.415x
+# at 16 and 1.331x at 64 -- because a fixed per-epoch overhead is amortised less when the matrices
+# are small. So cap 4 gives the biggest signal at roughly a fifth of the cost, and cProfile is
+# deterministic (it counts every call), so a short run is not a thin sample: 4 rounds x 8
+# candidates is 32 fully-instrumented worker invocations per arm.
+#
+# WHY IT IS A SEPARATE SUITE
+# e-l is the same cap but twenty cells -- it is the determinism arm, and running it here would cost
+# twenty service runs to get one profile. e-k and e-m are the cap-16 and cap-64 wall-clock legs.
+# This is one cell, `seed_policy: fixed`, seed 42, so it shares the content-addressed dataset with
+# all three and the profile is taken on the same work the ratios were measured on.
+#
+# Paired with the direct CLI through util/ad-hoc/2026-08-21_h2h_paired_campaign.bash, with
+# JUNIPER_CASCOR_WORKER_PROFILE set on both arms so the FORKED workers dump per-invocation .prof
+# files. Nothing that profiles the parent can see that time: `main.py --profile` instruments the
+# parent only and the service has no equivalent flag, which is why the penalty has never been
+# looked at where it actually lives.
+schema_version: 1
+suite:
+  name: e-n-profile-cap4
+  description: "E-N: forked-worker profiling comparison, SERVICE leg (cap 4 / pool 8, seed 42)"
+  app: cascor
+  base_config: [../../../ad-hoc/2026-08-16_h2h_wide_nrot3.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 15600, stall_seconds: 1200}
+matrix:
+  training.params.max_hidden_units: [4]
+  dataset.params.seed: [42]
+  experiment.seed: [42]
+  experiment.description: ["E-N forked-worker profile -- SERVICE leg, cap 4, seed 42"]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}
