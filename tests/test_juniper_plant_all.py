@@ -1373,3 +1373,108 @@ class TestSafeCondaActivate(unittest.TestCase):
             r"fi\n\s*set -u\n\}\n",
             msg="safe_conda_activate success arm must restore set -u after conda activate",
         )
+
+
+class TestSystemdCleanupLeavesNohupPidfile(unittest.TestCase):
+    """A failed ``--systemd`` plant must not delete a NOHUP stack's pidfile.
+
+    ``trap cleanup_on_failure ERR`` is armed BEFORE the systemd branch, and
+    ``cleanup_on_failure`` used to ``rm -f`` the project pidfile unconditionally.
+    But systemd mode never WRITES that file -- the systemd arm exits long before
+    the pidfile write -- so any pidfile present during a systemd run belongs to a
+    nohup-mode stack that this run did not start and that is very likely still
+    up. Deleting it stranded those services with no PID record to chop them by,
+    and removed one of the orphan reaper's two protection keys along with it.
+
+    These arms are hermetic only because ``JUNIPER_PROJECT_DIR`` is now honoured
+    as an environment override. Until 2026-08-23 it was a plain assignment
+    derived from the script's own location, so every test that drove the ERR
+    trap ran against the developer's REAL ``JuniperProject.pid``.
+    """
+
+    def _project(self, root: Path) -> Path:
+        """A throwaway ecosystem root with a populated pidfile."""
+        ml = root / "juniper-ml"
+        ml.mkdir(parents=True, exist_ok=True)
+        pidfile = ml / "JuniperProject.pid"
+        pidfile.write_text("juniper-data=424242\n", encoding="utf-8")
+        return pidfile
+
+    def _stubs(self, root: Path, *, start_exit: int) -> Path:
+        stub_bin = root / "path-stubs"
+        stub_bin.mkdir(parents=True, exist_ok=True)
+        systemctl = stub_bin / "systemctl"
+        systemctl.write_text("#!/usr/bin/env bash\n" 'if [[ "${1:-}" == "--user" ]]; then shift; fi\n' 'case "${1:-}" in\n' f"  start) exit {start_exit} ;;\n" "  *) exit 0 ;;\n" "esac\n")
+        systemctl.chmod(0o755)
+        for name in ("sleep", "curl"):
+            stub = stub_bin / name
+            stub.write_text("#!/usr/bin/env bash\nexit 0\n")
+            stub.chmod(0o755)
+        return stub_bin
+
+    def _env(self, root: Path, stub_bin: Path, *, systemd: bool) -> RedactedEnv:
+        env = RedactedEnv(os.environ)
+        env["JUNIPER_PROJECT_DIR"] = str(root)
+        env["USE_SYSTEMD"] = "1" if systemd else "0"
+        env["HEALTH_CHECK_TIMEOUT"] = "1"
+        env["HEALTH_CHECK_INTERVAL"] = "1"
+        env["PATH"] = str(stub_bin) + os.pathsep + "/usr/bin:/bin"
+        return env
+
+    def test_project_dir_override_is_honoured(self) -> None:
+        # The precondition for every hermetic arm below. If this regresses, the
+        # rest of this class silently starts testing the real checkout again.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            pidfile = self._project(root)
+            stub_bin = self._stubs(root, start_exit=1)
+            result = subprocess.run(
+                ["/bin/bash", str(SCRIPT_PATH)],
+                capture_output=True,
+                text=True,
+                env=self._env(root, stub_bin, systemd=True),
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+            self.assertIn(str(pidfile), result.stdout + result.stderr)
+
+    def test_failed_systemd_plant_leaves_the_pidfile_intact(self) -> None:
+        # THE regression. Before the guard this file was deleted.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            pidfile = self._project(root)
+            stub_bin = self._stubs(root, start_exit=1)  # systemctl start fails -> ERR
+            subprocess.run(
+                ["/bin/bash", str(SCRIPT_PATH)],
+                capture_output=True,
+                text=True,
+                env=self._env(root, stub_bin, systemd=True),
+                timeout=SCRIPT_TIMEOUT_SECONDS,
+            )
+            self.assertTrue(
+                pidfile.exists(),
+                "a failed --systemd plant must not delete a nohup stack's pidfile",
+            )
+            self.assertEqual(pidfile.read_text(encoding="utf-8"), "juniper-data=424242\n")
+
+    def test_the_guard_is_mode_scoped_not_a_blanket_disable(self) -> None:
+        # cleanup_on_failure REMOVING the pidfile is correct in nohup mode and is
+        # pinned by TestCleanupOnFailure. If the guard ever became unconditional,
+        # a failed nohup plant would leave a stale pidfile behind and the fix
+        # would have traded one bug for another.
+        body = _extract_function("cleanup_on_failure")
+        self.assertIn('rm -f "${JUNIPER_PROJECT_PID_FILE}"', body)
+        self.assertRegex(
+            body,
+            r'if \[\[ "\$\{USE_SYSTEMD\}" != "1" \]\]; then\s*\n\s*rm -f "\$\{JUNIPER_PROJECT_PID_FILE\}"',
+            msg="the pidfile removal must be guarded on USE_SYSTEMD, not removed outright",
+        )
+
+    def test_the_trap_is_still_armed_before_the_systemd_branch(self) -> None:
+        # The guard is deliberately inside cleanup_on_failure rather than fixed by
+        # moving the trap: the trap must still fire in systemd mode so a failed
+        # plant still aborts with exit 1. Moving it below the branch would make a
+        # systemd failure exit 0. Pin the ordering so a later "tidy-up" cannot
+        # silently choose the other repair.
+        trap_at = SCRIPT_TEXT.index("trap cleanup_on_failure ERR")
+        systemd_at = SCRIPT_TEXT.index('if [[ "${USE_SYSTEMD}" == "1" ]]; then')
+        self.assertLess(trap_at, systemd_at)
