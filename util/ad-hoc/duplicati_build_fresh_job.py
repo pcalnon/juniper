@@ -36,7 +36,6 @@ Usage
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -82,33 +81,6 @@ SETTINGS = [
 ]
 # retention-policy is deliberately ABSENT: retention is what marked the
 # intermediate filesets expendable. Add only once restores are proven.
-
-
-def secret_fingerprint(secret: str) -> str:
-    """Non-reversible identity for a secret, safe to log.
-
-    Returns a character count and a short PBKDF2-HMAC-SHA256 tag -- never any
-    part of the value.
-
-    Why this exists: two same-length secrets are indistinguishable by length,
-    and this project's credential file holds several. The tag is what lets a
-    later reader tell which secret a run actually used. That mattered in a live
-    incident where a running backup's in-memory passphrase had silently diverged
-    from the file it was read from -- a drift no check that only reads the file
-    can see.
-
-    Why PBKDF2 and not a bare SHA-256: a plain digest of a secret is a weak
-    construction (CodeQL's py/weak-sensitive-data-hashing flags it, correctly as
-    a general rule), and a truncated one invites the assumption that it is
-    reversible-resistant by accident rather than by design. PBKDF2 with a fixed,
-    published, non-secret salt gives a stable per-secret tag with a real work
-    factor. The salt is deliberately constant: the tag must be comparable across
-    processes and runs, which a random salt would defeat.
-    """
-    tag = hashlib.pbkdf2_hmac(
-        "sha256", secret.encode(), b"juniper-duplicati-fingerprint-v1", 200_000
-    ).hex()[:16]
-    return f"{len(secret)} chars, tag={tag}"
 
 
 def read_passphrase(path: str, key: str | None = None) -> str:
@@ -201,12 +173,11 @@ def main() -> int:
         print(f"REFUSING: no {args.passphrase_key}= entry found in "
               f"{args.passphrase_file}")
         return 2
-    fp = secret_fingerprint(passphrase)
     if len(passphrase) < 12:
         print(f"REFUSING: passphrase from {args.passphrase_file} "
-              f"({args.passphrase_key}) is too short: {fp}")
+              f"({args.passphrase_key}) is too short: see duplicati_secret_check.py")
         return 2
-    print(f"credential : {args.passphrase_file} key={args.passphrase_key} ({fp})")
+    print(f"credential : {args.passphrase_file} key={args.passphrase_key}")
 
     settings = [{"Filter": "", "Name": n, "Value": v, "Argument": None}
                 for n, v, _ in SETTINGS]

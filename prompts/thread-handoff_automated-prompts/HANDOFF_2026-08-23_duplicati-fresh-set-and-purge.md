@@ -33,11 +33,19 @@ captured value        DECRYPTS THE FRESH SET
 **The value is captured** at `~/duplicati-Ubuntu-fresh-passphrase-RECOVERED.env` (mode 0600, outside
 the repo, key `PASSPHRASE_UBUNTU_FRESH`, `sha256[:16]=6d8b263f6d064556`).
 
-> **Two fingerprint formats exist — do not compare them.** The value above is a plain
-> `sha256[:16]`, recorded when it was captured. The runners now emit a PBKDF2 `tag=` instead
-> (CodeQL flags a bare digest of a secret as a weak construction). The two are *not*
-> comparable; recompute whichever form you need from the same secret rather than matching
-> across formats. `util/ad-hoc/duplicati_drill_run.py:secret_fingerprint()` is the current one.
+> **To check whether a running job still matches its file**, use the purpose-built tool — it
+> compares in-process and prints only `MATCH` / `DIFFER`, never a hash, length, or fragment:
+>
+> ```bash
+> python3 util/ad-hoc/duplicati_secret_check.py \
+>     --match-cmd 'duplicati-cli backup' --file .env --key PASSPHRASE
+> ```
+>
+> Exit 0 = match, 1 = **DIFFER** (act immediately), 2 = undetermined. Right now this reports
+> DIFFER for pid 779263, which is the incident above. The runners deliberately log only the
+> key name — an earlier design logged a truncated hash and CodeQL was right to flag it: a
+> password-derived value reaching a log sink is the wrong shape even when the particular
+> derivation is safe.
 
 **Before anything else:**
 
