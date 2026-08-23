@@ -67,7 +67,13 @@ def load_job(backup_id: int) -> tuple[str, list[str], str]:
     cap = conn.execute(
         "SELECT Value FROM Option WHERE BackupID = ? AND Name = '--skip-files-larger-than'",
         (backup_id,)).fetchone()
-    return (src[0] if src else "%HOME%"), excl, (cap[0] if cap else "")
+    if src is None:
+        raise SystemExit(
+            f"backup id {backup_id} has no Source row in {SERVER_DB}. Refusing: "
+            "falling back to %HOME% with zero exclusions would silently measure "
+            "the wrong thing and look entirely plausible.")
+    # "" means the job genuinely has no cap -- distinct from "not found".
+    return src[0], excl, (cap[0] if cap else "")
 
 
 def main() -> int:
@@ -80,8 +86,16 @@ def main() -> int:
     args = ap.parse_args()
 
     src, exclusions, cap_cfg = load_job(args.backup_id)
-    cap_text = args.skip_threshold or cap_cfg or "50MB"
-    cap = parse_size(cap_text)
+    # Do NOT default a missing cap to 50MB: a job with no --skip-files-larger-than
+    # applies NO cap, and pretending otherwise mislabels legitimately-backed-up
+    # large files as "dropped".
+    if args.skip_threshold:
+        cap_text = args.skip_threshold
+    elif cap_cfg:
+        cap_text = cap_cfg
+    else:
+        cap_text = ""
+    cap = parse_size(cap_text) if cap_text else float("inf")
 
     root = src.replace("%HOME%", args.home).rstrip("/")
     excl_paths = [e.replace("%HOME%", args.home).rstrip("/") for e in exclusions]
@@ -89,7 +103,9 @@ def main() -> int:
 
     print(f"source root      : {root}")
     print(f"exclusions       : {len(excl_paths)}")
-    print(f"size cap         : {cap_text} ({cap} bytes)")
+    print("size cap         : " +
+          (f"{cap_text} ({cap} bytes)" if cap_text
+           else "NONE configured on this job (nothing is dropped by size)"))
     print(flush=True)
 
     included_bytes = included_files = 0

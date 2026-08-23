@@ -19,6 +19,25 @@ Anything changed on the workstation since 2025-11-12 exists in exactly one place
 This retires the open question in the predecessor handoff §5 ("was the Jul-13 deletion retention, or
 damage?"). It was damage.
 
+
+> **Volume integrity has since been verified** (`util/ad-hoc/duplicati_verify_volumes.py`,
+> 2026-08-23): all **5,366** present volumes match the size recorded in the archived database
+> exactly (0 mismatches), and a random sample of **30** volumes totalling 12.39 GiB match their
+> recorded SHA-256 exactly (0 bad). So the surviving volumes are *intact*, not merely *present* —
+> which was a real gap in the original analysis, since it decided survival by filename alone.
+>
+> **What is proven, and what is not.** The **damage** is demonstrated end-to-end by the restore drill
+> in §4a: files sampled from the 2026-07 cohort restore as **0 bytes**, with local-block reuse
+> disabled so the result provably reflects the archive rather than copies still on disk. That half is
+> solid.
+>
+> The claim that **2025-11-12 restores** is *not* established by the drill. Adversarial review found
+> that the drill's `--version` index is computed over surviving filesets while the database it used
+> holds all 21, so the "intact" arm may have read 2026-07-06 instead — see the banner in §4a. That
+> claim currently rests on the offline census and the volume-integrity scan (5,366/5,366 sizes exact,
+> 30/30 sampled hashes exact), which are strong but are *not* an actual restore. Treat "2025-11-12 is
+> restorable" as very well supported and not yet demonstrated.
+
 ---
 
 ## 2. What actually happened
@@ -35,7 +54,7 @@ That did not happen here:
 
 | evidence | value |
 |---|---|
-| newest file anywhere in the destination | 2026-07-11 09:58:23 |
+| newest file anywhere in the destination | 2026-07-11 09:58:38 (a `dindex`) |
 | destination directory mtime | 2026-07-13 17:26 |
 | `temp/` subdirectory mtime | 2026-07-13 17:09 |
 | replacement volumes written on 2026-07-13 | **zero** |
@@ -98,9 +117,19 @@ unrecoverable. 993,226 blocksets and 598,690 metadatasets are affected. The bloc
 path contributed **+0** additional blocksets.
 
 > **Caveat on the denominator**: "entries" counts `FilesetEntry` rows, which include directories and
-> symlinks. Those carry sentinel blockset IDs and can never be counted damaged, so the true damaged
-> *fraction of real files* is higher than `damaged / entries` suggests. The damaged counts themselves
-> are exact.
+> symlinks, so the true damaged *fraction of ordinary files* is higher than `damaged / entries`
+> suggests. The damaged counts themselves are exact: `FilesetEntry` has a composite primary key
+> `(FilesetID, FileID)` and `FileLookup.ID` is the rowid, so the join matches at most one row per
+> entry — no fan-out, no double counting.
+>
+> One precision point, corrected after adversarial review: a directory or symlink cannot be flagged
+> through the **content** path, because its `FileLookup.BlocksetID` is a sentinel
+> (`FOLDER_BLOCKSET_ID` / `SYMLINK_BLOCKSET_ID`) that can never match a real lost blockset. But
+> directories and symlinks **do** carry ordinary metadata blocksets, so the `MetadataID` arm of the
+> query can legitimately flag one when its metadata block is lost. That is arguably correct — the
+> metadata really is unrecoverable — but it means the damaged counts are not composed purely of
+> ordinary files. An earlier phrasing here said such entries "can never be counted damaged", which
+> was too absolute.
 
 ### Which filesets were deleted
 
@@ -118,6 +147,93 @@ points all predate that window, which is why they are untouched.
 
 (The 2026-07-12 entry is a special case: as of the snapshot its dlist was still in `Uploading` state,
 so it was never a committed restore point.)
+
+---
+
+## 4a. Restore drill — damage CONFIRMED; the "intact" arm is PROVISIONAL
+
+> ## ⚠ THE "INTACT" ARM IS UNINFORMATIVE — MEASURED, NOT SUSPECTED
+>
+> `duplicati_drill_select.py` computed `--version=N` by indexing within the **10 surviving**
+> filesets. The archived database used as `--dbpath` predates the 2026-07-13 deletion and still holds
+> **all 21**, and the database is what resolves `--version`. Measured directly against that database:
+>
+> | passed | intended | index over ALL rows gives |
+> |---|---|---|
+> | `--version=0` (damaged arm) | 2026-07-11 (id 585) | **2026-07-12 (id 586)** — a deleted fileset |
+> | `--version=5` (intact arm) | 2025-11-12 (id 341) | **2026-07-06 (id 580)** — a *damaged* fileset |
+>
+> **And the sample provably cannot tell the difference.** All four auto-restored files carry the
+> **same `BlocksetID` in both candidate filesets**:
+>
+> ```
+> task.d.ts                    BlocksetID 496406 in BOTH
+> _linalg_eigh_cpu_dispatch.h  BlocksetID 421812 in BOTH
+> c_862.nls                    BlocksetID 205576 in BOTH
+> hardtanh_cpu_dispatch.h      BlocksetID 420338 in BOTH
+> ```
+>
+> Identical blocksets mean byte-identical output whichever fileset was selected. The 4/5 SHA-256
+> matches were therefore **guaranteed either way** and are not evidence that the indexing was
+> correct. (One review argued the matches "would be a wild coincidence if the index pointed at the
+> wrong fileset"; the blockset data shows they would be no coincidence at all.)
+>
+> **What each arm still supports:**
+>
+> * **DAMAGE — unaffected.** 2026-07-11 and 2026-07-12 are both in the damaged cohort and the offline
+>   census classifies both as damaged, so the 0-byte result stands either way.
+> * **INTACT — NOT ESTABLISHED.** What was actually demonstrated is narrower and worth stating
+>   precisely: *those four specific blocksets are recoverable from the archive.* That is real, and it
+>   holds for 2025-11-12 too since it references the same blocksets. It is **not** a demonstration
+>   that the 2025-11-12 fileset as a whole restores.
+>
+> The hand-extracted 5th file is unaffected — located by direct blockset/volume ID, not by `--version`.
+>
+> **Fixed for future runs:** both scripts now select by **`--time=<fileset timestamp>`**, which names
+> exactly one fileset regardless of how versions are numbered. The selector no longer emits a
+> positional index at all, and the runner refuses a candidates file produced by the old one.
+> Re-running the intact arm with `--time` would settle it properly.
+
+
+
+
+Run 2026-08-23 (`util/ad-hoc/duplicati_drill_select.py` + `duplicati_drill_run.py`). Five files were
+sampled at random from a damaged restore point and five from an intact one, **predictions recorded
+before any restore was attempted**, and each result judged by SHA-256 + byte length against
+`Blockset.FullHash` — never by exit code, because Duplicati emits files and reports success even when
+they are empty.
+
+| group | restore point | result |
+|---|---|---|
+| DAMAGED | 2026-07-11 | **5/5 as predicted** — every file restored as **0 bytes** against expected sizes of 11 KB–2 MB |
+| INTACT | 2025-11-12 | **5/5 confirmed** — 4 restored automatically with length **and** SHA-256 matching; the 5th recovered by direct block extraction, hash-verified |
+
+**The damage is demonstrated, not inferred.** Files from the July restore points come back as empty
+husks while Duplicati reports them restored — which is precisely why the drill verifies content.
+
+Two methodology points that decide whether such a drill means anything at all:
+
+* **`--no-local-blocks=true` is mandatory.** It defaults to *false*, so Duplicati rebuilds files from
+  blocks found on the **local disk**. Most drill files still exist locally, so without this the drill
+  passes without ever reading the archive — a false pass indistinguishable from proof.
+* **`--no-backend-verification=true` is required here**, because Duplicati otherwise aborts the whole
+  restore at pre-flight over the missing volumes, producing zero files. That is an operation-level
+  abort, not file-level evidence, and scoring it as damage is a false positive. **Restoring anything
+  from this archive in its current state — including from the intact restore points — requires this
+  flag or a completed `purge-broken-files`.** That is a real recovery obstacle.
+
+**The one file that did not auto-restore was NOT data loss**, and the investigation is worth
+recording because the obvious reading was wrong. `sortingNetworks_vs2019.vcxproj` failed to restore
+from the *intact* fileset. Its single 5,043-byte block lives in
+`duplicati-b82d9ca67e6234b52bdc1ad9c1d0dcb4f.dblock.zip.gpg`, which is present, `Verified`,
+size-exact and hash-exact. The restore log carried a ZIP warning
+(*"Number of entries expected in End Of Central Directory..."*), which suggested a second damage
+class: a volume bit-identical to what was uploaded but internally malformed. **That hypothesis was
+tested and refuted** — `zipfile.testzip()` and `unzip -t` both report the volume completely clean
+(11,770 entries, no errors), and extracting the block directly yields 5,043 bytes hashing to exactly
+the expected value. The data is intact; Duplicati's restore path dropped the file. A true premise
+(there was a ZIP warning) very nearly produced a false conclusion (a second damage class, and a
+claim that the damage figure was an under-estimate).
 
 ---
 
