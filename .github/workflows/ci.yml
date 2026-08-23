@@ -652,6 +652,13 @@ jobs:
           # literal scalar, so its '#' lines are string content and a suite named only
           # in a comment would satisfy a naive `in` check while never running.
           python3 -m unittest -v tests/test_ci_test_wiring_drift.py
+          # tests/test_ruleset_scope_guard.py: util/ruleset_scope_guard.py -- the ~ALL
+          # scope guard. Hermetic (the fetcher is injected): pins that a wide scope EXITS 1,
+          # that a failed probe exits 2 rather than reading as clean, that an empty ruleset
+          # list is not a pass, and that the token-free tool never claims to check
+          # bypass_actors (redacted unauthenticated). Also pins FLEET against the
+          # release-train registry so the third hard-coded repo list cannot drift alone.
+          python3 -m unittest -v tests/test_ruleset_scope_guard.py
           # tests/test_prompt_validator_contract.py: static contract test for the
           # prompt-validator subagent (.claude/agents/prompt-validator.md) + its pinned
           # verdict JSON schema/fixtures (tests/fixtures/prompt_validator/). Asserts the
@@ -1374,6 +1381,52 @@ jobs:
           bash util/validate_claude_yaml_access.bash .github/workflows/claude.yml
 
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  # Ruleset Scope Guard: no ruleset may be scoped ~ALL
+  #
+  # Removing the dependabot (29110) / Copilot (1143301) bypass rows on 2026-08-23 was safe ONLY
+  # because every ruleset is ~DEFAULT_BRANCH-scoped. Under ~ALL the `creation` rule is evaluated
+  # on EVERY branch, so those rows become load-bearing again -- a re-scope silently re-arms a
+  # dependency on rows that no longer exist, and the symptom is dependency PRs stopping
+  # fleet-wide with nothing naming the cause.
+  #
+  # A ruleset is changed through the API/UI, never through a PR, so this cannot PREVENT a
+  # re-scope -- it detects one promptly, on the next PR. That is the most a repo-side gate can
+  # do, and it is why the weekly fleet sweep in docs-full-check.yml exists alongside it.
+  #
+  # Token-free by design: all 9 repos are public and GET /rulesets answers 200 unauthenticated,
+  # so no secret and no `administration` permission is needed. GITHUB_TOKEN is passed only for
+  # the higher rate limit. NOTE it checks SCOPE only -- `bypass_actors` is redacted for
+  # unauthenticated callers, so row presence is verified separately by the authenticated
+  # util/ad-hoc/2026-08-23_bypass_removal_verify.py.
+  #
+  # Exit contract: 0 clean, 1 a ~ALL ruleset exists, 2 could not verify (NOT the same as clean).
+  # Both non-zero codes fail the job on purpose -- fail-closed, with retries absorbing flakiness.
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  ruleset-scope-guard:
+    name: Ruleset Scope Guard
+    runs-on: ubuntu-latest
+    needs: [pre-commit]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python ${{ env.PYTHON_TEST_VERSION }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_TEST_VERSION }}
+
+      - name: Assert no ruleset is scoped ~ALL
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║       juniper-ml - Ruleset Scope Guard (~ALL detection)    ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          python3 util/ruleset_scope_guard.py
+
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
   # Dependency Documentation: Generate pip dependency records
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
   dependency-docs:
@@ -1497,7 +1550,7 @@ jobs:
     name: Quality Gate
     runs-on: ubuntu-latest
     if: always()
-    needs: [pre-commit, tests, build, docs, security, claude-yaml-audit, dependency-docs, sops-validation]
+    needs: [pre-commit, tests, build, docs, security, claude-yaml-audit, ruleset-scope-guard, dependency-docs, sops-validation]
     steps:
       - name: Check Quality Gate Status
         run: |
@@ -1511,6 +1564,7 @@ jobs:
           echo "Docs:                 ${{ needs.docs.result }}"
           echo "Security:             ${{ needs.security.result }}"
           echo "Claude.yml Audit:     ${{ needs.claude-yaml-audit.result }}"
+          echo "Ruleset Scope Guard:  ${{ needs.ruleset-scope-guard.result }}"
           echo "Dependency Docs:      ${{ needs.dependency-docs.result }}"
           echo "SOPS Validation:      ${{ needs.sops-validation.result }}"
           echo ""
@@ -1543,6 +1597,11 @@ jobs:
 
           if [[ "${{ needs.claude-yaml-audit.result }}" != "success" ]]; then
             echo "::error::Claude.yml access audit failed"
+            exit 1
+          fi
+
+          if [[ "${{ needs.ruleset-scope-guard.result }}" != "success" ]]; then
+            echo "::error::Ruleset scope guard failed -- a ruleset may be scoped ~ALL, which re-arms the need for the bypass rows removed 2026-08-23 (see notes/JUNIPER_2026-08-22_JUNIPER-ECOSYSTEM_BYPASS-CANDIDATE-DETERMINATION.md)"
             exit 1
           fi
 
