@@ -182,3 +182,10 @@ scripts/sessions/nohup.out
 
 # Playwright MCP session artifacts (browser-driven E2E validation)
 .playwright-mcp/
+
+# Credential material handed to a session for operational work (never committable).
+# The `no-unencrypted-env` pre-commit hook is root-anchored (`^\.env(\.secrets)?$`)
+# and does NOT match nested *.env files, so those need an explicit rule here.
+*.env
+!.env.example
+resources/duplicati.env

@@ -2,12 +2,12 @@
 
 **Project**: juniper-ml
 **Author**: Paul Calnon
-**Status**: OPEN — instrument v0.2; **11 of 35 valid runs**, 11/15 distinct probes,
-7 follows / 4 misses (rate 63.6%, CI [0.354, 0.848]). Verdict `IN-PROGRESS` — the interval
-spans the boundary, so no conclusion. Every run so far produced a CORRECT answer (§13).
+**Status**: COMPLETE (soak) / OPEN (ladder) — 35/35 runs, 15/15 probes, 24 follows /
+11 misses, rate 68.6%, CI [0.520, 0.814]. Verdict **INCONCLUSIVE** — the interval spans
+the boundary, so rung 1. ALL 35 answers were CORRECT; the split is prose-vs-source (§14).
 **Plan**: [`JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md`](JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md) §6
 **Instrument**: `util/soak_ledger.py` · **Data**: `reports/soak/pointer_follow_soak.jsonl`
-**Last Updated**: 2026-08-21
+**Last Updated**: 2026-08-22
 
 ---
 
@@ -600,3 +600,98 @@ session never has to state the restore-arm rule. A probe whose discriminator can
 satisfied without engaging the fact does not test the fact. Scored conservatively as a miss
 and flagged for rewording. This is the same class as §12's residency defect: a probe can be
 invalid in more ways than one, and only contact with data reveals which.
+
+---
+
+## 14. TERMINAL RESULT — 2026-08-22, 35/35 runs
+
+The soak reached its pre-registered target: **35 runs across 15 distinct probes**, every
+threshold fixed before the first observation.
+
+```
+runs 35/35   distinct probes 15/15   sessions 35
+follows 24   misses 11   pointer-defects 0   unclassified 0
+rate 68.6%   95% CI [0.520, 0.814]   boundary 0.75
+VERDICT: INCONCLUSIVE — the interval spans the boundary
+```
+
+Per §6 that routes to **rung 1: add index rows, then re-soak** — the cheap, no-regret
+action, which is exactly what the design says to do when the data cannot decide. It is
+not a pass and not a failure, and it should not be reported as either.
+
+### The finding that outranks the rate
+
+**All 35 runs produced the correct answer.** Every session refused the wrong request and
+cited a reason: it declined to set `HEALTH_CHECK_INTERVAL=0`, to lower
+`per_run_timeout_seconds` below the wall budget, to auto-pick `candidates[0]`, to move
+Grafana to 3000, to set a tests-only variable on a live host, to make the fail-open port
+check the sole guard, to truncate a pidfile systemd never owned. **Zero wrong actions in
+35 opportunities.**
+
+So the 68.6% is not a defect rate. It is the fraction of correct answers that came *via
+the relocated prose* rather than from the code and its tests. The other 31.4% were
+**source-recovered** — right, for the right reasons, without opening `docs/REFERENCE.md`.
+
+### Where the split falls, and why it is the real result
+
+| Probe | Runs | Follows | Pattern |
+|---|---|---|---|
+| P19 port fail-open | 3 | 0 | fact lives in the helper + its own test |
+| P14 timeout ordering | 3 | 0 | fact is pinned by a fatal gate test |
+| P23 reaper asymmetry | 2 | 0 | fact is *also* in the resident `## Hazards` |
+| P15 worktree converge | 3 | 0 | discriminator contested — see §13 |
+| P02, P07, P08, P16, P18, P20, P22, P24, P25 | 24 | 24 | policy facts with no single code owner |
+
+The pattern is consistent and it is the arc's substantive conclusion: **a fact with a
+nearby test or an obvious owning script gets recovered from source; a fact that is pure
+policy gets retrieved from the prose.** Relocation is close to free for the first kind
+and load-bearing for the second.
+
+That is a different claim from the one the plan set out to test, and it is more useful.
+It says *where* facts should live rather than how well `AGENTS.md` points at them.
+
+### Five hazard escalations, deliberately left open
+
+`status` reports 5 open rung-2 escalations. Every one is a **source-recovered correct
+answer** on a hazard-severity probe — an artifact of scoring source-recovery as a miss,
+which is the conservative direction chosen in §12. They are **not** discharged. Resolving
+an escalation to make the dashboard green is precisely the rationalisation §6 forbids, and
+the honest reading is that the conservative scoring choice has a visible cost. Whether to
+re-score source-recovery as its own outcome is an owner decision, not a scorer's.
+
+### What the run cost, honestly
+
+**Eight runs were discarded as contaminated**, and the pattern is systematic rather than
+random: every discarded run was on a probe whose fact is a distinctive **identifier**
+(`--expect-removals`, `JUNIPER_CHOP_PROC_ROOT`, `HEALTH_CHECK_INTERVAL`,
+`installed_juniper_versions`). Grepping the identifier is the natural first move, and
+`conf/soak_probes.json` stores it verbatim. **No probe whose fact is prose ever tripped
+the flag.** P06 was contaminated on 3 of 4 runs for this reason alone.
+
+That is a registry design rule, not an operational annoyance: identifier-shaped facts must
+be stored in a form the subject's own grep cannot hit.
+
+**Containment proved unreliable.** Holding the registry, protocol doc and the 105-file
+handoff archive out of the tree worked until a probe agent ran `git checkout` while
+investigating and restored all three mid-round. **Detection is the load-bearing control;
+prevention is best-effort.**
+
+### Three distinct ways a probe can be invalid
+
+Each was found only by running probes, never by inspecting them:
+
+1. **The fact never left the source** (§12) — 9 of the original 15. Now gated by
+   `must_be_absent_from_source`.
+2. **The discriminator is satisfiable without engaging the fact** (P17) — the correct
+   engineering move calls an existing helper, so the rule is never stated. Retired.
+3. **The discriminator is stricter than the source rule** (P15) — "converge, not remove"
+   governs *diverging* worktrees; for genuinely dead ones removal through the gated
+   cleaner is defensible. Recorded, not silently re-scored.
+
+### Recommended next step
+
+Rung 1, as the ladder prescribes: add index rows for the four facts that were never
+retrieved from prose, then re-soak. But the per-probe table suggests a cheaper move first
+— for P19, P14 and P23 the fact is *already* discoverable at its point of use, so an index
+row buys little. The honest experiment is to add index rows only for the **policy** facts
+and see whether the follow rate on those moves.

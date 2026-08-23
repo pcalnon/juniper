@@ -1,13 +1,40 @@
 # Duplicati database restore — operational runbook
 
+> # ⛔ WITHDRAWN — DO NOT EXECUTE
+>
+> **This runbook's premise is false. It is retained as a specimen, not as a plan.**
+> Withdrawn 2026-08-22, before any step was run; confirmed 2026-08-23.
+>
+> It proposes restoring the archived 2026-07-12 job database. That database:
+>
+> - **already contains the wedge** — three volumes in `Uploading`, including
+>   `duplicati-bb634e177b1b04ebe96615b2c694cd6c8.dblock.zip.gpg`, the exact volume the job is stuck
+>   on. Restoring it reproduces the failure.
+> - is **schema 13**; the live database built by 2.3.0.4 is **19**. Six migrations.
+> - **disagrees with the archive by ~1.2 TB** — it references 1,223 `Blocks` volumes that no longer
+>   exist, verified absent 1,223/1,223 against the destination.
+> - was **taken mid-Compact** — the one operation that deletes remote data, still in flight.
+>
+> Older copies are worse, not graceful fallbacks: the 2025-08-31 database knows only ~3,100 of the
+> 5,366 files present.
+>
+> **Superseding evidence (2026-08-23)**: the archive itself has real data loss — five of the ten
+> surviving restore points are broken and the most recent restorable state is 2025-11-12. No database
+> restore addresses that, because the missing volumes are gone from the destination. See
+> [`JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md`](JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md).
+>
+> The section-0 claim below — "nothing in this runbook modifies the backup archive" — is true of the
+> steps as written and is *not* the reason this was withdrawn. A correct mechanism paired with a
+> wrong consequence is the recurring failure shape in this arc; this document is an instance of it.
+
 **Project**: Juniper — backup & restore systematization
 **Sub-Project**: juniper-ml
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-22
+**Last Updated**: 2026-08-23
 
-**Status**: RUNBOOK — prepared, **not executed**. Nothing in this document has been run. It exists so
+**Status**: **WITHDRAWN** (see banner above). Prepared, **never executed**. Nothing in this document has been run. It exists so
 the decision can be made with the steps in front of you rather than improvised against live backup
 infrastructure.
 

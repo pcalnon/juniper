@@ -147,7 +147,7 @@ A fresh dashboard ships S=1, T=1, R=1, so T+R=2≠S and the *first* Apply always
 **F-CANOPY-026 — phase duration is inflated by the host's UTC offset: cascor emits naive LOCAL time, canopy stamps it as UTC (P2, OPEN; segment 15).**
 `metrics-panel-phase-duration` read **"Phase Duration: 300m 37s"** on a run that had been alive for 37 seconds. Mechanism, both halves proven in source and live: cascor writes `phase_started_at=datetime.now().isoformat()` — **naive, LOCAL** — at `juniper-cascor/src/api/lifecycle/manager.py:1781` (candidate phase) and `:2326` (output phase); canopy's `_update_phase_duration_handler` (`juniper-canopy/src/frontend/components/metrics_panel.py:1375-1376`) does `if started.tzinfo is None: started = started.replace(tzinfo=timezone.utc)` and then subtracts from `datetime.now(timezone.utc)`. Stamping a local timestamp as UTC shifts it by the host offset, so the displayed elapsed time is inflated by exactly that offset. Measured live: `phase_started_at = 2026-08-20T03:11:17.347900` with the box on CDT (`date +%z` → `-0500`); canopy's arithmetic yields 302m29s where the correct value is 2m29s — **delta exactly 18000 s = 5 h**. The counter ticks correctly at 1 s/s (300m37s → 301m18s across 41 s wall), so this is a pure constant offset, not a broken clock. **Invisible in any UTC-0 environment** (CI, most containers), which is why 14 segments on this dashboard never surfaced it. Matrix row M-METRICS-03 **FAIL**. Fix direction: emit tz-aware UTC from cascor (`datetime.now(timezone.utc).isoformat()`), which also makes canopy's naive branch unreachable; treating a naive value as local on the canopy side would be the compatible stopgap.
 
-**F-CANOPY-027 — store-fill → render chains do not propagate: the Candidate Metrics and Decision Boundary panels stay frozen at mount defaults through a whole live run (P0/P1, OPEN; segment 15; root cause NOT isolated).**
+**F-CANOPY-027 — a panel's data store is written repeatedly with changing data and NOTHING downstream of it ever runs, so three panels stay frozen at mount defaults through a whole live run (P0/P1, OPEN; found segment 15; root cause STILL NOT isolated after the Phase 2 investigation below — read that block before touching this, it refutes eleven mechanisms).**
 Two panels, identical signature: their data store is demonstrably filled on the wire, and the server-side `@app.callback` renderers that take that store as their sole/primary `Input` never emit a single output.
 *Candidate Metrics*: `candidate-metrics-panel-training-state-store` received fresh payloads repeatedly (`{"candidate_pool_status":"Training","candidate_pool_size":40,"top_candidate_id":"31","top_candidate_score":0.181,"second_candidate_id":"11"}`), while `/api/state` carried a full pool (`candidate_pool_size 40`, `candidates_trained 40/40`, `candidate_epoch 351/400`, 40 `all_correlations`). The panel rendered `Inactive` / `Idle` / `0` / "No active candidate pool" / "No candidate data available" / "No pool history yet" for the entire run. `update_status_display`, `update_epoch_progress`, `update_pool_info` (`candidate_metrics_panel.py:251-300`) are plain server-side `@app.callback`s on `Input(-training-state-store,"data")`; **zero** `candidate-metrics-panel-status-badge` outputs across 252 responses / 45 s, and zero again across 200 responses / 49 s on a second, independent trigger path (forcing `visualization-tabs.active_tab` to change rather than riding the interval).
 *Decision Boundary*: `decision-boundary-boundary-data` filled 12×/61 s and 22×/60 s (the latter including a direct `decision-boundary-refresh-btn` click), while `decision-boundary-plot` and `-status` emitted **0** outputs and the status stayed `"Status: No network loaded"` — even though `GET /api/decision_boundary?resolution=50` returns a full `xx` meshgrid and cascor reported `current_hidden_units: 7`. `update_boundary_plot` (`decision_boundary.py:172-183`) is likewise a server-side `@app.callback`.
@@ -167,6 +167,34 @@ among the nine Inputs **are** rendered; (ii) *"the component is absent from the 
 is present in `/dashboard/_dash-layout`. Also learned the hard way: this panel **rebuilds continuously**, so
 `getElementById` against it is racy and a short settle produces false "absent" readings (one nearly became a
 filed defect for `dataset-plotter-split-selector`, which renders fine). Root cause still NOT isolated.
+
+
+**PHASE 2 INVESTIGATION (2026-08-22) — nine more mechanisms refuted, characterisation corrected, root cause STILL NOT isolated.**
+The symptom reproduces cleanly and is not a measurement artifact: with the Candidates tab active and a live run, the backend advanced `candidate_epoch` **1 → 101** at a steady `candidate_pool_size 40` while the panel held a **single** DOM state for 180 s (`badge:""`, `phase:"Idle"`, `pool:"0"`).
+
+**The old characterisation was wrong in two ways, and both matter for whoever fixes this:**
+1. *"The consumers never fire."* They do. With a fetch hook installed via `add_init_script` — i.e. from the first byte, which every earlier probe was too late to see — `dataset-plotter-scatter-plot` dispatched at ~39.8 s carrying `changedPropIds='dataset-plotter-dataset-store.data,theme-state.data,…'`, and the candidate consumers dispatched once at mount in a run where their tab was inactive. **They are wired and they can fire; they fire at mount and then effectively stop.**
+2. *"They hang."* They do not. When they fire they **complete**: 0.6 s for the three candidate consumers, 2.6 s for `dataset-plotter-scatter-plot`, against 0.3–1.8 s for the working metrics consumers. Nothing sits in flight.
+
+**The precise contradiction now on the table.** On the Candidates tab with a live run, in one 90 s window: the writer `candidate-metrics-panel-training-state-store.data` dispatched **32** times, and **every one of its five consumers dispatched 0 times** — including `candidate-metrics-panel-pool-history-store`, whose output is just another store and does no rendering at all. A separate 90 s window measured the store's payloads directly: **29 dispatches, 29 carried a payload, 27 of them differed from the previous value.** So the data genuinely changes and nothing downstream of it ever runs. The structurally identical metrics chain dispatched 8× in the same window.
+
+**Refuted this phase (each with evidence; do not re-run these):**
+- *not registered* — all 182 callbacks in `app.callback_map`; the five candidate consumers present with the right inputs.
+- *component missing from the layout* — every implicated component reachable from `app.layout`; **zero** callback outputs whose component is absent.
+- *invisible to the browser* — the served `/dashboard/_dash-dependencies` has 182 entries (== `callback_map`), and an **exact** `id ==` scan finds all five consumers carrying `candidate-metrics-panel-training-state-store` as an Input.
+- *duplicate component ids* — 461 id declarations, 461 distinct, **0** duplicates. (This mattered: both earlier duplicate checks were blind here — segment 15 counted DOM nodes, and a `dcc.Store` renders none; the layout audit first used a `set()`, which discards multiplicity by construction.)
+- *mount order / late-mounted panels are never wired* — falsified by its own prediction. The working metrics chain was unmounted and remounted by a tab round-trip and **kept working** (5× before, 2× after, DOM value advancing `Best Corr 0.1490 → 0.1685`).
+- *a client-side exception stops propagation* — **0** console errors and **0** `pageerror`s across every window, with full capture (not just error/warning).
+- *the callback hangs* — see above; all complete in ≤ 2.6 s.
+- *the store's value never actually changes* — 27 of 29 payloads differ.
+- *rendering-output callbacks specifically are broken* — the store-output consumer is equally dead, so it is not about figures or expensive renders.
+- *writer/consumer id mismatch* — writer output is `'candidate-metrics-panel-training-state-store.data'` and every consumer input id is `'candidate-metrics-panel-training-state-store'`; byte-identical.
+- *different registration path* — both panels go through the same `DashboardManager.register_component()` → `component.register_callbacks(self.app)` (`dashboard_manager.py:7434-7444`, called for metrics at `:583` and candidate at `:584`). *(The absence of its `"Registered component: …"` INFO lines from the canopy log is a logger-timing artifact, not evidence of a second path.)*
+- *storage_type difference* — both are plain `dcc.Store(id=…, data={})` (`candidate_metrics_panel.py:212`, `metrics_panel.py:539`).
+
+**Where the remaining hypothesis space is.** Everything from the layout through the served dependency graph is provably correct, and the server side is provably reachable, so the break is in the **client's change-propagation for these specific store components**: Dash applies the writer's response and does not mark the store's `data` as changed for its observers. The two concrete next steps are (a) read Dash's client-side redux/`paths` state directly for the store and compare against the working metrics store, and (b) bisect by adding a *temporary* trivial consumer of the same store in canopy source — if a brand-new callback on that store also never fires, the defect is in the component instance rather than in any of the five existing consumers.
+
+**Tooling.** Eleven reusable probes shipped under `util/ad-hoc/e2e_f027_*.py` — callback-registry audit, precise producer/consumer dep graph, layout-presence audit, `_dash-dependencies` comparison, duplicate-id walker, dispatch probe (reads each request's `output` field, which names the callback rather than its inputs), store-value delta, mount-order discriminator, from-first-byte mount-dispatch capture, in-flight/duration tracker, and a DOM watcher.
 
 **F-CANOPY-028 — pinned params are silently discarded on the first pin after any reload (P2, OPEN; segment 15).**
 `pinned-params-store` is `storage_type="local"` and survives reload correctly, but the `{"type":"param-pin"}` checkboxes in the Parameters tables **do not rehydrate from it** — after a reload they all render unchecked while the store and the sidebar card still show the pinned set. Because the single pattern-matched writer (`dashboard_manager.py:3948-3952`) *collects the state of every checkbox*, the next pin action writes a list built from the un-rehydrated DOM, dropping everything pinned before the reload. Reproduced end-to-end: pinned `learning_rate` → `pinned-params-store` `["learning_rate"]`, sidebar card `display:block` showing "Learning Rate" → full page reload → `localStorage["pinned-params-store"]` still `["learning_rate"]`, card still shown, **but the `learning_rate` checkbox reads `checked:false`** → pinning `max_iterations` → store and localStorage both become `["max_iterations"]`, `learning_rate` gone with no warning. Matrix rows M-PARAMETERS-04/-05/-06 still **PASS** on their own stated expectations (the store write, the card reveal, and persistence all work); this is the cross-cutting defect those rows sit on top of.
@@ -2448,3 +2476,74 @@ FAIL/BLOCKED → PASS.
   (`INCONCLUSIVE`, `DIVERGENCE D-1 CONFIRMED …`). Added `util/ad-hoc/e2e_matrix_rescore.py`, which touches
   exactly the named rows, reuses the filler's pipe splitting, and refuses to write a line whose cell count
   changes.
+
+---
+
+## Phase 2 — investigation 2 (2026-08-22): F-CANOPY-027 narrowed, not fixed
+
+**Outcome up front: F-CANOPY-027 is NOT fixed.** This session eliminated eleven more candidate mechanisms
+with evidence, corrected two wrong statements in the finding, and left a much smaller hypothesis space plus
+eleven reusable probes. The full technical record lives in the ledger entry; this section is the narrative.
+
+### The symptom is real
+
+Worth stating plainly, because the first job was to check the finding itself rather than inherit it. With the
+Candidates tab active and a live run, the backend advanced `candidate_epoch` **1 → 101** at a steady
+`candidate_pool_size 40` while the panel held a **single** DOM state for 180 s. No artifact, no timing
+excuse.
+
+### Two things the finding asserted that are false
+
+- **"The consumers never fire."** They fire at mount. Every previous probe installed its hook *after*
+  `open_dashboard` had navigated, waited ~3 s and dismissed the welcome modal — so all of them were blind to
+  the mount burst by construction. Hooking via `add_init_script` (before any page script) caught
+  `dataset-plotter-scatter-plot` dispatching with
+  `changedPropIds='dataset-plotter-dataset-store.data,…'`. **They are wired and can fire.**
+- **"They hang."** They complete — 0.6 s for the candidate consumers, 2.6 s for the dataset figure, against
+  0.3–1.8 s for the working metrics consumers. Nothing sits in flight.
+
+Both corrections change what a fix would even look like, which is why they were worth the effort even
+without a root cause.
+
+### The contradiction, stated precisely
+
+In one 90 s window on the Candidates tab: the writer dispatched **32** times; **all five** of its consumers
+dispatched **0** times — including the one whose output is just another store and renders nothing. A
+separate window measured the payloads: **29 dispatches, 29 carried data, 27 differed from the previous
+value.** The data genuinely changes; nothing downstream runs. The structurally identical metrics chain
+dispatched 8× in the same window.
+
+### What that rules out
+
+Eleven mechanisms, each with evidence, listed in the ledger entry: not registered · component missing from
+layout · invisible to the browser's dependency graph · duplicate ids · mount order · client-side exception ·
+callback hang · value never changes · rendering-specific · writer/consumer id mismatch · different
+registration path or `storage_type`.
+
+Two of those deserve a note because they were *previously believed checked*. The duplicate-id check had a
+blind spot precisely where this finding lives: segment 15 counted DOM nodes, and a `dcc.Store` renders none;
+my own first layout audit collected ids into a `set()`, which discards multiplicity by construction. Both
+would have missed a duplicated store. A dedicated walker now counts declarations — 461 ids, 461 distinct, 0
+duplicates.
+
+The mount-order hypothesis is the one I most expected to be right (every dead panel mounts on a tab switch;
+the one working panel is the default tab). It was falsified by its own prediction: the working chain was
+unmounted and remounted by a tab round-trip and kept working, DOM value advancing.
+
+### Where it stands
+
+Everything from the layout through the served dependency graph is provably correct and the server side is
+provably reachable, so the break is in the **client's change-propagation for these specific store
+components**. The two concrete next steps are in the ledger entry: read Dash's client-side redux/`paths`
+state for the store and diff it against the working metrics store; or bisect by adding a temporary trivial
+consumer of the same store in canopy source — if a brand-new callback on that store also never fires, the
+defect is in the component instance, not in any of the five existing consumers.
+
+### Method note
+
+Four times this arc I have been misled by substring matching on component ids, and this session added two
+more: `candidate-metrics-panel-training-state-store` **contains** `metrics-panel-training-state-store`, which
+silently contaminated one control column, and a multi-output callback stores every output under one combined
+key, which made a correct registry look like it was missing 253 entries. Exact `==` on ids, and counting
+entries rather than trusting a derived index, is not pedantry on this codebase — it is the difference between
+a finding and a false finding.

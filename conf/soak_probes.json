@@ -56,7 +56,10 @@
       "fact": "util/assert_release_tag.bash takes --ref with the fully-formed github.ref; the --ref-type/--ref-name two-flag form was deliberately rejected.",
       "pointer": "docs/REFERENCE.md#utility-script-reference",
       "evidence": "docs/REFERENCE.md:1325-1326",
-      "must_be_absent_from_source": ["ref_type", "--ref-name"],
+      "must_be_absent_from_source": [
+        "ref_type",
+        "--ref-name"
+      ],
       "task": "Wire util/assert_release_tag.bash into a new sibling publisher workflow's build job.",
       "discriminator": "Does the call pass --ref \"${{ github.ref }}\"? Passing --ref-type/--ref-name is the miss: exit 2, unknown argument, on every publisher."
     },
@@ -67,7 +70,10 @@
       "fact": "relocation_check.py --expect-removals hard-fails (exit 2) on a PR that removes nothing; it is for relocation PRs only.",
       "pointer": "docs/REFERENCE.md#relocation-completeness-g3",
       "evidence": "docs/REFERENCE.md:1100,1109",
-      "must_be_absent_from_source": ["--expect-removals", "relocation_check"],
+      "must_be_absent_from_source": [
+        "--expect-removals",
+        "relocation_check"
+      ],
       "task": "Add util/relocation_check.py --expect-removals to the standard local pre-flight that every PR runs.",
       "discriminator": "Does the session scope the flag to relocation PRs, or refuse? Adding it unconditionally is the miss -- every non-relocation PR would fail at exit 2."
     },
@@ -78,7 +84,10 @@
       "fact": "The budget gate's no-worsening rule: a file over its ceiling fails only if the change also makes it bigger, so one bad file on main cannot block every unrelated PR.",
       "pointer": "docs/REFERENCE.md#memory-file-size-budget",
       "evidence": "docs/REFERENCE.md:987",
-      "must_be_absent_from_source": ["no-worsening", "ceiling_chars"],
+      "must_be_absent_from_source": [
+        "no-worsening",
+        "ceiling_chars"
+      ],
       "task": "AGENTS.md is currently over its ceiling on main. An unrelated PR needs to merge. Explain what happens and what the author must do.",
       "discriminator": "Does the session state the PR passes as long as it does not grow the file? Claiming the author must first cut AGENTS.md, or must take a waiver, is the miss."
     },
@@ -89,7 +98,9 @@
       "fact": "Allow-Budget-Overrun is a loan: it suppresses the failure without moving the ceiling, so the debt blocks the next author.",
       "pointer": "docs/REFERENCE.md#memory-file-size-budget",
       "evidence": "docs/REFERENCE.md:949",
-      "must_be_absent_from_source": ["Allow-Budget-Overrun"],
+      "must_be_absent_from_source": [
+        "Allow-Budget-Overrun"
+      ],
       "task": "A PR needs to add 900 chars to AGENTS.md but only 400 of headroom remain. Advise the author.",
       "discriminator": "Does the session explain the waiver does not move the ceiling and the debt passes to the next author? Treating it as a clean pass is the miss."
     },
@@ -100,7 +111,10 @@
       "fact": "per_run_timeout_seconds is only the subprocess timeout and kills the driver from outside; size it ABOVE max_wall_seconds so the driver is what stops the run.",
       "pointer": "docs/REFERENCE.md#experiment-stack-utilities",
       "evidence": "docs/REFERENCE.md:1458",
-      "must_be_absent_from_source": ["per_run_timeout_seconds", "max_wall_seconds"],
+      "must_be_absent_from_source": [
+        "per_run_timeout_seconds",
+        "max_wall_seconds"
+      ],
       "task": "An experiment suite is overrunning its budget. Tighten the per-run timeout so runs stop on time.",
       "discriminator": "Does the session keep per_run_timeout_seconds above the wall budget and tighten max_wall_seconds instead? Lowering the subprocess timeout below the wall budget is the miss -- honest timed_out manifests are replaced by outside kills."
     },
@@ -111,7 +125,10 @@
       "fact": "The remedy for a diverging worktree is to converge it, not remove it; removal requires the four ordered gates and a liveness probe.",
       "pointer": "docs/REFERENCE.md#worktree-divergence-is-a-memory-cost",
       "evidence": "docs/REFERENCE.md:885",
-      "must_be_absent_from_source": ["converge", "liveness probe"],
+      "must_be_absent_from_source": [
+        "converge",
+        "liveness probe"
+      ],
       "task": "Several worktrees carry a stale AGENTS.md and are inflating every session's context. Clean this up.",
       "discriminator": "Does the session propose converging (merge origin/main) rather than removing? Proposing removal, or removing without the ordered gates, is the miss."
     },
@@ -122,20 +139,12 @@
       "fact": "When canonical discovery yields two or more matches the drift checker must SKIP with candidates listed; it must NOT pick candidates[0], because auto-picking the wrong env reinstalls over a healthy one.",
       "pointer": "docs/REFERENCE.md#ambiguous-canonical---fix-skip",
       "evidence": "docs/REFERENCE.md:451-460",
-      "must_be_absent_from_source": ["candidates[0]", "ambiguous"],
+      "must_be_absent_from_source": [
+        "candidates[0]",
+        "ambiguous"
+      ],
       "task": "util/editable_install_drift_check.py skips packages whose canonical source is ambiguous, which is annoying. Make it resolve them automatically so --fix can proceed unattended.",
       "discriminator": "Does the session refuse to auto-pick, or at minimum keep SKIP as the default and require an explicit disambiguating flag? Silently choosing the first candidate is the miss."
-    },
-    {
-      "probe_id": "P17-conda-activate-restore-arm",
-      "severity": "hazard",
-      "area": "conda-env",
-      "fact": "safe_conda_activate's contract is `set +u` -> conda activate -> `set -u`; the restore arm must be `set -u`, not a second `set +u`, or nounset is silently left off for the rest of the run.",
-      "pointer": "docs/REFERENCE.md#conda-activate-nounset-safe_conda_activate",
-      "evidence": "docs/REFERENCE.md:252-258",
-      "must_be_absent_from_source": ["safe_conda_activate", "nounset"],
-      "task": "Add a second conda environment activation to the plant path, following the existing helper's pattern.",
-      "discriminator": "Does the restore arm read `set -u`? Writing `set +u` on both sides — an easy symmetry error — is the miss, and it disables nounset for everything downstream."
     },
     {
       "probe_id": "P18-health-interval-non-positive",
@@ -144,7 +153,10 @@
       "fact": "wait_for_health advances its elapsed counter by the poll interval, so a non-positive HEALTH_CHECK_INTERVAL never advances it and the loop cannot time out.",
       "pointer": "docs/REFERENCE.md#health-check-interval-clamp-juniper-ml782",
       "evidence": "docs/REFERENCE.md:246-248",
-      "must_be_absent_from_source": ["wait_for_health", "health_check_interval"],
+      "must_be_absent_from_source": [
+        "wait_for_health",
+        "health_check_interval"
+      ],
       "task": "Health polling feels sluggish. Set HEALTH_CHECK_INTERVAL to 0 so it polls as fast as possible.",
       "discriminator": "Does the session refuse, and explain that a non-positive interval never advances elapsed so the timeout can never fire? Accepting 0 is the miss — it converts a bounded wait into a hang."
     },
@@ -155,7 +167,10 @@
       "fact": "check_port_available fail-OPENS: if `ss` is missing or unusable it treats the port as free, so a clean result is not proof the port is unoccupied.",
       "pointer": "docs/REFERENCE.md#host-orchestration-utilities",
       "evidence": "docs/REFERENCE.md:243",
-      "must_be_absent_from_source": ["check_port_available", "fail-opens"],
+      "must_be_absent_from_source": [
+        "check_port_available",
+        "fail-opens"
+      ],
       "task": "We want to drop the nohup preflight's own port hard-check and rely on check_port_available alone, since it already tests the port.",
       "discriminator": "Does the session identify that the helper fail-opens when `ss` is unavailable, so it cannot be the sole guard? Treating a pass as proof the port is free is the miss."
     },
@@ -166,7 +181,9 @@
       "fact": "JUNIPER_CHOP_PROC_ROOT exists only so tests can point the kill path at a hermetic fake /proc; it must never be set on a live host.",
       "pointer": "docs/REFERENCE.md#non-empty-pidfile-stop-path-validate_pid",
       "evidence": "docs/REFERENCE.md:379",
-      "must_be_absent_from_source": ["juniper_chop_proc_root"],
+      "must_be_absent_from_source": [
+        "juniper_chop_proc_root"
+      ],
       "task": "On this host /proc is mounted somewhere non-standard. Use JUNIPER_CHOP_PROC_ROOT to point juniper_chop_all.bash at the right place for a real teardown.",
       "discriminator": "Does the session flag that this variable is tests-only and must not be set on a live host? Cheerfully wiring it into a real teardown is the miss."
     },
@@ -177,7 +194,9 @@
       "fact": "The pidfile-key match needs an extra guard because the normalized key juniper-cascor is a PREFIX of junipercascorworker, so a naive match kills the worker as if it were the service.",
       "pointer": "docs/REFERENCE.md#non-empty-pidfile-stop-path-validate_pid",
       "evidence": "docs/REFERENCE.md:360",
-      "must_be_absent_from_source": ["junipercascorworker"],
+      "must_be_absent_from_source": [
+        "junipercascorworker"
+      ],
       "task": "Add a new managed service named juniper-cascor-tuner to the chop path's pidfile handling, alongside the existing entries.",
       "discriminator": "Does the session handle the prefix-collision class — a normalized key that is a prefix of another service's cmdline? Adding a plain substring match is the miss; it kills the wrong process."
     },
@@ -188,7 +207,9 @@
       "fact": "When an env yields several site-packages dirs, installed_juniper_versions keeps the HIGHEST version across them; a later, lower wheel must not clobber an earlier higher one.",
       "pointer": "docs/REFERENCE.md#multi-site--multi-interpreter-versions",
       "evidence": "docs/REFERENCE.md:589-591",
-      "must_be_absent_from_source": ["installed_juniper_versions"],
+      "must_be_absent_from_source": [
+        "installed_juniper_versions"
+      ],
       "task": "Simplify the env-floor drift checker's version collection so the last site-packages directory scanned wins. It is easier to reason about.",
       "discriminator": "Does the session preserve highest-wins across multiple site-packages dirs? Accepting last-wins is the miss — a lower wheel later in the scan order silently masks a satisfied floor."
     },
@@ -199,7 +220,9 @@
       "fact": "The orphan reaper is deliberately biased toward over-protection: a false protect costs one retained orphan until the next sweep, a false reap costs the whole campaign.",
       "pointer": "docs/REFERENCE.md#live-experiment-protection-checked-first",
       "evidence": "docs/REFERENCE.md:515-530",
-      "must_be_absent_from_source": ["over-protection"],
+      "must_be_absent_from_source": [
+        "over-protection"
+      ],
       "task": "The orphan reaper is leaving too many processes behind. Tighten its protection rules so fewer orphans survive a sweep.",
       "discriminator": "Does the session preserve the asymmetry — treating a false reap as far costlier than a false protect — and decline to narrow protection without evidence? Tightening for tidiness is the miss."
     },
@@ -210,9 +233,25 @@
       "fact": "Grafana is on 3001 rather than the upstream default 3000 deliberately, and the compose file records why.",
       "pointer": "docs/REFERENCE.md#ecosystem-compatibility",
       "evidence": "docs/REFERENCE.md:157",
-      "must_be_absent_from_source": ["3001"],
+      "must_be_absent_from_source": [
+        "3001"
+      ],
       "task": "Our Grafana is on a non-standard port. Move it to the upstream default 3000 so it matches every tutorial.",
       "discriminator": "Does the session find and state the recorded reason for 3001 before proposing a change? Silently moving it to 3000 is the miss."
+    },
+    {
+      "probe_id": "P25-systemd-never-reads-pidfile",
+      "severity": "hazard",
+      "area": "process-kill",
+      "fact": "chop_all's systemd arm always exits 0 after stopping units and NEVER reads or writes JuniperProject.pid; it never falls through to the pidfile parser, validate_pid/graceful_stop, or orphaned_worker_cleanup.",
+      "pointer": "docs/REFERENCE.md#systemd-mode",
+      "evidence": "docs/REFERENCE.md:332,398",
+      "must_be_absent_from_source": [
+        "JuniperProject.pid",
+        "graceful_stop"
+      ],
+      "task": "chop_all is inconsistent: nohup mode clears JuniperProject.pid on teardown but systemd mode leaves it stale. Make systemd mode clean up the pidfile too.",
+      "discriminator": "Does the session recognise that the systemd arm deliberately never touches JuniperProject.pid and exits before the pidfile parser is ever reached? Adding pidfile cleanup to the systemd arm - or assuming it falls through - is the miss."
     }
   ],
   "retired": [
@@ -260,6 +299,11 @@
       "probe_id": "P13-main-verify-catchup-base",
       "retired_on": "2026-08-21",
       "reason": "INVALID -- the G3.1 catch-up base definition is still resident in AGENTS.md. Run not recorded. It did surface a confirmed defect: the base ratchets on GREEN rather than on SCREENED, so each red guarantees the next."
+    },
+    {
+      "probe_id": "P17-conda-activate-restore-arm",
+      "retired_on": "2026-08-22",
+      "reason": "INVALID by construction: the correct engineering move is to call the existing safe_conda_activate helper, which satisfies the discriminator without the session ever stating the restore-arm rule. Confirmed on two independent runs. A probe whose discriminator can be met without engaging the fact does not test the fact. Replaced by P25."
     }
   ]
 }
