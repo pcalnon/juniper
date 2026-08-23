@@ -231,6 +231,51 @@ sequence around one specific payload arrival for both stores side by side (the t
 both) and diff them — the working store's extra ~200 `Callbacks.Aggregate` actions are the obvious place to
 look for the branch that is being skipped.
 
+
+**A/B INJECTION RESULT (2026-08-23) — the defect is the client's runtime OBSERVER wiring, and the previous localisation was one layer off.**
+
+*Correction first.* The previous block concluded "the break is between receiving the response and writing the
+prop." That is **wrong**, and the correction matters: writing the prop does not help either.
+
+**The A/B.** Using the component's own Dash-supplied `setProps({data: …})` — reached through the React fiber —
+a fresh value was injected directly into each store, with a control confirming in redux that the prop really
+changed (`{"candidate_pool_status":"PROBE-INJECTED",…}`). Identical probe, identical mechanism, opposite
+outcomes:
+
+| store | prop written? | consumers |
+|---|---|---|
+| `metrics-panel-training-state-store` (working) | yes, verified in redux | **all three FIRED**, 4 dispatches each |
+| `candidate-metrics-panel-training-state-store` (dead) | yes, verified in redux | **all three SILENT**, 0 dispatches across 220 |
+
+**What that establishes.** Dash's client does not treat the dead store as an observable callback Input at
+runtime — even though its five consumers are in the served `/dashboard/_dash-dependencies` with the exact
+input id, `paths` resolves it to the correct `Store` component, and the prop is writable. The unapplied server
+response and the never-firing consumers are therefore **two faces of one defect**, not two defects: the
+component is absent from the client's runtime observer graph, so Dash neither routes responses to it nor
+reacts when its value changes.
+
+**Also refuted this pass:**
+- *Dash takes a different action branch for the two stores* — the redux action-type sequence immediately after
+  a data-carrying response is indistinguishable between them
+  (`LOADED×N → Callbacks.Aggregate → function → SET_PATHS …` in both).
+- *"the prop is written then reverted inside my sampling gap"* — replaced 400 ms polling with a
+  `store.subscribe` observer that sees **every** dispatch: across **5974 state changes** the dead prop held
+  exactly one value, `{}`. The earlier sampled conclusion was right, and is now proven without sampling.
+
+**Where to resume.** The question is now specific enough to answer by reading Dash's renderer: what makes a
+component present in `paths` and in the dependency list nevertheless absent from the runtime observer
+registry? The one structural difference the path data actually supports is tab position: the working panel is the
+**default/first** tab (its store path has no tab index after the tabs container), while every dead panel sits
+at an indexed position under it -- candidate at `children/1`, boundary at `children/4`, dataset at
+`children/5`. All four are children of `visualization-tabs`, which is rebuilt by the model-class callback, so
+the suspect is the renderer's observer registration for tab content that is *not* the initially-active pane,
+and how that interacts with the rebuild and with `SET_PATHS`. Note this is NOT the already-refuted
+mount-order hypothesis: the working chain survived an unmount/remount round-trip, so "mounts later" is not
+sufficient -- "is never the initially-active pane" is the narrower property still standing. A fix attempt
+should re-run
+`util/ad-hoc/e2e_f027_setprops_probe.py` — that probe is now the fastest yes/no test of whether wiring is
+restored, taking about a minute rather than a full driving pass.
+
 **F-CANOPY-033 — `RESET_COMPONENT_STATE` storms one panel at ~13/s (P2, OPEN; found while tracing F-CANOPY-027).**
 Redux tracing recorded **1157 `RESET_COMPONENT_STATE` dispatches in 90 s** — roughly 13 per second, out of
 6251 total actions — and every sampled payload carries an `itempath` under `…/props/children/12/…`, the
