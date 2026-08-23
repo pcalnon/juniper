@@ -19,7 +19,7 @@ That handoff's *design* framing still stands. This one is the operational thread
 
 **Verified 2026-08-22:**
 
-```
+```bash
 LIVE  /home/pcalnon/.config/Duplicati/Duplicati-server.sqlite
       → Backup.DBPath = '/home/pcalnon/.config/Duplicati/Duplicati-server.sqlite'   ← WRONG
 MANUAL COPY (18:19 Aug-21) Duplicati-server_2026-08-21.sqlite
@@ -78,9 +78,11 @@ shows no "Next scheduled run".
 - **Verify the mount before any destination operation.** `/mnt/Backups` is **not** a mountpoint;
   `/mnt/Backups/Ubuntu` is (`/dev/sda1`, 3.6 T, 1.1 T free). If unmounted, the path resolves to an
   empty dir on `/` and any destination op is catastrophic:
+
   ```bash
   mountpoint -q /mnt/Backups/Ubuntu || { echo "NOT MOUNTED - STOP"; exit 1; }
   ```
+
 - **`pgrep -x duplicati` is safe** — returns only the user instance (pid was 2525453). Root's daemon
   has `comm=duplicati-serve` (15-char truncation) and cannot match. But `pgrep duplicati` without
   `-x` matches **both**. Never signal the root pid; it is `Restart=always` and respawns.
@@ -91,13 +93,13 @@ shows no "Next scheduled run".
 
 All verified directly against `backup SJTCQIIZSJ 20260712033545.sqlite` with `immutable=1`:
 
-| finding | evidence |
-|---|---|
-| **It already contains the wedge** | 3 volumes in `Uploading` — including `duplicati-bb634e177b1b04ebe96615b2c694cd6c8.dblock.zip.gpg`, the exact volume the job is stuck on. Restoring it reproduces the failure. |
-| **Wrong schema** | `Version` = **13**; live database built by 2.3.0.4 is **19**. Six migrations. |
-| **Disagrees with the archive by ~1.2 TB** | It expects ~1,200 dblock volumes that no longer exist. |
-| **Taken mid-Compact** | Its last operation is a `Compact` (the one operation that deletes remote data) still in flight. |
-| Also present | 3 `Temporary`, 8 `Deleting` rows. |
+| finding                                   | evidence                                                                                                                                                                      |
+|-------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **It already contains the wedge**         | 3 volumes in `Uploading` — including `duplicati-bb634e177b1b04ebe96615b2c694cd6c8.dblock.zip.gpg`, the exact volume the job is stuck on. Restoring it reproduces the failure. |
+| **Wrong schema**                          | `Version` = **13**; live database built by 2.3.0.4 is **19**. Six migrations.                                                                                                 |
+| **Disagrees with the archive by ~1.2 TB** | It expects ~1,200 dblock volumes that no longer exist.                                                                                                                        |
+| **Taken mid-Compact**                     | Its last operation is a `Compact` (the one operation that deletes remote data) still in flight.                                                                               |
+| Also present                              | 3 `Temporary`, 8 `Deleting` rows.                                                                                                                                             |
 
 Older copies are **worse**, not graceful fallbacks: the 2025-08-31 database knows only ~3,100 of the
 5,366 files present. Retention and compaction have run repeatedly since.
@@ -129,7 +131,7 @@ is **not** evidence of anything. Ground truth is the **10** dlist files on disk.
 
 ### Route A — the UI's Commandline runner (preferred)
 
-```
+```bash
 http://127.0.0.1:8300/ngclient/backup/2/commandline
 ```
 
