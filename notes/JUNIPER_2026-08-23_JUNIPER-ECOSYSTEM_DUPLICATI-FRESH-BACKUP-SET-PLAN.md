@@ -151,10 +151,39 @@ tail collapses:
 | 4 GB | 51 → **1** | 728.98 GiB → **4.38 GiB** | |
 | 8 GB | 27 → **0** | 587.82 GiB → **0 B** | |
 
-**On ISOs specifically** (the owner's question): 12 ISOs above 50 MB, 68.55 GiB, mean **5.71 GiB** —
-consistent with the observed 1.7–7.9 GB range. Ten of them live *inside* `VirtualMachines/`, so
-excluding that one path removes them without needing an ISO-specific rule; only 2 (5.20 GiB) remain
-elsewhere. Exclude ISOs as a **consequence** of excluding the VM tree, not as a separate size rule.
+**On ISOs specifically** — and there are **two different sets of twelve**, which is an easy trap:
+
+| set | where | count | total | mean | in the backup's scope? |
+|---|---|---:|---:|---:|---|
+| measured by `util/ad-hoc/average_iso_size.bash` | `~/Downloads/` | 12 | 53.65 GiB | **4.47 GiB** | **NO — `%HOME%/Downloads/` is already exclusion #29** |
+| measured by `duplicati_size_histogram.py` | rest of `$HOME` | 12 | 68.55 GiB | 5.71 GiB | **yes** |
+
+Both counts are 12 by coincidence. The `~/Downloads` set (the source of the observed 1.7–7.9 GB
+range and 4.5 GB mean) is **already excluded** and therefore does not bear on the cap at all. The set
+that does is the in-scope one, and **ten of its twelve live inside `VirtualMachines/`**:
+
+```
+4 x Win11_25H2_English_x64_v2.iso   @ 7.89 GiB   = 31.56 GiB
+4 x Win10_21H2_English_x64.iso      @ 5.48 GiB   = 21.92 GiB
+1 x ubuntu-24.10-desktop-amd64.iso  @ 5.28 GiB
+1 x ubuntu-23.04-desktop-amd64.iso  @ 4.59 GiB
+```
+
+Note that **53.5 GiB of that 63.35 GiB is duplicate copies of just two ISOs**, replicated across VM
+directories. Duplicati's block-level dedup would collapse them to ~13.4 GiB if they were backed up,
+so the cap's headline "68 GiB of ISOs" overstates what they would actually cost. It is still the
+right call to exclude them — they are re-downloadable — but the exclusion should be justified by
+*identity*, not by the raw figure.
+
+**Conclusion unchanged**: exclude ISOs as a **consequence** of excluding `VirtualMachines/`, not as a
+separate size rule. No ISO-specific filter is needed.
+
+> **Note on the measuring script.** `average_iso_size.bash` produces a correct mean for this dataset
+> (4.53 vs an exact 4.47 GiB — the gap is `du -sh` rounding to one decimal). Two latent defects are
+> worth knowing before it is reused: it parses `du -sh` output with `tr -d "G."`, so a file ≥ 10 GB
+> prints as e.g. `12G`, strips to `12`, and is counted as **1.2 GiB — a 10x undercount**; and a file
+> under 1 GB prints as e.g. `700M`, which survives the `tr` and makes `bc` fail. Neither fires here
+> because every file in `~/Downloads` happens to fall between 1.6 and 7.9 GiB.
 
 **Why the cap must stop being load-bearing.** Today it is the only thing deciding what survives, and
 it decides purely on size. That is how four irreplaceable `.vdi` images (289.85 GiB of state that
