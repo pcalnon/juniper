@@ -124,6 +124,7 @@ python3 -m unittest -v tests/test_run_experiment.py
 python3 -m unittest -v tests/test_list_runs.py
 python3 -m unittest -v tests/test_snapshot_index.py
 python3 -m unittest -v tests/test_snapshot_classify.py
+python3 -m unittest -v tests/test_snapshot_attribute.py
 python3 -m unittest -v tests/test_run_suite.py
 python3 -m unittest -v tests/test_experiment_config_schemas.py
 python3 -m unittest -v tests/test_experiment_suite_yamls.py
