@@ -3,7 +3,7 @@
 **Project**: Juniper (workstation backup infrastructure)
 **Author**: Paul Calnon
 **Date**: 2026-08-23
-**Status**: Design; destination decision NOT yet made
+**Status**: Destination CHOSEN (`/media/pcalnon/temp_backups`, temporary); settings recommended from measured data
 **Companion**: [`JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md`](JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md)
 
 ---
@@ -58,7 +58,23 @@ The existing archive still cannot be discarded: its five intact restore points (
 
 ---
 
-## 3. Destination options
+## 3. Destination — DECIDED
+
+**`/media/pcalnon/temp_backups`** (owner decision, 2026-08-23). 1.9 TB filesystem, 1.8 TB free,
+currently empty. Explicitly **temporary**: once normal operation is restored and unneeded files are
+removed, the destination returns to `/mnt/Backups/Ubuntu`.
+
+> ⚠ **Shared failure domain.** `/media/pcalnon/temp_backups` is `/dev/sdc4`; `/home` is `/dev/sdc3`.
+> **Same physical disk** (WDC WD8002FZWX, 7.3 TB). The archive it temporarily replaces lives on
+> `/dev/sda1` — a *different* disk. So this arrangement protects against accidental deletion,
+> filesystem corruption of one partition and user error, but **not against failure of `sdc`**, which
+> would take the source and the backup together.
+>
+> Alternatives on a different spindle, all large enough for the 181 GiB set, if a separate failure
+> domain is wanted later: `sdb1` (1.6 TB free, mounted), `sdb2` (1.6 TB, unformatted),
+> `nvme0n1p2` (651 GB free). Accepted knowingly as a temporary posture.
+
+### Other options considered
 
 ### Option A — new physical storage (recommended)
 
@@ -95,44 +111,58 @@ more attractive than it looked before the measurement.
 
 ## 4. Settings for the fresh job
 
-Carried from the failure analysis — each line encodes a specific defect observed in the existing job.
+Each line encodes a specific defect observed in the existing job, and each number is derived from the
+measurements in §2/§5 rather than a rule of thumb.
 
-| setting | value | why |
+| setting | recommended | why |
 |---|---|---|
-| `--no-auto-compact` | `true` (initially) | An interrupted compact is what destroyed the existing archive. Do not enable until the set is proven. |
-| retention policy | **none** (initially) | Retention is what marked the intermediate filesets expendable. Add it only once restores are proven and space is understood. |
-| `--skip-files-larger-than` | **revisit** | Currently 50 MB. See §5. |
-| `dblock-size` | `1GB` → consider smaller | 1 GB volumes make Recreate cost ~23 min *per volume*. A smaller volume size trades storage overhead for dramatically cheaper recovery. This is the single biggest lever on "how long until I can restore". |
-| `--allow-missing-source` | `true` | Keep; harmless and avoids spurious failures. |
-| encryption | gpg, **same passphrase or a newly recorded one** | Whichever is chosen, record it somewhere recoverable that is not inside the backup. |
+| `--blocksize` | **500 KB** (default 100 KB) | **Irreversible — cannot be changed after the first backup.** Recreate cost tracks *total block count* (data ÷ blocksize), which is why 100 KB across this archive's history produced 28.5 M blocks, a 13 GB database and a 49-day Recreate. At 181 GiB across ~1.2 M files (mean ≈156 KB) most files are already 1–2 blocks, so sub-file dedup gains little; 500 KB cuts block count ≈5× for minimal dedup loss. Duplicati's docs advise evaluating carefully above 1 MB, so this stays inside sanctioned territory. |
+| `--dblock-size` | **500 MB** (currently 1 GB) | Duplicati's docs: larger volumes mean *"data corruption destroys the entire volume, instead of just a few chunks"* — precisely the granularity at which 1,208 volumes were just lost. 500 MB stays inside the documented 500–2000 MiB local-destination band, halves per-volume blast radius, and makes targeted restores cheaper. **Changeable later**, unlike blocksize. |
+| `--skip-files-larger-than` | **2 GB** (currently 50 MB) | With the §5 exclusions in place this drops only 8 files / 24 GiB, while *keeping* ~30 GiB of `~/.local/state/juniper-experiments/` logs that are **not reproducible** (seeded runs do not reproduce, cascor#532). Today's 50 MB cap silently discards them. |
+| `--no-auto-compact` | **`true`** initially | An interrupted compact is what destroyed the existing archive. Do not enable until a restore has been proven. |
+| retention policy | **none** initially | Retention is what marked the intermediate filesets expendable. Add only once restores are proven and space is understood. |
+| `--allow-missing-source` | `true` | Keep; harmless, avoids spurious failures. |
+| encryption | gpg, passphrase **recorded outside the backup** | The passphrase exists today only as an `enc-v1:` blob in the server database. If that database is lost with the machine, the archive is unrecoverable. |
 
----
+## 5. Replace the size cap with path exclusions
 
-## 5. The 50 MB skip must become an explicit decision
+Measured 2026-08-23 across the whole source (`util/ad-hoc/duplicati_size_histogram.py`). The
+published guidance converges on the same conclusion the data shows — exclude by **identity**, not by
+threshold. Veeam's file-exclusion guidance is explicit: *"move VMs and other large files to a separate
+volume, and add the whole volume to the exclude list."*
 
-Recounted 2026-08-23: the cap drops **1,443 files totalling 1.46 TiB — 89.2 % of all eligible data**.
-(The earlier "~121 GB across ~74 files" figure was a large undercount.)
+**Add these six path exclusions:**
 
-Sorted onto the axis that matters — **regenerable vs irreplaceable**, not file size:
+| exclusion | reclaims | class |
+|---|---:|---|
+| `%HOME%/.local/share/Steam/` + `%HOME%/snap/steam/` | ~750 GiB | re-downloadable |
+| `%HOME%/StarfieldData/` | ~118 GiB | re-downloadable game data |
+| `%HOME%/VirtualMachines/` | ~290 GiB | VM images — **also removes 10 of the 12 ISOs** |
+| `%HOME%/.config/Duplicati/` | ~63 GiB | the backup's own databases (regenerable indexes) |
+| `%HOME%/Development/python/Juniper/juniper-data/data/` | ~95 GiB | re-fetchable datasets (COCO, ImageNet) |
 
-| class | examples | ~scale | verdict |
-|---|---|---:|---|
-| **Regenerable — re-downloadable** | Steam game payloads (`Horizon Zero Dawn`, `Hogwarts Legacy`, `Baldurs Gate 3`, `Cyberpunk 2077`, `X4`), Windows ISOs | most of the 1.46 TiB | correctly skipped; make it a **path** exclusion, not a size accident |
-| **Regenerable — re-fetchable datasets** | `coco-2017-dataset.zip` (×2, 25 GiB each), `imagenetsketch.zip` (×2, 14 GiB each) under `juniper-data/data/` | ~78 GiB | correctly skipped, but note they are duplicated across `Downloads/` and their named dirs |
-| **Not regenerable** | `VirtualMachines/VirtualBox/*.vdi` — four VM disk images, 52–59 GiB each | ~230 GiB | **currently unprotected.** These carry state that does not exist anywhere else |
-| **Recovery-critical** | `.config/Duplicati/*.sqlite` — live job DB (11.11 GiB), archived DBs (12.27 / 10.72 GiB), plus WALs | ~53 GiB | **the recovery files are too large to be included in the recovery** |
+**Effect on the cap decision** — eligible data falls from 1.64 TiB to **184.63 GiB**, and the long
+tail collapses:
 
-Two conclusions:
+| cap | files above | bytes above | with the six exclusions |
+|---|---:|---:|---:|
+| 50 MB | 1,443 → **316** | 1.46 TiB → **100.81 GiB** | |
+| 1 GB | 233 → **14** | 1.18 TiB → **32.22 GiB** | |
+| 2 GB | 154 → **8** | 1.08 TiB → **24.32 GiB** | recommended |
+| 4 GB | 51 → **1** | 728.98 GiB → **4.38 GiB** | |
+| 8 GB | 27 → **0** | 587.82 GiB → **0 B** | |
 
-1. **The cap is doing the right thing for the wrong reason.** It happens to exclude game and dataset
-   payloads, but it does so by size, so anything large and irreplaceable is dropped with equal
-   silence. The VM images are the live example.
-2. **Replace the blanket cap with explicit path exclusions.** Exclude
-   `.local/share/Steam/`, `VirtualMachines/` (or back the VMs up deliberately on their own cadence),
-   and the dataset download dirs; then either remove `--skip-files-larger-than` or raise it far above
-   anything irreplaceable. The server database in particular is ~470 KB and belongs in every backup.
+**On ISOs specifically** (the owner's question): 12 ISOs above 50 MB, 68.55 GiB, mean **5.71 GiB** —
+consistent with the observed 1.7–7.9 GB range. Ten of them live *inside* `VirtualMachines/`, so
+excluding that one path removes them without needing an ISO-specific rule; only 2 (5.20 GiB) remain
+elsewhere. Exclude ISOs as a **consequence** of excluding the VM tree, not as a separate size rule.
 
----
+**Why the cap must stop being load-bearing.** Today it is the only thing deciding what survives, and
+it decides purely on size. That is how four irreplaceable `.vdi` images (289.85 GiB of state that
+exists nowhere else) and ~30 GiB of non-reproducible experiment logs came to be silently unprotected,
+while 750 GiB of trivially re-downloadable game payloads were excluded for the same reason. With path
+exclusions carrying the policy, the cap becomes a backstop and can sit well above anything
+irreplaceable.
 
 ## 6. Structural fixes to land with the fresh set
 
