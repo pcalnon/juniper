@@ -1,0 +1,101 @@
+diff --git a/src/cascade_correlation/cascade_correlation.py b/src/cascade_correlation/cascade_correlation.py
+index 4c23a42..8b915c6 100755
+--- a/src/cascade_correlation/cascade_correlation.py
++++ b/src/cascade_correlation/cascade_correlation.py
+@@ -2295,7 +2295,31 @@ class CascadeCorrelationNetwork:
+ 
+         # Generate candidate metadata
+         candidate_uuids = [str(uuid.uuid4()) for _ in range(self.candidate_pool_size)]
+-        candidate_seeds = [random.randint(0, self.random_max_value) for _ in range(self.candidate_pool_size)]  # trunk-ignore(bandit/B311)
++        # Candidate seeds come from a network-OWNED generator, not from the process-global `random`
++        # stream.
++        #
++        # WHY. `random.randint` draws from the interpreter-wide stream, so a candidate's seed is a
++        # function of how many times ANYTHING in the process has drawn from that stream before this
++        # point -- not of the configured seed. Measured consequence: on an identical cell with
++        # `network_seed=42` on both paths, the direct CLI's round-0 seed list begins at the
++        # service's FOURTH element and stays three draws offset for the whole run, because
++        # `SpiralProblem` (CLI-only) consumes three extra values first. The two entry points
++        # therefore train different candidates on identical configuration, and part of the measured
++        # CLI-vs-service work difference is that rather than any property of either path.
++        #
++        # It is also silently fragile: adding one `random` call anywhere -- a retry, a shuffle, a
++        # log line that samples -- re-seeds every candidate in every later round. Nothing fails; the
++        # numbers just change.
++        #
++        # A dedicated `random.Random` seeded from the network seed makes the k-th round's seeds a
++        # function of (random_seed, k) alone. Created lazily so that a network restored from a
++        # snapshot, or one whose seed is set after construction, still picks it up.
++        if getattr(self, "_candidate_seed_rng", None) is None:
++            self._candidate_seed_rng = random.Random(self.random_seed)  # nosec B311 -- reproducibility, not secrecy
++            self.logger.debug(f"CascadeCorrelationNetwork: _generate_candidate_tasks: candidate-seed generator initialised from random_seed={self.random_seed}")
++        candidate_seeds = [self._candidate_seed_rng.randint(0, self.random_max_value) for _ in range(self.candidate_pool_size)]
++        # DIAGNOSTIC (residual wall gap) -- verifies the fix from the logs of BOTH entry points.
++        self.logger.info(f"CascadeCorrelationNetwork: train_candidates: DIAG: candidate_seeds={candidate_seeds} network_seed={self.random_seed}")
+         candidate_data = [
+             (
+                 i,
+@@ -3351,7 +3375,63 @@ class CascadeCorrelationNetwork:
+ 
+     @staticmethod
+     def train_candidate_worker(task_data_input: tuple = None, parallel: bool = True, progress_callback=None) -> None:
++        """DIAGNOSTIC dispatcher (residual wall gap) -- opt-in per-worker cProfile.
++
++        The candidate workers are FORKED, so nothing that profiles the parent sees their time, and
++        the CLI-vs-service per-epoch penalty lives entirely inside them. `--profile` on `main.py`
++        profiles the parent only, and the service has no equivalent flag at all, so there was no
++        way to compare the two paths where the cost actually is.
++
++        Set ``JUNIPER_CASCOR_WORKER_PROFILE=<dir>`` to have every worker invocation dump a
++        ``.prof``. Unset -- the default, and the shipped behaviour -- this is one ``os.environ.get``
++        and a direct call, so it cannot perturb a measurement run.
++        """
++        _prof_dir = os.environ.get("JUNIPER_CASCOR_WORKER_PROFILE", "").strip()
++        if not _prof_dir:
++            return CascadeCorrelationNetwork._train_candidate_worker_impl(task_data_input, parallel, progress_callback)
++
++        import cProfile
++        import pathlib
++
++        _pr = cProfile.Profile()
++        _pr.enable()
++        try:
++            return CascadeCorrelationNetwork._train_candidate_worker_impl(task_data_input, parallel, progress_callback)
++        finally:
++            # `finally`, so a worker that raises still leaves its profile behind -- an exception
++            # path is exactly when the timing is most worth seeing.
++            _pr.disable()
++            try:
++                pathlib.Path(_prof_dir).mkdir(parents=True, exist_ok=True)
++                _pr.dump_stats(f"{_prof_dir}/worker-{os.getpid()}-{uuid.uuid4().hex[:8]}.prof")
++            except Exception:  # nosec B110 -- profiling must never break a training run
++                pass
++
++    @staticmethod
++    def _train_candidate_worker_impl(task_data_input: tuple = None, parallel: bool = True, progress_callback=None) -> None:
+         logger = Logger
++        # DIAGNOSTIC (residual wall gap): report, ONCE per worker process, the size of the module
++        # table this worker actually inherited and how it was created.
++        #
++        # `inspect.getmodule` -- which the logger calls per record -- scans sys.modules on a cache
++        # miss, so its cost is O(len(sys.modules)). The two entry points import very different
++        # amounts in their PARENT (1867 for main.py vs 1416 for api.app), but under a forkserver a
++        # worker should inherit the FORKSERVER's table (a fresh interpreter plus the preload list),
++        # not the parent's -- in which case the parent difference cannot explain anything and the
++        # asymmetry is somewhere else. Measured rather than reasoned about, because the answer
++        # decides where the fix goes.
++        global _DIAG_WORKER_ENV_REPORTED  # noqa: PLW0603 -- one-shot per process, diagnostic only
++        try:
++            _already = _DIAG_WORKER_ENV_REPORTED
++        except NameError:
++            _already = False
++        if not _already:
++            _DIAG_WORKER_ENV_REPORTED = True
++            try:
++                _hot = [m for m in ("matplotlib", "fastapi", "uvicorn", "pydantic", "torch", "scipy") if m in sys.modules]
++                logger.info(f"CascadeCorrelationNetwork: train_candidate_worker: DIAG-ENV: pid={os.getpid()} start_method={mp.get_start_method(allow_none=True)} sys_modules={len(sys.modules)} present={_hot}")
++            except Exception:  # nosec B110 -- diagnostics must never break a training run
++                pass
+         logger.info("CascadeCorrelationNetwork: train_candidate_worker: Starting training of Candidate Units in Pool.")
+         try:  # Get task data for process worker
+             worker_id, worker_uuid = (mp.current_process().pid, str(uuid.uuid4())) if parallel else (0, "None")
