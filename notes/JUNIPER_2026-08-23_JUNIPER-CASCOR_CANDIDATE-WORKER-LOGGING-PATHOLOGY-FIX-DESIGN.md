@@ -262,6 +262,47 @@ more to lose lost more.
 > reading is that the gap is gone. A k=4 paired cap-16 campaign is the publishable number, and it
 > is now affordable in minutes rather than hours because the runs got ~15× shorter.
 
+### The publishable number — paired cap-16, k=4, cascor `a520c07`
+
+| paired ratio (CLI / service) | before F1 | after F1 |
+| --- | ---: | ---: |
+| **per-candidate-epoch rate** | 1.415 ± 0.087 | **1.065 ± 0.201**  CI [0.869, **1.262**] |
+| candidate phase | 1.706 ± 0.157 | **1.308 ± 0.229**  CI [1.083, 1.532] |
+| candidate work (epochs) | 1.206 ± 0.067 | 1.230 ± 0.053 |
+| training span | 1.735 ± 0.154 | **1.817 ± 0.158** |
+
+Absolute wall, mean over the four pairs:
+
+| cap-16 training span | before F1 | after F1 | speedup |
+| --- | ---: | ---: | ---: |
+| service | 827 s | **89 s** | **9.3×** |
+| direct CLI | 1434 s | **162 s** | **8.9×** |
+
+**The throughput penalty is eliminated.** The per-epoch rate ratio falls 1.415 → 1.065 and its
+interval now **includes 1.0** — there is no longer a demonstrable per-epoch difference between the
+two entry points. That was F1's target and the correct claim is "no penalty is demonstrable at
+k=4", not "the ratio is exactly 1.0" (0.05 precision would need k=62).
+
+**The residual candidate-phase ratio is the WORK term, not throughput.** 1.308 decomposes as
+1.230 (work) × 1.065 (rate). The work term is unchanged by F1 and always was
+[cascor#532](https://github.com/pcalnon/juniper-cascor/issues/532) — the CLI running more candidate
+epochs because its trajectory diverges. No logging fix touches that.
+
+#### The span ratio did NOT improve, and that is worth stating plainly
+
+1.735 → **1.817**. F1 made the *training* dramatically faster without improving the arms' span
+ratio at all, and the reason is visible in the per-pair table: before F1 the candidate phase was
+**98%** of the service's span (890 s of 908 s); after F1 it is **66%** (41 s of 62 s).
+
+Removing the dominant cost promoted everything else. What now sets the span is fixed per-run
+overhead — startup, dataset fetch, output passes, teardown — which F1 never touched and which was
+previously invisible under a cost 20× larger. So the span ratio is now measuring a different thing
+than it was before, and comparing the two numbers directly would be a mistake.
+
+That is not a regression, and it is not a disappointment: a 9× absolute speedup on both arms is the
+result. But "the CLI/service span ratio improved" would be false, and the honest headline is
+narrower — **the per-epoch throughput penalty this investigation existed to explain is gone.**
+
 ### What this does to F2 and F3
 
 - **F2 (CLI import hygiene)** is no longer a performance fix. Its 1.33× module-table ratio only
