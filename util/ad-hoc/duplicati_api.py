@@ -90,8 +90,12 @@ def call(endpoint: str, method: str = "GET", payload=None, token: str | None = N
         detail = ""
         try:
             detail = exc.read().decode(errors="replace")[:400]
-        except Exception:
-            pass
+        except Exception:  # nosec B110
+            # Best-effort enrichment only. The HTTP status in exc.code is the
+            # actual result and is returned either way; a body that is absent,
+            # already consumed, or undecodable must not mask it by raising a
+            # second exception from the error path.
+            detail = "<error body unavailable>"
         return exc.code, detail
 
 
