@@ -196,6 +196,50 @@ The symptom reproduces cleanly and is not a measurement artifact: with the Candi
 
 **Tooling.** Eleven reusable probes shipped under `util/ad-hoc/e2e_f027_*.py` — callback-registry audit, precise producer/consumer dep graph, layout-presence audit, `_dash-dependencies` comparison, duplicate-id walker, dispatch probe (reads each request's `output` field, which names the callback rather than its inputs), store-value delta, mount-order discriminator, from-first-byte mount-dispatch capture, in-flight/duration tracker, and a DOM watcher.
 
+
+**CLIENT-STATE INVESTIGATION (2026-08-23) — localised to the prop, still not root-caused.**
+Next-step (a) from the previous block was executed: reach Dash's client-side redux store through the React
+fiber on `#react-entry-point` and inspect `paths`, `layout` and the callback queues directly.
+
+**The decisive measurement.** The dead store's **client-side `data` prop never leaves its declared default
+`{}`** — sampled every 400 ms for 90 s, while **23 wire payloads arrived, all 23 carrying data**
+(arrival times 7.9 s, 19.8 s, 25.0 s … 87.5 s). Not one momentary flip. So the failure is neither
+"the consumer does not fire" nor "the value does not change": **Dash receives a well-formed response
+carrying the store's new `data` and never applies it to the client's copy.** The consumers are then behaving
+correctly — from the client's point of view their Input has never changed from `{}`.
+
+That is a materially tighter localisation than "client-side propagation": the break is *between* receiving the
+response and writing the prop.
+
+**And the obvious explanations for THAT are also refuted:**
+- *stale or wrong `paths` entry* — the entry resolves into the live layout to a node whose `props.id` is
+  exactly `candidate-metrics-panel-training-state-store` and whose `type` is `Store`. Verified for all four
+  watched components; every one matches. `paths` holds 461 entries.
+- *the component is unknown to the client* — it is in `paths`, and redux dispatches **do** name it: 102
+  actions in 90 s (56 `Callbacks.Aggregate`, 24 `LOADING`, 22 `LOADED`) against 305 for the working store.
+  Dash is actively tracking it; it just never lands the value.
+- *the tab-bar rebuild wipes it* — `visualization-tabs.children` (whose sole Input is `model-class-store.data`)
+  dispatched **once** in 90 s, not continuously.
+- *`RESET_COMPONENT_STATE` wipes it* — it fires a great deal (below) but every sampled payload targets
+  `…/children/**12**/…`, i.e. the **Cassandra** tab subtree, while the dead store lives under
+  `…/children/**1**/…`. Wrong subtree; not the cause here.
+
+**Where to resume.** The remaining question is narrow and mechanical: why does Dash's client accept a response
+naming this component and not dispatch a prop write for it, when it does exactly that for
+`metrics-panel-training-state-store` in the same window? The next probe should capture the *full* action
+sequence around one specific payload arrival for both stores side by side (the trace tool already timestamps
+both) and diff them — the working store's extra ~200 `Callbacks.Aggregate` actions are the obvious place to
+look for the branch that is being skipped.
+
+**F-CANOPY-033 — `RESET_COMPONENT_STATE` storms one panel at ~13/s (P2, OPEN; found while tracing F-CANOPY-027).**
+Redux tracing recorded **1157 `RESET_COMPONENT_STATE` dispatches in 90 s** — roughly 13 per second, out of
+6251 total actions — and every sampled payload carries an `itempath` under `…/props/children/12/…`, the
+**Cassandra** panel's subtree. `RESET_COMPONENT_STATE` returns components to their layout defaults, so a panel
+nobody is looking at is being torn back to defaults ~13 times a second for the whole session. Unrelated to the
+F-CANOPY-027 chain (wrong subtree) but a real and continuous waste of client work on a dashboard already
+documented as callback-congested (F-CANOPY-004); it also makes any redux trace noisy for future
+investigations. Reproduce with `util/ad-hoc/e2e_f027_redux_actions.py`.
+
 **F-CANOPY-028 — pinned params are silently discarded on the first pin after any reload (P2, OPEN; segment 15).**
 `pinned-params-store` is `storage_type="local"` and survives reload correctly, but the `{"type":"param-pin"}` checkboxes in the Parameters tables **do not rehydrate from it** — after a reload they all render unchecked while the store and the sidebar card still show the pinned set. Because the single pattern-matched writer (`dashboard_manager.py:3948-3952`) *collects the state of every checkbox*, the next pin action writes a list built from the un-rehydrated DOM, dropping everything pinned before the reload. Reproduced end-to-end: pinned `learning_rate` → `pinned-params-store` `["learning_rate"]`, sidebar card `display:block` showing "Learning Rate" → full page reload → `localStorage["pinned-params-store"]` still `["learning_rate"]`, card still shown, **but the `learning_rate` checkbox reads `checked:false`** → pinning `max_iterations` → store and localStorage both become `["max_iterations"]`, `learning_rate` gone with no warning. Matrix rows M-PARAMETERS-04/-05/-06 still **PASS** on their own stated expectations (the store write, the card reveal, and persistence all work); this is the cross-cutting defect those rows sit on top of.
 
