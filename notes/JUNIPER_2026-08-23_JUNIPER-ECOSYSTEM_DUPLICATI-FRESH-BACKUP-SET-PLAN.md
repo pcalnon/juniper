@@ -256,3 +256,19 @@ The fresh set is not "done" until:
 5. Once a current second copy exists and `sda1` has room, **migrate the destination back to
    `/mnt/Backups/Ubuntu`** and re-run the acceptance checks there.
 6. Retire `/media/pcalnon/temp_backups` as a backup destination.
+
+---
+
+## 10. Document history
+
+This plan was restructured twice on 2026-08-23, which is why several headings in its history no
+longer exist. Recorded here so the sequence-safety docs screen's findings can be audited rather than
+merely waived:
+
+| former heading | what happened to it |
+|---|---|
+| `### Option A/B/C` (destination options) | Superseded once the owner clarified the **three-tier architecture**: `/mnt/Backups/Ubuntu` is the *specified* home for this tier, so the destination stopped being an open A/B/C choice. Option B's substance (purge to reclaim space) survives in §2, §8 row 2 and §9 steps 2–3, including the `--dry-run`-first warning. Option C's (off-machine) survives as the *existing* offline external-archive tier in §3's table. |
+| `## 4. Settings for the fresh job` | Same heading, body replaced wholesale when every value was re-derived from measurement. |
+| `## 5. The 50 MB skip must become an explicit decision` | Renamed to **§5 Replace the size cap with path exclusions** and expanded ~3x, once measurement showed the cap is the wrong instrument. |
+
+Nothing was dropped; each former section's content is traceable to a current one.
