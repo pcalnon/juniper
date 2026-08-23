@@ -414,6 +414,73 @@ This is the **third** single-run attribution in this arc to fail under replicati
 > its *performance* justification. Anywhere the 1.30× is quoted as a measured saving — including
 > the supersession banner this author added to the wide-budget note — needs the same correction.
 
+### 4.3b Forked-worker profiling — the penalty is NOT in the workers' Python
+
+Both arms run at cap 4 on one cell with the §6 seed fix applied, so for the first time they train
+**identical candidates**; every forked worker dumps a `cProfile` via
+`JUNIPER_CASCOR_WORKER_PROFILE`. 32 profiles per arm — 4 rounds × 8 candidates, complete coverage.
+
+| aggregate over all functions | service | CLI | ratio |
+| --- | ---: | ---: | ---: |
+| total worker CPU (`tottime`) | 3782.1 s | 3994.1 s | 1.056 |
+| total calls | 6.36 × 10⁹ | 7.12 × 10⁹ | 1.119 |
+| **time per call** | 0.594 µs | 0.561 µs | **0.944** |
+
+**Per-call cost is 0.944 — the CLI's workers are, if anything, marginally faster per call.** The
+1.056× CPU difference is more than accounted for by 1.119× more *calls*. No function in the top 16
+by time shows a CLI penalty that survives normalisation; even `torch.rand` is 0.899×.
+
+And the same runs, compared like-for-like (both profiled):
+
+| both under cProfile | service | CLI | ratio |
+| --- | ---: | ---: | ---: |
+| candidate phase | 845.0 s | 749.0 s | 0.886 |
+| candidate epochs | 13,140 | 11,310 | 0.861 |
+| **s / candidate epoch** | 0.06431 | 0.06622 | **1.030** |
+
+**Under profiling the rate penalty disappears** — 1.030 against 1.555 measured unprofiled at the
+same cap.
+
+That is not simply "a large constant overhead dilutes a ratio". If cProfile added a constant `C`
+per epoch to both arms, the *absolute* gap would be preserved; it is not. Unprofiled, the arms
+differ by **9.2 ms** per candidate epoch (0.0165 → 0.0257). Profiled, they differ by **1.9 ms**
+(0.06431 → 0.06622). The penalty did not get diluted, it largely *went away*.
+
+**Conclusion, stated as a negative result because that is what it is:** the ~1.33–1.55× per-epoch
+penalty is **not** in the Python-level call structure or per-call cost of the candidate worker.
+cProfile cannot see it and its overhead suppresses it, which rules out the whole class of
+explanation this pass was built to test — and rules out cProfile as the instrument for the next
+one. A sampling profiler (`py-spy`, not currently installed) or hardware counters would be needed,
+because what is left is native execution time and wall-clock effects — BLAS internals, allocator
+behaviour, memory locality, scheduling — that a deterministic Python profiler neither instruments
+nor preserves.
+
+> **n=1 per arm**, and the two legs still did different work (13,140 vs 11,310 epochs) despite the
+> seed fix, because cascor#532 remains. The per-call figure is robust to that — it is normalised —
+> but the wall figures in the second table are single runs.
+
+### 4.3c What the profile *did* find: logging dominates worker CPU
+
+Not what this pass was looking for, and worth more than what it was:
+
+| function | calls (service / CLI) | µs/call |
+| --- | ---: | ---: |
+| `inspect.py:1004(getmodule)` | 5,466,060 / 4,727,550 | 237.89 / 293.30 |
+| `builtins.hasattr` | 1.456 × 10⁹ / 1.663 × 10⁹ | 0.50 / 0.54 |
+| `inspect.py:300(ismodule)` | 1.464 × 10⁹ / 1.670 × 10⁹ | 0.32 / 0.29 |
+| `inspect.py:1670(getframeinfo)` | 4,790,881 / 4,143,561 | 10.29 / 9.81 |
+| `inspect.py:1056(findsource)` | 4,790,881 / 4,143,561 | 6.96 / 6.59 |
+
+`inspect`-based caller resolution and its `hasattr` / `ismodule` scanning account for roughly
+**two thirds of profiled worker CPU**, and `getmodule` alone for about a third. Call *counts* are
+not a cProfile artefact — cProfile inflates time, not call counts — so **1.46 billion `hasattr`
+calls across 32 candidate trainings** is a real figure.
+
+This is the custom `Logger` resolving each record's caller by walking the stack. It is equal on both
+arms, so it explains nothing about the CLI-vs-service gap, but it is a large unconditional cost
+inside the hottest loop in the system and it is worth its own issue independent of this
+investigation.
+
 ### 4.4 Remaining hypotheses
 
 With packing eliminated (§4.3) and thread context eliminated (§4.1), what is left for the ~1.33×
