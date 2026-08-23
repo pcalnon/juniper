@@ -381,13 +381,39 @@ Two details the implementation had to get right, neither obvious from this secti
 
 ## 7. Smaller findings
 
-### 7.1 `meta.current_epoch` is inert — reconfirmed at full-archive scale
+### 7.1 Three training counters are inert — and one that was called inert is LIVE
 
-`current_epoch == 0` for **all 27,908**; `snapshot_counter == 0`; `best_value_loss ==
-inf`. Confirmed here independently of the handoff. `arch.num_hidden_units` reaches 260,
-and the archive's summed lower bound is **78,798 completed cascor iterations**. Reading
-the epoch counter as progress says "nothing here was ever trained" — the false reading
-that would have justified deleting 27,005 real models.
+> ⚠ **CORRECTION (2026-08-23).** This section, following the handoff's §4.1, named
+> `snapshot_counter` among the inert fields. **That is wrong**, and it was wrong here as
+> published. Measured over an 800-snapshot sample while fixing the defect
+> (juniper-cascor#565):
+
+| field | reality | assigned in `CascadeCorrelationNetwork`? |
+|---|---|---|
+| `current_epoch` | INERT — `0` in all 800 | **never** |
+| `patience_counter` | INERT — `0` in all 800 | **never** (and §4.1 did not list it) |
+| `best_value_loss` | INERT — `inf` in all 800 | **never** |
+| **`snapshot_counter`** | **LIVE — 28 distinct values** | **yes, and it increments** |
+
+The count of three was right; the membership was wrong in **both** directions. One network's
+110 snapshots carry `snapshot_counter` **0 → 109**, tracking its growth curve exactly — a
+usable **per-run ordering signal**, independent of filename timestamps and present across the
+whole archive, that had been written off as dead.
+
+**Root cause of the genuinely inert three.** `grow_network` computes `patience_counter` and
+`best_value_loss` as **locals** — they drive early stopping correctly — and never writes them
+back; `self.best_value_loss` is assigned nowhere in the class. `_save_metadata` then read
+`getattr(network, "best_value_loss", float("inf"))` and serialized the default.
+
+**Fixed in juniper-cascor#565**, in two halves. `grow_network` now publishes what it already
+computed, and `_save_metadata` writes a counter **only if the network carries it** — so
+`current_epoch` is now *absent* rather than fabricated as `0`. The second half is the
+generalisable one: a fabricated default is **indistinguishable from a real measurement**, so a
+reader cannot tell "training never improved" from "nobody wrote this down". That is exactly
+the reading that would have justified deleting 27,005 real models.
+
+`arch.num_hidden_units` reaches 260, and the archive's summed lower bound is **78,798
+completed cascor iterations** — which is what the epoch counter, read literally, denies.
 
 ### 7.2 `Invalid format: None` names nothing
 
