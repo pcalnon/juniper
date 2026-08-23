@@ -22,21 +22,39 @@ damaged archive.
 
 ---
 
-## 2. The blocking constraint: there is not enough room
+## 2. Space: a fresh set fits comfortably
+
+Measured 2026-08-23 by `util/ad-hoc/duplicati_source_measure.py`, which reads the source root, the
+37 exclusions and the size cap directly from the live server database so the measurement cannot drift
+from the real job configuration.
 
 | quantity | value |
 |---|---:|
-| source size (last good measurement, 2026-07-09) | **1.29 TiB** / 1,160,303 files |
-| destination free space | **1.1 TB** |
+| **what the job would actually store** | **181.31 GiB** / 1,216,061 files |
+| dropped by the `50MB` cap | 1.46 TiB / 1,443 files (**89.2 %** of eligible data) |
+| pruned by the 37 path exclusions | 1.19 TiB / 4,235,032 files |
+| destination free space | 1.1 TB |
 | destination total | 3.6 TB (2.4 TB used by the existing archive) |
 | `/home` free | 1.5 TB (not a valid destination — same physical disk as the source) |
 
-A fresh full backup does not fit alongside the existing archive, and the existing archive cannot
-simply be discarded: its five intact restore points (2024-03-04, 2024-06-03, 2025-08-31, 2025-10-06,
-2025-11-12) are currently the only recovery path that exists.
+> **Correction.** An earlier reading of this arc took the server database's cached
+> `SourceFilesSize` = **1.29 TiB** as the size of a fresh backup and concluded that one would not fit
+> in the 1.1 TB free. That was wrong. `SourceFilesSize` counts the **scanned** tree *before* the
+> 50 MB cap is applied; what actually gets stored is 181 GiB. A fresh full set fits with well over
+> a terabyte to spare, and the destination decision in §3 is therefore **not** forced by capacity.
 
-**The source figure needs re-measuring** — it is cached from 2026-07-09 and this tree changes daily.
-That measurement is a prerequisite to choosing among the options below.
+This changes the shape of the decision. Option A (new storage) is no longer required to make a fresh
+set possible — it is now purely a question of whether both copies should continue to live in the same
+machine. Option B (purging the damaged restore points to reclaim space) is **no longer needed at all**
+as a funding mechanism, and should be judged on its own merits.
+
+The existing archive still cannot be discarded: its five intact restore points (2024-03-04,
+2024-06-03, 2025-08-31, 2025-10-06, 2025-11-12) are currently the only recovery path that exists.
+
+> Two measurement caveats. The three figures above sum to more than `df` reports for `/home`, because
+> they are **apparent** sizes (`st_size`) and the VM disk images are sparse — apparent size exceeds
+> blocks actually allocated. And the tree is live: two runs minutes apart differed by 17 files. Treat
+> 181 GiB as accurate to a few hundred MiB, which is far inside the margin that matters here.
 
 ---
 
@@ -57,9 +75,10 @@ restores. No trade-off against existing recovery capability.
 The five 2026-07 restore points are unrestorable. Purging them (`purge-broken-files`) would free the
 volumes uniquely referenced by them.
 
-- **Unknown**: how much this actually frees. Blocks are shared across filesets, so volumes referenced
-  by the surviving 2024/2025 points are untouched. The recoverable amount must be **measured before
-  this is chosen** — it may be far less than the ~200 GB shortfall.
+- **No longer needed to fund the fresh set** — §2 shows there is no capacity shortfall. Judge this
+  purely on whether reclaiming the space is worth the risk.
+- **Unknown**: how much it actually frees. Blocks are shared across filesets, so volumes referenced
+  by the surviving 2024/2025 points are untouched. Measure before choosing.
 - **Risk**: `purge-broken-files` deletes from the database *and* remote storage. Always `--dry-run`
   first, and abort if it proposes touching any of the five intact restore points.
 - **Note**: this is worth doing eventually regardless — the damaged points consume space and offer
@@ -68,8 +87,9 @@ volumes uniquely referenced by them.
 
 ### Option C — remote / off-machine destination
 
-Addresses the single-machine exposure at the same time. Slowest to first-copy over a home uplink for
-1.29 TiB; consider seeding locally first.
+Addresses the single-machine exposure at the same time. At **181 GiB** the first copy is far more
+tractable over a home uplink than the cached 1.29 TiB figure suggested — this option is materially
+more attractive than it looked before the measurement.
 
 ---
 
@@ -90,14 +110,27 @@ Carried from the failure analysis — each line encodes a specific defect observ
 
 ## 5. The 50 MB skip must become an explicit decision
 
-`--skip-files-larger-than=50MB` currently excludes, among other things, **all three archived job
-databases** (2.26 / 11.51 / 13.17 GB) — recovery files too large to be included in the recovery. It
-also excluded roughly 121 GB across ~74 files as measured on 2026-08-22 (needs recount).
+Recounted 2026-08-23: the cap drops **1,443 files totalling 1.46 TiB — 89.2 % of all eligible data**.
+(The earlier "~121 GB across ~74 files" figure was a large undercount.)
 
-The useful axis is **regenerable vs irreplaceable**, not file size. A 4 GB `.venv` tarball is
-regenerable; a 4 GB dataset or database is not. Recommended replacement: keep a size guard for
-obviously-regenerable trees via path exclusions, and remove the blanket size cap, or raise it far
-enough that nothing irreplaceable is silently dropped.
+Sorted onto the axis that matters — **regenerable vs irreplaceable**, not file size:
+
+| class | examples | ~scale | verdict |
+|---|---|---:|---|
+| **Regenerable — re-downloadable** | Steam game payloads (`Horizon Zero Dawn`, `Hogwarts Legacy`, `Baldurs Gate 3`, `Cyberpunk 2077`, `X4`), Windows ISOs | most of the 1.46 TiB | correctly skipped; make it a **path** exclusion, not a size accident |
+| **Regenerable — re-fetchable datasets** | `coco-2017-dataset.zip` (×2, 25 GiB each), `imagenetsketch.zip` (×2, 14 GiB each) under `juniper-data/data/` | ~78 GiB | correctly skipped, but note they are duplicated across `Downloads/` and their named dirs |
+| **Not regenerable** | `VirtualMachines/VirtualBox/*.vdi` — four VM disk images, 52–59 GiB each | ~230 GiB | **currently unprotected.** These carry state that does not exist anywhere else |
+| **Recovery-critical** | `.config/Duplicati/*.sqlite` — live job DB (11.11 GiB), archived DBs (12.27 / 10.72 GiB), plus WALs | ~53 GiB | **the recovery files are too large to be included in the recovery** |
+
+Two conclusions:
+
+1. **The cap is doing the right thing for the wrong reason.** It happens to exclude game and dataset
+   payloads, but it does so by size, so anything large and irreplaceable is dropped with equal
+   silence. The VM images are the live example.
+2. **Replace the blanket cap with explicit path exclusions.** Exclude
+   `.local/share/Steam/`, `VirtualMachines/` (or back the VMs up deliberately on their own cadence),
+   and the dataset download dirs; then either remove `--skip-files-larger-than` or raise it far above
+   anything irreplaceable. The server database in particular is ~470 KB and belongs in every backup.
 
 ---
 
@@ -140,8 +173,8 @@ The fresh set is not "done" until:
 
 | # | decision | blocked on |
 |---|---|---|
-| 1 | Destination — A, B or C | owner; §2 re-measurement |
-| 2 | Whether to purge the five damaged restore points | measurement of what it frees |
+| 1 | Destination — A, B or C | owner (§2 re-measurement is **done**; capacity no longer forces the answer) |
+| 2 | Whether to purge the five damaged restore points | owner — no longer needed to fund the fresh set |
 | 3 | `dblock-size` for the new set | owner's tolerance for recovery time vs storage overhead |
-| 4 | Replacement for the 50 MB skip | inventory of what it currently excludes |
+| 4 | Replacement for the 50 MB skip | owner (inventory is **done** — see §5) |
 | 5 | Same passphrase or new | owner |
