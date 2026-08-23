@@ -117,10 +117,19 @@ esac
 echo "database      : $DBPATH"
 echo "  resolves to : $DBREAL  (verified not a protected database)"
 
-# Passphrase: resolve relative to THIS script's repo root, not the caller's CWD,
-# and refuse if unreadable rather than silently proceeding with an empty secret.
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-PPFILE="${DUPLICATI_PW_FILE:-$SCRIPT_DIR/../../resources/duplicati.env}"
+# Passphrase: no implicit path. Refuse rather than silently proceeding with an
+# empty or wrong secret.
+# The ARCHIVE GPG passphrase -- NOT the web-UI password. They are different
+# secrets; the wrong one fails as "Bad session key", which reads like a corrupt
+# archive rather than a credential mix-up. No default: resources/duplicati.env
+# was removed on the 2026-08-23 UI-password rotation, and silently falling back
+# to .env would supply the UI password here.
+PPFILE="${DUPLICATI_PW_FILE:-}"
+if [ -z "$PPFILE" ]; then
+    echo "REFUSING: set DUPLICATI_PW_FILE to the ARCHIVE passphrase file." >&2
+    echo "It is NOT the web-UI password in .env -- different secret." >&2
+    exit 2
+fi
 if [ ! -r "$PPFILE" ]; then
     echo "REFUSING: passphrase file not readable: $PPFILE" >&2
     echo "Set DUPLICATI_PW_FILE to override." >&2
