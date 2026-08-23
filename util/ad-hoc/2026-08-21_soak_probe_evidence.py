@@ -76,6 +76,7 @@ def scan(path: Path) -> dict:
     dest_hits = 0
     records = 0
     contaminated = [0]
+    via_output = [0]
 
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
@@ -107,6 +108,20 @@ def scan(path: Path) -> dict:
                         dest_hits += 1
                     if ANSWER_KEY in blob or PROTOCOL_DOC in blob:
                         contaminated[0] += 1
+                elif node.get("type") == "tool_result":
+                    # Scanning only tool INPUTS was a false negative: a
+                    # directory-wide `grep -rn <term> docs/` retrieves
+                    # REFERENCE.md content without the literal path ever
+                    # appearing in the command. Found 2026-08-21 when two runs
+                    # cited REFERENCE.md line numbers while the scorer reported
+                    # zero refs. tool_result is still tool-layer evidence, NOT
+                    # model prose -- an agent merely *mentioning* the file in its
+                    # answer must never count as having retrieved it.
+                    blob = json.dumps(node.get("content") or "")
+                    if DEST in blob:
+                        via_output[0] += 1
+                    if ANSWER_KEY in blob:
+                        contaminated[0] += 1
                 stack.extend(node.values())
             elif isinstance(node, list):
                 stack.extend(node)
@@ -116,7 +131,8 @@ def scan(path: Path) -> dict:
         "tool_calls": sum(tools.values()),
         "tools": dict(tools),
         "dest_hits": dest_hits,
-        "retrieved": dest_hits > 0,
+        "dest_via_output": via_output[0],
+        "retrieved": (dest_hits + via_output[0]) > 0,
         "contaminated": contaminated[0] > 0,
         "contamination_hits": contaminated[0],
         "files": files.most_common(12),
@@ -149,7 +165,8 @@ def main() -> int:
         verdict = "RETRIEVED docs/REFERENCE.md" if r["retrieved"] else "did NOT open docs/REFERENCE.md"
         flag = "  *** CONTAMINATED: touched the answer key ***" if r["contaminated"] else ""
         print(f"=== {label[:12]} ==={flag}")
-        print(f"  records {r['records']}  tool_calls {r['tool_calls']}  -> {verdict} ({r['dest_hits']} refs)")
+        print(f"  records {r['records']}  tool_calls {r['tool_calls']}  -> {verdict} "
+              f"(opened={r['dest_hits']} via-search-output={r['dest_via_output']})")
         print(f"  tools {r['tools']}")
         for f, n in r["files"]:
             print(f"    {n:>3}x {f}")

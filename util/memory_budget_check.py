@@ -68,6 +68,12 @@ from pathlib import Path
 
 WAIVER_RE = re.compile(r"^Allow-Budget-Overrun:\s*(?P<path>\S+)\s*$", re.MULTILINE)
 
+# A SECOND, deliberately separate waiver. Raising a ceiling and overrunning one
+# are different acts: an overrun BORROWS against a ceiling that still stands,
+# while a raise MOVES the ceiling and erases the debt for everyone. They must
+# not share a trailer, or the cheaper one silently authorises the dearer.
+CEILING_RAISE_RE = re.compile(r"^Allow-Ceiling-Raise:\s*(?P<path>\S+)\s*$", re.MULTILINE)
+
 
 class BudgetError(RuntimeError):
     """Machinery failure -- never degrade this to a pass."""
@@ -109,7 +115,57 @@ def read_waivers(trailers: str) -> set[str]:
     return {m.group("path") for m in WAIVER_RE.finditer(trailers or "")}
 
 
-def evaluate(repo_root: Path, budget: dict, base_ref: str, waivers: set[str]) -> list[dict]:
+def read_ceiling_raise_waivers(trailers: str) -> set[str]:
+    return {m.group("path") for m in CEILING_RAISE_RE.finditer(trailers or "")}
+
+
+def base_ceilings(repo_root: Path, budget_rel: str, base_ref: str) -> dict[str, int] | None:
+    """Every governed file's ceiling as declared at ``base_ref``.
+
+    None when the budget file cannot be resolved there -- which is the genuine
+    first-introduction case, not evidence of tampering.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(repo_root), "show", f"{base_ref}:{budget_rel}"],
+            capture_output=True, check=False,
+        )
+    except OSError:
+        return None
+    if out.returncode != 0:
+        return None
+    try:
+        data = json.loads(out.stdout.decode("utf-8", errors="replace"))
+        files = data["files"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return None
+    return {
+        rel: spec["ceiling_chars"]
+        for rel, spec in files.items()
+        if isinstance(spec, dict) and isinstance(spec.get("ceiling_chars"), int)
+    }
+
+
+def evaluate(
+    repo_root: Path,
+    budget: dict,
+    base_ref: str,
+    waivers: set[str],
+    *,
+    was_ceilings: dict[str, int] | None = None,
+    raise_waivers: set[str] | None = None,
+) -> list[dict]:
+    """Evaluate every governed file.
+
+    Rule 4, THE ANTI-LOOSENING GUARD. ``--ratchet`` is downward-only, but until
+    2026-08-23 nothing stopped a hand-edit of ``ceiling_chars`` UPWARD -- one
+    line, and the whole ratchet is defeated while CI stays green. That is the
+    single edit the design forbids, on a file that grew ~20x in six months under
+    four gates none of which measured size. A raise now FAILS unless the author
+    declares it with ``Allow-Ceiling-Raise: <path>``, which is deliberately a
+    different trailer from the overrun waiver.
+    """
+    raise_waivers = raise_waivers or set()
     rows = []
     for rel, spec in sorted(budget["files"].items()):
         ceiling = spec.get("ceiling_chars")
@@ -130,10 +186,27 @@ def evaluate(repo_root: Path, budget: dict, base_ref: str, waivers: set[str]) ->
         failing = over and (grew or was is None)
         waived = failing and rel in waivers
 
+        # Rule 4: the ceiling itself may only move DOWN.
+        ceiling_was = (was_ceilings or {}).get(rel)
+        raised = ceiling_was is not None and ceiling > ceiling_was
+        raise_waived = raised and rel in raise_waivers
+        if raised and not raise_waived:
+            failing = True
+            waived = False
+
+        status = "OK"
+        if waived:
+            status = "WAIVED"
+        elif failing:
+            status = "FAIL"
+        elif raise_waived:
+            status = "RAISE-WAIVED"
+
         rows.append({
             "path": rel, "chars": now, "ceiling": ceiling, "base_chars": was,
             "over_ceiling": over, "grew": grew,
-            "status": "WAIVED" if waived else ("FAIL" if failing else "OK"),
+            "ceiling_base": ceiling_was, "ceiling_raised": raised,
+            "status": status,
             "headroom": ceiling - now,
             "delta": (now - was) if was is not None else None,
         })
@@ -157,10 +230,20 @@ def main() -> int:
 
     try:
         budget = load_budget(budget_path)
-        waivers = read_waivers(
-            args.trailers_file.read_text(encoding="utf-8") if args.trailers_file else ""
+        trailers = args.trailers_file.read_text(encoding="utf-8") if args.trailers_file else ""
+        waivers = read_waivers(trailers)
+        try:
+            budget_rel = budget_path.resolve().relative_to(repo_root).as_posix()
+        except ValueError:
+            budget_rel = None
+        was_ceilings = (
+            base_ceilings(repo_root, budget_rel, args.base_ref) if budget_rel else None
         )
-        rows = evaluate(repo_root, budget, args.base_ref, waivers)
+        rows = evaluate(
+            repo_root, budget, args.base_ref, waivers,
+            was_ceilings=was_ceilings,
+            raise_waivers=read_ceiling_raise_waivers(trailers),
+        )
     except BudgetError as exc:
         print(f"::error::memory-budget machinery failure: {exc}", file=sys.stderr)
         return 2
@@ -187,6 +270,19 @@ def main() -> int:
             print(f"  [{r['status']:>6}] {r['path']}: {r['chars']} / {r['ceiling']} chars"
                   f"  headroom={r['headroom']}{delta}")
         for r in rows:
+            if r["ceiling_raised"] and r["status"] == "FAIL":
+                print(f"\n::error::{r['path']}: ceiling RAISED "
+                      f"{r['ceiling_base']} -> {r['ceiling']}. The ratchet is downward-only "
+                      f"by design -- raising it erases the debt for everyone and is the one "
+                      f"edit this gate exists to prevent. Relocate content instead. If the "
+                      f"raise is genuinely intended, declare it with a commit trailer "
+                      f"'Allow-Ceiling-Raise: {r['path']}' so it is auditable in history.")
+                continue
+            if r["status"] == "RAISE-WAIVED":
+                print(f"\n::warning::{r['path']}: ceiling raised {r['ceiling_base']} -> "
+                      f"{r['ceiling']}, declared by trailer. This is a POLICY change, not a "
+                      f"loan -- the debt it would have created is now gone.")
+                continue
             if r["status"] == "FAIL":
                 print(f"\n::error::{r['path']} is over its {r['ceiling']}-char ceiling "
                       f"({r['chars']}) and this change grew it. Relocate content to "

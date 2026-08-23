@@ -73,9 +73,33 @@ class BudgetFixture:
     def set_size(self, chars: int) -> None:
         self.governed.write_text("x" * chars, encoding="utf-8")
 
+    def set_ceiling(self, chars: int) -> None:
+        """Rewrite the ceiling in the WORKING TREE only, leaving HEAD's value
+        intact -- which is exactly the shape of a hand-edited raise."""
+        self.budget_path.write_text(
+            json.dumps({"files": {"AGENTS.md": {"ceiling_chars": chars}}}),
+            encoding="utf-8",
+        )
+
     def rows(self, waivers: set[str] | None = None) -> list[dict]:
         budget = mbc.load_budget(self.budget_path)
         return mbc.evaluate(self.root, budget, "HEAD", waivers or set())
+
+    def guard_rows(
+        self,
+        waivers: set[str] | None = None,
+        raise_waivers: set[str] | None = None,
+    ) -> list[dict]:
+        """Evaluate with the anti-loosening guard wired, as ``main()`` does."""
+        budget = mbc.load_budget(self.budget_path)
+        return mbc.evaluate(
+            self.root,
+            budget,
+            "HEAD",
+            waivers or set(),
+            was_ceilings=mbc.base_ceilings(self.root, "budget.json", "HEAD"),
+            raise_waivers=raise_waivers or set(),
+        )
 
 
 class NoWorseningRuleTest(unittest.TestCase):
@@ -260,6 +284,119 @@ class RealRepoTest(unittest.TestCase):
         penalise the relocation the plan is asking for."""
         budget = mbc.load_budget(REPO_ROOT / "conf" / "memory_budget.json")
         self.assertNotIn("docs/REFERENCE.md", budget["files"])
+
+
+class AntiLooseningGuardTest(unittest.TestCase):
+    """Rule 4: the ceiling may only move DOWN.
+
+    ``--ratchet`` was downward-only from the start, but until 2026-08-23 nothing
+    stopped a hand-edit of ``ceiling_chars`` UPWARD -- one line, and the whole
+    ratchet is defeated while CI stays green. On a file that grew ~20x in six
+    months under four gates that measured everything except size, that is the
+    single edit the design forbids.
+    """
+
+    def test_unchanged_ceiling_is_not_flagged(self) -> None:
+        with TemporaryDirectory() as td:
+            fx = BudgetFixture(Path(td), base_chars=100, ceiling=200)
+            row = fx.guard_rows()[0]
+            self.assertFalse(row["ceiling_raised"])
+            self.assertEqual(row["status"], "OK")
+
+    def test_lowering_the_ceiling_is_always_allowed(self) -> None:
+        # The ratchet's whole purpose. Tightening must never trip the guard.
+        with TemporaryDirectory() as td:
+            fx = BudgetFixture(Path(td), base_chars=100, ceiling=200)
+            fx.set_ceiling(150)
+            row = fx.guard_rows()[0]
+            self.assertFalse(row["ceiling_raised"])
+            self.assertEqual(row["status"], "OK")
+
+    def test_raising_the_ceiling_fails(self) -> None:
+        # THE regression. Before this guard the row read OK and CI went green.
+        with TemporaryDirectory() as td:
+            fx = BudgetFixture(Path(td), base_chars=100, ceiling=200)
+            fx.set_ceiling(99999)
+            row = fx.guard_rows()[0]
+            self.assertTrue(row["ceiling_raised"])
+            self.assertEqual(row["status"], "FAIL")
+            self.assertEqual(row["ceiling_base"], 200)
+
+    def test_a_raise_fails_even_when_the_file_is_far_under_the_new_ceiling(self) -> None:
+        # A raise is a policy change on its own terms. It must not be excused by
+        # the file happening to fit inside the roomier ceiling it just granted
+        # itself -- which is precisely what the raise buys.
+        with TemporaryDirectory() as td:
+            fx = BudgetFixture(Path(td), base_chars=100, ceiling=200)
+            fx.set_ceiling(100000)
+            row = fx.guard_rows()[0]
+            self.assertFalse(row["over_ceiling"])
+            self.assertEqual(row["status"], "FAIL")
+
+    def test_declared_raise_is_allowed_and_labelled(self) -> None:
+        with TemporaryDirectory() as td:
+            fx = BudgetFixture(Path(td), base_chars=100, ceiling=200)
+            fx.set_ceiling(99999)
+            row = fx.guard_rows(raise_waivers={"AGENTS.md"})[0]
+            self.assertEqual(row["status"], "RAISE-WAIVED")
+
+    def test_the_overrun_waiver_cannot_authorise_a_raise(self) -> None:
+        # The separation that makes the guard worth having. An overrun BORROWS
+        # against a ceiling that still stands; a raise MOVES it and erases the
+        # debt for everyone. If the cheaper trailer authorised the dearer act,
+        # every author already reaching for Allow-Budget-Overrun could silently
+        # loosen the ratchet instead of paying it.
+        with TemporaryDirectory() as td:
+            fx = BudgetFixture(Path(td), base_chars=100, ceiling=200)
+            fx.set_ceiling(99999)
+            row = fx.guard_rows(waivers={"AGENTS.md"})[0]
+            self.assertEqual(row["status"], "FAIL")
+
+    def test_a_raise_for_a_different_path_does_not_excuse_this_one(self) -> None:
+        with TemporaryDirectory() as td:
+            fx = BudgetFixture(Path(td), base_chars=100, ceiling=200)
+            fx.set_ceiling(99999)
+            row = fx.guard_rows(raise_waivers={"README.md"})[0]
+            self.assertEqual(row["status"], "FAIL")
+
+    def test_unresolvable_base_budget_is_not_a_false_positive(self) -> None:
+        # First introduction of the budget file has no base to compare against.
+        # Failing there would block the commit that creates the gate.
+        with TemporaryDirectory() as td:
+            fx = BudgetFixture(Path(td), base_chars=100, ceiling=200)
+            self.assertIsNone(mbc.base_ceilings(fx.root, "no-such-budget.json", "HEAD"))
+            row = fx.guard_rows()[0]
+            self.assertFalse(row["ceiling_raised"])
+
+    def test_base_ceilings_reads_the_value_at_the_ref(self) -> None:
+        with TemporaryDirectory() as td:
+            fx = BudgetFixture(Path(td), base_chars=100, ceiling=200)
+            fx.set_ceiling(99999)  # working tree only
+            self.assertEqual(mbc.base_ceilings(fx.root, "budget.json", "HEAD"), {"AGENTS.md": 200})
+
+
+class CeilingRaiseTrailerTest(unittest.TestCase):
+    def test_parses_a_bare_trailer(self) -> None:
+        self.assertEqual(
+            mbc.read_ceiling_raise_waivers("Allow-Ceiling-Raise: AGENTS.md"),
+            {"AGENTS.md"},
+        )
+
+    def test_the_two_trailers_do_not_cross_match(self) -> None:
+        overrun = "Allow-Budget-Overrun: AGENTS.md"
+        raise_ = "Allow-Ceiling-Raise: AGENTS.md"
+        self.assertEqual(mbc.read_ceiling_raise_waivers(overrun), set())
+        self.assertEqual(mbc.read_waivers(raise_), set())
+
+    def test_reason_suffixed_form_is_not_matched(self) -> None:
+        # Same shape as the overrun trailer, and the same trap: two design docs
+        # recommend a `<path> -- <reason>` form that the regex rejects, so an
+        # author following them writes a trailer that is silently ignored.
+        # Pinned so the behaviour is at least deliberate and documented.
+        self.assertEqual(
+            mbc.read_ceiling_raise_waivers("Allow-Ceiling-Raise: AGENTS.md -- because"),
+            set(),
+        )
 
 
 if __name__ == "__main__":

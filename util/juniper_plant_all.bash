@@ -61,7 +61,12 @@ echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] Script Dir:       ${JUNIPER_SCRIPT_DIR}
 ###########################################################################################################################################################################################################
 JUNIPER_UTIL_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 JUNIPER_APPLICATION_DIR="$(dirname "${JUNIPER_UTIL_DIR}")"
-JUNIPER_PROJECT_DIR="$(dirname "${JUNIPER_APPLICATION_DIR}")"
+# Honour the documented override (header, "Environment overrides"). This was a
+# plain assignment until 2026-08-23, so the variable the header advertised was
+# silently ignored -- and because the pidfile path derives from it, every test
+# that drove the ERR trap ran against the REAL JuniperProject.pid instead of a
+# temp one. chop_all has always honoured it; this makes the pair consistent.
+JUNIPER_PROJECT_DIR="${JUNIPER_PROJECT_DIR:-$(dirname "${JUNIPER_APPLICATION_DIR}")}"
 
 JUNIPER_ML_DIR="${JUNIPER_PROJECT_DIR}/juniper-ml"
 JUNIPER_DATA_DIR="${JUNIPER_PROJECT_DIR}/juniper-data"
@@ -281,7 +286,19 @@ function cleanup_on_failure() {
             fi
         done
     fi
-    rm -f "${JUNIPER_PROJECT_PID_FILE}"
+    # systemd mode never WROTE this file -- the systemd arm exits long before the
+    # pidfile write -- so a pidfile present here belongs to a NOHUP-mode stack
+    # that this run did not start and is very likely still running. Deleting it
+    # strands those services with no PID record to chop them by, and removes one
+    # of the orphan reaper's two protection keys at the same time. The ERR trap
+    # is armed BEFORE the systemd branch, so without this guard a failed
+    # `--systemd` plant destroys an unrelated live stack's only recovery record.
+    # Removing it in nohup mode stays correct and is pinned by TestCleanupOnFailure.
+    if [[ "${USE_SYSTEMD}" != "1" ]]; then
+        rm -f "${JUNIPER_PROJECT_PID_FILE}"
+    else
+        echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] systemd mode: leaving ${JUNIPER_PROJECT_PID_FILE} untouched (not ours)"
+    fi
     echo "[${JUNIPER_SCRIPT_NAME}:${LINENO}] Cleanup complete. Juniper Project Startup aborted."
     exit 1
 }

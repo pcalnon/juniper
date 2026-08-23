@@ -195,6 +195,12 @@ jobs:
           # backend; the driver loads it lazily only when outputs.plots
           # requests something).
           pip install "matplotlib>=3.8"
+          # h5py is required by the two snapshot suites below. Both are hermetic
+          # -- they build HDF5 fixtures directly and never touch the real ~27.9k
+          # archive -- but the modules under test import h5py at module scope, so
+          # without it the suites cannot even be collected. Wheels exist for the
+          # whole 3.12/3.13/3.14 matrix, so this never builds from source.
+          pip install "h5py>=3.11"
 
       - name: Run Python regression tests
         run: |
@@ -367,6 +373,10 @@ jobs:
           # Listed in AGENTS.md's "Run all tests" but never wired into this CI list
           # (audit finding F14) -- added here.
           python3 -m unittest -v tests/test_requirements_drift_check.py
+          # tests/test_requirements_consolidate.py: util/requirements_consolidate.py --
+          # the JR-ID snapshot round-trip (1,814 entries / 15 area files). Wired
+          # 2026-08-22; it had never run in CI. Slowest suite here at ~24s.
+          python3 -m unittest -v tests/test_requirements_consolidate.py
           python3 -m unittest -v tests/test_validate_claude_yaml_access.py
           python3 -m unittest -v tests/test_workflow_script_paths.py
           # tests/test_ci_precommit_g4.py: YAML-extraction rehearsal for ci.yml's
@@ -400,6 +410,11 @@ jobs:
           # (tag-prefix guard, no push:tags #555 race, skip-existing, --no-deps
           # without PyPI fallback, subdirectory working-directory / artifact path).
           python3 -m unittest -v tests/test_publish_subpackage_workflows.py
+          # tests/test_subpackage_py_typed.py: asserts all six published sub-packages
+          # ship a py.typed marker AND declare it as package data (APD-SVCCORE-008 /
+          # APD-OBS-002, fixed in ml#1237). Wired 2026-08-22; the gate for that fix had
+          # never run in CI, so a regression would have shipped silently.
+          python3 -m unittest -v tests/test_subpackage_py_typed.py
           # The flood-remediation sequence-safety screens (Proposal P2 gates G1/G2)
           # now ship as the PyPI package juniper-ci-tools (>=0.8.0); the per-PR
           # `sequence-safety` job above installs it and runs the console scripts
@@ -618,6 +633,32 @@ jobs:
           # read-only mandate. util/ is outside every pre-commit Python hook's
           # scope, so this is the gate.
           python3 -m unittest -v tests/test_wait_for_checks.py
+          # tests/test_safe_merge.py: util/safe_merge.py -- the R4 merge gate, which is
+          # the ONLY sanctioned path to main now that direct pushes are blocked on all 9
+          # repos. Hermetic (_gh + wait_for_required replaced with recorders): no network,
+          # no gh, no PR is ever touched. Pins every path that must REFUSE, the
+          # --match-head-commit invariant that makes the gate meaningful (ml#924), the
+          # auto-merge net's arm/disarm contract (D1-D4), and the net-won race in which a
+          # completed merge was reported as a hard error (ml#1228/#1242). Wired 2026-08-22:
+          # the suite existed but was never listed here, so 65 tests guarding the merge
+          # tool had never once run in CI. util/ is outside every pre-commit Python hook's
+          # scope, so this is the gate.
+          python3 -m unittest -v tests/test_safe_merge.py
+          # tests/test_ci_test_wiring_drift.py: closes the class that ml#1254 and
+          # ml#1259 each fixed one instance of -- a tests/test_*.py that exists but is
+          # never invoked here, so it reports nothing and reads as passing. Asserts
+          # tests/ and this step's invocation list agree exactly, in both directions.
+          # Deliberately checks the INVOCATION, not a substring: this run block is a
+          # literal scalar, so its '#' lines are string content and a suite named only
+          # in a comment would satisfy a naive `in` check while never running.
+          python3 -m unittest -v tests/test_ci_test_wiring_drift.py
+          # tests/test_ruleset_scope_guard.py: util/ruleset_scope_guard.py -- the ~ALL
+          # scope guard. Hermetic (the fetcher is injected): pins that a wide scope EXITS 1,
+          # that a failed probe exits 2 rather than reading as clean, that an empty ruleset
+          # list is not a pass, and that the token-free tool never claims to check
+          # bypass_actors (redacted unauthenticated). Also pins FLEET against the
+          # release-train registry so the third hard-coded repo list cannot drift alone.
+          python3 -m unittest -v tests/test_ruleset_scope_guard.py
           # tests/test_prompt_validator_contract.py: static contract test for the
           # prompt-validator subagent (.claude/agents/prompt-validator.md) + its pinned
           # verdict JSON schema/fixtures (tests/fixtures/prompt_validator/). Asserts the
@@ -730,6 +771,35 @@ jobs:
           # safety-gated run lister/pruner -- state classification, --older-than, and the prune
           # safety gates, over synthetic RUN_ROOT fixtures. Also previously unwired.
           python3 -m unittest -v tests/test_list_runs.py
+          # tests/test_snapshot_index.py: hermetic tests for util/snapshot_index.py, the design
+          # §6.2 snapshot index/query -- bytes-attr decode, append-only rescan, the
+          # deferred-vs-present --limit counting, the D-C provenance filters, and the AST
+          # anti-resurrection guard that the tool stays READ-ONLY (retention is §6.4 and gated).
+          # Shipped unwired in ml#1238; wired here with the h5py dependency it needs.
+          python3 -m unittest -v tests/test_snapshot_index.py
+          # tests/test_snapshot_classify.py: hermetic tests for util/snapshot_classify.py, the
+          # owner-scheme classifier over that index. Pins the two-axis category/health rule, that
+          # the index's `readable` flag is NOT loadability (7/300 measured refusals), that the
+          # inert meta.current_epoch is never read as progress, the replace-not-append sidecar,
+          # fd-level stdout muffling, the train-stage scratch-root refusal, and its own AST
+          # read-only guard.
+          python3 -m unittest -v tests/test_snapshot_classify.py
+          # tests/test_snapshot_attribute.py: hermetic tests for util/snapshot_attribute.py, the
+          # dataset-attribution pass (handoff §3.2). Pins the permutation-corrected score (raw
+          # accuracy reports an inverted-label network as BELOW chance), that the null floor is
+          # the untrained MAXIMUM not its p95 (a p95 floor attributed 327 zero-hidden-unit
+          # networks to a non-linearly-separable problem), that a dataset an untrained network
+          # aces can never be an answer, the partial-sidecar write guards, and an AST read-only
+          # guard. Hermetic -- no cascor tree, no juniper-data tree, no archive.
+          python3 -m unittest -v tests/test_snapshot_attribute.py
+          # tests/test_snapshot_backfill.py: hermetic tests for util/snapshot_backfill.py, the
+          # consolidated recovered-metadata record (handoff §3.4). The caveats ARE the feature:
+          # pins that a SAMPLED cohort result (380 of 15,927 zero-node snapshots trained) stays
+          # quarantined in the `population` bucket instead of being written onto 15,547 files
+          # nobody trained, that an inferred dataset never reads as observed/measured, that run
+          # identity is never invented (no run dirs survive from before 2026-07-30), that every
+          # failing snapshot gets a named root cause, and an AST read-only guard.
+          python3 -m unittest -v tests/test_snapshot_backfill.py
           # tests/test_experiment_suite_yamls.py: drift gate over the shipped suites in
           # util/experiments/suites/**. Every suite must pass run_suite.load_suite (catching the
           # unknown-key / `stall_second` typo class that otherwise surfaces hours into a GPU
@@ -1319,6 +1389,52 @@ jobs:
           bash util/validate_claude_yaml_access.bash .github/workflows/claude.yml
 
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  # Ruleset Scope Guard: no ruleset may be scoped ~ALL
+  #
+  # Removing the dependabot (29110) / Copilot (1143301) bypass rows on 2026-08-23 was safe ONLY
+  # because every ruleset is ~DEFAULT_BRANCH-scoped. Under ~ALL the `creation` rule is evaluated
+  # on EVERY branch, so those rows become load-bearing again -- a re-scope silently re-arms a
+  # dependency on rows that no longer exist, and the symptom is dependency PRs stopping
+  # fleet-wide with nothing naming the cause.
+  #
+  # A ruleset is changed through the API/UI, never through a PR, so this cannot PREVENT a
+  # re-scope -- it detects one promptly, on the next PR. That is the most a repo-side gate can
+  # do, and it is why the weekly fleet sweep in docs-full-check.yml exists alongside it.
+  #
+  # Token-free by design: all 9 repos are public and GET /rulesets answers 200 unauthenticated,
+  # so no secret and no `administration` permission is needed. GITHUB_TOKEN is passed only for
+  # the higher rate limit. NOTE it checks SCOPE only -- `bypass_actors` is redacted for
+  # unauthenticated callers, so row presence is verified separately by the authenticated
+  # util/ad-hoc/2026-08-23_bypass_removal_verify.py.
+  #
+  # Exit contract: 0 clean, 1 a ~ALL ruleset exists, 2 could not verify (NOT the same as clean).
+  # Both non-zero codes fail the job on purpose -- fail-closed, with retries absorbing flakiness.
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
+  ruleset-scope-guard:
+    name: Ruleset Scope Guard
+    runs-on: ubuntu-latest
+    needs: [pre-commit]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python ${{ env.PYTHON_TEST_VERSION }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_TEST_VERSION }}
+
+      - name: Assert no ruleset is scoped ~ALL
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║       juniper-ml - Ruleset Scope Guard (~ALL detection)    ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          python3 util/ruleset_scope_guard.py
+
+  # ═══════════════════════════════════════════════════════════════════════════════════════════════
   # Dependency Documentation: Generate pip dependency records
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
   dependency-docs:
@@ -1442,7 +1558,7 @@ jobs:
     name: Quality Gate
     runs-on: ubuntu-latest
     if: always()
-    needs: [pre-commit, tests, build, docs, security, claude-yaml-audit, dependency-docs, sops-validation]
+    needs: [pre-commit, tests, build, docs, security, claude-yaml-audit, ruleset-scope-guard, dependency-docs, sops-validation]
     steps:
       - name: Check Quality Gate Status
         run: |
@@ -1456,6 +1572,7 @@ jobs:
           echo "Docs:                 ${{ needs.docs.result }}"
           echo "Security:             ${{ needs.security.result }}"
           echo "Claude.yml Audit:     ${{ needs.claude-yaml-audit.result }}"
+          echo "Ruleset Scope Guard:  ${{ needs.ruleset-scope-guard.result }}"
           echo "Dependency Docs:      ${{ needs.dependency-docs.result }}"
           echo "SOPS Validation:      ${{ needs.sops-validation.result }}"
           echo ""
@@ -1488,6 +1605,11 @@ jobs:
 
           if [[ "${{ needs.claude-yaml-audit.result }}" != "success" ]]; then
             echo "::error::Claude.yml access audit failed"
+            exit 1
+          fi
+
+          if [[ "${{ needs.ruleset-scope-guard.result }}" != "success" ]]; then
+            echo "::error::Ruleset scope guard failed -- a ruleset may be scoped ~ALL, which re-arms the need for the bypass rows removed 2026-08-23 (see notes/JUNIPER_2026-08-22_JUNIPER-ECOSYSTEM_BYPASS-CANDIDATE-DETERMINATION.md)"
             exit 1
           fi
 
