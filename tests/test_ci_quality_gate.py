@@ -55,6 +55,15 @@ ADVISORY_EXCLUDED = frozenset(
 # plaintext ``.env`` but not a file merely NAMED ``.enc`` whose contents were
 # partially decrypted. It is a hard need (not advisory): it runs on every event,
 # so folding it in does not paint pushes red the way the PR-only soak jobs would.
+#
+# ``ruleset-scope-guard`` joined 2026-08-23. It asserts no Juniper ruleset is scoped
+# ``~ALL``, which is the condition that made removing the dependabot (29110) / Copilot
+# (1143301) bypass rows safe: under ``~ALL`` the ``creation`` rule is evaluated on every
+# branch and those rows become load-bearing again. It is a hard need for the same reason
+# ``sops-validation`` is -- it runs on every event, so it does not paint pushes red.
+# Membership here is NOT decorative: the QG runs ``if: always()`` and tests each
+# ``needs.<job>.result`` explicitly, so a job in ``needs:`` with no ``if`` arm in the
+# script gates NOTHING. The rehearsal arm below is what proves this one bites.
 REQUIRED_NEEDS = (
     "pre-commit",
     "tests",
@@ -62,6 +71,7 @@ REQUIRED_NEEDS = (
     "docs",
     "security",
     "claude-yaml-audit",
+    "ruleset-scope-guard",
     "dependency-docs",
     "sops-validation",
 )
@@ -229,6 +239,24 @@ class QualityGateRehearsalTest(unittest.TestCase):
         proc = self._run(results)
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         self.assertIn("Regression tests failed", proc.stdout + proc.stderr)
+
+    def test_ruleset_scope_guard_failure_fails_gate(self) -> None:
+        """Negative control for the arm added 2026-08-23.
+
+        Without an explicit ``if`` arm in the QG script, adding the job to ``needs:`` would
+        gate nothing -- the guard could fail while the Quality Gate reported success.
+        """
+        results = self._all_success()
+        results["ruleset-scope-guard"] = "failure"
+        proc = self._run(results)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("Ruleset scope guard failed", proc.stdout + proc.stderr)
+
+    def test_ruleset_scope_guard_skipped_fails_gate(self) -> None:
+        results = self._all_success()
+        results["ruleset-scope-guard"] = "skipped"
+        proc = self._run(results)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
 
     def test_tests_skipped_fails_gate(self) -> None:
         """Hard jobs treat skipped as failure (!= success)."""

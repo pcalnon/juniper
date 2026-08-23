@@ -347,3 +347,19 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           JUNIPER_ROOT="$GITHUB_WORKSPACE" \
             bash juniper-ml/util/validate_claude_yaml_access.bash
+
+      - name: Assert no ruleset is scoped ~ALL (fleet-wide)
+        # Companion to ci.yml's per-PR `ruleset-scope-guard`, which covers juniper-ml only.
+        # A ruleset is changed via the API/UI and never through a PR, so no per-PR gate can
+        # PREVENT a re-scope on a SIBLING repo -- this weekly sweep is what detects one.
+        #
+        # Needs no clone and no secret: the 9 repos are public and GET /rulesets answers 200
+        # unauthenticated. GITHUB_TOKEN is passed only for the higher rate limit.
+        #
+        # Scope only -- `bypass_actors` is redacted for unauthenticated callers, so row
+        # presence is NOT checked here (util/ad-hoc/2026-08-23_bypass_removal_verify.py does
+        # that, authenticated). Exit 2 means "could not verify", which is not "clean".
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 juniper-ml/util/ruleset_scope_guard.py --fleet
