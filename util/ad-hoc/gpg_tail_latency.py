@@ -324,8 +324,12 @@ class Pipeline:
             for stream in (proc.stdin, proc.stdout, proc.stderr):
                 try:
                     stream.close()
-                except OSError:
-                    pass
+                except OSError as e:
+                    print(
+                        f"[pipeline {self.idx}] ignoring stream close error on "
+                        f"{getattr(stream, 'name', '<unnamed>')}: {e}",
+                        file=sys.stderr,
+                    )
             if proc.poll() is None:
                 proc.terminate()
                 try:
