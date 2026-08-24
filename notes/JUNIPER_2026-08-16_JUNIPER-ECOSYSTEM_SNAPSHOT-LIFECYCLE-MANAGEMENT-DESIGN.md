@@ -5,10 +5,12 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-16
+**Last Updated**: 2026-08-23
 
-**Status**: DESIGN — not implemented. No files were deleted, moved, or modified in producing
-this document; every number below comes from a read-only census.
+**Status**: **COMPLETE.** Phases 6.1 (identity), 6.2 (index) and 6.3 (fixes) have shipped;
+**Phase 6.4 (retention) was ratified by the owner on 2026-08-23 as a no-deletion policy**
+(§6.4.3). No files were deleted, moved, or modified in producing this document, and under the
+ratified policy none ever will be — every number below still comes from a read-only census.
 
 Supersedes the disposal framing of **F-P1-4** ("snapshot `.h5` debris — owner's to keep or
 delete"). Per the owner (2026-08-16), snapshots get *"a planned, systems based solution … designed,
@@ -448,7 +450,11 @@ Phase 1 or 2.
 
 ### 6.4 Phase 4 — Retention policy (only after 1–3)
 
-Written **as a proposal for owner ratification**, not applied. Expected shape:
+> **RATIFIED 2026-08-23.** The proposal below was put to the owner as three questions; all three
+> are answered, and the answers resolve this phase to a **no-deletion policy**. The proposal text
+> is retained verbatim because the ratified outcome is only legible against what was proposed.
+
+#### 6.4.1 The proposal, as written
 
 - **Never auto-delete.** Tooling proposes; a human ratifies; every action is logged to the index.
 - Classify by provenance: *named/pinned* (referenced by an evidence note, a suite registry, or an
@@ -458,6 +464,66 @@ Written **as a proposal for owner ratification**, not applied. Expected shape:
 - Deletion tooling must refuse to operate on a directory containing `.py` files (§3.1), refuse
   outside a configured snapshot root, and be `--dry-run` by default with `--yes` required —
   the `generated_prompt_index.py` / `list_runs.py` safety contract this repo already uses.
+
+#### 6.4.2 The three ratification questions and their answers
+
+| # | question | answer |
+|---|---|---|
+| 1 | Do cohort B's 273 truncated writes get deleted, quarantined, or kept? | **Quarantine, never delete.** |
+| 2 | Does behavioural attribution count as §6.4 "named"? | **No — inference is not a keep-mark.** |
+| 3 | Is a `util/juniper-backup.bash` archive a sufficient safeguard before removal? | **Not until a restore drill passes.** |
+
+**On (1).** Cohort B is the archive's only established, irrecoverable loss — and it is
+**13.0 MB of a 1.7 GB archive, 0.75%**. There is no space argument for an irreversible action at
+that scale, and the files are the only physical evidence of the non-atomic-write defect that
+cascor#561 closed. They are kept as evidence, not as models.
+
+**On (2).** §6.4's *named/pinned* definition names three mechanisms — an evidence note, a suite
+registry, an explicit keep-mark. Behavioural attribution is none of them: it is statistical
+inference from how a network behaves, and `util/snapshot_attribute.py`'s own output says it is
+evidence rather than provenance. Anyone who wants a specific snapshot kept writes an explicit
+keep-mark, which is precisely the mechanism §6.4 already provides.
+
+**On (3).** `util/juniper-backup.bash` streams `tar` into `gpg` with two independent recipients
+and carries no `--exclude`, so `cascor-snapshots/` genuinely would be captured. It is **unrelated
+to the Duplicati path** whose broken restore points ml#1263 documented — that finding does not
+transfer to it. But the script's own line 173 states it cannot prove the tar inside is intact,
+and **no restore drill has ever been run**. An unverified backup is the exact failure class
+ml#1263 already caught once: archives that exist and do not restore.
+
+#### 6.4.3 The ratified policy
+
+Applying (1) and (2) to the cohort table leaves **no file in the archive with a deletion path**:
+
+| cohort | n | bytes | §6.4 class | disposition |
+|---|---:|---:|---|---|
+| B — truncated writes | 273 | 13.0 MB | *(evidence, by q1)* | **quarantine, never delete** |
+| zero-node, loadable | 15,927 | 666 MB | recoverable | **keep** — 380/380 sampled trained on demand |
+| behaviour-attributed | 129 | — | unattributable legacy (by q2) | **quarantine, never delete** |
+| loadable, hidden units, unattributed | 11,579 | 1.1 GB | unattributable legacy | **quarantine, never delete** |
+
+**The middle category is empty, and this is the load-bearing finding.** *Run-attributed
+intermediates* — the only class the proposal gave an ageing-out path — presupposed **identity**
+attribution: a `RUN_ID` stamped at write time by Phase 6.1. The archive holds exactly **one**
+identity-attributed file (`e-i-cap-ceiling`), and that one is a named experiment, so it is
+*named/pinned* anyway. The other **129 are behaviour-attributed**, which q2 rules is not the same
+thing. Phase 6.1 provenance began stamping only recently, so **no pre-6.1 file can ever enter the
+ageing-out class** — the category is not merely empty today, it is unreachable for the entire
+legacy archive.
+
+Consequences:
+
+- **No deletion tooling is to be built.** The four existing tools each carry an AST test
+  enforcing that they have no delete path; that property is now the policy, not a precaution.
+- The §7 gate for this phase — *"dry-run must propose zero deletions of anything
+  provenance-linked"* — is satisfied vacuously and permanently: it proposes zero deletions of
+  anything at all.
+- **Question 3 is moot for this phase** (nothing is deleted, so nothing needs safeguarding), but
+  the restore drill it names is **owed to the backup arc** regardless, and becomes a hard
+  precondition if this policy is ever revisited.
+- Should quarantine be implemented as a physical move, it inherits the full safety contract
+  above: `--dry-run` by default, `--yes` required, refusal on any directory containing `.py`
+  files, refusal outside the configured snapshot root, and every action logged to the index.
 
 ### 6.5 Explicit non-goals
 
@@ -476,7 +542,7 @@ Per standard Juniper practice, each phase ships with its own gate:
 | 6.1 identity  | Unit: provenance attrs round-trip save→load. Drift: a snapshot written by the launcher carries the run's `RUN_ID` (asserted in `tests/test_experiment_stack_script.py`'s live arm).                                                                  |
 | 6.2 index     | Behavioural tests over a synthetic snapshot tree (hermetic, mirroring `test_list_runs.py`): classification, `--json` shape, and that destructive flags do nothing without `--yes`. Plus a real read-only scan of the 27,869-file archive as a smoke. |
 | 6.3 fixes     | **D-A: a regression test that fails on today's code** — assert `output_optimizer is not None` and its state matches after save→load. D-B: assert distinct outcomes for absent / corrupt / valid.                                                     |
-| 6.4 retention | Dry-run over the real archive must propose **zero** deletions of anything provenance-linked; a planted unattributable fixture must be proposed for *quarantine*, not deletion.                                                                       |
+| 6.4 retention | Dry-run over the real archive must propose **zero** deletions of anything provenance-linked; a planted unattributable fixture must be proposed for *quarantine*, not deletion. **SATISFIED PERMANENTLY (2026-08-23):** the ratified policy proposes zero deletions of anything at all (§6.4.3), and the four shipped tools each carry an AST test enforcing that they have no delete path. |
 
 The census is reproducible and preserved as
 [`util/ad-hoc/2026-08-16_snapshot_archive_census.py`](../util/ad-hoc/2026-08-16_snapshot_archive_census.py)
@@ -499,6 +565,13 @@ the rule exists because scripts of exactly this kind were lost once before.
 Phase 6.3's three items are unblocked today. Phases 6.1→6.2→6.4 are strictly ordered: **retention
 last, and only once the archive can say what each file is.**
 
+**Outcome (2026-08-23).** That ordering did its job. By the time retention was reachable, the
+index and the classifier could say what each file is — and what they said (§6.4.3) is that
+nothing in the archive qualifies for deletion under any of the proposal's own categories. The
+sequencing constraint was not merely procedural: had retention run first, the ageing-out class
+would have looked populated, because behavioural attribution superficially resembles the
+run-attribution the class was written for.
+
 Relative priority against the program's other open work is set in the companion prioritisation
 note, not here.
 
@@ -512,10 +585,10 @@ note, not here.
 |         | (e.g. under `~/.local/state/juniper-snapshots/`,                 |                                                                                                                                                                                   |
 |         | mirroring the experiment `RUN_DIR` convention)?                  |                                                                                                                                                                                   |
 | **S-2** | Is the March–April 2026 cohort (27,005 files, 96.9%) of retained | Decides whether Phase 6.4 needs a real policy or whether that cohort can be quarantined wholesale once identified.                                                                |
-|         | research value, or is it a known bulk artifact of one campaign?  |   **Not actionable until §6.2 can characterise it.**                                                                                                                              |
+|         | research value, or is it a known bulk artifact of one campaign?  |   **CLOSED 2026-08-23.** §6.2 characterised it (identity is unrecoverable for the pre-2026-07-30 files); §6.4.3 then quarantines it wholesale, never deletes. The question no longer gates anything. |
 | **S-3** | Should the service tier's `snapshot_history.jsonl` audit log     | Two mechanisms or one.                                                                                                                                                            |
 |         | be extended to the CLI tier, or replaced by the §6.2 index?      |                                                                                                                                                                                   |
-| **S-4** | Retention horizon and cold-archive location, once §6.2 exists.   | The only genuinely policy-shaped question, deliberately deferred to last.                                                                                                         |
+| **S-4** | Retention horizon and cold-archive location, once §6.2 exists.   | The only genuinely policy-shaped question, deliberately deferred to last. **Horizon ANSWERED 2026-08-23: there is none — nothing is deleted (§6.4.3).** Cold-archive *location* remains open, and any physical move is gated on the restore drill of §6.4.2 q3. |
 | **S-5** | **Is R3 ("training pauses" with optimizer state)                 | Raised by the 2026-08-17 correction to §4.1. Cascor deliberately **recreates** the output optimizer on every `train_output_layer` call                                            |
 
 > **S-5 ANSWERED (2026-08-18) — R3 IS a real requirement, and it is NOT yet delivered.**

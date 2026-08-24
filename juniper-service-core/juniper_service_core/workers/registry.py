@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any
 
+from juniper_service_core.exceptions import JuniperServiceCoreError
+
 __all__ = ["WorkerRegistration", "WorkerRegistry", "WorkerRegistryFullError", "DEFAULT_MAX_WORKERS"]
 
 logger = logging.getLogger("juniper_service_core.workers.registry")
@@ -28,7 +30,7 @@ logger = logging.getLogger("juniper_service_core.workers.registry")
 DEFAULT_MAX_WORKERS: int = 250
 
 
-class WorkerRegistryFullError(RuntimeError):
+class WorkerRegistryFullError(JuniperServiceCoreError, RuntimeError):
     """Raised by :meth:`WorkerRegistry.register` when the registry is at capacity.
 
     Distinct from a generic :class:`RuntimeError` so the websocket worker-handshake handler can

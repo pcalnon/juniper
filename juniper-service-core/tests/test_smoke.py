@@ -80,6 +80,18 @@ def test_top_level_import_does_not_require_fastapi_or_pydantic_settings():
         assert juniper_service_core.__version__ == __EXPECTED_VERSION__
         assert "fastapi" not in sys.modules, "top-level import unexpectedly pulled fastapi"
         assert "pydantic_settings" not in sys.modules, "top-level import unexpectedly pulled pydantic_settings"
+        # APD-SVCCORE-006: the package base exception is exported EAGERLY, so a consumer
+        # can write ``except JuniperServiceCoreError`` without the lazy machinery
+        # importing the optional deps to resolve the name. That is only true while
+        # ``exceptions.py`` stays dependency-free, which this blocked-import run is what
+        # actually proves.
+        assert juniper_service_core.JuniperServiceCoreError is not None
+        raise_ok = False
+        try:
+            raise juniper_service_core.JuniperServiceCoreError("x")
+        except juniper_service_core.JuniperServiceCoreError:
+            raise_ok = True
+        assert raise_ok
         print("DEPENDENCY_FREE_OK")
         """
     ).replace("__EXPECTED_VERSION__", repr(_declared_version()))

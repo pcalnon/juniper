@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`JuniperServiceCoreError`** — a package base exception, exported eagerly from the package
+  root (defect register `APD-SVCCORE-006`). Before it, the exceptions this package raises had
+  nothing in common: three subclassed `RuntimeError` and two `KeyError`, so catching "anything
+  juniper-service-core raises" meant naming them all, and the nearest category — `except
+  RuntimeError` — also swallowed unrelated runtime failures that should propagate.
+  **Additive**: each exception now derives from the base *in addition to* its original base, never
+  instead of it, so an existing `except RuntimeError` / `except KeyError` handler is unaffected.
+  `SnapshotNotFoundError` in particular is raised where a mapping lookup would be, and callers
+  legitimately treat it as a `KeyError`.
+  Exported eagerly alongside `__version__` because a consumer must be able to write `except
+  JuniperServiceCoreError` without the lazy PEP 562 machinery importing fastapi /
+  pydantic-settings to resolve the name; `exceptions.py` is dependency-free, and the blocked-import
+  smoke test now covers that.
+  **One deliberate exclusion**: `UnknownTunableError` keeps `KeyError` alone. `websocket/tunables.py`
+  is pinned stdlib-only and standalone by two tests, one of which loads it *by file path bypassing
+  the package `__init__`* — importing the package base there would erase that property, to add a
+  base to the one exception in the package with no production consumer. The exclusion is asserted,
+  so it stays a decision rather than an oversight.
+
+- **`DependencyFloorError.violations`** — the structured `tuple[FloorViolation, ...]` behind the
+  message (`APD-SVCCORE-014`). `check_dependency_floors` computes distribution / floor / installed
+  per row and `enforce_dependency_floors` used to render that into prose and discard it, leaving a
+  caller to parse the text back apart to learn which distribution to upgrade. The message is
+  byte-identical; the structure is simply also available, and single-argument construction still
+  works.
+
 - **`FailedAuthThrottle` + `build_failed_auth_throttle(...)`** — an IP-keyed, fixed-window throttle
   for *failed* authentication attempts, checked before authentication and consuming budget only on
   a 401. `SecurityMiddleware` gains an optional `failed_auth_throttle=` argument and **enables one
