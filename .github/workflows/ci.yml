@@ -254,6 +254,11 @@ jobs:
           # util/kill_all_pythons.bash and util/juniper_worker_kill.bash (PATH-stubbed
           # ps/sudo/kill; bash kill builtin disabled). util/ is not pre-commit-lint-gated.
           python3 -m unittest -v tests/test_kill_helpers.py
+          # tests/test_duplicati_scheduled_backup.py: hermetic guards / skip-vs-stale
+          # escalate / installer / OnFailure reporter for the #1292 scheduled-backup
+          # lane (PATH-stubbed mountpoint/duplicati-cli/journalctl/notify-send/
+          # loginctl/systemctl). util/ is not pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_duplicati_scheduled_backup.py
           python3 -m unittest -v tests/test_editable_install_drift_check.py
           # tests/test_env_floor_drift_check.py: gap-I-2 floor-drift checker --
           # installed juniper-* (dist-info METADATA) vs the target repo's pyproject
