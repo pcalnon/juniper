@@ -4,10 +4,10 @@
 # Application:   juniper-ml
 # File Name:     main-verify.yml
 # Author:        Paul Calnon
-# Version:       0.3.0
+# Version:       0.4.0
 #
 # Date Created:  2026-07-28
-# Last Modified: 2026-08-06
+# Last Modified: 2026-08-23
 #
 # License:       MIT License
 # Copyright:     Copyright (c) 2024-2026 Paul Calnon
@@ -29,11 +29,19 @@
 #        finding.
 #          G3.1 CATCH-UP BASE (flood §4 item 8 / the 2026-07-30 skip incident): a quoted
 #          `[skip ci]` in three merge-commit bodies skipped main-verify entirely on
-#          ml#870/#872/#873, so those windows were never screened. BASE is therefore
-#          resolved to the head_sha of the most recent SUCCESSFUL main-verify run on main
-#          (when it is an ancestor of HEAD), so the NEXT run sweeps every skipped merge in
-#          between; it falls back to github.event.before (the push's first parent), then
-#          HEAD^1. The chosen base + reason are echoed to the step summary.
+#          ml#870/#872/#873, so those windows were never screened. BASE therefore reaches
+#          back to the last tip KNOWN SCREENED, so the NEXT run sweeps every skipped merge
+#          in between. The property BASE needs is COVERAGE, never cleanliness: it ratchets
+#          on SCREENED, not on GREEN (2026-08-23). Tiers, in order: the newest completed
+#          run whose `Assert screens reached a verdict` step succeeded (a FINDING is a
+#          verdict and advances the base; only an exit->=2 INVOCATION error does not);
+#          else the legacy last-SUCCESSFUL tip; else github.event.before (the push's first
+#          parent); else HEAD^1. The chosen base + reason go to the step summary.
+#          Resolving this from run-level `status=success` was the mechanism behind a
+#          recurring red main -- a finding froze the base, so every later merge re-screened
+#          the same window and failed on someone else's damage, each red guaranteeing the
+#          next; an unrelated `Regression Battery` failure froze it too (ml#1059). Design:
+#          notes/JUNIPER_2026-08-23_JUNIPER-ML_MAIN-VERIFY-CATCHUP-BASE-SCREENED-NOT-GREEN-DESIGN.md
 #      * battery -- the full enumerated unittest battery, path-gated: it runs only when
 #        the push touched tests/ | util/ | scripts/ | .github/ | pyproject.toml (a
 #        docs-only merge skips it). A regression that a bad merge introduced is caught
@@ -96,7 +104,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: read # G3.1: gh api reads the last successful main-verify run for the catch-up base
+      actions: read # G3.1: gh api reads recent runs + their job steps for the screened catch-up base
     steps:
       - name: Checkout Code (full history)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -128,14 +136,59 @@ jobs:
           set -uo pipefail
           # G3.1 catch-up base (flood §4 item 8 / the 2026-07-30 skip incident, ml#870/#872/#873):
           # a quoted `[skip ci]` in a merge-commit body skips THIS workflow entirely, so a window
-          # of merges can land un-screened. Resolve BASE to the head_sha of the most recent
-          # SUCCESSFUL main-verify run on main WHEN it is an ancestor of HEAD, so the next run
-          # sweeps every merge skipped in between. Fall back to github.event.before (the push's
-          # first parent), then HEAD^1 (force-push / initial / dispatch).
+          # of merges can land un-screened. BASE therefore reaches back to the last tip we KNOW
+          # was screened, so the next run sweeps every merge skipped in between.
+          #
+          # The property BASE needs is COVERAGE -- "where does the un-screened region begin?" --
+          # never "where were we last clean". Resolving it from run-level `status=success`
+          # conflated the two and was the mechanism behind a recurring red main (4 occurrences,
+          # 2026-08-12 .. 2026-08-21): a screen finding left the base pinned, so every later merge
+          # re-screened the same window and failed on someone else's damage, each red guaranteeing
+          # the next. A `Regression Battery` failure pinned it too, for no sequence-safety reason
+          # at all (ml#1059). Design of record:
+          # notes/JUNIPER_2026-08-23_JUNIPER-ML_MAIN-VERIFY-CATCHUP-BASE-SCREENED-NOT-GREEN-DESIGN.md
+          #
+          # TIER 1 (screened): newest completed run whose `Symbol & Docs Screen` job reached a
+          # VERDICT -- clean or not -- observed as the conclusion of its `Assert screens reached a
+          # verdict` step. That step exits non-zero ONLY on a screen INVOCATION error (exit >=2),
+          # where no verdict exists and the window genuinely is un-screened; a finding (exit 1) is
+          # a verdict and MUST advance the base. Ancestry is checked inside the walk, so a run on
+          # a force-pushed or concurrent-descendant tip is skipped rather than abandoning catch-up.
+          #
+          # !! The step name below is LOAD-BEARING. Rename it and tier 1 matches nothing, the
+          # !! resolver falls silently through to tier 2, and the defect returns with no error
+          # !! anywhere. Pinned from both sides by tests/test_main_verify_catchup_base.py.
+          SCREEN_JOB="Symbol & Docs Screen"
+          VERDICT_STEP="Assert screens reached a verdict"
+          SCAN_LIMIT=20
+          screened=""
+          runs="$(gh api "repos/${REPO}/actions/workflows/main-verify.yml/runs?status=completed&branch=main&per_page=${SCAN_LIMIT}" --jq '.workflow_runs[] | "\(.id) \(.head_sha)"' 2>/dev/null || true)"
+          while read -r run_id run_sha; do
+            [ -n "${run_id:-}" ] && [ -n "${run_sha:-}" ] || continue
+            [ "$run_sha" != "null" ] || continue
+            # Skip this very push, and anything not usable as a base for THIS head.
+            [ "$run_sha" != "$HEAD_SHA" ] || continue
+            git rev-parse --verify -q "${run_sha}^{commit}" >/dev/null 2>&1 || continue
+            git merge-base --is-ancestor "$run_sha" "$HEAD_SHA" 2>/dev/null || continue
+            verdict="$(gh api "repos/${REPO}/actions/runs/${run_id}/jobs" --jq "[.jobs[] | select(.name == \"${SCREEN_JOB}\") | .steps[]? | select(.name == \"${VERDICT_STEP}\") | .conclusion] | first // \"\"" 2>/dev/null || true)"
+            if [ "$verdict" = "success" ]; then
+              screened="$run_sha"
+              break
+            fi
+          done <<< "$runs"
+          # TIER 2 (legacy success): the pre-2026-08-23 single-shot query. Kept for the TRANSITION
+          # -- no historical run carries the tier-1 step name, so without this the first run after
+          # the change would not sweep -- and as a sound, merely conservative, degradation path if
+          # the jobs API is unavailable. A run that SUCCEEDED necessarily reached a verdict, so
+          # going forward tier 1 subsumes this and it can never select a NEWER base than tier 1.
           last_ok="$(gh api "repos/${REPO}/actions/workflows/main-verify.yml/runs?status=success&branch=main&per_page=1" --jq '.workflow_runs[0].head_sha' 2>/dev/null || true)"
           base=""
           reason=""
-          if [ -n "$last_ok" ] && [ "$last_ok" != "null" ] \
+          if [ -n "$screened" ]; then
+            n="$(git rev-list --count "${screened}..${HEAD_SHA}" 2>/dev/null || echo '?')"
+            base="$screened"
+            reason="screened-tip catch-up from ${screened} (${n} commits)"
+          elif [ -n "$last_ok" ] && [ "$last_ok" != "null" ] \
               && git rev-parse --verify -q "${last_ok}^{commit}" >/dev/null 2>&1 \
               && [ "$last_ok" != "$HEAD_SHA" ] \
               && git merge-base --is-ancestor "$last_ok" "$HEAD_SHA" 2>/dev/null; then
@@ -160,7 +213,15 @@ jobs:
             echo "- reason: ${reason}"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # ── The screens run here; the two ASSERT steps below adjudicate them ──────────────────────
+      # Split into three steps deliberately (2026-08-23). This step now RECORDS the screen exit
+      # codes instead of failing on them, so that "did this run screen its window?" and "was the
+      # verdict clean?" become two INDEPENDENTLY QUERYABLE step conclusions. The catch-up-base
+      # resolver above reads the first and must not see the second. Collapsing these back into one
+      # step re-introduces the recurring-red defect. Design of record:
+      # notes/JUNIPER_2026-08-23_JUNIPER-ML_MAIN-VERIFY-CATCHUP-BASE-SCREENED-NOT-GREEN-DESIGN.md
       - name: Run sequence-safety screens (symbol + docs)
+        id: screens
         env:
           BASE_REF: ${{ steps.base.outputs.base }}
           HEAD_SHA: ${{ github.sha }}
@@ -170,10 +231,10 @@ jobs:
           echo "╔════════════════════════════════════════════════════════════╗"
           echo "║       juniper-ml - Post-Merge Sequence-Safety Screens      ║"
           echo "╚════════════════════════════════════════════════════════════╝"
-          # BASE is resolved by the preceding "Resolve catch-up base" step (G3.1): the last
-          # SUCCESSFUL main-verify tip when it is an ancestor of HEAD (sweeping any [skip ci]-
-          # skipped window), else github.event.before, else HEAD^1. Defensive re-fallback here
-          # in case the step output is empty/unresolvable.
+          # BASE is resolved by the preceding "Resolve catch-up base" step (G3.1): the last tip
+          # KNOWN SCREENED when it is an ancestor of HEAD (sweeping any [skip ci]-skipped window),
+          # else the last successful tip, else github.event.before, else HEAD^1. Defensive
+          # re-fallback here in case the step output is empty/unresolvable.
           base="$BASE_REF"
           if [ -z "$base" ] || ! git rev-parse --verify -q "${base}^{commit}" >/dev/null 2>&1; then
             base="$(git rev-parse --verify -q 'HEAD^1' || git rev-parse HEAD)"
@@ -198,10 +259,52 @@ jobs:
           juniper-docs-additions-check --base "$base" --head "$HEAD_SHA" --json > docs-report.json || true
           echo ""
           echo "symbol screen exit=${src} ; docs screen exit=${drc}"
+          # Publish the exit codes for the two assert steps. This step deliberately does NOT fail
+          # on a finding -- if it did, the coverage step below would be SKIPPED on exactly the runs
+          # whose windows most need to be marked screened.
+          echo "src=${src}" >> "$GITHUB_OUTPUT"
+          echo "drc=${drc}" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      # ── G3.1 COVERAGE SIGNAL ──────────────────────────────────────────────────────────────────
+      # !! LOAD-BEARING STEP NAME. The `Resolve catch-up base` step queries this step's conclusion
+      # !! through the jobs API to decide whether a run screened its window. Renaming it does not
+      # !! fail anything -- it silently drops the resolver to the legacy tier and restores the
+      # !! recurring-red defect. Pinned from both sides by tests/test_main_verify_catchup_base.py.
+      #
+      # Fails ONLY on a screen INVOCATION error (exit >=2), where no verdict exists and the window
+      # is genuinely un-screened. A compositional-loss FINDING (exit 1) is a verdict: the window
+      # WAS screened, so this step passes and the base is free to advance past it. If the screens
+      # step above died outright, this step is `skipped` -- which is not `success`, so no false
+      # coverage is ever claimed.
+      - name: Assert screens reached a verdict
+        env:
+          SRC: ${{ steps.screens.outputs.src }}
+          DRC: ${{ steps.screens.outputs.drc }}
+        run: |
+          set -uo pipefail
+          # Absent outputs are treated as an invocation error, never as coverage.
+          src="${SRC:-99}"
+          drc="${DRC:-99}"
           if [ "${src}" -ge 2 ] || [ "${drc}" -ge 2 ]; then
-            echo "::error::sequence-safety screen invocation error (see log)"
+            echo "::error::sequence-safety screen invocation error (symbol=${src} docs=${drc}) -- window NOT screened; the G3.1 catch-up base will NOT advance past this run"
             exit 2
           fi
+          echo "::notice::sequence-safety screens reached a verdict (symbol=${src} docs=${drc}) -- this window IS screened"
+
+      # ── VERDICT SIGNAL ────────────────────────────────────────────────────────────────────────
+      # The job's red/green. Unchanged in effect: a finding still fails the job, the run, and fires
+      # `Notify on Failure`. Only the SHAPE of the failure moved -- from one failing step to a
+      # passing coverage step plus this one.
+      - name: Assert screens clean
+        env:
+          SRC: ${{ steps.screens.outputs.src }}
+          DRC: ${{ steps.screens.outputs.drc }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          src="${SRC:-99}"
+          drc="${DRC:-99}"
           if [ "${src}" -ge 1 ] || [ "${drc}" -ge 1 ]; then
             echo "::error::post-merge compositional-loss finding(s) at ${HEAD_SHA} -- see the screens above and the sequence-safety-report artifact"
             exit 1
