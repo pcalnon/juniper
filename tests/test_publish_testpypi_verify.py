@@ -427,13 +427,43 @@ class PublishTestPyPIVerifyRehearsalTest(unittest.TestCase):
         self.assertIn("::error::", out)
 
     def test_sleep_is_invoked_but_stubbed_not_blocking(self) -> None:
-        # Contract: the workflow still contains `sleep 30` (index lag buffer). The
-        # rehearsal must not actually wait — the PATH stub makes that hermetic.
-        self.assertIsNotNone(
+        """The index-lag buffer is a BOUNDED POLL, not a fixed sleep (2026-08-24).
+
+        The contract this pins is unchanged in substance -- TestPyPI's index is
+        CDN-fronted and lags an upload by ~5-30s, so the first fetch can 404 and the
+        verify must absorb that. What changed is the shape. It was an unconditional
+        `sleep 30`: 77% of a measured 39s step, paid on EVERY publish even when the
+        index was already warm, and still a coin-flip if propagation ran long. A
+        retry around the fetch is better in both directions.
+
+        Asserted here: no unconditional long sleep survives, and the buffer is a
+        retry loop whose sleep is SHORT (a poll interval, not a fixed wait).
+        """
+        self.assertIsNone(
             re.search(r"^\s*sleep\s+30\s*$", self.script, re.MULTILINE),
-            "verify shell must retain `sleep 30` (TestPyPI index-lag buffer)",
+            "the unconditional `sleep 30` should be gone -- it is now a bounded poll",
         )
-        # If sleep were not stubbed this would hang ~30s; finishing quickly is the proof.
+        sleeps = re.findall(r"^\s*sleep\s+(\d+)\s*$", self.script, re.MULTILINE)
+        self.assertTrue(sleeps, "verify shell must retain an index-lag buffer of some form")
+        for value in sleeps:
+            self.assertLessEqual(
+                int(value),
+                10,
+                msg=f"sleep {value} looks like a fixed wait, not a poll interval; sleeps={sleeps}",
+            )
+        # The buffer must be a RETRY, i.e. the fetch is reachable more than once.
+        # re.MULTILINE is load-bearing: assertRegex uses a bare re.search, so `^`
+        # would anchor at the start of the whole script rather than each line.
+        self.assertIsNotNone(
+            re.search(r"^\s*for\s+attempt\s+in\b", self.script, re.MULTILINE),
+            "expected a bounded retry loop around the fetch",
+        )
+        # A failure to ever fetch must be a real error, never a silent fall-through
+        # into the install phases with an empty download dir.
+        self.assertIn("never served", self.script)
+        # If sleep were not stubbed this would hang; finishing quickly is the proof.
+        # Still exactly 4 pip invocations: the stub succeeds on the first attempt, so
+        # the retry adds nothing in the happy path.
         self.assertEqual(len(self._run_verify_ok()), 4)
 
 
