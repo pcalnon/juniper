@@ -711,7 +711,7 @@ Recorded so the register is not read as a list of live problems that includes re
 
 ### 5.1 Fixed since this register was published (2026-08-14)
 
-These twenty-one carry their **original IDs** — they were counted in the 96, and are marked `FIXED` in place at their §4 table row and detail entry rather than renumbered or removed, so a reader following an existing reference still lands on the right entry and sees why it is closed. Working the §2.2 list is what produced the first of them, and it is now worked through: all four of its items are closed. The §2.3 copy-drift list is now worked through too.
+These carry their **original IDs** — they were counted in the 96, and are marked `FIXED` in place at their §4 table row and detail entry rather than renumbered or removed, so a reader following an existing reference still lands on the right entry and sees why it is closed. Working the §2.2 list is what produced the first of them, and it is now worked through: all four of its items are closed. The §2.3 copy-drift list is now worked through too.
 
 | ID | Finding | Fixed by | Verification |
 | --- | --- | --- | --- |
