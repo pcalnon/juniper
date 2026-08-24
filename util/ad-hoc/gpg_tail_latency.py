@@ -70,6 +70,7 @@ children of this process and are terminated in ``finally``.
 """
 
 import argparse
+import math
 import os
 import subprocess
 import sys
@@ -126,7 +127,7 @@ class PsiSampler(threading.Thread):
     def run(self):
         while not self.stop_event.wait(0.5):
             for k, (avg, total) in read_psi().items():
-                if avg == avg and avg > self.max_avg10[k]:  # NaN-safe
+                if not math.isnan(avg) and avg > self.max_avg10[k]:  # NaN-safe
                     self.max_avg10[k] = avg
                 self.end_total[k] = total
 
