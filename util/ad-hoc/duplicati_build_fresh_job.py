@@ -109,8 +109,8 @@ def main() -> int:
     ap.add_argument("--dest-dir", default="/media/pcalnon/temp_backups/Ubuntu")
     ap.add_argument("--source-job", type=int, default=2,
                     help="existing job whose sources/filters are carried forward")
-    ap.add_argument("--passphrase-file", default=None)
-    ap.add_argument("--passphrase-key", default="PASSPHRASE",
+    ap.add_argument("--passphrase-file", dest="cred_file", default=None)
+    ap.add_argument("--passphrase-key", dest="cred_key", default="PASSPHRASE",
                     help="which KEY= entry to read when the file holds several "
                          "(default PASSPHRASE). Named explicitly because picking "
                          "by position can encrypt a backup under the wrong secret.")
@@ -162,21 +162,21 @@ def main() -> int:
         print("DRY RUN -- pass --create to actually create this job.")
         return 0
 
-    if not args.passphrase_file:
+    if not args.cred_file:
         print("REFUSING: --create requires --passphrase-file. No default and no "
               "placeholder: a job created under a throwaway secret can encrypt a "
               "real backup that nobody can decrypt.")
         return 2
-    passphrase = read_passphrase(args.passphrase_file, args.passphrase_key)
+    passphrase = read_passphrase(args.cred_file, args.cred_key)
     if not passphrase:
-        print(f"REFUSING: no {args.passphrase_key}= entry found in "
-              f"{args.passphrase_file}")
+        print(f"REFUSING: no {args.cred_key}= entry found in "
+              f"{args.cred_file}")
         return 2
     if len(passphrase) < 12:
-        print(f"REFUSING: passphrase from {args.passphrase_file} "
-              f"({args.passphrase_key}) is too short: see duplicati_secret_check.py")
+        print(f"REFUSING: passphrase from {args.cred_file} "
+              f"({args.cred_key}) is too short: see duplicati_secret_check.py")
         return 2
-    print(f"credential : {args.passphrase_file} key={args.passphrase_key}")
+    print(f"credential : {args.cred_file} key={args.cred_key}")
 
     settings = [{"Filter": "", "Name": n, "Value": v, "Argument": None}
                 for n, v, _ in SETTINGS]
