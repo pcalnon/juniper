@@ -178,6 +178,10 @@ investigator will reach for and that do nothing. Recommend fixing L-1/L-2 togeth
 outright.
 
 > **Superseded — read [§9](#9-5-correction--l-1-is-live-and-l-3-must-not-be-deleted-2026-08-14-post-merge) before acting on this table.**
+>
+> **All four rows are now closed.** L-1 fixed (cascor#522), L-3 withdrawn (§9.3), and L-2 / L-4
+> closed 2026-08-21 by cascor#555 / cascor#556 — [§10](#10-l-2-and-l-4-are-closed-2026-08-21-t5).
+> Nothing in this table is still "filed, not fixed"; every "Inert" cell below is pre-2026-08-21.
 > This section was written from a static read. L-1 is **live**, not inert (fixed in cascor#522);
 > L-2's "the argument is dead" is wrong; and deleting L-3 would **break the build** — it is the
 > C2b/Q1 snapshot-compat attribute, not dead code.
@@ -289,9 +293,9 @@ against the preserved arm C log, two of the four rows were wrong — one in each
 | # | §5 said | actually | disposition |
 | --- | --- | --- | --- |
 | L-1 | Inert | **Live on the direct CLI** — the configured budget is discarded for the initial output pass | **FIXED** (cascor#522) |
-| L-2 | "the argument is dead" | **Wrong** — `max_epochs` is consumed; it is only `grow_network` that never receives it | Re-scoped + documented in code |
+| L-2 | "the argument is dead" | **Wrong** — `max_epochs` is consumed; it is only `grow_network` that never receives it | Re-scoped + documented in code; **CLOSED 2026-08-21** (cascor#555) — [§10](#10-l-2-and-l-4-are-closed-2026-08-21-t5) |
 | L-3 | Dead; "delete outright" | **Not dead** — it is the C2b/Q1 snapshot-compat attribute | **Recommendation WITHDRAWN** |
-| L-4 | Inert | unchanged | Still filed |
+| L-4 | Inert | **Live** — the CLI silently ignored `early_stopping` and eight other configured keys | **CLOSED 2026-08-21** (cascor#556) — [§10](#10-l-2-and-l-4-are-closed-2026-08-21-t5) |
 
 ### 9.1 L-1 is live
 
@@ -364,3 +368,71 @@ first plausible conclusion — L-1 looked inert because a nearby argument looked
 looked dead because its assignment has no reader in that one module. Both dissolved on contact
 with the run's own log and a repo-wide grep. The same lesson as F-P1-3b, one level down: a
 static read is not a measurement either.
+
+---
+
+## 10. L-2 and L-4 are closed (2026-08-21, T5)
+
+§9 left L-2 "re-scoped" and L-4 "still filed". Both were settled by the T5 pair, and this
+section is the disposition of record — §5's table and §9's are correct **as of their own dates**
+and are left as written.
+
+| # | closed by | merge | outcome |
+| --- | --- | --- | --- |
+| L-2 | cascor#555 `docs(model): settle L-2 — the max_epochs / output_epochs split is intended` | `c239944` | **Split is INTENDED.** Documented, not changed. |
+| L-4 | cascor#556 `feat(cli): W-11 full parity — the direct CLI now honours the keys it was dropping` | `15ad3d8` | **Nine keys wired**; 17 of 25 `TrainingParams` keys mapped. |
+
+### 10.1 L-2 — the split is intended, and the warning is the instrument
+
+§9.2 left open "whether an explicit `max_epochs` *should* re-budget the per-round passes". It is
+now closed: **it should not**. Do not "fix" the warning by forwarding `max_epochs` into
+`grow_network`. `max_epochs` sits in `TrainingLifecycleManager._FIT_KWARGS`, so forwarding it
+changes **service** behaviour and is **golden-suite-visible** — that is a deliberate release, not
+a quiet patch inside a fix PR.
+
+ml#1159's manifest warning is the instrument that keeps the divergence visible. It fires on every
+E-A cell (`max_epochs=2000 is set without output_epochs`) and is a **WARNING, not a failure**.
+Expect it as noise throughout the T6 re-baseline; it is the design working.
+
+### 10.2 L-4 — 17 of 25 is finished, not partial
+
+The eight unmapped keys are deliberate, and a successor should not "complete" the map:
+
+- `auto_snap_*` — service snapshot lifecycle; no CLI counterpart exists.
+- the multi-candidate set — likewise no CLI counterpart.
+- `epochs_max` — **pinned by a test** precisely so nobody adds it. It is documented
+  DEPRECATED / never-applied server-side (§9.3), so mapping it would make the CLI honour a knob
+  the service ignores — a new divergence, dressed as parity.
+
+`max_epochs → output_epochs` aliasing is also deliberately untouched: it is what gives the CLI one
+budget for every pass, and the resulting divergence is instrumented per §10.1.
+
+### 10.3 The comparability consequence, which is easy to miss
+
+**L-4 changed what a direct-CLI run computes, on BOTH legs of the R-3 rule.**
+
+- `max_iterations` now bounds `grow_network`'s loop — the CLI previously ran the constant
+  `1000000`. A CLI spiral-baseline run therefore caps at `min(12, 24) = 12` rounds.
+- `early_stopping` is now mapped too. That is the other leg: the R-3 cap-reading rule holds only
+  under `early_stopping: true`, and the CLI now honours whatever the YAML says rather than
+  `fit()`'s default.
+
+**Prior direct-CLI results are not comparable across cascor#556.**
+
+This does **not** affect the T6 re-baseline: E-A / E-I / E-C run the SERVICE path
+(`POST /v1/training/start`), and cascor's Golden Regression + Conformance gates both passed on the
+L-4 merge.
+
+### 10.4 Documentation debt this created, and where it was paid
+
+Mapping six previously-unmapped keys silently falsified every document that had reasoned from
+their being unmapped. Found and corrected 2026-08-24:
+
+- `util/ad-hoc/2026-08-16_h2h_wide_nrot3.yaml` — its EQUALISE and OMIT buckets classified six of
+  the nine newly-mapped keys, and asserted a candidate-patience comparison was "NOT AVAILABLE".
+  Taxonomy corrected in place; **no param value changed**, because seven shipped suites use the
+  file as their `base_config`.
+- `juniper-cascor/src/main.py` — `_resolve_cli_overrides`'s docstring still offered
+  `max_iterations` / `candidate_patience` as examples of *unmapped* keys, three lines above
+  cascor#555's own note explaining why a mapped example teaches the opposite of the point.
+  Self-inflicted by #556 over #555.
