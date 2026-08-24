@@ -7,6 +7,8 @@ props), and the pure config-injected factories.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
@@ -197,3 +199,84 @@ def test_api_key_header_module_global():
     # Carried over verbatim from cascor: an APIKeyHeader on X-API-Key, non-erroring.
     assert api_key_header.model.name == "X-API-Key"
     assert api_key_header.auto_error is False
+
+
+class TestRetryAfterNeverTellsTheClientZero:
+    """APD-SVCCORE-004 — ``Retry-After: 0`` is an instruction to hammer.
+
+    ``reset_in`` was ``int(window - elapsed)``, which truncates toward zero, so any
+    sub-second remainder became ``0``. A client obeying the header retries *immediately*
+    into a limiter guaranteed to reject it again, and keeps doing so for the tail of every
+    window. Measured before the fix on a 1-second window: ``Retry-After: 0`` at 0.30s,
+    0.60s, 0.90s and 0.99s in -- every rejection, not an edge case.
+    """
+
+    @pytest.mark.parametrize("elapsed", [0.30, 0.60, 0.90, 0.99])
+    def test_rejection_never_reports_zero_seconds(self, elapsed: float) -> None:
+        """The defect, at the four points that used to return 0."""
+        limiter = RateLimiter(requests_per_minute=1, window_seconds=1)
+        limiter.check("k")
+        time.sleep(elapsed)
+
+        allowed, _remaining, reset_in = limiter.check("k")
+
+        assert allowed is False
+        assert reset_in >= 1, f"Retry-After={reset_in} tells the caller to retry immediately"
+
+    def test_value_rounds_up_rather_than_down(self) -> None:
+        """Rounding direction is the fix, not the floor.
+
+        A ``max(1, int(...))`` would pass the arm above while still under-reporting every
+        other remainder -- 4.2s left would say 4, waking the caller before the window
+        rolls. Only rounding up is correct: waiting a fraction too long costs nothing,
+        waking a fraction early reproduces the defect.
+        """
+        limiter = RateLimiter(requests_per_minute=1, window_seconds=10)
+        limiter.check("k")
+        time.sleep(0.4)
+
+        _allowed, _remaining, reset_in = limiter.check("k")
+
+        # 9.6s remain; truncation would say 9.
+        assert reset_in == 10
+
+    def test_realistic_window_still_reports_the_real_wait(self) -> None:
+        """The floor must not flatten every answer to 1."""
+        limiter = RateLimiter(requests_per_minute=1, window_seconds=60)
+        limiter.check("k")
+
+        _allowed, _remaining, reset_in = limiter.check("k")
+
+        assert reset_in == 60
+
+    def test_allowed_path_agrees_with_the_rejection_path(self) -> None:
+        """Both feed headers describing the same instant.
+
+        ``check`` returns ``reset_in`` on the allowed path too, which becomes
+        ``X-RateLimit-Reset``. It carried the identical truncation, so the two headers
+        could disagree by a second for the same window.
+        """
+        limiter = RateLimiter(requests_per_minute=5, window_seconds=10)
+        _allowed, _remaining, reset_allowed = limiter.check("k")
+
+        assert reset_allowed >= 1
+        assert reset_allowed == 10
+
+    @pytest.mark.asyncio
+    async def test_429_response_carries_the_corrected_header(self) -> None:
+        """End to end: the header a caller actually receives.
+
+        Asserting on ``check`` alone would pass even if the middleware formatted a
+        different value into the response.
+        """
+        limiter = RateLimiter(requests_per_minute=1, window_seconds=1)
+        request = _make_request()
+        await limiter(request)  # first call consumes the budget
+        time.sleep(0.5)
+
+        with pytest.raises(HTTPException) as excinfo:
+            await limiter(request)
+
+        assert excinfo.value.status_code == 429
+        assert int(excinfo.value.headers["Retry-After"]) >= 1
+        assert excinfo.value.headers["Retry-After"] == excinfo.value.headers["X-RateLimit-Reset"]
