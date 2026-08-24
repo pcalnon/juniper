@@ -28,10 +28,15 @@ DEST="${1:-/mnt/Backups/Ubuntu}"
 # "passphrase did NOT produce a ZIP stream" for a perfectly good archive.
 ENVFILE="${2:-}"
 if [ -z "$ENVFILE" ]; then
-    echo "usage: $0 <dest_dir> <archive-passphrase-file>" >&2
-    echo "NOTE: the archive passphrase is NOT the web-UI password in .env." >&2
+    echo "usage: $0 <dest_dir> <passphrase-file> [key]" >&2
+    echo "NOTE: .env holds SEVERAL 32-char secrets -- the new set's passphrase," >&2
+    echo "the old archive's, and the web-UI password. Neither length nor position" >&2
+    echo "distinguishes them, so pass the key name explicitly." >&2
     exit 2
 fi
+# Which KEY= entry to read. Defaulting to the first line silently tests the
+# wrong secret and reports a perfectly good archive as undecryptable.
+PPKEY="${3:-PASSPHRASE}"
 
 if [ ! -r "$ENVFILE" ]; then
     echo "FAIL: cannot read env file: $ENVFILE" >&2
@@ -41,8 +46,8 @@ fi
 # file executes it as shell: a password containing `$` then dies with "unbound
 # variable" under `set -u`, and one containing backticks would EXECUTE. Parse it
 # instead -- never source a file that may not be shell.
-if grep -qE '^[[:space:]]*(export[[:space:]]+)?PASSPHRASE=' "$ENVFILE" 2>/dev/null; then
-    PASSPHRASE=$(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?PASSPHRASE=(.*)$/\2/p' \
+if grep -qE "^[[:space:]]*(export[[:space:]]+)?${PPKEY}=" "$ENVFILE" 2>/dev/null; then
+    PASSPHRASE=$(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?${PPKEY}=(.*)$/\2/p" \
                  "$ENVFILE" | head -1)
     case "$PASSPHRASE" in
         \'*\') PASSPHRASE=${PASSPHRASE#\'}; PASSPHRASE=${PASSPHRASE%\'} ;;
@@ -55,7 +60,7 @@ if [ -z "${PASSPHRASE:-}" ]; then
     echo "FAIL: no passphrase recovered from $ENVFILE" >&2
     exit 2
 fi
-echo "credential  : $ENVFILE (${#PASSPHRASE} chars)"
+echo "credential  : $ENVFILE key=$PPKEY (${#PASSPHRASE} chars, sha256[:16]=$(printf '%s' "$PASSPHRASE" | sha256sum | cut -c1-16))"
 
 # awk, not `sort -n | head -1`: head exits after one line and SIGPIPEs sort,
 # which prints "sort: write failed: Broken pipe" to stderr on every run.
