@@ -39,4 +39,7 @@ workflows as of 2026-04-29:
 - `aquasecurity/trivy-action@0.34.0` → `dc5a429b52fcf669ce959baa2c2dd26090d2a6c4`
 - `peter-evans/create-pull-request@v7.0.5` → `271a8d0340265f705aeb70568e08251a5f6ed72b`
 
-Dependabot will keep these current after rollout.
+Dependabot will keep these current after rollout. **Do not treat this table as live pins.**
+The 2026-04-29 snapshot lags the fleet: juniper-ml's CodeQL pins, the `codeql-action` Dependabot
+group, and the accepted `merge_group` trigger live in `.github/workflows/codeql.yml`. Operator
+surface: [`docs/REFERENCE.md` § CodeQL Analysis](../../docs/REFERENCE.md#codeql-analysis).

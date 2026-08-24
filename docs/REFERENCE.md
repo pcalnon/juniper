@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.6
+**Version:** 0.6.7
 **Status:** Active
-**Last Updated:** 2026-08-07
+**Last Updated:** 2026-08-24
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -29,6 +29,7 @@
 - [Release-Train Detect Summary and Slack](#release-train-detect-summary-and-slack)
 - [AGENTS.md Date Check](#agentsmd-date-check)
 - [Claude.yml Access Validation](#claudeyml-access-validation)
+- [CodeQL Analysis](#codeql-analysis)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
@@ -1530,6 +1531,7 @@ juniper-ml/
 │       ├── docs-full-check.yml# Weekly full documentation link validation (cross-repo; ECOSYSTEM_REPOS clone list)
 │       ├── security-scan.yml  # Weekly pip-audit --strict security scanning
 │       ├── lockfile-update.yml# Weekly juniper-generate-dep-docs -> chore/lockfile-update PR
+│       ├── codeql.yml         # Python semantic SAST; required context Analyze (python); SHA-grouped Dependabot bumps
 │       ├── ci-*.yml           # Six shared sub-package CIs (ci-tools/config-tools/doc-tools/model-core/observability/service-core)
 │       ├── publish-*.yml      # Six shared sub-package PyPI publishers (Release-tag-prefix guarded)
 │       ├── release-train.yml  # Daily PyPI release-train detection (report-only, Phase 1)
@@ -1798,6 +1800,10 @@ With the `SLACK_WEBHOOK_URL` repo secret present (owner-provisioned incoming web
 
 Triggered by issue/PR comments and events mentioning @claude. Uses `anthropics/claude-code-action` for automated issue/PR assistance.
 
+### CodeQL Analysis (`codeql.yml`)
+
+Python semantic SAST. Required ruleset context **`Analyze (python)`** — **not** a Quality Gate `needs:` member (soak-then-promote, same convention sequence-safety copies). SHA-pinned `github/codeql-action/{init,autobuild,analyze}` must share one SHA; Dependabot group `codeql-action` (`github/codeql-action*`) is what keeps a bump atomic. Operator surface: [`docs/REFERENCE.md` § CodeQL Analysis](#codeql-analysis).
+
 ---
 
 ## PR Base-Branch Guard
@@ -1851,6 +1857,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   `__main__.py`); `build.needs: test`; service-core installs sibling `juniper-model-core` from the monorepo root (no test-job `working-directory`).
   Gate: `tests/test_subpackage_ci_workflows.py`. Operator table: [`docs/REFERENCE.md` § Shared-Package CI Workflows](#shared-package-ci-workflows).
 - `.github/workflows/docs-full-check.yml` -- Weekly full documentation link validation including cross-repo checks. `env.ECOSYSTEM_REPOS` (the clone list) must equal the registry's publishing repos minus `juniper-ml` plus `juniper-deploy`; omitting a sibling silently drops it from every weekly screen. Gate: `tests/test_docs_full_check_ecosystem.py`. Operator surface: [`docs/REFERENCE.md` § Docs Full Check](#docs-full-check).
+- `.github/workflows/codeql.yml` -- Python semantic SAST (`queries: +security-and-quality`). Required ruleset context **`Analyze (python)`**; absent from Quality Gate `needs:`. `merge_group:` is an accepted juniper-ml-only divergence so that context re-posts on a queued merge. Dependabot group `codeql-action` keeps `init` / `autobuild` / `analyze` on one SHA. Operator surface: [`docs/REFERENCE.md` § CodeQL Analysis](#codeql-analysis).
 - `.github/workflows/security-scan.yml` -- Weekly `pip-audit --strict --desc on` after `pip install -e .` (read-only permissions). Deliberately unlike the per-PR `ci.yml` `security` job, which uses `--skip-editable` and omits `--strict` so an unreleased editable meta install cannot fail every PR. Do not copy either contract onto the other path. Gate: `tests/test_security_scan_workflow.py`.
 - `.github/workflows/lockfile-update.yml` -- Weekly (Monday 08:00 UTC) `juniper-generate-dep-docs` refresh; a SHA-pinned `peter-evans/create-pull-request` opens `chore/lockfile-update` with labels `dependencies` + `automated` (permissions exactly `contents: write` + `pull-requests: write`). Never resurrect the deleted `util/generate_dep_docs.sh` (juniper-ml#298). Gates: `tests/test_lockfile_update_workflow.py` (structure) + `tests/test_ci_tools_drift.py` (pin ceiling).
 - `.github/workflows/release-train.yml` -- Daily (13:00 UTC) PyPI release-train orchestrator.
@@ -2435,6 +2442,58 @@ The bash auditor covers L2/L3 structure only; juniper-ml's own `on:` event matri
 
 ---
 
+## CodeQL Analysis
+
+[`.github/workflows/codeql.yml`](../.github/workflows/codeql.yml) is the Python semantic-SAST lane. It is **not** a Quality Gate `needs:` member — the check context **`Analyze (python)`** is promoted in the **branch ruleset** (`required_status_checks`), the same soak-then-promote path later jobs copy (see [Flood-Remediation CI Gates](#flood-remediation-ci-gates)). SARIF from the job also feeds the ruleset `code_scanning` rule (tool: CodeQL). There is no in-repo `tests/test_codeql_*.py` and no `.github/codeql-config.yml`; the live workflow file is the contract.
+
+### Workflow contract
+
+| Item | Value |
+|------|-------|
+| Workflow name | `CodeQL Analysis` |
+| Job / check context | `analyze` / **`Analyze (python)`** (`strategy.matrix.language: ['python']`) |
+| Triggers | `push` to `main`/`develop`; `pull_request` targeting `main`; `merge_group`; cron `0 6 * * 1` (Monday 06:00 UTC) |
+| Permissions | `actions: read`, `contents: read`, `security-events: write` |
+| Queries | `+security-and-quality` (security pack **plus** quality queries) |
+| Config file | none — no `config-file:` input |
+| Action pins | SHA-pinned `github/codeql-action/{init,autobuild,analyze}` — **one SHA across all three**, with a `# vX.Y.Z` trailing comment |
+
+`actions/checkout` is pinned separately and is **not** in the CodeQL Dependabot group. Read the live `# v…` comments in the workflow for the current pin — do not copy a version number out of this page.
+
+### Dependabot group (split-pin prevention)
+
+`.github/dependabot.yml` (`github-actions` ecosystem) defines group `codeql-action` with pattern `github/codeql-action*`. That group is load-bearing. Without it, Dependabot opens one PR per subaction and the pins diverge.
+
+A split pin fails the job with `Loaded a configuration file for version 'X', but running version 'Y'`: `init` writes a config for its version, and a different `analyze` refuses it. The healthy bump is **one** PR titled like `ci: bump the codeql-action group … with 3 updates` that moves `init`, `autobuild`, and `analyze` together. Do not merge a partial bump; do not delete the group.
+
+`notes/templates/ci/codeql.yml` is the 2026-04-29 rollout snapshot (older SHA, no `merge_group`). Copy from the **live** workflow, not the template.
+
+Design: [`notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ENV-REPR-CODEQL-AND-RECURRENCE-PARITY-PLAN.md`](../notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ENV-REPR-CODEQL-AND-RECURRENCE-PARITY-PLAN.md) §2.2.
+
+### `merge_group` is an accepted juniper-ml-only divergence
+
+The file header still calls this a fleet template sourced from `juniper-data/.github/workflows/codeql.yml` with "no per-repo customization". juniper-ml is the only copy that listens on `merge_group`, so the required `Analyze (python)` context re-posts on a queued merge commit (flood-remediation §4 item 1). The divergence is deliberate:
+
+- Do **not** overwrite this file with the data / template copy — that drops `merge_group` and stalls a queue with no required check.
+- Do **not** sweep `merge_group` into siblings until that sibling enables its own merge queue.
+
+A User-owned repo cannot currently add the merge-queue **rule** ([enablement runbook](../notes/JUNIPER_2026-08-16_JUNIPER-ML_MERGE-QUEUE-ENABLEMENT-RUNBOOK.md) §4). The trigger stays as the prerequisite. Standing-item record: [`notes/JUNIPER_2026-08-09_JUNIPER-ECOSYSTEM_STANDING-ITEMS-CLOSEOUT-AND-HARNESS-REMEDIATION-PLAN.md`](../notes/JUNIPER_2026-08-09_JUNIPER-ECOSYSTEM_STANDING-ITEMS-CLOSEOUT-AND-HARNESS-REMEDIATION-PLAN.md) §3.12.
+
+### Operator pitfalls
+
+| Symptom | What it actually is | What to do |
+|---------|---------------------|------------|
+| `Analyze (python)` red: version mismatch | `init` / `autobuild` / `analyze` SHAs diverged | Align all three to one SHA; confirm `groups.codeql-action` still exists |
+| Dependabot opened 3 CodeQL PRs instead of 1 | Group missing or pattern not matching | Restore `groups.codeql-action` with pattern `github/codeql-action*` |
+| Checks green, merge `BLOCKED` | CodeQL left a PR review comment; unresolved threads do **not** appear in the check rollup | Read Conversation (or `gh pr view N --json mergeStateStatus`); **fix the finding in code** (export or delete an unused module global; add a new public name to `__all__`). Do not dismiss the bot thread by hand |
+| Merge stalled: "waiting for results from CodeQL" | Ruleset `code_scanning` has no SARIF for that SHA yet | Wait for `Analyze (python)` to finish; if a queued merge never gets a context, restore `on.merge_group` |
+| Quality Gate green, CodeQL red | Expected — CodeQL is not in `required-checks.needs` | Fix the CodeQL job or the finding; **never** add this job to Quality Gate `needs:` (a skip on `push:main` would fail the gate the same way sequence-safety would) |
+| Copying `notes/templates/ci/codeql.yml` "to sync the fleet" | Template has no `merge_group` and a stale SHA | Edit `.github/workflows/codeql.yml` |
+
+`code_scanning` wait strings observed in ruleset suites: [`notes/JUNIPER_2026-08-18_JUNIPER-ECOSYSTEM_CODE-QUALITY-RULE-AUDIT.md`](../notes/JUNIPER_2026-08-18_JUNIPER-ECOSYSTEM_CODE-QUALITY-RULE-AUDIT.md) §4.3.
+
+---
+
 ## Sibling Packages
 
 ### juniper-observability
@@ -2553,6 +2612,7 @@ Control receive rejects malformed / non-object JSON with close **1003** rather t
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.7   | 2026-08-24 | CodeQL Analysis operator surface: `Analyze (python)` ruleset context, SHA-grouped Dependabot bumps, accepted `merge_group` divergence, split-pin / review-thread pitfalls |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
@@ -2683,7 +2743,7 @@ The workflow comment is explicit (`# Security: failure = error, skipped = OK`). 
 
 Rapid serial merges on `main` must each complete their own `ci` / `main-verify` run — a ref-keyed cancel group would drop every merge except the last.
 
-`ci.yml` also listens on `merge_group` so required contexts re-post on the queued merge commit (merge-queue ruleset prerequisite). Without it the queue stalls with no required check.
+`ci.yml` **and** `codeql.yml` listen on `merge_group` so required contexts (`Quality Gate` jobs **and** `Analyze (python)`) re-post on the queued merge commit (merge-queue ruleset prerequisite). Without either trigger the queue stalls with no required check. The CodeQL `merge_group` listen is an accepted juniper-ml-only divergence — see [CodeQL Analysis](#codeql-analysis).
 
 ### G4 — pre-commit changed-files split (#880 phase 2)
 
@@ -2709,7 +2769,7 @@ Runs `juniper-symbol-loss-check` then `juniper-docs-additions-check` (juniper-ci
 | Commit trailer `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite:` | Primary, auditable waiver inside the modules; travels in history → also covers post-merge `main-verify`. |
 | `merge_group` event | No PR object → **strict** (label hatch unavailable). |
 
-Promote to REQUIRED later in the **branch ruleset**, never by adding the job to Quality Gate `needs:`. Soak convention mirrors CodeQL.
+Promote to REQUIRED later in the **branch ruleset**, never by adding the job to Quality Gate `needs:`. Soak convention mirrors [CodeQL](#codeql-analysis).
 
 Local repro:
 
@@ -2743,7 +2803,7 @@ Gate: `tests/test_ci_fleet_pr_lint.py` (the G4 pre-commit split and the label ha
 |---------|-------------|
 | Per-PR Sequence Safety red, Quality Gate green | Expected while advisory — inspect the `sequence-safety-report` artifact; waive with commit trailers (or owner label for WARN-only) |
 | Label greens Sequence Safety but `main-verify` fails after merge | Labels are PR-only; put `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite:` on a commit in the landed range |
-| Merge queue stuck with no required check | Confirm `ci.yml` still has `on.merge_group` and every required context re-posts on queue runs |
+| Merge queue stuck with no required check | Confirm `ci.yml` **and** `codeql.yml` still have `on.merge_group`; `Analyze (python)` must re-post on queue runs |
 | Rapid main merges “lost” a CI run | `ci.yml` push group must be per-SHA with cancel disabled; `main-verify` is always per-SHA / no-cancel |
 | `pass_filenames: false` hook still red on a tiny PR | Expected under G4 — those hooks run globally even with `--from-ref` |
 
@@ -2879,6 +2939,6 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 
 ---
 
-**Last Updated:** 2026-08-07
-**Version:** 0.6.6
+**Last Updated:** 2026-08-24
+**Version:** 0.6.7
 **Maintainer:** Paul Calnon
