@@ -98,6 +98,19 @@ default_targets() {
       if [ -f "$f" ]; then
         echo "$f"
         found=1
+      elif [ -d "$JUNIPER_ROOT/$repo" ]; then
+        # PRESENT BUT UNCOVERED. Before 2026-08-24 this branch did not exist, so a
+        # checked-out repo with no claude.yml was skipped in SILENCE and the audit
+        # still exited 0 -- it reported success over 8 of 9 repos. The only warning
+        # (below) fires when ZERO repos match, which never happens while any sibling
+        # has one, so partial coverage was indistinguishable from full coverage.
+        # juniper-recurrence is exactly that case: 14 workflows, no claude.yml.
+        #
+        # This is INFORMATIONAL, not a failure: a repo with no claude.yml spends no
+        # ANTHROPIC_API_KEY and has nothing to validate. Do NOT "fix" a warning here
+        # by adding a claude.yml to the repo -- that would hand a public repo a new
+        # key-spending workflow, which is the opposite of what this audit is for.
+        echo "::warning::${repo} is checked out under JUNIPER_ROOT but has no .github/workflows/claude.yml -- NOT audited (informational: no claude.yml means no ANTHROPIC_API_KEY surface to validate)" >&2
       fi
     done
     if [ "$found" -eq 0 ]; then
