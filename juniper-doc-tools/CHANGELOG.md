@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `ECOSYSTEM_REPOS` was missing **`juniper-recurrence`** and **`juniper-slacker`**,
+  two repos added to the polyrepo after the set was written. Drift here is silent
+  and misattributed: a repo absent from the set is never classified as a cross-repo
+  link, so `../juniper-recurrence/notes/x.md` is resolved as an ordinary intra-repo
+  path, fails, and is reported as a **broken link** — blaming the link rather than
+  the stale roster. Nothing tested the set; juniper-ml's
+  `tests/test_doc_tools_drift.py` now pins it against
+  `util/release_train/registry.yaml` (the same authority the claude.yml fan-out
+  uses), so the next repo added to the ecosystem cannot drift in silence.
+
 ### Changed
 
 - CI now enforces a **blocking per-file coverage gate** via
