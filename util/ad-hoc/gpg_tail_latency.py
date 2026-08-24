@@ -347,8 +347,12 @@ class Pipeline:
                         )
             try:
                 os.unlink(self.out_path)
-            except OSError:
-                pass
+            except OSError as e:
+                print(
+                    f"[pipeline {self.idx}] ignoring cleanup unlink error for "
+                    f"{self.out_path}: {e}",
+                    file=sys.stderr,
+                )
         return self.result
 
 
