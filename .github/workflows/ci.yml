@@ -254,6 +254,12 @@ jobs:
           # util/kill_all_pythons.bash and util/juniper_worker_kill.bash (PATH-stubbed
           # ps/sudo/kill; bash kill builtin disabled). util/ is not pre-commit-lint-gated.
           python3 -m unittest -v tests/test_kill_helpers.py
+          # tests/test_juniper_backup.py: hermetic preflight / dry-run / packet-count
+          # coverage for util/juniper-backup.bash (PATH-stubbed mountpoint/gpg/tar;
+          # no live YubiKey, no real external drive). The silent-success class:
+          # empty -o from an ENCRPYTED/ENCRYPTED split, unmounted dest filling the
+          # system disk, and a one-recipient archive that looks like a backup.
+          python3 -m unittest -v tests/test_juniper_backup.py
           python3 -m unittest -v tests/test_editable_install_drift_check.py
           # tests/test_env_floor_drift_check.py: gap-I-2 floor-drift checker --
           # installed juniper-* (dist-info METADATA) vs the target repo's pyproject

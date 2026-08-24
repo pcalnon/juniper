@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-23
+**Last Updated**: 2026-08-24
 
 ---
 
@@ -74,6 +74,7 @@ python3 -m unittest -v tests/test_worktree_sweep_scripts.py
 python3 -m unittest -v tests/test_cleanup_session_worktrees.py
 python3 -m unittest -v tests/test_reap_pytest_orphans.py
 python3 -m unittest -v tests/test_kill_helpers.py
+python3 -m unittest -v tests/test_juniper_backup.py
 python3 -m unittest -v tests/test_check_conda_env_torch.py
 python3 -m unittest -v tests/test_requirements_drift_check.py
 python3 -m unittest -v tests/test_editable_install_drift_check.py
