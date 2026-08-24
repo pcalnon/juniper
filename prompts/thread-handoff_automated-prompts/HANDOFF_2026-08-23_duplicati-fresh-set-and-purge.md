@@ -16,52 +16,42 @@ Plan: [`…_DUPLICATI-FRESH-BACKUP-SET-PLAN.md`](../../notes/JUNIPER_2026-08-23_
 
 ---
 
-## 0. 🔴 READ FIRST — the fresh set's passphrase is NOT in `.env`
+## 0. ✅ RESOLVED — a passphrase divergence that nearly cost the fresh set
+
+**Recorded because the failure mode is invisible and will recur, not because action is needed.**
 
 The `Ubuntu-fresh` backup launched 17:15 and read `PASSPHRASE` into its process environment. `.env`
-was then edited at **17:45** and `PASSPHRASE` was overwritten with a *different* value (the old UI
-password). From that moment the secret encrypting the fresh set existed **only inside PID 779263**.
+was edited at 17:45 and that entry was overwritten with a different value. From then until 18:59 the
+secret encrypting ~40 GB existed **only inside PID 779263** — one process exit from permanently
+undecryptable, silently reproducing the exact "recorded nowhere recoverable" failure this arc exists
+to fix.
 
-Proven against a real volume from the fresh set:
+**Resolved 2026-08-23 18:59.** Verified independently, not assumed:
 
+| check | result |
+|---|---|
+| `.env:PASSPHRASE` vs the fresh set | decrypts — valid ZIP stream |
+| `.env:PASSPHRASE_OLD` vs the old archive | decrypts — valid ZIP stream |
+| running process vs `.env` | `MATCH` |
+
+The owner has also banked the value outside the machine.
+
+**The durable lesson: a file-vs-process divergence is invisible to any check that only reads the
+file.** Every check in this toolkit read the file. It was caught by a peer session reading
+`/proc/<pid>/environ` and comparing. That comparison is now a tool — run it whenever a long job
+holds a secret, and after any edit to a credential file while one is running:
+
+```bash
+python3 util/ad-hoc/duplicati_secret_check.py \
+    --match-cmd 'duplicati-cli backup' --file .env --key PASSPHRASE
 ```
-captured value        DECRYPTS THE FRESH SET
-.env PASSPHRASE       does not decrypt (Bad session key)
-.env PASSPHRASE_OLD   does not decrypt (Bad session key)
-```
 
-**The value is captured** at `~/duplicati-Ubuntu-fresh-passphrase-RECOVERED.env` (mode 0600, outside
-the repo, key `PASSPHRASE_UBUNTU_FRESH`, `sha256[:16]=6d8b263f6d064556`).
+Exit 0 = match, 1 = **DIFFER** (act immediately: capture from `/proc/<pid>/environ` before the
+process exits), 2 = undetermined. It prints only the verdict — never a hash, length, or fragment.
 
-> **To check whether a running job still matches its file**, use the purpose-built tool — it
-> compares in-process and prints only `MATCH` / `DIFFER`, never a hash, length, or fragment:
->
-> ```bash
-> python3 util/ad-hoc/duplicati_secret_check.py \
->     --match-cmd 'duplicati-cli backup' --file .env --key PASSPHRASE
-> ```
->
-> Exit 0 = match, 1 = **DIFFER** (act immediately), 2 = undetermined. Right now this reports
-> DIFFER for pid 779263, which is the incident above. The runners deliberately log only the
-> key name — an earlier design logged a truncated hash and CodeQL was right to flag it: a
-> password-derived value reaching a log sink is the wrong shape even when the particular
-> derivation is safe.
-
-**Before anything else:**
-
-1. Record that value in a password manager. It protects the only current copy of everything since
-   2025-11-12.
-2. Reconcile `.env`. If the 17:45 edit was accidental, restore `PASSPHRASE` to the captured value.
-   If a different passphrase was genuinely intended for the fresh set, the running backup must be
-   killed and restarted against an **emptied** destination — the runner refuses to append to a
-   non-empty one precisely to prevent a half-set under two secrets.
-3. Until reconciled, pass `--passphrase-key`/`DUPLICATI_PW_KEY` explicitly everywhere, and read the
-   fresh set with the RECOVERED file, not `.env`.
-
-⚠ **A file-vs-process divergence is invisible to any check that only reads the file.** The value was
-verified correct at ~17:30 and drifted afterwards; nothing in the tooling would have noticed. When a
-long job holds a secret, compare `/proc/<pid>/environ` against the file — all six runners now log a
-`sha256[:16]` prefix so this comparison is one step.
+**Housekeeping**: `~/duplicati-Ubuntu-fresh-passphrase-RECOVERED.env` (0600) was the emergency
+capture. Now that `.env` is correct and the value is banked, it is a redundant plaintext copy of a
+live secret — delete it once the first backup completes and its restore drill passes.
 
 ---
 
