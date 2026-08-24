@@ -28,8 +28,13 @@ whose §3 item 1 (classifier) is what this closes.
 ## 1. Headline
 
 **526 of 27,908 snapshots (1.88%) fail to load**, against a §6.2 index that reports all
-27,908 as `readable`. All 526 decompose into exactly **four** root causes with nothing
-left over (§3), and **253 of them are recoverable today**.
+27,908 as `readable`. All 526 decompose into exactly **three** root causes — A, B and C —
+across five distinct failure signatures (§3), with nothing left over, and **253 of them are
+recoverable today**.
+
+> ⚠ **CORRECTION (2026-08-23).** This document said "four root causes" here and in §3. There
+> are **three**: A (239), B (273, spanning three signatures), C (14) = 526. The miscount read
+> B's three signatures as separate causes. There is no cause D.
 
 In order of how much each changes the plan:
 
@@ -127,7 +132,8 @@ Full load pass over all 27,908 files, `snapshot_classify.py --stage load --write
 **526 fail to load, against an index that reports all 27,908 as `readable`.** That is
 1.75× the forensics design's ~300 extrapolation, because D-E's gates now enforce.
 
-Every one of the 526 decomposes into exactly **four** root causes, with nothing left over:
+Every one of the 526 decomposes into exactly **three** root causes — A, B, C — across five
+distinct failure signatures, with nothing left over:
 
 | # | signature | files | root cause | recoverable? |
 |---|---|---:|---|---|
@@ -388,12 +394,17 @@ Two details the implementation had to get right, neither obvious from this secti
 > published. Measured over an 800-snapshot sample while fixing the defect
 > (juniper-cascor#565):
 
-| field | reality | assigned in `CascadeCorrelationNetwork`? |
+| field | reality **in the archive as written** | assigned in `CascadeCorrelationNetwork`? |
 |---|---|---|
-| `current_epoch` | INERT — `0` in all 800 | **never** |
-| `patience_counter` | INERT — `0` in all 800 | **never** (and §4.1 did not list it) |
-| `best_value_loss` | INERT — `inf` in all 800 | **never** |
+| `current_epoch` | INERT — `0` in all 800 | **never** — still true at HEAD |
+| `patience_counter` | INERT — `0` in all 800 | never *before* cascor#565; **assigned now** |
+| `best_value_loss` | INERT — `inf` in all 800 | never *before* cascor#565; **assigned now** |
 | **`snapshot_counter`** | **LIVE — 28 distinct values** | **yes, and it increments** |
+
+The middle column describes the **archive as written before the fix** and will not change. The
+right-hand column describes the **code at HEAD**: cascor#565 made `grow_network` publish
+`best_value_loss` and `patience_counter`, so snapshots written from now on carry measured
+values. Only `current_epoch` stays unmaintained — and is now *omitted* rather than fabricated.
 
 The count of three was right; the membership was wrong in **both** directions. One network's
 110 snapshots carry `snapshot_counter` **0 → 109**, tracking its growth curve exactly — a
@@ -407,7 +418,16 @@ back; `self.best_value_loss` is assigned nowhere in the class. `_save_metadata` 
 
 **Fixed in juniper-cascor#565**, in two halves. `grow_network` now publishes what it already
 computed, and `_save_metadata` writes a counter **only if the network carries it** — so
-`current_epoch` is now *absent* rather than fabricated as `0`. The second half is the
+`current_epoch` is now *absent* rather than fabricated as `0`.
+
+⚠ **#565 was only half the fix.** It left `_restore_training_state_helper` fabricating with
+`.get(name, default)`, so the defect returned on any **resume** path: loading a snapshot that
+correctly omitted `best_value_loss` wrote `inf` onto the instance, and re-saving produced a
+file claiming a measurement nobody took. Closed in **juniper-cascor#574**, which also fixed a
+second defect the guard exposed — the helper's own debug log f-stringed `patience_counter`
+unconditionally, so an absent counter raised `AttributeError` and a perfectly good snapshot
+reported as `SNAPSHOT_CORRUPT`. Found by independent multi-agent review, not by #565's own
+suite, which exercised only the one field that helper already guarded. The second half is the
 generalisable one: a fabricated default is **indistinguishable from a real measurement**, so a
 reader cannot tell "training never improved" from "nobody wrote this down". That is exactly
 the reading that would have justified deleting 27,005 real models.
