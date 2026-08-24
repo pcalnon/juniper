@@ -77,8 +77,14 @@ fail() {
     exit 1
 }
 
-# --- Guard 1: the secret must be present -------------------------------------
+# --- Guard 1: the secret must be present and plausible -----------------------
+# The length floor mirrors util/ad-hoc/duplicati_first_backup.bash. It cannot
+# detect a WRONG passphrase -- nothing here can, because Duplicati will happily
+# encrypt a fresh set under any value -- but it does catch a truncated or
+# partially-substituted credential file, which is the realistic edit accident.
 [[ -n "${PASSPHRASE:-}" ]] || fail "PASSPHRASE is unset or empty; refusing to run"
+[[ "${#PASSPHRASE}" -ge 12 ]] \
+    || fail "PASSPHRASE is ${#PASSPHRASE} chars, under the 12-char floor; refusing to run"
 
 # --- Guard 2: the destination must actually be mounted -----------------------
 mountpoint -q "${DEST_MOUNT}" \
@@ -104,22 +110,65 @@ if [[ "${TEMP_FSTYPE}" == "tmpfs" || "${TEMP_FSTYPE}" == "ramfs" ]]; then
     fail "${TEMP_DIR} is ${TEMP_FSTYPE} (RAM-backed); refusing to stage 500 MB volumes in memory"
 fi
 
+# --- skip helper -------------------------------------------------------------
+# A skip is NOT silently successful. Two things make it safe:
+#   1. It stamps last-run.status with a CURRENT timestamp, so the file cannot
+#      freeze at an old result and read as "still fine".
+#   2. If no run has actually SUCCEEDED within STALE_DAYS, the skip escalates to
+#      a hard failure so OnFailure= fires. Without this, a persistently hung
+#      duplicati (which happened on 2026-08-23 and whose root cause is still
+#      open) would make every nightly run skip, systemd would report success,
+#      and the backup would silently stop -- the exact failure this whole lane
+#      exists to prevent.
+STALE_DAYS="${DUPLICATI_STALE_DAYS:-3}"
+
+skip_or_fail() {
+    local reason="$1"
+    local last_ok=0
+    if [[ -r "${STATUS_FILE}" ]] && grep -q '^result=OK' "${STATUS_FILE}"; then
+        last_ok="$(stat -c '%Y' "${STATUS_FILE}" 2>/dev/null || echo 0)"
+    fi
+    local age_days=$(( ( $(date +%s) - last_ok ) / 86400 ))
+    if [[ "${age_days}" -gt "${STALE_DAYS}" ]]; then
+        fail "${reason}; and no successful run in ${age_days} days (limit ${STALE_DAYS}) -- escalating"
+    fi
+    log "${reason}; skipping this run"
+    write_status SKIPPED "${reason}"
+    exit 0
+}
+
 # --- Guard 4: exactly one runner ---------------------------------------------
 exec 9>"${LOCK_FILE}"
 if ! flock -n 9; then
-    log "another run holds ${LOCK_FILE}; exiting 0 (not an error)"
-    exit 0
+    skip_or_fail "another run holds ${LOCK_FILE}"
 fi
 
-# --- Guard 5: no hand-started backup already in flight ------------------------
-# flock only serialises runs started THROUGH this script. A backup launched by
-# hand -- exactly how the 2026-08-23 fresh set was seeded -- holds no lock, so
-# the timer could otherwise start a second writer against the same local DB.
-# The bracket in '[d]uplicati-cli' keeps this grep from matching itself; a plain
-# `pgrep -f` here would always self-match and report a permanent false positive.
-if ps -eo args | grep -q '^[d]uplicati-cli backup'; then
-    log "a duplicati-cli backup is already running (started outside this script); exiting 0"
-    exit 0
+# --- Guard 5: nothing else is already writing this local database -------------
+# flock only serialises runs started THROUGH this script. Anything else that
+# opens the same local DB corrupts it, and there are at least three ways in:
+#   * a hand-started `duplicati-cli backup` (how the 2026-08-23 set was seeded)
+#   * the same, invoked by absolute path -- a name-anchored regex MISSES this
+#   * duplicati-server running the job in-process from the web UI, which never
+#     spawns a `duplicati-cli` child at all and so cannot be found by name
+# So the check is on the DATABASE, not the process name: if any live process
+# holds the dbpath open, stand down. That covers all three, including ones not
+# yet imagined.
+# `pgrep -f` must NOT be used for process-name checks here -- it self-matches.
+db_holder_pids() {
+    local pid fd
+    for fd in /proc/[0-9]*/fd/*; do
+        [[ -e "${fd}" ]] || continue
+        if [[ "$(readlink -f "${fd}" 2>/dev/null)" == "${DBPATH}" ]]; then
+            pid="${fd#/proc/}"; pid="${pid%%/*}"
+            [[ "${pid}" == "$$" ]] && continue
+            printf '%s\n' "${pid}"
+        fi
+    done | sort -u
+}
+
+HOLDERS="$(db_holder_pids || true)"
+if [[ -n "${HOLDERS}" ]]; then
+    skip_or_fail "another process already has ${DBPATH} open (pids: ${HOLDERS//$'\n'/ })"
 fi
 
 log "starting backup"
