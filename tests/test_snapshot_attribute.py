@@ -132,6 +132,8 @@ def attributed_row(name: str, dataset: str, **scores) -> dict:
 class _ParamsDeclaringNoSeed:
     """Stands in for the five generators whose params declare ``seed=None``."""
 
+    __slots__ = ("seed",)
+
     def __init__(self, seed=None):
         self.seed = seed
 
