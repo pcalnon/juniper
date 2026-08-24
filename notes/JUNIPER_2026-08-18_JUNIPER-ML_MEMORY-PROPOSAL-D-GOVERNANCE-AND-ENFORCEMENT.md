@@ -562,6 +562,12 @@ weaker deterrent than a hard block and a much stronger one than a warning.
 - **The trailer requires a free-text reason**, and the checker FAILs a bare
   `Allow-Budget-Overrun: AGENTS.md` with no `— <reason>` suffix. A waiver you must justify in
   prose is measurably harder to write reflexively than one you can paste.
+  > **CORRECTION 2026-08-24 — NOT IMPLEMENTED, and the stated behaviour was inverted.** The
+  > checker accepted **only** the bare form and silently discarded the `— <reason>` form this
+  > bullet mandates. As of 2026-08-24 **both** forms are accepted and an unparseable claim is
+  > reported rather than dropped; requiring a reason is still an open, deliberate decision. See
+  > the correction in
+  > [`JUNIPER_2026-08-18_JUNIPER-ML_MEMORY-ARCHITECTURE-SYNTHESIS-2.md`](JUNIPER_2026-08-18_JUNIPER-ML_MEMORY-ARCHITECTURE-SYNTHESIS-2.md).
 - **The #1165 lesson, encoded**: the failure message for a *net-reduction* PR that also
   removes a heading routes to the docs screen rather than the budget gate, and says
   "restore, don't waive." The budget gate must never become the mechanism by which a content

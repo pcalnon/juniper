@@ -161,6 +161,20 @@ class WaiverIsALoanTest(unittest.TestCase):
     def test_trailer_parsing(self):
         self.assertEqual(mbc.read_waivers("body\n\nAllow-Budget-Overrun: AGENTS.md\n"), {"AGENTS.md"})
         self.assertEqual(mbc.read_waivers("no trailer here"), set())
+        # The `<path> - <reason>` form the design docs mandate. Accepted since
+        # 2026-08-24; before that it parsed as nothing, silently.
+        self.assertEqual(
+            mbc.read_waivers("body\n\nAllow-Budget-Overrun: AGENTS.md — see notes/inbox/x.md\n"),
+            {"AGENTS.md"},
+        )
+
+    def test_reason_form_waives_end_to_end(self):
+        """Parsing is not the contract -- the WAIVER must actually apply."""
+        with TemporaryDirectory() as td:
+            fx = BudgetFixture(Path(td), base_chars=100, ceiling=150)
+            fx.set_size(300)
+            waived = mbc.read_waivers("Allow-Budget-Overrun: AGENTS.md — a stated reason")
+            self.assertEqual(fx.rows(waived)[0]["status"], "WAIVED")
 
 
 class MachineryNegativeControlTest(unittest.TestCase):
@@ -388,15 +402,60 @@ class CeilingRaiseTrailerTest(unittest.TestCase):
         self.assertEqual(mbc.read_ceiling_raise_waivers(overrun), set())
         self.assertEqual(mbc.read_waivers(raise_), set())
 
-    def test_reason_suffixed_form_is_not_matched(self) -> None:
-        # Same shape as the overrun trailer, and the same trap: two design docs
-        # recommend a `<path> -- <reason>` form that the regex rejects, so an
-        # author following them writes a trailer that is silently ignored.
-        # Pinned so the behaviour is at least deliberate and documented.
-        self.assertEqual(
-            mbc.read_ceiling_raise_waivers("Allow-Ceiling-Raise: AGENTS.md -- because"),
-            set(),
-        )
+    def test_reason_suffixed_form_is_accepted(self) -> None:
+        """Was ``test_reason_suffixed_form_is_not_matched`` -- inverted 2026-08-24.
+
+        The old test PINNED the divergence rather than closing it: the design docs
+        mandate `<path> - <reason>` and the regex rejected it, so an author following
+        the documentation wrote a trailer that parsed as nothing and got no diagnostic.
+        Pinning made the trap deliberate; it did not stop anyone falling into it. Both
+        forms are now accepted, and anything that still fails to parse is REPORTED.
+        """
+        for text in (
+            "Allow-Ceiling-Raise: AGENTS.md -- because",
+            "Allow-Ceiling-Raise: AGENTS.md — because",
+            "Allow-Ceiling-Raise: AGENTS.md - because",
+            "Allow-Ceiling-Raise: AGENTS.md – because",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(mbc.read_ceiling_raise_waivers(text), {"AGENTS.md"})
+
+    def test_reason_form_still_does_not_cross_match(self) -> None:
+        """Widening the tail must not let the cheap trailer authorise the dear one."""
+        overrun = "Allow-Budget-Overrun: AGENTS.md — reason"
+        raise_ = "Allow-Ceiling-Raise: AGENTS.md — reason"
+        self.assertEqual(mbc.read_ceiling_raise_waivers(overrun), set())
+        self.assertEqual(mbc.read_waivers(raise_), set())
+
+
+class UnparsedWaiverClaimIsReportedTest(unittest.TestCase):
+    """A waiver's entire payload is the commit message, so dropping one MUST be loud.
+
+    Silence is what let the checker and its design doc contradict each other: the
+    trailer sits visibly in the message, so the author has no reason to suspect it was
+    thrown away, and the run just stays red with no explanation.
+    """
+
+    def test_wellformed_claims_are_not_reported(self) -> None:
+        for text in (
+            "Allow-Budget-Overrun: AGENTS.md",
+            "Allow-Budget-Overrun: AGENTS.md — reason",
+            "Allow-Ceiling-Raise: docs/REFERENCE.md - reason",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(mbc.unparsed_waiver_claims(text), [])
+
+    def test_two_paths_on_one_line_are_reported_not_silently_halved(self) -> None:
+        """The dangerous near-miss: a greedy tail would take a.md and drop b.md."""
+        text = "Allow-Budget-Overrun: a.md b.md"
+        self.assertEqual(mbc.read_waivers(text), set())
+        self.assertIn(text, mbc.unparsed_waiver_claims(text))
+
+    def test_missing_path_is_reported(self) -> None:
+        self.assertEqual(mbc.unparsed_waiver_claims("Allow-Budget-Overrun:"), ["Allow-Budget-Overrun:"])
+
+    def test_non_waiver_prose_is_not_reported(self) -> None:
+        self.assertEqual(mbc.unparsed_waiver_claims("discussion of Allow-Budget-Overrun: mid-sentence"), [])
 
 
 if __name__ == "__main__":
