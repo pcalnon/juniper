@@ -19,9 +19,37 @@
 # ---------------------------------------------------------------------------------------------
 # EQUALISATION DOCTRINE
 #
+# ##############################################################################################
+# TAXONOMY CORRECTION -- 2026-08-24. READ BEFORE TRUSTING ANY BUCKET LABEL BELOW.
+#
+# juniper-cascor#556 (L-4 full parity, merged 15ad3d8) added NINE entries to
+# _W11_TRAINING_KEY_MAP. SIX of them are keys this file classifies as EQUALISE or OMIT
+# *because they were unmapped*. That premise is now false for every one of them:
+#
+#     candidate_patience  candidate_learning_rate  convergence_threshold
+#     candidate_convergence_threshold  early_stopping  max_iterations
+#
+# All six are MAPPED today -- grep `_W11_TRAINING_KEY_MAP` in juniper-cascor/src/main.py and
+# read the entries; do not trust a line number, the file moved 19 commits in three days.
+#
+# NO VALUE IN THIS FILE WAS CHANGED by that correction, deliberately: seven shipped suites use
+# this file as their base_config (p4/e-j-h2h-wide-cap64, -cap64-init42, -cap128,
+# p4/e-k-thread-probe-cap16, p4/e-l-determinism-cap4, p4/e-m-h2h-paired-cap64,
+# p4/e-n-profile-cap4), so editing a param here silently re-measures all seven. Only the
+# reasoning was corrected.
+#
+# WHAT THIS MEANS FOR THE NEXT CAMPAIGN. The doctrine's own logic now points the other way for
+# the OMIT bucket: pre-#556 the safe move was to omit a key so neither arm could receive it;
+# post-#556 the safe move is to SET it, because both arms honour it and omission leaves each
+# side on its own default -- which #556's commit note shows were NOT equal (spiral-baseline asks
+# candidate_learning_rate 0.05 / convergence_threshold 1.0e-5 while the CLI ran the constants
+# 0.1 and 0.001, 2x and 100x looser). The equalisation rationale below is therefore STALE, not
+# merely mislabelled: re-derive it against the current map before running this config again.
+# ##############################################################################################
+#
 # The direct CLI can only receive the YAML keys carried by main.py's _W11_DATASET_KEY_MAP /
-# _W11_TRAINING_KEY_MAP (juniper-cascor/src/main.py:228-249). Every key below is therefore
-# classified into exactly one of three buckets, and nothing is left to chance:
+# _W11_TRAINING_KEY_MAP (grep those names in juniper-cascor/src/main.py). Every key below is
+# therefore classified into exactly one of three buckets, and nothing is left to chance:
 #
 #   MAPPED   -- in the CLI map; both arms honour the configured value. Set it explicitly.
 #   EQUALISE -- NOT in the CLI map, but setting it on the service makes the service behave the
@@ -30,10 +58,15 @@
 #               BOTH arms fall through to the same cascor_constants default. Equality then is
 #               structural, not an assumption about anyone's defaults.
 #
-# The OMIT bucket is why this file must NOT inherit juniper-cascor/conf/experiments/
+# The OMIT bucket WAS why this file must NOT inherit juniper-cascor/conf/experiments/
 # spiral-baseline.yaml the way E-I did: that file sets `candidate_patience: 100`, which the CLI
-# cannot receive, so the two arms would differ on a candidate knob and the head-to-head would be
-# invalid. Consequence, stated plainly: absolute accuracies here will NOT sit on E-I's capacity
+# could not receive, so the two arms would differ on a candidate knob and the head-to-head would
+# be invalid. VOID since cascor#556 -- the CLI receives candidate_patience now, so that specific
+# objection to inheriting spiral-baseline no longer holds. The base_config is nonetheless
+# UNCHANGED, because re-pointing it would re-measure the seven dependent suites; treat a switch
+# as its own decision with its own re-baseline, not as a cleanup.
+#
+# Consequence, stated plainly: absolute accuracies here will NOT sit on E-I's capacity
 # curve. That curve is a TARGETING rationale (it is what identified 64-128 units as the region
 # where a small path gap could still hide), not a comparison baseline.
 #
@@ -134,10 +167,11 @@ training:
     output_epochs: 2000          # service: every per-round output pass. CLI: wins over the alias.
 
     # --- EQUALISE: service-only keys whose value matches what the CLI already does ---
-    # max_iterations is absent from _W11_TRAINING_KEY_MAP, so it binds the SERVICE only; the
-    # CLI's growth is bounded by max_hidden_units alone (its log reports max_iterations
-    # 1000000). Setting it makes the service stop growing where the CLI already stops -- the
-    # opposite of the candidate_patience case, where setting it would change one arm only. It
+    # SUPERSEDED 2026-08-24 (cascor#556): max_iterations is MAPPED now, so it binds BOTH arms
+    # directly -- the CLI no longer runs the constant 1000000 and is no longer bounded by
+    # max_hidden_units alone. The value below still equalises, but for a simpler reason than the
+    # one recorded here, and this key now belongs in MAPPED rather than EQUALISE. Original
+    # reasoning, kept because the cap arithmetic in the next sentence is still load-bearing: it
     # must CLEAR the largest cap or that cap can never bind and the R-3 defect returns in a new
     # costume: growth adds one unit per iteration, so 128 is exactly enough for cap 128 and
     # inert at cap 64. Confirm it worked by checking units == max_hidden_units on both arms.
@@ -146,21 +180,35 @@ training:
     # (api/lifecycle/manager.py:1636-1639) calls min(max_iterations, max_hidden_units) a
     # reporting/display budget and says enforcement "stays with the granular limits themselves".
     max_iterations: 128
-    # early_stopping is likewise unmapped, and the CLI's default is True (its smoke-run
+    # SUPERSEDED 2026-08-24 (cascor#556): early_stopping is MAPPED now, so `true` below is
+    # honoured by BOTH arms explicitly rather than by the service matching a CLI default the
+    # YAML could not reach. Also a MAPPED key today, not EQUALISE. Original reasoning:
+    # early_stopping was unmapped, and the CLI's default is True (its smoke-run
     # fit:1918 line reads "early stopping: True" with nothing in the YAML able to set it).
     # Setting it True here makes the service match. Both arms PRINT the resolved value on that
     # same line, so max_epochs / max_iterations / early_stopping are all provable from the logs.
     early_stopping: true
 
-    # --- OMIT: unmapped, and setting them would move one arm only ---
-    # candidate_patience             -> both take _PROJECT_MODEL_CANDIDATE_PATIENCE = 50.
-    #   This is the juniper-cascor#514 knob. spiral-baseline sets it to 100, which is exactly
-    #   why this file does not inherit that config. If a non-default candidate patience is ever
-    #   genuinely wanted, this comparison is NOT AVAILABLE until _W11_TRAINING_KEY_MAP carries
-    #   the key -- say so rather than running it.
-    # candidate_learning_rate        -> both take the module default.
-    # convergence_threshold          -> both take the module default.
-    # candidate_convergence_threshold-> both take the module default.
+    # --- OMIT: BUCKET INVALIDATED 2026-08-24 (cascor#556) -- all four keys are MAPPED ---
+    # The bucket's premise was "unmapped, so setting them would move one arm only". Every key
+    # below is now in _W11_TRAINING_KEY_MAP, so setting any of them moves BOTH arms and the
+    # OMIT rationale no longer applies to any of them.
+    #
+    # They are still omitted here, unchanged, because seven suites depend on this base config
+    # (see the TAXONOMY CORRECTION block at the top). But omission is no longer the SAFE choice
+    # it was: it now leaves each arm on its own default, and #556's own commit note records
+    # those defaults differing by 2x and 100x for two of these keys. Set them explicitly the
+    # next time this config is used in anger.
+    #
+    # candidate_patience             -> juniper-cascor#514 knob; MAPPED since #556.
+    #   The old note said a non-default candidate-patience comparison was "NOT AVAILABLE until
+    #   _W11_TRAINING_KEY_MAP carries the key". It carries the key. The comparison IS AVAILABLE.
+    #   Unset, both arms still fall to _PROJECT_MODEL_CANDIDATE_PATIENCE = 50.
+    # candidate_learning_rate        -> MAPPED since #556. Unset, the two defaults are NOT known
+    #   to agree: #556 records the CLI running 0.1 where the config asked 0.05.
+    # convergence_threshold          -> MAPPED since #556. Same caveat: CLI ran 0.001 against a
+    #   configured 1.0e-5, 100x looser.
+    # candidate_convergence_threshold-> MAPPED since #556.
 
 runtime:
   num_processes: 4
