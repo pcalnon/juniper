@@ -3,10 +3,17 @@
 
 Flood-remediation P2 gate G3 (ml#873 / §4 item 8): a quoted ``[skip ci]`` in a
 merge-commit body skips THIS workflow entirely, so a window of merges can land
-un-screened. The ``Resolve catch-up base`` step must prefer the head_sha of the
-most recent SUCCESSFUL main-verify run on main WHEN that tip is an ancestor of
-HEAD (sweeping the skipped window), else ``github.event.before``, else
+un-screened. The ``Resolve catch-up base`` step must reach back to the last tip
+KNOWN SCREENED when that tip is an ancestor of HEAD (sweeping the skipped
+window), else the last SUCCESSFUL tip, else ``github.event.before``, else
 ``HEAD^1``.
+
+The base ratchets on SCREENED, not on GREEN (2026-08-23). Resolving it from
+run-level ``status=success`` conflated "this window was screened" with "the
+screens found nothing", and was the mechanism behind a recurring red ``main``:
+a finding froze the base, so every later merge re-screened the same window and
+failed on someone else's damage, each red guaranteeing the next. Design of
+record: ``notes/JUNIPER_2026-08-23_JUNIPER-ML_MAIN-VERIFY-CATCHUP-BASE-SCREENED-NOT-GREEN-DESIGN.md``.
 
 This unittest extracts the workflow's OWN shell (not a reimplementation) and
 drives it over a hermetic git fixture + stub ``gh`` — the same idiom as
@@ -107,8 +114,20 @@ class CatchUpBaseRehearsalTest(unittest.TestCase):
         before: str,
         last_ok: str,
         repo_name: str = "pcalnon/juniper-ml",
+        completed_runs: list[tuple[str, str]] | None = None,
+        verdicts: dict[str, str] | None = None,
     ) -> tuple[str, str, str]:
-        """Return (base, reason_line, step_summary)."""
+        """Return (base, reason_line, step_summary).
+
+        ``completed_runs`` / ``verdicts`` drive the TIER 1 (screened) walk added
+        2026-08-23: the resolver lists completed runs, then asks each one's jobs
+        for the conclusion of the ``Assert screens reached a verdict`` step.
+        ``last_ok`` drives the legacy TIER 2 ``status=success`` query. Leaving the
+        tier-1 inputs empty exercises tier 2 and below, which is what the five
+        pre-existing cases below do.
+        """
+        completed_runs = completed_runs or []
+        verdicts = verdicts or {}
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
             script_path = td_path / "resolve.sh"
@@ -118,12 +137,22 @@ class CatchUpBaseRehearsalTest(unittest.TestCase):
             step_summary = td_path / "step_summary"
             step_summary.write_text("", encoding="utf-8")
 
+            # Fixture data for the argument-aware ``gh`` stub below.
+            runs_file = td_path / "runs.txt"
+            runs_file.write_text("".join(f"{rid} {sha}\n" for rid, sha in completed_runs), encoding="utf-8")
+            verdicts_file = td_path / "verdicts.txt"
+            verdicts_file.write_text("".join(f"{rid} {conc}\n" for rid, conc in verdicts.items()), encoding="utf-8")
+
             stub_bin = td_path / "bin"
             stub_bin.mkdir()
-            # Stub ``gh api … --jq .workflow_runs[0].head_sha`` → last_ok.
+            # Argument-aware stub. The resolver makes THREE distinct request shapes and
+            # they must not be conflated, or a tier-2 answer masquerades as tier 1:
+            #   * …/runs?status=completed…  -> the tier-1 candidate list ("<id> <sha>" lines)
+            #   * …/actions/runs/<id>/jobs  -> that run's verdict-step conclusion
+            #   * …/runs?status=success…    -> the legacy tier-2 head_sha
             gh = stub_bin / "gh"
             gh.write_text(
-                "#!/usr/bin/env bash\n" "set -euo pipefail\n" f'printf "%s\\n" "{last_ok}"\n',
+                "#!/usr/bin/env bash\n" "set -euo pipefail\n" 'url=""\n' 'for a in "$@"; do\n' '  case "$a" in repos/*) url="$a" ;; esac\n' "done\n" 'case "$url" in\n' f'  *status=completed*) cat "{runs_file}" ;;\n' "  */jobs)\n" '    rid="${url%/jobs}"; rid="${rid##*/}"\n' f'    awk -v id="$rid" \'$1==id{{print $2}}\' "{verdicts_file}"\n' "    ;;\n" f'  *status=success*) printf "%s\\n" "{last_ok}" ;;\n' "  *) : ;;\n" "esac\n",
                 encoding="utf-8",
             )
             gh.chmod(0o755)
@@ -252,6 +281,205 @@ class CatchUpBaseRehearsalTest(unittest.TestCase):
             )
             self.assertEqual(base, sha_b)
             self.assertIn("event.before", reason)
+
+    # ── TIER 1: ratchet on SCREENED, not on GREEN (2026-08-23) ────────────────────────
+    # Design of record:
+    # notes/JUNIPER_2026-08-23_JUNIPER-ML_MAIN-VERIFY-CATCHUP-BASE-SCREENED-NOT-GREEN-DESIGN.md
+
+    def test_red_screen_run_still_advances_base(self) -> None:
+        """THE REGRESSION. A run whose screen FAILED still advances the base.
+
+        This is the defect that made red ``main`` self-perpetuating (4 occurrences,
+        2026-08-12 .. 2026-08-21). Run 100 screened tip B and found something, so the
+        run is not ``status=success`` and the legacy tier reaches all the way back to
+        A -- re-screening B's finding on every later merge and failing innocent commit
+        C for damage done at B. Exit 1 IS a verdict: the window was screened, so the
+        base must advance to B.
+
+        Fails against the pre-2026-08-23 resolver, which returns A here.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sha_a, sha_b, sha_c = self._stage_repo(root)
+            repo = root / "repo"
+            base, reason, summary = self._run_resolver(
+                repo=repo,
+                head_sha=sha_c,
+                before=sha_b,
+                last_ok=sha_a,  # the last GREEN run, far behind
+                completed_runs=[("100", sha_b)],
+                verdicts={"100": "success"},  # verdict REACHED, screen was red
+            )
+            self.assertEqual(base, sha_b, "a screened-but-red tip must become BASE")
+            self.assertNotEqual(base, sha_a, "must not fall back to the last GREEN tip")
+            self.assertIn("screened-tip catch-up from", reason)
+            self.assertIn(sha_b, summary)
+
+    def test_invocation_error_run_does_not_advance_base(self) -> None:
+        """Exit >=2 is NOT a verdict: the window is un-screened, so do not advance."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sha_a, sha_b, sha_c = self._stage_repo(root)
+            repo = root / "repo"
+            base, reason, _summary = self._run_resolver(
+                repo=repo,
+                head_sha=sha_c,
+                before=sha_b,
+                last_ok=sha_a,
+                completed_runs=[("100", sha_b)],
+                verdicts={"100": "failure"},  # the verdict-assert step itself failed
+            )
+            self.assertEqual(base, sha_a, "an un-screened window must fall through to tier 2")
+            self.assertNotIn("screened-tip", reason)
+
+    def test_skipped_verdict_step_does_not_advance_base(self) -> None:
+        """A screens step that died leaves the assert `skipped` -- never coverage."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sha_a, sha_b, sha_c = self._stage_repo(root)
+            repo = root / "repo"
+            base, reason, _summary = self._run_resolver(
+                repo=repo,
+                head_sha=sha_c,
+                before=sha_b,
+                last_ok=sha_a,
+                completed_runs=[("100", sha_b)],
+                verdicts={"100": "skipped"},
+            )
+            self.assertEqual(base, sha_a)
+            self.assertNotIn("screened-tip", reason)
+
+    def test_missing_verdict_step_falls_through_to_legacy_tier(self) -> None:
+        """Transition: historical runs carry no verdict step, so tier 2 must still work."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sha_a, sha_b, sha_c = self._stage_repo(root)
+            repo = root / "repo"
+            base, reason, _summary = self._run_resolver(
+                repo=repo,
+                head_sha=sha_c,
+                before=sha_b,
+                last_ok=sha_a,
+                completed_runs=[("100", sha_b)],
+                verdicts={},  # jq yields "" -- no such step in this run
+            )
+            self.assertEqual(base, sha_a)
+            self.assertIn("catch-up from", reason)
+            self.assertNotIn("screened-tip", reason)
+
+    def test_screened_walk_skips_non_ancestor_and_self(self) -> None:
+        """The walk continues past a newer tip that is unusable for THIS head.
+
+        Newest-first the candidates are: HEAD itself (empty window), a foreign tip
+        from a concurrent/force-pushed branch, then the usable B. A single-shot query
+        would abandon catch-up on either of the first two.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sha_a, sha_b, sha_c = self._stage_repo(root)
+            orphan = root / "orphan"
+            orphan.mkdir()
+            _git(orphan, "init")
+            _git(orphan, "config", "user.email", "t@t")
+            _git(orphan, "config", "user.name", "t")
+            _git(orphan, "config", "commit.gpgsign", "false")
+            (orphan / "x").write_text("x\n", encoding="utf-8")
+            _git(orphan, "add", "x")
+            _git(orphan, "commit", "-m", "orphan")
+            foreign = _git(orphan, "rev-parse", "HEAD")
+            repo = root / "repo"
+            _git(repo, "fetch", str(orphan), "HEAD:refs/heads/foreign")
+            base, reason, _summary = self._run_resolver(
+                repo=repo,
+                head_sha=sha_c,
+                before=sha_b,
+                last_ok=sha_a,
+                completed_runs=[("102", sha_c), ("101", foreign), ("100", sha_b)],
+                verdicts={"102": "success", "101": "success", "100": "success"},
+            )
+            self.assertEqual(base, sha_b)
+            self.assertIn("screened-tip catch-up from", reason)
+
+    def test_screened_tier_outranks_a_newer_legacy_success(self) -> None:
+        """Tier 1 is consulted first even when tier 2 would also answer."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sha_a, sha_b, sha_c = self._stage_repo(root)
+            repo = root / "repo"
+            base, reason, _summary = self._run_resolver(
+                repo=repo,
+                head_sha=sha_c,
+                before=sha_b,
+                last_ok=sha_a,
+                completed_runs=[("100", sha_b)],
+                verdicts={"100": "success"},
+            )
+            self.assertEqual(base, sha_b)
+            self.assertIn("screened-tip", reason)
+
+
+class VerdictStepNameDriftTest(unittest.TestCase):
+    """The tier-1 signal is an EXACT step name; drift is silent and must be pinned.
+
+    Renaming the step does not fail anything on its own -- the resolver simply matches
+    nothing, drops to the legacy tier, and restores the recurring-red defect while every
+    check stays green. That is the vacuous-pass shape, so BOTH halves are pinned here:
+    the workflow must define the step, and the resolver must grep for the same literal.
+    Either assertion alone can drift past the other.
+    """
+
+    VERDICT_STEP = "Assert screens reached a verdict"
+    SCREEN_JOB = "Symbol & Docs Screen"
+
+    doc: dict
+    job: dict
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        repo_root = _find_repo_root(Path(__file__).resolve().parent)
+        wf = repo_root / ".github" / "workflows" / WORKFLOW_NAME
+        if not wf.is_file():
+            raise unittest.SkipTest(f"{WORKFLOW_NAME} not present at {wf}")
+        cls.doc = yaml.safe_load(wf.read_text(encoding="utf-8"))
+        cls.job = cls.doc.get("jobs", {}).get("symbol-screen", {})
+
+    def test_workflow_defines_the_verdict_assert_step(self) -> None:
+        """The coverage signal the resolver reads must actually exist."""
+        names = [s.get("name") for s in self.job.get("steps", [])]
+        self.assertIn(self.VERDICT_STEP, names, f"tier-1 coverage step missing; steps are {names}")
+
+    def test_verdict_step_precedes_the_clean_assert(self) -> None:
+        """Coverage must be asserted BEFORE the verdict, or a finding skips it."""
+        names = [s.get("name") for s in self.job.get("steps", [])]
+        self.assertIn("Assert screens clean", names)
+        self.assertLess(names.index(self.VERDICT_STEP), names.index("Assert screens clean"))
+
+    def test_screens_step_does_not_fail_on_findings(self) -> None:
+        """The screens step must record exit codes, not exit on them.
+
+        If it exits non-zero on a finding, the coverage step is SKIPPED on exactly the
+        runs whose windows most need marking screened -- silently reinstating the bug.
+        """
+        steps = self.job.get("steps", [])
+        screens = next((s for s in steps if s.get("id") == "screens"), None)
+        self.assertIsNotNone(screens, "screens step (id: screens) not found")
+        run = screens["run"]
+        self.assertIn('echo "src=${src}" >> "$GITHUB_OUTPUT"', run)
+        self.assertIn('echo "drc=${drc}" >> "$GITHUB_OUTPUT"', run)
+        self.assertNotIn("exit 1", run, "screens step must not fail on a finding")
+
+    def test_resolver_greps_the_same_verdict_step_name(self) -> None:
+        """The resolver's literal and the step's name must not drift apart."""
+        steps = self.job.get("steps", [])
+        resolver = next((s for s in steps if s.get("id") == "base"), None)
+        self.assertIsNotNone(resolver, "resolver step (id: base) not found")
+        run = resolver["run"]
+        self.assertIn(self.VERDICT_STEP, run)
+        self.assertIn(self.SCREEN_JOB, run)
+
+    def test_screen_job_name_matches_the_workflow_job(self) -> None:
+        """The resolver filters jobs by display name; pin it to the real one."""
+        self.assertEqual(self.job.get("name"), self.SCREEN_JOB)
 
 
 if __name__ == "__main__":
