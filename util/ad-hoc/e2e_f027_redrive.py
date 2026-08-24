@@ -336,6 +336,8 @@ def step_candidates(page, capture, budget_s: int = 480):
             if int(snap["pool"] or "0") > 0:
                 seen_pool = True
         except ValueError:
+            # The pool tile can transiently hold non-numeric text mid-render;
+            # skip the sample rather than abort the timeline.
             pass
         if snap["prog_display"] == "block" and "/" in (snap["prog_label"] or ""):
             seen_progress = True
