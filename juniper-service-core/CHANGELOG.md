@@ -63,6 +63,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Retry-After` no longer tells a rate-limited caller to retry immediately**
+  (`APD-SVCCORE-004`). `reset_in` was `int(window - elapsed)`, which truncates toward zero, so any
+  sub-second remainder became `0`. A client obeying the header retried at once into a limiter
+  guaranteed to reject it again, and kept doing so for the tail of every window. Measured on a
+  1-second window before the fix: `Retry-After: 0` at 0.30s, 0.60s, 0.90s and 0.99s in — every
+  rejection, not an edge case. Now rounded **up** with a floor of 1: waiting a fraction too long
+  costs the caller nothing, waking a fraction early reproduces the defect. Applied to the allowed
+  path too, which feeds `X-RateLimit-Reset` — the two headers describe the same instant and were
+  free to disagree by a second.
+
 - **`dir(juniper_service_core)` no longer hides the module's own attributes**
   (`APD-SVCCORE-017`). Defining `__dir__` *replaces* the default rather than extending it, so
   returning `sorted(__all__)` made `dir()` a strictly smaller view than the module: `__name__`,
