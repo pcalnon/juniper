@@ -193,8 +193,11 @@ def pick_candidates(filelist, block_to_dblock, blocklist_content, dblock_order, 
     dir_counts = {}
 
     def top_dir(path):
-        parts = path.strip("/").split("/")
-        return "/".join(parts[:4])  # e.g. home/pcalnon/Development/rust
+        # containing directory, truncated to four components: caps concentration
+        # for shallow dirs (a file directly under ~/X must key on ~/X, not on
+        # its own filename) while keeping deep trees distinguishable
+        parts = os.path.dirname(path).strip("/").split("/")
+        return "/".join(parts[:4])
 
     def add(entry, stratum, blocks):
         path = entry["path"]
@@ -304,9 +307,10 @@ def main():
         return
 
     # ---- provenance snapshot ------------------------------------------------
-    ver = subprocess.run(["duplicati-cli", "help", "version"], capture_output=True, text=True, check=False)
+    ver = subprocess.run(["dpkg-query", "-W", "-f=${Package} ${Version}\\n", "duplicati"],
+                         capture_output=True, text=True, check=False)
     with open(os.path.join(run_dir, "provenance.txt"), "w") as fh:
-        fh.write(f"duplicati-cli version output:\n{ver.stdout}{ver.stderr}\n\ndestination inventory:\n")
+        fh.write(f"installed package: {ver.stdout.strip() or ver.stderr.strip()}\n\ndestination inventory:\n")
         for n in sorted(os.listdir(dest)):
             st = os.stat(os.path.join(dest, n))
             fh.write(f"{n}\t{st.st_size}\t{int(st.st_mtime)}\n")
