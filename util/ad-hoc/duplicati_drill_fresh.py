@@ -10,13 +10,20 @@ License:     MIT License
 Restore drill for the FRESH Duplicati set (fileset of 2026-08-23T17:15:12),
 built to the six requirements from the 2026-08-24 adversarial gate review:
 
-1. **Destination-only restore.** The temp DB is recreated by duplicati-cli
-   from the destination itself (fresh --dbpath), never the live job DB -- the
-   true disaster path. This also makes version pinning unambiguous: the
-   destination holds exactly ONE dlist (the synthetic fileset), so
-   ``--version=0`` cannot resolve to the deleted 17:15:11 twin or the crashed
-   22:51:26 fileset (whose dlist was never uploaded and whose blocks sit in 12
-   absent volumes).
+1. **Destination-only restore.** With ``--dbpath`` pointing at a nonexistent
+   file, duplicati-cli builds a TEMPORARY database from the destination alone
+   (source-verified at the installed tag: the dbpath file is never created --
+   the temp DB is a TempFile discarded per invocation, and the live job DB /
+   dbconfig.json are unreachable once --dbpath is explicit) -- the true
+   disaster path. Each candidate's restore performs its own independent,
+   filter-scoped destination recreate (~1-3 min overhead per candidate,
+   accepted for isolation). The driver asserts the dbpath file stays absent:
+   if one ever appears there, the exists-branch would silently reuse it and
+   the drill would stop being destination-only. Version pinning is
+   unambiguous: the destination holds exactly ONE dlist (the synthetic
+   fileset), so ``--version=0`` cannot resolve to the deleted 17:15:11 twin
+   or the crashed 22:51:26 fileset (whose dlist was never uploaded and whose
+   blocks sit in 12 absent volumes).
 2. **Disposable state.** Everything (temp DB, tempdir, restored files, logs)
    lands in a fresh run dir on the scratch filesystem; the destination is only
    ever read; the passphrase key is named explicitly (PASSPHRASE, the fresh
@@ -26,10 +33,14 @@ built to the six requirements from the 2026-08-24 adversarial gate review:
    from the LIVE source, a false pass indistinguishable from proof.
 4. **Dual, job-DB-independent oracle.** (a) Every restored file is hashed and
    compared against the manifest's own per-file SHA-256 from filelist.json;
-   (b) for candidates whose live source file is bit-for-bit unchanged since
-   the backup (size+mtime match), the restored bytes are also compared against
-   a fresh hash of the LIVE file -- breaking the shared-author circularity
-   between dlist, dindex, and Remotevolume records.
+   (b) restored bytes are also compared against a fresh hash of the LIVE
+   source file -- breaking the shared-author circularity between dlist,
+   dindex, and Remotevolume records. A live-vs-restored divergence on a file
+   whose filesystem mtime PREDATES the backup start is the shared-author
+   corruption signal this oracle exists to catch and FAILS the drill
+   (LIVE_ORACLE_CONTRADICTION); divergence with a post-backup mtime is a
+   benign note. The drill is INCONCLUSIVE, not PASS, unless the live oracle
+   actually engaged and matched on at least --live-floor candidates.
 5. **Stratified sample + coverage metric.** Candidates are drawn across the
    upload window (early / mid / late dblocks), across size classes
    (empty, single-block, multi-block, large multi-dblock), plus one symlink;
@@ -170,34 +181,51 @@ def pick_candidates(filelist, block_to_dblock, blocklist_content, dblock_order, 
                 return w
         return "late"
 
-    def live_unchanged(entry):
-        path = entry["path"]
+    def live_size_matches(entry):
         try:
-            st = os.lstat(path)
+            return os.lstat(entry["path"]).st_size == entry.get("size", 0)
         except OSError:
             return False
-        if st.st_size != entry.get("size", 0):
-            return False
-        # Duplicati stores ticks; entry["time"] is ISO in filelist.json
-        return True  # size match + still present; mtime formats vary -- final judge is the hash comparison itself
 
     candidates = []
     seen_paths = set()
+    seen_hashes = set()
+    dir_counts = {}
+
+    def top_dir(path):
+        parts = path.strip("/").split("/")
+        return "/".join(parts[:4])  # e.g. home/pcalnon/Development/rust
 
     def add(entry, stratum, blocks):
-        if entry["path"] in seen_paths:
+        path = entry["path"]
+        if path in seen_paths:
+            return False
+        # positional filename is a FILTER to duplicati-cli: glob chars would
+        # silently widen the restore
+        if any(ch in path for ch in "*?[]"):
+            return False
+        # dedupe byte-identical content and cap per-directory concentration
+        # (singleton strata -- large/empty/symlink -- are exempt from the cap)
+        mh = entry.get("hash")
+        if mh and mh in seen_hashes:
+            return False
+        td = top_dir(path)
+        if stratum.split("/")[0] not in ("large", "empty", "symlink") and dir_counts.get(td, 0) >= 3:
             return False
         touched = sorted({block_to_dblock[b] for b in blocks if b in block_to_dblock})
         candidates.append({
-            "path": entry["path"],
+            "path": path,
             "size": entry.get("size", 0),
-            "manifest_hash": entry.get("hash"),
+            "manifest_hash": mh,
             "stratum": stratum,
             "dblocks": touched,
-            "live_present": os.path.lexists(entry["path"]),
-            "live_unchanged_guess": live_unchanged(entry) if entry.get("type") == "File" else False,
+            "live_present": os.path.lexists(path),
+            "live_size_matches": live_size_matches(entry) if entry.get("type") == "File" else False,
         })
-        seen_paths.add(entry["path"])
+        seen_paths.add(path)
+        if mh:
+            seen_hashes.add(mh)
+        dir_counts[td] = dir_counts.get(td, 0) + 1
         return True
 
     files = [e for e in filelist if e.get("type") == "File"]
@@ -240,6 +268,10 @@ def main():
     ap.add_argument("--cred-key", default="PASSPHRASE")
     ap.add_argument("--blocksize", type=int, default=1024 * 1024)
     ap.add_argument("--per-stratum", type=int, default=2)
+    ap.add_argument("--live-floor", type=int, default=10,
+                    help="minimum live-oracle MATCHES for a PASS (else INCONCLUSIVE)")
+    ap.add_argument("--backup-start-epoch", type=int, default=1787523309,
+                    help="2026-08-23T17:15:09-05:00; live mtime BEFORE this + divergence = contradiction")
     ap.add_argument("--select-only", action="store_true", help="stop after writing candidates.json")
     args = ap.parse_args()
 
@@ -271,6 +303,14 @@ def main():
     if args.select_only:
         return
 
+    # ---- provenance snapshot ------------------------------------------------
+    ver = subprocess.run(["duplicati-cli", "help", "version"], capture_output=True, text=True, check=False)
+    with open(os.path.join(run_dir, "provenance.txt"), "w") as fh:
+        fh.write(f"duplicati-cli version output:\n{ver.stdout}{ver.stderr}\n\ndestination inventory:\n")
+        for n in sorted(os.listdir(dest)):
+            st = os.stat(os.path.join(dest, n))
+            fh.write(f"{n}\t{st.st_size}\t{int(st.st_mtime)}\n")
+
     # ---- restore phase ------------------------------------------------------
     env = dict(os.environ, PASSPHRASE=passphrase)
     results = []
@@ -289,36 +329,73 @@ def main():
         dur = time.monotonic() - t0
         with open(os.path.join(run_dir, f"restore-c{i:02d}.log"), "w") as fh:
             fh.write(proc.stdout + "\n--- stderr ---\n" + proc.stderr)
+        if os.path.exists(dbpath):
+            fail(f"{dbpath} materialized -- the exists-branch would reuse it and the "
+                 "drill would no longer be destination-only; investigate before rerunning")
 
-        verdict, detail = verify_candidate(c, rdir)
-        if proc.returncode != 0:
-            verdict, detail = "RESTORE_FAILED", f"rc={proc.returncode}: {proc.stderr[-200:]}"
+        # duplicati-cli returncodes: 0 = success; 1 = success, no files changed;
+        # 2 = success with warning(s); >=3 = errors. Only >=3 is a restore failure.
+        verdict, detail, live_oracle = verify_candidate(c, rdir, args.backup_start_epoch)
+        if proc.returncode >= 3:
+            verdict, detail, live_oracle = "RESTORE_FAILED", f"rc={proc.returncode}: {proc.stderr[-200:]}", None
         results.append({**c, "rc": proc.returncode, "seconds": round(dur, 1),
-                        "verdict": verdict, "detail": detail})
+                        "verdict": verdict, "detail": detail, "live_oracle": live_oracle})
         print(f"  c{i:02d} [{c['stratum']:>10}] rc={proc.returncode} {dur:6.1f}s  {verdict}  {detail}")
 
     # ---- report -------------------------------------------------------------
-    ok = sum(1 for r in results if r["verdict"] == "VERIFIED")
-    live_ok = sum(1 for r in results if r.get("live_oracle") or "live-oracle-match" in r["detail"])
-    bad = [r for r in results if r["verdict"] not in ("VERIFIED",)]
+    ok = sum(1 for r in results if r["verdict"].startswith("VERIFIED"))
+    live_ok = sum(1 for r in results if r["live_oracle"] == "match")
+    contradictions = [r for r in results if r["live_oracle"] == "contradiction"]
+    bad = [r for r in results if not r["verdict"].startswith("VERIFIED") and r["verdict"] != "UNVERIFIED_NO_ORACLE"]
+    unverified = [r for r in results if r["verdict"] == "UNVERIFIED_NO_ORACLE"]
     with open(os.path.join(run_dir, "results.json"), "w") as fh:
         json.dump(results, fh, indent=1)
     print()
     print(f"RESTORED+VERIFIED: {ok}/{len(results)} candidates; dblock coverage {len(coverage)}/{len(dblock_order)}")
-    print(f"live-source oracle matches: {live_ok}")
-    if bad:
+    print(f"live-source oracle: {live_ok} matches, {len(contradictions)} contradictions (floor for PASS: {args.live_floor})")
+    if bad or contradictions:
         print("FAILURES:")
         for r in bad:
             print(f"  {r['path']}: {r['verdict']} {r['detail']}")
         print("RESULT: DRILL FAILED")
         sys.exit(1)
+    if unverified:
+        for r in unverified:
+            print(f"  NOTE: {r['path']}: {r['detail']}")
+    if live_ok < args.live_floor:
+        print(f"RESULT: INCONCLUSIVE -- restores matched the manifest, but the live-source oracle "
+              f"engaged on only {live_ok} < {args.live_floor} candidates; shared-author circularity not broken")
+        sys.exit(1)
     print("RESULT: synthetic PARTIAL fileset verified restorable for the sampled strata")
     print("        (IsFullBackup=false; manifest omits ~45% of in-scope files -- this is NOT 'restore point verified')")
 
 
-def verify_candidate(c, rdir):
-    """Locate the restored artifact and verify against manifest + live source."""
+def verify_candidate(c, rdir, backup_start_epoch):
+    """Verify restored artifact against manifest + live source.
+
+    Returns (verdict, detail, live_oracle) where live_oracle is one of
+    "match" | "benign-divergence" | "contradiction" | None (not engaged).
+    A divergence on a live file whose mtime PREDATES the backup start is the
+    shared-author corruption signal the oracle exists for -- it FAILS.
+    """
     base = os.path.basename(c["path"].rstrip("/"))
+
+    if c["stratum"] == "symlink":
+        for root, dirs, files in os.walk(rdir, followlinks=False):
+            for nm in dirs + files:
+                p = os.path.join(root, nm)
+                if os.path.islink(p) and nm == base:
+                    got = os.readlink(p)
+                    if not os.path.lexists(c["path"]):
+                        return "UNVERIFIED_NO_ORACLE", f"symlink restored (target {got}) but live link is gone; no oracle", None
+                    live_target = os.readlink(c["path"])
+                    if got == live_target:
+                        return "VERIFIED", f"symlink target {got} == live", "match"
+                    if os.lstat(c["path"]).st_mtime < backup_start_epoch:
+                        return "SYMLINK_MISMATCH", f"restored->{got} live->{live_target} (live link PREDATES backup)", "contradiction"
+                    return "UNVERIFIED_NO_ORACLE", f"restored->{got}, live retargeted after backup ->{live_target}", "benign-divergence"
+        return "MISSING", "no symlink restored", None
+
     found = None
     for root, _dirs, files in os.walk(rdir):
         for nm in files:
@@ -326,32 +403,29 @@ def verify_candidate(c, rdir):
                 found = os.path.join(root, nm)
         if found:
             break
-    if c["stratum"] == "symlink":
-        for root, dirs, files in os.walk(rdir, followlinks=False):
-            for nm in dirs + files:
-                p = os.path.join(root, nm)
-                if os.path.islink(p) and nm == base:
-                    live_target = os.readlink(c["path"]) if os.path.lexists(c["path"]) else None
-                    got = os.readlink(p)
-                    if live_target is not None and got != live_target:
-                        return "SYMLINK_MISMATCH", f"restored->{got} live->{live_target}"
-                    return "VERIFIED", f"symlink target {got}"
-        return "MISSING", "no symlink restored"
     if found is None:
-        return "MISSING", "restored file not found under restore-path"
+        return "MISSING", "restored file not found under restore-path", None
     if c["size"] == 0:
-        return ("VERIFIED", "empty file restored") if os.path.getsize(found) == 0 \
-            else ("SIZE_MISMATCH", f"expected 0 got {os.path.getsize(found)}")
+        if os.path.getsize(found) == 0:
+            return "VERIFIED", "empty file restored", None
+        return "SIZE_MISMATCH", f"expected 0 got {os.path.getsize(found)}", None
+
     got_hash = sha256_file(found)
     if got_hash != c["manifest_hash"]:
-        return "HASH_MISMATCH", f"manifest {c['manifest_hash'][:12]} != restored {got_hash[:12]}"
-    detail = "manifest-hash-match"
-    if c.get("live_unchanged_guess") and os.path.exists(c["path"]):
-        if sha256_file(c["path"]) == got_hash:
-            detail += " + live-oracle-match"
-        else:
-            detail += " (live source changed since backup; live oracle skipped)"
-    return "VERIFIED", detail
+        return "HASH_MISMATCH", f"manifest {c['manifest_hash'][:12]} != restored {got_hash[:12]}", None
+
+    if not os.path.exists(c["path"]) or os.path.islink(c["path"]):
+        return "VERIFIED", "manifest-hash-match (live source gone; oracle not engaged)", None
+    live_hash = sha256_file(c["path"])
+    if live_hash == got_hash:
+        return "VERIFIED", "manifest-hash-match + live-oracle-match", "match"
+    if os.lstat(c["path"]).st_mtime < backup_start_epoch:
+        # live file claims to predate the backup yet differs from what the
+        # backup stack stored AND hashed: manifest, blocks, and Remotevolume
+        # share one author -- the unchanged live file is the only witness.
+        return "LIVE_ORACLE_CONTRADICTION", \
+            f"live mtime predates backup but live {live_hash[:12]} != restored {got_hash[:12]}", "contradiction"
+    return "VERIFIED", "manifest-hash-match (live changed after backup; benign)", "benign-divergence"
 
 
 if __name__ == "__main__":
