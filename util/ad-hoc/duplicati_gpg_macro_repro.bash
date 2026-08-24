@@ -4,7 +4,7 @@
 # Sub-Project: juniper-ml
 # Application: util/ad-hoc
 # Author:      Paul Calnon
-# Version:     0.1.0
+# Version:     0.2.0
 # License:     MIT License
 #
 # End-to-end SCRATCH reproduction of the 2026-08-23 Duplicati GPGFlushError
@@ -14,36 +14,50 @@
 #
 #   1. --log-file-log-level=Verbose        (captures Retry lines, invisible at
 #                                           the default console Warning level)
-#   2. a gpg wrapper that logs every invocation's start/end/rc  (discriminates
-#      "gpg exited fine, pump-side frozen" from "gpg itself stalled" on a
-#      GPGFlushError event)
-#   3. a 5 s sampler: PSI avg10+totals, MemAvailable/SwapFree, duplicati
-#      RSS/swap/threads, live gpg count/states, dest/tmp growth
+#   2. a gpg wrapper that logs START at spawn and END after a correct re-wait
+#      (discriminates "gpg exited fine, pump-side frozen" from "gpg itself
+#      stalled" on a GPGFlushError event; an END-less START line at crash time
+#      is positive evidence of an in-flight gpg)
+#   3. a 5 s sampler: system PSI avg10+totals, cgroup-local PSI totals,
+#      MemAvailable/SwapFree, duplicati RSS/swap/threads, cgroup-scoped gpg
+#      pid:state:wchan tuples, dest/tmp growth, free-space watchdog
 #
 # Run it inside a systemd transient unit to match the failing run's context
 # (Nice=10, IOSchedulingClass=best-effort, IOSchedulingPriority=7), optionally
-# with MemoryMax/MemoryHigh to emulate the collapsed-available-memory enabling
-# condition of the 2026-08-23 episode:
+# with MemoryHigh/MemoryMax to emulate the collapsed-available-memory enabling
+# condition of the 2026-08-23 episode (prefer MemoryHigh throttling; keep
+# MemoryMax well above the process's anonymous needs so the cgroup OOM killer
+# stays out of the experiment):
 #
 #   systemd-run --user --unit=gpg-macro-repro --collect \
 #       -p Nice=10 -p IOSchedulingClass=best-effort -p IOSchedulingPriority=7 \
-#       [-p MemoryMax=6G -p MemoryHigh=5G] \
+#       [-p MemoryHigh=6G -p MemoryMax=10G] \
 #       -p RuntimeMaxSec=18000 \
 #       /home/pcalnon/Development/python/Juniper/juniper-ml/.claude/worktrees/mossy-growing-salamander/util/ad-hoc/duplicati_gpg_macro_repro.bash
 #
 # SAFETY: refuses to run unless the scratch filesystem is mounted with >=100 GB
 # free; every write lands under a fresh run directory in _gpg_repro/; the real
 # destination, the real databases, and the real credential files are never
-# read or written (the passphrase is a fresh random scratch value). The real
-# backup job is untouched; a concurrent REAL backup run aborts this script.
+# read or written (the passphrase is a fresh random scratch value). The
+# expected footprint is ~55 GB of volumes plus up to ~5 GB of Verbose log; a
+# runtime watchdog TERMs the repro's own duplicati-cli if scratch free space
+# falls below 60 GB, protecting the real destination's staging headroom on the
+# shared drive. A concurrent writer to either real destination or the fresh
+# job's database aborts the launch (write-mode /proc fd scan -- name-anchored
+# process greps are fail-open, see util/duplicati_scheduled_backup.bash guard
+# 5); read-only holders such as the archive Recreate are expected ambient and
+# do not block. Adversarially validated 2026-08-24; material findings F1, F2,
+# F9, F10, F11, F15, F16, F18, F21, F23 fixed in this revision.
 
 set -euo pipefail
 
 RUN_ROOT="/media/pcalnon/temp_backups/_gpg_repro"
 REAL_DEST_DIR="/media/pcalnon/temp_backups/Ubuntu"
+OLD_ARCHIVE_DIR="/mnt/Backups/Ubuntu"
 REAL_DBPATH="/home/pcalnon/.config/Duplicati/DQRVQNDIFX.sqlite"
 SOURCE_PATH="/home/pcalnon"
 MIN_FREE_GB=100
+MIN_FREE_RUNTIME_GB=60
 
 fail() { echo "FATAL: $*" >&2; exit 1; }
 
@@ -59,9 +73,33 @@ case "${RUN_ROOT}" in
     "${REAL_DEST_DIR}"*|/mnt/Backups*) fail "RUN_ROOT overlaps a real destination" ;;
 esac
 
-# a REAL backup run (against the real dest or real db) must not be in flight
-if ps -eo args | grep -E '^duplicati-cli backup' | grep -qE "temp_backups/Ubuntu|$(basename "${REAL_DBPATH}")"; then
-    fail "a real duplicati-cli backup appears to be running; refusing to add repro load"
+# Anything holding the fresh job's database open (any mode), or holding a
+# WRITE handle under either real destination, means a real backup operation is
+# in flight. Read-only holders (the Recreate fetching a dblock) pass.
+scan_real_holders() {
+    local fd tgt flags
+    for fd in /proc/[0-9]*/fd/*; do
+        [[ -e "${fd}" ]] || continue
+        tgt="$(readlink "${fd}" 2>/dev/null)" || continue
+        case "${tgt}" in
+            "${REAL_DBPATH}")
+                echo "${fd} -> ${tgt}"
+                ;;
+            "${REAL_DEST_DIR}/"*|"${OLD_ARCHIVE_DIR}/"*)
+                flags="$(awk '/^flags:/{print $2}' "${fd%/fd/*}/fdinfo/${fd##*/}" 2>/dev/null || true)"
+                if [[ -n "${flags}" ]] && (( (8#${flags} & 3) != 0 )); then
+                    echo "${fd} -> ${tgt} (write-mode)"
+                fi
+                ;;
+        esac
+    done
+}
+HOLDERS="$(scan_real_holders | head -5 || true)"
+[[ -z "${HOLDERS}" ]] || fail "real backup artifacts are held open: ${HOLDERS}"
+
+# a concurrent micro-harness would pollute gpg sampling and double the load
+if pgrep -f gpg_tail_latency.py >/dev/null 2>&1; then
+    fail "gpg_tail_latency.py is running; finish the micro trials first"
 fi
 
 RUN_DIR="${RUN_ROOT}/macro-$(date +%Y%m%d-%H%M%S)"
@@ -73,6 +111,9 @@ mkdir -p "${DEST_DIR}" "${TEMP_DIR}" "${LOG_DIR}"
 
 [[ -e "${DBPATH}" ]] && fail "dbpath already exists: ${DBPATH}"
 
+CGREL="$(cut -d: -f3 /proc/self/cgroup)"
+CGDIR="/sys/fs/cgroup${CGREL}"
+
 # ---- scratch passphrase (never the real credentials) ------------------------
 PASSPHRASE="$(openssl rand -hex 22)"
 export PASSPHRASE
@@ -80,46 +121,77 @@ umask 077
 printf 'PASSPHRASE=%s\n' "${PASSPHRASE}" > "${RUN_DIR}/env"
 PP_SHA="$(printf '%s' "${PASSPHRASE}" | sha256sum | cut -c1-16)"
 
-# ---- gpg wrapper: log every invocation --------------------------------------
+# ---- gpg wrapper: START line at spawn, END line after a correct re-wait -----
+# <&0 is load-bearing: a background job in non-interactive bash otherwise gets
+# stdin from /dev/null and the passphrase/plaintext never reach gpg.  fds 1/2
+# are closed the moment gpg's exit status is settled, BEFORE any bookkeeping:
+# the pump's EOF (and so Duplicati's 5 s Join window) waits on the wrapper's
+# inherited stdout write-end, and the instrument must not sit inside the
+# window it measures.  $EPOCHREALTIME avoids date(1) forks entirely.
 GPG_WRAPPER="${RUN_DIR}/gpg_logged.bash"
 cat > "${GPG_WRAPPER}" <<WRAP
 #!/usr/bin/env bash
-start=\$(date +%s.%N)
-/usr/bin/gpg "\$@" &
+exec 9>>"${LOG_DIR}/gpg_invocations.log"
+start=\${EPOCHREALTIME}
+/usr/bin/gpg "\$@" <&0 &
 child=\$!
+printf 'START pid=%s gpgpid=%s start=%s args=%s\n' "\$\$" "\$child" "\$start" "\$*" >&9
 trap 'kill -TERM "\$child" 2>/dev/null' TERM INT
 wait "\$child"; rc=\$?
-end=\$(date +%s.%N)
-printf 'pid=%s gpgpid=%s start=%s end=%s rc=%s args=%s\n' \
-    "\$\$" "\$child" "\$start" "\$end" "\$rc" "\$*" >> "${LOG_DIR}/gpg_invocations.log"
+if [ "\$rc" -gt 128 ]; then wait "\$child"; rc=\$?; fi
+exec 1>&- 2>&-
+end=\${EPOCHREALTIME}
+printf 'END pid=%s gpgpid=%s start=%s end=%s rc=%s\n' "\$\$" "\$child" "\$start" "\$end" "\$rc" >&9
 exit "\$rc"
 WRAP
 chmod +x "${GPG_WRAPPER}"
 
 # ---- monitor ----------------------------------------------------------------
 MON_CSV="${LOG_DIR}/monitor.csv"
-echo "epoch,mem_avail_kb,swap_free_kb,psi_cpu_avg10,psi_io_avg10,psi_mem_avg10,psi_cpu_total,psi_io_total,psi_mem_total,dup_rss_kb,dup_swap_kb,dup_threads,gpg_count,gpg_states,dest_files,tmp_kb" > "${MON_CSV}"
+echo "epoch,mem_avail_kb,swap_free_kb,psi_cpu_avg10,psi_io_avg10,psi_mem_avg10,psi_cpu_total,psi_io_total,psi_mem_total,cg_mem_some_total,cg_mem_full_total,cg_io_some_total,cg_io_full_total,dup_rss_kb,dup_swap_kb,dup_threads,gpg_tuples,dest_files,tmp_kb,free_gb" > "${MON_CSV}"
+
+psi_line() {  # $1=file $2=line-index(1=some,2=full) -> "avg10 total"
+    awk -v n="$2" 'NR==n{split($2,a,"=");split($5,b,"=");print a[2],b[2]}' "$1" 2>/dev/null || echo "0 0"
+}
+
 monitor() {
+    set +e
+    local dup_pid mem_avail swap_free rss swp thr dfiles tkb fgb tuples p st wc
     while :; do
-        local dup_pid mem_avail swap_free rss swp thr gcount gstates dfiles tkb
-        dup_pid="$(pgrep -f "duplicati-cli backup file://${DEST_DIR}" | head -1 || true)"
+        dup_pid="$(pgrep -f "duplicati-cli backup file://${DEST_DIR}" 2>/dev/null | head -1)"
         mem_avail="$(awk '/MemAvailable/{print $2}' /proc/meminfo)"
         swap_free="$(awk '/SwapFree/{print $2}' /proc/meminfo)"
-        read -r c_avg c_tot < <(awk 'NR==1{split($2,a,"=");split($5,b,"=");print a[2],b[2]}' /proc/pressure/cpu)
-        read -r i_avg i_tot < <(awk 'NR==1{split($2,a,"=");split($5,b,"=");print a[2],b[2]}' /proc/pressure/io)
-        read -r m_avg m_tot < <(awk 'NR==1{split($2,a,"=");split($5,b,"=");print a[2],b[2]}' /proc/pressure/memory)
+        read -r c_avg c_tot < <(psi_line /proc/pressure/cpu 1)
+        read -r i_avg i_tot < <(psi_line /proc/pressure/io 1)
+        read -r m_avg m_tot < <(psi_line /proc/pressure/memory 1)
+        read -r _ cgms < <(psi_line "${CGDIR}/memory.pressure" 1)
+        read -r _ cgmf < <(psi_line "${CGDIR}/memory.pressure" 2)
+        read -r _ cgis < <(psi_line "${CGDIR}/io.pressure" 1)
+        read -r _ cgif < <(psi_line "${CGDIR}/io.pressure" 2)
         if [[ -n "${dup_pid}" ]] && [[ -r "/proc/${dup_pid}/status" ]]; then
-            rss="$(awk '/VmRSS/{print $2}' "/proc/${dup_pid}/status")"
-            swp="$(awk '/VmSwap/{print $2}' "/proc/${dup_pid}/status")"
-            thr="$(awk '/Threads/{print $2}' "/proc/${dup_pid}/status")"
+            rss="$(awk '/VmRSS/{print $2}' "/proc/${dup_pid}/status" 2>/dev/null)"
+            swp="$(awk '/VmSwap/{print $2}' "/proc/${dup_pid}/status" 2>/dev/null)"
+            thr="$(awk '/Threads/{print $2}' "/proc/${dup_pid}/status" 2>/dev/null)"
         else
             rss=0; swp=0; thr=0
         fi
-        gcount="$(pgrep -xc gpg || true)"
-        gstates="$(ps -o state= -C gpg 2>/dev/null | tr -d ' \n' || true)"
+        # cgroup-scoped gpg sampling: pid:state:wchan tuples (';'-joined).
+        # System-wide pgrep would count unrelated gpg work (F15).
+        tuples=""
+        for p in $(pgrep -x gpg 2>/dev/null); do
+            grep -qF "${CGREL}" "/proc/${p}/cgroup" 2>/dev/null || continue
+            st="$(awk '{print $3}' "/proc/${p}/stat" 2>/dev/null)"
+            wc="$(cat "/proc/${p}/wchan" 2>/dev/null)"
+            tuples="${tuples}${p}:${st:-?}:${wc:-?};"
+        done
         dfiles="$(find "${DEST_DIR}" -maxdepth 1 -type f 2>/dev/null | wc -l)"
         tkb="$(du -sk "${TEMP_DIR}" 2>/dev/null | cut -f1)"
-        echo "$(date +%s),${mem_avail},${swap_free},${c_avg},${i_avg},${m_avg},${c_tot},${i_tot},${m_tot},${rss},${swp},${thr},${gcount},${gstates:-none},${dfiles},${tkb}" >> "${MON_CSV}"
+        fgb="$(df -BG --output=avail /media/pcalnon/temp_backups 2>/dev/null | tail -1 | tr -dc '0-9')"
+        echo "$(date +%s),${mem_avail},${swap_free},${c_avg},${i_avg},${m_avg},${c_tot},${i_tot},${m_tot},${cgms},${cgmf},${cgis},${cgif},${rss:-0},${swp:-0},${thr:-0},${tuples:-none},${dfiles},${tkb:-0},${fgb:-0}" >> "${MON_CSV}" || true
+        if [[ -n "${fgb}" ]] && [[ "${fgb}" -lt "${MIN_FREE_RUNTIME_GB}" ]] && [[ -n "${dup_pid}" ]]; then
+            echo "$(date -Is) WATCHDOG: free space ${fgb} GB < ${MIN_FREE_RUNTIME_GB} GB floor, TERM ${dup_pid}" >> "${LOG_DIR}/watchdog.log"
+            kill "${dup_pid}" 2>/dev/null || true
+        fi
         sleep 5
     done
 }
@@ -131,14 +203,15 @@ trap 'kill "${MON_PID}" 2>/dev/null || true' EXIT
 {
     echo "run_dir     : ${RUN_DIR}"
     echo "started     : $(date -Is)"
+    echo "epoch       : $(date +%s)"
     echo "passphrase  : scratch, sha256[:16]=${PP_SHA} (env file: ${RUN_DIR}/env)"
     echo "dest        : file://${DEST_DIR}"
     echo "dbpath      : ${DBPATH}"
     echo "tempdir     : ${TEMP_DIR}"
     echo "gpg wrapper : ${GPG_WRAPPER}"
-    echo "cgroup      : $(cat /proc/self/cgroup 2>/dev/null)"
-    echo "unit memory : MemoryMax=$(cat "/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.max" 2>/dev/null || echo '?')"
-    echo "nice(self)  : $(awk '{print $19}' /proc/self/stat 2>/dev/null || nice)"
+    echo "cgroup      : ${CGREL}"
+    echo "unit memory : MemoryHigh=$(cat "${CGDIR}/memory.high" 2>/dev/null || echo '?') MemoryMax=$(cat "${CGDIR}/memory.max" 2>/dev/null || echo '?')"
+    echo "nice(self)  : $(awk '{print $19}' /proc/self/stat 2>/dev/null)"
 } | tee "${LOG_DIR}/run_params.txt"
 
 # ---- the backup (options cloned from util/duplicati_scheduled_backup.bash) --
@@ -208,10 +281,11 @@ set -e
     echo "result=$([[ ${rc} -eq 0 ]] && echo OK || echo FAILED)"
     echo "rc=${rc}"
     echo "when=$(date -Is)"
-    echo "gpg_invocations=$(wc -l < "${LOG_DIR}/gpg_invocations.log" 2>/dev/null || echo 0)"
-    echo "gpg_nonzero_rc=$(grep -cv 'rc=0 ' "${LOG_DIR}/gpg_invocations.log" 2>/dev/null || echo 0)"
+    echo "gpg_started=$(grep -c '^START ' "${LOG_DIR}/gpg_invocations.log" 2>/dev/null || true)"
+    echo "gpg_ended=$(grep -c '^END ' "${LOG_DIR}/gpg_invocations.log" 2>/dev/null || true)"
+    echo "gpg_nonzero_rc=$(awk '/^END /{if ($NF != "rc=0") n++} END{print n+0}' "${LOG_DIR}/gpg_invocations.log" 2>/dev/null)"
     echo "dest_files=$(find "${DEST_DIR}" -maxdepth 1 -type f | wc -l)"
-    echo "flush_errors=$(grep -c "won't flush" "${LOG_DIR}"/*.log 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')"
+    echo "flush_errors=$(grep -c "won't flush" "${LOG_DIR}/duplicati.log" 2>/dev/null || true)"
 } | tee "${RUN_DIR}/result.status"
 
 exit "${rc}"
