@@ -90,19 +90,43 @@ proven its false-positive rate. C is not an option on its own — the file has b
 
 **Recommended: A now, B next, and treat C as documentation of A rather than a substitute.**
 
-## 6. Regardless of the decision, this week
+§6 sharpens why this is not optional: **no stock-side action buys more than ~37 days**, from
+an empty file. Governing the flow is the only lever that moves the date at all.
 
-The runway is ~7 days. Two actions do not depend on which enforcement option is chosen:
+## 6. There is no stock-side fix — the arithmetic forbids it
 
-1. **Run the eviction again.** [`util/ad-hoc/2026-08-19_memory_index_evict.py`](../util/ad-hoc/2026-08-19_memory_index_evict.py)
-   exists and worked (its SHA-256 guard refuses to write if the file changed underneath).
-   Eviction demotes a row from resident to on-demand; all topic files stay on disk.
-2. **Trim the six over-120 hooks.** They are the whole overshoot: the outlier hooks reach
-   285 B against a 45 B median. This is the cheapest byte recovery available and needs no
-   policy to be settled first.
+An earlier revision of this section recommended two "do them anyway" actions. **Both were
+checked against the measured rate before being acted on, and neither survives it.** The
+correction matters more than the original advice, because it changes what the enforcement
+decision *is*: not an improvement, the only lever.
+
+| Stock-side action | Recovers | Buys |
+|---|---:|---:|
+| trim all six over-120 hooks to 120 B | 461 B | **0.7 days** |
+| re-run eviction back to the post-P0 16,933 B | 3,323 B | 12.1 days total |
+| **empty the file completely** | 20,256 B | **37.6 days** |
+
+**At 665 bytes/day, the entire 25,000-byte cap is 37.6 days.** That is the ceiling on any
+possible eviction, trim, or rewrite — starting from nothing. Every stock-side action is a
+rounding error against the flow.
+
+Trimming the six hooks is also a **bad trade on its own terms**. Those hooks are long because
+they carry operational hazards: one records *"DO NOT `--resume` attempt 1 … a resume splits
+the grid"*, another that a secret read at launch *"diverges silently and is INVISIBLE to any
+file-only check"*. Spending that recall to buy **0.7 days** is the wrong direction — and
+"demote the detail" only helps if someone reads the topic file, which is the very behaviour
+the pointer-follow soak measured at 68.6%.
+
+**So: eviction remains useful for keeping the index legible, and should still be re-run when
+it is worth doing — but it must not be mistaken for runway.** Only governing the flow moves
+the date, and until it is governed the date is never more than ~37 days out however hard the
+file is cleaned.
 
 **Hard rule, unchanged: detail may be demoted; STATUS may not.** A row that records whether
 something is open, shipped, or refuted keeps its status even when its detail moves.
+
+If a stopgap is wanted before the decision lands, the honest one is **stop adding rows**, not
+**shorten existing ones** — the measured cost is 237 bytes per *new* row.
 
 ## 7. Caveat on the measurement
 
