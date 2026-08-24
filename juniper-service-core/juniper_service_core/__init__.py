@@ -35,6 +35,11 @@ from typing import TYPE_CHECKING
 
 from juniper_service_core._version import __version__
 
+# APD-SVCCORE-006: eager, like ``__version__``. Both are dependency-free, and a
+# consumer must be able to write ``except JuniperServiceCoreError`` without the
+# lazy machinery importing fastapi/pydantic-settings to resolve the name.
+from juniper_service_core.exceptions import JuniperServiceCoreError
+
 if TYPE_CHECKING:
     # Static-analysis-only imports. ``TYPE_CHECKING`` is False at run time, so these never
     # execute -- the dependency-free top-level import is preserved and the PEP 562
@@ -113,6 +118,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "__version__",
+    "JuniperServiceCoreError",
     "create_app",
     "SettingsBase",
     # Dependency-floor boot self-check (lazy, from .dependency_floors -- stdlib-only)
