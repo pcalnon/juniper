@@ -124,6 +124,166 @@ class FloorIsTheNullMaximumTest(unittest.TestCase):
         self.assertEqual(sa.adjudicate({"xor": 0.800}, null, 0.05, 0.05)["verdict"], sa.ATTRIBUTED)
 
 
+def attributed_row(name: str, dataset: str, **scores) -> dict:
+    """A first-pass row, the shape ``build_cross_dataset_floor`` consumes."""
+    return {"name": name, "verdict": sa.ATTRIBUTED, "dataset": dataset, "scores": dict(scores)}
+
+
+class CrossDatasetFloorTest(unittest.TestCase):
+    """THE second regression class: the untrained null answers the WRONG QUESTION.
+
+    It asks "did this network learn anything?". Attribution needs "did it learn THIS rather
+    than something else?". The two diverge whenever a network trained on A also scores well on
+    B, which is common because these six generators are not orthogonal.
+
+    Every test here pins the contrast directly: the SAME score vector is adjudicated with
+    ``cross_floor=None`` (the single-floor behaviour that shipped first) and again with the
+    second floor. If the second floor were removed, the two arms would agree and these tests
+    would fail.
+    """
+
+    def test_a_candidate_that_only_clears_the_untrained_floor_is_refused(self) -> None:
+        """The measured spiral case, reduced. Every number here is from the real cohort.
+
+        A snapshot scoring 0.644 on spiral clears spiral's untrained floor of 0.572 by +0.072
+        and attributes. But networks trained on OTHER datasets reach 0.598 on spiral, so the
+        real bar is 0.598 and the lift is only +0.046 -- inside the margin. This is one of the
+        16 of 20 spiral attributions that the second floor withdrew.
+
+        The neighbouring case is deliberately NOT this one: a snapshot at 0.660 lifts +0.062
+        over the same cross floor and survives. The rule discriminates; it does not simply
+        delete spiral.
+        """
+        null = null_from(spiral=0.572, xor=0.720)
+        scores = {"spiral": 0.644, "xor": 0.510}
+
+        without = sa.adjudicate(scores, null, sa.DEFAULT_MARGIN, sa.DEFAULT_GAP)
+        self.assertEqual(without["verdict"], sa.ATTRIBUTED, "precondition: the single-floor rule attributes this")
+        self.assertEqual(without["dataset"], "spiral")
+
+        with_cross = sa.adjudicate(scores, null, sa.DEFAULT_MARGIN, sa.DEFAULT_GAP, cross_floor={"spiral": 0.598})
+        self.assertEqual(with_cross["verdict"], sa.INDETERMINATE, f"0.644 must not clear a 0.598 cross floor by the margin: {with_cross}")
+        self.assertIsNone(with_cross["dataset"])
+
+        survivor = sa.adjudicate({"spiral": 0.660, "xor": 0.510}, null, sa.DEFAULT_MARGIN, sa.DEFAULT_GAP, cross_floor={"spiral": 0.598})
+        self.assertEqual(survivor["verdict"], sa.ATTRIBUTED, "+0.062 clears the same floor; the rule must discriminate, not blanket-refuse")
+
+    def test_the_effective_floor_is_the_higher_of_the_two(self) -> None:
+        """Clearing BOTH floors is the same as clearing the stricter one -- in both directions."""
+        null = null_from(xor=0.720)
+        # Cross floor BELOW the untrained floor must not weaken anything.
+        lenient = sa.adjudicate({"xor": 0.800}, null, 0.05, 0.05, cross_floor={"xor": 0.400})
+        self.assertEqual(lenient["verdict"], sa.ATTRIBUTED, "a lower cross floor must not override the untrained floor")
+        self.assertEqual(lenient["floors"]["untrained"], 0.720)
+        # Cross floor ABOVE it must bind.
+        strict = sa.adjudicate({"xor": 0.800}, null, 0.05, 0.05, cross_floor={"xor": 0.790})
+        self.assertEqual(strict["verdict"], sa.INDETERMINATE, "a higher cross floor must bind")
+
+    def test_a_dataset_with_no_reference_class_falls_back_to_the_untrained_floor(self) -> None:
+        """Absence of a second floor must not be read as a floor of zero, or of one."""
+        null = null_from(xor=0.720)
+        verdict = sa.adjudicate({"xor": 0.800}, null, 0.05, 0.05, cross_floor={"moon": 0.99})
+        self.assertEqual(verdict["verdict"], sa.ATTRIBUTED, "xor has no cross floor; the untrained floor still governs")
+        self.assertNotIn("cross_dataset", verdict["floors"], "no cross floor applied means none is recorded")
+
+    def test_the_reason_names_the_floor_that_actually_bound(self) -> None:
+        """A refusal that blames the wrong floor sends the next investigation to the wrong place."""
+        null = null_from(spiral=0.572)
+        verdict = sa.adjudicate({"spiral": 0.630}, null, 0.05, 0.05, cross_floor={"spiral": 0.598})
+        self.assertEqual(verdict["verdict"], sa.INDETERMINATE)
+        self.assertIn("cross-dataset floor", verdict["reason"], f"the cross floor bound here, not the untrained one: {verdict['reason']}")
+
+    def test_both_floors_are_recorded_so_a_verdict_can_be_re_derived(self) -> None:
+        verdict = sa.adjudicate({"xor": 0.990}, null_from(xor=0.720), 0.05, 0.05, cross_floor={"xor": 0.775})
+        self.assertEqual(verdict["verdict"], sa.ATTRIBUTED)
+        self.assertEqual(verdict["floors"], {"untrained": 0.720, "cross_dataset": 0.775})
+
+
+class CrossDatasetReferenceClassTest(unittest.TestCase):
+    """What may enter the reference class, and what may not."""
+
+    def test_a_snapshot_does_not_contribute_to_its_own_datasets_floor(self) -> None:
+        """Otherwise every attribution raises the bar it was just judged against."""
+        rows = [attributed_row("a.h5", "xor", xor=0.99, spiral=0.55)]
+        cross = sa.build_cross_dataset_floor(rows)
+        self.assertNotIn("xor", cross, "an xor-attributed snapshot must not set xor's floor")
+        self.assertEqual(cross["spiral"]["max"], 0.55, "it may set the floor for datasets it was NOT attributed to")
+
+    def test_only_attributed_rows_enter_the_reference_class(self) -> None:
+        """An indeterminate snapshot is of UNKNOWN training; it is evidence about nothing."""
+        rows = [
+            {"name": "u.h5", "verdict": sa.INDETERMINATE, "dataset": None, "scores": {"spiral": 0.95}},
+            {"name": "b.h5", "verdict": sa.AMBIGUOUS, "dataset": None, "scores": {"spiral": 0.93}},
+            attributed_row("a.h5", "xor", spiral=0.55),
+        ]
+        cross = sa.build_cross_dataset_floor(rows)
+        self.assertEqual(cross["spiral"]["max"], 0.55, "only the attributed row may set spiral's floor")
+        self.assertEqual(cross["spiral"]["n"], 1)
+
+    def test_a_snapshot_is_excluded_from_the_bar_it_is_judged_against(self) -> None:
+        """A snapshot that helps set its own bar is not being tested against anything."""
+        rows = [attributed_row("high.h5", "xor", moon=0.98), attributed_row("low.h5", "xor", moon=0.60)]
+        cross = sa.build_cross_dataset_floor(rows)
+        self.assertEqual(cross["moon"]["max"], 0.98)
+
+        for_other = sa.cross_floor_excluding(cross, "low.h5")
+        self.assertEqual(for_other["moon"], 0.98, "a snapshot that did not set the max sees the max")
+
+        for_setter = sa.cross_floor_excluding(cross, "high.h5")
+        self.assertEqual(for_setter["moon"], 0.60, "the snapshot that SET the max must be judged against the runner-up")
+
+    def test_a_reference_class_of_one_drops_out_entirely_for_its_setter(self) -> None:
+        """The measured moon case: the whole floor rested on a single snapshot.
+
+        With no runner-up there is no cross floor left, and the dataset must fall back to the
+        untrained floor rather than keep a bar of its own making.
+        """
+        cross = sa.build_cross_dataset_floor([attributed_row("only.h5", "circles", moon=1.000)])
+        self.assertEqual(cross["moon"]["max"], 1.000)
+        self.assertIsNone(cross["moon"]["runner_up"])
+        self.assertNotIn("moon", sa.cross_floor_excluding(cross, "only.h5"), "a floor of one's own making must drop out")
+        self.assertEqual(sa.cross_floor_excluding(cross, "other.h5")["moon"], 1.000)
+
+    def test_an_empty_first_pass_yields_no_second_floor(self) -> None:
+        self.assertEqual(sa.build_cross_dataset_floor([]), {})
+        self.assertEqual(sa.cross_floor_excluding({}, "any.h5"), {})
+
+    def test_a_snapshot_cannot_suppress_its_own_rival_by_topping_that_rivals_floor(self) -> None:
+        """The measured `5af596ef` case, and the reason self-exclusion is not a nicety.
+
+        That snapshot scores circles 0.880 but **moon 1.000**. Because its own 1.000 was the
+        highest moon score in the reference class, it set moon's floor to 1.000 — which drove
+        its OWN moon lift to zero, removed moon as a runner-up, and left circles looking
+        cleanly separated. A snapshot scoring a perfect 1.000 on moon must not be recorded as
+        confidently circles.
+
+        With the snapshot excluded from the bar it is judged against, moon's floor falls to the
+        runner-up (0.875), its own moon lift becomes +0.125, and moon returns as a live
+        alternative — so the verdict is AMBIGUOUS, which is the honest answer.
+        """
+        rows = [
+            attributed_row("contested.h5", "circles", circles=0.880, moon=1.000),
+            # Puts circles' floor at its measured 0.750 and moon's runner-up at its measured
+            # 0.875, so the two lifts (+0.130 and +0.125) land inside the gap rule as they do
+            # in the archive.
+            attributed_row("other.h5", "xor", moon=0.875, circles=0.750),
+        ]
+        cross = sa.build_cross_dataset_floor(rows)
+        self.assertEqual(cross["moon"]["max"], 1.000)
+        self.assertEqual(cross["moon"]["setter"], "contested.h5")
+
+        null = null_from(circles=0.0, moon=0.0)
+        scores = {"circles": 0.880, "moon": 1.000}
+
+        naive = sa.adjudicate(scores, null, sa.DEFAULT_MARGIN, sa.DEFAULT_GAP, cross_floor={n: e["max"] for n, e in cross.items()})
+        self.assertEqual(naive["verdict"], sa.ATTRIBUTED, "precondition: without self-exclusion it looks like a clean circles")
+        self.assertEqual(naive["dataset"], "circles")
+
+        correct = sa.adjudicate(scores, null, sa.DEFAULT_MARGIN, sa.DEFAULT_GAP, cross_floor=sa.cross_floor_excluding(cross, "contested.h5"))
+        self.assertEqual(correct["verdict"], sa.AMBIGUOUS, f"a perfect moon score must resurface as a rival: {correct}")
+        self.assertIsNone(correct["dataset"])
+
+
 class UnattributableDatasetTest(unittest.TestCase):
     """``gaussian`` is scored but can never be an ANSWER.
 

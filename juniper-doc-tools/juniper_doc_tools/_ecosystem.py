@@ -23,6 +23,20 @@ __all__ = [
 
 # Juniper ecosystem repository names. Update this set when repos are added
 # or removed from the polyrepo.
+#
+# It drifted, and drift here is SILENT: a repo missing from this set is not
+# classified as cross-repo at all, so ``../juniper-recurrence/notes/x.md`` is
+# resolved as an ordinary intra-repo path, fails, and is reported as a broken
+# link -- pointing at the link rather than at this stale list. Two repos were
+# added to the polyrepo and never added here (fixed 2026-08-24):
+#
+#   * juniper-recurrence -- a PUBLISHING sibling (8th in the release-train
+#     registry), shipping 14 workflows and 3 PyPI packages;
+#   * juniper-slacker -- a repo but not a package, like juniper-deploy.
+#
+# The authoritative roster is util/release_train/registry.yaml's publishing
+# repos, plus the two non-package repos. tests/test_doc_tools_drift.py pins
+# this set against it so the next addition cannot drift in silence.
 ECOSYSTEM_REPOS: frozenset[str] = frozenset(
     {
         "juniper-canopy",
@@ -33,6 +47,8 @@ ECOSYSTEM_REPOS: frozenset[str] = frozenset(
         "juniper-data-client",
         "juniper-deploy",
         "juniper-ml",
+        "juniper-recurrence",
+        "juniper-slacker",
     }
 )
 

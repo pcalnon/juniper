@@ -342,6 +342,45 @@ class DefaultTargetsTests(unittest.TestCase):
             self.assertIn("L2 dangerous trigger present", result.stdout)
             self.assertIn("juniper-recurrence", result.stdout)
 
+    def test_present_sibling_without_claude_yml_is_reported_not_skipped(self) -> None:
+        """PARTIAL coverage must be distinguishable from FULL coverage.
+
+        The real-world shape, and the reason this exists: ``juniper-recurrence``
+        is checked out and ships 14 workflows, but no ``claude.yml``. Before
+        2026-08-24 the loop had no ``else`` branch, so that repo was skipped in
+        SILENCE; the only warning fires when ZERO repos match, which never happens
+        while any sibling has one. The weekly audit therefore covered 8 of 9 and
+        exited 0, reading exactly like full coverage.
+
+        Still exit 0 -- a repo with no ``claude.yml`` spends no key and has nothing
+        to validate. The fix is visibility, NOT adding a ``claude.yml`` to a public
+        repo, which would create the very key-spending surface this audit polices.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_sibling_claude(root, "juniper-ml", GOOD_YAML)
+            # Present, canonical, and workflow-bearing -- but no claude.yml.
+            (root / "juniper-recurrence" / ".github" / "workflows").mkdir(parents=True)
+            (root / "juniper-recurrence" / ".github" / "workflows" / "ci-docs.yml").write_text("name: ci-docs\n")
+            result = _run_validator_no_args(juniper_root=root)
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, msg=f"combined={combined!r}")
+            self.assertIn("juniper-recurrence", combined)
+            self.assertIn("NOT audited", combined)
+            # The covered sibling must still be audited normally.
+            self.assertIn("passed L2/L3 validation", result.stdout)
+
+    def test_absent_sibling_is_not_reported(self) -> None:
+        """Only repos actually CHECKED OUT are reported -- a partial ecosystem
+        clone (the per-PR CI shape) must not emit eight spurious warnings."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_sibling_claude(root, "juniper-ml", GOOD_YAML)
+            result = _run_validator_no_args(juniper_root=root)
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, msg=f"combined={combined!r}")
+            self.assertNotIn("NOT audited", combined)
+
     def test_juniper_root_aggregates_sibling_failures(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
