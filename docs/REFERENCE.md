@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.6
+**Version:** 0.6.10
 **Status:** Active
-**Last Updated:** 2026-08-07
+**Last Updated:** 2026-08-24
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -23,6 +23,7 @@
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
+- [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
 - [Scheduled Security Scan and Lockfile Update](#scheduled-security-scan-and-lockfile-update)
@@ -1247,6 +1248,8 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
     no listener, so kill-by-port cannot be what fired), removes the target file, releases the lockdirs, writes `teardown.json`, and preserves `artifacts/`.
   Live `cascor_up` / `canopy_up` compose pins (`TestCascorUp` / `TestCanopyUp` — fake `conda.sh` + PATH stubs; juniper-ml#813). Wired into `ci.yml` beside the `test_juniper_{plant,chop}_all.py` launcher tests.
   - Live compose coverage for `data_up` (`TestDataUpLive`: venv create/skip, pip extras, `PYTHON_GIL=0`, pidfile, missing-`python3.14` abort — juniper-ml#807).
+- `tests/test_snapshot_attribute.py` -- Hermetic tests for `util/snapshot_attribute.py` (handoff §3.2). Pins permutation-corrected scoring, the untrained floor as the null's **maximum** (not p95), the schema-v2 cross-dataset floor, `--write` refusals for `--sample`/`--min-hidden`, and an AST read-only guard.
+  - `DatasetInstanceIsFixedTest` (juniper-ml#1333): a generator declaring `seed=None` is given `DATASET_SEED`; a declared seed (spiral) is kept; two calls with the same seed agree; a params class with **no** `seed` field is left untouched; `DATASET_SEED` is a constant, not a drifting default. Stand-ins — no cascor tree, no juniper-data tree, no archive. Operator surface: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 - `tests/test_run_experiment.py` -- Hermetic tests for `util/experiments/run_experiment.py` (CLI experimentation plan Waves 2.2-2.6: the cascor + recurrence service paths, the §8.1 + §8.2 plot sets, and the §8.3 stats/summary renderers (e2e stats assertions for both kinds + every-outcome coverage + the `StatsSummaryUnitTest` percentile/delta/grouping/degraded-notes units) --
   plot arms cover all-rendered PNGs for both kinds (sequence-NPZ stub artifact for §8.2), per-kind plot-name validation, skip-vs-acceptance semantics (eval-disabled / degraded-sampling / disabled-phase skips, matplotlib-unavailable failure), and the `plots_cascor.py` / `plots_recurrence.py` renderer units incl. the `y_reg_` target-key preference;
   `util/` is not pre-commit-lint-gated, so this unittest is the gate). A scripted stub HTTP server stands in for juniper-data, cascor, and recurrence (no live services): the
@@ -1491,6 +1494,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `util/experiments/run_suite.py` -- Suite driver. `EXECUTION_KEYS` forwards **both** Q-2 budget knobs to the driver: `execution.stall_seconds` → `--stall-seconds` (ml#1069) and `execution.max_wall_seconds` → `--max-wall-seconds`. Absent key ⇒ flag omitted entirely, so the driver keeps owning its default.
   - Do not confuse `execution.max_wall_seconds` with `execution.per_run_timeout_seconds`: the latter is only the **subprocess** timeout, which kills the driver from the OUTSIDE and records `timed_out` where the driver would otherwise write an honest `timed_out` manifest (§13.4). Size `per_run_timeout_seconds` ABOVE the wall budget so the driver is the one that stops.
   - A suite could always reach the budget through a dotted `outputs.max_wall_seconds` override (`suites/p4/e-i-cascor-cap-ceiling.yaml:71` does exactly that), but before this key an un-overridden cell silently inherited `base_config`'s value — 3600 s for `spiral-baseline` — with no signal. Both mechanisms are accepted by the R-6 gate. Tests: `tests/test_run_suite.py`.
+- `util/snapshot_attribute.py` -- Read-only dataset attribution over the classification sidecar (handoff §3.2). Scores each loadable snapshot against the six 2-D generators with permutation-corrected accuracy, gated on the untrained-null **max** plus a schema-v2 cross-dataset floor.
+  - **Dataset instance must be pinned** or the scores are not reproducible: five generators declare `seed=None` and redraw every call.
+  - `seeded_params` (juniper-ml#1333) supplies `DATASET_SEED` (`20260824`) only where a generator declares none; spiral keeps its declared seed; `--dataset-seed` overrides; `--seed` only samples snapshots. `--write` refuses `--sample`/`--min-hidden`. Tests: `tests/test_snapshot_attribute.py`. Operator surface: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 - `util/get_cascor_*.bash` -- Cascor REST API query utilities (status, metrics, history, network, topology). These helpers read legacy `CASCOR_HOST` and `CASCOR_PORT` environment variables (with `localhost` / `8201` defaults). Do not confuse them with the `JUNIPER_CASCOR_*` variables used by `util/juniper_plant_all.bash`.
 
 ---
@@ -2240,6 +2246,98 @@ print(sorted(n for n, i in GENERATOR_REGISTRY.items() if not generator_available
 
 Against a **running** data service, the same facts come from the API: `GET /v1/generators/{name}/schema` includes `"available"`, and unavailable generators return `501` at dataset-creation time.
 
+The six numpy-only 2-D classification generators (`spiral`, `xor`, `gaussian`, `circles`, `moon`, `checkerboard`) are also the attribution roster in `util/snapshot_attribute.py`. Their `seed` fields are **not** interchangeable — five declare `None` and redraw every call unless pinned. Operator contract: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
+
+---
+
+## Snapshot Attribution Dataset Pin
+
+`util/snapshot_attribute.py` infers which dataset a cascor snapshot was trained on (handoff §3.2). It scores every loadable snapshot against the six juniper-data 2-D classification generators, writes only a derived `snapshots_attribution.jsonl` sidecar, and never touches a `.h5`. An AST test forbids prune/delete paths.
+
+Until juniper-ml#1333, **attribution was not reproducible.** Five of the six generators declare `seed: int | None = Field(default=None)`, and `load_datasets` built them from bare defaults, so every run scored against freshly drawn data.
+
+### What broke
+
+Two `load_datasets` calls **in the same process** returned different arrays for `checkerboard`, `circles`, `gaussian`, `moon`, and `xor`. `spiral` alone declares a real default seed — and spiral was the only column whose counts held across every rebuild.
+
+The cost was not theoretical. Regenerating the archive sidecar moved moon's attributed count **0 → 6**:
+
+1. moon's own score shifted `1.000 → 0.995`
+2. one snapshot's first-pass winner flipped from `circles` to `moon`
+3. that snapshot left moon's reference class
+4. moon's cross-dataset floor fell **`1.000 → 0.850`**
+5. every remaining moon attribution then cleared the floor
+
+A one-in-a-thousand jitter in generated data moved a floor by 0.15 and changed six verdicts. Two identical invocations (`--sample 300 --seed 4242 --json`) also produced different output, including a verdict `gap` of `0.0334 → 0.0134`.
+
+### The pin (`seeded_params`, ships with #1333)
+
+`seeded_params(params_cls, seed)` supplies a seed **only where the generator declares none**:
+
+| Params `seed` field | Action |
+|---------------------|--------|
+| **Absent** | leave the instance untouched. Absence and `None` are different answers; passing `seed=` would raise. |
+| **Not `None`** | keep it. This is spiral: it stays on the exact instance every prior analysis used. |
+| **`None`** | rebuild with `seed=DATASET_SEED`. |
+
+`DATASET_SEED = 20260824` is a **pinned constant**, not a drifting default. Changing it redefines the canonical instance and invalidates comparisons with an existing sidecar.
+
+| Flag | Default | What it actually seeds |
+|------|---------|------------------------|
+| `--dataset-seed` | `DATASET_SEED` (`20260824`) | generators that declare `seed=None` |
+| `--seed` | `20260823` | `--sample` snapshot selection **only** |
+
+Passing `--seed` does **not** pin the generators. That mix-up is the operator class this section exists to stop.
+
+Every scoring run logs `dataset seed: <n> (applied only to generators declaring none; spiral keeps its own)` on stderr. Until #1333 is on the checkout you are running, `seeded_params` / `--dataset-seed` / that log line do not exist and two identical invocations will still differ.
+
+### Reproducibility check
+
+```bash
+ROOT=/home/pcalnon/Development/python/Juniper/juniper-cascor/cascor-snapshots
+python util/snapshot_attribute.py --root "$ROOT" --sample 300 --seed 4242 --json > A.json
+python util/snapshot_attribute.py --root "$ROOT" --sample 300 --seed 4242 --json > B.json
+diff A.json B.json      # must be empty after #1333; was non-empty before it
+```
+
+`--write` refuses `--sample` and `--min-hidden` (exit 2) so a partial sidecar can never silently replace a full one. The untrained floor is the null's observed **maximum**, not its p95 (`adjudicate._untrained_floor`).
+
+### Sidecar chain
+
+The four sidecars are strictly ordered: **index → classify → attribute → backfill**. Attribution reads the classification sidecar and covers only what it lists, so a stale classification silently caps coverage.
+
+Do **not** export `JUNIPER_CASCOR_SNAPSHOTS_DIR` for this chain. That variable is both cascor's snapshot **write** directory and `snapshot_index.default_root()`. Probe scripts under `util/ad-hoc/` redirect it so they cannot grow the archive; the chain must not, or every stage looks for the archive in the scratch dir. Pass `--root` explicitly instead.
+
+The one-off driver `util/ad-hoc/2026-08-24_regenerate_sidecar_chain.bash` lands with #1333. It refuses to start without `--backup DIR` containing all four `snapshots_*.jsonl` files — the sidecars are gitignored and a full run costs ~1h. Pass `--repo` / `--python` when not on the hardcoded worktree path. `--skip-index` is the only skip (append-only scan is cheap); classification, attribution, and backfill always re-derive.
+
+### Counts you may quote
+
+The findings doc §2.1 table is **run-specific and not reproducible** — it was produced before the pin. After the seeded full-chain rebuild (27,962 indexed / 27,689 attributable):
+
+| dataset | both floors (seeded, reproducible) |
+|---------|-----------------------------------:|
+| xor | **94** |
+| circles | **7** |
+| spiral | **4** |
+| moon | **3** |
+| *ambiguous* | 8 |
+| **attributed** | **108** |
+
+spiral is 4 under every rebuild because it was the one generator already seeded. Pre-pin moon=0 and the unseeded-rebuild moon=6 are both artefacts of redrawing.
+
+Full measurement, including why a capacity-matched null is not the fix: [`notes/JUNIPER_2026-08-24_JUNIPER-CASCOR_ATTRIBUTION-NULL-MODEL-FINDINGS.md`](../notes/JUNIPER_2026-08-24_JUNIPER-CASCOR_ATTRIBUTION-NULL-MODEL-FINDINGS.md) §8.
+
+Regression: `python3 -m unittest -v tests/test_snapshot_attribute.py` (`DatasetInstanceIsFixedTest` is the hermetic pin — 5 stand-in tests, no juniper-data tree; 49 tests on #1333, was 44).
+
+| Symptom | Check / fix |
+|---------|-------------|
+| Two identical `--sample --seed` runs differ | Generators are unpinned — need #1333 on the checkout. `--seed` only samples snapshots. |
+| `--seed 4242` did not make attribution reproducible | Use `--dataset-seed` (or the `DATASET_SEED` constant). `--seed` is the sampler. |
+| Regenerated sidecars are empty / point at scratch | `JUNIPER_CASCOR_SNAPSHOTS_DIR` was redirected. Unset it and pass `--root`. |
+| `--write` exits 2 immediately | `--sample` or `--min-hidden` (or `--from-sidecar`) with `--write` is refused by design. |
+| Quoted counts do not match a rebuild | Pre-pin §2.1 figures are not properties of the archive. Quote the seeded table above. |
+| Chain driver errors on a missing backup file | Copy all four `snapshots_{index,classification,attribution,backfill}.jsonl` into `--backup` first. |
+
 ---
 
 ## Shared-Package CI Workflows
@@ -2553,6 +2651,7 @@ Control receive rejects malformed / non-object JSON with close **1003** rather t
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.10  | 2026-08-24 | Snapshot attribution dataset pin: `seeded_params` / `DATASET_SEED` / `--dataset-seed` vs `--seed`, `JUNIPER_CASCOR_SNAPSHOTS_DIR` chain trap, quoteable seeded counts (juniper-ml#1333) |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
@@ -2877,8 +2976,14 @@ These variables are consumed by Juniper packages documented in this repository. 
 
 Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities), the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities), and the per-run experiment overrides in [Experiment Stack Utilities](#experiment-stack-utilities).
 
+`JUNIPER_CASCOR_SNAPSHOTS_DIR` is **dual-use**: cascor's snapshot write directory **and** `snapshot_index.default_root()`.
+Experiment `--up` may redirect it to `$RUN_DIR/snapshots` (W-6). The attribution sidecar chain must **not** — pass `--root` instead.
+See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
+`JUNIPER_CASCOR_SRC` / `JUNIPER_DATA_ROOT` override the trees `snapshot_attribute.py` imports when the fallbacks
+(`~/Development/python/Juniper/juniper-cascor/src` and `.../juniper-data`) are wrong.
+
 ---
 
-**Last Updated:** 2026-08-07
-**Version:** 0.6.6
+**Last Updated:** 2026-08-24
+**Version:** 0.6.10
 **Maintainer:** Paul Calnon
