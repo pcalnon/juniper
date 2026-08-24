@@ -147,7 +147,7 @@ A fresh dashboard ships S=1, T=1, R=1, so T+R=2≠S and the *first* Apply always
 **F-CANOPY-026 — phase duration is inflated by the host's UTC offset: cascor emits naive LOCAL time, canopy stamps it as UTC (P2, OPEN; segment 15).**
 `metrics-panel-phase-duration` read **"Phase Duration: 300m 37s"** on a run that had been alive for 37 seconds. Mechanism, both halves proven in source and live: cascor writes `phase_started_at=datetime.now().isoformat()` — **naive, LOCAL** — at `juniper-cascor/src/api/lifecycle/manager.py:1781` (candidate phase) and `:2326` (output phase); canopy's `_update_phase_duration_handler` (`juniper-canopy/src/frontend/components/metrics_panel.py:1375-1376`) does `if started.tzinfo is None: started = started.replace(tzinfo=timezone.utc)` and then subtracts from `datetime.now(timezone.utc)`. Stamping a local timestamp as UTC shifts it by the host offset, so the displayed elapsed time is inflated by exactly that offset. Measured live: `phase_started_at = 2026-08-20T03:11:17.347900` with the box on CDT (`date +%z` → `-0500`); canopy's arithmetic yields 302m29s where the correct value is 2m29s — **delta exactly 18000 s = 5 h**. The counter ticks correctly at 1 s/s (300m37s → 301m18s across 41 s wall), so this is a pure constant offset, not a broken clock. **Invisible in any UTC-0 environment** (CI, most containers), which is why 14 segments on this dashboard never surfaced it. Matrix row M-METRICS-03 **FAIL**. Fix direction: emit tz-aware UTC from cascor (`datetime.now(timezone.utc).isoformat()`), which also makes canopy's naive branch unreachable; treating a naive value as local on the canopy side would be the compatible stopgap.
 
-**F-CANOPY-027 — a panel's data store is written repeatedly with changing data and NOTHING downstream of it ever runs, so three panels stay frozen at mount defaults through a whole live run (P0/P1, OPEN; found segment 15; root cause STILL NOT isolated after the Phase 2 investigation below — read that block before touching this, it refutes eleven mechanisms).**
+**F-CANOPY-027 — a panel's data store is written repeatedly with changing data and NOTHING downstream of it ever runs, so three panels stay frozen at mount defaults through a whole live run (P0/P1, OPEN; found segment 15; ROOT-CAUSED 2026-08-23 — callback starvation under dash-renderer's hard-coded 12-slot concurrency pool, reproduced in a clean room with a control. Read the `ROOT CAUSE (2026-08-23)` block at the end of this entry FIRST: it supersedes the "broken wiring" framing of every block above it, and those blocks are retained only as the refutation record for twenty mechanisms).**
 Two panels, identical signature: their data store is demonstrably filled on the wire, and the server-side `@app.callback` renderers that take that store as their sole/primary `Input` never emit a single output.
 *Candidate Metrics*: `candidate-metrics-panel-training-state-store` received fresh payloads repeatedly (`{"candidate_pool_status":"Training","candidate_pool_size":40,"top_candidate_id":"31","top_candidate_score":0.181,"second_candidate_id":"11"}`), while `/api/state` carried a full pool (`candidate_pool_size 40`, `candidates_trained 40/40`, `candidate_epoch 351/400`, 40 `all_correlations`). The panel rendered `Inactive` / `Idle` / `0` / "No active candidate pool" / "No candidate data available" / "No pool history yet" for the entire run. `update_status_display`, `update_epoch_progress`, `update_pool_info` (`candidate_metrics_panel.py:251-300`) are plain server-side `@app.callback`s on `Input(-training-state-store,"data")`; **zero** `candidate-metrics-panel-status-badge` outputs across 252 responses / 45 s, and zero again across 200 responses / 49 s on a second, independent trigger path (forcing `visualization-tabs.active_tab` to change rather than riding the interval).
 *Decision Boundary*: `decision-boundary-boundary-data` filled 12×/61 s and 22×/60 s (the latter including a direct `decision-boundary-refresh-btn` click), while `decision-boundary-plot` and `-status` emitted **0** outputs and the status stayed `"Status: No network loaded"` — even though `GET /api/decision_boundary?resolution=50` returns a full `xx` meshgrid and cascor reported `current_hidden_units: 7`. `update_boundary_plot` (`decision_boundary.py:172-183`) is likewise a server-side `@app.callback`.
@@ -275,6 +275,89 @@ sufficient -- "is never the initially-active pane" is the narrower property stil
 should re-run
 `util/ad-hoc/e2e_f027_setprops_probe.py` — that probe is now the fastest yes/no test of whether wiring is
 restored, taking about a minute rather than a full driving pass.
+
+
+**ROOT CAUSE (2026-08-23) — CALLBACK STARVATION under dash-renderer's hard-coded 12-slot pool. Reproduced in a clean room with a control; the "wiring" framing above is WRONG and is superseded by this block.**
+
+*The tab-position property does not survive either.* "Is never the initially-active pane" was the last
+standing hypothesis. It is refuted: in the clean-room reproduction below the **initially-active pane dies
+too**, and in canopy the working panel is a winner of a race, not a beneficiary of its position.
+
+**What it actually is.** Nothing is mis-wired. Every consumer is registered, resolvable and *queued* — and
+never picked. dash-renderer's prioritized-callback executor
+(`dash_renderer.dev.js:2846`, dash 4.2.0 — the unminified bundle ships in the env) promotes work out of
+`callbacks.prioritized` under a **hard-coded, non-configurable cap of 12**:
+
+```js
+available = Math.max(0, 12 - executing.length - watched.length);
+pickedSyncCallbacks = syncCallbacks.slice(0, available);
+```
+
+When `executing + watched >= 12`, `available == 0` and **nothing** leaves `prioritized` on that pass.
+Separately, `getReadyCallbacks` refuses to promote a `requested` callback while any of its Inputs is an
+output claimed by a *still-pending* callback. Put together: **a poller whose completion time exceeds its own
+trigger period is never absent from the pending set, so every consumer of its output starves forever.**
+
+**Measured on the live isolated stack** (`e2e_f027_slots.py`, subscribe-not-sample, 5020 state changes over
+60 s on the Candidates tab):
+
+| metric | value |
+|---|---|
+| pool FULL (`available == 0`) | **4195 / 5020 samples = 83.6 %** |
+| `available <= 1` | 97.1 % |
+| `prioritized` queue length | min 0, **max 36** (3× the pool) |
+| callbacks completed, whole dashboard | 224 in 60 s |
+| interval-driven server callbacks registered | **26** (14 `fast-update-interval`, 9 `slow-update-interval`, 3 per-panel) |
+
+26 perpetual pollers contend for 12 slots. Arbitration is `sortPriority` → `getPriority`
+(`dash_renderer.dev.js:1592`), a base-36 string of the callback's downstream chain depth and breadth sorted
+**descending**, so a *terminal* render callback — one whose outputs feed nothing further, which is exactly
+what `update_status_display` / `update_pool_info` / `update_boundary_plot` / the dataset stat tiles are —
+scores the minimum and loses every arbitration while the pool is contended. Deterministic ordering means the
+same losers lose every time, which is why the symptom looks like broken wiring rather than jitter.
+
+**Clean-room reproduction WITH A CONTROL** (`util/ad-hoc/e2e_f027_cleanroom.py`, same dash 4.2.0 / dbc 2.0.4,
+`dbc.Tabs` + per-pane `Interval → Store → Div`, plus canopy's one-shot `visualization-tabs.children`
+rebuild). Only the writer's completion time was varied:
+
+| writer work | interval | outcome |
+|---|---|---|
+| 0.0 s | 500 ms | 5 / 5 panes **LIVE** |
+| 0.2 s | 500 ms | 5 / 5 panes **LIVE** |
+| 1.0 s | 500 ms | **0 / 5 panes live — all frozen at mount defaults, including the initially-active pane** |
+
+The dead arm reproduces the exact F-CANOPY-027 signature: store filled repeatedly on the wire, consumers
+never fire, zero console errors, wiring perfect. The threshold is completion-time-vs-trigger-period and
+nothing else. The earlier 5-pane / no-delay run is the reason a first clean-room attempt did **not**
+reproduce: 10 fast callbacks never contend for the 12 slots.
+
+**Two more mechanisms refuted this pass, both by direct experiment (do not re-run):**
+- *the consumers are missing from the client's derived observer index* — `e2e_f027_inputmap.py` reads
+  `state.graphs.inputMap` (the client-DERIVED index, **not** the served `_dash-dependencies` that earlier
+  probes checked) and dash-renderer's second gate. All three dead stores are in `inputMap` with `props=['data']`,
+  and **every** consumer output resolves in `paths` — 0 callbacks dropped. Both gates pass.
+- *`visualization-tabs.active_tab` as an Input poisons the writer* — all three dead writers take it as an
+  `Input` and `no_update` off-tab, while the one working writer (`metrics_panel.py:608`) deliberately takes
+  only its interval, with a comment naming this hazard as "the I-1 starvation". Plausible, and **wrong**:
+  moving it to `State` in `candidate_metrics_panel.py`, confirmed applied in the served graph
+  (`state: [('visualization-tabs','active_tab')]`), left the panel exactly as dead. Reverted.
+
+**Why this subsumes other findings.** F-CANOPY-004 ("server-side Dash callbacks lag 30 s–minutes behind
+reality during a live run") is the same saturation seen from the outside, not an independent defect. The
+three F-CANOPY-027 panels are the starvation losers; the metrics panel is a winner.
+
+**Fix direction (design needed — this is architectural, not a one-line fix).** The lever is the *number of
+concurrently pending callbacks*, which must sit below 12. The largest single win: canopy's tab-gated pollers
+are gated **server-side** — `_update_dataset_store_handler` / `_update_boundary_store_handler` /
+`fetch_training_state` all return `dash.no_update` when their tab is inactive, but the callback has already
+made a full round-trip and consumed a slot to decide that. Gating on the **client** instead (drive each
+`dcc.Interval.disabled` from `visualization-tabs.active_tab` via a clientside callback) stops the off-tab
+pollers from firing at all and should return the pool to the uncontended regime the clean-room control
+demonstrates. Raising the cap is not an option — it is a literal `12` in the renderer bundle.
+
+**Verification loop.** `e2e_f027_slots.py` is the primary instrument: a fix works iff `available == 0` drops
+well below 83.6 % and `prioritized` stops backing up. `e2e_f027_setprops_probe.py` remains the ~1-minute
+yes/no on a single panel, but note it answers "did this panel win a slot", not "is the wiring restored".
 
 **F-CANOPY-033 — `RESET_COMPONENT_STATE` storms one panel at ~13/s (P2, OPEN; found while tracing F-CANOPY-027).**
 Redux tracing recorded **1157 `RESET_COMPONENT_STATE` dispatches in 90 s** — roughly 13 per second, out of
@@ -2636,3 +2719,59 @@ silently contaminated one control column, and a multi-output callback stores eve
 key, which made a correct registry look like it was missing 253 entries. Exact `==` on ids, and counting
 entries rather than trusting a derived index, is not pedantry on this codebase — it is the difference between
 a finding and a false finding.
+
+---
+
+## Phase 2 — investigation 3 (2026-08-23): F-CANOPY-027 ROOT-CAUSED
+
+**Outcome up front: F-CANOPY-027 is root-caused and is not a wiring defect at all.** It is *callback
+starvation* under a hard-coded 12-slot concurrency cap in dash-renderer. The full technical record — the
+renderer source lines, the live saturation numbers, and the clean-room reproduction with its control — is in
+the ledger entry's `ROOT CAUSE (2026-08-23)` block. This section is the narrative.
+
+### What broke the deadlock
+
+Twenty mechanisms had been refuted, all of them *in situ*, against the full 461-component dashboard. The move
+that worked was going the other way: build the smallest app that has canopy's shape on the same dash 4.2.0 /
+dbc 2.0.4, and ask whether the symptom appears at all.
+
+The first clean-room run did **not** reproduce — five panes, all live, even with canopy's
+`visualization-tabs.children` rebuild. That negative result was the useful one: it killed "is never the
+initially-active pane", the last standing hypothesis, and forced the question "what does canopy have that
+five panes do not?" The answer turned out to be *load*, not structure.
+
+### The instrument that had never been pointed at this
+
+Every prior probe measured the served dependency graph, `paths`, the redux `layout`, or action *types*. None
+read dash-renderer's own queues — even though `e2e_f027_client_state.py`'s docstring had named them and
+observed that "a consumer parked in `blocked` forever is a different defect from one that is never queued at
+all". Reading them settled it in one pass: the consumers sit in `requested`/`prioritized` with `blocked`,
+`executing` and `executed` all at **0**. Queued, and never picked.
+
+From there the renderer bundle (`dash_renderer.dev.js`, unminified, ships in the env) gives the rule in one
+line: `available = Math.max(0, 12 - executing.length - watched.length)`. Canopy runs 26 interval-driven
+server callbacks against those 12 slots and holds the pool full 83.6 % of the time.
+
+### The correction that matters most
+
+I filed nothing on the strongest-looking lead. All three dead writers take `visualization-tabs.active_tab`
+as an `Input` and `no_update` off-tab; the one working writer deliberately takes only its interval and
+carries a comment naming that exact hazard as "the I-1 starvation" — the codebase's own name for a defect
+class it had already diagnosed and fixed once. It was a compelling story and it was wrong: moving the
+dependency to `State`, verified applied in the served graph, changed nothing. The arc's rule — reproduce a
+second way before writing it down — paid for itself again, and the fix-and-verify *was* the second way.
+
+### What this changes downstream
+
+F-CANOPY-004 (callbacks lagging 30 s–minutes during a live run) is the same saturation observed from outside,
+not an independent defect. And the fix is architectural rather than local: canopy's tab-gated pollers are
+gated **server-side**, so an inactive tab's poller still spends a full round-trip and a renderer slot to
+decide to return `no_update`. Moving that gate to the client is the lever. That is a design task, not a
+one-line patch, and it should be designed before it is coded.
+
+### Method note
+
+Two instrument lessons worth keeping. First, "present in the served `_dash-dependencies`" and "present in the
+client's derived `graphs.inputMap`" are different claims; the arc had checked only the first and treated it as
+the second. Second, a negative clean-room result is evidence, not a failed experiment — the five-pane run that
+"didn't reproduce" is what identified load as the variable.
