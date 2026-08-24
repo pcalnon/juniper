@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -927,12 +928,38 @@ class TestCheckPortAvailable(unittest.TestCase):
         self.assertIn("Port 65099 is available", result.stdout)
 
     def test_ss_missing_fail_open(self) -> None:
-        # If ``ss`` is absent, the pipeline yields empty stdout and the helper
-        # treats the port as free (fail-open). Pre-flight ``for cmd in curl ss``
-        # is the real gate; this pins the helper's own degrade path.
+        """If ``ss`` is absent the helper must fail OPEN (port treated as free).
+
+        This test did not test that until 2026-08-24. It set
+        ``PATH = <empty stub>:/usr/bin:/bin`` under the comment "``ss`` resolves as
+        missing" -- but ``ss`` lives at BOTH ``/usr/bin/ss`` and ``/bin/ss``, so an
+        empty directory in front shadowed nothing and ``ss`` resolved normally. The
+        real ``ss`` then reported port 65099 free, producing exactly the
+        ``STATUS=0`` the assertions wanted. It passed identically whether the helper
+        failed open or closed, and would have passed with the helper deleted.
+
+        The fix is a PATH that genuinely lacks ``ss``: a stub directory holding only
+        the ``grep`` the helper also needs, and nothing else. ``_assert_ss_absent``
+        below proves the precondition actually holds, so this cannot quietly become
+        vacuous again if the fixture drifts.
+
+        Pre-flight ``for cmd in curl ss`` remains the real operator-facing gate;
+        this pins the helper's own degrade path.
+        """
+        grep_path = shutil.which("grep")
+        self.assertIsNotNone(grep_path, "grep is required to exercise the helper")
         with tempfile.TemporaryDirectory() as tmp:
-            empty_bin = Path(tmp) / "empty"
-            empty_bin.mkdir()
+            only_grep = Path(tmp) / "only-grep"
+            only_grep.mkdir()
+            # The helper needs exactly two externals: `ss` and `grep`. Provide grep,
+            # withhold ss. `echo` is a bash builtin and needs no PATH entry.
+            os.symlink(grep_path, only_grep / "grep")
+
+            env = RedactedEnv(os.environ)
+            env["PATH"] = str(only_grep)  # NOT prepended -- this IS the whole PATH.
+
+            self._assert_ss_absent(env)
+
             harness = f"""
                 set -euo pipefail
                 JUNIPER_SCRIPT_NAME="juniper_plant_all.bash"
@@ -944,10 +971,7 @@ class TestCheckPortAvailable(unittest.TestCase):
                 echo "STATUS=${{status}}"
                 exit 0
             """
-            env = RedactedEnv(os.environ)
-            # Empty stub dir first — ``ss`` resolves as missing; keep grep.
-            env["PATH"] = str(empty_bin) + os.pathsep + "/usr/bin:/bin"
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603,B607 - fixed argv, hermetic harness
                 ["/bin/bash", "-c", harness],
                 capture_output=True,
                 text=True,
@@ -957,6 +981,30 @@ class TestCheckPortAvailable(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertIn("STATUS=0", result.stdout)
             self.assertIn("Port 65099 is available", result.stdout)
+            # NB: no "command not found" appears anywhere -- the helper runs
+            # `ss -tlnp 2>/dev/null`, so a missing `ss` is indistinguishable from a
+            # silent one at the call site. That is exactly why the precondition has to
+            # be asserted separately rather than inferred from output.
+
+    def _assert_ss_absent(self, env: "RedactedEnv") -> None:
+        """Prove the precondition: ``ss`` is unresolvable under ``env``'s PATH.
+
+        Without this the test is only as good as its fixture, and the fixture is
+        precisely what was wrong before -- an assertion about fail-open behaviour
+        that the real ``ss`` satisfied by accident.
+        """
+        probe = subprocess.run(  # nosec B603,B607 - fixed argv
+            ["/bin/bash", "-c", "command -v ss"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=SCRIPT_TIMEOUT_SECONDS,
+        )
+        self.assertNotEqual(
+            probe.returncode,
+            0,
+            msg=(f"PRECONDITION FAILED: ss still resolves to {probe.stdout.strip()!r} under " f"PATH={env.get('PATH')!r} -- this test would pass vacuously"),
+        )
 
 
 class TestCleanupOnFailure(unittest.TestCase):
