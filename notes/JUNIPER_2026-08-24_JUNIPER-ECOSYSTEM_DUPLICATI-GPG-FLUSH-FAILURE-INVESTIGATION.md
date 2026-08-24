@@ -3,7 +3,7 @@
 **Project**: Juniper — Backup Infrastructure
 **Author**: Paul Calnon (investigation executed by Claude Code session "backup sys work")
 **Date**: 2026-08-24
-**Status**: Mechanism pinned (source + forensics + controlled experiments); in-vivo macro reproduction IN FLIGHT (§7)
+**Status**: Mechanism pinned AND REPRODUCED IN VIVO (§7) — investigation complete; fix decision open (§9)
 **Prior context**: [`JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-FRESH-BACKUP-SET-PLAN.md`](JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-FRESH-BACKUP-SET-PLAN.md) · handoff `prompts/thread-handoff_automated-prompts/HANDOFF_2026-08-24_duplicati-gpg-failure-and-scheduled-lane.md`
 
 ---
@@ -29,6 +29,11 @@ deliberately killed: one multi-second I/O stall fails the entire backup.
 has already exited successfully (gpg gone in 0.2–0.7 s; the pump's final `write()`/
 `close()` into the throttled page cache consumes the rest). The name "GPG failure" is
 a misattribution baked into Duplicati's error string.
+
+**The failure was then reproduced end-to-end** (§7): a scratch duplicati-cli run
+under a memory-capped systemd unit hit the identical correlated multi-volume
+`GPGFlushError` 26 minutes in — with **every gpg invocation exiting rc=0**, one of
+them four seconds before its volume's exception was thrown.
 
 Nothing was changed: per the standing directive, this investigation reproduced and
 pinned the mechanism only. Fix candidates and their tradeoffs are catalogued in §9
@@ -175,11 +180,15 @@ not recreated on a live machine carrying the 59+ h archive Recreate.
 > gpg exits successfully underneath; the error string blames the wrong component.
 
 Confidence: the bound, wiring, retry vacuity, queue kill, and ≥6-miss episode are
-**certain** (source + log, independently verified). The writeback-under-memory-collapse
-trigger is **strongly supported** (monotone dose–response to 96.4% of the bound with
-the exact pump-side signature) and is the parsimonious explanation; crossing was not
-observed in 72 synthetic tails, consistent with the real trigger state being harsher
-than the bounded emulation.
+**certain** (source + log, independently verified). The memory-collapse trigger,
+initially **strongly supported** by the micro dose–response (to 96.4% of the bound
+with the exact pump-side signature), was subsequently **CONFIRMED in vivo** (§7):
+a real duplicati-cli run under a memory-capped unit produced the complete failure
+signature — correlated four-volume GPGFlushError episode, vacuous 10 s-spaced
+retries, queue kill — while **every gpg invocation exited rc=0**, one of them four
+seconds before its volume's exception, with gpg observed blocked on a full stdout
+pipe (`anon_pipe_write`) during the window. No link in the chain remains inferred
+only.
 
 ## 6. Run 1 (the 17:15 hang) — related, still unpinned
 
@@ -208,12 +217,47 @@ Launched 2026-08-24 04:37 as transient unit `gpg-macro-repro.service` with
 MemoryMax=10G RuntimeMaxSec=18000`; cap verified enforced from the host cgroup view.
 Run dir: `/media/pcalnon/temp_backups/_gpg_repro/macro-20260824-043743/`.
 
-**RESULT: to be appended when the run completes.**
+### RESULT: REPRODUCED — 26 minutes in, full signature, gpg innocent on camera
+
+- **05:03:13–05:04:03**: four volumes (`b0e587d5…`, `b4851477…`, `b9a17040…`,
+  `be5cf5f6…`) failed with `GPGFlushError` in one correlated episode. The Verbose
+  instrument made the retry ladders visible: attempts at exact 10 s spacing, every
+  attempt failing **instantly with the identical exception** (through "attempt 6 of
+  5") — the cached-faulted-task behavior of §3, observed live. Then
+  `Error in handler` → `Terminating 3 active uploads` at 05:04:03 — run 2's
+  teardown, line for line (`logs/duplicati.log` ~1022603–1023543; 38 "won't flush"
+  lines).
+- **Every gpg invocation of the entire run exited rc=0** (`logs/gpg_invocations.log`:
+  5 START/END pairs, zero nonzero rcs). For volume `b0e587d5…`, gpg exited at
+  05:03:09 — **four seconds before that volume's first GPGFlushError was thrown**.
+  The misattribution is proven in vivo: Duplicati declared a GnuPG failure over
+  gpg processes that had succeeded.
+- **The mechanism was caught mid-act** (`logs/monitor.csv`, epochs
+  1787565772–1787565814): during the failure window the capped cgroup ran a
+  reclaim/swap-out storm — host SwapFree fell 5.33 → 2.66 GB in ~40 s while host
+  MemAvailable stayed ~41 GB (the collapse was cgroup-local by design) — PSI io
+  avg10 climbed 40 → 66, and the gpg state trace shows `S:anon_pipe_write` (gpg
+  blocked on a **full stdout pipe** — the managed pump was not draining) and
+  `D:folio_wait_bit_common` (page-cache wait under memory pressure). The pump-side
+  freeze, observed from gpg's side of the pipe.
+- The run was then **stopped deliberately** (unit TERM ~05:05): after the queue kill
+  the backup cannot succeed (every later `PutAsync` rethrows — run 2 demonstrated
+  this for ~45 further minutes), so additional runtime would only burn disk against
+  the live Recreate. The TERM took the launcher down with its cgroup before the
+  finalize block, so `result.status` was not written; the logs carry the complete
+  evidence. The scratch run dir (volumes + logs) is retained pending cleanup
+  decision.
+
+Interpretation note: the trigger emulation (cgroup MemoryHigh=6G vs the failing
+day's host-global swap storm) is deliberately parallel rather than identical — same
+mechanism class (collapsed effective memory → reclaim/writeback stalls freezing the
+pump), different scope knob. The 2026-08-23 event needed no cgroup: the whole host
+was the throttled domain.
 
 Known instrument degradations for this run (found at launch, tolerable): the unit
 runs in a cgroup namespace, so the in-script cgroup-relative PSI columns read zero
 and the gpg cgroup filter degenerates to system-wide (no competing gpg workload
-exists during the run; the micro harness had finished and the launcher guards
+existed during the run; the micro harness had finished and the launcher guards
 against concurrency).
 
 ## 8. Evidence inventory
