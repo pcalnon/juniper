@@ -359,6 +359,8 @@ def step_candidates(page, capture, budget_s: int = 480):
                         log(f"  run ENDED (is_running=false twice) -- exiting at t+{int(time.time() - t0)}s")
                         break
             except Exception:  # noqa: BLE001, S110
+                # Transient /api/status probe failure (F-CANOPY-004 congestion can
+                # exceed the timeout); benign -- the sampler retries next tick.
                 pass
         page.wait_for_timeout(700)
     series = page.evaluate(
