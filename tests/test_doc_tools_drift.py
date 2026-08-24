@@ -41,12 +41,15 @@ ceiling that no longer permits the current version.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Pin-range pattern we expect in each consumer's ci.yml:
 #   pip install "juniper-doc-tools>=0.1.0,<0.2.0"
@@ -329,6 +332,77 @@ class PinParsingHelperTest(unittest.TestCase):
             _CONSUMER_REPOS,
             "juniper-recurrence ships ci-docs.yml with a juniper-doc-tools pin",
         )
+
+
+class EcosystemReposDriftTest(unittest.TestCase):
+    """``_ecosystem.py``'s repo roster was UNGATED, and drift there is silent.
+
+    ``ECOSYSTEM_REPOS`` decides what counts as a cross-repo link. A repo missing
+    from it is not classified as cross-repo at all: ``../juniper-recurrence/x.md``
+    is then resolved as an ordinary intra-repo path, fails, and is reported as a
+    broken link -- blaming the link instead of the stale list. Nothing tested this
+    set, and two repos had been added to the polyrepo without it (2026-08-24).
+
+    Anchored on ``util/release_train/registry.yaml``, the same authority
+    ``tests/test_validate_claude_yaml_access.py`` uses for ``DEFAULT_REPOS``, so
+    the two lists cannot disagree about what the ecosystem contains.
+    """
+
+    # Repos that exist but publish nothing, so they never appear in the registry.
+    NON_PACKAGE_REPOS = frozenset({"juniper-deploy", "juniper-slacker"})
+    REGISTRY_PATH = REPO_ROOT / "util" / "release_train" / "registry.yaml"
+
+    def _publishing_repos(self) -> frozenset[str]:
+        try:
+            import yaml
+        except ImportError as exc:  # pragma: no cover - CI always has PyYAML
+            raise unittest.SkipTest(f"PyYAML unavailable: {exc}") from exc
+        if not self.REGISTRY_PATH.is_file():
+            raise unittest.SkipTest(f"registry absent: {self.REGISTRY_PATH}")
+        data = yaml.safe_load(self.REGISTRY_PATH.read_text(encoding="utf-8"))
+        packages = data.get("packages") if isinstance(data, dict) else None
+        if not isinstance(packages, list):
+            raise AssertionError(f"registry.yaml missing packages list: {self.REGISTRY_PATH}")
+        return frozenset(p["repo"] for p in packages if isinstance(p, dict) and isinstance(p.get("repo"), str))
+
+    def _ecosystem_repos(self) -> frozenset[str]:
+        mod_path = REPO_ROOT / "juniper-doc-tools" / "juniper_doc_tools" / "_ecosystem.py"
+        if not mod_path.is_file():
+            raise unittest.SkipTest(f"_ecosystem.py absent: {mod_path}")
+        spec = importlib.util.spec_from_file_location("_juniper_ecosystem_under_test", mod_path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.ECOSYSTEM_REPOS
+
+    def test_ecosystem_repos_matches_registry_plus_non_package_repos(self) -> None:
+        expected = self._publishing_repos() | self.NON_PACKAGE_REPOS
+        actual = self._ecosystem_repos()
+        self.assertEqual(
+            actual,
+            expected,
+            msg=("ECOSYSTEM_REPOS drifted from registry publishers ∪ non-package repos: " f"missing={sorted(expected - actual)} extra={sorted(actual - expected)}. " "A missing repo makes its cross-repo links report as BROKEN, not as drift."),
+        )
+
+    def test_the_two_repos_that_had_drifted_are_present(self) -> None:
+        """Named explicitly so a future registry edit cannot quietly drop them."""
+        actual = self._ecosystem_repos()
+        self.assertIn("juniper-recurrence", actual, "publishing sibling; 3 PyPI packages, 14 workflows")
+        self.assertIn("juniper-slacker", actual, "a repo but not a package, like juniper-deploy")
+
+    def test_cross_repo_pattern_disambiguates_shared_prefixes(self) -> None:
+        """``juniper-recurrence`` is a strict prefix of no sibling today, but the
+        alternation must stay prefix-safe if one is ever added."""
+        mod_path = REPO_ROOT / "juniper-doc-tools" / "juniper_doc_tools" / "_ecosystem.py"
+        spec = importlib.util.spec_from_file_location("_juniper_ecosystem_prefix_test", mod_path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        for repo in sorted(mod.ECOSYSTEM_REPOS):
+            with self.subTest(repo=repo):
+                m = mod.CROSS_REPO_PATTERN.match(f"../{repo}/notes/x.md")
+                self.assertIsNotNone(m, f"{repo} not classified as cross-repo")
+                self.assertEqual(m.group(1), repo)
 
 
 if __name__ == "__main__":

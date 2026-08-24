@@ -1,0 +1,20 @@
+[Unit]
+Description=Daily overnight Duplicati backup (Ubuntu-fresh)
+Documentation=file:///home/pcalnon/Development/python/Juniper/juniper-ml/util/duplicati_scheduled_backup.bash
+
+[Timer]
+# Overnight, so it does not compete with interactive work.
+OnCalendar=*-*-* 02:30:00
+
+# Spread the start so a wake-from-suspend does not fire everything at once.
+RandomizedDelaySec=30m
+
+# A workstation is often powered off at 02:30. Without this, a missed window is
+# simply skipped and the set silently goes stale -- the exact failure mode this
+# whole arc exists to prevent.
+Persistent=true
+
+Unit=duplicati-backup.service
+
+[Install]
+WantedBy=timers.target

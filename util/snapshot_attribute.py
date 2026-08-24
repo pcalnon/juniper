@@ -64,24 +64,41 @@ WHY THIS IS NOT OVER-CAUTION
     score can distinguish a trained network from a random one. It is scored and reported, but
     it can never be an ANSWER.
 
-    3. THE FLOOR IS THE NULL'S OBSERVED MAXIMUM, NOT ITS p95. The first full pass used p95 and
-       attributed **327 snapshots to checkerboard at a median lift of +0.059 -- with a median
-       hidden-unit count of ZERO**. A zero-hidden-unit network is a linear model and cannot
-       learn checkerboard; those scores sat between checkerboard's p95 (0.565) and its observed
-       untrained max (0.610), i.e. inside the null's uncharacterised tail. Switching the floor
-       to the max removed all 327 and left the xor cluster (+0.235 median lift) untouched.
+    3. THE FLOOR IS THE NULL'S OBSERVED MAXIMUM, NOT ITS p95. A zero-hidden-unit network is a
+       linear model and cannot learn a non-linearly-separable problem, yet such networks scored
+       ~0.624 on checkerboard -- above its untrained p95 (0.565) but below its observed max
+       (0.610), i.e. inside the null's uncharacterised tail. Under a p95 floor they attribute;
+       under a max floor they do not, while the xor cluster (+0.235 median lift) is untouched.
+       (An earlier revision of this passage put a specific count on that cohort. It is not
+       reproducible from the current sidecar -- checkerboard now has ZERO attributions -- and
+       it contradicted itself on where the scores sat. The mechanism is what the tests pin.)
 
-KNOWN LIMITATION -- THE NULL IS NOT CAPACITY-MATCHED
-    The null is built from freshly-constructed networks, which have ZERO hidden units. That is
-    correctly matched for the archive's zero-node majority, but it is **too lenient for grown
-    networks**: a random 58-unit network has more capacity to fit anything by chance than a
-    0-unit one, so the true floor for those should be higher than the one used here.
+    4. THE UNTRAINED NULL ANSWERS THE WRONG QUESTION, SO THERE IS A SECOND FLOOR. See
+       ``build_cross_dataset_floor``. The untrained null can only ask "did this network learn
+       ANYTHING?"; attribution needs "did it learn THIS rather than something else?". A
+       snapshot attributed to spiral (7 hidden units) scored gaussian 0.890, moon 0.835 and
+       spiral 0.624 -- attributed to spiral while scoring worse on spiral than on three other
+       datasets, purely because spiral's untrained floor was the lowest available. A candidate
+       must now clear BOTH floors. ``--no-cross-dataset-floor`` restores the older behaviour.
 
-    The xor cluster survives this on independent grounds -- its scores rise monotonically
-    (0.945 -> 0.995) as the network grows 18 -> 103 units, and a capacity artifact does not
-    produce a learning curve. Thinner results (spiral at +0.062, moon at +0.085) do NOT have
-    that corroboration and should be read as provisional. A capacity-matched null is the
-    rigorous fix and is not implemented.
+WHAT MEASUREMENT SAID ABOUT CAPACITY -- AND WHY A CAPACITY-MATCHED NULL IS NOT THE FIX
+    This module used to carry a KNOWN LIMITATION saying the null is built from ZERO-hidden-unit
+    networks and is therefore "too lenient for grown networks", with a capacity-matched null
+    named as the rigorous fix. That was measured, and **it does not hold**.
+
+    Of the 129 attributions, **none** had zero hidden units (they run 1..103), so the concern
+    applied to all of them -- yet rebuilding the null at matched capacity withdrew only 3. At
+    high capacity the capacity-matched floor is frequently LOWER than the zero-unit one: a
+    zero-unit network is a linear model and a good linear split already scores well after
+    permutation correction, whereas ~100 cascade units with RANDOM weights inject noise columns
+    into the readout and push the score toward chance. A high score at high capacity is
+    therefore HARDER to reach by accident, not easier.
+
+    What the archive actually needed was not a capacity-matched null but a differently-TRAINED
+    one -- item 4 above. Full measurement, including the weight-permutation null and the
+    per-dataset outcome (xor holds with zero distributional overlap; spiral withdrawn; moon
+    undecidable on one contested snapshot), is in
+    ``notes/JUNIPER_2026-08-24_JUNIPER-CASCOR_ATTRIBUTION-NULL-MODEL-FINDINGS.md``.
 
 VALIDATED BY A POSITIVE CONTROL
     Networks trained here on a known dataset and then attributed: **4/4 correct** (xor,
@@ -119,7 +136,11 @@ from snapshot_index import DEFAULT_ROOT_ENV, DEFAULT_ROOT_FALLBACK, default_root
 
 SIDECAR_NAME = "snapshots_attribution.jsonl"
 CLASSIFICATION_NAME = "snapshots_classification.jsonl"
-SCHEMA_VERSION = 1
+#: 2 adds the ``floors`` object (``untrained`` and, when the second floor applies,
+#: ``cross_dataset``) and changes what a verdict MEANS: a v2 attribution cleared both floors,
+#: a v1 attribution only ever cleared the untrained one. A v1 sidecar is still readable, but
+#: its verdicts are not comparable with v2's and must be regenerated rather than merged.
+SCHEMA_VERSION = 2
 
 DEFAULT_CASCOR_SRC_ENV = "JUNIPER_CASCOR_SRC"
 DEFAULT_CASCOR_SRC_FALLBACK = Path.home() / "Development" / "python" / "Juniper" / "juniper-cascor" / "src"
@@ -305,27 +326,106 @@ def score_network(network, datasets, torch) -> Dict[str, float]:
     return results
 
 
-def adjudicate(scores: Dict[str, float], null: Dict[str, Dict[str, float]], margin: float, gap: float) -> Dict[str, Any]:
-    """Turn a score vector into a verdict, refusing to answer when the evidence is weak."""
+def build_cross_dataset_floor(rows: Iterable[dict]) -> Dict[str, Dict[str, Any]]:
+    """The SECOND floor: what a network trained on something ELSE scores on each dataset.
+
+    THIS IS THE OTHER LOAD-BEARING PART OF THE MODULE, and it exists because the untrained
+    null answers the wrong question. That null asks "did this network learn anything?".
+    Attribution needs "did it learn THIS rather than something else?", and the two diverge
+    whenever a network trained on A also scores well on B -- which is common, because these
+    six generators are not orthogonal.
+
+    Measured instance: a snapshot attributed to ``spiral`` (7 hidden units) scored
+    ``gaussian`` 0.890, ``moon`` 0.835 and ``spiral`` 0.624. It was attributed to spiral while
+    scoring WORSE on spiral than on three other datasets, purely because spiral's untrained
+    floor (0.572) was the lowest one available. That is floor arithmetic, not evidence.
+
+    The reference class for dataset ``D`` is every snapshot ATTRIBUTED TO SOMETHING OTHER THAN
+    D by the first pass: real networks, at real capacities, carrying real trained weights, that
+    we have positive evidence were trained on something that is not D. No simulation is needed
+    and none is done -- the scores already exist.
+
+    Both the maximum and the runner-up are kept so that a snapshot can be excluded from the
+    floor it is itself judged against (see ``cross_floor_excluding``). A snapshot that helps
+    set its own bar is not being tested against anything.
+
+    Returns ``{dataset: {"max", "runner_up", "n", "setter"}}``. A dataset with no reference
+    class is absent, which makes it fall back to the untrained floor alone.
+    """
+    best: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        if row.get("verdict") != ATTRIBUTED:
+            continue
+        attributed_to = row.get("dataset")
+        if not attributed_to:
+            continue
+        for name, value in (row.get("scores") or {}).items():
+            if name == attributed_to:
+                continue
+            entry = best.setdefault(name, {"max": None, "runner_up": None, "n": 0, "setter": None})
+            entry["n"] += 1
+            score = float(value)
+            if entry["max"] is None or score > entry["max"]:
+                entry["runner_up"] = entry["max"]
+                entry["max"] = score
+                entry["setter"] = row.get("name")
+            elif entry["runner_up"] is None or score > entry["runner_up"]:
+                entry["runner_up"] = score
+    return best
+
+
+def cross_floor_excluding(cross: Dict[str, Dict[str, Any]], row_name: Optional[str]) -> Dict[str, float]:
+    """Flatten ``cross`` into ``{dataset: floor}`` with ``row_name`` removed from its own bar.
+
+    Only matters when the excluded snapshot IS the maximum; then the runner-up governs. A
+    dataset whose entire reference class was that one snapshot drops out and falls back to the
+    untrained floor, rather than silently keeping a floor of its own making.
+    """
+    floors: Dict[str, float] = {}
+    for name, entry in cross.items():
+        value = entry["runner_up"] if entry.get("setter") == row_name else entry["max"]
+        if value is not None:
+            floors[name] = float(value)
+    return floors
+
+
+def adjudicate(
+    scores: Dict[str, float],
+    null: Dict[str, Dict[str, float]],
+    margin: float,
+    gap: float,
+    cross_floor: Optional[Dict[str, float]] = None,
+) -> Dict[str, Any]:
+    """Turn a score vector into a verdict, refusing to answer when the evidence is weak.
+
+    ``cross_floor`` is the optional SECOND floor (§ ``build_cross_dataset_floor``). When
+    supplied, a candidate must clear both floors -- equivalently, the higher of the two.
+    Omitting it reproduces the single-floor behaviour exactly.
+    """
     if not scores:
         return {"verdict": INDETERMINATE, "dataset": None, "reason": "no shape-compatible dataset to score against", "lift": None, "gap": None}
 
     # A dataset with no null -- no untrained sample could be scored for this shape -- has no
     # floor to clear and must not be attributable. Treating a missing floor as 1.0 drives the
     # lift negative and keeps it out of the running, which is the conservative direction.
-    def _floor(name: str) -> float:
+    def _untrained_floor(name: str) -> float:
         """The floor is the null's OBSERVED MAXIMUM, not its 95th percentile.
 
         p95 is the 5%-false-positive line, and with a 120-sample null the tail beyond it is
         not characterised at all -- so a score sitting between p95 and the observed max is
         indistinguishable from an untrained network that happened to do well.
 
-        Measured cost of getting this wrong: with a p95 floor, **327 snapshots attributed to
-        checkerboard at a median lift of +0.059 -- and a median hidden-unit count of ZERO**.
-        A zero-hidden-unit network is a linear model and cannot learn checkerboard; those
-        scores (~0.624) sat just above checkerboard's untrained max of 0.610, i.e. inside the
-        null's tail. The xor cluster, by contrast, cleared its floor by +0.265 and was
-        unaffected by the change -- which is exactly the discrimination wanted.
+        The failure this rules out: a zero-hidden-unit network is a linear model and cannot
+        learn a non-linearly-separable problem, yet such networks scored ~0.624 on
+        checkerboard -- above its untrained p95 of 0.565 but below its observed max of 0.610,
+        i.e. inside the tail a 120-sample null cannot characterise. Under a p95 floor they
+        attribute; under a max floor they do not. The xor cluster clears its floor by +0.265
+        and is unaffected either way, which is exactly the discrimination wanted.
+
+        (An earlier revision of this docstring put a specific count on that cohort. It is not
+        reproducible from the current sidecar -- checkerboard now has ZERO attributions -- and
+        the passage contradicted itself on whether the scores sat between p95 and max or above
+        max. The mechanism above is what the regression tests pin; the count is not quoted.)
 
         A missing null means no floor to clear, so it cannot be attributed to.
         """
@@ -335,19 +435,47 @@ def adjudicate(scores: Dict[str, float], null: Dict[str, Dict[str, float]], marg
             value = entry.get("p95")
         return 1.0 if value is None else float(value)
 
+    def _floor(name: str) -> float:
+        """The effective floor: the stricter of the untrained and cross-dataset floors.
+
+        The two ask different questions and a candidate has to answer both -- "did this network
+        learn anything?" (untrained) and "did it learn THIS rather than something else?"
+        (cross-dataset). Requiring both is the same as clearing the higher one.
+        """
+        floor = _untrained_floor(name)
+        if cross_floor:
+            other = cross_floor.get(name)
+            if other is not None:
+                floor = max(floor, float(other))
+        return floor
+
     lifts = {name: value - _floor(name) for name, value in scores.items()}
     ordered = sorted(lifts.items(), key=lambda kv: -kv[1])
     best, best_lift = ordered[0]
     runner_up_lift = ordered[1][1] if len(ordered) > 1 else float("-inf")
     separation = best_lift - runner_up_lift
 
+    def _floors_for(name: str) -> Dict[str, Optional[float]]:
+        """Both floors for ``name``, so a verdict can be re-derived without re-running."""
+        entry: Dict[str, Optional[float]] = {"untrained": round(_untrained_floor(name), 4)}
+        if cross_floor and cross_floor.get(name) is not None:
+            entry["cross_dataset"] = round(float(cross_floor[name]), 4)
+        return entry
+
+    def _which(name: str) -> str:
+        """Name the floor that actually bound, so the reason says WHY it was refused."""
+        if cross_floor and cross_floor.get(name) is not None and float(cross_floor[name]) > _untrained_floor(name):
+            return "cross-dataset floor"
+        return "untrained floor"
+
     if best_lift < margin:
         return {
             "verdict": INDETERMINATE,
             "dataset": None,
-            "reason": f"best candidate {best!r} scores {scores[best]:.3f}, within {margin:.2f} of the untrained floor {_floor(best):.3f}",
+            "reason": f"best candidate {best!r} scores {scores[best]:.3f}, within {margin:.2f} of the {_which(best)} {_floor(best):.3f}",
             "lift": round(best_lift, 4),
             "gap": round(separation, 4) if separation != float("inf") else None,
+            "floors": _floors_for(best),
         }
     if separation < gap:
         return {
@@ -356,13 +484,15 @@ def adjudicate(scores: Dict[str, float], null: Dict[str, Dict[str, float]], marg
             "reason": f"{best!r} leads but {ordered[1][0]!r} is within {gap:.2f}; behaving like several of these datasets is not evidence for one",
             "lift": round(best_lift, 4),
             "gap": round(separation, 4),
+            "floors": _floors_for(best),
         }
     return {
         "verdict": ATTRIBUTED,
         "dataset": best,
-        "reason": f"scores {scores[best]:.3f} vs untrained floor {_floor(best):.3f} (+{best_lift:.3f}), clear of the runner-up by {separation:.3f}",
+        "reason": f"scores {scores[best]:.3f} vs {_which(best)} {_floor(best):.3f} (+{best_lift:.3f}), clear of the runner-up by {separation:.3f}",
         "lift": round(best_lift, 4),
         "gap": round(separation, 4),
+        "floors": _floors_for(best),
     }
 
 
@@ -418,6 +548,15 @@ def main(argv: "list[str] | None" = None) -> int:
     parser.add_argument("--data-root", type=Path, default=None)
     parser.add_argument("--null-size", type=int, default=120, help="Untrained networks per shape in the null")
     parser.add_argument("--null-only", action="store_true", help="Build and print the per-dataset floors, then stop")
+    parser.add_argument(
+        "--no-cross-dataset-floor",
+        dest="cross_dataset_floor",
+        action="store_false",
+        help="Judge against the untrained null ALONE, as this tool did before the second floor "
+        "existed. The untrained null answers 'did this learn anything?'; attribution needs "
+        "'did it learn THIS rather than something else?'. Disabling restores the weaker, "
+        "single-question behaviour -- available for comparison, not recommended.",
+    )
     parser.add_argument("--margin", type=float, default=DEFAULT_MARGIN, help="Required lift above the untrained p95")
     parser.add_argument("--gap", type=float, default=DEFAULT_GAP, help="Required separation from the runner-up")
     parser.add_argument(
@@ -531,6 +670,32 @@ def main(argv: "list[str] | None" = None) -> int:
             )
             if position % 500 == 0:
                 print(f"  … {position}/{len(loadable)}", file=sys.stderr)
+
+    # SECOND PASS. The first pass judged every snapshot against the untrained null alone, which
+    # can only answer "did this learn anything?". Its attributions are now the reference class
+    # for the cross-dataset floor, which answers "did it learn THIS rather than something else?"
+    # -- so this pass cannot run until the first one has finished.
+    if args.cross_dataset_floor:
+        cross = build_cross_dataset_floor(rows)
+        if not cross:
+            print("note: no first-pass attributions, so no cross-dataset floor could be built", file=sys.stderr)
+        else:
+            withdrawn = 0
+            for row in rows:
+                revised = adjudicate(
+                    row["scores"],
+                    nulls[tuple(row["shape"])],
+                    args.margin,
+                    args.gap,
+                    cross_floor=cross_floor_excluding(cross, row.get("name")),
+                )
+                if row.get("verdict") == ATTRIBUTED and revised.get("verdict") != ATTRIBUTED:
+                    withdrawn += 1
+                row.update(revised)
+            print(
+                f"cross-dataset floor applied over {len(cross)} dataset(s); {withdrawn} first-pass attribution(s) withdrawn",
+                file=sys.stderr,
+            )
 
     if args.write:
         print(f"wrote {len(rows)} verdict(s) -> {write_sidecar(root, rows)}", file=sys.stderr)
