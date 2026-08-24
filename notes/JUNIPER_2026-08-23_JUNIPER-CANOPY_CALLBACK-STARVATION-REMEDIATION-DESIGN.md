@@ -3,7 +3,9 @@
 **Project**: Juniper — juniper-canopy
 **Author**: Paul Calnon
 **Date**: 2026-08-23
-**Status**: proposed — awaiting owner sign-off on §9 open questions before implementation
+**Status**: Stages 1 + 3 **SHIPPED** 2026-08-23 (juniper-canopy#507, #508) — see §12 for the measured
+outcome and the corrections implementation forced on this document. Stage 2 remains proposed, with a
+widened scope. Owner decision on §9.1 was: Stage 1 + Stage 3 in Phase 2, Stage 2 as a follow-on.
 **Closes**: F-CANOPY-027 (P0/P1), F-CANOPY-004 (P0/P1)
 **Evidence**: [`JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`](JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md)
 § F-CANOPY-027 → `ROOT CAUSE (2026-08-23)`, and § `Phase 2 — investigation 3`
@@ -323,3 +325,82 @@ F-CANOPY-002, -005, -006, -008, -003, -007, -009, -010, -011, -014, -025, -031, 
 are independent of the pool and are unaffected by this design. F-CANOPY-033 (`RESET_COMPONENT_STATE` storm
 at ~13/s) is *adjacent* — it is wasted client work on a contended dashboard — but it targets the Cassandra
 subtree and was measured not to be a cause here; it stays P2 and separate.
+
+---
+
+## 12. Outcome (2026-08-23) — what shipped, and what this document got wrong
+
+Stages 1 and 3 shipped as **juniper-canopy#507** (gating) and **#508** (completion + budget guard).
+Stage 2 has not started, and its scope is **wider** than §6.2 assumed. Recorded here so the next reader
+works from what implementation actually found rather than from what was predicted.
+
+### 12.1 Result
+
+**The behavioural goal is met.** All three panels F-CANOPY-027 froze are alive, verified by A/B injection
+through each component's own `setProps` — the same probe that measured **0** consumer dispatches across
+220 before the change:
+
+| panel | consumer dispatches | DOM |
+|---|---|---|
+| Candidate Metrics | 0 → **2** each | `''` → `Inactive` / `No active candidate pool` |
+| Dataset View | **3 / 3 / 4** | changed ✓ |
+| Decision Boundary | **3 / 3** | `No network loaded` → `Displaying decision boundary` |
+
+**The §7.1 saturation targets are not met.**
+
+| metric | baseline | after #507 | after #508 | §7.1 target |
+|---|---|---|---|---|
+| pool full (`available == 0`) | 83.6 % | 63.6 % | **61.4 %** | < 20 % ❌ |
+| `prioritized` backlog, max | 36 | 37 | **23** | < 12 ❌ |
+| completions / 60 s | 224 | 499 | 449 | > 500 ✓ (at #507) |
+
+Worst-case concurrent perpetual pollers: **14 → 12**, against a cap of 12. The backlog collapse
+(36 → 23) is the structurally meaningful figure; throughput roughly doubled.
+
+### 12.2 The correction that matters: interval gating is only half the problem
+
+§6.1 assumed the load was interval-driven. It is not, entirely. **Panel work chained off a global store
+re-runs on every tab no matter what its own interval does.** `update_snapshots_table` takes
+`Input("dataset-swap-events-store", "data")`, which `poll_dataset_swap_events` rewrites every 5 s — so the
+snapshots panel re-renders on every tab, gated interval or not. Network Editor and Replay have the same
+shape. This is why saturation floors at ~61 % rather than reaching the §7.1 target.
+
+**Stage 2's scope is therefore two levers, not one:**
+
+1. **Consolidate the global lane** (as originally written) — ~10 perpetual global pollers remain.
+2. **NEW — stop no-op store writes.** An unchanged write still fires every downstream consumer. The fix
+   is already demonstrated in-tree: `hydrate_model_class` now returns `no_update` when the resolved value
+   matches the store, which removed an entire redundant 15-tab rebuild. Applying the same rule to
+   `poll_dataset_swap_events`, `stream-health-store`, `training-status-store` and the rest of the global
+   lane should cut the chained re-runs directly. Each needs checking individually: in some designs a
+   store write doubles as a heartbeat, and suppressing it would break a consumer that keys off the write
+   rather than the value.
+
+### 12.3 The census in §3.1 under-reported, exactly as its caveat warned
+
+The AST pass resolves 151 of 182 callbacks. It missed two real panel-scoped pollers that #508 had to add:
+`network-editor-panel-fsm-poll` (2 s, running on every tab) and `update_network_graph` (the 8-output
+topology renderer, forced at 1 Hz from every tab by `fast-update-interval`). **Use the built-app census
+(`app._callback_list`) for anything load-bearing**; the AST pass is for a quick read only. The Stage 3
+guard uses the built-app census for this reason.
+
+### 12.4 Two hypotheses this document should not have carried forward
+
+- §6.1's plan to keep `active_tab` as an `Input` for prompt repaint was correct, but for a different
+  reason than stated: moving it to `State` was separately tested during root-causing and is **not** the
+  defect. It is retained because it fires the immediate fetch, not because moving it would break anything.
+- The "known limitation" in `_setup_poll_gating`'s docstring — the children rebuild resetting panel-owned
+  interval gates — is now largely moot, because `hydrate_model_class` no longer performs the redundant
+  rebuild on the common "live" path. The fail-safe (`disabled=False` default) is retained anyway.
+
+### 12.5 What is still open
+
+- **Stage 2**, with the widened scope above.
+- **The matrix re-drive.** §7.2's rows have *not* been re-scored: that needs a live training run, and the
+  mechanism-level verification above is not a substitute. `M-CANDIDATES-01/-02/-03/-04/-06` in particular
+  still carry `PASS` recorded against mount defaults and remain unproven.
+- **F-CANOPY-034** (new, P2): `metrics-panel-network-stats-store` is now written by nothing and read by
+  nothing. #507 removed its poller and retained the inert `dcc.Store` to keep the diff reviewable; the
+  store itself should be deleted, which requires updating the layout regression snapshot.
+- **F-CANOPY-027 and F-CANOPY-004 should not be marked `fixed`** until Stage 2 lands and the rows are
+  re-driven.
