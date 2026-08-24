@@ -2,9 +2,9 @@
 
 ## Install Juniper Packages with juniper-ml
 
-**Version:** 0.3.6
+**Version:** 0.3.7
 **Status:** Active
-**Last Updated:** 2026-08-07
+**Last Updated:** 2026-08-24
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -105,6 +105,8 @@ from juniper_cascor_client import JuniperCascorClient
 from juniper_cascor_worker import CandidateTrainingWorker
 ```
 
+REST `base_url` is normalised at construction on GitHub-main of the three HTTP clients (whitespace, case-insensitive `http(s)://`, host required, trailing `/v1` stripped). A hostless value raises `Juniper*ConfigurationError` rather than failing inside `requests` on the first call. `pip install juniper-ml[clients]` does **not** yet require those tips — see [HTTP Client Base-URL Contract](REFERENCE.md#http-client-base-url-contract).
+
 ---
 
 ## 3. Next Steps
@@ -125,6 +127,7 @@ from juniper_cascor_worker import CandidateTrainingWorker
 - [AGENTS.md Date Check](REFERENCE.md#agentsmd-date-check) -- verifies `**Last Updated**:` was bumped on PRs touching `AGENTS.md`
 - [Claude.yml Access Validation](REFERENCE.md#claudeyml-access-validation) -- L2/L3 `ANTHROPIC_API_KEY` safeguards + `DEFAULT_REPOS` fan-out
 - [juniper-service-core](REFERENCE.md#juniper-service-core) -- body limit, 429 headers, control-WS sanitizer, `/ws/workers` contracts
+- [HTTP Client Base-URL Contract](REFERENCE.md#http-client-base-url-contract) -- shared REST `_normalize_url`, TLS-downgrade pitfall, WS streams still rstrip-only
 - [juniper-observability README](../juniper-observability/README.md) -- shared observability primitives
 - [juniper-data-client Quick Start](https://github.com/pcalnon/juniper-data-client) -- dataset client usage
 - [juniper-cascor-client Quick Start](https://github.com/pcalnon/juniper-cascor-client) -- training client usage
@@ -132,10 +135,6 @@ from juniper_cascor_worker import CandidateTrainingWorker
 
 ---
 
-<<<<<<< HEAD
-**Last Updated:** 2026-08-05
-=======
-**Last Updated:** 2026-08-07
->>>>>>> 12a7d55 (docs: consolidate the fleet docs wave (in-place absorption of 25 operator-surface PRs))
-**Version:** 0.3.6
+**Last Updated:** 2026-08-24
+**Version:** 0.3.7
 **Status:** Active
