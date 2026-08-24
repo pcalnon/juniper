@@ -318,8 +318,9 @@ class Pipeline:
             if outfile is not None and not outfile.closed and (pump is None or not pump.is_alive()):
                 try:
                     outfile.close()
-                except OSError:
-                    pass
+                except OSError as e:
+                    if not self.pump_exc:
+                        self.pump_exc = RuntimeError(f"outfile.close failed: {e!r}")
             for stream in (proc.stdin, proc.stdout, proc.stderr):
                 try:
                     stream.close()
