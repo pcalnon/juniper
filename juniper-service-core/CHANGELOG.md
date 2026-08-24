@@ -63,6 +63,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Worker-stream disconnect and mid-result abort now reclaim in-flight tasks.** A clean
+  `/ws/workers` disconnect used to `deregister` without returning the assigned task to the
+  unassigned queue, so a round with that worker as the sole assignee waited the full
+  `task_reassignment_timeout` (default 120s) even though the worker was already gone. The
+  stale-heartbeat sweep already requeued; disconnect did not. The same hole existed on
+  expected-binary-got-text and oversize attachment aborts: the handler sent an error and
+  returned while leaving the worker busy, so `_try_dispatch_task` could not redispatch.
+  `WorkerCoordinator.release_worker_tasks` is the shared helper (idempotent; `free_worker=True`
+  on abort so a still-connected worker becomes idle).
+
 - **The rate limiter's per-process scope is now stated where it is used** (`APD-SVCCORE-007`).
   The constraint itself is deliberate and unchanged — fixed-window counters live in memory, so
   behind multiple replicas each process keeps its own and the effective budget multiplies by the

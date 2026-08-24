@@ -1,4 +1,4 @@
-"""High-signal edge coverage for ``/ws/workers`` transport (auth fail-closed + registration shape + busy heartbeat).
+"""High-signal edge coverage for ``/ws/workers`` transport (auth fail-closed + registration shape + busy heartbeat + disconnect/abort reclaim).
 
 Companion to ``test_t2_worker_coordinator.py``. That suite covers origin/rate-limit/uninitialised
 rejects, missing-``capabilities`` → 4008, and the *idle* heartbeat redispatch arm. This file pins the
@@ -10,6 +10,11 @@ remaining blast-radius edges that were still untested on main:
   ``capabilities``, missing ``worker_id``) — only the missing-``capabilities`` handler arm was covered.
 * Heartbeat while the worker is still busy must NOT call dispatch (the idle guard at
   ``reg.idle``) — otherwise a mid-task heartbeat double-assigns and corrupts ``active_task_id``.
+* Clean disconnect of a busy worker must requeue its sole in-flight task (the stale-heartbeat
+  sweep already did; the stream ``finally`` did not).
+* Mid-result transport abort (expected-binary-got-text / oversize) must free the worker so the
+  post-result ``_try_dispatch_task`` redispatches — distinguishable from finally-only reclaim
+  by a second ``task_assign`` before the socket closes.
 
 Self-contained doubles (no imports from the contested coordinator test module) so concurrent coverage
 PRs that edit ``test_t2_worker_coordinator.py`` cannot collide.
@@ -222,6 +227,116 @@ async def test_heartbeat_while_busy_does_not_redispatch() -> None:
     assert tid2 != tid1
     # Heartbeat ack still fires (the guard skips dispatch, not the ack).
     assert any(m.get("type") == "heartbeat" for m in ws.sent)
-    # tid2 was never assigned on the wire; after disconnect requeue, at least one task is pending.
+    # tid2 was never assigned on the wire, so it stays pending regardless of whether disconnect
+    # reclaims tid1. That reclaim is pinned separately in test_disconnect_requeues_sole_in_flight_task.
     assert coord.has_pending_tasks() is True
     assert coord.pending_tasks_count() >= 1
+
+
+# ======================================================================================
+# Disconnect / mid-result abort must reclaim in-flight work (not wait the 120s timeout)
+# ======================================================================================
+
+
+def _binary(payload: bytes) -> tuple[str, bytes]:
+    return ("bytes", payload)
+
+
+class _NeedsBlob:
+    """Protocol that declares a binary attachment so abort paths are reachable."""
+
+    def build_assignment(self, task):
+        return ({"type": "task_assign", "task_id": task.task_id, "round_id": task.round_id, "payload": task.payload}, [])
+
+    def result_attachments(self, msg):
+        return ["blob"]
+
+    def parse_result(self, worker_id, msg, frames):  # pragma: no cover - abort must not parse
+        raise AssertionError("parse_result must not run after a transport abort")
+
+
+@pytest.mark.asyncio
+async def test_disconnect_requeues_sole_in_flight_task() -> None:
+    """Clean disconnect of a busy worker must requeue its *only* assigned task.
+
+    The stale-heartbeat sweep already reclaims; the stream ``finally`` used to deregister
+    only. With a single in-flight task there is no leftover unassigned sibling to hide the
+    gap (unlike the busy-heartbeat fixture), so ``has_pending_tasks()`` going False is the
+    production failure: the round waits the full ``task_reassignment_timeout``.
+    """
+    reg = WorkerRegistry()
+    coord = WorkerCoordinator(reg, _TrivialProtocol())
+    (tid,) = coord.submit_tasks("round-1", [{"c": 0}])
+    app = _wire_app(reg, coord)
+
+    ws = FakeWorkerWebSocket(app=app, inbound=[_text(_REGISTER)])
+    await worker_stream_handler(ws)
+
+    assigns = [m for m in ws.sent if m.get("type") == "task_assign"]
+    assert len(assigns) == 1
+    assert assigns[0]["task_id"] == tid
+    assert reg.worker_count == 0  # finally deregistered
+    assert coord.has_pending_tasks() is True
+    task = coord._pending_tasks[tid]
+    assert task.assigned_worker_id is None
+    assert task.completed is False
+
+
+@pytest.mark.asyncio
+async def test_expected_binary_got_text_requeues_and_frees_worker() -> None:
+    """A result that promises a blob but sends text must free the worker *before* disconnect.
+
+    Distinguishes abort-path reclaim from finally-only reclaim: after the error frame the
+    handler still calls ``_try_dispatch_task``, so a freed+requeued worker receives a second
+    ``task_assign`` for the same id while the socket is still open.
+    """
+    reg = WorkerRegistry()
+    coord = WorkerCoordinator(reg, _NeedsBlob())
+    (tid,) = coord.submit_tasks("round-1", [{"c": 0}])
+    app = _wire_app(reg, coord)
+    ws = FakeWorkerWebSocket(
+        app=app,
+        inbound=[
+            _text(_REGISTER),
+            _text({"type": "task_result", "task_id": tid}),
+            _text({"type": "heartbeat"}),  # text where the blob was required
+        ],
+    )
+    await worker_stream_handler(ws)
+
+    assert any("Expected binary frame" in m.get("error", "") for m in ws.sent)
+    assert not any(m.get("type") == "result_ack" for m in ws.sent)
+    assigns = [m for m in ws.sent if m.get("type") == "task_assign"]
+    assert [m["task_id"] for m in assigns] == [tid, tid], (
+        "abort must free+requeue so the post-result dispatch re-sends the same task; " f"got {assigns!r}"
+    )
+    assert coord.has_pending_tasks() is True
+    assert coord._pending_tasks[tid].assigned_worker_id is None
+
+
+@pytest.mark.asyncio
+async def test_oversize_binary_frame_requeues_and_frees_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Oversize attachment abort must free the worker so post-result dispatch can requeue."""
+    import juniper_service_core.websocket.worker_stream as worker_stream_mod
+
+    monkeypatch.setattr(worker_stream_mod, "_MAX_BINARY_SIZE", 16)
+    reg = WorkerRegistry()
+    coord = WorkerCoordinator(reg, _NeedsBlob())
+    (tid,) = coord.submit_tasks("round-1", [{"c": 0}])
+    app = _wire_app(reg, coord)
+    ws = FakeWorkerWebSocket(
+        app=app,
+        inbound=[
+            _text(_REGISTER),
+            _text({"type": "task_result", "task_id": tid}),
+            _binary(b"x" * 17),
+        ],
+    )
+    await worker_stream_handler(ws)
+
+    assert any(m.get("error") == "Binary frame too large" for m in ws.sent)
+    assert not any(m.get("type") == "result_ack" for m in ws.sent)
+    assigns = [m for m in ws.sent if m.get("type") == "task_assign"]
+    assert [m["task_id"] for m in assigns] == [tid, tid], f"oversize abort must redispatch; got {assigns!r}"
+    assert coord.has_pending_tasks() is True
+    assert coord._pending_tasks[tid].assigned_worker_id is None
