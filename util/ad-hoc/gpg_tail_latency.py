@@ -339,7 +339,12 @@ class Pipeline:
                     try:
                         proc.wait(30)
                     except subprocess.TimeoutExpired:
-                        pass
+                        # Best-effort cleanup: do not fail the run from finally,
+                        # but do emit a diagnostic instead of silently swallowing.
+                        print(
+                            f"warning: gpg subprocess did not exit after SIGKILL (pid={proc.pid})",
+                            file=sys.stderr,
+                        )
             try:
                 os.unlink(self.out_path)
             except OSError:
