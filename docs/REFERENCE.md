@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.7
+**Version:** 0.6.8
 **Status:** Active
 **Last Updated:** 2026-08-24
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -2613,7 +2613,7 @@ Control receive rejects malformed / non-object JSON with close **1003** rather t
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0.6.7   | 2026-08-24 | HTTP client `base_url` contract: shared REST `_normalize_url` (case-insensitive scheme, `hostname` guard, `/v1` strip), WS/fake rstrip-only, extras-floor honesty vs unreleased wheels |
+| 0.6.8   | 2026-08-24 | HTTP client `base_url` contract: shared REST `_normalize_url` (case-insensitive scheme, `hostname` guard, `/v1` strip), WS/fake rstrip-only, extras-floor honesty vs unreleased wheels |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
@@ -2942,5 +2942,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-24
-**Version:** 0.6.7
+**Version:** 0.6.8
 **Maintainer:** Paul Calnon
