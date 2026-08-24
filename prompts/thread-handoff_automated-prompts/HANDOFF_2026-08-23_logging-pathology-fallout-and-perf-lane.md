@@ -18,24 +18,24 @@ Throughout, "§N" means a section of **this** document. Commands run from the ju
 
 ## 1. What is settled — do not re-measure
 
-| finding | evidence | status |
-| --- | --- | --- |
-| Seeded runs: **service 0/190 pairs, direct CLI 0.768** [0.553, 0.847] at N=20 | ml#1205 | **CLOSED** — path-specific |
-| Cause of CLI nondeterminism: the two entry points run `fit()` on **different threads** | reproducibility note §3.9 | identified, **mitigation unmerged** (§3.2) |
-| Wall gap **decomposition** `work × rate` reproduces the measured phase ratio to 0.002 at caps 4/16/64 (this is the *decomposition* residual, NOT the gap) | ml#1278 | **CLOSED** |
-| Root cause of the **rate** term: `inspect.getmodule` scanning `sys.modules` per log record | ml#1278 §4.4 | **FIXED** — cascor#563 |
-| Forkserver architecture **is** in use (`cascor_constants/constants_model/constants_model.py:54`; pool at `cascade_correlation.py:3772`) | evidence note §4.4a | verified |
+| finding                                                                                                                                                   | evidence                  | status                                     |
+|-----------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------|--------------------------------------------|
+| Seeded runs: **service 0/190 pairs, direct CLI 0.768** [0.553, 0.847] at N=20                                                                             | ml#1205                   | **CLOSED** — path-specific                 |
+| Cause of CLI nondeterminism: the two entry points run `fit()` on **different threads**                                                                    | reproducibility note §3.9 | identified, **mitigation unmerged** (§3.2) |
+| Wall gap **decomposition** `work × rate` reproduces the measured phase ratio to 0.002 at caps 4/16/64 (this is the *decomposition* residual, NOT the gap) | ml#1278                   | **CLOSED**                                 |
+| Root cause of the **rate** term: `inspect.getmodule` scanning `sys.modules` per log record                                                                | ml#1278 §4.4              | **FIXED** — cascor#563                     |
+| Forkserver architecture **is** in use (`cascor_constants/constants_model/constants_model.py:54`; pool at `cascade_correlation.py:3772`)                   | evidence note §4.4a       | verified                                   |
 
 ### 1.1 Numbers that were CORRECTED — do not resurrect them
 
 Three single-run attributions failed under replication. All are corrected in place; if you find a
 document still quoting the old value, it was missed.
 
-| superseded claim | replicated value |
-| --- | --- |
-| #531: "the `OMP=2` cap costs **1.30×**" | **1.016×** [0.885, 1.148] at k=3 — no effect |
-| "the residual is **~1.17×**" (cap 16) | **1.706×** at k=4 |
-| "#533 removed 1.30× of the gap" | cap-64 1.924 ± 0.486 vs pre-#533 1.99 ± 0.21 — overlapping |
+| superseded claim                        | replicated value                                           |
+|-----------------------------------------|------------------------------------------------------------|
+| #531: "the `OMP=2` cap costs **1.30×**" | **1.016×** [0.885, 1.148] at k=3 — no effect               |
+| "the residual is **~1.17×**" (cap 16)   | **1.706×** at k=4                                          |
+| "#533 removed 1.30× of the gap"         | cap-64 1.924 ± 0.486 vs pre-#533 1.99 ± 0.21 — overlapping |
 
 **#533 is still correct engineering** (one BLAS policy, both entry points). Only its *performance*
 justification failed.
@@ -51,14 +51,14 @@ demonstrable. **Do not quote the pre-F1 series as current.**
 Everything below cites these by short name. Read them before acting; they carry the risk tables and
 mitigations this summary strips.
 
-| shorthand | path (all in juniper-ml `notes/`) |
-| --- | --- |
-| "reproducibility note" | `JUNIPER_2026-08-20_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-SEED-REPRODUCIBILITY-EVIDENCE.md` |
-| "evidence note" / "residual note" | `JUNIPER_2026-08-21_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-RESIDUAL-WALL-GAP-EVIDENCE.md` |
-| "fix design" — defines **F1/F2/F3** | `JUNIPER_2026-08-23_JUNIPER-CASCOR_CANDIDATE-WORKER-LOGGING-PATHOLOGY-FIX-DESIGN.md` |
-| "perf-lane register" — defines **G1/G1a/G1b/G2–G5** | `JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md` |
-| "the §12 perf lane" | `JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md` §12 |
-| "the P3 rollup" | `JUNIPER_2026-08-08_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P3-ACCEPTANCE-ROLLUP.md` |
+| shorthand                                           | path (all in juniper-ml `notes/`)                                                                        |
+|-----------------------------------------------------|----------------------------------------------------------------------------------------------------------|
+| "reproducibility note"                              | `JUNIPER_2026-08-20_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-SEED-REPRODUCIBILITY-EVIDENCE.md`              |
+| "evidence note" / "residual note"                   | `JUNIPER_2026-08-21_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-RESIDUAL-WALL-GAP-EVIDENCE.md`                 |
+| "fix design" — defines **F1/F2/F3**                 | `JUNIPER_2026-08-23_JUNIPER-CASCOR_CANDIDATE-WORKER-LOGGING-PATHOLOGY-FIX-DESIGN.md`                     |
+| "perf-lane register" — defines **G1/G1a/G1b/G2–G5** | `JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md`                      |
+| "the §12 perf lane"                                 | `JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md` §12 |
+| "the P3 rollup"                                     | `JUNIPER_2026-08-08_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P3-ACCEPTANCE-ROLLUP.md`                       |
 
 **Repos**: `main.py`, `cascade_correlation.py`, `candidate_unit.py`, `logger.py`, `constants*.py` are
 **juniper-cascor** (`src/…`). `run_experiment.py`, `experiment_stack.bash`, `util/ad-hoc/*` and all
@@ -68,22 +68,22 @@ mitigations this summary strips.
 
 Each was a live hypothesis, tested and killed. They are cheap to re-propose and expensive to re-test.
 
-| eliminated | evidence |
-| --- | --- |
-| **Thread context is not the wall mechanism** — moving `fit()` to a pool thread changed span by 0.7% (280.8 → 282.9 s) against a service arm at 192.5 s | residual note §4.1 |
-| **Pool packing is not it** — LPT imbalance ratio **1.012×**; both arms pack equally badly | residual note §4.3 |
-| **The pool is created ONCE** for 16 rounds, not re-forked per iteration (7 processes, both arms) | residual note §4.3 |
-| **cProfile is the wrong instrument** — it *destroys* the effect (per-call 0.944; the 9.2 ms/epoch gap becomes 1.9 ms under profiling). Use `py-spy --native` | residual note §4.3b |
-| **BLAS thread count is not the driver** — `threads=1` does not fix determinism; `OMP=2` costs 1.016× | reproducibility note §3.8, residual note §4.3a |
+| eliminated                                                                                                                                                   | evidence                                       |
+|--------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------|
+| **Thread context is not the wall mechanism** — moving `fit()` to a pool thread changed span by 0.7% (280.8 → 282.9 s) against a service arm at 192.5 s       | residual note §4.1                             |
+| **Pool packing is not it** — LPT imbalance ratio **1.012×**; both arms pack equally badly                                                                    | residual note §4.3                             |
+| **The pool is created ONCE** for 16 rounds, not re-forked per iteration (7 processes, both arms)                                                             | residual note §4.3                             |
+| **cProfile is the wrong instrument** — it *destroys* the effect (per-call 0.944; the 9.2 ms/epoch gap becomes 1.9 ms under profiling). Use `py-spy --native` | residual note §4.3b                            |
+| **BLAS thread count is not the driver** — `threads=1` does not fix determinism; `OMP=2` costs 1.016×                                                         | reproducibility note §3.8, residual note §4.3a |
 
 ---
 
 ## 2. Merged this arc
 
-| PR | merged | what |
-| --- | --- | --- |
-| **ml#1205** | 2026-08-21 | N=20 determinism instrument + evidence (§3 of the predecessor) |
-| **ml#1278** | 2026-08-23 | Residual wall-gap campaign, root cause, tooling, corrections |
+| PR             | merged     | what                                                                       |
+|----------------|------------|----------------------------------------------------------------------------|
+| **ml#1205**    | 2026-08-21 | N=20 determinism instrument + evidence (§3 of the predecessor)             |
+| **ml#1278**    | 2026-08-23 | Residual wall-gap campaign, root cause, tooling, corrections               |
 | **cascor#563** | 2026-08-23 | **F1** — logger resolves the caller from `f_back`, ~20,700× per resolution |
 
 F1's effect, cap 16 k=4 paired: service span **827 s → 89 s**, CLI **1434 s → 162 s** (~9× both).
@@ -116,6 +116,7 @@ onto branches** — see §6 — but none is a PR.
 landed since, so **re-check before relying on that**.
 
 **Landing recipe, common to all three fixes below:**
+
 1. `git -C juniper-cascor worktree add -b fix/<name> <path> origin/main`
 2. `git apply` the patch, then **hand-delete the diagnostics** (they are not separate hunks — see
    each item)
@@ -181,16 +182,16 @@ from arithmetic jitter, which is the first question the residual 0.337 asks. **D
 
 **Order is not arbitrary. Work it in this sequence:**
 
-| # | item | why here | gate |
-| --- | --- | --- | --- |
-| 1 | **§2.1 determinism-unchanged check** | F1 is merged and this was never run; everything downstream assumes the current build is reproducible | none — do it first |
-| 2 | **§3.3 → §3.1 → §3.2** (the three fixes) | perishable; §3.3 (G1b) unblocks §4.5 | none |
-| 3 | **§4.4 forkserver isolation** | **gates §4.1 AND §4.2** — see below | none |
-| 4 | **§4.2 F3 preload** | its ~12.8 s estimate is unsound until §4.4 resolves | **fork-safety audit** |
-| 5 | **§4.1 F2 import hygiene** | may become unnecessary if §4.4's leak is closed | after §4.4 |
-| 6 | **§4.3 fixed overhead** | needs an instrument built first | none, but no tooling exists |
-| 7 | §4.5 G1a, §4.6, §4.7, §4.8 | independent | §4.5 needs §3.3 |
-| — | **§4.9 logging redesign** | owner-raised, its own document | owner decides timing |
+| # | item                                     | why here                                                                                             | gate                        |
+|---|------------------------------------------|------------------------------------------------------------------------------------------------------|-----------------------------|
+| 1 | **§2.1 determinism-unchanged check**     | F1 is merged and this was never run; everything downstream assumes the current build is reproducible | none — do it first          |
+| 2 | **§3.3 → §3.1 → §3.2** (the three fixes) | perishable; §3.3 (G1b) unblocks §4.5                                                                 | none                        |
+| 3 | **§4.4 forkserver isolation**            | **gates §4.1 AND §4.2** — see below                                                                  | none                        |
+| 4 | **§4.2 F3 preload**                      | its ~12.8 s estimate is unsound until §4.4 resolves                                                  | **fork-safety audit**       |
+| 5 | **§4.1 F2 import hygiene**               | may become unnecessary if §4.4's leak is closed                                                      | after §4.4                  |
+| 6 | **§4.3 fixed overhead**                  | needs an instrument built first                                                                      | none, but no tooling exists |
+| 7 | §4.5 G1a, §4.6, §4.7, §4.8               | independent                                                                                          | §4.5 needs §3.3             |
+| — | **§4.9 logging redesign**                | owner-raised, its own document                                                                       | owner decides timing        |
 
 **§4.4 gates §4.1 and §4.2, and that is not obvious from reading them in order.** §4.2's headline
 "~12.8 s per pool creation" assumes workers get the forkserver's table — §4.4 measured that they do
@@ -216,13 +217,13 @@ trainer.
 
 Current: `["os", "uuid", "torch", "numpy", "random", "logging", "datetime"]`.
 
-| entry | +modules | import | verdict |
-| --- | ---: | ---: | --- |
-| `torch` | 886 | 2.938 s | keep |
-| `numpy` | 109 | 0.153 s | keep |
-| `os` | **0** | 0.000 s | pure no-op |
-| `uuid`/`random`/`logging`/`datetime` | 19 total | 0.021 s | harmless |
-| **missing `cascade_correlation`** | **242** | **1.822 s** | **~12.8 s per pool creation** (7 workers) |
+| entry                                | +modules |      import | verdict                                   |
+|--------------------------------------|---------:|------------:|-------------------------------------------|
+| `torch`                              |      886 |     2.938 s | keep                                      |
+| `numpy`                              |      109 |     0.153 s | keep                                      |
+| `os`                                 |    **0** |     0.000 s | pure no-op                                |
+| `uuid`/`random`/`logging`/`datetime` | 19 total |     0.021 s | harmless                                  |
+| **missing `cascade_correlation`**    |  **242** | **1.822 s** | **~12.8 s per pool creation** (7 workers) |
 
 **BLOCKER**: preloading runs import-time side effects *in the forkserver*, inherited by every worker
 across the fork. Logger handles or descriptors opened at import become shared — classic fork-safety
@@ -350,13 +351,13 @@ Worth carrying in: the logger currently `open()`s the log file **per record**
   "safe to clean up"; two held uncommitted work on **detached HEADs**, where removal destroys it and
   `git worktree prune` orphans any rescue commit. Both have since been committed to branches.
 
-  | worktree (under `Juniper/worktrees/`) | state | action |
-  | --- | --- | --- |
-  | `juniper-cascor--fix--logger-frame-resolution--20260823-1200--acf953b3` | branch, **merged** (cascor#563) | safe to remove |
-  | `juniper-cascor--fix--candidate-seed-derivation--20260823--362b88b1` | branch `rescue/candidate-seed-derivation-wip` — **holds §3.1** | keep until §3.1 is a PR |
-  | `juniper-cascor--diag--seeds-and-balance--20260821-2115--362b88b1` | branch `rescue/seeds-and-balance-diag-wip` | safe once §3.3 lands |
-  | `juniper-cascor--exp--residual-wall-gap--20260821-0800--362b88b1` | detached, clean | safe to remove |
-  | shim farms `~/.local/state/juniper-experiments/{diag-project-20260821,pyspy-shim}` | generated | regenerate from `2026-08-23_pyspy_conda_shim.bash` |
+  | worktree (under `Juniper/worktrees/`)                                              | state                                                          | action                                             |
+  |------------------------------------------------------------------------------------|----------------------------------------------------------------|----------------------------------------------------|
+  | `juniper-cascor--fix--logger-frame-resolution--20260823-1200--acf953b3`            | branch, **merged** (cascor#563)                                | safe to remove                                     |
+  | `juniper-cascor--fix--candidate-seed-derivation--20260823--362b88b1`               | branch `rescue/candidate-seed-derivation-wip` — **holds §3.1** | keep until §3.1 is a PR                            |
+  | `juniper-cascor--diag--seeds-and-balance--20260821-2115--362b88b1`                 | branch `rescue/seeds-and-balance-diag-wip`                     | safe once §3.3 lands                               |
+  | `juniper-cascor--exp--residual-wall-gap--20260821-0800--362b88b1`                  | detached, clean                                                | safe to remove                                     |
+  | shim farms `~/.local/state/juniper-experiments/{diag-project-20260821,pyspy-shim}` | generated                                                      | regenerate from `2026-08-23_pyspy_conda_shim.bash` |
 
 - **Do NOT sweep `~/.local/state/juniper-experiments/` on size alone.** The 43 GB is mostly this
   arc's raw evidence, and §4.8's post-F1 re-measure needs the pre-F1 runs to compare against:
