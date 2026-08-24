@@ -262,7 +262,7 @@ class Pipeline:
                 try:
                     proc.wait(30)
                 except subprocess.TimeoutExpired:
-                    pass
+                    print("warning: gpg process did not exit within 30s after kill()", file=sys.stderr)
                 pump.join(5)
             else:
                 try:
