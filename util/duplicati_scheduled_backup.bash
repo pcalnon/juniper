@@ -51,6 +51,12 @@ DBPATH="${DUPLICATI_DBPATH:-/home/pcalnon/.config/Duplicati/DQRVQNDIFX.sqlite}"
 SOURCE_PATH="${DUPLICATI_SOURCE:-/home/pcalnon}"
 STATE_DIR="${DUPLICATI_STATE_DIR:-${HOME}/.local/state/duplicati}"
 
+# Volume staging. A sibling of the destination, NOT a child of it -- a child
+# would sit inside the directory Duplicati enumerates as the backend.
+# Same filesystem as the destination on purpose: the finished volume then moves
+# by rename instead of a 500 MB copy.
+TEMP_DIR="${DUPLICATI_TEMP_DIR:-/media/pcalnon/temp_backups/_duplicati_tmp}"
+
 LOCK_FILE="${STATE_DIR}/backup.lock"
 TS="$(date +%Y%m%d-%H%M%S)"
 LOG_FILE="${STATE_DIR}/backup-${TS}.log"
@@ -87,6 +93,17 @@ if [[ -n "$(ls -A "${DEST_PATH}" 2>/dev/null)" ]]; then
         || fail "${DEST_PATH} is non-empty but holds no duplicati-* volumes; wrong filesystem?"
 fi
 
+# --- Guard 3b: volume staging must NOT be on tmpfs ---------------------------
+# Observed 2026-08-23: with --tempdir unset, Duplicati staged its 500 MB volumes
+# in /tmp, which is tmpfs -- 8.4 GB of RAM held in in-flight volumes while swap
+# sat at 17 GB of 20 GB. Staging in RAM also loses all in-flight state on reboot.
+mkdir -p "${TEMP_DIR}" || fail "cannot create ${TEMP_DIR}"
+[[ -w "${TEMP_DIR}" ]] || fail "${TEMP_DIR} is not writable"
+TEMP_FSTYPE="$(stat -f -c '%T' "${TEMP_DIR}" 2>/dev/null || echo unknown)"
+if [[ "${TEMP_FSTYPE}" == "tmpfs" || "${TEMP_FSTYPE}" == "ramfs" ]]; then
+    fail "${TEMP_DIR} is ${TEMP_FSTYPE} (RAM-backed); refusing to stage 500 MB volumes in memory"
+fi
+
 # --- Guard 4: exactly one runner ---------------------------------------------
 exec 9>"${LOCK_FILE}"
 if ! flock -n 9; then
@@ -109,10 +126,12 @@ log "starting backup"
 log "  source      ${SOURCE_PATH}"
 log "  destination ${DEST_URL}"
 log "  dbpath      ${DBPATH}"
+log "  tempdir     ${TEMP_DIR} (${TEMP_FSTYPE})"
 
 set +e
 duplicati-cli backup "${DEST_URL}" "${SOURCE_PATH}" \
     --dbpath="${DBPATH}" \
+    --tempdir="${TEMP_DIR}" \
     --encryption-module=gpg \
     --compression-module=zip \
     --blocksize=1MB \
