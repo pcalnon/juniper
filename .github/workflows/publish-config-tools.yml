@@ -63,26 +63,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      # Release-convention gate: a tag-triggered publish only proceeds when a GitHub Release exists
-      # for the tag (publish by cutting a Release, never a bare `git push <tag>`). workflow_dispatch
-      # skips this as the manual escape hatch.
-      - name: Require a GitHub Release for this tag
-        if: github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
-          for attempt in 1 2 3 4 5; do
-            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json tagName >/dev/null 2>&1; then
-              echo "GitHub Release found for $tag — proceeding."
-              exit 0
-            fi
-            echo "No GitHub Release for $tag yet — retrying in 5s (attempt $attempt/5)"
-            sleep 5
-          done
-          echo "::error::No GitHub Release exists for tag $tag. Per the release convention, publish by cutting a GitHub Release (gh release create $tag ...), not a bare tag push. Use workflow_dispatch to override."
-          exit 1
+      # NOTE (2026-08-24): a "Require a GitHub Release for this tag" step used to sit
+      # here, gated on `if: github.event_name == 'push'`. This workflow does NOT
+      # subscribe to `push:` (see the `on:` block above -- that was removed after #555,
+      # where Release-plus-push double-fired and raced the immutable TestPyPI upload),
+      # so the condition was never true and the step could never run. Dead code shaped
+      # like a guard is worse than no guard: it reads as though a bare `git push <tag>`
+      # is blocked here.
+      #
+      # The real safety property is STRONGER than that step ever was. With
+      # `release: published` as the only automatic trigger, a bare tag push starts no
+      # run at all -- nothing is built and nothing is uploaded. The gate is the trigger.
+      # `tests/test_publish_release_only_trigger.py` pins it.
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
