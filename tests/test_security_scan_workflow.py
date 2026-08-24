@@ -95,9 +95,34 @@ class SecurityScanStructuralTest(unittest.TestCase):
         self.assertEqual(perms, {"contents": "read"})
 
     def test_installs_editable_before_audit(self) -> None:
-        # Bare ``pip-audit`` without the package installed audits nothing useful.
+        """The install must pull a real dependency surface, not merely run.
+
+        The pre-2026-08-24 form of this test asserted ``pip install -e .`` and was
+        satisfied by it -- but juniper-ml is a META-PACKAGE whose
+        ``[project].dependencies`` is ``[]`` BY DESIGN, so that install pulls NOTHING
+        and pip-audit went on to scan only its own dependency tree and report green.
+        The guard was structurally present and materially vacuous. Assert the property
+        that actually matters: an editable install carrying EXTRAS.
+        """
         self.assertIn("pip install pip-audit", self.install_script)
-        self.assertIn("pip install -e .", self.install_script)
+        editable = re.findall(r"^\s*pip install .*-e\s+\S+", self.install_script, re.MULTILINE)
+        self.assertTrue(editable, msg=f"no editable install at all:\n{self.install_script}")
+        self.assertTrue(
+            any("[" in line and "]" in line for line in editable),
+            msg=("editable install pulls no extras -- with dependencies = [] this audits NOTHING. " f"Found: {editable}"),
+        )
+
+    def test_audit_surface_covers_the_published_extras(self) -> None:
+        """Pin WHICH extras are audited, so a revert cannot silently shrink the surface.
+
+        ``servers`` / ``worker`` are deliberately absent (multi-GB torch, and each of
+        those repos audits its own tree); the rest are this repo's published surface.
+        """
+        editable = " ".join(re.findall(r"^\s*pip install .*-e\s+\S+", self.install_script, re.MULTILINE))
+        for extra in ("clients", "tools", "recurrence"):
+            # Scoped to the install LINES: a comment mentioning an extra must not satisfy
+            # this, or the guard becomes the very vacuity it exists to prevent.
+            self.assertIn(extra, editable, msg=f"extra {extra!r} dropped from the audit surface: {editable!r}")
 
     def test_audit_uses_strict_and_desc(self) -> None:
         # --strict is the load-bearing flag: without it findings are soft.
@@ -196,6 +221,58 @@ class SecurityScanRehearsalTest(unittest.TestCase):
 
             audit_argv = audit_log.read_text(encoding="utf-8").strip()
             self.assertEqual(audit_argv, "--strict --desc on")
+
+
+class CiSecurityJobAuditSurfaceTest(unittest.TestCase):
+    """The OTHER pip-audit job -- ci.yml's per-PR ``security`` job -- had NO guard.
+
+    Both jobs carried the same vacuity: ``pip install -e .`` against a meta-package whose
+    ``dependencies`` is ``[]``, so both audited only pip-audit's own tree and both reported
+    green. Fixing one and leaving the other unpinned would let the defect walk back in
+    through the door nobody was watching. ``Security Scan`` is a REQUIRED context, which is
+    exactly why a vacuous pass there is expensive.
+    """
+
+    CI_WORKFLOW = "ci.yml"
+    CI_JOB = "security"
+    AUDIT_STEP_NAME = "Run pip-audit"
+
+    audit_script: str
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        repo_root = _find_repo_root(Path(__file__).resolve().parent)
+        wf = repo_root / ".github" / "workflows" / cls.CI_WORKFLOW
+        if not wf.is_file():
+            raise unittest.SkipTest(f"{cls.CI_WORKFLOW} not present at {wf}")
+        job = yaml.safe_load(wf.read_text(encoding="utf-8"))["jobs"][cls.CI_JOB]
+        cls.audit_script = _step_run(job, cls.AUDIT_STEP_NAME)
+
+    def test_editable_install_carries_extras(self) -> None:
+        """A bare ``-e .`` here audits nothing -- the defect this test exists to pin."""
+        editable = re.findall(r"^\s*pip install .*-e\s+\S+", self.audit_script, re.MULTILINE)
+        self.assertTrue(editable, msg=f"no editable install:\n{self.audit_script}")
+        self.assertTrue(
+            any("[" in line and "]" in line for line in editable),
+            msg=f"editable install pulls no extras -- audits NOTHING. Found: {editable}",
+        )
+
+    def test_audit_surface_covers_the_published_extras(self) -> None:
+        editable = " ".join(re.findall(r"^\s*pip install .*-e\s+\S+", self.audit_script, re.MULTILINE))
+        for extra in ("clients", "tools", "recurrence"):
+            # Scoped to the install LINES, not the whole step -- see the sibling test.
+            self.assertIn(extra, editable, msg=f"extra {extra!r} dropped from the audit surface: {editable!r}")
+
+    def test_heavy_extras_stay_out_of_the_per_pr_job(self) -> None:
+        """[servers]/[worker] would add a multi-GB torch pull to every PR."""
+        editable = " ".join(re.findall(r"^\s*pip install .*-e\s+\S+", self.audit_script, re.MULTILINE))
+        self.assertNotIn("servers", editable)
+        self.assertNotIn("worker", editable)
+        self.assertNotIn("[all]", editable)
+
+    def test_skip_editable_is_retained(self) -> None:
+        """--skip-editable exempts juniper-ml itself, not the extras it pulled in."""
+        self.assertIn("--skip-editable", self.audit_script)
 
 
 if __name__ == "__main__":

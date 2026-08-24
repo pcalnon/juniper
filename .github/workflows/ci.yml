@@ -1352,10 +1352,25 @@ jobs:
           echo "╚════════════════════════════════════════════════════════════╝"
           python -m pip install --upgrade "pip>=26.1.1"
           pip install pip-audit
-          pip install -e .
+          # The EXTRAS are the audit surface, and installing them is load-bearing.
+          # juniper-ml is a meta-package: `[project].dependencies` is `[]` BY DESIGN, so a
+          # bare `pip install -e .` pulls NOTHING and pip-audit then scans only its own
+          # dependency tree and reports green -- a check that audited nothing for as long
+          # as it has existed. The risk this job uniquely owns is "does
+          # `pip install juniper-ml[X]` pull a vulnerable transitive dependency?", and that
+          # lives entirely in [project.optional-dependencies].
+          #
+          # [servers] and [worker] are deliberately EXCLUDED: they pull juniper-canopy /
+          # cascor / data and torch (multi-GB) into every PR, and each of those repos runs
+          # its own pip-audit over the same tree. What is NOT covered elsewhere -- and is
+          # covered here -- is this repo's own pin RANGES admitting a vulnerable version.
+          # Resolves ~38 packages, no torch/CUDA: fastapi, starlette, uvicorn, pydantic,
+          # numpy, requests, urllib3, certifi, websockets, PyYAML.
+          pip install -e ".[clients,tools,recurrence]"
           # --skip-editable so the meta-package itself (installed as editable)
           # is not audited; pip-audit would otherwise try to look juniper-ml up
-          # on PyPI by name and fail for unreleased versions.
+          # on PyPI by name and fail for unreleased versions. The extras above are
+          # NOT editable, so they are all still audited.
           #
           # --strict is intentionally omitted: pip-audit counts a skipped
           # editable install as "dependency collection failure", and --strict
