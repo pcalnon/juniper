@@ -1,0 +1,33 @@
+[Unit]
+Description=Duplicati backup (Ubuntu-fresh)
+Documentation=file:///home/pcalnon/Development/python/Juniper/juniper-ml/util/duplicati_scheduled_backup.bash
+# The reporting half of the "silent stop" fix. Without this, a failed run is
+# indistinguishable from a run that never happened.
+OnFailure=duplicati-backup-failure.service
+After=network-online.target
+
+[Service]
+Type=oneshot
+
+# The passphrase is supplied by environment, never on the command line:
+# /proc/<pid>/cmdline is world-readable, /proc/<pid>/environ is not.
+EnvironmentFile=%h/.config/duplicati-backup/env
+
+ExecStart=%h/.local/bin/duplicati-scheduled-backup.bash
+
+# A full run of this set takes many hours. Type=oneshot disables the start
+# timeout by default, but state it explicitly -- an inherited DefaultTimeoutStartSec
+# would kill a healthy backup partway through and leave a partial fileset.
+TimeoutStartSec=infinity
+
+# Be a good citizen on a workstation: this competes with interactive work.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+# The runner writes only to its state dir, the destination, and the local DB.
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+NoNewPrivileges=true
