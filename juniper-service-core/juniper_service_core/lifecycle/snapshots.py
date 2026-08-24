@@ -19,6 +19,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from juniper_service_core.exceptions import JuniperServiceCoreError
+
 if TYPE_CHECKING:
     from juniper_model_core.interfaces import TrainableModel
     from juniper_model_core.serialization import ModelSerializer
@@ -32,7 +34,7 @@ MODEL_STEM = "model"
 SIDECAR_NAME = "snapshot.json"
 
 
-class SnapshotNotFoundError(KeyError):
+class SnapshotNotFoundError(JuniperServiceCoreError, KeyError):
     """Raised when a snapshot id has no bundle in the store."""
 
 
