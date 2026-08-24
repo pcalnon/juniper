@@ -413,6 +413,19 @@ read only.
 improved (2.2× throughput), but neither should be marked `fixed` until Stage 2 brings saturation down and
 the matrix rows are re-driven against a live training run.
 
+**F-CANOPY-034 — `metrics-panel-network-stats-store` is now written by nothing and read by nothing (P2, OPEN; found while fixing F-CANOPY-027).**
+The store was fed by a `fetch_network_stats` poller that GET `/api/network/stats` every 5 s — and **no callback
+anywhere in `src/` took it as an `Input` or a `State`** (verified repo-wide; the only other reference was its own
+`dcc.Store` declaration). Under dash-renderer's 12-slot cap that was a permanently-occupied slot bought for
+nothing, so juniper-canopy#507 removed the poller. The `dcc.Store` was deliberately RETAINED there: it is inert,
+it is pinned by the layout regression snapshot `src/tests/regression/snapshots/metrics_panel.txt`, and dropping
+it in the same PR would have mixed a snapshot rewrite into a load fix. Remaining work is small and purely
+tidying: delete `dcc.Store(id=f"{self.component_id}-network-stats-store")` (`metrics_panel.py:538`), regenerate
+that snapshot, and decide whether `_fetch_network_stats_handler` (`metrics_panel.py:1182`, still covered by five
+unit tests in `tests/unit/frontend/test_metrics_panel_handlers.py`) should go with it. A tripwire already exists:
+`tests/unit/frontend/test_poll_gating.py::TestDeadPollerRemoved::test_network_stats_store_still_has_no_consumer`
+fails if anyone wires a consumer without restoring a writer.
+
 **F-CANOPY-033 — `RESET_COMPONENT_STATE` storms one panel at ~13/s (P2, OPEN; found while tracing F-CANOPY-027).**
 Redux tracing recorded **1157 `RESET_COMPONENT_STATE` dispatches in 90 s** — roughly 13 per second, out of
 6251 total actions — and every sampled payload carries an `itempath` under `…/props/children/12/…`, the
