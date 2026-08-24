@@ -404,3 +404,21 @@ guard uses the built-app census for this reason.
   store itself should be deleted, which requires updating the layout regression snapshot.
 - **F-CANOPY-027 and F-CANOPY-004 should not be marked `fixed`** until Stage 2 lands and the rows are
   re-driven.
+
+### 12.6 Re-drive correction (2026-08-24): §12.1's behavioural claim was attach-scoped
+
+The live matrix re-drive (evidence note, *Phase 2 — re-drive (2026-08-24)*; run `20260824T080426Z`)
+re-validated the Candidate Metrics and Dataset View lanes end-to-end under live training, and **refuted
+§12.1's "all three panels alive" for the Decision Boundary panel in steady state**: its plot-render callback
+fires once at mount and is never promoted again (80 store fills at ~1/s vs exactly 1 render in 115 s;
+zero re-renders for slider / confidence / refresh). Mechanism: both of its feeders are fast-lane ~1 s
+pollers whose round-trip covers their period, so the render's Inputs are permanently claimed by a pending
+feeder — the §12.2 correction taken to its limit case. Two new ledger findings came out of the same drive:
+F-CANOPY-035 (loss plot reads history keys `/api/state` never serves — wrong producer) and F-CANOPY-036
+(pool history append races its feeder's repoll and never lands).
+
+**Stage 2 therefore carries three levers, not two:** (1) consolidate the global lane (§6.2); (2) suppress
+no-op store writes (§12.2); (3) **un-block the boundaries chain** — slow its feeders below their round-trip
+time, make them no-op-suppressing (post-run they rewrite an identical mesh ~1/s), or move the render
+clientside. §7.2's boundaries rows stay red until then; the candidates/dataset rows are re-scored and no
+longer gate on this document.

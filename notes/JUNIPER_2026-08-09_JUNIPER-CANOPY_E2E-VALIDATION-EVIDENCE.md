@@ -413,6 +413,17 @@ read only.
 improved (2.2× throughput), but neither should be marked `fixed` until Stage 2 brings saturation down and
 the matrix rows are re-driven against a live training run.
 
+**CORRECTION (2026-08-24, from the live re-drive): "closed on all three panels" was an attach-time claim,
+and it does not hold in steady state for the Decision Boundary panel.** The setProps A/B and the DOM
+transitions above were measured on quiet pages / at attach. Under the live steady state the panel's
+plot-render callback fires once at mount and is never promoted again — request-capture proof: 80
+boundary-data fills at ~1/s against exactly 1 plot render in 115 s, a session-long empty
+`"No network loaded"` figure, and zero re-renders for slider / confidence / refresh interactions. Cause:
+both of the panel's feeders are fast-lane ~1 s pollers whose round-trips cover their period, so the
+downstream render's Inputs are permanently claimed (the F-CANOPY-036 promotion race, generalized). The
+candidates and dataset lanes ARE closed live (see the 2026-08-24 re-drive section). Stage 2 gains a third
+lever: the boundaries chain specifically.
+
 **F-CANOPY-034 — `metrics-panel-network-stats-store` is now written by nothing and read by nothing (P2, OPEN; found while fixing F-CANOPY-027).**
 The store was fed by a `fetch_network_stats` poller that GET `/api/network/stats` every 5 s — and **no callback
 anywhere in `src/` took it as an `Input` or a `State`** (verified repo-wide; the only other reference was its own
@@ -425,6 +436,12 @@ that snapshot, and decide whether `_fetch_network_stats_handler` (`metrics_panel
 unit tests in `tests/unit/frontend/test_metrics_panel_handlers.py`) should go with it. A tripwire already exists:
 `tests/unit/frontend/test_poll_gating.py::TestDeadPollerRemoved::test_network_stats_store_still_has_no_consumer`
 fails if anyone wires a consumer without restoring a writer.
+
+**F-CANOPY-035 — the candidate loss plot reads `epochs`/`losses`/`phases` off the training-state store, keys `/api/state` never provides in any lane, so the plot is structurally empty (P1, OPEN; found during the 2026-08-24 live re-drive).**
+`_create_candidate_loss_figure` (`candidate_metrics_panel.py:570-577`) filters `state.epochs`/`state.losses`/`state.phases` for entries whose phase contains `"candidate"`; the store it reads is filled by `_fetch_training_state` → GET `/api/state` (`:414`). But that route (`main.py:1129`) serves `TrainingState.get_state()`, and `TrainingState._STATE_FIELDS` (`training_monitor.py:232-264`) contains **none of those keys** — the demo branch augments only `nn_*`/`cn_*`/convergence params, so no lane ever provides them. Confirmed live mid-candidate-phase 2026-08-24: `/api/state` carried `candidate_pool_size 40`, `candidate_epoch 201/400`, `candidates_trained 40/40`, `all_correlations[40]` — and no `epochs`/`losses`/`phases`. This is **not** starvation: in the same session the same store's other consumers (badge, phase, pool size, progress bar, pool info) all rendered live candidate-phase values post-#507/#509, while the figure's only reachable render is the `create_empty_plot("No candidate data available")` placeholder (`:567`/`:575`/`:605`). The data exists in-system — cascor `/v1/metrics/history` returned 4,106 `phase:"candidate"` per-epoch loss entries (of 4,909 total) for the same run, and canopy already proxies it at `/api/metrics/history` — the panel is simply wired to the wrong producer. Fix is canopy-side: source the candidate-loss figure from the metrics-history data (or merge those keys into the store fetch) and drop the dead three-key read. Matrix row M-CANDIDATES-07 re-scored FAIL with its cause re-attributed from F-CANOPY-027 to this finding. Same consumer-reads-keys-the-producer-never-emits class as F-CANOPY-011/-013.
+
+**F-CANOPY-036 — candidate pool history NEVER accumulates in the live lane: the history-append callback loses its race with its own feeder's repoll, so short-lived pool states are never recorded (P2, OPEN; found during the 2026-08-24 live re-drive).**
+Across five training runs on one bring-up (~20 candidate phases), `candidate-metrics-panel-history-section` never rendered a card — while in the same sessions the SAME store's sibling consumers provably rendered active-pool values (run 5: an in-page 500 ms observer, healthy all run — 8 sampler gaps > 2 s, worst 2.8 s — recorded the badge rendering `Selecting Best` at t+189 s; runs 1/2 rendered pool 40 / `Training` / progress `351/400`). So this is **not** the fixed F-CANOPY-027 store→consumer starvation. Constructive probe on a CALM post-run page: injecting a fully-shaped `candidate_pool_status:"Training"` payload through the store's own `setProps` (the §12.1 idiom, `ok via memoizedProps.setProps`) produced **no card in 100 s**, and the request capture shows `update_pool_history` (output `…-pool-history-store.data`, `candidate_metrics_panel.py:347-381`) **never executed after the injected write** — while the same capture shows it executing normally on an ordinary poll fill (with `candidate_pool_status=Inactive`, i.e. after the transient state was already overwritten). Mechanism family: dash-renderer executes a queued callback with the store's CURRENT value (or supersedes the queued trigger entirely) when the feeder — `fetch_training_state`, polling at ~1 s on the candidates tab — rewrites the store before the append is promoted; any pool state shorter-lived than the promotion delay is unrecordable. The append's design contract (`:344-392`, one snapshot per `current_epoch` while a pool is active) is therefore probabilistic-to-never under load, and zero-across-five-runs in practice. Matrix effect: M-CANDIDATES-09 FAIL (populated arm unreachable, cause re-attributed from F-CANOPY-027 to this finding); M-CANDIDATES-10/-11 remain BLOCKED (their DEAD-EXPECTED click test needs a rendered card; blocker likewise re-attributed). Candidate fixes (owner decision): append server-side (canopy backend accumulates pool history and serves it, removing the client-side race entirely) or make `update_pool_history` clientside so it runs synchronously in the same commit as the store write.
 
 **F-CANOPY-033 — `RESET_COMPONENT_STATE` storms one panel at ~13/s (P2, OPEN; found while tracing F-CANOPY-027).**
 Redux tracing recorded **1157 `RESET_COMPONENT_STATE` dispatches in 90 s** — roughly 13 per second, out of
@@ -1137,8 +1154,9 @@ nested `[[…],[…]]`) or a reshape using `(I+H, output_size)` once the topolog
 this dependent on the D-0 route fix.
 
 **F-CANOPY-013 — Network Editor success messages read payload keys off the response ENVELOPE, so a
-successful append reports `index None (now None hidden units)` (P3, OPEN; root-caused, one latent second
-instance).**
+successful append reports `index None (now None hidden units)` (P2, OPEN; root-caused, one latent second
+instance; re-tagged 2026-08-24 from an out-of-vocabulary "P3" — the plan §9 severity scale is P0/P1/P2
+only, and the untagged state made `e2e_finding_triage.py` report the finding as priority `?`).**
 `_post_json` (`:433-465`) returns `{"success": True, "data": resp.json()}` — i.e. `result["data"]` is the
 **entire** cascor envelope `{"status":…, "data": {…}, "meta":…}`, as confirmed live by the DELETE response
 body. But `on_add_unit` (`:608-611`) does `data = result["data"]; idx = data.get("unit_index"); total =
@@ -2842,3 +2860,98 @@ Two instrument lessons worth keeping. First, "present in the served `_dash-depen
 client's derived `graphs.inputMap`" are different claims; the arc had checked only the first and treated it as
 the second. Second, a negative clean-room result is evidence, not a failed experiment — the five-pane run that
 "didn't reproduce" is what identified load as the variable.
+
+---
+
+## Phase 2 — re-drive (2026-08-24): the F-CANOPY-027 rows against live runs — two lanes closed, one still starving
+
+**Outcome up front: 16 rows re-driven under live training on canopy `f9defb4` (#507+#509 merged); the fix
+holds on two of the three panels and does NOT hold on the third.** 8 rows PASS re-validated
+(M-CANDIDATES-01/-02/-03/-04/-06 — previously PASS against mount defaults only — and M-DATASET-13/-15/-16,
+previously FAIL); 5 FAIL with causes re-attributed or sharpened (M-CANDIDATES-07 → new **F-CANOPY-035**,
+M-CANDIDATES-09 → new **F-CANOPY-036**, M-BOUNDARIES-02/-04 → F-CANOPY-027 residue,
+M-BOUNDARIES-01 `PASS(slider-value)/FAIL(re-render)`); 3 BLOCKED with blockers re-attributed
+(M-CANDIDATES-10/-11 → F-CANOPY-036; M-BOUNDARIES-03 unattributable at 1/s ambient polling). Run id
+`20260824T080426Z` (16-row `statuses.tsv`); driver `util/ad-hoc/e2e_f027_redrive.py` (new; steps
+idle/start/candidates/livecards/cardsprobe/boundaries/bprobe/dstats) plus `e2e_seg16_dataset_driver.py`.
+Five training runs on one bring-up (spirals 1000×2, 800/200; isolated trio 8101/8202/8051,
+`demo_mode:false`, `juniper_data_available:true`).
+
+### The headline: the Decision Boundary render is still starved in steady state
+
+§12.1's "all three panels alive" was verified by setProps A/B on quiet pages and DOM transitions at attach.
+The live steady state disagrees for the boundaries panel, and the request capture states it exactly
+(`bprobe`, fresh session, post-run): the `decision-boundary-boundary-data` feeder fired **80 times at ~1/s**
+(dataset feeder likewise, 78) while the plot-render callback (`…-plot.figure` + `…-status.children`) fired
+**exactly once — at mount, before the first fill applied — and never again in 115 s**. That session's figure
+stayed at the empty `"No network loaded"` state its whole life while real mesh data streamed into the store
+beside it: F-CANOPY-027's original signature, post-fix. A second session got lucky at attach (render ran at
+t+22 s after the fills landed and produced the full contour + two-scatter figure — so the render itself is
+correct when it runs); interactions afterwards (slider 100→125 in 3.4 s, confidence toggle with the React
+value-tracker following) produced **zero** re-renders in 30-60 s windows.
+
+The mechanism is the F-CANOPY-036 promotion race generalized: **a consumer of a store whose feeder's
+in-flight time covers the feeder's period is never promoted again** — dash-renderer will not promote a
+callback while any of its Inputs is claimed by a pending callback, and a ~1 Hz feeder with a ≥1 s round-trip
+(the boundary mesh fetch) is pending essentially always. The dataset panel proves the converse: its
+slow-lane 5 s feeder with fast round-trips leaves promotion gaps, and its tile-render callback fired 6×/118 s
+(census in `dstats`), tiles populating 0/0/0/N-A → 800/2/2/Balanced at t+40 s of a fresh session, scatter
+900×800 with both class traces, histograms with both feature annotations. This is what the unmet §7.1
+saturation targets (pool full 61.4 %, backlog 23 > 12) mean behaviourally, and it adds a third lever to
+Stage 2's scope: the boundaries chain specifically (slow its feeders, make them no-op-suppressing, or move
+the render clientside) — interval gating alone cannot fix a panel whose gated-open lane self-blocks.
+
+### The candidates panel: five rows proven live, and the panel is honest
+
+With the run live, the panel tracked the server through the full cycle: badge `Inactive`→`Training` (and,
+run 5, `Selecting Best`), phase `Idle`→`Training`, pool `0`→`40`, progress section `none`→`block` with
+`351/400`, pool-info placeholder→Top-2-candidates table — the exact dispatches that measured **0** across
+220 fills before the fix. The UI lags the server 10-20 s under run load in both directions (F-CANOPY-004,
+reduced but present): at one sample the server was mid-candidate (`candidate_epoch 151/400`) while the UI
+still read Idle; 17 s later the UI read `Training 351/400` after the server had already returned to output.
+
+### Two new findings (ledger entries above)
+
+- **F-CANOPY-035 (P1)**: the candidate loss plot reads `epochs`/`losses`/`phases` — keys `/api/state` never
+  provides in any lane (`TrainingState._STATE_FIELDS`); the data exists at `/v1/metrics/history` (4,106
+  candidate-phase entries in one run). The panel is wired to the wrong producer; M-CANDIDATES-07 FAIL
+  re-attributed.
+- **F-CANOPY-036 (P2)**: pool history never accumulates — `update_pool_history` races its own feeder's ~1 s
+  repoll and never executes with a short-lived active-pool state (request-capture proof: zero executions in
+  100 s after an injected `Training` write on a calm page, while the same capture shows it executing on
+  ordinary fills with the already-overwritten `Inactive` value). Zero cards across 5 runs / ~20 candidate
+  phases. M-CANDIDATES-09 FAIL, -10/-11 BLOCKED, re-attributed.
+
+### F-CANOPY-005 corroboration (two clean on-demand reproductions)
+
+Runs 2 and 3 both started with: WS `start` command timing out client-side (`WS rejected: Command timeout
+(no command_response for <uuid>)`), REST fallback firing, and the fallback hitting **409 Conflict** because
+the WS command had actually landed server-side. The run starts anyway; the console carries a spurious 409
+each time. This is the send-promise race, reproducible by clicking Start under load.
+
+### Instrument record (what it took to observe this)
+
+Three observation designs stalled identically once training began — DOM sampling at 3 s, 700 ms sampling
+with a Redux subscribe, and a single cheap 1 Hz tick — each session's `page.evaluate` starving for minutes
+(one renderer: 8m33s CPU over an 8.5-min session, pinned from attach; headless chromium under swiftshader,
+so a GPU browser bears the plotly load far more cheaply — but the *server-completion fan-out to hidden
+panels* it was rendering is real and is Stage 2's no-op-write lever). What worked: (1) an **in-page
+observer** installed while calm (500 ms sampler + self-driving click test, harvested with one patient
+evaluate after run end — run 5's sampler stayed healthy: 8 gaps > 2 s, worst 2.8 s); (2) **request-side
+censuses** — every dash POST body names its output, so feeder-vs-render activity is countable without
+touching the page, and identical-data rewrites are visible where a value-change subscribe is blind (that
+blindness cost one wrong inference mid-session: "2 fills in 40 s" was actually ~1/s of identical rewrites);
+(3) **short single-purpose sessions**. Also: each service restart resumed the SAME network (units
+10→11→12→13 across runs 2-4) with runs shrinking to ~35 s; a cascor-leg restart
+(`e2e_cascor_leg_restart.bash`) restored a fresh network and full-length runs. The dead-click test for
+-10/-11 is ready in the driver (`cardsprobe`) for the moment F-CANOPY-036 is fixed.
+
+### Status effects
+
+F-CANOPY-027 stays **OPEN** — §12.5's refusal to mark it fixed is now *confirmed* rather than precautionary:
+Stage 1+3 closed the candidates and dataset lanes; the boundaries lane needs Stage 2 (with the third lever
+above). F-CANOPY-004 stays OPEN (lag observed 10-20 s + 20-40 s fresh-session population latency).
+F-CANOPY-013 re-tagged P2 (was out-of-vocabulary "P3", which the triage script surfaced as `?`). Matrix
+coverage unchanged at 298/298; verdict deltas this session: M-DATASET-13/-15/-16 FAIL→PASS,
+M-CANDIDATES-09 BLOCKED→FAIL, M-BOUNDARIES-02 BLOCKED→FAIL, five candidates rows PASS→PASS(re-validated),
+M-BOUNDARIES-01 rider narrowed, M-BOUNDARIES-04 FAIL sharpened, -10/-11/-03 BLOCKED re-attributed.
