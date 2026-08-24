@@ -77,6 +77,14 @@ SETTINGS = [
      "an interrupted compact destroyed the previous archive. Do not enable until "
      "a restore has been proven on this set."),
     ("--allow-missing-source", "true", "unchanged; avoids spurious failures"),
+    ("--gpg-encryption-switches", "--compress-algo none",
+     "GPGFlushError fix 2 (2026-08-24 investigation note §9): the user gpg.conf's "
+     "ZLIB deflates already-zip-compressed volumes at ~17 s CPU per 500 MB volume "
+     "vs ~1.6 s without; shrinks the tail inside the wrapper's 5 s Join ~10x."),
+    ("--asynchronous-upload-limit", "1",
+     "GPGFlushError fix 3: encryption pre-starts at queue time, so the default 4 "
+     "let >=6 gpg pipelines miss the 5 s bound together in one stall; 1 shrinks "
+     "the blast radius to ~1 volume at negligible local throughput cost."),
 ]
 # retention-policy is deliberately ABSENT: retention is what marked the
 # intermediate filesets expendable. Add only once restores are proven.
