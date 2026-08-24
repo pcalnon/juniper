@@ -24,8 +24,16 @@
 #   The same code path is the best explanation for the earlier hang: threads
 #   parked in wait_for_partner / anon_pipe_read with no gpg child alive.
 #
-# The passphrase is read from a KEY=VALUE file and passed on fd 3, never on the
-# command line (/proc/<pid>/cmdline is world-readable) and never printed.
+# The passphrase is read from a KEY=VALUE file and piped to gpg on fd 0
+# (--passphrase-fd 0), never on the command line (/proc/<pid>/cmdline is
+# world-readable) and never printed. The producer is a shell builtin, so it never
+# appears in any process's argv either.
+#
+# CAVEAT ON WHAT THIS MEASURES: a single foreground gpg invocation on an idle
+# machine. The failure it was written to investigate says "won't flush output",
+# which is a reader-thread-drain symptom, and it appeared only with several
+# volumes in flight. An idle solo run therefore does NOT reproduce the failure's
+# regime -- do not read a fast result here as clearing GPG under concurrency.
 #
 # Usage: duplicati_gpg_throughput.bash [size_mb] [cred_file] [cred_key]
 ############################################################################################################################################################
