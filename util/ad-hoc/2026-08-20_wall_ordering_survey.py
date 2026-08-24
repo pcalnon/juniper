@@ -47,6 +47,12 @@ sys.path.insert(0, str(REPO_ROOT / "util" / "experiments"))
 import run_suite  # noqa: E402
 
 SUITES_DIR = REPO_ROOT / "util" / "experiments" / "suites"
+# An `app: cascor` suite may legitimately live outside the shipped tree. One did --
+# `util/ad-hoc/2026-08-10_spiral_correlation_threshold_diagnostic.yaml`, INVERTED at
+# 1800/3600 and invisible to this survey AND to the T1 gate, both of which scanned
+# SUITES_DIR alone. Scanned separately (2026-08-24) so the shipped-suite counts stay
+# comparable with the gate's, which is still SUITES_DIR-only by design.
+ADHOC_DIR = REPO_ROOT / "util" / "ad-hoc"
 DEFAULT_TIMEOUT = 3600.0
 DEFAULT_WALL = 3600.0
 WALL_KEY = "outputs.max_wall_seconds"
@@ -106,13 +112,22 @@ def verdict(timeout: float, budgets: list[float]) -> str:
     return "OK"
 
 
-def main() -> int:
-    rows = []
-    for path in sorted(SUITES_DIR.rglob("*.yaml")):
-        rel = path.relative_to(SUITES_DIR)
+def survey(base_dir: Path, skip_non_suites: bool = False) -> list[tuple]:
+    """Rows for every suite YAML under ``base_dir``.
+
+    ``skip_non_suites`` drops files that fail ``load_suite`` instead of reporting them
+    UNRESOLVED. Off for SUITES_DIR, where every YAML is meant to be a suite and a load
+    failure is a finding; on for ADHOC_DIR, which is mostly base configs and unrelated
+    workflow YAML that would otherwise bury the one real row in noise.
+    """
+    rows: list[tuple] = []
+    for path in sorted(base_dir.rglob("*.yaml")):
+        rel = path.relative_to(base_dir)
         try:
             doc = run_suite.load_suite(path)
         except Exception as exc:  # noqa: BLE001
+            if skip_non_suites:
+                continue
             rows.append((str(rel), "?", "?", "?", "UNRESOLVED", f"load_suite failed: {exc}"))
             continue
         app = (doc.get("suite") or {}).get("app", "?")
@@ -130,7 +145,10 @@ def main() -> int:
             f"{max(budgets):g}" if len(set(budgets)) == 1 else f"{min(budgets):g}..{max(budgets):g}"
         )
         rows.append((str(rel), app, f"{timeout:g}", span, verdict(timeout, budgets), note))
+    return rows
 
+
+def _print_table(rows: list[tuple]) -> None:
     width = max(len(r[0]) for r in rows)
     print(f"{'suite':<{width}}  {'app':<10} {'timeout':>8} {'budget':>12}  verdict     note")
     print("-" * (width + 56))
@@ -142,8 +160,26 @@ def main() -> int:
         count = sum(1 for r in rows if r[4] == name)
         print(f"{name:<11} {count}")
     print(f"{'TOTAL':<11} {len(rows)}")
-    at_risk = sum(1 for r in rows if r[4] in ("INVERTED", "EQUAL"))
+
+
+def main() -> int:
+    shipped = survey(SUITES_DIR)
+    _print_table(shipped)
+    at_risk = sum(1 for r in shipped if r[4] in ("INVERTED", "EQUAL"))
     print(f"\na gate with predicate `per_run_timeout_seconds <= effective_budget` fires on {at_risk}")
+
+    adhoc = survey(ADHOC_DIR, skip_non_suites=True)
+    print(f"\n=== AD-HOC SUITES under {ADHOC_DIR.relative_to(REPO_ROOT)} (UNGATED) ===")
+    if not adhoc:
+        print("(none -- no suite-shaped YAML outside the shipped tree)")
+        return 0
+    _print_table(adhoc)
+    adhoc_at_risk = [r for r in adhoc if r[4] in ("INVERTED", "EQUAL")]
+    print(
+        "\nThese are NOT judged by tests/test_experiment_suite_yamls.py -- it scans the shipped\n"
+        "tree only, deliberately, so that util/ad-hoc/ stays scratch. Ordering defects here are\n"
+        f"reported, not enforced: {len(adhoc_at_risk)} at risk."
+    )
     return 0
 
 
