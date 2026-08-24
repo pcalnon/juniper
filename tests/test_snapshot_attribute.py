@@ -129,6 +129,80 @@ def attributed_row(name: str, dataset: str, **scores) -> dict:
     return {"name": name, "verdict": sa.ATTRIBUTED, "dataset": dataset, "scores": dict(scores)}
 
 
+class _ParamsDeclaringNoSeed:
+    """Stands in for the five generators whose params declare ``seed=None``."""
+
+    def __init__(self, seed=None):
+        self.seed = seed
+
+
+class _ParamsDeclaringItsOwnSeed:
+    """Stands in for ``spiral``, whose params declare a real default seed."""
+
+    OWN = 4242
+
+    def __init__(self, seed=None):
+        self.seed = self.OWN if seed is None else seed
+
+
+class DatasetInstanceIsFixedTest(unittest.TestCase):
+    """THE reproducibility class: attribution must score against the SAME data every run.
+
+    Five of the six 2-D generators declare ``seed: int | None = Field(default=None)``, so
+    ``params_cls()`` draws different data on every call. Measured on the real tree: two calls
+    to ``load_datasets`` in ONE process returned different arrays for checkerboard, circles,
+    gaussian, moon and xor — spiral alone was stable, because spiral is the only one declaring
+    a default seed.
+
+    The cost was not theoretical. A rebuild of the archive sidecar moved moon's attributed
+    count from 0 to 6: moon's own score shifted 1.000 -> 0.995, which flipped one snapshot's
+    first-pass winner, which removed it from moon's reference class, which dropped moon's
+    cross floor 1.000 -> 0.850.
+
+    Hermetic by construction — the stand-ins above mean this needs no juniper-data tree.
+    """
+
+    def test_a_generator_declaring_no_seed_is_given_one(self) -> None:
+        params = sa.seeded_params(_ParamsDeclaringNoSeed, 20260824)
+        self.assertEqual(params.seed, 20260824, "a generator that declares no seed must be pinned, or it redraws every run")
+
+    def test_a_generator_declaring_its_own_seed_keeps_it(self) -> None:
+        """spiral's canonical instance must not be silently redefined.
+
+        Every spiral conclusion on record was derived against spiral's own default instance;
+        overriding it here would invalidate them for no reproducibility gain, because spiral
+        was already reproducible.
+        """
+        params = sa.seeded_params(_ParamsDeclaringItsOwnSeed, 20260824)
+        self.assertEqual(params.seed, _ParamsDeclaringItsOwnSeed.OWN, "a declared seed is the generator's canonical instance and must win")
+
+    def test_the_same_seed_produces_the_same_params_twice(self) -> None:
+        first = sa.seeded_params(_ParamsDeclaringNoSeed, 7)
+        second = sa.seeded_params(_ParamsDeclaringNoSeed, 7)
+        self.assertEqual(first.seed, second.seed, "two calls must agree, or the dataset differs between the two passes of one run")
+
+    def test_a_params_class_with_no_seed_field_is_left_alone(self) -> None:
+        """Absence and None are different answers and must not be collapsed.
+
+        Every 2-D generator declares ``seed`` today, but the helper is generic. A params class
+        with no such field would REJECT ``seed=...``, so treating "absent" as "unseeded" turns a
+        generator this tool merely cannot pin into one it cannot load at all.
+        """
+
+        class _NoSeedField:
+            def __init__(self):
+                self.noise = 0.1
+
+        params = sa.seeded_params(_NoSeedField, 20260824)
+        self.assertFalse(hasattr(params, "seed"), "a class without a seed field must come back untouched")
+        self.assertEqual(params.noise, 0.1)
+
+    def test_the_module_pins_a_constant_rather_than_leaving_it_to_a_default(self) -> None:
+        """A drifting default would silently redefine the canonical instance."""
+        self.assertIsInstance(sa.DATASET_SEED, int)
+        self.assertIsNotNone(sa.DATASET_SEED)
+
+
 class CrossDatasetFloorTest(unittest.TestCase):
     """THE second regression class: the untrained null answers the WRONG QUESTION.
 
