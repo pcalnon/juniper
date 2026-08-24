@@ -145,10 +145,17 @@ jobs:
           # long. A bounded poll is better in both directions: it returns as soon as the
           # artifact is servable (usually the first attempt), and tolerates a slow CDN
           # instead of failing the release. ~60s ceiling, then a real error.
+          # The fetch stays on ONE line and outside any `if` condition: it is the
+          # provenance phase tests/test_publish_testpypi_verify.py parses, and that
+          # parser matches `^pip download` against the STRIPPED line. A literal attempt
+          # list rather than $(seq ...) keeps the loop free of an external command.
           FETCHED=0
-          for attempt in $(seq 1 10); do
-            if pip download --no-deps --index-url https://test.pypi.org/simple/ \
-                 --dest "${DOWNLOAD_DIR}" "juniper-ml==${VERSION}"; then
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            set +e
+            pip download --no-deps --index-url https://test.pypi.org/simple/ --dest "${DOWNLOAD_DIR}" "juniper-ml==${VERSION}"
+            DL_RC=$?
+            set -e
+            if [ "${DL_RC}" -eq 0 ]; then
               FETCHED=1
               echo "TestPyPI served juniper-ml==${VERSION} on attempt ${attempt}"
               break
