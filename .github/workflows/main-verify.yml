@@ -407,6 +407,7 @@ jobs:
           python3 -m unittest -v tests/test_prune_git_branches_without_working_dirs.py
           python3 -m unittest -v tests/test_reap_pytest_orphans.py
           python3 -m unittest -v tests/test_kill_helpers.py
+          python3 -m unittest -v tests/test_duplicati_scheduled_backup.py
           python3 -m unittest -v tests/test_editable_install_drift_check.py
           python3 -m unittest -v tests/test_env_floor_drift_check.py
           python3 -m unittest -v tests/test_env_drift_check.py
