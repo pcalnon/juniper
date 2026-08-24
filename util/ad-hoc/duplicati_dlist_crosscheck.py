@@ -116,6 +116,7 @@ def main():
     available = set()
     blocklist_content = {}   # blocklist hash (b64) -> [data-block hashes (b64)]
     indexed_dblocks = set()
+    poisoned = 0
     for i, name in enumerate(dindexes, 1):
         plain = os.path.join(workdir, "dindex.zip")
         gpg_decrypt(os.path.join(dest, name), plain, passphrase)
@@ -129,17 +130,27 @@ def main():
                 elif entry.startswith("list/"):
                     raw = zf.read(entry)
                     if len(raw) % HASH_BYTES:
-                        print(f"WARN: list entry {entry} in {name} has odd length {len(raw)}")
-                    hashes = [base64.b64encode(raw[o:o + HASH_BYTES]).decode()
-                              for o in range(0, len(raw) - len(raw) % HASH_BYTES, HASH_BYTES)]
-                    # filename is the base64url-ish form of the blocklist hash;
+                        fail(f"list entry {entry} in {name} has length {len(raw)} not divisible by {HASH_BYTES} -- refusing to under-build NEEDED")
+                    # filename is Base64UrlEncode(blocklist hash), padding kept;
                     # normalize back to standard base64 for matching
                     fn = entry[5:]
-                    blocklist_content[fn.replace("-", "+").replace("_", "/")] = hashes
+                    fn_plain = fn.replace("-", "+").replace("_", "/")
+                    # Duplicati itself distrusts blocklist entries in index files
+                    # (compact can leave invalid ones) -- verify content hashes
+                    # to its filename before using it to build NEEDED.
+                    if base64.b64encode(hashlib.sha256(raw).digest()).decode() != fn_plain:
+                        print(f"POISONED: list entry {entry} in {name} does not hash to its filename")
+                        poisoned += 1
+                        continue
+                    hashes = [base64.b64encode(raw[o:o + HASH_BYTES]).decode()
+                              for o in range(0, len(raw), HASH_BYTES)]
+                    blocklist_content[fn_plain] = hashes
                     blocklist_content[fn] = hashes
         os.unlink(plain)
         if i % 25 == 0:
             print(f"  parsed {i}/{len(dindexes)} dindex files ...")
+    if poisoned:
+        fail(f"{poisoned} poisoned list/ entries -- index is untrustworthy, coverage verdict would be vacuous")
     print(f"available  : {len(available)} distinct blocks declared across {len(indexed_dblocks)} indexed dblocks")
 
     missing_dblock_index = sorted(set(dblocks) - indexed_dblocks)
@@ -151,7 +162,17 @@ def main():
     gpg_decrypt(os.path.join(dest, dlists[0]), plain, passphrase)
     with zipfile.ZipFile(plain) as zf:
         filelist = json.loads(zf.read("filelist.json"))
+        manifest = json.loads(zf.read("manifest"))
+        fileset_meta = json.loads(zf.read("fileset")) if "fileset" in zf.namelist() else {}
     os.unlink(plain)
+    # trust the manifest, not assumptions: a non-default job would mis-expand
+    if manifest.get("BlockHash", "SHA256") != "SHA256" or manifest.get("FileHash", "SHA256") != "SHA256":
+        fail(f"manifest hash algorithms not SHA256: {manifest} -- single-block rule invalid, aborting")
+    if int(manifest.get("Blocksize", args.blocksize)) != args.blocksize:
+        print(f"NOTE: manifest Blocksize={manifest.get('Blocksize')} overrides --blocksize {args.blocksize}")
+        args.blocksize = int(manifest["Blocksize"])
+    if fileset_meta:
+        print(f"fileset    : IsFullBackup={fileset_meta.get('IsFullBackup')}")
 
     needed = {}          # hash -> reason (first occurrence)
     unexpandable = []    # blocklist hashes with no list/* content anywhere
