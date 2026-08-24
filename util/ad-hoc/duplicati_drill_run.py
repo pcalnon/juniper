@@ -65,15 +65,20 @@ import subprocess
 import sys
 
 
-def read_passphrase(path: str) -> str:
-    """Accept either `KEY=VALUE` (optionally `export`-prefixed) or a bare secret.
+def read_passphrase(path: str, key: str = "PASSPHRASE") -> str:
+    """Read a NAMED secret from `KEY=VALUE` form, or a bare-secret file.
 
-    Never source the file: a bare password containing `$` or a backtick would be
-    expanded or executed by the shell.
+    The key must be selectable. This file may hold several same-length secrets
+    (a new set's passphrase, an old archive's, a UI password), so hardcoding one
+    name silently uses whichever the file happens to bind to it -- and that
+    binding has already changed once mid-session while a backup was running.
+
+    Never source the file: a secret containing `$` would be expanded and one
+    containing a backtick would be EXECUTED.
     """
     with open(path) as fh:
         raw = fh.read()
-    m = re.search(r"^[ \t]*(?:export[ \t]+)?PASSPHRASE=(.*)$", raw, re.M)
+    m = re.search(rf"^[ \t]*(?:export[ \t]+)?{re.escape(key)}=(.*)$", raw, re.M)
     if m:
         val = m.group(1).strip()
         if len(val) >= 2 and val[0] == val[-1] and val[0] in "'\"":
@@ -88,6 +93,20 @@ def sha256_b64(path: str) -> str:
         for chunk in iter(lambda: fh.read(4 << 20), b""):
             h.update(chunk)
     return base64.b64encode(h.digest()).decode()
+
+
+def _redact(text: str, secret: str) -> str:
+    """Strip the secret from child-process output before it is ever logged.
+
+    Duplicati receives the passphrase via the environment, not argv, so it
+    should never echo it. "Should never" is not a control: a future version, a
+    verbose flag, or an error path that dumps its configuration would leak it
+    into a log that outlives the run. Redacting costs nothing and removes the
+    assumption.
+    """
+    if not secret:
+        return text
+    return text.replace(secret, "<redacted>")
 
 
 def restore(dest: str, dbpath: str, when: str, paths: list[str],
@@ -121,7 +140,8 @@ def restore(dest: str, dbpath: str, when: str, paths: list[str],
     try:
         p = subprocess.run(cmd, env=env, capture_output=True, text=True,
                            timeout=timeout)
-        return p.returncode, (p.stdout or "") + (p.stderr or "")
+        combined = (p.stdout or "") + (p.stderr or "")
+        return p.returncode, _redact(combined, passphrase)
     except subprocess.TimeoutExpired:
         return 124, f"TIMEOUT after {timeout}s"
 
@@ -166,7 +186,10 @@ def main() -> int:
     ap.add_argument("--candidates", required=True)
     ap.add_argument("--dbpath", required=True, help="DISPOSABLE copy; it gets migrated")
     ap.add_argument("--dest", default="file:///mnt/Backups/Ubuntu")
-    ap.add_argument("--passphrase-file", required=True,
+    ap.add_argument("--passphrase-key", dest="cred_key", default="PASSPHRASE",
+                    help="which KEY= entry to read. Same-length secrets are "
+                         "indistinguishable by length, so name the key.")
+    ap.add_argument("--passphrase-file", dest="cred_file", required=True,
                     help="file holding the ARCHIVE GPG passphrase (bare secret or "
                          "PASSPHRASE=...). NOT the web-UI password: they are "
                          "different secrets, and the wrong one fails as "
@@ -178,8 +201,11 @@ def main() -> int:
 
     with open(args.candidates) as fh:
         payload = json.load(fh)
-    passphrase = read_passphrase(args.passphrase_file)
-    print(f"passphrase: {len(passphrase)} chars from {args.passphrase_file}")
+    passphrase = read_passphrase(args.cred_file, args.cred_key)
+    if not passphrase:
+        print(f"REFUSING: no {args.cred_key}= entry in {args.cred_file}")
+        return 2
+    print(f"credential: {args.cred_file} key={args.cred_key}")
 
     groups = [g for g in ("good", "damaged") if args.only in (None, g)]
     all_results: dict[str, list[dict]] = {}

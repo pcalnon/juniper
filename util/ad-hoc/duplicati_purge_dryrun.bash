@@ -135,8 +135,11 @@ if [ ! -r "$PPFILE" ]; then
     echo "Set DUPLICATI_PW_FILE to override." >&2
     exit 2
 fi
-if grep -qE '^[[:space:]]*(export[[:space:]]+)?PASSPHRASE=' "$PPFILE" 2>/dev/null; then
-    PASSPHRASE=$(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?PASSPHRASE=(.*)$/\2/p' \
+# Which KEY= entry. Same-length secrets are indistinguishable by length, and the
+# binding has already changed once mid-session while a backup was running.
+PPKEY="${DUPLICATI_PW_KEY:-PASSPHRASE}"
+if grep -qE "^[[:space:]]*(export[[:space:]]+)?${PPKEY}=" "$PPFILE" 2>/dev/null; then
+    PASSPHRASE=$(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?${PPKEY}=(.*)$/\2/p" \
                  "$PPFILE" | head -1)
     case "$PASSPHRASE" in
         \'*\') PASSPHRASE=${PASSPHRASE#\'}; PASSPHRASE=${PASSPHRASE%\'} ;;
@@ -150,7 +153,7 @@ if [ -z "$PASSPHRASE" ]; then
     exit 2
 fi
 export PASSPHRASE
-echo "credential    : $PPFILE (${#PASSPHRASE} chars)"
+echo "credential    : $PPFILE key=$PPKEY (${#PASSPHRASE} chars, sha256[:16]=$(printf '%s' "$PASSPHRASE" | sha256sum | cut -c1-16))"
 
 CMD=(duplicati-cli purge-broken-files "$DEST"
      "--dbpath=$DBPATH"
