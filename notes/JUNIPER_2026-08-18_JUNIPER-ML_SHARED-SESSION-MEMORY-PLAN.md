@@ -214,9 +214,104 @@ achieved level, not the aspirational one.
 
 ### P5 — Fleet rollout
 
-canopy (94,373) and cascor (70,118) are on the same trajectory; nine repos share
-the pattern. Port the gate first (it is portable in this repo's established
-self-locating style), then the cut, repo by repo.
+**Status: NOT STARTED.** No tracking issue exists in any repo.
+
+> **This section was a four-line stub until 2026-08-24.** The working procedure lived only in
+> a session handoff, and handoffs lose material across generations — an earlier one in this
+> arc amputated this recipe entirely and only independent validation caught it. It is written
+> down here so the next attempt does not have to reconstruct it.
+
+#### The order is mandatory: RATE axis before LEVEL axis
+
+A ceiling set *after* a cut locks in the inflated level; a cut without a ceiling is undone in
+about 44 days. `AGENTS.md` reached ~170K in this repo **while under four active CI gates** —
+172 of 200 main-line merges grew it, 14 shrank it, by 2,628 bytes between them. Every one of
+those gates enforced structure or currency; none measured size.
+
+**Do not order the fleet by size** ("canopy is the big win, start there"). Port the ratchet
+first, everywhere; cut afterwards.
+
+#### Current sizes — RE-MEASURE, never transcribe
+
+Measured 2026-08-24. They move daily; this table is evidence that they move, not an input.
+
+| Repo | `AGENTS.md` | `docs/REFERENCE.md` | Note |
+|---|---:|---:|---|
+| juniper-canopy | 95,133 | 9,328 | largest; was 94,373 when this plan was written |
+| juniper-cascor | 71,098 | — | **no `docs/REFERENCE.md`** — create the destination first |
+| juniper-data | 43,493 | 19,403 | |
+| juniper-cascor-worker | 35,126 | 12,062 | |
+| juniper-cascor-client | 34,695 | 14,019 | |
+| juniper-deploy | 34,569 | 18,667 | |
+| juniper-ml | 36,960 | 336,020 | governed; ceiling 38,000 |
+| juniper-data-client | 28,369 | 11,946 | |
+| juniper-recurrence | 11,578 | — | **no `docs/REFERENCE.md`** |
+| juniper-slacker | — | — | no `AGENTS.md` at all |
+
+canopy grew ~2K in the day before this measurement. That is the rate axis, unmanaged.
+
+#### Per-repo recipe
+
+**a. Copy three files.** [`util/memory_budget_check.py`](../util/memory_budget_check.py),
+[`tests/test_memory_budget_check.py`](../tests/test_memory_budget_check.py),
+[`conf/memory_budget.json`](../conf/memory_budget.json). Both scripts take `--repo-root` and
+are repo-agnostic; nothing in them is juniper-ml-specific.
+
+**b. Seed the ceiling by running `--ratchet` IN the target repo.** Never by transcribing a
+number out of a note — not 38,000, not 32,443, not anything in the table above.
+
+```bash
+python3 util/memory_budget_check.py --repo-root . --ratchet
+```
+
+`--ratchet` **seeds**; it does not **tighten** after a cut. In a repo with no ceiling yet
+(every P5 target) it is the only correct way to set one. Run in a repo that already has a
+ceiling, straight after a cut, it leaves ZERO headroom and fails the next author on a single
+character — hand-edit with slack sized to the observed burn instead (this repo: +937 over
+four days / five PRs, median +58, one docs PR +605).
+
+**c. Copy the standalone `memory-budget` job** from [`ci.yml`](../.github/workflows/ci.yml)
+(job `memory-budget`, `name: Memory Budget`). **Standalone — NOT in the Quality Gate
+`needs:`** (correction C9). A `needs:` entry is the wrong promotion mechanism; the ruleset is
+the right one, which is how `Sequence Safety` was promoted.
+
+**d. Soak `--advisory`, remove it, then run three negative controls BEFORE promoting.**
+
+| Control | Expected |
+|---|---|
+| clean tree | exit 0 |
+| +500 chars to the governed file | exit 1 |
+| `Allow-Budget-Overrun: <path>` trailer | exit 0 |
+
+**A blocking gate that cannot fail is worse than none** — it converts an unmeasured risk into
+a measured-looking one. Only then promote to a required context:
+
+```bash
+gh api repos/pcalnon/<repo>/rulesets                     # find <ID>
+python3 util/ad-hoc/2026-08-20_add_required_context.py \
+  --repo pcalnon/<repo> --ruleset-id <ID> --context 'Memory Budget' --apply
+```
+
+The script is dry-run by default; `--apply` is what writes.
+
+**e. Then G3, then the cut.** Relocate with
+[`util/ad-hoc/2026-08-19_p3_relocate_section.py`](../util/ad-hoc/2026-08-19_p3_relocate_section.py)
+— byte-for-byte, so G3 passes by construction. **Its argument order is load-bearing**
+(rationale at `:54-73`): reversed, it silently redirects every destination anchor back at the
+source, with no error. Verify with
+[`util/relocation_check.py`](../util/relocation_check.py) `--expect-removals`; that local run
+IS the content-loss control, because G3 runs `--advisory` in CI and does not exist post-merge,
+so a green PR proves nothing (§7.2).
+
+For **juniper-cascor** and **juniper-recurrence**, create `docs/REFERENCE.md` before
+relocating anything into it.
+
+#### HAZARD — do not demote this to a pointer
+
+**The cut must land on that repo's `main`, with its primary checkout pulled, BEFORE any
+worktree carries the trimmed file.** A trimmed worktree sitting over an untrimmed ancestor is
+the **worst** case available: loaded context goes **UP**, not down, because both copies are
+resident. This is the one ordering mistake that makes the whole exercise counter-productive.
 
 ---
 
