@@ -15,6 +15,7 @@ from starlette.requests import Request
 
 from juniper_service_core.security import (
     APIKeyAuth,
+    FailedAuthThrottle,
     RateLimiter,
     api_key_header,
     build_api_key_auth,
@@ -280,3 +281,49 @@ class TestRetryAfterNeverTellsTheClientZero:
         assert excinfo.value.status_code == 429
         assert int(excinfo.value.headers["Retry-After"]) >= 1
         assert excinfo.value.headers["Retry-After"] == excinfo.value.headers["X-RateLimit-Reset"]
+
+
+class TestRateLimiterScopeIsStated:
+    """APD-SVCCORE-007 — the per-process limit must be discoverable where it is used.
+
+    The scope is a deliberate constraint, not an oversight, and the register says so. What
+    was missing was not enforcement but *disclosure*: the class said "suitable for
+    single-process deployments" without saying what happens otherwise, and
+    ``build_rate_limiter`` -- the function a consuming service actually calls -- said
+    nothing at all. A caller choosing ``requests_per_minute`` had no way to learn that
+    four replicas admit four times the configured budget.
+
+    Asserting on docstrings follows the precedent already set in this repo by
+    ``tests/test_safe_merge.py``'s ``NetGuaranteeDocTest``: when the guarantee a reader
+    relies on *is* the prose, the prose is what has to be pinned.
+    """
+
+    def test_class_states_the_multi_replica_consequence(self) -> None:
+        doc = RateLimiter.__doc__ or ""
+
+        assert "single-process" in doc
+        # The consequence, not just the scope -- "suitable for single-process deployments"
+        # alone is what left a reader to infer the rest.
+        assert "replica" in doc
+        assert "shared store" in doc
+
+    def test_factory_states_it_too(self) -> None:
+        """The class docstring is not where a consumer looks; the factory is what they call."""
+        doc = build_rate_limiter.__doc__ or ""
+
+        assert "per process" in doc
+        assert "replica" in doc
+
+    def test_wording_matches_the_sibling_control_in_this_module(self) -> None:
+        """``FailedAuthThrottle`` already documented this properly; the two should agree.
+
+        They are the same mechanism with the same limitation, in the same file. Letting
+        one explain it and the other not is how a reader concludes the quiet one does not
+        have the problem.
+        """
+        throttle_doc = FailedAuthThrottle.__doc__ or ""
+        limiter_doc = RateLimiter.__doc__ or ""
+
+        for phrase in ("single-process", "replica", "shared store"):
+            assert phrase in throttle_doc, f"sibling lost its own disclosure: {phrase}"
+            assert phrase in limiter_doc, f"RateLimiter is missing: {phrase}"
