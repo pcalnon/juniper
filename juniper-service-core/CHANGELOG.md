@@ -63,6 +63,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The rate limiter's per-process scope is now stated where it is used** (`APD-SVCCORE-007`).
+  The constraint itself is deliberate and unchanged — fixed-window counters live in memory, so
+  behind multiple replicas each process keeps its own and the effective budget multiplies by the
+  replica count. What was missing was disclosure: `RateLimiter` said only "suitable for
+  single-process deployments" without the consequence, and `build_rate_limiter` — the function a
+  consuming service actually calls — said nothing at all, so a caller choosing
+  `requests_per_minute` had no way to learn that four replicas admit four times the configured
+  budget. `FailedAuthThrottle`, the sibling control in the same module, already documented this
+  properly; the two now agree, and a test pins that they keep agreeing. Documentation only: no
+  behaviour change.
+
 - **`Retry-After` no longer tells a rate-limited caller to retry immediately**
   (`APD-SVCCORE-004`). `reset_in` was `int(window - elapsed)`, which truncates toward zero, so any
   sub-second remainder became `0`. A client obeying the header retried at once into a limiter
