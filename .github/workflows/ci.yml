@@ -507,6 +507,16 @@ jobs:
           # live regression guard: it once passed VACUOUSLY because `tr -d '-_'`
           # errored on this host and both sides normalized to empty.
           python3 -m unittest -v tests/test_assert_release_tag.py
+          # tests/test_publish_release_only_trigger.py: `release: published` must stay the
+          # ONLY automatic trigger on all 7 publishers -- that trigger IS the
+          # release-convention gate. Re-adding `push:` re-creates the #555 race (cutting a
+          # Release also creates the tag, so both fire and race the IMMUTABLE TestPyPI
+          # upload); removing `release:` disarms publishing silently, because a workflow
+          # that never fires reports nothing. Also pins that no step is gated on a push
+          # event: the six sub-package publishers each carried a "Require a GitHub Release"
+          # step under `if: github.event_name == 'push'` that could NEVER run, dead code
+          # shaped like a guard. Discovery is a glob, so a new publisher cannot dodge it.
+          python3 -m unittest -v tests/test_publish_release_only_trigger.py
           # tests/test_memory_budget_check.py: the gate for util/memory_budget_check.py
           # (P2 of the shared-session-memory plan). util/ is outside every pre-commit
           # Python hook's scope, so this suite IS the gate -- the same gap that left
@@ -897,7 +907,10 @@ jobs:
           python3 util/release_train/archive_guard.py --base FETCH_HEAD --head HEAD --trailers-file archive-guard-trailers.txt
 
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
-  # Memory Budget (ADVISORY, standalone): P2 of the shared-session-memory plan
+  # Memory Budget (BLOCKING size check + advisory relocation check, standalone): P2/P4 of the
+  # shared-session-memory plan. This banner read "ADVISORY" until 2026-08-24, contradicting the
+  # STATUS block ~12 lines down that has recorded the P4 promotion since 2026-08-20 -- a reader
+  # who stopped at the heading got the opposite of the truth.
   # (notes/JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md).
   #
   # AGENTS.md grew ~20x in six months WHILE UNDER four active CI gates -- every one of them enforces

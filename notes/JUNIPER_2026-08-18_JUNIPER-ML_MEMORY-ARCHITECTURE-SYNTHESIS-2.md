@@ -540,6 +540,25 @@ FAILs a bare trailer with no `— <reason>` suffix, and the reason **must contai
 the cheapest green path routes *through* the capture mechanism rather than around it (AV-W3's fix,
 converting a hole into a funnel). Waivers are metered to the daily alarm.
 
+> **CORRECTION 2026-08-24 — the paragraph above describes an INTENT that was never built, and
+> stated the checker's behaviour as the exact inverse of the truth.** `util/memory_budget_check.py`
+> accepted **only** the bare `<path>` form; the `— <reason>` form this document mandates parsed as
+> nothing at all, and was discarded **without a diagnostic**. An author following this page wrote a
+> waiver that did nothing and stayed red with the trailer sitting in their commit message. No commit
+> on `main` has ever carried either trailer at line start, so the divergence was never exercised and
+> never noticed.
+>
+> **Actual behaviour as of 2026-08-24:** both forms are accepted — bare `<path>`, and
+> `<path> <sep> <reason>` where `<sep>` is `-`, `–` or `—`. Anything that claims to be one of the
+> two trailers and fails to parse is now **reported** as a `::warning::` rather than dropped, which
+> is what [`docs/REFERENCE.md`](../docs/REFERENCE.md) already promised ("Waivers are always
+> reported, never silent") and the code did not deliver.
+>
+> **Still NOT implemented:** requiring a reason, and requiring that reason to contain an inbox path.
+> The funnel argument stands on its own merits and is a live option — but it is a deliberate
+> tightening of a blocking gate, to be decided and shipped as such, not smuggled in while repairing
+> a parse bug. Until then, treat this paragraph as a proposal, not a description.
+
 **CI:** additive. Clean, no trailer.
 **Verification:** the new test modules; `tests/test_memory_budget_workflow.py` (modelled on
 `tests/test_archive_guard_workflow.py`) asserting the job is absent from the Quality Gate `needs:`

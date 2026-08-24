@@ -1,0 +1,11 @@
+[Unit]
+Description=Record and announce a Duplicati backup failure
+Documentation=file:///home/pcalnon/Development/python/Juniper/juniper-ml/util/duplicati_backup_failure.bash
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/duplicati-backup-failure.bash duplicati-backup.service
+
+# Deliberately NOT chained to another OnFailure=. If the reporter itself fails
+# there is nothing useful left to escalate to, and a loop of failing reporters
+# would bury the original failure.

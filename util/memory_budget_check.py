@@ -66,13 +66,37 @@ import subprocess
 import sys
 from pathlib import Path
 
-WAIVER_RE = re.compile(r"^Allow-Budget-Overrun:\s*(?P<path>\S+)\s*$", re.MULTILINE)
+# BOTH forms are accepted: a bare `<path>`, and `<path> — <reason>` with an em/en
+# dash or hyphen separator.
+#
+# They diverged and it cost nothing to notice, because nothing ever hit it. The
+# checker accepted ONLY the bare form while the design of record
+# (notes/JUNIPER_2026-08-18_JUNIPER-ML_MEMORY-ARCHITECTURE-SYNTHESIS-2.md) mandated
+# `<path> — <reason>` and stated the checker FAILS a bare one -- the exact inverse of
+# the behaviour. An author following the docs would write a trailer that parsed as
+# nothing, get no diagnostic, and stay red with the waiver sitting right there in the
+# commit message. Verified 2026-08-24: NO commit on main has ever carried either
+# trailer at line start, so there was no de-facto form to preserve and widening breaks
+# nothing.
+#
+# Whether to go further and REQUIRE a reason containing an inbox path (the design's
+# "convert a hole into a funnel") is a deliberate, separate decision -- not something
+# to ship by accident while repairing a parse bug.
+_WAIVER_TAIL = r"\s*(?:[-–—]\s*\S.*)?$"
+WAIVER_RE = re.compile(r"^Allow-Budget-Overrun:\s*(?P<path>\S+)" + _WAIVER_TAIL, re.MULTILINE)
 
 # A SECOND, deliberately separate waiver. Raising a ceiling and overrunning one
 # are different acts: an overrun BORROWS against a ceiling that still stands,
 # while a raise MOVES the ceiling and erases the debt for everyone. They must
 # not share a trailer, or the cheaper one silently authorises the dearer.
-CEILING_RAISE_RE = re.compile(r"^Allow-Ceiling-Raise:\s*(?P<path>\S+)\s*$", re.MULTILINE)
+CEILING_RAISE_RE = re.compile(r"^Allow-Ceiling-Raise:\s*(?P<path>\S+)" + _WAIVER_TAIL, re.MULTILINE)
+
+# Anything CLAIMING to be one of the two trailers, however malformed. The gap between
+# this and the strict patterns above is exactly the set of lines a human wrote as a
+# waiver and the checker threw away. Silence there is what made the divergence above
+# survive: the trailer is IN the commit message, so the author has no reason to doubt
+# it. Every unparsed claim is now reported.
+CLAIMED_WAIVER_RE = re.compile(r"^(?P<kind>Allow-Budget-Overrun|Allow-Ceiling-Raise):.*$", re.MULTILINE)
 
 
 class BudgetError(RuntimeError):
@@ -117,6 +141,20 @@ def read_waivers(trailers: str) -> set[str]:
 
 def read_ceiling_raise_waivers(trailers: str) -> set[str]:
     return {m.group("path") for m in CEILING_RAISE_RE.finditer(trailers or "")}
+
+
+def unparsed_waiver_claims(trailers: str) -> list[str]:
+    """Lines that claim to be a waiver trailer but parse as none.
+
+    A waiver's entire payload IS the commit message, so an author who wrote one has
+    every reason to believe it took effect. Dropping it without a word is how the
+    checker and its own design doc stayed contradictory for as long as they did.
+    Returns the offending lines verbatim so the caller can name them.
+    """
+    text = trailers or ""
+    parsed = {m.group(0).strip() for m in WAIVER_RE.finditer(text)}
+    parsed |= {m.group(0).strip() for m in CEILING_RAISE_RE.finditer(text)}
+    return [m.group(0).strip() for m in CLAIMED_WAIVER_RE.finditer(text) if m.group(0).strip() not in parsed]
 
 
 def base_ceilings(repo_root: Path, budget_rel: str, base_ref: str) -> dict[str, int] | None:
@@ -231,6 +269,17 @@ def main() -> int:
     try:
         budget = load_budget(budget_path)
         trailers = args.trailers_file.read_text(encoding="utf-8") if args.trailers_file else ""
+        # Report any line that claims to be a waiver and is not one, BEFORE evaluating.
+        # A dropped waiver otherwise presents as an unexplained red with the trailer
+        # visible in the commit message -- the failure mode that let this checker and
+        # its design doc contradict each other unnoticed.
+        for claim in unparsed_waiver_claims(trailers):
+            print(
+                f"::warning::malformed waiver trailer IGNORED: {claim!r} -- expected "
+                "'Allow-Budget-Overrun: <path>' or 'Allow-Budget-Overrun: <path> - <reason>' "
+                "(one path per line)",
+                file=sys.stderr,
+            )
         waivers = read_waivers(trailers)
         try:
             budget_rel = budget_path.resolve().relative_to(repo_root).as_posix()

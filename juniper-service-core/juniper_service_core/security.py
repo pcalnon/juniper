@@ -100,8 +100,19 @@ class APIKeyAuth:
 class RateLimiter:
     """In-memory fixed-window rate limiter.
 
-    Tracks request counts per key within fixed time windows. Thread-safe
-    implementation suitable for single-process deployments.
+    Tracks request counts per key within fixed time windows.
+
+    Fixed-window, in-memory, and thread-safe: suitable for single-process deployments.
+    Behind multiple replicas each process keeps its own counters, so the effective budget
+    multiplies by the replica count; a shared store is required for exact enforcement
+    across a fleet (APD-SVCCORE-007).
+
+    That scope is a deliberate constraint rather than an oversight -- the same one
+    :class:`FailedAuthThrottle` carries in this module -- but it was previously stated
+    here as "suitable for single-process deployments" without saying what happens
+    otherwise, and not at all on :func:`build_rate_limiter`, which is what a consuming
+    service actually calls. A reader who never opens this class had no way to learn the
+    limit applies per process.
     """
 
     # BUG-CC-13: bounded periodic cleanup to prevent unbounded counter growth.
@@ -293,6 +304,13 @@ def build_rate_limiter(
 
     Pure factory: no global settings read, no module-level singleton. The
     owning service passes its own configured limits.
+
+    **The limit is per process** (APD-SVCCORE-007). Behind multiple replicas or multiple
+    workers each process keeps its own counters, so a service configured for 60 requests
+    per minute across 4 replicas admits up to 240. Deliberate -- exact fleet-wide
+    enforcement needs a shared store this package does not provide -- but it has to be
+    budgeted for when choosing ``requests_per_minute``, which is why it is stated on the
+    factory rather than only on the class.
 
     Args:
         requests_per_minute: Maximum requests allowed per window.
