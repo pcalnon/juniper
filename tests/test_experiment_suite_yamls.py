@@ -525,9 +525,17 @@ class TimeoutOrderingContractTest(unittest.TestCase):
         inert-stall-window check is advisory: there the run itself stays valid.
 
         Survey of 2026-08-20 (``util/ad-hoc/2026-08-20_wall_ordering_survey.py``, full
-        ecosystem checked out): 3 inverted, 6 equal, 14 correct. The four cascor offenders are
-        fixed in the PR that added this gate; the five recurrence ones are deliberately out of
-        scope per the module docstring.
+        ecosystem checked out): 3 inverted, 6 equal, 14 correct — 23 suites. The four cascor
+        offenders were fixed in the PR that added this gate; the five recurrence ones are
+        deliberately out of scope per the module docstring.
+
+        Re-surveyed 2026-08-24, 25 suites: 1 inverted, 4 equal, 20 correct. Every one of the
+        five remaining offenders is recurrence — the four cascor rows stayed fixed. Both lines
+        are dated SNAPSHOTS and go stale as suites land; re-run the survey rather than trusting
+        this paragraph. The survey and ``_suite_files()`` both scan ``util/experiments/suites/``
+        only, so an ``app: cascor`` suite living under ``util/ad-hoc/`` is invisible to both —
+        see the survey's own AD-HOC section, added 2026-08-24 after one such suite was found
+        inverted.
         """
         default_timeout = _run_suite_default_timeout()
         checked = 0
@@ -542,7 +550,10 @@ class TimeoutOrderingContractTest(unittest.TestCase):
             if not budgets:
                 # Every cell's base config is a sibling repo this checkout cannot read, so the
                 # budget is unknowable. Declining is the honest outcome — the same call
-                # _inherited_wall_budgets made, and the reason CI judges 7 suites of 23.
+                # _inherited_wall_budgets made, and the reason CI judges only a subset. Counted
+                # 2026-08-24: 25 suites scanned, 16 of them cascor, 8 of those with a readable
+                # base_config — so CI judges 8. A dated SNAPSHOT; the assertion below is what
+                # enforces the contract, never this number.
                 undecidable.append(f"{path.name} (unreadable base_config: {', '.join(unresolved)})")
                 continue
             checked += 1

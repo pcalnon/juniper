@@ -20,7 +20,23 @@ suite:
   app: cascor
   base_config: [/home/pcalnon/Development/python/Juniper/juniper-cascor/conf/experiments/spiral-baseline.yaml]
   seed_policy: fixed
-execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1800}
+# WALL ORDERING (fixed 2026-08-24). This suite read
+# `per_run_timeout_seconds: 1800` against spiral-baseline's inherited
+# `outputs.max_wall_seconds: 3600` -- INVERTED. run_suite's subprocess kill would have fired
+# first (run_suite.py:354, returning before the manifest read at :355), recording the cell
+# `timed_out` with `exit_code: null` and NO manifest: the evidence destroyed, not degraded.
+#
+# The author's intended ceiling was 1800. That number is preserved -- it is simply moved onto
+# the mechanism that writes a manifest. execution.max_wall_seconds WINS outright over the base
+# config's 3600 (run_experiment.py:1384/:1883), so the DRIVER now stops every cell at 1800 and
+# per_run_timeout_seconds is only the outer backstop, strictly above it.
+#
+# This file is invisible to BOTH the T1 gate
+# (tests/test_experiment_suite_yamls.py::TimeoutOrderingContractTest) and the survey's main
+# table: each scans `util/experiments/suites/` only. The survey gained an AD-HOC section on
+# 2026-08-24 so this class is at least reported; the gate is deliberately unchanged, because
+# hard-failing CI on scratch files would make `util/ad-hoc/` un-scratch.
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 2700, max_wall_seconds: 1800}
 matrix:
   training.params.correlation_threshold: [0.2, 0.05, 0.01]
 include:
