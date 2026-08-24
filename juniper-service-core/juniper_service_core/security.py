@@ -11,6 +11,7 @@ settings -- there are no module-level singletons and no global settings read.
 
 import hmac
 import logging
+import math
 import time
 from collections import defaultdict
 from threading import Lock
@@ -174,6 +175,28 @@ class RateLimiter:
         client_ip = request.client.host if request.client else "unknown"
         return f"ip:{client_ip}"
 
+    def _seconds_until_reset(self, now: float, window_start: float) -> int:
+        """Whole seconds until the window rolls over — rounded UP, never below 1.
+
+        APD-SVCCORE-004. This was ``int(...)``, which truncates toward zero, so any
+        sub-second remainder became ``0`` and the 429 went out with ``Retry-After: 0`` --
+        an instruction to retry *immediately*, into a limiter guaranteed to reject again.
+        A client obeying the header therefore spins as fast as it can issue requests, and
+        does so for the whole tail of every window. Measured before the fix on a 1-second
+        window: ``Retry-After: 0`` at 0.30s, 0.60s, 0.90s and 0.99s in -- every rejection,
+        not an edge case. With the 60-second default it is the final second of each window,
+        which is where a burst that just tripped the limit tends to land.
+
+        Rounding up is the only safe direction for this header: waiting a fraction of a
+        second too long costs the caller nothing, while waking a fraction too early
+        reproduces the defect. The floor of 1 covers the exact-boundary case, where
+        ``ceil`` legitimately returns 0.
+
+        Applied to the allowed path too, which feeds ``X-RateLimit-Reset``: the two
+        headers describe the same instant and should not disagree by a second.
+        """
+        return max(1, math.ceil(self._window - (now - window_start)))
+
     def check(self, key: str) -> tuple[bool, int, int]:
         """Check if a request is allowed under rate limit.
 
@@ -202,11 +225,10 @@ class RateLimiter:
                 return (True, self._limit - 1, self._window)
 
             if count >= self._limit:
-                reset_in = int(self._window - (now - window_start))
-                return (False, 0, reset_in)
+                return (False, 0, self._seconds_until_reset(now, window_start))
 
             self._counters[key] = (count + 1, window_start)
-            return (True, self._limit - count - 1, int(self._window - (now - window_start)))
+            return (True, self._limit - count - 1, self._seconds_until_reset(now, window_start))
 
     async def __call__(self, request: Request, api_key: str | None = None) -> None:
         """FastAPI dependency for rate limit checking.
