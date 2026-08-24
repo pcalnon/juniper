@@ -29,10 +29,12 @@ import logging
 import os
 import re
 import tomllib
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from importlib import metadata
 from pathlib import Path
 from typing import NamedTuple
+
+from juniper_service_core.exceptions import JuniperServiceCoreError
 
 try:  # ``packaging`` is near-universal (pip depends on it) but not a hard dep here.
     from packaging.version import InvalidVersion, Version
@@ -54,8 +56,36 @@ _TRUTHY = {"1", "true", "yes", "on"}
 _FLOOR_RE = re.compile(r"^\s*([A-Za-z0-9._-]+)\s*\(?[^)]*?>=\s*([0-9]+(?:\.[0-9]+)*)")
 
 
-class DependencyFloorError(RuntimeError):
-    """Raised when an installed ``juniper-*`` distribution is below its declared floor."""
+class DependencyFloorError(JuniperServiceCoreError, RuntimeError):
+    """Raised when an installed ``juniper-*`` distribution is below its declared floor.
+
+    Carries the structured violations alongside the rendered message (APD-SVCCORE-014).
+    ``check_dependency_floors`` computes a ``list[FloorViolation]`` -- distribution, floor,
+    and installed version per row -- and :func:`enforce_dependency_floors` used to format
+    that into prose and throw the list away. A caller that wanted to do anything but print
+    the message, such as report which distribution to upgrade, had to parse the text back
+    apart. The message is unchanged; the structure is now simply also available.
+
+    Attributes:
+        violations: The unsatisfied floors, in the order reported. Empty when the error is
+            constructed without them, so existing single-argument call sites keep working.
+    """
+
+    def __init__(self, message: str = "", *, violations: Sequence[FloorViolation] = ()) -> None:
+        # ``violations`` is keyword-only and is NOT forwarded to ``super()``. Forwarding it
+        # would put it in ``args`` and turn ``str(exc)`` into a tuple repr, rewriting every
+        # boot-failure message an operator has ever seen.
+        #
+        # No ``__reduce__`` override is needed to keep it across pickle/copy, which is
+        # worth stating because the obvious assumption is the opposite: CPython's
+        # ``BaseException.__reduce__`` returns ``(cls, args, self.__dict__)`` whenever the
+        # instance dict is non-empty, so the attribute is restored automatically -- and
+        # ``args`` here is just the message, which this signature accepts positionally.
+        # Verified by ``test_context_survives_pickle_and_copy``, and by removing a draft
+        # override and watching that test keep passing.
+        super().__init__(message)
+        self.message = message
+        self.violations: tuple[FloorViolation, ...] = tuple(violations)
 
 
 class FloorViolation(NamedTuple):
@@ -214,6 +244,6 @@ def enforce_dependency_floors(
     if violations:
         message = f"Dependency floor check FAILED — installed juniper-* wheel(s) are below this service's declared floor(s). Reinstall/upgrade the environment before starting (or set {skip_env_var}=1 to bypass, at your own risk):\n" + _format_violations(violations)
         log.error(message)
-        raise DependencyFloorError(message)
+        raise DependencyFloorError(message, violations=violations)
 
     log.info("Dependency floor check passed (%d %s* floor(s) satisfied).", len(resolved), prefix)

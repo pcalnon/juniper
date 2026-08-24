@@ -40,6 +40,8 @@ import logging
 import os
 from collections.abc import Collection
 
+from juniper_service_core.exceptions import JuniperServiceCoreError
+
 _LOG = logging.getLogger("juniper_service_core.auth_posture")
 
 #: Default escape-hatch environment variable; set truthy to bypass the check.
@@ -48,7 +50,7 @@ DEFAULT_SKIP_ENV_VAR = "JUNIPER_SKIP_AUTH_POSTURE_CHECK"
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
-class AuthPostureError(RuntimeError):
+class AuthPostureError(JuniperServiceCoreError, RuntimeError):
     """Raised when a service requires API-key auth but no real key is configured."""
 
 

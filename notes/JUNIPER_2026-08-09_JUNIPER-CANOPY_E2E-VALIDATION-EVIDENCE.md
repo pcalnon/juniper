@@ -359,6 +359,73 @@ demonstrates. Raising the cap is not an option — it is a literal `12` in the r
 well below 83.6 % and `prioritized` stops backing up. `e2e_f027_setprops_probe.py` remains the ~1-minute
 yes/no on a single panel, but note it answers "did this panel win a slot", not "is the wiring restored".
 
+**STAGE 1 + 3 SHIPPED (2026-08-23) — the three panels are ALIVE; the pool is better but still contended.**
+Design of record: [`JUNIPER_2026-08-23_JUNIPER-CANOPY_CALLBACK-STARVATION-REMEDIATION-DESIGN.md`](JUNIPER_2026-08-23_JUNIPER-CANOPY_CALLBACK-STARVATION-REMEDIATION-DESIGN.md).
+Shipped as juniper-canopy#507 (gating) and #508 (completion + budget guard).
+
+**Behavioural close, verified on all three panels.** A/B injection through each component's own
+Dash-supplied `setProps`, the same probe that measured **0** consumer dispatches across 220 before:
+
+| panel | consumer dispatches | DOM |
+|---|---|---|
+| Candidate Metrics | 0 → **2** each | `''` → `Inactive` / `No active candidate pool` |
+| Dataset View | **3 / 3 / 4** | changed ✓ |
+| Decision Boundary | **3 / 3** | `No network loaded` → `Displaying decision boundary` |
+
+The `''` → `Inactive` transition is the tell: the panel had been showing the *static layout default*
+because `update_status_display` had never executed once, not even at mount.
+
+**Pool measurements** (`e2e_f027_slots.py`, 60 s, Candidates tab):
+
+| metric | baseline | after #507 | after #508 | design §7.1 target |
+|---|---|---|---|---|
+| pool full (`available == 0`) | 83.6 % | 63.6 % | **61.4 %** | < 20 % — **NOT met** |
+| `prioritized` backlog, max | 36 | 37 | **23** | < 12 — **NOT met** |
+| completions / 60 s | 224 | 499 | 449 | > 500 — met at #507 |
+
+Worst-case concurrent perpetual pollers, censused from the built app: **14 → 12** against a cap of 12.
+
+**What shipped.** Four `disabled=True` per-tab `dcc.Interval` lanes outside `visualization-tabs` (so the
+A1-iii-b1 children rebuild cannot reset them); the CAN-000 apply clamp and the new tab gate **fused into
+one clientside callback** (Dash permits one un-duplicated writer per prop); five panel-owned intervals
+gated in place; a dead poller removed (`fetch_network_stats` wrote a store with no consumer anywhere in
+`src/` — tracked as F-CANOPY-034); a redundant tab-bar rebuild suppressed (`hydrate_model_class` no longer
+rewrites the store with an identical value); and a **poller-budget guard** in canopy's suite that fails if
+worst-case concurrency exceeds 12 or if a panel-scoped poller rides an ungateable shared lane.
+
+**A SECOND MECHANISM, found during implementation — this is what Stage 2 must address.** Interval gating
+silences interval-driven pollers and nothing else. Panel work chained off a **global store** re-runs on
+every tab regardless: `update_snapshots_table` takes `Input("dataset-swap-events-store", "data")`, which
+`poll_dataset_swap_events` rewrites every 5 s, so the snapshots panel re-renders on every tab no matter
+what its own interval does. Network Editor and Replay show the same shape. The cheap lever is the one
+already applied to `hydrate_model_class` — **do not rewrite a store with identical content**, because an
+unchanged write still fires every downstream consumer — but applying it across the ~10 remaining global
+pollers is Stage 2.
+
+**Also learned: the AST census under-reports.** `canopy_poller_inventory.py` resolves 151 of the app's 182
+callbacks (pattern-matching and clientside registrations are invisible to a static pass), and it missed two
+real panel-scoped pollers — `network-editor-panel-fsm-poll` (2 s, every tab) and `update_network_graph`
+(the 8-output topology renderer, forced at 1 Hz from every tab). Censusing `app._callback_list` on the
+**built** app finds them. Use the built-app census for anything load-bearing; the AST pass is for a quick
+read only.
+
+**Not closed.** F-CANOPY-027's symptom is closed on all three panels and F-CANOPY-004's lag is materially
+improved (2.2× throughput), but neither should be marked `fixed` until Stage 2 brings saturation down and
+the matrix rows are re-driven against a live training run.
+
+**F-CANOPY-034 — `metrics-panel-network-stats-store` is now written by nothing and read by nothing (P2, OPEN; found while fixing F-CANOPY-027).**
+The store was fed by a `fetch_network_stats` poller that GET `/api/network/stats` every 5 s — and **no callback
+anywhere in `src/` took it as an `Input` or a `State`** (verified repo-wide; the only other reference was its own
+`dcc.Store` declaration). Under dash-renderer's 12-slot cap that was a permanently-occupied slot bought for
+nothing, so juniper-canopy#507 removed the poller. The `dcc.Store` was deliberately RETAINED there: it is inert,
+it is pinned by the layout regression snapshot `src/tests/regression/snapshots/metrics_panel.txt`, and dropping
+it in the same PR would have mixed a snapshot rewrite into a load fix. Remaining work is small and purely
+tidying: delete `dcc.Store(id=f"{self.component_id}-network-stats-store")` (`metrics_panel.py:538`), regenerate
+that snapshot, and decide whether `_fetch_network_stats_handler` (`metrics_panel.py:1182`, still covered by five
+unit tests in `tests/unit/frontend/test_metrics_panel_handlers.py`) should go with it. A tripwire already exists:
+`tests/unit/frontend/test_poll_gating.py::TestDeadPollerRemoved::test_network_stats_store_still_has_no_consumer`
+fails if anyone wires a consumer without restoring a writer.
+
 **F-CANOPY-033 — `RESET_COMPONENT_STATE` storms one panel at ~13/s (P2, OPEN; found while tracing F-CANOPY-027).**
 Redux tracing recorded **1157 `RESET_COMPONENT_STATE` dispatches in 90 s** — roughly 13 per second, out of
 6251 total actions — and every sampled payload carries an `itempath` under `…/props/children/12/…`, the

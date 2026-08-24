@@ -35,6 +35,11 @@ from typing import TYPE_CHECKING
 
 from juniper_service_core._version import __version__
 
+# APD-SVCCORE-006: eager, like ``__version__``. Both are dependency-free, and a
+# consumer must be able to write ``except JuniperServiceCoreError`` without the
+# lazy machinery importing fastapi/pydantic-settings to resolve the name.
+from juniper_service_core.exceptions import JuniperServiceCoreError
+
 if TYPE_CHECKING:
     # Static-analysis-only imports. ``TYPE_CHECKING`` is False at run time, so these never
     # execute -- the dependency-free top-level import is preserved and the PEP 562
@@ -113,6 +118,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "__version__",
+    "JuniperServiceCoreError",
     "create_app",
     "SettingsBase",
     # Dependency-floor boot self-check (lazy, from .dependency_floors -- stdlib-only)
@@ -288,4 +294,14 @@ def __getattr__(name: str):
 
 
 def __dir__() -> list[str]:
-    return sorted(__all__)
+    """The lazy public surface **plus** what the module actually has (APD-SVCCORE-017).
+
+    Defining ``__dir__`` replaces the default entirely rather than extending it, so
+    returning ``__all__`` alone made ``dir()`` a strictly *smaller* view than the module:
+    ``__name__``, ``__file__``, ``__doc__``, ``__path__`` and every eagerly bound name all
+    disappeared. That is the opposite of what a ``__dir__`` on a PEP 562 module is for --
+    it exists to *add* the lazily resolvable names, which ``globals()`` cannot know about,
+    not to hide the ones already there. REPL completion and ``inspect``-style tooling both
+    read this.
+    """
+    return sorted(set(__all__) | set(globals()))

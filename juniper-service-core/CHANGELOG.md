@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A guard on the three parallel declarations of the public surface** (`APD-SVCCORE-009`).
+  `__all__`, the `_LAZY_EXPORTS` name→module map, and the `TYPE_CHECKING` import block are
+  maintained by hand and nothing checked that they agree. They did agree, which is exactly when
+  the guard is worth adding: the failure mode is a name exported but unresolvable
+  (`AttributeError` for a consumer) or resolvable but invisible to type checkers, and neither
+  surfaces until someone hits it. The lists are read from source with `ast`, because
+  `TYPE_CHECKING` is `False` at run time and its block is one of the three things under test.
+  A behavioural arm additionally resolves every exported name, which is what catches a typo'd
+  module path in the lazy map — that passes every list comparison.
+
+- **`JuniperServiceCoreError`** — a package base exception, exported eagerly from the package
+  root (defect register `APD-SVCCORE-006`). Before it, the exceptions this package raises had
+  nothing in common: three subclassed `RuntimeError` and two `KeyError`, so catching "anything
+  juniper-service-core raises" meant naming them all, and the nearest category — `except
+  RuntimeError` — also swallowed unrelated runtime failures that should propagate.
+  **Additive**: each exception now derives from the base *in addition to* its original base, never
+  instead of it, so an existing `except RuntimeError` / `except KeyError` handler is unaffected.
+  `SnapshotNotFoundError` in particular is raised where a mapping lookup would be, and callers
+  legitimately treat it as a `KeyError`.
+  Exported eagerly alongside `__version__` because a consumer must be able to write `except
+  JuniperServiceCoreError` without the lazy PEP 562 machinery importing fastapi /
+  pydantic-settings to resolve the name; `exceptions.py` is dependency-free, and the blocked-import
+  smoke test now covers that.
+  **One deliberate exclusion**: `UnknownTunableError` keeps `KeyError` alone. `websocket/tunables.py`
+  is pinned stdlib-only and standalone by two tests, one of which loads it *by file path bypassing
+  the package `__init__`* — importing the package base there would erase that property, to add a
+  base to the one exception in the package with no production consumer. The exclusion is asserted,
+  so it stays a decision rather than an oversight.
+
+- **`DependencyFloorError.violations`** — the structured `tuple[FloorViolation, ...]` behind the
+  message (`APD-SVCCORE-014`). `check_dependency_floors` computes distribution / floor / installed
+  per row and `enforce_dependency_floors` used to render that into prose and discard it, leaving a
+  caller to parse the text back apart to learn which distribution to upgrade. The message is
+  byte-identical; the structure is simply also available, and single-argument construction still
+  works.
+
 - **`FailedAuthThrottle` + `build_failed_auth_throttle(...)`** — an IP-keyed, fixed-window throttle
   for *failed* authentication attempts, checked before authentication and consuming budget only on
   a 401. `SecurityMiddleware` gains an optional `failed_auth_throttle=` argument and **enables one
@@ -26,6 +62,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multiplies by the replica count, and exact fleet-wide enforcement needs a shared store.
 
 ### Fixed
+
+- **`Retry-After` no longer tells a rate-limited caller to retry immediately**
+  (`APD-SVCCORE-004`). `reset_in` was `int(window - elapsed)`, which truncates toward zero, so any
+  sub-second remainder became `0`. A client obeying the header retried at once into a limiter
+  guaranteed to reject it again, and kept doing so for the tail of every window. Measured on a
+  1-second window before the fix: `Retry-After: 0` at 0.30s, 0.60s, 0.90s and 0.99s in — every
+  rejection, not an edge case. Now rounded **up** with a floor of 1: waiting a fraction too long
+  costs the caller nothing, waking a fraction early reproduces the defect. Applied to the allowed
+  path too, which feeds `X-RateLimit-Reset` — the two headers describe the same instant and were
+  free to disagree by a second.
+
+- **`dir(juniper_service_core)` no longer hides the module's own attributes**
+  (`APD-SVCCORE-017`). Defining `__dir__` *replaces* the default rather than extending it, so
+  returning `sorted(__all__)` made `dir()` a strictly smaller view than the module: `__name__`,
+  `__file__`, `__doc__`, `__path__` and every eagerly bound name disappeared. A `__dir__` on a
+  PEP 562 module exists to *add* the lazily resolvable names that `globals()` cannot know about,
+  not to hide the ones already there. REPL completion and `inspect`-style tooling both read it.
 
 - **WebSocket heartbeat timeouts no longer close with the reserved code 1006.** Both
   `websocket/control_stream.py` and `websocket/training_stream.py` closed a pong-timeout
