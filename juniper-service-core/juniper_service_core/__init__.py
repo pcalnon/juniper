@@ -294,4 +294,14 @@ def __getattr__(name: str):
 
 
 def __dir__() -> list[str]:
-    return sorted(__all__)
+    """The lazy public surface **plus** what the module actually has (APD-SVCCORE-017).
+
+    Defining ``__dir__`` replaces the default entirely rather than extending it, so
+    returning ``__all__`` alone made ``dir()`` a strictly *smaller* view than the module:
+    ``__name__``, ``__file__``, ``__doc__``, ``__path__`` and every eagerly bound name all
+    disappeared. That is the opposite of what a ``__dir__`` on a PEP 562 module is for --
+    it exists to *add* the lazily resolvable names, which ``globals()`` cannot know about,
+    not to hide the ones already there. REPL completion and ``inspect``-style tooling both
+    read this.
+    """
+    return sorted(set(__all__) | set(globals()))

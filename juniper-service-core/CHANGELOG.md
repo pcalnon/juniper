@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A guard on the three parallel declarations of the public surface** (`APD-SVCCORE-009`).
+  `__all__`, the `_LAZY_EXPORTS` name→module map, and the `TYPE_CHECKING` import block are
+  maintained by hand and nothing checked that they agree. They did agree, which is exactly when
+  the guard is worth adding: the failure mode is a name exported but unresolvable
+  (`AttributeError` for a consumer) or resolvable but invisible to type checkers, and neither
+  surfaces until someone hits it. The lists are read from source with `ast`, because
+  `TYPE_CHECKING` is `False` at run time and its block is one of the three things under test.
+  A behavioural arm additionally resolves every exported name, which is what catches a typo'd
+  module path in the lazy map — that passes every list comparison.
+
 - **`JuniperServiceCoreError`** — a package base exception, exported eagerly from the package
   root (defect register `APD-SVCCORE-006`). Before it, the exceptions this package raises had
   nothing in common: three subclassed `RuntimeError` and two `KeyError`, so catching "anything
@@ -52,6 +62,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multiplies by the replica count, and exact fleet-wide enforcement needs a shared store.
 
 ### Fixed
+
+- **`dir(juniper_service_core)` no longer hides the module's own attributes**
+  (`APD-SVCCORE-017`). Defining `__dir__` *replaces* the default rather than extending it, so
+  returning `sorted(__all__)` made `dir()` a strictly smaller view than the module: `__name__`,
+  `__file__`, `__doc__`, `__path__` and every eagerly bound name disappeared. A `__dir__` on a
+  PEP 562 module exists to *add* the lazily resolvable names that `globals()` cannot know about,
+  not to hide the ones already there. REPL completion and `inspect`-style tooling both read it.
 
 - **WebSocket heartbeat timeouts no longer close with the reserved code 1006.** Both
   `websocket/control_stream.py` and `websocket/training_stream.py` closed a pong-timeout
