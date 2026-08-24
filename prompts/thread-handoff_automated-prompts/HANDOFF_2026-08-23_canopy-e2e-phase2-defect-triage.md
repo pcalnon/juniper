@@ -53,13 +53,13 @@ Plan §6.3's exit is *"every P0 and P1 closed or explicitly deferred with owner 
 FAIL without a linked issue."* That is **16 findings**, not 28 — the 9 open P2s, 2 LEDGER entries and 1
 untriaged do **not** gate the phase:
 
-| pri     | n  | ids                                                                                                |
-|---------|---:|----------------------------------------------------------------------------------------------------|
-| P0      |  3 | F-CANOPY-002, F-CANOPY-005, F-CANOPY-006                                                            |
-| P0/P1   |  3 | F-CANOPY-004, F-CANOPY-008, **F-CANOPY-027**                                                        |
-| P1      | 10 | F-CANOPY-003, -007, -009, -010, -011, -014, -025, -031, F-CASCOR-001, F-ML-001                       |
-| *(P2)*  |  9 | F-CANOPY-001, -012, -015, -018, -026, -028, -032, -033, F-CASCOR-002 — **not** a Phase 2 gate        |
-| *(other)* | 3 | F-E2E-004, F-E2E-005 (LEDGER); **F-CANOPY-013 has no priority tag — triage it first, it is cheap**  |
+| pri       |  n | ids                                                                                                |
+|-----------|---:|----------------------------------------------------------------------------------------------------|
+| P0        |  3 | F-CANOPY-002, F-CANOPY-005, F-CANOPY-006                                                           |
+| P0/P1     |  3 | F-CANOPY-004, F-CANOPY-008, **F-CANOPY-027**                                                       |
+| P1        | 10 | F-CANOPY-003, -007, -009, -010, -011, -014, -025, -031, F-CASCOR-001, F-ML-001                     |
+| *(P2)*    |  9 | F-CANOPY-001, -012, -015, -018, -026, -028, -032, -033, F-CASCOR-002 — **not** a Phase 2 gate      |
+| *(other)* |  3 | F-E2E-004, F-E2E-005 (LEDGER); **F-CANOPY-013 has no priority tag — triage it first, it is cheap** |
 
 Each fix PR must carry, per §6.3: **(a)** the fix, **(b)** a regression test that fails on the parent commit,
 **(c)** a matrix-row reference. After merge, re-drive the affected rows on a fresh stack and re-score.
@@ -100,9 +100,9 @@ single DOM state for 180 s.
 **The broken layer is identified.** An A/B injection settled it. Using each component's own Dash-supplied
 `setProps({data: …})`, with a redux control confirming the prop really changed:
 
-| store | prop written? | consumers |
-|---|---|---|
-| `metrics-panel-training-state-store` (working) | yes, verified | **all 3 FIRED** |
+| store                                                 | prop written? | consumers        |
+|-------------------------------------------------------|---------------|------------------|
+| `metrics-panel-training-state-store` (working)        | yes, verified | **all 3 FIRED**  |
 | `candidate-metrics-panel-training-state-store` (dead) | yes, verified | **all 3 SILENT** |
 
 So Dash's client does not treat the dead store as an **observable callback Input at runtime**, even though
@@ -127,13 +127,9 @@ hypothesis: "mounts later" is insufficient; *"is never the initially-active pane
 the wiring is restored — use it instead of a full driving pass:
 
 ```bash
-LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python \
-  util/ad-hoc/e2e_f027_setprops_probe.py --tab 'Candidate Metrics'
+LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_f027_setprops_probe.py --tab 'Candidate Metrics'
 # control (must show all three FIRED):
-LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python \
-  util/ad-hoc/e2e_f027_setprops_probe.py --tab 'Training Metrics' \
-    --store metrics-panel-training-state-store \
-    --consumers metrics-panel-progress-detail,metrics-panel-current-lr,metrics-panel-phase-duration
+LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_f027_setprops_probe.py --tab 'Training Metrics' --store metrics-panel-training-state-store --consumers metrics-panel-progress-detail,metrics-panel-current-lr,metrics-panel-phase-duration
 ```
 
 ## Rows that need re-driving regardless of any fix
@@ -163,8 +159,7 @@ LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python \
 
 ```bash
 cd /home/pcalnon/Development/python/Juniper/juniper-ml
-JUNIPER_E2E_PROJECT_DIR=/home/pcalnon/Development/python/Juniper \
-JUNIPER_E2E_RECURRENCE_PORT=8212 util/isolated_stack.bash --up    # data 8101 · cascor 8202 · canopy 8051
+JUNIPER_E2E_PROJECT_DIR=/home/pcalnon/Development/python/Juniper JUNIPER_E2E_RECURRENCE_PORT=8212 util/isolated_stack.bash --up    # data 8101 · cascor 8202 · canopy 8051
 # teardown uses the SAME overrides. No corpus backup, no restore.
 ```
 
@@ -279,17 +274,17 @@ generations — one was rewritten only after three validators failed its first d
 
 31 arc scripts under `util/ad-hoc/e2e_*.py`. The ones you will actually reach for:
 
-| tool                          | use                                                                             |
-|-------------------------------|---------------------------------------------------------------------------------|
-| `e2e_finding_triage.py`       | open/fixed + P0/P1/P2 counts straight from the ledger (`--open-only`)           |
+| tool                          | use                                                                                |
+|-------------------------------|------------------------------------------------------------------------------------|
+| `e2e_finding_triage.py`       | open/fixed + P0/P1/P2 counts straight from the ledger (`--open-only`)              |
 | `e2e_unfilled_rows.py`        | ledger-derived row coverage — authoritative; `e2e_row_coverage.py` is an estimator |
-| `e2e_matrix_rescore.py`       | re-score **named** rows after a fix, cell-count safe                            |
+| `e2e_matrix_rescore.py`       | re-score **named** rows after a fix, cell-count safe                               |
 | `e2e_matrix_fill.py`          | fill from run records (dry-run default; **do not** use `--overwrite` for rescores) |
-| `e2e_append_statuses.py`      | dup-guarded TSV verdict append                                                  |
-| `e2e_f027_setprops_probe.py`  | ~1-min yes/no wiring test — the F-CANOPY-027 iteration loop                     |
-| `e2e_f027_*` (17 more)        | the full F-CANOPY-027 forensic kit — registry, layout, paths, dispatch, redux   |
-| `e2e_seg16_dataset_driver.py` | §3.6 + singleton driver (`--step start,toolbar,selector,…`)                     |
-| `isolated_stack.bash`         | `--up` / `--down` / `--status` / `--dry-run`, **always with both env overrides** |
+| `e2e_append_statuses.py`      | dup-guarded TSV verdict append                                                     |
+| `e2e_f027_setprops_probe.py`  | ~1-min yes/no wiring test — the F-CANOPY-027 iteration loop                        |
+| `e2e_f027_*` (17 more)        | the full F-CANOPY-027 forensic kit — registry, layout, paths, dispatch, redux      |
+| `e2e_seg16_dataset_driver.py` | §3.6 + singleton driver (`--step start,toolbar,selector,…`)                        |
+| `isolated_stack.bash`         | `--up` / `--down` / `--status` / `--dry-run`, **always with both env overrides**   |
 
 Drive under `LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python` — the only env with playwright.
 Try the browser MCP first (`mcp__playwright__*`); it has been present in roughly half the segments and absent
