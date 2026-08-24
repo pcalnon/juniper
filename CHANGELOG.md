@@ -30,6 +30,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Widened the `recurrence` extra's `juniper-recurrence` ceiling to admit the released next minor:
+  `juniper-recurrence>=0.2.0,<0.5.0` (0.4.0 on PyPI). Supersedes dependabot #1323, which cannot
+  co-update the `tests/test_pyproject_extras.py` lint contract; the contract and the extras tables in
+  `AGENTS.md`, `README.md`, `docs/QUICK_START.md`, and `docs/REFERENCE.md` move in lockstep — the same
+  handling the v0.7.1 widening gave dependabot #900/#901. No other ceiling moves: recurrence 0.4.0's
+  own pins (`juniper-recurrence-model<0.3.0,>=0.1.5`, `juniper-service-core<0.6.0,>=0.5.0`,
+  `juniper-model-core[crossval]<0.4.0,>=0.2.0`, `juniper-data-client<0.5.0,>=0.4.2`) all resolve inside
+  what this package already declares, so `pip install juniper-ml[recurrence]` stays satisfiable.
+  `juniper-recurrence-client` stays at `<0.3.0` (no newer release).
 - `util/ad-hoc/2026-08-14_touchup_lane_probe.py` and `util/ad-hoc/2026-08-14_signing_arc_status.py`
   moved to `util/ad-hoc/retired/` with the `_RETIRED-2026-08-14` suffix (the #928 precedent), their
   purposes being complete: the touch-up fan-out landed in all 8 repos with the lane, and
