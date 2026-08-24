@@ -7,9 +7,10 @@
 **Version**: 0.7.1
 **Last Updated**: 2026-08-24
 
-**Status**: FINDINGS — measured, reproducible, and not yet applied to the shipped tool. No
-snapshot was written, moved, or deleted; the probes redirect
-`JUNIPER_CASCOR_SNAPSHOTS_DIR` so they cannot grow the archive they measure.
+**Status**: FINDINGS — measured, reproducible, and **applied**: the second floor of §5 now
+ships in `util/snapshot_attribute.py` (schema v2, `--no-cross-dataset-floor` to opt out). No
+snapshot was written, moved, or deleted; the probes redirect `JUNIPER_CASCOR_SNAPSHOTS_DIR` so
+they cannot grow the archive they measure.
 
 Closes the open item *"a capacity-matched null for attribution"* carried by the
 2026-08-23 handoff (§3 item 2). The headline is that the stated concern is real but
@@ -64,13 +65,16 @@ shape-compatible dataset.
 
 ### 2.1 Results
 
-| dataset | shipped | N1 capacity | N2 permutation | N3 cross-dataset |
-|---|---:|---:|---:|---:|
-| **xor** | 94 | 94 | 93 | **93** |
-| **circles** | 10 | 10 | 7 | **9** |
-| **spiral** | 20 | 19 | 9 | **4** |
-| **moon** | 5 | 3 | 4 | **0** |
-| **total** | **129** | **126** | **113** | **106** |
+| dataset | before | N1 capacity | N2 permutation | N3 cross-dataset | **as shipped** |
+|---|---:|---:|---:|---:|---:|
+| **xor** | 94 | 94 | 93 | 93 | **93** |
+| **circles** | 10 | 10 | 7 | 9 | **7** |
+| **spiral** | 20 | 19 | 9 | 4 | **4** |
+| **moon** | 5 | 3 | 4 | 0 | **0** |
+| **total** | **129** | **126** | **113** | **106** | **104** |
+
+The last two columns differ by 2, and the reason is a correction found while implementing —
+see §3.6. The **as shipped** column is the authoritative one.
 
 ---
 
@@ -168,7 +172,35 @@ floor that would kill the other three *is also* that unstable network. **The nul
 and the attribution-instability question are the same question for moon.** It cannot be settled
 from the null alone, and it is reported as undecidable rather than resolved in either direction.
 
-### 3.6 A circularity to keep in view
+### 3.6 ⚠ A snapshot must not help set the bar it is judged against
+
+Found while implementing, and it changes two verdicts. The N3 script above pooled every
+attributed snapshot into each dataset's reference class — **including the snapshot currently
+being judged**. That is not merely untidy; it is self-serving in a specific direction.
+
+The measured case is `5af596ef` at 3 hidden units, already familiar from §3.5. Its scores:
+
+```
+gaussian 1.000   moon 1.000   circles 0.880   xor 0.725   checkerboard 0.535   spiral 0.515
+```
+
+Its own perfect 1.000 was the **highest moon score in the reference class**, so it set moon's
+floor to 1.000 — which drove its *own* moon lift to exactly zero, removed moon as a runner-up,
+and left circles looking cleanly separated at +0.130. A snapshot scoring a **perfect 1.000 on
+moon** was thereby recorded as confidently *circles*.
+
+Excluding a snapshot from its own bar (falling back to the reference class's runner-up) fixes
+it: moon's floor drops to 0.875, its own moon lift becomes +0.125 against circles' +0.130, the
+separation collapses to 0.005, and the verdict becomes **ambiguous** — the honest answer.
+
+This is why the shipped total is 104 rather than N3's 106. Both rows recovered are cases where
+a snapshot had topped a rival's floor with its own score. The shipped `build_cross_dataset_floor`
+therefore keeps the runner-up alongside the maximum, and `cross_floor_excluding` applies it.
+
+Note this arrives at §3.5's conclusion from a completely different direction: the tool now flags
+`5af596ef` as ambiguous on its own, without anyone having to know it is the unstable network.
+
+### 3.7 A circularity to keep in view
 
 N3's reference class is built **from attributions**, so a wrong attribution contaminates it.
 This is bounded, not fatal — xor's floor is set by *circles*-attributed 2–3 unit networks
@@ -181,41 +213,62 @@ floor, not evidence against xor, and is recorded here so it is not mistaken for 
 
 ## 4. What the defensible attribution set now is
 
-| dataset | shipped | defensible | basis |
+**The tool outputs 104; this table says 100, and the gap is deliberate.** The four survivors
+are spiral's, and they are rejected here on the capacity argument of §3.4 — they sit at 8–13
+hidden units, which the tool's own positive control records as too small to learn spiral. That
+is knowledge about the *problem*, not about the score vector, and the tool has no way to encode
+it: a floor cannot know that spiral needs more capacity than moon. The four are reported rather
+than silently dropped, and a `--min-hidden` run is the honest way to exclude them.
+
+| dataset | before | defensible | basis |
 |---|---:|---:|---|
 | xor | 94 | **93** | complete distributional separation + a monotone learning curve |
-| circles | 10 | **8–9** | clears every null; loses only its weakest 1–3 members |
+| circles | 10 | **7** | clears every null; loses its weakest members and the two of §3.6 |
 | spiral | 20 | **0** | collapses under every strictening; survivors are below the learnability threshold |
-| moon | 5 | **undecidable** | 0 or 3 depending on one snapshot that is itself unstable |
-| **total** | **129** | **~101–102** | |
+| moon | 5 | **0**, and undecidable | see below |
+| **total** | **129** | **100** | |
 
 `gaussian` remains structurally unattributable (untrained floor 1.000), unchanged.
 
+**On moon's zero.** The shipped rule withdraws all five, but it does so on a floor set by a
+single contested snapshot (§3.5). That is the *conservative* outcome, not a settled one: with
+`5af596ef` removed from the reference class the other three clear a 0.875 floor comfortably.
+Read moon as **withdrawn pending §3 item 4**, not as refuted. The tool is right to refuse —
+refusing is what it does when the evidence will not carry a verdict.
+
 ---
 
-## 5. Recommendation — two floors, not a replacement
+## 5. Applied — two floors, not a replacement
 
-Do **not** swap the untrained null for the cross-dataset one. They answer different questions
-and a snapshot should have to clear **both**:
+Shipped in `util/snapshot_attribute.py`. The untrained null was **not** swapped out; a
+candidate must clear **both** floors, which is the same as clearing the stricter one:
 
-- **Floor A (keep, as shipped)** — the untrained null. *Did it learn anything at all?*
-- **Floor B (add)** — the cross-dataset empirical null. *Did it learn THIS rather than
-  something else?*
+- **Floor A** — the untrained null. *Did it learn anything at all?*
+- **Floor B** — the cross-dataset empirical null (`build_cross_dataset_floor`). *Did it learn
+  THIS rather than something else?*
 
-Floor B costs nothing to compute: it is a second pass over scores the tool already produces.
-Adding it is what withdraws spiral and quarantines moon while leaving xor and circles standing.
+Floor B costs nothing: it is a second pass over scores the first pass already produced, which
+is also why it *cannot* run until the first pass finishes — its reference class is the first
+pass's own attributions.
 
-Not done here, deliberately — this is a findings document, and the tool change wants its own
-change with its own regression tests (asserting the SPECIFIC verdict, and verified to fail
-against the current code first).
+- `--no-cross-dataset-floor` restores the single-floor behaviour, for comparison.
+- `SCHEMA_VERSION` is **2**. Rows carry a `floors` object (`untrained`, and `cross_dataset`
+  when it applies), and the `reason` names *which* floor bound. A v1 sidecar is still readable
+  but its verdicts are not comparable with v2's: a v1 attribution only ever cleared Floor A.
+- A snapshot is excluded from the bar it is judged against (§3.6).
+- No delete path was added; the AST read-only guard still passes.
 
-### 5.1 Also worth correcting when that change is made
+### 5.1 Corrected in the same change
 
-`adjudicate._floor`'s docstring cites *"327 snapshots attributed to checkerboard"* as the
-measured cost of a p95 floor. **checkerboard has 0 attributions in the current sidecar**, and
-the passage contradicts itself on whether those scores sat between p95 and max or above max.
-The direction it argues (max, not p95) is right and is retained throughout this document; the
-cited figures should not be quoted.
+`adjudicate`'s floor docstring and the module docstring both cited *"327 snapshots attributed
+to checkerboard"* as the measured cost of a p95 floor. **checkerboard has 0 attributions in the
+current sidecar**, and the passage contradicted itself on whether those scores sat between p95
+and max or above max. The mechanism it argues (max, not p95) is right, is retained, and is what
+the regression tests pin; the count is no longer quoted.
+
+The module's `KNOWN LIMITATION — THE NULL IS NOT CAPACITY-MATCHED` section, which named a
+capacity-matched null as "the rigorous fix", is replaced by §3.1's measurement showing that it
+is not.
 
 ---
 
@@ -241,4 +294,16 @@ python util/ad-hoc/2026-08-24_weight_permutation_null.py --null-size 120
 ```
 
 `--null-size 8 --limit-arch 3` (N1) or `--null-size 8 --limit 3` (N2) give a fast smoke.
-Expected totals at `--null-size 120`: **N1 126/129, N2 113/129, N3 106/129**.
+Expected totals at `--null-size 120`: **N1 126/129, N2 113/129, N3 106/129** — and **104** from
+the shipped two-floor path, which differs from N3 by the self-exclusion of §3.6.
+
+The shipped behaviour is pinned by regression tests rather than by a full re-run:
+
+```bash
+python3 -m unittest -v tests/test_snapshot_attribute.py    # 44 tests
+```
+
+`CrossDatasetFloorTest` and `CrossDatasetReferenceClassTest` are the two new classes. Each
+adjudicates the same score vector twice — once with `cross_floor=None`, which *is* the
+single-floor behaviour that shipped before — so removing the second floor makes the two arms
+agree and the tests fail.
