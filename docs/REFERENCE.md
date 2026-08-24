@@ -1013,6 +1013,21 @@ still sees it. That is the property the house `Allow-Symbol-Loss:` idiom lacks.
 Waivers are always reported, never silent. Carry the trailer into the **squash**
 commit message; trailers travel in git history.
 
+**Both forms parse** (since 2026-08-24) — a bare path, or a path plus a reason after a
+`-`, `–` or `—` separator. **One path per line**; a second path on the same line is
+*not* a second waiver:
+
+```text
+Allow-Budget-Overrun: AGENTS.md
+Allow-Budget-Overrun: AGENTS.md — landing the relocation, debt repaid in #1234
+```
+
+Anything that starts with `Allow-Budget-Overrun:` / `Allow-Ceiling-Raise:` and does not
+parse is reported as a `::warning::` naming the offending line. Before 2026-08-24 only
+the bare form parsed and the reason form was dropped **silently**, while two design docs
+mandated the reason form and stated the inverse — so a waiver written from the
+documentation did nothing and gave no clue why.
+
 ### Not governed: `docs/REFERENCE.md`
 
 Deliberately absent from the budget. It is the migration **destination**; capping it
