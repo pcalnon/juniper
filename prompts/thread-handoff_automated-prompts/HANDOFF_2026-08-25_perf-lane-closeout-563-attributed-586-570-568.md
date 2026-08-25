@@ -96,8 +96,10 @@ compares that checkout's HEAD with the CLI worktree's and exits 2 on mismatch (a
 marker never fires (§4.1). At handoff the primary is at **`d2d10697` = `origin/main`, clean** — it
 was synced by another session late on 2026-08-25. **Do NOT pull it during T6's window** (§4.4:
 the T6 campaign driver re-reads the primary's HEAD around every suite and aborts, discarding
-completed suites, the instant it moves — a freeze that runs from T6's LAUNCH to its COMPLETION
-announcement, ≈ 8–12 h). If `origin/main` has moved past `d2d10697` when §3.1 becomes runnable,
+completed suites, the instant it moves — a freeze that runs from T6's LAUNCH announcement to its
+COMPLETION announcement, however long that is; a cascor listener on :8230–8259 is the tripwire
+that LAUNCH happened even if the message was held). If `origin/main` has moved past `d2d10697`
+when §3.1 becomes runnable,
 either run at the primary's current HEAD (both arms at that SHA — the same-SHA rule is what
 matters, not being at tip) or coordinate the advance with the T6 session / Paul BEFORE touching
 it. So:
@@ -330,11 +332,14 @@ announcement until its COMPLETION announcement (≈ 8–12 h), **do not advance 
 checkout `Juniper/juniper-cascor`** — no pull, no commit, no dirty tree. Its campaign driver
 re-reads the primary's HEAD around every suite and aborts (exit 3) the instant it moves, wasting
 every completed suite. Pin candidate `d2d1069` (= `origin/main`, clean). If you need that checkout
-inside the window, tell the T6 session or Paul BEFORE, not after. Expected window: the post-backup
-early morning, ~05:10–07:45 on 2026-08-26, gated by T6's drain watch (load1 < 4 AND load15 < 4.5,
-no duplicati/clamscan/aescrypt > 20% CPU, GPU < 1200 MiB, ports 8230/8110/8202/8101/8051 clear).
-Tripwire if a message is held: a cascor listener on :8230–8259 means the campaign is live; none by
-~10:00 on 2026-08-26 means the window was not claimed. **This session acknowledged the freeze.**
+inside the window, tell the T6 session or Paul BEFORE, not after. **The constraint is bounded by
+the two announcements, not by a clock** — T6's window opens whenever its drain watch clears (load1
+< 4 AND load15 < 4.5, no duplicati/clamscan/aescrypt > 20% CPU, GPU < 1200 MiB, ports
+8230/8110/8202/8101/8051 clear), which as of late 2026-08-25 could be that same night (host was
+draining: load 2.8/4.1/7.3 and falling). Tripwire if a message is held: **a cascor listener on
+:8230–8259 means the campaign is live and the freeze is in force**; treat that as LAUNCH even
+without a message. **This session acknowledged the freeze.** T6's grids are all-service and
+self-compared only, so the #587/#588 teardown discontinuity does not touch its claims.
 
 **There is no observable "announcement" artifact**, and **"not started" and "finished" have the
 identical host signature** (no ports, no lockdirs, nothing new under `suites/`) — so a quiet host is
