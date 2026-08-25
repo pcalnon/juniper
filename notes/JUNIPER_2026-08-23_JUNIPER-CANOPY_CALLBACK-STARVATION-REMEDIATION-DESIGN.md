@@ -422,3 +422,54 @@ no-op store writes (§12.2); (3) **un-block the boundaries chain** — slow its 
 time, make them no-op-suppressing (post-run they rewrite an identical mesh ~1/s), or move the render
 clientside. §7.2's boundaries rows stay red until then; the candidates/dataset rows are re-scored and no
 longer gate on this document.
+
+## 13. Stage 2 implementation plan (2026-08-24) — per-call-site decisions
+
+Grounded in the built-app census (10 global perpetual pollers) and a read of every call site + every
+consumer of every touched store (heartbeat check: **all consumers are value-driven; none key off the
+write itself** — including the three dataset-swap consumers, the four metrics-store consumers, and the
+clientside stream-health badge). `update_snapshots_table` in particular carries its own refresh interval,
+so suppressing swap-events no-op writes cannot stall it — it only stops the *chained* full snapshot-list
+refetch it performs on every 5 s rewrite today.
+
+| # | call site (lane) | decision | why |
+|---|---|---|---|
+| 1 | `update_unified_status_bar` (fast) + `update_training_status_store` (fast) | **MERGE** into one callback: bar outputs + `training-status-store` (suppressed on `{is_running, phase}` no-change) | both fetch `/api/status` every fast tick; −1 slot, −1 Hz HTTP |
+| 2 | `update_network_info` (slow) + `update_network_info_details` (slow) + `update_stream_health` (slow) + `reconcile_pending_dataset_banner` (slow) | **MERGE** into one slow-lane system callback (4 outputs; banner via `prevent_initial_call='initial_duplicate'`) | network-info and the banner both fetch `/api/status` (a 4th `/api/status` poller!); details fetches `/api/network/stats`; stream-health is an in-memory snapshot; −3 slots, −2 slow-lane HTTP |
+| 3 | `poll_dataset_swap_events` (slow) | **SUPPRESS**: add `State` on own store, `no_update` on identical `events` | rewrites `{"events":[...]}` unconditionally today; 3 chained panel re-renders per write on every tab |
+| 4 | `_update_metrics_store_handler` REST path (fast) | **SUPPRESS**: `no_update` when normalized fetch equals `current_metrics` (State already present) | post-run it rewrites an identical history list at 1 Hz into 4+ consumers incl. the 8-output topology renderer — the measured client-saturation driver |
+| 5 | `update_boundary_store` + `update_boundary_dataset_store` (tabpoll-boundaries) | **LEVER 3**: cadence FAST→SLOW (5 s) + suppress both on payload equality; keep `active_tab` / refresh / slider Inputs (immediate repaint + forced refetch unchanged) | both feeders' in-flight time covers their 1 s period, so the render's Inputs are permanently claimed (§12.6); the dataset panel proves slow-cadence feeders leave promotion gaps; suppression alone cannot fix pendingness, cadence alone leaves identical-rewrite fan-out |
+| 6 | `handle_button_timeout_and_acks` (fast) | **KEEP** | already returns `no_update` when nothing changed; local-only (no HTTP); F-CANOPY-003-adjacent — do not disturb |
+| 7 | `metrics-panel-replay-interval` | **KEEP** | ships `disabled=True`, armed only while replaying (dormant) |
+| 8 | `ws-liveness-store` writer (fast) | **KEEP** | clientside — consumes no renderer slot |
+
+Expected effect: global server-side perpetual pollers **10 → 6**; worst-case concurrent (topology tab)
+**13 → 9** vs the cap of 12; fast-lane `/api/status` fetches 2/s → 1/s; slow-lane HTTP 4 → 2 per tick;
+and at idle/post-run steady state the global stores stop firing their consumer fan-outs entirely.
+
+Volatility notes for the equality checks: `training-status-store` is `{is_running, phase}` (no volatile
+fields); swap-events is `{"events": [...]}`; metrics history rows carry timestamps but identical fetches
+return identical rows (equality holds when nothing new landed); the boundary mesh/dataset payloads are
+pure data. `stream-health-store` is NOT suppressed (its snapshot may carry ages; its one consumer is a
+cheap clientside badge — the win there is the merged slot, not the write).
+
+Verification: unit tests per suppressed handler (identical payload → `no_update`; changed payload →
+write), callback-shape tests (merged callbacks exist, old ones gone), a cadence pin
+(`tabpoll-boundaries` interval == `SLOW_UPDATE_INTERVAL_MS`, failing on the parent commit), the Stage-3
+budget guard re-run (expected headroom), then §7.1 slots measurement + the `bprobe` render-aliveness
+probe on a live stack running the branch (symlink e2e-root), and finally the M-BOUNDARIES row re-drive.
+
+Open question carried to the re-drive: whether the resolution slider's Redux value commit lands under
+load post-#507 (run `20260824T080426Z` saw aria move to 125 while no 125-mesh fetch followed; the
+starved render made the client side unobservable — re-test once the render is alive).
+
+### 13.1 Stage 2 outcome (2026-08-24)
+
+Shipped as **juniper-canopy#511** (`60f9737`), exactly per the §13 table. Measured on the merged content
+(§7.1 protocol): pool-full 61.4 % → **25.5 % idle / 35.3 % under live training**, completions 449 →
+**778/60 s**, backlog now drains to 0 (was held), starving-set **empty**; the Decision Boundary render
+executes on every real change including interaction-triggered ones (7 renders/115 s live vs 1 at the
+parent), and M-BOUNDARIES-01..04 re-drove to `PASS (re-validated @ 60f9737)` — -02/-03 by direct
+`changedPropIds` causation. **F-CANOPY-027 is CLOSED**; §12.5's other opens (F-CANOPY-034 tidy-up, the
+F-CANOPY-035/-036 findings the re-drive surfaced) are tracked in the ledger. Full record: evidence note,
+*Phase 2 — Stage 2 shipped (2026-08-24)*.

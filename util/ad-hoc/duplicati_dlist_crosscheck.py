@@ -117,6 +117,7 @@ def main():
     blocklist_content = {}   # blocklist hash (b64) -> [data-block hashes (b64)]
     indexed_dblocks = set()
     poisoned = 0
+    list_entries = 0
     for i, name in enumerate(dindexes, 1):
         plain = os.path.join(workdir, "dindex.zip")
         gpg_decrypt(os.path.join(dest, name), plain, passphrase)
@@ -128,6 +129,7 @@ def main():
                     for blk in data.get("blocks", []):
                         available.add(blk["hash"])
                 elif entry.startswith("list/"):
+                    list_entries += 1
                     raw = zf.read(entry)
                     if len(raw) % HASH_BYTES:
                         fail(f"list entry {entry} in {name} has length {len(raw)} not divisible by {HASH_BYTES} -- refusing to under-build NEEDED")
@@ -151,6 +153,7 @@ def main():
             print(f"  parsed {i}/{len(dindexes)} dindex files ...")
     if poisoned:
         fail(f"{poisoned} poisoned list/ entries -- index is untrustworthy, coverage verdict would be vacuous")
+    print(f"list entries: {list_entries} blocklist entries across all dindexes, all content-hash-verified against their filenames")
     print(f"available  : {len(available)} distinct blocks declared across {len(indexed_dblocks)} indexed dblocks")
 
     missing_dblock_index = sorted(set(dblocks) - indexed_dblocks)
