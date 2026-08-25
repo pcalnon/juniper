@@ -51,6 +51,7 @@ _spec.loader.exec_module(_w3)
 
 log = _w3.log
 http_get = _w3.http_get
+http_post = _w3.http_post
 open_dashboard = _w3.open_dashboard
 
 CAND_TAB = "Candidate Metrics"
@@ -801,6 +802,494 @@ def step_dstats(page, capture):
     shot(page, "F027-REDRIVE__dataset_dstats.png")
 
 
+def step_bfinal(page, capture):
+    """M-BOUNDARIES-01/-02/-03 interactions, SUBSCRIBE-FREE (post-Stage-2 form).
+
+    The subscribe instrument stringifies the ~166 KB mesh on every Redux
+    dispatch (~90/s) and that alone can stall the page (two sessions wedged in
+    ``step_boundaries``'s settle right after it subscribed, while the
+    request-capture-only ``bprobe`` ran clean post-run twice). Everything the
+    three rows need is available without touching the store:
+    - re-renders: the plot's own fig sig (short evaluates on a calm page);
+    - the resolution refetch: the feeder POST body CARRIES the slider value;
+    - refresh attribution: at the 5 s Stage-2 cadence, a fetch initiated
+      off-cadence right after the click is attributable from timestamps alone.
+    """
+    log("STEP bfinal -- M-BOUNDARIES-01/-02/-03, request-capture only")
+    open_tab(page, BOUND_TAB)
+    page.wait_for_timeout(8000)
+    status = vis(page, f"{DID}-status")
+    sig0 = fig_info(page, f"{DID}-plot").get("sig")
+    log(f"  status: {status.get('text')!r}  sig={sig0}")
+
+    def feeder_posts(since):
+        return [c for c in capture[since:] if "_dash-update-component" in (c.get("url") or "") and "decision-boundary-boundary-data.data" in (c.get("body") or "")[:400]]
+
+    # M-BOUNDARIES-01: slider ArrowRight -> value commit, resolution in the next
+    # feeder POST body, and a re-render (sig change: a 125-mesh differs from a 100-mesh).
+    v0 = _slider_value(page)
+    n0 = len(capture)
+    page.evaluate("""() => { const s = document.querySelector('#decision-boundary-resolution-slider [role=slider]'); if (s) s.focus(); }""")
+    page.keyboard.press("ArrowRight")
+    v1 = None
+    for _ in range(10):
+        page.wait_for_timeout(1000)
+        v1 = _slider_value(page)
+        if v1 is not None and v1 != v0:
+            break
+    log(f"  M-BOUNDARIES-01 slider: {v0} -> {v1}")
+    sig1 = None
+    for _ in range(20):
+        page.wait_for_timeout(1500)
+        sig1 = fig_info(page, f"{DID}-plot").get("sig")
+        if sig1 != sig0:
+            break
+    res_posts = [(c["t_ms"], ("resolution" in (c.get("body") or "")) and (str(v1) in (c.get("body") or ""))) for c in feeder_posts(n0)]
+    log(f"  M-BOUNDARIES-01 re-render: sig {sig0} -> {sig1} (changed={sig1 != sig0})")
+    log(f"  M-BOUNDARIES-01 feeder POSTs since slider move (t_ms, carries-{v1}): {res_posts[:6]}")
+    shot(page, "F027-REDRIVE__bfinal_slider.png")
+
+    # M-BOUNDARIES-02: confidence toggle -> re-render with shading flipped, then restore.
+    sig_b = fig_info(page, f"{DID}-plot").get("sig")
+    cb0 = page.evaluate("""() => { const i = document.querySelector('#decision-boundary-show-confidence input[type=checkbox]'); return i ? i.checked : None; }""".replace("None", "null"))
+    page.evaluate("""() => { const i = document.querySelector('#decision-boundary-show-confidence input[type=checkbox]'); if (i) i.click(); }""")
+    sig_c = None
+    for _ in range(14):
+        page.wait_for_timeout(1500)
+        sig_c = fig_info(page, f"{DID}-plot").get("sig")
+        if sig_c != sig_b:
+            break
+    cb1 = page.evaluate("""() => { const i = document.querySelector('#decision-boundary-show-confidence input[type=checkbox]'); return i ? i.checked : null; }""")
+    log(f"  M-BOUNDARIES-02 checkbox {cb0} -> {cb1}; sig {sig_b} -> {sig_c} (changed={sig_c != sig_b})")
+    page.evaluate("""() => { const i = document.querySelector('#decision-boundary-show-confidence input[type=checkbox]'); if (i) i.click(); }""")
+    page.wait_for_timeout(4000)
+    shot(page, "F027-REDRIVE__bfinal_confidence.png")
+
+    # M-BOUNDARIES-03: refresh -> an off-cadence feeder POST within ~3 s of the
+    # click (ambient cadence is 5 s), plus the render that follows it.
+    n1 = len(capture)
+    amb = [c["t_ms"] for c in feeder_posts(0)][-4:]
+    sig_r0 = fig_info(page, f"{DID}-plot").get("sig")
+    page.evaluate("""() => { const b = document.getElementById('decision-boundary-refresh-btn'); if (b) b.click(); }""")
+    page.wait_for_timeout(6000)
+    fresh = [c["t_ms"] for c in feeder_posts(n1)]
+    page.wait_for_timeout(8000)
+    sig_r1 = fig_info(page, f"{DID}-plot").get("sig")
+    log(f"  M-BOUNDARIES-03 ambient feeder cadence tail: {amb}")
+    log(f"  M-BOUNDARIES-03 feeder POSTs within 6s of refresh click: {fresh} (click at capture-clock ~{fresh[0] if fresh else 'n/a'})")
+    log(f"  M-BOUNDARIES-03 sig {sig_r0} -> {sig_r1} (changed={sig_r0 != sig_r1})")
+
+
+def step_bfinal2(page, capture):
+    """M-BOUNDARIES-02/-03 only, with SPARSE evaluates (≥6 s apart, six total).
+
+    Empirical driving law, refined across seven sessions: rapid-fire evaluate
+    sequences (1-1.5 s fig polls) eventually hit one the renderer never serves,
+    regardless of subscribe or run state, while sparse evaluates (bprobe's,
+    spaced 30-40 s) always serve. So: one read per phase, patient spacing,
+    request-capture for everything countable.
+    """
+    log("STEP bfinal2 -- M-BOUNDARIES-02/-03, sparse evaluates")
+    open_tab(page, BOUND_TAB)
+    page.wait_for_timeout(10000)
+
+    def feeder_posts(since):
+        return [c["t_ms"] for c in capture[since:] if "_dash-update-component" in (c.get("url") or "") and "decision-boundary-boundary-data.data" in (c.get("body") or "")[:400]]
+
+    # M-BOUNDARIES-02
+    st = page.evaluate(
+        """(id) => { const root = document.getElementById(id);
+             const gd = root && (root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot'));
+             const cb = document.querySelector('#decision-boundary-show-confidence input[type=checkbox]');
+             let sig = -1; try { sig = gd && gd.data ? JSON.stringify(gd.data).length : 0; } catch (e) {}
+             return {sig: sig, checked: cb ? cb.checked : null}; }""",
+        f"{DID}-plot",
+    )
+    log(f"  M-BOUNDARIES-02 before: {json.dumps(st)}")
+    page.evaluate("""() => { const i = document.querySelector('#decision-boundary-show-confidence input[type=checkbox]'); if (i) i.click(); }""")
+    page.wait_for_timeout(12000)
+    st2 = page.evaluate(
+        """(id) => { const root = document.getElementById(id);
+             const gd = root && (root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot'));
+             const cb = document.querySelector('#decision-boundary-show-confidence input[type=checkbox]');
+             let sig = -1; try { sig = gd && gd.data ? JSON.stringify(gd.data).length : 0; } catch (e) {}
+             return {sig: sig, checked: cb ? cb.checked : null}; }""",
+        f"{DID}-plot",
+    )
+    log(f"  M-BOUNDARIES-02 after toggle+12s: {json.dumps(st2)} (sig changed={st2['sig'] != st['sig']}, checkbox flipped={st2['checked'] != st['checked']})")
+    page.evaluate("""() => { const i = document.querySelector('#decision-boundary-show-confidence input[type=checkbox]'); if (i) i.click(); }""")
+    page.wait_for_timeout(8000)
+
+    # M-BOUNDARIES-03
+    amb = feeder_posts(0)
+    n1 = len(capture)
+    page.evaluate("""() => { const b = document.getElementById('decision-boundary-refresh-btn'); if (b) b.click(); }""")
+    page.wait_for_timeout(7000)
+    fresh = feeder_posts(n1)
+    page.wait_for_timeout(8000)
+    st3 = page.evaluate(
+        """(id) => { const root = document.getElementById(id);
+             const gd = root && (root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot'));
+             let sig = -1; try { sig = gd && gd.data ? JSON.stringify(gd.data).length : 0; } catch (e) {}
+             return {sig: sig}; }""",
+        f"{DID}-plot",
+    )
+    log(f"  M-BOUNDARIES-03 ambient feeder t_ms tail: {amb[-5:]}")
+    log(f"  M-BOUNDARIES-03 feeder POSTs within 7s of refresh click: {fresh}")
+    log(f"  M-BOUNDARIES-03 fig sig after: {st3['sig']} (vs before-toggle {st['sig']})")
+
+
+BOBSERVER = """
+() => {
+  window.__bo = {t0: Date.now(), steps: [], done: false, err: null};
+  const S = window.__bo;
+  const sig = () => {
+    try {
+      const root = document.getElementById('decision-boundary-plot');
+      const gd = root && (root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot'));
+      return gd && gd.data ? JSON.stringify(gd.data).length : 0;
+    } catch (e) { return -1; }
+  };
+  const cb = () => { const i = document.querySelector('#decision-boundary-show-confidence input[type=checkbox]'); return i ? i.checked : null; };
+  const rec = (label) => S.steps.push({t: Date.now() - S.t0, label: label, sig: sig(), checked: cb()});
+  try {
+    rec('before');
+    const i = document.querySelector('#decision-boundary-show-confidence input[type=checkbox]');
+    if (i) i.click();
+    rec('toggled');
+    setTimeout(() => {
+      rec('after-toggle-12s');
+      if (i) i.click();
+      setTimeout(() => {
+        rec('restored-8s');
+        const b = document.getElementById('decision-boundary-refresh-btn');
+        S.refreshClickAt = Date.now() - S.t0;
+        if (b) b.click();
+        setTimeout(() => { rec('after-refresh-14s'); S.done = true; }, 14000);
+      }, 8000);
+    }, 12000);
+  } catch (e) { S.err = String(e).slice(0, 200); }
+  return true;
+}
+"""
+
+
+def step_bfinal3(page, capture):
+    """M-BOUNDARIES-02/-03 via a fully self-driving in-page script + ONE harvest.
+
+    The only observation architecture that has never wedged on this dashboard
+    (run-4/5 livecards): install everything at attach time (attach-window
+    evaluates always serve), let in-page timeouts do the driving and the
+    reading, harvest once at the end. The feeder timing for -03 comes from the
+    python-side request capture, which needs no page cooperation at all.
+    """
+    log("STEP bfinal3 -- M-BOUNDARIES-02/-03, in-page self-driver + single harvest")
+    open_tab(page, BOUND_TAB)
+    page.wait_for_timeout(9000)
+    n0 = len(capture)
+    page.evaluate(BOBSERVER)
+    log("  in-page self-driver installed (toggle -> restore -> refresh, self-recorded)")
+    time_budget = 60
+    t0 = time.time()
+    while time.time() - t0 < time_budget:
+        page.wait_for_timeout(5000)  # driver-side timer; no renderer contact
+    bo = page.evaluate("""() => window.__bo || null""")
+    if not bo:
+        log("  !! self-driver buffer missing")
+        return
+    log(f"  err={bo.get('err')} done={bo.get('done')} refreshClickAt={bo.get('refreshClickAt')}ms")
+    for s in bo.get("steps") or []:
+        log(f"  BO t+{s['t'] / 1000:6.1f}s {s['label']:<18s} sig={s['sig']} checked={s['checked']}")
+    feeder = [c["t_ms"] for c in capture[n0:] if "_dash-update-component" in (c.get("url") or "") and "decision-boundary-boundary-data.data" in (c.get("body") or "")[:400]]
+    log(f"  feeder POSTs (t_ms since session start): {feeder}")
+
+
+def step_bcausal(page, capture):
+    """M-BOUNDARIES-02/-03 causal attribution from ``changedPropIds`` alone.
+
+    Every ``_dash-update-component`` POST body names the props that triggered
+    it. So: click the confidence toggle, click refresh — three attach-window
+    evaluates total (the only class with a 100% service record on the
+    boundaries tab) — then prove causation ENTIRELY python-side:
+    - a plot-render POST whose changedPropIds contains ``show-confidence``
+      == the toggle fired the render (M-BOUNDARIES-02's observable);
+    - a feeder POST whose changedPropIds contains ``refresh-btn``
+      == the button forced the refetch (M-BOUNDARIES-03's observable).
+    No polling, no subscribe, no late evaluates: the page can wedge freely
+    after the clicks and the capture still answers.
+    """
+    log("STEP bcausal -- changedPropIds attribution for M-BOUNDARIES-02/-03")
+    open_tab(page, BOUND_TAB)
+    page.wait_for_timeout(8000)
+    page.evaluate("""() => { const i = document.querySelector('#decision-boundary-show-confidence input[type=checkbox]'); if (i) i.click(); }""")
+    log("  confidence checkbox clicked")
+    t0 = time.time()
+    while time.time() - t0 < 14:
+        page.wait_for_timeout(2000)
+    page.evaluate("""() => { const b = document.getElementById('decision-boundary-refresh-btn'); if (b) b.click(); }""")
+    log("  refresh clicked")
+    t0 = time.time()
+    while time.time() - t0 < 14:
+        page.wait_for_timeout(2000)
+
+    def posts(pred):
+        out = []
+        for c in capture:
+            body = c.get("body") or ""
+            if "_dash-update-component" in (c.get("url") or "") and pred(body):
+                out.append(c["t_ms"])
+        return out
+
+    toggle_render = posts(lambda b: "decision-boundary-plot.figure" in b[:600] and "show-confidence" in b)
+    toggle_any = posts(lambda b: "show-confidence" in b and "changedPropIds" in b and '"decision-boundary-show-confidence.value"' in b.split("changedPropIds", 1)[-1][:300])
+    refresh_feeder = posts(lambda b: "decision-boundary-boundary-data.data" in b[:400] and "refresh-btn" in b)
+    refresh_any = posts(lambda b: "changedPropIds" in b and '"decision-boundary-refresh-btn.n_clicks"' in b.split("changedPropIds", 1)[-1][:300])
+    ambient_feeder = posts(lambda b: "decision-boundary-boundary-data.data" in b[:400])
+    log(f"  M-BOUNDARIES-02 plot-render POSTs carrying show-confidence: {toggle_render}")
+    log(f"  M-BOUNDARIES-02 POSTs with show-confidence.value in changedPropIds: {toggle_any}")
+    log(f"  M-BOUNDARIES-03 feeder POSTs carrying refresh-btn: {refresh_feeder}")
+    log(f"  M-BOUNDARIES-03 POSTs with refresh-btn.n_clicks in changedPropIds: {refresh_any}")
+    log(f"  (all boundary-data-writing POSTs this session: {ambient_feeder})")
+
+
+def _one_gesture_session(page, capture, click_js, label, scans):
+    """One gesture per session: the attach-window evaluates (open_tab + one
+    click ≤ ~20 s into page life) are the only evaluate class that has never
+    starved on the boundaries tab across nine sessions. Everything after the
+    click is python-side capture analysis — the page may wedge freely.
+
+    Registers its OWN full-body request handler: the shared capture truncates
+    bodies at 4000 chars, and the plot callback's ``changedPropIds`` serializes
+    AFTER its inputs — which include the ~166 KB boundary store — so the
+    attribution field never survives the shared slice.
+    """
+    full = []
+
+    def on_request(req):
+        if "_dash-update-component" in req.url:
+            try:
+                body = req.post_data or ""
+            except Exception:  # noqa: BLE001
+                # post_data can raise on non-text bodies; irrelevant here.
+                body = ""
+            full.append({"t_ms": int((time.time()) * 1000) % 10_000_000, "body": body})
+
+    page.on("request", on_request)
+    open_tab(page, BOUND_TAB)
+    page.wait_for_timeout(6000)
+    page.evaluate(click_js)
+    log(f"  {label} clicked at ~t+20s of page life")
+    t0 = time.time()
+    while time.time() - t0 < 16:
+        page.wait_for_timeout(2000)
+    for name, pred in scans:
+        hits = [c["t_ms"] for c in full if pred(c.get("body") or "")]
+        log(f"  {name}: {hits}")
+
+
+def step_btoggle(page, capture):
+    """M-BOUNDARIES-02 causal capture: does the confidence toggle FIRE the render?"""
+    log("STEP btoggle -- one-gesture causal capture for M-BOUNDARIES-02")
+    _one_gesture_session(
+        page,
+        capture,
+        """() => { const i = document.querySelector('#decision-boundary-show-confidence input[type=checkbox]'); if (i) i.click(); }""",
+        "confidence checkbox",
+        [
+            ("plot-render POSTs with show-confidence.value in changedPropIds", lambda b: "decision-boundary-plot.figure" in b[:600] and '"decision-boundary-show-confidence.value"' in b),
+            ("ALL plot-render POSTs", lambda b: "decision-boundary-plot.figure" in b[:600]),
+        ],
+    )
+
+
+def step_brefresh(page, capture):
+    """M-BOUNDARIES-03 causal capture: does ↻ Refresh FORCE the feeder refetch?"""
+    log("STEP brefresh -- one-gesture causal capture for M-BOUNDARIES-03")
+    _one_gesture_session(
+        page,
+        capture,
+        """() => { const b = document.getElementById('decision-boundary-refresh-btn'); if (b) b.click(); }""",
+        "refresh button",
+        [
+            ("feeder POSTs with refresh-btn.n_clicks in changedPropIds", lambda b: "decision-boundary-boundary-data.data" in b[:400] and '"decision-boundary-refresh-btn.n_clicks"' in b),
+            ("ALL feeder POSTs", lambda b: "decision-boundary-boundary-data.data" in b[:400]),
+        ],
+    )
+
+
+def step_f025(page, capture):
+    """F-CANOPY-025 allow-arm, post-Stage-2: does the Live Switch gate OPEN?
+
+    Hypothesis: the gate callback consumes ``training-status-store``, whose old
+    dedicated poller rewrote it every fast tick — the same claimed-Input
+    promotion race Stage 2 removed (the store is now written by the status-bar
+    callback and suppressed on no-change). Preconditions are set via HTTP
+    BEFORE attach (experimental flag ON + training started), so at mount both
+    gate inputs are live and one attach-window read answers the arm the deny
+    trap hid for five segments.
+    """
+    log("STEP f025 -- Live Switch gate allow-arm (post-Stage-2)")
+    code, body = http_post("/api/admin/experimental_functions", {"enabled": True})
+    log(f"  experimental_functions ON -> {code} {json.dumps(body)[:120]}")
+    code, body = http_post("/api/train/start", {})
+    log(f"  train/start -> {code} {json.dumps(body)[:120]}")
+    for _ in range(8):
+        time.sleep(1)
+        if http_get("/api/status", timeout=30)[1].get("is_running"):
+            break
+    log(f"  /api/status: {json.dumps({k: v for k, v in http_get('/api/status', timeout=30)[1].items() if k in ('is_running', 'phase')})}")
+    # RELOAD so the one-shot flag reconciliation runs AFTER the flag was set —
+    # the initial attach's reconcile read the pre-POST state, and the flags
+    # store only hydrates at mount. The reload also resets the attach window.
+    page.reload(wait_until="domcontentloaded", timeout=60_000)
+    page.wait_for_timeout(12000)
+    state = page.evaluate(
+        """() => { const b = document.getElementById('live-dataset-switch-button');
+             return {disabled: b ? b.disabled : null}; }"""
+    )
+    log(f"  post-reload early read: {json.dumps(state)}")
+    page.wait_for_timeout(2000)
+    state = page.evaluate(
+        """() => { const b = document.getElementById('live-dataset-switch-button');
+             return {present: !!b, disabled: b ? b.disabled : null,
+                     text: b ? (b.innerText||'').trim() : null}; }"""
+    )
+    log(f"  live-dataset-switch-button attach-window read: {json.dumps(state)}")
+    # Then 60 s of pure python-side capture watching: the ORIGINAL finding was
+    # "zero responses ever carry live-dataset-switch-button across a 120 s
+    # watch" — any gate POST now (with is_running:true + flag:true inputs in
+    # its body) refutes the never-fires observation.
+    t0 = time.time()
+    while time.time() - t0 < 60:
+        page.wait_for_timeout(3000)
+    gate_posts = [c for c in capture if "_dash-update-component" in (c.get("url") or "") and "live-dataset-switch-button.disabled" in (c.get("body") or "")]
+    log(f"  gate-callback POSTs (output live-dataset-switch-button.disabled): {[c['t_ms'] for c in gate_posts]}")
+    for c in gate_posts[:3]:
+        body = c.get("body") or ""
+        log(f"    inputs snippet: running={'\"is_running\": true' in body or '\"is_running\":true' in body} flag={'\"experimental_functions\": true' in body or '\"experimental_functions\":true' in body}")
+    # Post-window DOM re-read (page may be starved by now; failure is non-fatal evidence-wise).
+    try:
+        state2 = page.evaluate(
+            """() => { const b = document.getElementById('live-dataset-switch-button');
+                 return {disabled: b ? b.disabled : null}; }"""
+        )
+        log(f"  post-window read: {json.dumps(state2)}")
+    except Exception as exc:  # noqa: BLE001
+        log(f"  post-window read starved (expected under run load): {str(exc)[:80]}")
+
+
+def step_f002(page, capture):
+    """F-CANOPY-002 post-fix: does the WS metrics fast path deliver during a run?
+
+    Pre-fix signature: 401 metrics frames measured on /ws/training dispatching
+    ONLY into the latency sampler; ``_juniperWsDrain._metricsBuffer`` stayed 0
+    and ``_metricsReceived`` false/stale for whole runs. Post-fix (per-type
+    fan-out): the bridge's intake and the beacon COEXIST — the drain fills and
+    stamps during the run while the beacon keeps sampling.
+
+    Observables (one attach-window read + python-side capture scans):
+    - drain state ~t+15 s into a live run (fresh _lastMetricsFrameMs);
+    - M-METRICS-32's server half: append POSTs whose changedPropIds carry
+      ``ws-metrics-buffer.data``;
+    - beacon coexistence: browser-side ``/api/ws_latency`` POSTs continuing.
+    """
+    log("STEP f002 -- WS metrics fast path under a live run")
+    code, body = http_post("/api/train/start", {})
+    log(f"  train/start -> {code} {json.dumps(body)[:80]}")
+    for _ in range(8):
+        time.sleep(1)
+        if http_get("/api/status", timeout=30)[1].get("is_running"):
+            break
+    page.wait_for_timeout(9000)
+    drain = page.evaluate(
+        """() => { const d = window._juniperWsDrain || {};
+             const now = Date.now();
+             return {present: !!window._juniperWsDrain,
+                     metricsReceived: d._metricsReceived === undefined ? null : d._metricsReceived,
+                     lastMetricsAgeMs: d._lastMetricsFrameMs ? (now - d._lastMetricsFrameMs) : null,
+                     lastStateAgeMs: d._lastStateFrameMs ? (now - d._lastStateFrameMs) : null,
+                     bufferLen: Array.isArray(d._metricsBuffer) ? d._metricsBuffer.length : null}; }"""
+    )
+    log(f"  drain at ~t+15s of run: {json.dumps(drain)}")
+    t0 = time.time()
+    while time.time() - t0 < 45:
+        page.wait_for_timeout(3000)
+    appends = [c["t_ms"] for c in capture if "_dash-update-component" in (c.get("url") or "") and '"ws-metrics-buffer.data"' in (c.get("body") or "")]
+    beacons = [c["t_ms"] for c in capture if "/api/ws_latency" in (c.get("url") or "")]
+    log(f"  M-METRICS-32 append POSTs (changedPropIds ws-metrics-buffer.data): n={len(appends)} @ {appends[:8]}")
+    log(f"  beacon /api/ws_latency POSTs (coexistence): n={len(beacons)} @ {beacons[:6]}")
+    try:
+        drain2 = page.evaluate(
+            """() => { const d = window._juniperWsDrain || {};
+                 const now = Date.now();
+                 return {lastMetricsAgeMs: d._lastMetricsFrameMs ? (now - d._lastMetricsFrameMs) : null,
+                         bufferLen: Array.isArray(d._metricsBuffer) ? d._metricsBuffer.length : null}; }"""
+        )
+        log(f"  drain after 45s window: {json.dumps(drain2)}")
+    except Exception as exc:  # noqa: BLE001
+        log(f"  late drain read starved (non-fatal): {str(exc)[:60]}")
+
+
+def step_f025idle(page, capture):
+    """F-CANOPY-025 mechanism seal: at IDLE, does the gate fire at mount?
+
+    If the gate executes at idle (feeder round-trips ~30 ms → promotion gaps
+    everywhere) but never under a run (feeder ~always in flight → its output
+    store permanently claimed), the mechanism is the same claimed-Input
+    promotion race — via the feeder's in-flight window, which Stage 2's write
+    suppression cannot remove.
+    """
+    log("STEP f025idle -- gate mount/idle census")
+    st = http_get("/api/status", timeout=30)[1]
+    log(f"  /api/status: {json.dumps({k: st.get(k) for k in ('is_running', 'phase')})}")
+    t0 = time.time()
+    while time.time() - t0 < 30:
+        page.wait_for_timeout(3000)
+    gate_posts = [c["t_ms"] for c in capture if "_dash-update-component" in (c.get("url") or "") and "live-dataset-switch-button.disabled" in (c.get("body") or "")]
+    log(f"  gate-callback POSTs at idle (30 s incl. mount): {gate_posts}")
+    try:
+        state = page.evaluate("""() => { const b = document.getElementById('live-dataset-switch-button'); return {disabled: b ? b.disabled : null}; }""")
+        log(f"  button state: {json.dumps(state)}")
+    except Exception as exc:  # noqa: BLE001
+        log(f"  read starved: {str(exc)[:60]}")
+
+
+def step_f006(page, capture):
+    """F-CANOPY-006 post-Stage-2: does the topology graph render in the live lane?
+
+    The renderer was the 8-output callback forced at 1 Hz from every tab
+    (#509 gated it to tabpoll-topology; Stage 2 suppressed its metrics-store
+    chain). Attach-window reads of the counts, the figure, and the depth
+    slider — plus a request-side census of the renderer callback.
+    """
+    log("STEP f006 -- topology render (post-Stage-2)")
+    st = http_get("/api/status", timeout=30)[1]
+    log(f"  /api/status: {json.dumps({k: st.get(k) for k in ('is_running', 'phase', 'hidden_units')})}")
+    open_tab(page, "Network Topology")
+    page.wait_for_timeout(15000)
+    state = page.evaluate(
+        """() => { const fig = (() => { const root = document.getElementById('network-visualizer-graph');
+                     if (!root) return {present:false};
+                     const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+                     let n = -1; try { n = gd && gd.data ? gd.data.length : 0; } catch (e) {}
+                     const r = root.getBoundingClientRect();
+                     return {present:true, traces:n, w:Math.round(r.width), h:Math.round(r.height)}; })();
+             const counts = {};
+             for (const id of ['network-visualizer-input-count','network-visualizer-hidden-count','network-visualizer-output-count','network-visualizer-connection-count']) {
+               const el = document.getElementById(id); counts[id.replace('network-visualizer-','')] = el ? (el.innerText||'').trim() : null;
+             }
+             const s = document.querySelector('#network-visualizer-depth-slider [role=slider]');
+             const label = document.getElementById('network-visualizer-depth-label');
+             return {fig: fig, counts: counts,
+                     slider: s ? {now: s.getAttribute('aria-valuenow'), max: s.getAttribute('aria-valuemax')} : null,
+                     depth_label: label ? (label.innerText||'').trim() : null}; }"""
+    )
+    log(f"  topology at ~t+15s: {json.dumps(state)[:500]}")
+    render_posts = [c["t_ms"] for c in capture if "_dash-update-component" in (c.get("url") or "") and "network-visualizer-graph" in (c.get("body") or "")[:800]]
+    log(f"  renderer-callback POSTs: {render_posts[:10]} (n={len(render_posts)})")
+    shot(page, "F006-REDRIVE__topology.png")
+
+
 STEPS = {
     "idle": step_idle,
     "start": step_start,
@@ -810,6 +1299,16 @@ STEPS = {
     "boundaries": step_boundaries,
     "bprobe": step_bprobe,
     "dstats": step_dstats,
+    "bfinal": step_bfinal,
+    "bfinal2": step_bfinal2,
+    "bfinal3": step_bfinal3,
+    "bcausal": step_bcausal,
+    "btoggle": step_btoggle,
+    "brefresh": step_brefresh,
+    "f025": step_f025,
+    "f025idle": step_f025idle,
+    "f006": step_f006,
+    "f002": step_f002,
 }
 
 

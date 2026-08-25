@@ -107,6 +107,20 @@ VALIDATED BY A POSITIVE CONTROL
     works when the network actually learned; it is the archive that is mostly under-trained,
     median 3 hidden units.
 
+    5. THE DATASET INSTANCE HAS TO BE PINNED, OR NOTHING HERE IS REPRODUCIBLE. Five of the six
+       generators declare ``seed: int | None = Field(default=None)``, so building them from
+       their bare defaults draws DIFFERENT data on every call -- measured: two ``load_datasets``
+       calls in ONE process returned different arrays for checkerboard, circles, gaussian, moon
+       and xor. ``spiral`` alone declares a real default seed, and it was the only generator
+       whose counts held steady across a rebuild.
+
+       The cost was not theoretical. Regenerating the archive sidecar moved moon's attributed
+       count from 0 to 6: moon's own score shifted 1.000 -> 0.995, which flipped one snapshot's
+       first-pass winner, which removed it from moon's reference class, which dropped moon's
+       cross floor 1.000 -> 0.850. ``seeded_params`` now supplies ``DATASET_SEED`` to any
+       generator declaring none, and leaves a declared seed alone so spiral keeps the exact
+       instance every prior analysis used.
+
 WHAT A VERDICT MEANS
     attributed    -- one dataset clears its null floor and is separated from the runner-up.
                      Strong, NOT definitive: it means "this network behaves like one trained
@@ -165,6 +179,16 @@ DEFAULT_MARGIN = 0.05
 #: How far the winner must sit above the runner-up. Without this, a network that behaves like
 #: several of these datasets at once gets a confident answer it has not earned.
 DEFAULT_GAP = 0.05
+#: Seed handed to any generator that declares none, so the dataset instance a snapshot is
+#: scored against is FIXED across runs. Without it five of the six generators redraw on every
+#: call and attribution is not reproducible -- see :func:`seeded_params`. Changing this value
+#: redefines the canonical instance and invalidates comparisons with existing sidecars, so it
+#: is a constant rather than a default that drifts.
+DATASET_SEED = 20260824
+#: Sentinel distinguishing "declares no ``seed`` field" from "declares ``seed=None``". They are
+#: different answers: the first must be left alone (passing a seed would raise), the second is
+#: the defect this module pins.
+_NO_SEED_FIELD = object()
 
 
 @contextlib.contextmanager
@@ -228,13 +252,45 @@ def percentile(values: List[float], q: float) -> float:
     return ordered[lower] * (1 - weight) + ordered[upper] * weight
 
 
-def load_datasets(data_root: Path, max_classes: int = 4) -> Dict[str, Dict[str, Any]]:
+def seeded_params(params_cls, seed: int):
+    """Build a generator's params, supplying ``seed`` ONLY where it declares none.
+
+    Five of the six 2-D generators declare ``seed: int | None = Field(default=None)``, which
+    means ``params_cls()`` draws a DIFFERENT dataset on every call -- measured: two calls to
+    ``load_datasets`` in one process return different data for checkerboard, circles, gaussian,
+    moon and xor. Attribution scored against that is not reproducible: a rebuild moved the
+    archive's moon count from 0 to 6, because moon's own score shifted 1.000 -> 0.995, which
+    flipped one snapshot's first-pass winner, which removed it from moon's reference class,
+    which dropped moon's cross floor 1.000 -> 0.850.
+
+    ``spiral`` is the exception -- it declares a real default seed -- and it is the only
+    generator whose counts held steady across rebuilds. So the rule here is to RESPECT a
+    generator's declared canonical instance and supply one only where the generator declines
+    to: spiral keeps the exact instance every prior analysis used, and the other five become
+    reproducible without silently redefining the one that already was.
+    """
+    params = params_cls()
+    declared = getattr(params, "seed", _NO_SEED_FIELD)
+    if declared is _NO_SEED_FIELD:
+        # A generator with no ``seed`` field at all is not merely unseeded -- passing one would
+        # raise. Absence and None are different answers and must not be collapsed.
+        return params
+    if declared is not None:
+        return params
+    return params_cls(seed=seed)
+
+
+def load_datasets(data_root: Path, max_classes: int = 4, seed: int = DATASET_SEED) -> Dict[str, Dict[str, Any]]:
     """Generate one canonical instance of each 2-D classification generator.
 
-    Uses each generator's declared defaults. Attribution therefore lands on a dataset FAMILY,
-    not a specific instance -- a network trained on ``spiral(noise=0.1)`` is being compared
-    against ``spiral(<defaults>)``. That is a real limitation and it is why a miss is reported
-    as ``indeterminate`` rather than as evidence of absence.
+    Uses each generator's declared defaults, except that a generator declaring no seed is given
+    ``seed`` so the instance is FIXED across runs (see :func:`seeded_params`; without it,
+    attribution is not reproducible run to run).
+
+    Attribution therefore lands on a dataset FAMILY, not a specific instance -- a network
+    trained on ``spiral(noise=0.1)`` is being compared against ``spiral(<defaults>)``. That is a
+    real limitation and it is why a miss is reported as ``indeterminate`` rather than as
+    evidence of absence.
     """
     if not data_root.is_dir():
         raise SystemExit(f"ERROR: juniper-data tree not found: {data_root}\n       set ${DEFAULT_DATA_ROOT_ENV} or pass --data-root")
@@ -247,7 +303,7 @@ def load_datasets(data_root: Path, max_classes: int = 4) -> Dict[str, Dict[str, 
             module = __import__(f"juniper_data.generators.{name}", fromlist=["x"])
             generator = getattr(module, f"{name.capitalize()}Generator", None) or getattr(module, f"{name.title()}Generator")
             params_cls = getattr(module, f"{name.capitalize()}Params", None) or getattr(module, f"{name.title()}Params")
-            produced = generator.generate(params_cls())
+            produced = generator.generate(seeded_params(params_cls, seed))
         except Exception as exc:  # noqa: BLE001 - a generator that will not build is a recorded gap, not a crash
             print(f"WARNING: generator {name!r} unavailable ({type(exc).__name__}: {exc}); excluded", file=sys.stderr)
             continue
@@ -549,6 +605,15 @@ def main(argv: "list[str] | None" = None) -> int:
     parser.add_argument("--null-size", type=int, default=120, help="Untrained networks per shape in the null")
     parser.add_argument("--null-only", action="store_true", help="Build and print the per-dataset floors, then stop")
     parser.add_argument(
+        "--dataset-seed",
+        type=int,
+        default=DATASET_SEED,
+        help="Seed for generators that declare none, so the dataset instance is fixed across "
+        "runs (5 of the 6 redraw otherwise, which makes attribution non-reproducible). "
+        "spiral declares its own and keeps it. Changing this redefines the canonical instance "
+        "and invalidates comparisons with an existing sidecar.",
+    )
+    parser.add_argument(
         "--no-cross-dataset-floor",
         dest="cross_dataset_floor",
         action="store_false",
@@ -610,7 +675,8 @@ def main(argv: "list[str] | None" = None) -> int:
             return 2
         return _report(rows, args)
 
-    datasets = load_datasets(args.data_root or default_data_root())
+    datasets = load_datasets(args.data_root or default_data_root(), seed=args.dataset_seed)
+    print(f"dataset seed: {args.dataset_seed} (applied only to generators declaring none; spiral keeps its own)", file=sys.stderr)
     if not datasets:
         print("ERROR: no usable datasets; nothing to attribute against", file=sys.stderr)
         return 2
