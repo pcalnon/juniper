@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-24
 # Status:      ad-hoc -- one-off (juniper-cascor#532 attribution bisect)
-# Retire when: #532's attribution is written up in the evidence note and merged; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: #532's attribution is written up in the evidence note and merged; delete then.
 # Related:     util/ad-hoc/2026-08-20_determinism_arm.bash (runs one arm);
 #              util/ad-hoc/2026-08-24_seedvar_analysis.py (reads what this produces);
 #              util/ad-hoc/2026-08-21_cascor_seeds_and_balance_diag.patch (the instrument).

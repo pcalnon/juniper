@@ -7,7 +7,7 @@
 # Created:     2026-08-24
 # Status:      ad-hoc -- one-off (juniper-cascor#532 attribution: did candidate seeds vary
 #              run-to-run on the pre-#566 direct-CLI path?)
-# Retire when: #532's attribution is written up in the evidence note and merged; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: #532's attribution is written up in the evidence note and merged; delete then.
 # Related:     util/ad-hoc/2026-08-21_cascor_seeds_and_balance_diag.patch (emits the lines);
 #              util/ad-hoc/2026-08-20_determinism_arm.bash (produces the run layout);
 #              util/ad-hoc/2026-08-20_determinism_nrun.py (fingerprint-level comparison).
