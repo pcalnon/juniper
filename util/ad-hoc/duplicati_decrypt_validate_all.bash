@@ -62,7 +62,11 @@ echo
 echo "validated  : ${total} volumes in $(( $(date +%s) - start ))s"
 echo "failures   : ${bad}"
 if (( bad == 0 )); then
-    echo "RESULT: ALL VOLUMES DECRYPT-VALID (full MDC verification)"
+    if [[ "${ENCRYPTION}" == "aes" ]]; then
+        echo "RESULT: ALL VOLUMES DECRYPT-VALID (full HMAC verification)"
+    else
+        echo "RESULT: ALL VOLUMES DECRYPT-VALID (full MDC verification)"
+    fi
     exit 0
 fi
 echo "RESULT: ${bad} INVALID VOLUME(S)"
