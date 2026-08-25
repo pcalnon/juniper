@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-17
 # Status:      ad-hoc — migration
-# Retire when: all publish environments carry the policy set and a drift gate enforces it.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: all publish environments carry the policy set and a drift gate enforces it.
 # Related:     notes/JUNIPER_2026-08-17_JUNIPER-ECOSYSTEM_PUBLISH-PATH-AUTHORIZATION-DESIGN.md §6 Option A / §7 P1
 #              Owner decisions D2 (patterns) + D3 (tag-only, main NOT allowed), 2026-08-17.
 #

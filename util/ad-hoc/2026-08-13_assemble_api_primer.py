@@ -5,7 +5,7 @@ Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-13
 Status: ad-hoc -- one-off (document build)
-Retire when: the primer has been assembled and merged; the fragments are transient
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the primer has been assembled and merged; the fragments are transient
              build inputs and are not retained in the repository.
 Related: notes/JUNIPER_2026-08-13_JUNIPER-ECOSYSTEM_API-DESIGN-AND-IMPLEMENTATION-PRIMER.md
 
