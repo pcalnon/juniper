@@ -5,7 +5,7 @@ Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-13
 Status: ad-hoc -- investigation (documentation verification)
-Retire when: the primer's examples are moved into a real test suite, or the primer is retired.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the primer's examples are moved into a real test suite, or the primer is retired.
 Related: notes/JUNIPER_2026-08-13_JUNIPER-ECOSYSTEM_API-DESIGN-AND-IMPLEMENTATION-PRIMER.md
 
 The primer claims its examples are "fully functional". Documentation code rots faster than

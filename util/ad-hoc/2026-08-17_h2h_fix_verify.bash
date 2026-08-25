@@ -7,7 +7,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-17
 # Status:      ad-hoc -- one-off (2x remediation validation)
-# Retire when: the fix is merged and the root-cause note is written; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the fix is merged and the root-cause note is written; delete then.
 # Related:     2026-08-17_h2h_thread_probe.bash; e-k-thread-probe-cap16.yaml.
 #
 # Reuses the E-K cell config, so this run shares dataset AND network initialisation with the

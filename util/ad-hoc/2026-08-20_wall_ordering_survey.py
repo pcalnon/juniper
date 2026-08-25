@@ -29,7 +29,7 @@ Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-20
 Status: ad-hoc -- investigation
-Retire when: the ordering gate lands in tests/test_experiment_suite_yamls.py and this
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the ordering gate lands in tests/test_experiment_suite_yamls.py and this
              survey is reproducible from that gate's own helper.
 Related: HANDOFF_2026-08-18_cli-experimentation-unowned-tasks.md T1; ml#1142; ml#1152
 """

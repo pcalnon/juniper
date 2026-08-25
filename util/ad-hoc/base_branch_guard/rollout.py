@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-20
 Status:      ad-hoc -- migration (one-off fan-out)
-Retire when: the guard is present on all 9 repos and ml#434 is closed.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the guard is present on all 9 repos and ml#434 is closed.
 Related:     ml#434; util/open_signed_pr.py;
              notes/JUNIPER_2026-08-20_JUNIPER-ECOSYSTEM_PR-BASE-BRANCH-GUARD-AUDIT.md
 
