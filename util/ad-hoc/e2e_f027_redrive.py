@@ -51,6 +51,7 @@ _spec.loader.exec_module(_w3)
 
 log = _w3.log
 http_get = _w3.http_get
+http_post = _w3.http_post
 open_dashboard = _w3.open_dashboard
 
 CAND_TAB = "Candidate Metrics"
@@ -1116,6 +1117,127 @@ def step_brefresh(page, capture):
     )
 
 
+def step_f025(page, capture):
+    """F-CANOPY-025 allow-arm, post-Stage-2: does the Live Switch gate OPEN?
+
+    Hypothesis: the gate callback consumes ``training-status-store``, whose old
+    dedicated poller rewrote it every fast tick — the same claimed-Input
+    promotion race Stage 2 removed (the store is now written by the status-bar
+    callback and suppressed on no-change). Preconditions are set via HTTP
+    BEFORE attach (experimental flag ON + training started), so at mount both
+    gate inputs are live and one attach-window read answers the arm the deny
+    trap hid for five segments.
+    """
+    log("STEP f025 -- Live Switch gate allow-arm (post-Stage-2)")
+    code, body = http_post("/api/admin/experimental_functions", {"enabled": True})
+    log(f"  experimental_functions ON -> {code} {json.dumps(body)[:120]}")
+    code, body = http_post("/api/train/start", {})
+    log(f"  train/start -> {code} {json.dumps(body)[:120]}")
+    for _ in range(8):
+        time.sleep(1)
+        if http_get("/api/status", timeout=30)[1].get("is_running"):
+            break
+    log(f"  /api/status: {json.dumps({k: v for k, v in http_get('/api/status', timeout=30)[1].items() if k in ('is_running', 'phase')})}")
+    # RELOAD so the one-shot flag reconciliation runs AFTER the flag was set —
+    # the initial attach's reconcile read the pre-POST state, and the flags
+    # store only hydrates at mount. The reload also resets the attach window.
+    page.reload(wait_until="domcontentloaded", timeout=60_000)
+    page.wait_for_timeout(12000)
+    state = page.evaluate(
+        """() => { const b = document.getElementById('live-dataset-switch-button');
+             return {disabled: b ? b.disabled : null}; }"""
+    )
+    log(f"  post-reload early read: {json.dumps(state)}")
+    page.wait_for_timeout(2000)
+    state = page.evaluate(
+        """() => { const b = document.getElementById('live-dataset-switch-button');
+             return {present: !!b, disabled: b ? b.disabled : null,
+                     text: b ? (b.innerText||'').trim() : null}; }"""
+    )
+    log(f"  live-dataset-switch-button attach-window read: {json.dumps(state)}")
+    # Then 60 s of pure python-side capture watching: the ORIGINAL finding was
+    # "zero responses ever carry live-dataset-switch-button across a 120 s
+    # watch" — any gate POST now (with is_running:true + flag:true inputs in
+    # its body) refutes the never-fires observation.
+    t0 = time.time()
+    while time.time() - t0 < 60:
+        page.wait_for_timeout(3000)
+    gate_posts = [c for c in capture if "_dash-update-component" in (c.get("url") or "") and "live-dataset-switch-button.disabled" in (c.get("body") or "")]
+    log(f"  gate-callback POSTs (output live-dataset-switch-button.disabled): {[c['t_ms'] for c in gate_posts]}")
+    for c in gate_posts[:3]:
+        body = c.get("body") or ""
+        log(f"    inputs snippet: running={'\"is_running\": true' in body or '\"is_running\":true' in body} flag={'\"experimental_functions\": true' in body or '\"experimental_functions\":true' in body}")
+    # Post-window DOM re-read (page may be starved by now; failure is non-fatal evidence-wise).
+    try:
+        state2 = page.evaluate(
+            """() => { const b = document.getElementById('live-dataset-switch-button');
+                 return {disabled: b ? b.disabled : null}; }"""
+        )
+        log(f"  post-window read: {json.dumps(state2)}")
+    except Exception as exc:  # noqa: BLE001
+        log(f"  post-window read starved (expected under run load): {str(exc)[:80]}")
+
+
+def step_f025idle(page, capture):
+    """F-CANOPY-025 mechanism seal: at IDLE, does the gate fire at mount?
+
+    If the gate executes at idle (feeder round-trips ~30 ms → promotion gaps
+    everywhere) but never under a run (feeder ~always in flight → its output
+    store permanently claimed), the mechanism is the same claimed-Input
+    promotion race — via the feeder's in-flight window, which Stage 2's write
+    suppression cannot remove.
+    """
+    log("STEP f025idle -- gate mount/idle census")
+    st = http_get("/api/status", timeout=30)[1]
+    log(f"  /api/status: {json.dumps({k: st.get(k) for k in ('is_running', 'phase')})}")
+    t0 = time.time()
+    while time.time() - t0 < 30:
+        page.wait_for_timeout(3000)
+    gate_posts = [c["t_ms"] for c in capture if "_dash-update-component" in (c.get("url") or "") and "live-dataset-switch-button.disabled" in (c.get("body") or "")]
+    log(f"  gate-callback POSTs at idle (30 s incl. mount): {gate_posts}")
+    try:
+        state = page.evaluate("""() => { const b = document.getElementById('live-dataset-switch-button'); return {disabled: b ? b.disabled : null}; }""")
+        log(f"  button state: {json.dumps(state)}")
+    except Exception as exc:  # noqa: BLE001
+        log(f"  read starved: {str(exc)[:60]}")
+
+
+def step_f006(page, capture):
+    """F-CANOPY-006 post-Stage-2: does the topology graph render in the live lane?
+
+    The renderer was the 8-output callback forced at 1 Hz from every tab
+    (#509 gated it to tabpoll-topology; Stage 2 suppressed its metrics-store
+    chain). Attach-window reads of the counts, the figure, and the depth
+    slider — plus a request-side census of the renderer callback.
+    """
+    log("STEP f006 -- topology render (post-Stage-2)")
+    st = http_get("/api/status", timeout=30)[1]
+    log(f"  /api/status: {json.dumps({k: st.get(k) for k in ('is_running', 'phase', 'hidden_units')})}")
+    open_tab(page, "Network Topology")
+    page.wait_for_timeout(15000)
+    state = page.evaluate(
+        """() => { const fig = (() => { const root = document.getElementById('network-visualizer-graph');
+                     if (!root) return {present:false};
+                     const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+                     let n = -1; try { n = gd && gd.data ? gd.data.length : 0; } catch (e) {}
+                     const r = root.getBoundingClientRect();
+                     return {present:true, traces:n, w:Math.round(r.width), h:Math.round(r.height)}; })();
+             const counts = {};
+             for (const id of ['network-visualizer-input-count','network-visualizer-hidden-count','network-visualizer-output-count','network-visualizer-connection-count']) {
+               const el = document.getElementById(id); counts[id.replace('network-visualizer-','')] = el ? (el.innerText||'').trim() : null;
+             }
+             const s = document.querySelector('#network-visualizer-depth-slider [role=slider]');
+             const label = document.getElementById('network-visualizer-depth-label');
+             return {fig: fig, counts: counts,
+                     slider: s ? {now: s.getAttribute('aria-valuenow'), max: s.getAttribute('aria-valuemax')} : null,
+                     depth_label: label ? (label.innerText||'').trim() : null}; }"""
+    )
+    log(f"  topology at ~t+15s: {json.dumps(state)[:500]}")
+    render_posts = [c["t_ms"] for c in capture if "_dash-update-component" in (c.get("url") or "") and "network-visualizer-graph" in (c.get("body") or "")[:800]]
+    log(f"  renderer-callback POSTs: {render_posts[:10]} (n={len(render_posts)})")
+    shot(page, "F006-REDRIVE__topology.png")
+
+
 STEPS = {
     "idle": step_idle,
     "start": step_start,
@@ -1131,6 +1253,9 @@ STEPS = {
     "bcausal": step_bcausal,
     "btoggle": step_btoggle,
     "brefresh": step_brefresh,
+    "f025": step_f025,
+    "f025idle": step_f025idle,
+    "f006": step_f006,
 }
 
 
