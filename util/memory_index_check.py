@@ -124,6 +124,8 @@ def default_memory_file(root: Path) -> Path:
         if p.returncode == 0 and p.stdout.strip():
             main = Path(p.stdout.strip()).parent
     except OSError:
+        # Git may be unavailable or not executable in some environments;
+        # intentionally fall back to `root` (set above) for path derivation.
         pass
     slug = str(main).replace("/", "-")
     return Path.home() / ".claude" / "projects" / slug / "memory" / "MEMORY.md"
