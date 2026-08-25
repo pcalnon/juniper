@@ -28,6 +28,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and replaying canned stdout; no network, repo, or `git`). `util/` sits outside every pre-commit
   Python hook's scope, so this is the gate. Wired into `ci.yml`.
 
+### Added
+
+- **`util/ad-hoc/2026-08-24_bot_pr_census.py`**, **`_bot_pr_merge_sweep.py`**, **`_bot_pr_converge.py`** —
+  the three-stage tooling used for the 2026-08-24 fleet dependabot sweep (24 bot PRs merged across
+  all 9 repos, zero left open). Census enumerates, sweep arms GitHub-native auto-merge, converge
+  drives the survivors. Each carries a guard earned by a defect found during that sweep:
+  - **Census retries `gh`.** juniper-cascor-client returned a graphql i/o timeout and would have
+    been recorded as *zero* bot PRs; it had two. A network failure is not an answer — the
+    silently-skipped-repo class of ml#1305.
+  - **Sweep gates on REQUIRED contexts, not the rollup.** ml#1304 showed five checks, all
+    `Cursor Automation … skipping`, and read as clean while **0 of its 17 required contexts had
+    ever run** — it is authored by `app/github-actions`, and GitHub does not let `GITHUB_TOKEN`
+    PRs trigger workflows. A vacuous green on a *write* path is how untested code merges.
+  - **Sweep refuses any repo whose `allow_auto_merge` is false**, where `--auto` silently degrades
+    to an immediate merge that, under the owner's ruleset bypass, can land unfinished checks.
+  - **Converge exists only because `strict_required_status_checks_policy: true` is paired with
+    `allow_update_branch: false`** on all 9 repos. GitHub's auto-merge cannot clear `BEHIND`, and
+    every sibling merge causes it, so 10 of 17 armed PRs stalled indefinitely. Converge issues the
+    `update-branch` GitHub will not, then lets the already-armed auto-merge fire. **Setting
+    `allow_update_branch: true` retires this script**; its header says so.
+- `util/ad-hoc/retired/2026-08-24_{await_pr_merge,await_main_verify,bot_pr_sweep_watch,ml_pr_converge}_RETIRED-2026-08-25.*` —
+  four one-off drivers from the same day, retired per the #928 precedent rather than deleted; their
+  headers now record what each produced, including the `Allow-Symbol-Loss` waiver surviving ml#1316's
+  squash and the armed-but-`BEHIND` split that exposed the config deadlock above.
+
 ### Changed
 
 - Widened the `recurrence` extra's `juniper-recurrence` ceiling to admit the released next minor:
