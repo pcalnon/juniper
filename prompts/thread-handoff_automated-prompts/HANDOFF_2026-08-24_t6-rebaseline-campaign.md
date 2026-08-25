@@ -80,6 +80,44 @@ helper and five tests landed). But:
 
 ### 0.2 Open work this session created and did not finish
 
+> **STATUS 2026-08-25 — five of the six bullets below are CLOSED. One is still open.**
+> The bullets are left exactly as written; this banner is the current answer.
+>
+> | # | bullet | status |
+> |---|---|---|
+> | 1 | `h2h_wide_nrot3.yaml` **durability risk / relocation** | **STILL OPEN — owner decision.** Untouched deliberately. Exposure re-counted 2026-08-24: **7 suite YAMLs plus `util/ad-hoc/2026-08-16_h2h_preflight.py`**. |
+> | 2 | that file's **arm-equalisation taxonomy** | **CLOSED** — ml#1316 (`2a914f7bc`). |
+> | 3 | cascor **`_resolve_cli_overrides` docstring** | **CLOSED** — cascor#580 (`b3819e343`). |
+> | 4 | **L-item ledger** not updated by either T5 PR | **CLOSED** — ml#1316 added **§10** to the F-P1-3 doc. |
+> | 5 | **invisible INVERTED cascor suite** | **CLOSED** — ml#1316. |
+> | 6 | **gate's own stale text, two places** | **CLOSED** — ml#1316, both places. |
+>
+> **Three corrections to the bullets themselves**, found while closing them — the bullets
+> understate the problem in each case, so do not use them as the specification:
+>
+> 1. **Bullet 2 names three keys; it is SIX.** cascor#556 also mapped
+>    `candidate_learning_rate`, `convergence_threshold` and `candidate_convergence_threshold`
+>    — all three sit in the file's OMIT bucket. That bucket's *premise* is therefore void, not
+>    just its labels: pre-#556 omitting a key equalised the arms, post-#556 it leaves each arm
+>    on its own default, and #556's commit note records two of those defaults differing by
+>    **2x and 100x**. The taxonomy is marked STALE-pending-re-derivation rather than relabelled,
+>    and **no param value was changed** — seven suites inherit this file.
+> 2. **Bullet 2's non-inheritance rationale is now void too.** The file says it must not inherit
+>    `spiral-baseline.yaml` *because* the CLI cannot receive `candidate_patience`. It can now.
+>    The `base_config` is nonetheless unchanged — re-pointing it would re-measure seven suites.
+> 3. **Bullet 5's fix is not "raise the timeout".** The author's `1800` was preserved and moved
+>    onto the mechanism that writes a manifest: `execution.max_wall_seconds: 1800` with
+>    `per_run_timeout_seconds: 2700` as the outer backstop. Raising the timeout to clear 3600
+>    would have doubled the cell cost the author never asked for.
+>
+> **The blindness that hid bullet 5 is also closed.** `util/ad-hoc/2026-08-20_wall_ordering_survey.py`
+> gained an **AD-HOC section** (ml#1316) reporting suite-shaped YAML under `util/ad-hoc/`. The **gate
+> is deliberately NOT extended** — hard-failing CI on scratch files would make `util/ad-hoc/`
+> un-scratch — so defects there are reported, never enforced.
+>
+> **§0.1 (T3) is untouched.** All three of its residuals remain open, including the unreleased
+> `install_hint`. **§1 (T6 itself) is untouched** — the re-baseline was never run; see the banner there.
+
 - **`util/ad-hoc/2026-08-16_h2h_wide_nrot3.yaml` — durability risk, still an owner decision.**
   Predecessor §1.6 raised it 2026-08-17 ("Relocating it is a **Paul decision**"). Exposure has since
   grown from 5 shipped suites to **7** (ml#1278 added `p4/e-m-h2h-paired-cap64.yaml` and
@@ -114,8 +152,29 @@ helper and five tests landed). But:
 
 ## 1. T6 — what it is, and what is actually left
 
-**Goal**: publish an E-A / E-I / E-C spiral surface measured against **one** cascor code state, so
-the three grids are comparable **to each other**.
+> **STATUS 2026-08-25 — T6 STILL OWED. Not started; nothing below is superseded.**
+> No suite was run, no GPU hour was spent, and **attempt 1 remains the only data on disk**.
+> §1.3's warning stands in full: do **not** `--resume` it.
+>
+> **Blocked on §2.1's quiet-host criterion, which was never met.** Probed 2026-08-24 04:30:
+> 15-minute load average **12.43** on 16 cores against a bar of ~4, with `duplicati` at
+> **81% CPU for 2 days 12 hours**. Two things worth knowing before re-probing:
+>
+> - That `duplicati` is **not** the scheduled lane and no timer will clear it. Its PPID is
+>   `gnome-shell` — a hand-launched desktop job, started 2026-08-21 16:25. Meanwhile
+>   `duplicati-backup.service` had **failed** (exit 100, mem peak 27.3 G) and its timer is
+>   `disabled`. §2.1 already says to check `ps` as well as `systemctl`; this is why.
+> - Everything else in §2.1 **passed**: all three experiment port ranges clear, the reaper
+>   clean (0 orphans, 0 protected), and `experiment_stack.bash --status` showing nothing live.
+>   The host CPU was the only failing gate.
+>
+> **The §2.3 cascor gap was ZERO at probe time** — checkout HEAD == `origin/main` == `4a92082`,
+> tree clean. That is the cleanest possible pin, and it decays: cascor moved 19 commits in the
+> three days before. **Re-derive it per §2.3 anyway** — this line is a dated observation, not
+> a standing answer.
+>
+> §0.2's residual list *is* largely closed — see the banner there — but that is bookkeeping
+> around T6, not T6.
 
 **Why**: cascor#514 made `candidate_patience` / `candidate_convergence_threshold` actually reach the
 candidate pool, and `spiral-baseline.yaml` sets `candidate_patience: 100`. R-5 §5.1
