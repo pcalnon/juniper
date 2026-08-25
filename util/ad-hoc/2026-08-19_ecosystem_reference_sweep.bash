@@ -6,7 +6,7 @@
 # Author: Paul Calnon
 # Created: 2026-08-19
 # Status: ad-hoc — investigation (reusable; produced the snapshot-directory move's reference list)
-# Retire when: superseded by a real cross-repo symbol/reference index.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: superseded by a real cross-repo symbol/reference index.
 # Related: notes/JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_SNAPSHOT-LIFECYCLE-MANAGEMENT-DESIGN.md,
 #          juniper-cascor#536, juniper-cascor#537
 #

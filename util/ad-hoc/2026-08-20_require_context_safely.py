@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-20
 Status:      ad-hoc -- migration (base-branch-guard rollout, ml#434 part 2)
-Retire when: a general ruleset editor exists in util/ proper, or the rollout is done.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: a general ruleset editor exists in util/ proper, or the rollout is done.
 Related:     ml#434; util/ad-hoc/2026-08-18_promote_sequence_safety.py;
              util/ad-hoc/2026-08-19_sequence_safety_context_rename.py;
              util/ad-hoc/2026-08-20_add_required_context.py;

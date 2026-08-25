@@ -7,7 +7,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-14
 # Status:      ad-hoc -- one-off (F-P1-3 fix verification)
-# Retire when: F-P1-3 is written up and the cascor fix is merged; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: F-P1-3 is written up and the cascor fix is merged; delete then.
 # Related:     control arm 2026-08-14_fp13_control_tkagg.bash; P1 finding F-P1-3 / F-P1-3b
 #
 # Differs from the control arm in two ways: the cascor checkout is a parameter (so the FIXED

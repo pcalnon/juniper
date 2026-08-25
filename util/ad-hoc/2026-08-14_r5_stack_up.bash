@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-14
 # Status:      ad-hoc -- one-off (R-5 helper)
-# Retire when: R-5 is written up and merged; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: R-5 is written up and merged; delete then.
 #
 # The direct CLI needs juniper-data (SpiralDataProvider), and experiment_stack.bash --up
 # requires an app arm, so --cascor is used purely to get a data service; the cascor process

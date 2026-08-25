@@ -6,7 +6,7 @@ Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-23
 Status: ad-hoc — methodology check for handoff item 2
-Retire when: the attribution design is settled.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the attribution design is settled.
 Related: 2026-08-23_dataset_attribution_signal_probe.py,
          2026-08-23_attribution_untrained_control.py
 
