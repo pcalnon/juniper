@@ -36,16 +36,25 @@ Job splicing is a TEXT operation, deliberately: a PyYAML round-trip would strip
 every comment, and in these workflows the comments carry the rationale (why the
 job is standalone, why a flag is absent) that is the actual institutional memory.
 
+``measure-growth`` exists because P5's ordering rule is "order by RATE, not size" and
+a rate is not obtainable from any other tool here. Unlike ``MEMORY.md``, a repo's
+``AGENTS.md`` IS tracked, so the burn can be measured rather than assumed -- which is
+how cascor (730 chars/day) turned out to be nine times canopy's rate (81/day) despite
+having the smaller file.
+
 Usage:
     python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py adapt-test <test.py> --depth 2
     python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py insert-job <ci.yml> <job.yml> --before required-checks
+    python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py measure-growth <repo-path> --days 30
 """
 
 from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 DEPTH_RE = re.compile(r"^REPO_ROOT = Path\(__file__\)\.resolve\(\)\.parents\[(\d+)\]$", re.MULTILINE)
@@ -56,8 +65,12 @@ DEPTH_RE = re.compile(r"^REPO_ROOT = Path\(__file__\)\.resolve\(\)\.parents\[(\d
 # `# nosec B603,B607` suppressed B607 and left B603 still reported, while
 # `# nosec B603 B607` suppressed both. The comma form is the dangerous one precisely
 # because it PARTIALLY works -- the count drops, so it reads as though the annotation
-# took effect. juniper-ml's own copy uses the comma form and passes only because ml's
-# bandit never raises B603 there.
+# took effect.
+#
+# juniper-ml's own copy uses the comma form and passes, but NOT because the annotation
+# works there: ml's hook passes `--skip=B101,B108,B311,B404,B603,B604,B607` and is scoped
+# to `^(scripts|tests)/`, so B603/B607 are disabled repo-wide and every comma-form
+# suppression in ml is INERT. Do not read ml's copy as evidence the comma form works.
 NOSEC_SITES = [
     (
         '["git", "-C", str(repo), *args],',
@@ -133,6 +146,61 @@ def insert_job(workflow: Path, block: Path, before: str) -> int:
     return 0
 
 
+def measure_growth(repo: Path, days: int) -> int:
+    """Report a repo's AGENTS.md burn from git, so a ceiling's slack can be sized.
+
+    Every figure a ceiling depends on goes stale fast -- the plan said canopy was
+    94,373, a handoff said 93,151, and it was 95,133 when the gate was seeded. So
+    this measures rather than reports: run it, do not quote it.
+    """
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    p = subprocess.run(
+        ["git", "-C", str(repo), "log", f"--since={since}", "--format=%H", "--reverse", "--", "AGENTS.md"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if p.returncode != 0:
+        print(f"error: git log failed in {repo}: {p.stderr.strip()}", file=sys.stderr)
+        return 2
+    shas = p.stdout.split()
+    if len(shas) < 2:
+        print(f"only {len(shas)} commit(s) touched AGENTS.md since {since}; widen --days")
+        return 0
+
+    sizes = []
+    for sha in shas:
+        out = subprocess.run(
+            ["git", "-C", str(repo), "show", f"{sha}:AGENTS.md"],
+            capture_output=True,
+            check=False,
+        )
+        if out.returncode == 0:
+            sizes.append(len(out.stdout.decode("utf-8", errors="replace")))
+    if len(sizes) < 2:
+        print("AGENTS.md not resolvable at enough commits; widen --days")
+        return 0
+
+    deltas = [b - a for a, b in zip(sizes, sizes[1:])]
+    grew = sorted(d for d in deltas if d > 0)
+    shrank = [d for d in deltas if d < 0]
+    net = sizes[-1] - sizes[0]
+
+    print(f"repo    : {repo.name}")
+    print(f"window  : last {days} days, {len(sizes)} commits touching AGENTS.md")
+    print(f"size    : {sizes[0]} -> {sizes[-1]}   net {net:+}")
+    print(f"rate    : {net / max(days, 1):.0f} chars/day")
+    print(f"commits : {len(grew)} grew, {len(shrank)} shrank")
+    if grew:
+        median = grew[len(grew) // 2]
+        p90 = grew[max(0, int(len(grew) * 0.9) - 1)]
+        print(f"growth  : median {median}  p90 {p90}  max {grew[-1]}")
+        print()
+        print(f"=> slack must absorb a single growing commit: >= {grew[-1]} covers the largest seen.")
+        print("   A ceiling with ZERO slack fires on the next growing PR by construction.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -146,9 +214,15 @@ def main() -> int:
     i.add_argument("block", type=Path)
     i.add_argument("--before", default="required-checks")
 
+    g = sub.add_parser("measure-growth", help="AGENTS.md burn from git, for sizing a ceiling's slack")
+    g.add_argument("repo", type=Path)
+    g.add_argument("--days", type=int, default=30)
+
     args = ap.parse_args()
     if args.cmd == "adapt-test":
         return adapt_test(args.path, args.depth)
+    if args.cmd == "measure-growth":
+        return measure_growth(args.repo, args.days)
     return insert_job(args.workflow, args.block, args.before)
 
 
