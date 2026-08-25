@@ -7,8 +7,9 @@ plus the four **instrument laws** in the evidence note's *Stage 2 shipped* secti
 `changedPropIds` causal attribution + its 4000-char truncation trap; value-change subscribes are blind to
 identical rewrites; `nohup setsid` for any probe longer than ~5 min — the task lease killed two mid-harvest).
 
-**The headline: this arc has closed F-CANOPY-027 (Stage 2 = canopy#511), -006, -025 (canopy#514), -002
-(canopy#515), and -031 (canopy#517, in flight) since the last handoff. One P0 remains open in the whole
+**The headline: this arc has closed F-CANOPY-027 (Stage 2 = canopy#511), -006 (by verification — the
+#507+#509+#511 series had already fixed it, no new code), -025 (canopy#514), -002 (canopy#515), and -031
+(canopy#517 `9dcbb77a`) since the last handoff. One P0 remains open in the whole
 ledger — F-CANOPY-005 — and its FIX is already written and in CI (canopy#518); only its live verification
 is owed, queued behind the T6 GPU window.**
 
@@ -77,19 +78,48 @@ demands it, escalate the ordering to Paul rather than deciding unilaterally.
    changed, coordinate), **-035** (P1: loss plot reads `epochs/losses/phases` that `/api/state` never
    serves in any lane — repoint at `/api/metrics/history`, which has 4,106 candidate-phase rows/run).
    Then F-CASCOR-001 (file as a cascor issue) and F-ML-001 (reaper pidfile/port exclusion, juniper-ml).
-5. **P2/cleanup when convenient**: -034 (delete the inert store + regen `metrics_panel.txt` snapshot),
-   -036 (pool-history promotion race; the dead-click test is READY at
-   `e2e_f027_redrive.py --step cardsprobe`), -013 (two one-line envelope fixes), -026 (tz), -018, etc.
+   **Also in this tier, DO NOT DROP: F-CANOPY-008 (P0/P1)** — the `/ws/control` CSRF first-frame gate
+   leaks a per-IP connection slot on ALL FIVE reject arms (`close(1008); return` without
+   `release_connection_limits()`; five stale-token rejections permanently lock the control plane until a
+   canopy restart, reachable with zero malice — proven live, entry `:647-680`); fix = release on every
+   reject arm, and confirm the entry's deferred registration/metric-leak inference while there. **And
+   F-CANOPY-004 (P0/P1) needs a FINDING-level disposition, not just row re-drives**: post-Stage-2 the
+   numbers are materially better (interaction renders 3–16 s; fresh-session population 20–40 s) — take an
+   owner decision: accept-and-document a latency contract (close with the numbers) or open the
+   WS-migration workstream (JR-CAN-PERF-004); its rows re-drive after that call.
+5. **P2 dispositions are the OWNER's call (§6.3)** — present Paul the open-P2 set (-001, -012, -015,
+   -018, -026, -028, -032, -033, -034, -036, -013, F-CASCOR-002) for fixed-vs-deferred sign-off;
+   execution order after approval is yours. Ready-made pieces: -034 (delete the inert store + regen
+   `metrics_panel.txt`), -036 (the dead-click test is READY at `e2e_f027_redrive.py --step cardsprobe`),
+   -013 (two one-line envelope fixes). The LEDGER pair F-E2E-004/-005 (harness-class) folds naturally
+   into the F-ML-001 PR or closes as documented — give it an explicit disposition either way.
 6. **Row re-drives owed** (each needs the stack, so post-T6): M-TOPOLOGY-01..18 + W4 + W1-12..14 (F-006's
-   blocker gone), C2.10-03 (W7 confirm/swap), the F-CANOPY-004 latency-class rows.
-7. **Phase 3** (plan §6.4, the `ui_live` suite) — entry condition "P0/P1 closed" is nearly met; do not
-   start early.
+   blocker gone), C2.10-03 (W7 confirm/swap), **M-SNAPSHOTS-20/-21 — NEWLY REACHABLE**: they need a real
+   dataset-swap event, whose UI entry F-CANOPY-025 killed and canopy#514 restored (drive the Live Switch
+   end-to-end and these two come with it), M-DATASET-14 (theme-flip re-drive owed regardless of fixes),
+   and the F-CANOPY-004 latency-class rows (after item 4's disposition). **M-DATASET-17..26 (10 BLOCKED
+   rows) still await the owner's DEMO-lane / 3-D-posture scoping decision** — surface it; do not drive
+   around it.
+7. **Phase 3** (plan §6.4, the `ui_live` suite) — entry condition is "every P0/P1 closed or
+   owner-deferred": 13 P0/P1-tier findings remain open (1 P0 · 2 P0/P1 · 10 P1), so it is NOT near —
+   items 3–4 are the path there. Do not start early.
+8. **Phase 4 (plan §6.5) — still owed, do not lose it again**: the docs-truth-up batch per §11 — the
+   D-ledger divergences (D-1 three-writers, D-2, D-3 replay-interval base, D-5 flag-default comment; D-0
+   rides the -011 fix), the observation batch (OBS-1 About-vs-health version — About renders "App
+   Version: 2.2.0" vs `/v1/health` `0.4.0`; `stream_health` recovery value `"healthy"` not `"ok"`; the
+   depth-label "0 of N" cosmetic), and the closeout note against §13's acceptance criteria once Phase 3
+   lands.
 
 ## Key context (hard-won this session; supplements the standing traps)
 
 - **The worktree-isolation hook** rejects compound commands mentioning other repos' paths — run single
   commands, or `git -C <path>` one at a time. The ml session-worktree can't `cd` out; canopy work happens
   in centralized worktrees via `git -C`.
+- **The PRIMARY juniper-ml checkout (`/home/pcalnon/Development/python/Juniper/juniper-ml`) is STALE**
+  behind `origin/main` — this session's isolation could not ff it. Its notes/matrix/driver copies predate
+  every closure since ~#1350; never read arc state from it. Sync it (`git checkout main && git pull
+  --ff-only origin main`, only if its tree is clean — the F-6 guard) or work exclusively from a fresh
+  worktree.
 - **ml worktree sync after your own squash-merge**: git refuses the ff over your identical uncommitted
   copies — verify byte-equality vs origin/main (`git diff origin/main -- <files>` empty), then
   `git checkout HEAD -- <files>`, delete untracked news, ff. Never blind-restore.
@@ -113,10 +143,12 @@ demands it, escalate the ordering to Paul rather than deciding unilaterally.
 
 ## Git state at handoff
 
-juniper-ml `origin/main` = `84d4712` (my ml records through F-CANOPY-002 are merged; the ml session
-worktree is clean at it except this handoff file). juniper-canopy `origin/main` = `9dcbb77a` (**#517/f031 merged at handoff time**); **open PR: #518 (f005
-fix, CI in flight)** — mine, squash-merge candidate under the arc policy; #505/#506 dependabot;
-#512/#513/#516 cursor drafts (not mine). Isolated stack DOWN,
-all ports free, 8211 = the live deploy container (never touch). No uncommitted work besides this file.
+Shas below were main during this session; several sessions land PRs continuously, so take truth ONLY from
+a fresh fetch. juniper-ml: my ml records through F-CANOPY-002 merged at `84d4712` (other sessions have
+appended commits since — none touching the E2E ledger/matrix). juniper-canopy: **#517/f031 merged as
+`9dcbb77a`**; Paul's #516 (memory-budget ratchet port) merged independently this morning. **Open canopy
+PR: #518 (f005 fix, CI in flight)** — mine, squash-merge candidate under the arc policy; #512/#513 are
+cursor drafts (not mine). Isolated stack DOWN, all ports free, 8211 = the live deploy container (never
+touch). No uncommitted arc work outstanding.
 **`origin/main` moves several times a day — always branch from a freshly fetched `origin/main`, and
 re-derive every line anchor before relying on it.**
