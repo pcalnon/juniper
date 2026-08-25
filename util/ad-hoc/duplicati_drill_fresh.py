@@ -98,6 +98,15 @@ def gpg_decrypt(src, dst, passphrase):
         fail(f"gpg failed on {os.path.basename(src)}: {proc.stderr.decode(errors='replace')[:300]}")
 
 
+def aes_decrypt(src, dst, passphrase):
+    # SharpAESCrypt: password on argv (accepted single-user-host deviation);
+    # rc 3 = HMAC mismatch, rc 4 = wrong password.
+    proc = subprocess.run(["duplicati-aescrypt", "d", passphrase, src, dst],
+                          capture_output=True, check=False)
+    if proc.returncode != 0:
+        fail(f"aescrypt rc={proc.returncode} on {os.path.basename(src)}: {proc.stderr.decode(errors='replace')[:200]}")
+
+
 def sha256_file(path):
     h = hashlib.sha256()
     with open(path, "rb") as fh:
@@ -276,7 +285,11 @@ def main():
     ap.add_argument("--backup-start-epoch", type=int, default=1787523309,
                     help="2026-08-23T17:15:09-05:00; live mtime BEFORE this + divergence = contradiction")
     ap.add_argument("--select-only", action="store_true", help="stop after writing candidates.json")
+    ap.add_argument("--encryption", choices=["gpg", "aes"], default="gpg")
     args = ap.parse_args()
+    global gpg_decrypt
+    if args.encryption == "aes":
+        gpg_decrypt = aes_decrypt
 
     dest = os.path.realpath(args.dest)
     if not os.path.ismount("/media/pcalnon/temp_backups"):

@@ -21,6 +21,7 @@ set -uo pipefail
 DEST="${1:-/media/pcalnon/temp_backups/Ubuntu}"
 CRED_FILE="${2:-${HOME}/.config/duplicati-backup/env}"
 CRED_KEY="${3:-PASSPHRASE}"
+ENCRYPTION="${4:-gpg}"   # gpg | aes (aes: SharpAESCrypt, rc3=HMAC mismatch rc4=bad password)
 
 mountpoint -q /media/pcalnon/temp_backups || { echo "FATAL: scratch fs not mounted" >&2; exit 2; }
 [[ -d "${DEST}" ]] || { echo "FATAL: no such destination ${DEST}" >&2; exit 2; }
@@ -33,17 +34,28 @@ echo "destination: ${DEST}"
 
 total=0; bad=0
 start="$(date +%s)"
+if [[ "${ENCRYPTION}" == "aes" ]]; then
+    GLOB='*.aes'
+else
+    GLOB='*.gpg'
+fi
 while IFS= read -r f; do
     total=$((total + 1))
-    if ! printf '%s\n' "${PASS}" | gpg --batch --quiet --pinentry-mode loopback \
+    if [[ "${ENCRYPTION}" == "aes" ]]; then
+        # password on argv: accepted deviation on this single-user host
+        if ! duplicati-aescrypt d "${PASS}" "${DEST}/${f}" /dev/null 2>/tmp/gpg_dv_err.$$; then
+            bad=$((bad + 1))
+            echo "DECRYPT FAIL: ${f} :: $(head -c 200 /tmp/gpg_dv_err.$$)"
+        fi
+    elif ! printf '%s\n' "${PASS}" | gpg --batch --quiet --pinentry-mode loopback \
             --passphrase-fd 0 --decrypt "${DEST}/${f}" > /dev/null 2>/tmp/gpg_dv_err.$$; then
         bad=$((bad + 1))
         echo "DECRYPT FAIL: ${f} :: $(head -c 200 /tmp/gpg_dv_err.$$)"
     fi
-    if (( total % 20 == 0 )); then
+    if (( total % 40 == 0 )); then
         echo "[$(( $(date +%s) - start ))s] validated ${total} volumes, ${bad} failures"
     fi
-done < <(find "${DEST}" -maxdepth 1 -name '*.gpg' -printf '%f\n' | sort)
+done < <(find "${DEST}" -maxdepth 1 -name "${GLOB}" -printf '%f\n' | sort)
 rm -f /tmp/gpg_dv_err.$$
 
 echo
