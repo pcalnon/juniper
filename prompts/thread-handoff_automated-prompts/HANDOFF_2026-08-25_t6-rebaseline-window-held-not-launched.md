@@ -145,10 +145,14 @@ obligation discharges by stating it plainly to Paul — by telling the owner, ne
 1. **"cli vs service"** (was `[ea2159]`): completed and verified g4's teardown, dropped its
    optional cap-4 round for T6, and **holds all CPU/GPU-heavy suites until T6 announces
    completion**. Owed: that announcement (or a succession notice if T6 is reassigned).
-2. **"canopy e2e phase2"** (was `[780adb]`): tore down the trio + chrome-headless at a clean
-   boundary; same hold. **Their F-CANOPY-005 live verification queues behind it** — leaving the
-   hold dangling blocks their arc. A canopy handoff was archived later that day (ml#1361), so
-   the hold may now belong to a successor session — re-establish, don't assume.
+2. **"canopy e2e phase 2"** (successor session, ref `f73927` as of 2026-08-25 evening): the
+   original holder (`[780adb]`) tore down the trio + chrome-headless at a clean boundary and
+   retired; its successor confirmed unprompted that **the hold transferred and stands** —
+   nothing of theirs touches the GPU or brings the isolated stack up until T6's completion
+   announcement, which should be addressed to that successor by name. **Their F-CANOPY-005
+   live verification queues behind the hold** — leaving it dangling blocks their arc. (Refs go
+   stale; if that name no longer resolves at announcement time, apply this section's terminal
+   fallback.)
 3. **"defect register"** (was `[3bdaa9]`): T6's message to them was **held for user approval and
    never confirmably delivered** (the 12 h idle-notice expired unanswered). If their
    forkserver-audit numbers look confused about pre-existing orphans: the two overnight cohorts
