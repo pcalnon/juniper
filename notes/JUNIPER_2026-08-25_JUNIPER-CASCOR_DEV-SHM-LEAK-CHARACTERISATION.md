@@ -9,9 +9,15 @@
 
 **Status**: FINDINGS — measured, read-only. Nothing was unlinked or killed in producing this.
 
-**Headline: the OPT-5 SharedMemory design is not defective, and the leak is ~371 KB.** What
-`/dev/shm` is actually recording is something more useful than a resource problem — an
-unintentional **ledger of hard-killed cascor training runs**, ten of them in eight days.
+**Headline: the OPT-5 SharedMemory design is not defective, and the leak is ~371 KB.** It fires
+when the service is **stopped while training is in progress** — a *graceful* shutdown that then
+escalates to SIGKILL because nothing waits for training to unwind (§6). `/dev/shm` is therefore
+an accidental **ledger of that event**: ten occurrences in eight days.
+
+**And it is the same root cause that produced cohort B** — the 273 truncated snapshot writes,
+the archive's only irrecoverable loss (§6.3). juniper-cascor#561 made those writes atomic, which
+is why cohort B stopped growing; the kill that caused them did not stop, and now shows up here
+instead.
 
 ---
 
@@ -86,7 +92,7 @@ the `multiprocessing` pool's, leaked because Python's `resource_tracker` never g
 **`atexit` is registered** (`atexit.register(self._cleanup_shared_memory)`), so a *normal* exit
 cleans up completely. Every object here therefore comes from a process that died **without
 running `atexit`** — SIGKILL, `os._exit`, or a crash. The leak is not a missing cleanup path; it
-is the unavoidable residue of a hard kill.
+is the residue of a process that never reached exit — §6 identifies exactly when and why that happens.
 
 ---
 
@@ -122,14 +128,13 @@ Any sweeper therefore needs **all** of: zero open fds, **and** an age threshold,
 **Not the disk.** 371 KB against 47 GB will never matter, and the growth rate (~1 event/day,
 ~46 KB/day) reaches ~17 MB a year.
 
-**The signal.** Each leaked pair is a receipt for a cascor training process that was hard-killed:
+**The signal.** Each leaked pair is a receipt for a training process that did not exit cleanly:
 **ten in eight days, ~1.25/day.** `/dev/shm` has been keeping this ledger by accident, and it is
-the only place it is written down. Candidate killers already documented in this repo — the orphan
-reaper (`util/reap_pytest_orphans.bash`, whose predicate catches healthy services), `KILL_WORKERS=1`,
-and experiment timeouts — are exactly the sort of thing that produces this residue.
+the only place the event is written down at all — the kill itself is logged nowhere.
 
 The actionable question is therefore **not** "how do we reclaim 371 KB" but **"why is roughly one
-cascor run a day dying without a clean shutdown?"**
+cascor run a day dying without a clean shutdown?"** — which §6 answers, and the answer is a real
+defect rather than an environmental accident.
 
 ### 5.1 Options, in order of value
 
@@ -144,7 +149,104 @@ cascor run a day dying without a clean shutdown?"**
 
 ---
 
-## 6. Reproducing
+## 6. ⚠ What is actually killing the runs — and it is NOT a hard kill
+
+§3 assumed the residue came from processes that were simply SIGKILLed. Chasing it produced a
+more specific and more useful answer: **the leak fires when the cascor service is stopped while
+training is in progress**, and the shutdown that produced it was *graceful*.
+
+### 6.1 The evidence, with a control
+
+`logs/juniper_cascor.log.1` ends mid-training and the rotated log opens on the shutdown sequence:
+
+```
+23:46:59  manager.py: disconnect         WebSocket disconnected (0 active, 0 pending)
+23:47:00  train_output_layer             Output Layer Training - Epoch 7960     <- log.1 ends here
+23:47:00,080  coordinator.py: stop_monitor    Health monitor thread stopped     <- new log opens
+23:47:00,083  coordinator.py: cancel_round    Current round cancelled
+23:47:00,083  coordinator.py: shutdown        WorkerCoordinator shut down
+23:47:00,084  manager.py: close_all           All WebSocket connections closed
+23:47:00,084  manager.py: shutdown            TrainingLifecycleManager shut down
+23:47:00,084  app.py: lifespan                JuniperCascor API shutting down
+```
+
+That is the **complete FastAPI lifespan shutdown**, in ~4 ms. Not a crash, not a signal death.
+
+**The control is what makes this conclusive.** The *next* service session (2026-08-25
+05:16→05:22) ran the byte-identical shutdown sequence — and produced **no leak**, because it had
+no training in progress (its log contains only WebSocket pings). Same shutdown path, training
+absent, no residue. Training present, residue.
+
+Two other hypotheses are eliminated outright:
+
+- **OOM: no.** The only journal hits since 08-17 are GNOME system-monitor icon-load errors that
+  merely contain the string `oom_reaper`. Zero real kills.
+- **Missing cleanup path: no.** `atexit.register(self._cleanup_shared_memory)` is registered, and
+  §3 shows the deferred-unlink logic is correct.
+
+### 6.2 The mechanism
+
+1. `util/juniper_chop_all.bash` sends **SIGTERM**, waits `SIGTERM_TIMEOUT` (**default 15 s**),
+   then escalates to **SIGKILL** (its lines 184-214).
+2. uvicorn runs the lifespan shutdown — the block above — and it completes in milliseconds.
+3. `TrainingLifecycleManager.shutdown()` does set the stop flag, but **does not wait for training
+   to unwind**:
+
+   ```python
+   self._stop_event.set()
+   ...
+   self._executor.shutdown(wait=False, cancel_futures=True)
+   self.logger.info("TrainingLifecycleManager shut down")
+   ```
+
+   `wait=False` returns immediately, and `cancel_futures=True` cancels only *queued* futures —
+   never the one already running. So the reassuring "shut down" line is emitted while training
+   may still be live.
+4. Training therefore has to notice `_stop_event` on its own. The mechanism for that exists —
+   `TrainingInterrupted` is raised from the training-loop callback (`manager.py:209`) — but
+   `train_output_layer`'s loop is a bare `for epoch in range(epochs):` with **no stop check**,
+   and `cascade_correlation.py` contains **zero** references to `_stop_event`. The only hook is
+   the throttled `on_epoch_callback`, fired every 25 epochs.
+5. Whatever keeps the interpreter alive past the lifespan — the candidate worker pool and its
+   forkserver children are the documented suspect (`_release_candidate_worker_pool` already warns
+   "forkserver children may survive this run") — outlasts the 15 s window.
+6. **SIGKILL.** `atexit` never runs, so the block in `_pending_shm_unlinks` and the pool's nine
+   semaphores survive.
+
+**How we know it was SIGKILLed rather than exiting cleanly:** the residue itself. A normal exit
+after that lifespan would have run `atexit` and unlinked everything. It did not, so the
+interpreter never reached exit. That is a deduction from the evidence, not a directly observed
+signal — the signal itself is not logged anywhere.
+
+### 6.3 ⚠ The same root cause produced cohort B
+
+This is the part worth carrying. **Cohort B — the 273 truncated snapshot writes, the archive's
+only irrecoverable loss — is what a SIGKILL during active training looks like on the write path.**
+`train_output_layer` calls `create_snapshot()` unconditionally, so a service killed mid-training
+is killed mid-write.
+
+juniper-cascor#561 made the writes atomic, which is why cohort B has stopped growing and sits at
+exactly 273 across every rebuild. But **#561 fixed the symptom, not the cause**: the kill that
+truncated those files still happens, roughly once a day, and `/dev/shm` is where it now shows up
+instead.
+
+### 6.4 What to fix, in order
+
+1. **`shutdown()` should wait, bounded.** `wait=False` is the defect: it makes the shutdown log
+   line a lie and guarantees the 15 s escalation whenever training is live. A bounded join
+   (a few seconds, well inside `SIGTERM_TIMEOUT`) would let the existing `TrainingInterrupted`
+   path do its job.
+2. **Give `train_output_layer` a stop check.** One `if` at the top of the epoch loop, against a
+   flag the lifecycle already sets, removes the dependency on a callback that fires only every
+   25 epochs and whose return value is discarded.
+3. **Only then consider raising `SIGTERM_TIMEOUT`** — raising it first would merely lengthen every
+   stop without fixing anything.
+
+None of this is implemented here; this document is the diagnosis.
+
+---
+
+## 7. Reproducing
 
 ```bash
 # The visible Juniper leak — du, never df (see 1.1)
