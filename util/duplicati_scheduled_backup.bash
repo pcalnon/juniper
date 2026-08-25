@@ -177,11 +177,35 @@ log "  destination ${DEST_URL}"
 log "  dbpath      ${DBPATH}"
 log "  tempdir     ${TEMP_DIR} (${TEMP_FSTYPE})"
 
+# GPGFlushError mitigations (2026-08-24; fixes 2 & 3 of
+# notes/JUNIPER_2026-08-24_JUNIPER-ECOSYSTEM_DUPLICATI-GPG-FLUSH-FAILURE-INVESTIGATION.md §9):
+#
+#   --gpg-encryption-switches=--compress-algo none
+#     Duplicati spawns gpg without --no-options, so ~/.gnupg/gpg.conf's
+#     "compress-algo ZLIB" governs -- deflating already-zip-compressed volumes
+#     at ~17 s of gpg CPU per 500 MB volume vs ~1.6 s without (measured).
+#     Disabling it shrinks the tail work inside GPGStreamWrapper's hardcoded
+#     5 s Join by ~10x. The command line overrides the conf file.
+#
+#   --asynchronous-upload-limit=1
+#     Encryption pre-starts at QUEUE time (BackendManager.cs:316 at the
+#     installed tag), so the default of 4 let >=6 gpg pipelines run
+#     concurrently and one host-global stall on 2026-08-23 missed the 5 s
+#     bound on ~6 volumes at once. A limit of 1 serializes uploads and
+#     shrinks the blast radius to ~1 volume. Upload is nowhere near the local
+#     bottleneck (~7 s/volume vs ~2 min to produce one), so the cost is
+#     negligible.
+#
+# The 5 s Join itself remains (upstream defect, unchanged since 2019), and a
+# miss is still unretryable by construction -- these two shrink the exposure,
+# they do not remove it. Do not remove them without re-reading the note.
 set +e
 duplicati-cli backup "${DEST_URL}" "${SOURCE_PATH}" \
     --dbpath="${DBPATH}" \
     --tempdir="${TEMP_DIR}" \
     --encryption-module=gpg \
+    "--gpg-encryption-switches=--compress-algo none" \
+    --asynchronous-upload-limit=1 \
     --compression-module=zip \
     --blocksize=1MB \
     --dblock-size=500MB \
