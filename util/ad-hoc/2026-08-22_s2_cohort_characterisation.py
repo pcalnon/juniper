@@ -7,7 +7,7 @@ Author: Paul Calnon
 Created: 2026-08-22
 Status: ad-hoc — investigation (evidence for S-2: "is the March–April 2026 cohort of
         retained research value?")
-Retire when: S-2 is decided and any retention policy lands under design §6.4.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: S-2 is decided and any retention policy lands under design §6.4.
 Related: notes/JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_SNAPSHOT-LIFECYCLE-MANAGEMENT-DESIGN.md
          (§6.2 index, §6.4 retention), util/snapshot_index.py
 

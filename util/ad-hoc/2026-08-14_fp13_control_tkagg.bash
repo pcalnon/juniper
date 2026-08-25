@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-14
 # Status:      ad-hoc -- one-off (F-P1-3 root-cause control)
-# Retire when: F-P1-3 is written up and merged; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: F-P1-3 is written up and merged; delete then.
 # Related:     P1 finding F-P1-3 / F-P1-3b; R-5 §2.1; runner 2026-08-14_r5_run_direct_cli.bash
 #
 # The TREATMENT arm (same runner, MPLBACKEND=Agg) completed in 39 s, exit 0. This arm changes
