@@ -293,7 +293,13 @@ ls ~/.local/state/juniper-experiments/t6-rebaseline-20260823T200328Z/
 # ^ attempt 1, reference only (do not --resume)
 ```
 
-**Git state at handoff:** _[filled at PR time — branch, PR number, merge status]_
+**Git state at handoff:** this document + the two launch scripts are the only changes, committed
+on branch `worktree-twinkly-nibbling-piglet` (worktree of the same name, cut at `7f3cb19`,
+behind a fast-moving `origin/main` — expected) and open as **ml#1371** against `main`. Merge
+awaits Paul's per-PR approval (headless-merge policy); until it merges, the two scripts exist
+ONLY on this branch, so a successor in a fresh worktree must either start from this branch or
+wait for the merge (§2's durability claim is contingent on it). Nothing else is staged or dirty;
+no campaign process, monitor, or scratchpad artifact of the authoring session survives it.
 
 ## 9. Validation record
 
