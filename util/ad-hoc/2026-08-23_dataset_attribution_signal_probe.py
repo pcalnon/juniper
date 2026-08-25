@@ -6,7 +6,7 @@ Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-23
 Status: ad-hoc — feasibility probe for handoff item 2 (the inference pass)
-Retire when: the signal is characterised and util/snapshot_attribute.py exists (or the
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the signal is characterised and util/snapshot_attribute.py exists (or the
              approach is abandoned because the signal is not there).
 Related: notes/JUNIPER_2026-08-22_JUNIPER-ECOSYSTEM_SNAPSHOT-CLASSIFICATION-STAGE-1-FINDINGS.md,
          handoff 2026-08-22 §3.2 (owner's dataset-inference design)

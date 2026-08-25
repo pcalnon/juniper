@@ -15,7 +15,7 @@ Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-24
 Status: ad-hoc -- one-off (investigation)
-Retire when: the capacity-matched null ships in util/snapshot_attribute.py.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the capacity-matched null ships in util/snapshot_attribute.py.
 Related: section 3 item 2 of HANDOFF_2026-08-23_snapshot-retention-and-arc-closeout.md
 """
 

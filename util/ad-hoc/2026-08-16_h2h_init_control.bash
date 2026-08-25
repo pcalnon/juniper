@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-16
 # Status:      ad-hoc -- one-off (wide-budget head-to-head campaign)
-# Retire when: the wide-budget head-to-head evidence note is merged; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the wide-budget head-to-head evidence note is merged; delete then.
 # Related:     util/experiments/suites/p4/e-j-h2h-wide-cap64-init42.yaml (the cell, and the full
 #              rationale); 2026-08-16_h2h_orchestrate.bash (the main campaign this follows).
 #

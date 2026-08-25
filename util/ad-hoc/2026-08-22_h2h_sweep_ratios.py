@@ -6,7 +6,7 @@ Sub-Project: ad-hoc tooling
 Author:      Paul Calnon
 Created:     2026-08-22
 Status:      ad-hoc -- one-off (residual CLI-vs-service wall gap, post-#533)
-Retire when: the residual wall-gap evidence note is merged; delete then.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the residual wall-gap evidence note is merged; delete then.
 Related:     2026-08-21_h2h_thread_sweep.bash (produces what this reads).
 
 WHY REP-PAIRED AND NOT PER-ARM MEANS
