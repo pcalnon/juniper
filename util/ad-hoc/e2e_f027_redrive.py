@@ -1178,6 +1178,58 @@ def step_f025(page, capture):
         log(f"  post-window read starved (expected under run load): {str(exc)[:80]}")
 
 
+def step_f002(page, capture):
+    """F-CANOPY-002 post-fix: does the WS metrics fast path deliver during a run?
+
+    Pre-fix signature: 401 metrics frames measured on /ws/training dispatching
+    ONLY into the latency sampler; ``_juniperWsDrain._metricsBuffer`` stayed 0
+    and ``_metricsReceived`` false/stale for whole runs. Post-fix (per-type
+    fan-out): the bridge's intake and the beacon COEXIST — the drain fills and
+    stamps during the run while the beacon keeps sampling.
+
+    Observables (one attach-window read + python-side capture scans):
+    - drain state ~t+15 s into a live run (fresh _lastMetricsFrameMs);
+    - M-METRICS-32's server half: append POSTs whose changedPropIds carry
+      ``ws-metrics-buffer.data``;
+    - beacon coexistence: browser-side ``/api/ws_latency`` POSTs continuing.
+    """
+    log("STEP f002 -- WS metrics fast path under a live run")
+    code, body = http_post("/api/train/start", {})
+    log(f"  train/start -> {code} {json.dumps(body)[:80]}")
+    for _ in range(8):
+        time.sleep(1)
+        if http_get("/api/status", timeout=30)[1].get("is_running"):
+            break
+    page.wait_for_timeout(9000)
+    drain = page.evaluate(
+        """() => { const d = window._juniperWsDrain || {};
+             const now = Date.now();
+             return {present: !!window._juniperWsDrain,
+                     metricsReceived: d._metricsReceived === undefined ? null : d._metricsReceived,
+                     lastMetricsAgeMs: d._lastMetricsFrameMs ? (now - d._lastMetricsFrameMs) : null,
+                     lastStateAgeMs: d._lastStateFrameMs ? (now - d._lastStateFrameMs) : null,
+                     bufferLen: Array.isArray(d._metricsBuffer) ? d._metricsBuffer.length : null}; }"""
+    )
+    log(f"  drain at ~t+15s of run: {json.dumps(drain)}")
+    t0 = time.time()
+    while time.time() - t0 < 45:
+        page.wait_for_timeout(3000)
+    appends = [c["t_ms"] for c in capture if "_dash-update-component" in (c.get("url") or "") and '"ws-metrics-buffer.data"' in (c.get("body") or "")]
+    beacons = [c["t_ms"] for c in capture if "/api/ws_latency" in (c.get("url") or "")]
+    log(f"  M-METRICS-32 append POSTs (changedPropIds ws-metrics-buffer.data): n={len(appends)} @ {appends[:8]}")
+    log(f"  beacon /api/ws_latency POSTs (coexistence): n={len(beacons)} @ {beacons[:6]}")
+    try:
+        drain2 = page.evaluate(
+            """() => { const d = window._juniperWsDrain || {};
+                 const now = Date.now();
+                 return {lastMetricsAgeMs: d._lastMetricsFrameMs ? (now - d._lastMetricsFrameMs) : null,
+                         bufferLen: Array.isArray(d._metricsBuffer) ? d._metricsBuffer.length : null}; }"""
+        )
+        log(f"  drain after 45s window: {json.dumps(drain2)}")
+    except Exception as exc:  # noqa: BLE001
+        log(f"  late drain read starved (non-fatal): {str(exc)[:60]}")
+
+
 def step_f025idle(page, capture):
     """F-CANOPY-025 mechanism seal: at IDLE, does the gate fire at mount?
 
@@ -1256,6 +1308,7 @@ STEPS = {
     "f025": step_f025,
     "f025idle": step_f025idle,
     "f006": step_f006,
+    "f002": step_f002,
 }
 
 
