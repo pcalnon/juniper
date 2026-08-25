@@ -6,7 +6,7 @@ Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-23
 Status: ad-hoc — cost/behaviour probe before building the item-3 pass
-Retire when: util/snapshot_train_probe.py exists, or the approach is abandoned.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: util/snapshot_train_probe.py exists, or the approach is abandoned.
 Related: handoff 2026-08-22 §2.3 / §3.3,
          notes/JUNIPER_2026-08-22_JUNIPER-ECOSYSTEM_SNAPSHOT-CLASSIFICATION-STAGE-1-FINDINGS.md
 

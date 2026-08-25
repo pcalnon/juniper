@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-21
 Status:      ad-hoc -- investigation (one-off)
-Retire when: defect D4 in util/safe_merge.py is closed either way.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: defect D4 in util/safe_merge.py is closed either way.
 Related:     notes/JUNIPER_2026-08-19_JUNIPER-ECOSYSTEM_SAFE-MERGE-KILL-FORENSICS.md (D4)
 
 The question

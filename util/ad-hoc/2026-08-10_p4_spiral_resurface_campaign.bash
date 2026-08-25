@@ -6,7 +6,7 @@
 # Author:     Paul Calnon
 # Created:    2026-08-10
 # Status:     ad-hoc -- one-off (campaign driver)
-# Retire when: the re-surfaced E-A/E-B/E-C evidence is written up and merged; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the re-surfaced E-A/E-B/E-C evidence is written up and merged; delete then.
 # Related:    F-P4-1 (notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_F-P4-1-SERVICE-SPIRAL-ROOT-CAUSE.md),
 #             ml#1055 (driver stages spiral), cascor#504 (fallback honors SpiralParams),
 #             P4 evidence notes/JUNIPER_2026-08-09_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P4-STUDIES-EVIDENCE.md

@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-17
 # Status:      ad-hoc -- one-off (2x root-cause investigation)
-# Retire when: the root cause is written up and remediated; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the root cause is written up and remediated; delete then.
 # Related:     2026-08-17_h2h_thread_probe.bash (one arm); e-k-thread-probe-cap16.yaml (service ref).
 #
 # Runs the SAME suite-generated cell config through the direct CLI three times, varying only the

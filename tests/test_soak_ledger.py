@@ -554,6 +554,75 @@ class Constants(unittest.TestCase):
             self.assertIn("NEVER re-inline", cli("--ledger", str(p), "status").stdout)
 
 
+class StatusGuidanceSafety(unittest.TestCase):
+    """`status` must not talk an operator into an irreversible discharge.
+
+    Two output defects, both fixed 2026-08-24. The escalation block printed ABOVE
+    the verdict-driven action, so `status` led with "rung 2" and read as though
+    rung 2 were the next step -- when rung 2 is neither taken nor closed. And the
+    rung-2 line suggested a bare ``soak_ledger.py resolve``, with nothing saying
+    that it appends to an APPEND-ONLY ledger and cannot be undone.
+
+    That combination points at the one command that makes a non-zero exit go away,
+    while the non-zero exit is exactly the design. Output only -- exit codes and
+    the ledger are untouched.
+    """
+
+    @staticmethod
+    def _with_open_hazard(t: str):
+        rows = seeded_run(24, 11)
+        rows.append(
+            obs(
+                session="s-haz",
+                probe_id="P07",
+                outcome="miss",
+                severity="hazard",
+                miss_class="discoverability",
+                area="publish",
+            )
+        )
+        return write(Path(t), rows)
+
+    def _status(self, t: str) -> str:
+        return cli("--ledger", str(self._with_open_hazard(t)), "status").stdout
+
+    def test_verdict_action_precedes_the_escalation_block(self) -> None:
+        with TemporaryDirectory() as t:
+            out = self._status(t)
+            self.assertIn("rung 1", out)
+            self.assertIn("rung 2", out)
+            self.assertLess(out.index("rung 1"), out.index("rung 2"), msg=f"rung 2 must not lead:\n{out}")
+
+    def test_escalations_are_marked_open_and_verdict_independent(self) -> None:
+        with TemporaryDirectory() as t:
+            out = self._status(t)
+            self.assertIn("OPEN and INDEPENDENT of the verdict", out)
+
+    def test_discharge_is_labelled_irreversible(self) -> None:
+        with TemporaryDirectory() as t:
+            out = self._status(t)
+            self.assertIn("IRREVERSIBLE", out)
+            self.assertIn("no un-resolve", out)
+
+    def test_discharge_is_not_offered_as_a_way_to_go_green(self) -> None:
+        """The whole point: exiting 1 is the design, not a thing to clear."""
+        with TemporaryDirectory() as t:
+            out = self._status(t)
+            self.assertIn("Do NOT run it to make `status` exit 0", out)
+
+    def test_open_hazard_obs_ids_are_named(self) -> None:
+        """An operator cannot discharge correctly without the id; printing it is
+        also what makes the count auditable against the ledger."""
+        with TemporaryDirectory() as t:
+            out = self._status(t)
+            self.assertIn("open:", out)
+
+    def test_status_still_exits_one_with_an_open_escalation(self) -> None:
+        with TemporaryDirectory() as t:
+            r = cli("--ledger", str(self._with_open_hazard(t)), "status")
+            self.assertEqual(r.returncode, 1, msg=r.stdout + r.stderr)
+
+
 class ResidencyGate(unittest.TestCase):
     """A probe whose fact never left the source tests nothing.
 

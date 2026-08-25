@@ -6,7 +6,7 @@
 # Author:     Paul Calnon
 # Created:    2026-08-14
 # Status:     ad-hoc -- one-off (campaign driver)
-# Retire when: the E-I cap-ceiling evidence note is written up and merged; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the E-I cap-ceiling evidence note is written up and merged; delete then.
 # Related:    E-A R-3 evidence (notes/JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-R3-EA-RERUN-EVIDENCE.md),
 #             suite util/experiments/suites/p4/e-i-cascor-cap-ceiling.yaml,
 #             cascor#512 (forkserver lifecycle -- the reason no per-cell reaping is needed)
