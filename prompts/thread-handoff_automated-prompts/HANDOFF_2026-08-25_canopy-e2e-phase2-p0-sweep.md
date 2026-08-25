@@ -28,8 +28,8 @@ time covers the feeder's period**).
 cd <fresh worktree of juniper-ml main>   # fetch first; main moves several times a day
 python3 util/ad-hoc/e2e_finding_triage.py --open-only   # expect 40 findings / 13 fixed / 27 open (1 P0 · 2 P0/P1 · 10 P1)
 python3 util/ad-hoc/e2e_unfilled_rows.py                # expect 298 verdicted / 0 UNFILLED
-gh pr view 517 -R pcalnon/juniper-canopy --json state   # f031 — merge if green (REST squash)
-gh pr view 518 -R pcalnon/juniper-canopy --json state   # f005 fix — merge if green
+gh pr view 518 -R pcalnon/juniper-canopy --json state   # f005 fix — merge if green (REST squash)
+# canopy#517 (f031) MERGED at handoff time: squash sha 9dcbb77a — that is the M-SNAPSHOTS-19 rider sha
 ```
 
 `CURRENT_RUN_ID` = `20260825T044659Z`. Canopy worktrees `juniper-canopy--fix--f031-*` and `--f005-*` under
@@ -45,10 +45,11 @@ demands it, escalate the ordering to Paul rather than deciding unilaterally.
 
 ## Remaining work, in priority order
 
-1. **Land the two in-flight PRs** (merge policy above; branch-update dance if BEHIND; delete branches;
-   clean both worktrees; primary canopy checkout ff after each).
-2. **f031 records** (ml PR, after #517 merges — sha needed for riders): ledger F-CANOPY-031 → FIXED
-   (canopy#517) — closure facts: verified live against the real corpus, **"Showing newest 200 of 28016
+1. **Land canopy#518** (merge policy above; branch-update dance if BEHIND; delete its branch; clean BOTH
+   canopy worktrees — #517 merged at handoff time as `9dcbb77a`, its worktree/branch still need cleanup;
+   primary canopy checkout ff after each).
+2. **f031 records** (ml PR; rider sha = `9dcbb77a`): ledger F-CANOPY-031 → FIXED
+   (canopy#517 `9dcbb77a`) — closure facts: verified live against the real corpus, **"Showing newest 200 of 28016
    snapshot(s)"**, 200 rows in seconds, `data-snapshot-id` on all 200 (the "attrs on zero elements"
    sub-claim was zero ROWS — attrs were always in the row builder), and the FULL M-SNAPSHOTS-19 chain:
    right-click → context menu → Restore → **Confirm Snapshot Operation modal** for that exact snapshot,
@@ -113,9 +114,9 @@ demands it, escalate the ordering to Paul rather than deciding unilaterally.
 ## Git state at handoff
 
 juniper-ml `origin/main` = `84d4712` (my ml records through F-CANOPY-002 are merged; the ml session
-worktree is clean at it except this handoff file). juniper-canopy `origin/main` = `04f06ff`; **open PRs:
-#517 (f031, CI in flight), #518 (f005 fix, CI just started)** — both mine, both squash-merge candidates
-under the arc policy; #505/#506 dependabot; #512/#513/#516 cursor drafts (not mine). Isolated stack DOWN,
+worktree is clean at it except this handoff file). juniper-canopy `origin/main` = `9dcbb77a` (**#517/f031 merged at handoff time**); **open PR: #518 (f005
+fix, CI in flight)** — mine, squash-merge candidate under the arc policy; #505/#506 dependabot;
+#512/#513/#516 cursor drafts (not mine). Isolated stack DOWN,
 all ports free, 8211 = the live deploy container (never touch). No uncommitted work besides this file.
 **`origin/main` moves several times a day — always branch from a freshly fetched `origin/main`, and
 re-derive every line anchor before relying on it.**
