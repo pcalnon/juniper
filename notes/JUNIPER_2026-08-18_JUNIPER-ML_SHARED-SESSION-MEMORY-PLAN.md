@@ -316,6 +316,12 @@ number out of a note — not 38,000, not 32,443, not anything in the table above
 python3 util/memory_budget_check.py --repo-root . --ratchet
 ```
 
+The helper's `seed-config <repo> --ref origin/main` does exactly this — placeholder ceiling, the
+target's own checker with `--ratchet`, then the measured burn written into `_README` / `_note`
+from that repo's git history — so no figure is ever transcribed; `render-job` + `insert-job`
+then do step c, and `adapt-test` takes `--sub-project`, `--header-version` (set it, or `none`)
+and `--pytest-marker` for the layout table's traps.
+
 `--ratchet` **seeds**; it does not **tighten** after a cut. In a repo with no ceiling yet
 (every P5 target) it is the only correct way to set one. Run in a repo that already has a
 ceiling, straight after a cut, it leaves ZERO headroom and fails the next author on a single
