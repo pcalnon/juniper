@@ -6,7 +6,7 @@
 # Author: Paul Calnon
 # Created: 2026-08-17
 # Status: ad-hoc — investigation (answers the owner's F-P1-2 / D-1 question)
-# Retire when: the native grafana-server is repointed or disabled and D-1 is closed.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the native grafana-server is repointed or disabled and D-1 is closed.
 # Related: notes/JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_F-P1-2-GRAFANA-RENDER-CLOSURE-EVIDENCE.md
 #          (§5, D-1 and its 2026-08-17 update), juniper-ml#1136
 #

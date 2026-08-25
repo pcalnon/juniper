@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-21
 # Status:      ad-hoc -- one-off (residual wall gap, cap-64 campaign)
-# Retire when: the residual wall-gap evidence note is merged; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the residual wall-gap evidence note is merged; delete then.
 #
 # A cap-64 paired campaign runs ~10 hours. Anything supervising it -- an agent session, a
 # background worker lease, an ssh connection -- is shorter-lived than that, and when the supervisor

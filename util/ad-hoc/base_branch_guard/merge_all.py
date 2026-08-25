@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-20
 Status:      ad-hoc -- migration (one-off)
-Retire when: the rollout is merged on all 9 repos.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the rollout is merged on all 9 repos.
 Related:     ml#434; util/safe_merge.py
 
 Sequential, not parallel, and deliberately so: `safe_merge` refuses a BEHIND PR by syncing

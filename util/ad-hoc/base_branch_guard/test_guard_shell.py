@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-21
 Status:      ad-hoc -- migration
-Retire when: the guard's logic is covered by a real CI harness, or the rollout retires.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the guard's logic is covered by a real CI harness, or the rollout retires.
 Related:     ml#434; util/ad-hoc/base_branch_guard/pr-base-branch-guard.yml
 
 Why this exists
