@@ -69,10 +69,12 @@ git -C /home/pcalnon/Development/python/Juniper/juniper-cascor rev-parse --short
 #588 are merged code-level fixes with predicted, not measured, effect — the same unattributed class
 this arc just spent a day discharging for #532. **Host-independent work while waiting for the T6
 window:** the #569 fork-safety audit (§3.2, code reading) and the two auditor edits §3.1 step 2
-requires — but **create the census worktree from `origin/main`, never from the primary's `HEAD`**
-(at one point during this session the primary was two commits behind, and a census cut from it would
-have measured the PRE-fix build with nothing in the ledgers to say so — a round-2 validator caught
-this; cutting from `origin/main` is correct regardless of where the primary happens to sit).
+requires — but **create the census worktree from a SHA you have verified is ≥ `d2d10697` (#588),
+and record that SHA in the evidence**. At one point during this session the primary was two
+commits behind `origin/main`, and a census cut from it would have measured the PRE-fix build with
+nothing in the ledgers to say so — a round-2 validator caught this. The rule is "verified ≥ #588 and
+recorded", not "always tip": during T6's checkout freeze (§4.4) the census must share the
+*primary's* pinned SHA so it and the campaign measure one build.
 
 | # | item | gate |
 | --- | --- | --- |
@@ -178,9 +180,9 @@ zero by itself. The worker-side evidence is the census line each worker logs int
 (`_worker_loop: DIAG-ENV: … sys_modules=N present=[…]`) — and as shipped, neither its `_diag_hot`
 tuple nor the auditor's `_WATCH` tuple contains `sentry_sdk`, so both must be edited first.
 
-On a **throwaway** worktree/branch, cut from **`origin/main`** (never the primary's `HEAD`, never
-a PR branch); all commands from the juniper-ml root, using `git -C` so the shell never changes
-directory:
+On a **throwaway** worktree/branch, cut from **`$SHA` — the primary's pinned HEAD, verified
+≥ `d2d10697`** (never a PR branch, never an unverified `HEAD`); all commands from the juniper-ml
+root, using `git -C` so the shell never changes directory:
 
 ```bash
 CWT=/home/pcalnon/Development/python/Juniper/worktrees/juniper-cascor--diag--census-post588--$(date +%Y%m%d-%H%M)--${SHA}
