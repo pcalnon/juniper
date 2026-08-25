@@ -45,7 +45,7 @@ having the smaller file.
 Usage:
     python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py adapt-test <test.py> --depth 2
     python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py insert-job <ci.yml> <job.yml> --before required-checks
-    python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py measure-growth <repo-path> --days 30
+    python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py measure-growth <repo-path> --days 30 [--ref origin/main]
 """
 
 from __future__ import annotations
@@ -146,16 +146,21 @@ def insert_job(workflow: Path, block: Path, before: str) -> int:
     return 0
 
 
-def measure_growth(repo: Path, days: int) -> int:
+def measure_growth(repo: Path, days: int, ref: str = "HEAD") -> int:
     """Report a repo's AGENTS.md burn from git, so a ceiling's slack can be sized.
 
     Every figure a ceiling depends on goes stale fast -- the plan said canopy was
     94,373, a handoff said 93,151, and it was 95,133 when the gate was seeded. So
     this measures rather than reports: run it, do not quote it.
+
+    ``ref`` defaults to the checkout's HEAD. Pass ``--ref origin/main`` (after a fetch)
+    when the checkout may be behind -- on 2026-08-25 one sibling checkout was two
+    commits behind its own main, and a measurement is only as current as the ref it
+    reads.
     """
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
     p = subprocess.run(
-        ["git", "-C", str(repo), "log", f"--since={since}", "--format=%H", "--reverse", "--", "AGENTS.md"],
+        ["git", "-C", str(repo), "log", ref, f"--since={since}", "--format=%H", "--reverse", "--", "AGENTS.md"],
         capture_output=True,
         text=True,
         check=False,
@@ -186,7 +191,7 @@ def measure_growth(repo: Path, days: int) -> int:
     shrank = [d for d in deltas if d < 0]
     net = sizes[-1] - sizes[0]
 
-    print(f"repo    : {repo.name}")
+    print(f"repo    : {repo.name}  ({ref})")
     print(f"window  : last {days} days, {len(sizes)} commits touching AGENTS.md")
     print(f"size    : {sizes[0]} -> {sizes[-1]}   net {net:+}")
     print(f"rate    : {net / max(days, 1):.0f} chars/day")
@@ -217,12 +222,13 @@ def main() -> int:
     g = sub.add_parser("measure-growth", help="AGENTS.md burn from git, for sizing a ceiling's slack")
     g.add_argument("repo", type=Path)
     g.add_argument("--days", type=int, default=30)
+    g.add_argument("--ref", default="HEAD", help="ref whose history to measure (default HEAD; use origin/main after a fetch when the checkout may be behind)")
 
     args = ap.parse_args()
     if args.cmd == "adapt-test":
         return adapt_test(args.path, args.depth)
     if args.cmd == "measure-growth":
-        return measure_growth(args.repo, args.days)
+        return measure_growth(args.repo, args.days, args.ref)
     return insert_job(args.workflow, args.block, args.before)
 
 

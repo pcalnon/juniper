@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-18
+**Last Updated**: 2026-08-25
 
 ---
 
@@ -214,7 +214,15 @@ achieved level, not the aspirational one.
 
 ### P5 — Fleet rollout
 
-**Status: NOT STARTED.** No tracking issue exists in any repo.
+**Status: IN PROGRESS — started 2026-08-25.** Live per-repo tracker:
+[ml#1326](https://github.com/pcalnon/juniper-ml/issues/1326); this section is the procedure.
+Ported so far, both ADVISORY and both merged to their repo's `main`: **juniper-canopy**
+([canopy#516](https://github.com/pcalnon/juniper-canopy/pull/516), ceiling 95,133) and
+**juniper-cascor** ([cascor#585](https://github.com/pcalnon/juniper-cascor/pull/585), ceiling 71,098).
+Porting helper: [`util/ad-hoc/2026-08-25_p5_port_memory_budget.py`](../util/ad-hoc/2026-08-25_p5_port_memory_budget.py)
+(`adapt-test`, `insert-job`, `measure-growth`; ml#1359). Six repos remain, in the measured order
+below. juniper-slacker has no `AGENTS.md`, so there is nothing to govern there. **Nothing is promoted
+to a required context yet, and nothing may be until the four preconditions in step d hold.**
 
 > **This section was a four-line stub until 2026-08-24.** The working procedure lived only in
 > a session handoff, and handoffs lose material across generations — an earlier one in this
@@ -250,6 +258,50 @@ Measured 2026-08-24. They move daily; this table is evidence that they move, not
 
 canopy grew ~2K in the day before this measurement. That is the rate axis, unmanaged.
 
+#### Porting order — by measured RATE, 30 days to 2026-08-25 (re-measure; do not transcribe)
+
+`measure-growth <repo-path> --days 30 --ref origin/main` per repo, after a fetch. Every repo:
+**zero shrinking commits.**
+
+| Order | Repo | `AGENTS.md` | Net 30 d | Rate / day | Grew / shrank | Max single | State |
+|---:|---|---:|---:|---:|:---:|---:|---|
+| — | juniper-cascor | 71,098 | +21,891 | 730 | 10 / 0 | 9,609 | ported, cascor#585 |
+| 1 | juniper-cascor-client | 34,695 | +5,884 | 196 | 3 / 0 | 2,582 | |
+| 2 | juniper-recurrence | 11,578 | +4,102 | 137 | 2 / 0 | 2,120 | |
+| 3 | juniper-data-client | 28,369 | +4,055 | 135 | 2 / 0 | 2,073 | |
+| 4 | juniper-data | 43,493 | +3,257 | 109 | 4 / 0 | 1,982 | |
+| — | juniper-canopy | 95,133 | +2,425 | 81 | 2 / 0 | 1,982 | ported, canopy#516 |
+| 5 | juniper-cascor-worker | 35,126 | +1,982 | 66 | 1 / 0 | 1,982 | |
+| 5 | juniper-deploy | 34,569 | +1,982 | 66 | 1 / 0 | 1,982 | |
+
+**Read the recurring `1,982` with care.** It is ONE fleet-wide sweep — `docs(agents): document the
+PR base-branch guard (ml#434)`, 2026-08-21 — that added the same section to every `AGENTS.md`.
+For cascor-worker and deploy it is the *entire* 30-day growth, so their "rate" is a single sweep,
+not a trend; the others grew organically on top of it. A sweep is also the shape a zero-slack
+ceiling cannot absorb: one PR, every repo, all reporting at once.
+
+#### Per-repo layout — what the recipe must adapt
+
+The three files are repo-agnostic; where they *land* is not. Copy the ADVISORY-form job from
+canopy's or cascor's `main` — **not** juniper-ml's own, which is BLOCKING and carries the G3 step.
+
+| Repo | Test file lands at | `adapt-test --depth` | Job goes | Python env var | Watch for |
+|---|---|---:|---|---|---|
+| cascor-client | `tests/` | 1 | `ci.yml`, before `required-checks` | `PYTHON_TEST_VERSION` (3.13) | tests-scoped bandit does not skip B603/B607 — the `# nosec` lines are load-bearing; `--strict-markers` |
+| recurrence | `tests/` (new — no lane runs it, so the workflow runs it itself) | 1 | **standalone `.github/workflows/memory-budget.yml`**; there is no `ci.yml` — mirror `sequence-safety.yml` | its own `env:` | no `util/` yet: create it (cross-project script-placement rule); no `docs/REFERENCE.md`; `require_context_safely.py`'s default roster omits this repo — pass `--repo` explicitly |
+| data-client | `tests/` | 1 | `ci.yml`, before `required-checks` | `PYTHON_TEST_VERSION` | as cascor-client |
+| data | `juniper_data/tests/unit/` | 3 | `ci.yml`, before `required-checks` | `PYTHON_TEST_VERSION` | CI runs `-m "unit and not slow"` — without `pytestmark = pytest.mark.unit` the module is silently DESELECTED; ruff + ruff-format govern `juniper_data/**`, so commit the formatted file |
+| cascor-worker | `tests/` | 1 | `ci.yml`, before `required-checks` | `PYTHON_TEST_VERSION` | as cascor-client |
+| deploy | `tests/` | 1 | `ci.yml`, before `required-checks` | **`PYTHON_VERSION`** (3.12) | no Python linters at all; `yamllint --strict` (relaxed profile) is the only gate on the job text |
+
+#### HAZARD — run the target repo's FULL unit suite, not the ported file's own tests
+
+cascor#585 went RED on four `Unit Tests + Coverage` legs and the Quality Gate, on
+`TestBugCC04VersionSingleSource::test_no_version_header_lines_in_source` — a test in a *different*
+file, fired by the mere presence of a new file under `src/` carrying juniper-ml's standard
+`Version:` header line, which cascor forbids repo-wide. The ported file's own suite passed;
+pre-commit passed. Every repo has its own tests of that shape, and only its full suite finds them.
+
 #### Per-repo recipe
 
 **a. Copy three files.** [`util/memory_budget_check.py`](../util/memory_budget_check.py),
@@ -270,29 +322,52 @@ ceiling, straight after a cut, it leaves ZERO headroom and fails the next author
 character — hand-edit with slack sized to the observed burn instead (this repo: +937 over
 four days / five PRs, median +58, one docs PR +605).
 
-**c. Copy the standalone `memory-budget` job** from [`ci.yml`](../.github/workflows/ci.yml)
-(job `memory-budget`, `name: Memory Budget`). **Standalone — NOT in the Quality Gate
+**c. Copy the standalone `memory-budget` job** — the ADVISORY form on canopy's or cascor's `main`,
+spliced with the helper's `insert-job` (juniper-ml's own [`ci.yml`](../.github/workflows/ci.yml)
+job is the BLOCKING form; same `name: Memory Budget`). **Standalone — NOT in the Quality Gate
 `needs:`** (correction C9). A `needs:` entry is the wrong promotion mechanism; the ruleset is
 the right one, which is how `Sequence Safety` was promoted.
 
-**d. Soak `--advisory`, remove it, then run three negative controls BEFORE promoting.**
+**d. Soak `--advisory`; run the three negative controls against the NON-advisory invocation;
+then remove `--advisory`; then — and only then — promote.**
 
-| Control | Expected |
-|---|---|
-| clean tree | exit 0 |
-| +500 chars to the governed file | exit 1 |
-| `Allow-Budget-Overrun: <path>` trailer | exit 0 |
+| Control | How (in the target repo, scratch branch, **no `--advisory`**) | Expected |
+|---|---|---|
+| clean tree | `python3 util/memory_budget_check.py --base-ref origin/main` | exit 0 |
+| +500 chars to the governed file | append, commit, re-run | exit 1 |
+| `Allow-Budget-Overrun: <path>` trailer | `git log --format=%B origin/main..HEAD > t.txt`, re-run with `--trailers-file t.txt` | exit 0 |
 
-**A blocking gate that cannot fail is worse than none** — it converts an unmeasured risk into
-a measured-looking one. Only then promote to a required context:
+With `--advisory` every control exits 0 and the second one *cannot* fail, so a "passing" set proves
+nothing. **A blocking gate that cannot fail is worse than none** — it converts an unmeasured risk
+into a measured-looking one. Promotion needs all four, in this order:
+
+1. the port is merged to that repo's `main`;
+2. `--advisory` has been **removed** from the job — promoting an advisory job creates a required
+   check that cannot fail (the vacuous-pass class);
+3. the controls above passed against the non-advisory invocation;
+4. the ceiling has real slack (next heading).
+
+Then promote with the writer that snapshots to disk first and refuses a context the repo has never
+been seen to publish:
 
 ```bash
-gh api repos/pcalnon/<repo>/rulesets                     # find <ID>
-python3 util/ad-hoc/2026-08-20_add_required_context.py \
-  --repo pcalnon/<repo> --ruleset-id <ID> --context 'Memory Budget' --apply
+python3 util/ad-hoc/2026-08-20_require_context_safely.py --repo juniper-<repo> --context 'Memory Budget'          # dry-run
+python3 util/ad-hoc/2026-08-20_require_context_safely.py --repo juniper-<repo> --context 'Memory Budget' --apply  # writes
 ```
 
-The script is dry-run by default; `--apply` is what writes.
+**Not** `2026-08-20_add_required_context.py`: it writes no snapshot and verifies contexts only, and
+the gap it leaves — a required context the repo never reports — is silent and total; it is how
+`main` went unmergeable on five repos. `--require-observed` is on by default and stays on.
+
+**Slack before promotion — the one moment a raise is the prescribed remedy.** Every seeded ceiling
+has ZERO slack by construction (`--ratchet` seeds at the exact size and never tightens gracefully),
+so a promoted gate fails the next growing PR on a single character. Before step 2, hand-edit
+`ceiling_chars` up by at least that repo's largest measured single growing commit (canopy ≥ 2,000;
+cascor's p90 is 2,618 and one commit hit 9,609 — re-measure) and declare it with an
+`Allow-Ceiling-Raise: AGENTS.md` commit trailer carried into the squash message; undeclared, the
+raise is a FAIL. And be clear about what the advisory soak is not: `--advisory` prints and exits 0 —
+no ledger, no artifact, no counter. It does not measure the burn; `measure-growth` does. It will
+report on every `AGENTS.md`-growing PR while advisory, and that is noise, not data.
 
 **e. Then G3, then the cut.** Relocate with
 [`util/ad-hoc/2026-08-19_p3_relocate_section.py`](../util/ad-hoc/2026-08-19_p3_relocate_section.py)

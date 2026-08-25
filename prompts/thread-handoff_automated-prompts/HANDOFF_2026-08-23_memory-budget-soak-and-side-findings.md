@@ -80,7 +80,9 @@ backlog, not an interrupted task.
      silently ignored and stays red.
 3. **The soak's next step is NOT the obvious rung 1.** The verdict routes to rung 1 (add
    index rows, re-soak), but **the obvious version of that is a null experiment**:
-   measured from the ledger, the **policy stratum is 22 runs / 22 follows = 100%** and
+   measured from the ledger, the **policy stratum is 22 runs / 22 follows = 100%** *(correction
+   2026-08-25: the ledger's stratum table reads **24 / 24** — `3+3+2+3+24 = 35` matches the run
+   total; the conclusion stands, the figure did not — see the 2026-08-25 handoff's Corrections)* and
    the source-recoverable stratum is 13 / 2 = 15%. Adding index rows to the policy facts
    cannot move a rate already at 100%, and §14 argues an index row buys little for the
    source-recovered four. **Resolve this before spending another 35-run cycle**: either
