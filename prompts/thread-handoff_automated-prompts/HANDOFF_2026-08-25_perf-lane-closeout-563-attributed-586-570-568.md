@@ -58,6 +58,7 @@ Terms (arm, cap-N, trace vs correlation fingerprint, `span = work × rate`): pre
 ```bash
 gh pr view 588 --repo pcalnon/juniper-cascor --json state,mergedAt        # MERGED 2026-08-25T22:56Z
 git -C /home/pcalnon/Development/python/Juniper/juniper-cascor log --oneline -3 origin/main   # d2d10697 = #588, 76f4d51b = #587
+git -C /home/pcalnon/Development/python/Juniper/juniper-cascor rev-parse --short=8 HEAD; git -C /home/pcalnon/Development/python/Juniper/juniper-cascor status --porcelain   # d2d10697, empty — and LEAVE IT THERE during T6 (§4.4)
 ```
 
 ---
@@ -69,8 +70,9 @@ git -C /home/pcalnon/Development/python/Juniper/juniper-cascor log --oneline -3 
 this arc just spent a day discharging for #532. **Host-independent work while waiting for the T6
 window:** the #569 fork-safety audit (§3.2, code reading) and the two auditor edits §3.1 step 2
 requires — but **create the census worktree from `origin/main`, never from the primary's `HEAD`**
-(the primary is two commits behind; a census cut from it measures the PRE-fix build and nothing in
-the ledgers would say so — a round-2 validator caught this in an earlier draft).
+(at one point during this session the primary was two commits behind, and a census cut from it would
+have measured the PRE-fix build with nothing in the ledgers to say so — a round-2 validator caught
+this; cutting from `origin/main` is correct regardless of where the primary happens to sit).
 
 | # | item | gate |
 | --- | --- | --- |
@@ -89,8 +91,14 @@ the **primary checkout** `Juniper/juniper-cascor` (`util/experiment_stack.bash`,
 compares that checkout's HEAD with the CLI worktree's and exits 2 on mismatch (anchor text
 `paired: REFUSING -- arms are at different cascor commits`). Because the launch is
 `setsid nohup … &`, that refusal lands only in the launch log — a watcher armed on the completion
-marker never fires (§4.1). At handoff the primary is at `fa649d0b`, **two behind** `origin/main`
-(`d2d10697`). So:
+marker never fires (§4.1). At handoff the primary is at **`d2d10697` = `origin/main`, clean** — it
+was synced by another session late on 2026-08-25. **Do NOT pull it during T6's window** (§4.4:
+the T6 campaign driver re-reads the primary's HEAD around every suite and aborts, discarding
+completed suites, the instant it moves — a freeze that runs from T6's LAUNCH to its COMPLETION
+announcement, ≈ 8–12 h). If `origin/main` has moved past `d2d10697` when §3.1 becomes runnable,
+either run at the primary's current HEAD (both arms at that SHA — the same-SHA rule is what
+matters, not being at tip) or coordinate the advance with the T6 session / Paul BEFORE touching
+it. So:
 
 ```bash
 # 0. T6 window open? (§4.4) — then:
@@ -102,8 +110,8 @@ ls -1 /run/user/1000/juniper-experiments                                 # empty
 ss -ltn | awk 'NR>1{split($4,a,":"); p=a[length(a)]+0; if ((p>=8110&&p<=8139)||(p>=8230&&p<=8259)||(p>=8260&&p<=8289)||p==8202||p==8101||p==8051) print p}'   # empty (incl. the canopy-E2E trio)
 git -C /home/pcalnon/Development/python/Juniper/juniper-cascor rev-parse --abbrev-ref HEAD   # main
 git -C /home/pcalnon/Development/python/Juniper/juniper-cascor status --porcelain   # must be empty
-git -C /home/pcalnon/Development/python/Juniper/juniper-cascor pull --ff-only origin main
-SHA=$(git -C /home/pcalnon/Development/python/Juniper/juniper-cascor rev-parse --short=8 HEAD)   # expect d2d10697 or later
+# NO pull here — see the freeze above. Pin to whatever the primary IS:
+SHA=$(git -C /home/pcalnon/Development/python/Juniper/juniper-cascor rev-parse --short=8 HEAD)   # d2d10697 at handoff; must be >= 76f4d51b (#587) for step 1 and >= d2d10697 (#588) for step 2
 # 1. CLI worktree at the SAME commit (the #588 fix worktree is gone; create fresh, detached) — capture WT now:
 WT=/home/pcalnon/Development/python/Juniper/worktrees/juniper-cascor--exp--g4-post587--$(date +%Y%m%d-%H%M)--${SHA}
 git -C /home/pcalnon/Development/python/Juniper/juniper-cascor worktree add "$WT" --detach HEAD
@@ -177,7 +185,7 @@ directory:
 ```bash
 CWT=/home/pcalnon/Development/python/Juniper/worktrees/juniper-cascor--diag--census-post588--$(date +%Y%m%d-%H%M)--${SHA}
 git -C /home/pcalnon/Development/python/Juniper/juniper-cascor fetch -q origin
-git -C /home/pcalnon/Development/python/Juniper/juniper-cascor worktree add "$CWT" -b diag/census-post588-$(date +%H%M) origin/main   # fresh suffix; never -B (it would reset an earlier attempt's commit)
+git -C /home/pcalnon/Development/python/Juniper/juniper-cascor worktree add "$CWT" -b diag/census-post588-$(date +%H%M) "$SHA"   # the PRIMARY's pinned SHA (>= d2d10697), so the census and the campaign share one build; fresh suffix; never -B
 git -C "$CWT" cherry-pick diag/forkserver-import-audit        # applies cleanly on d2d10697 (hunks sit between #587/#588's)
 #   edit $CWT/src/cascor_diag_import_audit.py:        add "sentry_sdk" to the _WATCH tuple
 #   edit $CWT/src/cascade_correlation/cascade_correlation.py, the _worker_loop DIAG-ENV line: add "sentry_sdk" to the _diag_hot tuple
@@ -313,7 +321,20 @@ may not be loaded in a fresh session, and a socket file's existence proves nothi
 the next exclusive GPU window (~7–9.5 GPU-hours). **This session committed: no CPU/GPU-heavy suites
 until it announces completion.** Its drain watch requires experiment ports + the canopy-E2E trio
 (8202/8101/8051) clear, load1 < 4, GPU < 1 GiB. Honour that; if Paul arbitrates differently, his
-call wins. **There is no observable "announcement" artifact**, and **"not started" and "finished" have the
+call wins.
+
+**Checkout FREEZE (asked by the T6 successor session, 2026-08-25 late):** from T6's LAUNCH
+announcement until its COMPLETION announcement (≈ 8–12 h), **do not advance the shared primary
+checkout `Juniper/juniper-cascor`** — no pull, no commit, no dirty tree. Its campaign driver
+re-reads the primary's HEAD around every suite and aborts (exit 3) the instant it moves, wasting
+every completed suite. Pin candidate `d2d1069` (= `origin/main`, clean). If you need that checkout
+inside the window, tell the T6 session or Paul BEFORE, not after. Expected window: the post-backup
+early morning, ~05:10–07:45 on 2026-08-26, gated by T6's drain watch (load1 < 4 AND load15 < 4.5,
+no duplicati/clamscan/aescrypt > 20% CPU, GPU < 1200 MiB, ports 8230/8110/8202/8101/8051 clear).
+Tripwire if a message is held: a cascor listener on :8230–8259 means the campaign is live; none by
+~10:00 on 2026-08-26 means the window was not claimed. **This session acknowledged the freeze.**
+
+**There is no observable "announcement" artifact**, and **"not started" and "finished" have the
 identical host signature** (no ports, no lockdirs, nothing new under `suites/`) — so a quiet host is
 *necessary* for §3.1 but never *sufficient*. What opens the window is an explicit go from Paul or
 from the T6 session; the host checks (§8's port/lockdir/load lines, `nvidia-smi`, new `suites/`
@@ -424,7 +445,7 @@ then list untruncated** — `head` on a reference sweep is never acceptable. Sam
 | `worktrees/juniper-cascor--fix--candidate-seed-derivation--20260823--362b88b1` (`rescue/candidate-seed-derivation-wip`) and `…--diag--seeds-and-balance--20260821-2115--362b88b1` (`rescue/seeds-and-balance-diag-wip`) | pred. §6.1 rows; **still present, 28 `.h5` between them**; their `util/ad-hoc/*.patch` twins verified on `main` | **Redundancy is uneven** (verified by content diff): `seeds-and-balance` ≡ its `.patch` ≡ the `diag/seed-instability-at-56x` commit content; but `candidate-seed-derivation-wip` (81 lines: network-owned seed RNG + `DIAG:` seed log + worker-profile dispatcher + `DIAG-ENV` census) ≡ **its `.patch` ONLY** — no `diag/*` branch carries it, its substance shipped as #566/#567, and the patch no longer applies to `origin/main` in either direction. Provenance only. **Owner's call to remove**: copy the 28 `.h5` out first (`worktree remove` deletes them), then `git branch -D` (both unmerged, unpushed) |
 | pred. §6.1's `exp--determinism-postarc` (detached `234c203`), `fix--logger-frame-resolution` (`be346be`), `exp--residual-wall-gap` (detached `362b88b`) | **ALL THREE STILL PRESENT** — `git -C /home/pcalnon/Development/python/Juniper/juniper-cascor worktree list`; `.h5` counts **100 / 73 / 450**. (An earlier draft of this table said "no longer listed" — that was a `../juniper-cascor` path resolving nowhere from the session worktree; a validator caught it.) `determinism-n20-postarc/provenance.json:cascor_src` still points at the postarc tree | pred. §6.1's dispositions stand unchanged: **postarc — keep, do not move its HEAD** (it is the §1.1 provenance link); the other two — removable **only after** the snapshot check, ~620 un-indexed models between them; **owner's call** |
 | this session's ml worktree `.claude/worktrees/adaptive-soaring-codd` | branch `docs/handoff-2026-08-25-perf-lane-closeout` off `origin/main` `84f52793`; only this file (untracked until committed) | the handoff PR |
-| `Juniper/juniper-cascor` primary checkout | at `fa649d0b`, **two behind** `origin/main` (`d2d10697` = #588, `76f4d51b` = #587), clean | **§3.1 step 0 requires syncing it** (the service arm runs from here) — only when its tree is clean and `ps` shows nothing running from `juniper-cascor/src` |
+| `Juniper/juniper-cascor` primary checkout | at **`d2d10697` = `origin/main`** (#588), clean — synced by another session late 2026-08-25 | the service arm runs from here. **FROZEN during T6's window** (§4.4) — no pull/commit/dirty tree; §3.1 pins to its HEAD rather than advancing it |
 
 ---
 
