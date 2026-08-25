@@ -77,7 +77,7 @@ def login():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["status", "export", "abort", "delete", "import", "run", "progress"])
+    ap.add_argument("cmd", choices=["status", "export", "abort", "delete", "import", "run", "progress", "log", "task"])
     ap.add_argument("arg", nargs="?")
     ap.add_argument("--remote-files", action="store_true", help="delete: also remove uploaded volumes")
     ap.add_argument("--yes", action="store_true", help="required for delete")
@@ -119,6 +119,28 @@ def main():
     elif args.cmd == "run":
         status, body = req("POST", f"/api/v1/backup/{args.arg}/run", tok)
         print(f"run backup {args.arg}: {status} {body}")
+
+    elif args.cmd == "log":
+        # newest-first backup run results for backup <arg>; each entry's Message
+        # is the serialized result (ParsedResult, ExaminedFiles, Delete/Compact
+        # phases, ...) -- the mechanism for verifying retention behavior and
+        # per-run outcomes without UI access.
+        status, log = req("GET", f"/api/v1/backup/{args.arg}/log?pagesize=5", tok)
+        if status != 200 or not isinstance(log, list):
+            sys.exit(f"log failed {status}: {log}")
+        for entry in log:
+            m = entry.get("Message")
+            m = json.loads(m) if isinstance(m, str) else (m or {})
+            keys = ("ParsedResult", "MainOperation", "BeginTime", "ExaminedFiles",
+                    "AddedFiles", "ModifiedFiles", "PartialBackup", "Interrupted")
+            row = {k: m.get(k) for k in keys}
+            row["DeleteResults"] = bool(m.get("DeleteResults"))
+            row["CompactResults"] = bool(m.get("CompactResults"))
+            print(json.dumps(row))
+
+    elif args.cmd == "task":
+        status, task = req("GET", f"/api/v1/task/{args.arg}", tok)
+        print(json.dumps({k: task.get(k) for k in ("Status", "ID", "TaskStarted", "TaskFinished", "ErrorMessage")}, indent=1))
 
     elif args.cmd == "progress":
         _, state = req("GET", "/api/v1/serverstate", tok)
