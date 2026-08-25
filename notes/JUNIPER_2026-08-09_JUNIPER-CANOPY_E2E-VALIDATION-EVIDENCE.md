@@ -102,8 +102,10 @@ Found at first live browser attach (prior session, 2026-08-09): with `JUNIPER_CA
 Reproducer: toggle dark (glyph 🌙→☀️, `<html>` gains `dark-mode`) → reload → theme restores dark but the button renders the layout-default 🌙; the next click still behaves correctly (store true→false → light), so only the glyph is stale.
 Evidence: `toggle_dark_mode` (`juniper-canopy/src/frontend/dashboard_manager.py:2905-2916`) is the **sole writer** of `dark-mode-toggle.children` and is `prevent_initial_call=True`; the PERF-CN-01 mount-time propagation (`:2921-2928`, `prevent_initial_call=False`) exists only for `theme-state` — the glyph Output is omitted from any mount path. Screenshots: `C2.1-01__dark.png` (correct ☀️ pre-reload), `C2.1-02__reload-glyph-desync.png` (dark theme + 🌙). Matrix rows C2.1-01/02 — both PASS on their stated expectations; this is a ledger finding, not a row FAIL.
 
-**F-CANOPY-002 — `ws_latency.js` beacon CLOBBERS the WS bridge's `metrics` handler: the metrics fast path is dead in every live run and the panel starves (P0, OPEN; root-caused).**
+**F-CANOPY-002 — `ws_latency.js` beacon CLOBBERS the WS bridge's `metrics` handler: the metrics fast path is dead in every live run and the panel starves (P0, root-caused; FIXED canopy#515 `04f06ff`, verified live — closure block below).**
 Mechanism, proven live across two runs: `CascorWebSocket.on(type, handler)` is a **single-slot registry** — `this.handlers[type] = handler` silently replaces (`websocket_client.js:179-180`; dispatch `:258-260`). `ws_dash_bridge.js:217` registers the real `metrics` intake (feeding `_juniperWsDrain._metricsBuffer` → `ws-metrics-buffer` → `append_ws_metrics_store`, `dashboard_manager.py:3703-3712`); `ws_latency.js:75` then registers its latency-sampling `metrics` handler on the same socket — alphabetical asset load order guarantees the beacon loads after the bridge (console: "[WS Bridge] Handlers registered" precedes "[WS Latency] Beacon initialized") — and **replaces the bridge's**. Result: metrics frames arrive on `/ws/training` (run 2 raw-socket instrumentation: 401 `metrics` frames during the output phase) but dispatch ONLY into the latency sampler; the drain's metrics intake never fires (`_metricsReceived: false` / stale, buffer 0) while `state` / `candidate_progress` / `cascade_add` — types the beacon does not touch — flow normally on the same socket, and `initial_metrics` (its own un-clobbered slot) stamps the drain at reconnects. Live-run dispatch snapshot: `handlers['metrics'].toString()` = the beacon's `_recordLatency` body. Panel impact: KPI tiles / status pill / both plots / progress-detail sat frozen through both runs, catching up minutes later via the congested REST poll (M-METRICS-31 — `ws_live` correctly reads false, so the 1 Hz poll runs but lands ~30-90 s late under the F-CANOPY-003 congestion). Matrix: M-METRICS-31 FAIL (during-run), M-METRICS-32 FAIL. Fix direction (Phase 2): per-type handler LIST (registry append + dispatch fan-out), or route the beacon through the bridge. Note `off()` (`websocket_client.js:493-494`) already guards identity — only `on()` clobbers.
+
+**CLOSED (2026-08-24, canopy#515 `04f06ff`; run `20260825T044659Z`).** The ledger's own fix direction, implemented: `on()` appends to a per-type list; dispatch fans out over a copy with the try/catch INSIDE the loop (one handler throwing cannot starve its siblings — the bridge and the beacon now share `metrics`); `off()` keeps its identity guard against the list; zero caller changes. Pinned by `src/tests/unit/test_ws_handler_fanout.py` (the JS-source idiom), including that both real `metrics` registrants remain. **Verified live on merged main mid-run:** `_juniperWsDrain.metricsReceived: true` with `lastMetricsFrameMs` **47 ms** old (the pre-fix state was "no metrics frame has EVER arrived"), `_metricsBuffer` at 24, and the `allow_duplicate` WS append callback executing 13×/45 s with `ws-metrics-buffer.data` in its `changedPropIds` — M-METRICS-31 (the liveness gate now reads fresh, demoting the REST poll as designed) and M-METRICS-32 (the WS append path) re-scored `PASS (re-validated @ 04f06ff)`. Not exercised in the window: the beacon's own `/api/ws_latency` posting cadence (its registration is source-pinned; a latency-display check can ride any future segment).
 
 **F-CANOPY-003 — control-button loading state: success ack never re-enables; the 2 s timeout sweep lands at 30 s–minutes under callback congestion (P1, OPEN).**
 Measured: Reset click → WS frame sent + success ack in ~1 s → optimistic ⏳ rendered at +4 s → button re-enabled at **+32 s**. Start's stuck window after its successful ack ran **minutes** (cleared only when the next control action fired the sweep's other Input). Evidence: the Phase-D clientside success path only `console.log`s — no button-states write and no `training-control-action` write on success (`dashboard_manager.py:233-236`); the sweep `handle_button_timeout_and_acks` (`:4246-4257`, handler `:6771-6796`) is the SOLE recovery and compares against `DASHBOARD_TIMEOUT_THRESHOLD = 2.0` s (`canopy_constants.py:384`) — the registration comment "Re-enable buttons after timeout (5s) or on control acknowledgment" is doubly stale (no ack path exists; threshold is 2 s). The 30 s+ real-world latency tracks the same server-side callback congestion that delayed every render during the run (12 Dash POSTs/s observed; `fast-update-interval` fired 26×/6 s). Matrix row C2.5-09 **FAIL**; C2.5-02's optimistic-disable half PASS.
@@ -114,8 +116,10 @@ Measured, run 2 (topology tab, 1 Hz sampling for 60 s): canopy `/api/status` ste
 **F-CANOPY-005 — WS command send-promise races its own 3 s timeout under congestion: the REST fallback double-fires state-changing commands AFTER WS success (P0, OPEN; root-caused live).**
 Captured on a W2 resume: the `{command:"resume"}` frame was acked on the wire **+18 ms** after send (`command_response`, matching `command_id`), yet the send-promise rejected `"Command timeout (no command_response for 81c7f1a1-…)"` and the Phase-D fallback then POSTed `/api/train/resume` — which the (already-resumed) backend refused **409**. Mechanism: `send()` arms a per-command `setTimeout` ceiling — start 11 s, set_params 2 s, **everything else 3 s** (`websocket_client.js:396-403,410-413`) — while ack matching happens in `_handleMessage → _resolvePendingCommand` on the browser main thread (`:210-211`, `:436-447`); during a run the main thread is blocked by the F-CANOPY-004 render queue, so the expired timer task can beat the queued WS `message` task and reject a command whose ack already arrived. Consequences: (a) duplicate **state-changing** POSTs (a lost race on `start` would re-POST start; observed on resume as a 409); (b) the operator sees a failure signal for a command that succeeded — `reportFailure` fed `training-control-action` with `success:false` (console: `[Phase D] REST fallback (resume): WS rejected: Command timeout…` then `…returned 409`), though the danger alert itself ALSO never rendered (its server-side callback starved — same congestion; alert element still empty 6+ min later). Composed with F-CANOPY-003: after this sequence THREE buttons (start/pause/resume) sat stuck ⏳ disabled >8 min — during a run the interval-driven sweep pass effectively never lands (quiet-page clear ≈ +32 s), so a rejected/raced command wedges its button for the rest of the run. W2 step 2's pause-pause rejection arm is **BLOCKED** by exactly this wedge: the second pause click hits a still-disabled button, so no frame is ever sent and C2.5-10's alert is unreachable via that route.
 
-**F-CANOPY-006 — the topology graph NEVER renders in the live lane: a provably-correct server render is silently never applied client-side (P0, OPEN; server side exonerated live).**
+**F-CANOPY-006 — the topology graph NEVER renders in the live lane: a provably-correct server render is silently never applied client-side (P0; server side exonerated live; FIXED by the F-CANOPY-027 remediation series — closure block below).**
 End-to-end isolation, all captured live on run 2's completed 10-unit network: (1) data layer perfect — `GET /api/topology` serves `input_units:2, output_units:2, hidden_units:10`, 14 nodes, 89 weighted connections; (2) the rebuild callback's own request body (intercepted) carries that full topology + `depth-slider.value: 10`; (3) the server's response (intercepted) is **HTTP 200, 39 KB, a 181-trace figure, counts `2/10/2/89`** — the rebuild (`network_visualizer.py:365-…`) computes correctly; (4) the DOM never changes: counts remain the layout-default `"0"`s and the applied Plotly figure stays `data:[]` — across the whole run, post-run quiet queue, a direct store injection, AND a fresh page reload (clean renderer). Zero console errors, zero server-side callback errors. Two compounding shipped facts: the depth slider ships `value=0, max=0` (`network_visualizer.py:180-183`), so every fresh session's rebuild input is a hierarchy filter of **zero** cascade units (label renders `"0 of N"` — the "user-picked" value nobody picked); and the rebuild's 12-Input set includes the 1 s `fast-update-interval` while its own server time measures 1.5–5 s (F-CANOPY-004), keeping the same-output callback perpetually re-queued — the prime Phase-2 suspect for the renderer never painting a response (supersession/serialization), to be confirmed at fix time. Blast radius: M-TOPOLOGY-01..18 and W4 BLOCKED (graph-dependent rows); W1 steps 12–14 blocked at the DOM (cascade growth itself proven server-side and via the Evolution tab's cards). The mandate's flagship visualization is non-functional in the live lane.
+
+**CLOSED (2026-08-24, fixed by the F-CANOPY-027 remediation series — canopy#507+#509+#511; verified live on `5f2e905`-content, run `20260825T041134Z`).** The "prime Phase-2 suspect" was exactly right: the 12-Input rebuild riding the 1 s `fast-update-interval` with 1.5–5 s server time was perpetually re-queued/superseded — the same claimed-Input/starvation family as the rest of F-CANOPY-027. After #509 gated it to `tabpoll-topology` and Stage 2 suppressed its chained metrics-store rewrites, the panel is alive in BOTH lanes: **during an active run** the graph rendered **271 traces** with the counts tracking growth in real time (the DOM read `2/13/2/134` while the status probe still said 12 units — the panel was *ahead* of the probe), renderer executing 5×/30 s; at idle, 209 traces, counts `2/11/2/103`, renderer 4×/30 s. Two 2026-08-20 sub-claims corrected by source + observation: the depth slider's `max` DOES seed from topology (observed `max=11/13`), and `value=0` means **no filter** by design (`_apply_hierarchy_filter` returns unfiltered for `depth <= 0`, `network_visualizer.py:728`) — the feared "hierarchy filter of zero cascade units" never existed. Residual cosmetic (D-ledger, not this P0): the depth label renders `"0 of N"` for the all-filter where `"all"` would be honest. M-TOPOLOGY-01..18 / W4 / W1-12..14's blocker is gone; the rows await their re-drive segment.
 
 **F-CASCOR-001 — CUDA OOM in candidate seeding is classified "Completed — stalled (0 new units)" instead of an error state (P1, cascor repo, OPEN).**
 W1 run 1: every `CandidateUnit` construction raised `torch.AcceleratorError: CUDA error: out of memory` at `candidate_unit.py:333`/`:392` (`torch.rand(1, device="cuda")` seed-roll) via `train_candidate_worker` (`cascade_correlation.py:3270`) — repeated per candidate — and the run transitioned `Started -> Completed` with the stall label. The UI surfaced cascor's classification faithfully (`Status: Completed — stalled (0 new units)` — honest-label plumbing WORKS, plan §7.3), but a hard environmental failure is indistinguishable from a legitimate correlation stall at every surface. Host cause: 7563/8192 MiB VRAM pinned by ~50 orphaned `JuniperCascor1` forkserver workers (the known orphan class). To file as a cascor issue.
@@ -140,14 +144,16 @@ The real defect is entirely canopy-side, and is an **ordering** bug: `apply_para
 **F-CANOPY-024 — the shipped default candidate triple is invalid (P2; FIXED juniper-canopy#493 `71b569b`).**
 A fresh dashboard ships S=1, T=1, R=1, so T+R=2≠S and the *first* Apply always fails validation. Both validators agree (identical sentence client-side and from cascor). The user cannot fix it in place because T and R both ship `disabled=True` behind `cn-multi-candidate-checkbox`. Related, not itself a defect: cascor's `candidate_selection` is never seeded into `cn-candidate-selection-radio` (which ships `value=None` by design), so a backend-configured selection is lost across a page load.
 
-**F-CANOPY-025 — the Live Dataset Switch is unreachable: its gate callback never emits (P1, OPEN; segment 13).**
+**F-CANOPY-025 — the Live Dataset Switch is unreachable: its gate callback never emits (P1; FIXED canopy#514 `5f2e905`, allow arm driven live 2026-08-24 — closure block below; segment 13).**
 `live-dataset-switch-button` ships `disabled=True` (`dashboard_manager.py:1279-1280`) and the sole writer of that prop is `gate_live_switch_button` (`:4894-4901`), whose handler returns `not (flags_ok and running)` (`:5732-5741`). The callback **is** registered — `GET /dashboard/_dash-dependencies` lists it among 182 callbacks with output `live-dataset-switch-button.disabled` and inputs `['experimental-flags-store', 'training-status-store']` — and **both inputs are provably correct on the wire**: `_dash-update-component` responses repeatedly carry `{"training-status-store": {"data": {"is_running": true, "phase": "candidate"}}}` and `{"experimental-flags-store": {"data": {"experimental_functions": true}}}`. Yet **zero** responses ever carry `live-dataset-switch-button`, across a 120 s watch (24 samples at 5 s), a full page reload with the response hook armed from before load, and a forced experimental OFF→ON transition. Registered, inputs live, never fires. **Root cause not isolated — fix-phase work** (same disposition as F-CANOPY-016). Blast radius: C2.7-10 FAIL, C2.10-02 / C2.10-03 BLOCKED, and workflow **W7's hot-swap cannot be entered from the UI at all**.
 **Why it hid for five segments:** the only prior record of this surface is `W7-step1 PASS` (`reports/e2e/20260810T002233Z/statuses.tsv:63`) — the **deny** arm, *"exp toggle OFF + training running → button disabled"*. A gate that never opens satisfies every should-be-disabled assertion, so the deny arm passing is not evidence the gate works; the **allow** arm had never been driven. Distinct from F-CANOPY-004's server-callback lag: the same page demonstrably updated other surfaces throughout (`network-info-panel` moved from 0 to 6 hidden units), and 120 s exceeds the documented lag while both stores were already correct.
+
+**CLOSED (2026-08-24, canopy#514 `5f2e905`; run `20260825T041134Z`). Root cause was TWO defects.** (1) The gate callback could never win promotion: its `training-status-store` Input is an output the unified-status-bar feeder claims while in flight on every fast tick (the §12.6 claimed-Input race), and the gate is only *useful* during a run — exactly when the feeder's in-flight duty cycle saturates. Measured post-Stage-2: the gate fired at idle mount and **zero times across 80 s of training**; "registered, inputs live, never fires" was promotion starvation, not wiring. Fixed by computing the gate INSIDE `update_unified_status_bar` from the same `/api/status` payload (tuple 10 → 11; the flag rides as `State`, landing within one fast tick; suppressed on no-change). (2) **Every page load clobbered the server-side flag**: the mount reconciliation's *unchanged* toggle write fired the toggle handler — an unchanged write fires every consumer — which POSTed the mount-time value back to cascor, reverting operator changes made since that mount (observed live: a fresh page's echo reset `enabled:true` to `false` within seconds). Fixed with unchanged-write suppression in the reconcile plus an echo guard in the handler (`value == store` ⇒ programmatic write, no POST). **Verified live on the merged content** (tree `c2ec3998` == `5f2e905`): flag ON + run live + fresh mount → `disabled:false` at t+12 s (the arc's first-ever allow-arm observation), the button correctly re-disabling when the run completed; the flag now SURVIVES page attaches; and the enabled button's click opened the Live Switch modal (500×1044) with the full dataset summary — C2.7-10 and C2.10-02 re-scored PASS, W7's UI entry unblocked (C2.10-03, the confirm/swap arm, remains for a W7 drive). Operational note: the flag is cascor-process state — a cascor restart resets it to `false`; that is boot behaviour, not the echo defect.
 
 **F-CANOPY-026 — phase duration is inflated by the host's UTC offset: cascor emits naive LOCAL time, canopy stamps it as UTC (P2, OPEN; segment 15).**
 `metrics-panel-phase-duration` read **"Phase Duration: 300m 37s"** on a run that had been alive for 37 seconds. Mechanism, both halves proven in source and live: cascor writes `phase_started_at=datetime.now().isoformat()` — **naive, LOCAL** — at `juniper-cascor/src/api/lifecycle/manager.py:1781` (candidate phase) and `:2326` (output phase); canopy's `_update_phase_duration_handler` (`juniper-canopy/src/frontend/components/metrics_panel.py:1375-1376`) does `if started.tzinfo is None: started = started.replace(tzinfo=timezone.utc)` and then subtracts from `datetime.now(timezone.utc)`. Stamping a local timestamp as UTC shifts it by the host offset, so the displayed elapsed time is inflated by exactly that offset. Measured live: `phase_started_at = 2026-08-20T03:11:17.347900` with the box on CDT (`date +%z` → `-0500`); canopy's arithmetic yields 302m29s where the correct value is 2m29s — **delta exactly 18000 s = 5 h**. The counter ticks correctly at 1 s/s (300m37s → 301m18s across 41 s wall), so this is a pure constant offset, not a broken clock. **Invisible in any UTC-0 environment** (CI, most containers), which is why 14 segments on this dashboard never surfaced it. Matrix row M-METRICS-03 **FAIL**. Fix direction: emit tz-aware UTC from cascor (`datetime.now(timezone.utc).isoformat()`), which also makes canopy's naive branch unreachable; treating a naive value as local on the canopy side would be the compatible stopgap.
 
-**F-CANOPY-027 — a panel's data store is written repeatedly with changing data and NOTHING downstream of it ever runs, so three panels stay frozen at mount defaults through a whole live run (P0/P1, OPEN; found segment 15; ROOT-CAUSED 2026-08-23 — callback starvation under dash-renderer's hard-coded 12-slot concurrency pool, reproduced in a clean room with a control. Read the `ROOT CAUSE (2026-08-23)` block at the end of this entry FIRST: it supersedes the "broken wiring" framing of every block above it, and those blocks are retained only as the refutation record for twenty mechanisms).**
+**F-CANOPY-027 — a panel's data store is written repeatedly with changing data and NOTHING downstream of it ever runs, so three panels stay frozen at mount defaults through a whole live run (P0/P1; FIXED canopy#507+#509+#511, all rows re-driven live 2026-08-24 — closure block at the end of this entry; found segment 15; ROOT-CAUSED 2026-08-23 — callback starvation under dash-renderer's hard-coded 12-slot concurrency pool, reproduced in a clean room with a control. Read the `ROOT CAUSE (2026-08-23)` block at the end of this entry FIRST: it supersedes the "broken wiring" framing of every block above it, and those blocks are retained only as the refutation record for twenty mechanisms. FIXED — closure block at the entry's end).**
 Two panels, identical signature: their data store is demonstrably filled on the wire, and the server-side `@app.callback` renderers that take that store as their sole/primary `Input` never emit a single output.
 *Candidate Metrics*: `candidate-metrics-panel-training-state-store` received fresh payloads repeatedly (`{"candidate_pool_status":"Training","candidate_pool_size":40,"top_candidate_id":"31","top_candidate_score":0.181,"second_candidate_id":"11"}`), while `/api/state` carried a full pool (`candidate_pool_size 40`, `candidates_trained 40/40`, `candidate_epoch 351/400`, 40 `all_correlations`). The panel rendered `Inactive` / `Idle` / `0` / "No active candidate pool" / "No candidate data available" / "No pool history yet" for the entire run. `update_status_display`, `update_epoch_progress`, `update_pool_info` (`candidate_metrics_panel.py:251-300`) are plain server-side `@app.callback`s on `Input(-training-state-store,"data")`; **zero** `candidate-metrics-panel-status-badge` outputs across 252 responses / 45 s, and zero again across 200 responses / 49 s on a second, independent trigger path (forcing `visualization-tabs.active_tab` to change rather than riding the interval).
 *Decision Boundary*: `decision-boundary-boundary-data` filled 12×/61 s and 22×/60 s (the latter including a direct `decision-boundary-refresh-btn` click), while `decision-boundary-plot` and `-status` emitted **0** outputs and the status stayed `"Status: No network loaded"` — even though `GET /api/decision_boundary?resolution=50` returns a full `xx` meshgrid and cascor reported `current_hidden_units: 7`. `update_boundary_plot` (`decision_boundary.py:172-183`) is likewise a server-side `@app.callback`.
@@ -423,6 +429,17 @@ both of the panel's feeders are fast-lane ~1 s pollers whose round-trips cover t
 downstream render's Inputs are permanently claimed (the F-CANOPY-036 promotion race, generalized). The
 candidates and dataset lanes ARE closed live (see the 2026-08-24 re-drive section). Stage 2 gains a third
 lever: the boundaries chain specifically.
+
+**CLOSED (2026-08-24, Stage 2 = canopy#511 `60f9737`).** All three levers shipped (global lane 10 → 6
+pollers, no-op-write suppression, boundaries tabpoll → SLOW + feeder suppression) and every panel in this
+finding's blast radius is verified live on the merged build: candidates + dataset lanes (run
+`20260824T080426Z`), and the boundaries lane on `60f9737` (run `20260824T192748Z`) — M-BOUNDARIES-01/-02/
+-03/-04 all `PASS (re-validated @ 60f9737)`, -02/-03 by direct `changedPropIds` causation. Saturation
+(§7.1 protocol): pool-full 83.6 % → **25.5 % idle / 35.3 % under live training**, completions 224 →
+**778/60 s idle**, backlog now DRAINS to 0 (was held at 23+), and the probe's starving-in-`prioritized`
+list is **empty**. The rows that remain red in these panels are owned by their own findings —
+M-CANDIDATES-07 (F-CANOPY-035), -09/-10/-11 (F-CANOPY-036) — not by this one. F-CANOPY-004 stays OPEN
+(residual lag: fresh-session population 20-40 s; render latencies 3-16 s), materially improved.
 
 **F-CANOPY-034 — `metrics-panel-network-stats-store` is now written by nothing and read by nothing (P2, OPEN; found while fixing F-CANOPY-027).**
 The store was fed by a `fetch_network_stats` poller that GET `/api/network/stats` every 5 s — and **no callback
@@ -2955,3 +2972,125 @@ F-CANOPY-013 re-tagged P2 (was out-of-vocabulary "P3", which the triage script s
 coverage unchanged at 298/298; verdict deltas this session: M-DATASET-13/-15/-16 FAIL→PASS,
 M-CANDIDATES-09 BLOCKED→FAIL, M-BOUNDARIES-02 BLOCKED→FAIL, five candidates rows PASS→PASS(re-validated),
 M-BOUNDARIES-01 rider narrowed, M-BOUNDARIES-04 FAIL sharpened, -10/-11/-03 BLOCKED re-attributed.
+
+---
+
+## Phase 2 — Stage 2 shipped (2026-08-24): the global lane consolidated, the boundaries render un-blocked, F-CANOPY-027 CLOSED
+
+**Outcome up front: canopy#511 (`60f9737`, squash of the single waived commit; tree `a8be88ca` — identical
+to the pre-merge build every branch measurement ran against) shipped all three §13 levers, and the four
+M-BOUNDARIES rows re-drove to `PASS (re-validated @ 60f9737)` under run `20260824T192748Z`. F-CANOPY-027
+is FIXED** (closure block in its ledger entry); its residual red rows belong to F-CANOPY-035/-036.
+
+### What shipped
+
+Design §13's per-call-site table, exactly: **lever 1** — `update_unified_status_bar` absorbed
+`training-status-store`'s dedicated `/api/status` poller (suppressed on `{is_running, phase}` no-change),
+and a new `update_system_panels` replaced four slow-lane callbacks (network-info + details + stream-health
++ pending-banner; one shared `/api/status` fetch — the banner's was the dashboard's FOURTH poller of that
+endpoint). Global perpetual pollers 10 → 6; worst-case concurrency 13 → 9 vs the cap of 12. **Lever 2** —
+no-op-write suppression on the swap-events poller (whose every 5 s rewrite had re-rendered three panels and
+re-fetched the whole snapshot list), the metrics REST poll (identical history at 1 Hz into 4+ consumers
+incl. the 8-output topology renderer), and both boundary feeders. **Lever 3** — `tabpoll-boundaries`
+FAST → SLOW plus those feeder suppressions; tab activation and ↻ Refresh keep their immediate-fetch Inputs.
+12 new pinning tests (`test_stage2_global_lane.py`, all failing on the parent) + the contract tests of the
+merged-away callbacks moved to the new shape. One extract-method and one renamed test needed
+`Allow-Symbol-Loss` waivers (in the single commit; post-merge main verification green).
+
+### Measurements (§7.1 protocol, `e2e_f027_slots.py`, 60 s on the Candidate Metrics tab)
+
+| state | pool full | backlog max | completions/60 s |
+|---|---|---|---|
+| baseline (pre-#507) | 83.6 % | 36 (held) | 224 |
+| after #507+#509 | 61.4 % | 23 (held) | 449 |
+| **Stage 2, idle** | **25.5 %** | 25 → drains to 0 | **778** |
+| **Stage 2, during live training** | **35.3 %** | 24 → drains to 0 | 627 |
+
+The starving-in-`prioritized` list (waited, never picked) is **empty** in both windows — the quantity that
+WAS this defect. §7.1's <20 % pool-full reads as a near-miss at idle and the <12 backlog as transient-only;
+both targets assumed held-backlog semantics that no longer occur.
+
+### The boundaries rows (run `20260824T192748Z`, merged main)
+
+-04: status → `Displaying decision boundary` at t+16 s DURING a run and t+10 s post-run, full
+contour+scatter figure. -01: slider 100→125 in 1.3 s, the next feeder POSTs carry `resolution=125`, and
+the figure re-rendered to the larger 125-mesh (sig 166696 → 218804) — also answering the prior run's open
+question: the slider's Redux commit lands. -02: a plot-render POST with
+`decision-boundary-show-confidence.value` in `changedPropIds` ~9 s after one toggle click — direct
+causation. -03: a feeder POST with `decision-boundary-refresh-btn.n_clicks` in `changedPropIds`, landing
+OFF the 5 s ambient grid — the twice-BLOCKED attribution, closed by the Stage-2 cadence itself.
+
+### Instrument laws (hard-won this session; supersede "sparse evaluates" advice)
+
+1. **On the boundaries tab, only attach-window evaluates are reliable** (≤ ~25 s of page life; 100 %
+   service across nine sessions). Rapid polls, sparse 6 s-spaced reads, and even single late harvests all
+   starved for minutes-to-forever, run state irrelevant. Structure probes as **one gesture per session**:
+   open tab → one click → all analysis python-side from the request capture.
+2. **`changedPropIds` is the causal channel** — every dash POST names the props that triggered it — but it
+   serializes AFTER the callback's inputs, so the arc's shared 4000-char body slice never contains it for
+   big-store callbacks; register a full-body `page.on("request")` handler.
+3. **A value-change subscribe is blind to identical rewrites** (it under-read the boundary feeder as
+   "2 fills/40 s" when it was ~1/s), and the boundary-data body filter also catches the replay co-writer's
+   requests during live runs — count writers by `changedPropIds`, not by output id alone.
+4. **Long browser probes must be launched DETACHED** (`nohup setsid`) — the session task lease kills
+   backgrounded probes mid-harvest (two were lost to it here; the known ~3600 s bg-worker-lease class).
+
+### Status effects
+
+F-CANOPY-027 **FIXED** (canopy#507+#509+#511) — ledger now 40 findings / 10 fixed / 30 open
+(3 P0 · 2 P0/P1 · 11 P1 · 12 P2 · 2 LEDGER). F-CANOPY-004 OPEN with materially better numbers.
+Matrix: M-BOUNDARIES-01..04 re-scored; coverage 298/298, 0 unfilled. `CURRENT_RUN_ID` →
+`20260824T192748Z`. The driver gained the measurement/attribution steps (`bprobe`/`bfinal*`/`bcausal`/
+`btoggle`/`brefresh`) and the earlier session's observer steps; the F-CANOPY-036 dead-click test
+(`cardsprobe`) stays ready for that finding's fix.
+
+---
+
+## Phase 2 — two more closures (2026-08-24): F-CANOPY-006 (P0) and F-CANOPY-025 (P1)
+
+**Outcome up front: the topology graph works in the live lane, and the Live Dataset Switch opens — a P0
+and a P1 closed in one session, both children of the same promotion-race family §12.6 named.** Ledger:
+40 findings / **12 fixed / 28 open** (2 P0 · 2 P0/P1 · 10 P1 · 12 P2 · 2 LEDGER). Run `20260825T041134Z`.
+
+### F-CANOPY-006 — closed by verification, no new code
+
+The Stage 1+2+3 series had already fixed it: post-#511 probes on the merged content showed the topology
+panel alive in BOTH lanes — **271 traces during an active run with counts tracking growth in real time**
+(the DOM was a step *ahead* of the status probe), 209 traces / live counts at idle, renderer executing
+4-5×/30 s. The 2026-08-20 entry's suspect ("the 12-Input rebuild perpetually re-queued behind the 1 s
+interval") was the correct mechanism all along. Two sub-claims corrected: the depth slider's `max` does
+seed (observed 11/13), and `value=0` is the designed no-filter arm — the "0 of N" label is a residual
+cosmetic, not a defect. M-TOPOLOGY-01..18 / W4 / W1-12..14 are unblocked and await their re-drive segment.
+
+### F-CANOPY-025 — canopy#514 (`5f2e905`), and the root cause was TWO defects
+
+(1) The standalone gate lost the promotion race against its own feeder's in-flight claim on
+`training-status-store` — fired at idle mount, zero times across 80 s of training; fixed by computing the
+gate inside `update_unified_status_bar` (the Stage-2 consolidation pattern, tuple 10 → 11). (2) The mount
+reconciliation's unchanged toggle write fired the toggle handler, which POSTed the mount-time flag back to
+cascor on **every page load** — reverting operator changes (observed live within seconds); fixed with
+unchanged-write suppression + an echo guard. Verified end-to-end on the merged content: the allow arm's
+first-ever observation (`disabled:false` at t+12 s mid-run), the deny arm re-engaging at run end, the flag
+surviving page attaches, and the enabled button opening the Live Switch modal with its full dataset
+summary. Matrix: C2.7-10 and C2.10-02 → `PASS (re-validated @ 5f2e905)`; C2.10-03 (confirm/swap) remains
+for W7. Operational note: the flag is cascor-process state and resets on a cascor restart (boot behaviour).
+
+### Instrument additions
+
+`e2e_f027_redrive.py` gained `f025` / `f025idle` / `f006` steps (API-set preconditions, attach-window
+reads, request-side gate censuses) — the idle-vs-run gate census is the two-point probe that sealed the
+promotion-race mechanism in one stack session.
+
+---
+
+## Phase 2 — F-CANOPY-002 closed (2026-08-24): the WS metrics fast path lives
+
+**canopy#515 (`04f06ff`)** implemented the ledger's own fix direction — a per-type handler LIST with
+fan-out dispatch (copy-iteration, error isolation inside the loop, identity `off()`), zero caller changes
+— and the live verification (run `20260825T044659Z`) read the exact inverse of the defect's signature:
+`_juniperWsDrain.metricsReceived: true` with the last metrics frame **47 ms** old mid-run (pre-fix, "no
+metrics frame has EVER arrived"), the drain buffer filling, and the `allow_duplicate` WS append callback
+executing 13×/45 s with `ws-metrics-buffer.data` in its `changedPropIds`. M-METRICS-31/-32 →
+`PASS (re-validated @ 04f06ff)`. Pinned by `test_ws_handler_fanout.py` (the JS-source idiom). Ledger:
+**40 findings / 13 fixed / 27 open — one P0 left** (F-CANOPY-005, the WS send-promise race; F-CANOPY-004
+and F-CANOPY-008 hold the P0/P1 bucket). The `f002` driver step records the probe.
