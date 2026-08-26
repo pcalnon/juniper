@@ -38,7 +38,10 @@ load1=$(cut -d' ' -f1 /proc/loadavg)
 load15=$(cut -d' ' -f3 /proc/loadavg)
 lok=$(awk -v a="${load1}" -v b="${load15}" 'BEGIN{print (a<6.0 && b<5.0)?1:0}')
 if [ "${lok}" -ne 1 ]; then echo "ABORT: load1=${load1} load15=${load15} (need <6 / <5)"; exit 1; fi
-hot=$(ps -eo pcpu,comm --sort=-pcpu | awk '$2 ~ /clamscan|clamdscan|duplicati|aescrypt/ && $1+0 > 20 {c++} END{print c+0}')
+# Instantaneous CPU (second snapshot of a 1 s wide-column `top` sample) -- NOT `ps pcpu`,
+# which is a lifetime average and read 45% for an idle duplicati-server on 2026-08-25.
+# Mirrors the watch script's gate; see the comment there.
+hot=$(top -b -n 2 -d 1 -w 512 2>/dev/null | awk '/^top -/{n++} n==2 && $NF ~ /clamscan|clamdscan|duplicati|aescrypt/ && $9+0 > 20 {c++} END{print c+0}')
 if [ "${hot}" -ne 0 ]; then echo "ABORT: ${hot} hot maintenance process(es) (clamscan/duplicati >20% CPU)"; exit 1; fi
 
 # shellcheck disable=SC1091  # conda's hook is outside the repo by design
