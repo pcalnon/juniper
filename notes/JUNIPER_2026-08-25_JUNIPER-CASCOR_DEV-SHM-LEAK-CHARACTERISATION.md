@@ -335,6 +335,71 @@ the factory runs, and yours would replace it and break graceful stop. The one sa
 belt-and-braces handler is ahead of `uvicorn.run()` in `src/server.py` (raise `SystemExit(143)`
 so the re-raise unwinds the interpreter); deliberately not part of the fix.
 
+### 6.6 Production verification (2026-08-26): the fix is live and harmless, but the T6 campaign did NOT test the defect path
+
+The fix (cascor#589, merge `67d7ea3`) is live: the primary checkout was advanced to `67d7ea3`
+before the T6 re-baseline launched at 02:51 CDT 2026-08-26, so the campaign pinned it, and the
+running services carried it. The T6 owner reported the campaign completing clean — 23/23 cells,
+rc=0, **zero** net `/dev/shm` `juniper_train_*` / `sem.mp-*` objects across 23 inter-cell
+teardown SIGTERMs — and characterised that as a live confirmation of the fix under real training
+load.
+
+**The ledger result is real, but it is not a test of the stop-during-training path.** An
+independent scan of all 23 cells' per-run engine logs
+(`util/ad-hoc/2026-08-26_t6_stop_evidence_scan.py`;
+`reports/stop-during-training-2026-08-25/t6_production_verification_scan.txt`) shows every one
+of the 23 teardown stops landed on an **already-completed** service:
+
+| signal | across all 23 cells |
+|---|---|
+| `Training ended` logged **before** `JuniperCascor API shutting down` | 23 / 23 (gap 2.0–6.9 s) |
+| `TrainingLifecycleManager shut down (Xs)` elapsed | **0.00 s** in every cell |
+| `training thread still running` / `did not unwind` WARNING | **0** |
+| worker log lines stamped after the parent's last line (orphaned workers) | none |
+
+`run_experiment.py` drives training to a terminal state and only *then* tears the stack down,
+and `CascadeCorrelationNetwork.fit()` already releases the candidate pool in its `finally` on
+normal completion (§3, `_release_candidate_worker_pool` at fit's tail). So by the time each
+teardown SIGTERM arrived, training was done, the pool and its deferred-unlink block were already
+gone, and the fix's bounded join found **no `_training_future` to wait on** — hence the uniform
+`0.00 s`. The ledger stayed clean because the *normal-completion* path cleaned up, exactly as it
+would have pre-fix for an idle stop. Net leak from the campaign was zero (the host ledger read
+`10/90` before, `10/90` after; a live cascor adds one transient pair of its own — §3.2 of the
+2026-08-26 handoff).
+
+**What T6 therefore establishes, and what it does not.** Establishes: the fix does **no harm** to
+the common idle-stop path — 23 real teardowns, no leaks, no orphaned workers, no lengthened
+shutdown (`0.00 s`). Does **not** establish: that the fix works on a stop that lands *while
+training runs*, because no T6 stop did.
+
+**Live stop-during-training verification (2026-08-26, done).** Both trigger paths were run against
+the **deployed** `67d7ea3` (a scratch copy of the primary checkout) once the T6/g4 GPU campaigns
+freed 8230–8259. A persistent dev cascor on 8202 was present, so the `/dev/shm` before/after diff
+was **not attributable** (`ALLOW_PEER_CASCOR=1`, `leak_lists_safe_to_remove=false` — the
+candidate-round run's report even shows a `juniper_train_99ad3eec`+9 "leak" that was a peer/leftover
+block created 35 s *before* this run's only candidate round, exactly the confound §4's guard
+exists for). The **attributable** evidence — this run's own redirected engine log and the orphan
+census of its own descendants — plus the host ledger returning to baseline at a clean instant:
+
+| trigger | join behaviour | descendants → orphaned | SIGTERM→death | this run's block after death | ledger after |
+|---|---|---|---|---|---|
+| `hidden_unit` (output-retrain phase) | interrupt fired, clean unwind — `stop_requested` → `Training ended` → `shut down (1.34s)` INFO | 17 → **0** | 1.66 s | released | `10/90` (baseline) |
+| `candidate_round` (mid-round, parent blocked on workers) | bounded join **timed out**, explicit release ran — `shut down with the training thread still running (8.86s); the process exit will abandon it` WARNING | 2\* → **0** | 9.16 s | released | `10/90` (baseline) |
+
+Both paths released this run's SharedMemory block and left **zero net** `/dev/shm` residue (host
+back to the baseline `10/90`, no today-dated cascor entries). The output-phase row reproduces the
+§6.5 "with the fix" column on the merged code; the mid-round row is the **first live exercise** of
+the join-timeout → explicit-release path that cascor#589 had covered only by a mocked unit test,
+and it confirms the abandoned-thread case still frees the pool and leaks nothing. Evidence:
+`reports/stop-during-training-2026-08-25/cascor_repro_deployed_67d7ea3_{output_phase,candidate_round}_report.json`.
+The 9.16 s mid-round death is under `experiment_stack.bash`/`docker stop`'s 10 s grace but not by
+much — a mid-round stop of a run with a slower pool escalation could brush it; raising
+`JUNIPER_EXP_KILL_TIMEOUT` / `stop_grace_period` for candidate-heavy runs is the lever if it ever
+does. \*The mid-round descendant census recorded only the resource-tracker and forkserver (the
+persistent pool workers were not yet forkserver children at the 0.5 s-post-`Distributing` snapshot),
+so the orphan count there is corroborated by the ledger's baseline-return rather than by the census
+alone.
+
 ---
 
 ## 7. Reproducing

@@ -15,10 +15,15 @@
 # Brings up ONE throwaway juniper-cascor service from an arbitrary source tree (so a patched
 # scratch copy can be exercised without touching the shared checkout), on its own port with its
 # own snapshot root and log dir, starts a real GPU training run on the in-process spiral
-# fallback (no juniper-data leg needed), waits until the first hidden unit has been installed
-# (=> the persistent candidate-worker pool exists and a deferred-unlink SharedMemory block is
-# on disk), then sends exactly one SIGTERM to the uvicorn pid — the stop every fleet stop tool
-# sends — and measures:
+# fallback (no juniper-data leg needed), waits for the trigger point (TRIGGER=hidden_unit, the
+# default: the first hidden unit has been installed => the persistent candidate-worker pool
+# exists, a deferred-unlink SharedMemory block is on disk and the training thread is in the
+# output-retrain phase, where the cooperative interrupt can fire; or TRIGGER=candidate_round,
+# added 2026-08-26: the first candidate round is in flight => the parent training thread is
+# blocked on worker results, where the interrupt CANNOT fire and shutdown()'s bounded join must
+# time out and the explicit pool/shm release must do the work — the path juniper-cascor#589
+# had covered only by a mocked unit test), then sends exactly one SIGTERM to the uvicorn pid —
+# the stop every fleet stop tool sends — and measures:
 #
 #   * time from SIGTERM to process death, and the wait status (143 / "killed by 15" is what
 #     uvicorn's capture_signals re-raise produces; a clean exit is 0),
@@ -46,7 +51,10 @@
 # -----
 #   2026-08-25_cascor_stop_during_training_repro.bash <cascor-src-dir> <run-dir> [port]
 #
-# Environment: JUNIPER_CASCOR1_PY (default /opt/miniforge3/envs/JuniperCascor1/bin/python).
+# Environment: JUNIPER_CASCOR1_PY (default /opt/miniforge3/envs/JuniperCascor1/bin/python);
+#              TRIGGER=hidden_unit|candidate_round (default hidden_unit, see above);
+#              CANDIDATE_SETTLE_S (default 0.5) — pause after the first "Distributing" line
+#              before the SIGTERM, so the workers are inside candidate training when it lands.
 # Output: <run-dir>/report.json plus the raw evidence files it names. Exit 0 when the
 # measurement completed (regardless of whether a leak was observed), non-zero on a harness
 # failure (service never healthy, training never reached a hidden unit, ...).
@@ -60,6 +68,9 @@ UVICORN="$(dirname "${PY}")/uvicorn"
 BASE="http://127.0.0.1:${PORT}"
 HIDDEN_UNIT_WAIT_S="${HIDDEN_UNIT_WAIT_S:-600}"
 DEATH_WAIT_S="${DEATH_WAIT_S:-60}"
+TRIGGER="${TRIGGER:-hidden_unit}"
+CANDIDATE_SETTLE_S="${CANDIDATE_SETTLE_S:-0.5}"
+case "${TRIGGER}" in hidden_unit|candidate_round) ;; *) echo "TRIGGER must be hidden_unit or candidate_round, got '${TRIGGER}'" >&2; exit 2 ;; esac
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S.%N | cut -c1-12)" "$*"; }
 now() { date +%s.%N; }
@@ -94,10 +105,23 @@ peer_cascor_cwds() {
         case "$(basename "${exe}")" in python*) echo "${cwd}" ;; esac
     done < <(find /proc -maxdepth 2 -name cwd -lname '*juniper-cascor*' 2>/dev/null || true)
 }
+# ALLOW_PEER_CASCOR=1 downgrades the refusal to a warning: the run proceeds, but the /dev/shm
+# before/after diff is then NOT attributable to this run (a peer could create entries in the same
+# window), so the end-of-run peer re-check forces leak_lists_safe_to_remove=false and the
+# shm_leaked_* lists must NEVER be fed to rm. Use it only when the OTHER evidence — the engine-log
+# signature (join timeout / explicit release / thread abandon) and the orphan census of THIS run's
+# own descendants, both fully attributable regardless of a peer — is what you need, e.g. the
+# mid-candidate-round path on a busy host. The default (unset) still refuses, preserving the clean
+# attribution the /dev/shm ledger verification depends on.
 if [[ -n "$(peer_cascor_cwds)" ]]; then
-    log "ERROR: another host process is running from a juniper-cascor tree; /dev/shm entries could not be attributed to this run. Refusing."
-    peer_cascor_cwds | head -5 | while read -r p; do log "  peer: ${p} -> $(readlink "${p}" 2>/dev/null)"; done
-    exit 6
+    if [[ "${ALLOW_PEER_CASCOR:-0}" == "1" ]]; then
+        log "WARNING: a peer juniper-cascor process is present but ALLOW_PEER_CASCOR=1; proceeding. /dev/shm lists will be marked NOT safe to remove (engine-log signature + own-descendant orphan census remain attributable)."
+        peer_cascor_cwds | head -5 | while read -r p; do log "  peer: ${p} -> $(readlink "${p}" 2>/dev/null)"; done
+    else
+        log "ERROR: another host process is running from a juniper-cascor tree; /dev/shm entries could not be attributed to this run. Refusing (set ALLOW_PEER_CASCOR=1 to proceed for the log-signature evidence only)."
+        peer_cascor_cwds | head -5 | while read -r p; do log "  peer: ${p} -> $(readlink "${p}" 2>/dev/null)"; done
+        exit 6
+    fi
 fi
 ls -1 /dev/shm | sort >"${RUN}/shm_before.txt"
 
@@ -153,18 +177,38 @@ d = d.get("data", d) if isinstance(d, dict) else {}
 print(int(d.get("hidden_units", -1)))'
 }
 deadline=$(( $(date +%s) + HIDDEN_UNIT_WAIT_S ))
-hu=-1
-while (( $(date +%s) < deadline )); do
-    hu="$(hidden_units)"
-    if (( hu >= 1 )); then break; fi
-    sleep 0.2
-done
-if (( hu < 1 )); then
-    log "ERROR: no hidden unit within ${HIDDEN_UNIT_WAIT_S}s (hidden_units=${hu})"
-    kill -KILL "${PID}" 2>/dev/null || true
-    exit 4
+if [[ "${TRIGGER}" == "candidate_round" ]]; then
+    # The parent logs one "TaskDistributor: Distributing N tasks" line per candidate round,
+    # right after it has written the round's SharedMemory block and handed the tasks to the
+    # pool; from then until the round's results are collected it is blocked in
+    # _collect_training_results, where the cooperative interrupt cannot fire.
+    ENGINE_LOG="${RUN}/logs/juniper_cascor.log"
+    seen=0
+    while (( $(date +%s) < deadline )); do
+        if [[ -f "${ENGINE_LOG}" ]] && grep -q 'TaskDistributor: Distributing' "${ENGINE_LOG}"; then seen=1; break; fi
+        sleep 0.1
+    done
+    if (( seen == 0 )); then
+        log "ERROR: no candidate round started within ${HIDDEN_UNIT_WAIT_S}s"
+        kill -KILL "${PID}" 2>/dev/null || true
+        exit 4
+    fi
+    sleep "${CANDIDATE_SETTLE_S}"
+    log "first candidate round in flight (parent blocked on worker results; hidden_units=$(hidden_units)) — SIGTERM lands mid-round"
+else
+    hu=-1
+    while (( $(date +%s) < deadline )); do
+        hu="$(hidden_units)"
+        if (( hu >= 1 )); then break; fi
+        sleep 0.2
+    done
+    if (( hu < 1 )); then
+        log "ERROR: no hidden unit within ${HIDDEN_UNIT_WAIT_S}s (hidden_units=${hu})"
+        kill -KILL "${PID}" 2>/dev/null || true
+        exit 4
+    fi
+    log "hidden_units=${hu}: training is in the output-retrain phase with a live pool"
 fi
-log "hidden_units=${hu}: training is in the output-retrain phase with a live pool"
 
 # ------------------------------------------------------------------------------------------
 # 4. Record the live state: descendants (2 levels: forkserver/tracker -> workers) and /dev/shm.
@@ -236,15 +280,45 @@ fi
 # ------------------------------------------------------------------------------------------
 # 7. Report.
 # ------------------------------------------------------------------------------------------
-"${PY}" - "${RUN}" "${T_SIG}" "${T_DEAD}" "${HUNG}" "${EXIT_LINE}" "${ALIVE_ORPHANS:-}" "${APP_DIR}" "${PEER_AT_END}" <<'EOF'
-import json, os, sys
-run, t_sig, t_dead, hung, exit_line, orphans, app_dir, peer_at_end = sys.argv[1:9]
+"${PY}" - "${RUN}" "${T_SIG}" "${T_DEAD}" "${HUNG}" "${EXIT_LINE}" "${ALIVE_ORPHANS:-}" "${APP_DIR}" "${PEER_AT_END}" "${TRIGGER}" <<'EOF'
+import glob, json, os, re, sys
+from datetime import datetime
+run, t_sig, t_dead, hung, exit_line, orphans, app_dir, peer_at_end, trigger = sys.argv[1:10]
+
+# Engine-log signature (added 2026-08-26): which shutdown path actually ran. Parent lines carry
+# "(YYYY-mm-dd HH:MM:SS,mmm)", worker lines are "+"-prefixed and carry no milliseconds; worker
+# lines stamped AFTER the parent's last line are orphaned workers still running.
+TS = re.compile(r"\((\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)(?:,(\d{3}))?\)")
+def parse_ts(m):
+    return datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S").timestamp() + (int(m.group(2)) / 1000.0 if m.group(2) else 0.0)
+sig = {"did_not_unwind_warnings": 0, "stop_requested_lines": 0, "training_ended_lines": 0, "lifecycle_shutdown_line": None, "rounds_started": 0, "last_parent_line_ts": None, "last_worker_line_ts": None, "worker_lines_after_parent_last_s": None}
+last_parent = last_worker = None
+def rot_key(p):
+    suf = p.rsplit(".", 1)[1]
+    return -int(suf) if suf.isdigit() else 0
+for path in sorted(glob.glob(os.path.join(run, "logs", "juniper_cascor.log*")), key=rot_key):
+    with open(path, errors="replace") as fh:
+        for line in fh:
+            if "did not unwind" in line: sig["did_not_unwind_warnings"] += 1
+            if "stop_requested" in line: sig["stop_requested_lines"] += 1
+            if "Training ended" in line: sig["training_ended_lines"] += 1
+            if "TrainingLifecycleManager shut down" in line: sig["lifecycle_shutdown_line"] = line.strip()[:220]
+            if "TaskDistributor: Distributing" in line: sig["rounds_started"] += 1
+            m = TS.search(line)
+            if m:
+                if line.startswith("+"): last_worker = (m.group(0), parse_ts(m))
+                else: last_parent = (m.group(0), parse_ts(m))
+if last_parent: sig["last_parent_line_ts"] = last_parent[0]
+if last_worker: sig["last_worker_line_ts"] = last_worker[0]
+if last_parent and last_worker: sig["worker_lines_after_parent_last_s"] = round(last_worker[1] - last_parent[1], 3)
 def lines(name):
     p = os.path.join(run, name)
     return [l for l in open(p).read().splitlines() if l] if os.path.exists(p) else []
 rc = exit_line.split()[0] if exit_line and exit_line != "unknown" else None
 report = {
     "app_dir": app_dir,
+    "trigger": trigger,
+    "engine_log_signature": sig,
     "hung_past_death_wait": bool(int(hung)),
     "sigterm_to_death_s": round(float(t_dead) - float(t_sig), 3),
     "wait_status": rc,

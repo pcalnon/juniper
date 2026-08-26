@@ -38,8 +38,11 @@ unmergeable on five repos (a hardcoded integration_id retargeted `Bandit` at an 
 never reports it): "Five PRs sat BLOCKED with zero pending checks, zero unresolved review
 threads, no failing checks, and every required context reporting SUCCESS."
 
-So `--require-observed` (default ON) refuses unless the exact context string has been seen
-reporting on a recent commit in THAT repo. Use `--allow-unobserved` only with a reason.
+So the pre-flight is observed-only BY DEFAULT -- there is no `--require-observed` flag (two
+handoffs cited one after reading an earlier wording of this paragraph): it refuses unless the
+exact context string appears as a check-run NAME on one of the eight most recently updated PR
+heads in THAT repo, whatever the conclusion (a `pull_request`-only job reads `skipped` on every
+`main` commit, and that is fine). Use `--allow-unobserved` only with a reason.
 
 Invariants enforced
 -------------------

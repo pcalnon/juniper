@@ -93,39 +93,43 @@ Fixed budget = the `spiral-smoke` training block (`max_epochs 50, max_iterations
 Output — difficulty ranking at the smoke budget, with an honest re-frame: **moon/gaussian easiest** (1 unit, ≥0.995), **xor/circles middle** (2 units, ≈0.96), **checkerboard beyond this budget's capacity** (0.500 ≈ majority — the P2 under-fit observation confirmed at n=2000), and **spiral unmeasurable on the service path pending F-P4-1 (§4)**: the service terminates spiral training at ≈epoch 2 with ≤1 hidden unit at every budget tested, so a fixed-budget comparison against it is degenerate rather than "hardest".
 The five stageable generators' ranking feeds the §12 difficulty axis; spiral's slot awaits the F-P4-1 resolution.
 
-### E-C — noise robustness on spiral + moon (8 cells)
+### E-C — noise robustness on spiral + moon (8 cells) — RE-BASELINED 2026-08-26
 
-| cell                        | noise | val acc (train where no val) | hidden | wall (s) |
-|-----------------------------|-------|------------------------------|--------|----------|
-| moon-n0                     | 0.00  | 1.0000                       | 1      | 74       |
-| moon-n05                    | 0.05  | 1.0000                       | 1      | 74       |
-| moon-n10                    | 0.10  | 1.0000                       | 2      | 104      |
-| moon-n20                    | 0.20  | 0.9650                       | 2      | 75       |
-| spiral n∈{0.0,0.05,0.1,0.2} | —     | ≈0.505 (train)               | ≤1     | ≈35      |
+> **This table replaces the 08-09/08-11 smoke-cap surface** (which carried a KNOWINGLY STALE marker
+> from 2026-08-16 until this re-run; the superseded rows remain in git history). Re-measured by the
+> T6 campaign at cascor **`67d7ea3`** under the current suite
+> (`util/experiments/suites/p4/e-c-cascor-noise-robustness.yaml`, rebased onto `spiral-baseline`
+> per the closed R-4 disposition), suite dir `e-c-cascor-noise-robustness-20260826T084722Z`,
+> 8/8 `succeeded`, 622 s total. Conditions and provenance: **F-P4-6** (§4).
 
-Output (accuracy-vs-noise): the **moon curve** is the study's deliverable — flat at 1.0 through noise 0.10 (recruiting a second unit at 0.10), dipping to 0.965 at 0.20: graceful noise robustness. The four **spiral rows are F-P4-1-degenerate** (all ≈chance regardless of noise; the three that first ran inside the broken-checkout window were re-run after cascor#501 and complete mechanically with the same F-P4-1 signature).
+| cell     | generator | noise | units | epoch | train  | val        | wall (s) | completion       |
+|----------|-----------|-------|-------|-------|--------|------------|----------|------------------|
+| c000     | spiral    | 0.00  | 12    | 13    | 0.6175 | 0.6350     | 104.8    | `max_iterations` |
+| c001     | spiral    | 0.05  | 12    | 13    | 0.6362 | 0.6600     | 109.8    | `max_iterations` |
+| c002     | spiral    | 0.10  | 12    | 13    | 0.6262 | 0.6250     | 104.9    | `max_iterations` |
+| c003     | spiral    | 0.20  | 12    | 13    | 0.6188 | 0.6400     | 104.7    | `max_iterations` |
+| moon-n0  | moon      | 0.00  | 2     | 3     | 1.0000 | 1.0000     | 34.6     | `early_stopped`  |
+| moon-n05 | moon      | 0.05  | 1     | 2     | 1.0000 | 1.0000     | 24.5     | `early_stopped`  |
+| moon-n10 | moon      | 0.10  | 3     | 4     | 1.0000 | 1.0000     | 39.5     | `early_stopped`  |
+| moon-n20 | moon      | 0.20  | 12    | 13    | 0.9750 | **0.9750** | 99.7     | `max_iterations` |
 
-> **KNOWINGLY STALE (recorded 2026-08-16).** The table above is the **pre-rebudget** E-C surface
-> and has not been re-measured. `util/experiments/suites/p4/e-c-cascor-noise-robustness.yaml` was
-> rebased onto `spiral-baseline` and given E-A-class budgets on **2026-08-13 00:43** (`ff4e2ca`,
-> juniper-ml#1075), but the newest E-C run on this host is
-> `e-c-cascor-noise-robustness-20260811T095213Z` — **two days earlier**; all six E-C runs are
-> 08-09/08-11. So every spiral row here still reflects the 2-unit smoke cap.
->
-> Read the spiral rows accordingly: per **F-6** of the [spiral-resurface evidence](JUNIPER_2026-08-12_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P4-SPIRAL-RESURFACE-EVIDENCE.md),
-> *"the curve is flat because the unit cap binds, not because spiral is noise-robust."* Flatness
-> here is **not** a noise-robustness result. The moon curve is unaffected — it clears the cap at
-> one to two units and is the study's actual deliverable.
->
-> This is a note about evidence currency only. The **R-4 disposition is closed and is not
-> reopened here**: the owner call was to give E-C's spiral rows an E-A-class budget rather than
-> reduce E-C to a moon-only study, and that call stands — the suite already encodes it. What is
-> outstanding is purely the re-run that would replace this table. Anyone publishing an E-C noise
-> claim must either re-run under the current suite or cite this note.
->
-> Related and separately unowned: juniper-cascor#514 changed candidate patience, and R-5 §5.1
-> established that spiral figures are not comparable across it — so the published **E-A** and
-> **E-I** grids, both of which predate #514, carry the same currency caveat.
+Output (accuracy-vs-noise): the **moon curve** remains the study's deliverable — 1.0 through noise
+0.10 at one to three units, **0.975 at 0.20** (vs 0.965 under the old 2-unit smoke cap), where it
+spends the whole 12-round budget: graceful degradation, now measured at a budget the problem does
+not exhaust before 0.20. The four **spiral rows are no longer F-P4-1-degenerate** — every one
+recruits units — but they are **`max_iterations`-bound**: the suite inherits `spiral-baseline`'s
+12-round cap, all four stop at exactly 12 units, and 12 units is far below where spiral
+(`n_rotations 3.0`) resolves (E-I below: 64 units → 1.00). So the spiral curve is flat at
+≈0.63–0.66 for the reason F-6 of the
+[spiral-resurface evidence](JUNIPER_2026-08-12_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P4-SPIRAL-RESURFACE-EVIDENCE.md)
+gave — *the cap binds* — with the iteration cap now playing the unit cap's old role. **Flatness here
+is still not a spiral noise-robustness result.** Measuring one needs E-C's spiral rows at an
+E-I-class `max_iterations` (≥ 64), which is a budget decision the R-4 disposition did not make and
+this document does not make for it; recorded as an open item in **F-P4-6**.
+
+The E-A / E-I currency caveat the old marker carried (both published grids predated cascor#514)
+is resolved the same way: both were re-measured at `67d7ea3` in the same campaign — see
+[E-A / E-I re-baselined](#e-a--e-i-re-baselined-2026-08-26-cascor-67d7ea3--t6) below.
 
 ### E-H (cascor) — real equities vs spiral control (2 cells)
 
@@ -142,16 +146,88 @@ All 12 cells (4×3 grid minus exclude, plus `wide-pool-long`) completed mechanic
 The intended accuracy/units/wall-clock surface is **entirely degenerate — this is the F-P4-1 measurement, not a budget surface**: at the full baseline budget (`max_epochs 2000 × max_iterations 12 × max_hidden_units ≤32`, patience 200) the service path never recruits a single candidate on spiral and reports final metrics at epoch ≈2.
 The suite artifacts (12 registries, aggregates, per-cell manifests) are the reproducible evidence base for the F-P4-1 investigation.
 
+### E-A / E-I re-baselined (2026-08-26, cascor `67d7ea3`) — T6
+
+The post-F-P4-1 E-A grid ([R-3 re-run, 2026-08-14](JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-R3-EA-RERUN-EVIDENCE.md))
+and the E-I capacity ladder ([2026-08-14](JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-E-I-CAP-CEILING-EVIDENCE.md))
+both predate cascor#514, which R-5 §5.1 made a comparability boundary. The T6 campaign re-measured
+both, together with E-C above, at **one** cascor commit — `67d7ea3` (== `origin/main` at launch,
+tree clean; SHA re-read and unchanged around every suite; the `campaign.jsonl` ledger in
+`~/.local/state/juniper-experiments/t6-rebaseline-20260826T075112Z` is the SHA record, since the
+per-cell manifest carries no git field). Suite dirs `e-a-cascor-budget-sweep-20260826T075112Z`
+(12/12 `succeeded`, 1,587 s) and `e-i-cascor-cap-ceiling-20260826T081740Z` (3/3, 1,781 s). The
+reference-wall columns are **context only** — they straddle #514 and #563 and are not attributable
+to either (F-P4-6).
+
+**E-A** — `max_hidden_units` × `candidate_pool_size` on spiral, `max_iterations 32` (R-3):
+
+| cell           | pool | cap          | units | epoch | train  | val        | wall (s) | pre-#514 08-14 wall | attempt-1 08-23 wall      | completion      |
+|----------------|------|--------------|-------|-------|--------|------------|----------|---------------------|---------------------------|-----------------|
+| c000           | 4    | 4            | 4     | 5     | 0.6012 | 0.5900     | 49.8     | 215.3               | 285.0                     | `early_stopped` |
+| c001           | 8    | 4            | 4     | 5     | 0.5700 | 0.5150     | 54.7     | 285.8               | 436.6                     | `early_stopped` |
+| c002           | 16   | 4            | 4     | 5     | 0.5725 | 0.5300     | 59.7     | 437.3               | 621.3                     | `early_stopped` |
+| c003           | 4    | 8            | 8     | 9     | 0.6425 | 0.6400     | 82.0     | 365.8               | 496.5                     | `early_stopped` |
+| c004           | 8    | 8            | 8     | 9     | 0.6587 | 0.6300     | 84.7     | 536.4               | 571.3                     | `early_stopped` |
+| c005           | 16   | 8            | 8     | 9     | 0.6212 | 0.5750     | 89.7     | 743.9               | 895.1                     | `early_stopped` |
+| c006           | 4    | 16           | 16    | 17    | 0.6100 | 0.6100     | 129.8    | 556.6               | 671.8                     | `early_stopped` |
+| c007           | 8    | 16           | 16    | 17    | 0.6675 | 0.6550     | 134.9    | 807.3               | 1052.7                    | `early_stopped` |
+| c008           | 16   | 16           | 16    | 17    | 0.5425 | 0.5200     | 150.4    | 1494.3              | 1749.9                    | `early_stopped` |
+| c009           | 4    | 32           | 32    | 33    | 0.6975 | 0.6950     | 225.3    | 937.9               | 676.9                     | `early_stopped` |
+| c010           | 8    | 32           | 32    | 33    | 0.8825 | **0.8400** | 245.3    | 1319.4              | 146.4 (`torn_down_early`) | `early_stopped` |
+| wide-pool-long | 32   | 24 (5000 ep) | 24    | 25    | 0.9437 | **0.9200** | 280.6    | 2893.1              | 3616.1 (`timed_out`)      | `early_stopped` |
+
+**E-I** — capacity ladder at pool 8, `max_iterations 128`:
+
+| cell | cap | units | epoch | train  | val        | wall (s) | pre-#514 08-14 wall | completion      |
+|------|-----|-------|-------|--------|------------|----------|---------------------|-----------------|
+| c000 | 32  | 32    | 33    | 0.8825 | 0.8400     | 260.4    | 1497.4              | `early_stopped` |
+| c001 | 64  | 64    | 65    | 0.9950 | **1.0000** | 516.9    | 2907.1              | `early_stopped` |
+| c002 | 128 | 128   | 129   | 0.9975 | **1.0000** | 1004.2   | 4243.6              | `early_stopped` |
+
+Reading, in the order the tables support it:
+
+1. **The surface is cap-bound everywhere, as under R-3.** Every E-A cell stops `early_stopped` with
+   `units == max_hidden_units` (4/8/16/32; `wide-pool-long` at the inherited 24), and every E-I rung
+   fills its cap. Attempt 1's cap-16/cap-32 cells at `341ffa3` had stalled at 15 units
+   `below_threshold`; at `67d7ea3` that stall does not occur. The R-3 control therefore still holds:
+   caps bind, and the comparison across cells is a capacity comparison.
+2. **The control cell reproduces exactly.** E-I c000 (pool 8 / cap 32 / 128 iterations) and E-A c010
+   (pool 8 / cap 32 / 32 iterations) report identical trajectories — 32 units, epoch 33, train
+   0.8825, val 0.8400 — as the 2026-08-14 pair did (0.7200 / 0.7350 then). With the cap binding
+   before the iteration budget matters, the two configs are the same run, and at `67d7ea3` (which
+   includes cascor#566's network-owned candidate RNG) they land on the same numbers.
+3. **Accuracy at equal capacity is higher than the pre-#514 grid**, most at the top of the ladder:
+   cap 32 / pool 8 val 0.735 → **0.840**; `wide-pool-long` (24 units) 0.665 → **0.920**; E-I cap 64
+   0.945 → **1.000** and cap 128 0.995 → **1.000**. The spiral (`n_rotations 3.0`) ceiling the
+   2026-08-14 ladder reached at 128 units is now reached at **64**. Caps 4–16 move within noise
+   (±0.05, both directions). This is an observation across the whole #514 … #589 span, **not** an
+   attribution: #514 (candidate patience reaching the pool), #566 (seeding reset) and the training
+   fixes between them are all inside the interval, and no control arm at a single intermediate
+   commit was run (F-P4-6).
+4. **Wall time is 4–12× shorter than either reference**, and the ratio grows with pool size (pool 4:
+   ≈4–6×, pool 16: ≈10–12× vs attempt 1). That shape matches cascor#563 — the logger's frame
+   inspection was ~78% of candidate-**worker** CPU, so the saving scales with the number of workers —
+   and is the reason the reference walls cannot be read as a #514 cost (F-P4-6). Within this
+   campaign the walls are comparable to each other: E-A 1,587 s, E-I 1,781 s, E-C 622 s, 66 min
+   end to end on a host at load 2.3/3.5/3.8 at launch with no maintenance process running.
+
 ## 4. Findings
 
-### F-P4-6 — the T6 re-baseline's first attempt: E-A partial, and why its timings are NOT usable
+### F-P4-6 — the T6 re-baseline: first attempt partial (timings NOT usable); second attempt complete
 
-**Status: INCOMPLETE. Do not cite the wall-clock deltas below as a cascor#514 measurement.**
+**Status: RESOLVED 2026-08-26.** The re-baseline ran to completion on the second attempt — 23/23
+cells at cascor `67d7ea3`, published in §3 ([E-C](#e-c--noise-robustness-on-spiral--moon-8-cells--re-baselined-2026-08-26),
+[E-A / E-I](#e-a--e-i-re-baselined-2026-08-26-cascor-67d7ea3--t6)); the record of that run is at
+the end of this finding. The first attempt's analysis is kept below because its conclusion —
+**do not cite its wall-clock deltas as a cascor#514 measurement** — still governs how the
+reference-wall columns in §3 must be read.
 
-The T6 re-baseline (E-A → E-I → E-C against one post-#514 cascor) was attempted 2026-08-23 with
-cascor pinned at `341ffa3`. **E-A completed 10 of 12 cells in 11,221 s; E-I was killed ~4 minutes
-in; E-C never started.** Artifacts: `~/.local/state/juniper-experiments/t6-rebaseline-20260823T200328Z`
-and suite dir `e-a-cascor-budget-sweep-20260823T200329Z`.
+The T6 re-baseline (E-A → E-I → E-C against one post-#514 cascor) was first attempted 2026-08-23
+with cascor pinned at `341ffa3`. **E-A completed 10 of 12 cells in 11,221 s; E-I was killed
+5 m 07 s in (307 s, corroborated from `teardown.json` mtimes); E-C never started.** Artifacts:
+`~/.local/state/juniper-experiments/t6-rebaseline-20260823T200328Z` and suite dir
+`e-a-cascor-budget-sweep-20260823T200329Z`. Reference data only — see the second-attempt record
+for why it was not resumed.
 
 Matched-cell wall time against the pre-#514 grid (2026-08-14) came out **+16.9%** (6,381 s →
 7,457 s), nine of ten cells slower (+6.5% to +52.8%) and one *faster* (−27.8% at pool 4 / cap 32).
@@ -161,8 +237,8 @@ load-average lull of 4.09; across the campaign the 15-minute average was **19.55
 `duplicati` backup consuming >200% CPU throughout. A single cell moving the other way is also not
 what a uniform code-induced slowdown looks like. Separating the two needs a control — either a
 re-run on a genuinely quiet host, or the same grid re-measured at the pre-#514 commit under the
-same conditions. **The re-baseline is therefore still owed**, and the E-C table at §3 keeps its
-KNOWINGLY STALE marker.
+same conditions. The re-baseline was therefore re-run from scratch (second attempt, below); the
+E-C table at §3 has been replaced and its KNOWINGLY STALE marker lifted.
 
 Two cell-level results DO stand, because neither depends on wall-clock precision:
 
@@ -190,6 +266,66 @@ A killed campaign also leaves its stack up, and the reaper **protects** it — a
 still exists even though the driver is gone (ml#1133's guard inverted into a false positive). Tear
 it down with `experiment_stack.bash --down <RUN_ID>` rather than waiting for the reaper. The
 2026-08-21 orphan found during T1 was the same class.
+
+**Second attempt (2026-08-26) — complete.** Launched 02:51 CDT (07:51:12Z) from a juniper-ml
+worktree at `main` `c36bc886` via `util/ad-hoc/2026-08-25_t6_launch.bash` →
+`2026-08-23_t6_rebaseline_campaign.bash`, detached (`setsid nohup`); interpreter JuniperCascor1
+Python 3.13.13 (the attempt-1 provenance interpreter). cascor pinned at **`67d7ea3`** — the primary
+checkout, == `origin/main`, tree clean, re-read unchanged before and after each of the three
+suites (ledger `t6-rebaseline-20260826T075112Z/campaign.jsonl`: `start`, three `suite_start` /
+`suite_end` pairs with `sha_before == sha_after`, `complete rc=0`). **23/23 cells `succeeded`**:
+E-A 12 in 1,588 s, E-I 3 in 1,781 s, E-C 8 in 623 s; `CAMPAIGN COMPLETE` at 08:57:44Z, 66 min
+after launch. Attempt 1 was **not** resumed: a `--resume` would have kept ten cells measured at
+`341ffa3` beside two at `67d7ea3`, across #563 (wall) and #566 (numerics) — the exact
+incomparability the re-baseline exists to remove.
+
+Host conditions, this time measured on the right instruments: the campaign waited for a drain
+watch gating on the **15-minute** load average (< 4.5), **live** CPU of maintenance processes
+(none above 20% — `top`'s second frame, because `ps %CPU` is a lifetime average and had read an
+idle `duplicati-server` at 45% all of 2026-08-25, holding the previous session's watch shut for
+a day after the backup ended), GPU below 1,200 MiB and every experiment / E2E port clear, for
+two consecutive minutes. At launch: load `2.26 / 3.48 / 3.76`, GPU 907 MiB, zero maintenance
+processes, reaper clean, port-lock root empty. Four peer sessions held GPU work and a checkout
+freeze on the cascor primary between the launch and completion announcements; the freeze was
+respected (the ledger shows it). Post-campaign attest: experiment ports clear, zero port locks,
+GPU 722 MiB, reaper clean. **cascor#589** (shutdown joins training before uvicorn's SIGTERM
+re-raise) is inside the pin, and the 23 inter-cell stops left zero `/dev/shm` `juniper_train_*` /
+`sem.mp-*` objects, zero `training thread still running` warnings, and nothing for the narrow
+orphan sentinel (`util/ad-hoc/2026-08-25_t6_orphan_sentinel.bash`, run beside the campaign) to
+reap — **but read that correctly**: every one of the 23 teardown SIGTERMs landed on a service
+whose training had *already ended* 2.0–6.9 s earlier (`Training ended` precedes `shutting down`
+in all 23 engine logs, lifecycle shut down in 0.00 s; scan by the stop-fix session,
+`reports/stop-during-training-2026-08-25/t6_production_verification_scan.txt`), because
+`run_experiment.py` drives training to a terminal state before teardown and no cell timed out.
+The campaign therefore confirms the fix does **no harm on the idle-stop path** across 23 real
+stops; it did **not** exercise the stop-during-training path #589 was written for, which remains
+verified only by the pre-merge repro and a mocked mid-round unit test — a live run of both
+triggers at `67d7ea3` is still owed (that session's item, not T6's). The campaign finished five
+hours before the 09:00 CDT production backup, so no maintenance contention occurred.
+
+What this resolves and what it does not:
+
+- **Resolved**: the three grids are comparable to each other at one SHA, the E-C surface is
+  current, and the E-A / E-I currency caveat is discharged. The `wide-pool-long` budget question
+  is moot at this commit (280.6 s against a 5,400 s budget) — the budget stays, as headroom.
+- **Not resolved, by design**: a "#514 cost N%" figure. The re-baselined walls are 4–12× *shorter*
+  than both the pre-#514 grid and attempt 1, dominated by #563; the +16.9% above and the
+  accuracy gains in §3 sit across the same multi-commit span. Attribution would need the control
+  arm this finding named from the start (the same grid at a single intermediate commit under
+  equal conditions), which was neither scheduled nor budgeted.
+- **Open, owner decision**: E-C's spiral rows are `max_iterations`-bound at 12 units under the
+  inherited `spiral-baseline` budget (§3), so a spiral noise-robustness curve still needs an
+  E-I-class `max_iterations` (≥ 64) on those four cells. The R-4 disposition is not reopened by
+  noting this; it is the next decision, if the curve is wanted.
+
+Method notes that generalise, added by the second attempt: a host-drain gate must read
+instantaneous CPU, not `ps %CPU`; a freed GPU window on this host is claimed by another session
+within a minute, so peer agreements come *before* the window and the launch re-checks every gate
+in the same second it launches; and a monitor that fires while its session is not awake is
+indistinguishable from one that never fired — the drain watch fired at 19:33 the evening before
+and the session was not re-invoked until 02:30, and the completion at 03:58 was not acted on
+until 12:30 — so completion obligations to peers must be discharged by whichever process is
+awake, and the ledger's terminal line is the authoritative signal, not the announcement.
 
 
 ### F-P4-1 — the cascor SERVICE path does not train spiral (study-blocking for spiral surfaces; raised to owner)
