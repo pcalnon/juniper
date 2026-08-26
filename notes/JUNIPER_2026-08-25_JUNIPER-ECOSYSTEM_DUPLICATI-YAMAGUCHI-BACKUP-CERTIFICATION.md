@@ -796,3 +796,111 @@ the removal of confusable artifacts (three restored trees, a superseded backup s
 DB), not space. That argues for doing Tier 1 whenever convenient, and for treating Tier 2 —
 particularly the 51 G old fresh set — as a decision about *when Paul is comfortable losing a
 fallback*, not about disk usage.
+
+---
+
+### 8.12 Addendum (2026-08-26 late afternoon) — Paul's §8.11 decisions executed
+
+Decisions taken 2026-08-26 ~16:05 CDT against the §8.11 packets:
+
+| §8.11 packet | decision |
+|---|---|
+| §8.10.2 mount risk | **Fold into the migration** — no standalone fstab entry for sdc4; migrating to sda1 resolves it |
+| §8.11.2 migration | **(a) move the set to sda1 now** |
+| §8.11.3 retirements | **Tier 1 AND Tier 2 approved in full** (Tier 3 `_drill_scratch/` remains blocked) |
+| §8.11.1 `dbconfig.json` | *not answered in that round; see §8.12.4* |
+
+#### 8.12.1 Sequencing — Tier 2 deliberately deferred, and why
+
+The approvals were executed in an order that is **not** the order they were
+given. Tier 2's `/media/pcalnon/temp_backups/Ubuntu/` is the old gpg fresh set —
+the last certified non-Yamaguchi fallback on this host. §8.6-8 step 5 already
+requires keeping the sdc4 Yamaguchi copy until a drill passes at the new
+location; deleting the *other* fallback during the same window would leave the
+migration with no net at all. So:
+
+- **Phase A (done, 16:13 CDT)** — Tier 1 in full, plus `updates.disabled-2026-08-25`
+  (250 M), which has no fallback role.
+- **Phase B (in progress)** — the migration, steps 2→4, keeping the sdc4 copy.
+- **Phase C (after the drill passes)** — Tier 2's old gpg fresh set +
+  `DQRVQNDIFX.sqlite*`, and only then the sdc4 Yamaguchi copy.
+
+This is a sequencing judgement, not a change to Paul's decision: everything
+approved still goes, and nothing extra does.
+
+#### 8.12.2 Phase A executed — 77 GB reclaimed
+
+`util/ad-hoc/yamaguchi_retire_tier1.bash` (new; dry-run by default, `--execute`
+to apply). It takes **no path argument** and expands no wildcard beyond the
+tempdir contents, so it cannot be aimed elsewhere; every target is re-checked at
+runtime against a `FORBIDDEN` list (`/mnt/Backups/Ubuntu`, `temp_backups/Ubuntu`,
+`_drill_scratch`, `_yamaguchi_check`, `_fresh_dlist_check`, `Yamaguchi`, the live
+tempdir) rather than the literal list being trusted. It refuses unless
+`ActiveTask` is null and `SchedulerQueueIds` empty.
+
+Deleted: `drill-20260825-183711/restored/` (64 G), `drill-20260825-075730/restored/`
+(4.5 G), `drill-20260825-075352/tmp/` (1.1 G), `_fresh_drill/drill-20260824-142353/restored/`
+(1.3 G), `_gpg_repro/` (2.3 G), `updates.disabled-2026-08-25/` (250 M), and the 16
+stale `dup-*` files in the live tempdir (4.0 G, all dated 2026-08-23/24).
+
+**sdc4: 359 G used / 1.4 T free (21 %) → 282 G used / 1.5 T free (16 %).**
+
+Verified intact afterwards: every drill's `results.json`, `restore-all.log`,
+`provenance.txt`, `candidates.json`, `drill-meta.json` and the symlink-retest
+logs; `_yamaguchi_check/` (88 K); `_fresh_dlist_check/` (32 K); `_drill_scratch/`
+(35 G, Tier 3); `Ubuntu/` (51 G, Tier 2, deferred); `Yamaguchi/` (196 G); and the
+live tempdir **directory** itself, `drwxrwxr-x pcalnon pcalnon`, emptied to 4.0 K.
+
+#### 8.12.3 A measured correction to §8.6-8's copy procedure: drop `--checksum`
+
+§8.6-8 step 2 prescribes `rsync -a --checksum`. Run verbatim, the copy did
+nothing visible for two minutes; `/proc/<pid>/io` explained why — the sender had
+**read 21,822,431,232 B and written 0**. With `--checksum`, rsync pre-computes
+checksums across the whole source before transferring.
+
+On an **empty** destination that decides nothing: every file is missing and must
+be sent regardless. The flag was costing a full extra read of a 196 GiB set —
+about 20 minutes at the observed ~179 MB/s — to answer a question with only one
+possible answer. The copy was stopped (destination still had **0 entries**,
+`write_bytes: 0`, so nothing was lost) and relaunched without it; bytes began
+flowing immediately at ~175 MB/s.
+
+`util/ad-hoc/yamaguchi_migrate_copy.bash` now decides the flag from the target:
+`--checksum` **when the target already holds volumes** (a re-run reconciling a
+possibly-corrupt earlier copy — exactly what it is for), omitted when the target
+is empty. Integrity is not weakened, because it was never rsync's job here:
+`duplicati_decrypt_validate_all.bash` performs full AES/HMAC verification of every
+volume on the copy, which is strictly stronger than an rsync checksum.
+
+**The general lesson**: a verification flag that cannot change the outcome is not
+free caution — it is cost with no information. Ask what a guard would *decide*
+before paying for it.
+
+#### 8.12.4 `dbconfig.json` — the recommendation is now stronger, not weaker
+
+§8.11.1 recommended deleting rather than rewriting, because the rewrite target
+(`/media/pcalnon/temp_backups/Ubuntu` + `DQRVQNDIFX.sqlite`) was itself on the
+retirement list. **Paul then approved Tier 2 in full**, so that mapping is now
+certain to be dangling. The only other coherent rewrite — pointing at the new
+sda1 destination — is also useless: the matching job DB is the root-owned
+`/usr/lib/duplicati/data/BMXWPAOGLP.sqlite`, which a user-run CLI cannot open, and
+`dbconfig.json` is a user-profile locator. Deletion remains the recommendation and
+is now the only option that leaves nothing false behind.
+
+#### 8.12.5 Tooling added for Phase B
+
+- `util/ad-hoc/yamaguchi_migrate_copy.bash` — stages the copy. **Copy only**: it
+  never touches the job definition, never repoints `TargetURL`, never deletes the
+  source. Guards: both filesystems mounted, `ActiveTask` null and queue empty,
+  free space ≥ source + 5 %; verifies by file count and byte total; prints the
+  decrypt-validate command as the next step rather than claiming integrity itself.
+- `util/ad-hoc/yamaguchi_edit_target.py` — migration step 3. Carries the §8.6-4
+  passphrase rule verbatim from `yamaguchi_edit_sources.py` (PBKDF2 fingerprint
+  guard, mask substitution, value never printed) and adds destination guards: the
+  new target must exist, be on a mounted filesystem, hold **at least as many
+  volumes as the current one and the same byte total** (rc 4 — the copy must be
+  complete before the job is allowed to follow it), and have an `/etc/fstab` entry
+  (**rc 7**, overridable only with `--allow-non-durable`), so the tool structurally
+  refuses to move the job onto another non-boot-durable mount. Post-PUT it re-GETs
+  and requires `TargetURL` to be the new value while sources, filters, settings
+  count, `encryption-module`, passphrase masking and the schedule are unchanged.
