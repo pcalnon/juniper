@@ -31,8 +31,10 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import re
 import subprocess  # nosec B404 -- fixed-argv `gh api` calls only; nothing is shell-interpolated
 import sys
+import time
 
 OWNER = "pcalnon"
 
@@ -53,14 +55,29 @@ CONTEXT = "Memory Budget"
 
 
 def gh_api(path: str) -> dict | list | None:
-    """GET one REST path through `gh api`; None on a non-2xx (404 = file absent)."""
-    proc = subprocess.run(["gh", "api", path], capture_output=True, text=True, check=False)  # nosec B603 B607 -- fixed argv, gh on PATH by policy
-    if proc.returncode != 0:
-        return None
-    try:
-        return json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        return None
+    """GET one REST path through `gh api`. None means 404 (genuinely absent) and NOTHING else.
+
+    This returned None on ANY non-2xx until 2026-08-26, which made a rate-limit, a 5xx or a
+    network blip indistinguishable from "the file is not there". Observed: two consecutive
+    censuses in the same minute disagreed about juniper-canopy's docs/REFERENCE.md -- 9,672 chars,
+    then NONE -- while the file was present the whole time (9,676 bytes, sha 87ee5fb6). A census
+    that under-reports a file as absent is worse than one that crashes: step e keys off exactly
+    which repos still need a REFERENCE.md, so a false NONE invents work and a false present hides
+    it. Retry the transient classes, then fail loud rather than return a plausible wrong answer.
+    """
+    last = ""
+    for attempt in range(4):
+        proc = subprocess.run(["gh", "api", path], capture_output=True, text=True, check=False)  # nosec B603 B607 -- fixed argv, gh on PATH by policy
+        if proc.returncode == 0:
+            try:
+                return json.loads(proc.stdout)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(f"gh api {path}: 2xx with unparseable JSON: {exc}") from exc
+        last = (proc.stderr or proc.stdout).strip()
+        if "HTTP 404" in last or '"status":"404"' in last:
+            return None  # the only benign absence
+        time.sleep(1.5 * (attempt + 1))
+    raise RuntimeError(f"gh api {path}: failed after 4 attempts, last error: {last[:300]}")
 
 
 def contents(repo: str, path: str) -> str | None:
@@ -82,6 +99,34 @@ def required_contexts(repo: str) -> list[str]:
         for chk in rule.get("parameters", {}).get("required_status_checks", []):
             out.append(chk.get("context", ""))
     return out
+
+
+def _size_check_is_advisory(wf: str) -> bool:
+    """Is `--advisory` on the memory_budget_check.py INVOCATION, not merely in the file?
+
+    This was `"--advisory" in wf` until 2026-08-26 and read True fleet-wide the moment the
+    de-advisory PRs landed -- a false alarm, because every de-advisoried workflow explains the
+    removal in a comment ("`--advisory` (the soak setting) is gone"), and juniper-ml keeps a real
+    `--advisory` on the SEPARATE relocation_check.py invocation. A whole-file substring cannot
+    tell live args from prose, so it reported ADVISORY for nine repos that are all BLOCKING.
+
+    Reconstruct the shell invocation instead: the `memory_budget_check.py` line plus every line
+    joined to it by a trailing backslash, with inline `# ...` comments stripped. Returns False
+    when no invocation is found -- the caller's `job_present` is what reports that case.
+    """
+    lines = wf.splitlines()
+    for i, line in enumerate(lines):
+        if "memory_budget_check.py" not in line:
+            continue
+        if line.strip().startswith("#") or "unittest" in line:
+            continue
+        block, j = [line], i
+        while lines[j].rstrip().endswith("\\") and j + 1 < len(lines):
+            j += 1
+            block.append(lines[j])
+        args = "\n".join(re.sub(r"\s+#.*$", "", b) for b in block)
+        return "--advisory" in args
+    return False
 
 
 def census(repo: str, pr: int | None, workflow: str) -> dict:
@@ -114,7 +159,7 @@ def census(repo: str, pr: int | None, workflow: str) -> dict:
     row["workflow"] = workflow
     row["workflow_present"] = wf is not None
     row["job_present"] = bool(wf) and "memory_budget_check.py" in wf
-    row["advisory_flag"] = bool(wf) and "--advisory" in wf
+    row["advisory_flag"] = bool(wf) and _size_check_is_advisory(wf)
     row["banner"] = "ADVISORY" if (wf and "(ADVISORY)" in wf) else ("BLOCKING" if (wf and "(BLOCKING)" in wf) else "?")
     ref = contents(repo, "docs/REFERENCE.md")
     row["reference_md_chars"] = len(ref) if ref is not None else None
