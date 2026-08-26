@@ -1,0 +1,18 @@
+row_id	status	notes	screenshots
+C2.5-09	PASS	F-CANOPY-003 verified live: 6 control cycles, button re-enable 0.82-3.59s (was 30s-min); success ack releases directly.	p1wave_f005_*.png
+C2.5-10	PASS	F-CANOPY-005 verified live: 0 browser /api/train POSTs, 0 409s; pause-while-paused business rejection -> danger alert +7.9s, no HTTP re-issue.	p1wave_f005_pause_while_paused.png
+M-SNAPSHOTS-07	PASS (re-validated @ 20260826T174225Z)	F-CANOPY-009 verified live: View Details filled +12.5s and held past two 10s refresh ticks (was wiped).	p1wave_f009_detail.png
+M-SNAPSHOTS-08	PASS (re-validated @ 20260826T174225Z)	F-CANOPY-009: detail panel no longer self-wipes on the table refresh.	p1wave_f009_detail.png
+M-SNAPSHOTS-09	PASS (re-validated @ 20260826T174225Z)	F-CANOPY-010 verified live: restore confirm modal survived 65.8s (was self-closing ~3.6s).	p1wave_f010_modal.png
+M-SNAPSHOTS-13	PASS (re-validated @ 20260826T174225Z)	F-CANOPY-010: modal body intact through the watch.	p1wave_f010_modal.png
+M-SNAPSHOTS-03	PASS (re-validated @ 20260826T174225Z)	F-CANOPY-007 verified live: create landed (snapshot_20260826T183019Z); list 28028->28029 from cascor on an EMPTY local dir.	p1wave_f007_snapshots.png
+M-SNAPSHOTS-06	PASS (re-validated @ 20260826T174225Z)	F-CANOPY-007: table lists cascor's inventory (28029) though canopy's local snapshot dir is empty (0 .h5).	p1wave_f007_snapshots.png
+M-NETWORK-EDITOR-03	PASS	F-CANOPY-011+D-0 verified live (f011check, congestion cleared): badge 'FSM: Investigating' from flat fsm_status.	p1wave_f011check_editor.png
+M-NETWORK-EDITOR-04	PASS	F-CANOPY-011 verified live: active surface renders (idle hidden) after restore.	p1wave_f011check_editor.png
+M-NETWORK-EDITOR-05	PASS (D-0 fixed)	D-0 verified live: topology readout 'Inputs:2 Outputs:2 Hidden units:9' from /api/topology (was permanent 'No topology loaded.' 404). Expected-result text now stale in matrix -- content truth-up owed.	p1wave_f011check_editor.png
+M-NETWORK-EDITOR-10	PASS (D-0 fixed)	D-0 verified live: remove-idx dropdown populated (10 opts 0-8; was empty). Expected-result text now stale -- content truth-up owed.	p1wave_f011check_editor.png
+M-REPLAY-07	PASS	F-CANOPY-014 verified live: play control POSTs to an absolute URL ('Seeked' status), no 'No scheme supplied'.	p1wave_f014_replay.png
+M-REPLAY-08	PASS	F-CANOPY-014: pause control POSTs absolute ('Playing' status).	p1wave_f014_replay.png
+M-REPLAY-09	PASS	F-CANOPY-014: stop control POSTs absolute ('Stopped' status).	p1wave_f014_replay.png
+M-ABOUT-03	PASS (re-validated @ 20260826T174225Z)	OBS-1 verified live: About 'App Version' == /v1/health version (single-sourced).	p1wave_obs1_about.png
+M-CANDIDATES-07	INCONCLUSIVE	F-CANOPY-035 adapter correct (99/99 candidate entries) but shared metrics store empty on both tabs (F-CANOPY-004 store-population); live render blocked on F-004, not an F-035 regression.	p1wave_f035_candidates.png
