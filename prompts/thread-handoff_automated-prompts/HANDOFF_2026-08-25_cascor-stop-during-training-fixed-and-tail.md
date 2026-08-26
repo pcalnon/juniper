@@ -5,15 +5,17 @@
 > "the predecessor" below) carried one partly-diagnosed defect (its §2) and a tail (its §3). The
 > defect is now fully diagnosed, fixed, and **verified on an ISOLATED stack, pre-merge, for a stop
 > landing in the output-layer phase** — the mid-candidate-round path is covered only by a unit test
-> with mocked hooks and has never run live; production verification is §3.2. **Its §3 tail is
-> untouched and carries forward verbatim** (§3 here points at it rather than restating it).
+> with mocked hooks and has never run live; production verification is §3.2. **Both PRs merged
+> (cascor#589, ml#1382) and the fix is live in the running T6 campaign services** — see the FIRST
+> ACTION table and §3.2. **Its §3 tail is untouched and carries forward verbatim** (§3 here points
+> at it rather than restating it).
 
 **FIRST ACTION: get the two PRs landed — only on Paul's explicit approval** (headless-merge policy;
 do not arm auto-merge on your own initiative):
 
 | PR | what | state at handoff |
 |---|---|---|
-| **cascor#589** (`fix/shutdown-joins-training-before-sigterm-exit`, base `d2d1069`) | the fix: `TrainingLifecycleManager.shutdown()` joins training (3 s bound) and releases the pool + shared memory explicitly; lifespan awaits it via `asyncio.to_thread` | **MERGED 2026-08-26 07:13Z** (merge commit `67d7ea35`, head `1ba34482` — includes the docstring correction from the factual review). The fix is on cascor `main`; it reaches this host only when the primary checkout is pulled (§3.2 — NOT during the T6 window). |
+| **cascor#589** (`fix/shutdown-joins-training-before-sigterm-exit`, base `d2d1069`) | the fix: `TrainingLifecycleManager.shutdown()` joins training (3 s bound) and releases the pool + shared memory explicitly; lifespan awaits it via `asyncio.to_thread` | **MERGED 2026-08-26 07:13Z** (merge commit `67d7ea35`, head `1ba34482` — includes the docstring correction from the factual review). **Update 02:5x CDT 08-26:** the primary checkout was advanced to `67d7ea35` by another actor before the T6 launch, so it is the SHA the campaign pinned — **the fix is already live in the running services**; no post-completion pull is needed (§3.2). |
 | **ml `docs/shm-leak-mechanism-corrected-sigterm-reraise`** (the PR that carries this handoff — opened together with it, so its number is only knowable from `gh pr list`) | §6.5 correction to the characterisation note + the probe, the repro script, three evidence reports, and this handoff | OPEN once this file is visible on GitHub; if you are reading it from a worktree and `gh pr list --repo pcalnon/juniper-ml` shows no such branch, the PR was never opened and these seven files exist nowhere else — open it (§6) |
 
 Merge mechanics are the predecessor's §5 (auto-merge preconditions, never `update-branch` the moment
@@ -151,21 +153,22 @@ it then.
 ## 3. Remaining work, highest value first
 
 1. **Land the two PRs** (FIRST ACTION above).
-2. **Post-merge production verification — the ledger is the only instrument.** The fix is live on
-   this host only once the primary checkout `/home/pcalnon/Development/python/Juniper/juniper-cascor`
-   is pulled to a `main` that contains the merge (the experiment / isolated stacks run uvicorn from
-   its `src/`) — **and the T6 campaign aborts (exit 3) the instant that HEAD moves, so the pull must
-   wait for its COMPLETION announcement.** Until then every mid-training stop on the host still
-   leaks; the T6 driver's own inter-cell stops are pre-fix. After the pull, take a fresh
-   baseline (`ls -1 /dev/shm | grep -c '^juniper_train_'` / `grep -c '^sem.mp-'` — 10 / 90 at
-   handoff, but `/dev/shm` is tmpfs: a reboot resets it and other sessions' pre-fix stops add
-   pairs) and watch for **one new pair, not an absolute count**. A new pair after that is one of
-   three things — a mid-candidate-round timeout (the cascor
-   log carries `shut down with the training thread still running`), a genuine hard kill (SIGKILL /
-   OOM / `KILL_WORKERS=1`; no such line), or a stack still running a pre-fix checkout. **Read the
-   log before blaming the fix.** If it is the timeout class, decide whether the candidate-result
-   wait loop needs its own interrupt check (engine code inside `train_candidates`'s result
-   collection; does not touch the trajectory, but the golden gate is mandatory).
+2. **Production verification — the ledger is the only instrument, and the fix is already live.**
+   The primary checkout `/home/pcalnon/Development/python/Juniper/juniper-cascor` was advanced to
+   `67d7ea35` (cascor#589 included) before the T6 re-baseline launched at 02:51 CDT 08-26, and that
+   is the SHA the campaign pinned — so the running services carry the fix and **the campaign's own
+   inter-cell stops are the first production test.** ⚠ **A *running* cascor with a live candidate
+   pool holds one `juniper_train_*` segment + nine `sem.mp-*` of its own** (observed 02:53 CDT:
+   count 11 / 99 with the `:8230` service up, whose single pair `juniper_train_9f4578fd` +9 is
+   dated 02:53:58 = its start), so **a raw count during the campaign over-reads by one pair per
+   live service — judge leaks by mtime older than every live cascor's start, never by raw count**
+   (`/dev/shm` is tmpfs, so a reboot also resets the baseline). A genuinely leaked pair — one
+   whose mtime is *not* a live service's start — is one of three things: a mid-candidate-round
+   timeout (the cascor log carries `shut down with the training thread still running`), a hard kill
+   (SIGKILL / OOM / `KILL_WORKERS=1`; no such line), or a service still on a pre-fix checkout.
+   **Read the log before blaming the fix.** If it is the timeout class, decide whether the
+   candidate-result wait loop needs its own interrupt check (engine code inside `train_candidates`'s
+   result collection; does not touch the trajectory, but the golden gate is mandatory).
 3. **Fleet audit: `atexit` reliance in the other uvicorn services — largely already answered.**
    juniper-data, juniper-canopy and juniper-recurrence have the same uvicorn property, but a
    read-only grep this session (`atexit.register|weakref.finalize|util.Finalize`, non-test, whole
