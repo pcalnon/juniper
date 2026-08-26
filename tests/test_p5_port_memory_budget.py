@@ -18,6 +18,10 @@ What it pins, and why each mattered:
   at n == 2 -- the 2026-08-25 fleet measurement printed p90 < median for four repos. Slack
   sized from that number is under-sized in exactly the direction a ceiling cannot tolerate.
 - Growth is measured in CHARACTERS, the unit the ceiling uses, not bytes.
+- ``measure-growth --ref`` measures the NAMED history, not the checkout's HEAD: a primary that
+  has not been pulled would otherwise report yesterday's main as today's rate. The flag was
+  lost in the #1378 -> #1379 fold and restored 2026-08-26; an unknown ref is an error, never
+  "no growth".
 - The rendered job, standalone workflow and budget config parse and carry the figures that
   were MEASURED in the repo, so a port never re-types a number from a note (the first two
   ports found every transcribed figure stale).
@@ -155,6 +159,49 @@ class GrowthFromGitTest(unittest.TestCase):
         with TemporaryDirectory() as td:
             with self.assertRaises(helper.GrowthError):
                 helper.growth_stats(Path(td) / "not-a-repo", 30)
+
+    def test_ref_measures_the_named_history_not_the_checkouts_head(self):
+        # The common case: a primary checkout (or a worktree on a branch) sitting behind its
+        # own main. Anchored on HEAD the helper sees one commit and reports nothing; anchored
+        # on the ref that accrues the burn it sees the whole window.
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            _seed_repo(root, ["a" * 100, "a" * 250, "a" * 400])
+            _git(root, "checkout", "-q", "--detach", "HEAD~2")
+            self.assertIsNone(helper.growth_stats(root, 30))
+            st = helper.growth_stats(root, 30, ref="main")
+        self.assertIsNotNone(st)
+        self.assertEqual((st["start"], st["end"], st["net"], st["ref"]), (100, 400, 300, "main"))
+
+    def test_unknown_ref_raises_rather_than_reporting_no_growth(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            _seed_repo(root, ["x", "xx"])
+            with self.assertRaises(helper.GrowthError):
+                helper.growth_stats(root, 30, ref="no-such-ref")
+
+    def test_measure_growth_cli_accepts_ref_and_names_it(self):
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            _seed_repo(root, ["a" * 100, "a" * 250])
+            _git(root, "checkout", "-q", "--detach", "HEAD~1")
+            ok = subprocess.run(
+                [sys.executable, str(HELPER), "measure-growth", str(root), "--ref", "main"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            bad = subprocess.run(
+                [sys.executable, str(HELPER), "measure-growth", str(root), "--ref", "no-such-ref"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertIn("(main)", ok.stdout)
+        self.assertIn("100 -> 250", ok.stdout)
+        self.assertEqual(bad.returncode, 2, bad.stdout)
+        self.assertIn("bad revision", bad.stderr)
 
 
 class RenderTest(unittest.TestCase):

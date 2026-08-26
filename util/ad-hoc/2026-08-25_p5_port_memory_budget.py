@@ -60,7 +60,7 @@ Usage:
     python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py adapt-test <test.py> --depth 2 \\
         [--sub-project juniper-x] [--header-version 0.4.2|none] [--pytest-marker unit]
     python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py insert-job <ci.yml> <job.yml> --before required-checks
-    python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py measure-growth <repo-path> --days 30
+    python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py measure-growth <repo-path> [--days 30] [--ref origin/main]
     python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py render-job <repo-path> --pyvar PYTHON_TEST_VERSION \\
         [--match-pins <that repo's ci.yml>] --out job.yml
     python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py render-workflow <repo-path> --python 3.14 --out memory-budget.yml
@@ -258,8 +258,14 @@ def stats_from_sizes(sizes: list[int], days: int, repo_name: str = "") -> dict:
     return stats
 
 
-def growth_stats(repo: Path, days: int) -> dict | None:
+def growth_stats(repo: Path, days: int, ref: str = "HEAD") -> dict | None:
     """AGENTS.md burn over the last ``days`` days, measured from the repo's own git history.
+
+    ``ref`` is the history that gets measured -- the checkout's HEAD by default. A primary
+    checkout is routinely behind its own ``main`` (and a worktree sits on a branch), so a
+    measurement anchored on HEAD is only as current as that checkout; pass ``origin/main``
+    after a fetch to measure the branch that actually accrues the burn. An unknown ref is a
+    GrowthError, never "no growth".
 
     Returns None (after saying why) when fewer than two commits touched the file in the
     window. Raises GrowthError when git itself fails, so a missing repo is never reported
@@ -267,16 +273,16 @@ def growth_stats(repo: Path, days: int) -> dict | None:
     """
     since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
     p = subprocess.run(
-        ["git", "-C", str(repo), "log", f"--since={since}", "--format=%H", "--reverse", "--", "AGENTS.md"],
+        ["git", "-C", str(repo), "log", ref, f"--since={since}", "--format=%H", "--reverse", "--", "AGENTS.md"],
         capture_output=True,
         text=True,
         check=False,
     )
     if p.returncode != 0:
-        raise GrowthError(f"git log failed in {repo}: {p.stderr.strip()}")
+        raise GrowthError(f"git log {ref} failed in {repo}: {p.stderr.strip()}")
     shas = p.stdout.split()
     if len(shas) < 2:
-        print(f"only {len(shas)} commit(s) touched AGENTS.md since {since}; widen --days")
+        print(f"only {len(shas)} commit(s) touched AGENTS.md on {ref} since {since}; widen --days")
         return None
 
     sizes = []
@@ -291,11 +297,13 @@ def growth_stats(repo: Path, days: int) -> dict | None:
     if len(sizes) < 2:
         print("AGENTS.md not resolvable at enough commits; widen --days")
         return None
-    return stats_from_sizes(sizes, days, repo_name=repo.name)
+    st = stats_from_sizes(sizes, days, repo_name=repo.name)
+    st["ref"] = ref
+    return st
 
 
 def print_growth(st: dict) -> None:
-    print(f"repo    : {st['repo']}")
+    print(f"repo    : {st['repo']}  ({st.get('ref', 'HEAD')})")
     print(f"window  : last {st['days']} days, {st['commits']} commits touching AGENTS.md")
     print(f"size    : {st['start']} -> {st['end']}   net {st['net']:+}")
     print(f"rate    : {st['rate']:.0f} chars/day")
@@ -307,15 +315,18 @@ def print_growth(st: dict) -> None:
         print("   A ceiling with ZERO slack fires on the next growing PR by construction.")
 
 
-def measure_growth(repo: Path, days: int) -> int:
+def measure_growth(repo: Path, days: int, ref: str = "HEAD") -> int:
     """Report a repo's AGENTS.md burn from git, so a ceiling's slack can be sized.
 
     Every figure a ceiling depends on goes stale fast -- the plan said canopy was
     94,373, a handoff said 93,151, and it was 95,133 when the gate was seeded. So
-    this measures rather than reports: run it, do not quote it.
+    this measures rather than reports: run it, do not quote it. And measure the right
+    history: ``ref`` defaults to the checkout's HEAD, which in a primary that has not
+    been pulled is yesterday's main -- ``--ref origin/main`` after a fetch is the form
+    that cannot go stale.
     """
     try:
-        st = growth_stats(repo, days)
+        st = growth_stats(repo, days, ref)
     except GrowthError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -670,6 +681,12 @@ def main() -> int:
     g = sub.add_parser("measure-growth", help="AGENTS.md burn from git, for sizing a ceiling's slack")
     g.add_argument("repo", type=Path)
     g.add_argument("--days", type=int, default=30)
+    g.add_argument(
+        "--ref",
+        default="HEAD",
+        help="ref whose history to measure (default HEAD; use origin/main after a fetch when the checkout may be behind). "
+        "The render-* commands always measure the checkout, because a port renders into it.",
+    )
 
     for cmd, help_text in (
         ("render-job", "render the memory-budget job block from figures measured in <repo>"),
@@ -691,7 +708,7 @@ def main() -> int:
     if args.cmd == "adapt-test":
         return adapt_test(args.path, args.depth, sub_project=args.sub_project, header_version=args.header_version, pytest_marker=args.pytest_marker)
     if args.cmd == "measure-growth":
-        return measure_growth(args.repo, args.days)
+        return measure_growth(args.repo, args.days, args.ref)
     if args.cmd.startswith("render-"):
         return _render(args.cmd, args)
     return insert_job(args.workflow, args.block, args.before)
