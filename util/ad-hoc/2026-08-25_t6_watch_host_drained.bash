@@ -40,7 +40,12 @@ while true; do
   load15=$(cut -d' ' -f3 /proc/loadavg)
   lok=$(awk -v a="${load1}" -v b="${load15}" 'BEGIN{print (a<4.0 && b<4.5)?1:0}')
   [ "${lok}" -eq 1 ] || ok=0
-  hot=$(ps -eo pcpu,comm --sort=-pcpu | awk '$2 ~ /clamscan|clamdscan|duplicati|aescrypt/ && $1+0 > 20 {c++} END{print c+0}')
+  # Instantaneous CPU: the SECOND snapshot of a 1 s `top` sample, wide columns so the
+  # COMMAND field carries the full comm name ("duplicati-serve", not "duplica+", which
+  # the regex would miss). `ps pcpu` is a LIFETIME average: on 2026-08-25 an idle
+  # duplicati-server that had run a backup for hours still read 45% (live 0.0%) and
+  # held this gate shut for the rest of the day.
+  hot=$(top -b -n 2 -d 1 -w 512 2>/dev/null | awk '/^top -/{n++} n==2 && $NF ~ /clamscan|clamdscan|duplicati|aescrypt/ && $9+0 > 20 {c++} END{print c+0}')
   [ "${hot}" -eq 0 ] || ok=0
   gpu=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ')
   case "${gpu}" in
