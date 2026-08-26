@@ -246,7 +246,7 @@ class DatasetInstanceIsFixedTest(unittest.TestCase):
         # default = next((k.value for k in found.keywords if k.arg == "default"), None)
         for default in found.keywords:
             if default.arg == "default":
-                default = default.value
+                # default = default.value
                 break
             else:
                 default = None
