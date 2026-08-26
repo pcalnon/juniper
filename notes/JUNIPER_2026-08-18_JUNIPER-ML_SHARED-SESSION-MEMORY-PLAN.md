@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-25
+**Last Updated**: 2026-08-26
 
 ---
 
@@ -214,14 +214,23 @@ achieved level, not the aspirational one.
 
 ### P5 — Fleet rollout
 
-**Status: IN PROGRESS — 2 of 9 repos governed, both ADVISORY; none promoted.** Tracking issue:
-[juniper-ml#1326](https://github.com/pcalnon/juniper-ml/issues/1326). Ports merged 2026-08-25:
+**Status: IN PROGRESS — 8 of 9 governable repos governed, all ADVISORY; none promoted.** Tracking issue:
+[juniper-ml#1326](https://github.com/pcalnon/juniper-ml/issues/1326) — its comment thread is the live
+per-repo ledger; read it before trusting this banner. Ports merged 2026-08-25:
 [juniper-canopy#516](https://github.com/pcalnon/juniper-canopy/pull/516) (`611141c1`, ceiling 95,133) and
-[juniper-cascor#585](https://github.com/pcalnon/juniper-cascor/pull/585) (`c83c3407`, ceiling 71,098).
-Six repos remain, ordered by measured RATE in the table below; juniper-slacker has no `AGENTS.md` and
-nothing to govern. Promotion has four preconditions (step d) and none is met for any repo yet.
-*(Status updated 2026-08-25; the banner had read "NOT STARTED — no tracking issue" for a day after
-both were false. Status may not be demoted or left stale — §4a.)*
+[juniper-cascor#585](https://github.com/pcalnon/juniper-cascor/pull/585) (`c83c3407`, ceiling 71,098);
+merged 2026-08-26 under the owner's arc-wide authorization, squash-of-one each:
+[juniper-cascor-client#139](https://github.com/pcalnon/juniper-cascor-client/pull/139) (`b1c1acd7`, 34,695),
+[juniper-recurrence#131](https://github.com/pcalnon/juniper-recurrence/pull/131) (`369d8f59`, 11,578; standalone workflow),
+[juniper-data-client#173](https://github.com/pcalnon/juniper-data-client/pull/173) (`918f1dee`, 28,369),
+[juniper-data#291](https://github.com/pcalnon/juniper-data/pull/291) (`19b84a8a`, 43,493),
+[juniper-cascor-worker#162](https://github.com/pcalnon/juniper-cascor-worker/pull/162) (`177c2a15`, 35,126),
+[juniper-deploy#195](https://github.com/pcalnon/juniper-deploy/pull/195) (`7e046491`, 34,569).
+juniper-slacker has no `AGENTS.md` and nothing to govern. Of the four promotion preconditions (step d)
+**only the first — merged to that repo's `main` — is met, for all eight**; preconditions 2–4 (remove
+`--advisory`, re-run the three controls non-advisory, declare slack) are in flight per repo on the tracker.
+*(Status updated 2026-08-26; it read "2 of 9" for most of a day after six more ports merged. Status may
+not be demoted or left stale — §4a.)*
 
 > **This section was a four-line stub until 2026-08-24.** The working procedure lived only in
 > a session handoff, and handoffs lose material across generations — an earlier one in this
@@ -244,18 +253,21 @@ Measured 2026-08-25 with
 `python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py measure-growth <repo-path> --days 30`
 (`AGENTS.md` in **chars**, the unit the ceiling uses; `docs/REFERENCE.md` in bytes from the API
 census). They move daily; the table is evidence that they move, and the **rate column is the
-ordering input** — the size column is not.
+ordering input** — the size column is not. `measure-growth` reads the checkout's **HEAD** — there
+is no `--ref` on `main`; it lived only on the closed #1378 branch — so fast-forward the primary
+first or the rate is stale. Re-measured 2026-08-26 from primaries at `origin/main`: cascor and
+deploy unchanged.
 
 | Repo | `AGENTS.md` | Rate/day | Net 30 d | Max single commit | `docs/REFERENCE.md` | Status |
 |---|---:|---:|---:|---:|---:|---|
 | juniper-cascor | 71,098 | **730** | +21,891 | 9,609 | **none — create first** | GOVERNED, advisory (#585) |
-| juniper-cascor-client | 34,695 | 196 | +5,884 | 2,582 | 14,119 | next |
-| juniper-recurrence | 11,578 | 137 | +4,102 | 2,120 | **none — create first** | |
-| juniper-data-client | 28,369 | 135 | +4,055 | 2,073 | 11,976 | |
-| juniper-data | 43,493 | 109 | +3,257 | 1,982 | 19,883 | |
+| juniper-cascor-client | 34,695 | 196 | +5,884 | 2,582 | 14,119 | GOVERNED, advisory (#139) |
+| juniper-recurrence | 11,578 | 137 | +4,102 | 2,120 | **none — create first** | GOVERNED, advisory (#131, standalone workflow) |
+| juniper-data-client | 28,369 | 135 | +4,055 | 2,073 | 11,976 | GOVERNED, advisory (#173) |
+| juniper-data | 43,493 | 109 | +3,257 | 1,982 | 19,883 | GOVERNED, advisory (#291) |
 | juniper-canopy | 95,133 | 81 | +2,425 | 1,982 | 9,328 | GOVERNED, advisory (#516) |
-| juniper-cascor-worker | 35,126 | 66 | +1,982 | 1,982 | 12,122 | |
-| juniper-deploy | 34,569 | 66 | +1,982 | 1,982 | 18,673 | |
+| juniper-cascor-worker | 35,126 | 66 | +1,982 | 1,982 | 12,122 | GOVERNED, advisory (#162) |
+| juniper-deploy | 34,569 | 66 | +1,982 | 1,982 | 18,673 | GOVERNED, advisory (#195) |
 | juniper-ml | 36,960 | — | — | — | 336,020 | GOVERNED, BLOCKING + required; ceiling 38,000 |
 | juniper-slacker | — | — | — | — | — | no `AGENTS.md` at all |
 
@@ -273,18 +285,25 @@ is unreliable below ~10 growing commits.
 [`conf/memory_budget.json`](../conf/memory_budget.json). Both scripts take `--repo-root` and
 are repo-agnostic; nothing in them is juniper-ml-specific.
 
-**b. Seed the ceiling by running `--ratchet` IN the target repo.** Never by transcribing a
-number out of a note — not 38,000, not 32,443, not anything in the table above.
+**b. Seed the ceiling IN the target repo — measured, never transcribed.** Not 38,000, not
+32,443, not anything in the table above. `--ratchet` only **lowers** an existing `ceiling_chars`
+entry (`if row["chars"] < row["ceiling"]` in `util/memory_budget_check.py`); it never raises one,
+so a config copied from juniper-ml seeds nothing in a repo whose `AGENTS.md` is already larger
+than 38,000 chars (canopy, cascor, data) and the first check fails as over-budget. Render the
+config in the target instead — it writes the measured size as the ceiling — then confirm with
+`--ratchet`, which prints `no ceiling could be tightened` when the ceiling is already exact:
 
 ```bash
+python3 <juniper-ml>/util/ad-hoc/2026-08-25_p5_port_memory_budget.py render-config . --out conf/memory_budget.json
 python3 util/memory_budget_check.py --repo-root . --ratchet
 ```
 
-`--ratchet` **seeds**; it does not **tighten** after a cut. In a repo with no ceiling yet
-(every P5 target) it is the only correct way to set one. Run in a repo that already has a
-ceiling, straight after a cut, it leaves ZERO headroom and fails the next author on a single
-character — hand-edit with slack sized to the observed burn instead (this repo: +937 over
-four days / five PRs, median +58, one docs PR +605).
+`--ratchet` **seeds** (down from a placeholder above the current size); it does not **tighten**
+gracefully after a cut. Run in a repo that already has a ceiling, straight after a cut, it leaves
+ZERO headroom and fails the next author on a single character — hand-edit with slack sized to the
+observed burn instead (this repo: +937 over four days / five PRs, median +58, one docs PR +605).
+*(Corrected 2026-08-26: this step used to say `--ratchet` alone was "the only correct way" to set
+a first ceiling; for the three repos above it sets nothing.)*
 
 **c. Copy the standalone `memory-budget` job** from [`ci.yml`](../.github/workflows/ci.yml)
 (job `memory-budget`, `name: Memory Budget`). **Standalone — NOT in the Quality Gate
@@ -328,6 +347,16 @@ snapshots the ruleset to disk before the PUT, carries `rules` and `bypass_actors
 re-reads after. Prefer it over `2026-08-20_add_required_context.py`, which writes no snapshot and
 verifies contexts only — the gap it leaves is *"SILENT and TOTAL"*: a required context nothing
 publishes is never satisfied, and that is how `main` went unmergeable on five repos.
+
+Two things its pre-flight will show that are **not** defects, verified on all eight ports 2026-08-26.
+Every port carries ml's guard `if: github.event_name == 'pull_request' || github.event_name ==
+'merge_group'`, so the `Memory Budget` check-run on **every `main` commit has conclusion `skipped`**
+(recurrence's standalone workflow is `pull_request`-only and publishes nothing on `main` at all) — the
+ratchet is a diff-against-base rule and has no meaning on a push. And `observed_contexts()` reads
+check-run **names** on the heads of the eight most recently updated PRs, conclusion-agnostic, so a
+port is "observed" from the moment its own PR ran the job; the `skipped` rows on `main` neither help
+nor hurt. **Do not reach for `--allow-unobserved` because `main` shows `skipped`.** The pre-flight
+refuses honestly only when none of those eight PR heads ran the job at all.
 
 **e. Then G3, then the cut.** Relocate with
 [`util/ad-hoc/2026-08-19_p3_relocate_section.py`](../util/ad-hoc/2026-08-19_p3_relocate_section.py)
