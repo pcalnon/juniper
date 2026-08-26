@@ -317,13 +317,14 @@ dblock/dindex volumes remain until an explicit compact.
 
 ### 8.6 Findings that need Paul's decision
 
-1. **The release-train private key is in the backup** —
+1. **The release-train private key is in the backup** — *decided 2026-08-26: KEEP (§8.9-4)* —
    `Development/python/Juniper/.gnupg/juniper-release-train.2026-07-21.private-key.pem`
    (1,675 B, mode 0000; root reads it). It is currently that key's only backup and
    sits on the same spindle as the original. Wanted, or exclude? Excluding = add the
    filter `-/home/pcalnon/Development/python/Juniper/.gnupg/juniper-release-train.2026-07-21.private-key.pem`
    — and then the key is in NO backup, so it needs its own off-spindle copy.
-2. **A running VM's image is being backed up.** `win11_vm_clean_2026-07-15.vdi` is
+2. **A running VM's image is being backed up.** *Decided 2026-08-26: EXCLUDED, effective from
+   the 08-27 run (§8.9-3).* `win11_vm_clean_2026-07-15.vdi` is
    open by VBoxHeadless (38 h uptime at 18:30); its mtime advances continuously, so
    (a) the stored copy is not a consistent snapshot, (b) every daily incremental
    re-reads the whole 56 GB image and re-uploads its changed blocks — the daily
@@ -332,10 +333,12 @@ dblock/dindex volumes remain until an explicit compact.
    this filesystem. Options: exclude the running VM's image (remove its `Sources`
    entry via GET/modify/PUT), shut the VM down before 09:00, or accept
    crash-consistency. The win10 image is static and unaffected.
-3. **Schedule moved to 09:00 CDT** (§8.1) — intended? If 13:00 was, the fix is a
+3. **Schedule moved to 09:00 CDT** (§8.1) — intended? *Confirmed 2026-08-26: yes, 09:00 CDT
+   daily stays (§8.9-2).* If 13:00 had been, the fix would have been a
    GET/modify/PUT of backup 2 setting `Schedule.Time` to the next day's `18:00:00Z`
    (`yamaguchi_switch_aes.py` pattern, passphrase rule in item 4), with `ActiveTask: null`.
-4. **Alerting** (plan §7 criterion 4, still open — server-run jobs fail silently):
+4. **Alerting** (plan §7 criterion 4 — *B DEPLOYED 2026-08-26 12:30 CDT, criterion CLOSED,
+   §8.9-1*; before that, server-run jobs failed silently):
    - **B, recommended: `yamaguchi_watchdog.py` on a user timer** (`util/systemd/`,
      12:00 daily, `Persistent=true`). Asks the server from outside, so it also catches
      what a job hook structurally cannot — never ran, job definition vanished (the
@@ -364,8 +367,9 @@ dblock/dindex volumes remain until an explicit compact.
      so any GET/modify/PUT must first replace that setting with the real value from
      `~/.config/duplicati-backup/env` — exactly what `yamaguchi_switch_aes.py` does
      (its `drop`/`insert` of `passphrase`) — then GET again and confirm
-     `encryption-module=aes`, 3 sources, 44 filters, and watch the next run's
-     `ParsedResult`. A PUT carrying the mask is refused or mangled by the server
+     `encryption-module=aes`, the expected source count (3 until §8.9-3; **2** since), 44
+     filters, and watch the next run's `ParsedResult`. `yamaguchi_edit_sources.py` (§8.9-3)
+     is the rule as code, with a PBKDF2-fingerprint guard on the re-inserted value. A PUT carrying the mask is refused or mangled by the server
      (it has explicit placeholder handling); never "simplify" the pattern.
    - The config records' `<redacted>` therefore replaces a placeholder, not a secret
      (the mask is identical across records and matches neither real key) — kept as
@@ -415,8 +419,10 @@ dblock/dindex volumes remain until an explicit compact.
 - [x] A second restore drill from a *different* restore point after ≥1 incremental —
       drill 2 (§8.4-3): fileset `20260825T191449Z`, 17/17 (restore complete 19:19 CDT,
       verdict after hashing 19:31 CDT, 2026-08-25).
-- [ ] A failure notification observed firing — the watchdog fired deliberately (§8.6-4)
-      but is **not deployed**; open until Paul picks and the timer is enabled.
+- [x] A failure notification observed firing — B **deployed** 2026-08-26 12:30:59 CDT (timer
+      enabled, persistent); the deployed script's closing test fired `JOB_MISSING` at 12:31:30
+      with the durable record and a desktop notification (`notify-send rc=0`); status back to
+      `OK` at 12:32:21 (§8.9-1, proof `_yamaguchi_check/watchdog-closing-test-20260826.log`).
 - [ ] Logout/login and reboot survival — not yet exercised (system unit enabled; job in
       the portable data root; the restart trap is closed).
 - [ ] Migration to a physically separate drive — OPEN; Paul's re-scope decision
@@ -457,3 +463,73 @@ JSON / results file under `_yamaguchi_drill/` and `_fresh_drill/`; in
 definitions live in that WAL — a "stray WAL" cleanup loses them), the dated
 `Duplicati-server_2026-08-2*.sqlite` copies, `SJTCQIIZSJ*.sqlite*`, and
 `DQRVQNDIFX.sqlite*` until Paul retires the old fresh set.
+
+### 8.9 Addendum (2026-08-26 midday) — Paul's decisions executed; alerting B deployed; criterion 4 closed
+
+Decisions taken by Paul 2026-08-26 ~03:36 CDT and executed 12:30–12:33 CDT. The session
+was idle 03:41→12:30, so execution landed **after** the 09:00 run, not before; the
+consequence is noted per item.
+
+1. **Alerting = B, DEPLOYED.** New `util/ad-hoc/yamaguchi_watchdog_deploy.bash` (idempotent:
+   asserts the primary checkout carries the script and `Linger=yes`, installs the two units
+   into `~/.config/systemd/user/`, `daemon-reload`, `enable --now` the timer, one check now)
+   ran at 12:30:59 CDT: timer **enabled** (`timers.target.wants/yamaguchi-watchdog.timer`),
+   next fire **2026-08-27 12:00 CDT** (today's 12:00 had already passed at enable time and
+   `Persistent=true` has no stamp to catch up from on a first enable — the deploy's own check
+   stood in for it); first check `OK … newest run 2026-08-26T14:00:00Z ParsedResult=Success
+   age=3.5h`. **Closing test 12:31:30 CDT**: `yamaguchi_watchdog.py --backup-id 999` against
+   the REAL state dir → `ALERT JOB_MISSING … [notify-send rc=0]`, rc 1, the line written to
+   `~/.local/state/duplicati/server-failures.log` and annotated in place as synthetic; the
+   desktop notification fired; 12:32:21 the real check re-ran through the unit and the status
+   file reads `OK` again. Proof record: `_yamaguchi_check/watchdog-closing-test-20260826.log`.
+   **Plan §7 criterion 4 is closed** (§8.7). A (`--run-script-after`) stays a drafted,
+   undeployed complement.
+2. **Schedule confirmed — 09:00 CDT daily is intended.** No change.
+3. **Running VM's image EXCLUDED.** New `util/ad-hoc/yamaguchi_edit_sources.py` — the §8.6-4
+   PUT rule as code: refuses (rc 3) on an active or queued task, replaces the 15-char mask
+   with the real `PASSPHRASE` from `~/.config/duplicati-backup/env` in place, refuses (rc 5)
+   unless the value's fingerprint starts with the recorded prefix, never prints the value,
+   and verifies the job after the PUT. **Fingerprint = PBKDF2-HMAC-SHA256, fixed public salt
+   `juniper-yamaguchi-passphrase-fingerprint-v1`, 200,000 rounds, first 16 hex**: `PASSPHRASE`
+   (Yamaguchi) → `1ff8be456de2752f`, `PASSPHRASE_OLD` (old archive) → `ad251cf01cbec4b5`. (The
+   first revision used bare sha256 — CodeQL `py/weak-sensitive-data-hashing`, alert 586 on
+   ml#1394 — and its sha256[:16] values `6d8b263f6d064556` / `b085454a8c34bd8c` remain valid
+   only for the hand reconciliation of stray `.env` copies, §8.8.) The executed PUT ran under
+   the sha256 revision; the guard's semantics are unchanged. It removed
+   `/home/pcalnon/VirtualMachines/VirtualBox/win11_vm_clean_2026-07-15/win11_vm_clean_2026-07-15.vdi`
+   from `Sources` at 12:31 CDT: PUT 200; re-GET verified **2 sources, 44 filters, 10
+   settings, `encryption-module=aes`, passphrase masked again, `Schedule.Time`/`Repeat` and
+   `ProposedSchedule` (2026-08-27T14:00Z) unchanged** (7/7). Record:
+   `_yamaguchi_check/yamaguchi-config-post-vm-exclusion.json`; its diff against the
+   post-widening record is exactly the win11 entry (`Sources` + `DisplayNames`) plus the
+   server's own post-run `Schedule`/`Metadata` advancement. Effective from the **2026-08-27
+   09:00 run**; today's run still re-read the image (below). The image's already-stored
+   blocks (task 8 + today) stay on the destination while any surviving fileset references
+   them and, under `--no-auto-compact=true`, until an explicit compact after that — the
+   exclusion reclaims no space by itself.
+4. **Release-train key — KEEP.** No change; the §8.6-1 caveat stands (same spindle as the
+   original; the migration decision, §8.6-8, is what would move it off-spindle).
+
+**Today's 09:00 run — the first scheduled run after the widening**: `Success`,
+14:00:00→14:25:14Z (**25 m 15 s**); 753,435 files / 337,235,161,326 B examined (+27,245
+files since task 8 — overnight session output); 31,447 added (11.58 GB), 1,202 modified
+(**56,386,479,073 B — the win11 image**), 4,202 deleted; **29 volumes / 7,265,366,585 B
+uploaded** (the image's changed blocks after dedup), 0 retries / warnings / errors, post-run
+test 3/3. Retention thinned the drilled `191449Z` fileset exactly as §8.3 predicted
+(`DeletedSets: [2026-08-25T14:14:49-05:00]`, `FilesDeleted: 1`, `CompactResults` empty).
+Census 12:31 CDT: **808 = 2 dlist + 403 dblock + 403 dindex; 209,791,975,432 B (195.384
+GiB) — `-> AGREE`**; filesets `20260825T102739Z` + `20260826T140000Z`. So the steady-state
+daily cost with the running VM in scope was ~25 min and ~7 GB of upload; without it, expect
+the pre-widening ~9-minute class from 08-27.
+
+**Peer note**: the T6 GPU campaign completed 03:58 CDT (23/23 cells), five hours before the
+run — no duplicati contention occurred.
+
+**Records**: `_yamaguchi_records/` on sda1 re-synced 12:3x CDT via the new
+`util/ad-hoc/yamaguchi_records_sync.bash` (the handoff's guarded `rsync` as a file — the
+worktree hook refuses the `mountpoint -q … && rsync …` chain at the prompt).
+
+**Still open after this addendum** — all root or Paul's call; exact steps in the 2026-08-26
+handoff: loopback restage (§8.6-6), server-brain backup (§8.6-7), `dbconfig.json`
+(§8.6-5), migration decision (§8.6-8), retirements (§8.8), reboot survival (criterion 5),
+the old-archive tail.
