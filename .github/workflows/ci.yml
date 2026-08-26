@@ -833,6 +833,13 @@ jobs:
           # (util/check_conda_env_torch.bash exit 0/1/2/3/4) via JUNIPER_CONDA_DIR + stub python.
           # util/ is not pre-commit-lint-gated, so this unittest is the gate.
           python3 -m unittest -v tests/test_check_conda_env_torch.py
+          # tests/test_p5_port_memory_budget.py: hermetic tests for the P5 fleet-rollout porting
+          # helper (util/ad-hoc/2026-08-25_p5_port_memory_budget.py): growth stats from a temp git
+          # repo in CHARS (nearest-rank p90 -- the floor form returned the SMALLEST growth at n=2),
+          # the rendered job / standalone workflow / budget config parse and carry the MEASURED
+          # figures, insert-job lands before required-checks and outside its needs:, and adapt-test
+          # rewrites depth + adds SPACE-separated nosec codes. util/ is not pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_p5_port_memory_budget.py
 
       - name: Run bash regression tests
         run: |
