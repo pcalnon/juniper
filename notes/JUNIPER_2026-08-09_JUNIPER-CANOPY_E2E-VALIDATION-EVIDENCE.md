@@ -54,11 +54,11 @@ cascor commit `4081f5b` ("removing old snapshots", 2026-08-09 03:16 CDT, direct 
 **F-E2E-003 — host python3.14 regressed to a stock GIL build (FIXED for isolated_stack in #1042; experiment_stack follow-up PR in flight).**
 `PYTHON_GIL=0` is fatal on stock CPython (`config_read_gil`). isolated_stack's data leg now probes `sysconfig Py_GIL_DISABLED` and passes the toggle conditionally. `util/experiment_stack.bash` carries the same latent class (3 sites) — follow-up PR delegated.
 
-**F-E2E-004 — `juniper_plant_all.bash` flat `JUNIPER_CANOPY_PORT` is probe-only (LEDGER; operator path).**
-The plant script's `JUNIPER_CANOPY_PORT` (default 8050) moves only its health-probe URL/origin derivation and is never exported into canopy's process — an operator override probes a port canopy never binds. Latent T-1 variant; works at defaults by coincidence. Triage in Phase 2/4.
+**F-E2E-004 — `juniper_plant_all.bash` flat `JUNIPER_CANOPY_PORT` is probe-only (LEDGER; operator path; FIXED by juniper-ml#1385 `aaf7c751` — the canopy launch now exports `JUNIPER_CANOPY_SERVER__PORT`).**
+The plant script's `JUNIPER_CANOPY_PORT` (default 8050) moves only its health-probe URL/origin derivation and is never exported into canopy's process — an operator override probes a port canopy never binds. Latent T-1 variant; works at defaults by coincidence. **Disposition (2026-08-26): FIXED by juniper-ml#1385 `aaf7c751`** — the canopy `nohup` line front-loads `JUNIPER_CANOPY_SERVER__PORT="${JUNIPER_CANOPY_PORT}"` (canopy reads `ServerSettings.port` under `env_prefix="JUNIPER_CANOPY_"` with `__` nesting), exactly as the cascor block exports HOST/PORT; pinned by `test_canopy_invocation_exports_the_server_port`.
 
-**F-E2E-005 — `tests/test_experiment_stack_script.py` pre-existing `assertIn(..., env_text)` sites render ambient secrets on failure (LEDGER; test hygiene).**
-Found by the #1044 executor while mutation-testing: the live-up stubs capture `env | grep -E '^(...|JUNIPER_)'` into `env_text`, and an assertion failure renders the whole blob — including live `JUNIPER_ML_PYPI` / `JUNIPER_ML_TEST_PYPI` tokens — the exact class `tests/redacted_env.py` exists to prevent. #1044's new assertions compare filtered line lists; the pre-existing sites remain. Follow-up: sweep that file (and siblings) for the shape. Severity: leaks only on local failure output, but real.
+**F-E2E-005 — `tests/test_experiment_stack_script.py` pre-existing `assertIn(..., env_text)` sites render ambient secrets on failure (LEDGER; test hygiene; FIXED by juniper-ml#1385 `aaf7c751`).**
+Found by the #1044 executor while mutation-testing: the live-up stubs capture `env | grep -E '^(...|JUNIPER_)'` into `env_text`, and an assertion failure renders the whole blob — including live `JUNIPER_ML_PYPI` / `JUNIPER_ML_TEST_PYPI` tokens — the exact class `tests/redacted_env.py` exists to prevent. #1044's new assertions compare filtered line lists; the pre-existing sites remain. Follow-up: sweep that file (and siblings) for the shape. Severity: leaks only on local failure output, but real. **Disposition (2026-08-26): FIXED by juniper-ml#1385 `aaf7c751`** — the three remaining sites (the data / cascor / recurrence env captures) assert against `_env_lines_for_key(env_text, KEY)`, so a failure renders only the lines for the asserted key and never the blob.
 
 **F-E2E-003 scope precision (from the #1044 executor)**: the JuniperData *conda* env python (3.14.2) is still free-threaded (`Py_GIL_DISABLED=1`); only the *system* `/usr/bin/python3.14` (3.14.0) is stock. isolated_stack builds its venv from the system interpreter (live break, fixed in #1042); experiment_stack launches from the conda env (latent, hardened in #1044).
 
@@ -107,8 +107,10 @@ Mechanism, proven live across two runs: `CascorWebSocket.on(type, handler)` is a
 
 **CLOSED (2026-08-24, canopy#515 `04f06ff`; run `20260825T044659Z`).** The ledger's own fix direction, implemented: `on()` appends to a per-type list; dispatch fans out over a copy with the try/catch INSIDE the loop (one handler throwing cannot starve its siblings — the bridge and the beacon now share `metrics`); `off()` keeps its identity guard against the list; zero caller changes. Pinned by `src/tests/unit/test_ws_handler_fanout.py` (the JS-source idiom), including that both real `metrics` registrants remain. **Verified live on merged main mid-run:** `_juniperWsDrain.metricsReceived: true` with `lastMetricsFrameMs` **47 ms** old (the pre-fix state was "no metrics frame has EVER arrived"), `_metricsBuffer` at 24, and the `allow_duplicate` WS append callback executing 13×/45 s with `ws-metrics-buffer.data` in its `changedPropIds` — M-METRICS-31 (the liveness gate now reads fresh, demoting the REST poll as designed) and M-METRICS-32 (the WS append path) re-scored `PASS (re-validated @ 04f06ff)`. Not exercised in the window: the beacon's own `/api/ws_latency` posting cadence (its registration is source-pinned; a latency-display check can ride any future segment).
 
-**F-CANOPY-003 — control-button loading state: success ack never re-enables; the 2 s timeout sweep lands at 30 s–minutes under callback congestion (P1, OPEN).**
+**F-CANOPY-003 — control-button loading state: success ack never re-enables; the 2 s timeout sweep lands at 30 s–minutes under callback congestion (P1, OPEN; fix MERGED as canopy#523 `9c381604`, C2.5-09 / W2-step-2 re-drive owed).**
 Measured: Reset click → WS frame sent + success ack in ~1 s → optimistic ⏳ rendered at +4 s → button re-enabled at **+32 s**. Start's stuck window after its successful ack ran **minutes** (cleared only when the next control action fired the sweep's other Input). Evidence: the Phase-D clientside success path only `console.log`s — no button-states write and no `training-control-action` write on success (`dashboard_manager.py:233-236`); the sweep `handle_button_timeout_and_acks` (`:4246-4257`, handler `:6771-6796`) is the SOLE recovery and compares against `DASHBOARD_TIMEOUT_THRESHOLD = 2.0` s (`canopy_constants.py:384`) — the registration comment "Re-enable buttons after timeout (5s) or on control acknowledgment" is doubly stale (no ack path exists; threshold is 2 s). The 30 s+ real-world latency tracks the same server-side callback congestion that delayed every render during the run (12 Dash POSTs/s observed; `fast-update-interval` fired 26×/6 s). Matrix row C2.5-09 **FAIL**; C2.5-02's optimistic-disable half PASS.
+
+**FIX MERGED (2026-08-26, canopy#523 `9c381604`; C2.5-09 and W2 step 2's pause-pause arm re-drive owed, alongside the F-CANOPY-005 verification on the same congestion run).** Both halves: the Phase-D JS gained `reportSuccess(transport, commandId)`, the sibling of `reportFailure`, called on WS success and on REST 2xx — it writes the ack into `training-control-action` (`success: true`, `command`, `transport`, `command_id`) AND clears that button's loading state directly via `set_props('button-states', …)`, so the ack is the primary release and the sweep only the backstop; and `_handle_button_timeout_and_acks_handler` finally implements its own name — a fresh success ack (`success` + `command` + a `ts` not older than the click) releases the button immediately, while stale acks, failures, no-`ts` actions and the click-time optimistic write leave the timeout semantics untouched. The stale "(5s)" registration docstring is corrected. `src/tests/unit/test_f003_control_button_ack.py` pins the JS contract and the sweep (4 of 12 fail on the parent); F-CANOPY-005's transport-only fallback gate is untouched.
 
 **F-CANOPY-004 — server-side Dash callbacks lag 30 s–minutes behind reality during a live run; clientside callbacks are instant (P0/P1 systemic, OPEN).**
 Measured, run 2 (topology tab, 1 Hz sampling for 60 s): canopy `/api/status` steady at `phase:candidate, hidden_units:1, epoch:1` for the full minute while the top status bar rendered `Output Training / Step 0 / Hidden Units 0/10` and the topology counts rendered `0/0/0/0` THROUGHOUT — yet the **clientside** depth-slider reveal (same underlying store) flipped `display:block` instantly. Same pattern everywhere: optimistic button ⏳ rendered +4 s after a clientside write; the 2 s button sweep landed +32 s (F-CANOPY-003); run-1 tiles caught up minutes post-run. Dash POST volume observed: ~12/s during a run (`fast-update-interval` alone fired 26×/6 s). Architecture note for Phase 2: every interval-driven server callback does a synchronous self-call `requests.get(self._api_url(...))` back into the same canopy server (e.g. `dashboard_manager.py:6376`), so callbacks queue behind their own server's request backlog; the WS drain pump (500 ms) multiplies POSTs during runs. Impact: during training — the only time the dashboard matters — every REST-fed surface is 30 s–minutes stale; only WS-clientside surfaces (badge) and the (currently clobbered, F-CANOPY-002) WS fast path can be truthful in real time. FA-3 rows C2.3-01..07 pass *eventually* but fail any reasonable freshness expectation; recorded here rather than as per-row FAILs since no row states a latency contract.
@@ -123,11 +125,13 @@ End-to-end isolation, all captured live on run 2's completed 10-unit network: (1
 
 **CLOSED (2026-08-24, fixed by the F-CANOPY-027 remediation series — canopy#507+#509+#511; verified live on `5f2e905`-content, run `20260825T041134Z`).** The "prime Phase-2 suspect" was exactly right: the 12-Input rebuild riding the 1 s `fast-update-interval` with 1.5–5 s server time was perpetually re-queued/superseded — the same claimed-Input/starvation family as the rest of F-CANOPY-027. After #509 gated it to `tabpoll-topology` and Stage 2 suppressed its chained metrics-store rewrites, the panel is alive in BOTH lanes: **during an active run** the graph rendered **271 traces** with the counts tracking growth in real time (the DOM read `2/13/2/134` while the status probe still said 12 units — the panel was *ahead* of the probe), renderer executing 5×/30 s; at idle, 209 traces, counts `2/11/2/103`, renderer 4×/30 s. Two 2026-08-20 sub-claims corrected by source + observation: the depth slider's `max` DOES seed from topology (observed `max=11/13`), and `value=0` means **no filter** by design (`_apply_hierarchy_filter` returns unfiltered for `depth <= 0`, `network_visualizer.py:728`) — the feared "hierarchy filter of zero cascade units" never existed. Residual cosmetic (D-ledger, not this P0): the depth label renders `"0 of N"` for the all-filter where `"all"` would be honest. M-TOPOLOGY-01..18 / W4 / W1-12..14's blocker is gone; the rows await their re-drive segment.
 
-**F-CASCOR-001 — CUDA OOM in candidate seeding is classified "Completed — stalled (0 new units)" instead of an error state (P1, cascor repo, OPEN).**
-W1 run 1: every `CandidateUnit` construction raised `torch.AcceleratorError: CUDA error: out of memory` at `candidate_unit.py:333`/`:392` (`torch.rand(1, device="cuda")` seed-roll) via `train_candidate_worker` (`cascade_correlation.py:3270`) — repeated per candidate — and the run transitioned `Started -> Completed` with the stall label. The UI surfaced cascor's classification faithfully (`Status: Completed — stalled (0 new units)` — honest-label plumbing WORKS, plan §7.3), but a hard environmental failure is indistinguishable from a legitimate correlation stall at every surface. Host cause: 7563/8192 MiB VRAM pinned by ~50 orphaned `JuniperCascor1` forkserver workers (the known orphan class). To file as a cascor issue.
+**F-CASCOR-001 — CUDA OOM in candidate seeding is classified "Completed — stalled (0 new units)" instead of an error state (P1, cascor repo, OPEN; filed as juniper-cascor#590 on 2026-08-26).**
+W1 run 1: every `CandidateUnit` construction raised `torch.AcceleratorError: CUDA error: out of memory` at `candidate_unit.py:333`/`:392` (`torch.rand(1, device="cuda")` seed-roll) via `train_candidate_worker` (`cascade_correlation.py:3270`) — repeated per candidate — and the run transitioned `Started -> Completed` with the stall label. The UI surfaced cascor's classification faithfully (`Status: Completed — stalled (0 new units)` — honest-label plumbing WORKS, plan §7.3), but a hard environmental failure is indistinguishable from a legitimate correlation stall at every surface. Host cause: 7563/8192 MiB VRAM pinned by ~50 orphaned `JuniperCascor1` forkserver workers (the known orphan class). **Filed as [juniper-cascor#590](https://github.com/pcalnon/juniper-cascor/issues/590) on 2026-08-26** with the current anchors (`src/candidate_unit/candidate_unit.py:352` seed-roll; `cascade_correlation.py:3436` `train_candidate_worker`; `manager.py` ~`:2596` `completion_reason`, whose enumeration has no error value) and a proposed `candidate_error` completion reason / FAILED terminal state.
 
-**F-ML-001 — `util/reap_pytest_orphans.bash` kills nohup-detached isolated-stack services (P1, juniper-ml repo, OPEN).**
+**F-ML-001 — `util/reap_pytest_orphans.bash` kills nohup-detached isolated-stack services (P1, juniper-ml repo; FIXED by juniper-ml#1133 `b7f7ec20` on 2026-08-17 — verified 2026-08-26, closure below).**
 Freeing the VRAM via the repo's own reaper took down the live cascor service leg: isolated-stack services are launched `( cd … && nohup … & )`, so after the subshell exits they are parentless BY DESIGN — exactly the reaper's orphan predicate (candidate gate: JuniperC-env python; orphan: parent gone/init/systemd). Dry-run listed only forkserver/resource-tracker rows, but the live pass cascaded 145 kills including the service (`52 would be reaped` → `145 reaped`; the dry-run/live delta is itself a gap — children of reaped orphans re-classify mid-pass). The data leg survived only because its venv python path escapes the `JuniperC[a-z0-9]+` gate; canopy (JuniperCanopy1 — gate-matching) survived this pass but is equally exposed. Needs a service-pidfile exclusion (read `${RUN_DIR}/juniper-*.pid`) or a listener-port KEEP gate.
+
+**CLOSED (2026-08-26, by verification: juniper-ml#1133 `b7f7ec20`, merged 2026-08-17).** The prescribed service-pidfile exclusion shipped a week before this arc reached it: `util/reap_pytest_orphans.bash` protects two roots — `JUNIPER_EXP_RUN_ROOT` and `JUNIPER_E2E_RUN_DIR` (default `${TMPDIR:-/tmp}/juniper-e2e`) — with two keys, either sufficient: the pid appears in a run-dir `*.pid` (`isolated_stack.bash` writes `${RUN_DIR}/juniper-{data,cascor,recurrence,canopy}.pid` at depth 1, inside the reaper's depth-3 scan), or its cmdline references a run root. Pinned by `tests/test_reap_pytest_orphans.py` — `test_isolated_stack_run_dir_is_also_protected`, `test_pidfiled_experiment_service_is_protected_not_reaped`, `test_real_mode_kills_the_orphan_but_never_the_protected_service`, `test_stale_pidfile_protects_conservatively` — green on 2026-08-26. The segment-5 supervision remedy (`e2e_cascor_leg_supervise.bash`) stays available as belt-and-braces but is no longer required against the reaper class; blanket killers (`kill_all_pythons.bash` and friends) are still not covered, as the segment-5 note states.
 
 **F-CANOPY-017 — a step-invalid numeric param silently applied a hardcoded default (P1; FIXED canopy#489, verified live segment 12).**
 Minted in run `20260811T010700Z` (`statuses.tsv:90`) but never entered this ledger until segment 12 — recorded here to close that gap. HTML5 evaluates `step` relative to `min`, so `#nn-learning-rate-input` (`min=0.0001, step=0.001`) admitted only `0.0001+n*0.001`; no plausible learning rate was on that grid, an edit therefore delivered Dash `None`, and `_apply_parameters_handler` substituted `DEFAULT_LEARNING_RATE`. Live instance: `/api/state` 0.0789 → user types 0.0733 → POSTs 0.01. A DOM sweep found 7 of 22 sidebar number inputs whose own seeded value was already `stepMismatch`. **FIXED** by juniper-canopy#489 (`d11bfcd`, 2026-08-14), which cites the finding by name: float params now use `step="any"`, integer params `step=1`, and a `None` numeric State refuses the apply and names the offending fields instead of substituting a default. **Verified live in segment 12** — all 20 sidebar numeric inputs report `validity.valid=true` / `stepMismatch=false`, and the finding's own 0.0733 instance now commits. Consequence: the matrix's `AUTO-API` class for the sidebar numeric rows is stale (see §1.1).
@@ -456,8 +460,10 @@ unit tests in `tests/unit/frontend/test_metrics_panel_handlers.py`) should go wi
 `tests/unit/frontend/test_poll_gating.py::TestDeadPollerRemoved::test_network_stats_store_still_has_no_consumer`
 fails if anyone wires a consumer without restoring a writer.
 
-**F-CANOPY-035 — the candidate loss plot reads `epochs`/`losses`/`phases` off the training-state store, keys `/api/state` never provides in any lane, so the plot is structurally empty (P1, OPEN; found during the 2026-08-24 live re-drive).**
+**F-CANOPY-035 — the candidate loss plot reads `epochs`/`losses`/`phases` off the training-state store, keys `/api/state` never provides in any lane, so the plot is structurally empty (P1, OPEN; found during the 2026-08-24 live re-drive; fix MERGED as canopy#524 `f20602cb`, M-CANDIDATES-07 re-drive owed).**
 `_create_candidate_loss_figure` (`candidate_metrics_panel.py:570-577`) filters `state.epochs`/`state.losses`/`state.phases` for entries whose phase contains `"candidate"`; the store it reads is filled by `_fetch_training_state` → GET `/api/state` (`:414`). But that route (`main.py:1129`) serves `TrainingState.get_state()`, and `TrainingState._STATE_FIELDS` (`training_monitor.py:232-264`) contains **none of those keys** — the demo branch augments only `nn_*`/`cn_*`/convergence params, so no lane ever provides them. Confirmed live mid-candidate-phase 2026-08-24: `/api/state` carried `candidate_pool_size 40`, `candidate_epoch 201/400`, `candidates_trained 40/40`, `all_correlations[40]` — and no `epochs`/`losses`/`phases`. This is **not** starvation: in the same session the same store's other consumers (badge, phase, pool size, progress bar, pool info) all rendered live candidate-phase values post-#507/#509, while the figure's only reachable render is the `create_empty_plot("No candidate data available")` placeholder (`:567`/`:575`/`:605`). The data exists in-system — cascor `/v1/metrics/history` returned 4,106 `phase:"candidate"` per-epoch loss entries (of 4,909 total) for the same run, and canopy already proxies it at `/api/metrics/history` — the panel is simply wired to the wrong producer. Fix is canopy-side: source the candidate-loss figure from the metrics-history data (or merge those keys into the store fetch) and drop the dead three-key read. Matrix row M-CANDIDATES-07 re-scored FAIL with its cause re-attributed from F-CANOPY-027 to this finding. Same consumer-reads-keys-the-producer-never-emits class as F-CANOPY-011/-013.
+
+**FIX MERGED (2026-08-26, canopy#524 `f20602cb`; M-CANDIDATES-07 re-drive owed).** The loss-plot callback takes the dashboard's existing shared `metrics-panel-metrics-store` (fed by the liveness-gated `/api/metrics/history` poll and the WS append path) as a third Input — no new poller, the F-CANOPY-027 rule — and `_candidate_series_from_history` derives the three series from its candidate-phase entries (the nested `{epoch, metrics.loss, phase}` shape both the demo backend and the cascor adapter's `_to_dashboard_metric` produce; flat `loss`/`train_loss` + `cascade_phase` tolerated). The figure builder is untouched and the state-store shape stays a fallback, so every existing figure test holds. `src/tests/unit/frontend/test_f035_candidate_loss_from_history.py` (15 tests) pins the producer contract (`TrainingState._STATE_FIELDS` has none of the three keys; the callback declares the shared store), the series adapter and the rendered `Candidate Training` trace from a real `/api/state`-shaped payload plus history; the module does not import on the parent.
 
 **F-CANOPY-036 — candidate pool history NEVER accumulates in the live lane: the history-append callback loses its race with its own feeder's repoll, so short-lived pool states are never recorded (P2, OPEN; found during the 2026-08-24 live re-drive).**
 Across five training runs on one bring-up (~20 candidate phases), `candidate-metrics-panel-history-section` never rendered a card — while in the same sessions the SAME store's sibling consumers provably rendered active-pool values (run 5: an in-page 500 ms observer, healthy all run — 8 sampler gaps > 2 s, worst 2.8 s — recorded the badge rendering `Selecting Best` at t+189 s; runs 1/2 rendered pool 40 / `Training` / progress `351/400`). So this is **not** the fixed F-CANOPY-027 store→consumer starvation. Constructive probe on a CALM post-run page: injecting a fully-shaped `candidate_pool_status:"Training"` payload through the store's own `setProps` (the §12.1 idiom, `ok via memoizedProps.setProps`) produced **no card in 100 s**, and the request capture shows `update_pool_history` (output `…-pool-history-store.data`, `candidate_metrics_panel.py:347-381`) **never executed after the injected write** — while the same capture shows it executing normally on an ordinary poll fill (with `candidate_pool_status=Inactive`, i.e. after the transient state was already overwritten). Mechanism family: dash-renderer executes a queued callback with the store's CURRENT value (or supersedes the queued trigger entirely) when the feeder — `fetch_training_state`, polling at ~1 s on the candidates tab — rewrites the store before the append is promoted; any pool state shorter-lived than the promotion delay is unrecordable. The append's design contract (`:344-392`, one snapshot per `current_epoch` while a pool is active) is therefore probabilistic-to-never under load, and zero-across-five-runs in practice. Matrix effect: M-CANDIDATES-09 FAIL (populated arm unreachable, cause re-attributed from F-CANOPY-027 to this finding); M-CANDIDATES-10/-11 remain BLOCKED (their DEAD-EXPECTED click test needs a rendered card; blocker likewise re-attributed). Candidate fixes (owner decision): append server-side (canopy backend accumulates pool history and serves it, removing the client-side race entirely) or make `update_pool_history` clientside so it runs synchronously in the same commit as the store write.
@@ -496,7 +502,7 @@ investigations. Reproduce with `util/ad-hoc/e2e_f027_redux_actions.py`.
 - **Load sequence**: badge renders `WS: Offline` (red) during pre-first-connect hydration (observed +0.8 s → ~11 s on a cold reload) before settling `WS: Connected`; the server-rendered initial layout is `WS: --` grey `#6c757d` (verified from `/dashboard/_dash-layout` JSON — C2.4-01's authoritative source).
 - **Rejected induction, documented for console-log honesty**: a `context.setOffline(true)` probe does NOT drop established localhost WebSockets (Chromium blocks only new connections) — the badge rightly stayed green while every HTTP poll failed, spraying **187 fetch errors** into the console (`console-2026-08-10T00-27-03-702Z.log`, all within the offline window, cleared by the next reload). Those errors are excluded from CON assertions; the working induction for badge states 6/7 is a client-side `ws.close()` under a temporarily raised `baseReconnectDelay`.
 - Reconnect timing: a bare `ws.close()` on localhost recovers in ~121 ms (attempt 1) — too fast for the badge to repaint; the raised-delay induction is what makes states 6/7 renderable.
-- **Doc divergences for the truth-up batch (D-ledger additions)**: (i) `stream_health.overall` recovery value is `"healthy"`, not the matrix's claimed `"ok"` (W14 steps 3/9, `main.py:1279` route); (ii) the About panel renders **"App Version: 2.2.0"** while `/v1/health` serves `version: 0.4.0` — the About `self.version` source is stale/mis-wired (`about_panel.py:323-345` block); (iii) depth-slider label read `"0 of 3"` while the slider had never been touched — the initial slider `value` seeds 0 rather than max, so the "user-picked value" semantics start from a filter that would draw zero cascade units (matrix M-TOPOLOGY-06/07 context; Phase-2 look).
+- **Doc divergences for the truth-up batch (D-ledger additions)**: (i) `stream_health.overall` recovery value is `"healthy"`, not the matrix's claimed `"ok"` (W14 steps 3/9, `main.py:1279` route) **[matrix lines corrected 2026-08-26]**; (ii) the About panel renders **"App Version: 2.2.0"** while `/v1/health` serves `version: 0.4.0` — the About `self.version` source is stale/mis-wired (`about_panel.py:323-345` block) **[RESOLVED 2026-08-26, canopy#526 `27a4bb1d`: the root cause was a second, hardcoded `APP_VERSION = "2.2.0"` literal in `about_panel.py`; the version is now resolved once by `canopy_constants.resolve_app_version()` — installed metadata, `pyproject.toml` fallback — the same source `/v1/health` reports]**; (iii) depth-slider label read `"0 of 3"` while the slider had never been touched — the initial slider `value` seeds 0 rather than max, so the "user-picked value" semantics start from a filter that would draw zero cascade units (matrix M-TOPOLOGY-06/07 context; Phase-2 look).
 - W1 run 2 (post-VRAM-heal): output phase streamed ~400 metrics frames on `/ws/training` (raw-socket capture), then candidate phases with steady `candidate_progress` (~35/30 s) and `state` frames; cascade growth 1→6+ units observed server-side; Evolution tab captured a growth card per add via the clientside WS path — confirming every WS type EXCEPT the clobbered `metrics` reaches Dash.
 - Console-error ledger for the CON sweeps: zero uncaught errors across all tab walks; the only entries are (a) the deliberately-excluded offline-window fetch spam, (b) F-CANOPY-005's `409` + its two `[Phase D]` warnings.
 
@@ -609,7 +615,7 @@ re-confirmed live rather than assumed — a deliberately conservative bias.
 ### Findings opened in segment 4
 
 **F-CANOPY-007 — canopy CREATES snapshots through the cascor backend but LISTS them off a LOCAL
-filesystem path; on any split-filesystem deployment the list is silently empty (P1, OPEN).**
+filesystem path; on any split-filesystem deployment the list is silently empty (P1, OPEN; fix MERGED as canopy#525 `141324fa`, W5 step 3 re-drive without `JUNIPER_CANOPY_SNAPSHOT_DIR` owed).**
 
 Found driving W5 step 3. The create succeeded end-to-end — panel reported
 `✅ Snapshot created successfully: snapshot_20260811T010849Z`, both inputs cleared — yet the table stayed
@@ -648,8 +654,10 @@ Fix direction (Phase 2): canopy should resolve snapshots through the backend it 
 than assuming a shared filesystem — or, at minimum, detect that the configured dir is not the backend's
 and surface a degraded-mode banner instead of an empty list.
 
+**FIX MERGED (2026-08-26, canopy#525 `141324fa`; W5 step 3 re-drive WITHOUT the harness's `JUNIPER_CANOPY_SNAPSHOT_DIR` workaround owed, plus the FA-4 rows that depended on it).** The first fix direction, taken whole: the adapter gained `list_snapshots()` / `get_snapshot(id)` proxies over cascor's `GET /v1/snapshots` and `GET /v1/snapshots/{id}` (the `{"ok", …}` envelopes of `get_snapshot_dataset_swaps`; a cascor 404 is a definite absence, any other client failure is "cannot answer"); in service mode `GET /api/v1/snapshots` serves cascor's inventory (normalized to the panel shape, newest first, `source: "cascor"`) with the F-CANOPY-031 `limit`/`offset`/`total` contract preserved, and the detail route treats cascor as the authority on existence while a local copy, when also visible, only enriches the record with its HDF5 attributes; the local directory remains the fallback whenever the backend cannot answer, and demo mode is untouched. `src/tests/unit/test_f007_snapshots_resolve_through_backend.py` (14 tests) drives the split-filesystem condition (cascor holds two, canopy's directory holds none) and every fallback arm; on the parent it reproduces the live empty list. The degraded-mode banner is not needed once the backend is the source.
+
 **F-CANOPY-008 — the `/ws/control` CSRF gate leaks a per-IP connection slot on every rejection;
-five rejections permanently lock the control plane out until canopy restarts (P0/P1, OPEN).**
+five rejections permanently lock the control plane out until canopy restarts (P0/P1, OPEN; fix MERGED as canopy#519 `ce819775`, live confirmation owed — rider below).**
 
 Found immediately after the canopy bounce above. `/ws/training` reconnected normally; `/ws/control`
 403-looped, and the audit log named the reason:
@@ -695,6 +703,8 @@ one IP, then assert a *valid* handshake still connects.
 
 Note this is the "audit every call site when extending a shared helper" class: the helper was correct and
 correctly used at the call site it shipped with; the later-added gate simply did not adopt it.
+
+**FIX MERGED (2026-08-25, canopy#519 `ce819775`; the entry stays OPEN until the restart scenario is re-driven live).** Every CSRF reject arm now funnels through ONE teardown that logs the reason, closes 1008 and — in a `finally` — calls `websocket_manager.disconnect(websocket)`, the full rollback (per-IP + per-session slot, the `active_connections` entry and the `{channel="control"}` gauge). Reading `connect()` / `disconnect()` confirmed the deferred inference: `connect()` had already succeeded, so the leak covered the registration and the gauge too, and `release_connection_limits()` alone would not have been enough. `src/tests/unit/test_f008_csrf_reject_releases_slots.py` drives the real handler through `main.app`: `max_connections_per_ip + 1` stale-token handshakes all close 1008, the slot/registration/gauge snapshot returns to baseline, and a valid handshake still connects — on the parent the sixth attempt was refused `1013` (`[1008 ×5, 1013]`), the live signature exactly. Owed post-T6: restart canopy with a dashboard tab open and confirm five `ws_csrf_rejected` audit events with no `Per-IP limit reached` and a working control plane afterwards.
 
 ---
 
@@ -747,7 +757,7 @@ row that assumes "10 units were already loaded" must read this note first.
 ### Findings opened in segment 5
 
 **F-CANOPY-009 — the snapshot detail panel is wiped by the table's own 10 s refresh: every selection
-self-destructs within one tick (P1, OPEN; root-caused live).**
+self-destructs within one tick (P1, OPEN; root-caused live; fix MERGED as canopy#520 `29a8c41e`, W5 step 4 re-drive owed).**
 
 Found driving W5 step 4. The row's `View Details` button *does* work — the panel fills correctly — and then
 the panel clears itself with no user action. Measured live, single click, 500 ms polling of
@@ -814,8 +824,10 @@ construct the `View Details` button with `n_clicks=0` to match its siblings so t
 re-triggering the callback at all. Regression test: select a snapshot, hold past two refresh ticks
 (> 20 s), assert the detail panel still renders the selected id.
 
+**FIX MERGED (2026-08-25, canopy#520 `29a8c41e`; W5 step 4 re-drive owed).** Exactly the prescribed one-token change: all four early-outs of `select_snapshot` return `dash.no_update`, and the `View Details` button is built with `n_clicks=0` like its four op-item siblings, so the rebuild stops re-triggering the callback at all. `src/tests/unit/frontend/test_f009_f010_snapshot_rebuild_preserves_state.py` (14 tests, 13 failing on the parent) pins the rebuilt button's `n_clicks == 0`, every rebuild-shaped re-fire leaving the selection alone, and a selection surviving a rebuild; the five `test_hdf5_callbacks.py` tests that had pinned the destructive `None` now assert `no_update`.
+
 **F-CANOPY-010 — the snapshot-operation CONFIRMATION MODAL closes itself ~3.6 s after opening; the
-operator has under four seconds to read and confirm a state-changing action (P1, OPEN; root-caused live).**
+operator has under four seconds to read and confirm a state-changing action (P1, OPEN; root-caused live; fix MERGED as canopy#520 `29a8c41e`, the ≥ 20 s modal-survival re-drive owed).**
 
 Same class as F-CANOPY-009, different callback, worse consequence — recorded separately because it needs
 its own fix and its own regression test. Found driving W5 step 5.
@@ -857,6 +869,8 @@ trains the operator to click without reading, or silently drops the action. It a
 
 Reproduction is deterministic and needs no special timing: open any row's op menu, pick any operation,
 wait four seconds.
+
+**FIX MERGED (2026-08-25, canopy#520 `29a8c41e`; the ≥ 20 s modal-survival re-drive owed).** All four early-outs of `open_snapshot_op_modal` return `(no_update, no_update, no_update)`; the rebuild-shaped re-fires (`n_clicks` 0 / None, no trigger, empty prop id, unknown op, the context-menu store reset) are pinned to leave an OPEN modal untouched while a real click still opens it with the right pending operation.
 
 ### W5 steps 5-7 — results
 
@@ -1047,7 +1061,7 @@ and the route must be corrected, or the panel stays idle and the readout stays o
 ### Findings opened in segment 6
 
 **F-CANOPY-011 — the Network Editor reads the FSM from a key shape canopy's `/api/status` never returns,
-so the panel is permanently inert (P1, OPEN; root-caused, deterministic).**
+so the panel is permanently inert (P1, OPEN; root-caused, deterministic; fix MERGED with D-0 as canopy#522 `ef495cf3`, W5-09/-10/-12..14 re-drive owed).**
 `network_editor_panel.py:400-412` (`_is_investigating`) and the badge line `:501` both read
 `status["state_machine"]["status"]`, falling back to a top-level `status["status"]`. Canopy's `/api/status`
 returns **neither**: it is a flat dict whose FSM field is `fsm_status`. Verified live against the running
@@ -1063,6 +1077,8 @@ of actual FSM state, and it masks D-0 (`:517` → `/api/network/topology`, 404; 
 to prove the routes; M-NETWORK-EDITOR rows that assert the active surface. Fix is two contract
 corrections (read `fsm_status`; fetch `/api/topology`) plus a test that pins the panel against a real
 `/api/status` payload rather than a hand-built one.
+
+**FIX MERGED (2026-08-26, canopy#522 `ef495cf3`, together with D-0; W5-09 (was FAIL), W5-10 (was PASS-as-expected-divergence), W5-12/13/14 through the UI, and the M-NETWORK-EDITOR active-surface rows re-drive owed).** Exactly the two contract corrections: `_is_investigating` and the badge read canopy's flat `fsm_status` first (the nested `state_machine.status` and top-level `status` shapes stay tolerated for cascor-shaped or partial payloads, so every existing pin holds; the docstring that asserted the wrong contract is corrected), and the active-state fetch targets `/api/topology`, whose `{input_units, output_units, hidden_units}` shape `render_topology` already consumed. `src/tests/unit/frontend/test_f011_d0_network_editor_contracts.py` (17 tests, 7 failing on the parent) pins the panel to the REAL contracts — the `StatusResult` TypedDict, the real `/api/status` payload through `main.app` with a demo backend installed, the flat-payload poll behaviour, the exact `[/api/status, /api/topology]` fetch sequence, and the real app answering `/api/network/topology` 404. D-0 closes with it.
 
 **F-CASCOR-002 — snapshot restore ALWAYS drops optimizer state: `learning_rate` is written as a string and
 read back undecoded, so the Adam constructor raises and the optimizer is silently set to `None` (P2, cascor
@@ -1235,7 +1251,7 @@ W5-20 is doubly blocked — the panel also believes the session is V1 (F-CANOPY-
 
 **F-CANOPY-014 — the replay player builds every control URL with an EMPTY base, so the entire replay
 control surface is dead: play / pause / seek / speed / range / stop all fail with `No scheme supplied`
-(P1, OPEN; root-caused, backend exonerated).**
+(P1, OPEN; root-caused, backend exonerated; fix MERGED as canopy#521 `07e9a061`, M-REPLAY re-drive owed).**
 `replay_player_panel.py:80` initialises `self._api_base_url = config.get("api_base_url", "")` — an
 **empty-string** fallback. The runtime config does not supply `api_base_url`, so the base is `""` and
 `:356` builds `f"{self._api_base_url}/api/v1/snapshots/{snapshot_id}/replay/control"` =
@@ -1253,6 +1269,8 @@ the **only** one of the three with an empty fallback:
 Blast radius: W5-19/26 FAIL and W5-20/21/22/23/24/25 BLOCKED — the whole M-REPLAY control surface. Fix is
 one line (adopt either sibling's fallback); the deeper question of why the config omits `api_base_url` is
 worth answering so the two working panels aren't relying on defaults either.
+
+**FIX MERGED (2026-08-26, canopy#521 `07e9a061`; W5-19/26 and W5-20..25 re-drive owed).** The sibling panels' fallback adopted verbatim — `config.get("api_base_url", f"http://127.0.0.1:{get_settings().server.port}")` — so every control POST is absolute by default while an explicit `api_base_url` still wins. `src/tests/unit/frontend/test_f014_replay_api_base_url.py` pins the default base to the configured server port and every control action (`play` / `pause` / `seek` / `speed` / `range` / `stop`) to `…/api/v1/snapshots/snap_1/replay/control` on that base — 7 of its 8 tests fail on the parent, which produced the schemeless `/api/v1/…` path. The deeper question the entry raised (why the runtime config omits `api_base_url` at all) stays open here as a note, not a defect.
 
 **F-CANOPY-015 — the replay player reads three session fields one nesting level too shallow; the weights
 badge therefore reports V1 for a V2 snapshot while two sibling misreads are silently masked by
@@ -3128,3 +3146,78 @@ cleaned up; the primary canopy checkout is at `d275ce2`.
 
 Ledger: **40 findings / 14 fixed / 26 open** (1 P0 · 2 P0/P1 · 9 P1 · 12 P2 · 2 LEDGER). The one P0 is
 F-CANOPY-005 with its fix already in main; F-CANOPY-004 and -008 hold the P0/P1 bucket.
+
+## Phase 2 — the P1 fix wave (2026-08-25/26): eight canopy fix PRs merged, two ledger closures by verification, all under the T6 GPU hold
+
+**Posture.** The T6 re-baseline session held the exclusive GPU window for the whole session (successor
+session `t6 rebaseline`, handoff ml#1371; zero cells run as of 23:20Z on 08-25; window re-planned to
+~05:10–07:45 local on 08-26), so nothing here touched the isolated trio or a browser: every fix is
+CPU/CI work — a fix plus a failing-on-parent regression test, canopy's pre-commit hooks, the
+sequence-safety symbol-loss screen, a signed PR via `util/open_signed_pr.py`, a REST squash on green
+required checks under the plan's merge policy, and main-verify green after each merge. Every fixed
+finding therefore stays **OPEN with a fix-merged rider** until the post-T6 live re-drive, the discipline
+F-CANOPY-005 set. Neither repo's protection is strict: a green PR merges through the REST endpoint while
+`mergeStateStatus` reads `BEHIND`, so the update-branch dance was only ever needed to re-run CI, never to
+merge.
+
+**Merged (canopy, in merge order):**
+
+- **F-CANOPY-008 → canopy#519 `ce819775`.** Every CSRF reject arm on `/ws/control` funnels through one
+  teardown that calls `websocket_manager.disconnect()` — the full rollback, since `connect()` had already
+  registered the socket (the deferred registration/gauge-leak inference is confirmed by code). The
+  regression test reproduces the live signature on the parent: `[1008 ×5, 1013]`.
+- **F-CANOPY-009 + -010 → canopy#520 `29a8c41e`.** `dash.no_update` at all eight early-outs; the
+  `View Details` button gets `n_clicks=0` like its siblings. 13 of 14 new tests fail on the parent.
+- **F-CANOPY-014 → canopy#521 `07e9a061`.** The replay panel adopts the sibling panels' port-based base-URL
+  fallback; every control action posts to an absolute URL (7 of 8 tests fail on the parent).
+- **F-CANOPY-003 → canopy#523 `9c381604`.** `reportSuccess` in the Phase-D JS on WS success and REST 2xx
+  writes the ack and clears the button directly; the sweep handler honours a fresh success ack
+  (`success` + `command` + a `ts` not older than the click). 4 of 12 tests fail on the parent.
+- **F-CANOPY-035 → canopy#524 `f20602cb`.** The candidate loss plot consumes the shared
+  `metrics-panel-metrics-store` (no new poller — the F-CANOPY-027 rule) through
+  `_candidate_series_from_history`; the module does not import on the parent.
+- **F-CANOPY-007 → canopy#525 `141324fa`.** Snapshots are listed and resolved through the backend that
+  created them (`list_snapshots` / `get_snapshot` adapter proxies; cascor is the authority in service mode,
+  the local directory the fallback; the F-031 `limit`/`offset`/`total` contract holds on either source).
+  The split-filesystem test reproduces the live empty list on the parent.
+- **OBS-1 → canopy#526 `27a4bb1d`.** The About panel's own hardcoded `APP_VERSION = "2.2.0"` literal is
+  gone; `canopy_constants.resolve_app_version()` is the one source (installed metadata, `pyproject.toml`
+  fallback pinned by test).
+- **F-CANOPY-011 + D-0 → canopy#522 `ef495cf3`.** The editor reads canopy's flat `fsm_status` and fetches
+  `/api/topology`; 17 contract tests pin the REAL routes through `main.app` with a demo backend installed
+  (7 fail on the parent).
+- **Phase-4 truth-up → canopy#527 (in CI at the time of writing).** D-2: `nn-init-output-weights-dropdown`
+  joins the 27-input Apply dirty set (its handler parameter is appended after `applied`, so positional
+  callers are unaffected); D-5: the Phase-D registration comment states the real flag default; `main.py`
+  takes `APP_VERSION` from `canopy_constants`.
+
+**Closed by verification, no new code:** **F-ML-001** — juniper-ml#1133 (`b7f7ec20`, 2026-08-17) had
+already shipped the prescribed pidfile exclusion (`JUNIPER_E2E_RUN_DIR` protected; the isolated stack's
+`${RUN_DIR}/juniper-*.pid` files are its P1 key); its four protection tests are green.
+**F-CASCOR-001** is filed upstream as juniper-cascor#590 with re-derived anchors. **F-E2E-004/-005**
+(the LEDGER harness pair) are FIXED by juniper-ml#1385 `aaf7c751` (`JUNIPER_CANOPY_SERVER__PORT` exported
+into canopy's process; the three `assertIn(..., env_text)` sites compare per-key line lists).
+
+**Docs truth-up (Phase 4) started:** the two W14 matrix lines now name `stream_health.overall`'s real
+recovery value `"healthy"`; D-1's stale "exactly two writers" docstring no longer exists in the source
+(verified — no change needed); D-3 is already recorded correctly in the matrix (the source-doc fix belongs
+to the canopy USER_MANUAL truth-up); the depth-label "0 of N" cosmetic reads as already fixed in code
+(`_apply_hierarchy_filter` returns `"all"` for the unfiltered case) — verify live.
+
+**Owner decisions requested (carried in the handoff):** the F-CANOPY-004 latency disposition — accept and
+document a freshness contract now (post-Stage-2: 3–16 s interaction renders, 20–40 s fresh-session
+population) versus open the JR-CAN-PERF-004 WS-migration workstream; recommendation: the contract now, the
+migration as a planned workstream — and the open-P2 set (§6.3).
+
+**Instrument/tooling notes.** The worktree-isolation hook rejects heredocs containing escaped apostrophes
+(`\'`), `for` loops and `env -C`; Read+Edit or plain single commands are the reliable path. A bare
+`TestClient(app)` never runs the lifespan, so route tests that need a backend must install one
+(`monkeypatch.setattr(main, "backend", DemoBackend(DemoMode(update_interval=1.0)))`). A fresh canopy
+worktree lacks the gitignored runtime `logs/` dir, which `integration/test_setup.py::test_directories`
+requires — create it before a full-suite run. `wait_for_checks.py` returns immediately after an
+update-branch if the OLD head's rollup is still the one it sees — re-check the PR after it fires.
+
+Ledger at the end of the session: **40 findings / 17 fixed / 23 open** (1 P0 · 2 P0/P1 · 8 P1 · 12 P2 ·
+0 LEDGER). Every P1 in the canopy tail now has its fix in main; the counts move only when the post-T6
+re-drive verifies them live. Matrix coverage unchanged (298/298, 0 unfilled); no live rows were driven,
+so `CURRENT_RUN_ID` stays `20260825T101752Z`.
