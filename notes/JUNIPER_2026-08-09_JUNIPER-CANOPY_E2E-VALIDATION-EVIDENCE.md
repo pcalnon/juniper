@@ -3156,9 +3156,13 @@ CPU/CI work — a fix plus a failing-on-parent regression test, canopy's pre-com
 sequence-safety symbol-loss screen, a signed PR via `util/open_signed_pr.py`, a REST squash on green
 required checks under the plan's merge policy, and main-verify green after each merge. Every fixed
 finding therefore stays **OPEN with a fix-merged rider** until the post-T6 live re-drive, the discipline
-F-CANOPY-005 set. Neither repo's protection is strict: a green PR merges through the REST endpoint while
-`mergeStateStatus` reads `BEHIND`, so the update-branch dance was only ever needed to re-run CI, never to
-merge.
+F-CANOPY-005 set. **Correction (adversarial validation, rulesets API): protection IS strict on both repos**
+(`strict_required_status_checks_policy: true`; canopy ruleset `14249530`, ml `13805432`) with an Admin
+bypass (`bypass_mode: always`). The REST squash of a green-but-`BEHIND` PR therefore merged on the owner's
+bypass — rule-suites recorded `result=bypass` for canopy `29a8c41e`, `9c381604`, `f20602cb`, `141324fa`,
+`27a4bb1d`, `ef495cf3` and ml `aaf7c751` (`ce819775`, `07e9a061`, `74c5fce5` were `pass`). No required
+check ran on those merged trees; the post-merge `main-verify` run, green for every one of them, is the
+evidence they are sound. From here on: update-branch → green on the new head → merge, no bypass.
 
 **Merged (canopy, in merge order):**
 
