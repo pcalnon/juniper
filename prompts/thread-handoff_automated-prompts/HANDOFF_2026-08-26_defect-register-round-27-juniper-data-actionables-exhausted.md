@@ -459,7 +459,7 @@ the key" the only sensible option given that `EXEMPT_PATHS` already lists `/open
 while `openapi_url` is `None` (the exemption is moot today); is the `-019` → `-011` cursor remark in
 §3.2 item 4 right; does the 37-row accounting in §0/§3 miss any row. **Run round 2 first.**
 
-Length: 3,900 words against the procedure's "~500"; lineage-consistent (round 26 was 3,259) and every
+Length: ~5,200 words against the procedure's "~500" (§0's complete list is a fifth of it); lineage-consistent (round 26 was 3,259) and every
 predecessor in this arc was archived at this length after validation.
 
 ---
