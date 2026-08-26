@@ -255,11 +255,7 @@ class DatasetInstanceIsFixedTest(unittest.TestCase):
         would silently redefine the canonical instance and invalidate every comparison
         with an existing sidecar, while still looking reproducible run-to-run.
         """
-        calls = [
-            node
-            for node in ast.walk(ast.parse(MODULE_PATH.read_text()))
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "load_datasets"
-        ]
+        calls = [node for node in ast.walk(ast.parse(MODULE_PATH.read_text())) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "load_datasets"]
         self.assertEqual(len(calls), 1, f"expected exactly one load_datasets call, found {len(calls)}")
         seed_kw = next((k for k in calls[0].keywords if k.arg == "seed"), None)
         self.assertIsNotNone(seed_kw, "load_datasets must be passed seed= explicitly so the sampling seed cannot sneak in positionally")
