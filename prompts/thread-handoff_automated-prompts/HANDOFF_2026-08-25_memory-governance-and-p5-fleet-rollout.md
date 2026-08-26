@@ -97,6 +97,8 @@ met for either repo:
 4. the ceiling has real slack (below).
 
 When it is time, prefer `util/ad-hoc/2026-08-20_require_context_safely.py` with `--require-observed`
+*[corrected 2026-08-25: no such flag exists — observed-only is the script's DEFAULT and the opt-out is
+`--allow-unobserved`; the invocation is `--repo <repo> --context 'Memory Budget' [--apply]`, see plan §P5 step d]*
 over `…_add_required_context.py`; the latter writes no snapshot and verifies contexts only, and the
 gap it leaves is *"SILENT and TOTAL"* — it is how `main` went unmergeable on five repos.
 
