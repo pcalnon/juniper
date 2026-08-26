@@ -673,8 +673,7 @@ class TimeoutOrderingContractTest(unittest.TestCase):
                 self.assertGreaterEqual(
                     timeout,
                     1800,
-                    f"{rel} dropped to per_run_timeout_seconds={timeout} against a surveyed 900s budget; "
-                    "at or below it run_suite's subprocess kill destroys the driver's manifest",
+                    f"{rel} dropped to per_run_timeout_seconds={timeout} against a surveyed 900s budget; " "at or below it run_suite's subprocess kill destroys the driver's manifest",
                 )
 
     def test_a_cell_pinning_no_budget_anywhere_still_has_one(self) -> None:
