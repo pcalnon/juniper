@@ -1,4 +1,4 @@
-# HANDOFF 2026-08-25 — defect register: 57 fixed / 39 open; juniper-data's cheap actionables are closed, what is left there is design-shaped or coupled
+  # HANDOFF 2026-08-25 — defect register: 57 fixed / 39 open; juniper-data's cheap actionables are closed, what is left there is design-shaped or coupled
 
 **The standing mandate is unchanged: keep closing entries in the ecosystem defect register**
 (`notes/JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_DEFECT-REGISTER.md`, ml#1092), one small reviewable PR
