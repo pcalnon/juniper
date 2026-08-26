@@ -214,7 +214,7 @@ achieved level, not the aspirational one.
 
 ### P5 — Fleet rollout
 
-**Status: IN PROGRESS — 8 of 9 governable repos governed, all ADVISORY; none promoted.** Tracking issue:
+**Status: IN PROGRESS — 8 of 9 governable repos governed, all 8 BLOCKING with declared slack; none promoted.** Tracking issue:
 [juniper-ml#1326](https://github.com/pcalnon/juniper-ml/issues/1326) — its comment thread is the live
 per-repo ledger; read it before trusting this banner. Ports merged 2026-08-25:
 [juniper-canopy#516](https://github.com/pcalnon/juniper-canopy/pull/516) (`611141c1`, ceiling 95,133) and
@@ -226,11 +226,26 @@ merged 2026-08-26 under the owner's arc-wide authorization, squash-of-one each:
 [juniper-data#291](https://github.com/pcalnon/juniper-data/pull/291) (`19b84a8a`, 43,493),
 [juniper-cascor-worker#162](https://github.com/pcalnon/juniper-cascor-worker/pull/162) (`177c2a15`, 35,126),
 [juniper-deploy#195](https://github.com/pcalnon/juniper-deploy/pull/195) (`7e046491`, 34,569).
-juniper-slacker has no `AGENTS.md` and nothing to govern. Of the four promotion preconditions (step d)
-**only the first — merged to that repo's `main` — is met, for all eight**; preconditions 2–4 (remove
-`--advisory`, re-run the three controls non-advisory, declare slack) are in flight per repo on the tracker.
-*(Status updated 2026-08-26; it read "2 of 9" for most of a day after six more ports merged. Status may
-not be demoted or left stale — §4a.)*
+juniper-slacker has no `AGENTS.md` and nothing to govern. **Preconditions 2–4 (step d) shipped 2026-08-26
+evening — all 8 BLOCKING with declared slack**: one signed PR per repo on
+`feat/memory-budget-blocking` removed `--advisory`, re-ran the three controls against the non-advisory
+job, and raised the ceiling with an `Allow-Ceiling-Raise: AGENTS.md` trailer sized as max(largest
+30-day growing commit, a 2,000 fan-out floor) —
+[juniper-deploy#196](https://github.com/pcalnon/juniper-deploy/pull/196) (`1fe58592`, 34,569 → 36,569),
+[juniper-recurrence#132](https://github.com/pcalnon/juniper-recurrence/pull/132) (`a80a7dc9`, 11,578 → 13,698),
+[juniper-cascor-worker#163](https://github.com/pcalnon/juniper-cascor-worker/pull/163) (`cf5ae76d`, 35,126 → 37,126),
+[juniper-cascor-client#140](https://github.com/pcalnon/juniper-cascor-client/pull/140) (`87464c35`, 34,695 → 37,277),
+[juniper-data#294](https://github.com/pcalnon/juniper-data/pull/294) (`e0b738e6`, 43,493 → 45,493),
+[juniper-cascor#591](https://github.com/pcalnon/juniper-cascor/pull/591) (`c6cd2f09`, 71,098 → 80,707, its own max),
+[juniper-data-client#174](https://github.com/pcalnon/juniper-data-client/pull/174) (`a3226826`, 28,369 → 30,442);
+[juniper-canopy#529](https://github.com/pcalnon/juniper-canopy/pull/529) (`9f6fac97`, 95,133 → 97,133).
+`Memory Budget` reported SUCCESS on every one of those PR heads through the non-advisory job
+(`[RAISE-WAIVED] … headroom=<slack>`), and every squash SHA above was re-probed against the ceiling in that
+repo's `conf/memory_budget.json` and the checker's invocation line in its workflow. For all eight, all four
+preconditions now hold; what remains is the promotion write itself — `require_context_safely.py --apply`,
+per repo, on the owner's explicit go.
+**Nothing is promoted.** *(Status updated 2026-08-26 evening; the same morning it read "2 of 9". Status
+may not be demoted or left stale — §4a.)*
 
 > **This section was a four-line stub until 2026-08-24.** The working procedure lived only in
 > a session handoff, and handoffs lose material across generations — an earlier one in this
@@ -261,14 +276,14 @@ into it). Re-measured 2026-08-26 from primaries at `origin/main`: cascor and dep
 
 | Repo | `AGENTS.md` | Rate/day | Net 30 d | Max single commit | `docs/REFERENCE.md` | Status |
 |---|---:|---:|---:|---:|---:|---|
-| juniper-cascor | 71,098 | **730** | +21,891 | 9,609 | **none — create first** | GOVERNED, advisory (#585) |
-| juniper-cascor-client | 34,695 | 196 | +5,884 | 2,582 | 14,119 | GOVERNED, advisory (#139) |
-| juniper-recurrence | 11,578 | 137 | +4,102 | 2,120 | **none — create first** | GOVERNED, advisory (#131, standalone workflow) |
-| juniper-data-client | 28,369 | 135 | +4,055 | 2,073 | 11,976 | GOVERNED, advisory (#173) |
-| juniper-data | 43,493 | 109 | +3,257 | 1,982 | 19,883 | GOVERNED, advisory (#291) |
-| juniper-canopy | 95,133 | 81 | +2,425 | 1,982 | 9,328 | GOVERNED, advisory (#516) |
-| juniper-cascor-worker | 35,126 | 66 | +1,982 | 1,982 | 12,122 | GOVERNED, advisory (#162) |
-| juniper-deploy | 34,569 | 66 | +1,982 | 1,982 | 18,673 | GOVERNED, advisory (#195) |
+| juniper-cascor | 71,098 | **730** | +21,891 | 9,609 | **none — create first** | BLOCKING, ceiling 80,707 (#585 → #591) |
+| juniper-cascor-client | 34,695 | 196 | +5,884 | 2,582 | 14,119 | BLOCKING, ceiling 37,277 (#139 → #140) |
+| juniper-recurrence | 11,578 | 137 | +4,102 | 2,120 | **none — create first** | BLOCKING, ceiling 13,698 (#131 → #132, standalone workflow) |
+| juniper-data-client | 28,369 | 135 | +4,055 | 2,073 | 11,976 | BLOCKING, ceiling 30,442 (#173 → #174) |
+| juniper-data | 43,493 | 109 | +3,257 | 1,982 | 19,883 | BLOCKING, ceiling 45,493 (#291 → #294) |
+| juniper-canopy | 95,133 | 81 | +2,425 | 1,982 | 9,328 | BLOCKING, ceiling 97,133 (#516 → #529) |
+| juniper-cascor-worker | 35,126 | 66 | +1,982 | 1,982 | 12,122 | BLOCKING, ceiling 37,126 (#162 → #163) |
+| juniper-deploy | 34,569 | 66 | +1,982 | 1,982 | 18,673 | BLOCKING, ceiling 36,569 (#195 → #196) |
 | juniper-ml | 36,960 | — | — | — | 336,020 | GOVERNED, BLOCKING + required; ceiling 38,000 |
 | juniper-slacker | — | — | — | — | — | no `AGENTS.md` at all |
 
@@ -332,6 +347,13 @@ with **four preconditions, all of them**:
    fails the next author on one character. Raise it with an `Allow-Ceiling-Raise: AGENTS.md`
    commit trailer, sized to that repo's **re-measured** largest single commit (table above:
    canopy ≥ 2,000; cascor's largest was 9,609).
+
+*Status 2026-08-26 evening: preconditions 1–4 hold for all eight repos (the banner above lists the PRs,
+squash SHAs and ceilings); nothing is promoted — the ruleset write is the owner's decision, per repo.
+Do not read `advisory=True` or a `NONE` REFERENCE.md from an unpatched
+`util/ad-hoc/2026-08-26_p5_fleet_state.py` census as state: before ml#1403 it matched `--advisory`
+anywhere in the workflow text (comments included) and turned any non-2xx API reply into "absent".
+Probe the invocation line and the file directly.*
 
 Only then, and with the writer that pre-flights the context string:
 
