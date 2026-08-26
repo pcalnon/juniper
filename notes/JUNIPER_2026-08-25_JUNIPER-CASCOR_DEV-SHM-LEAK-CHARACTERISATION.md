@@ -7,12 +7,15 @@
 **Version**: 0.7.1
 **Last Updated**: 2026-08-25
 
-**Status**: FINDINGS — measured, read-only. Nothing was unlinked or killed in producing this.
+**Status**: FINDINGS — measured, read-only in §1–§5. §6.5 (added 2026-08-25, same day) corrects
+the mechanism deduced in §6.2 and records the fix and its verification.
 
 **Headline: the OPT-5 SharedMemory design is not defective, and the leak is ~371 KB.** It fires
-when the service is **stopped while training is in progress** — a *graceful* shutdown that then
-escalates to SIGKILL because nothing waits for training to unwind (§6). `/dev/shm` is therefore
-an accidental **ledger of that event**: ten occurrences in eight days.
+when the service is **stopped while training is in progress**. The shutdown is graceful, but the
+process is then **terminated by the re-raised SIGTERM the instant the lifespan returns** — uvicorn
+restores the default disposition and re-raises the captured signal, so `atexit` never runs and
+nothing waited for training to unwind (§6.5; §6.2's "SIGKILL after 15 s" was wrong). `/dev/shm`
+is therefore an accidental **ledger of that event**: ten occurrences in eight days.
 
 **And it is the same root cause that produced cohort B** — the 273 truncated snapshot writes,
 the archive's only irrecoverable loss (§6.3). juniper-cascor#561 made those writes atomic, which
@@ -184,7 +187,14 @@ Two other hypotheses are eliminated outright:
 - **Missing cleanup path: no.** `atexit.register(self._cleanup_shared_memory)` is registered, and
   §3 shows the deferred-unlink logic is correct.
 
-### 6.2 The mechanism
+### 6.2 The mechanism — ⚠ SUPERSEDED by §6.5
+
+> **Read §6.5 first.** Steps 1, 5 and 6 below are the deduction this document was written
+> with; the repro of the same day refuted them. There is no 15 s window and no SIGKILL: the
+> process dies ~0.3 s after the lifespan returns, killed by the SIGTERM uvicorn re-raises. Step 4
+> is also wrong about the interrupt: it *is* reachable through the every-25-epochs callback and
+> fires within milliseconds once it is given the chance. Steps 2–3 stand. Kept verbatim as the
+> record of what a log-only diagnosis concluded.
 
 1. `util/juniper_chop_all.bash` sends **SIGTERM**, waits `SIGTERM_TIMEOUT` (**default 15 s**),
    then escalates to **SIGKILL** (its lines 184-214).
@@ -226,11 +236,19 @@ only irrecoverable loss — is what a SIGKILL during active training looks like 
 is killed mid-write.
 
 juniper-cascor#561 made the writes atomic, which is why cohort B has stopped growing and sits at
-exactly 273 across every rebuild. But **#561 fixed the symptom, not the cause**: the kill that
-truncated those files still happens, roughly once a day, and `/dev/shm` is where it now shows up
-instead.
+exactly 273 across every rebuild. Be precise about what that closed: the **archive path** — a
+killed write now leaves an unrenamed temp file that cannot land in the archive. What it could not
+close is the **trigger**: the mid-training kill still happens, roughly once a day, and `/dev/shm`
+is where it shows up instead. (Shm segments cleaned by `atexit` and partial HDF5 files are two
+independent resource paths that share only "the process died mid-run".)
 
-### 6.4 What to fix, in order
+### 6.4 What to fix, in order — ⚠ SUPERSEDED by §6.5
+
+> Item 1 is what shipped (with an explicit resource release added, because `atexit` is dead
+> under SIGTERM — §6.5). Item 2 is **unnecessary**: the callback-driven interrupt fires within
+> milliseconds once `shutdown()` waits for it, and a `break`-style check would fall through into
+> the unconditional `create_snapshot()` after the epoch loop — a snapshot written during
+> shutdown, the very failure mode §6.3 describes. Item 3 stays as written.
 
 1. **`shutdown()` should wait, bounded.** `wait=False` is the defect: it makes the shutdown log
    line a lie and guarantees the 15 s escalation whenever training is live. A bounded join
@@ -242,7 +260,75 @@ instead.
 3. **Only then consider raising `SIGTERM_TIMEOUT`** — raising it first would merely lengthen every
    stop without fixing anything.
 
-None of this is implemented here; this document is the diagnosis.
+### 6.5 ⚠ Correction (2026-08-25, later the same day): it is uvicorn's SIGTERM re-raise, not a SIGKILL
+
+The 15 s / SIGKILL story in §6.2 does not survive the log it was built on. In the second before
+the 08-24 23:47 stop the training thread wrote **~165 lines/s** (one `Epoch N` line every ten
+epochs, ≈1,650 epochs/s, so an interrupt opportunity every ~15 ms). After `JuniperCascor API
+shutting down` at 23:47:00.084 it wrote **nothing** — not the `Epoch 7970` line due ~6 ms later,
+not the `Training ended` line the interrupt path logs. Nothing hung for 15 s; **the whole process
+was already dead**.
+
+**Mechanism, measured.** uvicorn's `Server.capture_signals` (0.29+; the fleet runs 0.46.0)
+restores the *original* signal handlers when `serve()` returns and then `signal.raise_signal()`s
+every captured signal. Python leaves SIGTERM at `SIG_DFL`, so the kernel terminates the process
+as soon as the lifespan's shutdown stanza returns:
+
+| probe (`util/ad-hoc/uvicorn_sigterm_atexit_probe.py`, minimal FastAPI app) | wait status | `atexit` ran | non-daemon thread |
+|---|---|---|---|
+| SIGTERM, thread left running at lifespan exit (cascor today) | killed by signal 15, 0.21 s | **no** | abandoned |
+| SIGTERM, lifespan joins the thread first | killed by signal 15 | **no** | exited |
+| SIGINT (control) | exit 0 | yes | exited |
+
+Consequences: (1) every fleet stop tool sends SIGTERM (`juniper_chop_all.bash`,
+`experiment_stack.bash`, `isolated_stack.bash`, `docker stop`; `python src/server.py` →
+`uvicorn.run()` behaves the same as the `--factory` CLI), so the three `atexit` registrations
+cascor relies on — `_cleanup_shared_memory`, `_release_candidate_worker_pool`,
+`service_launcher._cleanup_at_exit` — and multiprocessing's own finalizers are **dead code on
+every stop the fleet performs**; (2) the lifespan shutdown stanza is the last Python that runs,
+and `TrainingLifecycleManager.shutdown()` returned in microseconds; (3) the cooperative interrupt
+(`_handle_event` → `_check_for_interrupt` → `TrainingInterrupted`) is sound — it never got the
+milliseconds it needed. The handoff's open question "why did the existing interrupt not fire?"
+has the answer "the process was already dead"; candidates 1–3 there were all wrong.
+
+**Reproduced, then fixed, on an isolated stack** (`util/ad-hoc/2026-08-25_cascor_stop_during_training_repro.bash`:
+own port 8209, own snapshot root and log dir — never the shared archive or the shared checkout's
+log — in-process spiral data, real GPU training, one SIGTERM to the uvicorn pid once the first
+hidden unit is installed, i.e. pool live and a deferred-unlink block on disk):
+
+| | unpatched `d2d1069` | with the fix |
+|---|---|---|
+| SIGTERM → death | 0.277 s, status 143 | 1.542 s, status 143 (the re-raise is unchanged, by design) |
+| training unwound | no — last line is an epoch; no `Training ended` | `stop_requested` → `Training ended` → `TrainingLifecycleManager shut down (1.27s)` |
+| descendants orphaned alive (tracker, forkserver, 15 workers) | **17** | **0** |
+| `/dev/shm` residue after a reaper-equivalent SIGKILL of the orphans | **1 `juniper_train_*` + 9 `sem.mp-*`** — the §2 signature exactly | **0 + 0** |
+
+**The fix** (juniper-cascor#589 — `TrainingLifecycleManager.shutdown()` + the `app.py` lifespan):
+set `_stop_event` **and** `_pause_event`, join `_training_future` bounded by
+`_SHUTDOWN_TRAINING_JOIN_TIMEOUT_SECONDS = 3.0` (the `swap_dataset_live` pattern), then call the
+network's `_release_candidate_worker_pool()` + `_cleanup_shared_memory()` explicitly (idempotent;
+this replaces the dead `atexit` path and covers a timed-out join), then the existing executor
+teardown with `wait=False` kept — `Executor.shutdown(wait=True)` has no timeout and would block
+for the rest of the fit. The lifespan awaits it via `asyncio.to_thread` so the loop stays free
+for the terminal-state broadcasts the training thread schedules. Budget 3 s + ≤ 6.5 s pool
+escalation < the 10 s grace of `experiment_stack.bash` / `docker stop`. No engine change: the
+nine semaphores are unlinked by the existing pool release once it actually runs. The four new
+`TestShutdown` tests fail against the original body on the specific assertions (future still
+running; release hooks called 0 times) and pass with the fix; golden trajectory unchanged.
+
+**Two residual traps.** A stop landing mid-candidate-round cannot be interrupted before the
+round ends (the parent is waiting on worker results; the interrupt only rides `epoch_end` /
+`phase_change`), so the join times out and the explicit release does the work — bounded, logged
+at WARNING, but the training thread is abandoned in that case. And `/dev/shm` remains the only
+production verification: after the fix ships, the pair-count must stop growing (baseline **10
+events, 08-17 → 08-24**; both repro runs' entries were removed so the ledger is unchanged).
+
+**Fleet-wide implication.** Every uvicorn service here (data, canopy, recurrence) has the same
+property: anything that must happen on a stop has to happen inside the lifespan. Do not "fix" it
+by installing a SIGTERM handler inside the app factory — uvicorn's handler is installed *before*
+the factory runs, and yours would replace it and break graceful stop. The one safe place for a
+belt-and-braces handler is ahead of `uvicorn.run()` in `src/server.py` (raise `SystemExit(143)`
+so the re-raise unwinds the interpreter); deliberately not part of the fix.
 
 ---
 
