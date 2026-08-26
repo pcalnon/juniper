@@ -9,7 +9,8 @@
 # Copyright:     Copyright (c) 2024-2026 Paul Calnon
 #
 # Description:
-#     Archive the Juniper project tree and encrypt it to an external drive, in one streamed pass.
+#     Archive the Juniper project tree, encrypt it once, and replicate it to every attached
+#     external drive.
 #
 #     Encryption is ASYMMETRIC (`gpg -r <recipient> -e`), to YubiKey-backed public keys. So no
 #     YubiKey is needed to RUN this script -- only to RESTORE from its output. The consequence is
@@ -19,6 +20,15 @@
 #
 # Usage:
 #     util/juniper-backup.bash [--dry-run] [--source DIR] [--dest DIR]
+#
+#     --dest DIR overrides the MEDIA_NAMES fan-out entirely and writes exactly one archive to DIR.
+#
+# Exit codes:
+#     0  every configured device received a verified archive
+#     1  fatal -- nothing was written (bad source, no usable device, missing recipient, build failed)
+#     2  misuse (bad argument)
+#     4  PARTIAL -- at least one device has a verified archive, but not all of them do.
+#        Deliberately non-zero: degraded redundancy must be visible to cron, not silent.
 #
 #######################################################################################################################################################################################################################################################
 # Notes:
@@ -30,10 +40,29 @@
 #     the entire project on local disk until something removes it -- nothing did. Piping tar into
 #     gpg removes both. `set -o pipefail` is what makes the pipe safe to rely on.
 #
+#     BUILD ONCE, REPLICATE. The multi-device revision originally ran the whole
+#     `tar -czf - | gpg -e` pipeline once PER DEVICE -- reading, compressing and encrypting ~126 GB
+#     twice. It now builds to the first usable device and COPIES the finished ciphertext to the
+#     rest. Every device therefore holds a byte-identical archive under one filename (same UUID and
+#     timestamp), which is also what makes "these two files are the same backup" checkable.
+#
 #     THE BUG THIS REPLACES: the draft assigned `ENCRPYTED` but the gpg line read `${ENCRYPTED}`.
 #     Undefined, so it expanded to empty, so `gpg -o ""`. Nothing ever landed on the drive, and
-#     with no `set -u` the script exited 0 while doing so. Hence: no .tar* artifact exists anywhere
-#     on this host. Both spellings are now gone; there is one variable, used once.
+#     with no `set -u` the script exited 0 while doing so. Both spellings are now gone; there is one
+#     variable, used once.
+#
+#     THE SECOND BUG OF THAT CLASS, and why the loop below recomputes its target: the multi-device
+#     revision computed `GPG_PATH` ONCE from `MEDIA_NAMES[0]` and then reassigned only `EXT_DRIVE`
+#     inside the loop. Both iterations wrote the SAME path on the FIRST drive, the second `gpg
+#     --yes` silently clobbered the first, and the second drive received nothing -- while the log
+#     printed the second drive's name and "OK". A destination is now derived from its device in one
+#     place (`target_path_for`) and never carried across an iteration.
+#
+#     MOUNT CHECK IS ON THE MOUNT ROOT, NOT THE BACKUP DIR. `mountpoint -q` is true only for an
+#     actual mount point. When `BACKUP_DIR` was appended to `EXT_DRIVE`, the check began testing
+#     `<mount>/Juniper-8.0.0.python` -- a plain subdirectory, never a mount point -- so preflight
+#     FATALed on every run even with both drives correctly attached. The two questions are now asked
+#     separately: is the DEVICE mounted, and does its BACKUP_DIR exist and accept writes.
 #######################################################################################################################################################################################################################################################
 
 set -euo pipefail
@@ -47,7 +76,11 @@ PROJECT_NAME="Juniper"
 
 MOUNT_NAME="media"
 USER_NAME="pcalnon"
-MEDIA_NAME="DFF3-2782"
+BACKUP_DIR="Juniper-8.0.0.python"
+
+# Every attached device named here receives a copy of the SAME archive. Order matters only in that
+# the first usable device is the one the archive is BUILT on; the rest are copies of it.
+MEDIA_NAMES=( "EBC5-F0A3" "DFF3-2782" )
 
 TAR_EXT="tgz"
 GPG_EXT="gpg"
@@ -72,49 +105,126 @@ ENCRYPT_KEYS=(
 
 ROOT_DIR="${HOME}/${DEVELOPMENT_NAME}/${LANGUAGE_NAME}"
 PROJECT_DIR="${ROOT_DIR}/${PROJECT_NAME}"
-EXT_DRIVE="/${MOUNT_NAME}/${USER_NAME}/${MEDIA_NAME}"
 
 
 #######################################################################################################################################################################################################################################################
 # Parse and Validate Command line arguments
 
 DRY_RUN=0
+DEST_OVERRIDE=""
 
 while (( $# > 0 )); do
     case "$1" in
         --dry-run) DRY_RUN=1; shift ;;
         --source)  PROJECT_DIR="${2:?--source requires a DIR}"; shift 2 ;;
-        --dest)    EXT_DRIVE="${2:?--dest requires a DIR}"; shift 2 ;;
-        -h|--help) sed -n '12,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --dest)    DEST_OVERRIDE="${2:?--dest requires a DIR}"; shift 2 ;;
+        -h|--help) sed -n '12,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
 
 
 #######################################################################################################################################################################################################################################################
-# Define archive paths
+# Define archive naming. Computed ONCE so that every device holds the same filename for one backup.
 
 DATE_STAMP="$(date +%Y%m%d_%H%M%S.%N-%Z)"
 UUID_VALUE="$(uuidgen)"
 
 ARCHIVE_ROOT="${PROJECT_NAME}_${UUID_VALUE}_${DATE_STAMP}"
 GPG_FILE="${ARCHIVE_ROOT}.${TAR_EXT}.${GPG_EXT}"
-GPG_PATH="${EXT_DRIVE}/${GPG_FILE}"
 
 SOURCE_PARENT="$(dirname "${PROJECT_DIR}")"
 SOURCE_LEAF="$(basename "${PROJECT_DIR}")"
 
 
 #######################################################################################################################################################################################################################################################
-# Define function to cleanup partial archive on failure. If Archive + encrypt, streamed fails, a partial output is removed on failure rather than be left to look like a backup.
+# Remove the IN-PROGRESS archive on failure, so a partial write is never left looking like a backup.
+#
+# Only ${IN_PROGRESS} is removed. Archives already written AND verified on earlier devices are
+# deliberately KEPT: if device 2 fails, a good archive on device 1 is exactly what a backup tool
+# exists to have produced, and deleting it would turn a partial success into a total loss.
+
+IN_PROGRESS=""
 
 function cleanup_partial() {
     local rc=$?
-    if (( rc != 0 )) && [[ -f "${GPG_PATH}" ]]; then
-        echo "FAILED (exit ${rc}) -- removing partial archive ${GPG_PATH}" >&2
-        rm -f "${GPG_PATH}"
+    if (( rc != 0 )) && [[ -n "${IN_PROGRESS}" && -f "${IN_PROGRESS}" ]]; then
+        echo "FAILED (exit ${rc}) -- removing partial archive ${IN_PROGRESS}" >&2
+        rm -f "${IN_PROGRESS}"
     fi
     return "${rc}"
+}
+trap cleanup_partial EXIT
+
+
+#######################################################################################################################################################################################################################################################
+# Where a given device's archive goes. ONE definition, so a destination can never be carried over
+# from a previous loop iteration (see "THE SECOND BUG OF THAT CLASS" above).
+
+function target_dir_for() {
+    printf '%s\n' "/${MOUNT_NAME}/${USER_NAME}/$1/${BACKUP_DIR}"
+}
+
+
+#######################################################################################################################################################################################################################################################
+# Validate one device and report why it is unusable. Returns 0 if writable, 1 otherwise.
+#
+# The mount check is on the MOUNT ROOT: `mountpoint -q` is only ever true of an actual mount point,
+# so asking it about the BACKUP_DIR subdirectory is always false. Without the mount check, an
+# unmounted drive leaves a stale empty directory and the archive silently fills the system disk.
+
+function validate_external_media() {
+    local media_name="$1"
+    local mount_root="/${MOUNT_NAME}/${USER_NAME}/${media_name}"
+    local backup_path
+    backup_path="$(target_dir_for "${media_name}")"
+
+    if ! mountpoint -q "${mount_root}" 2>/dev/null; then
+        echo "  SKIP ${media_name}: ${mount_root} is not a mount point -- drive not attached?" >&2
+        echo "       (writing to an unmounted path would silently fill the system disk)" >&2
+        return 1
+    fi
+    if [[ ! -d "${backup_path}" ]]; then
+        echo "  SKIP ${media_name}: ${backup_path} does not exist" >&2
+        return 1
+    fi
+    if [[ ! -w "${backup_path}" ]]; then
+        echo "  SKIP ${media_name}: not writable: ${backup_path}" >&2
+        return 1
+    fi
+    return 0
+}
+
+
+#######################################################################################################################################################################################################################################################
+# Verify an archive WITHOUT a YubiKey. `--list-packets` parses the OpenPGP structure and confirms
+# the recipient key ids, so it is safe to run unattended.
+#
+# It does NOT prove the tar inside is intact. The PIPELINE that produces it was proven byte-for-byte
+# on 2026-08-26 by util/ad-hoc/2026-08-26_backup_restore_drill.bash; what remains unproven is that
+# the owner's YubiKey-backed key can decrypt a REAL archive. See the lifecycle design SS6.4.2 q3.
+
+function verify_archive() {
+    local path="$1"
+
+    [[ -s "${path}" ]] || { echo "FATAL: archive is empty: ${path}" >&2; return 1; }
+
+    if ! gpg --list-packets --list-only "${path}" >/dev/null 2>&1; then
+        echo "FATAL: output is not a parseable OpenPGP message: ${path}" >&2
+        return 1
+    fi
+
+    # Count the pubkey-encrypted session-key packets. One per recipient -- so this proves the
+    # redundancy actually landed, rather than assuming it did because the command line asked for it.
+    local found
+    found="$(gpg --list-packets --list-only "${path}" 2>/dev/null | grep -c '^:pubkey enc packet:' || true)"
+    if [[ "${found}" -ne "${#ENCRYPT_KEYS[@]}" ]]; then
+        echo "FATAL: archive encrypted to ${found} recipient(s), expected ${#ENCRYPT_KEYS[@]}: ${path}" >&2
+        return 1
+    fi
+
+    echo "  verified: valid OpenPGP message, ${found} recipient(s)"
+    return 0
 }
 
 
@@ -123,19 +233,9 @@ function cleanup_partial() {
 
 [[ -d "${PROJECT_DIR}" ]] || { echo "FATAL: source not found: ${PROJECT_DIR}" >&2; exit 1; }
 
-# The destination is a REMOVABLE drive. If it is not mounted, ${EXT_DRIVE} may still exist as an
-# empty stale mountpoint -- writing there fills the system disk instead and looks like success.
-if ! mountpoint -q "${EXT_DRIVE}" 2>/dev/null; then
-    echo "FATAL: ${EXT_DRIVE} is not a mount point -- is the external drive attached?" >&2
-    echo "       (writing to an unmounted path would silently fill the system disk)" >&2
-    exit 1
-fi
-[[ -w "${EXT_DRIVE}" ]] || { echo "FATAL: not writable: ${EXT_DRIVE}" >&2; exit 1; }
-
-
-#######################################################################################################################################################################################################################################################
-# Every recipient must resolve BEFORE we spend an hour building a tarball. A missing key here is also the failure that would quietly halve the redundancy this list exists to provide.
-
+# Every recipient must resolve BEFORE we spend an hour building a tarball. A missing key here is
+# also the failure that would quietly halve the redundancy this list exists to provide. Device
+# independent, so it is checked ONCE rather than per device.
 GPG_RECIPIENT_ARGS=()
 for _key in "${ENCRYPT_KEYS[@]}"; do
     gpg --list-keys "${_key}" >/dev/null 2>&1 \
@@ -144,52 +244,147 @@ for _key in "${ENCRYPT_KEYS[@]}"; do
 done
 echo "recipients: ${#ENCRYPT_KEYS[@]} (archive is readable by any one of them)"
 
-SOURCE_KB="$(du -sk "${PROJECT_DIR}" | cut -f1)"
-DEST_KB="$(df -Pk "${EXT_DRIVE}" | awk 'NR==2 {print $4}')"
-echo "source: ${PROJECT_DIR}  ($(( SOURCE_KB / 1024 / 1024 )) GiB uncompressed)"
-echo "dest:   ${GPG_PATH}"
-echo "free:   $(( DEST_KB / 1024 / 1024 )) GiB on ${EXT_DRIVE}"
-if (( DEST_KB < SOURCE_KB / 2 )); then
-    echo "WARNING: destination free space is under half the uncompressed source size." >&2
-    echo "         gzip on this tree does not reliably reach 2:1 -- it is mostly .h5 and .npz." >&2
+# Resolve the target list. --dest overrides the fan-out entirely: one explicit directory, validated
+# for writability but not for mount status, because an explicit path is the caller's decision.
+TARGET_DIRS=()
+TARGET_LABELS=()
+CONFIGURED_COUNT=0
+
+if [[ -n "${DEST_OVERRIDE}" ]]; then
+    CONFIGURED_COUNT=1
+    if [[ -d "${DEST_OVERRIDE}" && -w "${DEST_OVERRIDE}" ]]; then
+        TARGET_DIRS+=("${DEST_OVERRIDE}")
+        TARGET_LABELS+=("--dest")
+    else
+        echo "FATAL: --dest is not a writable directory: ${DEST_OVERRIDE}" >&2
+        exit 1
+    fi
+else
+    CONFIGURED_COUNT="${#MEDIA_NAMES[@]}"
+    echo "devices: checking ${CONFIGURED_COUNT} configured"
+    for MEDIA_NAME in "${MEDIA_NAMES[@]}"; do
+        if validate_external_media "${MEDIA_NAME}"; then
+            TARGET_DIRS+=("$(target_dir_for "${MEDIA_NAME}")")
+            TARGET_LABELS+=("${MEDIA_NAME}")
+            echo "  OK   ${MEDIA_NAME}"
+        fi
+    done
 fi
 
+# A missing drive degrades redundancy; it must not cancel the backup to the drive that IS present.
+# Zero usable devices is the only fatal case.
+if (( ${#TARGET_DIRS[@]} == 0 )); then
+    echo "FATAL: no usable destination -- is any external drive attached?" >&2
+    exit 1
+fi
+
+# `du -sk` walks the whole tree and is slow on ~126 GB, so it runs ONCE rather than per device.
+SOURCE_KB="$(du -sk "${PROJECT_DIR}" | cut -f1)"
+echo "source: ${PROJECT_DIR}  ($(( SOURCE_KB / 1024 / 1024 )) GiB uncompressed)"
+
+for _index in "${!TARGET_DIRS[@]}"; do
+    _dir="${TARGET_DIRS[${_index}]}"
+    DEST_KB="$(df -Pk "${_dir}" | awk 'NR==2 {print $4}')"
+    echo "dest:   ${_dir}/${GPG_FILE}"
+    echo "free:   $(( DEST_KB / 1024 / 1024 )) GiB on ${_dir}"
+    # Two thresholds, because this tree is mostly ALREADY-COMPRESSED .h5 / .npz / .gpg and gzip does
+    # not reliably reach 2:1 on it -- it can even expand incompressible input slightly. So "free
+    # space >= half the source" is NOT the safe line; "free space >= the whole uncompressed source"
+    # is the only one that survives a 1:1 outcome. A single <50% warning let a drive with barely
+    # break-even headroom pass silently.
+    if (( DEST_KB < SOURCE_KB / 2 )); then
+        echo "WARNING: ${TARGET_LABELS[${_index}]} has under HALF the uncompressed source free" \
+             "($(( DEST_KB / 1024 / 1024 )) GiB vs $(( SOURCE_KB / 1024 / 1024 )) GiB)." >&2
+        echo "         This needs better than 2:1 compression to fit, which this tree does not reliably give." >&2
+    elif (( DEST_KB < SOURCE_KB )); then
+        echo "WARNING: ${TARGET_LABELS[${_index}]} has less free space than the uncompressed source" \
+             "($(( DEST_KB / 1024 / 1024 )) GiB vs $(( SOURCE_KB / 1024 / 1024 )) GiB)." >&2
+        echo "         It fits only if compression helps; on mostly .h5/.npz content that is not guaranteed." >&2
+    fi
+done
+
 if (( DRY_RUN )); then
-    echo "[dry-run] would run: tar -czf - -C ${SOURCE_PARENT} ${SOURCE_LEAF} | gpg ${GPG_RECIPIENT_ARGS[*]} -e -o ${GPG_PATH}"
+    echo "[dry-run] would build once: tar -czf - -C ${SOURCE_PARENT} ${SOURCE_LEAF} | gpg ${GPG_RECIPIENT_ARGS[*]} -e -o ${TARGET_DIRS[0]}/${GPG_FILE}"
+    for _index in "${!TARGET_DIRS[@]}"; do
+        if (( _index == 0 )); then
+            echo "[dry-run]   build  -> ${TARGET_DIRS[0]}/${GPG_FILE}"
+        else
+            echo "[dry-run]   copy   -> ${TARGET_DIRS[${_index}]}/${GPG_FILE}"
+        fi
+    done
     exit 0
 fi
 
-trap cleanup_partial EXIT
-
 
 #######################################################################################################################################################################################################################################################
-# tar with -C switch so paths are stored relative to the parent ("Juniper/..."), not as absolute paths that tar would strip with a warning and that restore into an unexpected location.
+# Build ONCE on the first usable device.
+#
+# tar with -C so paths are stored relative to the parent ("Juniper/..."), not as absolute paths that
+# tar would strip with a warning and that restore into an unexpected location.
 
-tar -czf - -C "${SOURCE_PARENT}" "${SOURCE_LEAF}" | gpg --batch --yes "${GPG_RECIPIENT_ARGS[@]}" -e -o "${GPG_PATH}"
+BUILD_PATH="${TARGET_DIRS[0]}/${GPG_FILE}"
+IN_PROGRESS="${BUILD_PATH}"
 
+echo "building on ${TARGET_LABELS[0]} ..."
+tar -czf - -C "${SOURCE_PARENT}" "${SOURCE_LEAF}" | gpg --batch --yes "${GPG_RECIPIENT_ARGS[@]}" -e -o "${BUILD_PATH}"
 
-#######################################################################################################################################################################################################################################################
-# Verify. `--list-packets` parses the OpenPGP structure and confirms the recipient key id WITHOUT needing the YubiKey, so it is safe to run unattended.
-# It does NOT prove the tar inside is intact -- a real restore drill is the only thing that does, and that belongs in the backup design arc.
-
-[[ -s "${GPG_PATH}" ]] || { echo "FATAL: archive is empty: ${GPG_PATH}" >&2; exit 1; }
-
-if ! gpg --list-packets --list-only "${GPG_PATH}" >/dev/null 2>&1; then
-    echo "FATAL: output is not a parseable OpenPGP message: ${GPG_PATH}" >&2
-    exit 1
-fi
-
-
-#######################################################################################################################################################################################################################################################
-# Count the pubkey-encrypted session-key packets. One per recipient -- so this proves the redundancy actually landed, rather than assuming it did because the command line asked for it.
-# Neither check needs a YubiKey, so both are safe unattended.
-
-FOUND_RECIPIENTS="$(gpg --list-packets --list-only "${GPG_PATH}" 2>/dev/null | grep -c '^:pubkey enc packet:' || true)"
-if [[ "${FOUND_RECIPIENTS}" -ne "${#ENCRYPT_KEYS[@]}" ]]; then
-    echo "FATAL: archive encrypted to ${FOUND_RECIPIENTS} recipient(s), expected ${#ENCRYPT_KEYS[@]}" >&2
-    exit 1
-fi
-echo "verified: valid OpenPGP message, ${FOUND_RECIPIENTS} recipient(s)"
-
+verify_archive "${BUILD_PATH}" || exit 1
 sync
-echo "OK  $(du -h "${GPG_PATH}" | cut -f1)  ${GPG_PATH}"
+IN_PROGRESS=""
+echo "OK  $(du -h "${BUILD_PATH}" | cut -f1)  ${BUILD_PATH}"
+
+SUCCEEDED=1
+FAILED_LABELS=()
+
+
+#######################################################################################################################################################################################################################################################
+# Replicate the finished ciphertext to the remaining devices. A copy failure on one device leaves
+# every already-verified archive in place and is reported as PARTIAL, never as success.
+
+for _index in "${!TARGET_DIRS[@]}"; do
+    (( _index == 0 )) && continue
+
+    COPY_PATH="${TARGET_DIRS[${_index}]}/${GPG_FILE}"
+    IN_PROGRESS="${COPY_PATH}"
+    echo "copying to ${TARGET_LABELS[${_index}]} ..."
+
+    if ! cp -- "${BUILD_PATH}" "${COPY_PATH}"; then
+        echo "ERROR: copy to ${TARGET_LABELS[${_index}]} failed" >&2
+        rm -f "${COPY_PATH}"
+        FAILED_LABELS+=("${TARGET_LABELS[${_index}]}")
+        IN_PROGRESS=""
+        continue
+    fi
+
+    if ! verify_archive "${COPY_PATH}"; then
+        echo "ERROR: verification failed on ${TARGET_LABELS[${_index}]}" >&2
+        rm -f "${COPY_PATH}"
+        FAILED_LABELS+=("${TARGET_LABELS[${_index}]}")
+        IN_PROGRESS=""
+        continue
+    fi
+
+    sync
+    IN_PROGRESS=""
+    SUCCEEDED=$(( SUCCEEDED + 1 ))
+    echo "OK  $(du -h "${COPY_PATH}" | cut -f1)  ${COPY_PATH}"
+done
+
+
+#######################################################################################################################################################################################################################################################
+# Report. Degraded redundancy exits non-zero so it is visible to cron rather than silent.
+
+echo
+echo "archive: ${GPG_FILE}"
+echo "written and verified on ${SUCCEEDED} of ${CONFIGURED_COUNT} configured device(s)"
+
+if (( ${#FAILED_LABELS[@]} > 0 )); then
+    echo "failed: ${FAILED_LABELS[*]}" >&2
+fi
+
+if (( SUCCEEDED < CONFIGURED_COUNT )); then
+    echo "PARTIAL: redundancy is degraded -- ${SUCCEEDED} of ${CONFIGURED_COUNT} device(s) hold this archive." >&2
+    exit 4
+fi
+
+echo "COMPLETE: every configured device holds a verified archive."
