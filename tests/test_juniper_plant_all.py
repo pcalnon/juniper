@@ -134,6 +134,21 @@ class TestWorkerEnvWiring(unittest.TestCase):
             SCRIPT_TEXT,
         )
 
+    def test_canopy_invocation_exports_the_server_port(self) -> None:
+        # F-E2E-004 (canopy E2E ledger): JUNIPER_CANOPY_PORT used to move only
+        # this script's health probe / Origin derivation and was never handed
+        # to canopy's process, so an operator override probed a port canopy
+        # never bound. Canopy reads ServerSettings.port from
+        # JUNIPER_CANOPY_SERVER__PORT (env_prefix + "__" nesting); the canopy
+        # nohup line must front-load it from the documented flat variable.
+        self.assertIn(
+            'JUNIPER_CANOPY_SERVER__PORT="${JUNIPER_CANOPY_PORT}"',
+            SCRIPT_TEXT,
+        )
+        export_at = SCRIPT_TEXT.index('JUNIPER_CANOPY_SERVER__PORT="${JUNIPER_CANOPY_PORT}" \\')
+        launch_at = SCRIPT_TEXT.index('nohup "${JUNIPER_CANOPY_PYTHON}" "${JUNIPER_CANOPY_MODULE}"')
+        self.assertLess(export_at, launch_at, "the port export must prefix the canopy nohup line")
+
     def test_worker_invocation_passes_health_port_and_bind(self) -> None:
         self.assertIn(
             'CASCOR_WORKER_HEALTH_PORT="${JUNIPER_WORKER_HEALTH_PORT}"',

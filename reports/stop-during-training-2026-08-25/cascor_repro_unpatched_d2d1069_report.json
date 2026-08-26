@@ -1,0 +1,67 @@
+{
+  "app_dir": "/tmp/claude-1000/-home-pcalnon-Development-python-Juniper-juniper-ml/0925fc3b-8995-4bd7-bf1d-3f96016e1927/scratchpad/cascor/src",
+  "hung_past_death_wait": false,
+  "sigterm_to_death_s": 0.277,
+  "wait_status": "143",
+  "wait_status_meaning": "killed by signal 15",
+  "descendants_recorded": 17,
+  "orphans_alive_after_death": [
+    "3792589",
+    "3792590",
+    "3792697",
+    "3792699",
+    "3792700",
+    "3792707",
+    "3792725",
+    "3792743",
+    "3792745",
+    "3792757",
+    "3792758",
+    "3792759",
+    "3792760",
+    "3792761",
+    "3792762",
+    "3792763",
+    "3792764"
+  ],
+  "shm_created_by_run": [
+    "juniper_train_ccd9d7d8",
+    "sem.mp-1ju2gydh",
+    "sem.mp-51e6559l",
+    "sem.mp-b84gj8qu",
+    "sem.mp-cor31lz1",
+    "sem.mp-mlv0wfk1",
+    "sem.mp-od6u7y7b",
+    "sem.mp-rvj7bjss",
+    "sem.mp-xg4uo31b",
+    "sem.mp-z_g6s4ej"
+  ],
+  "shm_leaked_after_death": [
+    "juniper_train_ccd9d7d8",
+    "sem.mp-1ju2gydh",
+    "sem.mp-51e6559l",
+    "sem.mp-b84gj8qu",
+    "sem.mp-cor31lz1",
+    "sem.mp-mlv0wfk1",
+    "sem.mp-od6u7y7b",
+    "sem.mp-rvj7bjss",
+    "sem.mp-xg4uo31b",
+    "sem.mp-z_g6s4ej"
+  ],
+  "shm_leaked_after_reap": [
+    "juniper_train_ccd9d7d8",
+    "sem.mp-1ju2gydh",
+    "sem.mp-51e6559l",
+    "sem.mp-b84gj8qu",
+    "sem.mp-cor31lz1",
+    "sem.mp-mlv0wfk1",
+    "sem.mp-od6u7y7b",
+    "sem.mp-rvj7bjss",
+    "sem.mp-xg4uo31b",
+    "sem.mp-z_g6s4ej"
+  ],
+  "leak_signature": {
+    "juniper_train_segments": 1,
+    "sem_mp": 9
+  }
+}
