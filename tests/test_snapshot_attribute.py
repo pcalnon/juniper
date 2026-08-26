@@ -243,7 +243,17 @@ class DatasetInstanceIsFixedTest(unittest.TestCase):
             found = node
             break
         self.assertIsNotNone(found, "--dataset-seed must exist; without it the pin cannot be overridden or inspected")
-        default = next((k.value for k in found.keywords if k.arg == "default"), None)
+        # default = next((k.value for k in found.keywords if k.arg == "default"), None)
+        for default in found.keywords:
+            if default.arg == "default":
+                default = default.value
+                break
+            else:
+                default = None
+            #    continue
+            # self.assertIsInstance(default, ast.Name, "--dataset-seed must default to the DATASET_SEED name, not a drifting literal")
+            # self.assertEqual(default.id, "DATASET_SEED")
+
         self.assertIsInstance(default, ast.Name, "--dataset-seed must default to the DATASET_SEED name, not a drifting literal")
         self.assertEqual(default.id, "DATASET_SEED")
 
