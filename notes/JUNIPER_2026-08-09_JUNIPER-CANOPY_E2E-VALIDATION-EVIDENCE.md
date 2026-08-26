@@ -114,7 +114,33 @@ Measured: Reset click → WS frame sent + success ack in ~1 s → optimistic ⏳
 
 **VERIFIED LIVE (2026-08-26, run `20260826T174225Z`, `e2e_p1wave_redrive.py --step f005`).** Across six control cycles under a live run, every button re-enabled in **0.82–3.59 s** (was 30 s–minutes) — the success ack releases the button directly, the sweep is only the backstop. C2.5-09 → PASS. **FIXED.**
 
-**F-CANOPY-004 — server-side Dash callbacks lag 30 s–minutes behind reality during a live run; clientside callbacks are instant (P0/P1 systemic, OPEN).**
+**F-CANOPY-004 — server-side Dash callbacks lag behind reality during a live run; clientside callbacks are instant (P0/P1 systemic; owner ACCEPTED 2026-08-26 under a documented freshness contract, WS migration scheduled as JR-CAN-PERF-004).**
+
+> **OWNER DISPOSITION (2026-08-26) — ACCEPTED under a freshness contract; migration scheduled.**
+> After Stage 1–3 of the callback-starvation remediation (canopy#507 + #509 + #511), the measured envelope is
+> **3–16 s for an interaction-triggered render** and **20–40 s for fresh-session population** — down from the
+> 30 s–minutes recorded below at the finding's discovery. The owner's decision is to **accept and document
+> that envelope as canopy's freshness contract** rather than hold the arc open on it, **and** to schedule the
+> WebSocket-migration workstream (**JR-CAN-PERF-004**) that removes the polling architecture instead of
+> tuning it. F-CANOPY-004 therefore stops gating Phase 3 entry.
+>
+> **The contract, as it must be stated in user-facing docs and in any row that asserts freshness:**
+> | surface class | contract | notes |
+> |---|---|---|
+> | clientside callbacks (WS badge, depth-slider reveal, theme) | immediate | no server round-trip |
+> | interaction-triggered server render (click, select, toggle) | **≤ 16 s**, typically 3–8 s | measure from the interaction, not from page load |
+> | fresh-session population (first paint of a panel after load) | **≤ 40 s**, typically 20–30 s | a shorter settle reports a working panel as dead |
+> | during-run steady-state polling surfaces | best-effort; **no freshness guarantee** | this is the class JR-CAN-PERF-004 exists to fix |
+>
+> **Scope limit — read this before citing the contract.** The contract covers surfaces that *do* render,
+> late. It does **not** cover a surface that never renders at all: **F-CANOPY-037** (found the same day)
+> shows the topology rebuild starved *absent*, not late, in 9 of 11 measured sessions, and no wait budget
+> resolves it. Do not use this acceptance to close a row that never painted — that is F-037, and it is open.
+>
+> **Re-drivers:** every wait budget in the drivers is sized to the two numbers above; a row scored "starved"
+> must state which class it belongs to and the budget it actually waited.
+
+*Original finding, as recorded at discovery (pre-Stage-1..3 numbers):*
 Measured, run 2 (topology tab, 1 Hz sampling for 60 s): canopy `/api/status` steady at `phase:candidate, hidden_units:1, epoch:1` for the full minute while the top status bar rendered `Output Training / Step 0 / Hidden Units 0/10` and the topology counts rendered `0/0/0/0` THROUGHOUT — yet the **clientside** depth-slider reveal (same underlying store) flipped `display:block` instantly. Same pattern everywhere: optimistic button ⏳ rendered +4 s after a clientside write; the 2 s button sweep landed +32 s (F-CANOPY-003); run-1 tiles caught up minutes post-run. Dash POST volume observed: ~12/s during a run (`fast-update-interval` alone fired 26×/6 s). Architecture note for Phase 2: every interval-driven server callback does a synchronous self-call `requests.get(self._api_url(...))` back into the same canopy server (e.g. `dashboard_manager.py:6376`), so callbacks queue behind their own server's request backlog; the WS drain pump (500 ms) multiplies POSTs during runs. Impact: during training — the only time the dashboard matters — every REST-fed surface is 30 s–minutes stale; only WS-clientside surfaces (badge) and the (currently clobbered, F-CANOPY-002) WS fast path can be truthful in real time. FA-3 rows C2.3-01..07 pass *eventually* but fail any reasonable freshness expectation; recorded here rather than as per-row FAILs since no row states a latency contract.
 
 **F-CANOPY-005 — WS command send-promise races its own 3 s timeout under congestion: the REST fallback double-fires state-changing commands AFTER WS success (P0; root-caused live; canopy#518 `d275ce2`; re-drive 2026-08-26 → 0 double-fires + alert; VERIFIED LIVE, FIXED).**
@@ -474,6 +500,54 @@ fails if anyone wires a consumer without restoring a writer.
 **F-CANOPY-036 — candidate pool history NEVER accumulates in the live lane: the history-append callback loses its race with its own feeder's repoll, so short-lived pool states are never recorded (P2, OPEN; found during the 2026-08-24 live re-drive).**
 Across five training runs on one bring-up (~20 candidate phases), `candidate-metrics-panel-history-section` never rendered a card — while in the same sessions the SAME store's sibling consumers provably rendered active-pool values (run 5: an in-page 500 ms observer, healthy all run — 8 sampler gaps > 2 s, worst 2.8 s — recorded the badge rendering `Selecting Best` at t+189 s; runs 1/2 rendered pool 40 / `Training` / progress `351/400`). So this is **not** the fixed F-CANOPY-027 store→consumer starvation. Constructive probe on a CALM post-run page: injecting a fully-shaped `candidate_pool_status:"Training"` payload through the store's own `setProps` (the §12.1 idiom, `ok via memoizedProps.setProps`) produced **no card in 100 s**, and the request capture shows `update_pool_history` (output `…-pool-history-store.data`, `candidate_metrics_panel.py:347-381`) **never executed after the injected write** — while the same capture shows it executing normally on an ordinary poll fill (with `candidate_pool_status=Inactive`, i.e. after the transient state was already overwritten). Mechanism family: dash-renderer executes a queued callback with the store's CURRENT value (or supersedes the queued trigger entirely) when the feeder — `fetch_training_state`, polling at ~1 s on the candidates tab — rewrites the store before the append is promoted; any pool state shorter-lived than the promotion delay is unrecordable. The append's design contract (`:344-392`, one snapshot per `current_epoch` while a pool is active) is therefore probabilistic-to-never under load, and zero-across-five-runs in practice. Matrix effect: M-CANDIDATES-09 FAIL (populated arm unreachable, cause re-attributed from F-CANOPY-027 to this finding); M-CANDIDATES-10/-11 remain BLOCKED (their DEAD-EXPECTED click test needs a rendered card; blocker likewise re-attributed). Candidate fixes (owner decision): append server-side (canopy backend accumulates pool history and serves it, removing the client-side race entirely) or make `update_pool_history` clientside so it runs synchronously in the same commit as the store write.
 
+**F-CANOPY-037 — the topology rebuild is still chained off the 1 Hz `metrics-panel-metrics-store`, which rewrites 141 KB of IDENTICAL data ~0.6/s on a COMPLETED run; the graph therefore renders only when it wins the race — 2 of 11 sessions measured (P0/P1, OPEN; found during the 2026-08-26 §6.3 topology re-drive).**
+Measured live on a fresh isolated trio (data 8101 / cascor 8202 / canopy 8051, service mode; cascor `c6cd2f0`,
+canopy `9f6fac9`) against a completed 10-unit network, with `util/ad-hoc/e2e_seg17_topology_driver.py`.
+
+**This is not F-CANOPY-006 and not F-CANOPY-004.** F-006 was "a provably-correct server render is silently
+never applied client-side"; it is genuinely fixed — when the rebuild runs here, the DOM *does* apply it. F-004
+is a *latency* envelope (3–16 s interaction, 20–40 s fresh session); this is not late, it is **absent**, and it
+does not resolve at any budget.
+
+**What renders, when it renders.** In 2 of 11 sessions the rebuild executed and the graph was correct and fast:
+the intercepted response was **HTTP 200, 39,319 B, 206 traces**, and the DOM applied it — stats bar
+`2 / 10 / 2 / 89` exactly matching `GET /api/topology` (14 nodes, 89 connections), `gd.data` 181 traces,
+`sig=31152`, ~22 s after tab entry. A wire census in another live session counted the rebuild output
+(`..network-visualizer-graph.figure...-input-count.children...`) **12×/60 s**.
+
+**What happens the other 9 times.** Zero rebuild POSTs, `gd.data` stays `[]` (`sig=2`), stats bar stays at the
+layout-default `"0"`s. Ruled out explicitly, each by measurement: *tab not active* (`[role=tab].active` read
+`'Network Topology'` every time); *server wrong* (`/api/topology` served 2/10/2/89 throughout); *store empty*
+(the depth slider's clientside max bumped `0 → 10`, which only the populated store can do); *callback errored*
+(canopy log carries zero callback errors — the only ERRORs are the benign pre-run `No network created` lines);
+*my own polling starving it* (a control that opened the tab and waited **90 s with zero `page.evaluate` calls**
+was equally empty); *progressive in-process starvation* (a **fresh canopy leg** via
+`e2e_canopy_leg_restart.bash` was equally empty); *run-vs-idle posture* (equally empty **during an active run**
+and post-run); and *the depth filter* (`_apply_hierarchy_filter` returns unfiltered for `depth <= 0`,
+`network_visualizer.py:728`, so `value=0` is "all", not "none"). Driving the callback's **own Inputs** — three
+off/on toggles of `show-weights`, which is one of its 12 `Input`s — did not wake it either (112 s, 3 attempts).
+
+**Mechanism, measured directly.** `update_network_graph` takes `Input("metrics-panel-metrics-store", "data")`
+(`network_visualizer.py:350-359`), and the source comment already names the hazard: *"this callback is still
+chained off `metrics-panel-metrics-store` (a global 1 Hz store), so gating the interval reduces but does not
+eliminate its off-tab work — that chained-store class is Stage 2."* A rewrite census on a **COMPLETED** run
+recorded **34 writes to that store in 60 s (0.57/s), 33 of them byte-identical to their predecessor**
+(141,460 B every time), and **zero `no_update`**. The rebuild's own server time is 1.5–5 s, so its Input is
+re-claimed by a pending feeder far more often than the rebuild can complete — the §12.2 / §12.6 claimed-Input
+limit case that Stage 2 fixed for the Decision Boundary panel, still live on this path. Stage 2's no-op-write
+suppression demonstrably does **not** cover this feeder: 33 of 34 identical rewrites is the proof.
+
+**Blast radius.** M-TOPOLOGY-01..18, W4-01..17 and W1-12..14 stay **BLOCKED**, with the blocker **re-attributed
+from F-CANOPY-006 (closed) to this finding**. The mandate's flagship visualization is non-functional in the
+live lane for ~4 sessions in 5. Independently, a 141 KB payload rewritten 0.57/s on a finished run is ~80 KB/s
+of pointless traffic and its own regression on Stage 2's intent.
+
+**Candidate fixes (owner decision).** (a) Suppress no-op writes on the `metrics-panel-metrics-store` feeder —
+the Stage 2 lever, simply not applied to this producer; (b) drop `metrics-panel-metrics-store` from the
+rebuild's Input list (the rebuild does not use metrics data for the node graph — it is a legacy chain);
+(c) stop the metrics poll entirely once `fsm_status` is terminal. (a) and (b) are independent and either alone
+should be sufficient; (b) is the smaller diff and removes the coupling outright.
+
 **F-CANOPY-033 — `RESET_COMPONENT_STATE` storms one panel at ~13/s (P2, OPEN; found while tracing F-CANOPY-027).**
 Redux tracing recorded **1157 `RESET_COMPONENT_STATE` dispatches in 90 s** — roughly 13 per second, out of
 6251 total actions — and every sampled payload carries an `itempath` under `…/props/children/12/…`, the
@@ -496,6 +570,16 @@ investigations. Reproduce with `util/ad-hoc/e2e_f027_redux_actions.py`.
 **F-CANOPY-031 — the snapshots panel never renders against the migrated shared corpus (P1; found segment 16; FIXED canopy#517 `9dcbb77a`, verified live — closure block below).**
 `hdf5-snapshots-panel-status` is stuck at **"Loading snapshots…"**, `hdf5-snapshots-panel-table-body` has **0 rows**, and `hdf5-snapshots-panel-empty-state` is `display:none` (so the user sees neither data nor an empty state), while `GET /api/v1/snapshots` answers successfully with **27,903 entries — a 10.4 MB payload taking 4.9 s to serve**. The route works; the panel never leaves its loading state. Newly exposed by the S-1 storage-convention migration (`notes/JUNIPER_2026-08-20_JUNIPER-ECOSYSTEM_SNAPSHOT-STORAGE-CONVENTION-DESIGN.md`): segment 15 drove this same panel successfully when the corpus held **4** files, and the panel then rendered per-row op buttons. The list endpoint takes no `limit`/pagination, so the panel asks for the entire asset store every refresh. NB the fetch is **not** hammering — 18 logged fetches over ~25 min, tab-gated — so this is a render/scale failure, not a polling storm.
 **Blast radius:** M-SNAPSHOTS-19 **BLOCKED** — with no snapshot row rendered there is nothing to right-click. Independently, the two attributes `snapshot_context_menu.js` requires to build its menu, `data-snapshot-row` and `data-snapshot-id` (`:29-30`), appear on **zero** elements in the DOM, so that menu would not open even with rows present — worth checking as a second defect once the panel renders.
+
+> **Both cleared — the owed `f031` driver step, re-driven 2026-08-26 (run `20260826T215010Z`,
+> `e2e_seg17_topology_driver.py --step f031`).** The step the arc has owed since its probes were lost to
+> `/tmp` now exists in a script. Against the live corpus the panel rendered **200 rows in 2.0 s**, status
+> read **`"Showing newest 200 of 28042 snapshot(s)"`** (bounded slice, correct total), and
+> `-empty-state` was correctly `display:none`. The `limit`/`offset`/`total` contract holds on the wire:
+> `?limit=3&offset=0` and `?limit=3&offset=3` return disjoint, correctly newest-first triples off the same
+> `total: 28042`. **The second defect is also gone:** `data-snapshot-row` and `data-snapshot-id` are now
+> present on **200 of 200** rendered rows (was zero), so the context menu M-SNAPSHOTS-19 depends on has its
+> required attributes — that row's existing `PASS (re-validated @ 9dcbb77)` is corroborated, not changed.
 
 **CLOSED (2026-08-25, canopy#517 `9dcbb77a`; run `20260825T101752Z`). Two stacked mechanisms, both addressed.** (1) The fetch lost the race: the panel's bare 2 s `api_timeout` against the ~4.9 s unbounded scan+serialize of the whole store — every list fetch timed out, so the panel never left its layout-default "Loading snapshots…" (neither data nor the empty state, exactly as observed). (2) The render could never scale: one `html.Tr` — two buttons plus a four-item dropdown, five pattern-matching ids — per snapshot × 27,903, and under the ratified no-deletion retention the corpus only grows. Fix: `GET /api/v1/snapshots` gains `limit`/`offset` (a server-side slice of the already newest-first list; omitting `limit` keeps the legacy full list for existing callers; the demo branch slices identically) and **always** reports the pre-slice `total`; the panel fetches only the newest `SNAPSHOT_TABLE_PAGE_SIZE` (200) with the create-path's `+3` timeout headroom, and its status line reads **"Showing newest N of TOTAL snapshot(s)"** — truncation is never silent. **Verified live against the real corpus** (28,016 files under the symlinked e2e root; canopy leg `:8051`, probes 10:17–10:22Z on the branch working tree committed as `5560cb19` at 10:23Z and squashed as `9dcbb77a` at 10:40Z — the two trees differ only by #516's four memory-budget files, so every file the fix touched is byte-identical in merged main): the table rendered **200 rows in seconds** with status `"Showing newest 200 of 28016 snapshot(s)"` and the empty state correctly hidden; `data-snapshot-id` was present on **all 200 rows** — the entry's secondary observation ("attributes on zero elements") was zero *rows*; the attributes were always in the row builder, so the feared second defect never existed. **The full M-SNAPSHOTS-19 chain works**: right-click on the newest row → the context menu (243×235: Restore / Replay / Resume training / Retrain) → Restore → the **Confirm Snapshot Operation** modal (500×1044) naming that exact snapshot (`cascor_snapshot_20260824_234648_5c7c8004-…`), with the `context-menu-trigger` store write captured on the wire at t+13.4 s. M-SNAPSHOTS-19 → `PASS (re-validated @ 9dcbb77)`; the FA-4 block ("nothing to right-click") is gone. Pinned by `src/tests/unit/test_f031_snapshot_scale.py` (route: newest-head slice + `total`, offset, legacy no-params, demo parity; panel: one-page fetch with headroom timeout, `total` threading, the truncation line and the plain line when not truncated); one existing route test updated for the additive `total`. Instrument note: two intermediate probes matched the welcome modal's container (1600×1100, "Welcome to Juniper Canopy") through a generic modal selector before the confirm modal was targeted by its own element — select modals by their own ids. The probe scripts themselves lived in `/tmp` and are gone (the surviving logs are `/tmp/juniper-e2e/f031_verify*.log`); an `f031` driver step is owed at the next stack window so the row's regression re-drive is reproducible.
 
@@ -3316,7 +3400,29 @@ store-population problem, not an F-035 defect, and the distinction was pinned me
   errors (the empty-base-URL bug that made the entire replay surface dead). The three **slider**
   controls (speed/seek/range) were instrument-limited (the rc-slider handle drag did not land in the
   harness — `driven=False`, not errored) and share the same `dispatch_control` URL-building path, so
-  the fix covers them; the slider rows W5-21..23 need an rc-slider drag idiom to re-drive.
+  the fix covers them; the slider rows W5-21..23 still need a re-drive. **Correction (2026-08-26): the
+  "needs an rc-slider drag idiom" diagnosis carried in the 08-26 handoff is WRONG.** A DOM probe of the live
+  app (`e2e_seg17_topology_driver.py --step probe`) shows this canopy is on **Dash 3.x**, whose sliders are
+  **Radix** (`.dash-slider-root`, `.dash-slider-track`, a `[role=slider]` thumb) beside an
+  `input[type=number]` — **there is no `.rc-slider-handle` in the tree at all**. That is why the arc's
+  `drag_handle` reported `driven=False` without erroring: it was querying a selector this Dash version never
+  renders, so it returned "no handle" rather than failing a drag. The working idiom is the companion number
+  input driven with the React native-value-setter, with keyboard arrows on the Radix thumb as a fallback —
+  both implemented and effect-verified in `e2e_seg17_topology_driver.py`'s `set_slider`.
+  **Re-driven with the corrected idiom (2026-08-26, run `20260826T215010Z`):** `drag_handle` in
+  `e2e_p1wave_redrive.py` was rewritten to be Radix-aware (keyboard-on-focused-thumb first — the only idiom
+  that addresses one handle of a two-handle range slider — then the number input, then a real pointer drag,
+  each scored by re-reading `aria-valuenow`). **W5-22 (speed) now DRIVES**: `driven=True`, status
+  `✓ Speed updated`. **W5-21 (scrubber/seek) and W5-23 (range) still do not — but for a PRECONDITION reason,
+  not an idiom one.** The replay session opened on a **V1 (metrics only)** snapshot whose history is empty:
+  `epoch-readout` read `0 / 0` and `range-readout` read `[0, 0]` for the whole session, so both sliders have
+  `min == max == 0` and there is nowhere to move. The rewritten helper correctly returns `False` rather than
+  reporting a phantom drive. **To close W5-21/-23 a re-driver needs a V2 (`V2 ✓ weights`) snapshot with a
+  non-empty sample history** — not a different drag idiom.
+  *Side observation (no new finding):* the replay status block lags one action behind — `play` read
+  `✓ Seeked`, `pause` read `✓ Playing`, `speed` read `✓ Paused` — i.e. each control's own status surfaces
+  only after the *next* control is driven. Consistent with the F-CANOPY-004 interaction-render envelope now
+  accepted above; recorded so a re-driver does not read the lag as a wrong-status defect.
 - **F-CANOPY-008 — PASS.** Restarting the canopy leg with a dashboard tab open produced exactly **5**
   `ws_csrf_rejected` events (the stale token) and **`Per-IP limit reached` = 0** — the CSRF reject
   paths now release the reserved connection slot, so five rejections no longer lock the control plane
@@ -3356,3 +3462,110 @@ live render for F-035, F-011 and the rest — this re-drive is the strongest evi
 are correct *and* that F-004 is what stands between them and a snappy live UI.
 
 **Ledger at the end of this session: 40 findings / 25 fixed / 15 open** (0 P0 · 1 P0/P1 [F-CANOPY-004] · 2 P1 [F-CANOPY-035 F-004-gated INCONCLUSIVE, F-CASCOR-001 upstream juniper-cascor#590] · 12 P2 · 0 LEDGER). The eight P0/P1 fixes verified this session (F-CANOPY-003/-005/-007/-008/-009/-010/-011+D-0/-014) all flip to FIXED; F-CANOPY-004 is now the sole open P0/P1 and the gate on every remaining live render. Run id `20260826T174225Z`; `CURRENT_RUN_ID` bumped.
+
+## Phase 2 — the §6.3 topology re-drive (2026-08-26, later session): F-CANOPY-004 ACCEPTED, F-CANOPY-037 found
+
+Owner decisions taken at the top of this session (all four): F-CANOPY-004 → **accept the freshness contract
+now AND schedule the WS migration** (JR-CAN-PERF-004); run the **full** fix-independent re-drive block on a
+live bring-up; fix **all 11** canopy P2s (F-CASCOR-002 upstream); and **enable a live 3-D posture** for
+M-DATASET-17..26 rather than settling for the DEMO lane.
+
+### Stack
+
+Fresh isolated trio, brought up clean and health-gated: data `8101`, cascor `8202`, canopy `8051`
+(`JUNIPER_CANOPY_DEMO_MODE=0`, service mode). The deploy containers on 8050/8201/8211 were left untouched —
+`--with-recurrence` was deliberately NOT used because 8211 is the deploy stack's recurrence port.
+**Pin moved, deliberately and recorded:** cascor primary is no longer the handoff's `67d7ea3` but `c6cd2f0`
+— a peer advanced it while the T6 freeze was lifted. The delta is exactly two commits, `3697101` (forkserver
+trainer preload, cascor#592) and `c6cd2f0` (a CI-only memory-budget gate); neither touches an API or UI
+contract, so the re-drive ran against current main. Canopy `9f6fac9`, juniper-data `e0b738e`.
+
+Two full training runs were driven cold-start through the UI's WS control path: run A grew **0 → 10** hidden
+units and COMPLETED; run B resumed the same network to **11** and stopped `early_stopped`.
+
+### The headline: the topology graph is starved ABSENT, and it is a new finding
+
+**F-CANOPY-037** (new, P0/P1, OPEN — full block in the ledger above). The rebuild is chained off
+`metrics-panel-metrics-store`, which rewrites **141,460 B of byte-identical data 0.57/s on a COMPLETED run**
+(34 writes / 60 s, **33 identical**, 0 `no_update`), so `update_network_graph`'s Input is re-claimed faster
+than its own 1.5–5 s server time and the callback is starved out entirely. Measured **2 renders in 11 live
+sessions**. When it does render it is correct and fast: HTTP 200, **39,319 B, 206 traces**, stats bar
+`2 / 10 / 2 / 89` exactly matching `GET /api/topology`, ~22 s after tab entry.
+
+This was *nearly* mis-filed twice, in both directions, and the record matters more than the result:
+
+- **First read — "F-006 has regressed."** Wrong. F-CANOPY-006 was "a correct server render is never applied
+  client-side"; here the DOM *does* apply it whenever the callback runs. F-006 is genuinely fixed.
+- **Second read — "the callback never fires."** Also wrong, and it was **my instrument, not the app**: the
+  first `rebuildprobe` read `resp.request.post_data` inside the response handler, which silently yielded
+  nothing, so it reported 0 rebuilds while a wire census counted **12 in 60 s**. Stashing each POST body on
+  the *request* event and joining on the response fixed it. A probe that reports zero is not evidence until
+  a second, independent instrument agrees.
+- **Third read — "my polling is starving it."** Tested and refuted: a control that opened the tab and waited
+  **90 s with zero `page.evaluate` calls** was equally empty.
+
+Ruled out by measurement, each explicitly: tab not active (`[role=tab].active` read `Network Topology` every
+time); server wrong (2/10/2/89 throughout); store empty (the depth slider's clientside max bumped 0 → 10,
+which only a populated store can do); callback error (canopy log clean — only the benign pre-run
+`No network created`); progressive in-process starvation (a **fresh canopy leg** was equally empty);
+run-vs-idle posture (equally empty during an active run and post-run); the depth filter
+(`_apply_hierarchy_filter` returns unfiltered for `depth <= 0`, so `value=0` is "all"); and driving the
+callback's **own Inputs** (three `show-weights` off/on toggles, 112 s — no wake).
+
+### F-CANOPY-004 — ACCEPTED under a documented contract
+
+Per the owner decision, F-004 is now **ACCEPTED**, not open: the post-Stage-2 envelope (**≤ 16 s**
+interaction renders, **≤ 40 s** fresh-session population, clientside immediate, during-run steady-state
+best-effort) is written into the finding as canopy's freshness contract, and **JR-CAN-PERF-004** is scheduled
+as the workstream that removes the polling architecture rather than tuning it. F-004 no longer gates Phase 3.
+
+**The contract has an explicit scope limit, and F-037 is why.** It covers surfaces that render *late*. It
+does not cover a surface that never renders at all. A row that never painted is F-037 and stays open — the
+acceptance must not be used to close it.
+
+`e2e_finding_triage.py` gained a third disposition (`ACCEPTED`) so the ledger can express "real, unrepaired,
+owner-signed-off" without either overstating what shipped or holding an exit criterion red. Header token
+`ACCEPTED` in the last 170 chars, same convention as `FIXED`.
+
+### Instrument correction that invalidates a handoff diagnosis
+
+**This canopy is on Dash 3.x**, and three of the arc's widget idioms were written for Dash 2:
+`-layout-selector` is a native `<button class="dash-dropdown">` with its value in `#…-layout-selector-value`
+(not react-select); `-display-mode` / `-view-mode` are `input[type=radio]`; `-depth-slider` is a **Radix**
+slider (`.dash-slider-root` / `[role=slider]`) beside an `input[type=number]`. **There is no
+`.rc-slider-handle` anywhere in the tree.** So the 08-26 handoff's "W5-21..23 need the native rc-slider drag
+idiom" is wrong at the root: `drag_handle` returned `driven=False` because it queried a selector this Dash
+version never renders. The working idiom is the companion number input via the React native-value-setter,
+with keyboard arrows on the Radix thumb as fallback — both in `set_slider`, effect-verified.
+
+### Matrix effect
+
+No verdict moved. M-TOPOLOGY-01..18, W4-01..17 and W1-12..14 were already **BLOCKED** and stay so, with the
+blocker **re-attributed from the closed F-CANOPY-006 to F-CANOPY-037** and the Dash-3 idioms recorded inline
+at §3.3 so the next re-drive does not repeat the widget archaeology. Separately, the stale **D-0** text was
+trued up in five places (the divergence block, the divergence table, M-NETWORK-EDITOR-05/-10/-11, and W5
+steps 10/11/15 — step 15 still told a re-driver "the dropdown is empty, drive the `DELETE` directly", which
+has been false since canopy#522). Coverage unchanged at **298 / 298, 0 unfilled**.
+
+### New tooling
+
+`util/ad-hoc/e2e_seg17_topology_driver.py` — steps `probe` (pins the real widget markup before any row is
+scored), `topodiag`, `rebuildprobe` (request-side body capture joined on the response), `wirecensus` (every
+dash POST by output), `quietread` (the zero-evaluate control), `storestorm` (the no-op-rewrite census that
+proved the mechanism) and `topo` (the control-surface drive, which correctly refuses to score rows when the
+graph never paints).
+
+**Ledger at the end of this session: 41 findings / 25 fixed / 1 accepted / 15 open** (0 P0 · 1 P0/P1
+[F-CANOPY-037] · 2 P1 [F-CANOPY-035, F-CASCOR-001 upstream juniper-cascor#590] · 12 P2 · 0 LEDGER).
+F-CANOPY-004 moves out of the open set as ACCEPTED; F-CANOPY-037 takes its place as the sole open P0/P1 and
+is now the gate on the topology row block.
+
+### Still owed
+
+The `f031` driver step; **W5-21 and W5-23 on a V2 snapshot with a non-empty history** (W5-22 now drives via
+the corrected Radix idiom; the other two are blocked by an empty `0 / 0` V1 replay session, not by the
+idiom); C2.10-03, M-SNAPSHOTS-20/-21 and
+M-DATASET-14; the **all-11 P2 fix wave**; the **JR-CAN-PERF-004** plan document; and the **live 3-D posture**
+workstream for M-DATASET-17..26 (`POST /api/dataset/generate` is demo-gated 400 and both `equities` /
+`equities_seq` report `available:false` in the live lane). The topology block cannot be re-driven until
+F-CANOPY-037 is fixed.
