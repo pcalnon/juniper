@@ -22,7 +22,7 @@ clean, zero `/dev/shm` residue from the campaign window.
 | Currency banners into the two pre-#514 grids | `notes/JUNIPER_2026-08-14_…R3-EA-RERUN-EVIDENCE.md`, `…E-I-CAP-CEILING-EVIDENCE.md` (grep `RE-BASELINED 2026-08-26`) |
 | Launch-tooling gate fix (live CPU, not `ps` lifetime average) + orphan sentinel + campaign monitor | **ml#1389** (merged); `util/ad-hoc/2026-08-25_t6_{watch_host_drained,launch,orphan_sentinel,campaign_monitor}.bash` |
 | Grid renderer used for the publish | `util/ad-hoc/2026-08-26_t6_render_grids.py` (this PR) |
-| cascor#589 (shutdown joins training before uvicorn's SIGTERM re-raise) verified under load | 23 inter-cell stops: 0 leaked `/dev/shm` pairs, 0 `training thread still running` warnings, sentinel reaped 0 |
+| cascor#589 (shutdown joins training before uvicorn's SIGTERM re-raise) — **no-harm confirmed on the idle-stop path only** | 23 inter-cell stops: 0 leaked `/dev/shm` pairs, 0 warnings, sentinel reaped 0 — but all 23 SIGTERMs landed 2–7 s *after* `Training ended` (no cell timed out), so the stop-during-training path was NOT exercised; a live run of both triggers is still owed by the stop-fix session (`reports/stop-during-training-2026-08-25/t6_production_verification_scan.txt`) |
 
 **Headline results** (details and caveats in the evidence doc — do not quote these without them):
 surface cap-bound everywhere as under R-3; control cell E-A c010 ≡ E-I c000 reproduces exactly
@@ -40,9 +40,11 @@ control arm exists. E-C's moon curve: 1.0 / 1.0 / 1.0 / 0.975.
    E-I-class `max_iterations` (≥ 64). **Owner decision**; the closed R-4 disposition is not
    reopened by noting it.
 2. **`run_experiment.py` tears a `timed_out` / `stalled` cell down with a plain SIGTERM** —
-   `preempt_training` (`POST /v1/training/stop` + wait) is only used for a 409 on start. Harmless
-   now that cascor#589 joins training in the service's own shutdown, but a graceful stop before
-   teardown would also give the collect step a settled final state. Unfiled; small; tested driver.
+   `preempt_training` (`POST /v1/training/stop` + wait) is only used for a 409 on start. Meant to
+   be harmless once cascor#589 joins training in the service's own shutdown — but T6 did not
+   exercise that path (every stop landed after `Training ended`), so a graceful stop before
+   teardown is still the driver-side guarantee worth having; it would also give the collect step
+   a settled final state. Unfiled; small; tested driver.
 
 ## 2. Peer-hold ledger — ALL RELEASED 12:30–12:35 CDT
 

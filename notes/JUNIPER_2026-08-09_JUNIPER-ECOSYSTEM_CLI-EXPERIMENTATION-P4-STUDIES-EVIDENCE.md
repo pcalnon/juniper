@@ -288,12 +288,20 @@ two consecutive minutes. At launch: load `2.26 / 3.48 / 3.76`, GPU 907 MiB, zero
 processes, reaper clean, port-lock root empty. Four peer sessions held GPU work and a checkout
 freeze on the cascor primary between the launch and completion announcements; the freeze was
 respected (the ledger shows it). Post-campaign attest: experiment ports clear, zero port locks,
-GPU 722 MiB, reaper clean; **cascor#589** (shutdown joins training before uvicorn's SIGTERM
-re-raise) is inside the pin and held under load — 23 inter-cell stops left zero `/dev/shm`
-`juniper_train_*` / `sem.mp-*` objects and zero `training thread still running` warnings, and a
-narrow orphan sentinel (`util/ad-hoc/2026-08-25_t6_orphan_sentinel.bash`, run beside the
-campaign) reaped nothing. The campaign finished five hours before the 09:00 CDT production
-backup, so no maintenance contention occurred.
+GPU 722 MiB, reaper clean. **cascor#589** (shutdown joins training before uvicorn's SIGTERM
+re-raise) is inside the pin, and the 23 inter-cell stops left zero `/dev/shm` `juniper_train_*` /
+`sem.mp-*` objects, zero `training thread still running` warnings, and nothing for the narrow
+orphan sentinel (`util/ad-hoc/2026-08-25_t6_orphan_sentinel.bash`, run beside the campaign) to
+reap — **but read that correctly**: every one of the 23 teardown SIGTERMs landed on a service
+whose training had *already ended* 2.0–6.9 s earlier (`Training ended` precedes `shutting down`
+in all 23 engine logs, lifecycle shut down in 0.00 s; scan by the stop-fix session,
+`reports/stop-during-training-2026-08-25/t6_production_verification_scan.txt`), because
+`run_experiment.py` drives training to a terminal state before teardown and no cell timed out.
+The campaign therefore confirms the fix does **no harm on the idle-stop path** across 23 real
+stops; it did **not** exercise the stop-during-training path #589 was written for, which remains
+verified only by the pre-merge repro and a mocked mid-round unit test — a live run of both
+triggers at `67d7ea3` is still owed (that session's item, not T6's). The campaign finished five
+hours before the 09:00 CDT production backup, so no maintenance contention occurred.
 
 What this resolves and what it does not:
 
