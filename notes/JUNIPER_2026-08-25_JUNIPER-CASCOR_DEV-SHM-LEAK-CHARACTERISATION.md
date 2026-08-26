@@ -269,14 +269,18 @@ shutting down` at 23:47:00.084 it wrote **nothing** — not the `Epoch 7970` lin
 not the `Training ended` line the interrupt path logs. Nothing hung for 15 s; **the whole process
 was already dead**.
 
-**Mechanism, measured.** uvicorn's `Server.capture_signals` (0.29+; the fleet runs 0.46.0)
-restores the *original* signal handlers when `serve()` returns and then `signal.raise_signal()`s
-every captured signal. Python leaves SIGTERM at `SIG_DFL`, so the kernel terminates the process
-as soon as the lifespan's shutdown stanza returns:
+**Mechanism, measured.** uvicorn's `Server.capture_signals` (0.29+, "cooperative signal
+handling"; the host envs run 0.40.0 / 0.46.0 / 0.49.0 for JuniperData / JuniperCascor1 /
+JuniperCanopy1 and every lockfile pins 0.52.4 for the Docker images) restores the *original*
+signal handlers when `serve()` returns and then `signal.raise_signal()`s every captured signal.
+Python leaves SIGTERM at `SIG_DFL`, so the kernel terminates the process within milliseconds of
+the lifespan's shutdown stanza returning (the ~0.2 s SIGTERM→death latency is almost entirely
+uvicorn's own shutdown tick *before* the stanza; the probe's thread was last seen ~1 ms before
+the stanza's mark, never after):
 
 | probe (`util/ad-hoc/uvicorn_sigterm_atexit_probe.py`, minimal FastAPI app) | wait status | `atexit` ran | non-daemon thread |
 |---|---|---|---|
-| SIGTERM, thread left running at lifespan exit (cascor today) | killed by signal 15, 0.21 s | **no** | abandoned |
+| SIGTERM, thread left running at lifespan exit (cascor today) | killed by signal 15, 0.21 s after SIGTERM | **no** | abandoned |
 | SIGTERM, lifespan joins the thread first | killed by signal 15 | **no** | exited |
 | SIGINT (control) | exit 0 | yes | exited |
 
@@ -293,8 +297,9 @@ has the answer "the process was already dead"; candidates 1–3 there were all w
 
 **Reproduced, then fixed, on an isolated stack** (`util/ad-hoc/2026-08-25_cascor_stop_during_training_repro.bash`:
 own port 8209, own snapshot root and log dir — never the shared archive or the shared checkout's
-log — in-process spiral data, real GPU training, one SIGTERM to the uvicorn pid once the first
-hidden unit is installed, i.e. pool live and a deferred-unlink block on disk):
+log — in-process spiral data, real training through the full engine path including the
+forkserver candidate pool, one SIGTERM to the uvicorn pid once the first hidden unit is
+installed, i.e. pool live and a deferred-unlink block on disk):
 
 | | unpatched `d2d1069` | with the fix |
 |---|---|---|
