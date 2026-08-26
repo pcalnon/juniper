@@ -1023,13 +1023,13 @@ assertion**, run separately if wanted; inside W14 it would invalidate the live s
 
 1. Baseline: badge reads `WS: Connected` (green); status bar advancing (Step increments). → **DOM** → **AUTO**
 2. **Stop cascor mid-run** via the stack's own helpers (`stop_port "${CASCOR_PORT}"` / kill the `juniper-cascor.pid` pid) — canopy itself keeps running. → **MANUAL** (orchestrator shell) → `util/isolated_stack.bash:266,:231`
-3. Poll `GET /api/stream_health` → `overall` leaves `"ok"` (`reconnecting` / `degraded`). → **API** → **AUTO** → `main.py:1279`
+3. Poll `GET /api/stream_health` → `overall` leaves `"healthy"` (`reconnecting` / `degraded`). → **API** → **AUTO** → `main.py:1279`
 4. WS badge downgrades to `WS: Upstream reconnecting` or `WS: Upstream degraded` (amber `#ffc107`) — badge states 3/4, driven by the `stream-health-store` input. → **DOM, WS** → **AUTO** (after the MANUAL induction) → `connection_indicator.py:86-89`, §2.4
 5. Top status bar: the 1 s `GET /api/status` poll classifies the outage — record the exact label rendered (the classified, actionable failure label, **not** a silent stale "healthy" read). → **DOM** → **AUTO** → `dashboard_manager.py:5963-5968`, plan §7.3
 6. Topology / metrics panels: last-known-good rendering (plan T-5) — panels read **stale, not failed**; record that the badge + status label are the only truthful degradation surfaces. → **VIS, DOM** → **MANUAL** (judgement)
 7. Confirm `/v1/health` still returns HTTP 200 with `status: "ok"` and `demo_mode: false` while degraded — the canopy process did not fall back to demo (it only does that on a **restart** with cascor down; see the hard rule above). → **API** → **AUTO** → `main.py:1059-1069`
 8. **Restart cascor** (re-run the cascor leg / `cascor_up`-equivalent with the run's env). → **MANUAL** → `util/isolated_stack.bash:216-238`
-9. Recovery: `stream_health.overall` returns `"ok"`; badge returns `WS: Connected` (green) **without a canopy restart**. → **API, DOM** → **AUTO**
+9. Recovery: `stream_health.overall` returns `"healthy"`; badge returns `WS: Connected` (green) **without a canopy restart**. → **API, DOM** → **AUTO**
 10. Status bar recovers to an honest post-outage state; record verbatim whether the interrupted run survived cascor's restart (in-memory training state is expected lost — record, do not pre-judge). → **DOM, API** → **AUTO** (record)
 11. Console: record errors observed during the outage window (reconnect noise is expected); **zero new** uncaught errors after recovery. → **CON** → **AUTO**
 
