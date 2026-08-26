@@ -79,7 +79,7 @@ DB-restore runbook stays WITHDRAWN.
 | Release-train key | **IN the backup** (`…/.gnupg/juniper-release-train.2026-07-21.private-key.pem`, 1,675 B) |
 | Records off-spindle | `/mnt/Backups/Ubuntu/_yamaguchi_records/` (sda1) **re-synced 02:52 CDT 08-26** — includes drill 2's `results.json`/`restore-all.log`, the validate log, `watchdog-proof-20260825.log`, both config records (redacted) |
 | dbconfig.json | hand-written single object mapping Yamaguchi → `DQRVQNDIFX.sqlite`; the CLI expects an array, so a `--dbpath`-less op fails to parse rather than opening the wrong DB — misleading, not dangerous. Always `--dbpath` |
-| PRs | #1369 MERGED. **This session's PR: see §7** — if `gh pr list --state open --head feat/yamaguchi-widened-scope-recert` is empty, the work is uncommitted in this worktree: do NOT sweep it (§7 fallback) |
+| PRs | #1369 MERGED. **This session's PR: #1390 OPEN** (`feat/yamaguchi-widened-scope-recert`, opened 02:58 CDT 08-26) — awaiting Paul's explicit merge approval; if it shows neither OPEN nor MERGED, see the §7 fallback |
 | Peer session | "t6 rebaseline" (GPU campaign, `…/dazzling-swimming-stroustrup`). **Told** at 02:52 CDT that the drill and the validate pass are done and that the 09:00 run's duration is unknown. Reply route: copy the `from=` of any message it sends (`uds:/run/user/1000/cc-socks/3685337.sock` worked from this session); `ListAgents` shows it if alive. Its launch gate trips on any duplicati-family/aescrypt process >20 % CPU — **announce before starting any drill or validate**; if it is gone there is nothing to tell |
 | Alerting candidates | B `yamaguchi_watchdog.py` proven (forced `UNREACHABLE`/`JOB_MISSING`/`STALE` → rc 1 with durable records; normal → `OK`; desktop notification rc 0); re-proven after hardening at 02:50. A drafted. Neither deployed |
 
@@ -219,12 +219,11 @@ Branch `feat/yamaguchi-widened-scope-recert` (from main `45c2f4fc`) in worktree
 `Paul Calnon <paul.calnon@gmail.com>`. Changed: the certification note (§8 addendum +
 three pointer edits), two revised drill tools, six new files under `util/ad-hoc/` and two
 under `util/systemd/`, this handoff. No AGENTS.md / REFERENCE.md / CHANGELOG (same
-footprint as #1369). **Commit → push → PR is the authoring session's LAST step**: if
-`gh pr list --state open --head feat/yamaguchi-widened-scope-recert --json number,title`
-is empty, the work exists only in that worktree — do not remove, sweep or `git checkout`
-it; from inside it run `git add -A && git commit`, `git push -u origin feat/yamaguchi-widened-scope-recert`,
-open the PR with "Yamaguchi" in the title and write the number here. All evidence is
-durable under `/media/pcalnon/temp_backups/` and mirrored to sda1 (02:52 CDT 08-26).
+footprint as #1369). Committed as `6b4801ba` (+ this PR-number touch-up), pushed, and
+opened as **PR #1390** at 02:58 CDT 08-26. Fallback if the PR is somehow neither OPEN nor
+MERGED: the branch is on origin; re-open it from any checkout — never sweep the worktree
+first. All evidence is durable under `/media/pcalnon/temp_backups/` and mirrored to sda1
+(02:52 CDT 08-26).
 
 The recurring failure shape held again this session: a lifetime CPU average read as live
 load; a stale 08:29 record read as the live schedule; a "pre-commit passed" on files git
