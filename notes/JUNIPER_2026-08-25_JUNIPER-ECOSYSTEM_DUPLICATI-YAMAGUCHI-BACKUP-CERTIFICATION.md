@@ -424,9 +424,16 @@ dblock/dindex volumes remain until an explicit compact.
       with the durable record and a desktop notification (`notify-send rc=0`); status back to
       `OK` at 12:32:21 (§8.9-1, proof `_yamaguchi_check/watchdog-closing-test-20260826.log`).
 - [ ] Logout/login and reboot survival — not yet exercised (system unit enabled; job in
-      the portable data root; the restart trap is closed).
+      the portable data root; the restart trap is closed). **Updated 2026-08-26 (§8.10.2):
+      this criterion now has a named, mechanically-identified failure candidate** — the
+      destination filesystem sdc4 has NO boot-time mount configuration (not in `/etc/fstab`;
+      systemd only observed the mount), so a root-run 09:00 job could fire against a bare
+      path on `/`. Probe: `bash util/ad-hoc/yamaguchi_destination_durability_check.bash`.
 - [ ] Migration to a physically separate drive — OPEN; Paul's re-scope decision
-      (destination migration vs second copy) is recorded nowhere yet.
+      (destination migration vs second copy) is recorded nowhere yet. Facts re-measured and
+      the three options written up decision-ready in **§8.11.2** (recommendation: (a) sda1
+      now, (c) as the target — sda1 is the only fstab-managed backup-class filesystem, so it
+      closes criterion 5's §8.10.2 risk in the same move).
 
 ### 8.8 Retirement inventory (measured 18:2x CDT; nothing deleted — each needs Paul's go)
 
@@ -533,3 +540,367 @@ worktree hook refuses the `mountpoint -q … && rsync …` chain at the prompt).
 handoff: loopback restage (§8.6-6), server-brain backup (§8.6-7), `dbconfig.json`
 (§8.6-5), migration decision (§8.6-8), retirements (§8.8), reboot survival (criterion 5),
 the old-archive tail.
+
+> **Superseded in part by §8.10–§8.11 (2026-08-26 afternoon).** `dbconfig.json`, the
+> migration decision and the retirements are now written up decision-ready in **§8.11**;
+> reboot survival gained a named failure candidate in **§8.10.2**. Loopback restage,
+> server-brain backup and the old-archive tail are unchanged and still root-gated.
+
+### 8.10 Addendum (2026-08-26 afternoon) — the VDI exclusion is live-proven; the destination mount is not boot-durable
+
+Written from a live re-probe at 15:52–16:01 CDT, after ml#1394 merged (`63dcbe1e`, 14:38
+CDT) and the primary checkout was synced. Everything §8.9 deployed is still healthy:
+watchdog timer `enabled` with next fire **2026-08-27 12:00 CDT**, status `OK` on a live
+probe (`--max-age-hours 26`), the synthetic `JOB_MISSING` line still annotated, the server
+still `any` + 8300 + `--portable-mode` with `/etc/default/duplicati` matching the process,
+and `yamaguchi_edit_sources.py --remove /nonexistent --dry-run` still refusing at **rc 4**
+without a PUT.
+
+#### 8.10.1 An unscheduled run measured the exclusion — it works
+
+§8.9 could only *predict* the effect of the win11 exclusion, because the PUT landed after
+the 09:00 run. An **unscheduled run at `2026-08-26T18:12:06Z` (13:12 CDT)** — manual, not
+the timer: it did not advance `Schedule.LastRun`, which still reads `2026-08-26T14:00:00Z`
+— is the first run with the new source list, and measures it directly:
+
+| metric | 14:00Z (VDI in scope) | 18:12Z (VDI excluded) | delta |
+|---|---|---|---|
+| `SizeOfExaminedFiles` | 337,235,161,326 B | 283,881,683,008 B | **−53,353,478,318 B** |
+| `SizeOfModifiedFiles` | 56,386,479,073 B | 854,717,426 B | **−55,531,761,647 B** |
+| `BytesUploaded` | 7,265,366,585 B | 557,858,839 B | **−92.3 %** |
+| `FilesUploaded` | 29 | 3 | −26 |
+| `ExaminedFiles` | 753,435 | 755,363 | +1,928 (churn) |
+| Duration | 25 m 15 s | **16 m 18 s** | −8 m 57 s |
+
+The daily 56 GB re-read of a continuously-modified image is gone, and the live config now
+carries **2 sources** (`/home/pcalnon/` + the static win10 VDI), 44 filters, 10 settings,
+`encryption-module=aes`, `--no-auto-compact=true`, retention unchanged.
+
+**§8.9's "expect the pre-widening ~9-minute class from 08-27" was wrong, and this run is
+the correction.** 16 m 18 s is the measured figure, and the residual is not upload: with
+only 3 files uploaded, the run is dominated by *scanning* 755,363 files / 283.9 GB and by
+the ~586 MB post-backup verification download (`BytesDownloaded=586,649,767`, `TestResults:
+Success on 3 file(s)`). Two caveats in opposite directions: this run ran 4 h behind the
+scheduled one and still absorbed 4,749 added files / 2.59 GB of churn, so a steady-state
+09:00 run should be somewhat cheaper — but it will not approach 9 minutes, because the
+~9-minute class predated the scope widening and its 755 k-file scan. **Treat ~12–16 min as
+the new steady-state class** and re-measure on 08-27.
+
+Retention behaved: `DeleteResults.DeletedSets=[]`, `CompactResults=False`. **Three dlists
+is correct, not drift** — `1W:1D` keeps the earliest fileset per 1-day interval plus the
+newest, so `20260825T102739Z` (08-25's earliest), `20260826T140000Z` (08-26's earliest) and
+`20260826T181206Z` (newest) all survive. The 08-27 run should thin `181206Z`.
+
+Census at 15:52 CDT: **811 = 3 dlist + 404 dblock + 404 dindex; 210,349,834,271 B (195.904
+GiB) — `-> AGREE`** against server `TargetFilesCount`/`TargetFilesSize`. Evidence:
+`_yamaguchi_check/vdi-exclusion-proof-20260826.log`.
+
+#### 8.10.2 The destination filesystem has no boot-time mount configuration
+
+Found while gathering facts for the migration decision (§8.6-8), and it changes that
+decision's shape. **`/etc/fstab` has exactly four entries** — `/`, swap, `/home`, and
+`/mnt/Backups/Ubuntu` (sda1). **`/media/pcalnon/temp_backups` (sdc4), which is where
+Yamaguchi lives, is not one of them.** systemd's own view is the proof:
+
+| mount | `FragmentPath` | `SourcePath` | meaning |
+|---|---|---|---|
+| `/mnt/Backups/Ubuntu` (sda1) | `/run/systemd/generator/mnt-Backups-Ubuntu.mount` | `/etc/fstab` | generated from fstab — **mounts at boot** |
+| `/media/pcalnon/temp_backups` (sdc4) | *(empty)* | `/proc/self/mountinfo` | systemd merely **observed** an existing mount and synthesised a passive unit — **nothing remounts it at boot** |
+
+The mount options are `rw,relatime` with no `nosuid,nodev`, which is the signature of a
+plain root `mount`, not a udisks automount (compare the My Passport, which carries
+`rw,nosuid,nodev,relatime`). Host uptime is **10 d 9 h (since 2026-08-16 06:14:39)** — the
+mount has simply persisted since it was made by hand.
+
+Why this matters: `duplicati.service` is a **system** unit running as root with
+`Restart=always`, started at boot, independent of any desktop login. If it fires the 09:00
+job while sdc4 is not mounted, `file:///media/pcalnon/temp_backups/Yamaguchi` is a bare
+path on the root filesystem, not the destination — an **empty destination against a
+populated job DB** (`BMXWPAOGLP.sqlite`), which is the shape that reads as "every remote
+volume is missing". The root filesystem is `/dev/nvme0n1p5`, 716 G with **264 G free** —
+enough to absorb most of a 196 GiB re-upload and fill `/` in the process, so the failure
+mode is not a clean early error.
+
+This is untested: criterion 5 has never been exercised, and the last reboot predates the
+entire Yamaguchi job. **Criterion 5 is therefore not merely "unexercised" — it has a named,
+specific, mechanically-identified failure candidate**, recorded in §8.7.
+
+The check is now a re-runnable probe:
+`bash util/ad-hoc/yamaguchi_destination_durability_check.bash` (read-only, always exits 0
+so it composes inside `&&` chains during an incident; prints `DURABLE` / `NOT DURABLE` /
+`ABSENT` per mountpoint). Evidence:
+`_yamaguchi_check/destination-durability-20260826.log`.
+
+Candidate remedies, none applied (each is root or Paul's call, and the migration decision
+may moot the choice of filesystem):
+
+- **(i) fstab entry for sdc4** — smallest change; makes the *current* destination durable
+  but leaves Yamaguchi on the same physical disk as `/home`, so it does not touch criterion 6.
+- **(ii) migrate to sda1** (§8.11.2 option a) — resolves criterion 6 *and* criterion 5's
+  mount risk in one move, because sda1 is already the only fstab-managed backup-class
+  filesystem.
+- **(iii) a `--run-script-before` mount guard on the job** — defence in depth, and the only
+  remedy that also covers a destination that is *unmounted mid-life*; needs root deployment
+  under `/usr/local/lib/duplicati/` exactly as option A in §8.6-4, plus a Paul-gated PUT.
+
+(i) and (ii) are alternatives; (iii) complements either. Doing nothing is a standing
+reboot-shaped risk.
+
+---
+
+### 8.11 Decision packets (2026-08-26) — the three items Paul asked to be worked up
+
+Analysis only. **Nothing in this section has been executed**; each ends in a question.
+
+#### 8.11.1 `dbconfig.json` (§8.6-5) — recommendation: DELETE
+
+Re-read live at 15:5x CDT; 308 B, `pcalnon:pcalnon`, mtime 2026-08-25 03:13. Confirmed
+contents and four independent defects:
+
+```json
+{"Type":"file","Server":"localhost","Path":"/media/pcalnon/temp_backups/Yamaguchi",
+ "Prefix":"duplicati","Username":"pcalnon","Port":8300,
+ "Databasepath":"/home/pcalnon/.config/Duplicati/DQRVQNDIFX.sqlite",
+ "ParameterFile":"/home/pcalnon/.config/Duplicati/DQRVQNDIFX.sqlite"}
+```
+
+1. **A BOM** (`EF BB BF`, verified with `od -c`) precedes the `{`.
+2. **A single object, not an array** — per `CLIDatabaseLocator.cs` at the installed tag the
+   CLI expects an array, so it fails to parse rather than opening the wrong DB (§8.6-5).
+3. **The mapping is wrong**: it points the *Yamaguchi* destination at `DQRVQNDIFX.sqlite`,
+   which is the **old gpg fresh set's** job DB. Yamaguchi's real DB is the root-owned
+   `/usr/lib/duplicati/data/BMXWPAOGLP.sqlite`.
+4. **`ParameterFile` names a 334 MB SQLite file.** A ParameterFile is a text file of CLI
+   options; had this ever matched, the CLI would try to parse a binary database as one.
+   (`Username: "pcalnon"` is a fifth defect in practice — the CLI computes null for a plain
+   `file://` URL, so an array-shaped version would never match either.)
+
+**Recommend deleting rather than rewriting**, for a reason that is new since §8.6-5 was
+written: the rewrite variant maps the file to `/media/pcalnon/temp_backups/Ubuntu` and
+`DQRVQNDIFX.sqlite` — **both of which are on the §8.11.3 retirement list**. Rewriting
+therefore hand-authors a fresh mapping to a set Paul is being asked to delete in the same
+session; it is self-obsoleting. Deletion also matches the standing rule ("always pass
+`--dbpath` regardless"), removes the BOM/array/ParameterFile defects at once rather than
+preserving a hand-written artifact of the class that caused the confusion, and costs
+nothing — Duplicati writes its own if it ever wants one.
+
+Exact action if approved: `rm ~/.config/Duplicati/dbconfig.json` (no root; user config).
+It is the only `dbconfig.json` on the host in that profile, and nothing in `util/`
+references it.
+
+#### 8.11.2 Migration, plan §7 criterion 6 (§8.6-8) — facts re-measured; Paul picks
+
+Every §8.6-8 fact was re-probed. Two changed, and §8.10.2 adds a decisive new one.
+
+| fact | §8.6-8 (08-25) | re-probed 2026-08-26 16:00 CDT |
+|---|---|---|
+| Yamaguchi on sdc4, same physical disk as `/home` (sdc3) | yes | **confirmed** — `lsblk` shows sdc3 + sdc4 on sdc |
+| sdc4 free | — | 1.9 T total, 359 G used, **1.4 T avail** |
+| sda1 (`/mnt/Backups/Ubuntu`) free | 1.1 TB | **1.1 T avail** (3.6 T, 69 % used) — unchanged |
+| My Passport sdb1 free | 2 TB, 1.5 TB free | **2.0 T, 369 G used, 1.6 T avail** — *changed* |
+| My Passport bus | USB-2, bus 3 port 1.4, 480 Mb/s | **still USB-2** — sdb resolves to `usb3/3-1/3-1.4`, bus 003 root hub is 480 M. **Not replugged.** Buses 2/4/6 at 10 Gb/s and bus 8 at 5 Gb/s remain idle |
+| **sda1 boot-durable, sdc4 not** | *not known* | **NEW — §8.10.2.** sda1 is fstab-generated; sdc4 has no boot-time mount configuration at all |
+
+Three **new** facts against option (b), all found today:
+
+- **sdb1's root is not writable by `pcalnon`** — owned `dnsmasq:pcalnon`, mode `drwxr-xr-x`
+  (group has r-x only). A 512 MB `dd` probe returned `Permission denied`. Option (b) needs
+  a root-created, `chown`ed subdirectory before it is even possible. (The `dnsmasq` owner is
+  a uid collision from another system — cosmetic, but it is why the group bit is the whole
+  story.)
+- **sdb1 is not a spare disk.** It holds `Archive/`, `Downloads/`, `Movies/`, `Music/`,
+  `TV Shows/` — live media, 369 G of it.
+- **sdb1 is a udisks automount at a UUID path**
+  (`/media/pcalnon/dee46823-4119-4914-ac15-08194ee27d81`, `rw,nosuid,nodev,relatime`), so it
+  inherits the §8.10.2 problem in a *worse* form than sdc4: it is removable, and the path is
+  a bare UUID.
+
+Throughput arithmetic for (b), unchanged in conclusion: at 480 Mb/s the bus caps real
+throughput near 40 MB/s, so a 196 GiB seed costs roughly 1.5 h and the bus, not the disk,
+is the limit. After a replug to a 10 Gb/s bus the 5400-rpm WD40NMZW itself becomes the
+limit at roughly 110–130 MB/s, so about 28 min. **The decision-relevant measurement can
+only be taken after Paul physically replugs**; nothing in software can pre-empt it.
+
+**The options, restated with today's facts:**
+
+- **(a) Move the set to a subdirectory of sda1.** Different physical disk from `/home`
+  (satisfies criterion 6), 1.1 T free against a 196 GiB set, invisible to the old job's
+  non-recursive root listing, and — the new argument — **it is the only backup-class
+  filesystem on this host that mounts at boot**, so it closes §8.10.2's reboot risk in the
+  same move. Cost: the five-step procedure in §8.6-8, ending in a drill at the new
+  location. Caveat unchanged: sda1 also hosts the damaged old archive, so one disk failure
+  takes both.
+- **(b) Second copy on the My Passport.** Still a **re-scope**, not a choice — plan §3
+  rejected sdb1 on measurement (§8 decision 1) — and now carries three fresh objections
+  (not user-writable, live media disk, removable UUID automount) on top of the USB-2
+  measurement. Needs a replug, a re-measurement, a root-created directory, *and* a plan
+  amendment.
+- **(c) Both.** (a) for criterion 6 and §8.10.2; (b) afterwards as a genuine second copy on
+  removable media, with its own drill. Highest cost, and the only option that produces two
+  independent copies.
+
+**Recommendation, stated as a recommendation and not a decision: (a) now, (c) as the
+target.** (a) is the only option that closes two open criteria at once, needs no hardware
+change, and uses a filesystem already proven and already mounted at boot. (b) should not
+be attempted before the replug, because its measurement is what plan §3 rejected it on.
+
+#### 8.11.3 Retirements (§8.8) — re-measured, tiered, nothing deleted
+
+All sizes re-measured live at 15:5x–16:00 CDT (`du -sh`). §8.8's KEEP list was read first
+and is unchanged; `_yamaguchi_check/` (76 K) and `_fresh_dlist_check/` (32 K) are on it and
+appear nowhere below.
+
+**Tier 1 — no dependency on any open decision; deletable on a plain go.**
+
+| path | size | note |
+|---|---|---|
+| `_yamaguchi_drill/drill-20260825-183711/restored/` | 64 G | drill 2's restored copies; `results.json`, `restore-all.log`, `provenance.txt`, `candidates.json`, `drill-meta.json` all stay |
+| `_yamaguchi_drill/drill-20260825-075730/restored/` | 4.5 G | same shape; 3 symlink-retest logs stay |
+| `_yamaguchi_drill/drill-20260825-075352/tmp/` | **1.1 G** | **not in §8.8's inventory** — a stale *tempdir*, not a `restored/` (that drill's `restored/` is 8 K). A "delete `restored/`, keep the rest" sweep would have missed it |
+| `_fresh_drill/drill-20260824-142353/restored/` | 1.3 G | 15 `restore-c*.log` + `results.json` stay |
+| `_duplicati_tmp/` **contents only** | 4.0 G | 8 × ~524 MB `dup-*` dated 2026-08-23 23:48 + 8 small stragglers (4 from 08-24 22:22), all `pcalnon`-owned |
+| `_gpg_repro/` (whole) | 2.3 G | `macro-20260824-043743` 1.8 G + `micro` 521 M |
+| **Tier 1 total** | **≈ 77.2 G** | |
+
+⚠️ `_duplicati_tmp/` **is the live job's `--tempdir`** (confirmed in the job's settings) and
+its directory mtime is `2026-08-26 13:28` — exactly the 18:12Z run's end (18:28:24Z). The
+directory is in active use; only the stale contents go, and only with `ActiveTask: null`.
+Never the directory, never during a run.
+
+**Tier 2 — a go with a consequence to weigh.**
+
+| path | size | consequence |
+|---|---|---|
+| `/media/pcalnon/temp_backups/Ubuntu/` | 51 G | the old **gpg fresh set** (209 volumes) — the only certified gpg-era set. Drill 2 passed on Yamaguchi (§8.4-3), so it is superseded, not needed. **Never `/mnt/Backups/Ubuntu`** |
+| `~/.config/Duplicati/DQRVQNDIFX.sqlite` + `-wal` + `-shm` | 334 M + 19 M + 64 K | that set's job DB. Delete **with** the set, never before |
+| `~/.config/Duplicati/updates.disabled-2026-08-25/` | 250 M | the "two installs" root cause's remains; §8.8 says only after a soak Paul calls comfortable |
+| **Tier 2 total** | **≈ 51.6 G** | |
+
+**Tier 3 — BLOCKED, do not sweep.**
+
+| path | size | blocker |
+|---|---|---|
+| `_drill_scratch/` | 35 G | holds `drill.sqlite` + a 6.86 GB WAL — **the old archive's only local database** and the state of the purge dry-run. Blocked until §7's old-archive purge decision is executed or formally abandoned; deleting it makes that work a multi-day Recreate |
+
+Also untouched and unproposed: the user-lane systemd/`~/.local/bin` files and the repo's
+`util/systemd/duplicati-backup.*` (a code change, better as its own PR), and
+`…/worktrees/curious-plotting-hummingbird/.env` (its precondition was re-confirmed
+2026-08-26: `~/.config/duplicati-backup/env` fingerprints `PASSPHRASE` → `6d8b263f6d064556`
+and `PASSPHRASE_OLD` → `b085454a8c34bd8c` by sha256[:16] — the hand-reconciliation values
+of §8.9-3, not the PBKDF2 ones).
+
+**Honest framing of the payoff.** Tier 1 + Tier 2 is ≈ 128.8 G, but sdc4 currently sits at
+**21 % used with 1.4 T free** — there is no capacity pressure, and none of this is needed to
+make room for anything, including a migration to sda1. The case for sweeping is hygiene and
+the removal of confusable artifacts (three restored trees, a superseded backup set and its
+DB), not space. That argues for doing Tier 1 whenever convenient, and for treating Tier 2 —
+particularly the 51 G old fresh set — as a decision about *when Paul is comfortable losing a
+fallback*, not about disk usage.
+
+---
+
+### 8.12 Addendum (2026-08-26 late afternoon) — Paul's §8.11 decisions executed
+
+Decisions taken 2026-08-26 ~16:05 CDT against the §8.11 packets:
+
+| §8.11 packet | decision |
+|---|---|
+| §8.10.2 mount risk | **Fold into the migration** — no standalone fstab entry for sdc4; migrating to sda1 resolves it |
+| §8.11.2 migration | **(a) move the set to sda1 now** |
+| §8.11.3 retirements | **Tier 1 AND Tier 2 approved in full** (Tier 3 `_drill_scratch/` remains blocked) |
+| §8.11.1 `dbconfig.json` | *not answered in that round; see §8.12.4* |
+
+#### 8.12.1 Sequencing — Tier 2 deliberately deferred, and why
+
+The approvals were executed in an order that is **not** the order they were
+given. Tier 2's `/media/pcalnon/temp_backups/Ubuntu/` is the old gpg fresh set —
+the last certified non-Yamaguchi fallback on this host. §8.6-8 step 5 already
+requires keeping the sdc4 Yamaguchi copy until a drill passes at the new
+location; deleting the *other* fallback during the same window would leave the
+migration with no net at all. So:
+
+- **Phase A (done, 16:13 CDT)** — Tier 1 in full, plus `updates.disabled-2026-08-25`
+  (250 M), which has no fallback role.
+- **Phase B (in progress)** — the migration, steps 2→4, keeping the sdc4 copy.
+- **Phase C (after the drill passes)** — Tier 2's old gpg fresh set +
+  `DQRVQNDIFX.sqlite*`, and only then the sdc4 Yamaguchi copy.
+
+This is a sequencing judgement, not a change to Paul's decision: everything
+approved still goes, and nothing extra does.
+
+#### 8.12.2 Phase A executed — 77 GB reclaimed
+
+`util/ad-hoc/yamaguchi_retire_tier1.bash` (new; dry-run by default, `--execute`
+to apply). It takes **no path argument** and expands no wildcard beyond the
+tempdir contents, so it cannot be aimed elsewhere; every target is re-checked at
+runtime against a `FORBIDDEN` list (`/mnt/Backups/Ubuntu`, `temp_backups/Ubuntu`,
+`_drill_scratch`, `_yamaguchi_check`, `_fresh_dlist_check`, `Yamaguchi`, the live
+tempdir) rather than the literal list being trusted. It refuses unless
+`ActiveTask` is null and `SchedulerQueueIds` empty.
+
+Deleted: `drill-20260825-183711/restored/` (64 G), `drill-20260825-075730/restored/`
+(4.5 G), `drill-20260825-075352/tmp/` (1.1 G), `_fresh_drill/drill-20260824-142353/restored/`
+(1.3 G), `_gpg_repro/` (2.3 G), `updates.disabled-2026-08-25/` (250 M), and the 16
+stale `dup-*` files in the live tempdir (4.0 G, all dated 2026-08-23/24).
+
+**sdc4: 359 G used / 1.4 T free (21 %) → 282 G used / 1.5 T free (16 %).**
+
+Verified intact afterwards: every drill's `results.json`, `restore-all.log`,
+`provenance.txt`, `candidates.json`, `drill-meta.json` and the symlink-retest
+logs; `_yamaguchi_check/` (88 K); `_fresh_dlist_check/` (32 K); `_drill_scratch/`
+(35 G, Tier 3); `Ubuntu/` (51 G, Tier 2, deferred); `Yamaguchi/` (196 G); and the
+live tempdir **directory** itself, `drwxrwxr-x pcalnon pcalnon`, emptied to 4.0 K.
+
+#### 8.12.3 A measured correction to §8.6-8's copy procedure: drop `--checksum`
+
+§8.6-8 step 2 prescribes `rsync -a --checksum`. Run verbatim, the copy did
+nothing visible for two minutes; `/proc/<pid>/io` explained why — the sender had
+**read 21,822,431,232 B and written 0**. With `--checksum`, rsync pre-computes
+checksums across the whole source before transferring.
+
+On an **empty** destination that decides nothing: every file is missing and must
+be sent regardless. The flag was costing a full extra read of a 196 GiB set —
+about 20 minutes at the observed ~179 MB/s — to answer a question with only one
+possible answer. The copy was stopped (destination still had **0 entries**,
+`write_bytes: 0`, so nothing was lost) and relaunched without it; bytes began
+flowing immediately at ~175 MB/s.
+
+`util/ad-hoc/yamaguchi_migrate_copy.bash` now decides the flag from the target:
+`--checksum` **when the target already holds volumes** (a re-run reconciling a
+possibly-corrupt earlier copy — exactly what it is for), omitted when the target
+is empty. Integrity is not weakened, because it was never rsync's job here:
+`duplicati_decrypt_validate_all.bash` performs full AES/HMAC verification of every
+volume on the copy, which is strictly stronger than an rsync checksum.
+
+**The general lesson**: a verification flag that cannot change the outcome is not
+free caution — it is cost with no information. Ask what a guard would *decide*
+before paying for it.
+
+#### 8.12.4 `dbconfig.json` — the recommendation is now stronger, not weaker
+
+§8.11.1 recommended deleting rather than rewriting, because the rewrite target
+(`/media/pcalnon/temp_backups/Ubuntu` + `DQRVQNDIFX.sqlite`) was itself on the
+retirement list. **Paul then approved Tier 2 in full**, so that mapping is now
+certain to be dangling. The only other coherent rewrite — pointing at the new
+sda1 destination — is also useless: the matching job DB is the root-owned
+`/usr/lib/duplicati/data/BMXWPAOGLP.sqlite`, which a user-run CLI cannot open, and
+`dbconfig.json` is a user-profile locator. Deletion remains the recommendation and
+is now the only option that leaves nothing false behind.
+
+#### 8.12.5 Tooling added for Phase B
+
+- `util/ad-hoc/yamaguchi_migrate_copy.bash` — stages the copy. **Copy only**: it
+  never touches the job definition, never repoints `TargetURL`, never deletes the
+  source. Guards: both filesystems mounted, `ActiveTask` null and queue empty,
+  free space ≥ source + 5 %; verifies by file count and byte total; prints the
+  decrypt-validate command as the next step rather than claiming integrity itself.
+- `util/ad-hoc/yamaguchi_edit_target.py` — migration step 3. Carries the §8.6-4
+  passphrase rule verbatim from `yamaguchi_edit_sources.py` (PBKDF2 fingerprint
+  guard, mask substitution, value never printed) and adds destination guards: the
+  new target must exist, be on a mounted filesystem, hold **at least as many
+  volumes as the current one and the same byte total** (rc 4 — the copy must be
+  complete before the job is allowed to follow it), and have an `/etc/fstab` entry
+  (**rc 7**, overridable only with `--allow-non-durable`), so the tool structurally
+  refuses to move the job onto another non-boot-durable mount. Post-PUT it re-GETs
+  and requires `TargetURL` to be the new value while sources, filters, settings
+  count, `encryption-module`, passphrase masking and the schedule are unchanged.

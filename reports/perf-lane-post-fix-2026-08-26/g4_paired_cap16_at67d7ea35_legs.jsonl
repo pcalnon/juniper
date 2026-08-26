@@ -1,0 +1,8 @@
+{"pair":1,"arm":"service","suite_dir":"/home/pcalnon/.local/state/juniper-experiments/suites/e-k-thread-probe-cap16-20260826T173406Z","config_sha256":"2a60040aff9d42d6a4342e153dbe63c15a5bb5f49265ebf93c37b2ffa5a46c08","load1":4.14}
+{"pair":1,"arm":"cli","load1":5.55}
+{"pair":2,"arm":"service","suite_dir":"/home/pcalnon/.local/state/juniper-experiments/suites/e-k-thread-probe-cap16-20260826T173653Z","config_sha256":"2a60040aff9d42d6a4342e153dbe63c15a5bb5f49265ebf93c37b2ffa5a46c08","load1":7.05}
+{"pair":2,"arm":"cli","load1":11.04}
+{"pair":3,"arm":"service","suite_dir":"/home/pcalnon/.local/state/juniper-experiments/suites/e-k-thread-probe-cap16-20260826T173942Z","config_sha256":"2a60040aff9d42d6a4342e153dbe63c15a5bb5f49265ebf93c37b2ffa5a46c08","load1":12.13}
+{"pair":3,"arm":"cli","load1":9.13}
+{"pair":4,"arm":"service","suite_dir":"/home/pcalnon/.local/state/juniper-experiments/suites/e-k-thread-probe-cap16-20260826T174228Z","config_sha256":"2a60040aff9d42d6a4342e153dbe63c15a5bb5f49265ebf93c37b2ffa5a46c08","load1":7.39}
+{"pair":4,"arm":"cli","load1":8.30}
