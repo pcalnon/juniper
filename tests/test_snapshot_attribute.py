@@ -248,8 +248,8 @@ class DatasetInstanceIsFixedTest(unittest.TestCase):
             if default.arg == "default":
                 # default = default.value
                 break
-            else:
-                default = None
+            # else:
+            #     default = None
             #    continue
             # self.assertIsInstance(default, ast.Name, "--dataset-seed must default to the DATASET_SEED name, not a drifting literal")
             # self.assertEqual(default.id, "DATASET_SEED")
