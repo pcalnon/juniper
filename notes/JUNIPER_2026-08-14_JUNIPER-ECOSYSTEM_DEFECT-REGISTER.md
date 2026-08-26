@@ -557,7 +557,17 @@ That is a stronger finding than a single stray hit would have been: the one pack
 | APD-DATA-035 † | **FIXED (#273)** — CORS registered innermost → `SecurityMiddleware` 401s preflights; path-only `_is_exempt`                            | C   | `api/app.py:104-138`, `api/middleware.py:152-160`                        | 9592 (cascor sibling) | High |
 | APD-DATA-036   | **FIXED (#261)** — Unguarded `int(content_length)` — `Content-Length: abc` is a 500, not a 400                                         | R   | `api/middleware.py:81`                                                   | 758                   | High |
 
-**`APD-DATA-005` cross-reference.** `APD-DATA-024` nullifies it further: because `openapi_url` is `None` whenever any API key is configured (`api/app.py:91`, `:99`), a secured deployment serves **no OpenAPI document at all** — so the missing `securitySchemes` block is unobservable exactly where it would matter. The severity is `M`, not `S`: there is no attacker and no gain, only an absent schema stanza. `api_key_header` is instantiated at `api/security.py:26` and referenced nowhere else in the repository.
+**`APD-DATA-005` cross-reference.** `APD-DATA-024` nullifies it further: because `openapi_url` is `None` whenever any API key is configured (`api/app.py:95` sets `docs_enabled = not settings.api_keys`; `:101-103` gate `docs_url` / `redoc_url` / `openapi_url` on it together), a secured deployment serves **no OpenAPI document at all** — so the missing `securitySchemes` block is unobservable exactly where it would matter. The severity is `M`, not `S`: there is no attacker and no gain, only an absent schema stanza. `api_key_header` is instantiated at `api/security.py:29` and referenced nowhere else in the repository. (Anchors refreshed 2026-08-26; the previously filed `app.py:91`, `:99` and `security.py:26` predate the 08-25 merges.)
+
+**These two are one owner decision, and it has three options, not two (recorded 2026-08-26).** The decision-changing fact is that `EXEMPT_PATHS` (`api/constants.py:62-71`) **already lists `/docs`, `/openapi.json` and `/redoc`**, and `SecurityMiddleware._is_exempt()` is a bare `path in EXEMPT_PATHS` evaluated regardless of whether a key was supplied. The exemption is inert today only because `openapi_url` is `None`. So:
+
+| Option | What it means | Cost |
+|---|---|---|
+| **(a) Serve behind the key** | Mount the document **and** remove `/openapi.json` (and `/docs`, `/redoc` if the explorers follow) from `EXEMPT_PATHS`, **and** wire `api_key_header` so `securitySchemes` + a `security` requirement appear | Closes `-005` and `-024` together in one PR |
+| **(b) Mount but leave exempt** | Re-enable `openapi_url` alone | **Reopens the document to unauthenticated callers** — almost certainly not intended, and the trap: it looks like (a) |
+| **(c) Leave as built** | Keep deleting the document under auth | `-005` is a no-op; both rows close as *won't-fix* with this note as the rationale |
+
+**Do not action this unilaterally**, and do not implement (a) by re-enabling `openapi_url` alone — that is (b). Whichever is chosen, the `EXEMPT_PATHS` interaction is the part a reviewer will miss.
 
 **`APD-DATA-033` restated.** `DEFAULT_RATE_LIMIT_WINDOW_SECONDS` is **not** an unwired constant — it is load-bearing at `api/security.py:128` (constructor default), `:139` (`self._window`), `:147` (cache TTL) and `:163-165` (the `window` property).
 The defect is narrower and real: `RateLimiter` is constructed at `api/app.py:123-126` passing only `requests_per_minute` and `enabled`, and `Settings` declares only `rate_limit_enabled` / `rate_limit_requests_per_minute` (`api/settings.py:164-165`). The window is the one knob of three with no operator-facing setting.
@@ -615,6 +625,39 @@ Four carefully chosen, individually meaningful codes collapse into one opaque st
 
 **`APD-CASCOR-006` detail.** `self._api_keys: set[str] = set(api_keys) if api_keys else set()` (`:32`) followed by `self._enabled = len(self._api_keys) > 0` (`:33`). A configured `[""]` therefore enables authentication and `validate("")` succeeds via `hmac.compare_digest("", "")`. `juniper-service-core/juniper_service_core/security.py:44` carries the blank filter with a comment naming exactly this failure; neither cascor nor juniper-data received it.
 Same reachability caveat as `APD-DATA-003`: the boot-time `enforce_auth_posture` check filters blanks, so triggering this needs auth-posture enforcement disabled. **FIXED** in [juniper-cascor#527](https://github.com/pcalnon/juniper-cascor/pull/527) — the `security.py` line is now byte-identical to the canonical service-core filter, and `_parse_api_keys`'s list branch filters too.
+
+**`APD-CASCOR-005` routing.** This row is an **owner decision, not a task**. Its §3 assessment already
+concludes that the short-circuit is defensible and that what is actionable is the *divergence* — "unify
+the three and decide deliberately which behaviour is intended" — which is a choice between two working
+postures, not a defect with a known fix; §6 lists it among the `Low`-confidence judgement calls to triage
+before actioning. The primer contradicts itself across the two passages the row cites, so neither can be
+used to settle it. **Do not unify the three copies unilaterally.** The routing was carried by the
+defect-register handoff lineage alone until it was recorded here on 2026-08-26.
+
+**`APD-CASCOR-003` carries an unfiled sibling.** All 47 cascor route decorators also declare no
+`operation_id` — the `APD-DATA-023` gap, never filed as its own row here (it is recorded in that entry's
+§5.1 row). Both are the same mechanical pass over the same decorators, so **do them together**; splitting
+them rewrites every decorator twice. One caveat the `-023` close does not carry over: cascor wraps
+responses in the `{"status","data","meta"}` envelope (`src/api/models/common.py`), so `response_model`
+here means typing that envelope generically rather than writing a model per route.
+
+**Measured 2026-08-26 — declaring the envelope does NOT change the wire.** The decisive fact is not
+that `data` is `Any` (`:65`, which does mean pydantic neither validates nor filters the payload) but
+that `success_response()` already **returns `ResponseEnvelope(...).model_dump()`** (`:97`). Every
+enveloped body has therefore *already* round-tripped through the exact model a `response_model=` would
+re-apply, so the second pass is idempotent by construction. `meta` is the field to watch — it is typed
+`Meta`, not `Any` (`:66`, `Meta` = `timestamp` + `version`, `:46-50`) — but `success_response()` takes
+no `meta` argument and always builds it from the default factory, so no route can put an extra key
+there either.
+**The safety is conditional on one property**: that a route's body comes from `success_response()`.
+A handler that hand-builds a dict and returns it directly would be filtered against the envelope and
+lose anything outside `status`/`data`/`meta`. That property holds today — the bare `return {...}` sites
+(`workers.py:40`, `snapshots.py:116`, `:128`) are non-route helpers whose output is wrapped at the real
+`@router` call sites, and `error_response()` is reached only from `app.py`'s exception handlers, which
+return raw `JSONResponse`s that bypass `response_model` entirely. **Pin that property in the same PR**,
+not the absence of extra keys: the failure mode is a future route that skips `success_response()`, and
+nothing would fail. (`health.py:130`'s `response_model=ReadinessResponse` is not a counter-example; it
+deliberately skips the envelope.)
 
 ### 4.4 `juniper-cascor-client`
 
@@ -702,7 +745,7 @@ What reproduces is broader: `self.base_url = base_url.rstrip("/")` (`:82`) is th
 The real gap is what those checkers are pointed at. Both pre-commit hooks scope mypy to `^juniper_<pkg>_client/(?!testing/).*\.py$` — library-internal source only, never a file that *imports* the package the way a consumer would. `juniper-recurrence-client` configures no mypy at all and has no `.pre-commit-config.yaml`.
 So no client verifies that its own published type surface is usable from outside, which is the failure `APD-OBS-002` and `APD-SVCCORE-008` would have caught.
 
-**`APD-ECO-004` / `APD-ECO-007` cross-references.** `APD-ECO-004` also owns the `APD-RCLIENT-004` shape proposal (client-side `TypedDict`s held to the server models by a drift test — see the §4.6 note); `APD-ECO-007` owns the removal-date half of the retired `APD-CCLIENT-012` (its §4.4 marker and §5.1 row say so; this is the reciprocal pointer, so a reader starting from this table sees it too).
+**`APD-ECO-004` / `APD-ECO-007` cross-references.** `APD-ECO-004` also owns the `APD-RCLIENT-004` shape proposal (client-side `TypedDict`s held to the server models by a drift test — see the §4.6 note); `APD-ECO-007` owns the removal-date half of `APD-CCLIENT-012`, whose `auto_pong` deprecation still lacks a removal date (its §4.4 marker and §5.1 row say so; this is the reciprocal pointer, so a reader starting from this table sees it too). `APD-CCLIENT-012` itself is **FIXED** — the trap half closed in cclient#137 — and is *not* a retired ID; the only retired number in this register is `APD-CCLIENT-003` (see the §4.4 retired-ID note and [§1](#identifier-namespace)).
 
 **`APD-ML-001` restated, and downgraded.** The earlier wording — "8 first-party pins uncapped, contradicting the file's own stated policy" — overstated the primer twice. The primer says at 7445-7446 that "the pattern is coherent even if **never stated as policy**": there is no stated policy to contradict. And it states no count of 8; its table has three uncapped rows across six packages. The count of 8 is this register's re-verification (register-derived), not an extraction.
 
