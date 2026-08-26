@@ -121,8 +121,12 @@ def main():
     dindexes = [n for n in names if ".dindex." in n]
     dblocks = [n for n in names if ".dblock." in n]
     print(f"destination: {dest} -> {len(dlists)} dlist / {len(dindexes)} dindex / {len(dblocks)} dblock")
-    if len(dlists) != 1:
-        fail(f"expected exactly 1 dlist, found {len(dlists)}")
+    if not dlists:
+        fail("no dlist in destination")
+    # 2026-08-25: a live destination accumulates dlists; check the NEWEST one (names embed the
+    # UTC start stamp, so the lexically last is the newest -- dlists[0] would be the original full).
+    dlist_name = dlists[-1]
+    print(f"dlist      : {dlist_name} (newest of {len(dlists)})")
 
     passphrase = load_passphrase(args.cred_file, args.cred_key)
 
@@ -176,7 +180,7 @@ def main():
 
     # ---- NEEDED: every hash the dlist references ----------------------------
     plain = os.path.join(workdir, "dlist.zip")
-    gpg_decrypt(os.path.join(dest, dlists[0]), plain, passphrase)
+    gpg_decrypt(os.path.join(dest, dlist_name), plain, passphrase)
     with zipfile.ZipFile(plain) as zf:
         filelist = json.loads(zf.read("filelist.json"))
         manifest = json.loads(zf.read("manifest"))
