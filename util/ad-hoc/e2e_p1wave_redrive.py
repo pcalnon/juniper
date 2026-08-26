@@ -990,6 +990,8 @@ def main() -> int:
             with open(RESULTS_PATH, encoding="utf-8") as fh:
                 RESULTS.update(json.load(fh))
         except (OSError, ValueError):
+            # Best-effort merge of a prior run's verdicts: a missing/partial/corrupt
+            # results file just means this invocation starts fresh, so swallow it.
             pass
     from playwright.sync_api import sync_playwright
 
