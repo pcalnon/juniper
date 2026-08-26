@@ -1,0 +1,26 @@
+census: cascor 2eab062cb1e88bba7fc37a68ff839e8075277d3c branch diag/census-at67d7ea35-0339 | cell /home/pcalnon/.local/state/juniper-experiments/suites/e-l-determinism-cap4-20260824T003754Z/cells/c000-7749f335/experiment.yaml | out=/home/pcalnon/.local/state/juniper-experiments/census-at67d7ea35
+census: stack 20260826T174914Z-48e8 DATA_URL=http://127.0.0.1:8110
+census: leg 1 (auditor armed) -> /home/pcalnon/.local/state/juniper-experiments/census-at67d7ea35/cli-01  load1=23.62
+thread probe: threads=default(RC-1 -> 2)  config=c000-7749f335  out=/home/pcalnon/.local/state/juniper-experiments/census-at67d7ea35/cli-01
+thread probe: threads=default(RC-1 -> 2) exit=0 process_wall_seconds=29
+census: leg 1 rc=0
+census: leg 2 (worker profile) -> /home/pcalnon/.local/state/juniper-experiments/census-at67d7ea35/cli-02  load1=25.64
+thread probe: threads=default(RC-1 -> 2)  config=c000-7749f335  out=/home/pcalnon/.local/state/juniper-experiments/census-at67d7ea35/cli-02
+thread probe: threads=default(RC-1 -> 2) exit=0 process_wall_seconds=29
+census: leg 2 rc=0
+census: stack 20260826T174914Z-48e8 down rc=0
+census: control 1 (parent resolved a DSN; legacy-name DeprecationWarning lines in cli-01/direct_cli.log): 1
+census: control 2 (ledgers): total=1 armed=1 final=1 with_FIRST_IMPORT=1  (expect exactly one ARMED+FINAL = the forkserver; child ledgers expected ZERO on the fixed build)
+census:   role=parent(main.py) pid=3487362 FINAL modules=1094 present=['torch', 'numpy']
+census:   role=parent(main.py) pid=3487362 FIRST-IMPORT numpy (as 'numpy') triggered by /opt/miniforge3/envs/JuniperCascor1/lib/python3.13/site-packages/torch/__init__.py:442 in <module>
+census:   role=parent(main.py) pid=3487362 FIRST-IMPORT torch (as 'torch') triggered by /opt/miniforge3/envs/JuniperCascor1/lib/python3.13/multiprocessing/forkserver.py:196 in main
+census: control 3 (DIAG-ENV census lines in cli-01 trainer log): 7  (expect 7-8)
+census:   pid=3487519 start_method=forkserver parent=3487362 sys_modules=1166 present=['torch', 'numpy']
+census:   pid=3487520 start_method=forkserver parent=3487362 sys_modules=1166 present=['torch', 'numpy']
+census:   pid=3487526 start_method=forkserver parent=3487362 sys_modules=1166 present=['torch', 'numpy']
+census:   pid=3487528 start_method=forkserver parent=3487362 sys_modules=1166 present=['torch', 'numpy']
+census:   pid=3487532 start_method=forkserver parent=3487362 sys_modules=1166 present=['torch', 'numpy']
+census:   pid=3487535 start_method=forkserver parent=3487362 sys_modules=1166 present=['torch', 'numpy']
+census:   pid=3487537 start_method=forkserver parent=3487362 sys_modules=1166 present=['torch', 'numpy']
+census: profile: 32 .prof files in /home/pcalnon/.local/state/juniper-experiments/census-at67d7ea35/prof
+census: done -> /home/pcalnon/.local/state/juniper-experiments/census-at67d7ea35

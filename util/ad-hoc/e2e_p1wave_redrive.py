@@ -257,21 +257,104 @@ def click_id(page, dom_id: str) -> bool:
     return bool(page.evaluate("""(id) => { const b = document.getElementById(id); if (!b) return false; b.click(); return true; }""", dom_id))
 
 
+def _slider_thumb_state(page, container_id: str, handle_index: int = 0):
+    """Value + bounds of one slider thumb, on EITHER slider generation."""
+    return page.evaluate(
+        """([id, i]) => { const root = document.getElementById(id); if (!root) return null;
+             // Dash 3 (Radix) first, then the legacy rc-slider handle.
+             let thumbs = [...root.querySelectorAll('[role=slider]')];
+             if (!thumbs.length) thumbs = [...root.querySelectorAll('.rc-slider-handle')];
+             const t = thumbs[i]; if (!t) return null;
+             const num = (n) => { const v = t.getAttribute(n); return v === null ? null : Number(v); };
+             return {n: thumbs.length, now: num('aria-valuenow'), min: num('aria-valuemin'), max: num('aria-valuemax')}; }""",
+        [container_id, handle_index],
+    )
+
+
 def drag_handle(page, container_id: str, dx: int, handle_index: int = 0) -> bool:
-    """Mouse-drag an rc-slider handle inside a dcc.Slider/RangeSlider container."""
-    loc = page.locator(f"#{container_id} .rc-slider-handle")
-    if loc.count() <= handle_index:
+    """Move a slider thumb by ``dx`` pixels' worth of value. Verified by EFFECT.
+
+    REWRITTEN 2026-08-26. The original queried ``.rc-slider-handle`` and mouse-dragged
+    it. This canopy is on **Dash 3.x**, whose sliders are Radix (``.dash-slider-root``,
+    a ``[role=slider]`` thumb) beside an ``input[type=number]`` -- there is no
+    ``.rc-slider-handle`` in the tree at all, so the old helper returned False without
+    erroring and the W5-21..23 slider rows were mis-diagnosed as "needs an rc-slider
+    drag idiom". Idioms tried in order, each scored by re-reading ``aria-valuenow``:
+    keyboard arrows on the focused thumb (works for multi-thumb range sliders too),
+    the companion number input via the React native value-setter (single-thumb only),
+    then a real pointer drag. Returns True only if the value actually changed.
+    """
+    st = _slider_thumb_state(page, container_id, handle_index)
+    if not st or st.get("now") is None or st.get("min") is None or st.get("max") is None:
         return False
-    box = loc.nth(handle_index).bounding_box()
-    if not box:
+    lo, hi, now = st["min"], st["max"], st["now"]
+    if hi <= lo:
         return False
-    cx = box["x"] + box["width"] / 2
-    cy = box["y"] + box["height"] / 2
-    page.mouse.move(cx, cy)
-    page.mouse.down()
-    page.mouse.move(cx + dx, cy, steps=10)
-    page.mouse.up()
-    return True
+    track = page.evaluate(
+        """(id) => { const r = document.querySelector('#' + id + ' .dash-slider-track, #' + id + ' .rc-slider-rail');
+             if (!r) return null; const bb = r.getBoundingClientRect();
+             return {x: bb.x, y: bb.y, w: bb.width, h: bb.height}; }""",
+        container_id,
+    )
+    width = (track or {}).get("w") or 300
+    target = now + (dx / float(width)) * (hi - lo)
+    target = max(lo, min(hi, round(target)))
+    if target == now:
+        target = min(hi, now + 1) if dx > 0 else max(lo, now - 1)
+    if target == now:
+        return False
+
+    def cur():
+        s = _slider_thumb_state(page, container_id, handle_index)
+        return None if not s else s.get("now")
+
+    # Idiom 1 -- keyboard on the focused thumb (the only one that addresses a
+    # specific handle of a two-handle range slider).
+    page.evaluate(
+        """([id, i]) => { const root = document.getElementById(id); if (!root) return;
+             let th = [...root.querySelectorAll('[role=slider]')];
+             if (!th.length) th = [...root.querySelectorAll('.rc-slider-handle')];
+             if (th[i]) th[i].focus(); }""",
+        [container_id, handle_index],
+    )
+    guard = 0
+    while guard < 200:
+        c = cur()
+        if c is None or c == target:
+            break
+        page.keyboard.press("ArrowRight" if c < target else "ArrowLeft")
+        page.wait_for_timeout(90)
+        guard += 1
+    if cur() == target:
+        return True
+
+    # Idiom 2 -- the companion number input (single-thumb sliders only).
+    if (st.get("n") or 1) == 1 and page.evaluate(
+        """([id, v]) => { const root = document.getElementById(id); if (!root) return false;
+             const el = root.querySelector('input[type=number]'); if (!el) return false;
+             const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+             setter.call(el, String(v));
+             el.dispatchEvent(new Event('input', {bubbles:true}));
+             el.dispatchEvent(new Event('change', {bubbles:true}));
+             el.blur(); return true; }""",
+        [container_id, target],
+    ):
+        page.wait_for_timeout(1200)
+        if cur() == target:
+            return True
+
+    # Idiom 3 -- a real pointer drag along the track.
+    loc = page.locator(f"#{container_id} [role=slider], #{container_id} .rc-slider-handle")
+    if track and loc.count() > handle_index:
+        hb = loc.nth(handle_index).bounding_box()
+        if hb:
+            cy = hb["y"] + hb["height"] / 2
+            page.mouse.move(hb["x"] + hb["width"] / 2, cy)
+            page.mouse.down()
+            page.mouse.move(hb["x"] + hb["width"] / 2 + dx, cy, steps=15)
+            page.mouse.up()
+            page.wait_for_timeout(1200)
+    return cur() != now
 
 
 def canopy_log_text() -> str:
