@@ -7,8 +7,10 @@ Author:      Paul Calnon
 Version:     0.1.0
 License:     MIT License
 
-Restore drill for the FRESH Duplicati set (fileset of 2026-08-23T17:15:12),
-built to the six requirements from the 2026-08-24 adversarial gate review:
+Restore drill for a Duplicati destination -- originally the FRESH set (fileset
+of 2026-08-23T17:15:12), since 2026-08-25 the Yamaguchi set (see the revision
+note at the end) -- built to the six requirements from the 2026-08-24
+adversarial gate review:
 
 1. **Destination-only restore.** With ``--dbpath`` pointing at a nonexistent
    file, duplicati-cli builds a TEMPORARY database from the destination alone
@@ -51,15 +53,44 @@ built to the six requirements from the 2026-08-24 adversarial gate review:
    A full pass therefore reads "synthetic PARTIAL fileset verified
    restorable" -- never "restore point verified".
 
+Revision 2026-08-25 (Yamaguchi widened-scope re-certification, drill 2):
+
+* **Newest-dlist selection.** A live destination accumulates dlists (one per
+  surviving fileset), so the exactly-one assertion is replaced by "drill the
+  NEWEST dlist" -- ``sorted(...)[-1]``; the names embed the UTC start stamp.
+  ``dlists[0]`` would silently drill the ORIGINAL full. ``--version=0`` is the
+  newest fileset of the temp DB, i.e. the same dlist; the driver re-lists the
+  destination immediately before and after every restore and FAILS (rc 2) if
+  the newest dlist changed -- a backup landing mid-drill would otherwise make
+  the manifest and the restored bytes come from different filesets.
+* **Derived oracle cutoff.** ``--backup-start-epoch`` now defaults to the
+  chosen dlist's own timestamp (the fileset time IS the backup start), so the
+  time-decaying parameter can no longer be copied stale from a prior run.
+* **VM-image stratum.** With ``--skip-files-larger-than`` removed and VDIs
+  admitted as explicit sources, one ``vmimage`` candidate is drawn: the
+  smallest image whose live mtime predates the backup (a static image lets the
+  live oracle engage; a running VM's image diverges benignly and proves less),
+  else the smallest. ``large`` now excludes VM images and is capped at
+  ``--large-max-bytes`` so the drill's runtime stays bounded.
+* **Symlink recipe.** The new restore engine's partial-restore rules (no
+  parent-dir creation for metadata-only entries; out-of-tree relative targets
+  skipped -- certification note §5.4) are satisfied by preferring a link whose
+  live target is a SIBLING regular file present in the fileset and restoring
+  that sibling too (``symlink-target`` stratum): the sibling's restore creates
+  the parent directory and puts the target in-tree. Falls back to the first
+  symlink (the drill-1 behaviour) when no such link exists.
+
 Exit codes: 0 = all candidates verified; 1 = any restore/verify failure;
 2 = operational failure.
 """
 
 import argparse
 import base64
+import calendar
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -115,15 +146,45 @@ def sha256_file(path):
     return base64.b64encode(h.digest()).decode()
 
 
+def newest_dlist(dest):
+    """The lexically last dlist name: names embed the UTC start stamp, so last == newest."""
+    dlists = sorted(n for n in os.listdir(dest) if ".dlist." in n)
+    return dlists[-1] if dlists else None
+
+
+def dlist_epoch(name):
+    """Backup start (epoch seconds) from a dlist name, duplicati-YYYYMMDDTHHMMSSZ.dlist.*"""
+    m = re.search(r"-(\d{8}T\d{6})Z\.dlist\.", name)
+    if not m:
+        fail(f"cannot parse the UTC timestamp from dlist name {name}")
+    return calendar.timegm(time.strptime(m.group(1), "%Y%m%dT%H%M%S"))
+
+
+def assert_dlist_unchanged(dest, expected, when):
+    """--version=0 resolves against the destination as it is at restore time; if a backup
+    landed since the manifest was parsed, manifest and restored bytes would come from
+    different filesets. Refuse rather than verify the wrong restore point."""
+    now = newest_dlist(dest)
+    if now != expected:
+        fail(f"newest dlist changed {when}: parsed {expected}, destination now has {now} -- rerun the drill")
+
+
+def is_vm_image(path):
+    return path.lower().endswith((".vdi", ".vmdk", ".qcow2", ".vhd", ".vhdx"))
+
+
 def parse_destination(dest, workdir, passphrase, blocksize):
-    """Return (filelist, block_to_dblock, blocklist_content, dblock_order)."""
+    """Return (filelist, block_to_dblock, blocklist_content, dblock_order, dlist_name)."""
     names = sorted(os.listdir(dest))
     dlists = [n for n in names if ".dlist." in n]
     dindexes = [n for n in names if ".dindex." in n]
     dblocks = [n for n in names if ".dblock." in n]
-    if len(dlists) != 1:
-        fail(f"expected exactly 1 dlist, found {len(dlists)}")
+    if not dlists:
+        fail("no dlist in destination")
+    # NEWEST dlist -- never dlists[0], which after any incremental is the original full.
+    dlist_name = dlists[-1]
     print(f"destination : {dest} -> {len(dlists)} dlist / {len(dindexes)} dindex / {len(dblocks)} dblock")
+    print(f"dlist       : {dlist_name} (newest of {len(dlists)}; == --version=0 of the temp DB)")
 
     block_to_dblock = {}
     blocklist_content = {}
@@ -147,16 +208,16 @@ def parse_destination(dest, workdir, passphrase, blocksize):
         os.unlink(plain)
 
     plain = os.path.join(workdir, "dlist.zip")
-    gpg_decrypt(os.path.join(dest, dlists[0]), plain, passphrase)
+    gpg_decrypt(os.path.join(dest, dlist_name), plain, passphrase)
     with zipfile.ZipFile(plain) as zf:
         filelist = json.loads(zf.read("filelist.json"))
-        fileset_meta = json.loads(zf.read("fileset"))
+        fileset_meta = json.loads(zf.read("fileset")) if "fileset" in zf.namelist() else {}
     os.unlink(plain)
     print(f"fileset     : IsFullBackup={fileset_meta.get('IsFullBackup')} entries={len(filelist)}")
 
     # upload order of dblocks by mtime
     dblock_order = sorted(dblocks, key=lambda n: os.path.getmtime(os.path.join(dest, n)))
-    return filelist, block_to_dblock, blocklist_content, dblock_order
+    return filelist, block_to_dblock, blocklist_content, dblock_order, dlist_name
 
 
 def file_blocks(entry, blocklist_content, blocksize):
@@ -175,7 +236,8 @@ def file_blocks(entry, blocklist_content, blocksize):
     return []
 
 
-def pick_candidates(filelist, block_to_dblock, blocklist_content, dblock_order, blocksize, per_stratum):
+def pick_candidates(filelist, block_to_dblock, blocklist_content, dblock_order, blocksize, per_stratum,
+                    large_max=16 * 2**30, backup_start_epoch=0):
     order_idx = {n: i for i, n in enumerate(dblock_order)}
     n = len(dblock_order)
     windows = {"early": (0, n // 3), "mid": (n // 3, 2 * n // 3), "late": (2 * n // 3, n)}
@@ -222,7 +284,7 @@ def pick_candidates(filelist, block_to_dblock, blocklist_content, dblock_order, 
         if mh and mh in seen_hashes:
             return False
         td = top_dir(path)
-        if stratum.split("/")[0] not in ("large", "empty", "symlink") and dir_counts.get(td, 0) >= 3:
+        if stratum.split("/")[0] not in ("large", "empty", "symlink", "symlink-target", "vmimage") and dir_counts.get(td, 0) >= 3:
             return False
         touched = sorted({block_to_dblock[b] for b in blocks if b in block_to_dblock})
         candidates.append({
@@ -243,9 +305,45 @@ def pick_candidates(filelist, block_to_dblock, blocklist_content, dblock_order, 
     files = [e for e in filelist if e.get("type") == "File"]
     singles = [e for e in files if not e.get("blocklists") and 0 < e.get("size", 0) <= blocksize]
     multis = [e for e in files if e.get("blocklists") and e.get("size", 0) < 60 * 2**20]
-    larges = sorted((e for e in files if e.get("size", 0) >= 300 * 2**20), key=lambda e: -e["size"])
+    # `large` is bounded (VM images have their own stratum) so the drill's runtime stays bounded
+    larges = sorted((e for e in files if 300 * 2**20 <= e.get("size", 0) <= large_max and not is_vm_image(e["path"])),
+                    key=lambda e: -e["size"])
+    images = [e for e in files if is_vm_image(e["path"]) and e.get("size", 0) >= 2**30]
     empties = [e for e in files if e.get("size", 0) == 0]
     symlinks = [e for e in filelist if e.get("type") == "Symlink"]
+
+    def live_mtime(path):
+        try:
+            return os.lstat(path).st_mtime
+        except OSError:
+            return None
+
+    def pick_image():
+        # prefer an image whose live copy predates the backup (static: the live oracle
+        # engages with teeth); a running VM's image only ever yields benign divergence
+        static = [e for e in images if (live_mtime(e["path"]) or float("inf")) < backup_start_epoch]
+        pool = static or images
+        return min(pool, key=lambda e: e["size"]) if pool else None
+
+    def pick_symlink():
+        # a link whose live target is a SIBLING regular file that is itself in the
+        # fileset: restoring both satisfies the engine's partial-restore preconditions
+        by_path = {e["path"]: e for e in files}
+        for e in symlinks:
+            p = e["path"]
+            if not os.path.islink(p):
+                continue
+            try:
+                target = os.readlink(p)
+            except OSError:
+                continue
+            if not target or "/" in target or target in (".", ".."):
+                continue
+            sibling = by_path.get(os.path.join(os.path.dirname(p), target))
+            # both paths become positional FILTERS to duplicati-cli: glob chars would widen the restore
+            if sibling is not None and not any(ch in p + sibling["path"] for ch in "*?[]"):
+                return e, sibling
+        return (symlinks[0], None) if symlinks else (None, None)
 
     for w in ("early", "mid", "late"):
         got_s = got_m = 0
@@ -261,12 +359,21 @@ def pick_candidates(filelist, block_to_dblock, blocklist_content, dblock_order, 
             blocks = file_blocks(e, blocklist_content, blocksize)
             if window_of([block_to_dblock.get(b) for b in blocks if b in block_to_dblock] or []) == w and add(e, f"multi/{w}", blocks):
                 got_m += 1
-    if larges:
-        add(larges[0], "large", file_blocks(larges[0], blocklist_content, blocksize))
+    for e in larges:  # add() may refuse (glob chars, duplicate hash) -- take the next largest
+        if add(e, "large", file_blocks(e, blocklist_content, blocksize)):
+            break
+    image = pick_image()
+    if image is not None:
+        add(image, "vmimage", file_blocks(image, blocklist_content, blocksize))
     if empties:
         add(empties[0], "empty", [])
-    if symlinks:
-        add(symlinks[0], "symlink", [])
+    link, sibling = pick_symlink()
+    if link is not None:
+        # the sibling is what makes the link restorable (parent dir + in-tree target); the
+        # pair only holds in --single-invocation mode, where both land in one restore tree
+        if sibling is not None and not add(sibling, "symlink-target", file_blocks(sibling, blocklist_content, blocksize)):
+            print(f"  symlink sibling refused by add(); drilling {link['path']} without it (expect the engine to skip it)")
+        add(link, "symlink", [])
 
     coverage = sorted({d for c in candidates for d in c["dblocks"]})
     return candidates, coverage
@@ -274,18 +381,24 @@ def pick_candidates(filelist, block_to_dblock, blocklist_content, dblock_order, 
 
 def main():
     ap = argparse.ArgumentParser(description="fresh-set restore drill (destination-only, dual oracle)")
-    ap.add_argument("--dest", default="/media/pcalnon/temp_backups/Ubuntu")
-    ap.add_argument("--run-root", default="/media/pcalnon/temp_backups/_fresh_drill")
+    # defaults = the LIVE set (Yamaguchi, aes) since 2026-08-25; the old gpg fresh set needs
+    # --dest .../Ubuntu --run-root .../_fresh_drill --encryption gpg explicitly. A bare run
+    # against the wrong destination would print a true-looking PASS for the wrong set.
+    ap.add_argument("--dest", default="/media/pcalnon/temp_backups/Yamaguchi")
+    ap.add_argument("--run-root", default="/media/pcalnon/temp_backups/_yamaguchi_drill")
     ap.add_argument("--cred-file", default=os.path.expanduser("~/.config/duplicati-backup/env"))
     ap.add_argument("--cred-key", default="PASSPHRASE")
     ap.add_argument("--blocksize", type=int, default=1024 * 1024)
     ap.add_argument("--per-stratum", type=int, default=2)
     ap.add_argument("--live-floor", type=int, default=10,
                     help="minimum live-oracle MATCHES for a PASS (else INCONCLUSIVE)")
-    ap.add_argument("--backup-start-epoch", type=int, default=1787523309,
-                    help="2026-08-23T17:15:09-05:00; live mtime BEFORE this + divergence = contradiction")
+    ap.add_argument("--backup-start-epoch", type=int, default=None,
+                    help="live mtime BEFORE this + divergence = contradiction; default: derived from the "
+                         "drilled dlist's own timestamp (drill 1 of the fresh set used 1787523309)")
+    ap.add_argument("--large-max-bytes", type=int, default=16 * 2**30,
+                    help="upper bound for the `large` stratum (VM images have their own stratum)")
     ap.add_argument("--select-only", action="store_true", help="stop after writing candidates.json")
-    ap.add_argument("--encryption", choices=["gpg", "aes"], default="gpg")
+    ap.add_argument("--encryption", choices=["gpg", "aes"], default="aes")
     ap.add_argument("--single-invocation", action="store_true",
                     help="restore ALL candidates in one duplicati-cli call (one shared "
                          "temp-DB recreate -- required for large sets where a per-candidate "
@@ -311,13 +424,23 @@ def main():
     print(f"run dir     : {run_dir}")
 
     passphrase = load_passphrase(args.cred_file, args.cred_key)
-    filelist, block_to_dblock, blocklist_content, dblock_order = parse_destination(
+    filelist, block_to_dblock, blocklist_content, dblock_order, dlist_name = parse_destination(
         dest, workdir, passphrase, args.blocksize)
+    args.dlist_name = dlist_name
+    if args.backup_start_epoch is None:
+        args.backup_start_epoch = dlist_epoch(dlist_name)
+    print(f"oracle cutoff: backup-start-epoch {args.backup_start_epoch} "
+          f"({time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(args.backup_start_epoch))})")
 
     candidates, coverage = pick_candidates(
-        filelist, block_to_dblock, blocklist_content, dblock_order, args.blocksize, args.per_stratum)
+        filelist, block_to_dblock, blocklist_content, dblock_order, args.blocksize, args.per_stratum,
+        large_max=args.large_max_bytes, backup_start_epoch=args.backup_start_epoch)
     with open(os.path.join(run_dir, "candidates.json"), "w") as fh:
         json.dump(candidates, fh, indent=1)
+    with open(os.path.join(run_dir, "drill-meta.json"), "w") as fh:
+        json.dump({"dest": dest, "dlist": dlist_name, "backup_start_epoch": args.backup_start_epoch,
+                   "dblocks": len(dblock_order), "encryption": args.encryption,
+                   "single_invocation": args.single_invocation, "large_max_bytes": args.large_max_bytes}, fh, indent=1)
     print(f"candidates  : {len(candidates)} across strata; dblock coverage {len(coverage)}/{len(dblock_order)}")
     for c in candidates:
         print(f"  [{c['stratum']:>10}] {c['size']:>12} B  {len(c['dblocks']):>3} dblock(s)  {c['path']}")
@@ -347,9 +470,17 @@ def main():
                 continue
             seen_base.add(base)
             uniq.append(c)
+        # the symlink is only restorable together with its sibling: if dedupe took the
+        # sibling, drop the link too rather than record a MISSING that is not a defect
+        kept = {c["path"] for c in uniq}
+        if any(c["stratum"] == "symlink-target" and c["path"] not in kept for c in candidates):
+            uniq = [c for c in uniq if c["stratum"] != "symlink"]
+            print("  symlink sibling was deduped away; dropping the symlink candidate as well")
         candidates = uniq
+        coverage = sorted({d for c in candidates for d in c["dblocks"]})
         rdir = os.path.join(restore_root, "all")
         os.makedirs(rdir, exist_ok=True)
+        assert_dlist_unchanged(dest, dlist_name, "before the restore")
         t0 = time.monotonic()
         argv = ["duplicati-cli", "restore", f"file://{dest}"] + [c["path"] for c in candidates] + [
             f"--dbpath={dbpath}", f"--restore-path={rdir}", f"--tempdir={tmpdir}",
@@ -361,6 +492,7 @@ def main():
             fh.write(proc.stdout + "\n--- stderr ---\n" + proc.stderr)
         if os.path.exists(dbpath):
             fail(f"{dbpath} materialized -- see per-candidate mode comment")
+        assert_dlist_unchanged(dest, dlist_name, "during the restore")
         print(f"  single restore invocation: rc={proc.returncode} in {dur:.0f}s for {len(candidates)} candidates")
         for c in candidates:
             verdict, detail, live_oracle = verify_candidate(c, rdir, args.backup_start_epoch)
@@ -375,6 +507,7 @@ def main():
     for i, c in enumerate(candidates):
         rdir = os.path.join(restore_root, f"c{i:02d}")
         os.makedirs(rdir, exist_ok=True)
+        assert_dlist_unchanged(dest, dlist_name, f"before candidate c{i:02d}")
         t0 = time.monotonic()
         proc = subprocess.run(
             ["duplicati-cli", "restore", f"file://{dest}", c["path"],
@@ -412,6 +545,7 @@ def finish_report(args, run_dir, results, coverage, dblock_order):
     with open(os.path.join(run_dir, "results.json"), "w") as fh:
         json.dump(results, fh, indent=1)
     print()
+    print(f"drilled dlist    : {getattr(args, 'dlist_name', '?')} (oracle cutoff epoch {args.backup_start_epoch})")
     print(f"RESTORED+VERIFIED: {ok}/{len(results)} candidates; dblock coverage {len(coverage)}/{len(dblock_order)}")
     print(f"live-source oracle: {live_ok} matches, {len(contradictions)} contradictions (floor for PASS: {args.live_floor})")
     if bad or contradictions:

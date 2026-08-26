@@ -3,7 +3,7 @@
 **Project**: Juniper — Backup Infrastructure
 **Author**: Paul Calnon (campaign executed by Claude Code session "backup sys work")
 **Date**: 2026-08-25
-**Status**: CERTIFIED — the arc's first complete, verified restore point
+**Status**: CERTIFIED — the arc's first complete, verified restore point. **Addendum §8 (2026-08-25 evening)**: the scope was widened the same afternoon (two VM images admitted, size cap removed); the widened fileset is re-certified there and §3/§7 are read as the 08:29 snapshot they were.
 **Predecessors**: [`JUNIPER_2026-08-24_JUNIPER-ECOSYSTEM_DUPLICATI-GPG-FLUSH-FAILURE-INVESTIGATION.md`](JUNIPER_2026-08-24_JUNIPER-ECOSYSTEM_DUPLICATI-GPG-FLUSH-FAILURE-INVESTIGATION.md) · [`JUNIPER_2026-08-24_JUNIPER-ECOSYSTEM_DUPLICATI-FRESH-SET-CERTIFICATION.md`](JUNIPER_2026-08-24_JUNIPER-ECOSYSTEM_DUPLICATI-FRESH-SET-CERTIFICATION.md)
 
 ---
@@ -66,6 +66,11 @@ retro-attributing run 1's identical "pipe wait" evidence away from gpg; the
 thread census is preserved in the session transcript only).
 
 ## 3. The job (id 2, "Yamaguchi") — configuration of record
+
+> **Superseded 2026-08-25 14:14 CDT** — this section describes the configuration
+> *as certified* by §5 (the `20260825T102739Z` fileset). The live job has since been
+> widened; the current configuration of record is §8.1 /
+> `_yamaguchi_check/yamaguchi-config-post-widening.json`.
 
 Destination `file:///media/pcalnon/temp_backups/Yamaguchi/` (dedicated
 subdirectory; an earlier auto-started run with default options into the mount
@@ -160,6 +165,10 @@ single-user host).
 
 ## 7. Open items
 
+> Snapshot of 2026-08-25 08:29. Dispositions as of the evening addendum are in §8.7;
+> the RESTART TRAP named below was **closed at 14:14** (`--portable-mode` restored by
+> Paul; the running process matches the file).
+
 - **Plan acceptance tail**: second drill from a different fileset after an
   incremental (the daily 13:00 schedule produces one naturally); schedule
   survival across a reboot (server service is system-enabled — verify after
@@ -184,3 +193,267 @@ single-user host).
   `duplicati.service` on 8200 was repurposed to 8300 rather than removed.
 - The profile server DB (schema 19, jobs Ubuntu/Ubuntu-fresh) is orphaned
   from any running server; openable by 2.3.0.4+ if ever needed.
+
+## 8. Addendum (2026-08-25 evening) — scope widening and re-certification
+
+### 8.1 What changed (Paul, 14:14 CDT, via the UI)
+
+Diff of the live job against `yamaguchi-config-final.json`
+(`yamaguchi_config_record.py`; record: `_yamaguchi_check/yamaguchi-config-post-widening.json`,
+passphrase redacted):
+
+- **Sources** (1 → 3): `/home/pcalnon/` plus two explicit VM images —
+  `VirtualMachines/VirtualBox/win10_vm_2023-04-29/win10_vm_2023-04-29.vdi`
+  (63,860,375,552 B, static since 2026-07-15) and
+  `VirtualMachines/VirtualBox/win11_vm_clean_2026-07-15/win11_vm_clean_2026-07-15.vdi`
+  (55,966,695,424 B — **its VM was running under VBoxHeadless during the backup and
+  still is**, so the stored image is crash-consistent at best; §8.6). The
+  `VirtualMachines/` exclude (filter 40) remains, so only the named images enter.
+- **Filters** (46 → 44): `*.iso` and `*.vdi` removed — the two Ubuntu server ISOs
+  under `Development/python/Tooling/k8s/` (3.3 GB + 2.3 GB) entered with the VDIs.
+- **Settings** (11 → 10): **`--skip-files-larger-than=8GB` removed entirely** (the
+  VDIs required it; the cap's absence is now global). The UI re-keyed
+  `--dblock-size` as `dblock-size` (same 500MB). Unchanged: `encryption-module=aes`,
+  `compression-module=zip`, `--blocksize=1MB`, `--no-auto-compact=true` paired with
+  `retention-policy=1W:1D,1M:1W,1Y:1M,3Y:2M`, `--allow-missing-source=true`,
+  `--asynchronous-upload-limit=1`, `--tempdir=/media/pcalnon/temp_backups/_duplicati_tmp`.
+- **Schedule**: `Time` 2026-08-25T18:00:00Z → **2026-08-25T14:00:00Z**, `Repeat=1D`,
+  all days — the job now fires **daily at 09:00 CDT** (server `ProposedSchedule`
+  2026-08-26T14:00:00Z), not the 13:00 CDT §3 describes. The two agree; the
+  handoff's "configured 18:00Z" was the pre-widening record. Intent is Paul's to
+  confirm (§8.6).
+- `/etc/default/duplicati` (same edit, mtime 14:14:25): the active line is
+  `--webservice-interface=any --webservice-port=8300 --portable-mode`; the running
+  server (pid 1327450, started 02:46) matches it. The stale loopback COMMENT on the
+  next line still lacks `--portable-mode` — never activate it verbatim.
+
+### 8.2 Task 8 — the widened backup, settled
+
+Manual run 2026-08-25 19:14:49Z → 20:56:20Z (1 h 41 m 32 s), **`ParsedResult: Success`**:
+726,190 files / 326,505,686,811 B examined; **195 added = 125,431,093,952 B**
+(both VDIs 119,827,070,976 B + the two ISOs 5,586,804,736 B + ~17 MB of ordinary
+files), 250 modified (241,072,793 B), 90 deleted at source, 0 with errors, 0
+too-large; **401 volumes / 104,483,971,101 B uploaded, 0 retries, 0 warnings, 0
+errors**; post-run test 3/3 (dlist, dindex, dblock) OK. Retention thinned task 7's
+same-day fileset (`DeletedSets: [2026-08-25T13:13:38-05:00]`, `FilesDeleted: 1`);
+**`CompactResults` empty** — deletion, not compaction, as configured. Full record:
+`_yamaguchi_check/census-post-widening.txt` (`yamaguchi_census.py`, newest 5 runs).
+
+### 8.3 Destination census, settled (18:40 CDT)
+
+**780 files = 2 dlist + 389 dblock + 389 dindex; 202,586,201,260 B (188.673 GiB)** —
+the filesystem count and byte total **agree exactly** with the server's
+`TargetFilesCount` / `TargetFilesSize`. Reconciliation against the previous settled
+state (380 files / 2 dlists after task 7): +401 uploads − 1 retention-deleted dlist =
+780 ✓. Surviving filesets: `20260825T102739Z` (the original full, §1–§5) and
+`20260825T191449Z` (the widened scope). The 18:00Z and 18:13Z same-day filesets
+were retention-thinned: `1W:1D` keeps the earliest fileset of each 1-day interval
+measured from the last kept backup, plus always the newest (observed twice — the
+middle fileset went, the 10:27Z full stayed). **By the same rule the drilled
+`…191449Z` fileset will itself be thinned by the next run** (2026-08-26 14:00Z is
+< 1 day after 10:27Z): the census afterwards should read `102739Z` +
+`20260826T140000Z` — thinning, not loss; the drill-2 evidence names a dlist that
+will no longer be on the destination while its blocks stay referenced by the
+successor fileset. Retention removes only the dlist (`FilesDeleted: 1` on each
+thinning run); with `--no-auto-compact=true` a thinned fileset's exclusive
+dblock/dindex volumes remain until an explicit compact.
+
+### 8.4 Re-certification ladder for the widened fileset `20260825T191449Z`
+
+1. **Coverage** (`duplicati_dlist_crosscheck.py --encryption aes`, now checking the
+   NEWEST dlist): **1,241,950 / 1,241,950** distinct needed hashes declared by the
+   dindex set across **389/389** indexed dblocks; 7,783 blocklists content-hash-
+   verified; 0 unexpandable; `IsFullBackup: True`; 726,190 files + 110,969 non-file
+   entries. Available 1,243,575 → a surplus of 1,625 blocks, which is the older
+   fileset's and the thinned filesets' exclusive blocks — expected in a multi-run
+   set (§5.1's zero surplus is a single-run property). Log:
+   `_yamaguchi_check/crosscheck-post-widening.log`.
+2. **Physical + ciphertext** (`duplicati_decrypt_validate_all.bash … aes`, every
+   volume on the destination): **780/780 decrypt with full HMAC verification, 0
+   failures, 1,159 s** (2026-08-26 02:29–02:48 CDT, transient unit
+   `yamaguchi-validate2`). Log: `_yamaguchi_check/decrypt_validate_all-post-widening.log`.
+3. **Restore drill 2** (`duplicati_drill_fresh.py --encryption aes
+   --single-invocation`, revision of this date — destination-only temp DB,
+   `--no-local-blocks=true`, newest-dlist selection with a pre/post-restore guard,
+   oracle cutoff derived from the dlist = epoch 1787685289): **17/17 VERIFIED** —
+   every stratum: single/multi × early/mid/late, `large` (4.70 GB across 21
+   dblocks), **`vmimage` — the 63.86 GB static win10 image across 201 dblocks,
+   live-oracle match**, `empty`, and the symlink pair `.cargo/bin/cargo → rustup`
+   (link target restored and live-matched; the 20.8 MB sibling live-matched).
+   **13 live-oracle matches, 0 contradictions** (floor 10); 2 benign divergences
+   (Firefox session-store files rewritten after the backup), 1 not engaged (a git
+   ref log deleted since). dblock coverage **241/389**. One invocation, rc 2
+   (success-with-warnings; 0 warning lines in the restore log), 2,444 s, 63.92 GiB
+   restored; the newest-dlist guard held before and after (destination unchanged).
+   Run dir `_yamaguchi_drill/drill-20260825-183711/` (`results.json`,
+   `restore-all.log`, `drill-meta.json`, `candidates.json`, `provenance.txt`); unit
+   log `_yamaguchi_drill/drill2-run.log` (`drill-20260825-183412/` beside it is the
+   `--select-only` preview, no results — not a failed drill). Exact invocation, run
+   as a `systemd-run --user` transient unit: `python3 -u util/ad-hoc/duplicati_drill_fresh.py
+   --encryption aes --single-invocation --dest /media/pcalnon/temp_backups/Yamaguchi
+   --run-root /media/pcalnon/temp_backups/_yamaguchi_drill` (the symlink+sibling
+   recipe holds only in `--single-invocation` mode, where both land in one restore
+   tree). This is plan §7 criterion 3 — a second drill from a *different* restore
+   point after incrementals — satisfied.
+
+### 8.5 Tooling changes landed with this addendum
+
+- `duplicati_drill_fresh.py`: drills the NEWEST dlist (never `dlists[0]`, which after
+  any incremental is the original full); re-lists the destination before and after
+  each restore and refuses (rc 2) if the newest dlist changed; derives
+  `--backup-start-epoch` from the drilled dlist; adds a `vmimage` stratum (smallest
+  image whose live mtime predates the backup, so the live oracle engages); bounds
+  `large` at `--large-max-bytes` (16 GiB) and excludes images from it; prefers a
+  symlink whose live target is a sibling file in the fileset and restores the
+  sibling too (`symlink-target`), which satisfies the §5.4 engine preconditions
+  without pre-created directories.
+- `duplicati_dlist_crosscheck.py`: newest-dlist selection (was an exactly-one assertion).
+- New: `duplicati_dlist_query.py` (what is in the newest fileset, without the job DB),
+  `yamaguchi_config_record.py` (redacted config of record), `yamaguchi_census.py`
+  (filesystem-vs-server reconciliation + full run stats), `yamaguchi_watchdog.py` +
+  `util/systemd/yamaguchi-watchdog.{service,timer}` (alerting candidate B),
+  `yamaguchi_run_script_after.bash` (alerting candidate A, draft),
+  `yamaguchi_drill_watch.bash` (unit watcher).
+
+### 8.6 Findings that need Paul's decision
+
+1. **The release-train private key is in the backup** —
+   `Development/python/Juniper/.gnupg/juniper-release-train.2026-07-21.private-key.pem`
+   (1,675 B, mode 0000; root reads it). It is currently that key's only backup and
+   sits on the same spindle as the original. Wanted, or exclude? Excluding = add the
+   filter `-/home/pcalnon/Development/python/Juniper/.gnupg/juniper-release-train.2026-07-21.private-key.pem`
+   — and then the key is in NO backup, so it needs its own off-spindle copy.
+2. **A running VM's image is being backed up.** `win11_vm_clean_2026-07-15.vdi` is
+   open by VBoxHeadless (38 h uptime at 18:30); its mtime advances continuously, so
+   (a) the stored copy is not a consistent snapshot, (b) every daily incremental
+   re-reads the whole 56 GB image and re-uploads its changed blocks — the daily
+   run's duration is therefore no longer the pre-widening ~9 min and is unknown
+   until the first scheduled run lands — and (c) no `--snapshot-policy` can help on
+   this filesystem. Options: exclude the running VM's image (remove its `Sources`
+   entry via GET/modify/PUT), shut the VM down before 09:00, or accept
+   crash-consistency. The win10 image is static and unaffected.
+3. **Schedule moved to 09:00 CDT** (§8.1) — intended? If 13:00 was, the fix is a
+   GET/modify/PUT of backup 2 setting `Schedule.Time` to the next day's `18:00:00Z`
+   (`yamaguchi_switch_aes.py` pattern, passphrase rule in item 4), with `ActiveTask: null`.
+4. **Alerting** (plan §7 criterion 4, still open — server-run jobs fail silently):
+   - **B, recommended: `yamaguchi_watchdog.py` on a user timer** (`util/systemd/`,
+     12:00 daily, `Persistent=true`). Asks the server from outside, so it also catches
+     what a job hook structurally cannot — never ran, job definition vanished (the
+     portable-mode trap presents as `JOB_MISSING`), server down, run stuck.
+     **Proven 18:40–18:41 CDT**: forced `UNREACHABLE`, `JOB_MISSING`, `STALE` each
+     alerted (rc 1, durable record written) and the normal check read `OK`; one
+     deliberate desktop notification fired (`notify-send rc=0`); proof record archived
+     at `_yamaguchi_check/watchdog-proof-20260825.log`. Deploy = **after this PR
+     merges and the primary checkout is synced** (the unit's `ExecStart` names the
+     primary checkout path, which lacks the script until then): copy the two units to
+     `~/.config/systemd/user/`, `daemon-reload`, `enable --now` the timer. Closing
+     test for criterion 4 (an `OK` firing is not "a failure notification observed"):
+     run the deployed script once with `--backup-id 999` — it writes the REAL
+     `~/.local/state/duplicati/server-failures.log` line and a critical desktop
+     notification; annotate that line as synthetic. B depends on `Linger=yes` for
+     the user (verified today) — re-check `loginctl show-user pcalnon -p Linger`
+     after any reboot, since a lingerless session is the 42-day-outage mechanism.
+   - **A: `--run-script-after`** (`yamaguchi_run_script_after.bash`, draft; it does
+     NOT reuse `util/duplicati_backup_failure.bash` — own notify path) — fires per
+     run as root; must be deployed root-owned under `/usr/local/lib/duplicati/`
+     (the directory does not exist yet: `sudo install -D -o root -g root -m 0755 …`;
+     a user-writable hook run by root is an escalation), then the setting added to
+     the live job (Paul-gated PUT — see the passphrase-mask rule below), proven on a
+     throwaway job with an unreachable destination. Complements B; cannot replace it.
+   - **PUT rule**: `GET /api/v1/backup/<id>` returns `passphrase` as a 15-char mask,
+     so any GET/modify/PUT must first replace that setting with the real value from
+     `~/.config/duplicati-backup/env` — exactly what `yamaguchi_switch_aes.py` does
+     (its `drop`/`insert` of `passphrase`) — then GET again and confirm
+     `encryption-module=aes`, 3 sources, 44 filters, and watch the next run's
+     `ParsedResult`. A PUT carrying the mask is refused or mangled by the server
+     (it has explicit placeholder handling); never "simplify" the pattern.
+   - The config records' `<redacted>` therefore replaces a placeholder, not a secret
+     (the mask is identical across records and matches neither real key) — kept as
+     belt-and-braces.
+5. **`~/.config/Duplicati/dbconfig.json`** is a hand-written single JSON object (with
+   a BOM) mapping the Yamaguchi destination to `DQRVQNDIFX.sqlite` (the OLD fresh
+   set's job DB). Per `CLIDatabaseLocator.cs` at the installed tag the CLI expects a
+   JSON *array* and matches on `Username` too (null for a plain `file://` URL), so a
+   `--dbpath`-less operation would fail to parse the file — or, once shaped as an
+   array, never match and create a fresh random DB — rather than open the wrong one.
+   Misleading rather than dangerous. Fix (Paul's user config): delete the file
+   (Duplicati rewrites its own) or rewrite it as an array with `"Path":
+   "/media/pcalnon/temp_backups/Ubuntu"`. Always pass `--dbpath` regardless.
+6. **Loopback restage**: edit only `any` → `loopback` in the ACTIVE line of
+   `/etc/default/duplicati`, then restart when no task is running.
+7. **Server-brain backup** (§7 item): the job definition, schedule, filters and
+   encrypted passphrase live only in `/usr/lib/duplicati/data/Duplicati-server.sqlite`
+   (job DB `BMXWPAOGLP.sqlite`, both root-owned, outside every backup). Copy via the
+   SQLite backup API — a live `cp` of a WAL-mode DB can tear. The `sqlite3` CLI is
+   **not installed** on this host; the stdlib does it:
+   `sudo python3 -c "import sqlite3; s=sqlite3.connect('/usr/lib/duplicati/data/Duplicati-server.sqlite'); d=sqlite3.connect('/mnt/Backups/Ubuntu/_yamaguchi_records/Duplicati-server.sqlite'); s.backup(d); d.close()"`.
+   The redacted config record plus `~/.config/duplicati-backup/env` is a
+   re-creatable definition.
+8. **Migration (plan §7 criterion 6, OPEN)**: Yamaguchi is on sdc4, the same
+   physical disk as `/home` (sdc3). Facts for the decision: sda1 (SATA WD40EZAZ,
+   `/mnt/Backups/Ubuntu`, 1.1 TB free) hosts the damaged old archive at its root — a
+   Yamaguchi subdirectory there is invisible to the old job's non-recursive listing;
+   the My Passport (sdb, WD40NMZW, sdb1 ext4 2 TB with 1.5 TB free, sdb2 1.6 TB
+   unformatted) hangs off a USB-2 hub (bus 3, port 1.4, 480 Mb/s) while buses 2/4/6
+   (10 Gb/s) and 8 (5 Gb/s) are idle — a replug changes its feasibility. Moving the
+   existing set (copy the folder, repoint `TargetURL`) preserves the certified
+   volumes; a fresh full to the new place costs ~2 h and keeps `--blocksize` free to
+   change (it is irreversible per set). Procedure for the move variant, once decided:
+   (1) `mountpoint` guard on the target; (2) copy the folder with `rsync -a --checksum`
+   and re-run `duplicati_decrypt_validate_all.bash` on the copy; (3) with
+   `ActiveTask: null`, GET/modify/PUT backup 2's `TargetURL` and fix `dbconfig.json`;
+   (4) one backup run, then `duplicati_drill_fresh.py --dest <new>`; (5) keep the sdc4
+   copy until that drill passes; announce the drill to any GPU-campaign session first.
+   Option (b) alone is a **re-scope** of criterion 6 (plan §3 rejected sdb1 on
+   measurement; §8 decision 1) — it needs a re-measurement after the replug and a plan
+   amendment, not just a choice.
+
+### 8.7 Plan §7 acceptance criteria — status after this addendum
+
+- [x] A full backup has completed successfully (task 5; and the widened scope, task 8).
+- [x] A restore drill has recovered real files with matching checksums (drill 1, §5.3).
+- [x] A second restore drill from a *different* restore point after ≥1 incremental —
+      drill 2 (§8.4-3): fileset `20260825T191449Z`, 17/17 (restore complete 19:19 CDT,
+      verdict after hashing 19:31 CDT, 2026-08-25).
+- [ ] A failure notification observed firing — the watchdog fired deliberately (§8.6-4)
+      but is **not deployed**; open until Paul picks and the timer is enabled.
+- [ ] Logout/login and reboot survival — not yet exercised (system unit enabled; job in
+      the portable data root; the restart trap is closed).
+- [ ] Migration to a physically separate drive — OPEN; Paul's re-scope decision
+      (destination migration vs second copy) is recorded nowhere yet.
+
+### 8.8 Retirement inventory (measured 18:2x CDT; nothing deleted — each needs Paul's go)
+
+`_drill_scratch/` 35 GB (old-archive era; `drill.sqlite` + 6.86 GB WAL — **the old
+archive's only local database**, the state of the purge dry-run; keep until §7's
+old-archive purge decision is executed or formally abandoned, else that work needs a
+multi-day Recreate) ·
+`_duplicati_tmp/` 4.0 GB = 8 × ~524 MB `dup-*` from 2026-08-23 23:48 + 8 small
+stragglers (4 of them from 2026-08-24 22:22), all pcalnon-owned (the user lane's; the
+root server cleans its own) —
+**contents only, never the directory, never during a run** · `_yamaguchi_drill/`
+5.6 GB **+ 64 GB of drill-2 restored copies** (`drill-20260825-183711/restored/`;
+keep logs/results) · `_gpg_repro/` 2.3 GB ·
+`_fresh_drill/` 1.3 GB (keep logs) · **`/media/pcalnon/temp_backups/Ubuntu/`** 51 GB
+(the old gpg fresh set, 209 volumes — **never `/mnt/Backups/Ubuntu`, which is the
+mountpoint of the 5,369-volume old archive and is never deleted**) +
+`~/.config/Duplicati/DQRVQNDIFX.sqlite` (+ `-wal`/`-shm`) 350 MB (the only certified
+gpg-era set; drill 2 has passed — §8.4-3 — so freeable on Paul's go) ·
+`~/.config/Duplicati/updates.disabled-2026-08-25/` 250 MB (only after a soak Paul
+calls comfortable — it is the "two installs" root cause's remains) · user lane:
+`~/.config/systemd/user/duplicati-backup.{service,timer}` +
+`duplicati-backup-failure.service`, `~/.local/bin/duplicati-scheduled-backup.bash` +
+`duplicati-backup-failure.bash`, repo `util/systemd/duplicati-backup.*` ·
+`…/.claude/worktrees/curious-plotting-hummingbird/.env` still carries both
+passphrases (2 lines; `.env` is git-ignored, so a `worktree remove` deletes it
+silently) — reconcile against `~/.config/duplicati-backup/env` by sha256[:16]
+(`6d8b263f…` / `b085454a…`) before deleting.
+
+**KEEP — never in any sweep**: `_yamaguchi_check/`, `_fresh_dlist_check/`, every log /
+JSON / results file under `_yamaguchi_drill/` and `_fresh_drill/`; in
+`~/.config/Duplicati/`: every `*.sqlite*` — `backup SJTCQIIZSJ 20260712033545.sqlite`
+(13 GB, spaces in the name, the only pre-deletion state of the old archive),
+`Duplicati-server.sqlite` + its 112 MB `-wal` (the orphaned profile server's job
+definitions live in that WAL — a "stray WAL" cleanup loses them), the dated
+`Duplicati-server_2026-08-2*.sqlite` copies, `SJTCQIIZSJ*.sqlite*`, and
+`DQRVQNDIFX.sqlite*` until Paul retires the old fresh set.
