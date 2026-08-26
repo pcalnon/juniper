@@ -187,9 +187,9 @@ Two other hypotheses are eliminated outright:
 - **Missing cleanup path: no.** `atexit.register(self._cleanup_shared_memory)` is registered, and
   §3 shows the deferred-unlink logic is correct.
 
-### 6.2 The mechanism — ⚠ SUPERSEDED by §6.5
+### 6.2 The mechanism
 
-> **Read §6.5 first.** Steps 1, 5 and 6 below are the deduction this document was written
+> **⚠ SUPERSEDED by §6.5 — read §6.5 first.** Steps 1, 5 and 6 below are the deduction this document was written
 > with; the repro of the same day refuted them. There is no 15 s window and no SIGKILL: the
 > process dies ~0.3 s after the lifespan returns, killed by the SIGTERM uvicorn re-raises. Step 4
 > is also wrong about the interrupt: it *is* reachable through the every-25-epochs callback and
@@ -242,9 +242,9 @@ close is the **trigger**: the mid-training kill still happens, roughly once a da
 is where it shows up instead. (Shm segments cleaned by `atexit` and partial HDF5 files are two
 independent resource paths that share only "the process died mid-run".)
 
-### 6.4 What to fix, in order — ⚠ SUPERSEDED by §6.5
+### 6.4 What to fix, in order
 
-> Item 1 is what shipped (with an explicit resource release added, because `atexit` is dead
+> **⚠ SUPERSEDED by §6.5.** Item 1 is what shipped (with an explicit resource release added, because `atexit` is dead
 > under SIGTERM — §6.5). Item 2 is **unnecessary**: the callback-driven interrupt fires within
 > milliseconds once `shutdown()` waits for it, and a `break`-style check would fall through into
 > the unconditional `create_snapshot()` after the epoch loop — a snapshot written during

@@ -13,7 +13,7 @@ do not arm auto-merge on your own initiative):
 
 | PR | what | state at handoff |
 |---|---|---|
-| **cascor#589** (`fix/shutdown-joins-training-before-sigterm-exit`, base `d2d1069`) | the fix: `TrainingLifecycleManager.shutdown()` joins training (3 s bound) and releases the pool + shared memory explicitly; lifespan awaits it via `asyncio.to_thread` | OPEN; **all CI checks green, `mergeStateStatus` CLEAN, `mergeable` MERGEABLE, zero review threads** (2026-08-25 19:25 CDT; re-probe with `gh pr checks 589 --repo pcalnon/juniper-cascor` — main moves) |
+| **cascor#589** (`fix/shutdown-joins-training-before-sigterm-exit`, base `d2d1069`) | the fix: `TrainingLifecycleManager.shutdown()` joins training (3 s bound) and releases the pool + shared memory explicitly; lifespan awaits it via `asyncio.to_thread` | **MERGED 2026-08-26 07:13Z** (merge commit `67d7ea35`, head `1ba34482` — includes the docstring correction from the factual review). The fix is on cascor `main`; it reaches this host only when the primary checkout is pulled (§3.2 — NOT during the T6 window). |
 | **ml `docs/shm-leak-mechanism-corrected-sigterm-reraise`** (the PR that carries this handoff — opened together with it, so its number is only knowable from `gh pr list`) | §6.5 correction to the characterisation note + the probe, the repro script, three evidence reports, and this handoff | OPEN once this file is visible on GitHub; if you are reading it from a worktree and `gh pr list --repo pcalnon/juniper-ml` shows no such branch, the PR was never opened and these seven files exist nowhere else — open it (§6) |
 
 Merge mechanics are the predecessor's §5 (auto-merge preconditions, never `update-branch` the moment
