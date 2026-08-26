@@ -159,13 +159,15 @@ def main() -> int:
 
     total_wall = 0.0
     n_ok = 0
+    unparsed_walls = 0
     for r in rows:
         met = cell_metrics(args.run_root, r.get("run_id", "")) if r.get("run_id") else {}
         wall = r.get("wall_seconds")
-        try:
-            total_wall += float(wall or 0)
-        except ValueError:
-            pass
+        if wall not in (None, ""):
+            try:
+                total_wall += float(wall)
+            except (TypeError, ValueError):
+                unparsed_walls += 1  # a not-run / malformed row: reported in the summary, never silently dropped
         if r.get("outcome") == "succeeded":
             n_ok += 1
         cells = [r.get("name") or r.get("cell_id", "")]
@@ -178,7 +180,8 @@ def main() -> int:
         cells += [fmt(met.get("val_acc")), fmt(met.get("train_acc")), fmt(met.get("hidden")), fmt(met.get("epoch")), met.get("reason") or "—"]
         print("| " + " | ".join(str(c) for c in cells) + " |")
     print()
-    print(f"cells: {len(rows)}; succeeded: {n_ok}; summed wall: {total_wall:.1f} s ({total_wall/3600:.2f} h)")
+    extra = f"; unparsed walls: {unparsed_walls}" if unparsed_walls else ""
+    print(f"cells: {len(rows)}; succeeded: {n_ok}; summed wall: {total_wall:.1f} s ({total_wall/3600:.2f} h){extra}")
     return 0
 
 
