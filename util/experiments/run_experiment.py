@@ -666,7 +666,17 @@ def preflight_generator(data_url: str, generator: str) -> Dict[str, Any]:
         known = ", ".join(sorted(k for k in by_name if isinstance(k, str)))
         raise ConfigError(f"dataset.generator '{generator}' is not registered on the run's juniper-data (known: {known})")
     if not entry.get("available", False):
-        raise ConfigError(f"dataset.generator '{generator}' is registered but unavailable on this host (missing optional dependency; see GET /v1/generators for the install hint)")
+        # Consume the hint rather than pointing at the response we are already holding. W-4 put
+        # `install_hint` on GeneratorInfo precisely so a caller could say what to install; the
+        # driver was still telling an operator to go and make the same call by hand.
+        #
+        # Absent is normal, not an error: juniper-data returns None for the thirteen numpy-only
+        # synthetics (they declare no hook), and a juniper-data older than the field returns no
+        # key at all — as of 2026-08-26 the newest RELEASE (v0.11.0) predates it, so on a
+        # released deployment this always falls back. The pointer stays as that fallback.
+        hint = entry.get("install_hint")
+        remedy = hint.strip() if isinstance(hint, str) and hint.strip() else "see GET /v1/generators for the install hint"
+        raise ConfigError(f"dataset.generator '{generator}' is registered but unavailable on this host (missing optional dependency): {remedy}")
     return entry
 
 

@@ -115,6 +115,9 @@ class _ScriptedState:
         # arms' behaviour (clear the override, fall back to status_sequence); a state name
         # pins the post-stop lifecycle, which is what the teardown-preempt path polls for.
         self.stop_settles_to: "str | None" = None
+        # W-4 `install_hint` on the unavailable generator. None = the field is absent entirely,
+        # which is both the numpy-only-synthetic case and every juniper-data release <= v0.11.0.
+        self.generator_install_hint: "str | None" = None
         self.completion_reason = "max_iterations"
         self.train_status = 200
         self.train_delay = 0.0
@@ -246,7 +249,10 @@ class _StubHandler(BaseHTTPRequestHandler):
                         {"name": "irregular_sine", "version": "1.0.0", "description": "", "available": True, "schema": {}},
                         {"name": "checkerboard", "version": "1.0.0", "description": "", "available": True, "schema": {}},
                         {"name": "arc_agi", "version": "1.0.0", "description": "", "available": True, "schema": {}},
-                        {"name": "mnist", "version": "1.0.0", "description": "", "available": False, "schema": {}},
+                        # The one unavailable generator. `install_hint` is present only when the
+                        # arm asks for it: juniper-data omits it for generators declaring no hook,
+                        # and a release older than W-4 omits it entirely.
+                        {"name": "mnist", "version": "1.0.0", "description": "", "available": False, "schema": {}, **({"install_hint": state.generator_install_hint} if state.generator_install_hint is not None else {})},
                     ]
                 ).encode("utf-8"),
             )
@@ -1223,6 +1229,45 @@ class FailureArmsTest(_StubTestCase):
         config = _write_config(self.tmp, cfg)
         code, _ = _invoke(config, self.run_dir)
         self.assertEqual(code, rx.EXIT_MISUSE)
+
+    def test_an_unavailable_generator_reports_the_services_install_hint(self) -> None:
+        """W-4 put `install_hint` on GeneratorInfo so a caller could say what to install.
+
+        The driver was still telling the operator to make the same call it had just made and
+        was holding the answer to. Asserted on the message, not the exit code — the exit code
+        was already correct and is not what was wrong.
+        """
+        self.state.generator_install_hint = "pip install 'juniper-data[mnist]'"
+        with self.assertRaises(rx.ConfigError) as caught:
+            rx.preflight_generator(self.server.base_url, "mnist")
+        message = str(caught.exception)
+        self.assertIn("pip install 'juniper-data[mnist]'", message)
+        self.assertNotIn("see GET /v1/generators", message)
+
+    def test_a_missing_install_hint_falls_back_to_the_pointer(self) -> None:
+        """Absent is NORMAL, not an error.
+
+        juniper-data returns None for the thirteen numpy-only synthetics, and a release older
+        than W-4 omits the key entirely — as of 2026-08-26 the newest release (v0.11.0) does,
+        so on a released deployment this is the path that actually runs.
+        """
+        self.state.generator_install_hint = None
+        with self.assertRaises(rx.ConfigError) as caught:
+            rx.preflight_generator(self.server.base_url, "mnist")
+        self.assertIn("see GET /v1/generators", str(caught.exception))
+
+    def test_a_blank_install_hint_falls_back_to_the_pointer(self) -> None:
+        """Present-but-empty must not produce a message that trails off into nothing."""
+        self.state.generator_install_hint = "   "
+        with self.assertRaises(rx.ConfigError) as caught:
+            rx.preflight_generator(self.server.base_url, "mnist")
+        self.assertIn("see GET /v1/generators", str(caught.exception))
+
+    def test_an_available_generator_is_unaffected_by_the_hint(self) -> None:
+        """The hint is reported whether or not the generator is available (juniper-data's
+        `generator_install_hint` docstring); it must never turn an available one into an error."""
+        self.state.generator_install_hint = "pip install 'juniper-data[mnist]'"
+        self.assertEqual(rx.preflight_generator(self.server.base_url, "spiral")["name"], "spiral")
 
 
 class StagingPathTest(_StubTestCase):
