@@ -111,6 +111,10 @@ class _ScriptedState:
         self.start_409_detail = "Training cannot be started: Training already in progress"
         self.fsm_override: "str | None" = None
         self.stop_status = 200
+        # What the lifecycle settles to once a stop succeeds. None reproduces the 409-preempt
+        # arms' behaviour (clear the override, fall back to status_sequence); a state name
+        # pins the post-stop lifecycle, which is what the teardown-preempt path polls for.
+        self.stop_settles_to: "str | None" = None
         self.completion_reason = "max_iterations"
         self.train_status = 200
         self.train_delay = 0.0
@@ -378,7 +382,7 @@ class _StubHandler(BaseHTTPRequestHandler):
         elif path == "/v1/training/stop":
             if state.stop_status == 200:
                 with state.lock:
-                    state.fsm_override = None
+                    state.fsm_override = state.stop_settles_to
                     state.start_409_remaining = 0
                 self._send(200, _envelope({"stopped": True}))
             else:
@@ -1008,6 +1012,100 @@ class PreemptArmsTest(_StubTestCase):
         self.assertEqual(len(self._posts("/v1/training/stop")), 1)
         # Exactly one preemption attempt — no retry storm against a stuck lifecycle.
         self.assertEqual(len(self._posts("/v1/training/start")), 1)
+
+
+class TeardownPreemptTest(_StubTestCase):
+    """A `stalled` / `timed_out` cell is stopped BEFORE collect, not left to the SIGTERM.
+
+    The driver giving up does not stop the service: it keeps recruiting units. Collect then
+    samples /v1/metrics, /v1/network and /v1/network/topology off a moving network, and the
+    stop falls to experiment_stack.bash's teardown SIGTERM on a 10s grace -- a path cascor#589
+    made safe but that no campaign has exercised (T6's 23 inter-cell stops all landed 2-7s
+    AFTER `Training ended`, so only the idle path was ever proven).
+    """
+
+    def _order(self, method: str, path: str) -> int:
+        for index, (req_method, req_path, _body) in enumerate(self.state.requests):
+            if req_method == method and req_path == path:
+                return index
+        return -1
+
+    def _stall(self, *extra: str):
+        self.state.status_sequence = [("STARTED", 1, 0)]
+        config = _write_config(self.tmp, _base_config())
+        return _invoke(config, self.run_dir, "--stall-seconds", "0.2", *extra)
+
+    def test_a_stalled_cell_is_stopped_before_collect(self) -> None:
+        self.state.stop_settles_to = "STOPPED"
+        code, _ = self._stall()
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        self.assertEqual(_manifest(self.run_dir)["outcome"], "stalled")
+        self.assertEqual(len(self._posts("/v1/training/stop")), 1)
+        # The ORDERING is the fix. Collect's first call is GET /v1/metrics -- the drive loop
+        # samples the bare /metrics exposition, a different path -- so a stop landing after it
+        # would have settled nothing that collect went on to read.
+        stop_at = self._order("POST", "/v1/training/stop")
+        collect_at = self._order("GET", "/v1/metrics")
+        self.assertGreater(stop_at, -1, "no stop was issued for a stalled cell")
+        self.assertGreater(collect_at, -1, "collect never ran")
+        self.assertLess(stop_at, collect_at)
+
+    def test_the_manifest_records_a_settled_stop(self) -> None:
+        self.state.stop_settles_to = "STOPPED"
+        self._stall()
+        record = _manifest(self.run_dir)["teardown_preempt"]
+        self.assertTrue(record["attempted"])
+        self.assertTrue(record["settled"])
+
+    def test_a_timed_out_cell_is_stopped_too(self) -> None:
+        self.state.increment_epochs = True
+        self.state.stop_settles_to = "STOPPED"
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir, "--max-wall-seconds", "0.3")
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        self.assertEqual(_manifest(self.run_dir)["outcome"], "timed_out")
+        self.assertEqual(len(self._posts("/v1/training/stop")), 1)
+
+    def test_a_refused_stop_still_writes_the_evidence(self) -> None:
+        """Best-effort: a refused stop degrades to the pre-fix behaviour and loses nothing."""
+        self.state.stop_status = 409
+        code, _ = self._stall()
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "stalled")
+        self.assertTrue(manifest["teardown_preempt"]["attempted"])
+        self.assertFalse(manifest["teardown_preempt"]["settled"])
+        self.assertTrue((self.run_dir / "artifacts" / "results" / "stats.json").is_file())
+
+    def test_a_succeeded_run_is_never_stopped(self) -> None:
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        self.assertEqual(self._posts("/v1/training/stop"), [])
+        self.assertFalse(_manifest(self.run_dir)["teardown_preempt"]["attempted"])
+
+    def test_a_failed_run_is_never_stopped(self) -> None:
+        """FAILED is already terminal service-side -- there is nothing left to settle."""
+        self.state.status_sequence = [("STARTED", 1, 0), ("FAILED", 1, 0)]
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_RUN_FAILED)
+        self.assertEqual(self._posts("/v1/training/stop"), [])
+
+    def test_a_stop_that_never_settles_gives_up_on_its_own_budget(self) -> None:
+        """A service that accepts the stop but never leaves STARTED must not hold the manifest
+        write hostage to run_suite's `per_run_timeout_seconds` subprocess kill."""
+        self.state.status_sequence = [("STARTED", 1, 0)]
+        self.state.stop_settles_to = "STARTED"
+        started = time.monotonic()
+        self.assertFalse(rx.preempt_training(self.server.base_url, timeout=0.3))
+        self.assertLess(time.monotonic() - started, 10.0)
+
+    def test_the_teardown_budget_is_shorter_than_the_start_path_s(self) -> None:
+        """The 409-on-start preempt gates a run that has not begun and can afford to wait;
+        this one spends margin the manifest write needs. Ordering them wrong is the bug."""
+        self.assertLess(rx.TEARDOWN_PREEMPT_TIMEOUT_SECONDS, rx.PREEMPT_TIMEOUT_SECONDS)
+        self.assertEqual(rx.TERMINAL_UNSETTLED, frozenset({"stalled", "timed_out"}))
 
 
 class StallWindowCoherenceTest(unittest.TestCase):
