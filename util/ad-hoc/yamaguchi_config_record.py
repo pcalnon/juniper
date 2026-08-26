@@ -55,7 +55,9 @@ def main():
         sys.exit("FATAL: no passphrase setting found to redact -- refusing to write a record whose secret handling is unverified")
     with open(args.out, "w") as fh:
         json.dump(cfg, fh, indent=1)
-    if "redacted" not in open(args.out).read():
+    with open(args.out) as fh:
+        written = fh.read()
+    if "redacted" not in written:
         os.unlink(args.out)
         sys.exit("FATAL: redaction marker missing from the written file")
 
