@@ -6,7 +6,7 @@ Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-20
 Status: ad-hoc — investigation (evidence for the `_validate_shapes` warn-and-continue defect)
-Retire when: the warn-and-continue behaviour is decided and fixed in juniper-cascor.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the warn-and-continue behaviour is decided and fixed in juniper-cascor.
 Related: notes/JUNIPER_2026-08-20_JUNIPER-CASCOR_SNAPSHOT-ERROR-TAXONOMY-DESIGN.md §9,
          juniper-cascor `snapshots/snapshot_serializer.py:913` (the warn), `:1592`
          (`_validate_shapes`), juniper-cascor#539

@@ -5,7 +5,7 @@ Sub-Project: ad-hoc tooling
 Author:      Paul Calnon
 Created:     2026-08-14
 Status:      ad-hoc -- one-off (R-5 arm S1 collector)
-Retire when: R-5 is written up and merged; delete then.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: R-5 is written up and merged; delete then.
 Related:     P4 §7 R-5; ml#1074 (Q-2 stall threshold).
 
 Exists because run_experiment.py's Q-2 stall detector watches `current_epoch`, which does not

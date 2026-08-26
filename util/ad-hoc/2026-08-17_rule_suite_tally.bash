@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-17
 # Status:      ad-hoc — investigation
-# Retire when: the question "which ruleset rule actually blocks merges here?" stops recurring.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the question "which ruleset rule actually blocks merges here?" stops recurring.
 # Related:     notes/JUNIPER_2026-08-17_JUNIPER-ML_HELD-PLANNING-ITEMS-REGISTER.md §1.2
 #
 # Read-only: issues GET requests only.

@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-21
 # Status:      ad-hoc -- one-off (residual CLI-vs-service wall gap, post-#533)
-# Retire when: the residual wall-gap evidence note is merged; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the residual wall-gap evidence note is merged; delete then.
 # Related:     util/ad-hoc/2026-08-20_determinism_nrun.py (reads the runs this produces);
 #              util/ad-hoc/2026-08-16_h2h_phase_split.py (candidate/output split).
 #

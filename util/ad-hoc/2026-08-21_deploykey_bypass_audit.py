@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-21
 Status:      ad-hoc -- audit
-Retire when: the DeployKey bypass disposition is decided and recorded.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the DeployKey bypass disposition is decided and recorded.
 Related:     HANDOFF_2026-08-19 section 2.5;
              notes/JUNIPER_2026-08-20_JUNIPER-ECOSYSTEM_BYPASS-ACTOR-CENSUS.md
 

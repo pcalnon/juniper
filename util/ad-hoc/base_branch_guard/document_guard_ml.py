@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-21
 Status:      ad-hoc -- migration (one-off)
-Retire when: the guard is documented on all 9 repos.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the guard is documented on all 9 repos.
 Related:     ml#434; util/ad-hoc/base_branch_guard/document_guard.py
 
 Why juniper-ml needs its own path

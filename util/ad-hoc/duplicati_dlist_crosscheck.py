@@ -85,6 +85,16 @@ def gpg_decrypt(src, dst, passphrase):
         fail(f"gpg failed on {os.path.basename(src)}: {proc.stderr.decode(errors='replace')[:300]}")
 
 
+def aes_decrypt(src, dst, passphrase):
+    # SharpAESCrypt takes the password on argv -- accepted deviation on this
+    # single-user host (documented in the certification note); rc 3 = HMAC
+    # mismatch, rc 4 = wrong password.
+    proc = subprocess.run(["duplicati-aescrypt", "d", passphrase, src, dst],
+                          capture_output=True, check=False)
+    if proc.returncode != 0:
+        fail(f"aescrypt rc={proc.returncode} on {os.path.basename(src)}: {proc.stderr.decode(errors='replace')[:200]}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="dlist vs dindex block-coverage cross-check")
     ap.add_argument("--dest", default="/media/pcalnon/temp_backups/Ubuntu")
@@ -92,7 +102,11 @@ def main():
     ap.add_argument("--cred-file", default=os.path.expanduser("~/.config/duplicati-backup/env"))
     ap.add_argument("--cred-key", default="PASSPHRASE", help="FRESH-set key; never PASSPHRASE_OLD here")
     ap.add_argument("--blocksize", type=int, default=1024 * 1024, help="job --blocksize (1MB)")
+    ap.add_argument("--encryption", choices=["gpg", "aes"], default="gpg")
     args = ap.parse_args()
+    global gpg_decrypt
+    if args.encryption == "aes":
+        gpg_decrypt = aes_decrypt
 
     dest = os.path.realpath(args.dest)
     workdir = os.path.realpath(args.workdir)

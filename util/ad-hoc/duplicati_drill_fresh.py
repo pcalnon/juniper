@@ -98,6 +98,15 @@ def gpg_decrypt(src, dst, passphrase):
         fail(f"gpg failed on {os.path.basename(src)}: {proc.stderr.decode(errors='replace')[:300]}")
 
 
+def aes_decrypt(src, dst, passphrase):
+    # SharpAESCrypt: password on argv (accepted single-user-host deviation);
+    # rc 3 = HMAC mismatch, rc 4 = wrong password.
+    proc = subprocess.run(["duplicati-aescrypt", "d", passphrase, src, dst],
+                          capture_output=True, check=False)
+    if proc.returncode != 0:
+        fail(f"aescrypt rc={proc.returncode} on {os.path.basename(src)}: {proc.stderr.decode(errors='replace')[:200]}")
+
+
 def sha256_file(path):
     h = hashlib.sha256()
     with open(path, "rb") as fh:
@@ -276,7 +285,16 @@ def main():
     ap.add_argument("--backup-start-epoch", type=int, default=1787523309,
                     help="2026-08-23T17:15:09-05:00; live mtime BEFORE this + divergence = contradiction")
     ap.add_argument("--select-only", action="store_true", help="stop after writing candidates.json")
+    ap.add_argument("--encryption", choices=["gpg", "aes"], default="gpg")
+    ap.add_argument("--single-invocation", action="store_true",
+                    help="restore ALL candidates in one duplicati-cli call (one shared "
+                         "temp-DB recreate -- required for large sets where a per-candidate "
+                         "recreate is prohibitive); candidates with duplicate basenames are "
+                         "dropped so verification stays unambiguous")
     args = ap.parse_args()
+    global gpg_decrypt
+    if args.encryption == "aes":
+        gpg_decrypt = aes_decrypt
 
     dest = os.path.realpath(args.dest)
     if not os.path.ismount("/media/pcalnon/temp_backups"):
@@ -318,6 +336,42 @@ def main():
     # ---- restore phase ------------------------------------------------------
     env = dict(os.environ, PASSPHRASE=passphrase)
     results = []
+
+    if args.single_invocation:
+        seen_base = set()
+        uniq = []
+        for c in candidates:
+            base = os.path.basename(c["path"].rstrip("/"))
+            if base in seen_base:
+                print(f"  dropping duplicate-basename candidate: {c['path']}")
+                continue
+            seen_base.add(base)
+            uniq.append(c)
+        candidates = uniq
+        rdir = os.path.join(restore_root, "all")
+        os.makedirs(rdir, exist_ok=True)
+        t0 = time.monotonic()
+        argv = ["duplicati-cli", "restore", f"file://{dest}"] + [c["path"] for c in candidates] + [
+            f"--dbpath={dbpath}", f"--restore-path={rdir}", f"--tempdir={tmpdir}",
+            "--version=0", "--no-local-blocks=true", "--overwrite=true",
+            "--console-log-level=Warning"]
+        proc = subprocess.run(argv, env=env, capture_output=True, text=True, check=False)
+        dur = time.monotonic() - t0
+        with open(os.path.join(run_dir, "restore-all.log"), "w") as fh:
+            fh.write(proc.stdout + "\n--- stderr ---\n" + proc.stderr)
+        if os.path.exists(dbpath):
+            fail(f"{dbpath} materialized -- see per-candidate mode comment")
+        print(f"  single restore invocation: rc={proc.returncode} in {dur:.0f}s for {len(candidates)} candidates")
+        for c in candidates:
+            verdict, detail, live_oracle = verify_candidate(c, rdir, args.backup_start_epoch)
+            if proc.returncode >= 3:
+                verdict, detail, live_oracle = "RESTORE_FAILED", f"rc={proc.returncode}: {proc.stderr[-200:]}", None
+            results.append({**c, "rc": proc.returncode, "seconds": round(dur, 1),
+                            "verdict": verdict, "detail": detail, "live_oracle": live_oracle})
+            print(f"  [{c['stratum']:>12}] {verdict}  {detail}")
+        finish_report(args, run_dir, results, coverage, dblock_order)
+        return
+
     for i, c in enumerate(candidates):
         rdir = os.path.join(restore_root, f"c{i:02d}")
         os.makedirs(rdir, exist_ok=True)
@@ -346,7 +400,10 @@ def main():
                         "verdict": verdict, "detail": detail, "live_oracle": live_oracle})
         print(f"  c{i:02d} [{c['stratum']:>10}] rc={proc.returncode} {dur:6.1f}s  {verdict}  {detail}")
 
-    # ---- report -------------------------------------------------------------
+    finish_report(args, run_dir, results, coverage, dblock_order)
+
+
+def finish_report(args, run_dir, results, coverage, dblock_order):
     ok = sum(1 for r in results if r["verdict"].startswith("VERIFIED"))
     live_ok = sum(1 for r in results if r["live_oracle"] == "match")
     contradictions = [r for r in results if r["live_oracle"] == "contradiction"]
@@ -370,8 +427,8 @@ def main():
         print(f"RESULT: INCONCLUSIVE -- restores matched the manifest, but the live-source oracle "
               f"engaged on only {live_ok} < {args.live_floor} candidates; shared-author circularity not broken")
         sys.exit(1)
-    print("RESULT: synthetic PARTIAL fileset verified restorable for the sampled strata")
-    print("        (IsFullBackup=false; manifest omits ~45% of in-scope files -- this is NOT 'restore point verified')")
+    print("RESULT: fileset verified restorable for the sampled strata (dual oracle)")
+    print("        (verdict scope: sampled candidates + destination-only recreate; see the run's certification note)")
 
 
 def verify_candidate(c, rdir, backup_start_epoch):
