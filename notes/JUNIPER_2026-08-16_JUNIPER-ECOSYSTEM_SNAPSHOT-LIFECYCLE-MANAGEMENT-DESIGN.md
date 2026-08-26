@@ -515,17 +515,29 @@ decrypting a real archive requires the hardware. **What is owed is now specific*
 `.tgz.gpg`, decrypt it with a YubiKey, untar it, and confirm the tree lands — rather than the
 open-ended "no drill has ever been run".
 
-Two preconditions block even the owner from doing that today, both checked 2026-08-26:
+**Both preconditions recorded earlier on 2026-08-26 are now CLEARED** (they were true when first
+written, hours before the multi-device revision was fixed; superseded rather than deleted so the
+change is legible):
 
-- **No archive exists to drill.** No project `.tgz.gpg` was found on this host. This is consistent
-  with the header's account of the `${ENCRPYTED}` typo, under which `gpg -o ""` meant nothing ever
-  landed on the drive.
-- **The destination is not mounted.** `/media/pcalnon/DFF3-2782/` does not exist, so
-  `juniper-backup.bash` cannot write one until the drive is attached.
+| precondition, as first recorded | status now |
+|---|---|
+| "No archive exists to drill" — no project `.tgz.gpg` on this host | **cleared.** `juniper-backup.bash` now produces one on demand; several were written and verified during its repair. |
+| "The destination is not mounted" — `/media/pcalnon/DFF3-2782/` does not exist | **cleared.** Both `EBC5-F0A3` (`/dev/sdf1`) and `DFF3-2782` (`/dev/sdg1`) are mounted, each with a `Juniper-8.0.0.python/` directory. |
 
-So the ordering for class 2 is: mount the drive → run `util/juniper-backup.bash` once → decrypt that
-archive with a YubiKey and untar it. Only the last step needs the hardware, and only that step is
-still unproven, because the pipeline it exercises is the one class 1 has now verified.
+**Class 2 no longer requires a full-tree backup, which is the useful part.** `--source` accepts any
+directory, so a *seconds-long* archive of a small tree is a real `.tgz.gpg` encrypted to the same two
+YubiKey recipients as a 141 GB one — identical for the purpose of proving the key decrypts:
+
+```bash
+util/juniper-backup.bash --source <any small dir> --dest <scratch dir>   # seconds, real archive
+gpg --decrypt <that>.tgz.gpg | tar -tzf -                                # YubiKey; lists the tree
+```
+
+If that lists the tree, class 2 is closed and question 3 is fully answered. The full-tree run is then
+a capacity question, not a verification one — and note it is genuinely tight: the source measures
+**141.2 GB** while `EBC5-F0A3` has ~135 GiB free (the rest held by a pre-existing *unencrypted*
+`juniper-8.0.0_python_2026-02-27.tgz`, 111 GB) and `DFF3-2782` has ~67 GiB. The script now warns at
+both thresholds rather than only below 50%.
 
 #### 6.4.3 The ratified policy
 
