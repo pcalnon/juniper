@@ -16,6 +16,11 @@ the four-lens refutation pass on this document before acting on its tables** —
 is that first drafts carry ~14 CRITICAL findings and that the *correction* pass introduces new
 ones (ml#1373).
 
+*[Four-lens pass run 2026-08-26 by the continuation session `p5 ports, session split`: a second
+attempt with eight refuting agents (four per sibling handoff) died on the same API session limit, so
+the four lenses were run in sequence by one session against primary sources. Corrections are
+annotated in place as *[…]* and summarised under "Validation — four-lens pass (2026-08-26)".]*
+
 ---
 
 ## Handoff prompt (copy this into the new thread)
@@ -46,7 +51,8 @@ Authorities, in order:
 Peer session (do not redo): **cascor-client#139** (ceiling 34,695) and **recurrence#131**
 (standalone `memory-budget.yml`, sequence-safety shape) — **both MERGED 2026-08-26 06:02Z**. The
 peer's ml#1375 and ml#1378 were **closed as superseded** by #1376/#1379; their branches are kept
-and #1378's four deltas are already folded into #1379. Also done: ml#1239 adjudication comment
+and #1378's four deltas are already folded into #1379 *[2026-08-26: partly — `measure-growth
+--ref` never reached `main`; see Validation]*. Also done: ml#1239 adjudication comment
 posted (owner closes — main-verify has been green for its last five runs); ml#1326 retitled.
 
 **A merge run was in progress when this was written.** The peer reported that the owner granted
@@ -66,7 +72,8 @@ diagnostic: `verified=true reason=valid login=pcalnon` on all six of this sessio
 Merges happen only on Paul's explicit approval; the peer says it holds that for this set, so the
 next session's job is verification, not merging: `gh pr view <N> --json state,mergedAt` for all
 eight, then a marker grep on each repo's `origin/main` (`grep -c "memory-budget:"
-.github/workflows/ci.yml`; `conf/memory_budget.json` present). Anything still OPEN stays open
+.github/workflows/ci.yml`; `conf/memory_budget.json` present) *[for juniper-recurrence grep
+`.github/workflows/memory-budget.yml` — it has no `ci.yml`]*. Anything still OPEN stays open
 until Paul says otherwise. #1376 and #1379 both touch `docs/REFERENCE.md` in different regions
 (budget usage block + utility line vs. the test-suite reference), so whichever merges second goes
 BEHIND and needs `update-branch`, not a hand rebase. Each port PR is a single signed commit; keep
@@ -114,6 +121,8 @@ settings asymmetry (LEAVE IT); MEMORY.md 120-byte cap on new entries only.
   `$(…)`, `${PIPESTATUS}`, and long heredocs containing git-shaped text. Plain commands, `&&`
   chains and `git -C <sibling>` work. That is why `2026-08-25_p5_port_verify.bash` exists — one
   plain command per repo. When Bash refuses a file write, the Write/Edit tools are the fallback.
+  *[2026-08-26: `$(…)` and plain `git -C <sibling>` both executed in a bypass-permissions session;
+  the refusal class was not reproduced there and likely depends on the permission mode.]*
 - **API `byteSize` is not the ceiling's unit.** The census read canopy at 96,355 *bytes* against
   a 95,133-*char* ceiling and this session briefly concluded both repos were already over. In
   chars both were exactly at ceiling. Measure with the helper, never with the contents API.
@@ -150,9 +159,9 @@ gh pr view 131 --repo pcalnon/juniper-recurrence --json state,mergeStateStatus,m
 # Attribution, per PR -- a green rollup does not imply a mergeable PR.
 gh api repos/pcalnon/juniper-data/pulls/291/commits --jq '.[]|{v:.commit.verification.verified,login:(.author.login//"UNATTRIBUTED")}'
 
-# The helper and the verifier (on the #1379 branch until it merges):
-git show origin/chore/p5-helper-render-job:util/ad-hoc/2026-08-25_p5_port_memory_budget.py | head -5
-python3 -m unittest tests/test_p5_port_memory_budget.py     # 23 tests, only on that branch
+# The helper and the verifier (merged 2026-08-26 06:21Z; the #1379 branch was deleted at merge):
+git show origin/main:util/ad-hoc/2026-08-25_p5_port_memory_budget.py | head -5
+python3 -m unittest tests/test_p5_port_memory_budget.py     # 23 tests, on main
 
 python3 util/soak_ledger.py report      # INCONCLUSIVE, 35/35, 68.6%, 5 open misses; exits 0
 python3 util/soak_ledger.py status      # exits 1 BY DESIGN
@@ -214,3 +223,45 @@ lens, and a conformance read against the handoff procedure. Run those first.
 ~2,000 words against the procedure's ~500; the predecessor measured the corpus median at 1,093
 with 12% of archived handoffs meeting the rule. Same proportionate remedy applies: amend the
 procedure to the observed working figure or add a gate — not compress this one.
+
+## Validation — four-lens pass (2026-08-26)
+
+Run by the continuation session (`p5 ports, session split`) against primary sources, one session
+running the four lenses in sequence: eight refuting agents (four per sibling handoff) were launched
+first and all died on the API session limit before reporting — the same failure recorded at the top.
+Corrections are annotated in place as *[…]* and summarised here.
+
+**Findings**
+
+- **MAJOR (grounding)** — "#1378's four deltas are already folded into #1379": partly. On `main`
+  the helper has `adapt-test --sub-project` / `--header-version` / `--pytest-marker`, the reasoned
+  `# nosec B404`, the `insert-job` duplicate guard and `repo_name()` from the origin URL (marker
+  grep 9; 23 hermetic tests pass) — but NOT `measure-growth --ref`: `--help` lists only `--days` and
+  `--ref origin/main` is `unrecognized arguments`. It lived only on `chore/p5-toolkit-seed-and-render`
+  @ `cb8a4b73`. On `main` the helper reads the checkout's HEAD; fast-forward the primary before
+  measuring. Both primaries re-measured 2026-08-26 were at `origin/main` and the figures were unchanged.
+- **MAJOR (missing hazard)** — the `Memory Budget` job is `if: pull_request || merge_group` in every
+  port, so its check-run on every `main` commit reads **`skipped`** (recurrence's standalone
+  workflow is `pull_request`-only and publishes nothing on `main`). Neither sibling handoff says so;
+  a reader running the promotion pre-flight could read that as "not observed". The pre-flight's
+  `observed_contexts()` reads check-run names on the eight most recently updated PR heads,
+  conclusion-agnostic — `--status --context 'Memory Budget'` reports observed **YES** on all eight
+  repos (2026-08-26). Recorded in plan §P5 step d the same day.
+- **MINOR (executability)** — item 1's marker grep `grep -c "memory-budget:" .github/workflows/ci.yml`
+  has no target in juniper-recurrence (no `ci.yml`); grep `.github/workflows/memory-budget.yml`.
+- **MINOR (executability)** — the verification block's `git show origin/chore/p5-helper-render-job:…`
+  fails: the branch was deleted when #1379 merged (06:21Z). The helper and its 23 tests are on `main`.
+- **MINOR (conformance)** — 2,060 words against the procedure's "~500"; acknowledged in *Note on
+  length*. The archive-name gate (`tests/test_thread_handoff_archive.py`) passes.
+
+**Confirmed against primary sources**: every head SHA in *Completed this session* is the first
+commit of its PR (`pulls/N/commits`); the four target ports are single commits, `verified=true
+reason=valid login=pcalnon` (data#291 probed); `conf/memory_budget.json` present on data,
+recurrence and worker `main`; #1376 and #1379 both touch `docs/REFERENCE.md`; ml#1239 open with
+the 23:35Z adjudication comment; ml#1363 merged 22:59:31Z; canopy `AGENTS.md` = 96,355 bytes /
+95,133 chars; `UIF … Sign=off`; nearest-rank p90 and all six subcommands (incl. `render-workflow`)
+on `main`; the `projectCards` failure is recorded in four other archived handoffs; `--allow-unobserved`
+exists, `--require-observed` does not, and the default roster omits juniper-recurrence; plain
+`git -C <sibling>` and `$(…)` both executed here; `soak_ledger.py status` exits 1; AGENTS.md at the
+archive commit is 37,019 chars; the actual merge order differed from the planned sequence quoted
+above (the four target ports landed 06:09–06:10Z, before #1379 at 06:21Z) — a snapshot, not a defect.
