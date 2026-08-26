@@ -1050,7 +1050,15 @@ python util/memory_budget_check.py                      # check (exit 0/1/2)
 python util/memory_budget_check.py --advisory           # report, always exit 0
 python util/memory_budget_check.py --json               # machine-readable
 python util/memory_budget_check.py --ratchet            # tighten to current sizes
+# The CI job's exact form. The bare form has NO git-log fallback, so a branch carrying an
+# Allow-Budget-Overrun / Allow-Ceiling-Raise trailer FAILS locally where CI passes:
+git fetch origin && git log --format=%B origin/main..HEAD > /tmp/mb-trailers.txt
+python util/memory_budget_check.py --base-ref origin/main --trailers-file /tmp/mb-trailers.txt
 ```
+
+`--base-ref` supplies the tip the no-worsening rule compares against (CI uses `FETCH_HEAD` of the
+PR base); `--trailers-file` is the only way trailers reach the checker — it never shells out for
+them, so the classifier stays pure.
 
 Exit **0** pass or advisory / **1** over budget / **2** misuse or broken machinery.
 
@@ -1381,7 +1389,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
     What pinning buys: the net cannot be armed over a **stale read**. What it still does not buy: once armed, the net merges whatever head is current when the checks pass. So the net carries *"merges only when required checks are green"* but not *"merges only the SHA this run vouched for"* — callers needing the stronger property use `--no-auto-fallback`.
     Note the flag needs the **full 40-char OID** (`headRefOid`); an abbreviated SHA is rejected with `Could not coerce value ... to GitObjectID`.
   - **Not enforcement.** A script can be skipped; the owner's `always` ruleset bypass is what makes required checks advisory for that actor. `python util/safe_merge.py --pr N [--repo R] [--execute]`; **`--dry-run` is the default**. Exit 0 merged / 1 refused / 2 misuse / 3 hard error / **4 interrupted**. Tests: `tests/test_safe_merge.py`.
-- `util/memory_budget_check.py` + `util/relocation_check.py` -- Memory-size gates (ADVISORY `Memory Budget` job). **Don't grow `AGENTS.md`: relocate to `docs/REFERENCE.md`, leaving a pointer that keeps an accurate open/closed status.** G3 proves a relocation moved the *prose*, not just the identifiers — the docs screen cannot see that shape. `Allow-Budget-Overrun:` is a loan, not a pass. [Budget](#memory-file-size-budget) / [G3](#relocation-completeness-g3).
+- `util/memory_budget_check.py` + `util/relocation_check.py` -- Memory-size gates (`Memory Budget` job — BLOCKING and a required context since 2026-08-20 (P4); only its G3 step stays advisory). **Don't grow `AGENTS.md`: relocate to `docs/REFERENCE.md`, leaving a pointer that keeps an accurate open/closed status.** G3 proves a relocation moved the *prose*, not just the identifiers — the docs screen cannot see that shape. `Allow-Budget-Overrun:` is a loan, not a pass. [Budget](#memory-file-size-budget) / [G3](#relocation-completeness-g3).
 - `util/open_signed_pr.py` -- Opens a PR on any Juniper repo whose commit is **GitHub-signed**, by creating branch + commit + PR through the API (`createCommitOnBranch`) instead of a local checkout. Promoted from `util/ad-hoc/` after it landed the ml#1099 signing fan-out across 8 repos.
   - Why it exists: `required_signatures` (2026-08-12) rejects unsigned commits fleet-wide, GPG/YubiKey signing is unavailable to a runner, and an unsigned commit **anywhere** in a branch's history blocks the merge (squash does not rescue it). GitHub signs API-authored commits, so this is the portable way to land a signed change. It needs no working tree, which also makes it the path of choice when a session is confined to one worktree and cannot commit in sibling checkouts.
   - `python util/open_signed_pr.py --repo R --branch B --add LOCAL:REPOPATH [--delete REPOPATH] --message M --title T --body-file F [--base main] [--owner pcalnon] [--dry-run]`. `--add` / `--delete` are repeatable and together express a file move; at least one is required. Exit 0 opened / 1 refused / 2 hard error.
