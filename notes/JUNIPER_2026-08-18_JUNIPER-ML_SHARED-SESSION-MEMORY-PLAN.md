@@ -253,10 +253,11 @@ Measured 2026-08-25 with
 `python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py measure-growth <repo-path> --days 30`
 (`AGENTS.md` in **chars**, the unit the ceiling uses; `docs/REFERENCE.md` in bytes from the API
 census). They move daily; the table is evidence that they move, and the **rate column is the
-ordering input** — the size column is not. `measure-growth` reads the checkout's **HEAD** — there
-is no `--ref` on `main`; it lived only on the closed #1378 branch — so fast-forward the primary
-first or the rate is stale. Re-measured 2026-08-26 from primaries at `origin/main`: cascor and
-deploy unchanged.
+ordering input** — the size column is not. `measure-growth` measures the checkout's **HEAD**
+unless you pass `--ref origin/main` after a fetch — do that: a primary that has not been pulled
+reports yesterday's `main` as today's rate (the flag was lost in the #1378 → #1379 fold and
+restored 2026-08-26; the `render-*` commands always measure the checkout, because a port renders
+into it). Re-measured 2026-08-26 from primaries at `origin/main`: cascor and deploy unchanged.
 
 | Repo | `AGENTS.md` | Rate/day | Net 30 d | Max single commit | `docs/REFERENCE.md` | Status |
 |---|---:|---:|---:|---:|---:|---|
