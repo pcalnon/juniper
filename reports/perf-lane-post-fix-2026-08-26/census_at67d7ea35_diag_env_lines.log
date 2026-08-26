@@ -1,0 +1,7 @@
++[cascade_correlation.py: _worker_loop:4138] (2026-08-26 12:49:35) [INFO] CascadeCorrelationNetwork: _worker_loop: DIAG-ENV: pid=3487519 start_method=forkserver parent=3487362 sys_modules=1166 present=['torch', 'numpy']
++[cascade_correlation.py: _worker_loop:4138] (2026-08-26 12:49:35) [INFO] CascadeCorrelationNetwork: _worker_loop: DIAG-ENV: pid=3487520 start_method=forkserver parent=3487362 sys_modules=1166 present=['torch', 'numpy']
++[cascade_correlation.py: _worker_loop:4138] (2026-08-26 12:49:35) [INFO] CascadeCorrelationNetwork: _worker_loop: DIAG-ENV: pid=3487526 start_method=forkserver parent=3487362 sys_modules=1166 present=['torch', 'numpy']
++[cascade_correlation.py: _worker_loop:4138] (2026-08-26 12:49:35) [INFO] CascadeCorrelationNetwork: _worker_loop: DIAG-ENV: pid=3487528 start_method=forkserver parent=3487362 sys_modules=1166 present=['torch', 'numpy']
++[cascade_correlation.py: _worker_loop:4138] (2026-08-26 12:49:35) [INFO] CascadeCorrelationNetwork: _worker_loop: DIAG-ENV: pid=3487532 start_method=forkserver parent=3487362 sys_modules=1166 present=['torch', 'numpy']
++[cascade_correlation.py: _worker_loop:4138] (2026-08-26 12:49:35) [INFO] CascadeCorrelationNetwork: _worker_loop: DIAG-ENV: pid=3487535 start_method=forkserver parent=3487362 sys_modules=1166 present=['torch', 'numpy']
++[cascade_correlation.py: _worker_loop:4138] (2026-08-26 12:49:35) [INFO] CascadeCorrelationNetwork: _worker_loop: DIAG-ENV: pid=3487537 start_method=forkserver parent=3487362 sys_modules=1166 present=['torch', 'numpy']
