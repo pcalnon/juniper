@@ -5,7 +5,15 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-14
+**Last Updated**: 2026-08-26
+
+> **RE-BASELINED 2026-08-26 (T6).** This ladder predates cascor#514. Re-measured at cascor
+> `67d7ea3`: cap 32 → 0.840, cap 64 → **1.000**, cap 128 → **1.000** val (walls 260 / 517 /
+> 1,004 s) — the ceiling this note reached at 128 units is now reached at **64**, and the control
+> cell (E-A c010 ≡ E-I c000) still reproduces exactly. Current table and reading:
+> [P4 studies evidence, §3 "E-A / E-I re-baselined"](JUNIPER_2026-08-09_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P4-STUDIES-EVIDENCE.md#e-a--e-i-re-baselined-2026-08-26-cascor-67d7ea3--t6).
+> The figures on this page remain the 2026-08-14 record and are not edited; the cost model in §4
+> is superseded by cascor#563's speedup and should not be extrapolated.
 
 E-I continues E-A's capacity column upward. Suite `e-i-cascor-cap-ceiling-20260814T091542Z`,
 3/3 cells `succeeded`, all screened `oom == 0`, 144.1 min total.
