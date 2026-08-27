@@ -54,6 +54,13 @@
 #                                 inside worktrees/ instead)
 #   JUNIPER_EXP_DEPLOY_DIR      — juniper-deploy checkout hosting prometheus/targets/ (F-3;
 #                                 default: <ecosystem root>/juniper-deploy)
+#   JUNIPER_EXP_CASCOR_SRC_DIR  — juniper-cascor src/ to launch uvicorn from (default:
+#                                 <ecosystem root>/juniper-cascor/src). SET THIS to pin a
+#                                 campaign to a WORKTREE instead of freezing the primary
+#                                 checkout for the campaign's whole life. Pair it with
+#                                 JUNIPER_EXP_PROJECT_DIR so run_suite resolves sibling
+#                                 base_config paths out of the same tree, or the run gets
+#                                 pinned CODE against the primary's CONFIG.
 #   JUNIPER_EXP_CONDA_DIR       — miniforge/conda dir (default: /opt/miniforge3)
 #   JUNIPER_EXP_DATA_CONDA      — juniper-data env       (default: JuniperData)
 #   JUNIPER_EXP_CASCOR_CONDA    — juniper-cascor env     (default: JuniperCascor1)
@@ -92,7 +99,17 @@ PROJECT_DIR="${JUNIPER_EXP_PROJECT_DIR:-$(dirname "${JUNIPER_ML_DIR}")}"
 
 # juniper-data is launched as `python -m juniper_data` from its conda env, so no repo path
 # is needed for it; cascor's uvicorn factory import DOES require its src/ as CWD (§6.1).
-CASCOR_SRC_DIR="${PROJECT_DIR}/juniper-cascor/src"
+#
+# Overridable on its own, independently of PROJECT_DIR, so a campaign can pin cascor to a
+# WORKTREE while everything else stays canonical. Before this the path was derived, which made
+# every campaign freeze the primary checkout for its whole life -- and any session running a
+# stack out of the primary blocked every campaign (observed 2026-08-26: a live E2E stack on
+# :8202 with cwd in the primary src). Pinning a worktree is safe: JuniperCascor1's editable
+# install registers its finder with `sys.meta_path.append`, i.e. AFTER the default PathFinder,
+# so CWD wins and the finder is only a fallback -- verified per-module by
+# util/ad-hoc/2026-08-26_cascor_import_provenance.py, which asks the import system rather than
+# trusting JUNIPER_CASCOR_GIT_SHA (that is stamped from the REQUESTED tree and so cannot fail).
+CASCOR_SRC_DIR="${JUNIPER_EXP_CASCOR_SRC_DIR:-${PROJECT_DIR}/juniper-cascor/src}"
 DEPLOY_DIR="${JUNIPER_EXP_DEPLOY_DIR:-${PROJECT_DIR}/juniper-deploy}"
 # F-3: prometheus/targets/ is already inside the existing ./prometheus:/etc/prometheus:ro
 # mount, so writing here needs no compose change at all.
