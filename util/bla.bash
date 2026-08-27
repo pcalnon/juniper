@@ -47,7 +47,11 @@ PROJECT_NAME="Juniper"
 
 MOUNT_NAME="media"
 USER_NAME="pcalnon"
-MEDIA_NAME="DFF3-2782"
+BACKUP_DIR="Juniper-8.0.0.python"
+
+# MEDIA_NAME="DFF3-2782"
+# MEDIA_NAME="EBC5-F0A3"
+MEDIA_NAMES=( "EBC5-F0A3" "DFF3-2782" )
 
 TAR_EXT="tgz"
 GPG_EXT="gpg"
@@ -72,7 +76,7 @@ ENCRYPT_KEYS=(
 
 ROOT_DIR="${HOME}/${DEVELOPMENT_NAME}/${LANGUAGE_NAME}"
 PROJECT_DIR="${ROOT_DIR}/${PROJECT_NAME}"
-EXT_DRIVE="/${MOUNT_NAME}/${USER_NAME}/${MEDIA_NAME}"
+EXT_DRIVE="/${MOUNT_NAME}/${USER_NAME}/${MEDIA_NAMES[0]}/${BACKUP_DIR}"
 
 
 #######################################################################################################################################################################################################################################################
@@ -119,77 +123,109 @@ function cleanup_partial() {
 
 
 #######################################################################################################################################################################################################################################################
+# Define function to validate external media
+
+function validate_external_media() {
+    local MEDIA_NAME
+    local EXT_DRIVE
+    for MEDIA_NAME in "${MEDIA_NAMES[@]}"; do
+        echo "--------------------------------"
+        echo "MEDIA_NAME: ${MEDIA_NAME}"
+        EXT_DRIVE="/${MOUNT_NAME}/${USER_NAME}/${MEDIA_NAME}/${BACKUP_DIR}"
+        if ! mountpoint -q "${EXT_DRIVE}" 2>/dev/null; then
+            echo "FATAL: ${EXT_DRIVE} is not a mount point -- is the external drive attached?" >&2
+            echo "       (writing to an unmounted path would silently fill the system disk)" >&2
+            exit 1
+        fi
+        [[ -w "${EXT_DRIVE}" ]] || { echo "FATAL: not writable: ${EXT_DRIVE}" >&2; exit 1; }
+        echo "EXT_DRIVE: ${EXT_DRIVE}"
+        echo "--------------------------------"
+    done
+}
+
+
+#######################################################################################################################################################################################################################################################
 # Preflight -- every one of these is a way the draft failed silently
 
 [[ -d "${PROJECT_DIR}" ]] || { echo "FATAL: source not found: ${PROJECT_DIR}" >&2; exit 1; }
 
+validate_external_media || { echo "FATAL: external media validation failed" >&2; exit 1; }
+
 # The destination is a REMOVABLE drive. If it is not mounted, ${EXT_DRIVE} may still exist as an
 # empty stale mountpoint -- writing there fills the system disk instead and looks like success.
-if ! mountpoint -q "${EXT_DRIVE}" 2>/dev/null; then
-    echo "FATAL: ${EXT_DRIVE} is not a mount point -- is the external drive attached?" >&2
-    echo "       (writing to an unmounted path would silently fill the system disk)" >&2
-    exit 1
-fi
-[[ -w "${EXT_DRIVE}" ]] || { echo "FATAL: not writable: ${EXT_DRIVE}" >&2; exit 1; }
+# if ! mountpoint -q "${EXT_DRIVE}" 2>/dev/null; then
+#     echo "FATAL: ${EXT_DRIVE} is not a mount point -- is the external drive attached?" >&2
+#     echo "       (writing to an unmounted path would silently fill the system disk)" >&2
+#     exit 1
+# fi
+# [[ -w "${EXT_DRIVE}" ]] || { echo "FATAL: not writable: ${EXT_DRIVE}" >&2; exit 1; }
 
 
 #######################################################################################################################################################################################################################################################
 # Every recipient must resolve BEFORE we spend an hour building a tarball. A missing key here is also the failure that would quietly halve the redundancy this list exists to provide.
 
-GPG_RECIPIENT_ARGS=()
-for _key in "${ENCRYPT_KEYS[@]}"; do
-    gpg --list-keys "${_key}" >/dev/null 2>&1 \
-        || { echo "FATAL: gpg recipient not found: ${_key}" >&2; exit 1; }
-    GPG_RECIPIENT_ARGS+=(-r "${_key}")
+
+for MEDIA_NAME in "${MEDIA_NAMES[@]}"; do
+
+    EXT_DRIVE="/${MOUNT_NAME}/${USER_NAME}/${MEDIA_NAME}/${BACKUP_DIR}"
+
+    GPG_RECIPIENT_ARGS=()
+    for _key in "${ENCRYPT_KEYS[@]}"; do
+        gpg --list-keys "${_key}" >/dev/null 2>&1 \
+            || { echo "FATAL: gpg recipient not found: ${_key}" >&2; exit 1; }
+        GPG_RECIPIENT_ARGS+=(-r "${_key}")
+    done
+    echo "recipients: ${#ENCRYPT_KEYS[@]} (archive is readable by any one of them)"
+
+    SOURCE_KB="$(du -sk "${PROJECT_DIR}" | cut -f1)"
+    DEST_KB="$(df -Pk "${EXT_DRIVE}" | awk 'NR==2 {print $4}')"
+    echo "source: ${PROJECT_DIR}  ($(( SOURCE_KB / 1024 / 1024 )) GiB uncompressed)"
+    echo "dest:   ${GPG_PATH}"
+    echo "free:   $(( DEST_KB / 1024 / 1024 )) GiB on ${EXT_DRIVE}"
+    if (( DEST_KB < SOURCE_KB / 2 )); then
+        echo "WARNING: destination free space is under half the uncompressed source size." >&2
+        echo "         gzip on this tree does not reliably reach 2:1 -- it is mostly .h5 and .npz." >&2
+    fi
+
+    if (( DRY_RUN )); then
+        echo "[dry-run] would run: tar -czf - -C ${SOURCE_PARENT} ${SOURCE_LEAF} | gpg ${GPG_RECIPIENT_ARGS[*]} -e -o ${GPG_PATH}"
+        exit 0
+    fi
+
+    trap cleanup_partial EXIT
+
+
+    #######################################################################################################################################################################################################################################################
+    # tar with -C switch so paths are stored relative to the parent ("Juniper/..."), not as absolute paths that tar would strip with a warning and that restore into an unexpected location.
+
+    tar -czf - -C "${SOURCE_PARENT}" "${SOURCE_LEAF}" | gpg --batch --yes "${GPG_RECIPIENT_ARGS[@]}" -e -o "${GPG_PATH}"
+
+
+    #######################################################################################################################################################################################################################################################
+    # Verify. `--list-packets` parses the OpenPGP structure and confirms the recipient key id WITHOUT needing the YubiKey, so it is safe to run unattended.
+    # It does NOT prove the tar inside is intact -- a real restore drill is the only thing that does, and that belongs in the backup design arc.
+
+    [[ -s "${GPG_PATH}" ]] || { echo "FATAL: archive is empty: ${GPG_PATH}" >&2; exit 1; }
+
+    if ! gpg --list-packets --list-only "${GPG_PATH}" >/dev/null 2>&1; then
+        echo "FATAL: output is not a parseable OpenPGP message: ${GPG_PATH}" >&2
+        exit 1
+    fi
+
+
+    #######################################################################################################################################################################################################################################################
+    # Count the pubkey-encrypted session-key packets. One per recipient -- so this proves the redundancy actually landed, rather than assuming it did because the command line asked for it.
+    # Neither check needs a YubiKey, so both are safe unattended.
+
+    FOUND_RECIPIENTS="$(gpg --list-packets --list-only "${GPG_PATH}" 2>/dev/null | grep -c '^:pubkey enc packet:' || true)"
+    if [[ "${FOUND_RECIPIENTS}" -ne "${#ENCRYPT_KEYS[@]}" ]]; then
+        echo "FATAL: archive encrypted to ${FOUND_RECIPIENTS} recipient(s), expected ${#ENCRYPT_KEYS[@]}" >&2
+        exit 1
+    fi
+    echo "verified: valid OpenPGP message, ${FOUND_RECIPIENTS} recipient(s)"
+
+    sync
+    echo "OK  $(du -h "${GPG_PATH}" | cut -f1)  ${GPG_PATH}"
+
 done
-echo "recipients: ${#ENCRYPT_KEYS[@]} (archive is readable by any one of them)"
 
-SOURCE_KB="$(du -sk "${PROJECT_DIR}" | cut -f1)"
-DEST_KB="$(df -Pk "${EXT_DRIVE}" | awk 'NR==2 {print $4}')"
-echo "source: ${PROJECT_DIR}  ($(( SOURCE_KB / 1024 / 1024 )) GiB uncompressed)"
-echo "dest:   ${GPG_PATH}"
-echo "free:   $(( DEST_KB / 1024 / 1024 )) GiB on ${EXT_DRIVE}"
-if (( DEST_KB < SOURCE_KB / 2 )); then
-    echo "WARNING: destination free space is under half the uncompressed source size." >&2
-    echo "         gzip on this tree does not reliably reach 2:1 -- it is mostly .h5 and .npz." >&2
-fi
-
-if (( DRY_RUN )); then
-    echo "[dry-run] would run: tar -czf - -C ${SOURCE_PARENT} ${SOURCE_LEAF} | gpg ${GPG_RECIPIENT_ARGS[*]} -e -o ${GPG_PATH}"
-    exit 0
-fi
-
-trap cleanup_partial EXIT
-
-
-#######################################################################################################################################################################################################################################################
-# tar with -C switch so paths are stored relative to the parent ("Juniper/..."), not as absolute paths that tar would strip with a warning and that restore into an unexpected location.
-
-tar -czf - -C "${SOURCE_PARENT}" "${SOURCE_LEAF}" | gpg --batch --yes "${GPG_RECIPIENT_ARGS[@]}" -e -o "${GPG_PATH}"
-
-
-#######################################################################################################################################################################################################################################################
-# Verify. `--list-packets` parses the OpenPGP structure and confirms the recipient key id WITHOUT needing the YubiKey, so it is safe to run unattended.
-# It does NOT prove the tar inside is intact -- a real restore drill is the only thing that does, and that belongs in the backup design arc.
-
-[[ -s "${GPG_PATH}" ]] || { echo "FATAL: archive is empty: ${GPG_PATH}" >&2; exit 1; }
-
-if ! gpg --list-packets --list-only "${GPG_PATH}" >/dev/null 2>&1; then
-    echo "FATAL: output is not a parseable OpenPGP message: ${GPG_PATH}" >&2
-    exit 1
-fi
-
-
-#######################################################################################################################################################################################################################################################
-# Count the pubkey-encrypted session-key packets. One per recipient -- so this proves the redundancy actually landed, rather than assuming it did because the command line asked for it.
-# Neither check needs a YubiKey, so both are safe unattended.
-
-FOUND_RECIPIENTS="$(gpg --list-packets --list-only "${GPG_PATH}" 2>/dev/null | grep -c '^:pubkey enc packet:' || true)"
-if [[ "${FOUND_RECIPIENTS}" -ne "${#ENCRYPT_KEYS[@]}" ]]; then
-    echo "FATAL: archive encrypted to ${FOUND_RECIPIENTS} recipient(s), expected ${#ENCRYPT_KEYS[@]}" >&2
-    exit 1
-fi
-echo "verified: valid OpenPGP message, ${FOUND_RECIPIENTS} recipient(s)"
-
-sync
-echo "OK  $(du -h "${GPG_PATH}" | cut -f1)  ${GPG_PATH}"
