@@ -471,7 +471,7 @@ Phase 1 or 2.
 |---|---|---|
 | 1 | Do cohort B's 273 truncated writes get deleted, quarantined, or kept? | **Quarantine, never delete.** |
 | 2 | Does behavioural attribution count as §6.4 "named"? | **No — inference is not a keep-mark.** |
-| 3 | Is a `util/juniper-backup.bash` archive a sufficient safeguard before removal? | **Not until a restore drill passes.** |
+| 3 | Is a `util/juniper-backup.bash` archive a sufficient safeguard before removal? | **Not until a restore drill passes.** *(2026-08-26: pipeline half PASSES; key half still owner-gated — see below.)* |
 
 **On (1).** Cohort B is the archive's only established, irrecoverable loss — and it is
 **13.0 MB of a 1.7 GB archive, 0.75%**. There is no space argument for an irreversible action at
@@ -490,6 +490,54 @@ to the Duplicati path** whose broken restore points ml#1263 documented — that 
 transfer to it. But the script's own line 173 states it cannot prove the tar inside is intact,
 and **no restore drill has ever been run**. An unverified backup is the exact failure class
 ml#1263 already caught once: archives that exist and do not restore.
+
+**Drill status, updated 2026-08-26.** The drill has two independent failure classes, and only
+one of them is testable without the owner present:
+
+| # | class | question | status |
+|---|---|---|---|
+| 1 | **PIPELINE** | Does `tar -czf - \| gpg -e` round-trip a tree byte-for-byte, and do the script's two unattended checks actually fire? | **PASSES** (2026-08-26) |
+| 2 | **KEY** | Can the owner's YubiKey-backed private key decrypt a *real* archive? | **OWNER-GATED — still owed** |
+
+Class 1 was drilled by [`util/ad-hoc/2026-08-26_backup_restore_drill.bash`](../util/ad-hoc/2026-08-26_backup_restore_drill.bash),
+which reproduces this script's pipeline verbatim against a synthetic tree — text, incompressible
+binary, an `.h5`-shaped file, unicode and spaced filenames, a symlink, and a mode-755 file — using
+**throwaway** recipients in an isolated `$GNUPGHOME`, so the real keyring and the YubiKey are never
+touched. It restores, then compares SHA-256 of every file plus every type/mode/symlink target. All
+7 files and the full type/mode/link manifest matched. It also carries a **negative control**: a byte
+flipped mid-ciphertext must make the restore fail, and it does — so an all-pass result is not
+vacuous. The drill found one real defect, in its own recipient-count check, before passing:
+`gpg --with-colons --list-keys` emits an `fpr` record for the primary key *and* each subkey, so a
+naive `/^fpr:/` grep double-counts recipients.
+
+Class 2 cannot be closed unattended: `ENCRYPT_KEYS` names two YubiKey-backed recipients, so
+decrypting a real archive requires the hardware. **What is owed is now specific** — take one real
+`.tgz.gpg`, decrypt it with a YubiKey, untar it, and confirm the tree lands — rather than the
+open-ended "no drill has ever been run".
+
+**Both preconditions recorded earlier on 2026-08-26 are now CLEARED** (they were true when first
+written, hours before the multi-device revision was fixed; superseded rather than deleted so the
+change is legible):
+
+| precondition, as first recorded | status now |
+|---|---|
+| "No archive exists to drill" — no project `.tgz.gpg` on this host | **cleared.** `juniper-backup.bash` now produces one on demand; several were written and verified during its repair. |
+| "The destination is not mounted" — `/media/pcalnon/DFF3-2782/` does not exist | **cleared.** Both `EBC5-F0A3` (`/dev/sdf1`) and `DFF3-2782` (`/dev/sdg1`) are mounted, each with a `Juniper-8.0.0.python/` directory. |
+
+**Class 2 no longer requires a full-tree backup, which is the useful part.** `--source` accepts any
+directory, so a *seconds-long* archive of a small tree is a real `.tgz.gpg` encrypted to the same two
+YubiKey recipients as a 141 GB one — identical for the purpose of proving the key decrypts:
+
+```bash
+util/juniper-backup.bash --source <any small dir> --dest <scratch dir>   # seconds, real archive
+gpg --decrypt <that>.tgz.gpg | tar -tzf -                                # YubiKey; lists the tree
+```
+
+If that lists the tree, class 2 is closed and question 3 is fully answered. The full-tree run is then
+a capacity question, not a verification one — and note it is genuinely tight: the source measures
+**141.2 GB** while `EBC5-F0A3` has ~135 GiB free (the rest held by a pre-existing *unencrypted*
+`juniper-8.0.0_python_2026-02-27.tgz`, 111 GB) and `DFF3-2782` has ~67 GiB. The script now warns at
+both thresholds rather than only below 50%.
 
 #### 6.4.3 The ratified policy
 

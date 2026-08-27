@@ -190,6 +190,17 @@ FSM_ACTIVE = frozenset({"STARTED", "PAUSED"})
 PREEMPT_TIMEOUT_SECONDS = 120.0
 PREEMPT_POLL_SECONDS = 2.0
 
+# Drive outcomes that leave the service STILL TRAINING: the driver gave up on the run,
+# the run did not give up on itself. `succeeded` / `failed` are already terminal service-side.
+TERMINAL_UNSETTLED = frozenset({"stalled", "timed_out"})
+#: Budget for the teardown-path stop, deliberately shorter than PREEMPT_TIMEOUT_SECONDS.
+#: That one gates a run that has not started yet and can afford to wait; this one runs
+#: AFTER the wall budget is already spent, and every second it takes is taken from the
+#: margin the manifest write needs before run_suite's `per_run_timeout_seconds` kills the
+#: subprocess -- and a kill there records `timed_out` with exit_code null and NO manifest
+#: (the failure mode p4/e-c-cascor-noise-robustness.yaml:22-26 raised its timeout to avoid).
+TEARDOWN_PREEMPT_TIMEOUT_SECONDS = 30.0
+
 EXIT_SUCCESS = 0
 EXIT_ACCEPTANCE = 1
 EXIT_MISUSE = 2
@@ -707,11 +718,15 @@ def _training_fsm(cascor_url: str) -> str:
     return str(((data.get("state_machine") or {}).get("status")) or "").upper()
 
 
-def preempt_training(cascor_url: str, timeout: float = PREEMPT_TIMEOUT_SECONDS) -> bool:
+def preempt_training(cascor_url: str, timeout: float = PREEMPT_TIMEOUT_SECONDS, label: str = "retrying start") -> bool:
     """``POST /v1/training/stop`` an active run, then wait for it to leave that state.
 
     Returns True when the lifecycle is startable again, False otherwise. Never raises:
     a failed preemption falls back to surfacing the original 409.
+
+    ``label`` names what the caller does next, because the two callers do different things
+    and the log line is read as evidence: the 409-on-start path retries the start, the
+    teardown path settles the service so collect reads a final network.
     """
     code, payload = _http_json("POST", f"{cascor_url}/v1/training/stop", body={}, timeout=60.0)
     if code != 200:
@@ -721,7 +736,7 @@ def preempt_training(cascor_url: str, timeout: float = PREEMPT_TIMEOUT_SECONDS) 
     while time.time() < deadline:
         fsm = _training_fsm(cascor_url)
         if fsm and fsm not in FSM_ACTIVE:
-            log.info("preempted the in-flight session -- lifecycle is %s, retrying start", fsm)
+            log.info("preempted the in-flight session -- lifecycle is %s, %s", fsm, label)
             return True
         time.sleep(PREEMPT_POLL_SECONDS)
     log.error("in-flight session did not leave %s within %.0fs of the stop", "/".join(sorted(FSM_ACTIVE)), timeout)
@@ -1420,6 +1435,7 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
     loop_stats: Dict[str, Any] = {}
     extras: Dict[str, Any] = {}
     g6: Optional[Dict[str, Any]] = None
+    teardown_preempt: Dict[str, Any] = {"attempted": False, "settled": None}
     plots_record: Dict[str, Any] = {"requested": list(config["outputs"]["plots"]), "rendered": [], "skipped": []}
     exit_code = EXIT_ACCEPTANCE
     series_path = results_dir / "metrics_series.csv"
@@ -1459,6 +1475,32 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
         _phase("drive", t0)
         if series_path.is_file():
             artifacts.append(series_path)
+
+        # A `stalled` / `timed_out` cell leaves the service TRAINING -- the driver gave up on
+        # the run, the run did not give up on itself. Two costs follow, and both are the
+        # driver's to pay. `collect_results` below samples /v1/metrics, /v1/network and
+        # /v1/network/topology off a network that is still recruiting units, so the "final"
+        # evidence is a smear across an unknown interval rather than a final state; and the
+        # only stop left is experiment_stack.bash's teardown SIGTERM on a 10s grace, which
+        # cascor#589 made safe but which no campaign has exercised (T6's 23 inter-cell stops
+        # all landed 2-7s AFTER `Training ended`, so only the idle path was proven -- see
+        # reports/stop-during-training-2026-08-25/). A graceful stop first settles both.
+        #
+        # Best-effort by construction: `preempt_training` never raises, and a refused or slow
+        # stop degrades to exactly the behaviour that shipped before this block. Only the
+        # cascor path gets this -- the recurrence path's `POST /v1/train` is synchronous
+        # against a service with no /v1/training/stop lifecycle to call.
+        if outcome in TERMINAL_UNSETTLED:
+            t0 = time.monotonic()
+            settled = preempt_training(cascor_url, timeout=TEARDOWN_PREEMPT_TIMEOUT_SECONDS, label="settling before collect")
+            _phase("teardown_preempt", t0)
+            teardown_preempt = {"attempted": True, "settled": settled}
+            if not settled:
+                log.warning(
+                    "outcome %s: the service did not settle within %.0fs -- collect samples a live network and teardown falls back to SIGTERM",
+                    outcome,
+                    TEARDOWN_PREEMPT_TIMEOUT_SECONDS,
+                )
 
         t0 = time.monotonic()
         collected, collect_errors, extras = collect_results(cascor_url, config, results_dir, f"{experiment_name} {run_id}")
@@ -1540,6 +1582,10 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
             "acceptance": {"ok": exit_code == EXIT_SUCCESS, "reasons": acceptance_reasons},
             "completion_reason": status_data.get("completion_reason"),
             "drive_loop": loop_stats,
+            # Whether the driver stopped a still-training service before collecting. `attempted`
+            # false means the outcome was already terminal service-side; `settled` false means
+            # collect below sampled a live network -- read the run's numbers accordingly.
+            "teardown_preempt": teardown_preempt,
             "metrics_scraped": {
                 "grafana_bridge": bool(ports.get("grafana_bridge", False)),
                 "target_file": str(run_dir / "artifacts" / "prometheus_target.json"),
