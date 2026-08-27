@@ -826,6 +826,22 @@ class TestGrafanaBridge(unittest.TestCase):
         self.assertIn('TARGETS_DIR="${DEPLOY_DIR}/prometheus/targets"', SCRIPT_TEXT)
         self.assertIn('DEPLOY_DIR="${JUNIPER_EXP_DEPLOY_DIR:-${PROJECT_DIR}/juniper-deploy}"', SCRIPT_TEXT)
 
+    def test_cascor_src_dir_is_overridable_on_its_own(self) -> None:
+        """A campaign must be able to pin cascor to a WORKTREE without freezing the primary.
+
+        While this was derived from PROJECT_DIR, every campaign held the primary checkout for
+        its whole life, and any session running a stack out of the primary blocked every
+        campaign (observed 2026-08-26: a live E2E stack on :8202 with cwd in the primary src).
+        The override is independent of PROJECT_DIR so the rest of the layout stays canonical.
+        """
+        self.assertIn('CASCOR_SRC_DIR="${JUNIPER_EXP_CASCOR_SRC_DIR:-${PROJECT_DIR}/juniper-cascor/src}"', SCRIPT_TEXT)
+        # And it must stay the thing uvicorn is launched from, or the override is decorative.
+        self.assertIn('cd "${CASCOR_SRC_DIR}"', _extract_experiment_fn("cascor_up"))
+
+    def test_the_cascor_src_override_is_documented(self) -> None:
+        """The env block is the only place an operator learns the knob exists."""
+        self.assertIn("JUNIPER_EXP_CASCOR_SRC_DIR", SCRIPT_TEXT.split("CASCOR_SRC_DIR=")[0])
+
     def test_target_file_removed_at_teardown(self) -> None:
         bridge_down = _extract_experiment_fn("bridge_down")
         self.assertIn('rm -f "${TARGETS_DIR}/${TARGET_RUN_ID}.json"', bridge_down)
