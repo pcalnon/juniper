@@ -205,6 +205,79 @@ class DatasetInstanceIsFixedTest(unittest.TestCase):
         self.assertIsNotNone(sa.DATASET_SEED)
 
 
+class DisplacementFlagTest(unittest.TestCase):
+    """The winner is chosen by LIFT, not by raw score, and the two can disagree.
+
+    §3.2 of the null-model findings: a snapshot attributed to spiral at 0.624 while scoring
+    gaussian 0.890 and moon 0.835. It won because spiral's floor (0.572) was the lowest one
+    available -- floor arithmetic, not evidence, and the reasoning that made spiral's whole
+    cohort withdrawable. `lift` alone does not reveal it, so the verdict now says so.
+
+    Lift stays the criterion (raw score cannot separate "learned this" from "this one is easy"),
+    so NO verdict changes here -- this is a diagnostic over the same decision.
+    """
+
+    def test_the_spiral_case_from_the_findings_is_flagged(self) -> None:
+        """The six SCORES are verbatim from §3.2; the floors are set so spiral clears cleanly.
+
+        §3.2 quotes the score vector but not all six floors for that snapshot, and the real row
+        did attribute. Floors here are therefore chosen to reproduce that outcome -- spiral the
+        only positive lift -- rather than invented to force the flag. Getting this wrong once was
+        instructive: with floors set equal to the top scores, the row came back AMBIGUOUS and the
+        assertion failed, which is the correct behaviour for a vector nothing separates.
+        """
+        null = null_from(gaussian=0.890, moon=0.870, spiral=0.500, checkerboard=0.600, xor=0.600, circles=0.600)
+        scores = {"gaussian": 0.890, "moon": 0.835, "spiral": 0.624, "checkerboard": 0.560, "xor": 0.550, "circles": 0.510}
+        verdict = sa.adjudicate(scores, null, sa.DEFAULT_MARGIN, sa.DEFAULT_GAP)
+
+        self.assertEqual(verdict["verdict"], sa.ATTRIBUTED, f"the verdict itself must be unchanged: {verdict}")
+        self.assertEqual(verdict["dataset"], "spiral", "lift still decides the winner")
+        self.assertTrue(verdict["displaced"], "spiral scores below gaussian and moon; that must be visible")
+        self.assertEqual(verdict["raw_best"], "gaussian")
+        self.assertEqual(verdict["raw_best_score"], 0.890)
+        self.assertIn("DISPLACED", verdict["reason"])
+
+    def test_an_undisplaced_attribution_is_not_flagged(self) -> None:
+        """NON-VACUITY. If the flag were always true it would carry no information.
+
+        The xor cluster wins on raw score AND on lift, so it must come back displaced=False.
+        """
+        null = null_from(xor=0.690, spiral=0.572, circles=0.730)
+        verdict = sa.adjudicate({"xor": 0.995, "spiral": 0.521, "circles": 0.530}, null, sa.DEFAULT_MARGIN, sa.DEFAULT_GAP)
+
+        self.assertEqual(verdict["verdict"], sa.ATTRIBUTED)
+        self.assertFalse(verdict["displaced"], "xor is both the highest scorer and the highest lifter")
+        self.assertNotIn("raw_best", verdict, "an undisplaced row must not carry a raw_best")
+        self.assertNotIn("DISPLACED", verdict["reason"])
+
+    def test_displacement_does_not_change_which_dataset_wins(self) -> None:
+        """The flag is a report, not a veto: same winner with and without the disagreement."""
+        null = null_from(gaussian=0.890, spiral=0.572)
+        undisplaced = sa.adjudicate({"spiral": 0.900, "gaussian": 0.700}, null, sa.DEFAULT_MARGIN, sa.DEFAULT_GAP)
+        displaced = sa.adjudicate({"spiral": 0.900, "gaussian": 0.950}, null, sa.DEFAULT_MARGIN, sa.DEFAULT_GAP)
+
+        self.assertEqual(undisplaced["dataset"], "spiral")
+        self.assertEqual(displaced["dataset"], "spiral", "a displaced winner is still the winner")
+        self.assertFalse(undisplaced["displaced"])
+        self.assertTrue(displaced["displaced"])
+
+    def test_non_attributed_verdicts_carry_no_displacement_field(self) -> None:
+        """Displacement is only meaningful once something has actually been attributed."""
+        null = null_from(checkerboard=0.610, spiral=0.572)
+        verdict = sa.adjudicate({"checkerboard": 0.624, "spiral": 0.510}, null, sa.DEFAULT_MARGIN, sa.DEFAULT_GAP)
+
+        self.assertEqual(verdict["verdict"], sa.INDETERMINATE)
+        self.assertNotIn("displaced", verdict, "an unattributed row has no winner to displace")
+
+    def test_schema_version_is_not_bumped_by_an_additive_field(self) -> None:
+        """SCHEMA_VERSION encodes what a verdict MEANS; displacement changes no verdict.
+
+        Bumping would declare every existing v2 row incomparable and force regeneration of a
+        28k-row sidecar to gain nothing. Pinned so a later author does not bump it reflexively.
+        """
+        self.assertEqual(sa.SCHEMA_VERSION, 2)
+
+
 class CrossDatasetFloorTest(unittest.TestCase):
     """THE second regression class: the untrained null answers the WRONG QUESTION.
 

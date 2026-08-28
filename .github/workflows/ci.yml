@@ -841,6 +841,14 @@ jobs:
           # rewrites depth + adds SPACE-separated nosec codes. util/ is not pre-commit-lint-gated.
           python3 -m unittest -v tests/test_p5_port_memory_budget.py
 
+          # tests/test_require_context_safely.py: the ruleset writer that promotes a context to
+          # REQUIRED (util/ad-hoc/2026-08-20_require_context_safely.py). find_ruleset must report a
+          # FAILED per-ruleset GET as an error, never as "no ruleset carries required_status_checks"
+          # -- a transient non-2xx did exactly that twice during the 2026-08-27 P5 promotion while
+          # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
+          # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
+          python3 -m unittest -v tests/test_require_context_safely.py
+
       - name: Run bash regression tests
         run: |
           echo "╔════════════════════════════════════════════════════════════╗"

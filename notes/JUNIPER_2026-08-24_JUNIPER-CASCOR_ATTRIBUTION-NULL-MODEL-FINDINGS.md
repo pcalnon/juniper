@@ -244,6 +244,46 @@ single contested snapshot (§3.5). That is the *conservative* outcome, not a set
 Read moon as **withdrawn pending §3 item 4**, not as refuted. The tool is right to refuse —
 refusing is what it does when the evidence will not carry a verdict.
 
+### 4.1 The displacement flag — §3.2 made mechanical (2026-08-26)
+
+§3.2's defect is that the winner is chosen by **lift** (`score − floor`), not by raw score, so a
+candidate with a low floor can win while scoring worse than datasets it was *not* attributed to.
+`adjudicate()` now marks exactly that disagreement: an ATTRIBUTED verdict carries
+`displaced: true` plus `raw_best` / `raw_best_score` whenever the highest raw scorer is not the
+winner.
+
+**No verdict changes.** Lift stays the criterion — raw score cannot separate "learned this" from
+"this dataset is easy" — so this is a diagnostic over the same decision, not a new rule. It is
+deliberately framed on *"best raw score ≠ winner"* and **not** on *"floor ≥ 1.000"*, which is the
+gaussian-saturation case and a different diagnostic the flag would otherwise obscure.
+
+Censused over the existing sidecar with
+[`util/ad-hoc/2026-08-26_displacement_census.py`](../util/ad-hoc/2026-08-26_displacement_census.py)
+(every row stores its full `scores` vector, so displacement is recomputable offline without
+re-running attribution): **6 of 108 attributed rows are displaced.**
+
+| winner | outscored by | n |
+|---|---|---:|
+| spiral | moon | 4 |
+| xor | gaussian | 2 |
+
+**Those 6 rows are only 2 distinct networks** — `5a1ba744` at 8/10/12/13 units and `295a396f` at
+18/19 units. That matters twice over. First, it means displacement is rarer than the row count
+suggests: it clusters in a network's early, low-capacity snapshots, which is where a low floor is
+most able to out-argue a low score. Second, **all four spiral rows are the same cohort §3.4
+withdrew** on the independent capacity argument — so the flag re-derives that conclusion
+mechanically, from the score vector alone, without knowing anything about learnability. Two
+different routes to the same four snapshots is the strongest evidence in §3.4's favour so far.
+
+The two xor rows (18u, 19u) are the weakest members of the otherwise-solid xor cohort of §3.3, and
+are flagged rather than withdrawn: xor's case rests on complete distributional separation across
+94 snapshots, which two displaced low-capacity members do not overturn.
+
+**Schema note.** This does not bump `SCHEMA_VERSION` (still 2) — the version encodes what a verdict
+*means*, and no verdict changed. Absence of `displaced` on a row therefore means "not computed",
+not "not displaced"; a census over pre-2026-08-26 rows must recompute from `scores`, which is what
+the script above does.
+
 ---
 
 ## 5. Applied — two floors, not a replacement
