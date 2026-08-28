@@ -116,6 +116,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The fix is not to reorder — that trades a real protection for a worse one — but to add a second,
   coarse limiter ahead of authentication. See `FailedAuthThrottle` above.
 
+- **The OpenAPI document is no longer served to unauthenticated callers.** `/docs`,
+  `/openapi.json` and `/redoc` were in `EXEMPT_PATHS`, and `_is_exempt` is a bare membership test
+  evaluated *regardless of whether any API key is configured*. Listing a doc path there therefore
+  did not "enable" the document — it **published** it. Because `create_app` also passed no
+  `docs_url` / `redoc_url` / `openapi_url`, FastAPI's defaults mounted all three unconditionally,
+  so every consumer that used the factory served its complete API surface — every route, schema
+  and parameter — to callers with no credentials, even with auth configured and required.
+  This is the sibling of `APD-DATA-024` (juniper-data#295) and, unlike the cascor copy, it was
+  **live**: `juniper-recurrence` is the sole production consumer of this middleware, it mounts the
+  document, and it publishes a host port with `REQUIRE_AUTH` defaulting to true.
+  The fix follows the posture already chosen for juniper-data: the three paths are removed from
+  `EXEMPT_PATHS` so `SecurityMiddleware` authenticates `/openapi.json` like any other route, and
+  `create_app` gains **`explorers_enabled`** (default `True`) to unmount `/docs` and `/redoc` when
+  auth is on. The explorers are browser pages that fetch the document by XHR with no `X-API-Key`
+  header, so mounting them behind the key would serve a page that can only 401 — while leaving
+  them exempt looks like "behind the key" and is in fact "open to everyone". A secured deployment
+  stays self-describing to *authenticated* callers instead of silently schema-less.
+  **Consumer action required**: pass `explorers_enabled=not settings.api_keys` to `create_app`.
+  The default preserves the previous behaviour for deployments that run without auth.
+  Pinned by `tests/test_security_middleware_exempt_paths.py`, which asserts the paths' **absence**
+  — the regression is additive, so presence-only tests cannot catch it.
+
 ## [0.5.1] - 2026-08-09
 
 ### Fixed

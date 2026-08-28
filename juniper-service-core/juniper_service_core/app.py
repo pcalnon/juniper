@@ -26,6 +26,7 @@ def create_app(
     version: str = "0.1.0",
     routers: Iterable[APIRouter] = (),
     lifespan: Lifespan[FastAPI] | None = None,
+    explorers_enabled: bool = True,
 ) -> FastAPI:
     """Create a FastAPI app with the generic health router plus any extra routers.
 
@@ -38,11 +39,28 @@ def create_app(
             hooks (logging configuration, build-info, resource setup/teardown) in a
             lifespan instead of at import time or in its CLI entrypoint. Omit for the
             previous behaviour (no lifespan).
+        explorers_enabled: Whether to mount the interactive API explorers
+            (``/docs``, ``/redoc``). Pass ``not settings.api_keys`` -- they are
+            browser pages that fetch ``/openapi.json`` by XHR with no
+            ``X-API-Key`` header, so under auth they could only ever 401.
+            ``/openapi.json`` itself stays mounted either way and is
+            authenticated by :class:`SecurityMiddleware` (it is deliberately not
+            in ``EXEMPT_PATHS``), so a secured deployment stays self-describing
+            to authenticated callers instead of silently schema-less. Defaults to
+            ``True``, which preserves the previous behaviour for unauthenticated
+            deployments.
 
     Returns:
         A configured :class:`~fastapi.FastAPI` instance. Model-agnostic by design.
     """
-    app = FastAPI(title=title, version=version, lifespan=lifespan)
+    app = FastAPI(
+        title=title,
+        version=version,
+        lifespan=lifespan,
+        docs_url="/docs" if explorers_enabled else None,
+        redoc_url="/redoc" if explorers_enabled else None,
+        openapi_url="/openapi.json",
+    )
     app.include_router(health_router())
     for router in routers:
         app.include_router(router)

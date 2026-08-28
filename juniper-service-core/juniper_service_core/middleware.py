@@ -27,13 +27,24 @@ _HTTP_413_PAYLOAD_TOO_LARGE = 413
 _HTTP_429_TOO_MANY_REQUESTS = 429
 _DEFAULT_MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024  # 10 MiB
 
+# APD-DATA-024 sibling (defect register §4.3): ``/docs``, ``/openapi.json`` and
+# ``/redoc`` are deliberately ABSENT here. :meth:`SecurityMiddleware._is_exempt`
+# is a bare membership test evaluated regardless of whether any API key is
+# configured, so listing a path here does not "enable" it -- it PUBLISHES it.
+# With the three doc paths listed, every consumer that mounted the OpenAPI
+# document served its complete API surface to unauthenticated callers even when
+# auth was on and required. ``create_app`` therefore leaves ``/openapi.json``
+# mounted but *unexempt*, so SecurityMiddleware authenticates it like any other
+# route, and unmounts the two interactive explorers when auth is on -- Swagger
+# UI and ReDoc fetch the document by XHR with no ``X-API-Key`` header, so
+# mounting them behind the key would serve a page that can only 401. Serving
+# them while leaving them exempt is the trap this absence exists to prevent: it
+# looks like "behind the key" and is in fact "open to everyone".
+# Pinned by tests/test_security_middleware_exempt_paths.py.
 EXEMPT_PATHS = {
     "/v1/health",
     "/v1/health/live",
     "/v1/health/ready",
-    "/docs",
-    "/openapi.json",
-    "/redoc",
     # SEC-16 / POC §3.1: ``/metrics`` is gated by the parallel
     # ``MetricsAuthMiddleware`` IP allowlist (cascor mirror of
     # ``juniper-data``'s middleware) instead of SecurityMiddleware's
