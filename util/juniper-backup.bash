@@ -180,17 +180,71 @@ function check_application_repos() {
 
 #######################################################################################################################################################################################################################################################
 # Validate exclude directories for a given application directory.
+EXCLUDE_DIRS_VALIDATED=()
+
 function validate_exclude_dirs() {
     local application_dir="$1"
-    local exclude_dirs_arg=()
-    for EXCLUDE_DIR in "${EXCLUDE_DIRS[@]}"; do
-        if [[ -d "${application_dir}/${EXCLUDE_DIR}" ]]; then
+    local exclude_dirs_array=()
+    local current_exclude_dir=""
+    local current_exclude_path=""
+
+    for exclude_dir in "${EXCLUDE_DIRS[@]}"; do
+
+        local current_exclude_dir="${application_dir}/${exclude_dir}"
+        echo "current exclude path: ${current_exclude_dir}"
+
+        current_exclude_path="$(realpath "${current_exclude_dir}")"
+        echo "current exclude path: ${current_exclude_path}"
+
+        # if [[ -d "${application_dir}/${EXCLUDE_DIR}" ]]; then
+        if [[ -d "${current_exclude_path}" ]]; then
             # exclude_dirs_arg+=("--exclude ${EXCLUDE_DIR}")
             # exclude_dirs_arg+=("--exclude=./${EXCLUDE_DIR}")
-            exclude_dirs_arg+=("--exclude=${EXCLUDE_DIR}")
+            # exclude_dirs_arg+=("--exclude=${EXCLUDE_DIR}")
+            exclude_dirs_array+=("${current_exclude_path}")
         fi
     done
-    printf '%s\n' "${exclude_dirs_arg[@]}" | tr '\n' ' '
+
+    # printf '%s\n' "${exclude_dirs_array[@]}" | tr '\n' ' '
+    printf '%s ' "${exclude_dirs_array[@]}"
+
+    EXCLUDE_DIRS_VALIDATED=( "${exclude_dirs_array[@]}" )
+
+    return 0
+}
+
+
+#######################################################################################################################################################################################################################################################
+# Build the exclude directories argument.
+EXCLUDE_DIRS_ARG=()
+
+function build_exclude_dirs_arg() {
+    local exclude_dirs_arg=()
+
+    echo -ne "0. Exclude Dir Args Number: ${#EXCLUDE_DIRS_VALIDATED[@]}\n\n"
+    echo -ne "EXCLUDE_DIRS_VALIDATED: ${EXCLUDE_DIRS_VALIDATED[*]}\n\n"
+
+    # for exclude_dir in "${EXCLUDE_DIRS_VALIDATED[@]}"; do
+    #     exclude_dirs_arg+=("--exclude=${exclude_dir}")
+    # done
+    exclude_dirs_arg=( $(printf -- '--exclude="%s" ' "${EXCLUDE_DIRS_VALIDATED[@]}") )
+
+    echo -ne "1. Exclude Dir Args Number: ${#exclude_dirs_arg[@]}\n\n"
+    # printf '%s ' "${exclude_dirs_arg[@]}" | tr '\n' ' '
+
+    echo -ne "exclude dirs arg: ${exclude_dirs_arg[*]}\n\n"
+
+    echo -ne "printf: exclude_dirs_arg[@]\n"
+    printf '%s ' "${exclude_dirs_arg[@]}"
+    echo -ne "\n"
+
+    echo -ne "2. Exclude Dir Args Number: ${#exclude_dirs_arg[@]}\n\n"
+
+    EXCLUDE_DIRS_ARG=( "${exclude_dirs_arg[@]}" )
+
+    echo -ne "3. Exclude Dir Args Number: ${#EXCLUDE_DIRS_ARG[@]}\n\n"
+    echo -ne "EXCLUDE_DIRS_ARG: ${EXCLUDE_DIRS_ARG[*]}\n\n"
+
     return 0
 }
 
@@ -351,15 +405,44 @@ for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
     GPG_FILE="${ARCHIVE_ROOT}.${TAR_EXT}.${GPG_EXT}"
 
     # EXCLUDE_DIRS_ARG=("$(validate_exclude_dirs "${APPLICATION_DIR}")")
-    EXCLUDE_DIRS_ARG=( $(validate_exclude_dirs "${APPLICATION_DIR}") )
+    # EXCLUDE_DIRS_ARG=( "${$(validate_exclude_dirs "${APPLICATION_DIR}")[@]}" )
+    # EXCLUDE_DIRS_VALIDATED="$(validate_exclude_dirs "${APPLICATION_DIR}")"
+    validate_exclude_dirs "${APPLICATION_DIR}"
+
+    echo "exclude dirs validated: ${EXCLUDE_DIRS_VALIDATED[*]}"
+    echo "exclude dir validated 0: ${EXCLUDE_DIRS_VALIDATED[0]}"
+    echo "exclude dir validated 1: ${EXCLUDE_DIRS_VALIDATED[1]}"
+    echo "exclude dir validated 2: ${EXCLUDE_DIRS_VALIDATED[2]}"
+
+    # EXCLUDE_DIRS_ARG=( "${EXCLUDE_DIRS_VALIDATED[@]}" )
+    build_exclude_dirs_arg
+
     echo "exclude dirs: ${EXCLUDE_DIRS_ARG[*]}"
+    echo "exclude dir 0: ${EXCLUDE_DIRS_ARG[0]}"
+    echo "exclude dir 1: ${EXCLUDE_DIRS_ARG[1]}"
+    echo "exclude dir 2: ${EXCLUDE_DIRS_ARG[2]}"
 
     # `du -sk` walks the whole tree and is slow on ~126 GB, so it runs ONCE rather than per device.
     # SOURCE_KB="$(du -sk "${APPLICATION_DIR}" | cut -f1)"
     # - SC2068
     # SOURCE_BYTES="$(du -sb ${EXCLUDE_DIRS_ARG[@]} "${APPLICATION_DIR}" | cut -f1)"
-    SOURCE_BYTES=$(du -sb "${EXCLUDE_DIRS_ARG[@]}" "${APPLICATION_DIR}" | cut -f1)
+    # SOURCE_BYTES=$(du -sb ${EXCLUDE_DIRS_ARG[@]} "${APPLICATION_DIR}" | cut -f1)
+    # SOURCE_BYTES=$(du -sb $(echo "${EXCLUDE_DIRS_ARG[@]}" | tr '\n' ' ') "${APPLICATION_DIR}" | cut -f1)
+
+
+    echo "1. du -sb \$(printf \"%s \" \"${EXCLUDE_DIRS_ARG[*]}\") \"${APPLICATION_DIR}\" | cut -f1"
+    echo "2. du -sb $(printf "%s " "${EXCLUDE_DIRS_ARG[@]}") \"${APPLICATION_DIR}\" | cut -f1"
+
+    echo "du -sb $(printf '%s ' "${EXCLUDE_DIRS_ARG[@]}") \"${APPLICATION_DIR}\" | cut -f1"
+    COMMAND="du -sb $(printf '%s ' "${EXCLUDE_DIRS_ARG[@]}") \"${APPLICATION_DIR}\" | cut -f1"
+    echo "COMMAND: ${COMMAND}"
+
+    SOURCE_BYTES="$(eval "${COMMAND}")"
     echo "source bytes: ${SOURCE_BYTES}"
+
+    # SOURCE_BYTES="$(du -sb $(printf "%s " "${EXCLUDE_DIRS_ARG[@]}") "${APPLICATION_DIR}" | cut -f1)"
+    # echo "source bytes: ${SOURCE_BYTES}"
+
     SOURCE_SIZE_DISPLAY="$(get_order_of_magnitude_display "${SOURCE_BYTES}")"
     printf 'source: %s  (%s uncompressed)\n' "${APPLICATION_DIR}" "${SOURCE_SIZE_DISPLAY}"
 
