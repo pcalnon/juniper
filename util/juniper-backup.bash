@@ -34,37 +34,29 @@
 # Notes:
 #     date +%Y%m%d_%H%M%S.%N-%Z : 20260821_085919.898543514-CDT
 #
-#     STREAMED, not staged. The original draft wrote a full plaintext .tgz to
-#     ${TOOL_DIR}/Juniper_<uuid>/ and then encrypted it. Two problems with that: it needs as much
-#     free scratch space as the tree is large (~126 GB today), and it leaves an unencrypted copy of
-#     the entire project on local disk until something removes it -- nothing did. Piping tar into
-#     gpg removes both. `set -o pipefail` is what makes the pipe safe to rely on.
+#     STREAMED, not staged. The original draft wrote a full plaintext .tgz to ${TOOL_DIR}/Juniper_<uuid>/ and then encrypted it.
+#       Two problems with that: it needs as much free scratch space as the tree is large (~126 GB today), and it leaves an unencrypted copy of the entire project on local disk until something removes it -- nothing did.
+#       Piping tar into gpg removes both. `set -o pipefail` is what makes the pipe safe to rely on.
 #
-#     BUILD ONCE, REPLICATE. The multi-device revision originally ran the whole
-#     `tar -czf - | gpg -e` pipeline once PER DEVICE -- reading, compressing and encrypting ~126 GB
-#     twice. It now builds to the first usable device and COPIES the finished ciphertext to the
-#     rest. Every device therefore holds a byte-identical archive under one filename (same UUID and
-#     timestamp), which is also what makes "these two files are the same backup" checkable.
+#     BUILD ONCE, REPLICATE. The multi-device revision originally ran the whole `tar -czf - | gpg -e` pipeline once PER DEVICE -- reading, compressing and encrypting ~126 GB twice.
+#       It now builds to the first usable device and COPIES the finished ciphertext to the rest. Every device therefore holds a byte-identical archive under one filename (same UUID and timestamp), which is also what makes "these two files are the same backup" checkable.
 #
 #     THE BUG THIS REPLACES: the draft assigned `ENCRPYTED` but the gpg line read `${ENCRYPTED}`.
-#     Undefined, so it expanded to empty, so `gpg -o ""`. Nothing ever landed on the drive, and
-#     with no `set -u` the script exited 0 while doing so. Both spellings are now gone; there is one
-#     variable, used once.
+#       Undefined, so it expanded to empty, so `gpg -o ""`. Nothing ever landed on the drive, and with no `set -u` the script exited 0 while doing so. Both spellings are now gone; there is one variable, used once.
 #
-#     THE SECOND BUG OF THAT CLASS, and why the loop below recomputes its target: the multi-device
-#     revision computed `GPG_PATH` ONCE from `MEDIA_NAMES[0]` and then reassigned only `EXT_DRIVE`
-#     inside the loop. Both iterations wrote the SAME path on the FIRST drive, the second `gpg
-#     --yes` silently clobbered the first, and the second drive received nothing -- while the log
-#     printed the second drive's name and "OK". A destination is now derived from its device in one
-#     place (`target_path_for`) and never carried across an iteration.
+#     THE SECOND BUG OF THAT CLASS, and why the loop below recomputes its target:
+#       The multi-device revision computed `GPG_PATH` ONCE from `MEDIA_NAMES[0]` and then reassigned only `EXT_DRIVE` inside the loop.
+#       Both iterations wrote the SAME path on the FIRST drive, the second `gpg --yes` silently clobbered the first, and the second drive received nothing -- while the log printed the second drive's name and "OK".
+#       A destination is now derived from its device in one place (`target_path_for`) and never carried across an iteration.
 #
-#     MOUNT CHECK IS ON THE MOUNT ROOT, NOT THE BACKUP DIR. `mountpoint -q` is true only for an
-#     actual mount point. When `BACKUP_DIR` was appended to `EXT_DRIVE`, the check began testing
-#     `<mount>/Juniper-8.0.0.python` -- a plain subdirectory, never a mount point -- so preflight
-#     FATALed on every run even with both drives correctly attached. The two questions are now asked
-#     separately: is the DEVICE mounted, and does its BACKUP_DIR exist and accept writes.
+#     MOUNT CHECK IS ON THE MOUNT ROOT, NOT THE BACKUP DIR.
+#       Statement `mountpoint -q` is true only for an actual mount point. When `BACKUP_DIR` was appended to `EXT_DRIVE`, the check began testing `<mount>/Juniper-8.0.0.python` -- a plain subdirectory, never a mount point -- so preflight FATALed on every run even with both drives correctly attached.
+#       The two questions are now asked separately: is the DEVICE mounted, and does its BACKUP_DIR exist and accept writes.
 #######################################################################################################################################################################################################################################################
 
+#######################################################################################################################################################################################################################################################
+# Define constants and environment variables for the script.
+#######################################################################################################################################################################################################################################################
 set -euo pipefail
 
 TRUE="0"
@@ -82,8 +74,7 @@ MOUNT_NAME="media"
 USER_NAME="pcalnon"
 BACKUP_DIR="Juniper-8.0.0.python"
 
-# Every attached device named here receives a copy of the SAME archive. Order matters only in that
-# the first usable device is the one the archive is BUILT on; the rest are copies of it.
+# Every attached device named here receives a copy of the SAME archive. Order matters only in that the first usable device is the one the archive is BUILT on; the rest are copies of it.
 MEDIA_NAMES=( "EBC5-F0A3" "DFF3-2782" )
 
 APPLICATION_REPOS=( "juniper-canopy" "juniper-cascor" "juniper-cascor-client" "juniper-cascor-worker" "juniper-data" "juniper-data-client" "juniper-deploy" "juniper-ml" "juniper-recurrence" "juniper-slacker" )
@@ -95,22 +86,22 @@ ORDER_OF_MAGNITUDE=1024
 TAR_EXT="tgz"
 GPG_EXT="gpg"
 
-# INCLUDE_CASCOR_SNAPSHOTS="${FALSE}"
-INCLUDE_CASCOR_SNAPSHOTS="${TRUE}"
+INCLUDE_CASCOR_SNAPSHOTS="${FALSE}"
+# INCLUDE_CASCOR_SNAPSHOTS="${TRUE}"
 
 
 #######################################################################################################################################################################################################################################################
-# Define tar arguments
-IGNORE_FAILED_READ_ARG="--ignore-failed-read"
-
 # Exclude directories from the backup
-# EXCLUDE_DIRS=( "dist/" "logs/" "reports/" "resources/" ".claude/worktrees/" ".mypy_cache/" "data/" "venv/" )
-# EXCLUDE_DIRS=( ".amp/" ".benchmarks/" ".claude/" ".mypy_cache/" ".playwright-mcp/" ".pytest_cache/" ".ruff_cache/" ".serena/" "dist/" "logs/" "reports/" "resources/" )
 EXCLUDE_DIRS=( ".amp" ".benchmarks" ".claude" ".mypy_cache" ".playwright-mcp" ".pytest_cache" ".ruff_cache" ".serena" ".trunk" "dist" "logs" "reports" "resources" "data" "build" "venv" )
 if [[ "${INCLUDE_CASCOR_SNAPSHOTS:-${FALSE}}" == "${TRUE}" ]]; then
     EXCLUDE_DIRS=( "${EXCLUDE_DIRS[@]}" "cascor-snapshots" )
 fi
 EXCLUDE_DIRS_ARG=()
+
+
+#######################################################################################################################################################################################################################################################
+# Define tar arguments
+IGNORE_FAILED_READ_ARG="--ignore-failed-read"
 
 EXCLUDE_BACKUPS_ARG="--exclude-backups"
 EXCLUDE_CACHES_ALL_ARG="--exclude-caches-all"
@@ -122,13 +113,9 @@ echo "exclude args: ${EXCLUDE_ARGS[*]}"
 
 
 #######################################################################################################################################################################################################################################################
-# MULTIPLE RECIPIENTS, deliberately. gpg encrypts a session key to each, so ANY ONE of these keys
-# can decrypt the archive independently. This is the mitigation for the restore-side single point of
-# failure: `gpg -r <pub> -e` needs no YubiKey to WRITE a backup, only to READ one -- so with a single
-# recipient, losing that one key makes every archive it ever produced unrecoverable.
-#
-# Cost of an extra recipient is a few hundred bytes per archive, once. Add more here rather than
-# re-encrypting later; you cannot retro-fit a recipient onto archives already written.
+# MULTIPLE RECIPIENTS, deliberately. gpg encrypts a session key to each, so ANY ONE of these keys can decrypt the archive independently.
+#   This is the mitigation for the restore-side single point of failure: `gpg -r <pub> -e` needs no YubiKey to WRITE a backup, only to READ one -- so with a single recipient, losing that one key makes every archive it ever produced unrecoverable.
+#   Cost of an extra recipient is a few hundred bytes per archive, once. Add more here rather than re-encrypting later; you cannot retro-fit a recipient onto archives already written.
 ENCRYPT_KEYS=(
     "Paul Calnon (PaulCalnon_overtoad.research@gmail.com_Yubikey-3c_2026-08-06) <paul.calnon@gmail.com>"
     "Paul Calnon (PaulCalnon_overtoad.research@gmail.com_Yubikey-3a_2026-08-11) <paul.calnon@gmail.com>"
@@ -164,6 +151,10 @@ UUID_VALUE="$(uuidgen)"
 
 
 #######################################################################################################################################################################################################################################################
+# Define functions to be used throughout the script.
+#######################################################################################################################################################################################################################################################
+
+#######################################################################################################################################################################################################################################################
 # Validate application repos.
 APPLICATION_REPOS_ARGS=()
 function check_application_repos() {
@@ -174,80 +165,56 @@ function check_application_repos() {
         fi
         APPLICATION_REPOS_ARGS+=("${REPO}")
     done
-    echo "application repos args: ${APPLICATION_REPOS_ARGS[*]}"
+    # echo "application repos args: ${APPLICATION_REPOS_ARGS[*]}"
 }
-
 
 #######################################################################################################################################################################################################################################################
 # Validate exclude directories for a given application directory.
 EXCLUDE_DIRS_VALIDATED=()
-
 function validate_exclude_dirs() {
     local application_dir="$1"
     local exclude_dirs_array=()
     local current_exclude_dir=""
     local current_exclude_path=""
-
     for exclude_dir in "${EXCLUDE_DIRS[@]}"; do
-
         local current_exclude_dir="${application_dir}/${exclude_dir}"
-        echo "current exclude path: ${current_exclude_dir}"
-
+        # echo "current exclude path: ${current_exclude_dir}"
         current_exclude_path="$(realpath "${current_exclude_dir}")"
-        echo "current exclude path: ${current_exclude_path}"
-
-        # if [[ -d "${application_dir}/${EXCLUDE_DIR}" ]]; then
+        # echo "current exclude path: ${current_exclude_path}"
         if [[ -d "${current_exclude_path}" ]]; then
-            # exclude_dirs_arg+=("--exclude ${EXCLUDE_DIR}")
-            # exclude_dirs_arg+=("--exclude=./${EXCLUDE_DIR}")
-            # exclude_dirs_arg+=("--exclude=${EXCLUDE_DIR}")
             exclude_dirs_array+=("${current_exclude_path}")
         fi
     done
-
-    # printf '%s\n' "${exclude_dirs_array[@]}" | tr '\n' ' '
-    printf '%s ' "${exclude_dirs_array[@]}"
-
+    # printf '%s ' "${exclude_dirs_array[@]}"
     EXCLUDE_DIRS_VALIDATED=( "${exclude_dirs_array[@]}" )
-
     return 0
 }
-
 
 #######################################################################################################################################################################################################################################################
 # Build the exclude directories argument.
 EXCLUDE_DIRS_ARG=()
-
 function build_exclude_dirs_arg() {
     local exclude_dirs_arg=()
-
-    echo -ne "0. Exclude Dir Args Number: ${#EXCLUDE_DIRS_VALIDATED[@]}\n\n"
-    echo -ne "EXCLUDE_DIRS_VALIDATED: ${EXCLUDE_DIRS_VALIDATED[*]}\n\n"
-
+    # echo -ne "0. Exclude Dir Args Number: ${#EXCLUDE_DIRS_VALIDATED[@]}\n\n"
+    # echo -ne "EXCLUDE_DIRS_VALIDATED: ${EXCLUDE_DIRS_VALIDATED[*]}\n\n"
     # for exclude_dir in "${EXCLUDE_DIRS_VALIDATED[@]}"; do
     #     exclude_dirs_arg+=("--exclude=${exclude_dir}")
     # done
-    exclude_dirs_arg=( $(printf -- '--exclude="%s" ' "${EXCLUDE_DIRS_VALIDATED[@]}") )
-
-    echo -ne "1. Exclude Dir Args Number: ${#exclude_dirs_arg[@]}\n\n"
-    # printf '%s ' "${exclude_dirs_arg[@]}" | tr '\n' ' '
-
-    echo -ne "exclude dirs arg: ${exclude_dirs_arg[*]}\n\n"
-
-    echo -ne "printf: exclude_dirs_arg[@]\n"
-    printf '%s ' "${exclude_dirs_arg[@]}"
-    echo -ne "\n"
-
-    echo -ne "2. Exclude Dir Args Number: ${#exclude_dirs_arg[@]}\n\n"
-
+    for exclude_dir in "${EXCLUDE_DIRS_VALIDATED[@]}"; do
+        exclude_dirs_arg+=("$(printf -- '--exclude="%s" ' "${exclude_dir}")")
+    done
+    # exclude_dirs_arg=( $(printf -- '--exclude="%s" ' "${EXCLUDE_DIRS_VALIDATED[*]}") )
+    # echo -ne "1. Exclude Dir Args Number: ${#exclude_dirs_arg[@]}\n\n"
+    # echo -ne "exclude dirs arg: ${exclude_dirs_arg[*]}\n\n"
+    # echo -ne "printf: exclude_dirs_arg[@]\n"
+    # printf '%s ' "${exclude_dirs_arg[@]}"
+    # echo -ne "\n"
+    # echo -ne "2. Exclude Dir Args Number: ${#exclude_dirs_arg[@]}\n\n"
     EXCLUDE_DIRS_ARG=( "${exclude_dirs_arg[@]}" )
-
-    echo -ne "3. Exclude Dir Args Number: ${#EXCLUDE_DIRS_ARG[@]}\n\n"
-    echo -ne "EXCLUDE_DIRS_ARG: ${EXCLUDE_DIRS_ARG[*]}\n\n"
-
+    # echo -ne "3. Exclude Dir Args Number: ${#EXCLUDE_DIRS_ARG[@]}\n\n"
+    # echo -ne "EXCLUDE_DIRS_ARG: ${EXCLUDE_DIRS_ARG[*]}\n\n"
     return 0
 }
-
 
 #######################################################################################################################################################################################################################################################
 # Get the order of magnitude of a given directory tree size in bytes and display it in a human-readable format.
@@ -261,13 +228,9 @@ function get_order_of_magnitude_display() {
     echo "${value} ${ORDER_OF_MAGNITUDE_LABELS[${magnitude}]}"
 }
 
-
 #######################################################################################################################################################################################################################################################
 # Remove the IN-PROGRESS archive on failure, so a partial write is never left looking like a backup.
-#
-# Only ${IN_PROGRESS} is removed. Archives already written AND verified on earlier devices are
-# deliberately KEPT: if device 2 fails, a good archive on device 1 is exactly what a backup tool
-# exists to have produced, and deleting it would turn a partial success into a total loss.
+#   Only ${IN_PROGRESS} is removed. Archives already written AND verified on earlier devices are deliberately KEPT: if device 2 fails, a good archive on device 1 is exactly what a backup tool exists to have produced, and deleting it would turn a partial success into a total loss.
 IN_PROGRESS=""
 function cleanup_partial() {
     local rc=$?
@@ -279,21 +242,15 @@ function cleanup_partial() {
 }
 trap cleanup_partial EXIT
 
-
 #######################################################################################################################################################################################################################################################
-# Where a given device's archive goes. ONE definition, so a destination can never be carried over
-# from a previous loop iteration (see "THE SECOND BUG OF THAT CLASS" above).
+# Where a given device's archive goes. ONE definition, so a destination can never be carried over from a previous loop iteration (see "THE SECOND BUG OF THAT CLASS" above).
 function target_dir_for() {
     printf '%s\n' "/${MOUNT_NAME}/${USER_NAME}/$1/${BACKUP_DIR}"
 }
 
-
 #######################################################################################################################################################################################################################################################
 # Validate one device and report why it is unusable. Returns 0 if writable, 1 otherwise.
-#
-# The mount check is on the MOUNT ROOT: `mountpoint -q` is only ever true of an actual mount point,
-# so asking it about the BACKUP_DIR subdirectory is always false. Without the mount check, an
-# unmounted drive leaves a stale empty directory and the archive silently fills the system disk.
+#   The mount check is on the MOUNT ROOT: `mountpoint -q` is only ever true of an actual mount point, so asking it about the BACKUP_DIR subdirectory is always false. Without the mount check, an unmounted drive leaves a stale empty directory and the archive silently fills the system disk.
 function validate_external_media() {
     local media_name="$1"
     local mount_root="/${MOUNT_NAME}/${USER_NAME}/${media_name}"
@@ -315,14 +272,9 @@ function validate_external_media() {
     return 0
 }
 
-
 #######################################################################################################################################################################################################################################################
-# Verify an archive WITHOUT a YubiKey. `--list-packets` parses the OpenPGP structure and confirms
-# the recipient key ids, so it is safe to run unattended.
-#
-# It does NOT prove the tar inside is intact. The PIPELINE that produces it was proven byte-for-byte
-# on 2026-08-26 by util/ad-hoc/2026-08-26_backup_restore_drill.bash; what remains unproven is that
-# the owner's YubiKey-backed key can decrypt a REAL archive. See the lifecycle design SS6.4.2 q3.
+# Verify an archive WITHOUT a YubiKey. `--list-packets` parses the OpenPGP structure and confirms the recipient key ids, so it is safe to run unattended.
+#   It does NOT prove the tar inside is intact. The PIPELINE that produces it was proven byte-for-byte on 2026-08-26 by util/ad-hoc/2026-08-26_backup_restore_drill.bash; what remains unproven is that the owner's YubiKey-backed key can decrypt a REAL archive. See the lifecycle design SS6.4.2 q3.
 function verify_archive() {
     local path="$1"
     [[ -s "${path}" ]] || { echo "FATAL: archive is empty: ${path}" >&2; return 1; }
@@ -330,8 +282,7 @@ function verify_archive() {
         echo "FATAL: output is not a parseable OpenPGP message: ${path}" >&2
         return 1
     fi
-    # Count the pubkey-encrypted session-key packets. One per recipient -- so this proves the
-    # redundancy actually landed, rather than assuming it did because the command line asked for it.
+    # Count the pubkey-encrypted session-key packets. One per recipient -- so this proves the redundancy actually landed, rather than assuming it did because the command line asked for it.
     local found
     found="$(gpg --list-packets --list-only "${path}" 2>/dev/null | grep -c '^:pubkey enc packet:' || true)"
     if [[ "${found}" -ne "${#ENCRYPT_KEYS[@]}" ]]; then
@@ -345,18 +296,20 @@ function verify_archive() {
 
 #######################################################################################################################################################################################################################################################
 # Preflight -- every one of these is a way the draft failed silently
+#######################################################################################################################################################################################################################################################
 
+#######################################################################################################################################################################################################################################################
 # Validate project directory.
 [[ -d "${PROJECT_DIR}" ]] || { echo "FATAL: source not found: ${PROJECT_DIR}" >&2; exit 1; }
 
+#######################################################################################################################################################################################################################################################
 # Validate application repos.
 check_application_repos
 (( ${#APPLICATION_REPOS_ARGS[@]} == 0 )) && { echo "FATAL: no application repos found" >&2; exit 1; }
 echo "application repos args: ${APPLICATION_REPOS_ARGS[*]}"
 
-# Every recipient must resolve BEFORE we spend an hour building a tarball. A missing key here is
-# also the failure that would quietly halve the redundancy this list exists to provide. Device
-# independent, so it is checked ONCE rather than per device.
+#######################################################################################################################################################################################################################################################
+# Every recipient must resolve BEFORE we spend an hour building a tarball. A missing key here is also the failure that would quietly halve the redundancy this list exists to provide. Device independent, so it is checked ONCE rather than per device.
 GPG_RECIPIENT_ARGS=()
 for _key in "${ENCRYPT_KEYS[@]}"; do
     gpg --list-keys "${_key}" >/dev/null 2>&1 || { echo "FATAL: gpg recipient not found: ${_key}" >&2; exit 1; }
@@ -364,12 +317,11 @@ for _key in "${ENCRYPT_KEYS[@]}"; do
 done
 echo "recipients: ${#ENCRYPT_KEYS[@]} (archive is readable by any one of them)"
 
-# Resolve the target list. --dest overrides the fan-out entirely: one explicit directory, validated
-# for writability but not for mount status, because an explicit path is the caller's decision.
+#######################################################################################################################################################################################################################################################
+# Resolve the target list. --dest overrides the fan-out entirely: one explicit directory, validated for writability but not for mount status, because an explicit path is the caller's decision.
 TARGET_DIRS=()
 TARGET_LABELS=()
 CONFIGURED_COUNT=0
-
 if [[ -n "${DEST_OVERRIDE}" ]]; then
     CONFIGURED_COUNT=1
     if [[ -d "${DEST_OVERRIDE}" && -w "${DEST_OVERRIDE}" ]]; then
@@ -391,13 +343,17 @@ else
     done
 fi
 
-# A missing drive degrades redundancy; it must not cancel the backup to the drive that IS present.
-# Zero usable devices is the only fatal case.
+#######################################################################################################################################################################################################################################################
+# A missing drive degrades redundancy; it must not cancel the backup to the drive that IS present. Zero usable devices is the only fatal case.
 if (( ${#TARGET_DIRS[@]} == 0 )); then
     echo "FATAL: no usable destination -- is any external drive attached?" >&2
     exit 1
 fi
 
+
+#######################################################################################################################################################################################################################################################
+# Validate the archive size and available space on each target device.
+#######################################################################################################################################################################################################################################################
 for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
     APPLICATION_NAME="${REPO}"
     APPLICATION_DIR="${PROJECT_DIR}/${APPLICATION_NAME}"
@@ -409,18 +365,18 @@ for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
     # EXCLUDE_DIRS_VALIDATED="$(validate_exclude_dirs "${APPLICATION_DIR}")"
     validate_exclude_dirs "${APPLICATION_DIR}"
 
-    echo "exclude dirs validated: ${EXCLUDE_DIRS_VALIDATED[*]}"
-    echo "exclude dir validated 0: ${EXCLUDE_DIRS_VALIDATED[0]}"
-    echo "exclude dir validated 1: ${EXCLUDE_DIRS_VALIDATED[1]}"
-    echo "exclude dir validated 2: ${EXCLUDE_DIRS_VALIDATED[2]}"
+    # echo "exclude dirs validated: ${EXCLUDE_DIRS_VALIDATED[*]}"
+    # echo "exclude dir validated 0: ${EXCLUDE_DIRS_VALIDATED[0]}"
+    # echo "exclude dir validated 1: ${EXCLUDE_DIRS_VALIDATED[1]}"
+    # echo "exclude dir validated 2: ${EXCLUDE_DIRS_VALIDATED[2]}"
 
     # EXCLUDE_DIRS_ARG=( "${EXCLUDE_DIRS_VALIDATED[@]}" )
     build_exclude_dirs_arg
 
-    echo "exclude dirs: ${EXCLUDE_DIRS_ARG[*]}"
-    echo "exclude dir 0: ${EXCLUDE_DIRS_ARG[0]}"
-    echo "exclude dir 1: ${EXCLUDE_DIRS_ARG[1]}"
-    echo "exclude dir 2: ${EXCLUDE_DIRS_ARG[2]}"
+    # echo "exclude dirs: ${EXCLUDE_DIRS_ARG[*]}"
+    # echo "exclude dir 0: ${EXCLUDE_DIRS_ARG[0]}"
+    # echo "exclude dir 1: ${EXCLUDE_DIRS_ARG[1]}"
+    # echo "exclude dir 2: ${EXCLUDE_DIRS_ARG[2]}"
 
     # `du -sk` walks the whole tree and is slow on ~126 GB, so it runs ONCE rather than per device.
     # SOURCE_KB="$(du -sk "${APPLICATION_DIR}" | cut -f1)"
@@ -429,19 +385,16 @@ for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
     # SOURCE_BYTES=$(du -sb ${EXCLUDE_DIRS_ARG[@]} "${APPLICATION_DIR}" | cut -f1)
     # SOURCE_BYTES=$(du -sb $(echo "${EXCLUDE_DIRS_ARG[@]}" | tr '\n' ' ') "${APPLICATION_DIR}" | cut -f1)
 
+    # echo "1. du -sb \$(printf \"%s \" \"${EXCLUDE_DIRS_ARG[*]}\") \"${APPLICATION_DIR}\" | cut -f1"
+    # echo "2. du -sb $(printf "%s " "${EXCLUDE_DIRS_ARG[@]}") \"${APPLICATION_DIR}\" | cut -f1"
 
-    echo "1. du -sb \$(printf \"%s \" \"${EXCLUDE_DIRS_ARG[*]}\") \"${APPLICATION_DIR}\" | cut -f1"
-    echo "2. du -sb $(printf "%s " "${EXCLUDE_DIRS_ARG[@]}") \"${APPLICATION_DIR}\" | cut -f1"
-
-    echo "du -sb $(printf '%s ' "${EXCLUDE_DIRS_ARG[@]}") \"${APPLICATION_DIR}\" | cut -f1"
+    # echo "du -sb $(printf '%s ' "${EXCLUDE_DIRS_ARG[@]}") \"${APPLICATION_DIR}\" | cut -f1"
     COMMAND="du -sb $(printf '%s ' "${EXCLUDE_DIRS_ARG[@]}") \"${APPLICATION_DIR}\" | cut -f1"
-    echo "COMMAND: ${COMMAND}"
-
-    SOURCE_BYTES="$(eval "${COMMAND}")"
-    echo "source bytes: ${SOURCE_BYTES}"
-
+    # echo "COMMAND: ${COMMAND}"
     # SOURCE_BYTES="$(du -sb $(printf "%s " "${EXCLUDE_DIRS_ARG[@]}") "${APPLICATION_DIR}" | cut -f1)"
+    SOURCE_BYTES="$(eval "${COMMAND}")"
     # echo "source bytes: ${SOURCE_BYTES}"
+    echo "source bytes: ${SOURCE_BYTES}"
 
     SOURCE_SIZE_DISPLAY="$(get_order_of_magnitude_display "${SOURCE_BYTES}")"
     printf 'source: %s  (%s uncompressed)\n' "${APPLICATION_DIR}" "${SOURCE_SIZE_DISPLAY}"
@@ -474,7 +427,12 @@ for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
     done
     echo "----------------------------------------"
 done
+echo -ne "\n"
 
+
+#######################################################################################################################################################################################################################################################
+# Perform a dry run if the DRY_RUN flag is set.
+#######################################################################################################################################################################################################################################################
 if (( DRY_RUN )); then
     for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
         APPLICATION_NAME="${REPO}"
@@ -503,10 +461,12 @@ fi
 
 
 #######################################################################################################################################################################################################################################################
+# Build the compressed, encrypted archive once, on the first usable device, then replicate the finished ciphertext to the remaining devices.
+#######################################################################################################################################################################################################################################################
+
+#######################################################################################################################################################################################################################################################
 # Build ONCE on the first usable device.
-#
-# tar with -C so paths are stored relative to the parent ("Juniper/..."), not as absolute paths that
-# tar would strip with a warning and that restore into an unexpected location.
+# tar with -C so paths are stored relative to the parent ("Juniper/..."), not as absolute paths that tar would strip with a warning and that restore into an unexpected location.
 
 # BUILD_PATH="${TARGET_DIRS[0]}/${GPG_FILE}"
 # IN_PROGRESS="${BUILD_PATH}"
@@ -549,21 +509,17 @@ for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
     # IN_PROGRESS=""
     # echo "OK  $(du -h "${BUILD_PATH}" | cut -f1)  ${BUILD_PATH}"
 
+    #######################################################################################################################################################################################################################################################
+    # Replicate the finished ciphertext to the remaining devices. A copy failure on one device leaves every already-verified archive in place and is reported as PARTIAL, never as success.
     SUCCEEDED=1
     FAILED_LABELS=()
-
     APPLICATION_REPOS_ARGS=()
 
-    #######################################################################################################################################################################################################################################################
-    # Replicate the finished ciphertext to the remaining devices. A copy failure on one device leaves
-    # every already-verified archive in place and is reported as PARTIAL, never as success.
     for _index in "${!TARGET_DIRS[@]}"; do
         (( _index == 0 )) && continue
-
         COPY_PATH="${TARGET_DIRS[${_index}]}/${GPG_FILE}"
         IN_PROGRESS="${COPY_PATH}"
         echo "copying to ${TARGET_LABELS[${_index}]} ..."
-
         if ! cp -- "${BUILD_PATH}" "${COPY_PATH}"; then
             echo "ERROR: copy to ${TARGET_LABELS[${_index}]} failed" >&2
             rm -f "${COPY_PATH}"
@@ -571,7 +527,6 @@ for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
             IN_PROGRESS=""
             continue
         fi
-
         if ! verify_archive "${COPY_PATH}"; then
             echo "ERROR: verification failed on ${TARGET_LABELS[${_index}]}" >&2
             rm -f "${COPY_PATH}"
@@ -579,32 +534,31 @@ for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
             IN_PROGRESS=""
             continue
         fi
-
         sync
         IN_PROGRESS=""
         SUCCEEDED=$(( SUCCEEDED + 1 ))
         echo "OK  $(du -h "${COPY_PATH}" | cut -f1)  ${COPY_PATH}"
     done
-
     echo "Completed ${APPLICATION_NAME} tarball replication to ${TARGET_LABELS[*]} ..."
     echo "----------------------------------------"
 done
+echo -ne "\n"
 
 
 #######################################################################################################################################################################################################################################################
 # Report. Degraded redundancy exits non-zero so it is visible to cron rather than silent.
-
-echo
+#######################################################################################################################################################################################################################################################
+echo "----------------------------------------"
 echo "archive: ${GPG_FILE}"
 echo "written and verified on ${SUCCEEDED} of ${CONFIGURED_COUNT} configured device(s)"
-
 if (( ${#FAILED_LABELS[@]} > 0 )); then
     echo "failed: ${FAILED_LABELS[*]}" >&2
 fi
-
 if (( SUCCEEDED < CONFIGURED_COUNT )); then
     echo "PARTIAL: redundancy is degraded -- ${SUCCEEDED} of ${CONFIGURED_COUNT} device(s) hold this archive." >&2
     exit 4
 fi
-
 echo "COMPLETE: every configured device holds a verified archive."
+echo "----------------------------------------"
+echo -ne "\n"
+
