@@ -13,8 +13,17 @@
 # nothing changes.
 
 set -u
-API="/home/pcalnon/Development/python/Juniper/juniper-ml/.claude/worktrees/mossy-growing-salamander/util/ad-hoc/yamaguchi_server_api.py"
-DEST="/media/pcalnon/temp_backups/Yamaguchi"
+# Both paths below were hardcoded to a moment in time and drifted:
+#   * API pointed into the sibling worktree .claude/worktrees/mossy-growing-salamander,
+#     a retirement candidate -- removing it would have broken this script silently,
+#     at the moment it was most needed.
+#   * DEST pointed at the pre-migration destination on sdc4 (moved 2026-08-26,
+#     note 8.13), so every "dest files" count would have described the wrong dir.
+#
+# Usage: bash util/ad-hoc/yamaguchi_watch.bash [DEST]
+#        Override YAMAGUCHI_API when running from a non-standard checkout.
+API="${YAMAGUCHI_API:-/home/pcalnon/Development/python/Juniper/juniper-ml/util/ad-hoc/yamaguchi_server_api.py}"
+DEST="${1:-/mnt/Backups/Ubuntu/Yamaguchi}"
 prev=""
 while :; do
     out="$(python3 "${API}" progress 2>&1)"
