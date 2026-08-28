@@ -1107,9 +1107,29 @@ first one the **timer** drove at the new destination, and it is the stronger evi
 | Census | 813 / 210,486,704,937 B AGREE | **815 / 210,590,946,931 B — `-> AGREE`** |
 
 The manual run advanced nothing and so proved only that the destination *worked*; this one
-proves the **scheduled path** works from sda1 unattended. At 9 m 03 s it is also faster than
-the proof run, so §8.13's "under 10 minutes" holds on the path that actually matters, and it
-supersedes §8.10.1's "treat ~12–16 min as the new steady-state class" outright.
+proves the **scheduled path** works from sda1 unattended, and it supersedes §8.10.1's "treat
+~12–16 min as the new steady-state class" outright.
+
+**A correction to §8.13's "under 10 minutes", made by the very next run.** The 08-28 scheduled
+run — the first to use the new tempdir (§8.14.4) — took **10 m 27 s**, so "under 10 minutes" is
+not a floor that every run clears. It is not a regression either, and the two runs together say
+something more useful than either alone:
+
+| | 08-27 | 08-28 |
+|---|---|---|
+| Added files | 429 | **18,151** (42×) |
+| Modified / deleted | 422 / 78 | 992 / 2,447 |
+| Uploaded | 167 MB | 310 MB |
+| Duration | 9 m 03 s | **10 m 27 s** |
+
+**42× the added-file churn cost about 1.5 minutes.** The run is dominated by the ~786 k-file scan
+and the ~587 MB post-backup verification download, not by the work the churn creates, which is why
+the duration is so insensitive to it. The honest class is therefore **~9–10.5 min, scan-bound**,
+and a run drifting well outside that band is a signal worth reading rather than noise.
+
+Retention did not thin on 08-28 (`DeletedSets=[]`) and the destination now carries **4 dlists**.
+That is correct, not drift: `1W:1D` keeps the earliest fileset per 1-day interval plus the newest,
+and 08-25/08-26/08-27/08-28 are four distinct days inside the 1-week window.
 
 The watchdog independently corroborates it: the `yamaguchi-watchdog.timer` fired **on its own
 schedule** for the first time at `2026-08-27T12:00:04-0500` and logged
@@ -1224,8 +1244,14 @@ the three failures above turned into checks. Verified against the live job befor
 `PUT 200`, then **9/9 post-checks PASS**: `--tempdir` is the new value; `TargetURL`, sources,
 filter count (44), settings count (10), `encryption-module=aes`, passphrase re-masked,
 `Schedule.Time`/`Repeat` and `ProposedSchedule` all unchanged. Record:
-`_yamaguchi_check/yamaguchi-config-post-tempdir-move-20260828.json`. The old `_duplicati_tmp/`
-on sdc4 was already empty and is kept until a run proves the new one.
+`_yamaguchi_check/yamaguchi-config-post-tempdir-move-20260828.json`.
+
+**Proven in flight, not merely configured.** The 08-28 14:00Z run was sampled while it was
+executing: **10 `dup-*` temp files in `/home/pcalnon/.cache/duplicati-tmp` and 0 in the old
+`_duplicati_tmp/` on sdc4**. The run completed Success (10 m 27 s, census **818 /
+210,901,216,426 B AGREE**, `TestResults: Success on 3 file(s)`, 0 errors, 0 retries) and Duplicati
+cleaned the new tempdir out behind itself. The old sdc4 `_duplicati_tmp/` is now provably unused
+and can be removed at any time.
 
 Note for any future settings edit: Duplicati setting names begin with `--`, so argparse needs
 the `=` form — `--name=--tempdir`, not `--name --tempdir`.
@@ -1259,7 +1285,8 @@ exactly as it found it* — and a dry run most of all.
   independently decrypt-validated copy on a different physical disk, and sdc4 has 1.5 T free.
   It is frozen at 811 volumes and tracks no further runs, so it ages as a restore point;
   `yamaguchi_retire_tier2.bash --execute --execute-old-destination` removes it when wanted.
-- **Old sdc4 `_duplicati_tmp/`** — retire once a run has used the new tempdir.
+- **Old sdc4 `_duplicati_tmp/`** — now provably unused (the 08-28 run wrote only to the new
+  tempdir); removable whenever wanted.
 - **The drill `restored/` tree** (~64 G) and the old-archive tail — unchanged from §8.13.7.
 - **Consolidation onto sda1** is the stated mid-term direction; sda1 is at 74 % / 909 G free
   with the old `.gpg` archive still on it, so the old-archive purge is the decision that
