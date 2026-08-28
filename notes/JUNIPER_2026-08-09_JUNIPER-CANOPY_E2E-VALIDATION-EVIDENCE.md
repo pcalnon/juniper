@@ -537,6 +537,11 @@ re-claimed by a pending feeder far more often than the rebuild can complete — 
 limit case that Stage 2 fixed for the Decision Boundary panel, still live on this path. Stage 2's no-op-write
 suppression demonstrably does **not** cover this feeder: 33 of 34 identical rewrites is the proof.
 
+> **Correction (2026-08-27).** "Does not cover this feeder" was read as *the lever was never applied here*.
+> It **was** applied: `dashboard_manager.py:6724-6725` returns `no_update` when the fetched history equals
+> the store. The lever is present and **not biting** in the live lane — which is a different, separate
+> defect, now filed as **F-CANOPY-038**. It does not change this finding's mechanism or its fix.
+
 **Blast radius.** M-TOPOLOGY-01..18, W4-01..17 and W1-12..14 stay **BLOCKED**, with the blocker **re-attributed
 from F-CANOPY-006 (closed) to this finding**. The mandate's flagship visualization is non-functional in the
 live lane for ~4 sessions in 5. Independently, a 141 KB payload rewritten 0.57/s on a finished run is ~80 KB/s
@@ -547,6 +552,72 @@ the Stage 2 lever, simply not applied to this producer; (b) drop `metrics-panel-
 rebuild's Input list (the rebuild does not use metrics data for the node graph — it is a legacy chain);
 (c) stop the metrics poll entirely once `fsm_status` is terminal. (a) and (b) are independent and either alone
 should be sufficient; (b) is the smaller diff and removes the coupling outright.
+
+**FIX AUTHORED (2026-08-27, `juniper-canopy#531`, branch `fix/f037-topology-rebuild-starvation`; CI pending,
+NOT merged, live re-drive owed — this entry stays OPEN until it merges).** Fix **(b)**, with one correction to
+the candidate's rationale: the rebuild *does* use `metrics_data` — `network_visualizer.py:471-473` reads the
+last two entries' `network_topology.hidden_units` to arm the P2-1 new-unit highlight — so the store is
+**demoted from `Input` to `State`**, not dropped. The data still arrives on every run; it simply no longer
+triggers. Remaining Inputs are only what means "the topology changed": `network-visualizer-topology-store`,
+the tab-gated 5 s `tabpoll-topology` (slower than the 1.5-5 s rebuild, so it structurally cannot starve it)
+and `ws-cascade-add-buffer`.
+
+**Why (b) and not (a) — the argument that settles the owner choice.** (a) can only fix the idle regime: at
+idle the refetch is identical, so suppression applies. **During a run the store changes legitimately at 1 Hz**,
+so the claimed-Input starvation would survive exactly when the cascade is growing and the user is watching it
+— and this finding measured the graph *equally absent during an active run and post-run*. Only decoupling
+fixes both regimes. (a) remains worth doing on its own merits (the ~80 KB/s waste, 4+ consumers re-fired);
+that is now **F-CANOPY-038**, not part of this fix.
+
+Pinned by `src/tests/unit/frontend/test_f037_topology_rebuild_decoupling.py` (6 tests): the store absent from
+Inputs / present in State; the real triggers still Inputs (a forward guard against an over-correction that
+decouples those too); new-unit detection still arming across the demotion, and arming nothing on a steady
+topology; and — class-level — that **no _unconditional_ 1 Hz feeder drives the rebuild**, whichever store it
+arrives through, cross-checked against the real `DashboardManager` wiring. That last pin surfaced that
+`ws-cascade-add-buffer` also rides `fast-update-interval`; it is an event **drain** that returns `no_update`
+on an empty drain, so it writes at the cascade-add rate, and the test **verifies that guard in source** rather
+than waiving it. **5 of the 6 fail on the parent `9f6fac9`** (the sixth is the forward guard, which passes
+there by construction). The pre-existing `test_invoke_update_network_graph_with_metrics` was mutation-checked
+against the old argument order and fails `assert new_highlight is not None`, so the State reordering is pinned
+by an existing test too. Full `src/tests/unit/` + `src/tests/regression/` exit 0; pre-commit clean.
+
+**Known trade-off, recorded rather than hidden.** New-unit detection is a *last-pair* check
+(`metrics_data[-2]` vs `[-1]`). It previously benefited from the metrics-store write *being* the trigger, so
+the straddle was fresh by construction; under the demotion it depends on a rebuild landing while the
+transition is still the last pair. This is cosmetic (the P2-1 pulse; the graph, counts and stats bar are
+unaffected) and was deliberately not bundled into a P0/P1 fix.
+`metrics_panel._hidden_unit_addition_markers` (`metrics_panel.py:1999-2003`) already uses the more robust
+whole-window scan — adopting it here, with dedupe so a dismissed pulse cannot re-arm, is the follow-up.
+
+**F-CANOPY-038 — the Stage 2 no-op-write suppression on the metrics-store feeder is present in the source but does not bite in the live lane; its unit test cannot observe the failure because it never round-trips through the browser (P2, OPEN; found 2026-08-27 while fixing F-CANOPY-037).**
+The lever exists. `_update_metrics_store_handler` (`dashboard_manager.py:6724-6725`) ends with
+`if isinstance(current_metrics, list) and metrics == current_metrics: return dash.no_update`, and
+`current_metrics` is wired as `State("metrics-panel-metrics-store", "data")` on the writing callback
+(`:3869-3875`). Yet the F-CANOPY-037 census on a **COMPLETED** run recorded **34 writes / 60 s (0.57/s), 33 of
+them byte-identical (141,460 B each), and zero `no_update`** — so the branch is present and not taken. At
+~80 KB/s on a finished run this re-fires every consumer of that store (the tiles, the model-class styles, the
+replay UI, and — until `juniper-canopy#531` — the 8-output topology rebuild).
+
+**Why the suite is green.** `test_stage2_global_lane.py::test_metrics_identical_fetch_is_no_update`
+(`:111-116`) builds `history = [{"epoch": 1, "metrics": {"loss": 0.5}}]` and passes `current_metrics=list(history)`
+— the *same in-process Python objects* on both sides of the `==`. Live, the two sides are not comparable that
+way: `metrics` is fresh from `response.json()`, while `current_metrics` is the client's copy of the store,
+having been serialized by Dash, parsed by JS, re-serialized and re-parsed. The test cannot exercise any
+round-trip asymmetry, so it passes against a predicate that is dead on the wire. This is the
+**vacuous-pass / mock-seam class** in its round-trip flavour.
+
+**Root cause NOT yet determined — do not guess-patch.** Candidates, none confirmed: (i) a JSON round-trip
+asymmetry that makes `==` always false (a `NaN` on one side and `null` on the other is the classic — note
+`_normalize_metric` carries nullable `val_loss` / `f1` / `precision` / `recall` / `roc_auc`,
+`cascor_service_adapter.py:1905-1928`); (ii) **State staleness under congestion** — the client's store value
+lags the writes it has not applied yet, so `current_metrics` never catches up and every tick looks like a
+change; this one is self-reinforcing and fits "zero `no_update`" exactly, and F-CANOPY-004's congestion is the
+enabling condition; (iii) the census attributed to this writer something written by another path. **Single
+instrument caveat**: the 33/34 figure comes from one `storestorm` run; per this arc's own rule a probe is not
+evidence until a second instrument agrees, so the confirming step is to log the comparison's *outcome* server-side
+(and both operands' canonical hashes) for a minute and read which branch is taken and why.
+A useful side-signal: `juniper-canopy#531` removes the rebuild from this store's consumer set, which reduces
+the congestion hypothesis (ii) depends on — so re-measuring **after** that merges is the cheapest next probe.
 
 **F-CANOPY-033 — `RESET_COMPONENT_STATE` storms one panel at ~13/s (P2, OPEN; found while tracing F-CANOPY-027).**
 Redux tracing recorded **1157 `RESET_COMPONENT_STATE` dispatches in 90 s** — roughly 13 per second, out of
@@ -3569,3 +3640,53 @@ M-DATASET-14; the **all-11 P2 fix wave**; the **JR-CAN-PERF-004** plan document;
 workstream for M-DATASET-17..26 (`POST /api/dataset/generate` is demo-gated 400 and both `equities` /
 `equities_seq` report `available:false` in the live lane). The topology block cannot be re-driven until
 F-CANOPY-037 is fixed.
+
+---
+
+## Phase 3 — F-CANOPY-037 fixed at the source (2026-08-27): decoupling, not suppression
+
+No stack was brought up this session; the work is a source-level fix grounded in the Phase 2 measurements
+above, plus the corrections those measurements' *interpretation* turned out to need.
+
+### The fix: `juniper-canopy#531` (open, CI pending, NOT merged)
+
+`metrics-panel-metrics-store` is **demoted from `Input` to `State`** on `update_network_graph`. Full rationale,
+the pinning tests and the recorded trade-off are in the F-CANOPY-037 entry's **FIX AUTHORED** block above. The
+one-line argument that settles the owner's (a)-vs-(b) choice: **(a) cannot fix the during-run regime** — at
+idle the refetch is identical so suppression applies, but during a run the store changes *legitimately* at
+1 Hz, and Phase 2 measured the graph equally absent during an active run and post-run. Only (b) fixes both.
+
+### Two corrections to the Phase 2 write-up
+
+1. **"The Stage 2 lever was never applied to this producer" is wrong.** It is applied
+   (`dashboard_manager.py:6724-6725`) and simply does not bite. That is a distinct defect, now filed as
+   **F-CANOPY-038** — with its root cause explicitly *not* determined, because the available evidence
+   (one `storestorm` run) supports at least three mechanisms and none of them is confirmed.
+2. **"The rebuild does not use metrics data for the node graph" is wrong.** It does:
+   `network_visualizer.py:471-473` reads the last two entries' `network_topology.hidden_units` to arm the
+   P2-1 new-unit highlight. Candidate fix (b) as literally written — *drop* the Input — would have silently
+   deleted that feature. Demoting to `State` keeps it. This is why the fix reads the callback body rather
+   than trusting the finding's own summary of it.
+
+### A pin that found a second instance of its own defect class
+
+The class-level test (no *unconditional* 1 Hz feeder may drive the 1.5-5 s rebuild, whichever store it
+arrives through) failed on first run against `ws-cascade-add-buffer`, which also rides `fast-update-interval`.
+That one is a false positive — it is an event **drain** returning `no_update` on an empty drain, so it writes
+at the cascade-add rate — but the distinction it forced is the useful part: **the hazard is a feeder that
+WRITES at 1 Hz, not one that TICKS at 1 Hz.** The waiver is therefore verified rather than asserted: the test
+reads the drain's source and fails if that `no_update` guard is ever removed.
+
+### Ledger
+
+**42 findings / 25 fixed / 1 accepted / 16 open** (0 P0 · 1 P0/P1 [F-CANOPY-037, fix authored and awaiting
+merge] · 2 P1 [F-CANOPY-035, F-CASCOR-001 upstream juniper-cascor#590] · 13 P2 · 0 LEDGER). F-CANOPY-038 is
+the new P2. Matrix unchanged at 298/298 verdicted, 0 unfilled — **no row was re-scored**, because nothing was
+driven live.
+
+### Still owed (unchanged from Phase 2, plus)
+
+The **live re-drive of the topology block** (M-TOPOLOGY-01..18, W4-01..17, W1-12..14) once `#531` merges —
+that is what converts F-CANOPY-037 to FIXED and those rows off BLOCKED; a **re-measure of F-CANOPY-038 after
+`#531` merges**, which is the cheapest discriminator between its candidate mechanisms; and the new-unit
+highlight's whole-window-scan follow-up.
