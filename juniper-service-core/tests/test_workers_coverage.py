@@ -279,6 +279,27 @@ def test_json_task_protocol_satisfies_the_protocol_structurally() -> None:
     assert JsonTaskProtocol().build_assignment(PendingTask(task_id="t", round_id="r", payload=None))[1] == []
 
 
+def test_subclassing_the_default_protocol_is_refused() -> None:
+    """`JsonTaskProtocol` carries the same not-an-extension-point contract (APD-SVCCORE-012).
+
+    A consumer needing a different wire schema is in the case the seam exists for: implement
+    `WorkerTaskProtocol` directly, or wrap an instance. Subclassing would freeze the envelope keys
+    and the `task_id` rejection rule as inherited contract.
+    """
+    with pytest.raises(TypeError, match="not an extension point"):
+
+        class _Subclass(JsonTaskProtocol):
+            pass
+
+
+def test_the_default_protocol_still_constructs_after_the_guard() -> None:
+    """Negative control: the subclass guard must not disturb ordinary construction or dispatch."""
+    proto = JsonTaskProtocol()
+    msg, frames = proto.build_assignment(PendingTask(task_id="t1", round_id="r1", payload={"k": 1}))
+    assert msg["task_id"] == "t1"
+    assert frames == []
+
+
 # ======================================================================================
 # coordinator: anomaly_detector property + setter
 # ======================================================================================
