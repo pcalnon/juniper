@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-26
+**Last Updated**: 2026-08-27
 
 ---
 
@@ -214,7 +214,7 @@ achieved level, not the aspirational one.
 
 ### P5 — Fleet rollout
 
-**Status: IN PROGRESS — 8 of 9 governable repos governed, all 8 BLOCKING with declared slack; none promoted.** Tracking issue:
+**Status: RATCHET DONE — 8 of 9 governable repos governed; `Memory Budget` BLOCKING with declared slack AND REQUIRED by ruleset on all 8 (promoted 2026-08-27); the cut (step e) has not started.** Tracking issue:
 [juniper-ml#1326](https://github.com/pcalnon/juniper-ml/issues/1326) — its comment thread is the live
 per-repo ledger; read it before trusting this banner. Ports merged 2026-08-25:
 [juniper-canopy#516](https://github.com/pcalnon/juniper-canopy/pull/516) (`611141c1`, ceiling 95,133) and
@@ -242,10 +242,17 @@ job, and raised the ceiling with an `Allow-Ceiling-Raise: AGENTS.md` trailer siz
 `Memory Budget` reported SUCCESS on every one of those PR heads through the non-advisory job
 (`[RAISE-WAIVED] … headroom=<slack>`), and every squash SHA above was re-probed against the ceiling in that
 repo's `conf/memory_budget.json` and the checker's invocation line in its workflow. For all eight, all four
-preconditions now hold; what remains is the promotion write itself — `require_context_safely.py --apply`,
-per repo, on the owner's explicit go.
-**Nothing is promoted.** *(Status updated 2026-08-26 evening; the same morning it read "2 of 9". Status
-may not be demoted or left stale — §4a.)*
+preconditions held, and **promotion followed on 2026-08-27 ~21:17 CDT on the owner's explicit go** — one
+ruleset PUT per repo via `require_context_safely.py --apply` (dry-run first; every invariant held; pre-write
+snapshots under `~/.local/state/juniper-ruleset-snapshots/`, rollback = `gh api … -X PUT --input <snapshot>`):
+canopy 20 → 21 contexts (ruleset 14249530), cascor 23 → 24 (15081045), data 21 → 22 (14748749),
+data-client 19 → 20 (13316681), cascor-client 19 → 20 (13490605), cascor-worker 21 → 22 (14250447),
+deploy 11 → 12 (14715370), recurrence 9 → 10 (20634527); `Memory Budget` / integration 15368 confirmed in
+`rules/branches/main` on all eight. No `pull_request` trigger in any of the eight workflows carries a
+`paths:` filter, so the context can always report. A PR whose head predates its repo's port shows the
+context as *expected* until the branch is updated — by design under the strict policy; such heads were
+BEHIND anyway. *(Status updated 2026-08-27; the previous evening it read "none promoted". Status may not
+be demoted or left stale — §4a.)*
 
 > **This section was a four-line stub until 2026-08-24.** The working procedure lived only in
 > a session handoff, and handoffs lose material across generations — an earlier one in this
@@ -348,12 +355,15 @@ with **four preconditions, all of them**:
    commit trailer, sized to that repo's **re-measured** largest single commit (table above:
    canopy ≥ 2,000; cascor's largest was 9,609).
 
-*Status 2026-08-26 evening: preconditions 1–4 hold for all eight repos (the banner above lists the PRs,
-squash SHAs and ceilings); nothing is promoted — the ruleset write is the owner's decision, per repo.
-Do not read `advisory=True` or a `NONE` REFERENCE.md from an unpatched
-`util/ad-hoc/2026-08-26_p5_fleet_state.py` census as state: before ml#1403 it matched `--advisory`
-anywhere in the workflow text (comments included) and turned any non-2xx API reply into "absent".
-Probe the invocation line and the file directly.*
+*Status 2026-08-27: PROMOTED on all eight (the banner above has the ruleset ids and the before → after
+context counts). Two read-side traps met on the way, neither able to reach the write path. Do not read
+`advisory=True` or a `NONE` REFERENCE.md from an unpatched `util/ad-hoc/2026-08-26_p5_fleet_state.py`
+census as state: before ml#1403 it matched `--advisory` anywhere in the workflow text (comments included)
+and turned any non-2xx API reply into "absent" — probe the invocation line and the file directly. And
+`require_context_safely.py`'s own `find_ruleset` swallows a transient per-ruleset GET failure and reports
+"no ruleset carries required_status_checks" — seen twice during the promotion (cascor-client on the
+dry-run, data on the post-apply `--status`) while `rules/branches/main` showed both rulesets intact;
+`--apply` merely skips that repo (rc 1), so re-run rather than believe it.*
 
 Only then, and with the writer that pre-flights the context string:
 
