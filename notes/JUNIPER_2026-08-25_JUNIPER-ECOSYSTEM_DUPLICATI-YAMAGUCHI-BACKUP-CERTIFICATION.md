@@ -1083,3 +1083,184 @@ universal one. Both produce clean, plausible output while being wrong.
   dir's `results.json` / `drill-meta.json` / `provenance.txt` must stay.
 - Unchanged and still root-gated: loopback restage (§8.6-6), server-brain backup
   (§8.6-7), the old-archive tail.
+
+---
+
+### 8.14 Addendum (2026-08-28) — the first scheduled run from sda1; three more stale-path tools; `--tempdir` moved
+
+Written from a live session the morning after §8.13. Two of its open items are now closed by
+Paul's decisions, and the §8.13.2 defect class turned out to have three more instances that
+the previous session's grep instruction was pointing at but did not follow through.
+
+#### 8.14.1 The 2026-08-27 run — criterion 6 now has *scheduled-path* proof
+
+§8.13 closed criterion 6 on a **proof run** that was started by hand. The 08-27 run is the
+first one the **timer** drove at the new destination, and it is the stronger evidence:
+
+| | 08-26 proof run (manual) | **08-27 scheduled run** |
+|---|---|---|
+| Started by | hand | the schedule — `Schedule.LastRun` advanced to `2026-08-27T14:00:00Z` |
+| Result | Success, 9 m 31 s | **Success, 9 m 03 s** |
+| Uploaded | 198,609,655 B / 3 files | 167,073,415 B / 3 files |
+| Verification | `TestResults: Success on 3 file(s)` | `TestResults: Success on 3 file(s)`, 0 warnings, 0 errors |
+| Retention | thinned `20260826T131206` | thinned `20260826T174512`, `DeletedSets` = 1 |
+| Census | 813 / 210,486,704,937 B AGREE | **815 / 210,590,946,931 B — `-> AGREE`** |
+
+The manual run advanced nothing and so proved only that the destination *worked*; this one
+proves the **scheduled path** works from sda1 unattended. At 9 m 03 s it is also faster than
+the proof run, so §8.13's "under 10 minutes" holds on the path that actually matters, and it
+supersedes §8.10.1's "treat ~12–16 min as the new steady-state class" outright.
+
+The watchdog independently corroborates it: the `yamaguchi-watchdog.timer` fired **on its own
+schedule** for the first time at `2026-08-27T12:00:04-0500` and logged
+`OK backup=2 newest run 2026-08-27T14:00:00.1584685Z ParsedResult=Success age=3.0h`. §8.9
+closed criterion 4 on a hand-run of the unit; this is the timer proving itself.
+
+Cross-witness from a second, independent tool (`duplicati_dlist_query.py` against the newest
+dlist, `20260827T140000Z`): `IsFullBackup=True`, 771,048 File entries / 285,427,701,894 B —
+**exactly** the server's `SourceFilesCount` / `SourceFilesSize` — and exactly one `.vdi` entry
+(the static win10 image), so the win11 exclusion of §8.9 is still holding three runs later.
+
+#### 8.14.2 Three more tools carried the pre-migration path — and one of them is the drill
+
+§8.13.2 fixed `yamaguchi_census.py` and `yamaguchi_watch.bash`, and ended with the right
+instruction: *"Grep `util/ad-hoc/` for `temp_backups/Yamaguchi` before trusting any other
+tool."* Doing that turns up **three more**, none of which §8.13 fixed:
+
+| tool | stale thing | why it matters |
+|---|---|---|
+| `duplicati_drill_fresh.py` | `--dest` default | **The restore drill.** The arc's highest-value check. |
+| `duplicati_dlist_query.py` | `--dest` default + hardcoded `ismount()` guard | Answers "what is in the backup?" about the wrong set. |
+| `yamaguchi_build_job.py` | `TargetURL`, `--tempdir`, record dir | Re-running it creates a **second** job at the retired path. |
+
+Three others match the grep and are **correct**: `yamaguchi_migrate_copy.bash`'s `SRC`,
+`yamaguchi_retire_tier2.bash`'s `OLD_DEST`, and `patch_census_derive_dest.py`'s search string
+all legitimately name the old location.
+
+The drill is the serious one, and its own comment convicts it. The line directly above the
+stale default read:
+
+> `# A bare run against the wrong destination would print a true-looking PASS for the wrong set.`
+
+That was written as a caution about the *other* arguments. After the migration it described
+the default itself. And the failure is not loud: the old directory still exists as the frozen
+811-volume pre-migration copy, so a bare drill does not error — it drills a real, decryptable,
+internally consistent set and PASSes. Worse, that set's newest dlist is `20260826T181206Z`, a
+fileset the live set has since **retained away**: a bare drill would have certified as
+restorable a restore point the live backup no longer offers.
+
+**The remedy differs from §8.13.2's on purpose.** `yamaguchi_census.py` was fixed by *deriving*
+the destination from the job's `TargetURL`, which is right there because census must talk to the
+server anyway to reconcile against it. The drill and `dlist_query` are **destination-only**
+tools — the drill's requirement 1 is explicit about it — so making them ask the Duplicati server
+where to look would couple a disaster-recovery instrument to the service a disaster may have
+removed. For those two the remedy is **`--dest` with no default at all**: explicitness cannot
+rot, and it costs one argument. `yamaguchi_build_job.py` keeps defaults (it is a builder, not a
+checker) but they now name the current destination, and it **refuses by default if a job of
+that name already exists** — the duplicate-job hazard was the real one there.
+
+#### 8.14.3 `ismount()` is not a durability check — measured, not theorised
+
+Fixing the drill's hardcoded `ismount("/media/pcalnon/temp_backups")` meant deriving the mount
+guard instead. The obvious derivation — walk up to the containing mountpoint, refuse `/` — is
+what §8.13.2 used for census, and it is **not sufficient for a tool that writes**.
+
+Testing the new guard with a run root under `/tmp`, the drill **started**: `/tmp` is a genuine
+mountpoint, so the guard passed. `/tmp` on this host is **tmpfs, 47 G, RAM-backed**. The drill
+began restoring into RAM and **1.5 GB was resident** before the run was killed; a full drill
+restores tens of GB, and the machine has 92 G total with 41 G already in use. The run was
+killed, its orphaned `duplicati-cli` child killed separately (it does **not** die with its
+parent), and both scratch trees removed. The live destination is read-only to a drill and was
+never at risk, and the five real drill run dirs are intact.
+
+Three things follow, and all three are now code:
+
+1. A `VOLATILE_FSTYPES` refusal (`tmpfs`, `ramfs`, `devtmpfs`, `squashfs`, `overlay`) on the
+   drill's `--run-root`, read from `/proc/mounts`. **"Is a mountpoint" and "is somewhere it is
+   safe to write 64 GB" are different questions**, and `os.path.ismount()` only answers the first.
+2. A free-space warning below 100 GiB on the run root.
+3. The dest and run-root guards are now *separate*. The old single hardcoded guard covered the
+   run root only by coincidence — the run-root default happened to live on the filesystem it
+   named. Deriving the dest guard alone would have silently **dropped** run-root protection.
+
+This is less a new class than the oldest one in this job rediscovered: `--tempdir` exists on the
+Yamaguchi job at all because "the server's default `/tmp` is tmpfs — the run-1 trap". The hazard
+was known and documented in `yamaguchi_build_job.py` in August, and the drill — written later,
+by the same hand, for the same set — did not carry the lesson across.
+
+#### 8.14.4 `--tempdir` moved to `/home/pcalnon/.cache/duplicati-tmp` (§8.13.3 closed)
+
+Paul's decision: move it off sdc4, to `/home`. Executed 2026-08-28 13:2xZ.
+
+The chosen path is **`/home/pcalnon/.cache/duplicati-tmp`**, not a new `/home` top-level dir,
+because it satisfies one more constraint than `/home/duplicati-tmp` does:
+
+- `/home` is **ext4 and fstab-managed** — durable across a reboot, which is the whole point.
+- It is **not** the destination spindle: the destination is sda1, `/home` is sdc3.
+- It is inside the backup source `/home/pcalnon/` — but **filter 36 already excludes
+  `/home/pcalnon/.cache/`**, so the job cannot scan the temp volumes it is writing. No new
+  filter, and therefore no second live-config edit, was needed.
+- It needs **no root**: `/home` itself is `root:root`, so a top-level dir there would have.
+
+One honest limitation, recorded because the decision's stated rationale was "off the destination
+spindle": **`/home` (sdc3) and `/media/pcalnon/temp_backups` (sdc4) are partitions of the same
+physical disk** (`sdc`, WD 8 TB). The move buys fstab durability and gets off the deprecated
+filesystem, but it does not change which spindle the temp writes land on — they were on `sdc`
+before and they are on `sdc` now. The only truly spindle-independent option is `/` on the NVMe
+(`nvme0n1p5`, 264 G free). Left as-is: `/home` is what was chosen, it meets the durability
+requirement that motivated the change, and it keeps temp churn off the consolidating sda1
+destination, which matches the stated mid-term goal.
+
+The edit needed a third editor — `yamaguchi_edit_target.py` does the destination and
+`yamaguchi_edit_sources.py` the source list, but nothing edited `Settings`. New
+**`util/ad-hoc/yamaguchi_edit_setting.py`** does, generically, with the same passphrase-safe
+GET/modify/PUT and the same refusal discipline; the path-specific guards (`--path-value`) are
+the three failures above turned into checks. Verified against the live job before the PUT:
+
+- `--value /tmp` → **rc 4**, "not durable storage".
+- `--value /home/pcalnon/Development` → **rc 4**, "inside backup source … and no exclude filter covers it".
+- `--value /home/pcalnon/.cache/duplicati-tmp` → both guards pass, naming filter 36 as the cover.
+
+`PUT 200`, then **9/9 post-checks PASS**: `--tempdir` is the new value; `TargetURL`, sources,
+filter count (44), settings count (10), `encryption-module=aes`, passphrase re-masked,
+`Schedule.Time`/`Repeat` and `ProposedSchedule` all unchanged. Record:
+`_yamaguchi_check/yamaguchi-config-post-tempdir-move-20260828.json`. The old `_duplicati_tmp/`
+on sdc4 was already empty and is kept until a run proves the new one.
+
+Note for any future settings edit: Duplicati setting names begin with `--`, so argparse needs
+the `=` form — `--name=--tempdir`, not `--name --tempdir`.
+
+#### 8.14.5 A refused run must not leave a trace — `build_job` did
+
+Adding the duplicate-job guard to `yamaguchi_build_job.py` surfaced an ordering defect in it.
+The script wrote its redacted config **record** before contacting the server, so the very first
+`--dry-run` — which then correctly refused — had *already* overwritten
+`_fresh_dlist_check/yamaguchi-config-imported.json`, the provenance record of the original
+2026-08-25 import, with a config carrying today's defaults.
+
+Recovered intact from the sda1 records mirror (`_yamaguchi_records/_fresh_dlist_check/`,
+6541 B, Aug 25 04:01, still naming `file:///media/pcalnon/temp_backups/Yamaguchi`) — which is
+the first time in this arc the records mirror has been *used* rather than merely maintained,
+and is the argument for keeping it.
+
+Both halves are now fixed: the record write happens **after** every guard and after the
+`--dry-run` return, and it **never clobbers** an existing record (a second import writes a
+UTC-stamped filename instead). The general rule: *a tool that refuses should leave the world
+exactly as it found it* — and a dry run most of all.
+
+#### 8.14.6 What remains
+
+- **Criterion 5 (reboot)** — still the only unexercised criterion, and it is now *cleaner*: with
+  `--tempdir` on `/home`, every path the job depends on is fstab-managed. After the next reboot
+  check `duplicati.service` active, job 2 + `ProposedSchedule` present,
+  `yamaguchi_destination_durability_check.bash`, `loginctl show-user pcalnon -p Linger` = yes,
+  and `systemctl --user is-enabled yamaguchi-watchdog.timer`.
+- **Group 2, the 196 GB sdc4 copy** — Paul's decision: **KEEP**. Post-drill it is a second,
+  independently decrypt-validated copy on a different physical disk, and sdc4 has 1.5 T free.
+  It is frozen at 811 volumes and tracks no further runs, so it ages as a restore point;
+  `yamaguchi_retire_tier2.bash --execute --execute-old-destination` removes it when wanted.
+- **Old sdc4 `_duplicati_tmp/`** — retire once a run has used the new tempdir.
+- **The drill `restored/` tree** (~64 G) and the old-archive tail — unchanged from §8.13.7.
+- **Consolidation onto sda1** is the stated mid-term direction; sda1 is at 74 % / 909 G free
+  with the old `.gpg` archive still on it, so the old-archive purge is the decision that
+  actually gates it.

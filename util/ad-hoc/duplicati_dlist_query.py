@@ -25,7 +25,7 @@ its sha256[:16] is logged; plaintext lands in a temp dir on the scratch fs and
 is removed. Exit 0 = report written; 2 = operational failure.
 
     python3 util/ad-hoc/duplicati_dlist_query.py --encryption aes \\
-        --dest /media/pcalnon/temp_backups/Yamaguchi \\
+        --dest /mnt/Backups/Ubuntu/Yamaguchi \\
         --match '\\.vdi$' --match 'juniper-release-train' --largest 12
 """
 
@@ -44,6 +44,14 @@ import zipfile
 def fail(msg):
     print(f"FATAL: {msg}", file=sys.stderr)
     sys.exit(2)
+
+
+def mount_point_of(path):
+    """Containing mountpoint of *path*, found by walking up. Returns "/" when nothing else matches."""
+    p = os.path.realpath(path)
+    while p != "/" and not os.path.ismount(p):
+        p = os.path.dirname(p)
+    return p
 
 
 def load_passphrase(cred_file, key):
@@ -78,7 +86,16 @@ def decrypt(src, dst, passphrase, encryption):
 
 def main():
     ap = argparse.ArgumentParser(description="query the newest dlist of a Duplicati destination")
-    ap.add_argument("--dest", default="/media/pcalnon/temp_backups/Yamaguchi")
+    # REQUIRED, for the same reason as duplicati_drill_fresh.py: the old default
+    # (/media/pcalnon/temp_backups/Yamaguchi) survived the 2026-08-26 migration to
+    # /mnt/Backups/Ubuntu/Yamaguchi as a frozen copy, so a bare run would answer questions
+    # about a stale fileset while looking entirely healthy.  Like the drill, this tool reads
+    # the destination directly and must keep working when the Duplicati server does not, so
+    # it names the destination rather than asking the server (contrast yamaguchi_census.py,
+    # which needs the server anyway to reconcile against it).
+    ap.add_argument("--dest", required=True,
+                    help="destination directory to query (REQUIRED -- no default, deliberately). "
+                         "Live Yamaguchi set: /mnt/Backups/Ubuntu/Yamaguchi (--encryption aes).")
     ap.add_argument("--scratch", default="/media/pcalnon/temp_backups/_yamaguchi_check",
                     help="parent for the temporary plaintext dir (scratch fs, never the destination)")
     ap.add_argument("--cred-file", default=os.path.expanduser("~/.config/duplicati-backup/env"))
@@ -90,8 +107,19 @@ def main():
     args = ap.parse_args()
 
     dest = os.path.realpath(args.dest)
-    if not os.path.ismount("/media/pcalnon/temp_backups"):
-        fail("/media/pcalnon/temp_backups is not a mountpoint")
+    if not os.path.isdir(dest):
+        fail(f"destination is not a directory: {dest}")
+    # Derived, not named: the previous guard asserted a filesystem this tool no longer
+    # necessarily reads, so it would have passed while pointed anywhere (note 8.14).
+    dest_mp = mount_point_of(dest)
+    if dest_mp == "/":
+        fail(f"destination {dest} is not on a mounted filesystem (walked up to /)")
+    scratch_mp = mount_point_of(args.scratch if os.path.isdir(args.scratch) else os.path.dirname(args.scratch))
+    if scratch_mp == "/":
+        fail(f"scratch {args.scratch} is not on a mounted filesystem (walked up to /)")
+    if scratch_mp == dest_mp:
+        fail(f"scratch {args.scratch} is on the destination filesystem ({dest_mp}) -- plaintext must "
+             "never be written to the disk holding the encrypted set")
     names = sorted(os.listdir(dest))
     dlists = [n for n in names if ".dlist." in n]
     if not dlists:
