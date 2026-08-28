@@ -586,6 +586,30 @@ rebuild's Input list (the rebuild does not use metrics data for the node graph �
 (c) stop the metrics poll entirely once `fsm_status` is terminal. (a) and (b) are independent and either alone
 should be sufficient; (b) is the smaller diff and removes the coupling outright.
 
+> **MECHANISM VERIFIED FIXED LIVE (2026-08-28, run `20260828T132533Z`) — but the rows stay BLOCKED on a
+> DIFFERENT failure, now filed as F-CANOPY-039.** Re-driven on a fresh isolated trio against a completed
+> 10-unit network whose server truth is byte-identical to this finding's (`2 / 10 / 2 / 89`, 14 nodes).
+>
+> **The starvation is gone.** `--step wirecensus` counted, in 60 s on the topology tab: the rebuild output
+> **10x**, `network-visualizer-topology-store.data` **12x**, `-raw-topology-store.data` **12x** — 12 writes
+> in 60 s is exactly the 5 s `tabpoll-topology` cadence, so the tab-gated interval ticks and the rebuild
+> now runs on it. This entry's own measurement was **zero rebuild POSTs** in 9 of 11 sessions; the trigger
+> is no longer being re-claimed. `--step rebuildprobe` confirms each response is HTTP 200 / 39,319 B /
+> ~206 traces / `empty_fig=False` — correct and complete.
+>
+> **What did not improve: the graph still does not paint.** The multi-session census
+> (`util/ad-hoc/e2e_f037_render_census.py`, the instrument this entry's 2-of-11 demands) recorded **0 of 5
+> painted**, every session with an identical deterministic signature — `sig=2`, `counts 0/0/0/0`, the full
+> 240 s budget burned. It was stopped at 5 of a planned 11 because the signature was identical every time
+> and the wire evidence had already re-pointed the investigation; artifact
+> `reports/e2e/20260828T132533Z/f037_census.json` records the truncation and its reason. `--step topo`
+> likewise reports `wake_topology: woke=False` after 109.5 s of driving the callback's own Inputs.
+>
+> So the rebuild runs, returns a correct figure, and **the DOM never applies it** — a different defect,
+> which an A/B against pre-merge `9f6fac9` proves is **not** a regression from this fix. See
+> **F-CANOPY-039** for the evidence and the named next probes. This entry stays OPEN because its rows are
+> still BLOCKED, but its own stated mechanism — the claimed-Input starvation — is closed.
+
 **FIX MERGED (2026-08-27, `juniper-canopy#531` → canopy main `a4b8daa`; 21/21 required contexts green.
 LIVE RE-DRIVE OWED — this entry stays OPEN until the topology block is re-driven, per the same convention
 F-CANOPY-035 follows.)** Fix **(b)**, with one correction to
@@ -652,6 +676,62 @@ evidence until a second instrument agrees, so the confirming step is to log the 
 (and both operands' canonical hashes) for a minute and read which branch is taken and why.
 A useful side-signal: `juniper-canopy#531` removes the rebuild from this store's consumer set, which reduces
 the congestion hypothesis (ii) depends on — so re-measuring **after** that merges is the cheapest next probe.
+
+> **RE-MEASURED POST-#531 (2026-08-28, run `20260828T132533Z`, `--step storestorm`). Reproduced exactly,
+> and it eliminates hypothesis (ii).** On merged canopy `6b55399` against a completed run: **32 writes in
+> 60 s (0.53/s), 31 identical-to-previous, ZERO `no_update`, 141,460 B every time** — the same rate and
+> the same byte size as the original census, to three significant figures.
+>
+> That is the discriminator this entry asked for. `#531` removed the 8-output topology rebuild from this
+> store's consumer set, so if **(ii) State-staleness-under-congestion** were the mechanism, the suppression
+> should have begun to bite with one fewer heavy consumer re-firing on every write. It did not bite at all —
+> the `no_update` count is still exactly zero. **(ii) is effectively ruled out**, which leaves **(i) a JSON
+> round-trip asymmetry that makes `metrics == current_metrics` permanently false** as the leading candidate and
+> (iii) mis-attribution as the remaining alternative.
+>
+> Next probe, now the cheap one: log the comparison's OUTCOME server-side — both operands' canonical
+> hashes and which branch was taken — for one minute. That distinguishes (i) from (iii) directly, and
+> unlike every probe so far it cannot be defeated by an unreliable client-side store read.
+
+**F-CANOPY-039 — the topology rebuild's response is provably CORRECT on the wire and the DOM never applies it; this, not starvation, is what now blocks the topology block (P0/P1, OPEN; found 2026-08-28 during the F-CANOPY-037 post-fix re-drive).**
+Measured on the isolated trio (data 8101 / cascor 8202 / canopy 8051, service mode; cascor `a709d52`,
+canopy `6b55399`) against a **completed 10-unit network whose server truth is byte-identical to the one
+F-CANOPY-037 was found on** — `GET /api/topology` = `2 / 10 / 2 / 89`, 14 nodes.
+
+**What the wire shows.** `e2e_seg17_topology_driver.py --step rebuildprobe`: the rebuild fires and every
+response is **HTTP 200, 39,319 B, ~206 traces, `empty_fig=False`** — the same byte size F-CANOPY-037
+recorded for its two *successful* sessions. **What the DOM shows, at the same moment:** `gd.data` empty,
+`sig=2`, `traces=0`, stats bar `0 / 0 / 0 / 0`. The correct figure arrives and is not applied.
+
+**Zero errors anywhere.** The canopy log carries no callback errors and no topology-fetch warnings (the
+only ERROR lines are the benign pre-run `No network created` ones at bring-up), and the browser console
+emits **no error or warning** — `open_dashboard` wires console capture and nothing fired.
+
+**This is the F-CANOPY-006 signature** — "a provably-correct server render is silently never applied
+client-side" — which F-CANOPY-037's entry asserts is "genuinely fixed: when the rebuild runs here, the
+DOM *does* apply it". **Stated carefully: the conditions differ from that measurement and the difference
+is not yet explained.** F-037 saw the DOM apply in 2 of 11 sessions; this re-drive saw it apply in **0 of
+6** across *two different canopy builds*. Something about this environment is not the environment that
+produced the 2-of-11, and until that is identified this should not be recorded as "F-006 regressed".
+
+**It is NOT a regression from the 2026-08-27/28 merges — A/B measured, not assumed.** A second canopy leg
+was stood up on `:8052` from **pre-merge `9f6fac9`**, pointed at the *same* cascor and the *same* network,
+and driven with `JUNIPER_E2E_CANOPY_URL`. It fails **identically**: `painted=False after 241.8 s`,
+`sig=2`, `counts 0/0/0/0`. So none of canopy#531/#532/#533/#534/#535 caused it.
+(Harness: `util/ad-hoc/e2e_f037_ab_premerge_leg.bash`.)
+
+**Named next probes, in order of expected value.** (1) **Duplicate component ids** — the A1-iii-b1 tab
+rebuild reconstructs the tab bar, so a stale detached `network-visualizer-graph` would take the response
+while the probe reads the live one; F-CANOPY-027's methodology checked exactly this (`count == 1`) and it
+has not been re-checked post-rebuild. (2) A dash-renderer-level trace of the response's application
+(`e2e_f027_setprops_probe.py` / `e2e_f027_dom_watch.py`). (3) Whether the graph element is inside a pane
+that is `display:none` at apply time. **Do not re-diagnose from `store` reads**: the driver's `_store()`
+returned `None` in every session here while the store's own writer fired 12x/60 s, and the same probe
+returned `changed=None` / `depth=None`, so that instrument is unreliable in this configuration and its
+zeros are not evidence.
+
+**Blast radius.** M-TOPOLOGY-01..18, W4-01..17 and W1-12..14 stay **BLOCKED**, with the blocker
+**re-attributed from F-CANOPY-037 (mechanism fixed, see its entry) to this finding**.
 
 **F-CANOPY-033 — `RESET_COMPONENT_STATE` storms one panel at ~13/s (P2, OPEN; found while tracing F-CANOPY-027).**
 Redux tracing recorded **1157 `RESET_COMPONENT_STATE` dispatches in 90 s** — roughly 13 per second, out of
@@ -3799,3 +3879,84 @@ directly).
 product actually uses in service mode), or should those rows be re-scoped to the demo lane? That is a
 matrix-semantics decision, not an implementation one, and it should be made before the rows are
 re-driven rather than discovered mid-drive.
+
+---
+
+## Phase 5 — the post-fix topology re-drive (2026-08-28, run `20260828T132533Z`)
+
+The first live session of this arc since F-CANOPY-037's fix merged. Stack: a fresh isolated trio brought
+up with `util/isolated_stack.bash --up`, data on 8101 / cascor 8202 / canopy 8051, service mode, cascor
+`a709d52` and canopy `6b55399` (both merged mains). The deploy stack on 8050/8201/8211 was never touched.
+
+A run was trained from the dashboard to completion: **10 hidden units, `fsm_status=COMPLETED`**, and
+`GET /api/topology` = **`2 / 10 / 2 / 89`, 14 nodes** — byte-identical to the server truth F-CANOPY-037
+was found against, which is what makes the before/after comparable at all.
+
+### Headline: the fix works, and it did not unblock the rows
+
+| | F-CANOPY-037 as found | this re-drive |
+|---|---|---|
+| rebuild POSTs | **zero** in 9 of 11 sessions | **10x / 60 s**, every session |
+| topology-store writes | — | **12x / 60 s** (the 5 s tabpoll cadence) |
+| rebuild response | 200 / 39,319 B / 206 traces (when it ran) | 200 / 39,319 B / 206 traces, **always** |
+| DOM applied it | yes, in the 2 sessions that ran | **never — 0 of 6, across two canopy builds** |
+| graph painted | 2 of 11 | **0 of 5** |
+
+The claimed-Input starvation this arc spent a session diagnosing and fixing **is closed**. What remains is
+a different defect — the correct 39 KB figure arrives and the DOM does not apply it — filed as
+**F-CANOPY-039**, and it is now the sole blocker on M-TOPOLOGY-01..18 / W4-01..17 / W1-12..14.
+
+### The A/B that mattered
+
+A 0-of-5 census on freshly-merged code is exactly the shape of a self-inflicted regression, so it was
+tested rather than argued about. A second canopy leg was stood up on `:8052` from **pre-merge `9f6fac9`**,
+against the *same* cascor and the *same* trained network, and driven via `JUNIPER_E2E_CANOPY_URL`. It
+fails **identically** — `painted=False after 241.8 s`, `sig=2`, `counts 0/0/0/0`. None of
+canopy#531/#532/#533/#534/#535 caused it. Harness: `util/ad-hoc/e2e_f037_ab_premerge_leg.bash`.
+
+**This should have been the first move and was nearly not made.** The census result alone reads as "the
+fix failed"; the wire census reads as "the fix worked"; only the A/B distinguishes "we broke it" from "it
+was already broken". When a post-merge measurement is worse than the pre-merge one on record, stand up the
+pre-merge build before writing either conclusion down.
+
+### Two instrument lessons, both paid for here
+
+- **A `logger.debug` grep returning zero is not evidence when DEBUG is off.** "Zero `Fetched topology from`
+  lines" was read as "the store handler never runs" — the canopy log had **zero DEBUG lines at all**. The
+  wire census then showed that handler firing 12x/60 s. Check the level before reading a debug-line count.
+- **The driver's `_store()` probe is unreliable in this configuration.** It returned `None` in every
+  session while that store's writer was provably firing, and returned `changed=None` / `depth=None` from
+  the same request-body extraction. Its zeros are instrument artifacts. The DOM reads (`sig`, `traces`,
+  `counts`) and the response bytes are the trustworthy signals.
+
+### Owner decision 4 (live 3-D) — the provisioning half is CONFIRMED live
+
+The stack was brought up with `JUNIPER_E2E_DATA_EXTRAS=api,equities`, and `GET /v1/generators` on the data
+leg now reports **`equities available=True`** and **`equities_seq available=True`** (they were
+`available:false`). This confirms the source diagnosis exactly: it was the absent optional extra, not a
+defect. `mnist` remains `available=False` — the same class, its own extra. The other half stands
+unchanged: `/api/dataset/generate` is demo-gated by design, so the **both-arms** decision needs new matrix
+rows (a demo arm on `generate`, a live arm on `/api/stage_dataset`), not re-scoped ones.
+
+### New tooling
+
+- `util/ad-hoc/e2e_f037_render_census.py` — N independent sessions in N separate processes, reading each
+  session's structured verdict from its own results file rather than scraping logs. Defaults to **11**
+  sessions because that is the finding's sample size, and it deliberately does **not** judge pass/fail: a
+  non-zero exit means the census failed to measure, which is a different thing from a bad render rate.
+- `util/ad-hoc/e2e_f037_ab_premerge_leg.bash` — a second canopy leg on `:8052` from any checkout, against
+  the live trio's cascor/data, for exactly the A/B above.
+
+### Ledger
+
+**43 findings / 25 fixed / 1 accepted / 17 open** (0 P0 · 2 P0/P1 [F-CANOPY-037 mechanism-closed but
+rows-blocked, F-CANOPY-039] · 2 P1 · 13 P2). Matrix unchanged at 298/298, 0 unfilled — **no row was
+re-scored**, because the block they belong to still does not paint.
+
+### Still owed
+
+F-CANOPY-039's three named probes (duplicate ids first); then the topology re-drive that F-037 has been
+waiting for. F-CANOPY-038's re-measure is now cheap — the stack is up and `--step storestorm` is one
+command. F-CANOPY-036's fix (canopy#536) needs a live run with the Candidate Metrics tab open. And the
+F-CANOPY-026 live confirmation needs a **mid-run** sample: `phase_started_at` is cleared once a run
+completes, so a post-run probe reads `None` and proves nothing.
