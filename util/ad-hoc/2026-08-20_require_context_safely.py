@@ -132,9 +132,15 @@ def find_ruleset(owner: str, repo: str):
         return None, f"cannot list rulesets: {err}"
     hits = []
     for rs in sets:
-        full, _ = gh_json(f"repos/{owner}/{repo}/rulesets/{rs['id']}")
-        if not full:
-            continue
+        full, err = gh_json(f"repos/{owner}/{repo}/rulesets/{rs['id']}")
+        if full is None:
+            # A failed per-ruleset GET used to be `continue`d, which turned a rate limit or a
+            # network blip into "no ruleset carries required_status_checks" -- the same
+            # fail-into-plausible shape as the census columns fixed in ml#1403. Seen twice
+            # during the 2026-08-27 promotion (cascor-client on the dry-run, data on the
+            # post-apply --status) with both rulesets intact. A read failure is an error,
+            # never an absence.
+            return None, f"cannot read ruleset {rs.get('id')} ({rs.get('name')}): {err}"
         if any(r.get("type") == "required_status_checks" for r in full.get("rules", [])):
             hits.append(full)
     if not hits:

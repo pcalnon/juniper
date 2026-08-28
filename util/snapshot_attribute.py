@@ -154,6 +154,14 @@ CLASSIFICATION_NAME = "snapshots_classification.jsonl"
 #: ``cross_dataset``) and changes what a verdict MEANS: a v2 attribution cleared both floors,
 #: a v1 attribution only ever cleared the untrained one. A v1 sidecar is still readable, but
 #: its verdicts are not comparable with v2's and must be regenerated rather than merged.
+#:
+#: ``displaced`` (and its companions ``raw_best`` / ``raw_best_score``) deliberately do NOT bump
+#: this. The version encodes what a verdict MEANS, and displacement changes no verdict -- it is a
+#: purely additive diagnostic over the same decision. Bumping would declare every existing v2 row
+#: incomparable and force a full regeneration of a 28k-row sidecar to gain nothing. Consequence to
+#: be aware of when reading an older sidecar: absence of ``displaced`` means "not computed", not
+#: "not displaced". ``row.get("displaced")`` is therefore the correct test, and a census of
+#: displacement must be taken from rows written after this change.
 SCHEMA_VERSION = 2
 
 DEFAULT_CASCOR_SRC_ENV = "JUNIPER_CASCOR_SRC"
@@ -542,14 +550,40 @@ def adjudicate(
             "gap": round(separation, 4),
             "floors": _floors_for(best),
         }
-    return {
+    # DISPLACEMENT. The winner is chosen by LIFT (score - floor), not by raw score, and those can
+    # disagree: a candidate with a low floor can win while scoring worse than several datasets it
+    # was not attributed to. §3.2 of the null-model findings has the clearest case -- a snapshot
+    # attributed to spiral at 0.624 while scoring gaussian 0.890 and moon 0.835, winning only
+    # because spiral's floor (0.572) was the lowest available. That is floor arithmetic, and it is
+    # exactly the reasoning that made spiral's attributions withdrawable.
+    #
+    # Lift remains the right criterion -- raw score cannot distinguish "learned this" from "this
+    # dataset is easy" -- so this does NOT change any verdict. It only marks the rows where the two
+    # criteria disagree, because those are the ones whose evidence is arithmetic rather than
+    # separation, and a reader has no way to see it from `lift` alone.
+    #
+    # Framed on "best raw score != winner", deliberately NOT on "floor >= 1.000": a saturated floor
+    # is the gaussian-unattributable case, a different diagnostic that this flag would obscure.
+    raw_best = max(scores, key=lambda name: scores[name])
+    displaced = raw_best != best
+
+    verdict: Dict[str, Any] = {
         "verdict": ATTRIBUTED,
         "dataset": best,
         "reason": f"scores {scores[best]:.3f} vs {_which(best)} {_floor(best):.3f} (+{best_lift:.3f}), clear of the runner-up by {separation:.3f}",
         "lift": round(best_lift, 4),
         "gap": round(separation, 4),
         "floors": _floors_for(best),
+        "displaced": displaced,
     }
+    if displaced:
+        verdict["raw_best"] = raw_best
+        verdict["raw_best_score"] = round(float(scores[raw_best]), 4)
+        verdict["reason"] += (
+            f"; DISPLACED -- {raw_best!r} scores higher ({scores[raw_best]:.3f} vs {scores[best]:.3f}) "
+            f"but lifts less over its own floor"
+        )
+    return verdict
 
 
 def read_jsonl(path: Path) -> List[dict]:
@@ -781,9 +815,22 @@ def _report(rows: List[dict], args: argparse.Namespace) -> int:
     if not selected:
         print("(no matching snapshots)")
         return 0
-    print(f"{'name':<58} {'hid':>5} {'verdict':<14} {'dataset':<14} {'lift':>7} {'gap':>7}")
+    print(f"{'name':<58} {'hid':>5} {'verdict':<14} {'dataset':<14} {'lift':>7} {'gap':>7}  {'raw'}")
+    displaced_count = 0
     for row in selected:
-        print(f"{str(row.get('name', ''))[:58]:<58} {str(row.get('hidden_units', '-')):>5} {row.get('verdict', ''):<14} {str(row.get('dataset') or '-'):<14} {row.get('lift', 0) or 0:>+7.3f} {row.get('gap') or 0:>+7.3f}")
+        # A displaced row is flagged inline rather than filtered out: it IS attributed, and hiding
+        # it would misrepresent the count. The marker names the dataset that outscored the winner.
+        marker = ""
+        if row.get("displaced"):
+            displaced_count += 1
+            marker = f"  !{row.get('raw_best', '?')} {row.get('raw_best_score', 0) or 0:.3f}"
+        print(f"{str(row.get('name', ''))[:58]:<58} {str(row.get('hidden_units', '-')):>5} {row.get('verdict', ''):<14} {str(row.get('dataset') or '-'):<14} {row.get('lift', 0) or 0:>+7.3f} {row.get('gap') or 0:>+7.3f}{marker}")
+    if displaced_count:
+        print(
+            f"\n{displaced_count} DISPLACED: the winner is not the highest raw scorer -- it won on lift"
+            f" over a lower floor. Marked '!<dataset> <score>'. See § DISPLACEMENT in adjudicate().",
+            file=sys.stderr,
+        )
     return 0
 
 
