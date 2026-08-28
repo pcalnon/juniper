@@ -429,11 +429,17 @@ dblock/dindex volumes remain until an explicit compact.
       destination filesystem sdc4 has NO boot-time mount configuration (not in `/etc/fstab`;
       systemd only observed the mount), so a root-run 09:00 job could fire against a bare
       path on `/`. Probe: `bash util/ad-hoc/yamaguchi_destination_durability_check.bash`.
-- [ ] Migration to a physically separate drive — OPEN; Paul's re-scope decision
-      (destination migration vs second copy) is recorded nowhere yet. Facts re-measured and
-      the three options written up decision-ready in **§8.11.2** (recommendation: (a) sda1
-      now, (c) as the target — sda1 is the only fstab-managed backup-class filesystem, so it
-      closes criterion 5's §8.10.2 risk in the same move).
+      **That mechanism is RETIRED for the destination as of §8.13** — the migration moved it
+      to fstab-managed sda1. Two residuals keep the criterion open: `--tempdir` is still on
+      the non-durable sdc4 (§8.13.3), and the criterion has still never been exercised by an
+      actual reboot (also re-check `Linger=yes` and the watchdog timer then).
+- [x] Migration to a physically separate drive — **CLOSED 2026-08-26 (§8.13)**. Paul chose
+      §8.11.2 option (a); the set was copied to sda1, the copy decrypt-validated 811/811 with
+      0 failures, the job repointed (PUT 200, 8/8 post-checks), a proof run succeeded there in
+      9 m 31 s, the census reads **813 / 210,486,704,937 B → AGREE**, and a drill at the new
+      location verified **17/17 candidates, 16 live-oracle matches, 0 contradictions**.
+      Yamaguchi is now on sda1 — a different physical disk from `/home`, and the only
+      fstab-managed backup-class filesystem on this host.
 
 ### 8.8 Retirement inventory (measured 18:2x CDT; nothing deleted — each needs Paul's go)
 
@@ -904,3 +910,176 @@ is now the only option that leaves nothing false behind.
   refuses to move the job onto another non-boot-durable mount. Post-PUT it re-GETs
   and requires `TargetURL` to be the new value while sources, filters, settings
   count, `encryption-module`, passphrase masking and the schedule are unchanged.
+
+---
+
+### 8.13 Addendum (2026-08-26 evening) — the migration to sda1, executed
+
+Plan §7 criterion 6, open since the arc began, executed 16:14–18:0x CDT under
+Paul's §8.11.2 option (a). The set now lives on a **different physical disk from
+`/home`** and — the argument that decided it, §8.10.2 — on the **only
+fstab-managed backup-class filesystem on this host**, so the same move also
+retires criterion 5's named failure candidate.
+
+#### 8.13.1 What was done, in order, with the numbers
+
+| step | result |
+|---|---|
+| **2a copy** | `rsync -a` (no `--checksum`, §8.12.3) sdc4 → sda1, 16:17:47→16:54:45 CDT, **36 m 58 s ≈ 95 MB/s**. Verified by count and bytes on both sides: **811 files / 210,349,834,271 B**, identical. Log `_yamaguchi_check/migrate-copy-20260826-161747.log` |
+| **2b integrity** | `duplicati_decrypt_validate_all.bash` on the **copy**: **811 / 811 volumes decrypt-valid, 0 failures**, full HMAC, 2,926 s (16:55:18→17:44:04). Record `_yamaguchi_check/decrypt_validate_all-migrated-20260826.log` |
+| **3 repoint** | `yamaguchi_edit_target.py` — every guard passed (mounted; **fstab-managed**; census 811/811 and bytes equal both sides; passphrase fingerprint `1ff8be456de2752f`). **PUT 200, 8/8 post-checks PASS**: TargetURL is the new value; sources (2), filters (44), settings (10), `encryption-module=aes`, passphrase re-masked, `Schedule.Time`/`Repeat` and `ProposedSchedule` all unchanged. Record `_yamaguchi_check/yamaguchi-config-post-migration.json` |
+| **3b `dbconfig.json`** | deleted per §8.12.4, after archiving the 308-byte original to `_yamaguchi_check/dbconfig.json.retired-20260826` |
+| **4a proof run** | manual run, task 11: **Success**, 22:45:12→22:54:43Z, **9 m 31 s**; 770,697 files / 285.2 GB examined; 16,302 added (1.04 GB), 732 modified, 968 deleted; **199 MB / 3 files uploaded**, 0 retries / warnings / errors; **`TestResults: Success on 3 file(s)`** — the post-backup sample was fetched and verified *from sda1*. Retention thinned `181206Z` (`DeletedSets: [2026-08-26T13:12:06-05:00]`) |
+| **4b census** | **813 = 3 dlist + 405 dblock + 405 dindex; 210,486,704,937 B — `-> AGREE`** against the server. Record `_yamaguchi_check/census-post-migration-20260826.txt` |
+| **4c drill** | see §8.13.4 |
+
+The 9 m 31 s run is worth noting against §8.10.1: with the win11 VDI excluded
+*and* a normal churn load, the daily cost is now **under 10 minutes** — the
+"~12–16 min" estimate in §8.10.1 was measured on a run carrying four hours of
+accumulated churn, and the steady-state figure is better than that. Writes to
+sda1 (an SMR WD40EZAZ) did not degrade the run; the 500 MB dblocks are
+sequential, which is the SMR-friendly case.
+
+#### 8.13.2 Two stale hardcoded paths, found the hard way
+
+The migration invalidated two tools at once, both by the same mechanism — a path
+frozen at authoring time — and both failing **quietly**, which is why they are
+recorded here rather than just fixed.
+
+1. **`yamaguchi_watch.bash`** held `API=` pointing into the sibling worktree
+   `.claude/worktrees/mossy-growing-salamander` (a §8.8 retirement candidate, so
+   retiring it would have broken the watcher silently at the moment it is most
+   wanted — mid-run) and `DEST=` pointing at the pre-migration destination, so
+   every "dest files" count it printed would have described the wrong directory
+   while looking entirely plausible. Both are now derived / parameterised.
+
+2. **`yamaguchi_census.py`** — the more serious of the two, because it *is* the
+   arc's primary invariant. Its `--dest` default and its `os.path.ismount` guard
+   were both hardcoded to sdc4. Immediately after the repoint it censused the
+   **old** directory while printing the **new** `TargetURL` one line below, then
+   compared those mismatched witnesses and printed **`-> DIVERGE`** — with both
+   witnesses in fact perfectly consistent at 813 / 210,486,704,937 B. Anyone
+   chasing that DIVERGE would have been hunting a defect that did not exist, in
+   the one tool whose entire job is to be trusted about exactly this. And Phase C
+   retires the old directory: the next census after that would have found **zero
+   files** and printed a maximally alarming DIVERGE against a healthy backup.
+   `--dest` now defaults to the job's own `TargetURL`, and the mount guard walks
+   up from the resolved destination to its containing mountpoint instead of
+   naming a filesystem.
+
+**The pattern worth carrying forward**: a tool that *reports on* a resource must
+locate that resource the same way the system does — by asking the authority
+(here, the job's `TargetURL`) — not by remembering where it used to be. A
+hardcoded path in a checker does not fail loudly when it drifts; it produces a
+confident, well-formatted, wrong answer. Both instances here printed a clean
+report. One of them printed a false alarm; the other would have.
+
+#### 8.13.3 Residual: the tempdir is still on the non-durable filesystem
+
+The destination is now boot-durable. **`--tempdir` is not**: it still reads
+`/media/pcalnon/temp_backups/_duplicati_tmp`, on sdc4, the filesystem §8.10.2
+showed has no `/etc/fstab` entry. Severity is far lower than the destination case
+— these are transient files, not the backup — but it is the same class, and after
+a reboot without sdc4 mounted the job would write temp volumes to a bare path on
+`/` (264 G free). With `--asynchronous-upload-limit=1` and 500 MB dblocks the
+working set is small, so this is a tidiness and root-filesystem-pressure issue
+rather than a data-loss one. Options, none applied — Paul's call, it is a live-job
+setting:
+
+- **(i)** leave it (fast scratch on a separate spindle from the destination, which
+  is the performance-preferred arrangement);
+- **(ii)** move it to `/mnt/Backups/Ubuntu/_duplicati_tmp` (fully durable, but puts
+  temp write I/O on the same SMR spindle as the destination);
+- **(iii)** move it under `/home` (fstab-managed, and a different partition from
+  the destination — durable *and* off the destination spindle, but on the same
+  physical disk as sdc4).
+
+**(iii)** is the one that satisfies both constraints; it is recommended but not
+applied.
+
+#### 8.13.4 Drill at the new location, and what remains
+
+**Drill at the new destination — PASSED.** `duplicati_drill_fresh.py --dest
+/mnt/Backups/Ubuntu/Yamaguchi --single-invocation --encryption aes`, run dir
+`_yamaguchi_drill/drill-20260826-175815/`, unit `yamaguchi-drill-migrated`,
+17:58:15→18:59:01 CDT (**60 m 46 s wall, 27 m 46 s CPU, 12.6 G peak RSS**).
+
+- drilled dlist `duplicati-20260826T224512Z.dlist.zip.aes` — the **newest** of 3,
+  per the §0 decision (never `dlists[0]`), oracle cutoff epoch 1787784312
+- **17 / 17 candidates RESTORED+VERIFIED**, every stratum: single/multi ×
+  early/mid/late, `large` (4.70 GB / 21 dblocks), **`vmimage` (63.86 GB / 201
+  dblocks — the win10 VDI, half the set's dblocks)**, `empty`, `symlink-target`,
+  `symlink`
+- **dblock coverage 245 / 405**
+- **live-source oracle: 16 matches, 0 contradictions** (floor for PASS: 10)
+- `RESULT: fileset verified restorable for the sampled strata (dual oracle)`
+
+**Plan §7 criterion 6 is CLOSED**, and criterion 5's §8.10.2 failure candidate is
+retired by the same move — the destination is now on the only fstab-managed
+backup-class filesystem on the host. Criterion 5 itself remains open until an
+actual reboot exercises it (§8.7).
+
+#### 8.13.5 Phase C — Tier 2 group 1 executed; group 2 deliberately NOT
+
+`util/ad-hoc/yamaguchi_retire_tier2.bash`, all five gates re-probed live and
+passing: TargetURL is the new destination · 813 volumes there · newest run
+`Success` · **a drill at that destination with all 17 candidates verified** · no
+task active.
+
+Executed (`--execute`, group 1): `/media/pcalnon/temp_backups/Ubuntu` (51 G, the
+old gpg fresh set) and `~/.config/Duplicati/DQRVQNDIFX.sqlite{,-wal,-shm}`
+(353 M). **sdc4: 346 G used / 20 % → 295 G used / 17 %.** Verified untouched
+afterwards: the old archive on sda1 (5,366 `.gpg` volumes at its root),
+`_drill_scratch/` (35 G, Tier 3), `_yamaguchi_check/`, and the sdc4 Yamaguchi
+copy.
+
+**Group 2 — the 196 G sdc4 Yamaguchi copy — was NOT executed, and the
+recommendation is to keep it.** §8.6-8 step 5 says to keep it *until* the drill
+passes, which is a floor, not an instruction to delete afterwards. Now that the
+drill has passed, that copy is no longer scaffolding: it is a **second,
+independently decrypt-validated, complete copy of the live set on a different
+physical disk** — which is materially what §8.11.2 option (c) was asking for.
+Deleting it would reduce redundancy to buy 196 G on a filesystem that currently
+has **1.5 T free**. There is no space pressure to spend it on. Paul's call;
+`--execute-old-destination` is the flag if he wants it gone.
+
+Note that the two copies now diverge by design: sdc4 is frozen at the
+pre-migration state (811 volumes, fileset `…181206Z` still present), while sda1
+is live (813 volumes, `…181206Z` thinned by the proof run). The sdc4 copy is a
+point-in-time snapshot, not a mirror, and will not track further runs.
+
+#### 8.13.6 A gate of mine that was vacuous, found before it was trusted
+
+`yamaguchi_retire_tier2.bash`'s gate 4 originally accepted the drill if **any**
+candidate carried `verdict: VERIFIED`:
+
+```bash
+if grep -qE '"verdict"[[:space:]]*:[[:space:]]*"(PASS|VERIFIED)"' "$rj"; then DRILL_OK=1; fi
+```
+
+`results.json` is a JSON **list** of per-candidate objects, so a drill of 1 pass
+and 16 failures would have satisfied that grep — and authorised deleting the last
+fallback on the strength of a failed drill. Caught while inspecting the real
+`results.json` to confirm the gate would fire, i.e. before it was ever relied on.
+The check is now **total**: parsed in python, requiring a non-empty list in which
+every entry is `VERIFIED`/`PASS`, and printing `all N candidates verified`.
+
+This is the same failure class as §8.13.2 in a different costume — a check that
+returns a confident answer without actually checking the thing. There it was a
+path frozen at authoring time; here it was an existential test standing in for a
+universal one. Both produce clean, plausible output while being wrong.
+
+#### 8.13.7 What remains
+
+- **Criterion 5** — still open; needs an actual reboot. The §8.10.2 mechanism is
+  retired for the destination, but `--tempdir` remains on the non-durable sdc4
+  (§8.13.3), and `loginctl show-user pcalnon -p Linger` plus the watchdog timer
+  need re-checking after the reboot.
+- **`--tempdir` residual** (§8.13.3) — Paul's call; recommendation (iii), `/home`.
+- **Group 2** (§8.13.5) — Paul's call; recommendation: keep.
+- **Today's drill `restored/` tree** (~64 G under
+  `_yamaguchi_drill/drill-20260826-175815/restored/`) — the same Tier-1 class Paul
+  already approved, but created after that approval. Freeable on a go; the run
+  dir's `results.json` / `drill-meta.json` / `provenance.txt` must stay.
+- Unchanged and still root-gated: loopback restage (§8.6-6), server-brain backup
+  (§8.6-7), the old-archive tail.
