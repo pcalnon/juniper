@@ -34,7 +34,7 @@ These primitives are pure stdlib (``prometheus_client`` is imported lazily insid
 from __future__ import annotations
 
 from juniper_service_core.workers.audit import AUDIT_LEVEL, AuditEventType, AuditLogger, WorkerMetrics
-from juniper_service_core.workers.coordinator import ParsedResult, PendingTask, WorkerCoordinator, WorkerTaskProtocol
+from juniper_service_core.workers.coordinator import JsonTaskProtocol, ParsedResult, PendingTask, WorkerCoordinator, WorkerTaskProtocol
 from juniper_service_core.workers.metrics import WorkerRegistryCollector
 from juniper_service_core.workers.registry import DEFAULT_MAX_WORKERS, WorkerRegistration, WorkerRegistry, WorkerRegistryFullError
 from juniper_service_core.workers.security import AnomalyDetector, ConnectionRateLimiter, TLSConfig
@@ -60,5 +60,6 @@ __all__ = [
     "WorkerCoordinator",
     "PendingTask",
     "WorkerTaskProtocol",
+    "JsonTaskProtocol",
     "ParsedResult",
 ]

@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from abc import abstractmethod
 from dataclasses import dataclass, field
 from threading import Event, Lock, Thread
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -45,6 +46,7 @@ __all__ = [
     "WorkerCoordinator",
     "PendingTask",
     "WorkerTaskProtocol",
+    "JsonTaskProtocol",
     "ParsedResult",
 ]
 
@@ -99,25 +101,88 @@ class WorkerTaskProtocol(Protocol):
     adapter wraps its ``WorkerProtocol`` + numpy ``BinaryFrame`` codec behind this protocol.
     """
 
+    @abstractmethod
     def build_assignment(self, task: PendingTask) -> tuple[dict[str, Any], list[bytes]]:
         """Encode a dispatched task as a JSON envelope + ordered binary frames (the list may be empty)."""
-        pass
+        raise NotImplementedError
 
+    @abstractmethod
     def result_attachments(self, msg: dict[str, Any]) -> list[str]:
         """Names of the binary frames that follow a result ``msg`` (in receive order); ``[]`` if none.
 
         The ``/ws/workers`` stream uses this to know how many binary frames to read after a
         ``task_result`` envelope before handing ``(msg, frames)`` to :meth:`parse_result`.
         """
-        pass
+        raise NotImplementedError
 
+    @abstractmethod
     def parse_result(self, worker_id: str, msg: dict[str, Any], frames: dict[str, bytes]) -> ParsedResult | None:
         """Validate + build a result object. Return ``None`` to reject (schema / validation failure).
 
         ``frames`` maps each attachment name from :meth:`result_attachments` to its raw bytes; the
         protocol owns any decode (cascor: numpy ``BinaryFrame.decode``) + validation.
         """
-        pass
+        raise NotImplementedError
+
+
+class JsonTaskProtocol:
+    """The package default :class:`WorkerTaskProtocol` -- a JSON-only worker with no binary frames.
+
+    The :class:`~juniper_service_core.websocket.commands.LifecycleCommandExecutor` analogue for the
+    worker seam: publishing the Protocol *and* a working default means a consumer implements the
+    three methods only when it actually carries a model-specific wire schema. A service whose task
+    payloads are plain JSON-serialisable dicts -- the shape :class:`PendingTask` documents as "a
+    JSON-only worker packs a plain dict" -- can inject this unchanged.
+
+    Structural, not inherited: like ``LifecycleCommandExecutor`` this satisfies the Protocol by shape
+    rather than by subclassing, so a consumer may use it, wrap it, or ignore it.
+
+    Deliberately declares **no** attachments. A JSON-only protocol that never reads binary frames is
+    immune to the unbounded-attachment-list read in ``websocket/worker_stream.py``
+    (``APD-SVCCORE-001``); a consumer that needs binary frames is writing its own codec anyway and
+    takes on that bound itself.
+    """
+
+    #: Wire ``type`` of the dispatch envelope. Matches cascor's ``MessageType.TASK_ASSIGN`` so a
+    #: worker written against either speaks the same verb. Defined here rather than imported from
+    #: ``websocket.worker_stream`` to keep this module on the dependency-free import path.
+    ASSIGN_MESSAGE_TYPE = "task_assign"
+
+    def build_assignment(self, task: PendingTask) -> tuple[dict[str, Any], list[bytes]]:
+        """Encode ``task`` as a JSON envelope carrying the opaque payload, and no binary frames.
+
+        ``task_id`` is included because :meth:`WorkerCoordinator.submit_result` looks the task up by
+        the ``task_id`` the worker echoes back; omitting it makes every result unattributable.
+        """
+        return (
+            {
+                "type": self.ASSIGN_MESSAGE_TYPE,
+                "task_id": task.task_id,
+                "round_id": task.round_id,
+                "payload": task.payload,
+            },
+            [],
+        )
+
+    def result_attachments(self, msg: dict[str, Any]) -> list[str]:
+        """No binary frames ever follow a result under this protocol."""
+        return []
+
+    def parse_result(self, worker_id: str, msg: dict[str, Any], frames: dict[str, bytes]) -> ParsedResult | None:
+        """Project a JSON result envelope onto :class:`ParsedResult`; reject one with no ``task_id``.
+
+        ``score`` / ``duration`` are forwarded when present so the coordinator's anomaly detector can
+        run; absent, they stay ``None`` and the anomaly check is skipped for this result.
+        """
+        if "task_id" not in msg:
+            logger.warning("Result from worker %s has no task_id -- rejected", worker_id)
+            return None
+        return ParsedResult(
+            success=bool(msg.get("success", True)),
+            result=msg.get("result"),
+            score=msg.get("score"),
+            duration=msg.get("duration"),
+        )
 
 
 class WorkerCoordinator:
