@@ -119,7 +119,13 @@ for i in "${JUNIPER_PROJECT}"/*; do
     fi
 
     # Get the repository size.
-    REPO_SIZE="$(du -s --exclude="juniper-data/data/*" "${REPO_PATH}" | awk -F " " '{print $1;}')"
+    #   `du --exclude` matches its pattern against the path as du CONSTRUCTS it from the argument it was given. REPO_PATH comes from
+    #   globbing ${JUNIPER_PROJECT}/* (:89) and is therefore ABSOLUTE, so du builds "/home/.../juniper-data/data/..." while the pattern
+    #   read "juniper-data/data/*". A relative pattern cannot match an absolute path, so the exclusion was INERT and juniper-data was
+    #   reported at its full ~96 GB. Measured: absolute pattern 229,872 KB vs. the old relative pattern 100,712,512 KB.
+    #   The pattern is anchored to the absolute path so it stays specific to juniper-data's bulk dataset tree and does not silently
+    #   drop a "data" directory belonging to any other repo.
+    REPO_SIZE="$(du -s --exclude="${JUNIPER_PROJECT}/juniper-data/data" "${REPO_PATH}" | awk -F " " '{print $1;}')"
     # echo "REPO_SIZE: ${REPO_SIZE}"
 
     # Display the repository statistics.

@@ -9,8 +9,20 @@
 # Copyright:     Copyright (c) 2024-2026 Paul Calnon
 #
 # Description:
-#     Archive the Juniper project tree, encrypt it once, and replicate it to every attached
-#     external drive.
+#     Archive the Juniper project tree ONE APPLICATION REPO PER ARCHIVE, encrypt each once, and
+#     replicate each to every attached external drive.
+#
+#     Every repo listed in APPLICATION_REPOS becomes its own encrypted tarball. All archives from a
+#     single run share one UUID and one timestamp, which is what groups them into one backup SET --
+#     restoring a coherent snapshot means taking every archive bearing the same UUID.
+#
+#     Archives are bzip2 (`tar -cjf`) and named `.tbz2.gpg`. RESTORE:
+#
+#         gpg -d Juniper_<repo>_<uuid>_<stamp>.tbz2.gpg | tar -xjf -
+#
+#     Note -xjf, not -xzf. An earlier revision named these archives `.tgz` while writing bzip2, so
+#     the documented gzip restore failed on every archive it produced. TAR_COMPRESS_FLAG and TAR_EXT
+#     are now defined together and the dry-run preview is rendered from them.
 #
 #     Encryption is ASYMMETRIC (`gpg -r <recipient> -e`), to YubiKey-backed public keys. So no
 #     YubiKey is needed to RUN this script -- only to RESTORE from its output. The consequence is
@@ -21,14 +33,15 @@
 # Usage:
 #     util/juniper-backup.bash [--dry-run] [--source DIR] [--dest DIR]
 #
-#     --dest DIR overrides the MEDIA_NAMES fan-out entirely and writes exactly one archive to DIR.
+#     --dest DIR overrides the MEDIA_NAMES fan-out entirely and writes one archive PER REPO to DIR.
 #
 # Exit codes:
-#     0  every configured device received a verified archive
+#     0  every configured device received a verified archive OF EVERY REPO
 #     1  fatal -- nothing was written (bad source, no usable device, missing recipient, build failed)
 #     2  misuse (bad argument)
-#     4  PARTIAL -- at least one device has a verified archive, but not all of them do.
+#     4  PARTIAL -- fewer archive copies landed than expected, across all repos and devices.
 #        Deliberately non-zero: degraded redundancy must be visible to cron, not silent.
+#        Judged on CROSS-REPO totals; per-repo counters alone let a mid-run failure report COMPLETE.
 #
 #######################################################################################################################################################################################################################################################
 # Notes:
@@ -38,8 +51,13 @@
 #       Two problems with that: it needs as much free scratch space as the tree is large (~126 GB today), and it leaves an unencrypted copy of the entire project on local disk until something removes it -- nothing did.
 #       Piping tar into gpg removes both. `set -o pipefail` is what makes the pipe safe to rely on.
 #
-#     BUILD ONCE, REPLICATE. The multi-device revision originally ran the whole `tar -czf - | gpg -e` pipeline once PER DEVICE -- reading, compressing and encrypting ~126 GB twice.
-#       It now builds to the first usable device and COPIES the finished ciphertext to the rest. Every device therefore holds a byte-identical archive under one filename (same UUID and timestamp), which is also what makes "these two files are the same backup" checkable.
+#     BUILD ONCE, REPLICATE. The multi-device revision originally ran the whole `tar | gpg -e` pipeline once PER DEVICE -- reading, compressing and encrypting the tree twice.
+#       It now builds each repo's archive to the first usable device and COPIES the finished ciphertext to the rest. Every device therefore holds a byte-identical archive under one filename (same UUID and timestamp), which is also what makes "these two files are the same backup" checkable.
+#
+#     SILENT EXCLUSION, THREE TIMES. `tar --exclude` and `du --exclude` both accept a malformed pattern, match nothing, and exit 0 -- so a broken exclude list is invisible unless you measure the OUTPUT SIZE.
+#       Three revisions shipped one: a space-joined string quoted into a single argv element; then `printf '--exclude="%s" '`, which bakes literal quote characters into the value; and in both cases an ABSOLUTE pattern that cannot match the RELATIVE member names `tar -C` stores.
+#       All three were shellcheck-clean. The `du` side masked it further by running its flags through `eval`, which re-parsed the quotes away -- so du reported ~205 MB while tar wrote ~103 GB of the same repo.
+#       There is now ONE relative pattern list (`build_exclude_dirs_arg`) consumed by BOTH `du` and `tar` from the same working directory. Regression: util/ad-hoc/2026-08-28_exclude_arg_repro.bash.
 #
 #     THE BUG THIS REPLACES: the draft assigned `ENCRPYTED` but the gpg line read `${ENCRYPTED}`.
 #       Undefined, so it expanded to empty, so `gpg -o ""`. Nothing ever landed on the drive, and with no `set -u` the script exited 0 while doing so. Both spellings are now gone; there is one variable, used once.
@@ -47,7 +65,7 @@
 #     THE SECOND BUG OF THAT CLASS, and why the loop below recomputes its target:
 #       The multi-device revision computed `GPG_PATH` ONCE from `MEDIA_NAMES[0]` and then reassigned only `EXT_DRIVE` inside the loop.
 #       Both iterations wrote the SAME path on the FIRST drive, the second `gpg --yes` silently clobbered the first, and the second drive received nothing -- while the log printed the second drive's name and "OK".
-#       A destination is now derived from its device in one place (`target_path_for`) and never carried across an iteration.
+#       A destination is now derived from its device in one place (`target_dir_for`) and never carried across an iteration.
 #
 #     MOUNT CHECK IS ON THE MOUNT ROOT, NOT THE BACKUP DIR.
 #       Statement `mountpoint -q` is true only for an actual mount point. When `BACKUP_DIR` was appended to `EXT_DRIVE`, the check began testing `<mount>/Juniper-8.0.0.python` -- a plain subdirectory, never a mount point -- so preflight FATALed on every run even with both drives correctly attached.
@@ -72,13 +90,15 @@ APPLICATION_REPOS=( "juniper-canopy" "juniper-cascor" "juniper-cascor-client" "j
 
 #######################################################################################################################################################################################################################################################
 # Exclude directories from the backup
-INCLUDE_CASCOR_SNAPSHOTS="${FALSE}"
-# INCLUDE_CASCOR_SNAPSHOTS="${TRUE}"
+# Named for what it DOES. The previous name said INCLUDE_CASCOR_SNAPSHOTS while setting it to TRUE *added* cascor-snapshots to the
+#   EXCLUDE list -- so the flag did the opposite of its name, and reading it told you the wrong thing about the archive's contents.
+#   FALSE (current, deliberate): cascor-snapshots IS archived. It is ~1.7 GB / 28k files and is the corpus the snapshot arc depends on.
+EXCLUDE_CASCOR_SNAPSHOTS="${FALSE}"
 
 EXCLUDE_DIRS=( ".amp" ".benchmarks" ".claude" ".mypy_cache" ".playwright-mcp" ".pytest_cache" ".ruff_cache" ".serena" ".trunk" "dist" "logs" "reports" "resources" "data" "build" "venv" )
 EXCLUDE_DIRS_ARG=()
 
-if [[ "${INCLUDE_CASCOR_SNAPSHOTS:-${FALSE}}" == "${TRUE}" ]]; then
+if [[ "${EXCLUDE_CASCOR_SNAPSHOTS:-${FALSE}}" == "${TRUE}" ]]; then
     EXCLUDE_DIRS=( "${EXCLUDE_DIRS[@]}" "cascor-snapshots" )
 fi
 
@@ -108,7 +128,12 @@ UUID_VALUE="$(uuidgen)"
 ORDER_OF_MAGNITUDE_LABELS=("B" "KB" "MB" "GB" "TB" "PB" "EB" "ZB" "YB")
 ORDER_OF_MAGNITUDE=1024
 
-TAR_EXT="tgz"
+# The extension MUST name the compressor the build actually uses. It previously said "tgz" while the build ran `tar -cjf` (bzip2), so
+#   every archive this script wrote was undecompressable by the documented `gpg -d | tar -xzf -` restore recipe. An archive that exists
+#   and does not restore is the worst failure a backup tool has. TAR_COMPRESS_FLAG and TAR_EXT are defined adjacently, and the dry-run
+#   preview is rendered FROM them, so the name and the format cannot drift apart again.
+TAR_COMPRESS_FLAG="-j"      # bzip2  -- paired with TAR_EXT below
+TAR_EXT="tbz2"              # restore: gpg -d <archive> | tar -xjf -
 GPG_EXT="gpg"
 
 
@@ -117,11 +142,12 @@ GPG_EXT="gpg"
 IGNORE_FAILED_READ_ARG="--ignore-failed-read"
 
 EXCLUDE_BACKUPS_ARG="--exclude-backups"
+# --exclude-caches-all drops the CACHEDIR.TAG directory entirely; --exclude-caches-under drops its contents but keeps the directory.
+#   Passing both is redundant and the weaker one only muddies intent, so only the total form is used.
 EXCLUDE_CACHES_ALL_ARG="--exclude-caches-all"
-EXCLUDE_CACHES_UNDER_ARG="--exclude-caches-under"
 # EXCLUDE_VCS_ARG="--exclude-vcs"
 
-EXCLUDE_ARGS=( "${EXCLUDE_BACKUPS_ARG}" "${EXCLUDE_CACHES_ALL_ARG}" "${EXCLUDE_CACHES_UNDER_ARG}" )
+EXCLUDE_ARGS=( "${EXCLUDE_BACKUPS_ARG}" "${EXCLUDE_CACHES_ALL_ARG}" )
 
 
 #######################################################################################################################################################################################################################################################
@@ -169,34 +195,48 @@ function check_application_repos() {
 }
 
 #######################################################################################################################################################################################################################################################
-# Validate exclude directories for a given application directory.
-EXCLUDE_DIRS_VALIDATED=()
-function validate_exclude_dirs() {
-    local application_dir="$1"
-    local exclude_dirs_array=()
-    local current_exclude_dir=""
-    local current_exclude_path=""
+# Build the exclude flags for ONE application repo, as a real argv array.
+#
+#   THE THIRD BUG OF THE SILENT-EXCLUSION CLASS. Two earlier revisions produced exclude flags that tar accepted and ignored, so the
+#   archive silently contained everything the exclude list named. Both were invisible to shellcheck. Neither made tar complain.
+#
+#     rev 1  a single space-joined string, array-quoted at two of its three call sites, so tar saw ONE run-on pattern.
+#     rev 2  `printf -- '--exclude="%s" '` -- which bakes LITERAL double-quote characters and a trailing space INTO the argv value.
+#            tar then searched for a path beginning with a `"` character. Nothing matches that, ever.
+#
+#   Quoting is a shell-PARSE artifact, not part of a value. An argv element must hold the pattern and nothing else. The `"` only ever
+#   disappeared on the `du` side because that path ran the string back through `eval`, which re-parsed the quotes away -- which is
+#   exactly WHY du and tar disagreed about what was excluded. That divergence WAS the bug: du sized ~205 MB while tar wrote ~103 GB.
+#
+#   The pattern must also be RELATIVE, not an absolute realpath. `tar -C <parent> <leaf>` stores members as "<leaf>/...", and tar
+#   matches --exclude against the stored MEMBER NAME. An absolute pattern cannot match a relative member name, so removing the quotes
+#   alone still left the excludes inert -- proved in util/ad-hoc/2026-08-28_exclude_arg_repro.bash step 4a.
+#
+#   Emitting "<leaf>/<name>" also anchors each pattern to the repo's TOP level, matching what the `-d` test below actually checked. An
+#   unanchored bare "<name>" matches at ANY depth, which would silently drop src/**/data/ and src/**/build/ -- source loss, not cache loss.
+#
+#   ONE list feeds BOTH consumers. `du` is run from ${PROJECT_DIR} against the same relative leaf, so it constructs the same
+#   "<leaf>/..." names tar stores and the same patterns apply. Structurally, du and tar can no longer disagree.
+EXCLUDE_DIRS_ARG=()
+function build_exclude_dirs_arg() {
+    local application_leaf="$1"
+    local exclude_dirs_arg=()
+    local exclude_dir=""
     for exclude_dir in "${EXCLUDE_DIRS[@]}"; do
-        local current_exclude_dir="${application_dir}/${exclude_dir}"
-        current_exclude_path="$(realpath "${current_exclude_dir}")"
-        if [[ -d "${current_exclude_path}" ]]; then
-            exclude_dirs_array+=("${current_exclude_path}")
+        if [[ -d "${PROJECT_DIR}/${application_leaf}/${exclude_dir}" ]]; then
+            exclude_dirs_arg+=( "--exclude=${application_leaf}/${exclude_dir}" )
         fi
     done
-    EXCLUDE_DIRS_VALIDATED=( "${exclude_dirs_array[@]}" )
+    EXCLUDE_DIRS_ARG=( "${exclude_dirs_arg[@]}" )
     return 0
 }
 
 #######################################################################################################################################################################################################################################################
-# Build the exclude directories argument.
-EXCLUDE_DIRS_ARG=()
-function build_exclude_dirs_arg() {
-    local exclude_dirs_arg=()
-    for exclude_dir in "${EXCLUDE_DIRS_VALIDATED[@]}"; do
-        exclude_dirs_arg+=("$(printf -- '--exclude="%s" ' "${exclude_dir}")")
-    done
-    EXCLUDE_DIRS_ARG=( "${exclude_dirs_arg[@]}" )
-    return 0
+# Uncompressed size of one repo, measured with the SAME exclude flags tar will be given, from the SAME working directory.
+#   Never re-derive the flags here and never route them through `eval`; that is precisely how the two paths drifted apart before.
+function repo_source_bytes() {
+    local application_leaf="$1"
+    ( cd "${PROJECT_DIR}" && du -sb "${EXCLUDE_DIRS_ARG[@]}" "${application_leaf}" | cut -f1 )
 }
 
 #######################################################################################################################################################################################################################################################
@@ -342,10 +382,8 @@ for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
     APPLICATION_DIR="${PROJECT_DIR}/${APPLICATION_NAME}"
     ARCHIVE_ROOT="${PROJECT_NAME}_${APPLICATION_NAME}_${UUID_VALUE}_${DATE_STAMP}"
     GPG_FILE="${ARCHIVE_ROOT}.${TAR_EXT}.${GPG_EXT}"
-    validate_exclude_dirs "${APPLICATION_DIR}"
-    build_exclude_dirs_arg
-    COMMAND="du -sb $(printf '%s ' "${EXCLUDE_DIRS_ARG[@]}") \"${APPLICATION_DIR}\" | cut -f1"
-    SOURCE_BYTES="$(eval "${COMMAND}")"
+    build_exclude_dirs_arg "${APPLICATION_NAME}"
+    SOURCE_BYTES="$(repo_source_bytes "${APPLICATION_NAME}")"
     echo "source bytes: ${SOURCE_BYTES}"
     SOURCE_SIZE_DISPLAY="$(get_order_of_magnitude_display "${SOURCE_BYTES}")"
     printf 'source: %s  (%s uncompressed)\n' "${APPLICATION_DIR}" "${SOURCE_SIZE_DISPLAY}"
@@ -381,11 +419,15 @@ if (( DRY_RUN )); then
         SOURCE_LEAF="${APPLICATION_NAME}"
         ARCHIVE_ROOT="${PROJECT_NAME}_${APPLICATION_NAME}_${UUID_VALUE}_${DATE_STAMP}"
         GPG_FILE="${ARCHIVE_ROOT}.${TAR_EXT}.${GPG_EXT}"
-        validate_exclude_dirs "${APPLICATION_DIR}"
-        build_exclude_dirs_arg
+        build_exclude_dirs_arg "${APPLICATION_NAME}"
         TAR_ARGS=( "${EXCLUDE_DIRS_ARG[@]}" "${EXCLUDE_ARGS[@]}" "${IGNORE_FAILED_READ_ARG}" )
         echo "tar args: ${TAR_ARGS[*]}"
-        echo "[dry-run] would build once: tar -czf - ${TAR_ARGS[*]} -C ${SOURCE_PARENT} ${SOURCE_LEAF} | gpg --batch --yes ${GPG_RECIPIENT_ARGS[*]} -e -o ${TARGET_DIRS[0]}/${GPG_FILE}"
+        # Rendered from the SAME variables the real build uses. The previous preview hardcoded `tar -czf` and a bare `gpg -e` while the
+        #   build ran `tar -cjf` with `--compress-algo=none -z 0` -- so --dry-run, the one tool for checking what WOULD happen, described
+        #   a pipeline that was never run. A preview that can drift from the build is worse than no preview.
+        echo "[dry-run] would build once: tar -c${TAR_COMPRESS_FLAG#-}f - ${TAR_ARGS[*]} -C ${SOURCE_PARENT} ${SOURCE_LEAF} | gpg --batch --yes ${GPG_RECIPIENT_ARGS[*]} --compress-algo=none -z 0 -e -o ${TARGET_DIRS[0]}/${GPG_FILE}"
+        echo "[dry-run]   restore with: gpg -d ${GPG_FILE} | tar -x${TAR_COMPRESS_FLAG#-}f -"
+        echo "[dry-run]   would archive: $(get_order_of_magnitude_display "$(repo_source_bytes "${APPLICATION_NAME}")") uncompressed"
         for _index in "${!TARGET_DIRS[@]}"; do
             if (( _index == 0 )); then
                 echo "[dry-run]   build  -> ${TARGET_DIRS[0]}/${GPG_FILE}"
@@ -395,6 +437,12 @@ if (( DRY_RUN )); then
         done
         echo "----------------------------------------"
     done
+    # --dry-run PREVIEWS; it must never write. Without this exit, control fell through into the build loop below and --dry-run
+    #   produced real encrypted archives on the real destination -- hours of work and ~100 GB written by the one command whose
+    #   entire purpose is to tell you what WOULD happen. Caught by util/ad-hoc/2026-08-28_backup_exclude_e2e.bash, which found
+    #   twice as many archives as repos and a "COMPLETE: every configured device holds a verified archive" line from a dry run.
+    echo "[dry-run] no archives were written."
+    exit 0
 fi
 
 
@@ -404,33 +452,42 @@ fi
 
 #######################################################################################################################################################################################################################################################
 # Build ONCE on the first usable device.  Script uses tar with -C so paths are stored relative to the parent ("Juniper/..."), not as absolute paths that tar would strip with a warning and that restore into an unexpected location.
+#######################################################################################################################################################################################################################################################
+# Cross-repo accounting. These MUST live outside the per-repo loop.
+#   THE FOURTH BUG OF THE REPORT-SUCCESS-PRODUCE-NOTHING CLASS: SUCCEEDED / FAILED_LABELS were reset at the top of each repo iteration,
+#   so the final report described only the LAST repo. A copy failure on repo 3 of 10 was erased by repo 4, and the script printed
+#   "COMPLETE: every configured device holds a verified archive" over a backup set that was missing an archive.
+TOTAL_EXPECTED=0
+TOTAL_WRITTEN=0
+FAILED_LABELS=()
+REPO_REPORT_LINES=()
+
 for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
     APPLICATION_NAME="${REPO}"
-    APPLICATION_DIR="${PROJECT_DIR}/${APPLICATION_NAME}"
     ARCHIVE_ROOT="${PROJECT_NAME}_${APPLICATION_NAME}_${UUID_VALUE}_${DATE_STAMP}"
     GPG_FILE="${ARCHIVE_ROOT}.${TAR_EXT}.${GPG_EXT}"
     SOURCE_PARENT="${PROJECT_DIR}"
     SOURCE_LEAF="${APPLICATION_NAME}"
-    validate_exclude_dirs "${APPLICATION_DIR}"
-    build_exclude_dirs_arg
+    build_exclude_dirs_arg "${APPLICATION_NAME}"
     TAR_ARGS=( "${EXCLUDE_DIRS_ARG[@]}" "${EXCLUDE_ARGS[@]}" "${IGNORE_FAILED_READ_ARG}" )
     BUILD_PATH="${TARGET_DIRS[0]}/${GPG_FILE}"
     IN_PROGRESS="${BUILD_PATH}"
+    SUCCEEDED=0
+    TOTAL_EXPECTED=$(( TOTAL_EXPECTED + CONFIGURED_COUNT ))
 
     #######################################################################################################################################################################################################################################################
     # Build the tarball on the first usable device.
     echo "building ${APPLICATION_NAME} tarball on ${TARGET_LABELS[0]} ..."
-    tar -cjf - "${TAR_ARGS[@]}" -C "${SOURCE_PARENT}" "${SOURCE_LEAF}" | gpg --batch --yes "${GPG_RECIPIENT_ARGS[@]}" --compress-algo=none -z 0 -e -o "${BUILD_PATH}"
+    tar -c"${TAR_COMPRESS_FLAG#-}"f - "${TAR_ARGS[@]}" -C "${SOURCE_PARENT}" "${SOURCE_LEAF}" | gpg --batch --yes "${GPG_RECIPIENT_ARGS[@]}" --compress-algo=none -z 0 -e -o "${BUILD_PATH}"
     verify_archive "${BUILD_PATH}" || exit 1
     sync
     IN_PROGRESS=""
+    SUCCEEDED=1
+    TOTAL_WRITTEN=$(( TOTAL_WRITTEN + 1 ))
     echo "OK  $(du -h "${BUILD_PATH}" | cut -f1)  ${BUILD_PATH}"
 
     #######################################################################################################################################################################################################################################################
     # Replicate the finished ciphertext to all remaining devices. A copy failure on one device leaves every already-verified archive in place and is reported as PARTIAL, never as success.
-    SUCCEEDED=1
-    FAILED_LABELS=()
-    APPLICATION_REPOS_ARGS=()
     for _index in "${!TARGET_DIRS[@]}"; do
         (( _index == 0 )) && continue
         COPY_PATH="${TARGET_DIRS[${_index}]}/${GPG_FILE}"
@@ -439,23 +496,25 @@ for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
         if ! cp -- "${BUILD_PATH}" "${COPY_PATH}"; then
             echo "ERROR: copy to ${TARGET_LABELS[${_index}]} failed" >&2
             rm -f "${COPY_PATH}"
-            FAILED_LABELS+=("${TARGET_LABELS[${_index}]}")
+            FAILED_LABELS+=("${APPLICATION_NAME}:${TARGET_LABELS[${_index}]}")
             IN_PROGRESS=""
             continue
         fi
         if ! verify_archive "${COPY_PATH}"; then
             echo "ERROR: verification failed on ${TARGET_LABELS[${_index}]}" >&2
             rm -f "${COPY_PATH}"
-            FAILED_LABELS+=("${TARGET_LABELS[${_index}]}")
+            FAILED_LABELS+=("${APPLICATION_NAME}:${TARGET_LABELS[${_index}]}")
             IN_PROGRESS=""
             continue
         fi
         sync
         IN_PROGRESS=""
         SUCCEEDED=$(( SUCCEEDED + 1 ))
+        TOTAL_WRITTEN=$(( TOTAL_WRITTEN + 1 ))
         echo "OK  $(du -h "${COPY_PATH}" | cut -f1)  ${COPY_PATH}"
     done
-    echo "Completed ${APPLICATION_NAME} tarball replication to ${TARGET_LABELS[*]} ..."
+    REPO_REPORT_LINES+=("$(printf '  %-24s %d/%d device(s)  %s' "${APPLICATION_NAME}" "${SUCCEEDED}" "${CONFIGURED_COUNT}" "${GPG_FILE}")")
+    echo "Completed ${APPLICATION_NAME} tarball replication: ${SUCCEEDED}/${CONFIGURED_COUNT} device(s)"
     echo "----------------------------------------"
 done
 echo -ne "\n"
@@ -465,15 +524,19 @@ echo -ne "\n"
 # Report. Degraded redundancy exits non-zero so it is visible to cron rather than silent.
 #######################################################################################################################################################################################################################################################
 echo "----------------------------------------"
-echo "archive: ${GPG_FILE}"
-echo "written and verified on ${SUCCEEDED} of ${CONFIGURED_COUNT} configured device(s)"
+echo "backup set: ${UUID_VALUE} ${DATE_STAMP}"
+echo "restore:    gpg -d <archive> | tar -x${TAR_COMPRESS_FLAG#-}f -"
+echo "per-repo:"
+printf '%s\n' "${REPO_REPORT_LINES[@]}"
+echo "written and verified: ${TOTAL_WRITTEN} of ${TOTAL_EXPECTED} expected archive copies across ${#APPLICATION_REPOS_ARGS[@]} repo(s)"
 if (( ${#FAILED_LABELS[@]} > 0 )); then
     echo "failed: ${FAILED_LABELS[*]}" >&2
 fi
-if (( SUCCEEDED < CONFIGURED_COUNT )); then
-    echo "PARTIAL: redundancy is degraded -- ${SUCCEEDED} of ${CONFIGURED_COUNT} device(s) hold this archive." >&2
+# Judged on the CROSS-REPO totals. Judging on the last repo's counters is what let a mid-run failure print COMPLETE.
+if (( TOTAL_WRITTEN < TOTAL_EXPECTED )); then
+    echo "PARTIAL: redundancy is degraded -- ${TOTAL_WRITTEN} of ${TOTAL_EXPECTED} expected archive copies were written." >&2
     exit 4
 fi
-echo "COMPLETE: every configured device holds a verified archive."
+echo "COMPLETE: every configured device holds a verified archive of every repo."
 echo "----------------------------------------"
 echo -ne "\n"

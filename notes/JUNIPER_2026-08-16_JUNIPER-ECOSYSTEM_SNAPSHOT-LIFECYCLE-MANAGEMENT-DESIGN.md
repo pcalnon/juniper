@@ -496,7 +496,7 @@ one of them is testable without the owner present:
 
 | # | class | question | status |
 |---|---|---|---|
-| 1 | **PIPELINE** | Does `tar -czf - \| gpg -e` round-trip a tree byte-for-byte, and do the script's two unattended checks actually fire? | **PASSES** (2026-08-26) |
+| 1 | **PIPELINE** | Does `tar -cjf - \| gpg -e` round-trip a tree byte-for-byte, and do the script's two unattended checks actually fire? | **PASSES** (re-drilled 2026-08-28 against the corrected bzip2 pipeline) |
 | 2 | **KEY** | Can the owner's YubiKey-backed private key decrypt a *real* archive? | **OWNER-GATED — still owed** |
 
 Class 1 was drilled by [`util/ad-hoc/2026-08-26_backup_restore_drill.bash`](../util/ad-hoc/2026-08-26_backup_restore_drill.bash),
@@ -512,7 +512,7 @@ naive `/^fpr:/` grep double-counts recipients.
 
 Class 2 cannot be closed unattended: `ENCRYPT_KEYS` names two YubiKey-backed recipients, so
 decrypting a real archive requires the hardware. **What is owed is now specific** — take one real
-`.tgz.gpg`, decrypt it with a YubiKey, untar it, and confirm the tree lands — rather than the
+`.tbz2.gpg`, decrypt it with a YubiKey, untar it, and confirm the tree lands — rather than the
 open-ended "no drill has ever been run".
 
 **Both preconditions recorded earlier on 2026-08-26 are now CLEARED** (they were true when first
@@ -521,23 +521,39 @@ change is legible):
 
 | precondition, as first recorded | status now |
 |---|---|
-| "No archive exists to drill" — no project `.tgz.gpg` on this host | **cleared.** `juniper-backup.bash` now produces one on demand; several were written and verified during its repair. |
+| "No archive exists to drill" — no project `.tbz2.gpg` on this host | **cleared.** `juniper-backup.bash` now produces one on demand; several were written and verified during its repair. |
 | "The destination is not mounted" — `/media/pcalnon/DFF3-2782/` does not exist | **cleared.** Both `EBC5-F0A3` (`/dev/sdf1`) and `DFF3-2782` (`/dev/sdg1`) are mounted, each with a `Juniper-8.0.0.python/` directory. |
 
 **Class 2 no longer requires a full-tree backup, which is the useful part.** `--source` accepts any
-directory, so a *seconds-long* archive of a small tree is a real `.tgz.gpg` encrypted to the same two
+directory, so a *seconds-long* archive of a small tree is a real `.tbz2.gpg` encrypted to the same two
 YubiKey recipients as a 141 GB one — identical for the purpose of proving the key decrypts:
 
 ```bash
 util/juniper-backup.bash --source <any small dir> --dest <scratch dir>   # seconds, real archive
-gpg --decrypt <that>.tgz.gpg | tar -tzf -                                # YubiKey; lists the tree
+gpg --decrypt <that>.tbz2.gpg | tar -tjf -                               # YubiKey; lists the tree
 ```
 
-If that lists the tree, class 2 is closed and question 3 is fully answered. The full-tree run is then
-a capacity question, not a verification one — and note it is genuinely tight: the source measures
-**141.2 GB** while `EBC5-F0A3` has ~135 GiB free (the rest held by a pre-existing *unencrypted*
-`juniper-8.0.0_python_2026-02-27.tgz`, 111 GB) and `DFF3-2782` has ~67 GiB. The script now warns at
-both thresholds rather than only below 50%.
+If that lists the tree, class 2 is closed and question 3 is fully answered.
+
+**Capacity is no longer tight — corrected 2026-08-28.** This paragraph previously recorded the run as
+"genuinely tight" at **141.2 GB** against ~135 GiB free on `EBC5-F0A3`. That figure was an artifact of
+a defect, not a property of the tree: the script's `--exclude` flags were malformed and *inert for
+`tar`*, so it archived every directory the exclude list named — most importantly `juniper-data/data`,
+96 GB of regenerable dataset artifacts. With the exclude list actually applying (see the 2026-08-28 exclude repair), the
+measured footprint is:
+
+| | archived | unexcluded |
+|---|---|---|
+| whole project, 10 repos | **2.8 GB** | 113 GB |
+| `juniper-data` alone | **34 MB** | 97 GB |
+
+A **41x** reduction, and it fits both `EBC5-F0A3` (~135 GiB free) and `DFF3-2782` (~67 GiB) with room
+to spare. Re-measure with [`util/ad-hoc/2026-08-28_backup_footprint.bash`](../util/ad-hoc/2026-08-28_backup_footprint.bash),
+which uses the script's own exclude list and measurement path.
+
+The script still warns at both thresholds rather than only below 50%. The pre-existing *unencrypted*
+`juniper-8.0.0_python_2026-02-27.tgz` (111 GB) on `EBC5-F0A3` remains an owner decision — it is both a
+plaintext copy of the whole project on removable media and most of that drive's used space.
 
 #### 6.4.3 The ratified policy
 
