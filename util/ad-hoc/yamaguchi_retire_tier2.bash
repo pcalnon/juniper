@@ -103,13 +103,36 @@ fi
 echo "gate 3 PASS: newest run ParsedResult=Success"
 
 # --- gate 4: a drill at the new destination must have passed --------------
+# Total-verdict check, kept out of the loop for readability.  Exits 0 only when
+# results.json is a non-empty list in which EVERY entry has verdict VERIFIED/PASS.
+TIER2_VERDICT_PY='
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+if not isinstance(d, list) or not d:
+    sys.exit(1)
+ok = {"VERIFIED", "PASS"}
+bad = [e for e in d if str(e.get("verdict", "")).upper() not in ok]
+if bad:
+    sys.stderr.write("  %d of %d candidates NOT verified\n" % (len(bad), len(d)))
+    sys.exit(1)
+sys.stderr.write("  all %d candidates verified\n" % len(d))
+sys.exit(0)
+'
+
 DRILL_OK=0
 DRILL_SEEN=""
 while IFS= read -r rj; do
     [[ -n "$rj" ]] || continue
     if grep -q "$NEW_DEST" "$(dirname "$rj")/drill-meta.json" 2>/dev/null || grep -q "$NEW_DEST" "$rj" 2>/dev/null; then
         DRILL_SEEN="$rj"
-        if grep -qE '"verdict"[[:space:]]*:[[:space:]]*"(PASS|VERIFIED)"' "$rj"; then
+        # TOTAL, not existential: every candidate must be verified and there must
+        # be at least one.  An earlier revision used `grep -q` for a single
+        # VERIFIED, which a drill of 1 pass and 16 failures would have satisfied
+        # -- authorising deletion of the last fallback on a failed drill.
+        if python3 -c "$TIER2_VERDICT_PY" "$rj"; then
             DRILL_OK=1
         fi
     fi
