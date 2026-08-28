@@ -151,8 +151,73 @@ fi
 
 echo
 echo "=============================================================="
+echo "7. --repos and --label"
+echo "=============================================================="
+# A tree the built-in APPLICATION_REPOS list does not name, standing in for juniper-legacy / a restored snapshot.
+mkdir -p "${SRC}/LegacyTree/src"
+echo "legacy source" > "${SRC}/LegacyTree/src/old.py"
+DEST2="${WORK}/dest2"
+mkdir -p "${DEST2}"
+
+bash "${SCRIPT_UNDER_TEST}" --source "${SRC}" --dest "${DEST2}" \
+     --repos "juniper-cascor LegacyTree" --label "snapshot-2026-02-27" >/dev/null 2>&1
+
+mapfile -t LABELLED < <(find "${DEST2}" -name '*.gpg' -type f | sort)
+printf '   archives: %d\n' "${#LABELLED[@]}"
+for _a in "${LABELLED[@]}"; do printf '   %s\n' "$(basename "${_a}")"; done
+
+if (( ${#LABELLED[@]} != 2 )); then
+    echo "   FAIL --repos did not produce exactly the 2 named trees" >&2
+    FAILURES=$(( FAILURES + 1 ))
+else
+    echo "   OK   --repos archived exactly the named trees"
+fi
+# juniper-data is in the BUILT-IN list but not in --repos; it must be absent, or the override did nothing.
+if find "${DEST2}" -name '*juniper-data*' | grep -q .; then
+    echo "   FAIL --repos was ignored: juniper-data archived despite not being named" >&2
+    FAILURES=$(( FAILURES + 1 ))
+else
+    echo "   OK   --repos excluded the built-in repos it did not name"
+fi
+if find "${DEST2}" -name '*LegacyTree*' | grep -q .; then
+    echo "   OK   --repos archived a tree absent from APPLICATION_REPOS"
+else
+    echo "   FAIL --repos did not archive LegacyTree" >&2
+    FAILURES=$(( FAILURES + 1 ))
+fi
+if [[ "$(basename "${LABELLED[0]}")" == Juniper_snapshot-2026-02-27_* ]]; then
+    echo "   OK   --label is present in the archive name"
+else
+    echo "   FAIL --label missing from archive name: $(basename "${LABELLED[0]}")" >&2
+    FAILURES=$(( FAILURES + 1 ))
+fi
+
+echo
+echo "=============================================================="
+echo "8. override validation -- both reach filenames and paths"
+echo "=============================================================="
+expect_rejected() {
+    local what="$1"; shift
+    if bash "${SCRIPT_UNDER_TEST}" --source "${SRC}" --dest "${DEST2}" "$@" >/dev/null 2>&1; then
+        echo "   FAIL accepted ${what}" >&2
+        FAILURES=$(( FAILURES + 1 ))
+    else
+        echo "   OK   rejected ${what}"
+    fi
+}
+# A repo name reaching ${PROJECT_DIR}/${REPO} unchecked would archive a tree outside the project.
+expect_rejected "path-traversal repo name" --repos "../../etc"
+expect_rejected "repo name with a slash"   --repos "juniper-cascor/../.."
+# A label reaching the archive name unchecked would invent a directory or split a downstream filename.
+expect_rejected "label with a slash"       --label "a/b"
+expect_rejected "label with a space"       --label "two words"
+expect_rejected "empty repo list"          --repos ""
+
+echo
+echo "=============================================================="
 if (( FAILURES == 0 )); then
-    echo "RESULT: PASS -- excludes apply, archive name matches format, documented restore works."
+    echo "RESULT: PASS -- excludes apply, archive name matches format, documented restore works,"
+    echo "        --repos/--label work and reject unsafe input."
 else
     echo "RESULT: FAIL -- ${FAILURES} check(s) failed." >&2
     exit 1

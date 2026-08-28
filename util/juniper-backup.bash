@@ -31,9 +31,22 @@
 #     writing archives; you cannot retro-fit one onto an archive already written.
 #
 # Usage:
-#     util/juniper-backup.bash [--dry-run] [--source DIR] [--dest DIR]
+#     util/juniper-backup.bash [--dry-run] [--source DIR] [--dest DIR] [--repos "LIST"] [--label TEXT]
 #
-#     --dest DIR overrides the MEDIA_NAMES fan-out entirely and writes one archive PER REPO to DIR.
+#     --dry-run      Preview only. Writes nothing, exits 0.
+#     --source DIR   Back up DIR instead of the live project tree. Any tree whose children are repos.
+#     --dest DIR     Override the MEDIA_NAMES fan-out entirely; write one archive PER REPO to DIR.
+#     --repos "LIST" Space-separated directory names to archive, replacing the built-in list. Use to
+#                    cover trees the default list omits -- juniper-legacy, or a restored snapshot
+#                    whose layout differs from today's.
+#     --label TEXT   Insert TEXT into every archive name in this run. [A-Za-z0-9._-]+ only.
+#                    The timestamp records when the BACKUP ran, never what the tree contains, so a
+#                    backup of a restored 2026-02-27 snapshot is otherwise indistinguishable from a
+#                    backup of today's tree. Label it.
+#
+#     Example -- re-archive a restored snapshot, including the legacy trees:
+#       util/juniper-backup.bash --source ~/juniper-restore-2026-02-27 --label snapshot-2026-02-27 \
+#           --repos "juniper-cascor juniper-data JuniperLegacy"
 #
 # Exit codes:
 #     0  every configured device received a verified archive OF EVERY REPO
@@ -165,15 +178,35 @@ ENCRYPT_KEYS=(
 #######################################################################################################################################################################################################################################################
 DRY_RUN=0
 DEST_OVERRIDE=""
+LABEL=""
 
 while (( $# > 0 )); do
     case "$1" in
         --dry-run) DRY_RUN=1; shift ;;
         --source)  PROJECT_DIR="${2:?--source requires a DIR}"; shift 2 ;;
         --dest)    DEST_OVERRIDE="${2:?--dest requires a DIR}"; shift 2 ;;
-        -h|--help) sed -n '12,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --label)   LABEL="${2:?--label requires TEXT}"; shift 2 ;;
+        # Space-separated list. Deliberately re-split, so `--repos "a b c"` is one shell word from the caller's side.
+        --repos)   read -r -a APPLICATION_REPOS <<< "${2:?--repos requires a space-separated LIST}"; shift 2 ;;
+        # Anchored to the header's own markers, not to line numbers. The previous form was `sed -n '33,46p'`, which silently
+        #   printed whatever happened to sit on those lines after any header edit -- a help text that drifts away from the flags
+        #   it documents, with nothing to notice.
+        -h|--help) sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
+done
+
+#######################################################################################################################################################################################################################################################
+# Both overrides land in FILENAMES and in PATHS, so both are validated before anything is built.
+#   A repo name reaching `${PROJECT_DIR}/${REPO}` unchecked would let `--repos ../../etc` archive a tree outside the project, and a
+#   label reaching the archive name unchecked would let a `/` invent a directory or a space split a downstream filename.
+if [[ -n "${LABEL}" ]]; then
+    [[ "${LABEL}" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "FATAL: --label must match [A-Za-z0-9._-]+ : ${LABEL}" >&2; exit 2; }
+fi
+(( ${#APPLICATION_REPOS[@]} > 0 )) || { echo "FATAL: --repos was given an empty list" >&2; exit 2; }
+for _repo in "${APPLICATION_REPOS[@]}"; do
+    [[ "${_repo}" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "FATAL: repo name must match [A-Za-z0-9._-]+ : ${_repo}" >&2; exit 2; }
+    [[ "${_repo}" != "." && "${_repo}" != ".." ]] || { echo "FATAL: invalid repo name: ${_repo}" >&2; exit 2; }
 done
 
 
@@ -269,6 +302,23 @@ trap cleanup_partial EXIT
 # Where a given device's archive goes. ONE definition, so a destination can never be carried over from a previous loop iteration (see "THE SECOND BUG OF THAT CLASS" above).
 function target_dir_for() {
     printf '%s\n' "/${MOUNT_NAME}/${USER_NAME}/$1/${BACKUP_DIR}"
+}
+
+#######################################################################################################################################################################################################################################################
+# The archive basename for one repo. ONE definition for the same reason as target_dir_for: this string was previously rebuilt
+#   identically at three call sites (sizing, dry-run, build), which is exactly the shape that let the dry-run preview drift away from
+#   what the build actually did.
+#
+#   ${LABEL} exists because --source can point at ANY tree -- a restored snapshot, a scratch copy -- while DATE_STAMP always records
+#   when the BACKUP ran, not what the tree contains. Without a label, a backup of a 2026-02-27 snapshot taken today is
+#   indistinguishable from today's live backup except by UUID.
+function archive_root_for() {
+    local application_name="$1"
+    if [[ -n "${LABEL}" ]]; then
+        printf '%s\n' "${PROJECT_NAME}_${LABEL}_${application_name}_${UUID_VALUE}_${DATE_STAMP}"
+    else
+        printf '%s\n' "${PROJECT_NAME}_${application_name}_${UUID_VALUE}_${DATE_STAMP}"
+    fi
 }
 
 #######################################################################################################################################################################################################################################################
@@ -380,7 +430,7 @@ fi
 for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
     APPLICATION_NAME="${REPO}"
     APPLICATION_DIR="${PROJECT_DIR}/${APPLICATION_NAME}"
-    ARCHIVE_ROOT="${PROJECT_NAME}_${APPLICATION_NAME}_${UUID_VALUE}_${DATE_STAMP}"
+    ARCHIVE_ROOT="$(archive_root_for "${APPLICATION_NAME}")"
     GPG_FILE="${ARCHIVE_ROOT}.${TAR_EXT}.${GPG_EXT}"
     build_exclude_dirs_arg "${APPLICATION_NAME}"
     SOURCE_BYTES="$(repo_source_bytes "${APPLICATION_NAME}")"
@@ -417,7 +467,7 @@ if (( DRY_RUN )); then
         APPLICATION_DIR="${PROJECT_DIR}/${APPLICATION_NAME}"
         SOURCE_PARENT="${PROJECT_DIR}"
         SOURCE_LEAF="${APPLICATION_NAME}"
-        ARCHIVE_ROOT="${PROJECT_NAME}_${APPLICATION_NAME}_${UUID_VALUE}_${DATE_STAMP}"
+        ARCHIVE_ROOT="$(archive_root_for "${APPLICATION_NAME}")"
         GPG_FILE="${ARCHIVE_ROOT}.${TAR_EXT}.${GPG_EXT}"
         build_exclude_dirs_arg "${APPLICATION_NAME}"
         TAR_ARGS=( "${EXCLUDE_DIRS_ARG[@]}" "${EXCLUDE_ARGS[@]}" "${IGNORE_FAILED_READ_ARG}" )
@@ -464,7 +514,7 @@ REPO_REPORT_LINES=()
 
 for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
     APPLICATION_NAME="${REPO}"
-    ARCHIVE_ROOT="${PROJECT_NAME}_${APPLICATION_NAME}_${UUID_VALUE}_${DATE_STAMP}"
+    ARCHIVE_ROOT="$(archive_root_for "${APPLICATION_NAME}")"
     GPG_FILE="${ARCHIVE_ROOT}.${TAR_EXT}.${GPG_EXT}"
     SOURCE_PARENT="${PROJECT_DIR}"
     SOURCE_LEAF="${APPLICATION_NAME}"
