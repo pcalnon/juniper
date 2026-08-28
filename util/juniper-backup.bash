@@ -477,4 +477,3 @@ fi
 echo "COMPLETE: every configured device holds a verified archive."
 echo "----------------------------------------"
 echo -ne "\n"
-
