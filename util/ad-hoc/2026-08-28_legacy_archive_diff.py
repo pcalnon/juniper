@@ -101,7 +101,14 @@ def main() -> int:
                         help="percent of archived bytes that may be unreproduced and still count as MINOR")
     parser.add_argument("--hash-sample", type=int, default=25,
                         help="same-size files to SHA-256 on both sides (0 disables)")
+    parser.add_argument("--ignore", action="append", default=[], metavar="SUBSTR",
+                        help="drop paths containing SUBSTR before comparing; repeatable. Use for "
+                             "regenerable noise (logs, __pycache__, .venv) so the verdict reflects "
+                             "recoverable STATE rather than churn a backup should not preserve.")
     args = parser.parse_args()
+
+    def ignored(member: str) -> bool:
+        return any(pattern in member for pattern in args.ignore)
 
     archive_root = os.path.expanduser(args.archive_root)
     current_root = os.path.expanduser(args.current_root)
@@ -129,9 +136,13 @@ def main() -> int:
               f"{len(current_sizes):>8,} f {human(sum(current_sizes.values())):>11}")
         # Namespace each tree's paths so identical relative names in different trees never collide.
         for rel, size in archived_sizes.items():
-            total_archived[f"{archived_name}/{rel}"] = size
+            key = f"{archived_name}/{rel}"
+            if not ignored(key):
+                total_archived[key] = size
         for rel, size in current_sizes.items():
-            total_current[f"{archived_name}/{rel}"] = size
+            key = f"{archived_name}/{rel}"
+            if not ignored(key):
+                total_current[key] = size
 
     if not total_archived:
         print("\nVERDICT: no legacy trees found in the archive at any known name.")
