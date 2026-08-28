@@ -553,8 +553,9 @@ rebuild's Input list (the rebuild does not use metrics data for the node graph �
 (c) stop the metrics poll entirely once `fsm_status` is terminal. (a) and (b) are independent and either alone
 should be sufficient; (b) is the smaller diff and removes the coupling outright.
 
-**FIX AUTHORED (2026-08-27, `juniper-canopy#531`, branch `fix/f037-topology-rebuild-starvation`; CI pending,
-NOT merged, live re-drive owed — this entry stays OPEN until it merges).** Fix **(b)**, with one correction to
+**FIX MERGED (2026-08-27, `juniper-canopy#531` → canopy main `a4b8daa`; 21/21 required contexts green.
+LIVE RE-DRIVE OWED — this entry stays OPEN until the topology block is re-driven, per the same convention
+F-CANOPY-035 follows.)** Fix **(b)**, with one correction to
 the candidate's rationale: the rebuild *does* use `metrics_data` — `network_visualizer.py:471-473` reads the
 last two entries' `network_topology.hidden_units` to arm the P2-1 new-unit highlight — so the store is
 **demoted from `Input` to `State`**, not dropped. The data still arrives on every run; it simply no longer
@@ -3648,7 +3649,7 @@ F-CANOPY-037 is fixed.
 No stack was brought up this session; the work is a source-level fix grounded in the Phase 2 measurements
 above, plus the corrections those measurements' *interpretation* turned out to need.
 
-### The fix: `juniper-canopy#531` (open, CI pending, NOT merged)
+### The fix: `juniper-canopy#531` — MERGED to canopy main `a4b8daa` (live re-drive still owed)
 
 `metrics-panel-metrics-store` is **demoted from `Input` to `State`** on `update_network_graph`. Full rationale,
 the pinning tests and the recorded trade-off are in the F-CANOPY-037 entry's **FIX AUTHORED** block above. The
@@ -3686,7 +3687,15 @@ driven live.
 
 ### Still owed (unchanged from Phase 2, plus)
 
-The **live re-drive of the topology block** (M-TOPOLOGY-01..18, W4-01..17, W1-12..14) once `#531` merges —
-that is what converts F-CANOPY-037 to FIXED and those rows off BLOCKED; a **re-measure of F-CANOPY-038 after
-`#531` merges**, which is the cheapest discriminator between its candidate mechanisms; and the new-unit
-highlight's whole-window-scan follow-up.
+`#531` **merged 2026-08-27** (canopy main `a4b8daa`), so both of these are now unblocked and are the top of
+the queue:
+
+1. The **live re-drive of the topology block** (M-TOPOLOGY-01..18, W4-01..17, W1-12..14) — this is what
+   converts F-CANOPY-037 to FIXED and those rows off BLOCKED. **It needs the multi-session render census,
+   not one screenshot**: the finding itself was 2-of-11, so a single green session proves nothing.
+2. A **re-measure of F-CANOPY-038**, which is the cheapest discriminator between its candidate mechanisms —
+   `#531` removed the 8-output rebuild from that store's consumer set, which directly weakens the
+   State-staleness-under-congestion hypothesis if the suppression starts biting.
+
+Plus the new-unit highlight's whole-window-scan follow-up, and — for JR-CAN-PERF-004 — Phase 0's first
+prerequisite is now satisfied.
