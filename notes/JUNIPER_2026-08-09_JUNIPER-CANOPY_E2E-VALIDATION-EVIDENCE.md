@@ -169,6 +169,22 @@ Minted in run `20260811T010700Z` (`statuses.tsv:90`) but never entered this ledg
 **F-CANOPY-018 — `params-status` has two writers, so the apply toast is always overwritten (P2, OPEN).**
 Minted in run `20260811T010700Z` (`statuses.tsv:88`, W3-08) but never entered this ledger until segment 12. `params-status.children` is written both by `apply_parameters` (the toast, via `_compose_apply_toast` `:7057`) and by `track_param_changes` (`:4385-4389`), which takes `applied-params-store` as an Input — so a successful apply re-fires the tracker, which overwrites the toast. **Segment 12 sharpened it:** the toast *is* rendered (`Parameters applied` observed at t=1800 ms) and survives **~900 ms** before being replaced by `⚠️ Unsaved changes`; the earlier "never the success toast" reading was a sampling artifact. Also: after a successful apply the form never returns to clean until a page reload. Matrix row C2.9-05 **FAIL**.
 
+> **CORRECTED + FIX AUTHORED (2026-08-27, `juniper-canopy#533`; CI green, NOT merged — entry stays OPEN).**
+> **"Two writers" is not the driver.** The tracker's clean path already returns `no_update` and leaves the
+> toast alone. The real cause is that the form never *compares* clean after an apply: **three** keys sit in
+> the dirty-comparison set that `_apply_parameters_handler`'s payload deliberately does not carry, so
+> `applied.get(key)` is `None` against a real widget value and the dirty check latches True for the rest of
+> the session — which is also exactly why "the form never returns to clean until a page reload" was
+> observed, since the MOUNT seed *does* carry them.
+>
+> All three came from the same `#2b` payload trim: `cn_training_complete` (a read-only status flag) and
+> `nn_dataset_elements` / `nn_dataset_noise` (canopy-local — they travel on `/api/stage_dataset`, which the
+> Apply button never calls). **The finding named only the toast symptom; the two dataset keys were found by
+> a new class-level test, not by inspection.** Comparing them was wrong twice over: it latched the form
+> dirty *and* lit Apply for an edit Apply cannot make. `nn_spiral_rotations` / `nn_spiral_number` ride both
+> payloads and stay compared. The class-level pin — *every key the tracker compares must be a key the apply
+> payload writes* — makes the next `#2b`-style trim fail loudly instead of silently latching.
+
 **F-CANOPY-022 — the "Add Top Tier Candidates" option can never be applied (P1; FIXED juniper-canopy#492 `0460240`).**
 canopy emits `value: "top_tier"` (`juniper-canopy/src/frontend/dashboard_manager.py:1471`); cascor accepts only `Literal["top","random","mixed"]` (`juniper-cascor/src/api/models/training.py:159`, `:327`). No translation exists — `_toggle_cn_selection_inputs_handler` (`dashboard_manager.py:6815-6821`) uses `top_tier` only for UI gating and the raw value enters the payload, so Apply returns a Pydantic `literal_error` surfaced as HTTP 502. Control: the sibling `random` arm matches cascor's literal and applies cleanly. cascor's `mixed` has no canopy option at all. Fix direction: map at the payload boundary, or change the option value.
 
@@ -188,6 +204,23 @@ A fresh dashboard ships S=1, T=1, R=1, so T+R=2≠S and the *first* Apply always
 
 **F-CANOPY-026 — phase duration is inflated by the host's UTC offset: cascor emits naive LOCAL time, canopy stamps it as UTC (P2, OPEN; segment 15).**
 `metrics-panel-phase-duration` read **"Phase Duration: 300m 37s"** on a run that had been alive for 37 seconds. Mechanism, both halves proven in source and live: cascor writes `phase_started_at=datetime.now().isoformat()` — **naive, LOCAL** — at `juniper-cascor/src/api/lifecycle/manager.py:1781` (candidate phase) and `:2326` (output phase); canopy's `_update_phase_duration_handler` (`juniper-canopy/src/frontend/components/metrics_panel.py:1375-1376`) does `if started.tzinfo is None: started = started.replace(tzinfo=timezone.utc)` and then subtracts from `datetime.now(timezone.utc)`. Stamping a local timestamp as UTC shifts it by the host offset, so the displayed elapsed time is inflated by exactly that offset. Measured live: `phase_started_at = 2026-08-20T03:11:17.347900` with the box on CDT (`date +%z` → `-0500`); canopy's arithmetic yields 302m29s where the correct value is 2m29s — **delta exactly 18000 s = 5 h**. The counter ticks correctly at 1 s/s (300m37s → 301m18s across 41 s wall), so this is a pure constant offset, not a broken clock. **Invisible in any UTC-0 environment** (CI, most containers), which is why 14 segments on this dashboard never surfaced it. Matrix row M-METRICS-03 **FAIL**. Fix direction: emit tz-aware UTC from cascor (`datetime.now(timezone.utc).isoformat()`), which also makes canopy's naive branch unreachable; treating a naive value as local on the canopy side would be the compatible stopgap.
+
+> **FIX AUTHORED, BOTH HALVES (2026-08-27; CI green on both, NEITHER merged — entry stays OPEN).**
+> `juniper-cascor#594` emits `datetime.now(UTC)` at both phase transitions — the correct fix, since an
+> unambiguous instant makes canopy's naive branch unreachable. `juniper-canopy#534` reads a naive value as
+> **local** via `astimezone()` — the compat half, for a dashboard pointed at an un-upgraded cascor.
+>
+> **Mirror symptom, worth recording because it presents as a different bug:** east of UTC the same
+> misreading puts `started` in the FUTURE, the handler's `total_seconds < 0` guard fires, and the readout is
+> **blank** rather than wrong. Split hosts in different zones cannot be repaired from the canopy side at
+> all — hence the upstream fix being the real one.
+>
+> **Same-class audit (cascor, deliberately out of scope of the fix):** five other naive
+> `datetime.now().isoformat()` emissions exist — `monitor.py:302` / `:345` and `manager.py:2651`
+> (metrics/event `timestamp` fields) and `snapshot_serializer.py:271` / `:288` (**persisted** snapshot attrs
+> `created` / `creation_timestamp`). Same defect class, different blast radius; the snapshot pair writes a
+> format the in-flight snapshot-integrity work reads, so they are recorded for their own assessment rather
+> than swept in.
 
 **F-CANOPY-027 — a panel's data store is written repeatedly with changing data and NOTHING downstream of it ever runs, so three panels stay frozen at mount defaults through a whole live run (P0/P1; FIXED canopy#507+#509+#511, all rows re-driven live 2026-08-24 — closure block at the end of this entry; found segment 15; ROOT-CAUSED 2026-08-23 — callback starvation under dash-renderer's hard-coded 12-slot concurrency pool, reproduced in a clean room with a control. Read the `ROOT CAUSE (2026-08-23)` block at the end of this entry FIRST: it supersedes the "broken wiring" framing of every block above it, and those blocks are retained only as the refutation record for twenty mechanisms. FIXED — closure block at the entry's end).**
 Two panels, identical signature: their data store is demonstrably filled on the wire, and the server-side `@app.callback` renderers that take that store as their sole/primary `Input` never emit a single output.
@@ -560,6 +593,24 @@ investigations. Reproduce with `util/ad-hoc/e2e_f027_redux_actions.py`.
 **F-CANOPY-028 — pinned params are silently discarded on the first pin after any reload (P2, OPEN; segment 15).**
 `pinned-params-store` is `storage_type="local"` and survives reload correctly, but the `{"type":"param-pin"}` checkboxes in the Parameters tables **do not rehydrate from it** — after a reload they all render unchecked while the store and the sidebar card still show the pinned set. Because the single pattern-matched writer (`dashboard_manager.py:3948-3952`) *collects the state of every checkbox*, the next pin action writes a list built from the un-rehydrated DOM, dropping everything pinned before the reload. Reproduced end-to-end: pinned `learning_rate` → `pinned-params-store` `["learning_rate"]`, sidebar card `display:block` showing "Learning Rate" → full page reload → `localStorage["pinned-params-store"]` still `["learning_rate"]`, card still shown, **but the `learning_rate` checkbox reads `checked:false`** → pinning `max_iterations` → store and localStorage both become `["max_iterations"]`, `learning_rate` gone with no warning. Matrix rows M-PARAMETERS-04/-05/-06 still **PASS** on their own stated expectations (the store write, the card reveal, and persistence all work); this is the cross-cutting defect those rows sit on top of.
 
+> **CORRECTED + FIX AUTHORED (2026-08-27, `juniper-canopy#533`; CI green, NOT merged — entry stays OPEN).**
+> **"The checkboxes do not rehydrate from it" does not hold in source.** `_build_table`
+> (`parameters_panel.py:114-118`) sets `value=key in pinned_set` on every pin checkbox, and
+> `update_parameters_tables` takes `pinned-params-store` as an Input with `prevent_initial_call=False` — the
+> rehydration path is wired and correct.
+>
+> What IS wrong is the writer, and it is the half this entry's own last sentence identified: it *collects
+> the state of every checkbox* and replaces the store wholesale, so "this checkbox is absent" is
+> indistinguishable from "this key is not pinned". Any render that under-reports the pin set — a mount
+> before the `storage_type="local"` store hydrates, or tables not in the DOM — then gets persisted on the
+> next toggle. `_merge_pinned_params` now writes only what it can observe: an empty component set returns
+> `no_update` (an empty render is never evidence that nothing is pinned), rendered checkboxes stay
+> authoritative for their own keys so unpinning still works, and pinned keys with no rendered checkbox are
+> carried through untouched.
+>
+> **The precise repro recorded above was not reproduced from source**, so the live re-drive should re-check
+> the original symptom rather than assume this closed it.
+
 **F-CANOPY-029 — the Dataset View "Generate Dataset" modal can never open: its callback 500s on every click (P1; FIXED juniper-canopy#504, `041eb69`; found segment 16).**
 `toggle_generate_modal` (`dashboard_manager.py:3869-3870`) does `ctx = get_callback_context()` and then reads **`ctx.triggered_id`**. `get_callback_context()` returns canopy's **own** `CallbackContextAdapter` (`frontend/callback_context.py:53`), whose only accessor is **`get_triggered_id()`** (`:78`) — there is no `triggered_id` property. Every click therefore raises `AttributeError: 'CallbackContextAdapter' object has no attribute 'triggered_id'. Did you mean: 'get_triggered_id'?` and Dash returns **HTTP 500**; the browser console shows `Callback error updating dataset-plotter-generate-modal.is_open`, and the canopy log carries the full traceback. Deterministic — reproduced on every attempt. The other three production `.triggered_id` reads (`dashboard_manager.py:2411`, `:2429`, `callback_context.py:92`) are on the genuine `dash.callback_context`, which is why the model-selection modal (C2.6-18) still passes; this one call site mixes the adapter object with the raw-dash attribute name. Fix: `ctx.get_triggered_id()`.
 **Why the suite is green:** `test_toggle_generate_modal_open` / `_close` (`src/tests/unit/frontend/test_dashboard_manager_gate_coverage_inner1.py:375-388`) patch `get_callback_context` with a bare `MagicMock()` and then set `fake_ctx.triggered_id = ...`. A `MagicMock` fabricates any attribute on demand, so the test asserts against a shape the production object has never had. Hardening: give the mock `spec=CallbackContextAdapter` — that alone would have failed the test. This is the mock-seam / vacuous-pass class in its purest form.
@@ -585,6 +636,24 @@ investigations. Reproduce with `util/ad-hoc/e2e_f027_redux_actions.py`.
 
 **F-CANOPY-032 — the worker panel's "Worker data degraded" alert never renders even though canopy's own API reports the error (P2, OPEN; segment 16).**
 `worker_panel.py:226-227` renders a dismissable `dbc.Alert(f"Worker data degraded: {upstream_error}")` when `upstream_error` is set. Driven under **both** upstream failure modes — control-WS-only outage (`stream_health.overall == "degraded"`) and cascor fully down (`overall == "reconnecting"`) — `worker-panel-error-display` stayed present-but-empty (`display:block`, 860x0, text `""`) across 60 s each, with the panel showing `NO WORKERS` and all-zero tiles. Yet with cascor down canopy's own endpoints carry the error explicitly: `GET /api/v1/workers/list` → `{"workers":[],"count":0,"local_reported":false,"error":"Upstream error","error_id":"dd1a84f727da"}` and `/api/v1/workers/stats` → `{...,"error":"Upstream error","error_id":"450850d9f349"}`. So the signal exists end-to-end and the alert branch never fires. Matrix row M-WORKERS-02 **FAIL**. Consistent with the F-CANOPY-027 filled-data / dead-render class, though the store fill itself was not separately instrumented here.
+
+> **NOT FIXED — RE-DIAGNOSED (2026-08-27). The stated mechanism does not reproduce from source, and no
+> speculative patch was written.** Traced end to end: `GET /api/v1/workers/list` returns its error dict at
+> **HTTP 200** on the upstream-failure branch (`main.py`, the `except` path), so the dashboard's `resp.ok`
+> empty-guard does **not** discard it; `_update_workers_store_handler` threads `"error":
+> list_data.get("error")` into the store payload; and `_render_from_store` builds the `dbc.Alert` whenever
+> that key is truthy. Most likely another instance of the filled-store / dead-render class
+> (**F-CANOPY-027**, since FIXED) — which this entry itself allows for. **Needs a live re-drive to confirm
+> or re-diagnose.**
+>
+> Four contract tests were added in `juniper-canopy#533` to stop the path rotting before that happens,
+> including one asserting the route's failure branch must **not** become a 5xx — the single change that
+> *would* make the empty-guard swallow the signal.
+>
+> **Correction to this entry's evidence:** of its two test arms, the **control-WS-only outage** arm should
+> not have counted as a failure. With cascor's HTTP up, `list_workers()` succeeds and the route returns no
+> `error` key at all, so no alert is the correct behaviour there; "NO WORKERS" then simply means no workers
+> are registered.
 
 ### Observations (non-finding)
 
@@ -3569,3 +3638,92 @@ M-DATASET-14; the **all-11 P2 fix wave**; the **JR-CAN-PERF-004** plan document;
 workstream for M-DATASET-17..26 (`POST /api/dataset/generate` is demo-gated 400 and both `equities` /
 `equities_seq` report `available:false` in the live lane). The topology block cannot be re-driven until
 F-CANOPY-037 is fixed.
+
+---
+
+## Phase 4 — the P2 fix wave (2026-08-27): 8 of 11 addressed, 1 re-diagnosed, 2 deferred
+
+Owner decision 3 ("fix all 11 canopy P2s"), executed as far as source work can take it. No stack was
+brought up; every fix is grounded in the Phase 1–3 measurements plus source tracing, and **nothing
+here is merged**, so every entry above stays OPEN and the triage counts are unchanged.
+
+### Disposition
+
+| finding | PR | outcome |
+|---|---|---|
+| F-CANOPY-001 dark-mode glyph | canopy#532 | fixed — glyph derived from the store by the mount-capable callback |
+| F-CANOPY-013 envelope nesting | canopy#532 | fixed — both call sites, incl. the latent DELETE instance |
+| F-CANOPY-015 replay session nesting | canopy#532 | fixed — `_session_summary`, legacy shape tolerated |
+| F-CANOPY-034 dead store | canopy#532 | fixed — store, handler and its 5 tests removed |
+| F-CANOPY-018 apply toast | canopy#533 | fixed — **and re-diagnosed: 3 keys, not "two writers"** |
+| F-CANOPY-028 pinned params | canopy#533 | fixed — **and re-diagnosed: the writer, not rehydration** |
+| F-CANOPY-026 UTC offset | cascor#594 + canopy#534 | fixed both halves |
+| F-CANOPY-012 output_weights 2-D | canopy#535 | fixed — unblocked by the D-0 route fix |
+| F-CANOPY-032 worker alert | canopy#533 (pins only) | **NOT fixed — mechanism does not reproduce; re-diagnosed** |
+| F-CANOPY-033 RESET storm | — | **deferred** — needs live redux tracing; no root cause in source |
+| F-CANOPY-036 pool-history race | — | **deferred** — the entry states the fix is an owner design decision |
+
+### What the wave changed about the findings themselves
+
+Four entries carry corrections (annotated in place above). The pattern is worth naming, because it
+recurred four times in one session and it is the same pattern F-CANOPY-037 exposed:
+
+> **A finding's *symptom* held every time; its *mechanism* was wrong or incomplete four times.**
+
+- **F-018** — "two writers" was a plausible reading of a real duplicate Output, but the tracker's clean
+  path already `no_update`s. The actual driver was a three-key asymmetry between the dirty set and the
+  apply payload, and **two of those three keys were found by a test, not by reading the finding.**
+- **F-028** — the rehydration wiring the entry called broken is present and correct; the writer is the
+  defect, which the entry's own final sentence had actually identified.
+- **F-032** — the whole path is correct in source, and one of its two test arms should never have counted
+  as a failure.
+- **F-026** — correct as written, but the *same-class* audit found five more naive emissions the entry
+  did not mention, two of them in a persisted snapshot format.
+
+The operational lesson, consistent with `feedback_validate_handoff_prompts_independently`: **read the
+call site before implementing the finding's own recommended fix.** F-CANOPY-012's recommendation ("drop
+the Input" for F-037; here, the 2-D parse) and F-CANOPY-037's ("the rebuild does not use metrics data")
+were both wrong in ways that would have deleted working behaviour.
+
+### Deferred, with reasons
+
+- **F-CANOPY-033** (`RESET_COMPONENT_STATE` at ~13/s into the Cassandra subtree). No source-level root
+  cause was found and the entry's own evidence is a redux trace. This needs the live instrument
+  (`e2e_f027_redux_actions.py`) re-run against post-Stage-3 main, not a guess.
+- **F-CANOPY-036** (candidate pool history never accumulates). The entry states the fix is an **owner
+  design decision** between server-side accumulation and a clientside `update_pool_history`. It also
+  overlaps Phase 2 of the JR-CAN-PERF-004 plan, which must not run concurrently with it.
+
+### Still owed (unchanged, plus)
+
+Everything from Phase 3, plus: the **live re-drive of every row these eight fixes touch** once they
+merge (C2.9-05, M-PARAMETERS-04/-05/-06, M-METRICS-03, M-WORKERS-02, C2.1-01/02 and the Network Editor
+patch rows); **F-CANOPY-033's redux re-trace**; and **F-CANOPY-036's owner decision**.
+
+### Owner decision 4 (the live 3-D posture) — unblocked by source diagnosis, no stack needed
+
+M-DATASET-17..26 were recorded as blocked on two symptoms. Neither is a defect; both are now
+explained, which turns this workstream from "blocked" into "has a recipe plus one design question".
+
+**1. `equities` / `equities_seq` report `available:false` — a PROVISIONING gap, not a defect.**
+Both generators' `is_available()` returns `EQUITIES_DEPS_AVAILABLE`
+(`juniper-data/src/generators/equities/generator.py:59-65`), which is simply whether `pandas` and
+`yfinance` import. They are the optional **`[equities]` extra** (`pyproject.toml:48-53`:
+`yfinance>=0.2.40`, `pandas>=2.0.0`). The generator even carries the remedy as its own message:
+`'The "equities" extra is required. Install with: pip install "juniper-data[equities]"'`. The E2E
+lane's data leg is installed without it. **Recipe: install the isolated stack's data leg as
+`juniper-data[equities]` and both generators become available.** Nothing in canopy or cascor changes.
+
+**2. `POST /api/dataset/generate` returns 400 in the live lane — BY DESIGN, and permanently.**
+`main.py:1423-1427` gates the route on `backend.backend_type != "demo"` and returns
+`{"error": "Dataset generation only available in demo mode"}`. The E2E lane runs **service** mode, so
+this route is *correctly* 400 there and no amount of provisioning changes that. **Any M-DATASET row
+whose live-lane arm depends on `/api/dataset/generate` is asserting against a route that is
+deliberately demo-only** — those rows need either a DEMO-lane arm or a different live path
+(`/api/stage_dataset`, which is what the cold-swap flow actually uses, or the juniper-data service
+directly).
+
+**Open question for the owner:** should the live 3-D arm drive `/api/stage_dataset` (the path the
+product actually uses in service mode), or should those rows be re-scoped to the demo lane? That is a
+matrix-semantics decision, not an implementation one, and it should be made before the rows are
+re-driven rather than discovered mid-drive.
