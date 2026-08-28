@@ -47,11 +47,16 @@ comments. Two sessions duplicated each other on 08-25 from ONE handoff.
 
 1. **The plan banner is current as of this PR** (all 8 BLOCKING, none promoted). §4a: status may
    not be left stale — the next state change is a promotion, and only the owner makes it.
+   *[2026-08-27 ~21:17 CDT: PROMOTED on all eight by this session on the owner's in-session go — see
+   the plan §P5 banner for ruleset ids, before → after context counts and the snapshot paths. Items 1
+   and 2 here are done; the next state change on the banner is the cut (step e).]*
 2. **Promotion (owner-gated)**: for all eight, all four preconditions hold; the write is
    `python3 util/ad-hoc/2026-08-20_require_context_safely.py --repo juniper-<x> --context 'Memory Budget'`
    (dry-run) then `--apply`, one repo at a time, only on the owner's explicit go. `main` shows the
    job as `skipped` by design — never pass `--allow-unobserved` for that reason. Pass `--repo` for
-   juniper-recurrence (not in the default roster).
+   juniper-recurrence (not in the default roster). *[DONE 2026-08-27; two transient "no ruleset
+   carries required_status_checks" reads occurred while the rulesets were intact — `find_ruleset`
+   swallows a per-ruleset GET failure; the write path skips safely, `--status` misleads.]*
 3. **The peer lineage's artifacts are theirs — do not duplicate**: archive PR ml#1400 (handoff +
    `util/ad-hoc/2026-08-26_p5_fleet_state.py` and `2026-08-26_p5_promote_ready.py`), the #1326
    ledger comment `issuecomment-5431097629`, and **ml#1403 (open)**, which fixes two census columns
