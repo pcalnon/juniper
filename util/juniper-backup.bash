@@ -68,35 +68,48 @@ FALSE="1"
 DEVELOPMENT_NAME="Development"
 LANGUAGE_NAME="python"
 PROJECT_NAME="Juniper"
-APPLICATION_NAME="juniper-ml"
+APPLICATION_REPOS=( "juniper-canopy" "juniper-cascor" "juniper-cascor-client" "juniper-cascor-worker" "juniper-data" "juniper-data-client" "juniper-deploy" "juniper-ml" "juniper-recurrence" "juniper-slacker" )
 
+#######################################################################################################################################################################################################################################################
+# Exclude directories from the backup
+INCLUDE_CASCOR_SNAPSHOTS="${FALSE}"
+# INCLUDE_CASCOR_SNAPSHOTS="${TRUE}"
+
+EXCLUDE_DIRS=( ".amp" ".benchmarks" ".claude" ".mypy_cache" ".playwright-mcp" ".pytest_cache" ".ruff_cache" ".serena" ".trunk" "dist" "logs" "reports" "resources" "data" "build" "venv" )
+EXCLUDE_DIRS_ARG=()
+
+if [[ "${INCLUDE_CASCOR_SNAPSHOTS:-${FALSE}}" == "${TRUE}" ]]; then
+    EXCLUDE_DIRS=( "${EXCLUDE_DIRS[@]}" "cascor-snapshots" )
+fi
+
+
+#######################################################################################################################################################################################################################################################
+# Every attached device named here receives a copy of the SAME archive. Order matters only in that the first usable device is the one the archive is BUILT on; the rest are copies of it.
+MEDIA_NAMES=( "EBC5-F0A3" "DFF3-2782" )
 MOUNT_NAME="media"
 USER_NAME="pcalnon"
 BACKUP_DIR="Juniper-8.0.0.python"
 
-# Every attached device named here receives a copy of the SAME archive. Order matters only in that the first usable device is the one the archive is BUILT on; the rest are copies of it.
-MEDIA_NAMES=( "EBC5-F0A3" "DFF3-2782" )
 
-APPLICATION_REPOS=( "juniper-canopy" "juniper-cascor" "juniper-cascor-client" "juniper-cascor-worker" "juniper-data" "juniper-data-client" "juniper-deploy" "juniper-ml" "juniper-recurrence" "juniper-slacker" )
-echo "application repos: ${APPLICATION_REPOS[*]}"
+#######################################################################################################################################################################################################################################################
+# Derived paths
+ROOT_DIR="${HOME}/${DEVELOPMENT_NAME}/${LANGUAGE_NAME}"
+PROJECT_DIR="${ROOT_DIR}/${PROJECT_NAME}"
 
+
+#######################################################################################################################################################################################################################################################
+# Define archive naming. Computed ONCE so that every device holds the same filename for one backup.
+DATE_STAMP="$(date +%Y%m%d_%H%M%S.%N-%Z)"
+UUID_VALUE="$(uuidgen)"
+
+
+#######################################################################################################################################################################################################################################################
+# Define constants for the script.
 ORDER_OF_MAGNITUDE_LABELS=("B" "KB" "MB" "GB" "TB" "PB" "EB" "ZB" "YB")
 ORDER_OF_MAGNITUDE=1024
 
 TAR_EXT="tgz"
 GPG_EXT="gpg"
-
-INCLUDE_CASCOR_SNAPSHOTS="${FALSE}"
-# INCLUDE_CASCOR_SNAPSHOTS="${TRUE}"
-
-
-#######################################################################################################################################################################################################################################################
-# Exclude directories from the backup
-EXCLUDE_DIRS=( ".amp" ".benchmarks" ".claude" ".mypy_cache" ".playwright-mcp" ".pytest_cache" ".ruff_cache" ".serena" ".trunk" "dist" "logs" "reports" "resources" "data" "build" "venv" )
-if [[ "${INCLUDE_CASCOR_SNAPSHOTS:-${FALSE}}" == "${TRUE}" ]]; then
-    EXCLUDE_DIRS=( "${EXCLUDE_DIRS[@]}" "cascor-snapshots" )
-fi
-EXCLUDE_DIRS_ARG=()
 
 
 #######################################################################################################################################################################################################################################################
@@ -109,7 +122,6 @@ EXCLUDE_CACHES_UNDER_ARG="--exclude-caches-under"
 # EXCLUDE_VCS_ARG="--exclude-vcs"
 
 EXCLUDE_ARGS=( "${EXCLUDE_BACKUPS_ARG}" "${EXCLUDE_CACHES_ALL_ARG}" "${EXCLUDE_CACHES_UNDER_ARG}" )
-echo "exclude args: ${EXCLUDE_ARGS[*]}"
 
 
 #######################################################################################################################################################################################################################################################
@@ -123,13 +135,8 @@ ENCRYPT_KEYS=(
 
 
 #######################################################################################################################################################################################################################################################
-# Derived paths
-ROOT_DIR="${HOME}/${DEVELOPMENT_NAME}/${LANGUAGE_NAME}"
-PROJECT_DIR="${ROOT_DIR}/${PROJECT_NAME}"
-
-
-#######################################################################################################################################################################################################################################################
 # Parse and Validate Command line arguments
+#######################################################################################################################################################################################################################################################
 DRY_RUN=0
 DEST_OVERRIDE=""
 
@@ -142,12 +149,6 @@ while (( $# > 0 )); do
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
-
-
-#######################################################################################################################################################################################################################################################
-# Define archive naming. Computed ONCE so that every device holds the same filename for one backup.
-DATE_STAMP="$(date +%Y%m%d_%H%M%S.%N-%Z)"
-UUID_VALUE="$(uuidgen)"
 
 
 #######################################################################################################################################################################################################################################################
@@ -165,7 +166,6 @@ function check_application_repos() {
         fi
         APPLICATION_REPOS_ARGS+=("${REPO}")
     done
-    # echo "application repos args: ${APPLICATION_REPOS_ARGS[*]}"
 }
 
 #######################################################################################################################################################################################################################################################
@@ -178,14 +178,11 @@ function validate_exclude_dirs() {
     local current_exclude_path=""
     for exclude_dir in "${EXCLUDE_DIRS[@]}"; do
         local current_exclude_dir="${application_dir}/${exclude_dir}"
-        # echo "current exclude path: ${current_exclude_dir}"
         current_exclude_path="$(realpath "${current_exclude_dir}")"
-        # echo "current exclude path: ${current_exclude_path}"
         if [[ -d "${current_exclude_path}" ]]; then
             exclude_dirs_array+=("${current_exclude_path}")
         fi
     done
-    # printf '%s ' "${exclude_dirs_array[@]}"
     EXCLUDE_DIRS_VALIDATED=( "${exclude_dirs_array[@]}" )
     return 0
 }
@@ -195,29 +192,15 @@ function validate_exclude_dirs() {
 EXCLUDE_DIRS_ARG=()
 function build_exclude_dirs_arg() {
     local exclude_dirs_arg=()
-    # echo -ne "0. Exclude Dir Args Number: ${#EXCLUDE_DIRS_VALIDATED[@]}\n\n"
-    # echo -ne "EXCLUDE_DIRS_VALIDATED: ${EXCLUDE_DIRS_VALIDATED[*]}\n\n"
-    # for exclude_dir in "${EXCLUDE_DIRS_VALIDATED[@]}"; do
-    #     exclude_dirs_arg+=("--exclude=${exclude_dir}")
-    # done
     for exclude_dir in "${EXCLUDE_DIRS_VALIDATED[@]}"; do
         exclude_dirs_arg+=("$(printf -- '--exclude="%s" ' "${exclude_dir}")")
     done
-    # exclude_dirs_arg=( $(printf -- '--exclude="%s" ' "${EXCLUDE_DIRS_VALIDATED[*]}") )
-    # echo -ne "1. Exclude Dir Args Number: ${#exclude_dirs_arg[@]}\n\n"
-    # echo -ne "exclude dirs arg: ${exclude_dirs_arg[*]}\n\n"
-    # echo -ne "printf: exclude_dirs_arg[@]\n"
-    # printf '%s ' "${exclude_dirs_arg[@]}"
-    # echo -ne "\n"
-    # echo -ne "2. Exclude Dir Args Number: ${#exclude_dirs_arg[@]}\n\n"
     EXCLUDE_DIRS_ARG=( "${exclude_dirs_arg[@]}" )
-    # echo -ne "3. Exclude Dir Args Number: ${#EXCLUDE_DIRS_ARG[@]}\n\n"
-    # echo -ne "EXCLUDE_DIRS_ARG: ${EXCLUDE_DIRS_ARG[*]}\n\n"
     return 0
 }
 
 #######################################################################################################################################################################################################################################################
-# Get the order of magnitude of a given directory tree size in bytes and display it in a human-readable format.
+# Get the order of magnitude of a given directory tree size in bytes and display it in a human-readable format. This function echo's output for use with command substitution.
 function get_order_of_magnitude_display() {
     local value="$1"
     local magnitude=0
@@ -359,68 +342,25 @@ for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
     APPLICATION_DIR="${PROJECT_DIR}/${APPLICATION_NAME}"
     ARCHIVE_ROOT="${PROJECT_NAME}_${APPLICATION_NAME}_${UUID_VALUE}_${DATE_STAMP}"
     GPG_FILE="${ARCHIVE_ROOT}.${TAR_EXT}.${GPG_EXT}"
-
-    # EXCLUDE_DIRS_ARG=("$(validate_exclude_dirs "${APPLICATION_DIR}")")
-    # EXCLUDE_DIRS_ARG=( "${$(validate_exclude_dirs "${APPLICATION_DIR}")[@]}" )
-    # EXCLUDE_DIRS_VALIDATED="$(validate_exclude_dirs "${APPLICATION_DIR}")"
     validate_exclude_dirs "${APPLICATION_DIR}"
-
-    # echo "exclude dirs validated: ${EXCLUDE_DIRS_VALIDATED[*]}"
-    # echo "exclude dir validated 0: ${EXCLUDE_DIRS_VALIDATED[0]}"
-    # echo "exclude dir validated 1: ${EXCLUDE_DIRS_VALIDATED[1]}"
-    # echo "exclude dir validated 2: ${EXCLUDE_DIRS_VALIDATED[2]}"
-
-    # EXCLUDE_DIRS_ARG=( "${EXCLUDE_DIRS_VALIDATED[@]}" )
     build_exclude_dirs_arg
-
-    # echo "exclude dirs: ${EXCLUDE_DIRS_ARG[*]}"
-    # echo "exclude dir 0: ${EXCLUDE_DIRS_ARG[0]}"
-    # echo "exclude dir 1: ${EXCLUDE_DIRS_ARG[1]}"
-    # echo "exclude dir 2: ${EXCLUDE_DIRS_ARG[2]}"
-
-    # `du -sk` walks the whole tree and is slow on ~126 GB, so it runs ONCE rather than per device.
-    # SOURCE_KB="$(du -sk "${APPLICATION_DIR}" | cut -f1)"
-    # - SC2068
-    # SOURCE_BYTES="$(du -sb ${EXCLUDE_DIRS_ARG[@]} "${APPLICATION_DIR}" | cut -f1)"
-    # SOURCE_BYTES=$(du -sb ${EXCLUDE_DIRS_ARG[@]} "${APPLICATION_DIR}" | cut -f1)
-    # SOURCE_BYTES=$(du -sb $(echo "${EXCLUDE_DIRS_ARG[@]}" | tr '\n' ' ') "${APPLICATION_DIR}" | cut -f1)
-
-    # echo "1. du -sb \$(printf \"%s \" \"${EXCLUDE_DIRS_ARG[*]}\") \"${APPLICATION_DIR}\" | cut -f1"
-    # echo "2. du -sb $(printf "%s " "${EXCLUDE_DIRS_ARG[@]}") \"${APPLICATION_DIR}\" | cut -f1"
-
-    # echo "du -sb $(printf '%s ' "${EXCLUDE_DIRS_ARG[@]}") \"${APPLICATION_DIR}\" | cut -f1"
     COMMAND="du -sb $(printf '%s ' "${EXCLUDE_DIRS_ARG[@]}") \"${APPLICATION_DIR}\" | cut -f1"
-    # echo "COMMAND: ${COMMAND}"
-    # SOURCE_BYTES="$(du -sb $(printf "%s " "${EXCLUDE_DIRS_ARG[@]}") "${APPLICATION_DIR}" | cut -f1)"
     SOURCE_BYTES="$(eval "${COMMAND}")"
-    # echo "source bytes: ${SOURCE_BYTES}"
     echo "source bytes: ${SOURCE_BYTES}"
-
     SOURCE_SIZE_DISPLAY="$(get_order_of_magnitude_display "${SOURCE_BYTES}")"
     printf 'source: %s  (%s uncompressed)\n' "${APPLICATION_DIR}" "${SOURCE_SIZE_DISPLAY}"
-
     for _index in "${!TARGET_DIRS[@]}"; do
         DEST_DIR="${TARGET_DIRS[${_index}]}"
-        # DEST_BYTES="$(df -Pk "${DEST_DIR}" | awk 'NR==2 {print $4}')"
-        # DEST_BYTES="$(df -Pb "${DEST_DIR}" | awk 'NR==2 {print $4}')"
         DEST_BYTES="$(df --block-size=1 "${DEST_DIR}" | awk 'NR==2 {print $4}')"
         DEST_SIZE_DISPLAY="$(get_order_of_magnitude_display "${DEST_BYTES}")"
         echo "dest:   ${DEST_DIR}/${GPG_FILE}"
-        # echo "free:   $(( DEST_KB / 1024 / 1024 )) GiB on ${DEST_DIR}"
         echo "free:   ${DEST_SIZE_DISPLAY} on ${DEST_DIR}"
-        # Two thresholds, because this tree is mostly ALREADY-COMPRESSED .h5 / .npz / .gpg and gzip does
-        # not reliably reach 2:1 on it -- it can even expand incompressible input slightly. So "free
-        # space >= half the source" is NOT the safe line; "free space >= the whole uncompressed source"
-        # is the only one that survives a 1:1 outcome. A single <50% warning let a drive with barely
-        # break-even headroom pass silently.
+        # Two thresholds, because this tree is mostly ALREADY-COMPRESSED .h5 / .npz / .gpg and gzip does not reliably reach 2:1 on it -- it can even expand incompressible input slightly.
+        # So "free space >= half the source" is NOT the safe line; "free space >= the whole uncompressed source" is the only one that survives a 1:1 outcome. A single <50% warning let a drive with barely break-even headroom pass silently.
         if (( DEST_BYTES < SOURCE_BYTES / 2 )); then
-            # echo "WARNING: ${TARGET_LABELS[${_index}]} has under HALF the uncompressed source free ($(( DEST_KB / 1024 / 1024 )) GiB vs $(( SOURCE_KB / 1024 / 1024 )) GiB)." >&2
-            # echo "WARNING: ${TARGET_LABELS[${_index}]} has under HALF the uncompressed source free ($(( DEST_KB / 1024 / 1024 )) GiB vs $(( SOURCE_KB / 1024 / 1024 )) GiB)." >&2
             echo "WARNING: ${DEST_DIR} has under HALF the uncompressed source size free (${DEST_SIZE_DISPLAY} vs ${SOURCE_SIZE_DISPLAY})." >&2
             echo "         This needs better than 2:1 compression to fit, which this tree does not reliably give." >&2
         elif (( DEST_BYTES < SOURCE_BYTES )); then
-            # echo "WARNING: ${TARGET_LABELS[${_index}]} has less free space than the uncompressed source ($(( DEST_KB / 1024 / 1024 )) GiB vs $(( SOURCE_KB / 1024 / 1024 )) GiB)." >&2
-            # echo "WARNING: ${TARGET_LABELS[${_index}]} has less free space than the uncompressed source ($(( DEST_KB / 1024 / 1024 )) GiB vs $(( SOURCE_KB / 1024 / 1024 )) GiB)." >&2
             echo "WARNING: ${DEST_DIR} has less free space than the uncompressed source (${DEST_SIZE_DISPLAY} vs ${SOURCE_SIZE_DISPLAY})." >&2
             echo "         It fits only if compression helps; on mostly .h5/.npz content that is not guaranteed." >&2
         fi
@@ -439,14 +379,12 @@ if (( DRY_RUN )); then
         APPLICATION_DIR="${PROJECT_DIR}/${APPLICATION_NAME}"
         SOURCE_PARENT="${PROJECT_DIR}"
         SOURCE_LEAF="${APPLICATION_NAME}"
-
         ARCHIVE_ROOT="${PROJECT_NAME}_${APPLICATION_NAME}_${UUID_VALUE}_${DATE_STAMP}"
         GPG_FILE="${ARCHIVE_ROOT}.${TAR_EXT}.${GPG_EXT}"
-
-        EXCLUDE_DIRS_ARG=("$(validate_exclude_dirs "${APPLICATION_DIR}")")
+        validate_exclude_dirs "${APPLICATION_DIR}"
+        build_exclude_dirs_arg
         TAR_ARGS=( "${EXCLUDE_DIRS_ARG[@]}" "${EXCLUDE_ARGS[@]}" "${IGNORE_FAILED_READ_ARG}" )
         echo "tar args: ${TAR_ARGS[*]}"
-
         echo "[dry-run] would build once: tar -czf - ${TAR_ARGS[*]} -C ${SOURCE_PARENT} ${SOURCE_LEAF} | gpg --batch --yes ${GPG_RECIPIENT_ARGS[*]} -e -o ${TARGET_DIRS[0]}/${GPG_FILE}"
         for _index in "${!TARGET_DIRS[@]}"; do
             if (( _index == 0 )); then
@@ -465,56 +403,34 @@ fi
 #######################################################################################################################################################################################################################################################
 
 #######################################################################################################################################################################################################################################################
-# Build ONCE on the first usable device.
-# tar with -C so paths are stored relative to the parent ("Juniper/..."), not as absolute paths that tar would strip with a warning and that restore into an unexpected location.
-
-# BUILD_PATH="${TARGET_DIRS[0]}/${GPG_FILE}"
-# IN_PROGRESS="${BUILD_PATH}"
+# Build ONCE on the first usable device.  Script uses tar with -C so paths are stored relative to the parent ("Juniper/..."), not as absolute paths that tar would strip with a warning and that restore into an unexpected location.
 for REPO in "${APPLICATION_REPOS_ARGS[@]}"; do
     APPLICATION_NAME="${REPO}"
     APPLICATION_DIR="${PROJECT_DIR}/${APPLICATION_NAME}"
-
     ARCHIVE_ROOT="${PROJECT_NAME}_${APPLICATION_NAME}_${UUID_VALUE}_${DATE_STAMP}"
     GPG_FILE="${ARCHIVE_ROOT}.${TAR_EXT}.${GPG_EXT}"
-
-    # SOURCE_PARENT="$(dirname "${APPLICATION_DIR}")"
     SOURCE_PARENT="${PROJECT_DIR}"
-    # SOURCE_LEAF="$(basename "${APPLICATION_DIR}")"
     SOURCE_LEAF="${APPLICATION_NAME}"
-
-    # EXCLUDE_DIRS_ARG=()
-    EXCLUDE_DIRS_ARG=("$(validate_exclude_dirs "${APPLICATION_DIR}")")
-    echo "exclude dirs: ${EXCLUDE_DIRS_ARG[*]}"
-
+    validate_exclude_dirs "${APPLICATION_DIR}"
+    build_exclude_dirs_arg
     TAR_ARGS=( "${EXCLUDE_DIRS_ARG[@]}" "${EXCLUDE_ARGS[@]}" "${IGNORE_FAILED_READ_ARG}" )
-    echo "tar args: ${TAR_ARGS[*]}"
-
     BUILD_PATH="${TARGET_DIRS[0]}/${GPG_FILE}"
     IN_PROGRESS="${BUILD_PATH}"
 
+    #######################################################################################################################################################################################################################################################
+    # Build the tarball on the first usable device.
     echo "building ${APPLICATION_NAME} tarball on ${TARGET_LABELS[0]} ..."
-    echo "tar -cjf - ${TAR_ARGS[*]} -C ${SOURCE_PARENT} ${SOURCE_LEAF} | gpg --batch --yes ${GPG_RECIPIENT_ARGS[*]} --compress-algo=none -z 0 -e -o ${BUILD_PATH}"
     tar -cjf - "${TAR_ARGS[@]}" -C "${SOURCE_PARENT}" "${SOURCE_LEAF}" | gpg --batch --yes "${GPG_RECIPIENT_ARGS[@]}" --compress-algo=none -z 0 -e -o "${BUILD_PATH}"
     verify_archive "${BUILD_PATH}" || exit 1
     sync
     IN_PROGRESS=""
     echo "OK  $(du -h "${BUILD_PATH}" | cut -f1)  ${BUILD_PATH}"
 
-    # echo "building on ${TARGET_LABELS[0]} ..."
-    # echo "tar -czf - ${TAR_ARGS[*]} -C ${SOURCE_PARENT} ${SOURCE_LEAF} | gpg --batch --yes ${GPG_RECIPIENT_ARGS[*]} -e -o ${BUILD_PATH} "
-    # tar -czf - "${TAR_ARGS[*]}" -C "${SOURCE_PARENT}" "${SOURCE_LEAF}" | gpg --batch --yes "${GPG_RECIPIENT_ARGS[@]}" -e -o "${BUILD_PATH}"
-    #
-    # verify_archive "${BUILD_PATH}" || exit 1
-    # sync
-    # IN_PROGRESS=""
-    # echo "OK  $(du -h "${BUILD_PATH}" | cut -f1)  ${BUILD_PATH}"
-
     #######################################################################################################################################################################################################################################################
-    # Replicate the finished ciphertext to the remaining devices. A copy failure on one device leaves every already-verified archive in place and is reported as PARTIAL, never as success.
+    # Replicate the finished ciphertext to all remaining devices. A copy failure on one device leaves every already-verified archive in place and is reported as PARTIAL, never as success.
     SUCCEEDED=1
     FAILED_LABELS=()
     APPLICATION_REPOS_ARGS=()
-
     for _index in "${!TARGET_DIRS[@]}"; do
         (( _index == 0 )) && continue
         COPY_PATH="${TARGET_DIRS[${_index}]}/${GPG_FILE}"
