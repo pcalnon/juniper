@@ -22,7 +22,7 @@
 #     A full drill has TWO independent failure classes and only one of them is testable
 #     unattended:
 #
-#       1. PIPELINE  -- does `tar -czf - | gpg -e` round-trip a tree byte-for-byte, and do
+#       1. PIPELINE  -- does `tar -cjf - | gpg -e` round-trip a tree byte-for-byte, and do
 #                       the script's two verifications actually fire?   <-- THIS SCRIPT
 #       2. KEY       -- can the owner's YubiKey-backed private key decrypt a REAL archive?
 #                       Owner-gated: the recipients are YubiKey-backed, so this needs the
@@ -142,8 +142,8 @@ done
 # Phase 3 -- the pipeline, verbatim from juniper-backup.bash, plus its two verifications.
 echo "[3/5] archiving via the juniper-backup.bash pipeline"
 
-GPG_PATH="${WORKDIR}/drill.tgz.gpg"
-tar -czf - -C "${SRC_PARENT}" "${SRC_LEAF}" | gpg --batch --yes "${GPG_RECIPIENT_ARGS[@]}" -e -o "${GPG_PATH}"
+GPG_PATH="${WORKDIR}/drill.tbz2.gpg"
+tar -cjf - -C "${SRC_PARENT}" "${SRC_LEAF}" | gpg --batch --yes "${GPG_RECIPIENT_ARGS[@]}" --compress-algo=none -z 0 -e -o "${GPG_PATH}"
 
 if [[ -s "${GPG_PATH}" ]]; then
     pass "archive is non-empty ($(du -h "${GPG_PATH}" | cut -f1))"
@@ -171,7 +171,7 @@ echo "[4/5] restoring and comparing"
 RESTORE_DIR="${WORKDIR}/restore"
 mkdir -p "${RESTORE_DIR}"
 
-if gpg --batch --quiet --decrypt "${GPG_PATH}" 2>/dev/null | tar -xzf - -C "${RESTORE_DIR}"; then
+if gpg --batch --quiet --decrypt "${GPG_PATH}" 2>/dev/null | tar -xjf - -C "${RESTORE_DIR}"; then
     pass "decrypt | untar completed"
 else
     fail "decrypt | untar FAILED -- the archive does not restore"
@@ -213,7 +213,7 @@ printf '\xde\xad\xbe\xef' | dd of="${CORRUPT_PATH}" bs=1 seek="${CORRUPT_AT}" co
 CORRUPT_RESTORE="${WORKDIR}/restore-corrupt"
 mkdir -p "${CORRUPT_RESTORE}"
 
-if gpg --batch --quiet --decrypt "${CORRUPT_PATH}" 2>/dev/null | tar -xzf - -C "${CORRUPT_RESTORE}" 2>/dev/null; then
+if gpg --batch --quiet --decrypt "${CORRUPT_PATH}" 2>/dev/null | tar -xjf - -C "${CORRUPT_RESTORE}" 2>/dev/null; then
     fail "corrupted archive restored CLEANLY -- this drill cannot detect corruption"
 else
     pass "corrupted archive refused to restore, so the drill discriminates"

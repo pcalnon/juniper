@@ -1,0 +1,165 @@
+{
+  "sessions": 5,
+  "painted": 0,
+  "absent": 5,
+  "baseline": "2 of 11 (F-CANOPY-037 as found)",
+  "truncated": true,
+  "truncated_reason": "stopped at 5 of 11: every session failed with an IDENTICAL deterministic signature (sig=2, counts 0/0/0/0, full 240s budget), so further sessions could not change the conclusion, and the wire evidence had already re-pointed the investigation at a client-side apply failure.",
+  "entries": [
+    {
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 240.5,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      },
+      "session": 1
+    },
+    {
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 248.1,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      },
+      "session": 2
+    },
+    {
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 243.7,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      },
+      "session": 3
+    },
+    {
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 243.0,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      },
+      "session": 4
+    },
+    {
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 240.4,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      },
+      "session": 5
+    }
+  ]
+}
