@@ -539,7 +539,7 @@ If that lists the tree, class 2 is closed and question 3 is fully answered.
 "genuinely tight" at **141.2 GB** against ~135 GiB free on `EBC5-F0A3`. That figure was an artifact of
 a defect, not a property of the tree: the script's `--exclude` flags were malformed and *inert for
 `tar`*, so it archived every directory the exclude list named — most importantly `juniper-data/data`,
-96 GB of regenerable dataset artifacts. With the exclude list actually applying (see the 2026-08-28 exclude repair), the
+96 GB of regenerable dataset artifacts. With the exclude list actually applying (juniper-ml#1439), the
 measured footprint is:
 
 | | archived | unexcluded |
