@@ -79,7 +79,14 @@ a whole-file publish would revert one of the two; if its banner is incomplete, r
   split: ~27,700 chars of documentation-about-documentation → `docs/DOCUMENTATION_OVERVIEW.md`, the
   rest → a new `docs/AGENTS_REFERENCE.md`; `docs/REFERENCE.md` stays the index it is, with one row
   per destination; canopy's `conf/memory_budget.json` `_README` line calling REFERENCE.md "the
-  migration DESTINATION" (inherited from ml's template) gets corrected; (ii) **hazards triage before
+  migration DESTINATION" (inherited from ml's template) gets corrected. **That split is not
+  executable by the tooling as built (note §6d)**: G3 takes one `--dest` and diffs the whole
+  `AGENTS.md`, so a per-destination run fails *spuriously* on the other destination's lines; the
+  correct pass condition is a union — every removed line matched in at least one run — which no
+  current invocation computes; and the cut driver's `DEST` is a single module constant. Either a
+  repeatable `--dest` or that union must exist before the canopy cut; never "fix" the spurious
+  failure by relaxing the check. Deliberately unbuilt until the destination decision is final;
+  (ii) **hazards triage before
   the cut** (§6a) — canopy has no `## Hazards`, and a size-driven cut cannot tell a lookup-reference
   from a must-not-look-up warning; the agreed resident set is five ranked bullets, the first NEW TEXT
   to draft (the CRITICAL Dash `no_update` directive at `dashboard_manager.py:3869`, absent from
@@ -159,8 +166,10 @@ recurrence); the waiver *loan* (§5 #6, §7 #7) has no central ledger — `Allow
 suppresses the failure and moves nothing, so a loan is visible only in the trailer; the cursor drafts
 stuck at *expected* on pre-port heads (canopy #513 #512; cascor #584 #583; data-client #168 #167;
 cascor-client #134 #133 #132 #131 #130) need nothing now — when one is readied, `update-branch`
-re-runs CI (`ready_for_review` is not a trigger in any of the eight); G3 takes a single `--dest`, so
-canopy's two-destination split needs a repeatable `--dest` or one run per destination.
+re-runs CI (`ready_for_review` is not a trigger in any of the eight); G3 and the cut driver are
+single-destination (note §6d) — a repeatable `--dest` with a union pass condition, or the driver's
+`DEST` made per-section, is a prerequisite for canopy's split (held by the cut session, deliberately
+unbuilt until the destination decision is final).
 
 ### Key context
 
@@ -173,9 +182,11 @@ canopy's two-destination split needs a repeatable `--dest` or one run per destin
   check the others before assuming); for a fleet cut the **local** run from ml's checkout is the
   only content-loss control — a green target PR proves nothing (plan step e):
   `python3 util/relocation_check.py --repo-root <target worktree> --base origin/main --head HEAD
-  --source AGENTS.md --dest docs/REFERENCE.md --expect-removals` — one `--dest` per run, so for
-  canopy run it once per destination and require every removed line to pass in at least one run;
-  exit 0 complete / 1 content lost / 2 misuse or broken machinery, never a pass. **G3 is blind to
+  --source AGENTS.md --dest docs/REFERENCE.md --expect-removals` — one `--dest` per run and a
+  whole-file diff, so a two-destination cut cannot be checked by it today (note §6d: each
+  per-destination run reports the other destination's lines as lost; only a union across runs is a
+  valid pass, and nothing computes it yet); exit 0 complete / 1 content lost / 2 misuse or broken
+  machinery, never a pass. **G3 is blind to
   what failed to move**: it checks that every removed line is in the destination, so a truncated
   extraction leaves the remainder orphaned under a "Moved to …" pointer with G3 passing — the unfixed
   tool would have truncated 8 of canopy's 11 candidate sections that way (`## Quick Start Commands`,
@@ -246,3 +257,8 @@ procedure audit 0 / 4 / 12 (the dup-guard said the cut session owned item B; G3'
 versus canopy's split; MERGED ≠ gone; length disclosure). All applied; the four chat-sourced cut
 figures the validators could not check were landed by the cut session in the #1450 note
 (`021590a9`) and are now cited from it.
+
+**Post-validation amendment (before merge)**: the round-2 finding that G3 takes a single `--dest`
+was escalated by the cut session into note §6d (`7ac82e90`) — the canopy split is not executable by
+the tooling as built, and a per-destination G3 run fails spuriously; section A, Key context and D
+were amended to say so.
