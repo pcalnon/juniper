@@ -316,22 +316,50 @@ buffer reaches the same store anyway, through a **second callback with different
 | `update_metrics_store` (guarded REST poll) | `:3877` | `Output("metrics-panel-metrics-store", "data")` | yes — but its falsy-copy branches `return dash.no_update if current_metrics else []`, i.e. **`[]`, not `no_update`** |
 | `append_ws_metrics_store` | `:3909` | same store, **`allow_duplicate=True`**, `Input("ws-metrics-buffer", "data")` | **none** — handler ends `return merged[-window_size:] …`, so every write it makes is `no_update`-free by construction |
 
-So one store id has two writers with asymmetric identity behaviour, and the `CRITICAL` comment
-documents only the half that is *absent*. Proposed text for the resident block:
+So one store id has two writers with asymmetric identity behaviour — and the two facts are **cause
+and consequence, not a coincidence**. The comment's own prescribed remedy for the chaining hazard is
+*"a separate `allow_duplicate` append callback triggered ONLY by ws-metrics-buffer"* — which **is**
+`append_ws_metrics_store`, the unguarded second writer. **The fix for the first hazard is what
+creates the second.** Stated as two precautions a reader takes two precautions; stated as cause and
+consequence they understand why a store ends up with asymmetric writers at all, and go looking for
+the pattern elsewhere.
 
-> **Dash `no_update` chaining and duplicate store writers.** A clientside producer that returns
-> `no_update` while idle must never be an `Input` to an interval-driven callback: Dash skips the
-> dependent callback for that tick and the lane stops firing, with no error and no failing test.
-> **And before reasoning from a store's write census, count its writers** — an
-> `allow_duplicate=True` `Output` co-owns the same store id and is invisible to anyone reading the
-> handler they happened to open. `metrics-panel-metrics-store` has two, and only one carries an
-> identity guard.
+Three things verified in source before drafting, because a resident block is text people cite:
 
-**That second sentence is the reusable half.** The failure it prevents is measured, not asserted:
-a census of 32 writes / 31 byte-identical / zero `no_update` was read as *"can only happen if the
-client's copy never advances"*, when in fact one of the two writers **cannot** emit `no_update` at
-all, and the other returns `[]` rather than `no_update` on a falsy copy — so the observation was
-partly *predicted by* the premise it was being used to prove. Four candidate explanations, not one.
+- **The tick-sharing is load-bearing.** "Dash skips the dependent callback" looked too strong — a
+  callback with Inputs `[interval, buffer]` normally fires when *either* changes. The producer's
+  sole Input is `Input("fast-update-interval", "n_intervals")` (`:3614`), **the same interval as the
+  consumer**, so the poll is transitively downstream of it on every tick. The comment's own words:
+  *"the poll would fire only on WS pushes"*. The hazard is not "any Input that ever `no_update`s".
+- **The rule is a class, not one store.** The comment closes *"`ws-liveness-store` rides as State
+  (never as an Input) **for the same reason**"* — so it covers any WS/liveness signal whose producer
+  idles with `no_update`.
+- **But the two signals get DIFFERENT remedies, and a draft that conflated them was corrected here.**
+  The poll's signature is `Input(fast-update-interval)`, `Input(display-mode)`,
+  `State(ws-liveness-store)`, `State(metrics-panel-metrics-store)` — `ws-metrics-buffer` is **not
+  present at all**, as `State` or otherwise. A signal the callback needs the *value* of rides as
+  `State`; a signal that must *drive* an update is routed to a separate `allow_duplicate` callback.
+  Saying both "ride as State" is wrong for the buffer.
+
+Drafted text for the resident block:
+
+> **Dash `no_update` chaining, and the duplicate writer it creates.** A clientside producer that
+> idles with `no_update` must never be an `Input` to an interval-driven callback **that shares its
+> tick**: the dependent callback is skipped for that tick, so the lane fires only when the producer
+> does — silently, with no error and no failing test. Route such a signal by what the callback needs
+> from it: as **`State`** if it needs the value (`ws-liveness-store`), or to a **separate
+> `allow_duplicate` callback** if it must drive an update (`ws-metrics-buffer`). **The remedy creates
+> the next hazard** — that separate callback co-owns the same store id, so **before reasoning from a
+> store's write census, count its writers.** An `allow_duplicate` `Output` is invisible to anyone
+> reading the handler they happened to open: **grep the store id, not the callback.**
+> `metrics-panel-metrics-store` has two writers and only one carries an identity guard.
+
+**The census sentence is the half written down nowhere**, and the failure it prevents is measured,
+not asserted: 32 writes / 31 byte-identical / zero `no_update` was read as *"can only happen if the
+client's copy never advances"*, when one writer **cannot** emit `no_update` at all and the other
+returns `[]` rather than `no_update` on a falsy copy — so the observation was partly *predicted by*
+the premise it was being used to prove, and could not discriminate between hypotheses. Four
+candidate explanations, not one.
 
 **Bullet 1 is the finding that justifies the whole prerequisite, and no scan of `AGENTS.md` could
 have produced it.** It lives at `src/frontend/dashboard_manager.py:3869`, labelled `CRITICAL` by its
