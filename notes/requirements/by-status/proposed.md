@@ -100,11 +100,12 @@ Cascor currently exposes only training_sessions_active (Gauge) and training_epoc
 Recommendation: add counter with closed-set outcome ∈ {success, error, aborted} bumped from
 training-loop completion handler. ~50 lines, R5.4 PR or separate R5.5a sub-track.
 
-### JR-ML-DATA-001 — Add missing generator constants: `gaussian`, `checkerboard`, `csv_import`, `mnist`, `arc_agi`.
+### JR-ML-DATA-001 — Add missing generator constants: `gaussian`, `checkerboard`, `csv_import`, `mnist`, `arc_agi`
 
 **Status**: proposed  **Priority**: P0  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-19_JUNIPER-ECOSYSTEM_DEEP-AUDIT-FIVE-REPOS.md` (lines 433-442)
 
 **Detail**:
@@ -815,11 +816,12 @@ If ACTIVATION_MAP diverges between copies, deserialized objects behave different
 Fix: extract to shared module (e.g., src/utils/activation.py) and import from both.
 Codebase validation CONFIRMED duplicate at lines 291 and 138.
 
-### JR-ML-DATA-002 — `FakeDataClient` masks generator name bugs — accepts invalid names.
+### JR-ML-DATA-002 — `FakeDataClient` masks generator name bugs — accepts invalid names
 
 **Status**: proposed  **Priority**: P0  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V3-VALIDATED.md` (lines 479-488)
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS.md` (lines 387-396)
 
@@ -1054,11 +1056,12 @@ Codebase validation (2026-02-18) CONFIRMED.
 
 [v3 brief repaired from cited content; was: '15.1 `juniper_data_datasets_cached` is defined-and-emitted i']
 
-### JR-ML-DATA-003 — Impact**: `FakeDataClient` masks this — unit tests pass but real server requests fail with 400.
+### JR-ML-DATA-003 — Impact**: `FakeDataClient` masks this — unit tests pass but real server requests fail with 400
 
 **Status**: proposed  **Priority**: P0  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-19_JUNIPER-ECOSYSTEM_DEEP-AUDIT-FIVE-REPOS.md` (lines 324-340)
 
 **Detail**:
@@ -3890,11 +3893,12 @@ Phase E may upgrade to full pump-task backpressure if production telemetry shows
 
 RISK-04 quick-fix. Phase E (Day 12) full backpressure deferred per R0-03 §7.2 unless production data warrants.
 
-### JR-CAN-DATA-002 — CascorIntegration must implement save_snapshot() and load_snapshot() for persistence and recovery.
+### JR-CAN-DATA-002 — CascorIntegration must implement save_snapshot() and load_snapshot() for persistence and recovery
 
 **Status**: proposed  **Priority**: P1  **Category**: DATA  **Owner**: can
 
 **Sources**:
+
 - `juniper-canopy/notes/history/JUNIPER-CANOPY_POST-RELEASE_DEVELOPMENT-ROADMAP_2026-02-25.md` (lines 96-115)
 
 **Detail**:
@@ -6305,11 +6309,12 @@ Topology visualization always renders empty because validation guard topology_da
 Issue 1.3.2: Screenshot PNG contains hardcoded timestamp instead of actual
 capture time. Must update on every screenshot. File: src/frontend/components/network_visualizer.py
 
-### JR-ML-DATA-007 — nn-growth-preset-epochs-input (disabled=True; convergence is default).
+### JR-ML-DATA-007 — nn-growth-preset-epochs-input (disabled=True; convergence is default)
 
 **Status**: proposed  **Priority**: P1  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-CANOPY_META-PARAMETERS-ENHANCEMENT-PLAN.md` (lines 331-381)
 
 **Detail**:
@@ -7349,11 +7354,12 @@ Phase 0-cascor checklist item from R3-03 §3.1 deliverables
 
 [v3 brief repaired from cited content; was: '5.3 Grow-Network State Updates']
 
-### JR-ML-DATA-008 — `_update_topology_store_handler` returns `{}` instead of `dash.no_update` on error — **NOT FIXED** (OI-1).
+### JR-ML-DATA-008 — `_update_topology_store_handler` returns `{}` instead of `dash.no_update` on error — **NOT FIXED** (OI-1)
 
 **Status**: proposed  **Priority**: P1  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-ECOSYSTEM_NETWORK-TOPOLOGY-DISPLAY-ANALYSIS-AND-FIXES.md` (lines 66-82)
 
 **Detail**:
@@ -7456,16 +7462,17 @@ Added 5 integration tests to `test_network_stats_endpoint.py` (`TestNetworkStats
 
 *Merged from 6 extraction candidates (slices: ml-C).*
 
-### JR-ML-DATA-010 — """cascade_add WebSocket message must trigger topology broadcast.""".
+### JR-ML-DATA-010 — """cascade_add WebSocket message must trigger topology broadcast."""
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-ECOSYSTEM_NETWORK-TOPOLOGY-DISPLAY-ANALYSIS-AND-FIXES.md` (lines 775-794)
 
 **Detail**:
 
-# test_websocket_topology_push.py — New integration test
+test_websocket_topology_push.py — New integration test
 
 **Notes**:
 
@@ -7531,11 +7538,12 @@ INT-P0-004: remote_client_0.py hardcoded path to monorepo (delete, superseded by
 
 [v2 remap: CL→TOOL]
 
-### JR-ML-DATA-011 — 2.4.1 Fix `wait_for_ready()`** (`client.py:86`):.
+### JR-ML-DATA-011 — 2.4.1 Fix `wait_for_ready()`** (`client.py:86`)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-08_JUNIPER-ECOSYSTEM_RELEASE-PREPARATION-PLAN.md` (lines 204-214)
 
 **Detail**:
@@ -8511,11 +8519,12 @@ DATA-009 complete. Documented in docs/api/JUNIPER_DATA_API.md.
 
 [v4 brief repaired; was: '3.4 Code Quality']
 
-### JR-CAN-DATA-003 — Architecture adapter must handle dataset-triggered shape changes: equal-dim (no-op), grow-only (append nodes), shrink (prepend adapter layer).
+### JR-CAN-DATA-003 — Architecture adapter must handle dataset-triggered shape changes: equal-dim (no-op), grow-only (append nodes), shrink (prepend adapter layer)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: can
 
 **Sources**:
+
 - `juniper-canopy/notes/ISSUE_3_PHASE_2_LIVE_DATASET_SWAP_2026-05-09.md` (lines 122-126)
 
 **Detail**:
@@ -8805,11 +8814,12 @@ CSS rules in assets/styles.css.
 
 GAP-WS-26 (P2). Also mirrors demo mode parity (RISK-08, GAP-WS-33). Phase B (Day 9).
 
-### JR-ML-DATA-012 — Canopy metrics normalization must maintain dual-format backward compatibility (nested + flat metric keys).
+### JR-ML-DATA-012 — Canopy metrics normalization must maintain dual-format backward compatibility (nested + flat metric keys)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/interface_proposals/JUNIPER_2026-04-12_JUNIPER-ECOSYSTEM_R1-04-OPERATIONAL-RUNBOOK.md` (lines 1371-1382)
 
 **Detail**:
@@ -10114,22 +10124,24 @@ Identified by v4. Known Phase 1 limitation; architectural enhancement scope.
 **Sources**:
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 3863-3867)
 
-### JR-ML-DATA-013 — DC-04: `FakeDataClient` Masks Generator Name Bugs.
+### JR-ML-DATA-013 — DC-04: `FakeDataClient` Masks Generator Name Bugs
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 3870-3884)
 
 **Notes**:
 
 [v2 ARCH→DATA re-bucket]
 
-### JR-ML-DATA-014 — DC-05: `FakeDataClient` Missing Lifecycle Methods.
+### JR-ML-DATA-014 — DC-05: `FakeDataClient` Missing Lifecycle Methods
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 3887-3901)
 
 **Notes**:
@@ -10229,11 +10241,12 @@ DEFAULT_CANDIDATE_CORRELATION_THRESHOLD: Final[float] = 0.001
 
 [v3 brief repaired from cited content; was: '3.3 New Candidate Nodes Constants']
 
-### JR-ML-DATA-015 — DEFAULT_MAX_ITERATIONS: Final[int] = 1000.
+### JR-ML-DATA-015 — DEFAULT_MAX_ITERATIONS: Final[int] = 1000
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-CANOPY_META-PARAMETERS-ENHANCEMENT-PLAN.md` (lines 114-149)
 
 **Detail**:
@@ -10510,11 +10523,12 @@ Also in AGENTS_MD_UPDATE_ROADMAP (Task 3.3) and AGENTS_MD_UPDATE_PLAN (Step 3.3)
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-04_JUNIPER-CASCOR_CODE-REVIEW-FINDINGS.md` (lines 294-330)
 
-### JR-ML-DATA-016 — Duplicate pytest configuration in `pyproject.toml` and `pytest.ini`.
+### JR-ML-DATA-016 — Duplicate pytest configuration in `pyproject.toml` and `pytest.ini`
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-08_JUNIPER-ECOSYSTEM_CROSS-PROJECT-CODE-REVIEW.md` (lines 390-397)
 
 **Detail**:
@@ -10818,11 +10832,12 @@ Extract to plot_utils.py or equivalent shared module.
 
 [v3 brief repaired from cited content; was: 'Root Cause']
 
-### JR-ML-DATA-017 — `FakeDataClient.close()` doesn't prevent subsequent operations.
+### JR-ML-DATA-017 — `FakeDataClient.close()` doesn't prevent subsequent operations
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-08_JUNIPER-ECOSYSTEM_CROSS-PROJECT-CODE-REVIEW.md` (lines 201-209)
 
 **Detail**:
@@ -11221,16 +11236,17 @@ SEC-004 MEDIUM (P2). ci.yml:70,73,84, etc.
 
 [v3 brief repaired from cited content; was: '3.3 CR-008: Implement WebSocket `set_params`']
 
-### JR-ML-DATA-018 — H-JDC-2: PATCH excluded from retry allowed_methods** (`client.py:101`).
+### JR-ML-DATA-018 — H-JDC-2: PATCH excluded from retry allowed_methods** (`client.py:101`)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-08_JUNIPER-ECOSYSTEM_CROSS-PROJECT-CODE-REVIEW.md` (lines 187-195)
 
 **Detail**:
 
-**H-JDC-1: Real client HTTP tests missing for 6 methods**
+**H-JDC-1: Real client HTTP tests missing for 6 methods**:
 
 **Notes**:
 
@@ -11293,11 +11309,12 @@ ISS-10 MODERATE. Multiple metrics_panel.py locations use hardcoded http://localh
 
 Identified by v4. Validation found 4 additional hardcoded localhost URLs beyond initial 2 identified.
 
-### JR-ML-DATA-019 — Hardcoded values refactor (~89 values → `constants.py`).
+### JR-ML-DATA-019 — Hardcoded values refactor (~89 values → `constants.py`)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-19_JUNIPER-ECOSYSTEM_DEEP-AUDIT-FIVE-REPOS.md` (lines 402-409)
 
 **Detail**:
@@ -11606,11 +11623,12 @@ Tentative layout pending R5.1 SLO design. HELP-string marker points to rationale
 
 [v2 ARCH→TRAIN re-bucket]
 
-### JR-ML-DATA-020 — Identify from git log.
+### JR-ML-DATA-020 — Identify from git log
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-08_JUNIPER-ECOSYSTEM_RELEASE-PREPARATION-PLAN.md` (lines 305-314)
 
 **Detail**:
@@ -11781,11 +11799,12 @@ CAS-INT-001 through CAS-INT-009 verified complete. Items include: API path valid
 
 [v2 remap: BG→TRAIN]
 
-### JR-ML-DATA-021 — Integration tests (cascor `set_params` via WS).
+### JR-ML-DATA-021 — Integration tests (cascor `set_params` via WS)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V3-VALIDATED.md` (lines 248-257)
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS.md` (lines 203-216)
 
@@ -11924,60 +11943,68 @@ Audit recommended for codebase-wide cleanup.
 
 | response.ok returns bad default | DATASET_DISPLAY_BUG_DEVELOPMENT_PLAN.md Phase 3/5 | OI-1 |
 
-### JR-ML-DATA-022 — JD-PERF-01: Sync `generator.generate()` Blocks Event Loop.
+### JR-ML-DATA-022 — JD-PERF-01: Sync `generator.generate()` Blocks Event Loop
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 3534-3538)
 
-### JR-ML-DATA-023 — JD-PERF-02: `filter_datasets`/`get_stats` Load ALL Metadata.
+### JR-ML-DATA-023 — JD-PERF-02: `filter_datasets`/`get_stats` Load ALL Metadata
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 3541-3555)
 
-### JR-ML-DATA-024 — JD-PERF-03: `list_versions` Loads All Metadata.
+### JR-ML-DATA-024 — JD-PERF-03: `list_versions` Loads All Metadata
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 3558-3569)
 
-### JR-ML-DATA-025 — JD-PERF-04: No Connection Pooling for Postgres.
+### JR-ML-DATA-025 — JD-PERF-04: No Connection Pooling for Postgres
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 3572-3586)
 
-### JR-ML-DATA-026 — JD-PERF-05: Readiness Probe Filesystem Glob.
+### JR-ML-DATA-026 — JD-PERF-05: Readiness Probe Filesystem Glob
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 3589-3593)
 
-### JR-ML-DATA-027 — JD-SEC-01: Path Traversal via `dataset_id` in Filesystem Paths.
+### JR-ML-DATA-027 — JD-SEC-01: Path Traversal via `dataset_id` in Filesystem Paths
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 3485-3507)
 
-### JR-ML-DATA-028 — JD-SEC-02: API Key Comparison Not Constant-Time (data).
+### JR-ML-DATA-028 — JD-SEC-02: API Key Comparison Not Constant-Time (data)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 3510-3518)
 
-### JR-ML-DATA-029 — JD-SEC-03: Rate Limiter Memory Unbounded (data).
+### JR-ML-DATA-029 — JD-SEC-03: Rate Limiter Memory Unbounded (data)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 3521-3529)
 
 ### JR-ML-TRAIN-079 — `juniper-cascor-client/testing/__init__.py` exports `FakeCascorClient` and `FakeCascorTrainingStream` only. No fake for….
@@ -12025,11 +12052,12 @@ JuniperCanopy implements a two-mode activation system in `src/main.py` (lines 21
 
 [v3 brief repaired from cited content; was: '3.1 Current Implementation']
 
-### JR-ML-DATA-030 — `juniper_data_client/__init__.py` — update `__version__` to `"0.4.0"`.
+### JR-ML-DATA-030 — `juniper_data_client/__init__.py` — update `__version__` to `"0.4.0"`
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-08_JUNIPER-ECOSYSTEM_RELEASE-PREPARATION-PLAN.md` (lines 63-73)
 
 **Detail**:
@@ -12207,11 +12235,12 @@ Requires P2-PRE-1 pause/stop audit. Original draft referenced non-existent casco
 
 [v3 brief repaired from cited content; was: 'Medium Issues']
 
-### JR-ML-DATA-031 — M-ML-1: `test_worktree_cleanup.py` not run in CI** (`ci.yml:109-110`).
+### JR-ML-DATA-031 — M-ML-1: `test_worktree_cleanup.py` not run in CI** (`ci.yml:109-110`)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-08_JUNIPER-ECOSYSTEM_CROSS-PROJECT-CODE-REVIEW.md` (lines 67-78)
 
 **Detail**:
@@ -12253,11 +12282,12 @@ CAN-HIGH-008; HIGH priority post-release item.
 
 [v3 brief repaired from cited content; was: 'High Issues']
 
-### JR-ML-DATA-032 — Methods catching only `JuniperCascorClientError` (not yet broadened):.
+### JR-ML-DATA-032 — Methods catching only `JuniperCascorClientError` (not yet broadened)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-ECOSYSTEM_NETWORK-TOPOLOGY-DISPLAY-ANALYSIS-AND-FIXES.md` (lines 505-522)
 
 **Notes**:
@@ -12478,11 +12508,12 @@ Settled position C-21 from R3-03 table; cross-round consensus consolidation
 
 [v4 brief repaired; was: '2.5 Resource limits']
 
-### JR-ML-DATA-033 — NEW (replaces `convergence-enabled-checkbox`).
+### JR-ML-DATA-033 — NEW (replaces `convergence-enabled-checkbox`)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-CANOPY_META-PARAMETERS-ENHANCEMENT-PLAN.md` (lines 39-56)
 
 **Detail**:
@@ -12695,11 +12726,12 @@ CAS-REF-002: Coverage gates (per-module thresholds, P2, S effort). CAS-REF-003: 
 
 [v2 remap: CL→TOOL]
 
-### JR-CAN-DATA-004 — NPZ dataset loading must validate dtype and shape of all arrays beyond key existence checks.
+### JR-CAN-DATA-004 — NPZ dataset loading must validate dtype and shape of all arrays beyond key existence checks
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: can
 
 **Sources**:
+
 - `juniper-canopy/notes/history/JUNIPER-CANOPY_POST-RELEASE_DEVELOPMENT-ROADMAP_2026-02-25.md` (lines 141-154)
 
 **Detail**:
@@ -13758,11 +13790,12 @@ CAN-HIGH-004; HIGH priority post-release item.
 
 [v3 brief repaired from cited content; was: 'Low Issues']
 
-### JR-ML-DATA-034 — `_recv_loop` catches bare `Exception` — swallows programming errors, pending futures time out.
+### JR-ML-DATA-034 — `_recv_loop` catches bare `Exception` — swallows programming errors, pending futures time out
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V3-VALIDATED.md` (lines 466-479)
 
 **Detail**:
@@ -13824,11 +13857,12 @@ CAN-HIGH-004; HIGH priority post-release item.
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-08_JUNIPER-ECOSYSTEM_RELEASE-PREPARATION-PLAN.md` (lines 386-394)
 
-### JR-ML-DATA-035 — Remediation Summary.
+### JR-ML-DATA-035 — Remediation Summary
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-08_JUNIPER-ECOSYSTEM_CROSS-PROJECT-CODE-REVIEW.md` (lines 95-108)
 
 **Detail**:
@@ -14175,11 +14209,12 @@ Settled position C-05 from R3-03 table; cross-round consensus consolidation
 
 Settled position C-07 from R3-03 table; cross-round consensus consolidation
 
-### JR-ML-DATA-036 — Repositories**: juniper-data, juniper-data-client.
+### JR-ML-DATA-036 — Repositories**: juniper-data, juniper-data-client
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-ECOSYSTEM_CODE-AUDIT.md` (lines 381-388)
 
 **Detail**:
@@ -14683,11 +14718,12 @@ Status bar works via /api/status endpoint transformation; inconsistent when back
 **Sources**:
 - `juniper-ml/notes/JUNIPER_2026-03-09_JUNIPER-ML_MCP-SERVER-SETUP-PLAN.md` (lines 1-50)
 
-### JR-ML-DATA-037 — Several `CascorServiceAdapter` methods catch only `JuniperCascorClientError`, which would miss `AttributeError`, `TypeError`, or other….
+### JR-ML-DATA-037 — Several `CascorServiceAdapter` methods catch only `JuniperCascorClientError`, which would miss `AttributeError`, `TypeError`, or other…
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-ECOSYSTEM_NETWORK-TOPOLOGY-DISPLAY-ANALYSIS-AND-FIXES.md` (lines 501-505)
 
 **Detail**:
@@ -15223,11 +15259,12 @@ Profile: observability (additive)
 
 [v3 brief repaired from cited content; was: '4.1 Architecture Overview']
 
-### JR-ML-DATA-038 — The `JuniperServiceScrapeDown` alert similarly uses `up == 0` to detect.
+### JR-ML-DATA-038 — The `JuniperServiceScrapeDown` alert similarly uses `up == 0` to detect
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/code-review/JUNIPER_2026-05-05_JUNIPER-ECOSYSTEM_METRICS-STATE-REPORT.md` (lines 483-496)
 
 **Detail**:
@@ -15652,11 +15689,12 @@ environment variables, essential commands. Phase 4 update metadata, add document
 
 [v3 brief repaired from cited content; was: 'Overview']
 
-### JR-ML-DATA-039 — Version**: 0.4.0 | **Python**: ≥3.12 | **Dependencies**: numpy≥1.24, requests≥2.28, urllib3≥2.0.
+### JR-ML-DATA-039 — Version**: 0.4.0 | **Python**: ≥3.12 | **Dependencies**: numpy≥1.24, requests≥2.28, urllib3≥2.0
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-19_JUNIPER-ECOSYSTEM_DEEP-AUDIT-FIVE-REPOS.md` (lines 206-220)
 
 **Detail**:
@@ -16011,11 +16049,12 @@ Settled position C-27 from R3-03 table; cross-round consensus consolidation
 **Sources**:
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 2695-2709)
 
-### JR-ML-DATA-040 — XREPO-10: `FakeDataClient` Metadata Schema Diverges from Real Server.
+### JR-ML-DATA-040 — XREPO-10: `FakeDataClient` Metadata Schema Diverges from Real Server
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 2712-2726)
 
 **Notes**:
@@ -16659,11 +16698,12 @@ P3-NEW-003: GPU/CUDA support (XL, 2-4 weeks, 🔴 NOT STARTED). P3-NEW-004: Cont
 
 [v3 brief repaired from cited content; was: 'Phase 5:'] From JUNIPER_2026-04-06_JUNIPER-ECOSYSTEM_CONSOLIDATED-DEVELOPMENT-ROADMAP.md
 
-### JR-ML-DATA-041 — `juniper_cascor_client/client.py`.
+### JR-ML-DATA-041 — `juniper_cascor_client/client.py`
 
 **Status**: proposed  **Priority**: P3  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-CANOPY_DASHBOARD-AUGMENTATION-PLAN.md` (lines 348-354)
 
 **Detail**:
@@ -16673,6 +16713,8 @@ P3-NEW-003: GPU/CUDA support (XL, 2-4 weeks, 🔴 NOT STARTED). P3-NEW-004: Cont
 **Notes**:
 
 [v4 brief repaired; was: '9.3 juniper-cascor-client (Phase 4 only)']
+
+---
 
 ### JR-CAN-ARCH-009 — Layout type sprint must forward positional/keyword parameters correctly.
 
