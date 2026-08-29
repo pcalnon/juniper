@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-20
 Status:      ad-hoc -- audit
-Retire when: ml#434 is closed.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: ml#434 is closed.
 Related:     ml#434; util/ad-hoc/2026-08-20_stacked_pr_sweep.py.
 
 A periodic sweep finds instances after the fact. `pr-base-branch-guard.yml` prevents them:

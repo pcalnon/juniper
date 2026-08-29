@@ -1,0 +1,54 @@
+== pre563: 32 profiles under /home/pcalnon/.local/state/juniper-experiments/profile-cap4/prof-cli
+   total self time    3994.14 s
+   inspect family     2083.78 s  =  52.17 %   (inspect.py, linecache.py, posixpath.py, genericpath.py, tokenize.py)
+   built-ins ('~')    1846.07 s  =  46.22 %   (hasattr/isinstance/dict.get storms live here when inspect dominates)
+   top 10 files by self time:
+      51.65 %    2062.86 s  python3.13/inspect.py
+      46.22 %    1846.07 s  ~
+       0.48 %      19.16 s  logger/logger.py
+       0.31 %      12.53 s  python3.13/linecache.py
+       0.25 %      10.07 s  candidate_unit/candidate_unit.py
+       0.22 %       8.92 s  backends/__init__.py
+       0.21 %       8.34 s  package/package_importer.py
+       0.18 %       7.18 s  <frozen posixpath>
+       0.18 %       7.15 s  torch/_tensor_str.py
+       0.09 %       3.56 s  torch/_tensor.py
+   top 10 functions by self time:
+      34.72 %    1386.59 s  python3.13/inspect.py:1004(getmodule)
+      22.44 %     896.37 s  ~:0(<built-in method builtins.hasattr>)
+      11.97 %     478.14 s  python3.13/inspect.py:300(ismodule)
+       9.36 %     374.02 s  ~:0(<method 'get' of 'dict' objects>)
+       6.08 %     242.64 s  ~:0(<built-in method builtins.isinstance>)
+       4.29 %     171.17 s  ~:0(<built-in method builtins.next>)
+       1.02 %      40.66 s  python3.13/inspect.py:1670(getframeinfo)
+       0.77 %      30.88 s  ~:0(<built-in method posix.stat>)
+       0.76 %      30.16 s  ~:0(<method 'copy' of 'dict' objects>)
+       0.68 %      27.30 s  python3.13/inspect.py:1056(findsource)
+
+== post563-at67d7ea35: 32 profiles under /home/pcalnon/.local/state/juniper-experiments/census-at67d7ea35/prof
+   total self time      84.96 s
+   inspect family        0.74 s  =   0.88 %   (inspect.py, linecache.py, posixpath.py, genericpath.py, tokenize.py)
+   built-ins ('~')      46.31 s  =  54.51 %   (hasattr/isinstance/dict.get storms live here when inspect dominates)
+   top 10 files by self time:
+      54.51 %      46.31 s  ~
+      18.00 %      15.29 s  logger/logger.py
+      10.38 %       8.82 s  torch/_tensor_str.py
+       8.47 %       7.20 s  candidate_unit/candidate_unit.py
+       5.21 %       4.43 s  torch/_tensor.py
+       0.58 %       0.50 s  autograd/__init__.py
+       0.56 %       0.47 s  python3.13/inspect.py
+       0.51 %       0.44 s  cuda/__init__.py
+       0.31 %       0.26 s  <frozen posixpath>
+       0.24 %       0.20 s  autograd/grad_mode.py
+   top 10 functions by self time:
+      15.51 %      13.17 s  ~:0(<built-in method torch.rand>)
+       4.99 %       4.24 s  torch/_tensor.py:1144(__format__)
+       3.98 %       3.38 s  torch/_tensor_str.py:131(__init__)
+       3.95 %       3.36 s  torch/_tensor_str.py:214(format)
+       3.94 %       3.35 s  ~:0(<method 'run_backward' of 'torch._C._EngineBase' objects>)
+       3.91 %       3.32 s  ~:0(<method 'unbind' of 'torch._C.TensorBase' objects>)
+       3.57 %       3.03 s  ~:0(<method 'format' of 'str' objects>)
+       3.02 %       2.57 s  ~:0(<method 'detach' of 'torch._C.TensorBase' objects>)
+       2.66 %       2.26 s  logger/logger.py:328(_is_valid_level_name)
+       2.49 %       2.11 s  logger/logger.py:464(_log_at_level)
+

@@ -215,6 +215,11 @@ trap 'kill "${MON_PID}" 2>/dev/null || true' EXIT
 } | tee "${LOG_DIR}/run_params.txt"
 
 # ---- the backup (options cloned from util/duplicati_scheduled_backup.bash) --
+# DELIBERATE DIVERGENCE (2026-08-24): the runner has since gained the
+# GPGFlushError mitigations (--gpg-encryption-switches=--compress-algo none,
+# --asynchronous-upload-limit=1). This harness reproduces the FAILING
+# 2026-08-23 configuration and must NOT inherit them -- the whole point is the
+# old regime. To test the mitigated lane instead, add both options here.
 set +e
 duplicati-cli backup "file://${DEST_DIR}" "${SOURCE_PATH}" \
     --dbpath="${DBPATH}" \

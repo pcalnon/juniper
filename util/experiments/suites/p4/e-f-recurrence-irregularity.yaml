@@ -7,7 +7,7 @@ suite:
   app: recurrence
   base_config: [../../../../../juniper-recurrence/conf/experiments/irregular-sine-rff.yaml]
   seed_policy: fixed
-execution: {mode: parallel, max_parallel: 2, continue_on_failure: true, per_run_timeout_seconds: 900}
+execution: {mode: parallel, max_parallel: 2, continue_on_failure: true, per_run_timeout_seconds: 1800}
 matrix:
   dataset.params.jitter: [0.0, 0.1, 0.3, 0.5]
 outputs: {suite_dir: null, aggregate: [csv, markdown]}

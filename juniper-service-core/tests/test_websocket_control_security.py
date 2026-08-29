@@ -77,6 +77,26 @@ def test_leaky_bucket_retry_after_zero_refill_does_not_divide_by_zero() -> None:
     assert bucket.retry_after == 3600.0
 
 
+def test_bucket_admits_a_full_burst_immediately_it_is_a_token_bucket() -> None:
+    """`LeakyBucket` is a token bucket; the burst is the behavioural difference (`APD-SVCCORE-013`).
+
+    Triaged 2026-08-29 as **name kept, docstring corrected**: the primer calls the class "misnamed,
+    correctly implemented" and notes the two algorithms "are implemented identically and named
+    interchangeably -- read the code, not the class name". Renaming a name exported from
+    `juniper_service_core.websocket` would break a published surface to settle an ambiguity the
+    reference material calls conventional.
+
+    So the *name* is not the contract and this pins what is: a full bucket admits `capacity`
+    admissions back-to-back with no elapsed time. A real leaky bucket -- a queue draining at exactly
+    `refill_rate` -- would admit one and refuse the rest. Anyone sizing `capacity` as though output
+    were smoothed needs this to be false, and it is not.
+    """
+    bucket = LeakyBucket(capacity=5, refill_rate=5.0)
+    admitted = sum(1 for _ in range(5) if bucket.try_acquire())
+    assert admitted == 5, "a token bucket admits the banked burst at once"
+    assert bucket.try_acquire() is False, "and refuses once the burst is spent"
+
+
 def test_handshake_cooldown_records_and_blocks() -> None:
     cooldown = HandshakeCooldown(max_rejections=3, window_sec=60, block_sec=300)
     assert cooldown.record_rejection("1.2.3.4") is False

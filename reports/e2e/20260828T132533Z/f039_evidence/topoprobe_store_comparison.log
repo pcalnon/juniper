@@ -1,0 +1,35 @@
+2026-08-28 19:43:17,661 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=False cur_type=dict cur_len=75 new_len=7059 canon_eq=False
+2026-08-28 19:43:17,661 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='connections' cur=[] new=[{'from': 'input_0', 'to': 'hidden_0', 'weight': -0.42033839225769043}, {'from':
+2026-08-28 19:43:17,661 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='hidden_units' cur=0 new=10
+2026-08-28 19:43:17,661 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='input_units' cur=0 new=2
+2026-08-28 19:43:17,661 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='nodes' cur=None new=[{'id': 'input_0', 'type': 'input', 'layer': 0}, {'id': 'input_1', 'type': 'inpu
+2026-08-28 19:43:17,661 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='output_units' cur=0 new=2
+2026-08-28 19:43:26,807 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=False cur_type=dict cur_len=75 new_len=7059 canon_eq=False
+2026-08-28 19:43:26,807 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='connections' cur=[] new=[{'from': 'input_0', 'to': 'hidden_0', 'weight': -0.42033839225769043}, {'from':
+2026-08-28 19:43:26,807 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='hidden_units' cur=0 new=10
+2026-08-28 19:43:26,807 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='input_units' cur=0 new=2
+2026-08-28 19:43:26,807 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='nodes' cur=None new=[{'id': 'input_0', 'type': 'input', 'layer': 0}, {'id': 'input_1', 'type': 'inpu
+2026-08-28 19:43:26,807 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='output_units' cur=0 new=2
+2026-08-28 19:43:29,193 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=False cur_type=dict cur_len=75 new_len=7059 canon_eq=False
+2026-08-28 19:43:29,193 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='connections' cur=[] new=[{'from': 'input_0', 'to': 'hidden_0', 'weight': -0.42033839225769043}, {'from':
+2026-08-28 19:43:29,193 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='hidden_units' cur=0 new=10
+2026-08-28 19:43:29,193 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='input_units' cur=0 new=2
+2026-08-28 19:43:29,193 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='nodes' cur=None new=[{'id': 'input_0', 'type': 'input', 'layer': 0}, {'id': 'input_1', 'type': 'inpu
+2026-08-28 19:43:29,193 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='output_units' cur=0 new=2
+2026-08-28 19:43:33,023 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=False cur_type=dict cur_len=75 new_len=7059 canon_eq=False
+2026-08-28 19:43:33,023 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='connections' cur=[] new=[{'from': 'input_0', 'to': 'hidden_0', 'weight': -0.42033839225769043}, {'from':
+2026-08-28 19:43:33,023 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='hidden_units' cur=0 new=10
+2026-08-28 19:43:33,023 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='input_units' cur=0 new=2
+2026-08-28 19:43:33,023 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='nodes' cur=None new=[{'id': 'input_0', 'type': 'input', 'layer': 0}, {'id': 'input_1', 'type': 'inpu
+2026-08-28 19:43:33,023 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='output_units' cur=0 new=2
+2026-08-28 19:43:39,588 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:43:43,558 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:43:49,552 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:43:52,896 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:43:58,073 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:44:03,968 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:44:08,743 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:44:13,616 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:44:18,599 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:44:23,975 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:44:28,669 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True

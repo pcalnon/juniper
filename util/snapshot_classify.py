@@ -56,10 +56,37 @@ WHY ``readable`` IS NOT CATEGORY 1
     ``load_network_result``, and reported in cascor's own taxonomy.
 
 ITERATIONS, NOT EPOCHS (§2.1)
-    ``meta.current_epoch`` is INERT: 0 across all 27,908 snapshots, including all 174
-    snapshots of a network that grew to 260 hidden units. ``snapshot_counter`` is 0 and
-    ``best_value_loss`` is inf. Three fields that look like training progress are dead,
-    and reading them literally would say "nothing here was ever trained".
+    ``meta.current_epoch`` is INERT, and that part of the old claim is solid: censused
+    2026-08-26, it is nonzero in ZERO of the 28,040 archive files and zero of the 2,908
+    under ``~/.local/state/juniper-experiments`` -- including all 174 snapshots of a
+    network that grew to 260 hidden units. ``best_value_loss`` sits at inf beside it in
+    27,907 of the 28,040. Reading either literally would say "nothing was ever trained".
+
+    ``snapshot_counter`` is NOT dead, and an earlier revision of this docstring was wrong
+    to group it with those two. The same census finds it nonzero in 13,001 of the 28,040
+    archive files (46%) and in 2,624 of the 2,908 experiment files. It counts snapshots
+    WRITTEN, not training progress -- a run that snapshots on a timer and one that
+    snapshots per installed unit report wildly different counters for identical training
+    -- so it is still not an iteration count and this tool still must not read it as one.
+    But it is a LIVE field, and an author who trusted the old claim would write off
+    13,001 real values as dead ones.
+
+    The archive-vs-current difference is not a serializer-version difference: 28,034 of
+    the 28,040 archive files already carry ``serializer_version 2.0.0``, the same as
+    today's (the remaining 6 predate the attribute entirely). What separates the
+    populations is the WRITER PATH, and ``current_epoch`` is its tell -- where
+    ``current_epoch`` is present ``best_value_loss`` is inf; where it is absent
+    ``best_value_loss`` is finite or missing, never inf. That pairing holds without a
+    single exception across all 30,948 files measured, which is why it reads as two
+    writers rather than a spectrum. The dead-pair writer's newest observed file is
+    2026-08-23. A populated ``history`` group is newer still and is essentially a
+    current-run artifact: 102 of the 2,908 experiment files, against 3 in the entire
+    28,040-file archive.
+
+    Every number above is re-derivable, and should be re-derived rather than trusted --
+    the archive grows, and its file count has already moved (27,908 -> 28,040) since the
+    passage this replaced was written. ``util/ad-hoc/2026-08-26_snapshot_meta_field_survey.py``
+    runs the census; ``--sample 400`` gives the same answer in seconds off a pinned seed.
 
     The live measure is ``arch.num_hidden_units``, and it is a LOWER BOUND on completed
     cascor iterations: each installed hidden unit required one iteration that found a

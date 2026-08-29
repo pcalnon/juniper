@@ -1,0 +1,3 @@
+{"scenario": "SIGTERM/stop_thread=0", "returncode": -15, "returncode_meaning": "killed by signal 15", "signal_to_death_s": 0.164, "lifespan_shutdown_ran": true, "atexit_ran": false, "thread_exited_cleanly": false, "thread_last_seen_after_lifespan_s": -0.002}
+{"scenario": "SIGTERM/stop_thread=1", "returncode": -15, "returncode_meaning": "killed by signal 15", "signal_to_death_s": 0.217, "lifespan_shutdown_ran": true, "atexit_ran": false, "thread_exited_cleanly": true, "thread_last_seen_after_lifespan_s": -0.0}
+{"scenario": "SIGINT/stop_thread=1", "returncode": 0, "returncode_meaning": "exit status 0", "signal_to_death_s": 0.366, "lifespan_shutdown_ran": true, "atexit_ran": true, "thread_exited_cleanly": true, "thread_last_seen_after_lifespan_s": -0.005}

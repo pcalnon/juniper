@@ -1,0 +1,43 @@
+# corpus: 32 profiles under /home/pcalnon/.local/state/juniper-experiments/census-at67d7ea35/prof
+# target: callee key containing '__format__'
+# matched callees: ['<function Tensor.__format__ at 0x7ee3bf9a3880>', "<method '__format__' of 'float' objects>", '_tensor.py:1144(__format__)']
+# target cumulative time:    57.37 s over 3,626,636 calls
+
+    cum_s    share         calls  caller
+    28.21   49.18%     1,813,210  _tensor.py:1144(__format__)
+    27.98   48.76%         2,262  candidate_unit.py:702(_display_training_progress)
+     9.93   17.31%     1,650,765  <method 'format' of 'str' objects>
+     0.02    0.04%            42  candidate_unit.py:159(__init__)
+     0.00    0.00%           186  _tensor_str.py:131(__init__)
+     0.00    0.00%             2  connection.py:263(__exit__)
+     0.00    0.00%             2  candidate_unit.py:357(_seed_random_generator)
+     0.00    0.00%             2  resource_sharer.py:51(close)
+
+# attributed to callers: 66.15 s (115.3% of target)
+# shown in top 8: 66.15 s (115.3% of target)
+# NOT shown (tail of 5 callers): 0.00 s
+# corpus: 32 profiles under /home/pcalnon/.local/state/juniper-experiments/census-at67d7ea35/prof
+# target: callee key containing '_filter_by_level'
+# matched callees: ['logger.py:447(_filter_by_level)']
+# target cumulative time:    11.19 s over 646,016 calls
+
+    cum_s    share         calls  caller
+    11.19  100.00%       646,016  logger.py:464(_log_at_level)
+
+# attributed to callers: 11.19 s (100.0% of target)
+# shown in top 4: 11.19 s (100.0% of target)
+# NOT shown (tail of 0 callers): 0.00 s
+# corpus: 32 profiles under /home/pcalnon/.local/state/juniper-experiments/census-at67d7ea35/prof
+# target: callee key containing 'currentframe'
+# matched callees: ['inspect.py:1757(currentframe)']
+# target cumulative time:     0.87 s over 646,016 calls
+
+    cum_s    share         calls  caller
+     0.36   40.85%       264,223  logger.py:516(debug)
+     0.34   39.41%       264,784  logger.py:500(trace)
+     0.09   10.28%        58,399  logger.py:524(info)
+     0.08    9.45%        58,610  logger.py:508(verbose)
+
+# attributed to callers: 0.87 s (100.0% of target)
+# shown in top 5: 0.87 s (100.0% of target)
+# NOT shown (tail of 0 callers): 0.00 s

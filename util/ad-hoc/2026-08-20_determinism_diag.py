@@ -6,7 +6,7 @@ Sub-Project: ad-hoc tooling
 Author:      Paul Calnon
 Created:     2026-08-20
 Status:      ad-hoc -- one-off (juniper-cascor#532 root cause)
-Retire when: #532 is root-caused or accepted and the evidence note is merged; delete then.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: #532 is root-caused or accepted and the evidence note is merged; delete then.
 Related:     2026-08-20_determinism_localize.py (which this exists to disambiguate).
 
 WHY THIS NEEDS AN INSTRUMENTED BUILD

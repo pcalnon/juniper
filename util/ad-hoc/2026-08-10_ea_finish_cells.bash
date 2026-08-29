@@ -7,7 +7,7 @@
 # Author:     Paul Calnon
 # Created:    2026-08-10
 # Status:     ad-hoc -- one-off
-# Retire when: the re-surfaced E-A grid is written up; delete with the campaign script.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the re-surfaced E-A grid is written up; delete with the campaign script.
 # Related:    F-P4-1 re-surface; the GPU-leak trap (see the memory of the same name).
 #
 # Healthy spiral cells run 245-695 s EACH, so the whole batch exceeds any 10-minute

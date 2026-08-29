@@ -1,0 +1,18 @@
+[Unit]
+Description=Duplicati server-run backup watchdog (Yamaguchi job)
+Documentation=file:///home/pcalnon/Development/python/Juniper/juniper-ml/util/ad-hoc/yamaguchi_watchdog.py
+# Candidate B for plan §7 criterion 4 (server-run failure alerting). NOT installed
+# by default -- Paul picks the architecture. Asks the server from the OUTSIDE, so it
+# also catches the classes a job-level --run-script-after cannot: never ran, job
+# definition vanished, server down, run stuck.
+
+[Service]
+Type=oneshot
+# Reads DUPLICATI_WEB_CREDENTIAL in-process from the repo .env (absolute path in the
+# API client) and the passphrase never -- nothing secret is on the command line.
+ExecStart=/usr/bin/python3 /home/pcalnon/Development/python/Juniper/juniper-ml/util/ad-hoc/yamaguchi_watchdog.py
+# A non-zero exit is the ALERT itself; the durable record is already written. The
+# unit then reads "failed" in `systemctl --user --failed` -- a second signal, on purpose.
+# NOTE: the script path is the PRIMARY checkout; deploy only after the PR that adds
+# the script has merged and that checkout is synced, or every fire exits 2 silently.
+Nice=10

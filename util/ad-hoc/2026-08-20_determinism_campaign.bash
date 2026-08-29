@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-20
 # Status:      ad-hoc -- one-off (juniper-cascor#532 seeded-run reproducibility)
-# Retire when: #532 is root-caused or accepted and the evidence note is merged; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: #532 is root-caused or accepted and the evidence note is merged; delete then.
 # Related:     util/experiments/suites/p4/e-l-determinism-cap4.yaml (the SERVICE arm, 20 cells);
 #              util/ad-hoc/2026-08-17_h2h_thread_probe.bash (one direct-CLI run);
 #              util/ad-hoc/2026-08-20_determinism_nrun.py (reads what this produces).

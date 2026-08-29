@@ -132,13 +132,13 @@ reproducible under this regime" (95% upper bound ≈ 8%/tail, rule-of-three; the
 tails per trial share ambient load, so full independence is an approximation), never
 disconfirmation.
 
-| regime | conditions | max TAIL_JOIN | verdict |
-|---|---|---|---|
-| T0 | idle, nice 0 † | **0.005 s** | tail work is ms-scale when schedulable |
-| T1 | nice-10 pipeline vs 16 nice-0 CPU burners (feeds stretched 9×) † | 0.110 s | **pure CPU starvation ruled out** |
-| T2 | + writeback pressure + ionice BE-7 † | 0.727 s | direction confirmed (gpg observed D-state), magnitude insufficient |
-| T3 | memory-capped cgroup `MemoryMax=2G/High=1.5G`, sustained-dirty writer, unit-level nice 10, live Recreate ambient | **4.367 s** | 0/36 over, but the right tail reaches 87% of the bound |
-| T4 | same, cap tightened to `1G/768M` | **4.820 s** | 0/36 over; **96.4% of the bound** |
+| regime | conditions                                                                                                       | max TAIL_JOIN | verdict                                                            |
+|--------|------------------------------------------------------------------------------------------------------------------|---------------|--------------------------------------------------------------------|
+| T0     | idle, nice 0 †                                                                                                   | **0.005 s**   | tail work is ms-scale when schedulable                             |
+| T1     | nice-10 pipeline vs 16 nice-0 CPU burners (feeds stretched 9×) †                                                 | 0.110 s       | **pure CPU starvation ruled out**                                  |
+| T2     | + writeback pressure + ionice BE-7 †                                                                             | 0.727 s       | direction confirmed (gpg observed D-state), magnitude insufficient |
+| T3     | memory-capped cgroup `MemoryMax=2G/High=1.5G`, sustained-dirty writer, unit-level nice 10, live Recreate ambient | **4.367 s**   | 0/36 over, but the right tail reaches 87% of the bound             |
+| T4     | same, cap tightened to `1G/768M`                                                                                 | **4.820 s**   | 0/36 over; **96.4% of the bound**                                  |
 
 † T0–T2 ran foreground in-session; their values are transcript-only (no archived
 log). **Provenance for T3/T4**: the caps, nice-10, and IO class were applied at the
@@ -262,14 +262,14 @@ against concurrency).
 
 ## 8. Evidence inventory
 
-| artifact | where |
-|---|---|
-| failing run 2 log | `~/.local/state/duplicati/backup-20260823-225125.log` (lines 5, 511-593, 797-840) |
-| pinned sources at tag | scratchpad `duplicati-src/` — GPGStreamWrapper.cs, GPGEncryption.cs, BackendManager.cs, BackendManager.PutOperation.cs (+ Handler.cs, Options.cs, Strings.cs, EncryptionBase.cs via validators) |
-| micro harness + logs | `util/ad-hoc/gpg_tail_latency.py`; `/media/pcalnon/temp_backups/_gpg_repro/micro/t3-run.log`, `t4-run.log` (T0-T2 ran foreground in-session, transcript-only) |
-| T3/T4 launch provenance | `/media/pcalnon/temp_backups/_gpg_repro/micro/LAUNCH_COMMANDS.txt` — exact `systemd-run` invocations (unit-level caps/nice, invisible in the harness logs) + observed cap enforcement |
-| macro harness + run | `util/ad-hoc/duplicati_gpg_macro_repro.bash`; `/media/pcalnon/temp_backups/_gpg_repro/macro-20260824-043743/` |
-| validation | four adversarial validator reports (mechanism, harness fidelity, regime match, macro safety) — summarized in the session transcript; all material findings incorporated |
+| artifact                | where                                                                                                                                                                                           |
+|-------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| failing run 2 log       | `~/.local/state/duplicati/backup-20260823-225125.log` (lines 5, 511-593, 797-840)                                                                                                               |
+| pinned sources at tag   | scratchpad `duplicati-src/` — GPGStreamWrapper.cs, GPGEncryption.cs, BackendManager.cs, BackendManager.PutOperation.cs (+ Handler.cs, Options.cs, Strings.cs, EncryptionBase.cs via validators) |
+| micro harness + logs    | `util/ad-hoc/gpg_tail_latency.py`; `/media/pcalnon/temp_backups/_gpg_repro/micro/t3-run.log`, `t4-run.log` (T0-T2 ran foreground in-session, transcript-only)                                   |
+| T3/T4 launch provenance | `/media/pcalnon/temp_backups/_gpg_repro/micro/LAUNCH_COMMANDS.txt` — exact `systemd-run` invocations (unit-level caps/nice, invisible in the harness logs) + observed cap enforcement           |
+| macro harness + run     | `util/ad-hoc/duplicati_gpg_macro_repro.bash`; `/media/pcalnon/temp_backups/_gpg_repro/macro-20260824-043743/`                                                                                   |
+| validation              | four adversarial validator reports (mechanism, harness fidelity, regime match, macro safety) — summarized in the session transcript; all material findings incorporated                         |
 
 ## 9. Fix candidates — FOR DECISION, none applied
 

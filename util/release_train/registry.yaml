@@ -165,7 +165,7 @@ packages:
     archive_name: "RELEASE_NOTES_juniper-cascor_v{version}.md"
     trigger: {now: release, target: release}
     verify: {now: fallback, target: strict}
-    depends_on: ["juniper-observability", "juniper-cascor-protocol", "juniper-model-core"]
+    depends_on: ["juniper-observability", "juniper-cascor-protocol", "juniper-model-core", "juniper-service-core"]
     ship_paths: ["src/", "juniper_cascor/"]
     exclude_paths: ["src/tests/", "src/backups/", "juniper-cascor-model/", "juniper-cascor-protocol/"]
 
@@ -243,7 +243,7 @@ packages:
     archive_name: "RELEASE_NOTES_juniper-data_v{version}.md"
     trigger: {now: release, target: release}
     verify: {now: fallback, target: strict}
-    depends_on: []
+    depends_on: ["juniper-service-core"]
     ship_paths: ["juniper_data/"]
     exclude_paths: ["juniper_data/tests/"]
 

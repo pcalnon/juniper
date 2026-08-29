@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-20
 Status:      ad-hoc -- migration (one-off)
-Retire when: the base-branch guard rollout is complete.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the base-branch guard rollout is complete.
 Related:     ml#434; util/ad-hoc/base_branch_guard/rollout.py
 
 `pr-base-branch-guard.yml` advertises a `stacked-pr` label as its escape hatch, and an
