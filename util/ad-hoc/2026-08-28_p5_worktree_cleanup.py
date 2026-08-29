@@ -107,7 +107,9 @@ def describe(wt: Path, rel: str) -> str:
             st = p.stat()
             total, files, newest = st.st_size, 1, st.st_mtime
         except OSError:
-            pass
+            # Non-fatal: if the file cannot be stat'ed (e.g., race/permission), keep
+            # placeholder metadata so this descriptive helper still returns safely.
+            total, files, newest = 0, 0, 0.0
     when = dt.datetime.fromtimestamp(newest).strftime("%Y-%m-%d %H:%M") if newest else "?"
     size = f"{total / 1e6:.1f} MB" if total >= 1e6 else f"{total / 1e3:.1f} KB" if total else "empty"
     return f"{rel} ({files} file{'s' if files != 1 else ''}, {size}, newest {when})"
