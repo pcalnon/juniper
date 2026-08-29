@@ -6,7 +6,7 @@
 # Author:     Paul Calnon
 # Created:    2026-08-13
 # Status:     ad-hoc -- investigation (citation verification for the API primer)
-# Retire when: notes/JUNIPER_2026-08-13_JUNIPER-ECOSYSTEM_API-DESIGN-AND-IMPLEMENTATION-PRIMER.md
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: notes/JUNIPER_2026-08-13_JUNIPER-ECOSYSTEM_API-DESIGN-AND-IMPLEMENTATION-PRIMER.md
 #              is merged and its citations are no longer being re-verified.
 # Related:    notes/JUNIPER_2026-08-13_JUNIPER-ECOSYSTEM_API-DESIGN-AND-IMPLEMENTATION-PRIMER.md
 #

@@ -14,7 +14,7 @@ execution:
   mode: sequential
   max_parallel: 1
   continue_on_failure: true
-  per_run_timeout_seconds: 600
+  per_run_timeout_seconds: 1800
 matrix:
   train.d: [8, 16, 32]
 outputs:

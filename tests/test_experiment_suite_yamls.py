@@ -45,14 +45,21 @@ not carried to the suites that needed it. EQUAL is a loss, not a tie: the driver
 write its manifest after hitting its deadline, so a simultaneous subprocess kill pre-empts it.
 The predicate is therefore ``timeout > budget``, not ``>=``.
 
-Cascor only, as with the two contracts above. The recurrence path has the same defect —
-``_run_recurrence`` (``run_experiment.py:1617``) resolves ``max_wall`` identically at ``:1619``
-and passes it as the SOCKET timeout on the synchronous ``POST /v1/train`` (``:1697``), logging
-its own honest ``timed_out`` — but retuning a recurrence timeout is a separate analysis of that
-failure mode, and one of the five affected suites (``perf/pf5-recurrence-d-scaling``) is inside
-the gated perf lane. Surveyed 2026-08-20 and left deliberately unfixed:
-``recurrence-d-sweep`` (600/900, inverted) and ``p4/e-d``, ``p4/e-f``, ``p4/e-g``,
-``perf/pf5`` (900/900, equal). See ``util/ad-hoc/2026-08-20_wall_ordering_survey.py``.
+Both apps, since 2026-08-26 — this contract alone, unlike the two above. The recurrence path
+was known to have the same defect: ``_run_recurrence`` (``run_experiment.py:1617``) resolves
+``max_wall`` identically at ``:1619`` and passes it as the SOCKET timeout on the synchronous
+``POST /v1/train`` (``:1697``), logging its own honest ``timed_out``. It was held back pending
+"a separate analysis of that failure mode". That analysis is done, and it does not distinguish
+the two: what differs is the MECHANISM that produces ``timed_out`` (a socket timeout rather
+than a poll-loop deadline), while what matters is what happens AFTER — the driver must still
+record the outcome, render and write its manifest, and a subprocess kill at or below the budget
+lands squarely in that window. Same destroyed evidence, same predicate. The five suites
+surveyed 2026-08-20 and left unfixed then — ``recurrence-d-sweep`` (600/900, inverted) and
+``p4/e-d``, ``p4/e-f``, ``p4/e-g``, ``perf/pf5`` (900/900, equal) — were raised to 1800 s,
+the value ``perf/pf6`` and ``perf/pf7`` already carry against the same 900 s budget. Re-surveyed
+clean: 25 OK, 0 at risk. See ``util/ad-hoc/2026-08-20_wall_ordering_survey.py``, and run it with
+``JUNIPER_EXP_PROJECT_DIR`` set — from a juniper-ml-only checkout 15 of 25 suites are
+UNRESOLVED and the survey reports "fires on 0" while having judged well under half the tree.
 
 KNOWN LIMITATION — partially lifted. ``_declared_numbers`` still reads only the suite's own
 ``matrix`` / ``include``; ``_effective_numbers`` and ``_effective_wall_budgets`` resolve the
@@ -536,14 +543,33 @@ class TimeoutOrderingContractTest(unittest.TestCase):
         only, so an ``app: cascor`` suite living under ``util/ad-hoc/`` is invisible to both —
         see the survey's own AD-HOC section, added 2026-08-24 after one such suite was found
         inverted.
+
+        **Recurrence is no longer out of scope (2026-08-26).** It was excluded because its
+        budget is the socket timeout on the synchronous ``POST /v1/train`` rather than a
+        poll-loop deadline — a different MECHANISM, but on inspection the same FAILURE. After
+        that socket timeout raises, ``run_cascor``'s recurrence twin still has to record the
+        outcome, render, and write its manifest (``run_experiment.py`` ~1782-1861); if
+        ``per_run_timeout_seconds`` is equal to or below the budget, ``run_suite``'s
+        subprocess kill lands during exactly that window and the manifest is never written.
+        The evidence is destroyed identically, so the contract is identical. The five
+        offenders were raised to 1800 s — pf6/pf7's already-passing value against the same
+        900 s budget — and re-surveyed clean: 25 OK, 0 at risk.
+
+        Scope note, so a green run is not over-read: a recurrence suite's base_config is a
+        SIBLING repo, so from a juniper-ml-only checkout (which is what CI is) its budget is
+        unknowable and it lands in ``undecidable`` rather than being judged. CI therefore
+        enforces this contract on the cascor rows and *records* the recurrence ones. The
+        survey run with ``JUNIPER_EXP_PROJECT_DIR`` set against a full ecosystem is what
+        actually judges them, which is why the assertion below demands cascor decidability
+        specifically rather than settling for any decidable suite.
         """
         default_timeout = _run_suite_default_timeout()
         checked = 0
+        cascor_checked = 0
         undecidable: "list[str]" = []
         for path in _suite_files():
             doc = run_suite.load_suite(path)
-            if doc["suite"]["app"] != "cascor":
-                continue
+            app = doc["suite"]["app"]
             raw = (doc.get("execution") or {}).get("per_run_timeout_seconds")
             timeout = float(raw) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else default_timeout
             budgets, unresolved = _effective_wall_budgets(doc, path)
@@ -557,14 +583,20 @@ class TimeoutOrderingContractTest(unittest.TestCase):
                 undecidable.append(f"{path.name} (unreadable base_config: {', '.join(unresolved)})")
                 continue
             checked += 1
+            if app == "cascor":
+                cascor_checked += 1
             with self.subTest(suite=path.relative_to(REPO_ROOT).as_posix()):
                 worst = max(budgets)
                 self.assertGreater(
                     timeout,
                     worst,
-                    f"{path.name} sets per_run_timeout_seconds={timeout:g} against an effective wall budget of {worst:g}s, " f"so run_suite's subprocess kill pre-empts the driver: the cell is recorded 'timed_out' with exit_code null " f"and NO manifest is written. Raise per_run_timeout_seconds above {worst:g}, or lower the budget via " "execution.max_wall_seconds — the driver must be what stops a run (suites/p4/e-j-h2h-wide-cap64.yaml:73-75)",
+                    f"{path.name} ({app}) sets per_run_timeout_seconds={timeout:g} against an effective wall budget of {worst:g}s, " f"so run_suite's subprocess kill pre-empts the driver: the cell is recorded 'timed_out' with exit_code null " f"and NO manifest is written. Raise per_run_timeout_seconds above {worst:g}, or lower the budget via " "execution.max_wall_seconds — the driver must be what stops a run (suites/p4/e-j-h2h-wide-cap64.yaml:73-75)",
                 )
-        self.assertGreater(checked, 0, f"no cascor suite was decidable — the contract would pass vacuously (undecidable: {undecidable})")
+        # Cascor specifically, not "anything decidable": every recurrence suite's base_config is
+        # a sibling repo, so in CI they all decline. A bare `checked > 0` would stay satisfied by
+        # the recurrence rows alone if the cascor bases ever became unreadable, and the contract
+        # would pass while enforcing nothing.
+        self.assertGreater(cascor_checked, 0, f"no cascor suite was decidable — the contract would pass vacuously (undecidable: {undecidable})")
 
     def test_an_inverted_ordering_is_caught(self) -> None:
         """Negative control: a timeout below an inherited budget must be visible here."""
@@ -597,6 +629,52 @@ class TimeoutOrderingContractTest(unittest.TestCase):
             doc = {"suite": {"app": "cascor", "base_config": ["base.yaml"]}, "execution": {"per_run_timeout_seconds": 15600}}
             budgets, _ = _effective_wall_budgets(doc, root / "suite.yaml")
             self.assertGreater(15600, max(budgets))
+
+    def test_the_recurrence_predicate_is_the_same_predicate(self) -> None:
+        """The contract is app-agnostic: an equal recurrence ordering is a loss too.
+
+        ``_effective_wall_budgets`` never looked at ``app`` — the exclusion lived in the loop —
+        so this pins the intent rather than the plumbing: the same numbers that fail for cascor
+        must fail for recurrence.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "base.yaml").write_text("outputs:\n  max_wall_seconds: 900\n", encoding="utf-8")
+            doc = {"suite": {"app": "recurrence", "base_config": ["base.yaml"]}, "execution": {"per_run_timeout_seconds": 900}}
+            budgets, unresolved = _effective_wall_budgets(doc, root / "suite.yaml")
+            self.assertEqual((budgets, unresolved), ([900.0], []))
+            self.assertFalse(900 > max(budgets), "the shape all four EQUAL recurrence suites shipped with")
+
+    def test_the_five_recurrence_suites_stay_above_their_budget(self) -> None:
+        """Regression pin for the five rows fixed 2026-08-26.
+
+        In CI these suites are UNDECIDABLE — their base_config is a sibling repo — so the loop
+        above declines them and could not catch a revert. Their inherited budget was surveyed at
+        900 s with a full ecosystem checked out (``2026-08-20_wall_ordering_survey.py`` with
+        ``JUNIPER_EXP_PROJECT_DIR`` set), and 1800 is what ``perf/pf6`` / ``perf/pf7`` already
+        carry against that same budget. The survey remains authoritative for the live number;
+        this only stops the five silently returning to 900/600.
+        """
+        fixed = {
+            "recurrence-d-sweep.yaml": None,
+            "p4/e-d-recurrence-d-sweep.yaml": None,
+            "p4/e-f-recurrence-irregularity.yaml": None,
+            "p4/e-g-recurrence-cv-scheme.yaml": None,
+            "perf/pf5-recurrence-d-scaling.yaml": None,
+        }
+        precedent = ("perf/pf6-recurrence-nsteps-scaling.yaml", "perf/pf7-recurrence-readout-rungs.yaml")
+        for rel in list(fixed) + list(precedent):
+            path = SUITES_ROOT / rel
+            with self.subTest(suite=rel):
+                self.assertTrue(path.is_file(), f"{rel} moved or was renamed — re-point this pin")
+                doc = run_suite.load_suite(path)
+                self.assertEqual(doc["suite"]["app"], "recurrence")
+                timeout = (doc.get("execution") or {}).get("per_run_timeout_seconds")
+                self.assertGreaterEqual(
+                    timeout,
+                    1800,
+                    f"{rel} dropped to per_run_timeout_seconds={timeout} against a surveyed 900s budget; " "at or below it run_suite's subprocess kill destroys the driver's manifest",
+                )
 
     def test_a_cell_pinning_no_budget_anywhere_still_has_one(self) -> None:
         """The inherited case that bites: no budget in suite or base means the driver default.

@@ -1,0 +1,17 @@
+[Unit]
+Description=Daily Duplicati server-run backup watchdog (Yamaguchi job)
+Documentation=file:///home/pcalnon/Development/python/Juniper/juniper-ml/util/ad-hoc/yamaguchi_watchdog.py
+
+[Timer]
+# The job fires daily at 09:00 CDT (14:00Z); a full run took 2h12m, an incremental
+# ~9 min before the VM images entered the scope (longer since). Checking at 12:00
+# local leaves a 3 h margin; a run still in progress at 12:00 reads OK/RUNNING, and
+# "stale" (26 h) also covers a run that was skipped entirely.
+OnCalendar=*-*-* 12:00:00
+# A workstation is often off at the check time. Without this a missed check is
+# silently skipped -- the failure mode the watchdog exists to prevent.
+Persistent=true
+Unit=yamaguchi-watchdog.service
+
+[Install]
+WantedBy=timers.target

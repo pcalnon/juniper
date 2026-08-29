@@ -2,7 +2,7 @@
 
 This directory is the home for scripts that:
 
-- Will run once (or a handful of times) and then be retired.
+- Will run once (or a handful of times) and then be **retained as provenance** of the work they produced (retention policy, owner decision 2026-08-25 — see Lifecycle below).
 - Are work-in-progress and not yet ready for promotion to `util/` proper.
 - Support a one-off investigation, migration, or analysis tied to a specific PR / incident.
 
@@ -27,7 +27,7 @@ Sub-Project: ad-hoc tooling
 Author: <name>
 Created: YYYY-MM-DD
 Status: ad-hoc — <intent: one-off | wip | migration | investigation>
-Retire when: <condition that makes this script obsolete>
+Retire when: RETAINED — ad-hoc scripts are kept as provenance of record (owner policy 2026-08-25)
 Related: <PR #, incident, or notes/ doc>
 """
 ```
@@ -43,7 +43,7 @@ Related: <PR #, incident, or notes/ doc>
 # Author:     <name>
 # Created:    YYYY-MM-DD
 # Status:     ad-hoc — <one-off | wip | migration | investigation>
-# Retire when: <condition>
+# Retire when: RETAINED — ad-hoc scripts are kept as provenance of record (owner policy 2026-08-25)
 # Related:    <PR #, incident, notes/ doc>
 set -euo pipefail
 ```
@@ -59,10 +59,11 @@ set -euo pipefail
 
 | Stage                                 | Action                                                                                                            |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| **Created**                           | Place here. Include the header above with `Retire when:` populated.                                               |
+| **Created**                           | Place here. Include the header above; under the retention policy the `Retire when:` field reads `RETAINED`.       |
 | **Used for its purpose**              | Commit any non-trivial output / log alongside the script (e.g., in `notes/`) so the artifact survives the script. |
 | **Graduates to permanent utility**    | Move to `util/<name>` (drop `ad-hoc` from the header `Status:`). Update any docs that referenced the old path.    |
-| **Retired (purpose complete or obsolete)** | Delete in the same PR that completes the work, OR move to `util/ad-hoc/retired/` with the retirement date in the filename. Don't leave dead scripts behind. |
+| **Retained (the default)**            | **Owner decision 2026-08-25: ad-hoc scripts carry no retirement deadline.** They are kept in place as the provenance of how evidence, migrations, and one-off analyses were produced, even after their purpose completes. Pre-policy `Retire when:` conditions were rewritten to `RETAINED (…) Previously: <condition>` so the historical trigger stays readable. |
+| **Retired (exceptional, owner-directed only)** | Only on an explicit owner decision — never as routine cleanup. Move to `util/ad-hoc/retired/` with the retirement date in the filename; do not plain-delete. |
 
 **Example (juniper-ml#928):** the seven `2026-07-28_flood_census_*` / `docs_census_*` / `fp_transition_c2` investigation scripts were moved to `util/ad-hoc/retired/` with a `_RETIRED-2026-08-05` suffix once the flood-remediation analysis landed and `util/sequence_safety/` + `util/fleet_triage/predict_merge.py` became the live screens. Keeping the retired files in-repo preserves notes/ appendix and provenance comments that still name the old paths.
 

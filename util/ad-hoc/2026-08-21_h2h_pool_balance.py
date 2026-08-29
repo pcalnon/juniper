@@ -6,7 +6,7 @@ Sub-Project: ad-hoc tooling
 Author:      Paul Calnon
 Created:     2026-08-21
 Status:      ad-hoc -- one-off (residual CLI-vs-service wall gap, post-#533)
-Retire when: the residual wall-gap evidence note is merged; delete then.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the residual wall-gap evidence note is merged; delete then.
 Related:     2026-08-21_h2h_paired_ratio.py (whose `rate` column this validates or refutes);
              2026-08-21_cascor_seeds_and_balance_diag.patch (the build that logs what this reads).
 

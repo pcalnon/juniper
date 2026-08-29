@@ -1,0 +1,4 @@
+{"cascor_sha":"67d7ea359f2bca5bbe8eb5dc9bd2b18a3ea94160","suite":"util/experiments/suites/p4/e-k-thread-probe-cap16.yaml","k":4,"started_utc":"2026-08-26T17:34:06Z","host_nproc":16}
+CELL=/home/pcalnon/.local/state/juniper-experiments/suites/e-k-thread-probe-cap16-20260826T173406Z/cells/c000-896256c7/experiment.yaml
+CONFIG_SHA256=2a60040aff9d42d6a4342e153dbe63c15a5bb5f49265ebf93c37b2ffa5a46c08
+STACK_RUN_ID=20260826T173539Z-6f17

@@ -6,7 +6,7 @@
 # Author:     Paul Calnon
 # Created:    2026-08-10
 # Status:     ad-hoc -- investigation
-# Retire when: a general flake-hunt harness graduates to util/ proper. Kept (not deleted
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: a general flake-hunt harness graduates to util/ proper. Kept (not deleted
 #              with its originating fix) because it is module-agnostic: the next
 #              intermittent failure in any unittest module is hunted with the same tool.
 # Related:    ml#1045 flake; the isolated-stack marker-atomicity fix. Reproducing the

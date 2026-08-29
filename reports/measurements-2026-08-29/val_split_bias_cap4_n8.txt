@@ -1,0 +1,22 @@
+# suite: /home/pcalnon/.local/state/juniper-experiments/suites/e-o-val-split-bias-cap4-20260829T210146Z
+# cells reporting: 8   MISSING: 0
+
+cell              ds_seed  n_sel  n_out  selected_on   held_out   optimism
+c000-2a96a6ae          42    100    100       0.5900     0.5500    +0.0400
+c001-c8410b00          43    100    100       0.5600     0.5800    -0.0200
+c002-c97499d6          44    100    100       0.5600     0.5400    +0.0200
+c003-494ea73f          45    100    100       0.5600     0.5400    +0.0200
+c004-eba88edc          46    100    100       0.6600     0.6100    +0.0500
+c005-2c48c774          47    100    100       0.6400     0.6400    +0.0000
+c006-19c0dac5          48    100    100       0.5900     0.6400    -0.0500
+c007-8f0e20f4          49    100    100       0.5700     0.5600    +0.0100
+
+mean selected_on : 0.5913
+mean held_out    : 0.5825
+mean OPTIMISM    : +0.0088   sd 0.0323   n 8
+95% CI (normal)  : [-0.0136, +0.0311]   se 0.0114
+positive cells   : 5/8   zero: 1   negative: 2
+VERDICT: the interval INCLUDES zero -- this sample does not establish a nonzero bias.
+
+# Each half is ~100 rows, so a single cell's optimism is dominated by sampling noise
+# between halves. The mean over independent datasets is the estimate; the sd is the noise.

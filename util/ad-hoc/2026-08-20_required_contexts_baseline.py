@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-20
 Status:      ad-hoc -- audit / pre-change baseline
-Retire when: the base-branch-guard rollout (ml#434 part 2) is complete and verified.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the base-branch-guard rollout (ml#434 part 2) is complete and verified.
 Related:     ml#434; util/ad-hoc/2026-08-20_base_branch_guard_scan.py.
 
 Why a baseline exists at all

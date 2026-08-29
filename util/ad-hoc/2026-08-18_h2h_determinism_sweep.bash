@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-18
 # Status:      ad-hoc -- one-off (CLI reproducibility investigation)
-# Retire when: the reproducibility defect is root-caused and written up; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the reproducibility defect is root-caused and written up; delete then.
 # Related:     util/experiments/suites/p4/e-l-determinism-cap4.yaml (the service control);
 #              util/ad-hoc/2026-08-17_h2h_thread_probe.bash (one arm).
 #

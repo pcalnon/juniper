@@ -1103,7 +1103,7 @@ epochs: TrainingParamConfig = TrainingParamConfig(min=10, max=10000000, default=
 
 [v2 ARCH→TRAIN re-bucket] v6 partial agent output; pre-dates V6_REMEDIATION_ANALYSIS — likely subsumed by V6/V7 entries already captured by ml-C
 
-### JR-ML-TRAIN-054 — """Demo backend must produce hidden-to-hidden cascade connections.""".
+### JR-ML-TRAIN-054 — Phase 2 test: the demo backend must produce hidden-to-hidden cascade connections
 
 **Status**: proposed  **Priority**: P2  **Category**: TRAIN  **Owner**: ml
 
@@ -1112,11 +1112,13 @@ epochs: TrainingParamConfig = TrainingParamConfig(min=10, max=10000000, default=
 
 **Detail**:
 
-# Setup: create network with 2+ hidden units
+`# Setup: create network with 2+ hidden units`
 
 **Notes**:
 
 [v3 brief repaired from cited content; was: 'Phase 2 Tests']
+
+[2026-08-29 brief repaired from cited content; was: '"""Demo backend must produce hidden-to-hidden cascade connections.""".']
 
 ### JR-ML-TRAIN-055 — Adam Optimizer Pathology: fix Adam optimizer pathology issues.
 
