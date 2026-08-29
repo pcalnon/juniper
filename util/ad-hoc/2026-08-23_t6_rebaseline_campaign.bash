@@ -6,7 +6,7 @@
 # Author:     Paul Calnon
 # Created:    2026-08-23
 # Status:     ad-hoc -- one-off (T6 re-baseline campaign)
-# Retire when: the re-baselined E-A/E-I/E-C grids are published and the evidence doc's
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the re-baselined E-A/E-I/E-C grids are published and the evidence doc's
 #              KNOWINGLY STALE marker is lifted.
 # Related:    T6 of HANDOFF_2026-08-18_cli-experimentation-unowned-tasks.md; R-5 §5.1
 #

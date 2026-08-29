@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-20
 # Status:      ad-hoc -- one-off (juniper-cascor#532 campaign)
-# Retire when: the campaign is written up; delete with the rest of the #532 tooling.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the campaign is written up; delete with the rest of the #532 tooling.
 # Related:     2026-08-20_determinism_watch.bash (per-run events; this is the one-shot form).
 #
 # The watch script emits an event per completed run, which is right while the pace is still

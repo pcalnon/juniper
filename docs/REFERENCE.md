@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.8
+**Version:** 0.6.13
 **Status:** Active
 **Last Updated:** 2026-08-24
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -30,6 +30,7 @@
 - [Release-Train Detect Summary and Slack](#release-train-detect-summary-and-slack)
 - [AGENTS.md Date Check](#agentsmd-date-check)
 - [Claude.yml Access Validation](#claudeyml-access-validation)
+- [Claude Code Action](#claude-code-action)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
@@ -70,10 +71,10 @@
 |             | `juniper-doc-tools`                                                                      | `>=0.1.0,<0.2.0`  |
 |             | `juniper-model-core`                                                                     | `>=0.1.0,<0.4.0`  |
 |             | `juniper-observability`                                                                  | `>=0.2.0`         |
-|             | `juniper-service-core`                                                                   | `>=0.2.0,<0.6.0`  |
+|             | `juniper-service-core`                                                                   | `>=0.2.0,<0.7.0`  |
 | `doc-tools` | `juniper-doc-tools` (back-compat alias for the doc-tools entry in `tools`)               | `>=0.1.0,<0.2.0`  |
 | `recurrence`| `juniper-recurrence-model`                                                               | `>=0.1.5,<0.3.0`  |
-|             | `juniper-recurrence`                                                                     | `>=0.2.0,<0.4.0`  |
+|             | `juniper-recurrence`                                                                     | `>=0.2.0,<0.5.0`  |
 |             | `juniper-recurrence-client`                                                              | `>=0.2.0,<0.3.0`  |
 | `all`       | All packages from `clients` + `worker` + `servers` + `tools` + `recurrence`              | --                |
 
@@ -1110,7 +1111,15 @@ python util/memory_budget_check.py                      # check (exit 0/1/2)
 python util/memory_budget_check.py --advisory           # report, always exit 0
 python util/memory_budget_check.py --json               # machine-readable
 python util/memory_budget_check.py --ratchet            # tighten to current sizes
+# The CI job's exact form. The bare form has NO git-log fallback, so a branch carrying an
+# Allow-Budget-Overrun / Allow-Ceiling-Raise trailer FAILS locally where CI passes:
+git fetch origin && git log --format=%B origin/main..HEAD > /tmp/mb-trailers.txt
+python util/memory_budget_check.py --base-ref origin/main --trailers-file /tmp/mb-trailers.txt
 ```
+
+`--base-ref` supplies the tip the no-worsening rule compares against (CI uses `FETCH_HEAD` of the
+PR base); `--trailers-file` is the only way trailers reach the checker — it never shells out for
+them, so the classifier stays pure.
 
 Exit **0** pass or advisory / **1** over budget / **2** misuse or broken machinery.
 
@@ -1238,6 +1247,14 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `tests/test_assert_release_tag.py` -- Behavioural tests for `util/assert_release_tag.bash` plus a **wiring gate** asserting all 7 publishers invoke it with their own `--expect-prefix`, and that **no publisher grants `id-token` at workflow level** (P4).
   - Drives synthetic dist directories: happy paths (meta, sub-package, `-rc1` normalization, alpha), and the refusals that matter -- branch ref, **empty** ref_type (must fail closed, not read as a tag), tag/version mismatch, wrong package prefix, missing dist dir, sdist-only, version-less tag, misuse exit 2.
   - The mismatch case is a live regression guard: it originally passed because `tr -d '-_'` errored on this host and both sides normalized to empty. `util/` is outside every pre-commit Python hook's scope, so this suite is the gate.
+- `tests/test_publish_testpypi_verify.py` -- Structural + hermetic YAML-extraction gate for `.github/workflows/publish.yml` TestPyPI **Gate 1**.
+  Pins the two-phase verify (TestPyPI-only `pip download --no-deps` provenance, then three PyPI-only local-wheel installs of bare / `[clients]` / `[tools]`, never `--extra-index-url`, never the heavy extras), the `v*` tag guard, TestPyPI `skip-existing` vs strict PyPI, and `pypi needs: testpypi`.
+  Since juniper-ml#1310 the index-lag buffer is a **bounded poll** (no unconditional `sleep 30`; remaining `sleep` values are poll intervals `<=10s`; exhausting the loop is a real `::error::`, not a silent fall-through).
+  The extracted verify shell is rehearsed with PATH stubs so a rewrite that drops a phase fails in CI without hitting the network.
+- `tests/test_publish_release_only_trigger.py` -- Glob-discovered gate that `release: published` stays the **only** automatic trigger on every `publish*.yml` (juniper-ml#1310).
+  Re-adding `push:` recreates the #555 double-publish race against the immutable TestPyPI upload; removing `release:` disarms publishing silently (a workflow that never fires reports nothing).
+  Also pins that no step is gated on `github.event_name == 'push'` — the six sub-package publishers used to carry an unreachable `Require a GitHub Release for this tag` step under that condition.
+  `workflow_dispatch` stays as the deliberate escape hatch.
 - `tests/test_publish_env_policy_drift.py` -- Drift gate for the **tag-only deployment ref policy** on every `pypi` / `testpypi` environment ([publish-path design](../notes/JUNIPER_2026-08-17_JUNIPER-ECOSYSTEM_PUBLISH-PATH-AUTHORIZATION-DESIGN.md) §6 Option A / §12.5).
   - The control lives in GitHub **settings, not the repo**: no test covered it, no reviewer sees a diff when a policy is deleted, and the failure is silent -- the publish path just becomes permissive again.
   - Two load-bearing invariants: **no branch-type policy may exist** (adding a `main` branch policy re-opens branch dispatch while every tag pattern stays intact and the environment still looks configured -- owner decision D3 was tag-only), and **`pypi` must retain `required_reviewers`** (a `PUT` is create-or-update, so a careless payload clears the human gate while successfully setting a ref policy -- the environment then looks *more* configured while being weaker).
@@ -1319,6 +1336,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `tests/test_experiment_config_schemas.py` -- Wave 3.5 drift gate (§10.6 row 3): walks the sibling checkouts' `conf/experiments/*.yaml` (cascor Wave 3.2, recurrence Wave 3.4) and asserts each loads through the driver's §5.6 `load_config` AND that every `service:` key names a real app `Settings` field --
   extracted statically via AST (cascor `Settings`; recurrence `Settings` + the in-repo service-core `SettingsBase`), so no torch-heavy app import is needed. Cross-repo walk gated like `test_doc_tools_drift.py` (`GITHUB_ACTIONS=true` or `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`; sibling-absent skips loudly); the AST-extractor self-check always runs.
 - `tests/test_experiment_suite_yamls.py` -- Drift gate (R-6) over the shipped suites in `util/experiments/suites/**`, which no test loaded before it: every suite must pass `run_suite.load_suite` (catching the unknown-`execution:`-key / `stall_second` typo class that otherwise surfaces hours into a GPU campaign), and any oversize `app: cascor` suite must declare an `execution.stall_seconds` above the driver's `DEFAULT_STALL_SECONDS` (read from the driver source, not hardcoded).
+- `tests/test_p5_port_memory_budget.py` -- Hermetic gate for the P5 fleet-rollout porting helper `util/ad-hoc/2026-08-25_p5_port_memory_budget.py` (`util/` is outside every pre-commit Python hook): growth statistics from a temp git repo measured in CHARS with a nearest-rank `p90` (the floor form returned the *smallest* growth at n=2, so four of the 2026-08-25 fleet measurements printed p90 < median); `render-job` / `render-workflow` / `render-config` output parses and carries the figures MEASURED in the target (the first two ports found every transcribed figure stale); `insert-job` lands before `required-checks` and outside its `needs:` (C9); `adapt-test` rewrites the repo-root depth and adds SPACE-separated `# nosec` codes (the comma form under-suppresses on bandit 1.9.4 and reads as applied).
   - **Oversize is pool OR cap.** The original gate triggered on `candidate_pool_size >= 16` only, so a wide-**cap** suite at a modest pool shipped and then lost its widest cells to a false `stalled` hours in — the candidate phase slows every iteration as the cascade widens each candidate's input, i.e. "the ml#1069 class, arriving through width instead of through pool size" (`suites/p4/e-i-cascor-cap-ceiling.yaml:46-50`). `max_hidden_units >= 64` now triggers too.
   - **Third contract — wide-cap suites must pin a wall budget**, via either `execution.max_wall_seconds` or a dotted `outputs.max_wall_seconds` override (E-I uses the latter, so accepting only the former would fail a correctly-budgeted suite). Thresholds are measured, not guessed: E-I at fixed pool 8 ran cap 32 → 1497.4 s, cap 64 → 2907.1 s, cap 128 → **4243.6 s** against a 3600 s inherited default, so 128 would have been truncated and 64 clears by only 693 s.
   - **Known limitation**: only the suite's own `matrix` / `include` are read, so a pool or cap inherited from `suite.base_config` is invisible — deliberate, because resolving `base_config` reaches into sibling repos and would turn a structural gate into one that skips whenever the ecosystem is not checked out.
@@ -1441,7 +1459,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
     What pinning buys: the net cannot be armed over a **stale read**. What it still does not buy: once armed, the net merges whatever head is current when the checks pass. So the net carries *"merges only when required checks are green"* but not *"merges only the SHA this run vouched for"* — callers needing the stronger property use `--no-auto-fallback`.
     Note the flag needs the **full 40-char OID** (`headRefOid`); an abbreviated SHA is rejected with `Could not coerce value ... to GitObjectID`.
   - **Not enforcement.** A script can be skipped; the owner's `always` ruleset bypass is what makes required checks advisory for that actor. `python util/safe_merge.py --pr N [--repo R] [--execute]`; **`--dry-run` is the default**. Exit 0 merged / 1 refused / 2 misuse / 3 hard error / **4 interrupted**. Tests: `tests/test_safe_merge.py`.
-- `util/memory_budget_check.py` + `util/relocation_check.py` -- Memory-size gates (ADVISORY `Memory Budget` job). **Don't grow `AGENTS.md`: relocate to `docs/REFERENCE.md`, leaving a pointer that keeps an accurate open/closed status.** G3 proves a relocation moved the *prose*, not just the identifiers — the docs screen cannot see that shape. `Allow-Budget-Overrun:` is a loan, not a pass. [Budget](#memory-file-size-budget) / [G3](#relocation-completeness-g3).
+- `util/memory_budget_check.py` + `util/relocation_check.py` -- Memory-size gates (`Memory Budget` job — BLOCKING and a required context since 2026-08-20 (P4); only its G3 step stays advisory). **Don't grow `AGENTS.md`: relocate to `docs/REFERENCE.md`, leaving a pointer that keeps an accurate open/closed status.** G3 proves a relocation moved the *prose*, not just the identifiers — the docs screen cannot see that shape. `Allow-Budget-Overrun:` is a loan, not a pass. [Budget](#memory-file-size-budget) / [G3](#relocation-completeness-g3).
 - `util/open_signed_pr.py` -- Opens a PR on any Juniper repo whose commit is **GitHub-signed**, by creating branch + commit + PR through the API (`createCommitOnBranch`) instead of a local checkout. Promoted from `util/ad-hoc/` after it landed the ml#1099 signing fan-out across 8 repos.
   - Why it exists: `required_signatures` (2026-08-12) rejects unsigned commits fleet-wide, GPG/YubiKey signing is unavailable to a runner, and an unsigned commit **anywhere** in a branch's history blocks the merge (squash does not rescue it). GitHub signs API-authored commits, so this is the portable way to land a signed change. It needs no working tree, which also makes it the path of choice when a session is confined to one worktree and cannot commit in sibling checkouts.
   - `python util/open_signed_pr.py --repo R --branch B --add LOCAL:REPOPATH [--delete REPOPATH] --message M --title T --body-file F [--base main] [--owner pcalnon] [--dry-run]`. `--add` / `--delete` are repeatable and together express a file move; at least one is required. Exit 0 opened / 1 refused / 2 hard error.
@@ -1676,6 +1694,8 @@ juniper-ml/
 │   ├── test_doc_tools_drift.py           # Lint: consumer-repo juniper-doc-tools pins still admit current version (plan §5.1)
 │   ├── test_service_fork_drift.py        # Drift gate: security guards that must not diverge across the data/cascor service-core forks (register §2.3; ENFORCED + self-maintaining KNOWN_GAP ledger)
 │   ├── test_publish_env_policy_drift.py  # Drift gate: publish envs stay tag-only ref-gated (publish-path design §6/§12); settings-not-code, so nothing else would notice a deletion
+│   ├── test_publish_testpypi_verify.py   # Structural + hermetic: publish.yml Gate 1 two-phase verify + bounded TestPyPI poll (no sleep 30; #1310)
+│   ├── test_publish_release_only_trigger.py # Glob gate: every publish*.yml is release: published only (no push:; no push-gated steps; #1310 / #555)
 │   ├── test_assert_release_tag.py        # Behavioural + wiring: util/assert_release_tag.bash (P3) — tag-shape + tag<->built-wheel version, and that all 7 publishers invoke it with the right prefix
 │   ├── test_pyproject_extras.py          # Lint: pyproject [project.optional-dependencies] surface matches the contract
 │   ├── test_template_library_drift.py    # Lint: custom-agent template library (prompts/agent_templates/) manifest <-> templates
@@ -1745,8 +1765,8 @@ juniper-ml/
     ├── juniper_plant_all.bash            # Starts all Juniper ecosystem services
     ├── juniper_chop_all.bash             # Stops all Juniper ecosystem services
     ├── snapshot_index.py                 # Snapshot archive index + query (design §6.2, delivers R2): --scan builds an append-only snapshots_index.jsonl per snapshot root; queries filter on the D-C provenance (--experiment/--cell-id/--run-id), tier and attribution. `dataset_id` is DERIVED, not stored — it is content-addressed on a generator version only known from a live juniper-data query after bring-up, so `--resolve-datasets` (implied by `--dataset-id`) joins run_id -> <RUN_ROOT>/<run_id>/manifest.json instead; opt-in because it reads outside the snapshot root. READ-ONLY BY CONSTRUCTION — no prune/delete path, because retention is §6.4 and gated on this index existing; an AST test enforces it. Records which groups a file has rather than judging validity, so cascor keeps sole ownership of the format policy (--verify opts into cascor's own verifier).
-    ├── snapshot_classify.py             # Snapshot classifier over the §6.2 index (handoff 2026-08-22 §2.4). STAGED because the five categories cost between a second and CPU-days: `--stage index` (~1s) settles categories 4/5; `--stage load` asks cascor's OWN `load_network_result` and settles category 1 (~15 min, 27.9k files); `--stage train` is deliberately unimplemented (item 3) and refuses without a scratch $JUNIPER_CASCOR_SNAPSHOTS_DIR, because `train_output_layer` calls `create_snapshot()` unconditionally and would grow the archive under study. Emits TWO axes — `category` (must we reconstruct this snapshot's metadata?) and `health` (what can the artifact do?) — because the owner's five categories are not a partition and a literal first-match reading leaves category 5 unreachable. Reports `iterations_lower_bound` from arch.num_hidden_units, never an epoch count (meta.current_epoch is INERT: 0 across all 27,908). Writes only a derived, replace-not-append snapshots_classification.jsonl sidecar, read back by `--from-sidecar` in ~0.5s (without it the tool could WRITE a verdict it could not READ -- only the load stage sets `fails_to_load`, so a later `--category fails_to_load` re-derived from the index and reported "no matching snapshots" against a sidecar holding 526 of them). READ-ONLY over snapshots, AST-enforced, with no prune path because retention is §6.4 and gated on this output
-    ├── snapshot_attribute.py            # Dataset attribution over the classification sidecar (handoff §3.2): which dataset was each snapshot trained on? Scores every shape-compatible juniper-data 2-D classification generator (spiral/xor/gaussian/circles/moon/checkerboard) with a PERMUTATION-CORRECTED accuracy — one-hot column order is an arbitrary convention, so a network that learned a set with swapped columns scores 1-p and raw accuracy reads it as below chance. Gated against an UNTRAINED-NETWORK NULL per (input,output) shape, because 'beats chance' is not evidence here: an untrained net already beats chance on gaussian by +0.408 (up to a perfect 1.000), so gaussian is structurally unattributable. The floor is the null's observed MAX, not p95 — zero-hidden-unit linear models scored ~0.624 on checkerboard, inside the tail a 120-sample null cannot characterise. SECOND FLOOR (schema v2): that untrained null only answers 'did this learn anything?', so a cross-dataset empirical floor built from snapshots attributed ELSEWHERE answers 'did it learn THIS rather than something else?', and a candidate must clear BOTH; a snapshot is excluded from the bar it is judged against, since one that tops a rival's floor with its own score would suppress that rival. `--no-cross-dataset-floor` restores the single-floor behaviour. Verdicts: attributed / ambiguous / indeterminate; the archive's 129 single-floor attributions become 104 under both floors (xor 93, circles 7, spiral 4, moon 0), across 21 (network, dataset) pairs over 15 DISTINCT networks, 0 with zero hidden units. Validated by a 4/4 positive control. A capacity-matched null was measured and is NOT the fix — it withdrew only 3, because ~100 random cascade units inject noise columns and push the score toward chance, making the matched floor LOWER than the zero-unit one (notes/JUNIPER_2026-08-24_JUNIPER-CASCOR_ATTRIBUTION-NULL-MODEL-FINDINGS.md). READ-ONLY; --write refuses --sample/--min-hidden so the sidecar can never silently cover a subset
+    ├── snapshot_classify.py             # Snapshot classifier over the §6.2 index (handoff 2026-08-22 §2.4). STAGED because the five categories cost between a second and CPU-days: `--stage index` (~1s) settles categories 4/5; `--stage load` asks cascor's OWN `load_network_result` and settles category 1 (~15 min, 27.9k files); `--stage train` is deliberately unimplemented (item 3) and refuses without a scratch $JUNIPER_CASCOR_SNAPSHOTS_DIR, because `train_output_layer` calls `create_snapshot()` unconditionally and would grow the archive under study. Emits TWO axes — `category` (must we reconstruct this snapshot's metadata?) and `health` (what can the artifact do?) — because the owner's five categories are not a partition and a literal first-match reading leaves category 5 unreachable. Reports `iterations_lower_bound` from arch.num_hidden_units, never an epoch count (meta.current_epoch is INERT: nonzero in 0 of the 28,040 archive files censused 2026-08-26, with best_value_loss inf in 27,907 of them — but NOT `snapshot_counter`, nonzero in 13,001 of 28,040, which the docstring no longer calls dead and which a regression test now pins as live-but-still-not-the-bound; the archive-vs-current split is a WRITER-PATH split, not a serializer-version one — 28,034 archive files are already serializer_version 2.0.0, and `current_epoch` present ⟺ best_value_loss inf holds without exception across all 30,948 files measured; re-derive with `util/ad-hoc/2026-08-26_snapshot_meta_field_survey.py`). Writes only a derived, replace-not-append snapshots_classification.jsonl sidecar, read back by `--from-sidecar` in ~0.5s (without it the tool could WRITE a verdict it could not READ -- only the load stage sets `fails_to_load`, so a later `--category fails_to_load` re-derived from the index and reported "no matching snapshots" against a sidecar holding 526 of them). READ-ONLY over snapshots, AST-enforced, with no prune path because retention is §6.4 and gated on this output
+    ├── snapshot_attribute.py            # Dataset attribution over the classification sidecar (handoff §3.2): which dataset was each snapshot trained on? Scores every shape-compatible juniper-data 2-D classification generator (spiral/xor/gaussian/circles/moon/checkerboard) with a PERMUTATION-CORRECTED accuracy — one-hot column order is an arbitrary convention, so a network that learned a set with swapped columns scores 1-p and raw accuracy reads it as below chance. Gated against an UNTRAINED-NETWORK NULL per (input,output) shape, because 'beats chance' is not evidence here: an untrained net already beats chance on gaussian by +0.408 (up to a perfect 1.000), so gaussian is structurally unattributable. The floor is the null's observed MAX, not p95 — zero-hidden-unit linear models scored ~0.624 on checkerboard, inside the tail a 120-sample null cannot characterise. SECOND FLOOR (schema v2): that untrained null only answers 'did this learn anything?', so a cross-dataset empirical floor built from snapshots attributed ELSEWHERE answers 'did it learn THIS rather than something else?', and a candidate must clear BOTH; a snapshot is excluded from the bar it is judged against, since one that tops a rival's floor with its own score would suppress that rival. `--no-cross-dataset-floor` restores the single-floor behaviour. DATASET INSTANCE IS PINNED: 5 of the 6 generators declare `seed: int | None = Field(default=None)`, so building them from bare defaults REDREW the data on every call and attribution was not reproducible — two `load_datasets` calls in one process returned different arrays for checkerboard/circles/gaussian/moon/xor, and a rebuild moved moon's count 0 → 6 (its score shifted 1.000 → 0.995, flipping one snapshot's first-pass winner, removing it from moon's reference class, dropping moon's cross floor 1.000 → 0.850). `seeded_params` supplies `DATASET_SEED` only where a generator declares none, so spiral keeps the exact instance every prior analysis used; `--dataset-seed` overrides, and changing it redefines the canonical instance. Verdicts: attributed / ambiguous / indeterminate; on the 27,689-row seeded rebuild, 124 single-floor attributions become **108** under both floors (xor 94, circles 7, spiral 4, moon 3) plus 8 ambiguous, 0 with zero hidden units. Validated by a 4/4 positive control. A capacity-matched null was measured and is NOT the fix — it withdrew only 3, because ~100 random cascade units inject noise columns and push the score toward chance, making the matched floor LOWER than the zero-unit one (notes/JUNIPER_2026-08-24_JUNIPER-CASCOR_ATTRIBUTION-NULL-MODEL-FINDINGS.md). READ-ONLY; --write refuses --sample/--min-hidden so the sidecar can never silently cover a subset
     ├── snapshot_backfill.py             # Consolidates the index + classification + attribution sidecars into ONE record per snapshot (handoff §3.4 'backfill'), with every field labelled by HOW it was obtained. Four derivation levels that differ in KIND, not degree: `observed` (read from the .h5), `measured` (obtained by running the artifact — load status, per-dataset accuracy), `inferred` (a judgement from those measurements — dataset attribution, always carrying confidence/meaning/evidence/caveat), and `population` (true of the COHORT, NOT verified for this snapshot). That fourth level is the point: item 3 trained 380 of 15,927 zero-node snapshots, so writing `formerly_broken` onto all of them as fact would fabricate a per-snapshot result for 15,547 files — a confidence SCORE would have licensed exactly that. Names a root cause for all 273 failing snapshots (cohort B, truncated writes). Run identity is never invented: no run dir survives from before 2026-07-30, so absence stays absence. `--explain NAME` prints one snapshot's full provenance. READ-ONLY — writes only snapshots_backfill.jsonl beside the index and never touches a .h5 (it does not import h5py at all); no prune path, because retention is §6.4
     ├── isolated_stack.bash               # Isolated training-runtime E2E trio (data 8101 / cascor 8202 / canopy 8051): --up/--down/--status/--dry-run
     ├── experiment_stack.bash             # Per-run experiment launcher (data 8110-8139 / cascor 8230-8259 / recurrence 8260-8289): --up/--down/--status/--dry-run
@@ -1789,7 +1809,9 @@ Jobs:
 
 ### Publishing (`publish.yml`)
 
-Triggered on GitHub release published. Uses OIDC trusted publishing (no API tokens). Publishes to TestPyPI first, then PyPI (`pypi needs: testpypi`). The Gate 1 verify installs `juniper-ml` bare, then `[clients]`, then `[tools]` from TestPyPI with PyPI as the extra index — never `--no-deps`, and never the heavy `[worker]` / `[servers]` / `[all]` / `[recurrence]` extras. The `build` job skips `juniper-<pkg>-v*` tags. Gate: `tests/test_publish_testpypi_verify.py`.
+Triggered on GitHub release published. Uses OIDC trusted publishing (no API tokens). Publishes to TestPyPI first, then PyPI (`pypi needs: testpypi`).
+Gate 1 is **two-phase** (2026-08-08): a TestPyPI-only `pip download --no-deps` of the exact version (provenance; bounded poll, not `sleep 30` — juniper-ml#1310), then three installs of that **local wheel** against production PyPI only (`"${WHEEL}"`, `"${WHEEL}[clients]"`, `"${WHEEL}[tools]"`; never `--no-deps`, never `--extra-index-url`, never the heavy `[worker]` / `[servers]` / `[all]` / `[recurrence]` extras).
+The `build` job skips `juniper-<pkg>-v*` tags. Gates: `tests/test_publish_testpypi_verify.py` (verify shape + poll) and `tests/test_publish_release_only_trigger.py` (trigger IS the release-convention gate).
 
 **Publish-path authorization (all 7 publishers, 2026-08-17).** Three layers, in decreasing order of how much they survive:
 
@@ -1856,7 +1878,7 @@ With the `SLACK_WEBHOOK_URL` repo secret present (owner-provisioned incoming web
 
 ### Claude Code Action (`claude.yml`)
 
-Triggered by issue/PR comments and events mentioning @claude. Uses `anthropics/claude-code-action` for automated issue/PR assistance.
+GitHub `@claude` assistant (`anthropics/claude-code-action`). Event-driven (comments / reviews / issues), SHA-pinned, **not** a required check and **not** the local `claudey` launcher. Operator surface: [Claude Code Action](#claude-code-action). Access audit: [Claude.yml Access Validation](#claudeyml-access-validation).
 
 ---
 
@@ -1904,8 +1926,13 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `.github/workflows/ci.yml` -- Main CI pipeline: pre-commit (G4 changed-files split — `pull_request` / `merge_group` use `--from-ref <BASE> --to-ref HEAD`; `push` keeps `--all-files`), unit tests, release-train archive-guard (PR-only), the `Sequence Safety` and advisory `Fleet PR Lint` (`cursor/*`) standalone jobs, build, docs, security, dependency docs.
   - **`Sequence Safety` is a REQUIRED status check**, despite reading as advisory. Its `allow-symbol-loss` / `docs-rewrite` labels are WARN-only and do **not** unblock a merge; only an `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite: <path>` **commit trailer** waives a finding.
 - `.github/workflows/main-verify.yml` -- Post-merge main-verification (P2 gate G3): on `push:main` (per-SHA, no-cancel) it installs `juniper-ci-tools` (>=0.8.0) and runs the `juniper-symbol-loss-check` (explicit ml `--scope`) + `juniper-docs-additions-check` screens over `BASE..<merge>` (`sequence-safety-report`), a path-gated battery mirror + failure-only `notify`. G3.1 CATCH-UP BASE = last successful main-verify tip that is an ancestor of HEAD, else `github.event.before`, else `HEAD^1`.
-- `.github/workflows/publish.yml` -- Meta PyPI publish: TestPyPI **Gate 1** verify (bare -> `[clients]` -> `[tools]`, never `--no-deps`, never the heavy extras), then PyPI (`needs: testpypi`, OIDC). The `build` job is tag-guarded to `v*` Releases so a `juniper-<pkg>-v*` Release cannot fire the meta publisher. Gate: `tests/test_publish_testpypi_verify.py`. Operator surface: [`docs/REFERENCE.md` § Meta-Package Publish Pipeline](#meta-package-publish-pipeline).
-- `.github/workflows/publish-*.yml` -- Six shared sub-package publishers. All are **Release-only** (`release: published` + `workflow_dispatch`; deliberately **no** `push: tags`, which double-fired and raced TestPyPI in juniper-ml#555), each build job gated on its own `startsWith(github.event.release.tag_name, '<pkg>-v')`, with a `--no-deps` TestPyPI-only verify and `skip-existing: true` on both publish steps. Operator table: [`docs/REFERENCE.md` § Independent Sibling Package Publish Pipelines](#independent-sibling-package-publish-pipelines).
+- `.github/workflows/publish.yml` -- Meta PyPI publish: TestPyPI **Gate 1** two-phase verify (TestPyPI-only download, then local-wheel bare -> `[clients]` -> `[tools]` against PyPI only; never `--no-deps` on the installs, never `--extra-index-url`, never the heavy extras; provenance fetch is a 10×6s poll, not `sleep 30`), then PyPI (`needs: testpypi`, OIDC).
+  The `build` job is tag-guarded to `v*` Releases so a `juniper-<pkg>-v*` Release cannot fire the meta publisher.
+  Gates: `tests/test_publish_testpypi_verify.py`, `tests/test_publish_release_only_trigger.py`. Operator surface: [`docs/REFERENCE.md` § Meta-Package Publish Pipeline](#meta-package-publish-pipeline).
+- `.github/workflows/publish-*.yml` -- Six shared sub-package publishers. All are **Release-only** (`release: published` + `workflow_dispatch`; deliberately **no** `push: tags`, which double-fired and raced TestPyPI in juniper-ml#555 — the trigger **is** the gate; a bare `git push <tag>` starts no run).
+  Each build job is gated on its own `startsWith(github.event.release.tag_name, '<pkg>-v')`, with a `--no-deps` TestPyPI-only verify (5×10s retry) and `skip-existing: true` on both publish steps.
+  Do not resurrect a `Require a GitHub Release for this tag` step under `if: github.event_name == 'push'` — that condition is unreachable.
+  Operator table: [`docs/REFERENCE.md` § Independent Sibling Package Publish Pipelines](#independent-sibling-package-publish-pipelines).
 - `.github/workflows/ci-*.yml` -- Six in-repo shared-package CIs (`ci-tools` / `config-tools` / `doc-tools` / `model-core` / `observability` / `service-core`), distinct from meta `ci.yml` and from `publish-*.yml`.
   Path filters must include `<subdir>/**` **and** the workflow's own path; matrices carry declared Python floors; coverage uses `--cov-fail-under` plus a blocking `juniper-coverage-gap-map --enforce` (only ci-tools may `--omit`
   `__main__.py`); `build.needs: test`; service-core installs sibling `juniper-model-core` from the monorepo root (no test-job `working-directory`).
@@ -1919,9 +1946,10 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Mode switch / rollback: repo variable `RELEASE_TRAIN_MODE` (`off`|`report`|`propose`|`ceremony`, default `report`) + a dispatch `mode` override; `off` quiesces entirely.
   - Operator guide: `notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`.
 - `.github/workflows/pr-budget-alarm.yml` -- Daily (14:00 UTC) scheduled open-PR budget alarm (flood-remediation guardrail, analysis §4 item 9 / P1 §5): counts total open PRs + `cursor/`-headed PRs against repo variables `PR_BUDGET_WARN` (default 15) / `PR_BUDGET_ALARM` (default 30), always writes a step-summary table, and on breach posts to Slack via `SLACK_WEBHOOK_URL` under the non-blocking contract mirrored from `release-train.yml`. Report-only -- a breach never blocks a PR.
-- `.github/workflows/claude.yml` -- Claude Code action for issue/PR automation (@claude mentions)
+- `.github/workflows/claude.yml` -- `@claude` assistant (`anthropics/claude-code-action`; SHA-pinned; not a required check). Operator surface: [Claude Code Action](#claude-code-action).
 - `.github/workflows/agents-md-touch-up.yml` -- **Verifies** (never rewrites) `AGENTS.md`'s `**Last Updated**:` field on every PR that touches `AGENTS.md`: the value must be a well-formed `YYYY-MM-DD`, not in the future, and **either already equal to today's UTC date OR changed in this PR** (`git diff <base>...HEAD`); a missing field warns and passes. Job `Verify AGENTS.md Last Updated`, `permissions: contents: read`, no fork guard (verification needs no token).
-  - The **already-today** arm is a real escape hatch, not a rounding of the rule: a second same-day PR touching `AGENTS.md` — or a **stacked** PR whose base branch already carries the bump, so the line legitimately does not appear in its own diff — passes on the value alone. Only the changed-in-this-PR arm is available once the date is stale, which is why a stacked pair that sits overnight needs its base re-bumped rather than the child edited.
+  - The **already-today** arm is a real escape hatch, not a rounding of the rule: a second same-day PR touching `AGENTS.md` — or a **stacked** PR whose base branch already carries the bump, so the line legitimately does not appear in its own diff — passes on the value alone. Note which arm each PR is relying on: the already-today arm is **re-evaluated every run** and expires at the next UTC midnight, while the changed-in-this-PR arm is **stable for the life of the PR** (that is the workflow's stated reason for preferring it — see `.github/workflows/agents-md-touch-up.yml`).
+  - **A stacked pair that sits overnight: bump the line in the CHILD, not the base.** The child's own diff then contains `+**Last Updated**:`, which satisfies the durable changed-in-this-PR arm and keeps satisfying it however long the PR stays open. Re-bumping the **base** only re-arms the already-today arm for the child, so it passes today and is stale again tomorrow — a one-day shelf life, repaid every morning until the stack lands. (Earlier revisions of this page recommended exactly that; corrected 2026-08-24.) The child must set a value that actually differs from the base's, or the line does not appear in its diff and the durable arm is not engaged.
   - It used to bump the date and push the commit itself. Removed in juniper-ml#1099: a runner's local `git commit` is UNSIGNED, which `required_signatures` rejects (an unsigned commit anywhere in the history blocks the merge; squash does not rescue it), and the `[skip ci]` bump commit became the PR head so **no required context ever reported on it** -- the PR sat permanently BLOCKED with every check at "expected" (cascor#515). It also raced `Update Lockfile (Dependabot)` for the push slot.
   - The predicate is "the line changed", not "equals today", so a PR that spans days keeps passing on re-run. `propose.py` sets the header in its own commit, so release proposals satisfy it as authored.
   - Companion to `tests/test_agents_md_header_schema.py`; gate: `tests/test_agents_md_touch_up.py` (11 arms incl. an anti-resurrection assertion that the shell can never `git commit` / `git push` / `sed -i`). Operator surface: [`docs/REFERENCE.md` § AGENTS.md Date Check](#agentsmd-date-check).
@@ -2441,7 +2469,9 @@ If `release-manifest.json` is absent or blank the summary writes only `**Detecto
 | Permissions | `contents: read` |
 | Concurrency | `agents-md-date-check-<PR number>`, `cancel-in-progress: true` |
 
-Behaviour: check out the PR head with full history; if `AGENTS.md` has **no** `**Last Updated**:` line, emit a `::warning::` and pass; otherwise the value must be a well-formed `YYYY-MM-DD` date, must not be in the future, and the line must have **changed in this PR** (`git diff <base>...HEAD`). Anything else fails the check and prints the exact line to write.
+Behaviour: check out the PR head with full history; if `AGENTS.md` has **no** `**Last Updated**:` line, emit a `::warning::` and pass; otherwise the value must be a well-formed `YYYY-MM-DD` date and must not be in the future. It then passes on **either** of two arms, checked in this order: the value **already equals today's UTC date**, or the line **changed in this PR** (`git diff <base>...HEAD` contains `+**Last Updated**:`). Anything else fails the check and prints the exact line to write.
+
+> Both arms are load-bearing, and this paragraph previously named only the second — which made a same-day PR that legitimately has nothing to bump look like a check failure waiting to happen. The two arms differ in **durability**: already-today is re-evaluated every run and expires at the next UTC midnight; changed-in-this-PR holds for the life of the PR. That distinction is what decides the stacked-PR remedy above.
 
 The predicate is "the line changed", not "the line equals today": a PR opened Monday and merged Thursday would fail an equals-today check on every re-run. `util/release_train/propose.py` sets this header in its own commit, so release-train proposals satisfy the check as authored.
 
@@ -2491,7 +2521,51 @@ With no arguments and no `JUNIPER_ROOT`, the script audits `juniper-ml/.github/w
 | `ci.yml` / `main-verify.yml` battery | Same | `python3 -m unittest -v tests/test_validate_claude_yaml_access.py` |
 | `docs-full-check.yml` | Weekly Mon 06:00 UTC + dispatch | `JUNIPER_ROOT="$GITHUB_WORKSPACE" bash juniper-ml/util/validate_claude_yaml_access.bash` after the sibling clones |
 
-The bash auditor covers L2/L3 structure only; juniper-ml's own `on:` event matrix and exact job `permissions` are pinned separately in `tests/test_validate_claude_yaml_access.py` — a permissions widen that still carries an `@claude` guard would not trip L2/L3 alone.
+The bash auditor covers L2/L3 structure only; juniper-ml's own `on:` event matrix and exact job `permissions` are pinned separately in `tests/test_validate_claude_yaml_access.py` — a permissions widen that still carries an `@claude` guard would not trip L2/L3 alone. Live pin, inputs, and Dependabot contract: [Claude Code Action](#claude-code-action).
+
+---
+
+## Claude Code Action
+
+`.github/workflows/claude.yml` is the GitHub Actions `@claude` assistant. It is **not** the local CLI launcher (`scripts/wake_the_claude.bash` / `claudey`). Mentioning `@claude` on a public issue or PR spends `secrets.ANTHROPIC_API_KEY`. Access-safeguard audit (L2/L3, `DEFAULT_REPOS`) is [Claude.yml Access Validation](#claudeyml-access-validation); this section is the **live workflow contract** — triggers, permissions, SHA pin, and Dependabot.
+
+The job is **not** a required status check and is **not** in Quality Gate `needs:`. It has no `push` or `pull_request` trigger, so a commit to `main` does not start it.
+
+### Workflow contract
+
+| Item | Value |
+|------|-------|
+| Workflow / job name | `Claude Code` / `claude` |
+| Triggers | `issue_comment` (`created`); `pull_request_review_comment` (`created`); `issues` (`opened`, `assigned`); `pull_request_review` (`submitted`) |
+| Job `if:` | Every `on:` event is named in the expression; each arm requires the literal `@claude` (comment body, review body, or issue body/title) |
+| Permissions | Exact map: `contents: write`, `pull-requests: write`, `issues: write`, `id-token: write`, `actions: read` |
+| Checkout | SHA-pinned `actions/checkout` with `fetch-depth: 1` (shallow) |
+| Action | SHA-pinned `anthropics/claude-code-action` with a `# vX.Y.Z` comment. Only input: `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}` |
+| Required secret | Repo secret `ANTHROPIC_API_KEY` (personal-account owner — not an org Actions secret) |
+
+Read the live `# v…` comments in the workflow for the current pin — do not copy a version number out of this page.
+
+Gate: `tests/test_validate_claude_yaml_access.py` (`LiveClaudeWorkflowContractTests`) pins the `on:` set, that every event is named in `if:`, and the exact permissions map. It does **not** pin the action SHA — Dependabot patch bumps of `anthropics/claude-code-action` are expected and do not fail the suite.
+
+### SHA pin and Dependabot
+
+Both `uses:` lines are SHA-pinned with a trailing `# vX.Y.Z` comment. Do not retarget a floating tag (`@v1`).
+
+`.github/dependabot.yml` (`github-actions`, weekly Monday, `open-pull-requests-limit: 3`) groups **only** `github/codeql-action*`. `claude-code-action` is a single `uses:` line, so an ungrouped bump (one file, one SHA) is the healthy PR. That is unlike CodeQL, where an ungrouped bump splits `init` / `autobuild` / `analyze`.
+
+`notes/templates/ci/claude.yml` is the 2026-04-29 rollout snapshot (`actions/checkout` v6.0.2, `anthropics/claude-code-action` v1.0.107). The live workflow is the source of truth (the template header already says so). Copying the template over `.github/workflows/claude.yml` rewinds both pins.
+
+### Operator pitfalls
+
+| Symptom | What it actually is | What to do |
+|---------|---------------------|------------|
+| `@claude` did not run | Job `if:` requires the literal `@claude` in that event's body (or issue title). `issues: assigned` still needs it | Add `@claude` to the comment / review / issue text |
+| Action ran on every comment | Missing or weakened `if:` (L3) | Restore the four-arm `@claude` guard; `bash util/validate_claude_yaml_access.bash .github/workflows/claude.yml` |
+| Fork PR spent the key | `on:` gained `pull_request_target` or `workflow_run` (L2) | Remove those triggers; never add them |
+| Template "sync" rewound the pin | `notes/templates/ci/` snapshot lags Dependabot | Restore `.github/workflows/claude.yml` from `main`; leave the template as a historical snapshot |
+| Floating `@v1` / un-SHA'd tag | Mutable tag; SHA pin is the contract | Keep `uses: ...@<sha>  # vX.Y.Z` |
+| Permissions widen, auditor still green | L2/L3 bash does not pin the permissions map | `LiveClaudeWorkflowContractTests.test_job_permissions_exact` fails; do not drop that test |
+| Workflow file present, action cannot resolve the key | `ANTHROPIC_API_KEY` is a **repo** secret on this personal-account owner | Set the secret on the repo; walkthrough [§1.1](../notes/JUNIPER_2026-05-10_JUNIPER-ECOSYSTEM_ANTHROPIC-API-KEY-ACCESS-VALIDATION-WALKTHROUGH.md) |
 
 ---
 
@@ -2532,10 +2606,10 @@ Publish and CI constraints:
 | Field                 | Value                                                                    |
 |-----------------------|--------------------------------------------------------------------------|
 | **PyPI Name**         | `juniper-service-core`                                                   |
-| **Current Version**   | `0.5.1`                                                                  |
+| **Current Version**   | `0.6.0`                                                                  |
 | **Python**            | `>=3.12`                                                                 |
 | **Importable Module** | `juniper_service_core`                                                   |
-| **Meta pin**          | `juniper-service-core>=0.2.0,<0.6.0` under `[tools]` / `[all]`            |
+| **Meta pin**          | `juniper-service-core>=0.2.0,<0.7.0` under `[tools]` / `[all]`            |
 | **Package Docs**      | [`../juniper-service-core/README.md`](../juniper-service-core/README.md) |
 
 #### HTTP middleware contracts
@@ -2613,7 +2687,9 @@ Control receive rejects malformed / non-object JSON with close **1003** rather t
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0.6.8   | 2026-08-24 | HTTP client `base_url` contract: shared REST `_normalize_url` (case-insensitive scheme, `hostname` guard, `/v1` strip), WS/fake rstrip-only, extras-floor honesty vs unreleased wheels |
+| 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
+| 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate |
+| 0.6.13   | 2026-08-24 | HTTP client `base_url` contract: shared REST `_normalize_url` (case-insensitive scheme, `hostname` guard, `/v1` strip), WS/fake rstrip-only, extras-floor honesty vs unreleased wheels |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
@@ -2644,8 +2720,9 @@ Release flow:
 
 1. **Build and Validate** -- checks out the tag, installs `build` and `twine`, runs `python -m build`, validates with `twine check dist/*`, and uploads the `dist/` artifact.
 2. **Publish to TestPyPI** -- downloads the artifact, publishes to TestPyPI with OIDC trusted publishing, and enables PyPI attestations.
-3. **Verify TestPyPI Install (Gate 1)** -- reads `[project].version`, waits briefly for index lag, then verifies in **two phases** (2026-08-08 amendment: pip has **no index priority**, so a merged `--index-url` + `--extra-index-url` namespace resolves to the highest version across *both* indexes and lets a TestPyPI squatter outrank the real package — TestPyPI `fastapi 1.0` beat production `fastapi 0.141.1` and killed the v0.7.0 verify, run 31281873275):
-   1. **Provenance** -- `pip download --no-deps --index-url https://test.pypi.org/simple/ --dest <tmp> "juniper-ml==${VERSION}"`. The artifact comes from TestPyPI and **only** TestPyPI, at the exact built version; a missing `juniper_ml-${VERSION}-py3-none-any.whl` fails the step rather than handing pip a bogus path.
+3. **Verify TestPyPI Install (Gate 1)** -- reads `[project].version`, then **polls** TestPyPI for the just-uploaded wheel (10 attempts × 6s, ~60s ceiling — not an unconditional `sleep 30`; juniper-ml#1310), then verifies in **two phases**.
+   2026-08-08 amendment: pip has **no index priority**, so a merged `--index-url` + `--extra-index-url` namespace resolves to the highest version across *both* indexes and lets a TestPyPI squatter outrank the real package — TestPyPI `fastapi 1.0` beat production `fastapi 0.141.1` and killed the v0.7.0 verify, run 31281873275:
+   1. **Provenance** -- `pip download --no-deps --index-url https://test.pypi.org/simple/ --dest <tmp> "juniper-ml==${VERSION}"` inside the poll loop. The artifact comes from TestPyPI and **only** TestPyPI, at the exact built version; a missing `juniper_ml-${VERSION}-py3-none-any.whl` fails the step rather than handing pip a bogus path. The fetch stays on **one line and outside any `if`** — `tests/test_publish_testpypi_verify.py` matches `^pip download` against the stripped line.
    2. **Resolution** -- **three** installs of that local wheel in order, each `--index-url https://pypi.org/simple/` (production PyPI **only**, no `--extra-index-url`) and **never** `--no-deps`, so extras resolution is still genuinely exercised:
       1. bare `"${WHEEL}"` → `importlib.metadata` version check
       2. `"${WHEEL}[clients]"` → imports `juniper_data_client`, `juniper_cascor_client`
@@ -2654,9 +2731,19 @@ Release flow:
    Light extras only — do **not** add `[worker]` / `[servers]` / `[all]` / `[recurrence]` here (torch, multi-GB). A broken extras declaration that a bare install alone would miss fails at this gate, before production PyPI.
 4. **Publish to PyPI** (`needs: testpypi`) -- runs only after Gate 1 succeeds and publishes the same artifact with OIDC trusted publishing and attestations enabled.
 
-**Tag guard:** the `build` job runs only for `workflow_dispatch` or a Release whose tag starts with `v`, so a shared-package Release (`juniper-<pkg>-v*`) cannot fire the meta publisher. Always-on gate for the two-phase verify (including the anti-regression check that no verify command may carry `--extra-index-url` or name both index URLs), the tag guard, and `pypi needs: testpypi`: `tests/test_publish_testpypi_verify.py`.
+**Tag guard:** the `build` job runs only for `workflow_dispatch` or a Release whose tag starts with `v`, so a shared-package Release (`juniper-<pkg>-v*`) cannot fire the meta publisher. Always-on gate for the two-phase verify (including the anti-regression check that no verify command may carry `--extra-index-url` or name both index URLs), the bounded poll, the tag guard, and `pypi needs: testpypi`: `tests/test_publish_testpypi_verify.py`.
 
 **Upload strictness:** the TestPyPI upload sets `skip-existing: true` so re-cutting a Release for a version TestPyPI already holds is a no-op rather than an immutable-upload 400; the production PyPI upload deliberately stays strict.
+
+**Index-lag poll (juniper-ml#1310).** TestPyPI's simple index is CDN-fronted and lags an upload by ~5–30s, so the first fetch of a just-published version can 404.
+The previous unconditional `sleep 30` was 77% of a measured 39s step, paid in full on **every** publish even when the index was already warm, and still a coin-flip if propagation ran long.
+The poll returns as soon as the artifact is servable (usually the first attempt) and fails with `::error::TestPyPI never served juniper-ml==${VERSION} within ~60s of upload` if the ceiling is hit. Do not restore `sleep 30`.
+
+**The trigger is the gate (juniper-ml#1310).** Every publisher is `release: published` + `workflow_dispatch` only. A bare `git push <tag>` starts **no run** — nothing is built, nothing is uploaded.
+The six sub-package publishers used to carry a `Require a GitHub Release for this tag` step gated on `if: github.event_name == 'push'`; none of them subscribe to `push:` (removed after #555), so those steps could never run.
+Dead code shaped like a guard is worse than no guard: it reads as though a tag push is blocked here.
+Gate: `tests/test_publish_release_only_trigger.py` (glob-discovered; pins both directions — re-adding `push:` recreates the #555 race, removing `release:` disarms publishing silently).
+Re-measured 2026-08-24: 12 tags exist with no Release and none of them published.
 
 ### Independent Sibling Package Publish Pipelines
 
@@ -2676,9 +2763,9 @@ Contracts every one of them shares:
 
 | Contract | Why it matters |
 |----------|----------------|
-| **Release-only trigger** (`release: published` + `workflow_dispatch`; **no** `push: tags`) | Cutting a Release also creates the tag. Subscribing to both fired two concurrent publishes that raced the immutable TestPyPI upload (juniper-ml#555). |
+| **Release-only trigger** (`release: published` + `workflow_dispatch`; **no** `push: tags`) | Cutting a Release also creates the tag. Subscribing to both raced the immutable TestPyPI upload (#555). The trigger **is** the gate: a bare `git push <tag>` starts no run. Do not resurrect a push-gated Release step (#1310). Gate: `tests/test_publish_release_only_trigger.py`. |
 | **Build-job tag-prefix guard** | `release: published` fires *every* `publish-*.yml`, so each build job gates on `startsWith(github.event.release.tag_name, '<pkg>-v')` to keep package A's Release from publishing package B. |
-| **`--no-deps` TestPyPI-only verify** | With `--no-deps` no dependencies are fetched, so adding an `--extra-index-url` to production PyPI would only risk resolving a squatted *target* package during TestPyPI index lag. Sibling verify must not add a PyPI fallback. |
+| **`--no-deps` TestPyPI-only verify** | With `--no-deps` no dependencies are fetched, so adding an `--extra-index-url` to production PyPI would only risk resolving a squatted *target* package during TestPyPI index lag. Sibling verify must not add a PyPI fallback. Index lag is a 5×10s retry around `pip install` (~50s), distinct from the meta publisher's 10×6s `pip download` poll (~60s). |
 | **`skip-existing: true`** on both publish steps | Residual overlap (a manual dispatch during a Release) is a no-op instead of an immutable-upload 400. |
 | **OIDC + concurrency** | `permissions: {id-token: write, contents: read}`; `concurrency.group: publish-<suffix>-${{ github.ref_name }}` with `cancel-in-progress: false`; environments `testpypi` then `pypi`. |
 
@@ -2692,7 +2779,7 @@ Sibling package release flow:
 
 1. **Build and Validate** -- the build job sets `defaults.run.working-directory` to the package subdirectory (so every step is subdir-relative without repeating the path), runs `python -m build --sdist --wheel`, validates with `twine check dist/*`, and uploads that subdirectory's `dist/` artifact with `if-no-files-found: error` so a silently empty build fails here instead of surfacing as a confusing publish-step error.
 2. **Publish to TestPyPI** -- downloads the artifact into `dist/`, publishes with `packages-dir: dist/`, `repository-url: https://test.pypi.org/legacy/`, and `verbose: true` so trusted-publisher or upload errors include the server response body.
-3. **Verify TestPyPI Install** -- sparse-checks out the package `pyproject.toml`, reads the package version, retries the TestPyPI install up to five times to tolerate index lag, then imports the package's version module.
+3. **Verify TestPyPI Install** -- sparse-checks out the package `pyproject.toml`, reads the package version, retries `pip install --no-deps --index-url https://test.pypi.org/simple/` up to five times with a 10s interval (~50s ceiling) to tolerate index lag, then confirms the installed version (`import` of the package, or `importlib.metadata` when `--no-deps` would leave an import broken).
 4. **Publish to PyPI** -- runs only after TestPyPI install verification and publishes the same artifact with `packages-dir: dist/` and `verbose: true`.
 
 These publish workflows require GitHub Actions environments named `testpypi` and `pypi`, plus matching trusted-publisher entries on TestPyPI and PyPI for the workflow file, environment, owner, repository, and project name.
@@ -2942,5 +3029,5 @@ Local orchestration scripts in `util/` also read the host-stack variables docume
 ---
 
 **Last Updated:** 2026-08-24
-**Version:** 0.6.8
+**Version:** 0.6.13
 **Maintainer:** Paul Calnon

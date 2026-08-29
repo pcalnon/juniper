@@ -6,7 +6,7 @@ Sub-Project: ad-hoc tooling
 Author:      Paul Calnon
 Created:     2026-08-16
 Status:      ad-hoc -- one-off (wide-budget head-to-head campaign)
-Retire when: the wide-budget head-to-head evidence note is merged; delete then.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the wide-budget head-to-head evidence note is merged; delete then.
 Related:     2026-08-16_h2h_collect.py (the arm-level table this explains).
 
 WHY

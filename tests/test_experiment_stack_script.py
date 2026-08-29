@@ -79,6 +79,19 @@ def _strip_comment_lines(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
 
+def _env_lines_for_key(env_text: str, key: str) -> list:
+    """Return only the ``KEY=...`` lines of a captured env blob (F-E2E-005).
+
+    The live-up stubs capture ``env | grep -E '^(...|JUNIPER_)'`` and that grep
+    also captures ambient secrets (``JUNIPER_ML_PYPI`` / ``JUNIPER_ML_TEST_PYPI``
+    tokens). A failing ``assertIn(needle, env_text)`` renders the WHOLE blob --
+    the exact leak class ``tests/redacted_env.py`` exists to prevent -- so every
+    assertion over a captured env compares against the lines for its own key,
+    and a failure renders nothing but those.
+    """
+    return [line for line in env_text.splitlines() if line.split("=", 1)[0] == key]
+
+
 SCRIPT_CODE = _strip_comment_lines(SCRIPT_TEXT)
 
 
@@ -812,6 +825,22 @@ class TestGrafanaBridge(unittest.TestCase):
         # F-3: prometheus/targets/ is already inside the existing :ro mount.
         self.assertIn('TARGETS_DIR="${DEPLOY_DIR}/prometheus/targets"', SCRIPT_TEXT)
         self.assertIn('DEPLOY_DIR="${JUNIPER_EXP_DEPLOY_DIR:-${PROJECT_DIR}/juniper-deploy}"', SCRIPT_TEXT)
+
+    def test_cascor_src_dir_is_overridable_on_its_own(self) -> None:
+        """A campaign must be able to pin cascor to a WORKTREE without freezing the primary.
+
+        While this was derived from PROJECT_DIR, every campaign held the primary checkout for
+        its whole life, and any session running a stack out of the primary blocked every
+        campaign (observed 2026-08-26: a live E2E stack on :8202 with cwd in the primary src).
+        The override is independent of PROJECT_DIR so the rest of the layout stays canonical.
+        """
+        self.assertIn('CASCOR_SRC_DIR="${JUNIPER_EXP_CASCOR_SRC_DIR:-${PROJECT_DIR}/juniper-cascor/src}"', SCRIPT_TEXT)
+        # And it must stay the thing uvicorn is launched from, or the override is decorative.
+        self.assertIn('cd "${CASCOR_SRC_DIR}"', _extract_experiment_fn("cascor_up"))
+
+    def test_the_cascor_src_override_is_documented(self) -> None:
+        """The env block is the only place an operator learns the knob exists."""
+        self.assertIn("JUNIPER_EXP_CASCOR_SRC_DIR", SCRIPT_TEXT.split("CASCOR_SRC_DIR=")[0])
 
     def test_target_file_removed_at_teardown(self) -> None:
         bridge_down = _extract_experiment_fn("bridge_down")
@@ -1917,11 +1946,12 @@ class TestDataUpLive(_LiveUpHarness):
                     int((listeners_dir / "68110.pid").read_text().strip()),
                     "pidfile must match the ss-reported listener, not a subshell $!",
                 )
+                # F-E2E-005: compare against per-key line lists, never the whole blob.
                 env_text = (marker_dir / "data.env").read_text()
-                self.assertIn("PYTHON_GIL=0", env_text)
-                self.assertIn(f"JUNIPER_DATA_STORAGE_PATH={run_dir}/data", env_text)
-                self.assertIn(f"JUNIPER_DATA_EQUITIES_CACHE_DIR={run_dir}/equities-cache", env_text)
-                self.assertIn("JUNIPER_DATA_METRICS_ENABLED=true", env_text)
+                self.assertIn("PYTHON_GIL=0", _env_lines_for_key(env_text, "PYTHON_GIL"))
+                self.assertIn(f"JUNIPER_DATA_STORAGE_PATH={run_dir}/data", _env_lines_for_key(env_text, "JUNIPER_DATA_STORAGE_PATH"))
+                self.assertIn(f"JUNIPER_DATA_EQUITIES_CACHE_DIR={run_dir}/equities-cache", _env_lines_for_key(env_text, "JUNIPER_DATA_EQUITIES_CACHE_DIR"))
+                self.assertIn("JUNIPER_DATA_METRICS_ENABLED=true", _env_lines_for_key(env_text, "JUNIPER_DATA_METRICS_ENABLED"))
                 args = (marker_dir / "data.args").read_text()
                 self.assertIn("-m", args)
                 self.assertIn("juniper_data", args)
@@ -2021,11 +2051,12 @@ class TestCascorUpLive(_LiveUpHarness):
                 self.assertIn("juniper-cascor is healthy", result.stdout)
                 self.assertTrue(pid_path.is_file())
                 child_pid = int(pid_path.read_text().strip())
+                # F-E2E-005: compare against per-key line lists, never the whole blob.
                 env_text = (marker_dir / "cascor.env").read_text()
-                self.assertIn("LD_LIBRARY_PATH=\n", env_text)
-                self.assertIn("JUNIPER_DATA_URL=http://127.0.0.1:68110", env_text)
-                self.assertIn("JUNIPER_CASCOR_AUTO_START=false", env_text)
-                self.assertIn("JUNIPER_CASCOR_METRICS_ENABLED=true", env_text)
+                self.assertIn("LD_LIBRARY_PATH=", _env_lines_for_key(env_text, "LD_LIBRARY_PATH"))
+                self.assertIn("JUNIPER_DATA_URL=http://127.0.0.1:68110", _env_lines_for_key(env_text, "JUNIPER_DATA_URL"))
+                self.assertIn("JUNIPER_CASCOR_AUTO_START=false", _env_lines_for_key(env_text, "JUNIPER_CASCOR_AUTO_START"))
+                self.assertIn("JUNIPER_CASCOR_METRICS_ENABLED=true", _env_lines_for_key(env_text, "JUNIPER_CASCOR_METRICS_ENABLED"))
                 args = (marker_dir / "cascor.args").read_text()
                 self.assertIn("api.app:create_app", args)
                 self.assertIn("--factory", args)
@@ -2081,10 +2112,11 @@ class TestRecurrenceUpLive(_LiveUpHarness):
                 self.assertIn("juniper-recurrence is healthy", result.stdout)
                 self.assertTrue(pid_path.is_file())
                 child_pid = int(pid_path.read_text().strip())
+                # F-E2E-005: compare against per-key line lists, never the whole blob.
                 env_text = (marker_dir / "recurrence.env").read_text()
-                self.assertIn("JUNIPER_RECURRENCE_METRICS_ENABLED=true", env_text)
-                self.assertIn("JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=false", env_text)
-                self.assertIn("JUNIPER_DATA_URL=http://127.0.0.1:68110", env_text)
+                self.assertIn("JUNIPER_RECURRENCE_METRICS_ENABLED=true", _env_lines_for_key(env_text, "JUNIPER_RECURRENCE_METRICS_ENABLED"))
+                self.assertIn("JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED=false", _env_lines_for_key(env_text, "JUNIPER_RECURRENCE_RATE_LIMIT_ENABLED"))
+                self.assertIn("JUNIPER_DATA_URL=http://127.0.0.1:68110", _env_lines_for_key(env_text, "JUNIPER_DATA_URL"))
                 args = (marker_dir / "recurrence.args").read_text()
                 self.assertIn("serve", args)
                 self.assertIn("68260", args)

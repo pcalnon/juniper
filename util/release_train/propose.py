@@ -29,6 +29,22 @@ single **standard-gated release-proposal PR** (plan S5.4):
     ``AGENTS.md`` extras table -- IN THE SAME PR. This is the ml#657 RK-11 failure class (a
     service-core 0.5.0 proposal that bumped the sub-package but not the ``<0.5.0`` meta ceiling, so
     ``tests/test_service_core_drift.py`` failed and the proposal shipped red);
+
+    **KNOWN GAP -- the co-change set is short by three, and a proposal still ships red because of it
+    (found 2026-08-29 on the service-core 0.6.0 cut, ml#1458).** "Two lockstep artifacts" is wrong:
+    ``tests/test_pyproject_extras.py::ExtrasDocsLockstepTest`` asserts the extras tables in
+    ``README.md``, ``docs/QUICK_START.md`` and ``docs/REFERENCE.md`` against ``pyproject.toml`` too,
+    and its own failure message says "co-update the documented table in the same PR as the pin
+    change". None of the three is in this generator's edit set, so the 0.6.0 proposal failed 3 arms
+    on all three Python versions and had to be repaired by hand before it could merge. The next
+    escaping bump reproduces it.
+    ``docs/REFERENCE.md`` needs **two** edits, not one: it carries the inline table AND a separate
+    "Extras Reference" table with its own parser (``_pins_from_reference_extras_table``) where the
+    distribution and its specifier sit in **different columns** -- so a substitution on the combined
+    ``name>=x,<y`` string silently misses it, which is how the first hand-repair looked complete and
+    still failed one arm. :func:`apply_pin_edits_agents_table` is heading-scoped to AGENTS.md's
+    "Dependency extras reference"; README / QUICK_START share the inline row shape and want the same
+    editor re-anchored, while the REFERENCE split-column table needs its own;
   * the ``propagation_edges`` -- a pre-1.0 MINOR bump escapes a consumer's ``<next-minor``
     ceiling pin (plan S6/S13), so each reverse-dependency consumer gets an edge annotated with a
     ``consumer_pin_state`` (``within_range`` / ``floor_only`` / ``escaped -> follow-on`` /
@@ -55,13 +71,17 @@ the train will not auto-author notes / move a CHANGELOG the detector found incon
 
 ``--dry-run`` is the DEFAULT: it prints the complete, well-formed proposal (unified diffs +
 drafted notes + PR body) and **writes nothing** to the repo and opens nothing. ``--execute``
-(opt-in, and overridden by ``--dry-run`` for safety) applies the edits, commits, pushes, and opens
-the PR -- wired into ``release-train.yml``'s write-scoped ``propose`` job. Cross-repo is
+(opt-in, and overridden by ``--dry-run`` for safety) applies the edits, commits them through the
+GitHub API, and opens the PR -- wired into ``release-train.yml``'s write-scoped ``propose`` job.
+Cross-repo is
 **capability-gated** (Phase 4.1, plan S9.2 / S12 step 4.1): with ``--cross-repo`` (the workflow
 passes it ONLY when it minted the GitHub App installation token) AND the sibling repo checked out on
-disk under ``--ecosystem-root``, a sibling package's proposal branches from that repo's
-``origin/main``, edits that checkout, pushes with the App token, and opens the PR in that repo (the
-dup-guard runs per-repo). WITHOUT the capability -- the degraded single-repo ``GITHUB_TOKEN`` path --
+disk under ``--ecosystem-root``, a sibling package's proposal branches from that repo's ``main``,
+commits through the GitHub API under the App identity, and opens the PR in that repo (the
+dup-guard runs per-repo). **The sibling checkout is a read-only INPUT, never a write target** --
+it is where ``read_file`` reads the current file bodies the edits are computed against; the branch,
+the commit and the PR are all created through ``gh api`` (see ``ProposeSources``). Nothing on disk
+is modified, in this repo or any sibling. WITHOUT the capability -- the degraded single-repo ``GITHUB_TOKEN`` path --
 a non-juniper-ml package is SKIPPED with the same clear reason as before. The in-repo meta
 consumer-pin co-changes (the #657 RK-11 lockstep) apply ONLY to juniper-ml packages; a sibling
 proposal never edits the meta from a sibling checkout -- it emits the S13 propagation edge instead.
@@ -121,8 +141,9 @@ _MINOR_BUMPS = frozenset({"minor", "major"})
 # ``GITHUB_TOKEN`` (plan S9.2), which can push a branch + open a PR only in juniper-ml. Cross-repo
 # writes are now unlocked by CAPABILITY, not hardcoding: with ``--cross-repo`` (the workflow passes it
 # only when it minted the GitHub App installation token, Phase 4.1) AND the sibling checked out on disk
-# under ``--ecosystem-root``, a sibling package is branched/edited/pushed in its OWN checkout and its PR
-# opened in its OWN repo (``make_live_sources`` is repo-aware -- ``_repo_dir(repo)``). WITHOUT the
+# under ``--ecosystem-root``, a sibling package's branch + commit + PR are created in its OWN repo
+# through the GitHub API (``make_live_sources`` is repo-aware -- ``_repo_dir(repo)``); the checkout is
+# only READ, to source the file bodies the edits apply to. WITHOUT the
 # capability a sibling is SKIPPED with the same clear reason as before (``cross_repo_skip_reason``).
 # ``--dry-run`` is unaffected -- it previews every repo's proposal and writes nothing.
 # Overridable for tests / a future multi-repo identity.
@@ -1068,8 +1089,10 @@ def enrich_edges_with_pin_state(edges: list, upstream_entry: "detect.PackageEntr
 
 def execute_follow_on(fo: "FollowOnPR", sources: ProposeSources, base_branch: str = "main", *, cross_repo: bool = False, ecosystem_root: "Path | None" = None) -> str:
     """Apply one follow-on to its consumer repo's checkout and open the PR there (Phase 4.2 execute).
-    Mirrors ``execute_proposal``: in-repo branches from ``base_branch``, a sibling from ``origin/main``;
-    the capability guard is belt-and-suspenders (the caller already skips a skipped/degraded follow-on)."""
+    Mirrors ``execute_proposal``: in-repo and sibling alike branch from ``base_branch``, resolved
+    through the API against the target repo's own ref -- there is no in-repo/sibling ``origin/main``
+    split any more (that was the removed local-git path).
+    The capability guard is belt-and-suspenders (the caller already skips a skipped/degraded follow-on)."""
     if sources.resolve_ref_sha is None or sources.create_branch is None or sources.create_signed_commit is None or sources.open_pr is None:
         raise SourceError("execute mode needs resolve_ref_sha/create_branch/create_signed_commit/open_pr seam members")
     if fo.skipped or not fo.branch or not fo.edits:
@@ -1152,6 +1175,8 @@ def _pr_body(prop: Proposal, date: str) -> str:
         lines.append("### Consumer-pin co-changes (in-repo meta extras, plan S5.4)")
         if prop.consumer_pin_cochanges:
             lines.append("This escaping bump exceeds the meta-package's own `[project.optional-dependencies]` ceiling, so the pin + its two lockstep artifacts (`tests/test_pyproject_extras.py` membership and the `AGENTS.md` extras table) are moved IN THIS PR (closes the ml#657 RK-11 gap):")
+            lines.append("")
+            lines.append("> **Reviewer action required -- this generator has a known gap.** `tests/test_pyproject_extras.py` also asserts the extras tables in `README.md`, `docs/QUICK_START.md` and `docs/REFERENCE.md` against `pyproject.toml`, and none of the three is in the edit set above, so this PR will fail 3 arms until they are co-updated by hand. `docs/REFERENCE.md` needs **two** edits -- the inline table, and the separate \"Extras Reference\" table whose distribution and specifier sit in different columns, which a combined-string substitution misses. Found on the service-core 0.6.0 cut (ml#1458).")
             for cc in prop.consumer_pin_cochanges:
                 lines.append(f"- `[{cc.extra}]`: `{cc.old_req}` -> `{cc.new_req}`")
         else:
@@ -1504,16 +1529,24 @@ def cross_repo_skip_reason(repo: str, *, cross_repo_capable: bool = False, ecosy
       * a sibling repo AND NOT ``cross_repo_capable`` -> the SAME clear reason as before (the degraded
         path has no cross-repo write identity; the single-repo ``GITHUB_TOKEN`` cannot open a PR there).
       * a sibling repo, ``cross_repo_capable``, but its checkout is absent under ``ecosystem_root`` ->
-        a distinct reason (propose.py branches/edits/pushes the sibling checkout, so it must be present).
+        a distinct reason. The checkout is required as a READ source -- ``read_file`` sources the
+        current file bodies from it -- not as a write target; nothing is written to it.
       * a sibling repo, capable, checkout present -> ``None``: the GitHub App identity (plan S9.2) may
-        branch from that repo's ``origin/main``, edit it, push, and open the PR there (S12 step 4.1)."""
+        branch from that repo's ``main``, commit through the API and open the PR there (S12 step 4.1).
+
+    **Staleness is the live hazard here, not writes.** ``create_signed_commit`` sends WHOLE file
+    bodies, and those bodies come from the local checkout while the branch point comes from the
+    repo's live ``main``. A sibling checkout behind its remote therefore commits stale content over
+    whatever landed in between -- silently, because ``expectedHeadOid`` guards the freshly created
+    branch (which cannot have moved) and says nothing about the checkout's age. Fetch siblings before
+    an ``--execute --cross-repo`` run."""
     if repo == writable_repo:
         return None
     if not cross_repo_capable:
         return f"cross-repo: package lives in '{repo}', not the writable repo '{writable_repo}' -- the release-train workflow's single-repo GITHUB_TOKEN cannot open a PR there (Phase 2/3 in-repo pilot; Phase 4's GitHub App identity lifts this, plan S9.2 / S12 step 4.1)"
     checkout = (ecosystem_root / repo) if ecosystem_root is not None else None
     if checkout is None or not checkout.is_dir():
-        return f"cross-repo: '{repo}' is release-worthy and this run is cross-repo-capable, but its checkout is not present at {checkout} -- clone it (full history + tags) under --ecosystem-root so propose.py can branch/edit/push it (plan S12 step 4.1)"
+        return f"cross-repo: '{repo}' is release-worthy and this run is cross-repo-capable, but its checkout is not present at {checkout} -- clone it (full history + tags) under --ecosystem-root so propose.py can READ the current file bodies from it; the branch, commit and PR are created through the GitHub API, not in the checkout (plan S12 step 4.1)"
     return None
 
 

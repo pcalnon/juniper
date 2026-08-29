@@ -1,0 +1,4 @@
+role=parent(main.py) pid=3524806 auditor ARMED argv=['main.py', '--config', '/home/pcalnon/.local/state/juniper-experiments/suites/e-l-determinism-cap4-20260824T003754Z/cells/c000-7749f335/experiment.yaml'] modules_now=132
+role=parent(main.py) pid=3524806 FIRST-IMPORT numpy (as 'numpy') triggered by /opt/miniforge3/envs/JuniperCascor1/lib/python3.13/site-packages/torch/__init__.py:442 in <module>
+role=parent(main.py) pid=3524806 FIRST-IMPORT torch (as 'torch') triggered by /opt/miniforge3/envs/JuniperCascor1/lib/python3.13/multiprocessing/forkserver.py:196 in main
+role=parent(main.py) pid=3524806 FINAL modules=1157 present=['torch', 'numpy']

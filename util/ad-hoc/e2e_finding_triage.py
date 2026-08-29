@@ -47,21 +47,32 @@ def main() -> int:
         if fid in seen:
             continue
         seen.add(fid)
-        fixed = bool(re.search(r"\bFIXED\b|\bHEALED\b", body[-170:], re.I))
-        pm = re.search(r"\b(P0/P1|P0|P1|P2|CRITICAL|LEDGER)\b", body)
-        pri = pm.group(1) if pm else "?"
-        rows.append({"id": fid, "pri": pri, "fixed": fixed, "short": body.split(":")[0][:78]})
 
-    shown = [r for r in rows if not (args.open_only and r["fixed"])]
-    shown.sort(key=lambda r: (r["fixed"], ORDER.get(r["pri"], 9), r["id"]))
+        def pri_of(b: str) -> str:
+            pm = re.search(r"\b(P0/P1|P0|P1|P2|CRITICAL|LEDGER)\b", b)
+            return pm.group(1) if pm else "?"
+
+        tail = body[-170:]
+        fixed = bool(re.search(r"\bFIXED\b|\bHEALED\b", tail, re.I))
+        # ACCEPTED is a THIRD disposition, not a flavour of fixed: the defect is real
+        # and unrepaired, but the owner has signed off on documented behaviour instead
+        # of a code change (plan §6.3's "closed or explicitly deferred with owner
+        # sign-off"). Counting it as fixed would overstate what shipped; counting it as
+        # open would keep an exit criterion red that the owner has already settled.
+        accepted = bool(re.search(r"\bACCEPTED\b", tail, re.I)) and not fixed
+        rows.append({"id": fid, "pri": pri_of(body), "fixed": fixed, "accepted": accepted, "short": body.split(":")[0][:78]})
+
+    shown = [r for r in rows if not (args.open_only and (r["fixed"] or r["accepted"]))]
+    shown.sort(key=lambda r: (r["fixed"], r["accepted"], ORDER.get(r["pri"], 9), r["id"]))
     for r in shown:
-        state = "FIXED " if r["fixed"] else "OPEN  "
+        state = "FIXED " if r["fixed"] else ("ACCEPT" if r["accepted"] else "OPEN  ")
         print(f"{state} {r['pri']:<6} {r['id']:<15} {r['short']}")
 
-    op = [r for r in rows if not r["fixed"]]
+    op = [r for r in rows if not r["fixed"] and not r["accepted"]]
     print()
     print(f"total findings : {len(rows)}")
     print(f"  fixed        : {sum(1 for r in rows if r['fixed'])}")
+    print(f"  accepted     : {sum(1 for r in rows if r['accepted'])}")
     print(f"  open         : {len(op)}")
     for p in ("P0", "P0/P1", "P1", "P2", "CRITICAL", "LEDGER", "?"):
         n = sum(1 for r in op if r["pri"] == p)

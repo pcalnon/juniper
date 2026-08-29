@@ -32,22 +32,24 @@
 **Sources**:
 - `juniper-cascor/notes/history/DEVELOPMENT_ROADMAP.md` (lines 256-306)
 
-### JR-DAT-DATA-001 — All 7 storage backends implemented and tested: memory, localfs, cached, redis, hf, postgres, kaggle.
+### JR-DAT-DATA-001 — All 7 storage backends implemented and tested: memory, localfs, cached, redis, hf, postgres, kaggle
 
 **Status**: shipped  **Priority**: P0  **Category**: DATA  **Owner**: dat
 
 **Sources**:
+
 - `juniper-data/notes/history/INTEGRATION_DEVELOPMENT_PLAN.md` (lines 34-35)
 
 **Notes**:
 
 DATA-015 complete. All implementations present.
 
-### JR-DAT-DATA-002 — All 8 generators registered in GENERATOR_REGISTRY: spiral, xor, gaussian, circles, checkerboard, csv_import, mnist, arc_agi.
+### JR-DAT-DATA-002 — All 8 generators registered in GENERATOR_REGISTRY: spiral, xor, gaussian, circles, checkerboard, csv_import, mnist, arc_agi
 
 **Status**: shipped  **Priority**: P0  **Category**: DATA  **Owner**: dat
 
 **Sources**:
+
 - `juniper-data/notes/history/JUNIPER-DATA_POST-RELEASE_DEVELOPMENT-ROADMAP_2026-02-17.md` (lines 29-32)
 
 **Notes**:
@@ -330,11 +332,12 @@ Root cause RC-3; doc status indicates implementation complete
 **Sources**:
 - `juniper-cascor/notes/history/PRE-DEPLOYMENT_ROADMAP.md` (lines 102-147)
 
-### JR-DAT-DATA-003 — Lifecycle management supports tagging, TTL, expiration via DatasetMeta (tags, ttl_seconds, expires_at).
+### JR-DAT-DATA-003 — Lifecycle management supports tagging, TTL, expiration via DatasetMeta (tags, ttl_seconds, expires_at)
 
 **Status**: shipped  **Priority**: P0  **Category**: DATA  **Owner**: dat
 
 **Sources**:
+
 - `juniper-data/notes/history/INTEGRATION_DEVELOPMENT_PLAN.md` (lines 34-35)
 
 **Notes**:
@@ -356,11 +359,12 @@ DATA-016 complete.
 
 [v3 brief repaired from cited content; was: '3.5 Phase 1 Deferred Items — STATUS UPDATE (2026-04-10, REVI']
 
-### JR-DAT-DATA-004 — NPZ contract guarantees 6 array keys with float32 dtype and one-hot label encoding.
+### JR-DAT-DATA-004 — NPZ contract guarantees 6 array keys with float32 dtype and one-hot label encoding
 
 **Status**: shipped  **Priority**: P0  **Category**: DATA  **Owner**: dat
 
 **Sources**:
+
 - `juniper-data/notes/history/INTEGRATION_DEVELOPMENT_PLAN.md` (lines 274-292)
 
 **Notes**:
@@ -1042,11 +1046,12 @@ Consolidates 80 commits delivering: CasCor backend (async training, remote worke
 
 [v2 ARCH→TEST re-bucket]
 
-### JR-CAN-DATA-001 — JuniperCanopy ↔ JuniperData integration: replace local client with shared package, mandatory JUNIPER_DATA_URL, schema mismatch fixes.
+### JR-CAN-DATA-001 — JuniperCanopy ↔ JuniperData integration: replace local client with shared package, mandatory JUNIPER_DATA_URL, schema mismatch fixes
 
 **Status**: shipped  **Priority**: P1  **Category**: DATA  **Owner**: can
 
 **Sources**:
+
 - `juniper-canopy/notes/history/CANOPY_JUNIPER_DATA_INTEGRATION_PLAN.md` (lines 1-100)
 
 **Detail**:
@@ -1286,11 +1291,12 @@ Epic 2.1: Single source of truth for test fixtures. Epic 2.2: Re-enabled critica
 MyPy error codes (arg-type, return-value, assignment). Epic 2.3: Enabled flake8
 linting on test files with relaxed configuration.
 
-### JR-DAT-DATA-005 — Phase 2 partial refactor PR for juniper-data.
+### JR-DAT-DATA-005 — Phase 2 partial refactor PR for juniper-data
 
 **Status**: shipped  **Priority**: P1  **Category**: DATA  **Owner**: dat
 
 **Sources**:
+
 - `juniper-data/notes/history/pull_requests/PR_PHASE2_PARTIAL_2026-01-07.md` (lines 1-50)
 
 ### JR-CAN-UI-007 — Phase 2 polish features: visual indicators, image downloads, HDF5 snapshots, About tab (70 tests, 2247 passed).
@@ -1337,11 +1343,12 @@ P3-1: Create New Snapshot with name/description inputs and success feedback. P3-
 
 [v2 ARCH→UI re-bucket]
 
-### JR-DAT-DATA-006 — Phase 3 Wave 1 PR for juniper-data enhancements.
+### JR-DAT-DATA-006 — Phase 3 Wave 1 PR for juniper-data enhancements
 
 **Status**: shipped  **Priority**: P1  **Category**: DATA  **Owner**: dat
 
 **Sources**:
+
 - `juniper-data/notes/history/pull_requests/PR_DESCRIPTION_PHASE3-WAVE-1_2026-01-09.md` (lines 1-50)
 
 ### JR-CAN-TEST-005 — Phase 4 Complete—Config standardization, docs, MyPy improvements, suppress review.
@@ -1374,11 +1381,12 @@ All 7 phases complete (2026-03-02). Phase 0: Stabilize baseline. Phase 1: Extrac
 
 [v2 ARCH→API re-bucket] [v2 remap: AR→ARCH]
 
-### JR-DAT-DATA-007 — Post-refactor v0.24.0 PR for juniper-data.
+### JR-DAT-DATA-007 — Post-refactor v0.24.0 PR for juniper-data
 
 **Status**: shipped  **Priority**: P1  **Category**: DATA  **Owner**: dat
 
 **Sources**:
+
 - `juniper-data/notes/history/pull_requests/PR_DESCRIPTION_POST_REFACTOR_v0.24.0_2026-01-11.md` (lines 1-50)
 
 ### JR-DAT-OBS-002 — Prometheus histogram juniper_data_dataset_generation_duration_seconds buckets: 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, +inf.
