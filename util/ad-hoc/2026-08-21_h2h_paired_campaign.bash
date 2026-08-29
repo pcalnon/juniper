@@ -63,16 +63,37 @@ SUITE_NAME="$(sed -n 's/^  name: *//p' "${SUITE}" | head -1)"
 [[ -x "${PY}" ]] || { echo "paired: python not found: ${PY}" >&2; exit 2; }
 [[ -n "${SUITE_NAME}" ]] || { echo "paired: could not read suite.name from ${SUITE}" >&2; exit 2; }
 CASCOR_SRC="$(realpath "${CASCOR_SRC}")"
+# juniper-ml#1412 taught experiment_stack.bash to honour JUNIPER_EXP_CASCOR_SRC_DIR so a campaign
+# can pin cascor to a WORKTREE instead of freezing the primary checkout for the campaign's whole
+# life. This caller was not updated at the time: it derived the SERVICE arm's SHA from
+# ${JUNIPER_EXP_PROJECT_DIR}/juniper-cascor (the primary) while the CLI arm's came from the tree
+# passed in, so a genuinely-consistent worktree-pinned campaign FAILED the equality check below
+# whenever the primary happened to sit at a different commit -- which is the normal case, since
+# pinning a worktree is exactly what you do when you do not want to move the primary.
+#
+# Default the pin to the CLI arm's tree. That makes "one SHA, both arms" *enforced* rather than
+# merely asserted: the service now launches from the same tree the CLI runs from unless the caller
+# deliberately overrides it, and an explicit override is still resolved and still checked.
+export JUNIPER_EXP_CASCOR_SRC_DIR="${JUNIPER_EXP_CASCOR_SRC_DIR:-${CASCOR_SRC}}"
+SVC_SRC="$(realpath "${JUNIPER_EXP_CASCOR_SRC_DIR}")"
 CLI_SHA="$(git -C "${CASCOR_SRC}/.." rev-parse HEAD 2>/dev/null)"
-SVC_SHA="$(git -C "${JUNIPER_EXP_PROJECT_DIR}/juniper-cascor" rev-parse HEAD 2>/dev/null)"
+SVC_SHA="$(git -C "${SVC_SRC}/.." rev-parse HEAD 2>/dev/null)"
 if [[ -z "${CLI_SHA}" || "${CLI_SHA}" != "${SVC_SHA}" ]]; then
-    echo "paired: REFUSING -- arms are at different cascor commits (${CLI_SHA:-?} vs ${SVC_SHA:-?})" >&2
+    # Name BOTH trees: a bare SHA pair is undiagnosable when the whole failure mode is
+    # "these two paths are not what you think they are".
+    echo "paired: REFUSING -- arms are at different cascor commits" >&2
+    echo "paired:   CLI arm     ${CLI_SHA:-?}  <- ${CASCOR_SRC}" >&2
+    echo "paired:   SERVICE arm ${SVC_SHA:-?}  <- ${SVC_SRC}" >&2
+    echo "paired:   (service tree comes from JUNIPER_EXP_CASCOR_SRC_DIR; unset it to inherit the CLI arm's tree)" >&2
     exit 2
 fi
+echo "paired: both arms pinned to ${SVC_SRC}" >&2
 
 mkdir -p "${OUT_ROOT}" || exit 2
-printf '{"cascor_sha":"%s","suite":"%s","k":%d,"started_utc":"%s","host_nproc":%d}\n' \
-    "${CLI_SHA}" "${SUITE}" "${K}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(nproc)" \
+# Record the TREE, not just the SHA: with worktree pinning a SHA no longer identifies which
+# checkout ran, and a future reader comparing two campaigns needs to know whether they shared one.
+printf '{"cascor_sha":"%s","cascor_src":"%s","suite":"%s","k":%d,"started_utc":"%s","host_nproc":%d}\n' \
+    "${CLI_SHA}" "${SVC_SRC}" "${SUITE}" "${K}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(nproc)" \
     >"${OUT_ROOT}/provenance.json"
 echo "paired: cascor ${CLI_SHA} | K=${K} pairs | suite ${SUITE_NAME} | out=${OUT_ROOT}"
 
