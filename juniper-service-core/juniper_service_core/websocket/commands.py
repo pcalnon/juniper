@@ -87,11 +87,7 @@ class LifecycleCommandExecutor:
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         """Refuse subclassing. See the class docstring for the three supported variation points."""
-        raise TypeError(
-            f"LifecycleCommandExecutor is final and is not an extension point (tried to subclass it as {cls.__name__!r}). "
-            "Vary behaviour by injection (the `start` callback), by implementing the CommandExecutor "
-            "protocol directly, or by wrapping an instance and delegating."
-        )
+        raise TypeError(f"LifecycleCommandExecutor is final and is not an extension point (tried to subclass it as {cls.__name__!r}). Vary behaviour by injection (the `start` callback), by implementing the CommandExecutor protocol directly, or by wrapping an instance and delegating.")
 
     def __init__(
         self,

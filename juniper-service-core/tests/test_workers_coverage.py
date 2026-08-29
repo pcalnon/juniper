@@ -285,11 +285,14 @@ def test_subclassing_the_default_protocol_is_refused() -> None:
     A consumer needing a different wire schema is in the case the seam exists for: implement
     `WorkerTaskProtocol` directly, or wrap an instance. Subclassing would freeze the envelope keys
     and the `task_id` rejection rule as inherited contract.
+
+    ``type(...)`` rather than a ``class`` statement for the reason given in
+    ``tests/test_websocket_commands.py::test_subclassing_the_default_executor_is_refused``: a
+    ``class`` block here binds a name that can never be read, which CodeQL reports as an unused
+    local. Do not "simplify" it back.
     """
     with pytest.raises(TypeError, match="not an extension point"):
-
-        class _Subclass(JsonTaskProtocol):
-            pass
+        type("_Subclass", (JsonTaskProtocol,), {})
 
 
 def test_the_default_protocol_still_constructs_after_the_guard() -> None:

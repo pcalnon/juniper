@@ -152,10 +152,7 @@ class JsonTaskProtocol:
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         """Refuse subclassing. Implement :class:`WorkerTaskProtocol` directly, or wrap an instance."""
-        raise TypeError(
-            f"JsonTaskProtocol is final and is not an extension point (tried to subclass it as {cls.__name__!r}). "
-            "Implement the WorkerTaskProtocol protocol directly, or wrap an instance and delegate."
-        )
+        raise TypeError(f"JsonTaskProtocol is final and is not an extension point (tried to subclass it as {cls.__name__!r}). Implement the WorkerTaskProtocol protocol directly, or wrap an instance and delegate.")
 
     #: Wire ``type`` of the dispatch envelope. Matches cascor's ``MessageType.TASK_ASSIGN`` so a
     #: worker written against either speaks the same verb. Defined here rather than imported from

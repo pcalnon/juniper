@@ -117,19 +117,21 @@ def test_subclassing_the_default_executor_is_refused() -> None:
     carries ``__final__`` would pass while the constraint did nothing: exactly the "marker that
     reads as protection it does not provide" shape ``APD-SVCCORE-001`` names about
     ``_MAX_BINARY_SIZE``. ``__init_subclass__`` is what actually holds.
+
+    Built with ``type(...)`` rather than a ``class`` statement **deliberately** -- a `class` block
+    inside ``pytest.raises`` binds a name that can never be read (the definition raises), which
+    CodeQL correctly reports as an unused local. ``type(name, bases, ns)`` is exactly what the
+    ``class`` statement compiles to and triggers ``__init_subclass__`` identically, as an
+    expression. Do not "simplify" it back.
     """
     with pytest.raises(TypeError, match="not an extension point"):
-
-        class _Subclass(LifecycleCommandExecutor):
-            pass
+        type("_Subclass", (LifecycleCommandExecutor,), {})
 
 
 def test_the_refusal_names_the_offending_class_and_an_alternative() -> None:
     """The error tells the consumer what to do instead, rather than only saying no."""
     with pytest.raises(TypeError) as excinfo:
-
-        class _Subclass(LifecycleCommandExecutor):
-            pass
+        type("_Subclass", (LifecycleCommandExecutor,), {})
 
     message = str(excinfo.value)
     assert "_Subclass" in message  # names the offending class, not just the base
