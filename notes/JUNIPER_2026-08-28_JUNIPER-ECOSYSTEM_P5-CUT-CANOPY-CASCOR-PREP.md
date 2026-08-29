@@ -185,7 +185,7 @@ is doing the real work there** — see §6.
 5. **Lower the ceiling by hand**, never bare `--ratchet` (it leaves zero headroom).
 
 All five are handled by [`util/ad-hoc/2026-08-28_p5_cut.py`](../util/ad-hoc/2026-08-28_p5_cut.py)
-(`prepare | ship | waive | bump-date | raise-ceiling`).
+(`prepare | ship | waive | bump-date | raise-ceiling | status`; `status` is the read-only one).
 
 ## 6a. PREREQUISITE — a hazards triage must precede the canopy cut
 
@@ -234,9 +234,40 @@ incident pointer), Thread Handoff (the CRITICAL OPERATING INSTRUCTION).
 author and breaks clients, and the plan as drafted would have relocated it into a reference file.
 Section titles would never have surfaced it.
 
-Recommendation to the owning session (not executed): promote L1325 and probably L887/L888;
-L767 is a convention whose violation is loud; L456 reads descriptive. That is 2–3 bullets against
-juniper-ml's 4. **Sequence: promote first, then cut around the resident set.**
+### The agreed resident set — five bullets
+
+Settled with the `canopy e2e` session, which verified every line reference against the file and ran
+an independent keyword sweep (`silent|silently|irrecoverab|cannot be undone|clobber|data loss`) that
+surfaced **nothing the block scorer missed** — two methods converging on the same set. Ranked by
+what it costs to learn each the hard way:
+
+| # | Source | Directive |
+|---|---|---|
+| 1 | **NEW TEXT — not in `AGENTS.md` at all** | **Dash `no_update` chaining.** A clientside producer that returns `no_update` when idle must NEVER be an Input to an interval-driven callback — Dash skips that callback for the tick and *silently* re-creates the starvation. Also: derive liveness from frame-arrival age, never a sticky `received` flag. Both have already cost a P0/P1. |
+| 2 | `AGENTS.md` L1325 | "Do not change existing payload keys without versioning" — silent to the author, breaks clients, and it sat inside a relocation target. |
+| 3 | L887 | No global mutable state without locks. `TrainingState`'s lock is load-bearing; F-CANOPY-036 accumulates under it. A lockless shared write corrupts a run silently. |
+| 4 | L888 | Long-lived collections must be size-bounded. Documented memory pressure (`REPLAY_WEIGHT_BUFFER_MAX` reasons about a few-hundred-MB peak); unbounded growth kills a long run with no warning. |
+| 5 | L1420 | The `/tmp/` prohibition — the one hazard here with an actual incident record, and this arc added a second data point (§6b). |
+
+**Bullet 1 is the finding that justifies the whole prerequisite, and no scan of `AGENTS.md` could
+have produced it.** It lives at `src/frontend/dashboard_manager.py:3869`, labelled `CRITICAL` by its
+own author; `grep -icE "no_update|execution model|starv" AGENTS.md` → **0**. A cut that only decides
+where existing text goes will never surface it — it has to be *written*, not relocated. That is why
+[`util/ad-hoc/2026-08-28_resident_gap_scan.py`](../util/ad-hoc/2026-08-28_resident_gap_scan.py)
+exists: it asks the complementary question (what is hazard-shaped in the **source** and resident
+nowhere?) and independently rediscovers that same block at `dashboard_manager.py:3858`, plus 63
+further candidates across 217 hazard-marked comment blocks.
+
+**Rejected, by agreement:** L767 (`JUNIPER_CANOPY_` prefix) is a convention — violating it fails
+loudly, the setting just doesn't take. L456 (counter semantics) is descriptive, not directive.
+
+**Deliberately NOT folded in:** L2675 (thread handoff) and L1122 (the CI check that cannot block).
+Both are real and both stay resident, but they are operating procedure and CI topology, not code
+hazards. juniper-ml's block works because all four bullets answer one question — *what will silently
+destroy work while you are editing code*. Mixing in process directives dilutes it into a general
+"important stuff" section, which is how these grow back. Keep them as their own resident sections.
+
+**Sequence: promote first, then cut around the resident set.**
 
 ## 6b. The sweeper gate earned its keep, and got better
 
@@ -253,6 +284,60 @@ was not the filename but *whether a live leg had ever run from that tree* — wh
 see. Instead the blocked-reason line now prints size and newest mtime per entry, so a 0-byte
 `custom.log` from three weeks ago is visibly different from a 425 KB `system.log` written twenty
 minutes ago. Keep the friction; reduce the noise.
+
+## 6c. BLOCKER FOUND AND FIXED — the relocate tool would have silently mangled canopy
+
+Found during this prep, before any canopy PR existed.
+[`util/ad-hoc/2026-08-19_p3_relocate_section.py`](../util/ad-hoc/2026-08-19_p3_relocate_section.py)
+— the tool that performed all three cuts on 2026-08-28 — was **fence-blind**, and its
+`heading_level` cannot distinguish a markdown heading from a shell comment: both are `# text` at
+column 0. So the first `# Run all tests` inside a code block ended a `##` section, because level 1
+is `<= 2`.
+
+canopy's `AGENTS.md` carries **136 heading-looking lines inside fences**. Simulated against `main`
+before the fix — 8 of 11 candidate sections truncate:
+
+| Section | true chars | extracted | orphaned |
+|---|---:|---:|---:|
+| Quick Start Commands | 10,009 | **62** | 9,947 |
+| Documentation File Types | 6,771 | 354 | 6,417 |
+| Code Style Guidelines | 4,580 | 314 | 4,266 |
+| Archive Procedures | 3,720 | 185 | 3,535 |
+| Documentation Standards | 5,109 | 2,043 | 3,066 |
+| Configuration Management | 7,272 | 5,240 | 2,032 |
+| Documentation Maintenance Workflow | 4,896 | 3,077 | 1,819 |
+| API and WebSocket Contracts | 4,194 | 3,808 | 386 |
+| Architecture / Update Triggers / Documentation Organization | — | — | 0 (unaffected) |
+
+**Nothing in the gate chain would have caught it.** The move succeeds; the remainder sits orphaned
+under a "Moved to …" pointer; and **G3 still PASSES** — every line it *did* remove is present in the
+destination, and G3 has no way to notice lines that were never removed. The heading-presence check
+from §6a passes too, on the headings that did move. The only symptom would be *"the cut removed less
+than expected"*, which nothing measures.
+
+> **Generalises beyond this tool: a completeness check that verifies what moved cannot see what
+> failed to move.**
+
+**Fixed** with a CommonMark fence mask (a fence closes only on ≥ the opening run with no info
+string), applied both to the heading *match* and to the section-end scan — so a `## X` shown as a
+markdown example can no longer be mistaken for the real section either.
+
+**Blast radius, checked rather than assumed:**
+
+- **The three cuts shipped 2026-08-28 are unaffected.** Verified against `main` after merge: even
+  fence parity, no four-backtick fences, and all 16 relocated sections contain the pointer line
+  only, with no orphaned prose. Their fenced examples carry no column-0 `#` comments.
+- **cascor is unaffected: 9 of 9 tier-A sections extract fully** (Directory Structure 10,577,
+  CI/CD Pipelines 8,141, REST API 4,037, WebSocket Protocol 2,769, Core Components 2,444, Middleware
+  Stack 2,418, Constants Configuration 1,973, Documentation Files 1,740, Key Dependencies 1,687 —
+  each `true == extracted`). This was canopy-specific.
+- **canopy after the fix: 9 of 9 re-simulated sections extract fully.**
+
+Pinned by [`tests/test_p3_relocate_section.py`](../tests/test_p3_relocate_section.py) — 12 tests,
+wired into `ci.yml` (that list is hand-maintained; new tests do not self-register). Negative control
+run: against the old fence-blind logic the load-bearing case extracts 3 lines where 11 are needed,
+so the suite bites. It also pins the four-backtick fence, the info-string closing rule, and
+heading-inside-a-fence non-matching.
 
 ## 7. Decisions owed before execution
 
@@ -306,5 +391,7 @@ conclusion "cascor is the least urgent repo in the fleet", which the 30-day wind
 | `2026-08-28_p5_cut_section_sizes.py` | Per-section char inventory of any repo's `AGENTS.md`; CommonMark-correct fence handling |
 | `2026-08-28_p5_cut_overlap_probe.py` | `AGENTS.md` vs its own `docs/REFERENCE.md`, per section |
 | `2026-08-28_p5_docs_tree_overlap.py` | `AGENTS.md` vs the whole `docs/` tree, with best-matching document |
-| `2026-08-28_p5_cut.py` | The cut driver — worktree, relocation, TOC, date bump, ceiling, controls, signed PR |
-| `2026-08-28_p5_worktree_cleanup.py` | Gated arc cleanup (PR merged, unoccupied, clean, no unrecoverable ignored files) |
+| `2026-08-28_p5_cut.py` | The cut driver, six modes — `prepare`, `ship`, `waive`, `bump-date`, `raise-ceiling`, `status` (read-only): worktree + dup-guard, verbatim relocation, TOC, date bump, ceiling with re-measured slack, controls, signed PR |
+| `2026-08-28_p5_worktree_cleanup.py` | Gated arc cleanup: PR MERGED read live, unoccupied via `/proc/<pid>/cwd`, clean, no unrecognised ignored payload (size + newest mtime printed per entry) |
+| `2026-08-28_hazard_triage.py` | Ranks `AGENTS.md` directives that must stay resident; positive-controlled against juniper-ml's own Hazards block |
+| `2026-08-28_resident_gap_scan.py` | The complementary pass — hazard-shaped directives in SOURCE that are resident nowhere |
