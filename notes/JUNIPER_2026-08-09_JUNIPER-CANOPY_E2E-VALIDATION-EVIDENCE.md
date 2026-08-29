@@ -524,6 +524,21 @@ unit tests in `tests/unit/frontend/test_metrics_panel_handlers.py`) should go wi
 fails if anyone wires a consumer without restoring a writer.
 
 **F-CANOPY-035 — the candidate loss plot reads `epochs`/`losses`/`phases` off the training-state store, keys `/api/state` never provides in any lane, so the plot is structurally empty (P1, OPEN; found during the 2026-08-24 live re-drive; fix MERGED as canopy#524 `f20602cb`, M-CANDIDATES-07 re-drive owed).**
+
+> **WHY IT IS STILL EMPTY AFTER THE MERGED FIX — MEASURED 2026-08-29.** canopy#524 corrected the key
+> shape, and the plot is still empty, because the store it reads is empty for a second and independent
+> reason. A server-side probe inside `_update_metrics_store_handler` (79 samples, 140 s, BOTH tabs)
+> shows the CLIENT's copy of `metrics-panel-metrics-store` pinned at its shipped empty default
+> (`cur_type=list cur_len=2`, i.e. `[]`) on **every** sample, while the server offers **155,392 B** on
+> every tick. This entry's own earlier observation — "globally empty (`len 0`) on BOTH tabs" — was
+> made with the client-side `storeprobe` this arc later ruled inadmissible; it is now established from
+> the server side, where the value Dash actually delivers as `State` is visible.
+>
+> **So the INCONCLUSIVE / F-004-congestion attribution on this entry is superseded.** It was not an
+> instrument artefact and not congestion: the store really is empty, always, and the panel is
+> rendering exactly what it is given. The remaining question is why the write never lands — see
+> F-CANOPY-038's measured block and F-CANOPY-039. **M-CANDIDATES-07 cannot pass until that is fixed**,
+> so the owed re-drive is blocked rather than merely outstanding.
 `_create_candidate_loss_figure` (`candidate_metrics_panel.py:570-577`) filters `state.epochs`/`state.losses`/`state.phases` for entries whose phase contains `"candidate"`; the store it reads is filled by `_fetch_training_state` → GET `/api/state` (`:414`). But that route (`main.py:1129`) serves `TrainingState.get_state()`, and `TrainingState._STATE_FIELDS` (`training_monitor.py:232-264`) contains **none of those keys** — the demo branch augments only `nn_*`/`cn_*`/convergence params, so no lane ever provides them. Confirmed live mid-candidate-phase 2026-08-24: `/api/state` carried `candidate_pool_size 40`, `candidate_epoch 201/400`, `candidates_trained 40/40`, `all_correlations[40]` — and no `epochs`/`losses`/`phases`. This is **not** starvation: in the same session the same store's other consumers (badge, phase, pool size, progress bar, pool info) all rendered live candidate-phase values post-#507/#509, while the figure's only reachable render is the `create_empty_plot("No candidate data available")` placeholder (`:567`/`:575`/`:605`). The data exists in-system — cascor `/v1/metrics/history` returned 4,106 `phase:"candidate"` per-epoch loss entries (of 4,909 total) for the same run, and canopy already proxies it at `/api/metrics/history` — the panel is simply wired to the wrong producer. Fix is canopy-side: source the candidate-loss figure from the metrics-history data (or merge those keys into the store fetch) and drop the dead three-key read. Matrix row M-CANDIDATES-07 re-scored FAIL with its cause re-attributed from F-CANOPY-027 to this finding. Same consumer-reads-keys-the-producer-never-emits class as F-CANOPY-011/-013.
 
 **FIX MERGED (2026-08-26, canopy#524 `f20602cb`; M-CANDIDATES-07 re-drive owed).** The loss-plot callback takes the dashboard's existing shared `metrics-panel-metrics-store` (fed by the liveness-gated `/api/metrics/history` poll and the WS append path) as a third Input — no new poller, the F-CANOPY-027 rule — and `_candidate_series_from_history` derives the three series from its candidate-phase entries (the nested `{epoch, metrics.loss, phase}` shape both the demo backend and the cascor adapter's `_to_dashboard_metric` produce; flat `loss`/`train_loss` + `cascade_phase` tolerated). The figure builder is untouched and the state-store shape stays a fallback, so every existing figure test holds. `src/tests/unit/frontend/test_f035_candidate_loss_from_history.py` (15 tests) pins the producer contract (`TrainingState._STATE_FIELDS` has none of the three keys; the callback declares the shared store), the series adapter and the rendered `Candidate Training` trace from a real `/api/state`-shaped payload plus history; the module does not import on the parent.
@@ -767,6 +782,55 @@ the congestion hypothesis (ii) depends on — so re-measuring **after** that mer
 > > its client copy genuinely never advances — the round-trip asymmetry hypothesis dies and F-CANOPY-035
 > > is explained. If it converges the way topology's does, this entry returns to hypothesis (i).
 > > **Do this before treating F-038 and F-039 as separate work.**
+
+> > ---
+> >
+> > ## MEASURED 2026-08-29 — the probe was run, and it is decisive.
+> >
+> > Isolated trio, live (data :8101 / cascor :8202 / canopy :8051 out of the primary checkouts,
+> > canopy at `c0c873c`, the `2/10/2/89` fixture alive at 1 d 7 h). `--target metrics` applied to
+> > `_update_metrics_store_handler`, 140 s browser soak across BOTH the Training Metrics and Candidate
+> > Metrics tabs (`util/ad-hoc/e2e_f039_metrics_store_soak.py`, 480 dash updates, so the interval
+> > provably ticked). **79 comparisons. Head identical to tail. Zero `eq=True` anywhere.**
+> >
+> > ```
+> > TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=155392 canon_eq=False    (x79)
+> > ```
+> >
+> > Evidence: `reports/e2e/20260829T202800Z/f039_metrics_probe/metrics_store_comparison.log`
+> > (force-added; `.gitignore:52` is `*.log`).
+> >
+> > **`cur_len=2` is `[]` — the store's shipped empty default. The CLIENT's copy of
+> > `metrics-panel-metrics-store` never advances, at all, ever**, while the server offers 155,392 B on
+> > every tick.
+> >
+> > **1. Hypothesis (i) is DEAD.** A deterministic JSON round-trip asymmetry would have to turn a
+> > 155 KB payload into a 2-byte `[]`. It does not survive contact with the measurement. The Stage 2
+> > suppression at `:6789` can never bite, because `metrics == current_metrics` is `155 KB == []`,
+> > false by construction — which is why the census found **zero** `no_update` in 32 writes. That
+> > count is now EXPLAINED rather than merely consistent.
+> >
+> > **2. F-CANOPY-035 is explained, by an admissible instrument.** Its "globally empty (`len 0`) on
+> > BOTH tabs" was measured with the client-side `storeprobe` this arc ruled unreliable. The same fact
+> > now holds server-side, where the value Dash actually delivers as `State` is visible. Its
+> > INCONCLUSIVE disposition should be revisited on this basis.
+> >
+> > **3. But the two stores behave DIFFERENTLY, so this is not one mechanism.** Topology's client copy
+> > CONVERGES after ~22 s and then holds correct (F-039's correction block). Metrics' never advances
+> > at all. Any account that explains both with a single sentence is over-fitting.
+> >
+> > **4. The strongest inference, and it was not predicted by either hypothesis.** Because `eq` is
+> > false on every sample, the poll RETURNS the full 155 KB every tick — and one tick later its own
+> > `State` read of that same store id comes back `[]`. **A callback's write is not visible to its own
+> > next read.** The WS append writer cannot account for it: `_append_ws_metrics_store_handler`
+> > returns `no_update` when there are no events and a non-empty `merged` when there are, so it can
+> > never produce `[]`. This is the duplicate-instance signature — now evidenced on a SECOND store id,
+> > by a different route than F-039's.
+> >
+> > **Consequence for the next step:** the runtime duplicate-store probe must target **both**
+> > `network-visualizer-topology-store` and `metrics-panel-metrics-store`. It is no longer a topology
+> > investigation.
+
 
 **F-CANOPY-039 — the topology rebuild's response is provably CORRECT on the wire and the DOM never applies it; this, not starvation, is what now blocks the topology block (P0/P1, OPEN; found 2026-08-28 during the F-CANOPY-037 post-fix re-drive).**
 Measured on the isolated trio (data 8101 / cascor 8202 / canopy 8051, service mode; cascor `a709d52`,

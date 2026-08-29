@@ -65,10 +65,20 @@ import argparse
 import os
 import re
 import shutil
+import subprocess  # noqa: S404 - resolves the git dir so backups stay out of the work tree
 import sys
 
 REL = "src/frontend/dashboard_manager.py"
 BAK_SUFFIX = ".f039bak"
+
+# The backup MUST NOT land in the work tree. The first version wrote it beside the
+# instrumented file, where it was untracked AND unignored -- so `git add -A` or any
+# whole-file PR tool would sweep a full copy of dashboard_manager.py into a commit,
+# and `pre-commit run --files` would silently skip it as untracked. Caught in review
+# on 2026-08-29 while the probe was live on the primary canopy checkout.
+# `.git/` is never swept by `git add`, is already outside every diff, and travels
+# with the checkout -- so the backup goes there. Resolved via `git rev-parse
+# --git-dir` because in a WORKTREE `.git` is a file, not a directory.
 
 # handler -- the method that must exist (a rename is itself the hazard class this arc
 #            keeps hitting, so refuse loudly rather than probe blind)
@@ -124,6 +134,21 @@ def build_probe(target):
     return PROBE_TMPL.format(i=spec["indent"], t=target, cur=spec["current"], new=spec["fresh"])
 
 
+def _backup_path(checkout, path):
+    """Backup location: inside the git dir, never inside the work tree."""
+    try:
+        gitdir = subprocess.run(
+            ["git", "-C", checkout, "rev-parse", "--absolute-git-dir"],
+            capture_output=True, text=True, check=True, timeout=15,
+        ).stdout.strip()
+    except (subprocess.SubprocessError, OSError):
+        gitdir = ""
+    if gitdir and os.path.isdir(gitdir):
+        return os.path.join(gitdir, "f039-topoprobe" + BAK_SUFFIX)
+    # Not a git checkout (scratch copies in tests): fall back beside the file.
+    return path + BAK_SUFFIX
+
+
 def _target_path(checkout):
     path = os.path.join(checkout, REL)
     if not os.path.isfile(path):
@@ -168,11 +193,12 @@ def do_apply(checkout, target):
         print(f"anchor {spec['anchor']!r} not found - re-derive it against the current source", file=sys.stderr)
         return 2
     line_start = src.rfind("\n", 0, idx) + 1
-    shutil.copyfile(path, path + BAK_SUFFIX)
+    bak = _backup_path(checkout, path)
+    shutil.copyfile(path, bak)
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(src[:line_start] + build_probe(target) + src[line_start:])
     print(f"instrumented {path} (target: {target} -> {spec['store']})")
-    print(f"  backup: {path + BAK_SUFFIX}")
+    print(f"  backup: {bak}")
     print("  RESTART that canopy leg, drive the relevant tab, then `report`.")
     print("  REMEMBER to `revert` before committing anything from this checkout.")
     return 0
@@ -180,7 +206,11 @@ def do_apply(checkout, target):
 
 def do_revert(checkout):
     path = _target_path(checkout)
-    bak = path + BAK_SUFFIX
+    bak = _backup_path(checkout, path)
+    # Older applies wrote it beside the file; honour both so a probe applied by a
+    # previous version still reverts cleanly.
+    if not os.path.isfile(bak) and os.path.isfile(path + BAK_SUFFIX):
+        bak = path + BAK_SUFFIX
     if os.path.isfile(bak):
         shutil.move(bak, path)
         print(f"reverted from backup: {path}")
