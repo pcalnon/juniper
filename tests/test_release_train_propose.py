@@ -233,13 +233,76 @@ _SIBLING_TABLE_AGENTS = textwrap.dedent("""\
     """)
 
 
+# The other two INLINE extras surfaces `ExtrasDocsLockstepTest` asserts against pyproject.toml. Same
+# row shape as AGENTS.md, different heading -- which is the whole reason the editor is re-anchorable.
+_META_README = textwrap.dedent("""\
+    # juniper-ml
+
+    ### Extras
+
+    | Extra       | Packages Included                                                                       |
+    |-------------|------------------------------------------------------------------------------------------|
+    | `tools`     | `juniper-service-core>=0.2.0,<0.5.0`, `juniper-doc-tools>=0.1.0,<0.2.0`                 |
+    | `doc-tools` | `juniper-doc-tools>=0.1.0,<0.2.0` (back-compat alias)                                    |
+
+    ## Elsewhere
+
+    A README prose pin that must NOT be edited: `juniper-service-core>=0.2.0,<0.5.0`.
+    """)
+
+_META_QUICK_START = textwrap.dedent("""\
+    # Quick Start
+
+    ### What Each Extra Installs
+
+    | Extra       | Packages                                                                                |
+    |-------------|------------------------------------------------------------------------------------------|
+    | `tools`     | `juniper-service-core>=0.2.0,<0.5.0`, `juniper-doc-tools>=0.1.0,<0.2.0`                 |
+    | `doc-tools` | `juniper-doc-tools>=0.1.0,<0.2.0` (back-compat alias)                                    |
+
+    ## Elsewhere
+
+    A QUICK_START prose pin that must NOT be edited: `juniper-service-core>=0.2.0,<0.5.0`.
+    """)
+
+# The SPLIT-COLUMN surface: distribution and specifier in DIFFERENT cells, so a substitution on the
+# combined `name>=x,<y` string matches nothing here. Carries the recurrence family (the prefix-
+# collision trap), the `all` row's bare `--`, and an out-of-section field row that must not move.
+_META_REFERENCE = textwrap.dedent("""\
+    # Reference
+
+    ## Extras Reference
+
+    ### Available Extras
+
+    | Extra       | Packages Installed          | Min Version       |
+    |-------------|------------------------------|-------------------|
+    | `tools`     | `juniper-service-core`      | `>=0.2.0,<0.5.0`  |
+    |             | `juniper-doc-tools`         | `>=0.1.0,<0.2.0`  |
+    | `doc-tools` | `juniper-doc-tools` (alias) | `>=0.1.0,<0.2.0`  |
+    | `recurrence`| `juniper-recurrence-model`  | `>=0.1.5,<0.3.0`  |
+    |             | `juniper-recurrence`        | `>=0.2.0,<0.5.0`  |
+    |             | `juniper-recurrence-client` | `>=0.2.0,<0.3.0`  |
+    | `all`       | Everything above            | --                |
+
+    ## Per-package fields
+
+    | **Meta pin**          | `juniper-service-core>=0.2.0,<0.5.0` under `[tools]` / `[all]`            |
+    """)
+
+
 def _write_meta_surface(repo_root: Path) -> None:
-    """Write the meta-package's root pyproject.toml + tests/test_pyproject_extras.py + AGENTS.md so
-    build_proposal's in-repo consumer-pin co-change (step 5b) can read + edit the real three files."""
+    """Write the meta-package's root pyproject.toml + tests/test_pyproject_extras.py + all four
+    documented extras surfaces, so build_proposal's in-repo consumer-pin co-change (step 5b/5b-ii)
+    can read + edit the real six files."""
     (repo_root / "pyproject.toml").write_text(_META_PYPROJECT)
     (repo_root / "tests").mkdir(parents=True, exist_ok=True)
     (repo_root / "tests" / "test_pyproject_extras.py").write_text(_META_TEST_EXTRAS)
     (repo_root / "AGENTS.md").write_text(_META_AGENTS)
+    (repo_root / "README.md").write_text(_META_README)
+    (repo_root / "docs").mkdir(parents=True, exist_ok=True)
+    (repo_root / "docs" / "QUICK_START.md").write_text(_META_QUICK_START)
+    (repo_root / "docs" / "REFERENCE.md").write_text(_META_REFERENCE)
 
 
 _CHANGELOG = textwrap.dedent("""\
@@ -1342,6 +1405,106 @@ class ConsumerPinHelperTest(unittest.TestCase):
         self.assertIn("A prose pin that must NOT be edited: `juniper-service-core>=0.2.0,<0.5.0`.", fixed)
 
 
+class ExtrasDocsSurfaceTest(unittest.TestCase):
+    """The full documented extras surface, not just AGENTS.md (the ml#1458 gap).
+
+    ``ExtrasDocsLockstepTest`` asserts FOUR files against ``pyproject.toml``; before this the
+    generator moved one, so every escaping bump shipped 3 arms red on all three Python versions."""
+
+    def test_inline_editor_re_anchors_onto_readme_and_quick_start(self):
+        new_req = "juniper-service-core>=0.2.0,<0.6.0"
+        for text, rel in ((_META_README, "README.md"), (_META_QUICK_START, "docs/QUICK_START.md")):
+            heading = dict(pr._INLINE_EXTRAS_TABLES)[rel]
+            out = pr.apply_pin_edits_agents_table(text, "juniper-service-core", new_req, heading)
+            self.assertIn("`juniper-service-core>=0.2.0,<0.6.0`", out, rel)
+            # scoping survives the re-anchor: the prose pin below the table is NOT moved
+            self.assertIn("prose pin that must NOT be edited: `juniper-service-core>=0.2.0,<0.5.0`.", out, rel)
+
+    def test_reference_split_column_editor_moves_every_row(self):
+        # doc-tools sits under BOTH [tools] and [doc-tools] -> both version cells move.
+        # The target range is deliberately one no other row already carries: `>=0.2.0,<0.3.0` is
+        # juniper-recurrence-client's, and counting it would have read 3 and passed for the wrong reason.
+        out = pr.apply_pin_edits_reference_table(_META_REFERENCE, "juniper-doc-tools", "juniper-doc-tools>=0.7.0,<0.8.0")
+        self.assertEqual(out.count("`>=0.7.0,<0.8.0`"), 2)
+        self.assertNotIn("`>=0.1.0,<0.2.0`", out)
+
+    def test_reference_editor_is_the_only_one_that_works_on_a_split_column_table(self):
+        """The defect that made the first hand-repair look complete: the inline editor finds no
+        combined ``name>=x,<y`` string here, changes nothing, and reports success."""
+        heading = pr._REFERENCE_EXTRAS_HEADING
+        inline_out = pr.apply_pin_edits_agents_table(_META_REFERENCE, "juniper-service-core", "juniper-service-core>=0.2.0,<0.6.0", heading)
+        self.assertEqual(inline_out, _META_REFERENCE, "inline editor must be a NO-OP on the split-column table")
+        split_out = pr.apply_pin_edits_reference_table(_META_REFERENCE, "juniper-service-core", "juniper-service-core>=0.2.0,<0.6.0")
+        self.assertNotEqual(split_out, _META_REFERENCE)
+        self.assertIn("| `>=0.2.0,<0.6.0`  |", split_out)
+
+    def test_reference_editor_does_not_claim_a_prefix_sibling(self):
+        """``juniper-recurrence`` must not eat the ``-model`` / ``-client`` rows beside it."""
+        out = pr.apply_pin_edits_reference_table(_META_REFERENCE, "juniper-recurrence", "juniper-recurrence>=0.5.0,<0.6.0")
+        self.assertIn("`>=0.5.0,<0.6.0`", out)
+        self.assertIn("`juniper-recurrence-model`  | `>=0.1.5,<0.3.0`", out)
+        self.assertIn("`juniper-recurrence-client` | `>=0.2.0,<0.3.0`", out)
+        self.assertEqual(out.count("`>=0.5.0,<0.6.0`"), 1)
+
+    def test_reference_editor_leaves_the_all_row_and_out_of_section_rows_alone(self):
+        out = pr.apply_pin_edits_reference_table(_META_REFERENCE, "juniper-service-core", "juniper-service-core>=0.2.0,<0.6.0")
+        self.assertIn("| `all`       | Everything above            | --                |", out)
+        # the ungated per-package "Meta pin" field row sits BELOW the section heading that closes it
+        self.assertIn("| **Meta pin**          | `juniper-service-core>=0.2.0,<0.5.0` under", out)
+
+    def test_reference_editor_preserves_column_width(self):
+        out = pr.apply_pin_edits_reference_table(_META_REFERENCE, "juniper-service-core", "juniper-service-core>=0.2.0,<0.6.0")
+        before = [ln for ln in _META_REFERENCE.splitlines() if "`juniper-service-core`" in ln][0]
+        after = [ln for ln in out.splitlines() if "`juniper-service-core`" in ln][0]
+        self.assertEqual(len(before), len(after), "same-width specifier must not disturb the table alignment")
+
+    def test_generator_surface_matches_the_gate_surface(self):
+        """The lockstep that keeps this fix from silently rotting.
+
+        ``tests/test_pyproject_extras.py`` owns the authoritative sets (``_DOCS_INLINE_TABLES`` +
+        ``_REFERENCE_MD``). If a file is added to the GATE and not to the generator, the next
+        escaping bump ships red again -- which is exactly the ml#1458 failure. Compared as repo-
+        relative paths, so this fails loudly rather than drifting."""
+        # Loaded by PATH, not by name: this suite is run both as `tests/test_release_train_propose.py`
+        # (top-level module) and as `tests.test_release_train_propose` (package form), and a bare
+        # `import test_pyproject_extras` resolves in only the first.
+        import importlib.util  # noqa: PLC0415
+
+        gate_path = Path(__file__).resolve().parent / "test_pyproject_extras.py"
+        spec = importlib.util.spec_from_file_location("_gate_extras", gate_path)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+
+        repo = Path(gate._REPO)
+        gate_inline = {Path(p).relative_to(repo).as_posix() for p in gate._DOCS_INLINE_TABLES}
+        generator_inline = {rel for rel, _ in pr._INLINE_EXTRAS_TABLES}
+        self.assertEqual(gate_inline, generator_inline, "the generator's inline extras surface has drifted from the gate's")
+        self.assertEqual(Path(gate._REFERENCE_MD).relative_to(repo).as_posix(), pr._REFERENCE_EXTRAS_REL)
+
+    def test_every_heading_anchor_matches_the_real_file(self):
+        """A heading anchor that stops matching turns its editor into a silent no-op -- the edit is
+        simply absent and the proposal ships red with nothing to point at. Pin each against the
+        REAL repo file, not a fixture."""
+        repo = Path(__file__).resolve().parents[1]
+        for rel, heading in pr._INLINE_EXTRAS_TABLES:
+            lines = (repo / rel).read_text(encoding="utf-8").splitlines()
+            self.assertTrue(any(heading.match(ln.strip()) for ln in lines), f"{rel}: heading anchor {heading.pattern!r} matches nothing")
+        ref_lines = (repo / pr._REFERENCE_EXTRAS_REL).read_text(encoding="utf-8").splitlines()
+        self.assertTrue(any(pr._REFERENCE_EXTRAS_HEADING.match(ln.strip()) for ln in ref_lines), "docs/REFERENCE.md: 'Available Extras' anchor matches nothing")
+
+    def test_editors_change_the_real_repo_files(self):
+        """Positive control against the vacuous pass: a no-op editor satisfies every assertion above
+        that only checks 'nothing wrong happened'. Assert each editor actually MOVES the live file."""
+        repo = Path(__file__).resolve().parents[1]
+        for rel, heading in pr._INLINE_EXTRAS_TABLES:
+            text = (repo / rel).read_text(encoding="utf-8")
+            out = pr.apply_pin_edits_agents_table(text, "juniper-service-core", "juniper-service-core>=0.2.0,<0.99.0", heading)
+            self.assertNotEqual(out, text, f"{rel}: inline editor was a no-op on the live file")
+        ref = (repo / pr._REFERENCE_EXTRAS_REL).read_text(encoding="utf-8")
+        ref_out = pr.apply_pin_edits_reference_table(ref, "juniper-service-core", "juniper-service-core>=0.2.0,<0.99.0")
+        self.assertNotEqual(ref_out, ref, "docs/REFERENCE.md: split-column editor was a no-op on the live file")
+
+
 class ApplyPinPairsExactTest(unittest.TestCase):
     """Direct pins for ``apply_pin_pairs_exact`` — shared by meta co-change + D6 follow-on edits.
 
@@ -1431,6 +1594,34 @@ class BuildProposalConsumerPinTest(unittest.TestCase):
 
     def _edit(self, prop, path):
         return next((e for e in prop.edits if e.path == path), None)
+
+    def test_escaping_minor_bump_emits_the_whole_documented_extras_surface(self):
+        """End-to-end for the ml#1458 gap: an escaping bump must move ALL FOUR documented tables,
+        not just AGENTS.md. Before the fix this proposal carried one of them and shipped 3 arms red
+        on all three Python versions."""
+        _write_pkg(self.repo_root, "juniper-service-core/", name="juniper-service-core", version="0.4.0", changelog=_CHANGELOG)
+        entry = self._subpkg_entry("juniper-service-core", "juniper-service-core/")
+        pkg = _manifest_pkg(pypi_name="juniper-service-core", released_version="0.4.0", declared_version="0.4.0", proposed_version="0.5.0")
+        before = _sha_tree(self.repo_root)
+        prop = pr.build_proposal(entry, pkg, self.fake.build(), self.repo_root, self.eco, [entry], "2026-07-17")
+        self.assertFalse(prop.skipped, prop.skipped_reason)
+        self.assertEqual(before, _sha_tree(self.repo_root), "build_proposal must stay dry-run pure")
+        for rel in ("AGENTS.md", "README.md", "docs/QUICK_START.md", "docs/REFERENCE.md"):
+            edit = self._edit(prop, rel)
+            self.assertIsNotNone(edit, f"{rel}: documented extras-table co-change missing")
+            # Exactly ONE mention of the old ceiling survives in each file, and it is the deliberate
+            # out-of-table one (a prose pin; in REFERENCE the ungated `**Meta pin**` field row). A
+            # count rather than an assertNotIn: the old string legitimately remains, so the question
+            # is whether the TABLE let go of it, and 2 would mean the editor missed a row.
+            self.assertEqual(edit.new_text.count("juniper-service-core>=0.2.0,<0.5.0"), 1, f"{rel}: stale ceiling survived in the table")
+        # the inline three carry the combined requirement; REFERENCE carries a bare specifier cell
+        for rel in ("AGENTS.md", "README.md", "docs/QUICK_START.md"):
+            self.assertIn("`juniper-service-core>=0.2.0,<0.6.0`", self._edit(prop, rel).new_text, rel)
+        self.assertIn("| `>=0.2.0,<0.6.0`  |", self._edit(prop, "docs/REFERENCE.md").new_text)
+        # scoping holds on every surface: prose pins and the out-of-section field row do NOT move
+        self.assertIn("A README prose pin that must NOT be edited: `juniper-service-core>=0.2.0,<0.5.0`.", self._edit(prop, "README.md").new_text)
+        self.assertIn("A QUICK_START prose pin that must NOT be edited: `juniper-service-core>=0.2.0,<0.5.0`.", self._edit(prop, "docs/QUICK_START.md").new_text)
+        self.assertIn("| **Meta pin**          | `juniper-service-core>=0.2.0,<0.5.0` under", self._edit(prop, "docs/REFERENCE.md").new_text)
 
     def test_escaping_minor_bump_emits_all_three_cochanges(self):
         _write_pkg(self.repo_root, "juniper-service-core/", name="juniper-service-core", version="0.4.0", changelog=_CHANGELOG)
