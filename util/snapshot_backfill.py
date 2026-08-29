@@ -101,7 +101,15 @@ TRAINABILITY_SAMPLE = {"tested": 380, "succeeded": 380, "cohort": 15927, "upper_
 ROOT_CAUSES = (
     ("Missing required group: random", "B", "truncated write -- died inside _save_hidden_units; hidden-unit tensors are lost and unrecoverable"),
     ("Missing required group: params", "B", "truncated write -- died after the config group"),
-    ("Invalid format", "B", "truncated write -- died before the root attributes; the file is an empty HDF5 container"),
+    # These two are the SAME condition under two spellings. juniper-cascor#575 split an ABSENT
+    # ``format`` attribute out of the present-but-wrong branch, because rendering the absence
+    # produced "Invalid format: None" -- a message naming a format that does not exist. The
+    # loader's wording is an undeclared contract with this table: when it changed, these six
+    # files silently stopped matching and lost their root cause (backfill coverage fell 273 ->
+    # 267) while every other count stayed right. Both spellings are kept so a pre-#575 sidecar
+    # still classifies.
+    ("Missing required attribute: format", "B", "truncated write -- died before the root attributes; the file is an empty HDF5 container"),
+    ("Invalid format", "B", "truncated write -- died before the root attributes; the file is an empty HDF5 container (pre-juniper-cascor#575 spelling)"),
     ("output_size disagrees", "A", "stale config_json after a live dataset resize (FIXED in juniper-cascor#560; recoverable)"),
     ("could not be deserialized", "C", "config schema drift -- carries a field this version removed (FIXED in juniper-cascor#559; recoverable)"),
 )

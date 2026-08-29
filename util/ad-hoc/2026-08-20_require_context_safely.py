@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-20
 Status:      ad-hoc -- migration (base-branch-guard rollout, ml#434 part 2)
-Retire when: a general ruleset editor exists in util/ proper, or the rollout is done.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: a general ruleset editor exists in util/ proper, or the rollout is done.
 Related:     ml#434; util/ad-hoc/2026-08-18_promote_sequence_safety.py;
              util/ad-hoc/2026-08-19_sequence_safety_context_rename.py;
              util/ad-hoc/2026-08-20_add_required_context.py;
@@ -38,8 +38,11 @@ unmergeable on five repos (a hardcoded integration_id retargeted `Bandit` at an 
 never reports it): "Five PRs sat BLOCKED with zero pending checks, zero unresolved review
 threads, no failing checks, and every required context reporting SUCCESS."
 
-So `--require-observed` (default ON) refuses unless the exact context string has been seen
-reporting on a recent commit in THAT repo. Use `--allow-unobserved` only with a reason.
+So the pre-flight is observed-only BY DEFAULT -- there is no `--require-observed` flag (two
+handoffs cited one after reading an earlier wording of this paragraph): it refuses unless the
+exact context string appears as a check-run NAME on one of the eight most recently updated PR
+heads in THAT repo, whatever the conclusion (a `pull_request`-only job reads `skipped` on every
+`main` commit, and that is fine). Use `--allow-unobserved` only with a reason.
 
 Invariants enforced
 -------------------
@@ -77,6 +80,12 @@ DEFAULT_CONTEXT = "Guard PR base branch"
 ACTIONS_INTEGRATION_ID = 15368  # the GitHub Actions app
 SNAP_DIR = Path.home() / ".local" / "state" / "juniper-ruleset-snapshots"
 
+# The default READ and WRITE roster. It must name every governed repo: a repo missing here
+# is silently absent from `--status`, which reads as a complete census (ml#1403's class).
+# `juniper-recurrence` was omitted until 2026-08-29 -- it joined the fleet with the P5 port
+# and has carried `Memory Budget` as required since the 2026-08-27 promotion, so `--status`
+# reported 8 of 9 and looked whole. Kept in step with the census ROSTER in
+# `util/ad-hoc/2026-08-26_p5_fleet_state.py` by tests/test_require_context_safely.py.
 TARGETS = [
     "juniper-ml",
     "juniper-cascor",
@@ -86,6 +95,7 @@ TARGETS = [
     "juniper-cascor-client",
     "juniper-cascor-worker",
     "juniper-deploy",
+    "juniper-recurrence",
 ]
 
 
@@ -129,9 +139,15 @@ def find_ruleset(owner: str, repo: str):
         return None, f"cannot list rulesets: {err}"
     hits = []
     for rs in sets:
-        full, _ = gh_json(f"repos/{owner}/{repo}/rulesets/{rs['id']}")
-        if not full:
-            continue
+        full, err = gh_json(f"repos/{owner}/{repo}/rulesets/{rs['id']}")
+        if full is None:
+            # A failed per-ruleset GET used to be `continue`d, which turned a rate limit or a
+            # network blip into "no ruleset carries required_status_checks" -- the same
+            # fail-into-plausible shape as the census columns fixed in ml#1403. Seen twice
+            # during the 2026-08-27 promotion (cascor-client on the dry-run, data on the
+            # post-apply --status) with both rulesets intact. A read failure is an error,
+            # never an absence.
+            return None, f"cannot read ruleset {rs.get('id')} ({rs.get('name')}): {err}"
         if any(r.get("type") == "required_status_checks" for r in full.get("rules", [])):
             hits.append(full)
     if not hits:
@@ -199,7 +215,7 @@ def observed_contexts(owner: str, repo: str, limit: int = 8):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--owner", default="pcalnon")
-    ap.add_argument("--repo", action="append", default=None, help="repeatable; default: all 8")
+    ap.add_argument("--repo", action="append", default=None, help="repeatable; default: all 9")
     ap.add_argument("--context", default=DEFAULT_CONTEXT)
     ap.add_argument("--integration-id", type=int, default=ACTIONS_INTEGRATION_ID)
     ap.add_argument("--apply", action="store_true", help="write (default is dry-run)")

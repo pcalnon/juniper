@@ -7,7 +7,7 @@
 # Author:     Paul Calnon (authored via Claude Code)
 # Created:    2026-08-03
 # Status:     ad-hoc — investigation (YubiKey ed448 keytocard procedure development)
-# Retire when: the YubiKey GPG key-to-card procedure doc is finalized and no scripted re-validation is needed
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the YubiKey GPG key-to-card procedure doc is finalized and no scripted re-validation is needed
 # Related:    notes/JUNIPER_2026-08-03_JUNIPER-ECOSYSTEM_YUBIKEY-GPG-ED448-KEYTOCARD-PROCEDURE.md
 #
 ########################################################################################################################################################################################################

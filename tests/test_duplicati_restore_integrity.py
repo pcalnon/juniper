@@ -341,20 +341,42 @@ class TestDlistCrosscheckPreflight(unittest.TestCase):
             self.assertEqual(h.fingerprint(), before)
 
     def test_zero_dlists_refuses(self) -> None:
+        """No dlist at all is still fatal -- there is nothing to cross-check against."""
         with tempfile.TemporaryDirectory() as tmp:
             h = CrosscheckHarness(Path(tmp))
             (h.dest / h.dlist).unlink()
             code, _out, err = h.run()
             self.assertEqual(code, 2)
-            self.assertIn("expected exactly 1 dlist", err)
+            self.assertIn("no dlist in destination", err)
 
-    def test_two_dlists_refuses(self) -> None:
+    def test_multiple_dlists_are_allowed_and_the_newest_is_checked(self) -> None:
+        """Several dlists must NOT refuse -- the newest is selected and checked.
+
+        A live destination accumulates one dlist per backup run, and the
+        2026-08-28 archive purge deliberately retained ten of them, so a
+        refusal on more than one would make this tool useless against the real
+        destination. Selection is lexical-last because the names embed the UTC
+        start stamp; taking dlists[0] would pin the ORIGINAL full backup
+        forever, which is the regression this test exists to catch.
+        """
+        content = _b64(_hash32("content"))
+        meta = _b64(_hash32("meta"))
         with tempfile.TemporaryDirectory() as tmp:
             h = CrosscheckHarness(Path(tmp))
-            (h.dest / "other.dlist.vol.gpg").write_bytes(b"second")
-            code, _out, err = h.run()
-            self.assertEqual(code, 2)
-            self.assertIn("expected exactly 1 dlist", err)
+            # Sorts BEFORE "fresh.", so "fresh" is the newest of the two. It is
+            # deliberately given no payload: the stub decrypt raises on any
+            # unexpected file, so this also proves the older dlist is never read.
+            (h.dest / "aged.dlist.vol.gpg").write_bytes(b"older-ciphertext")
+            h.payloads[h.dindex] = _dindex_zip(vol_name=h.dblock, hashes=[content, meta])
+            h.payloads[h.dlist] = _dlist_zip(
+                files=[{"type": "File", "path": "/tmp/a.txt", "size": 100, "hash": content, "metahash": meta, "metasize": 64}]
+            )
+            before = h.fingerprint()
+            code, out, _err = h.run()
+            self.assertEqual(code, 0)
+            self.assertIn("2 dlist", out)
+            self.assertIn(f"{h.dlist} (newest of 2)", out)
+            self.assertEqual(h.fingerprint(), before)
 
 
 class TestDlistCrosscheckCoverage(unittest.TestCase):

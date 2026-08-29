@@ -1,0 +1,38 @@
+..FFFF                                                                   [100%]
+=================================== FAILURES ===================================
+___ TestShutdown.test_shutdown_joins_a_live_training_thread_before_returning ___
+tests/unit/api/test_lifecycle_manager_coverage.py:361: in test_shutdown_joins_a_live_training_thread_before_returning
+    assert future.done(), "shutdown() returned with the training future still running"
+E   AssertionError: shutdown() returned with the training future still running
+E   assert False
+E    +  where False = done()
+E    +    where done = <Future at 0x73337dee1d10 state=running>.done
+_ TestShutdown.test_shutdown_is_bounded_and_still_releases_resources_when_training_ignores_the_stop _
+tests/unit/api/test_lifecycle_manager_coverage.py:406: in test_shutdown_is_bounded_and_still_releases_resources_when_training_ignores_the_stop
+    pool_release.assert_called_once()
+/opt/miniforge3/envs/JuniperCascor1/lib/python3.13/unittest/mock.py:958: in assert_called_once
+    raise AssertionError(msg)
+E   AssertionError: Expected 'mock' to have been called once. Called 0 times.
+_____ TestShutdown.test_shutdown_releases_pool_and_shared_memory_when_idle _____
+tests/unit/api/test_lifecycle_manager_coverage.py:423: in test_shutdown_releases_pool_and_shared_memory_when_idle
+    pool_release.assert_called_once()
+/opt/miniforge3/envs/JuniperCascor1/lib/python3.13/unittest/mock.py:958: in assert_called_once
+    raise AssertionError(msg)
+E   AssertionError: Expected '_release_candidate_worker_pool' to have been called once. Called 0 times.
+_ TestShutdown.test_shutdown_swallows_a_failing_release_hook_and_runs_the_next _
+tests/unit/api/test_lifecycle_manager_coverage.py:433: in test_shutdown_swallows_a_failing_release_hook_and_runs_the_next
+    shm_cleanup.assert_called_once()
+/opt/miniforge3/envs/JuniperCascor1/lib/python3.13/unittest/mock.py:958: in assert_called_once
+    raise AssertionError(msg)
+E   AssertionError: Expected '_cleanup_shared_memory' to have been called once. Called 0 times.
+=============================== warnings summary ===============================
+cascor_constants/constants.py:663
+  /tmp/claude-1000/-home-pcalnon-Development-python-Juniper-juniper-ml/0925fc3b-8995-4bd7-bf1d-3f96016e1927/scratchpad/cascor-unfixed/src/cascor_constants/constants.py:663: DeprecationWarning: CASCOR_LOG_LEVEL is deprecated; set JUNIPER_CASCOR_LOG_LEVEL instead. CASCOR_LOG_LEVEL will be removed in a future release. Until then, the legacy variable continues to work but the prefixed form takes precedence whenever both are set.
+    _CASCOR_LOG_LEVEL_ENV = _resolve_log_level_env()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/api/test_lifecycle_manager_coverage.py::TestShutdown::test_shutdown_joins_a_live_training_thread_before_returning
+FAILED tests/unit/api/test_lifecycle_manager_coverage.py::TestShutdown::test_shutdown_is_bounded_and_still_releases_resources_when_training_ignores_the_stop
+FAILED tests/unit/api/test_lifecycle_manager_coverage.py::TestShutdown::test_shutdown_releases_pool_and_shared_memory_when_idle
+FAILED tests/unit/api/test_lifecycle_manager_coverage.py::TestShutdown::test_shutdown_swallows_a_failing_release_hook_and_runs_the_next

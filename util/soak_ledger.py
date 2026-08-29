@@ -651,22 +651,43 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"{st['verdict']}  seeded={s['runs']}/{st['target_runs']} "
               f"rate={'n/a' if s['rate'] is None else format(s['rate'], '.1%')} "
               f"ci={ci} escalations={len(st['escalations'])}  ({st['note']})")
-        for e in st["escalations"]:
-            if e["kind"] == "hazard":
-                print("  -> rung 2: promote the missed hazard to a CI gate or hook. "
-                      "NEVER re-inline. Discharge with `soak_ledger.py resolve`.")
-            elif e["kind"] == "area-systematic":
-                print(f"  -> rung 3: path-scoped rule for {e['areas']}. "
-                      "Caveat (plan 7.6): a path-scoped rule is LOST AT COMPACTION.")
-            else:
-                print("  -> fix the broken pointers; these are repo defects, not "
-                      "architecture failures.")
+        # The VERDICT-driven next action prints FIRST. Escalations used to print
+        # above it, so `status` led with "rung 2" and read as though rung 2 were
+        # the next step -- when rung 2 is neither taken nor closed, and rung 1 is
+        # what the verdict actually calls for. Ascending order, and the two are
+        # visually separated, so neither can be mistaken for the other's outcome.
         if st["verdict"] == "BET-FAILING":
             print("  -> the relocation bet is failing; revisit owner decision 7. "
                   "NEVER re-inline.")
         elif st["verdict"] == "INCONCLUSIVE":
             print("  -> rung 1: add index rows for the missed facts, then keep soaking. "
                   "This is the cheap no-regret action when the data cannot decide.")
+
+        if st["escalations"]:
+            print("")
+            print("  escalations are OPEN and INDEPENDENT of the verdict -- a verdict that "
+                  "improves does not close them:")
+        for e in st["escalations"]:
+            if e["kind"] == "hazard":
+                print("  -> rung 2: promote the missed hazard to a CI gate or hook. NEVER re-inline.")
+                for oid in e.get("obs_ids", []):
+                    print(f"       open: {oid}")
+                # `resolve` was previously suggested here as a bare command. It appends a
+                # discharge to an APPEND-ONLY ledger and there is no un-resolve, so an
+                # escalation cleared to make this command exit 0 cannot be recovered --
+                # and the exit code is precisely the thing that tempts you to clear it.
+                print("       DISCHARGE ONLY after a real gate or hook has LANDED:")
+                print("         python3 util/soak_ledger.py resolve --obs-id <id> --ref <PR that landed it>")
+                print("       IRREVERSIBLE: this appends to an append-only ledger; there is no un-resolve.")
+                print("       Do NOT run it to make `status` exit 0 -- exiting 1 here is the design.")
+                print("       If the miss was a CORRECT answer scored conservatively, that is an "
+                      "owner decision about SCORING, not a discharge.")
+            elif e["kind"] == "area-systematic":
+                print(f"  -> rung 3: path-scoped rule for {e['areas']}. "
+                      "Caveat (plan 7.6): a path-scoped rule is LOST AT COMPACTION.")
+            else:
+                print("  -> fix the broken pointers; these are repo defects, not "
+                      "architecture failures.")
     if st["verdict"] in ("NO-DATA", "DEGRADED", "NO-SEEDED-DATA"):
         return 2
     return 1 if (st["escalations"] or st["verdict"] == "BET-FAILING") else 0

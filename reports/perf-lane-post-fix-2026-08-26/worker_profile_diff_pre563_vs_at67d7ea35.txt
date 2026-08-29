@@ -1,0 +1,38 @@
+pre563: 32 profiles   |   post563: 32 profiles
+
+function                                                           calls a/b  µs/call a  µs/call b  per-call  tot b/a
+----------------------------------------------------------------------------------------------------------------------
+~:0(<built-in method builtins.hasattr>)                    1663199073/749786         0.54       0.36     0.667    0.000
+~:0(<method 'get' of 'dict' objects>)                      1599863851/1014099        0.23       0.36     1.527    0.001
+~:0(<built-in method builtins.isinstance>)                 1770639635/4925626        0.14       0.21     1.561    0.004
+~:0(<built-in method builtins.next>)                        4148464/4860          41.26       2.06     0.050    0.000
+~:0(<built-in method posix.stat>)                           4442056/872            6.95       7.96     1.146    0.000
+~:0(<method 'copy' of 'dict' objects>)                       876394/260           34.42       2.75     0.080    0.000
+~:0(<built-in method torch.rand>)                              2111/2111        8608.38    6240.75     0.725    0.725
+~:0(<method 'endswith' of 'str' objects>)                  51509322/479            0.22       0.44     1.984    0.000
+python3.13/linecache.py:64(checkcache)                      3852229/663            1.88       2.49     1.322    0.000
+torch/_tensor.py:1144(__format__)                           1813318/1813318        1.86       2.34     1.256    1.256
+~:0(<built-in method builtins.len>)                        19268174/3856336        0.20       0.22     1.112    0.223
+python3.13/linecache.py:32(getlines)                        4144872/1312           0.83       1.16     1.403    0.000
+torch/_tensor_str.py:131(__init__)                             2422/2422        1088.58    1395.36     1.282    1.282
+torch/_tensor_str.py:214(format)                            1811184/1811184        1.55       1.85     1.200    1.200
+<method 'run_backward' of 'torch._C._EngineBase' objects>)    11399/11399        285.43     293.81     1.029    1.029
+~:0(<method 'unbind' of 'torch._C.TensorBase' objects>)        4844/4844         546.74     685.65     1.254    1.254
+~:0(<built-in method _io.open>)                               58469/58463         55.59      30.49     0.549    0.548
+~:0(<method 'format' of 'str' objects>)                     3622919/3622919        0.68       0.84     1.231    1.231
+~:0(<method 'mean' of 'torch._C.TensorBase' objects>)         68522/68522         39.03      23.25     0.596    0.596
+~:0(<method 'detach' of 'torch._C.TensorBase' objects>)     1833790/1833790        1.19       1.40     1.178    1.178
+<string>:1(<lambda>)                                        4143560/2422           0.51       1.19     2.319    0.001
+~:0(<method 'strftime' of 'datetime.date' objects>)          116798/116798        18.02       8.46     0.469    0.469
+~:0(<built-in method builtins.getattr>)                     2943681/17921          0.64       0.72     1.129    0.007
+python3.13/linecache.py:96(updatecache)                      292143/141            6.30       7.29     1.156    0.001
+~:0(<method '__exit__' of '_io._IOBase' objects>)             58490/58483         31.15      16.67     0.535    0.535
+
+=== aggregate over ALL functions ===
+  total tottime   : pre563 3994.1s   post563 85.0s   ratio 0.021
+  total calls     : pre563 7119185055   post563 54531452   ratio 0.008
+  time per call   : 0.561 µs   1.558 µs   ratio 2.777
+
+  If 'time per call' ~= 1.0 while 'total calls' carries the ratio, the arms run the SAME
+  code at the SAME speed and simply do different amounts of work -- which points back at
+  the work term, not the runtime. If per-call is elevated, the runtime really is slower.

@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-20
 Status:      ad-hoc -- audit (re-runnable; widen --since to re-sweep)
-Retire when: ml#434 is closed and the "verify the diff reached main" step is part of the
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: ml#434 is closed and the "verify the diff reached main" step is part of the
              merge procedure rather than a periodic sweep.
 Related:     ml#434; canopy#365/#366; juniper-recurrence#7/#8.
 

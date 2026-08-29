@@ -96,14 +96,57 @@ def heading_level(line: str) -> int:
     return len(m.group(1)) if m else 0
 
 
+def fence_mask(lines: list[str]) -> list[bool]:
+    """True for each line INSIDE a fenced code block.
+
+    Added 2026-08-28, before the juniper-canopy cut, because ``extract`` below was fence-blind and
+    ``heading_level`` cannot tell a markdown heading from a shell comment: both are ``# text`` at
+    column 0. canopy's ``AGENTS.md`` puts 136 such lines inside code fences (``# Run all tests``,
+    ``# Project:       Juniper`` ...), each scoring level 1, which is ``<= 2`` and therefore ends a
+    ``##`` section on the spot.
+
+    Simulated against canopy before the fix: 8 of 11 candidate sections truncated -- ``## Quick
+    Start Commands`` extracted **62 of 10,009 chars**, ``## Code Style Guidelines`` 314 of 4,580,
+    ``## Archive Procedures`` 185 of 3,720. And it would not have raised: the move would succeed,
+    the remainder would be orphaned under a "Moved to ..." pointer, and G3 would still PASS, because
+    every line it *did* remove does appear in the destination. The unmoved remainder is invisible to
+    every gate in the chain. The three cuts shipped 2026-08-28 were unaffected -- verified after
+    merge, pointer-only sections, no orphaned prose -- because their fenced examples do not carry
+    column-0 ``#`` comments.
+
+    CommonMark rule: a fence opens with >= 3 of ` or ~ (indented at most 3 spaces) and is closed
+    only by a fence of the same character, at least as long, carrying no info string.
+    """
+    mask = [False] * len(lines)
+    char: str | None = None
+    count = 0
+    for i, raw in enumerate(lines):
+        s = raw.lstrip()
+        m = re.match(r"^(`{3,}|~{3,})(.*)$", s) if (len(raw) - len(s)) <= 3 else None
+        if m is None:
+            mask[i] = char is not None
+            continue
+        run, info = m.group(1), m.group(2).strip()
+        if char is None:
+            char, count = run[0], len(run)
+        elif run[0] == char and len(run) >= count and not info:
+            char, count = None, 0
+        else:
+            mask[i] = True
+    return mask
+
+
 def extract(lines: list[str], heading: str) -> tuple[int, int]:
-    """Return [start, end) covering the heading and its body."""
-    hits = [i for i, ln in enumerate(lines) if ln.rstrip("\n") == heading]
+    """Return [start, end) covering the heading and its body, ignoring fenced code."""
+    inside = fence_mask(lines)
+    hits = [i for i, ln in enumerate(lines) if ln.rstrip("\n") == heading and not inside[i]]
     if len(hits) != 1:
-        raise SystemExit(f"expected exactly one '{heading}', found {len(hits)}")
+        raise SystemExit(f"expected exactly one '{heading}' outside fenced code, found {len(hits)}")
     start = hits[0]
     level = heading_level(heading)
     for i in range(start + 1, len(lines)):
+        if inside[i]:
+            continue
         lvl = heading_level(lines[i])
         if lvl and lvl <= level:
             return start, i

@@ -5,7 +5,16 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-14
+**Last Updated**: 2026-08-26
+
+> **RE-BASELINED 2026-08-26 (T6).** This grid predates cascor#514, the comparability boundary
+> R-5 §5.1 established. The same 12 cells were re-measured at cascor `67d7ea3` in the T6 campaign;
+> the current table — with these walls as a reference column — is in the
+> [P4 studies evidence, §3 "E-A / E-I re-baselined"](JUNIPER_2026-08-09_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P4-STUDIES-EVIDENCE.md#e-a--e-i-re-baselined-2026-08-26-cascor-67d7ea3--t6).
+> Headline deltas at equal capacity: cap 32 / pool 8 val 0.735 → **0.840**, `wide-pool-long`
+> 0.665 → **0.920**; walls 4–12× shorter (cascor#563, **not** attributable to #514 — F-P4-6 there).
+> The R-3 reading below — caps bind, units dominate pool — is unchanged by the re-run. The figures
+> on this page remain the 2026-08-14 record and are not edited.
 
 E-A re-run under **R-3** (ml#1077), which raised `max_iterations` to 32 so the swept
 `max_hidden_units` cap can actually bind. Suite

@@ -6,7 +6,7 @@
 # Author:     Paul Calnon
 # Created:    2026-06-14
 # Status:     ad-hoc — one-off (personal availability monitor)
-# Retire when: Claude Fable 5 access is restored, or the monitor is no longer wanted.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: Claude Fable 5 access is restored, or the monitor is no longer wanted.
 # Related:    Fable 5 + Mythos 5 disabled for all users 2026-06-12 (US export-control
 #             directive) — https://www.anthropic.com/news/fable-mythos-access
 #

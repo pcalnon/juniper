@@ -15,7 +15,7 @@ Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-21
 Status: ad-hoc -- one-off (v5 refresh ingestion)
-Retire when: the v5 refresh has merged and JR-REC-* IDs are official; the YAML it produces is
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the v5 refresh has merged and JR-REC-* IDs are official; the YAML it produces is
              the durable artifact, this converter is not.
 Related: T7 of HANDOFF_2026-08-18_cli-experimentation-unowned-tasks.md; Q-12 / Wave 7.6
 """

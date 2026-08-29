@@ -6,7 +6,7 @@ Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-22
 Status: ad-hoc — investigation (root cause for handoff §3.4, "fails to load" subset)
-Retire when: the config_json/live-network divergence is fixed in juniper-cascor, or the
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the config_json/live-network divergence is fixed in juniper-cascor, or the
              finding is folded into a cascor regression test.
 Related: notes/JUNIPER_2026-08-21_JUNIPER-CASCOR_SNAPSHOT-FORENSICS-TOOLING-DESIGN.md §4.2,
          juniper-cascor `cascade_correlation.py:897` (_resize_network_for_dataset),

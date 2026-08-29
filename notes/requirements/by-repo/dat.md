@@ -10,22 +10,24 @@
 
 ---
 
-### JR-DAT-DATA-001 — All 7 storage backends implemented and tested: memory, localfs, cached, redis, hf, postgres, kaggle.
+### JR-DAT-DATA-001 — All 7 storage backends implemented and tested: memory, localfs, cached, redis, hf, postgres, kaggle
 
 **Status**: shipped  **Priority**: P0  **Category**: DATA  **Owner**: dat
 
 **Sources**:
+
 - `juniper-data/notes/history/INTEGRATION_DEVELOPMENT_PLAN.md` (lines 34-35)
 
 **Notes**:
 
 DATA-015 complete. All implementations present.
 
-### JR-DAT-DATA-002 — All 8 generators registered in GENERATOR_REGISTRY: spiral, xor, gaussian, circles, checkerboard, csv_import, mnist, arc_agi.
+### JR-DAT-DATA-002 — All 8 generators registered in GENERATOR_REGISTRY: spiral, xor, gaussian, circles, checkerboard, csv_import, mnist, arc_agi
 
 **Status**: shipped  **Priority**: P0  **Category**: DATA  **Owner**: dat
 
 **Sources**:
+
 - `juniper-data/notes/history/JUNIPER-DATA_POST-RELEASE_DEVELOPMENT-ROADMAP_2026-02-17.md` (lines 29-32)
 
 **Notes**:
@@ -65,22 +67,24 @@ RD-005 and RD-007 complete 2026-02-24. 659 tests, 51 modules all >=85%. Reverted
 
 RD-002 complete during migration 2026-02-21. File present, 3 dependabot PRs open.
 
-### JR-DAT-DATA-003 — Lifecycle management supports tagging, TTL, expiration via DatasetMeta (tags, ttl_seconds, expires_at).
+### JR-DAT-DATA-003 — Lifecycle management supports tagging, TTL, expiration via DatasetMeta (tags, ttl_seconds, expires_at)
 
 **Status**: shipped  **Priority**: P0  **Category**: DATA  **Owner**: dat
 
 **Sources**:
+
 - `juniper-data/notes/history/INTEGRATION_DEVELOPMENT_PLAN.md` (lines 34-35)
 
 **Notes**:
 
 DATA-016 complete.
 
-### JR-DAT-DATA-004 — NPZ contract guarantees 6 array keys with float32 dtype and one-hot label encoding.
+### JR-DAT-DATA-004 — NPZ contract guarantees 6 array keys with float32 dtype and one-hot label encoding
 
 **Status**: shipped  **Priority**: P0  **Category**: DATA  **Owner**: dat
 
 **Sources**:
+
 - `juniper-data/notes/history/INTEGRATION_DEVELOPMENT_PLAN.md` (lines 274-292)
 
 **Notes**:
@@ -241,25 +245,28 @@ DATA-011 complete.
 
 RD-009 complete 2026-02-25. tests/performance/ with 21+20 benchmarks. --benchmark-disable default.
 
-### JR-DAT-DATA-005 — Phase 2 partial refactor PR for juniper-data.
+### JR-DAT-DATA-005 — Phase 2 partial refactor PR for juniper-data
 
 **Status**: shipped  **Priority**: P1  **Category**: DATA  **Owner**: dat
 
 **Sources**:
+
 - `juniper-data/notes/history/pull_requests/PR_PHASE2_PARTIAL_2026-01-07.md` (lines 1-50)
 
-### JR-DAT-DATA-006 — Phase 3 Wave 1 PR for juniper-data enhancements.
+### JR-DAT-DATA-006 — Phase 3 Wave 1 PR for juniper-data enhancements
 
 **Status**: shipped  **Priority**: P1  **Category**: DATA  **Owner**: dat
 
 **Sources**:
+
 - `juniper-data/notes/history/pull_requests/PR_DESCRIPTION_PHASE3-WAVE-1_2026-01-09.md` (lines 1-50)
 
-### JR-DAT-DATA-007 — Post-refactor v0.24.0 PR for juniper-data.
+### JR-DAT-DATA-007 — Post-refactor v0.24.0 PR for juniper-data
 
 **Status**: shipped  **Priority**: P1  **Category**: DATA  **Owner**: dat
 
 **Sources**:
+
 - `juniper-data/notes/history/pull_requests/PR_DESCRIPTION_POST_REFACTOR_v0.24.0_2026-01-11.md` (lines 1-50)
 
 ### JR-DAT-OBS-002 — Prometheus histogram juniper_data_dataset_generation_duration_seconds buckets: 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, +inf.

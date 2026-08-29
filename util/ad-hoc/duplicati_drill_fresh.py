@@ -1,0 +1,709 @@
+#!/usr/bin/env python3
+"""
+Project:     Juniper
+Sub-Project: juniper-ml
+Application: util/ad-hoc
+Author:      Paul Calnon
+Version:     0.1.0
+License:     MIT License
+
+Restore drill for a Duplicati destination -- originally the FRESH set (fileset
+of 2026-08-23T17:15:12), since 2026-08-25 the Yamaguchi set (see the revision
+note at the end) -- built to the six requirements from the 2026-08-24
+adversarial gate review:
+
+1. **Destination-only restore.** With ``--dbpath`` pointing at a nonexistent
+   file, duplicati-cli builds a TEMPORARY database from the destination alone
+   (source-verified at the installed tag: the dbpath file is never created --
+   the temp DB is a TempFile discarded per invocation, and the live job DB /
+   dbconfig.json are unreachable once --dbpath is explicit) -- the true
+   disaster path. Each candidate's restore performs its own independent,
+   filter-scoped destination recreate (~1-3 min overhead per candidate,
+   accepted for isolation). The driver asserts the dbpath file stays absent:
+   if one ever appears there, the exists-branch would silently reuse it and
+   the drill would stop being destination-only. Version pinning is
+   unambiguous: the destination holds exactly ONE dlist (the synthetic
+   fileset), so ``--version=0`` cannot resolve to the deleted 17:15:11 twin
+   or the crashed 22:51:26 fileset (whose dlist was never uploaded and whose
+   blocks sit in 12 absent volumes).
+2. **Disposable state.** Everything (temp DB, tempdir, restored files, logs)
+   lands in a fresh run dir on the scratch filesystem; the destination is only
+   ever read; the passphrase key is named explicitly (PASSPHRASE, the fresh
+   key) and only its sha256[:16] is logged.
+3. **Mandatory flags.** ``--no-local-blocks=true`` on every restore -- most
+   candidates still exist locally, and without it Duplicati would rebuild them
+   from the LIVE source, a false pass indistinguishable from proof.
+4. **Dual, job-DB-independent oracle.** (a) Every restored file is hashed and
+   compared against the manifest's own per-file SHA-256 from filelist.json;
+   (b) restored bytes are also compared against a fresh hash of the LIVE
+   source file -- breaking the shared-author circularity between dlist,
+   dindex, and Remotevolume records. A live-vs-restored divergence on a file
+   whose filesystem mtime PREDATES the backup start is the shared-author
+   corruption signal this oracle exists to catch and FAILS the drill
+   (LIVE_ORACLE_CONTRADICTION); divergence with a post-backup mtime is a
+   benign note. The drill is INCONCLUSIVE, not PASS, unless the live oracle
+   actually engaged and matched on at least --live-floor candidates.
+5. **Stratified sample + coverage metric.** Candidates are drawn across the
+   upload window (early / mid / late dblocks), across size classes
+   (empty, single-block, multi-block, large multi-dblock), plus one symlink;
+   the report states how many distinct dblocks the sample exercises (n/104).
+6. **Honest verdict.** The fileset is synthetic and marked
+   ``IsFullBackup: false`` by Duplicati itself, and it omits ~45% of the
+   in-scope files (296,963 listed vs >=538,168 enumerated the same evening).
+   A full pass therefore reads "synthetic PARTIAL fileset verified
+   restorable" -- never "restore point verified".
+
+Revision 2026-08-25 (Yamaguchi widened-scope re-certification, drill 2):
+
+* **Newest-dlist selection.** A live destination accumulates dlists (one per
+  surviving fileset), so the exactly-one assertion is replaced by "drill the
+  NEWEST dlist" -- ``sorted(...)[-1]``; the names embed the UTC start stamp.
+  ``dlists[0]`` would silently drill the ORIGINAL full. ``--version=0`` is the
+  newest fileset of the temp DB, i.e. the same dlist; the driver re-lists the
+  destination immediately before and after every restore and FAILS (rc 2) if
+  the newest dlist changed -- a backup landing mid-drill would otherwise make
+  the manifest and the restored bytes come from different filesets.
+* **Derived oracle cutoff.** ``--backup-start-epoch`` now defaults to the
+  chosen dlist's own timestamp (the fileset time IS the backup start), so the
+  time-decaying parameter can no longer be copied stale from a prior run.
+* **VM-image stratum.** With ``--skip-files-larger-than`` removed and VDIs
+  admitted as explicit sources, one ``vmimage`` candidate is drawn: the
+  smallest image whose live mtime predates the backup (a static image lets the
+  live oracle engage; a running VM's image diverges benignly and proves less),
+  else the smallest. ``large`` now excludes VM images and is capped at
+  ``--large-max-bytes`` so the drill's runtime stays bounded.
+* **Symlink recipe.** The new restore engine's partial-restore rules (no
+  parent-dir creation for metadata-only entries; out-of-tree relative targets
+  skipped -- certification note §5.4) are satisfied by preferring a link whose
+  live target is a SIBLING regular file present in the fileset and restoring
+  that sibling too (``symlink-target`` stratum): the sibling's restore creates
+  the parent directory and puts the target in-tree. Falls back to the first
+  symlink (the drill-1 behaviour) when no such link exists.
+
+Exit codes: 0 = all candidates verified; 1 = any restore/verify failure;
+2 = operational failure.
+"""
+
+import argparse
+import base64
+import calendar
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import zipfile
+
+HASH_BYTES = 32
+
+
+def fail(msg):
+    print(f"FATAL: {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
+def mount_point_of(path):
+    """Containing mountpoint of *path*, found by walking up. Returns "/" when nothing else matches.
+
+    Deliberately derived rather than named: a guard that hardcodes one filesystem keeps
+    passing after the thing it guards has moved, which is how the pre-migration destination
+    kept being checked (note 8.13) while the live one went unguarded.
+    """
+    p = os.path.realpath(path)
+    while p != "/" and not os.path.ismount(p):
+        p = os.path.dirname(p)
+    return p
+
+
+# Filesystems that are NOT durable storage.  os.path.ismount() is true for all of them, so a
+# mount check alone is not a storage check -- measured 2026-08-28: a run root under /tmp
+# passed the mountpoint guard and began restoring into tmpfs (47 G, RAM-backed); 1.5 GB was
+# resident before the run was killed, and a full drill restores tens of GB.  "Is a mount"
+# and "is somewhere it is safe to write 64 GB" are different questions.
+VOLATILE_FSTYPES = {"tmpfs", "ramfs", "devtmpfs", "squashfs", "overlay"}
+
+
+def fstype_of(mount_target):
+    """Filesystem type at *mount_target* per /proc/mounts, or None if not listed."""
+    try:
+        with open("/proc/mounts") as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) >= 3 and parts[1].replace("\\040", " ") == mount_target:
+                    return parts[2]
+    except OSError:
+        return None
+    return None
+
+
+def load_passphrase(cred_file, key):
+    pp = None
+    with open(cred_file) as fh:
+        for line in fh:
+            line = line.strip()
+            if line.startswith(f"{key}=") or line.startswith(f"export {key}="):
+                pp = line.split("=", 1)[1].strip().strip('"')
+    if not pp:
+        fail(f"no {key}= entry in {cred_file}")
+    print(f"credential  : {cred_file} key={key} (sha256[:16]={hashlib.sha256(pp.encode()).hexdigest()[:16]})")
+    return pp
+
+
+def gpg_decrypt(src, dst, passphrase):
+    with open(dst, "wb") as out:
+        proc = subprocess.run(
+            ["gpg", "--batch", "--quiet", "--pinentry-mode", "loopback",
+             "--passphrase-fd", "0", "--decrypt", src],
+            input=(passphrase + "\n").encode(), stdout=out,
+            stderr=subprocess.PIPE, check=False,
+        )
+    if proc.returncode != 0:
+        fail(f"gpg failed on {os.path.basename(src)}: {proc.stderr.decode(errors='replace')[:300]}")
+
+
+def aes_decrypt(src, dst, passphrase):
+    # SharpAESCrypt: password on argv (accepted single-user-host deviation);
+    # rc 3 = HMAC mismatch, rc 4 = wrong password.
+    proc = subprocess.run(["duplicati-aescrypt", "d", passphrase, src, dst],
+                          capture_output=True, check=False)
+    if proc.returncode != 0:
+        fail(f"aescrypt rc={proc.returncode} on {os.path.basename(src)}: {proc.stderr.decode(errors='replace')[:200]}")
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return base64.b64encode(h.digest()).decode()
+
+
+def newest_dlist(dest):
+    """The lexically last dlist name: names embed the UTC start stamp, so last == newest."""
+    dlists = sorted(n for n in os.listdir(dest) if ".dlist." in n)
+    return dlists[-1] if dlists else None
+
+
+def dlist_epoch(name):
+    """Backup start (epoch seconds) from a dlist name, duplicati-YYYYMMDDTHHMMSSZ.dlist.*"""
+    m = re.search(r"-(\d{8}T\d{6})Z\.dlist\.", name)
+    if not m:
+        fail(f"cannot parse the UTC timestamp from dlist name {name}")
+    return calendar.timegm(time.strptime(m.group(1), "%Y%m%dT%H%M%S"))
+
+
+def assert_dlist_unchanged(dest, expected, when):
+    """--version=0 resolves against the destination as it is at restore time; if a backup
+    landed since the manifest was parsed, manifest and restored bytes would come from
+    different filesets. Refuse rather than verify the wrong restore point."""
+    now = newest_dlist(dest)
+    if now != expected:
+        fail(f"newest dlist changed {when}: parsed {expected}, destination now has {now} -- rerun the drill")
+
+
+def is_vm_image(path):
+    return path.lower().endswith((".vdi", ".vmdk", ".qcow2", ".vhd", ".vhdx"))
+
+
+def parse_destination(dest, workdir, passphrase, blocksize):
+    """Return (filelist, block_to_dblock, blocklist_content, dblock_order, dlist_name)."""
+    names = sorted(os.listdir(dest))
+    dlists = [n for n in names if ".dlist." in n]
+    dindexes = [n for n in names if ".dindex." in n]
+    dblocks = [n for n in names if ".dblock." in n]
+    if not dlists:
+        fail("no dlist in destination")
+    # NEWEST dlist -- never dlists[0], which after any incremental is the original full.
+    dlist_name = dlists[-1]
+    print(f"destination : {dest} -> {len(dlists)} dlist / {len(dindexes)} dindex / {len(dblocks)} dblock")
+    print(f"dlist       : {dlist_name} (newest of {len(dlists)}; == --version=0 of the temp DB)")
+
+    block_to_dblock = {}
+    blocklist_content = {}
+    for name in dindexes:
+        plain = os.path.join(workdir, "dindex.zip")
+        gpg_decrypt(os.path.join(dest, name), plain, passphrase)
+        with zipfile.ZipFile(plain) as zf:
+            for entry in zf.namelist():
+                if entry.startswith("vol/"):
+                    vol = entry[4:]
+                    for blk in json.loads(zf.read(entry)).get("blocks", []):
+                        block_to_dblock[blk["hash"]] = vol
+                elif entry.startswith("list/"):
+                    raw = zf.read(entry)
+                    fn_plain = entry[5:].replace("-", "+").replace("_", "/")
+                    if base64.b64encode(hashlib.sha256(raw).digest()).decode() != fn_plain:
+                        fail(f"poisoned list entry {entry} in {name}")
+                    blocklist_content[fn_plain] = [
+                        base64.b64encode(raw[o:o + HASH_BYTES]).decode()
+                        for o in range(0, len(raw), HASH_BYTES)]
+        os.unlink(plain)
+
+    plain = os.path.join(workdir, "dlist.zip")
+    gpg_decrypt(os.path.join(dest, dlist_name), plain, passphrase)
+    with zipfile.ZipFile(plain) as zf:
+        filelist = json.loads(zf.read("filelist.json"))
+        fileset_meta = json.loads(zf.read("fileset")) if "fileset" in zf.namelist() else {}
+    os.unlink(plain)
+    print(f"fileset     : IsFullBackup={fileset_meta.get('IsFullBackup')} entries={len(filelist)}")
+
+    # upload order of dblocks by mtime
+    dblock_order = sorted(dblocks, key=lambda n: os.path.getmtime(os.path.join(dest, n)))
+    return filelist, block_to_dblock, blocklist_content, dblock_order, dlist_name
+
+
+def file_blocks(entry, blocklist_content, blocksize):
+    """All data-block hashes of a File entry (excluding metadata)."""
+    bls = entry.get("blocklists")
+    if bls:
+        out = []
+        for blh in bls:
+            content = blocklist_content.get(blh)
+            if content is None:
+                fail(f"unexpandable blocklist for {entry.get('path')}")
+            out.extend(content)
+        return out
+    if entry.get("size", 0) > 0:
+        return [entry["hash"]]
+    return []
+
+
+def pick_candidates(filelist, block_to_dblock, blocklist_content, dblock_order, blocksize, per_stratum,
+                    large_max=16 * 2**30, backup_start_epoch=0):
+    order_idx = {n: i for i, n in enumerate(dblock_order)}
+    n = len(dblock_order)
+    windows = {"early": (0, n // 3), "mid": (n // 3, 2 * n // 3), "late": (2 * n // 3, n)}
+
+    def window_of(dblocks_touched):
+        idxs = [order_idx[d] for d in dblocks_touched if d in order_idx]
+        if not idxs:
+            return None
+        mid = sorted(idxs)[len(idxs) // 2]
+        for w, (lo, hi) in windows.items():
+            if lo <= mid < hi:
+                return w
+        return "late"
+
+    def live_size_matches(entry):
+        try:
+            return os.lstat(entry["path"]).st_size == entry.get("size", 0)
+        except OSError:
+            return False
+
+    candidates = []
+    seen_paths = set()
+    seen_hashes = set()
+    dir_counts = {}
+
+    def top_dir(path):
+        # containing directory, truncated to four components: caps concentration
+        # for shallow dirs (a file directly under ~/X must key on ~/X, not on
+        # its own filename) while keeping deep trees distinguishable
+        parts = os.path.dirname(path).strip("/").split("/")
+        return "/".join(parts[:4])
+
+    def add(entry, stratum, blocks):
+        path = entry["path"]
+        if path in seen_paths:
+            return False
+        # positional filename is a FILTER to duplicati-cli: glob chars would
+        # silently widen the restore
+        if any(ch in path for ch in "*?[]"):
+            return False
+        # dedupe byte-identical content and cap per-directory concentration
+        # (singleton strata -- large/empty/symlink -- are exempt from the cap)
+        mh = entry.get("hash")
+        if mh and mh in seen_hashes:
+            return False
+        td = top_dir(path)
+        if stratum.split("/")[0] not in ("large", "empty", "symlink", "symlink-target", "vmimage") and dir_counts.get(td, 0) >= 3:
+            return False
+        touched = sorted({block_to_dblock[b] for b in blocks if b in block_to_dblock})
+        candidates.append({
+            "path": path,
+            "size": entry.get("size", 0),
+            "manifest_hash": mh,
+            "stratum": stratum,
+            "dblocks": touched,
+            "live_present": os.path.lexists(path),
+            "live_size_matches": live_size_matches(entry) if entry.get("type") == "File" else False,
+        })
+        seen_paths.add(path)
+        if mh:
+            seen_hashes.add(mh)
+        dir_counts[td] = dir_counts.get(td, 0) + 1
+        return True
+
+    files = [e for e in filelist if e.get("type") == "File"]
+    singles = [e for e in files if not e.get("blocklists") and 0 < e.get("size", 0) <= blocksize]
+    multis = [e for e in files if e.get("blocklists") and e.get("size", 0) < 60 * 2**20]
+    # `large` is bounded (VM images have their own stratum) so the drill's runtime stays bounded
+    larges = sorted((e for e in files if 300 * 2**20 <= e.get("size", 0) <= large_max and not is_vm_image(e["path"])),
+                    key=lambda e: -e["size"])
+    images = [e for e in files if is_vm_image(e["path"]) and e.get("size", 0) >= 2**30]
+    empties = [e for e in files if e.get("size", 0) == 0]
+    symlinks = [e for e in filelist if e.get("type") == "Symlink"]
+
+    def live_mtime(path):
+        try:
+            return os.lstat(path).st_mtime
+        except OSError:
+            return None
+
+    def pick_image():
+        # prefer an image whose live copy predates the backup (static: the live oracle
+        # engages with teeth); a running VM's image only ever yields benign divergence
+        static = [e for e in images if (live_mtime(e["path"]) or float("inf")) < backup_start_epoch]
+        pool = static or images
+        return min(pool, key=lambda e: e["size"]) if pool else None
+
+    def pick_symlink():
+        # a link whose live target is a SIBLING regular file that is itself in the
+        # fileset: restoring both satisfies the engine's partial-restore preconditions
+        by_path = {e["path"]: e for e in files}
+        for e in symlinks:
+            p = e["path"]
+            if not os.path.islink(p):
+                continue
+            try:
+                target = os.readlink(p)
+            except OSError:
+                continue
+            if not target or "/" in target or target in (".", ".."):
+                continue
+            sibling = by_path.get(os.path.join(os.path.dirname(p), target))
+            # both paths become positional FILTERS to duplicati-cli: glob chars would widen the restore
+            if sibling is not None and not any(ch in p + sibling["path"] for ch in "*?[]"):
+                return e, sibling
+        return (symlinks[0], None) if symlinks else (None, None)
+
+    for w in ("early", "mid", "late"):
+        got_s = got_m = 0
+        for e in singles:
+            if got_s >= per_stratum:
+                break
+            blocks = file_blocks(e, blocklist_content, blocksize)
+            if window_of([block_to_dblock.get(b) for b in blocks if b in block_to_dblock] or []) == w and add(e, f"single/{w}", blocks):
+                got_s += 1
+        for e in multis:
+            if got_m >= per_stratum:
+                break
+            blocks = file_blocks(e, blocklist_content, blocksize)
+            if window_of([block_to_dblock.get(b) for b in blocks if b in block_to_dblock] or []) == w and add(e, f"multi/{w}", blocks):
+                got_m += 1
+    for e in larges:  # add() may refuse (glob chars, duplicate hash) -- take the next largest
+        if add(e, "large", file_blocks(e, blocklist_content, blocksize)):
+            break
+    image = pick_image()
+    if image is not None:
+        add(image, "vmimage", file_blocks(image, blocklist_content, blocksize))
+    if empties:
+        add(empties[0], "empty", [])
+    link, sibling = pick_symlink()
+    if link is not None:
+        # the sibling is what makes the link restorable (parent dir + in-tree target); the
+        # pair only holds in --single-invocation mode, where both land in one restore tree
+        if sibling is not None and not add(sibling, "symlink-target", file_blocks(sibling, blocklist_content, blocksize)):
+            print(f"  symlink sibling refused by add(); drilling {link['path']} without it (expect the engine to skip it)")
+        add(link, "symlink", [])
+
+    coverage = sorted({d for c in candidates for d in c["dblocks"]})
+    return candidates, coverage
+
+
+def main():
+    ap = argparse.ArgumentParser(description="fresh-set restore drill (destination-only, dual oracle)")
+    # --dest is REQUIRED, and that is the fix for a defect this comment used to describe
+    # without noticing it applied to the default itself: "a bare run against the wrong
+    # destination would print a true-looking PASS for the wrong set".  The default was
+    # /media/pcalnon/temp_backups/Yamaguchi, and the 2026-08-26 migration (note 8.13) moved
+    # the live set to /mnt/Backups/Ubuntu/Yamaguchi.  The old directory survives as a frozen
+    # pre-migration copy, so a bare run would not fail -- it would drill 811 stale volumes
+    # whose newest fileset (20260826T181206Z) the live set has since RETAINED AWAY, and
+    # report PASS.  A stale default on a checker is indistinguishable from a working one.
+    #
+    # The remedy here is explicitness rather than the derive-from-TargetURL used by
+    # yamaguchi_census.py, because this tool's requirement 1 is destination-ONLY operation:
+    # asking the Duplicati server where to look would couple the disaster-recovery drill to
+    # the service that a disaster may have taken with it.  Naming the destination costs one
+    # argument and cannot rot.
+    ap.add_argument("--dest", required=True,
+                    help="destination directory to drill (REQUIRED -- no default, deliberately). "
+                         "Live Yamaguchi set: /mnt/Backups/Ubuntu/Yamaguchi (--encryption aes). "
+                         "Old gpg fresh set: /media/pcalnon/temp_backups/Ubuntu (--encryption gpg).")
+    ap.add_argument("--run-root", default="/media/pcalnon/temp_backups/_yamaguchi_drill",
+                    help="scratch parent for the run dir; must NOT be on the destination filesystem "
+                         "and must not be an unmounted path (default: the sdc4 scratch area)")
+    ap.add_argument("--cred-file", default=os.path.expanduser("~/.config/duplicati-backup/env"))
+    ap.add_argument("--cred-key", default="PASSPHRASE")
+    ap.add_argument("--blocksize", type=int, default=1024 * 1024)
+    ap.add_argument("--per-stratum", type=int, default=2)
+    ap.add_argument("--live-floor", type=int, default=10,
+                    help="minimum live-oracle MATCHES for a PASS (else INCONCLUSIVE)")
+    ap.add_argument("--backup-start-epoch", type=int, default=None,
+                    help="live mtime BEFORE this + divergence = contradiction; default: derived from the "
+                         "drilled dlist's own timestamp (drill 1 of the fresh set used 1787523309)")
+    ap.add_argument("--large-max-bytes", type=int, default=16 * 2**30,
+                    help="upper bound for the `large` stratum (VM images have their own stratum)")
+    ap.add_argument("--select-only", action="store_true", help="stop after writing candidates.json")
+    ap.add_argument("--encryption", choices=["gpg", "aes"], default="aes")
+    ap.add_argument("--single-invocation", action="store_true",
+                    help="restore ALL candidates in one duplicati-cli call (one shared "
+                         "temp-DB recreate -- required for large sets where a per-candidate "
+                         "recreate is prohibitive); candidates with duplicate basenames are "
+                         "dropped so verification stays unambiguous")
+    args = ap.parse_args()
+    global gpg_decrypt
+    if args.encryption == "aes":
+        gpg_decrypt = aes_decrypt
+
+    dest = os.path.realpath(args.dest)
+    if not os.path.isdir(dest):
+        fail(f"destination is not a directory: {dest}")
+    # Both mount guards are DERIVED by walking up to the containing mountpoint, never by
+    # naming one filesystem.  The previous guard hardcoded /media/pcalnon/temp_backups, which
+    # after the migration checked a filesystem neither argument necessarily refers to -- and
+    # it only happened to cover --run-root because that default lives there too.  Guarding
+    # the run root matters on its own: a drill restores tens of GB, and if its scratch path
+    # is not on a mounted filesystem those bytes land on the root filesystem instead
+    # (note 8.10.2's named failure -- 264 G free, so it fills rather than erroring early).
+    dest_mp = mount_point_of(dest)
+    if dest_mp == "/":
+        fail(f"destination {dest} is not on a mounted filesystem (walked up to /)")
+    print(f"dest mount  : {dest_mp}")
+    run_root = os.path.realpath(args.run_root)
+    run_root_mp = mount_point_of(run_root if os.path.isdir(run_root) else os.path.dirname(run_root))
+    if run_root_mp == "/":
+        fail(f"run root {run_root} is not on a mounted filesystem (walked up to /) -- refusing to "
+             "restore into the root filesystem")
+    run_root_fs = fstype_of(run_root_mp)
+    if run_root_fs in VOLATILE_FSTYPES:
+        fail(f"run root {run_root} is on {run_root_mp} ({run_root_fs}), which is not durable storage -- "
+             "a drill restores tens of GB and would consume RAM until the machine fails")
+    free_gb = shutil.disk_usage(run_root_mp).free / 2**30
+    print(f"run root    : {run_root_mp} ({run_root_fs}), {free_gb:.0f} GiB free")
+    if free_gb < 100:
+        print(f"WARNING     : only {free_gb:.0f} GiB free on {run_root_mp}; a full drill can restore "
+              "tens of GB and will fail part-way if it runs out")
+    # Same-filesystem is a WARNING, not a refusal: the drill only ever READS the destination,
+    # so sharing a spindle costs independence but breaks nothing, and drilling the retained
+    # pre-migration copy with the default scratch root is a legitimate thing to want.
+    if run_root_mp == dest_mp:
+        print(f"WARNING     : run root and destination share filesystem {dest_mp} -- the drill's "
+              "scratch writes are not independent of the disk under test")
+    run_dir = os.path.join(args.run_root, f"drill-{time.strftime('%Y%m%d-%H%M%S')}")
+    if os.path.realpath(run_dir).startswith(dest + os.sep):
+        fail("run dir must not be inside the destination")
+    workdir = os.path.join(run_dir, "work")
+    restore_root = os.path.join(run_dir, "restored")
+    tmpdir = os.path.join(run_dir, "tmp")
+    for d in (workdir, restore_root, tmpdir):
+        os.makedirs(d, exist_ok=True)
+    dbpath = os.path.join(run_dir, "tempdb.sqlite")
+    print(f"run dir     : {run_dir}")
+
+    passphrase = load_passphrase(args.cred_file, args.cred_key)
+    filelist, block_to_dblock, blocklist_content, dblock_order, dlist_name = parse_destination(
+        dest, workdir, passphrase, args.blocksize)
+    args.dlist_name = dlist_name
+    if args.backup_start_epoch is None:
+        args.backup_start_epoch = dlist_epoch(dlist_name)
+    print(f"oracle cutoff: backup-start-epoch {args.backup_start_epoch} "
+          f"({time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(args.backup_start_epoch))})")
+
+    candidates, coverage = pick_candidates(
+        filelist, block_to_dblock, blocklist_content, dblock_order, args.blocksize, args.per_stratum,
+        large_max=args.large_max_bytes, backup_start_epoch=args.backup_start_epoch)
+    with open(os.path.join(run_dir, "candidates.json"), "w") as fh:
+        json.dump(candidates, fh, indent=1)
+    with open(os.path.join(run_dir, "drill-meta.json"), "w") as fh:
+        json.dump({"dest": dest, "dlist": dlist_name, "backup_start_epoch": args.backup_start_epoch,
+                   "dblocks": len(dblock_order), "encryption": args.encryption,
+                   "single_invocation": args.single_invocation, "large_max_bytes": args.large_max_bytes}, fh, indent=1)
+    print(f"candidates  : {len(candidates)} across strata; dblock coverage {len(coverage)}/{len(dblock_order)}")
+    for c in candidates:
+        print(f"  [{c['stratum']:>10}] {c['size']:>12} B  {len(c['dblocks']):>3} dblock(s)  {c['path']}")
+    if args.select_only:
+        return
+
+    # ---- provenance snapshot ------------------------------------------------
+    ver = subprocess.run(["dpkg-query", "-W", "-f=${Package} ${Version}\\n", "duplicati"],
+                         capture_output=True, text=True, check=False)
+    with open(os.path.join(run_dir, "provenance.txt"), "w") as fh:
+        fh.write(f"installed package: {ver.stdout.strip() or ver.stderr.strip()}\n\ndestination inventory:\n")
+        for n in sorted(os.listdir(dest)):
+            st = os.stat(os.path.join(dest, n))
+            fh.write(f"{n}\t{st.st_size}\t{int(st.st_mtime)}\n")
+
+    # ---- restore phase ------------------------------------------------------
+    env = dict(os.environ, PASSPHRASE=passphrase)
+    results = []
+
+    if args.single_invocation:
+        seen_base = set()
+        uniq = []
+        for c in candidates:
+            base = os.path.basename(c["path"].rstrip("/"))
+            if base in seen_base:
+                print(f"  dropping duplicate-basename candidate: {c['path']}")
+                continue
+            seen_base.add(base)
+            uniq.append(c)
+        # the symlink is only restorable together with its sibling: if dedupe took the
+        # sibling, drop the link too rather than record a MISSING that is not a defect
+        kept = {c["path"] for c in uniq}
+        if any(c["stratum"] == "symlink-target" and c["path"] not in kept for c in candidates):
+            uniq = [c for c in uniq if c["stratum"] != "symlink"]
+            print("  symlink sibling was deduped away; dropping the symlink candidate as well")
+        candidates = uniq
+        coverage = sorted({d for c in candidates for d in c["dblocks"]})
+        rdir = os.path.join(restore_root, "all")
+        os.makedirs(rdir, exist_ok=True)
+        assert_dlist_unchanged(dest, dlist_name, "before the restore")
+        t0 = time.monotonic()
+        argv = ["duplicati-cli", "restore", f"file://{dest}"] + [c["path"] for c in candidates] + [
+            f"--dbpath={dbpath}", f"--restore-path={rdir}", f"--tempdir={tmpdir}",
+            "--version=0", "--no-local-blocks=true", "--overwrite=true",
+            "--console-log-level=Warning"]
+        proc = subprocess.run(argv, env=env, capture_output=True, text=True, check=False)
+        dur = time.monotonic() - t0
+        with open(os.path.join(run_dir, "restore-all.log"), "w") as fh:
+            fh.write(proc.stdout + "\n--- stderr ---\n" + proc.stderr)
+        if os.path.exists(dbpath):
+            fail(f"{dbpath} materialized -- see per-candidate mode comment")
+        assert_dlist_unchanged(dest, dlist_name, "during the restore")
+        print(f"  single restore invocation: rc={proc.returncode} in {dur:.0f}s for {len(candidates)} candidates")
+        for c in candidates:
+            verdict, detail, live_oracle = verify_candidate(c, rdir, args.backup_start_epoch)
+            if proc.returncode >= 3:
+                verdict, detail, live_oracle = "RESTORE_FAILED", f"rc={proc.returncode}: {proc.stderr[-200:]}", None
+            results.append({**c, "rc": proc.returncode, "seconds": round(dur, 1),
+                            "verdict": verdict, "detail": detail, "live_oracle": live_oracle})
+            print(f"  [{c['stratum']:>12}] {verdict}  {detail}")
+        finish_report(args, run_dir, results, coverage, dblock_order)
+        return
+
+    for i, c in enumerate(candidates):
+        rdir = os.path.join(restore_root, f"c{i:02d}")
+        os.makedirs(rdir, exist_ok=True)
+        assert_dlist_unchanged(dest, dlist_name, f"before candidate c{i:02d}")
+        t0 = time.monotonic()
+        proc = subprocess.run(
+            ["duplicati-cli", "restore", f"file://{dest}", c["path"],
+             f"--dbpath={dbpath}", f"--restore-path={rdir}",
+             f"--tempdir={tmpdir}", "--version=0",
+             "--no-local-blocks=true", "--overwrite=true",
+             "--console-log-level=Warning"],
+            env=env, capture_output=True, text=True, check=False,
+        )
+        dur = time.monotonic() - t0
+        with open(os.path.join(run_dir, f"restore-c{i:02d}.log"), "w") as fh:
+            fh.write(proc.stdout + "\n--- stderr ---\n" + proc.stderr)
+        if os.path.exists(dbpath):
+            fail(f"{dbpath} materialized -- the exists-branch would reuse it and the "
+                 "drill would no longer be destination-only; investigate before rerunning")
+
+        # duplicati-cli returncodes: 0 = success; 1 = success, no files changed;
+        # 2 = success with warning(s); >=3 = errors. Only >=3 is a restore failure.
+        verdict, detail, live_oracle = verify_candidate(c, rdir, args.backup_start_epoch)
+        if proc.returncode >= 3:
+            verdict, detail, live_oracle = "RESTORE_FAILED", f"rc={proc.returncode}: {proc.stderr[-200:]}", None
+        results.append({**c, "rc": proc.returncode, "seconds": round(dur, 1),
+                        "verdict": verdict, "detail": detail, "live_oracle": live_oracle})
+        print(f"  c{i:02d} [{c['stratum']:>10}] rc={proc.returncode} {dur:6.1f}s  {verdict}  {detail}")
+
+    finish_report(args, run_dir, results, coverage, dblock_order)
+
+
+def finish_report(args, run_dir, results, coverage, dblock_order):
+    ok = sum(1 for r in results if r["verdict"].startswith("VERIFIED"))
+    live_ok = sum(1 for r in results if r["live_oracle"] == "match")
+    contradictions = [r for r in results if r["live_oracle"] == "contradiction"]
+    bad = [r for r in results if not r["verdict"].startswith("VERIFIED") and r["verdict"] != "UNVERIFIED_NO_ORACLE"]
+    unverified = [r for r in results if r["verdict"] == "UNVERIFIED_NO_ORACLE"]
+    with open(os.path.join(run_dir, "results.json"), "w") as fh:
+        json.dump(results, fh, indent=1)
+    print()
+    print(f"drilled dlist    : {getattr(args, 'dlist_name', '?')} (oracle cutoff epoch {args.backup_start_epoch})")
+    print(f"RESTORED+VERIFIED: {ok}/{len(results)} candidates; dblock coverage {len(coverage)}/{len(dblock_order)}")
+    print(f"live-source oracle: {live_ok} matches, {len(contradictions)} contradictions (floor for PASS: {args.live_floor})")
+    if bad or contradictions:
+        print("FAILURES:")
+        for r in bad:
+            print(f"  {r['path']}: {r['verdict']} {r['detail']}")
+        print("RESULT: DRILL FAILED")
+        sys.exit(1)
+    if unverified:
+        for r in unverified:
+            print(f"  NOTE: {r['path']}: {r['detail']}")
+    if live_ok < args.live_floor:
+        print(f"RESULT: INCONCLUSIVE -- restores matched the manifest, but the live-source oracle "
+              f"engaged on only {live_ok} < {args.live_floor} candidates; shared-author circularity not broken")
+        sys.exit(1)
+    print("RESULT: fileset verified restorable for the sampled strata (dual oracle)")
+    print("        (verdict scope: sampled candidates + destination-only recreate; see the run's certification note)")
+
+
+def verify_candidate(c, rdir, backup_start_epoch):
+    """Verify restored artifact against manifest + live source.
+
+    Returns (verdict, detail, live_oracle) where live_oracle is one of
+    "match" | "benign-divergence" | "contradiction" | None (not engaged).
+    A divergence on a live file whose mtime PREDATES the backup start is the
+    shared-author corruption signal the oracle exists for -- it FAILS.
+    """
+    base = os.path.basename(c["path"].rstrip("/"))
+
+    if c["stratum"] == "symlink":
+        for root, dirs, files in os.walk(rdir, followlinks=False):
+            for nm in dirs + files:
+                p = os.path.join(root, nm)
+                if os.path.islink(p) and nm == base:
+                    got = os.readlink(p)
+                    if not os.path.lexists(c["path"]):
+                        return "UNVERIFIED_NO_ORACLE", f"symlink restored (target {got}) but live link is gone; no oracle", None
+                    live_target = os.readlink(c["path"])
+                    if got == live_target:
+                        return "VERIFIED", f"symlink target {got} == live", "match"
+                    if os.lstat(c["path"]).st_mtime < backup_start_epoch:
+                        return "SYMLINK_MISMATCH", f"restored->{got} live->{live_target} (live link PREDATES backup)", "contradiction"
+                    return "UNVERIFIED_NO_ORACLE", f"restored->{got}, live retargeted after backup ->{live_target}", "benign-divergence"
+        return "MISSING", "no symlink restored", None
+
+    found = None
+    for root, _dirs, files in os.walk(rdir):
+        for nm in files:
+            if nm == base:
+                found = os.path.join(root, nm)
+        if found:
+            break
+    if found is None:
+        return "MISSING", "restored file not found under restore-path", None
+    if c["size"] == 0:
+        if os.path.getsize(found) == 0:
+            return "VERIFIED", "empty file restored", None
+        return "SIZE_MISMATCH", f"expected 0 got {os.path.getsize(found)}", None
+
+    got_hash = sha256_file(found)
+    if got_hash != c["manifest_hash"]:
+        return "HASH_MISMATCH", f"manifest {c['manifest_hash'][:12]} != restored {got_hash[:12]}", None
+
+    if not os.path.exists(c["path"]) or os.path.islink(c["path"]):
+        return "VERIFIED", "manifest-hash-match (live source gone; oracle not engaged)", None
+    live_hash = sha256_file(c["path"])
+    if live_hash == got_hash:
+        return "VERIFIED", "manifest-hash-match + live-oracle-match", "match"
+    if os.lstat(c["path"]).st_mtime < backup_start_epoch:
+        # live file claims to predate the backup yet differs from what the
+        # backup stack stored AND hashed: manifest, blocks, and Remotevolume
+        # share one author -- the unchanged live file is the only witness.
+        return "LIVE_ORACLE_CONTRADICTION", \
+            f"live mtime predates backup but live {live_hash[:12]} != restored {got_hash[:12]}", "contradiction"
+    return "VERIFIED", "manifest-hash-match (live changed after backup; benign)", "benign-divergence"
+
+
+if __name__ == "__main__":
+    main()

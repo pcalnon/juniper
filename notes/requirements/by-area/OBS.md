@@ -71,7 +71,7 @@ In-flight branch audit-fixup/stale-dashboard-panels exists as of 2026-05-06.
 
 Operational blocker. Recommend Option A - land in-flight PR + add dashboard-lint CI guardrail.
 
-### JR-ML-OBS-003 — >   per the canopy requirements (high-volume / low-latency metrics and the.
+### JR-ML-OBS-003 — P5-RC-05 (frontend WebSocket consumption) is STILL OPEN, not deferred — high-volume / low-latency metrics and the bidirectional `set_params` control channel depend on it
 
 **Status**: designed  **Priority**: P0  **Category**: OBS  **Owner**: ml
 
@@ -85,6 +85,8 @@ Operational blocker. Recommend Option A - land in-flight PR + add dashboard-lint
 **Notes**:
 
 [v3 brief repaired from cited content; was: '6.0 Phase 4 Execution Results (2026-04-10, REVISED)']
+
+[2026-08-29 brief repaired from cited content; was: '>   per the canopy requirements (high-volume / low-latency metrics and the.']
 
 ### JR-ML-OBS-004 — Status**: **PARTIAL (2026-04-10)** — typed contract done; WebSocket consumption still open. See….
 

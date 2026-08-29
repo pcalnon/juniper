@@ -1,0 +1,27 @@
+{
+  "app_dir": "/tmp/claude-1000/-home-pcalnon-Development-python-Juniper-juniper-ml/0925fc3b-8995-4bd7-bf1d-3f96016e1927/scratchpad/cascor/src",
+  "hung_past_death_wait": false,
+  "sigterm_to_death_s": 1.542,
+  "wait_status": "143",
+  "wait_status_meaning": "killed by signal 15",
+  "descendants_recorded": 17,
+  "orphans_alive_after_death": [],
+  "shm_created_by_run": [
+    "juniper_train_3d2caab5",
+    "sem.mp-211jqlyi",
+    "sem.mp-4yyftj0o",
+    "sem.mp-dotb1jmb",
+    "sem.mp-ows4ksix",
+    "sem.mp-pve59xt7",
+    "sem.mp-rc8ios9z",
+    "sem.mp-wvu624iw",
+    "sem.mp-xrrhwkj8",
+    "sem.mp-zdf9gycr"
+  ],
+  "shm_leaked_after_death": [],
+  "shm_leaked_after_reap": [],
+  "leak_signature": {
+    "juniper_train_segments": 0,
+    "sem_mp": 0
+  }
+}
