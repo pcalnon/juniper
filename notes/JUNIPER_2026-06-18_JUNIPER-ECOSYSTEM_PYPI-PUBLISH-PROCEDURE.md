@@ -371,7 +371,7 @@ Requirements:
 
 ### 10.2 Workflow file
 
-The `juniper-ml` project uses `.github/workflows/publish.yml`:
+The `juniper-ml` project uses `.github/workflows/publish.yml`. The YAML below is the **original simplified design**, not the live workflow — see the 2026-08-08 and 2026-08-24 amendments after §10.3. Live contract: [`docs/REFERENCE.md` § Meta-Package Publish Pipeline](../docs/REFERENCE.md#meta-package-publish-pipeline).
 
 ```yaml
 name: Publish to PyPI
@@ -450,10 +450,15 @@ jobs:
 |----------|-----------|
 | TestPyPI runs first, PyPI depends on it (`needs: testpypi`) | Catches packaging errors before the irreversible PyPI upload |
 | Verification step installs from TestPyPI after upload | Confirms the package is actually installable, not just uploadable |
-| `sleep 30` before verification install | TestPyPI index propagation can lag; avoids false negatives |
+| `sleep 30` before verification install | **Historical.** TestPyPI index propagation can lag. Live `publish.yml` (juniper-ml#1310) replaced this with a bounded 10×6s `pip download` poll (~60s ceiling); do not restore the fixed sleep. |
 | Separate GitHub environments (`testpypi`, `pypi`) | Each maps to its own trusted publisher configuration; enables environment-level protection rules (e.g., manual approval for `pypi`) |
-| Rebuild in the `pypi` job instead of passing artifacts | Ensures the PyPI upload is built from the exact checkout, not a cached artifact that could diverge |
-| `id-token: write` at the top level | Required by the OIDC exchange; applied to all jobs |
+| Rebuild in the `pypi` job instead of passing artifacts | **Historical.** Live workflows upload a `dist/` artifact from `build` and download it in the publish jobs. |
+| `id-token: write` at the top level | **Historical.** P4 (juniper-ml#357) scopes `id-token: write` to the two publish jobs only; the build job restates `contents: read`. |
+
+> **2026-08-24 amendment (juniper-ml#1310).** Two live-workflow corrections against the snippet above.
+>
+> 1. **Bounded poll, not `sleep 30`.** TestPyPI's simple index is CDN-fronted and lags ~5–30s, so the first fetch of a just-published version can 404. A fixed sleep is wrong in both directions: paid in full when the index is already warm (77% of a measured 39s step), and still a coin-flip when propagation runs long. Live Gate 1 polls `pip download --no-deps` from TestPyPI-only, 10 attempts × 6s (~60s ceiling), then a real `::error::` if the version is never served. The fetch stays on one parseable line (`tests/test_publish_testpypi_verify.py` matches `^pip download`). Sibling publishers retry `pip install --no-deps` five times with a 10s interval.
+> 2. **The trigger is the gate.** The six sub-package publishers used to carry a `Require a GitHub Release for this tag` step gated on `if: github.event_name == 'push'`. None of them subscribe to `push:` (removed after #555, where Release-plus-push raced the immutable TestPyPI upload), so those steps could never run. Dead code shaped like a guard is worse than no guard. With `release: published` as the only automatic trigger, a bare `git push <tag>` starts **no run**. Gate: `tests/test_publish_release_only_trigger.py` (glob-discovered; pins both directions). Re-measured 2026-08-24: 12 tags exist with no Release and none of them published.
 
 ### 10.4 GitHub environment setup
 
@@ -577,9 +582,9 @@ python -m readme_renderer README.md -o /tmp/readme.html
 
 ### TestPyPI install fails with "No matching distribution found"
 
-- The index may not have propagated yet — wait 30-60 seconds and retry
-- Check that the version string matches exactly (no leading `v`)
-- Ensure `--extra-index-url https://pypi.org/simple/` is set so dependencies resolve
+- The index may not have propagated yet. Live Gate 1 polls for ~60s (10×6s); sibling publishers retry 5×10s. A remaining 404 after that ceiling is a real miss, not lag — check that the version string matches exactly (no leading `v`)
+- Do not restore an unconditional `sleep 30` in `.github/workflows/publish.yml`; that sleep was neither necessary nor sufficient (juniper-ml#1310)
+- Manual install from TestPyPI still needs `--extra-index-url https://pypi.org/simple/` so *dependencies* resolve, but that merged-namespace form is the squatting risk the CI two-phase verify exists to avoid (see §7.2 2026-08-08 amendment)
 
 ### Trusted publishing fails: "Token request failed"
 
