@@ -5,8 +5,13 @@
 # Sub-Project: ad-hoc tooling
 # Author:     Paul Calnon
 # Created:    2026-08-26
-# Status:     ad-hoc — one-off (the 2026-08-25 handoff's records re-sync, made a file because the
-#             worktree hook refuses a `mountpoint -q … && rsync …` chain at the prompt)
+# Status:     ad-hoc — one-off (the 2026-08-25 handoff's records re-sync). NOTE 2026-08-29: the
+#             original reason given here — "the worktree hook refuses a `mountpoint -q … && rsync …`
+#             chain" — is FALSE and was propagated into a later handoff before validation caught it.
+#             Plain `&&` chains run fine; the hook refuses git aimed at ANOTHER checkout
+#             (`cd <other> && git …`, `git -C <other> …`) plus a complexity heuristic on
+#             multi-statement lines. The file is still worth keeping: the exclusion list is the
+#             load-bearing part and must not be retyped by hand.
 # Retire when: RETAINED — ad-hoc scripts are kept as provenance of record (owner policy 2026-08-25)
 # Related:    notes/JUNIPER_2026-08-25_JUNIPER-ECOSYSTEM_DUPLICATI-YAMAGUCHI-BACKUP-CERTIFICATION.md (§8);
 #             prompts/thread-handoff_automated-prompts/HANDOFF_2026-08-25_duplicati-widened-scope-recertified-paul-gated-tail.md (§2 item 7)

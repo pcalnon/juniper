@@ -315,6 +315,34 @@ def main():
         print("\nDRY RUN -- nothing deleted. All gates passed; re-run with --execute.")
         return 0
 
+    # An empty deletion set means the purge already ran. Return BEFORE the README write:
+    # that write is unconditional, and re-running --execute here would rewrite the archive's
+    # only on-disk record to "What was removed: 0 volumes (0 B)" while keeping the hardcoded
+    # date, so the corrupted file would still read as authentic. The record is not mirrored
+    # by yamaguchi_records_sync.bash (which covers four named dirs, not the archive root),
+    # so that overwrite would be unrecoverable. A second --execute must be a true no-op.
+    # ...but only when the record actually exists. Both `return 4` paths below, and any crash
+    # between the deletion loop and the README write, leave the archive purged with no README --
+    # and gating purely on `not doomed` would make that state permanent, since no later run could
+    # ever reach the write. Skip only if there is a record to protect.
+    readme = os.path.join(archive, "README.md")
+    if not doomed:
+        if os.path.isfile(readme):
+            print("\nnothing to delete -- the purge has already run; leaving README.md untouched.")
+            return 0
+        # The archive is purged but its record is gone (both `return 4` paths below, and any crash
+        # between the deletion loop and the README write, can leave exactly this state). Do NOT
+        # fall through: `removed`/`freed` would be 0 for this run and the regenerated file would
+        # claim "0 volumes (0 B)" -- a fabricated record, which is the defect this guard exists to
+        # prevent, wearing a different mask. The true counts are not derivable from a purged
+        # archive; recover the file instead of inventing it.
+        print(f"\nREFUSED: the archive is already purged but {readme} is MISSING.\n"
+              "  This tool will not regenerate it: the original volume count and freed size cannot\n"
+              "  be derived from a purged archive, and a README claiming '0 volumes (0 B)' would be\n"
+              "  worse than none. Recover it from git (note section 8.16 records the real figures)\n"
+              "  or write it by hand.", file=sys.stderr)
+        return 4
+
     removed = 0
     freed = 0
     for p in doomed:
