@@ -120,11 +120,12 @@ arbitrary file paths). Tracked as **AMTOOL-CI** (P3) on the
 **Sources**:
 - `juniper-ml/notes/JUNIPER_2026-05-04_JUNIPER-ECOSYSTEM_PHASE-6E-DEFERRED-CAN-015GH-DESIGN.md` (lines 1-100)
 
-### JR-ML-DATA-004 — Deferred items**: RD-008 (SIM117 test fixes), RD-015 (IPC/ZeroMQ), RD-016 (GPU), RD-017 (continuous profiling).
+### JR-ML-DATA-004 — Deferred items**: RD-008 (SIM117 test fixes), RD-015 (IPC/ZeroMQ), RD-016 (GPU), RD-017 (continuous profiling)
 
 **Status**: deferred  **Priority**: P1  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-19_JUNIPER-ECOSYSTEM_DEEP-AUDIT-FIVE-REPOS.md` (lines 392-402)
 
 **Detail**:
@@ -153,11 +154,12 @@ management and health checks.
 
 [v2 ARCH→TRAIN re-bucket]
 
-### JR-ML-DATA-005 — IPC Architecture (ZeroMQ/shared-memory).
+### JR-ML-DATA-005 — IPC Architecture (ZeroMQ/shared-memory)
 
 **Status**: deferred  **Priority**: P1  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V3-VALIDATED.md` (lines 453-466)
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS.md` (lines 364-377)
 
