@@ -446,30 +446,34 @@ def render_status(status: str, entries: "list[Entry]", preamble: str = "\n") -> 
     )
 
 
+#: The family ``write_all`` owns. Deliberately just the canonical one -- ``by-repo`` and
+#: ``by-status`` are written by ``regenerate_views`` instead, so exactly one writer owns each
+#: file. Two independent writers is what produced the drift this factoring removes.
+FAMILIES_WRITTEN_BY_WRITE_ALL = (("by-area", "category", render_area),)
+
+
 def write_all(new_entries: "list[Entry]", req_root: Path = REQ_ROOT) -> "list[Path]":
     """Add ``new_entries`` to the views and the ledger, touching nothing else.
 
-    APPEND-ONLY BY DESIGN. Regenerating all three view families from one parsed corpus was
-    the obvious implementation and is wrong here, for two measured reasons:
+    APPEND-ONLY for ``by-area``, which is canonical: each file is re-rendered from its OWN
+    parsed entries plus whatever is new, and every shipped file round-trips byte-for-byte.
+    The ledger is likewise appended rather than re-dumped -- ``id_assignments.yaml`` briefs are
+    truncated by design (AGENTS.md says never to read content from it), so rewriting it from
+    full view text would churn ~1,100 rows and bury the real change.
 
-      * The families disagree with each other on the shipped corpus -- 52 entries differ
-        between by-area and by-repo, 149 between by-area and by-status. by-area carries a
-        spurious trailing period (``Apply in both:.``, ``\"\"\".``), so regenerating the
-        others from it would PROPAGATE a defect across ~150 entries.
-      * ``id_assignments.yaml`` briefs are truncated by design (AGENTS.md says never to read
-        content from it); rewriting the ledger from full view text would churn ~1,100 rows.
+    ``by-repo`` and ``by-status`` are NOT written here. They are derived -- see
+    ``render_derived`` / ``regenerate_views`` -- and the caller projects them from ``by-area``
+    after this returns, so an addition cannot land in one family and miss another.
 
-    Each file is therefore re-rendered from its OWN parsed entries plus whatever is new,
-    which every shipped file round-trips byte-for-byte. The cross-view inconsistency is left
-    intact and reported -- it is a corpus-quality question with its own evidence, not
-    something a refresh should silently rewrite.
+    This function previously appended to all three independently, justified by a measured claim
+    that regenerating one family from another "would PROPAGATE a defect across ~150 entries".
+    That claim was **wrong** (ml#1415): the families differ by ZERO ids and ZERO metadata fields;
+    the 52 / 149 counts are trailing punctuation and whitespace on otherwise identical entries,
+    reducing to four markdown artifacts. Independent maintenance was the thing producing the
+    drift, not the protection against it.
     """
     written: "list[Path]" = []
-    families = (
-        ("by-area", "category", render_area),
-        ("by-repo", "owner", render_repo),
-        ("by-status", "status", render_status),
-    )
+    families = FAMILIES_WRITTEN_BY_WRITE_ALL
     for sub, attr, renderer in families:
         additions: "dict[str, list[Entry]]" = {}
         for entry in new_entries:
@@ -627,9 +631,98 @@ def check_roundtrip(req_root: Path = REQ_ROOT) -> int:
     return 1 if bad else 0
 
 
+#: The DERIVED view families. ``by-area`` is canonical and is never regenerated from anything;
+#: these two are a projection of it, grouped by a different key. The plan
+#: (JUNIPER_2026-05-11_..._REQUIREMENTS-IDENTIFICATION-PLAN.md §97) always described them as
+#: derived -- "thin indexes that link into by-area -- not duplicates ... avoids the maintenance
+#: trap of three copies of every requirement going stale independently" -- but what shipped was
+#: three independently-maintained full copies, and they had begun to drift.
+DERIVED_FAMILIES = (("by-repo", "owner", render_repo), ("by-status", "status", render_status))
+
+
+def render_derived(req_root: Path = REQ_ROOT, entries: "Optional[list[Entry]]" = None) -> "dict[Path, str]":
+    """Every derived view file's intended content, projected from the canonical corpus.
+
+    Order is the corpus order (``load_corpus`` re-imposes the ledger's), which is what every
+    shipped view already follows: measured 2026-08-29, ``by-repo/ml.md``, ``by-status/proposed.md``
+    and ``by-area/OBS.md`` are each exactly the ledger sequence filtered. Regenerating in any other
+    order would reorder thousands of entries and bury the real diff.
+
+    Each file's PREAMBLE is preserved from disk rather than synthesised: two shipped files carry a
+    heading between the rule and the first entry (``## Requirements with Status: Designed, List``),
+    which is content, not formatting, and a regeneration that dropped it would be a silent loss.
+    """
+    if entries is None:
+        entries = load_corpus(req_root)
+    out: "dict[Path, str]" = {}
+    for sub, attr, renderer in DERIVED_FAMILIES:
+        groups: "dict[str, list[Entry]]" = {}
+        for entry in entries:
+            groups.setdefault(getattr(entry, attr), []).append(entry)
+        for key, group in sorted(groups.items()):
+            path = req_root / sub / f"{key}.md"
+            preamble = _preamble(path.read_text(encoding="utf-8")) if path.is_file() else "\n"
+            out[path] = renderer(key, group, preamble)
+    return out
+
+
+def check_views(req_root: Path = REQ_ROOT) -> int:
+    """Assert the derived families are exactly the projection of ``by-area``. The drift gate.
+
+    ``--check-roundtrip`` proves ``render(parse(x)) == x`` for the 15 ``by-area`` files and never
+    reads ``by-repo`` or ``by-status`` at all, so for as long as the three families were maintained
+    independently nothing compared them. They diverged: 52 entries between by-area and by-repo, 149
+    between by-area and by-status (measured 2026-08-29, ml#1415 -- zero id differences, zero
+    metadata differences, entirely trailing punctuation and whitespace). This is the check that
+    could have caught that, and that stops it recurring.
+    """
+    entries = load_corpus(req_root)
+    intended = render_derived(req_root, entries)
+
+    bad = 0
+    for path in sorted(intended):
+        want = path.read_text(encoding="utf-8") if path.is_file() else None
+        got = intended[path]
+        if want is None:
+            bad += 1
+            print(f"  {path.parent.name}/{path.name}: MISSING on disk (the corpus projects it)")
+            continue
+        if got != want:
+            bad += 1
+            for i, (a, b) in enumerate(zip(want.split("\n"), got.split("\n"))):
+                if a != b:
+                    print(f"  {path.parent.name}/{path.name}: first diff at line {i + 1}\n    shipped  : {a[:150]!r}\n    projected: {b[:150]!r}")
+                    break
+            else:
+                print(f"  {path.parent.name}/{path.name}: differs in length ({len(want.splitlines())} vs {len(got.splitlines())} lines)")
+
+    # A file the corpus no longer projects is REPORTED, never deleted: an owner or status with no
+    # remaining entries is a corpus-level event that wants a human, not a side effect of a check.
+    orphans = [p for sub, _, _ in DERIVED_FAMILIES for p in sorted((req_root / sub).glob("*.md")) if p not in intended]
+    for path in orphans:
+        bad += 1
+        print(f"  {path.parent.name}/{path.name}: ORPHAN — on disk but no entry projects into it (not deleted; decide deliberately)")
+
+    print(f"views: {len(entries)} entries, {len(intended)} derived files, {bad} mismatching")
+    return 1 if bad else 0
+
+
+def regenerate_views(req_root: Path = REQ_ROOT, apply: bool = False) -> "list[Path]":
+    """Write the derived families from the canonical corpus. Returns the paths that CHANGED."""
+    intended = render_derived(req_root, None)
+    changed = [p for p, text in intended.items() if not p.is_file() or p.read_text(encoding="utf-8") != text]
+    if apply:
+        for path in changed:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(intended[path], encoding="utf-8")
+    return changed
+
+
 def main(argv: "Optional[list[str]]" = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--check-roundtrip", action="store_true", help="assert render(parse(corpus)) == corpus and exit")
+    parser.add_argument("--check-views", action="store_true", help="assert by-repo/by-status are exactly the projection of by-area and exit")
+    parser.add_argument("--regenerate-views", action="store_true", help="rewrite by-repo/by-status from by-area (needs --apply to write)")
     parser.add_argument("--merge", type=Path, default=None, help="extraction YAML to merge into the corpus")
     parser.add_argument("--apply", action="store_true", help="write the regenerated views (default is a dry run)")
     parser.add_argument("--dry-run", action="store_true", help="explicit no-write (the default; accepted for symmetry)")
@@ -638,6 +731,23 @@ def main(argv: "Optional[list[str]]" = None) -> int:
 
     if args.check_roundtrip:
         return check_roundtrip(args.req_root)
+
+    if args.check_views:
+        return check_views(args.req_root)
+
+    if args.regenerate_views:
+        # by-area is canonical, so a broken round-trip means the SOURCE is unparseable and any
+        # projection of it would be wrong. Refuse rather than write a confidently bad corpus.
+        if check_roundtrip(args.req_root) != 0:
+            print("refusing to regenerate: by-area does not round-trip, so the corpus cannot be trusted as the source")
+            return 1
+        changed = regenerate_views(args.req_root, apply=args.apply)
+        for path in changed:
+            print(f"  {'wrote' if args.apply else 'would write'} {path.parent.name}/{path.name}")
+        print(f"regenerate-views: {len(changed)} file(s) {'written' if args.apply else 'would change'}")
+        if not args.apply:
+            print("dry run -- nothing written (pass --apply to write)")
+        return 0
 
     corpus = load_corpus(args.req_root)
     print(f"corpus: {len(corpus)} entries")
@@ -660,12 +770,19 @@ def main(argv: "Optional[list[str]]" = None) -> int:
         print("nothing to add -- not rewriting any file")
         return 0
 
-    # write_all is append-only, so only the files an addition lands in are touched.
+    # write_all is append-only, so only the by-area files an addition lands in are touched.
     written = write_all(added, args.req_root)
     # Refuse to leave a tree the parser cannot read back: a view whose new entry did not
     # survive its own round-trip is a view that has started losing content.
     if check_roundtrip(args.req_root) != 0:
         print("ERROR: post-write round-trip FAILED -- the tree is inconsistent", file=sys.stderr)
+        return 2
+    # by-repo / by-status are a projection of the canonical family, regenerated AFTER by-area is
+    # written and verified. Doing it here rather than inside write_all keeps the ordering explicit:
+    # the source must be parseable before anything is derived from it.
+    written += regenerate_views(args.req_root, apply=True)
+    if check_views(args.req_root) != 0:
+        print("ERROR: derived views do not match the corpus after regeneration", file=sys.stderr)
         return 2
     print(f"wrote {len(written)} files")
     for path in written:
