@@ -95,11 +95,12 @@
 
 [v3 brief repaired from cited content; was: '4.0 Phase 2 Execution Results (2026-04-09)']
 
-### JR-ML-DATA-006 — Task 2 (Dataset).
+### JR-ML-DATA-006 — Task 2 (Dataset)
 
 **Status**: rejected  **Priority**: P1  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-CANOPY_DASHBOARD-AUGMENTATION-PLAN.md` (lines 374-381)
 
 ### JR-ML-SEC-118 — 2A. Validation Loss/Accuracy Overlay Traces.
@@ -143,11 +144,12 @@ All services handle signals adequately at the application level. The gap is in t
 
 [v3 brief repaired from cited content; was: '1.2 Network Topology Visualization Issues']
 
-### JR-ML-DATA-009 — Generator names `"circle"`/`"moon"` don't match server's `"circles"` — no `"moon"` generator on server.
+### JR-ML-DATA-009 — Generator names `"circle"`/`"moon"` don't match server's `"circles"` — no `"moon"` generator on server
 
 **Status**: rejected  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
 **Sources**:
+
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-ECOSYSTEM_CODE-AUDIT.md` (lines 348-359)
 
 **Detail**:

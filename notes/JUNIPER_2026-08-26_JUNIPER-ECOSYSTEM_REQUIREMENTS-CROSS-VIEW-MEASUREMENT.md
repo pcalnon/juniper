@@ -3,7 +3,7 @@
 **Project**: juniper-ml (ecosystem-wide requirements corpus)
 **Author**: Paul Calnon
 **Date**: 2026-08-26
-**Status**: measurement complete; one owner decision open
+**Status**: measurement complete (2026-08-26); decision taken and shipped 2026-08-29 — see §5
 
 ---
 
@@ -18,7 +18,7 @@ The v5-1 row of the requirements plan's §11 tracker records, as a finding that 
 
 That conclusion is load-bearing. It is why [`util/requirements_consolidate.py`](../util/requirements_consolidate.py) never regenerates a view family from another, and why `--check-roundtrip` asserts only `render(parse(x)) == x`.
 
-The counts were a dated snapshot taken before the v5 `rec` block landed, and **nothing in the repo re-measures them**: `--check-roundtrip` covers the 15 `by-area` files and never reads `by-repo` or `by-status` at all. The disagreement was recorded once, never re-measured, and is ungated.
+The counts were a dated snapshot taken before the v5 `rec` block landed, and **nothing in the repo re-measured them**: `--check-roundtrip` covers the 15 `by-area` files and never reads `by-repo` or `by-status` at all. The disagreement was recorded once, never re-measured, and ungated — which is how it survived. (Since §5, `--check-views` closes that hole.)
 
 ## 2. Method
 
@@ -56,26 +56,38 @@ Every one of the four is punctuation, whitespace, or a markdown artifact. **None
 
 The recorded conclusion — *"regenerating any family from another propagates a defect"* — is **too strong**. It is true of four cosmetic artifacts, not of 201 divergent entries. The corpus is far more consistent than the note implies: three byte-different renderings of one identical dataset.
 
-Two consequences worth noting, neither of which this document acts on:
+Two consequences follow. Both are acted on in §5; they are stated here as they read at measurement time:
 
 1. **The append-only constraint on `requirements_consolidate.py` is more conservative than the evidence requires.** It was chosen against a believed content divergence that does not exist. Relaxing it is not urgent — append-only is a fine property — but the *stated reason* for it is now known to be wrong, and a future maintainer reading that row would over-estimate the risk of touching the views.
 
 2. **The shipped architecture does not match the design.** The plan (§97) describes `by-repo` and `by-status` as *"thin indexes that link into `by-area` — not duplicates … avoids the maintenance trap of three copies of every requirement going stale independently."* What shipped is three copies of every entry body. Three copies is precisely what exists, and the 201 cosmetic diffs are them having drifted — mildly, so far. The design's own stated failure mode is live; it just has not yet cost anything.
 
-## 5. Owner decision
+## 5. Owner decision — TAKEN 2026-08-29: option (c), keeping full bodies
 
-Not taken here, because it rewrites the corpus of record (1,814 entries × 3 families, 31 files):
+The options as framed:
 
 - **(a) Leave it.** The divergence is cosmetic and harmless today. Record the corrected characterization and move on.
-- **(b) Normalize.** One pass stripping trailing `.` / `:` from titles and reconciling the four artifacts, after which the three families agree byte-for-byte modulo layout, and a cross-view gate can be added to `--check-roundtrip` so they cannot drift again.
-- **(c) Re-architect to the documented design.** `by-area` stays canonical; `by-repo` / `by-status` become generated thin indexes. Removes the three-copies trap permanently and makes (b) unnecessary, but is the largest change and touches how the corpus is read.
+- **(b) Reconcile.** Make `by-repo` / `by-status` match `by-area` for the divergent entries, then gate it. Note this is *not* "strip trailing periods everywhere" — that would rewrite ~1,800 titles and would have to rule on whether a title legitimately ending in a period should keep it. Scoping to the divergent entries sidesteps that question entirely.
+- **(c) Make them derived.** `by-area` stays canonical; `by-repo` / `by-status` become a projection of it, regenerated and gated. Subsumes (b) — they agree by construction and cannot drift again.
 
-**Recommendation: (b).** It is mechanical, it is verifiable by re-running the tool, and the gate it enables is what stops this from being re-discovered a third time. (c) is the right end state but should be its own decision, not a side effect of a cleanup.
+**Decided: (c), with full entry bodies retained** rather than the plan's literal "thin indexes". The plan's §97 rationale was the maintenance trap of three independently-maintained copies, and *derivation* removes that trap; making the files link-only would additionally remove content readers use, which was never the point. So the reading experience is unchanged and the drift mechanism is gone.
+
+**Shipped:**
+
+- `render_derived()` / `check_views()` / `regenerate_views()` in [`util/requirements_consolidate.py`](../util/requirements_consolidate.py), plus `--check-views` and `--regenerate-views` CLI modes.
+- `write_all` no longer writes the derived families — `FAMILIES_WRITTEN_BY_WRITE_ALL` is `by-area` alone, so exactly one writer owns each file. Two independent writers is what produced the drift.
+- The reconciliation itself: 8 files, all differences whitespace or trailing punctuation, entry counts unchanged, per-file preambles preserved.
+- `DerivedViewTest` in [`tests/test_requirements_consolidate.py`](../tests/test_requirements_consolidate.py) — already wired into `ci.yml`.
+
+**Why (c) became available at all:** it was ruled out in v5-1 on the belief that regenerating one family from another "propagates a defect". §3 above measures that as false — the families differ by zero ids and zero metadata fields. The measurement is what unlocked the decision.
+
+**One consequence, recorded deliberately.** The projection adopts `by-area` verbatim, *including* the four entries where by-area's own text is arguably the worse of the two (e.g. `JR-ML-OBS-003` keeps by-area's `(high-volume … the.` over by-status's `, high-volume … the`). Canonical has to mean something; correcting content *in* the canonical family is a separate, deliberate act, not a side effect of making the views consistent. Those four remain listed in §3 for whoever takes that up.
 
 ## 6. Reproduction
 
 ```bash
 python3 util/requirements_consolidate.py --check-roundtrip
+python3 util/requirements_consolidate.py --check-views
 python3 util/ad-hoc/2026-08-26_requirements_cross_view_diff.py --show 6
 python3 util/ad-hoc/2026-08-26_requirements_cross_view_diff.py --json
 ```
