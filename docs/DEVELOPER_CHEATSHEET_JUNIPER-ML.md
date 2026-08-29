@@ -41,6 +41,9 @@
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + merge order |
+| `python util/snapshot_attribute.py --null-only` | Print per-dataset untrained floors (no sidecar write) |
+| `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
+| `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -461,6 +464,9 @@ Pointer: [REFERENCE — YubiKey GPG Provisioning](REFERENCE.md#yubikey-gpg-provi
 | `JUNIPER_EXP_CONDA_DIR`        | `/opt/miniforge3`  | Conda root for experiment direct env-bin launch |
 | `JUNIPER_REAP_PROC_ROOT`       | `/proc`            | Proc root for `util/reap_pytest_orphans.bash` (tests override) |
 | `JUNIPER_REAP_KILL_CMD`        | `kill`             | Kill binary for `util/reap_pytest_orphans.bash` (tests override) |
+| `JUNIPER_CASCOR_SNAPSHOTS_DIR` | `~/Development/python/Juniper/juniper-cascor/cascor-snapshots` | Dual-use: cascor write dir **and** snapshot-tool `--root` default. Do **not** redirect for the sidecar chain — pass `--root`. |
+| `JUNIPER_CASCOR_SRC`           | `~/Development/python/Juniper/juniper-cascor/src` | Override cascor source tree for `snapshot_attribute.py` |
+| `JUNIPER_DATA_ROOT`            | `~/Development/python/Juniper/juniper-data` | Override juniper-data tree for generator imports |
 | `JUNIPER_FLEET_SKIP_PRECOMMIT` | unset              | When set, `predict_merge` skips the pre-commit battery (screens still run) |
 
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
@@ -544,6 +550,8 @@ Tip: juniper-service-core invariants — `RequestBodyLimitMiddleware` always str
 
 Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or returns non-JSON, while `--batch` soft-`ERROR`s that row and keeps going. A deleted `.py` stays in `true_delta` for the symbol screen but is filtered out of the pre-commit battery, so a pure-deletion PR can be gate-clean and still `DAMAGED-FIX-FIRST`.
 
+Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` only samples which snapshots to score; `--dataset-seed` (default `DATASET_SEED=20260824`) pins generators that declare `seed=None`. spiral keeps its own seed. Do not export `JUNIPER_CASCOR_SNAPSHOTS_DIR` for the sidecar chain — pass `--root`. See [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin).
+
 
 ### Host Stack Troubleshooting
 
@@ -626,6 +634,9 @@ Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or r
 | Worker WS closes 4001 / 4008 | 4001 = API-key auth enabled (send `X-API-Key`); 4008 = registration shape (string `worker_id` + dict `capabilities`). |
 | `--batch` row `verdict=ERROR` | Soft-fail for that tip only; the other PRs in the report remain valid. `--pr` would have exited `2` instead. |
 | Deleted `.py` gate-clean but `DAMAGED` | The battery skipped the missing path while the symbol screen saw `LOST` — expected. |
+| Two identical attribution runs differ | Unpinned generators (need #1333). `--seed` samples snapshots; `--dataset-seed` pins data. |
+| Sidecar chain wrote into scratch / empty archive | `JUNIPER_CASCOR_SNAPSHOTS_DIR` was redirected — unset it and pass `--root`. |
+| `--write` exits 2 before scoring | `--sample` / `--min-hidden` / `--from-sidecar` with `--write` is refused so the sidecar cannot cover a subset. |
 
 ## Quick Reference Tables
 
