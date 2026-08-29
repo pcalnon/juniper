@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.11
+**Version:** 0.6.12
 **Status:** Active
 **Last Updated:** 2026-08-24
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -1187,6 +1187,14 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `tests/test_assert_release_tag.py` -- Behavioural tests for `util/assert_release_tag.bash` plus a **wiring gate** asserting all 7 publishers invoke it with their own `--expect-prefix`, and that **no publisher grants `id-token` at workflow level** (P4).
   - Drives synthetic dist directories: happy paths (meta, sub-package, `-rc1` normalization, alpha), and the refusals that matter -- branch ref, **empty** ref_type (must fail closed, not read as a tag), tag/version mismatch, wrong package prefix, missing dist dir, sdist-only, version-less tag, misuse exit 2.
   - The mismatch case is a live regression guard: it originally passed because `tr -d '-_'` errored on this host and both sides normalized to empty. `util/` is outside every pre-commit Python hook's scope, so this suite is the gate.
+- `tests/test_publish_testpypi_verify.py` -- Structural + hermetic YAML-extraction gate for `.github/workflows/publish.yml` TestPyPI **Gate 1**.
+  Pins the two-phase verify (TestPyPI-only `pip download --no-deps` provenance, then three PyPI-only local-wheel installs of bare / `[clients]` / `[tools]`, never `--extra-index-url`, never the heavy extras), the `v*` tag guard, TestPyPI `skip-existing` vs strict PyPI, and `pypi needs: testpypi`.
+  Since juniper-ml#1310 the index-lag buffer is a **bounded poll** (no unconditional `sleep 30`; remaining `sleep` values are poll intervals `<=10s`; exhausting the loop is a real `::error::`, not a silent fall-through).
+  The extracted verify shell is rehearsed with PATH stubs so a rewrite that drops a phase fails in CI without hitting the network.
+- `tests/test_publish_release_only_trigger.py` -- Glob-discovered gate that `release: published` stays the **only** automatic trigger on every `publish*.yml` (juniper-ml#1310).
+  Re-adding `push:` recreates the #555 double-publish race against the immutable TestPyPI upload; removing `release:` disarms publishing silently (a workflow that never fires reports nothing).
+  Also pins that no step is gated on `github.event_name == 'push'` — the six sub-package publishers used to carry an unreachable `Require a GitHub Release for this tag` step under that condition.
+  `workflow_dispatch` stays as the deliberate escape hatch.
 - `tests/test_publish_env_policy_drift.py` -- Drift gate for the **tag-only deployment ref policy** on every `pypi` / `testpypi` environment ([publish-path design](../notes/JUNIPER_2026-08-17_JUNIPER-ECOSYSTEM_PUBLISH-PATH-AUTHORIZATION-DESIGN.md) §6 Option A / §12.5).
   - The control lives in GitHub **settings, not the repo**: no test covered it, no reviewer sees a diff when a policy is deleted, and the failure is silent -- the publish path just becomes permissive again.
   - Two load-bearing invariants: **no branch-type policy may exist** (adding a `main` branch policy re-opens branch dispatch while every tag pattern stays intact and the environment still looks configured -- owner decision D3 was tag-only), and **`pypi` must retain `required_reviewers`** (a `PUT` is create-or-update, so a careless payload clears the human gate while successfully setting a ref policy -- the environment then looks *more* configured while being weaker).
@@ -1626,6 +1634,8 @@ juniper-ml/
 │   ├── test_doc_tools_drift.py           # Lint: consumer-repo juniper-doc-tools pins still admit current version (plan §5.1)
 │   ├── test_service_fork_drift.py        # Drift gate: security guards that must not diverge across the data/cascor service-core forks (register §2.3; ENFORCED + self-maintaining KNOWN_GAP ledger)
 │   ├── test_publish_env_policy_drift.py  # Drift gate: publish envs stay tag-only ref-gated (publish-path design §6/§12); settings-not-code, so nothing else would notice a deletion
+│   ├── test_publish_testpypi_verify.py   # Structural + hermetic: publish.yml Gate 1 two-phase verify + bounded TestPyPI poll (no sleep 30; #1310)
+│   ├── test_publish_release_only_trigger.py # Glob gate: every publish*.yml is release: published only (no push:; no push-gated steps; #1310 / #555)
 │   ├── test_assert_release_tag.py        # Behavioural + wiring: util/assert_release_tag.bash (P3) — tag-shape + tag<->built-wheel version, and that all 7 publishers invoke it with the right prefix
 │   ├── test_pyproject_extras.py          # Lint: pyproject [project.optional-dependencies] surface matches the contract
 │   ├── test_template_library_drift.py    # Lint: custom-agent template library (prompts/agent_templates/) manifest <-> templates
@@ -1739,7 +1749,9 @@ Jobs:
 
 ### Publishing (`publish.yml`)
 
-Triggered on GitHub release published. Uses OIDC trusted publishing (no API tokens). Publishes to TestPyPI first, then PyPI (`pypi needs: testpypi`). The Gate 1 verify installs `juniper-ml` bare, then `[clients]`, then `[tools]` from TestPyPI with PyPI as the extra index — never `--no-deps`, and never the heavy `[worker]` / `[servers]` / `[all]` / `[recurrence]` extras. The `build` job skips `juniper-<pkg>-v*` tags. Gate: `tests/test_publish_testpypi_verify.py`.
+Triggered on GitHub release published. Uses OIDC trusted publishing (no API tokens). Publishes to TestPyPI first, then PyPI (`pypi needs: testpypi`).
+Gate 1 is **two-phase** (2026-08-08): a TestPyPI-only `pip download --no-deps` of the exact version (provenance; bounded poll, not `sleep 30` — juniper-ml#1310), then three installs of that **local wheel** against production PyPI only (`"${WHEEL}"`, `"${WHEEL}[clients]"`, `"${WHEEL}[tools]"`; never `--no-deps`, never `--extra-index-url`, never the heavy `[worker]` / `[servers]` / `[all]` / `[recurrence]` extras).
+The `build` job skips `juniper-<pkg>-v*` tags. Gates: `tests/test_publish_testpypi_verify.py` (verify shape + poll) and `tests/test_publish_release_only_trigger.py` (trigger IS the release-convention gate).
 
 **Publish-path authorization (all 7 publishers, 2026-08-17).** Three layers, in decreasing order of how much they survive:
 
@@ -1854,8 +1866,13 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `.github/workflows/ci.yml` -- Main CI pipeline: pre-commit (G4 changed-files split — `pull_request` / `merge_group` use `--from-ref <BASE> --to-ref HEAD`; `push` keeps `--all-files`), unit tests, release-train archive-guard (PR-only), the `Sequence Safety` and advisory `Fleet PR Lint` (`cursor/*`) standalone jobs, build, docs, security, dependency docs.
   - **`Sequence Safety` is a REQUIRED status check**, despite reading as advisory. Its `allow-symbol-loss` / `docs-rewrite` labels are WARN-only and do **not** unblock a merge; only an `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite: <path>` **commit trailer** waives a finding.
 - `.github/workflows/main-verify.yml` -- Post-merge main-verification (P2 gate G3): on `push:main` (per-SHA, no-cancel) it installs `juniper-ci-tools` (>=0.8.0) and runs the `juniper-symbol-loss-check` (explicit ml `--scope`) + `juniper-docs-additions-check` screens over `BASE..<merge>` (`sequence-safety-report`), a path-gated battery mirror + failure-only `notify`. G3.1 CATCH-UP BASE = last successful main-verify tip that is an ancestor of HEAD, else `github.event.before`, else `HEAD^1`.
-- `.github/workflows/publish.yml` -- Meta PyPI publish: TestPyPI **Gate 1** verify (bare -> `[clients]` -> `[tools]`, never `--no-deps`, never the heavy extras), then PyPI (`needs: testpypi`, OIDC). The `build` job is tag-guarded to `v*` Releases so a `juniper-<pkg>-v*` Release cannot fire the meta publisher. Gate: `tests/test_publish_testpypi_verify.py`. Operator surface: [`docs/REFERENCE.md` § Meta-Package Publish Pipeline](#meta-package-publish-pipeline).
-- `.github/workflows/publish-*.yml` -- Six shared sub-package publishers. All are **Release-only** (`release: published` + `workflow_dispatch`; deliberately **no** `push: tags`, which double-fired and raced TestPyPI in juniper-ml#555), each build job gated on its own `startsWith(github.event.release.tag_name, '<pkg>-v')`, with a `--no-deps` TestPyPI-only verify and `skip-existing: true` on both publish steps. Operator table: [`docs/REFERENCE.md` § Independent Sibling Package Publish Pipelines](#independent-sibling-package-publish-pipelines).
+- `.github/workflows/publish.yml` -- Meta PyPI publish: TestPyPI **Gate 1** two-phase verify (TestPyPI-only download, then local-wheel bare -> `[clients]` -> `[tools]` against PyPI only; never `--no-deps` on the installs, never `--extra-index-url`, never the heavy extras; provenance fetch is a 10×6s poll, not `sleep 30`), then PyPI (`needs: testpypi`, OIDC).
+  The `build` job is tag-guarded to `v*` Releases so a `juniper-<pkg>-v*` Release cannot fire the meta publisher.
+  Gates: `tests/test_publish_testpypi_verify.py`, `tests/test_publish_release_only_trigger.py`. Operator surface: [`docs/REFERENCE.md` § Meta-Package Publish Pipeline](#meta-package-publish-pipeline).
+- `.github/workflows/publish-*.yml` -- Six shared sub-package publishers. All are **Release-only** (`release: published` + `workflow_dispatch`; deliberately **no** `push: tags`, which double-fired and raced TestPyPI in juniper-ml#555 — the trigger **is** the gate; a bare `git push <tag>` starts no run).
+  Each build job is gated on its own `startsWith(github.event.release.tag_name, '<pkg>-v')`, with a `--no-deps` TestPyPI-only verify (5×10s retry) and `skip-existing: true` on both publish steps.
+  Do not resurrect a `Require a GitHub Release for this tag` step under `if: github.event_name == 'push'` — that condition is unreachable.
+  Operator table: [`docs/REFERENCE.md` § Independent Sibling Package Publish Pipelines](#independent-sibling-package-publish-pipelines).
 - `.github/workflows/ci-*.yml` -- Six in-repo shared-package CIs (`ci-tools` / `config-tools` / `doc-tools` / `model-core` / `observability` / `service-core`), distinct from meta `ci.yml` and from `publish-*.yml`.
   Path filters must include `<subdir>/**` **and** the workflow's own path; matrices carry declared Python floors; coverage uses `--cov-fail-under` plus a blocking `juniper-coverage-gap-map --enforce` (only ci-tools may `--omit`
   `__main__.py`); `build.needs: test`; service-core installs sibling `juniper-model-core` from the monorepo root (no test-job `working-directory`).
@@ -2611,6 +2628,7 @@ Control receive rejects malformed / non-object JSON with close **1003** rather t
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
+| 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
@@ -2641,8 +2659,9 @@ Release flow:
 
 1. **Build and Validate** -- checks out the tag, installs `build` and `twine`, runs `python -m build`, validates with `twine check dist/*`, and uploads the `dist/` artifact.
 2. **Publish to TestPyPI** -- downloads the artifact, publishes to TestPyPI with OIDC trusted publishing, and enables PyPI attestations.
-3. **Verify TestPyPI Install (Gate 1)** -- reads `[project].version`, waits briefly for index lag, then verifies in **two phases** (2026-08-08 amendment: pip has **no index priority**, so a merged `--index-url` + `--extra-index-url` namespace resolves to the highest version across *both* indexes and lets a TestPyPI squatter outrank the real package — TestPyPI `fastapi 1.0` beat production `fastapi 0.141.1` and killed the v0.7.0 verify, run 31281873275):
-   1. **Provenance** -- `pip download --no-deps --index-url https://test.pypi.org/simple/ --dest <tmp> "juniper-ml==${VERSION}"`. The artifact comes from TestPyPI and **only** TestPyPI, at the exact built version; a missing `juniper_ml-${VERSION}-py3-none-any.whl` fails the step rather than handing pip a bogus path.
+3. **Verify TestPyPI Install (Gate 1)** -- reads `[project].version`, then **polls** TestPyPI for the just-uploaded wheel (10 attempts × 6s, ~60s ceiling — not an unconditional `sleep 30`; juniper-ml#1310), then verifies in **two phases**.
+   2026-08-08 amendment: pip has **no index priority**, so a merged `--index-url` + `--extra-index-url` namespace resolves to the highest version across *both* indexes and lets a TestPyPI squatter outrank the real package — TestPyPI `fastapi 1.0` beat production `fastapi 0.141.1` and killed the v0.7.0 verify, run 31281873275:
+   1. **Provenance** -- `pip download --no-deps --index-url https://test.pypi.org/simple/ --dest <tmp> "juniper-ml==${VERSION}"` inside the poll loop. The artifact comes from TestPyPI and **only** TestPyPI, at the exact built version; a missing `juniper_ml-${VERSION}-py3-none-any.whl` fails the step rather than handing pip a bogus path. The fetch stays on **one line and outside any `if`** — `tests/test_publish_testpypi_verify.py` matches `^pip download` against the stripped line.
    2. **Resolution** -- **three** installs of that local wheel in order, each `--index-url https://pypi.org/simple/` (production PyPI **only**, no `--extra-index-url`) and **never** `--no-deps`, so extras resolution is still genuinely exercised:
       1. bare `"${WHEEL}"` → `importlib.metadata` version check
       2. `"${WHEEL}[clients]"` → imports `juniper_data_client`, `juniper_cascor_client`
@@ -2651,9 +2670,19 @@ Release flow:
    Light extras only — do **not** add `[worker]` / `[servers]` / `[all]` / `[recurrence]` here (torch, multi-GB). A broken extras declaration that a bare install alone would miss fails at this gate, before production PyPI.
 4. **Publish to PyPI** (`needs: testpypi`) -- runs only after Gate 1 succeeds and publishes the same artifact with OIDC trusted publishing and attestations enabled.
 
-**Tag guard:** the `build` job runs only for `workflow_dispatch` or a Release whose tag starts with `v`, so a shared-package Release (`juniper-<pkg>-v*`) cannot fire the meta publisher. Always-on gate for the two-phase verify (including the anti-regression check that no verify command may carry `--extra-index-url` or name both index URLs), the tag guard, and `pypi needs: testpypi`: `tests/test_publish_testpypi_verify.py`.
+**Tag guard:** the `build` job runs only for `workflow_dispatch` or a Release whose tag starts with `v`, so a shared-package Release (`juniper-<pkg>-v*`) cannot fire the meta publisher. Always-on gate for the two-phase verify (including the anti-regression check that no verify command may carry `--extra-index-url` or name both index URLs), the bounded poll, the tag guard, and `pypi needs: testpypi`: `tests/test_publish_testpypi_verify.py`.
 
 **Upload strictness:** the TestPyPI upload sets `skip-existing: true` so re-cutting a Release for a version TestPyPI already holds is a no-op rather than an immutable-upload 400; the production PyPI upload deliberately stays strict.
+
+**Index-lag poll (juniper-ml#1310).** TestPyPI's simple index is CDN-fronted and lags an upload by ~5–30s, so the first fetch of a just-published version can 404.
+The previous unconditional `sleep 30` was 77% of a measured 39s step, paid in full on **every** publish even when the index was already warm, and still a coin-flip if propagation ran long.
+The poll returns as soon as the artifact is servable (usually the first attempt) and fails with `::error::TestPyPI never served juniper-ml==${VERSION} within ~60s of upload` if the ceiling is hit. Do not restore `sleep 30`.
+
+**The trigger is the gate (juniper-ml#1310).** Every publisher is `release: published` + `workflow_dispatch` only. A bare `git push <tag>` starts **no run** — nothing is built, nothing is uploaded.
+The six sub-package publishers used to carry a `Require a GitHub Release for this tag` step gated on `if: github.event_name == 'push'`; none of them subscribe to `push:` (removed after #555), so those steps could never run.
+Dead code shaped like a guard is worse than no guard: it reads as though a tag push is blocked here.
+Gate: `tests/test_publish_release_only_trigger.py` (glob-discovered; pins both directions — re-adding `push:` recreates the #555 race, removing `release:` disarms publishing silently).
+Re-measured 2026-08-24: 12 tags exist with no Release and none of them published.
 
 ### Independent Sibling Package Publish Pipelines
 
@@ -2673,9 +2702,9 @@ Contracts every one of them shares:
 
 | Contract | Why it matters |
 |----------|----------------|
-| **Release-only trigger** (`release: published` + `workflow_dispatch`; **no** `push: tags`) | Cutting a Release also creates the tag. Subscribing to both fired two concurrent publishes that raced the immutable TestPyPI upload (juniper-ml#555). |
+| **Release-only trigger** (`release: published` + `workflow_dispatch`; **no** `push: tags`) | Cutting a Release also creates the tag. Subscribing to both raced the immutable TestPyPI upload (#555). The trigger **is** the gate: a bare `git push <tag>` starts no run. Do not resurrect a push-gated Release step (#1310). Gate: `tests/test_publish_release_only_trigger.py`. |
 | **Build-job tag-prefix guard** | `release: published` fires *every* `publish-*.yml`, so each build job gates on `startsWith(github.event.release.tag_name, '<pkg>-v')` to keep package A's Release from publishing package B. |
-| **`--no-deps` TestPyPI-only verify** | With `--no-deps` no dependencies are fetched, so adding an `--extra-index-url` to production PyPI would only risk resolving a squatted *target* package during TestPyPI index lag. Sibling verify must not add a PyPI fallback. |
+| **`--no-deps` TestPyPI-only verify** | With `--no-deps` no dependencies are fetched, so adding an `--extra-index-url` to production PyPI would only risk resolving a squatted *target* package during TestPyPI index lag. Sibling verify must not add a PyPI fallback. Index lag is a 5×10s retry around `pip install` (~50s), distinct from the meta publisher's 10×6s `pip download` poll (~60s). |
 | **`skip-existing: true`** on both publish steps | Residual overlap (a manual dispatch during a Release) is a no-op instead of an immutable-upload 400. |
 | **OIDC + concurrency** | `permissions: {id-token: write, contents: read}`; `concurrency.group: publish-<suffix>-${{ github.ref_name }}` with `cancel-in-progress: false`; environments `testpypi` then `pypi`. |
 
@@ -2689,7 +2718,7 @@ Sibling package release flow:
 
 1. **Build and Validate** -- the build job sets `defaults.run.working-directory` to the package subdirectory (so every step is subdir-relative without repeating the path), runs `python -m build --sdist --wheel`, validates with `twine check dist/*`, and uploads that subdirectory's `dist/` artifact with `if-no-files-found: error` so a silently empty build fails here instead of surfacing as a confusing publish-step error.
 2. **Publish to TestPyPI** -- downloads the artifact into `dist/`, publishes with `packages-dir: dist/`, `repository-url: https://test.pypi.org/legacy/`, and `verbose: true` so trusted-publisher or upload errors include the server response body.
-3. **Verify TestPyPI Install** -- sparse-checks out the package `pyproject.toml`, reads the package version, retries the TestPyPI install up to five times to tolerate index lag, then imports the package's version module.
+3. **Verify TestPyPI Install** -- sparse-checks out the package `pyproject.toml`, reads the package version, retries `pip install --no-deps --index-url https://test.pypi.org/simple/` up to five times with a 10s interval (~50s ceiling) to tolerate index lag, then confirms the installed version (`import` of the package, or `importlib.metadata` when `--no-deps` would leave an import broken).
 4. **Publish to PyPI** -- runs only after TestPyPI install verification and publishes the same artifact with `packages-dir: dist/` and `verbose: true`.
 
 These publish workflows require GitHub Actions environments named `testpypi` and `pypi`, plus matching trusted-publisher entries on TestPyPI and PyPI for the workflow file, environment, owner, repository, and project name.
