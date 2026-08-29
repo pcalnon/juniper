@@ -471,6 +471,21 @@ Tab: `dashboard_manager.py:2187-2191`. Renderer: `network_visualizer.py` (prefix
 The main rebuild callback takes 12 Inputs (`:332-363`) and short-circuits when only `fast-update-interval` fired and
 no highlight animation is active (`:406-413`).
 
+> **BLOCKER for this whole section — RE-ATTRIBUTED AGAIN to F-CANOPY-039 (2026-08-29).** The
+> F-CANOPY-037 attribution below is **superseded**: that defect was real and its fix is merged
+> (juniper-canopy#531) and verified live — the rebuild now fires 10x/60 s with correct
+> 39,319 B / 206-trace responses, against zero in 9 of 11 pre-fix sessions — and **the rows stayed
+> BLOCKED anyway**. The starvation was a real blocker; it was not the only one.
+> The live cause is **F-CANOPY-039**, whose signature is a *contradiction between two simultaneous
+> measurements*: a server-side probe inside the store's WRITER shows the client's copy of
+> `network-visualizer-topology-store` converging to the correct 7,059 B topology and holding it for 11
+> consecutive ticks, while over the same window the rebuild's `input_units == 0` fast path proves the
+> value its READER receives is empty. **Two different values for one store id at the same instant** —
+> the duplicate-store-instance signature. See the evidence doc's F-CANOPY-039 entry.
+> Scope of the block: **M-TOPOLOGY-01..06 and -09..18** (16 rows; **-07 is PASS and -08 is FAIL**, so
+> the "01..18" below is imprecise), plus walkthrough steps W4-01..17 and W1-12..14, which are tracked
+> in the plan document and not as rows here.
+>
 > **BLOCKER for this whole section — F-CANOPY-037 (2026-08-26), re-attributed from the closed F-CANOPY-006.**
 > M-TOPOLOGY-01..18, W4-01..17 and W1-12..14 stay **BLOCKED**. The rebuild is chained off
 > `metrics-panel-metrics-store`, a global store that rewrites **141 KB of byte-identical data ~0.6/s even on a
