@@ -692,6 +692,81 @@ the congestion hypothesis (ii) depends on — so re-measuring **after** that mer
 > Next probe, now the cheap one: log the comparison's OUTCOME server-side — both operands' canonical
 > hashes and which branch was taken — for one minute. That distinguishes (i) from (iii) directly, and
 > unlike every probe so far it cannot be defeated by an unreliable client-side store read.
+>
+> > **(i) IS PROBABLY WRONG TOO — F-038 / F-039 / F-035 are probably ONE defect (2026-08-29).** Surfaced
+> > by an adversarial review of the arc handoff, then DERIVED here rather than measured, so it is flagged
+> > as a deduction — but it follows from data already in this document.
+> >
+> > **The analogy this deduction first used was WRONG (caught the same day).** It said F-CANOPY-039's probe
+> > showed topology's client copy "pinned at its empty default on every tick". It does not: that copy is
+> > empty for 4 ticks and then CONVERGES, sitting at the correct 7,059 bytes for 11 consecutive samples —
+> > see F-CANOPY-039's correction block. **The deduction survives the loss of that analogy, because it
+> > never depended on it** — it rests only on this entry's own census. But the two stores now look
+> > DIFFERENT rather than identical, and that contrast is itself the signal: topology's client copy
+> > converges, and metrics' apparently never does.
+> >
+> > **AND THE DEDUCTION ITSELF IS UNSOUND — second correction, same day, from a second adversarial pass.**
+> > It said zero `no_update` "can only happen if" the client's copy never advances. That is false in
+> > source. Zero `no_update` is consistent with at least FOUR things and this census separates none:
+> >
+> > 1. the client's copy genuinely never advancing;
+> > 2. hypothesis (i) — but *deterministic*, which inverts the parsimony argument below: a constant
+> >    result is exactly what a deterministic transform PREDICTS (NaN→null on `_normalize_metric`'s
+> >    nullable `val_loss`/`f1`/`precision`/`recall`/`roc_auc`, which this entry itself calls "the
+> >    classic"). "It would have to corrupt all 32 identically" is not the objection it reads as;
+> > 3. **hypothesis (iii), which this correction had silently dropped**: the store has TWO writers. Besides
+> >    the guarded poll `update_metrics_store` (`dashboard_manager.py:3877-3899`) there is
+> >    `append_ws_metrics_store` (`:3910-3919`, `allow_duplicate=True`), whose handler
+> >    `_append_ws_metrics_store_handler` (`:6664-6685`) ends `return merged[-window_size:] …` with **no
+> >    identity guard at all**. Every write it contributes is `no_update`-free by construction and says
+> >    nothing about the client's copy;
+> > 4. the guarded handler's OWN empty-copy branches (`:6740`, `:6795`): `return dash.no_update if
+> >    current_metrics else []` **writes `[]` instead of returning `no_update` whenever the client copy is
+> >    falsy** — so "zero `no_update`" is partly PREDICTED by the hypothesis's own premise, and cannot
+> >    also serve as its evidence.
+> >
+> > F-CANOPY-035's corroboration is also weaker than stated: its `len 0` came from
+> > `e2e_p1wave_redrive.py --step storeprobe`, the client-side store read this arc has ruled unreliable
+> > (F-039's entry says outright "do not re-diagnose from `store` reads … its zeros are not evidence"),
+> > and this ledger attributed that reading to F-004 congestion / instrument artefact — **not** to a
+> > failed write, and not "for want of an explanation".
+> >
+> > **Net: F-035 / F-038 / F-039 may be one defect or three.** The probe below still decides it, but
+> > **discriminate by WRITER** first — a small constant `cur_len` on the guarded handler is consistent
+> > with the census having counted the other one.
+> >
+> > This entry's own census: **32 writes, 31 byte-identical to each other, ZERO `no_update`.** If the fetched payloads are
+> > identical to one another, the only way `metrics == current_metrics` is False *every single time* is if
+> > `current_metrics` never equals any of them — i.e. **the client's copy of `metrics-panel-metrics-store`
+> > never advances either.** A round-trip asymmetry would have to corrupt the comparison identically on
+> > all 32 samples while the payloads stayed stable; "the client value is a constant empty default"
+> > explains it with no extra machinery.
+> >
+> > **F-CANOPY-035 already recorded exactly that, independently** (see its entry): the shared
+> > `metrics-panel-metrics-store` was **"globally empty (`len 0`) on BOTH the Training Metrics and
+> > Candidate Metrics tabs"** post-run, with the main loss plot empty too — and it was filed INCONCLUSIVE
+> > for want of an explanation. This is the explanation.
+> >
+> > So one sentence — *the server writes, the client's copy never advances* — now covers **F-CANOPY-035
+> > (open P1), F-CANOPY-038 (P2) and F-CANOPY-039 (P0/P1)** across **two different stores**. That
+> > materially changes F-039's blast radius: not 36 blocked topology rows, but those plus the
+> > metrics/candidates render block.
+> >
+> > **Confirming probe** (the tool now supports it directly; `current_metrics` is already a parameter of
+> > `_update_metrics_store_handler`, so unlike the topology target this needs no preparatory `State` edit):
+> >
+> > ```
+> > util/ad-hoc/e2e_f039_topoprobe_instrument.py apply  --checkout <canopy> --target metrics
+> > # restart that leg, open Training Metrics for ~90 s, then:
+> > util/ad-hoc/e2e_f039_topoprobe_instrument.py report --log <log>     --target metrics
+> > util/ad-hoc/e2e_f039_topoprobe_instrument.py revert --checkout <canopy>
+> > ```
+> >
+> > **Read it against topology's baseline, which is now known**: `eq=False` for 4 ticks, then `eq=True`
+> > for 11 consecutive samples. If metrics shows `eq=False` on EVERY sample at one constant `cur_len`,
+> > its client copy genuinely never advances — the round-trip asymmetry hypothesis dies and F-CANOPY-035
+> > is explained. If it converges the way topology's does, this entry returns to hypothesis (i).
+> > **Do this before treating F-038 and F-039 as separate work.**
 
 **F-CANOPY-039 — the topology rebuild's response is provably CORRECT on the wire and the DOM never applies it; this, not starvation, is what now blocks the topology block (P0/P1, OPEN; found 2026-08-28 during the F-CANOPY-037 post-fix re-drive).**
 Measured on the isolated trio (data 8101 / cascor 8202 / canopy 8051, service mode; cascor `a709d52`,
@@ -720,6 +795,157 @@ and driven with `JUNIPER_E2E_CANOPY_URL`. It fails **identically**: `painted=Fal
 `sig=2`, `counts 0/0/0/0`. So none of canopy#531/#532/#533/#534/#535 caused it.
 (Harness: `util/ad-hoc/e2e_f037_ab_premerge_leg.bash`.)
 
+> **ALL FOUR CANDIDATE EXPLANATIONS RULED OUT (2026-08-28, `util/ad-hoc/e2e_f039_dom_apply_probe.py` and
+> `e2e_f039_reset_target.py`). The failure is localised to dash-renderer applying the prop.**
+>
+> The DOM probe joins "a rebuild response landed" to "did `gd.data` change?" on **one event**, rather than
+> two independent polls that can each be wrong, and reports the whole element state at that instant.
+> Across **9 responses of 39,319 B each: 0 changed the DOM.** At the same instants:
+>
+> | candidate | measured | verdict |
+> |---|---|---|
+> | duplicate / detached graph element | `n_elements_with_graph_id` = **1**, attached | ruled out (static check also 464 ids / 464 distinct) |
+> | hidden or unlaid-out pane | `hidden_by` = **None**, rect **1102x600** | ruled out |
+> | plotly never initialised | `_fullLayout` present, modebar present | ruled out |
+> | `RESET_COMPONENT_STATE` wiping it (F-CANOPY-033) | **0 of 40** resets at-or-above the graph's itempath | ruled out |
+>
+> So: a single, attached, visible, correctly-sized, fully-initialised plotly instance receives nine correct
+> 39 KB figures and holds `gd.data == []` throughout. **What remains is the renderer step between "response
+> received" and "prop applied"** — which is precisely where F-CANOPY-006 lived.
+>
+> **Instrument note, because it nearly became a finding.** The first version of the DOM probe read
+> `_fullLayout` off the element carrying the id and reported `plotly_inited: false` — i.e. "plotly never
+> rendered this graph at all", a completely different and much more dramatic diagnosis. `dcc.Graph(id=X)`
+> renders a **wrapper** div with that id; the plotly instance lives on an inner `.js-plotly-plot`, which is
+> how the driver's own `fig_info` resolves it. Corrected, it reads `true`. **Resolve a `dcc.Graph` through
+> `.js-plotly-plot` before reporting anything about its plotly state.**
+>
+> **CONSTRUCTIVE TEST — the component is HEALTHY, so the defect is Dash's response application.**
+> `util/ad-hoc/e2e_f039_setprops_graph.py` writes the `figure` prop BY HAND through the component's own
+> Dash-supplied `setProps` (`memoizedProps.setProps`, 29,671 fiber hops): `traces 0 -> 1`, `sig 2 -> 87`,
+> `names=['F039-PROBE']`. **The graph renders a hand-written figure immediately and correctly.**
+>
+> So every half of the path is individually proven sound — the server produces a correct 39 KB figure, the
+> transport delivers it at HTTP 200, the target component accepts and renders `figure` on demand — and the
+> only remaining link is **dash-renderer writing the callback response into that prop**. That is
+> F-CANOPY-006's mechanism exactly, now established constructively rather than by elimination.
+>
+> **A sixth candidate, also ruled out: an unresolvable sibling output.** `update_network_graph` is an
+> **8-output** callback, and a renderer that cannot resolve one output's path can fail to apply the whole
+> batch — which would present precisely as "correct response, healthy component, nothing changes". All
+> seven distinct output ids (`-graph`, the four `-*-count`s, `-topology-hash`, `-new-node-highlight`)
+> resolve in `paths.strs`; `rebuild_outputs_missing` is **empty**. Checked with
+> `util/ad-hoc/e2e_f039_state_shape.py`.
+>
+> **RENDERER TRACE — the lifecycle COMPLETES and the value is never dispatched.**
+> `util/ad-hoc/e2e_f039_renderer_apply.py` wraps `store.dispatch` and joins it to response arrival. In
+> 60 s: **7 rebuild responses carrying the graph, 5,556 redux actions, 126 of them naming
+> `network-visualizer-graph`.** The callback's whole lifecycle is present and correctly pathed —
+> `Callbacks.AddRequested` → `LOADING` → `Callbacks.RemovePrioritized` / `RemoveExecuting` →
+> `Callbacks.RemoveExecuted` → `LOADED` — and both `LOADING` and `LOADED` carry the *exact* itempath from
+> `paths.strs`. Dash knows precisely which component and which prop.
+>
+> **And no dispatched action carries the figure.** Every action naming the graph is ≤23 KB and is
+> lifecycle bookkeeping (the callback descriptor is itself large — 12 Inputs, 8 Outputs); the 39,319 B
+> payload never enters the store. So the callback is requested, marked loading, executed, marked loaded,
+> and **the apply step in between simply does not happen**. That is F-CANOPY-039 stated at its narrowest.
+>
+> **Hypothesis worth testing next, NOT yet established: supersession.** `Callbacks.RemoveRequested` fires
+> for this callback, and a response whose invocation has already been removed from the requested set is
+> discarded rather than applied. That is the same *class* as F-CANOPY-037 — an in-flight rebuild
+> superseded before it can land — one layer lower: not the Input being re-claimed, but the queued
+> invocation being retired. The rebuild's server time is 1.5-5 s and its surviving trigger,
+> `tabpoll-topology`, ticks every 5 s, which is uncomfortably close. It would also explain why the
+> post-fix rate is *more* deterministic (0 of 6) than the pre-fix 2 of 11: with the 1 Hz store gone, every
+> invocation now comes from the one cadence that races it.
+>
+> **Discriminating test:** raise `tabpoll-topology`'s interval (or lower the rebuild's cost) and re-run the
+> census. If the graph paints, supersession is confirmed and the fix is a cadence/`no_update` guard rather
+> than anything in the component. Do this before reading dash-renderer's source — it is far cheaper and it
+> falsifies the hypothesis outright if wrong.
+>
+> ---
+>
+> ## ROOT CAUSE (2026-08-28) — the STORE never lands, and the graph was never the defect
+>
+> **The supersession hypothesis above is WRONG, and two fixes built on it were tested live and reverted
+> rather than shipped.** Recorded in full because the reasoning was plausible at every step and still
+> ended in the wrong place.
+>
+> The discriminating test *appeared* to confirm supersession: disabling `tabpoll-topology` at runtime made
+> the graph paint immediately (traces 0 -> 181, sig 2 -> **31152**, byte-identical to F-CANOPY-037's two
+> painting sessions). But two fixes derived from it both failed a live census — the stale-identifier
+> short-circuit (0 of 2) and a no-op-write suppression on the topology store (0 of 1).
+>
+> **What settled it was logging the comparison's operands server-side** — the probe F-CANOPY-038 has been
+> asking for. Every tick, on every sample:
+>
+> ```
+> TOPOPROBE eq=False cur_type=dict cur_len=75 new_len=7059 canon_eq=False
+> TOPOPROBE   differs key='input_units'  cur=0  new=2
+> TOPOPROBE   differs key='hidden_units' cur=0  new=10
+> TOPOPROBE   differs key='connections'  cur=[] new=[{'from': 'input_0', ...}]
+> TOPOPROBE   differs key='nodes'        cur=None new=[{'id': 'input_0', ...}]
+> ```
+>
+> **CORRECTION (2026-08-29) — the paragraph below was wrong, and its error made the finding LOOK weaker
+> than it is.** It read the head of the probe log and generalised. Re-running the (now re-runnable)
+> reporter over the WHOLE 35-line log gives:
+>
+> ```
+> 4 samples  19:43:17 → 19:43:33   eq=False  cur_len=75    new_len=7059
+> 11 samples 19:43:39 → 19:44:28   eq=True   cur_len=7059  new_len=7059
+> ```
+>
+> One continuous 71 s window, no restart. **The client's copy is empty for ~22 s, then CONVERGES to the
+> correct 7,059-byte topology and stays correct for the remaining 49 s.** It is not "permanently empty" and
+> it does not "never advance".
+>
+> **This strengthens the duplicate-store hypothesis rather than weakening it, and it is now supported from
+> BOTH sides**: the probe proves the value the store's WRITER sees is correct and stable for 11
+> consecutive ticks, while the rebuild's `input_units == 0` fast path proves the value its READER sees is
+> empty over the same window. **Two different values for the same store id, simultaneously.** That is the
+> duplicate-instance signature, and it is no longer an inference from absence — it is a direct
+> contradiction between two measurements taken at the same time on the same running app.
+>
+> It also means the "one defect" deduction filed against F-CANOPY-038 must NOT lean on a
+> "client copies never advance" analogy: this store's client copy demonstrably does. See that entry's
+> correction.
+>
+> ~~**The CLIENT's copy of `network-visualizer-topology-store` is permanently the 75-byte empty default**,
+> while the server returns the correct 7,059-byte topology every 5 s. It never advances — not once, across
+> every tick of every session.~~
+>
+> **Given that, the rebuild is behaving correctly.** Its own fast path is
+> `if not topology_data or topology_data.get("input_units", 0) == 0: return empty_fig, ..., "0","0","0","0"`
+> (`network_visualizer.py`). Handed an empty store it returns an empty figure and `"0"` counts — which is
+> *exactly* the observed DOM. **The graph is not failing to apply anything. It is faithfully rendering an
+> empty topology, because that is what it is given.**
+>
+> This also re-reads the earlier evidence correctly: the 39,319 B / 206-trace responses are the
+> invocations that DID receive a populated store, and they are interleaved with empty-store invocations
+> whose `"0"` counts overwrite them. It explains the `RemoveRequested` traffic without supersession, and it
+> explains why disabling the tick helped — it stopped the empty-store invocations that were overwriting
+> the good ones.
+>
+> **The open question is now sharp and different: why does a store write that the server issues every 5 s
+> never reach the client's copy?** Note the shape — a `dcc.Store` renders **no DOM**, so a duplicated one
+> is invisible to both the live DOM count *and* (if created at runtime by the A1-iii-b1 tab rebuild rather
+> than declared) the static layout check that came back 464/464 clean. F-CANOPY-027's own investigation
+> named this exact trap: *"If a store is declared twice, Dash writes one instance and the consumers read
+> the other."* That is the first thing to test, at runtime rather than statically.
+>
+> **Method note.** Three hypotheses (renderer apply, supersession, no-op writes) each survived several
+> negative probes and each was wrong. The one measurement that settled it was the cheapest available and
+> was named as F-CANOPY-038's next probe two sessions ago: **log the comparison's operands server-side.**
+> When a client-side value is in question, instrument the SERVER's view of it — every browser-side probe
+> in this arc has been either unreliable or ambiguous, and this one was neither.
+>
+> **Instrument note:** a substring match for the component id is not a match for "an action about this
+> component". 45 `SET_PATHS` dispatches per minute each carry a **534 KB** payload naming *every* id in
+> the app, so a naive count reported 126 "actions naming the graph" and read as "the renderer is applying
+> it". Filter by action type before drawing that conclusion.
+
 **Named next probes, in order of expected value.** (1) **Duplicate component ids** — the A1-iii-b1 tab
 rebuild reconstructs the tab bar, so a stale detached `network-visualizer-graph` would take the response
 while the probe reads the live one; F-CANOPY-027's methodology checked exactly this (`count == 1`) and it
@@ -741,6 +967,27 @@ nobody is looking at is being torn back to defaults ~13 times a second for the w
 F-CANOPY-027 chain (wrong subtree) but a real and continuous waste of client work on a dashboard already
 documented as callback-congested (F-CANOPY-004); it also makes any redux trace noisy for future
 investigations. Reproduce with `util/ad-hoc/e2e_f027_redux_actions.py`.
+
+> **REPRODUCED AND RE-ATTRIBUTED (2026-08-28, run `20260828T132533Z`). The Cassandra attribution is
+> WRONG.** Live on merged canopy `6b55399`: **908 `RESET_COMPONENT_STATE` in 60 s (~15/s)** — the rate
+> holds. But this entry named the target by reading an itempath INDEX (`…/props/children/12/…`) and
+> calling it "the Cassandra panel's subtree". Resolving the same itempaths against **Dash's own
+> `paths.strs` id→itempath map** (`util/ad-hoc/e2e_f039_reset_target.py`), the owners are:
+>
+> | resets (of 40 sampled) | owning component |
+> |---:|---|
+> | 20 | `network-info-panel` |
+> | 12 | `network-info-details-panel` |
+> | 8 | `network-evolution-grid-container` |
+>
+> **Cassandra does not appear.** The first two are the slow-lane callback's own outputs, so it is
+> re-rendering its children; the third is the evolution grid. Anyone acting on this entry would have gone
+> looking at the wrong panel. **An itempath index is not an identity** — the tab list is rebuilt
+> (A1-iii-b1) and the indices move; resolve through `paths.strs` instead, which is what Dash itself does.
+>
+> This also settles the obvious question raised by F-CANOPY-039 (a graph stuck at its layout defaults,
+> next to a storm of "reset to layout defaults"): **0 of 40 resets target the graph or any ancestor of
+> it**, so F-033 is *not* F-039's cause and the two stay separate findings.
 
 **F-CANOPY-028 — pinned params are silently discarded on the first pin after any reload (P2, OPEN; segment 15).**
 `pinned-params-store` is `storage_type="local"` and survives reload correctly, but the `{"type":"param-pin"}` checkboxes in the Parameters tables **do not rehydrate from it** — after a reload they all render unchecked while the store and the sidebar card still show the pinned set. Because the single pattern-matched writer (`dashboard_manager.py:3948-3952`) *collects the state of every checkbox*, the next pin action writes a list built from the un-rehydrated DOM, dropping everything pinned before the reload. Reproduced end-to-end: pinned `learning_rate` → `pinned-params-store` `["learning_rate"]`, sidebar card `display:block` showing "Learning Rate" → full page reload → `localStorage["pinned-params-store"]` still `["learning_rate"]`, card still shown, **but the `learning_rate` checkbox reads `checked:false`** → pinning `max_iterations` → store and localStorage both become `["max_iterations"]`, `learning_rate` gone with no warning. Matrix rows M-PARAMETERS-04/-05/-06 still **PASS** on their own stated expectations (the store write, the card reveal, and persistence all work); this is the cross-cutting defect those rows sit on top of.
@@ -3796,8 +4043,27 @@ F-CANOPY-037 is fixed.
 ## Phase 4 — the P2 fix wave (2026-08-27): 8 of 11 addressed, 1 re-diagnosed, 2 deferred
 
 Owner decision 3 ("fix all 11 canopy P2s"), executed as far as source work can take it. No stack was
-brought up; every fix is grounded in the Phase 1–3 measurements plus source tracing, and **nothing
-here is merged**, so every entry above stays OPEN and the triage counts are unchanged.
+brought up; every fix is grounded in the Phase 1–3 measurements plus source tracing.
+
+> **STATUS CORRECTION (2026-08-29).** This section was written before the wave merged and said
+> "**nothing here is merged**, so every entry above stays OPEN". That is now stale in two ways, and the
+> staleness is load-bearing because it is why `e2e_finding_triage.py` still counts these as open P2s.
+>
+> - **All of the wave merged 2026-08-28**: canopy#532 (F-001/-013/-015/-034), #533 (F-018/-028),
+>   #534 + cascor#594 (F-026 both halves), #535 (F-012). The table's F-CANOPY-036 row still reads
+>   "deferred — —"; it shipped as **canopy#536** (server-side accumulation) on the owner's decision.
+> - **The honest count is 9 of 11 FIXED**, not 8 and not 10: the eight above plus F-036, with
+>   **F-CANOPY-032 NOT fixed** (contract pins only — its mechanism does not reproduce) and
+>   **F-CANOPY-033 deferred**.
+> - **Every one of those entries still needs its live row re-drive** before its header token changes,
+>   which is why they remain OPEN in the triage. That is correct, but it is correct for a different
+>   reason than this paragraph gave. The owed rows are listed at the end of this section.
+>
+> **F-CANOPY-036's owner-decision note is also now spent**: it read as an open choice between server-side
+> accumulation and a clientside append. The owner chose **server-side**, and canopy#536 shipped it. The
+> JR-CAN-PERF-004 plan still carries that as an open question in its §7 and its Phase 2 blocker —
+> `notes/JUNIPER_2026-08-27_JUNIPER-CANOPY_WS-MIGRATION-PLAN-JR-CAN-PERF-004.md` — and should be updated
+> to record that Phase 2 is no longer gated on it.
 
 ### Disposition
 
