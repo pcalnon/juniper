@@ -255,7 +255,7 @@ dbc.Card (className="mb-3")
 
 [v4 brief repaired; was: '2.6 juniper-data-client']
 
-### JR-ML-DATA-010 — """cascade_add WebSocket message must trigger topology broadcast."""
+### JR-ML-DATA-010 — Phase 3 integration test: a `cascade_add` WebSocket message must trigger a topology broadcast
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
@@ -270,6 +270,8 @@ test_websocket_topology_push.py — New integration test
 **Notes**:
 
 [v3 brief repaired from cited content; was: 'Phase 3 Tests']
+
+[2026-08-29 brief repaired from cited content; was: '"""cascade_add WebSocket message must trigger topology broadcast."""']
 
 ### JR-ML-DATA-011 — 2.4.1 Fix `wait_for_ready()`** (`client.py:86`)
 
@@ -702,7 +704,7 @@ Several `CascorServiceAdapter` methods catch only `JuniperCascorClientError`, wh
 
 [v2 ARCH→DATA re-bucket]
 
-### JR-ML-DATA-041 — `juniper_cascor_client/client.py`
+### JR-ML-DATA-041 — juniper-cascor-client (Phase 4): add `get_dataset_data()` to `juniper_cascor_client/client.py`
 
 **Status**: proposed  **Priority**: P3  **Category**: DATA  **Owner**: ml
 
@@ -718,7 +720,7 @@ Several `CascorServiceAdapter` methods catch only `JuniperCascorClientError`, wh
 
 [v4 brief repaired; was: '9.3 juniper-cascor-client (Phase 4 only)']
 
----
+[2026-08-29 brief repaired from cited content; was: '`juniper_cascor_client/client.py`']
 
 ### JR-REC-DATA-001 — 3-D irregular-Δt NPZ sequence contract consumption
 

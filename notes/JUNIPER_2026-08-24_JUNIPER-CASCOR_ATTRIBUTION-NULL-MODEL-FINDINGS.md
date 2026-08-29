@@ -7,7 +7,7 @@
 **Version**: 0.7.1
 **Last Updated**: 2026-08-24
 
-**Status**: FINDINGS — measured, reproducible, and **applied**: the second floor of §5 now
+**Status**: FINDINGS — measured and **applied**: the second floor of §5 now
 ships in `util/snapshot_attribute.py` (schema v2, `--no-cross-dataset-floor` to opt out). No
 snapshot was written, moved, or deleted; the probes redirect `JUNIPER_CASCOR_SNAPSHOTS_DIR` so
 they cannot grow the archive they measure.
@@ -74,7 +74,15 @@ shape-compatible dataset.
 | **total** | **129** | **126** | **113** | **106** | **104** |
 
 The last two columns differ by 2, and the reason is a correction found while implementing —
-see §3.6. The **as shipped** column is the authoritative one.
+see §3.6.
+
+> ⚠ **Every count in this table is RUN-SPECIFIC and none of them is reproducible.** They were
+> all produced before the dataset instance was pinned. Five of the six generators declared
+> `seed=None`, so each run scored against freshly drawn data; only `spiral` was stable, and it
+> is the only column that holds steady across rebuilds. The **reproducible** figures, from the
+> seeded rebuild, are in §8. The *shape* of every conclusion below survives — xor solid, spiral
+> withdrawn, moon marginal — but do not quote the individual numbers as properties of the
+> archive.
 
 ---
 
@@ -236,6 +244,46 @@ single contested snapshot (§3.5). That is the *conservative* outcome, not a set
 Read moon as **withdrawn pending §3 item 4**, not as refuted. The tool is right to refuse —
 refusing is what it does when the evidence will not carry a verdict.
 
+### 4.1 The displacement flag — §3.2 made mechanical (2026-08-26)
+
+§3.2's defect is that the winner is chosen by **lift** (`score − floor`), not by raw score, so a
+candidate with a low floor can win while scoring worse than datasets it was *not* attributed to.
+`adjudicate()` now marks exactly that disagreement: an ATTRIBUTED verdict carries
+`displaced: true` plus `raw_best` / `raw_best_score` whenever the highest raw scorer is not the
+winner.
+
+**No verdict changes.** Lift stays the criterion — raw score cannot separate "learned this" from
+"this dataset is easy" — so this is a diagnostic over the same decision, not a new rule. It is
+deliberately framed on *"best raw score ≠ winner"* and **not** on *"floor ≥ 1.000"*, which is the
+gaussian-saturation case and a different diagnostic the flag would otherwise obscure.
+
+Censused over the existing sidecar with
+[`util/ad-hoc/2026-08-26_displacement_census.py`](../util/ad-hoc/2026-08-26_displacement_census.py)
+(every row stores its full `scores` vector, so displacement is recomputable offline without
+re-running attribution): **6 of 108 attributed rows are displaced.**
+
+| winner | outscored by | n |
+|---|---|---:|
+| spiral | moon | 4 |
+| xor | gaussian | 2 |
+
+**Those 6 rows are only 2 distinct networks** — `5a1ba744` at 8/10/12/13 units and `295a396f` at
+18/19 units. That matters twice over. First, it means displacement is rarer than the row count
+suggests: it clusters in a network's early, low-capacity snapshots, which is where a low floor is
+most able to out-argue a low score. Second, **all four spiral rows are the same cohort §3.4
+withdrew** on the independent capacity argument — so the flag re-derives that conclusion
+mechanically, from the score vector alone, without knowing anything about learnability. Two
+different routes to the same four snapshots is the strongest evidence in §3.4's favour so far.
+
+The two xor rows (18u, 19u) are the weakest members of the otherwise-solid xor cohort of §3.3, and
+are flagged rather than withdrawn: xor's case rests on complete distributional separation across
+94 snapshots, which two displaced low-capacity members do not overturn.
+
+**Schema note.** This does not bump `SCHEMA_VERSION` (still 2) — the version encodes what a verdict
+*means*, and no verdict changed. Absence of `displaced` on a row therefore means "not computed",
+not "not displaced"; a census over pre-2026-08-26 rows must recompute from `scores`, which is what
+the script above does.
+
 ---
 
 ## 5. Applied — two floors, not a replacement
@@ -300,10 +348,69 @@ the shipped two-floor path, which differs from N3 by the self-exclusion of §3.6
 The shipped behaviour is pinned by regression tests rather than by a full re-run:
 
 ```bash
-python3 -m unittest -v tests/test_snapshot_attribute.py    # 44 tests
+python3 -m unittest -v tests/test_snapshot_attribute.py    # 49 tests
 ```
 
 `CrossDatasetFloorTest` and `CrossDatasetReferenceClassTest` are the two new classes. Each
 adjudicates the same score vector twice — once with `cross_floor=None`, which *is* the
 single-floor behaviour that shipped before — so removing the second floor makes the two arms
 agree and the tests fail.
+
+---
+
+## 8. ⚠ The numbers above were not reproducible — and the reproducible ones
+
+Regenerating the sidecar exposed a defect that undercuts every count in this document: **five of
+the six generators declare `seed: int | None = Field(default=None)`**, and `load_datasets` built
+them from bare defaults. Two calls **in the same process** returned different arrays for
+`checkerboard`, `circles`, `gaussian`, `moon` and `xor`. `spiral` alone declares a real default
+seed — and `spiral` is the only column that held steady across every rebuild, which is the
+tell that was visible all along.
+
+Demonstrated directly against the pre-fix code: two *identical* invocations
+(`--sample 300 --seed 4242 --json`) produced different output, down to a verdict's `gap` moving
+0.0334 → 0.0134.
+
+The chain of consequence for moon, which is why the prediction of §3.5 read 0 and the rebuild
+read 6: moon's score shifted 1.000 → 0.995 → one snapshot's first-pass winner flipped from
+`circles` to `moon` → it left moon's own reference class → moon's cross floor fell 1.000 → 0.850
+→ every moon attribution cleared it.
+
+**The fix** (`seeded_params`): supply `DATASET_SEED` only to a generator declaring none, and
+leave a declared seed alone. spiral therefore keeps the exact instance every analysis above used,
+so nothing here needs re-deriving for spiral; the other five become reproducible for the first
+time. `--dataset-seed` overrides it, and changing it redefines the canonical instance.
+
+### 8.1 The reproducible figures
+
+From the seeded full-chain rebuild (27,962 indexed / 27,689 attributable):
+
+| dataset | first pass (Floor A) | **both floors** |
+|---|---:|---:|
+| xor | — | **94** |
+| circles | — | **7** |
+| spiral | — | **4** |
+| moon | — | **3** |
+| *ambiguous* | — | 8 |
+| **total attributed** | **124** | **108** |
+
+16 first-pass attributions were withdrawn by the cross floor.
+
+Read against §4: xor and circles are unmoved, and **spiral is 4 under every rebuild** — the one
+number that was always trustworthy, because spiral was the one seeded generator. moon lands at
+**3**, which is precisely what §3.5 predicted for "floor 0.875, contested snapshot excluded".
+That the two agree by different routes is the strongest thing this document has to say about
+moon, and it is still not enough to call it settled.
+
+### 8.2 Reproducibility is now a checkable property
+
+```bash
+ROOT=/home/pcalnon/Development/python/Juniper/juniper-cascor/cascor-snapshots
+python util/snapshot_attribute.py --root "$ROOT" --sample 300 --seed 4242 --json > A.json
+python util/snapshot_attribute.py --root "$ROOT" --sample 300 --seed 4242 --json > B.json
+diff A.json B.json      # must be empty
+```
+
+Verified empty after the fix, and verified NON-empty before it. `DatasetInstanceIsFixedTest`
+pins the seeding rule hermetically (including that a params class declaring **no** `seed` field
+is left untouched, since absence and `None` are different answers).

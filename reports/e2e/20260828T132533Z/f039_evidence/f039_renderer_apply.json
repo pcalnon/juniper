@@ -1,0 +1,156 @@
+{
+  "total": 5556,
+  "naming_count": 126,
+  "samples": [
+    {
+      "type": "SET_PATHS",
+      "len": 534372,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534181,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534181,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534220,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534220,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 22112,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.RemoveExecuted\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\",\"out\":true}],\"output\":\"network-visualizer-topology-s"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 22152,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.AddRequested\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-graph\",\"property\":\"figure\",\"out\":true},{\"id\":\"network-visualizer-graph\",\"property\":\"conf"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534260,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534260,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 23226,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.RemoveExecuted\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-depth-slider\",\"property\":\"max\",\"out\":true},{\"id\":\"network-visualizer-depth-slider\",\"pr"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 11428,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[null,{\"type\":\"Callbacks.RemoveRequested\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-graph\",\"property\":\"figure\",\"out\":true},{\"id\":\"network-visualizer-graph\",\"propert"
+    },
+    {
+      "type": "LOADING",
+      "len": 1862,
+      "head": "{\"type\":\"LOADING\",\"payload\":[{\"path\":[\"components\",\"props\",\"children\",11,\"props\",\"children\",1,\"props\",\"children\",0,\"props\",\"children\",2,\"props\",\"children\",\"props\",\"children\",4],\"property\":\"figure\",\"id\":\"network-visualizer-graph\"},{\"path\":[\"components\",\"props\","
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 8379,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.RemovePrioritized\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-graph\",\"property\":\"figure\",\"out\":true},{\"id\":\"network-visualizer-graph\",\"property\":"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 8402,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.RemoveExecuting\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-graph\",\"property\":\"figure\",\"out\":true},{\"id\":\"network-visualizer-graph\",\"property\":\"c"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 12627,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[null,{\"type\":\"Callbacks.RemoveRequested\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-info-panel\",\"property\":\"children\",\"out\":true},{\"id\":\"network-info-details-panel\",\"property\""
+    },
+    {
+      "type": "LOADED",
+      "len": 1861,
+      "head": "{\"type\":\"LOADED\",\"payload\":[{\"path\":[\"components\",\"props\",\"children\",11,\"props\",\"children\",1,\"props\",\"children\",0,\"props\",\"children\",2,\"props\",\"children\",\"props\",\"children\",4],\"property\":\"figure\",\"id\":\"network-visualizer-graph\"},{\"path\":[\"components\",\"props\",\""
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534235,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534235,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534415,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 22112,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.RemoveExecuted\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\",\"out\":true}],\"output\":\"network-visualizer-topology-s"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 15672,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.AddRequested\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-graph\",\"property\":\"figure\",\"out\":true},{\"id\":\"network-visualizer-graph\",\"property\":\"conf"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534225,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 23226,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.RemoveExecuted\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-depth-slider\",\"property\":\"max\",\"out\":true},{\"id\":\"network-visualizer-depth-slider\",\"pr"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 11428,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[null,{\"type\":\"Callbacks.RemoveRequested\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-graph\",\"property\":\"figure\",\"out\":true},{\"id\":\"network-visualizer-graph\",\"propert"
+    },
+    {
+      "type": "LOADING",
+      "len": 1862,
+      "head": "{\"type\":\"LOADING\",\"payload\":[{\"path\":[\"components\",\"props\",\"children\",11,\"props\",\"children\",1,\"props\",\"children\",0,\"props\",\"children\",2,\"props\",\"children\",\"props\",\"children\",4],\"property\":\"figure\",\"id\":\"network-visualizer-graph\"},{\"path\":[\"components\",\"props\","
+    }
+  ],
+  "types": {
+    "Callbacks.Aggregate": 2828,
+    "LOADING": 520,
+    "LOADED": 507,
+    "function": 592,
+    "SET_PATHS": 45,
+    "RESET_COMPONENT_STATE": 1064
+  },
+  "sub": {
+    "?": 14165,
+    "Callbacks.RemovePrioritized": 179,
+    "Callbacks.AddExecuting": 179,
+    "Callbacks.RemoveExecuting": 179,
+    "Callbacks.AddWatched": 179,
+    "Callbacks.RemoveWatched": 430,
+    "Callbacks.AddExecuted": 387,
+    "Callbacks.RemoveExecuted": 395,
+    "Callbacks.Completed": 395,
+    "Callbacks.AddStored": 395,
+    "Callbacks.RemoveStored": 395,
+    "Callbacks.AddRequested": 107,
+    "Callbacks.RemoveRequested": 118,
+    "Callbacks.AddPrioritized": 98
+  },
+  "rebuild_responses": 7
+}

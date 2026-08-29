@@ -1,0 +1,39 @@
+# One-cell disambiguation probe for the E-C cap-64 re-run's single unexplained row.
+#
+# The 2026-08-29 E-C grid (suite e-c-cascor-noise-robustness-20260829T003546Z, cascor 67d7ea3)
+# gave a NON-MONOTONIC spiral noise curve: 0.00 -> 0.8050, 0.05 -> 1.0000, 0.10 -> 0.9800,
+# 0.20 -> 0.9750 val. The dip at noise 0.0 is the anomaly, and it is CONFOUNDED: every spiral
+# cell consumed its entire 64-unit budget, so 0.8050 is either a genuine property of the
+# noise-free spiral or residual capacity starvation.
+#
+# That confound cannot be settled from the grid. At the baseline noise (0.05) E-I already showed
+# 64 saturates — its cap-64 and cap-128 cells both reached 1.0000 — but adequacy at 0.05 says
+# nothing about 0.0, which is the row in question.
+#
+# This probe re-runs ONLY noise 0.0 at cap 128, everything else identical:
+#   jumps toward 1.0  -> the dip was capacity; the noise-free row needs a larger budget.
+#   stays near 0.805  -> the dip is real; the noise-free spiral is genuinely harder here.
+#
+# Budget: E-I's cap-128 cell took 1004 s post-#563. spiral-baseline's inherited
+# outputs.max_wall_seconds (3600) is left ALONE rather than raised — it clears that comfortably,
+# and per_run_timeout_seconds sits above it so the DRIVER stops the run and writes an honest
+# manifest (the ordering contract; tests/test_experiment_suite_yamls.py's fourth contract).
+# max_iterations must equal or clear the unit cap or the cap can never bind — growth adds one
+# unit per iteration, so 128 is exactly enough.
+#
+# Lives in util/ad-hoc/ because it is a single-question probe, not a shipped suite: the gate in
+# tests/test_experiment_suite_yamls.py scans util/experiments/suites/ only, so the ordering here
+# is reported by util/ad-hoc/2026-08-20_wall_ordering_survey.py's AD-HOC section, not enforced.
+schema_version: 1
+suite:
+  name: ec-noise0-cap128-probe
+  description: "E-C disambiguation: noise 0.0 spiral at cap 128 (is the 0.805 dip capacity or real?)"
+  app: cascor
+  base_config: [../../../juniper-cascor/conf/experiments/spiral-baseline.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 7200, stall_seconds: 1200}
+matrix:
+  dataset.params.noise: [0.0]
+  training.params.max_hidden_units: [128]
+  training.params.max_iterations: [128]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

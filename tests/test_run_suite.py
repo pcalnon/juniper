@@ -115,6 +115,67 @@ class ExpandTest(unittest.TestCase):
         self.assertEqual([c["cell_id"] for c in cells], [c["cell_id"] for c in again])
         self.assertNotIn({"training.params.max_hidden_units": 16, "training.params.candidate_pool_size": 8}, [c["overrides"] for c in cells])
 
+    def _resolve_with_project_dir(self, suite_yaml: "Path", config_rel: str, project_dir: "str | None"):
+        """Call _resolve_base_config with JUNIPER_EXP_PROJECT_DIR set, restoring it after."""
+        old = os.environ.get("JUNIPER_EXP_PROJECT_DIR")
+        if project_dir is None:
+            os.environ.pop("JUNIPER_EXP_PROJECT_DIR", None)
+        else:
+            os.environ["JUNIPER_EXP_PROJECT_DIR"] = project_dir
+        try:
+            return run_suite._resolve_base_config(suite_yaml, config_rel)
+        finally:
+            if old is None:
+                os.environ.pop("JUNIPER_EXP_PROJECT_DIR", None)
+            else:
+                os.environ["JUNIPER_EXP_PROJECT_DIR"] = old
+
+    def test_project_dir_override_beats_a_resolving_literal(self) -> None:
+        """The override WINS over a literal that exists -- it is an override, not a fallback.
+
+        Launched from the canonical juniper-ml checkout the literal always resolves, so while
+        the override was consulted second, a campaign pinning cascor to a worktree took its
+        CODE from the worktree and its CONFIG from the primary. Nothing in the manifest showed
+        that mixed tree, which is why this is pinned rather than left to review.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rel = "../cascor-checkouts/juniper-cascor/conf/experiments/base.yaml"
+            suite_dir = root / "suites"
+            suite_dir.mkdir(parents=True)
+            suite_yaml = suite_dir / "suite.yaml"
+            suite_yaml.write_text("schema_version: 1\n")
+
+            primary = root / "cascor-checkouts" / "juniper-cascor" / "conf" / "experiments"
+            primary.mkdir(parents=True)
+            (primary / "base.yaml").write_text(BASE_CONFIG)
+            # Precondition: the literal walk really does resolve, so the test is not vacuous.
+            self.assertTrue((suite_yaml.parent / rel).resolve().is_file())
+
+            pinned = root / "pinned" / "juniper-cascor" / "conf" / "experiments"
+            pinned.mkdir(parents=True)
+            (pinned / "base.yaml").write_text(BASE_CONFIG)
+
+            self.assertEqual(self._resolve_with_project_dir(suite_yaml, rel, str(root / "pinned")), pinned / "base.yaml")
+            # Unset, the literal still wins -- the override changes nothing when absent.
+            self.assertEqual(self._resolve_with_project_dir(suite_yaml, rel, None), (primary / "base.yaml").resolve())
+
+    def test_a_nonexistent_override_falls_back_to_the_literal(self) -> None:
+        """A stale or mistyped override degrades to the literal rather than failing the suite."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rel = "../cascor-checkouts/juniper-cascor/conf/experiments/base.yaml"
+            suite_dir = root / "suites"
+            suite_dir.mkdir(parents=True)
+            suite_yaml = suite_dir / "suite.yaml"
+            suite_yaml.write_text("schema_version: 1\n")
+            primary = root / "cascor-checkouts" / "juniper-cascor" / "conf" / "experiments"
+            primary.mkdir(parents=True)
+            (primary / "base.yaml").write_text(BASE_CONFIG)
+
+            resolved = self._resolve_with_project_dir(suite_yaml, rel, str(root / "does-not-exist"))
+            self.assertEqual(resolved, (primary / "base.yaml").resolve())
+
     def test_project_dir_rebase_for_sibling_base_configs(self) -> None:
         """Wave 7.3: from a worktree, sibling-relative base_config paths rebase onto
         JUNIPER_EXP_PROJECT_DIR from their first juniper-* component; cell ids hash

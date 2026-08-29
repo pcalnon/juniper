@@ -11,10 +11,25 @@
 # budget is ample there (those cells early-stop well short of it). The moon rows replace
 # dataset.params wholesale — run_suite's _set_dotted assigns the node rather than merging — so
 # they pick up none of spiral-baseline's spiral-only params.
+#
+# T6 (2026-08-26) showed the R-4 rebase did not finish the job: spiral-baseline pins
+# max_iterations: 12 against max_hidden_units: 24, and `effective_iterations =
+# min(max_iterations, max_hidden_units)` (derive_epochs_cap), so all four spiral cells stopped at
+# exactly 12 units with completion_reason `max_iterations` — HALF the unit cap the base appears to
+# grant — and the curve came out flat at ~0.63-0.66. That is R-4's own finding one cap up, and the
+# R-3 defect in its third costume. moon-n20 hit the same 12 and is why that point read 0.975.
+#
+# Raising max_iterations ALONE would not have fixed it: at min(64, 24) the bind simply moves to the
+# 24-unit cap, still short of where spiral resolves (E-I: 32 units -> 0.84, 64 -> 1.00). Both knobs
+# move together, the way E-I moves them, or the cap returns in a fourth costume.
+#
+# PROVENANCE: the E-C table published in the P4 studies evidence doc (§3, "RE-BASELINED 2026-08-26")
+# was measured under the PRE-change suite — 12-unit spiral rows, capped moon-n20. It is superseded
+# by the first run of this file, not described by it.
 schema_version: 1
 suite:
   name: e-c-cascor-noise-robustness
-  description: "E-C: noise in {0.0,0.05,0.1,0.2} on spiral + moon (baseline budget)"
+  description: "E-C: noise in {0.0,0.05,0.1,0.2} on spiral + moon (cap-64 budget)"
   app: cascor
   base_config: [../../../../../juniper-cascor/conf/experiments/spiral-baseline.yaml]
   seed_policy: fixed
@@ -30,9 +45,24 @@ suite:
 execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 7200, stall_seconds: 1200}
 matrix:
   dataset.params.noise: [0.0, 0.05, 0.1, 0.2]
+  # Single-element axes add no cells (expand_cells takes the cross-product), so this stays 4
+  # spiral cells. 64 is E-I's resolving point (64 units -> 1.00 on the same n_rotations 3.0
+  # spiral), and max_iterations must EQUAL OR CLEAR the unit cap or that cap can never bind:
+  # growth adds one unit per iteration, so 64 is exactly enough. E-I c001 measured this exact
+  # shape at 517 s/cell post-#563, so four spiral cells cost ~35-45 min against the 3600 s
+  # budget spiral-baseline already grants — no outputs.max_wall_seconds override needed.
+  training.params.max_hidden_units: [64]
+  training.params.max_iterations: [64]
 include:
-  - {name: moon-n0, overrides: {dataset.generator: moon, dataset.params: {n_samples: 1000, noise: 0.0, seed: 20260807}}}
-  - {name: moon-n05, overrides: {dataset.generator: moon, dataset.params: {n_samples: 1000, noise: 0.05, seed: 20260807}}}
-  - {name: moon-n10, overrides: {dataset.generator: moon, dataset.params: {n_samples: 1000, noise: 0.1, seed: 20260807}}}
-  - {name: moon-n20, overrides: {dataset.generator: moon, dataset.params: {n_samples: 1000, noise: 0.2, seed: 20260807}}}
+  # `include` cells carry ONLY their own overrides — expand_cells does not hand them the matrix
+  # (run_suite.py:204) — so the budget is repeated here rather than inherited. Without it the
+  # moon rows would stay at the 12-round cap while the spiral rows moved to 64, which is exactly
+  # the cross-dataset budget mismatch the header refuses. Inert for n0/n05/n10 (1-3 units, well
+  # inside any cap, so their trajectories should reproduce unchanged despite new cell_ids —
+  # cell_id hashes the override set); the point of it is moon-n20, whose 0.975 was measured at
+  # the cap and is therefore confounded rather than a noise result.
+  - {name: moon-n0, overrides: {dataset.generator: moon, dataset.params: {n_samples: 1000, noise: 0.0, seed: 20260807}, training.params.max_hidden_units: 64, training.params.max_iterations: 64}}
+  - {name: moon-n05, overrides: {dataset.generator: moon, dataset.params: {n_samples: 1000, noise: 0.05, seed: 20260807}, training.params.max_hidden_units: 64, training.params.max_iterations: 64}}
+  - {name: moon-n10, overrides: {dataset.generator: moon, dataset.params: {n_samples: 1000, noise: 0.1, seed: 20260807}, training.params.max_hidden_units: 64, training.params.max_iterations: 64}}
+  - {name: moon-n20, overrides: {dataset.generator: moon, dataset.params: {n_samples: 1000, noise: 0.2, seed: 20260807}, training.params.max_hidden_units: 64, training.params.max_iterations: 64}}
 outputs: {suite_dir: null, aggregate: [csv, markdown]}

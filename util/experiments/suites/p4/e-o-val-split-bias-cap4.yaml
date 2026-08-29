@@ -1,0 +1,44 @@
+# E-O: measure the SELECTION BIAS that cascor#582's X_test-as-validation promotion introduces.
+#
+# WHY THIS SUITE EXISTS
+# The service promotes the dataset's X_test/y_test to in-loop validation AND reports its final
+# f1/precision/recall/roc_auc from that same partition (measured 2026-08-29, juniper-ml
+# reports/tensor-hash-probe-2026-08-28/). Selection and reporting therefore share one set of rows,
+# so the reported "held-out" score is selected-on. The direction of that bias is certain; the
+# MAGNITUDE was unmeasured, and the train/val/test partition design
+# (notes/JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_TRAIN-EVAL-TEST-PARTITION-DESIGN.md section 8)
+# gates the redesign on measuring it first.
+#
+# HOW IT MEASURES IT
+# Paired with the diag branch `diag/tensor-hash-probe-572` and JUNIPER_DIAG_VAL_SPLIT=1, which
+# halves the incoming validation set: the first half drives training exactly as the full set does
+# today, the second half is stashed and never seen by any training decision. Both halves are then
+# scored on the SAME final model. `acc_selected_on - acc_held_out` is the optimism estimate, and
+# because both halves are drawn from one partition they are identically distributed -- the only
+# asymmetry is whether the training loop was allowed to look at them.
+#
+# WHY EIGHT DATASET SEEDS AND NOT ONE
+# Each half is ~100 rows, so a single pair's difference is dominated by sampling noise between the
+# halves. One cell yields one number and no way to tell a real effect from a coin flip -- the exact
+# error that killed three published attributions in this arc (2026-08-24 handoff section 5.1).
+# Eight independent datasets give a PAIRED distribution: the mean estimates the bias, the spread
+# says whether it is distinguishable from zero.
+#
+# `experiment.seed` is held at 42 across cells DELIBERATELY. Varying the network seed as well would
+# confound dataset variation with initialisation variation; here the dataset is the replicate axis
+# and the network is held fixed. seed_policy MUST stay `fixed` -- `per_cell` would rewrite BOTH
+# seeds to base_seed + cell.index and silently turn this into a two-factor sweep.
+schema_version: 1
+suite:
+  name: e-o-val-split-bias-cap4
+  description: "E-O: selection-bias measurement for cascor#582 -- 8 dataset seeds, cap 4, network seed fixed at 42"
+  app: cascor
+  base_config: [../../../ad-hoc/2026-08-16_h2h_wide_nrot3.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 15600, stall_seconds: 1200}
+matrix:
+  training.params.max_hidden_units: [4]
+  dataset.params.seed: [42, 43, 44, 45, 46, 47, 48, 49]
+  experiment.seed: [42]
+  experiment.description: ["E-O selection-bias probe -- cap 4, network seed 42, dataset seed swept"]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

@@ -526,6 +526,17 @@ jobs:
           # waiver being a LOAN that does not move the ceiling, and five machinery
           # negative controls -- a gate that cannot fail is not a gate.
           python3 -m unittest -v tests/test_memory_budget_check.py
+          # tests/test_memory_index_check.py: the gate for util/memory_index_check.py, which
+          # governs MEMORY.md (the always-loaded index, which truncates SILENTLY newest-first
+          # at 200 lines / 25,000 bytes). The TOOL is local-only -- MEMORY.md lives outside
+          # every repo at ~/.claude/projects/…/memory/, so no CI job can reach the real file --
+          # but its BEHAVIOUR is testable here against fixtures, and this suite is the only
+          # gate on it. Load-bearing cases: a missing memory file must exit 2 rather than pass
+          # silently (its subject is a file CI cannot see, which is the easiest possible way to
+          # measure nothing and report success), and the cap must bind the HOOK rather than the
+          # line -- a whole-line reading is unwritable, because the link part alone averages
+          # 90 bytes and reaches 115.
+          python3 -m unittest -v tests/test_memory_index_check.py
           # tests/test_relocation_check.py: the gate for util/relocation_check.py (G3).
           # Its load-bearing case is test_identifiers_carried_but_prose_dropped_fails --
           # a token-level completeness check PASSES on exactly that loss, because the
@@ -535,6 +546,18 @@ jobs:
           # the containment ASYMMETRY (needle-in-candidate is a merge; candidate-in-needle
           # is a fragment and must not match) and four machinery negative controls.
           python3 -m unittest -v tests/test_relocation_check.py
+          # tests/test_p3_relocate_section.py: the gate for the RELOCATION ITSELF, added
+          # 2026-08-28 before the canopy cut. `heading_level` cannot tell a markdown heading
+          # from a shell comment -- both are `# text` at column 0 -- and `extract` was
+          # fence-blind, so the first `# Run all tests` inside a code block ended a `##`
+          # section. Simulated against canopy: 8 of 11 candidate sections truncated, `## Quick
+          # Start Commands` extracting 62 of 10,009 chars. It does NOT raise: the move
+          # succeeds, the remainder is orphaned under a "Moved to ..." pointer, and G3 above
+          # still PASSES, because every line it did remove IS in the destination -- G3 cannot
+          # see the lines that were never removed. This suite is the only thing between a
+          # fence-blind regression and a silent bad cut, so it also pins the four-backtick
+          # fence (canopy wraps ```-examples in ````) and the info-string closing rule.
+          python3 -m unittest -v tests/test_p3_relocate_section.py
           # tests/test_soak_ledger.py: the gate for util/soak_ledger.py (plan §6, the
           # pointer-follow soak). util/ is outside every pre-commit Python hook's scope,
           # so this suite IS the gate. It pins the properties that let the soak FALSIFY
@@ -828,6 +851,21 @@ jobs:
           # (util/check_conda_env_torch.bash exit 0/1/2/3/4) via JUNIPER_CONDA_DIR + stub python.
           # util/ is not pre-commit-lint-gated, so this unittest is the gate.
           python3 -m unittest -v tests/test_check_conda_env_torch.py
+          # tests/test_p5_port_memory_budget.py: hermetic tests for the P5 fleet-rollout porting
+          # helper (util/ad-hoc/2026-08-25_p5_port_memory_budget.py): growth stats from a temp git
+          # repo in CHARS (nearest-rank p90 -- the floor form returned the SMALLEST growth at n=2),
+          # the rendered job / standalone workflow / budget config parse and carry the MEASURED
+          # figures, insert-job lands before required-checks and outside its needs:, and adapt-test
+          # rewrites depth + adds SPACE-separated nosec codes. util/ is not pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_p5_port_memory_budget.py
+
+          # tests/test_require_context_safely.py: the ruleset writer that promotes a context to
+          # REQUIRED (util/ad-hoc/2026-08-20_require_context_safely.py). find_ruleset must report a
+          # FAILED per-ruleset GET as an error, never as "no ruleset carries required_status_checks"
+          # -- a transient non-2xx did exactly that twice during the 2026-08-27 P5 promotion while
+          # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
+          # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
+          python3 -m unittest -v tests/test_require_context_safely.py
 
       - name: Run bash regression tests
         run: |
