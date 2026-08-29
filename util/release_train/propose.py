@@ -24,27 +24,36 @@ single **standard-gated release-proposal PR** (plan S5.4):
     a sub-package bumps its own row without ever touching the host repo's primary-tracking header;
   * for an **in-repo** package (the meta-package or one of its six co-located sub-packages), the
     meta-package's own **consumer-pin co-changes** (plan S5.4): a pre-1.0 MINOR bump that escapes a
-    ``[project.optional-dependencies]`` ``<next-minor`` ceiling moves that pin AND its two lockstep
-    artifacts -- the exact-string membership contract in ``tests/test_pyproject_extras.py`` and the
-    ``AGENTS.md`` extras table -- IN THE SAME PR. This is the ml#657 RK-11 failure class (a
+    ``[project.optional-dependencies]`` ``<next-minor`` ceiling moves that pin AND its FIVE lockstep
+    artifacts -- the exact-string membership contract in ``tests/test_pyproject_extras.py``, plus the
+    four documented extras tables that ``ExtrasDocsLockstepTest`` asserts against ``pyproject.toml``
+    (``AGENTS.md``, ``README.md``, ``docs/QUICK_START.md`` inline; ``docs/REFERENCE.md``
+    split-column) -- IN THE SAME PR. This is the ml#657 RK-11 failure class (a
     service-core 0.5.0 proposal that bumped the sub-package but not the ``<0.5.0`` meta ceiling, so
     ``tests/test_service_core_drift.py`` failed and the proposal shipped red);
 
-    **KNOWN GAP -- the co-change set is short by three, and a proposal still ships red because of it
-    (found 2026-08-29 on the service-core 0.6.0 cut, ml#1458).** "Two lockstep artifacts" is wrong:
-    ``tests/test_pyproject_extras.py::ExtrasDocsLockstepTest`` asserts the extras tables in
-    ``README.md``, ``docs/QUICK_START.md`` and ``docs/REFERENCE.md`` against ``pyproject.toml`` too,
-    and its own failure message says "co-update the documented table in the same PR as the pin
-    change". None of the three is in this generator's edit set, so the 0.6.0 proposal failed 3 arms
-    on all three Python versions and had to be repaired by hand before it could merge. The next
-    escaping bump reproduces it.
-    ``docs/REFERENCE.md`` needs **two** edits, not one: it carries the inline table AND a separate
-    "Extras Reference" table with its own parser (``_pins_from_reference_extras_table``) where the
-    distribution and its specifier sit in **different columns** -- so a substitution on the combined
-    ``name>=x,<y`` string silently misses it, which is how the first hand-repair looked complete and
-    still failed one arm. :func:`apply_pin_edits_agents_table` is heading-scoped to AGENTS.md's
-    "Dependency extras reference"; README / QUICK_START share the inline row shape and want the same
-    editor re-anchored, while the REFERENCE split-column table needs its own;
+    **The gap that made this three artifacts short was CLOSED here** (found 2026-08-29 on the
+    service-core 0.6.0 cut, ml#1458, which failed 3 arms on all three Python versions and had to be
+    repaired by hand). ``ExtrasDocsLockstepTest`` asserts ``README.md`` and ``docs/QUICK_START.md``
+    with the same inline parser it uses on ``AGENTS.md``, and ``docs/REFERENCE.md`` with a separate
+    one; its failure message says "co-update the documented table in the same PR as the pin change".
+    All four now move with the pin: the inline three through
+    :func:`apply_pin_edits_agents_table` re-anchored per file (``_INLINE_EXTRAS_TABLES``), and
+    REFERENCE through :func:`apply_pin_edits_reference_table`.
+
+    Two corrections to how that gap was first written up, both material to anyone extending this:
+    ``docs/REFERENCE.md`` needs **ONE** edit, not two -- it has no inline table at all
+    (``_pins_from_inline_extras_table`` returns ``{}`` for it, and ``_DOCS_INLINE_TABLES`` omits it),
+    only the split-column one where the distribution and its specifier sit in DIFFERENT columns, so a
+    substitution on the combined ``name>=x,<y`` string silently misses it -- which is how the first
+    hand-repair looked complete and still failed an arm. And the co-change set is **per-package, not
+    fixed**: a package pinned by a drift lint carries more. ``juniper-doc-tools`` and
+    ``juniper-ci-tools`` are each additionally pinned in ``.github/workflows/`` by
+    ``tests/test_doc_tools_drift.py`` / ``test_ci_tools_drift.py``
+    (``test_juniper_ml_own_workflows_pin_current_version``, which does NOT skip in per-PR mode), and
+    ``.pre-commit-config.yaml`` carries a doc-tools pin no gate reads at all. Those workflow pins are
+    NOT edited here -- a bump that escapes their ceiling still needs them by hand, and the co-change
+    checklist's version+pin+lint atomicity line is what says so;
   * the ``propagation_edges`` -- a pre-1.0 MINOR bump escapes a consumer's ``<next-minor``
     ceiling pin (plan S6/S13), so each reverse-dependency consumer gets an edge annotated with a
     ``consumer_pin_state`` (``within_range`` / ``floor_only`` / ``escaped -> follow-on`` /
@@ -71,13 +80,17 @@ the train will not auto-author notes / move a CHANGELOG the detector found incon
 
 ``--dry-run`` is the DEFAULT: it prints the complete, well-formed proposal (unified diffs +
 drafted notes + PR body) and **writes nothing** to the repo and opens nothing. ``--execute``
-(opt-in, and overridden by ``--dry-run`` for safety) applies the edits, commits, pushes, and opens
-the PR -- wired into ``release-train.yml``'s write-scoped ``propose`` job. Cross-repo is
+(opt-in, and overridden by ``--dry-run`` for safety) applies the edits, commits them through the
+GitHub API, and opens the PR -- wired into ``release-train.yml``'s write-scoped ``propose`` job.
+Cross-repo is
 **capability-gated** (Phase 4.1, plan S9.2 / S12 step 4.1): with ``--cross-repo`` (the workflow
 passes it ONLY when it minted the GitHub App installation token) AND the sibling repo checked out on
-disk under ``--ecosystem-root``, a sibling package's proposal branches from that repo's
-``origin/main``, edits that checkout, pushes with the App token, and opens the PR in that repo (the
-dup-guard runs per-repo). WITHOUT the capability -- the degraded single-repo ``GITHUB_TOKEN`` path --
+disk under ``--ecosystem-root``, a sibling package's proposal branches from that repo's ``main``,
+commits through the GitHub API under the App identity, and opens the PR in that repo (the
+dup-guard runs per-repo). **The sibling checkout is a read-only INPUT, never a write target** --
+it is where ``read_file`` reads the current file bodies the edits are computed against; the branch,
+the commit and the PR are all created through ``gh api`` (see ``ProposeSources``). Nothing on disk
+is modified, in this repo or any sibling. WITHOUT the capability -- the degraded single-repo ``GITHUB_TOKEN`` path --
 a non-juniper-ml package is SKIPPED with the same clear reason as before. The in-repo meta
 consumer-pin co-changes (the #657 RK-11 lockstep) apply ONLY to juniper-ml packages; a sibling
 proposal never edits the meta from a sibling checkout -- it emits the S13 propagation edge instead.
@@ -137,8 +150,9 @@ _MINOR_BUMPS = frozenset({"minor", "major"})
 # ``GITHUB_TOKEN`` (plan S9.2), which can push a branch + open a PR only in juniper-ml. Cross-repo
 # writes are now unlocked by CAPABILITY, not hardcoding: with ``--cross-repo`` (the workflow passes it
 # only when it minted the GitHub App installation token, Phase 4.1) AND the sibling checked out on disk
-# under ``--ecosystem-root``, a sibling package is branched/edited/pushed in its OWN checkout and its PR
-# opened in its OWN repo (``make_live_sources`` is repo-aware -- ``_repo_dir(repo)``). WITHOUT the
+# under ``--ecosystem-root``, a sibling package's branch + commit + PR are created in its OWN repo
+# through the GitHub API (``make_live_sources`` is repo-aware -- ``_repo_dir(repo)``); the checkout is
+# only READ, to source the file bodies the edits apply to. WITHOUT the
 # capability a sibling is SKIPPED with the same clear reason as before (``cross_repo_skip_reason``).
 # ``--dry-run`` is unaffected -- it previews every repo's proposal and writes nothing.
 # Overridable for tests / a future multi-repo identity.
@@ -648,9 +662,75 @@ def apply_pin_edits_exact(text: str, cochanges: list) -> str:
 
 _AGENTS_EXTRAS_HEADING = re.compile(r"^#{2,4}\s+Dependency extras reference\s*$", re.IGNORECASE)
 
+# The four documentation surfaces ``tests/test_pyproject_extras.py`` asserts against ``pyproject.toml``.
+# THREE share the inline row shape -- one cell holding a comma-joined list of backticked
+# ``name>=x,<y`` requirements -- and differ only in their heading anchor, which is why they take the
+# same editor re-anchored. ``docs/REFERENCE.md`` is the odd one out and needs its own (see
+# :func:`apply_pin_edits_reference_table`). Each heading was verified unique in its file: README's
+# ``### Extras`` does not also match REFERENCE's ``## Extras Reference``, and vice versa.
+_INLINE_EXTRAS_TABLES = (
+    ("AGENTS.md", _AGENTS_EXTRAS_HEADING),
+    ("README.md", re.compile(r"^#{2,4}\s+Extras\s*$", re.IGNORECASE)),
+    ("docs/QUICK_START.md", re.compile(r"^#{2,4}\s+What Each Extra Installs\s*$", re.IGNORECASE)),
+)
+_REFERENCE_EXTRAS_REL = "docs/REFERENCE.md"
+_REFERENCE_EXTRAS_HEADING = re.compile(r"^#{2,4}\s+Available Extras\s*$", re.IGNORECASE)
+# A ``| ... | `pkg` | `>=x,<y` |`` version cell: backticked and OPERATOR-led, which is what separates
+# it from the package-name cell beside it and from the ``all`` row's bare ``--``.
+_REFERENCE_SPEC_CELL = re.compile(r"^`[<>=!~][^`]*`$")
 
-def apply_pin_edits_agents_table(text: str, pypi_name: str, new_req: str) -> str:
-    """True up the ``AGENTS.md`` "Dependency extras reference" table: within THAT table only, replace
+
+def apply_pin_edits_reference_table(text: str, pypi_name: str, new_req: str) -> str:
+    """True up ``docs/REFERENCE.md``'s "Available Extras" table, whose shape defeats the inline editor.
+
+    That table is SPLIT-COLUMN: the distribution sits in one cell (``\\`juniper-doc-tools\\```, bare)
+    and its specifier in another (``\\`>=0.1.0,<0.2.0\\```). A substitution on the combined
+    ``name>=x,<y`` string therefore matches nothing here and reports success -- which is exactly how
+    the first hand-repair of the service-core 0.6.0 cut looked complete and still failed one arm.
+
+    Rows are matched on the backtick-DELIMITED package name, so ``\\`juniper-recurrence\\``` does not
+    also claim the ``\\`juniper-recurrence-model\\``` row beside it, and the extra-name column
+    (``\\`tools\\```, ``\\`doc-tools\\```) can never match a distribution. Every row naming the package
+    is updated -- ``juniper-doc-tools`` appears under both ``[tools]`` and ``[doc-tools]``. The cell's
+    original width is preserved where the new specifier fits, so the table stays aligned and the diff
+    stays one cell wide."""
+    if not new_req.startswith(pypi_name):
+        return text
+    spec = new_req[len(pypi_name) :]
+    if not spec:
+        return text
+    name_re = re.compile("`" + re.escape(pypi_name) + "`")
+    out: list = []
+    in_section = False
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        if _REFERENCE_EXTRAS_HEADING.match(stripped):
+            in_section = True
+            out.append(line)
+            continue
+        if in_section and stripped.startswith("#"):
+            in_section = False  # the next heading closes the table's section
+        if in_section and stripped.startswith("|") and name_re.search(line):
+            line = _replace_reference_spec_cell(line, spec)
+        out.append(line)
+    return "".join(out)
+
+
+def _replace_reference_spec_cell(line: str, spec: str) -> str:
+    """Swap the operator-led backticked cell in one split-column row, preserving the column width."""
+    newline = "\n" if line.endswith("\n") else ""
+    cells = line[: len(line) - len(newline)].split("|")
+    for idx, cell in enumerate(cells):
+        if not _REFERENCE_SPEC_CELL.match(cell.strip()):
+            continue
+        replacement = " `" + spec + "`"
+        cells[idx] = replacement.ljust(len(cell)) if len(replacement) <= len(cell) else replacement + " "
+        break
+    return "|".join(cells) + newline
+
+
+def apply_pin_edits_agents_table(text: str, pypi_name: str, new_req: str, heading: "re.Pattern" = _AGENTS_EXTRAS_HEADING) -> str:
+    """True up ONE inline extras table: within THAT table only, replace
     the affected package's backtick-wrapped, digit-led versioned requirement (whatever ceiling it
     currently shows, in every row it appears -- ``juniper-doc-tools`` sits in both ``[tools]`` and
     ``[doc-tools]``) with the authoritative ``new_req``.
@@ -660,14 +740,21 @@ def apply_pin_edits_agents_table(text: str, pypi_name: str, new_req: str) -> str
     CI-pin description all live ELSEWHERE in AGENTS.md and must not move. Name-anchored (not
     exact-old-string) so a table row that has drifted from ``pyproject.toml`` -- the ml#657 case where
     the service-core row was stale at ``<0.4.0`` -- is corrected to the new pin too (1860dbb fixed
-    exactly this by hand). The operator+digit anchor also skips a bare name or a ``>=X,<Y`` placeholder."""
+    exactly this by hand). The operator+digit anchor also skips a bare name or a ``>=X,<Y`` placeholder.
+
+    ``heading`` re-anchors the same editor onto the other two inline surfaces (see
+    ``_INLINE_EXTRAS_TABLES``): README's ``### Extras`` and QUICK_START's ``### What Each Extra
+    Installs`` carry the identical row shape under different titles. It keeps the AGENTS.md default
+    because every existing caller and test passes three arguments. ``docs/REFERENCE.md`` is NOT in
+    this set -- it has no inline table at all, only the split-column one
+    :func:`apply_pin_edits_reference_table` handles."""
     pin_re = re.compile("`" + re.escape(pypi_name) + r"[<>=!~]+[0-9][^`]*`")
     replacement = "`" + new_req + "`"
     out: list = []
     in_section = False
     for line in text.splitlines(keepends=True):
         stripped = line.strip()
-        if _AGENTS_EXTRAS_HEADING.match(stripped):
+        if heading.match(stripped):
             in_section = True
             out.append(line)
             continue
@@ -1084,8 +1171,10 @@ def enrich_edges_with_pin_state(edges: list, upstream_entry: "detect.PackageEntr
 
 def execute_follow_on(fo: "FollowOnPR", sources: ProposeSources, base_branch: str = "main", *, cross_repo: bool = False, ecosystem_root: "Path | None" = None) -> str:
     """Apply one follow-on to its consumer repo's checkout and open the PR there (Phase 4.2 execute).
-    Mirrors ``execute_proposal``: in-repo branches from ``base_branch``, a sibling from ``origin/main``;
-    the capability guard is belt-and-suspenders (the caller already skips a skipped/degraded follow-on)."""
+    Mirrors ``execute_proposal``: in-repo and sibling alike branch from ``base_branch``, resolved
+    through the API against the target repo's own ref -- there is no in-repo/sibling ``origin/main``
+    split any more (that was the removed local-git path).
+    The capability guard is belt-and-suspenders (the caller already skips a skipped/degraded follow-on)."""
     if sources.resolve_ref_sha is None or sources.create_branch is None or sources.create_signed_commit is None or sources.open_pr is None:
         raise SourceError("execute mode needs resolve_ref_sha/create_branch/create_signed_commit/open_pr seam members")
     if fo.skipped or not fo.branch or not fo.edits:
@@ -1124,7 +1213,8 @@ def _co_change_checklist(entry: "detect.PackageEntry", bump: str, edges: list, a
         items.append(f"AGENTS.md per-package version-table row bump for `{entry.pypi_name}` (REQUIRED -- a row names the package but its version cell is not at the expected from-version, or the row is ambiguous; verify and edit manually, the train never guesses at a cell); a repo-local version-drift hook pins that row against the package version (ml#851).")
     if cochanges:
         extras_touched = ", ".join(sorted({f"[{cc.extra}]" for cc in cochanges}))
-        items.append(f"In-repo meta consumer pin (included in this PR): raised the {extras_touched} ceiling for {entry.pypi_name} to {cochanges[0].new_req} -- root pyproject.toml + tests/test_pyproject_extras.py membership + the AGENTS.md extras table, moved together in THIS PR (closes the ml#657 RK-11 gap; guarded by tests/test_pyproject_extras.py + the per-package RK-11 drift gate).")
+        items.append(f"In-repo meta consumer pin (included in this PR): raised the {extras_touched} ceiling for {entry.pypi_name} to {cochanges[0].new_req} -- root pyproject.toml + tests/test_pyproject_extras.py membership + all four documented extras tables (AGENTS.md, README.md, docs/QUICK_START.md, docs/REFERENCE.md), moved together in THIS PR (closes the ml#657 RK-11 gap and the ml#1458 docs-lockstep gap; guarded by tests/test_pyproject_extras.py + the per-package RK-11 drift gate).")
+        items.append(f"If `{entry.pypi_name}` is ALSO pinned in `.github/workflows/` by a drift lint (juniper-doc-tools / juniper-ci-tools carry one via test_*_drift.py::test_juniper_ml_own_workflows_pin_current_version, which does NOT skip in per-PR mode) or in `.pre-commit-config.yaml`, those pins are NOT edited by the train -- move them by hand in THIS PR or the bump ships red.")
     items.append("If this bump raises a runtime dependency floor, regenerate the lockfile (requirements.lock) in this PR (memory: 'regen on floor bump or gate fails').")
     items.append("Version+pin+lint atomicity: if a consumer pins this package behind a drift-lint contract (tests/test_*_drift.py), move the pin + the lint bound in the same change set (model-core precedent).")
     if edges:
@@ -1389,6 +1479,26 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
                 if atext is not None:
                     # composes onto the step-5/5a text (see the step-5 note): one AGENTS.md FileEdit only.
                     agents_new = apply_pin_edits_agents_table(agents_new, entry.pypi_name, cochanges[0].new_req)
+                # 5b-ii. The REST of the documented extras surface. ``ExtrasDocsLockstepTest`` asserts
+                # README.md and docs/QUICK_START.md with the SAME inline parser it uses on AGENTS.md,
+                # and docs/REFERENCE.md with a separate split-column one -- so all three fail the
+                # moment the pin escapes and only AGENTS.md moves (the ml#1458 service-core 0.6.0
+                # class: 3 arms red on all three Python versions, repaired by hand). AGENTS.md is
+                # excluded here because step 5b already composed it into the single 5d FileEdit.
+                for doc_rel, doc_heading in _INLINE_EXTRAS_TABLES:
+                    if doc_rel == "AGENTS.md":
+                        continue
+                    doc_text = sources.read_file(entry, doc_rel)
+                    if doc_text is None:
+                        continue
+                    doc_new = apply_pin_edits_agents_table(doc_text, entry.pypi_name, cochanges[0].new_req, doc_heading)
+                    if doc_new != doc_text:
+                        prop.edits.append(FileEdit(path=doc_rel, old_text=doc_text, new_text=doc_new))
+                ref_text = sources.read_file(entry, _REFERENCE_EXTRAS_REL)
+                if ref_text is not None:
+                    ref_new = apply_pin_edits_reference_table(ref_text, entry.pypi_name, cochanges[0].new_req)
+                    if ref_new != ref_text:
+                        prop.edits.append(FileEdit(path=_REFERENCE_EXTRAS_REL, old_text=ref_text, new_text=ref_new))
 
     # 5c. **Last Updated** true-up. Runs ONLY when a previous composer actually changed AGENTS.md --
     # the date-check workflow is path-filtered to AGENTS.md, so a proposal that does not touch the file
@@ -1522,16 +1632,24 @@ def cross_repo_skip_reason(repo: str, *, cross_repo_capable: bool = False, ecosy
       * a sibling repo AND NOT ``cross_repo_capable`` -> the SAME clear reason as before (the degraded
         path has no cross-repo write identity; the single-repo ``GITHUB_TOKEN`` cannot open a PR there).
       * a sibling repo, ``cross_repo_capable``, but its checkout is absent under ``ecosystem_root`` ->
-        a distinct reason (propose.py branches/edits/pushes the sibling checkout, so it must be present).
+        a distinct reason. The checkout is required as a READ source -- ``read_file`` sources the
+        current file bodies from it -- not as a write target; nothing is written to it.
       * a sibling repo, capable, checkout present -> ``None``: the GitHub App identity (plan S9.2) may
-        branch from that repo's ``origin/main``, edit it, push, and open the PR there (S12 step 4.1)."""
+        branch from that repo's ``main``, commit through the API and open the PR there (S12 step 4.1).
+
+    **Staleness is the live hazard here, not writes.** ``create_signed_commit`` sends WHOLE file
+    bodies, and those bodies come from the local checkout while the branch point comes from the
+    repo's live ``main``. A sibling checkout behind its remote therefore commits stale content over
+    whatever landed in between -- silently, because ``expectedHeadOid`` guards the freshly created
+    branch (which cannot have moved) and says nothing about the checkout's age. Fetch siblings before
+    an ``--execute --cross-repo`` run."""
     if repo == writable_repo:
         return None
     if not cross_repo_capable:
         return f"cross-repo: package lives in '{repo}', not the writable repo '{writable_repo}' -- the release-train workflow's single-repo GITHUB_TOKEN cannot open a PR there (Phase 2/3 in-repo pilot; Phase 4's GitHub App identity lifts this, plan S9.2 / S12 step 4.1)"
     checkout = (ecosystem_root / repo) if ecosystem_root is not None else None
     if checkout is None or not checkout.is_dir():
-        return f"cross-repo: '{repo}' is release-worthy and this run is cross-repo-capable, but its checkout is not present at {checkout} -- clone it (full history + tags) under --ecosystem-root so propose.py can branch/edit/push it (plan S12 step 4.1)"
+        return f"cross-repo: '{repo}' is release-worthy and this run is cross-repo-capable, but its checkout is not present at {checkout} -- clone it (full history + tags) under --ecosystem-root so propose.py can READ the current file bodies from it; the branch, commit and PR are created through the GitHub API, not in the checkout (plan S12 step 4.1)"
     return None
 
 
