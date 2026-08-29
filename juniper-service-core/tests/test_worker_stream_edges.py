@@ -308,9 +308,7 @@ async def test_expected_binary_got_text_requeues_and_frees_worker() -> None:
     assert any("Expected binary frame" in m.get("error", "") for m in ws.sent)
     assert not any(m.get("type") == "result_ack" for m in ws.sent)
     assigns = [m for m in ws.sent if m.get("type") == "task_assign"]
-    assert [m["task_id"] for m in assigns] == [tid, tid], (
-        "abort must free+requeue so the post-result dispatch re-sends the same task; " f"got {assigns!r}"
-    )
+    assert [m["task_id"] for m in assigns] == [tid, tid], f"abort must free+requeue so the post-result dispatch re-sends the same task; got {assigns!r}"
     assert coord.has_pending_tasks() is True
     assert coord._pending_tasks[tid].assigned_worker_id is None
 
@@ -341,6 +339,7 @@ async def test_oversize_binary_frame_requeues_and_frees_worker(monkeypatch: pyte
     assert [m["task_id"] for m in assigns] == [tid, tid], f"oversize abort must redispatch; got {assigns!r}"
     assert coord.has_pending_tasks() is True
     assert coord._pending_tasks[tid].assigned_worker_id is None
+
 
 # Attachment-list bounds — APD-SVCCORE-001
 #
