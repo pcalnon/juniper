@@ -187,15 +187,87 @@ is doing the real work there** — see §6.
 All five are handled by [`util/ad-hoc/2026-08-28_p5_cut.py`](../util/ad-hoc/2026-08-28_p5_cut.py)
 (`prepare | ship | waive | bump-date | raise-ceiling`).
 
+## 6a. PREREQUISITE — a hazards triage must precede the canopy cut
+
+Raised by the `canopy e2e` session and adopted. canopy's `AGENTS.md` has **no `## Hazards`
+section**; juniper-ml's does, with the rationale spelled out — these are directives whose
+*non-application* destroys work, kept resident because *"a pointer only helps an agent that already
+knows to look"*. **A size-driven cut cannot distinguish a lookup-reference from a
+must-not-look-up warning.**
+
+The framing that settles it: **a relocation is the same move as a rename — it turns a resident fact
+into a reference someone has to follow.** That session recorded three instances in three days of a
+guard that existed, read as correct, and never fired because it named something that had moved
+(F-CANOPY-039 still naming `fast-update-interval` after F-027 replaced it; F-038's Stage 2
+suppression never biting; F-033 attributing a reset storm from a stale itempath index).
+
+### The triage tool needed a positive control before it could be believed
+
+[`util/ad-hoc/2026-08-28_hazard_triage.py`](../util/ad-hoc/2026-08-28_hazard_triage.py) scores
+blocks for four signals: prohibition, silent-failure, irreversibility, hazard-noun.
+
+Its **first version scored per line and found ZERO candidates in juniper-ml's `AGENTS.md`** — a file
+whose `## Hazards` section contains four bullets. A hazard-finder that finds no hazards is the
+vacuous-pass class, and only a positive control against a file known to contain them caught it.
+Cause: the directives are wrapped prose, so "Do not set it" and "silently diverges" land on
+different lines and no line reaches two signals. Now scored per **block**; re-validated to find all
+four of ml's hazards, ranked top. A later pass excluded fenced code, which had produced a false
+positive off a `try/except` sample's own comments.
+
+### Result for canopy
+
+Four candidates at ≥2 signals, **none in a section proposed for relocation**: Testing Guidelines
+(the no-`branches:`-filter check), File Placement Rules ×2 (the `/tmp/` prohibition and its
+incident pointer), Thread Handoff (the CRITICAL OPERATING INSTRUCTION).
+
+**But at ≥1 signal, inside proposed relocation targets:**
+
+| line | section | text |
+|---|---|---|
+| L1325 | API and WebSocket Contracts | **"Do not change existing payload keys without versioning"** |
+| L887 | Code Style Guidelines | "No global mutable state without locks — all shared state must use `threading.Lock()`" |
+| L888 | Code Style Guidelines | "Any long-lived collections must be size-bounded … prevent memory leaks" |
+| L767 | Configuration Management | "All new env vars must use the `JUNIPER_CANOPY_` prefix" |
+| L456 | Architecture | training counter semantics |
+
+**L1325 vindicates the prerequisite.** It is a contract hazard whose violation is silent to the
+author and breaks clients, and the plan as drafted would have relocated it into a reference file.
+Section titles would never have surfaced it.
+
+Recommendation to the owning session (not executed): promote L1325 and probably L887/L888;
+L767 is a convention whose violation is loud; L456 reads descriptive. That is 2–3 bullets against
+juniper-ml's 4. **Sequence: promote first, then cut around the resident set.**
+
+## 6b. The sweeper gate earned its keep, and got better
+
+Running the gated sweeper over canopy's 11 worktrees returned **0 removable, 11 blocked** — and for
+the six the owning session believed were sweepable, the blocker was **not** PR state but `logs/` and
+`snapshots/`. Asking rather than generalising surfaced a **real evidence loss**: the session checked,
+found the worktree logs boring, and discovered that F-CANOPY-039's root cause — 35 `TOPOPROBE` lines
+showing the client's topology store pinned at the 75-byte empty default while the server returned
+7,059 bytes every tick — existed only in `/tmp/juniper-e2e/juniper-canopy-ab.log`, which is reaped
+at session end. Now harvested to `reports/e2e/20260828T132533Z/f039_evidence/`.
+
+**`logs/`/`snapshots/` were deliberately NOT added to the disposable list.** The distinguishing fact
+was not the filename but *whether a live leg had ever run from that tree* — which no pattern can
+see. Instead the blocked-reason line now prints size and newest mtime per entry, so a 0-byte
+`custom.log` from three weeks ago is visibly different from a 425 KB `system.log` written twenty
+minutes ago. Keep the friction; reduce the noise.
+
 ## 7. Decisions owed before execution
 
-1. **canopy's destination.** Three options: (a) create `docs/AGENTS_REFERENCE.md` as the content
-   file and add one index row to `REFERENCE.md` — preserves the index's role, deviates from the
-   config's stated destination; (b) route documentation-about-documentation into the existing
-   `docs/DOCUMENTATION_OVERVIEW.md` and technical reference into `REFERENCE.md` subsections —
-   best fit for the material, two destinations; (c) convert `REFERENCE.md` into a content file —
-   matches the config, destroys the index. **Recommendation: (a)**, plus correcting the inherited
-   `_README` line in canopy's `conf/memory_budget.json`.
+1. **canopy's destination — RESOLVED in principle**, refined by the owning session, which
+   independently verified that `REFERENCE.md`'s 13 sections are one-line descriptions plus tables of
+   links, i.e. a hub. The two options are **not alternatives, they are two different materials**:
+   - the ~27.7K of documentation-**about**-documentation → `docs/DOCUMENTATION_OVERVIEW.md`, which is
+     literally the file whose subject that is (29% off the resident file on its own);
+   - everything else reference-shaped → a new `docs/AGENTS_REFERENCE.md`;
+   - `REFERENCE.md` gains one row per destination and **stays an index**.
+
+   Splitting by subject rather than convenience keeps either destination from becoming a junk
+   drawer. Still to do: correct the inherited `_README` line in canopy's `conf/memory_budget.json`,
+   which asserts something false about that repo — a stale pointer inside the config for the gate
+   whose purpose is to prevent exactly that.
 2. **cascor's new `REFERENCE.md`** and its relationship to the existing `docs/INDEX.md`.
 3. **cascor tier A or A+B.**
 4. ~~**Sequencing with `canopy e2e`**~~ — **RESOLVED, see §2.1.** It owns both primaries, has no

@@ -32,6 +32,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import fnmatch
 import os
 import subprocess  # nosec B404 -- fixed-argv git/gh calls; nothing is shell-interpolated
@@ -74,6 +75,44 @@ def ignored_entries(wt: Path) -> list[str]:
     return [ln[3:] for ln in out.splitlines() if ln.startswith("!!")]
 
 
+def describe(wt: Path, rel: str) -> str:
+    """`name (N files, SIZE, newest mtime)` for one ignored entry.
+
+    Deliberately NOT used to decide anything -- these entries stay BLOCKING. It exists because
+    "is this run log evidence?" is answered by size and recency, not by filename: a 0-byte
+    `custom.log` from three weeks ago and a 424 KB `system.log` written twenty minutes ago are the
+    same pattern and completely different decisions. Printing both lets the human answer at a
+    glance instead of running `ls` per worktree.
+
+    Suggested by the session that owns the canopy worktrees, after this gate's refusal surfaced a
+    real evidence loss: the finding it protected was in a live leg's log, and the distinguishing
+    fact was not the path but whether a live leg had ever run from that tree -- something no
+    pattern can see. Hence: keep the friction, reduce the noise.
+    """
+    p = wt / rel
+    total = files = 0
+    newest = 0.0
+    if p.is_dir():
+        for root, _dirs, names in os.walk(p):
+            for n in names:
+                try:
+                    st = os.stat(os.path.join(root, n))
+                except OSError:
+                    continue
+                total += st.st_size
+                files += 1
+                newest = max(newest, st.st_mtime)
+    elif p.is_file():
+        try:
+            st = p.stat()
+            total, files, newest = st.st_size, 1, st.st_mtime
+        except OSError:
+            pass
+    when = dt.datetime.fromtimestamp(newest).strftime("%Y-%m-%d %H:%M") if newest else "?"
+    size = f"{total / 1e6:.1f} MB" if total >= 1e6 else f"{total / 1e3:.1f} KB" if total else "empty"
+    return f"{rel} ({files} file{'s' if files != 1 else ''}, {size}, newest {when})"
+
+
 def undisposable(entries: list[str]) -> list[str]:
     return [e for e in entries if not any(fnmatch.fnmatch(e, p) or fnmatch.fnmatch(e.rstrip("/") + "/", p) for p in DISPOSABLE)]
 
@@ -92,11 +131,15 @@ def pr_state(repo: str, branch: str) -> tuple[str, str]:
         p = run(["gh", "pr", "list", "--repo", f"pcalnon/{repo}", "--head", branch,
                  "--state", "all", "--json", "number,state,mergedAt", "--jq",
                  '.[0] | "\\(.number) \\(.state) \\(.mergedAt)"'])
-        if p.returncode == 0 and p.stdout.strip():
-            return p.stdout.strip(), ""
-        if p.returncode == 0 and not p.stdout.strip():
-            # A clean exit with empty output really does mean "no PR on this head".
-            return "NO-PR-ON-HEAD", ""
+        txt = p.stdout.strip()
+        if p.returncode == 0:
+            # `.[0] | "\(.number) ..."` over an EMPTY array yields the literal "null null null",
+            # not an empty string -- so a branch with no PR printed `pr=null null null`, which reads
+            # like a value rather than an absence. Same fail-into-plausible shape as the lookup
+            # failure below; name it instead.
+            if not txt or txt.startswith("null"):
+                return "NO-PR-ON-HEAD", ""
+            return txt, ""
         last = (p.stderr or p.stdout).strip()
     return "LOOKUP-FAILED", last[:200]
 
@@ -133,7 +176,9 @@ def main(argv: list[str]) -> int:
             reasons.append(f"dirty ({len(dirty.splitlines())} entries)")
         keep = undisposable(ignored_entries(wt))
         if keep:
-            reasons.append(f"UNRECOVERABLE ignored files: {keep[:5]}")
+            detail = "; ".join(describe(wt, k) for k in keep[:5])
+            more = f" (+{len(keep) - 5} more)" if len(keep) > 5 else ""
+            reasons.append(f"UNRECOGNISED ignored payload -- a human must look: {detail}{more}")
         mark = "REMOVE " if not reasons else "BLOCKED"
         print(f"  {mark} {name}\n          repo={repo} branch={branch} pr={info}")
         if reasons:
