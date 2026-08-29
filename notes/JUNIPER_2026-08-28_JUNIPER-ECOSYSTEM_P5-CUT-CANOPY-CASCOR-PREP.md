@@ -341,18 +341,33 @@ Three things verified in source before drafting, because a resident block is tex
   `State`; a signal that must *drive* an update is routed to a separate `allow_duplicate` callback.
   Saying both "ride as State" is wrong for the buffer.
 
+**The two-branch remedy is the predicate, not a qualification** — it tells you *when* the second
+writer appears, which makes the bullet predictive instead of cautionary:
+
+| what the callback needs from the idling signal | remedy | second writer? |
+|---|---|---|
+| only to **read** it | `State` (`ws-liveness-store`) | **no** |
+| to be **driven** by it | `State` cannot serve — State does not trigger — so a separate `allow_duplicate` callback (`ws-metrics-buffer`) | **yes, necessarily** |
+
+So the second writer is not an unlucky side effect of the fix; on the must-drive branch it *is* the
+fix. A reader can look at any idling signal, ask **"read or drive?"**, and know before opening
+anything whether the store it feeds has an asymmetric-writer problem.
+
 Drafted text for the resident block:
 
 > **Dash `no_update` chaining, and the duplicate writer it creates.** A clientside producer that
 > idles with `no_update` must never be an `Input` to an interval-driven callback **that shares its
 > tick**: the dependent callback is skipped for that tick, so the lane fires only when the producer
-> does — silently, with no error and no failing test. Route such a signal by what the callback needs
-> from it: as **`State`** if it needs the value (`ws-liveness-store`), or to a **separate
-> `allow_duplicate` callback** if it must drive an update (`ws-metrics-buffer`). **The remedy creates
-> the next hazard** — that separate callback co-owns the same store id, so **before reasoning from a
-> store's write census, count its writers.** An `allow_duplicate` `Output` is invisible to anyone
-> reading the handler they happened to open: **grep the store id, not the callback.**
-> `metrics-panel-metrics-store` has two writers and only one carries an identity guard.
+> does — silently, with no error and no failing test.
+>
+> Route such a signal by what the callback needs from it. **Read-only → `State`**
+> (`ws-liveness-store`), and there is no second writer. **Must drive an update → `State` cannot
+> serve it**, so it goes to a separate `allow_duplicate` callback (`ws-metrics-buffer`) — and that
+> callback co-owns the store id, so **the must-drive branch always produces a second writer.**
+>
+> Therefore: **before reasoning from a store's write census, count its writers — grep the store id,
+> not the callback.** An `allow_duplicate` `Output` is invisible to anyone reading the handler they
+> happened to open. `metrics-panel-metrics-store` has two, and only one carries an identity guard.
 
 **The census sentence is the half written down nowhere**, and the failure it prevents is measured,
 not asserted: 32 writes / 31 byte-identical / zero `no_update` was read as *"can only happen if the
