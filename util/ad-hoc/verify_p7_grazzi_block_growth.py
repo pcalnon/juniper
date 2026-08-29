@@ -85,7 +85,7 @@ License:    MIT License
 Created:    2026-06-13
 Status:     ad-hoc - investigation (P7: does correlation-BPTT train a neg-eigenvalue
             linear-RNN block to do parity, held-out?  decisive cell = regime iii)
-Retire when: the P7 design decision is ratified; measured numbers folded into the
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the P7 design decision is ratified; measured numbers folded into the
             P7 design doc (do NOT edit notes/JUNIPER_RECURSE_* from here).
 Related: util/ad-hoc/verify_p5_recurrent_output_eval.py (|corr|+BPTT helpers reused),
          util/ad-hoc/verify_oq4_expressivity_suite.py  (held-out protocol reused),

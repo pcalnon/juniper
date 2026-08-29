@@ -104,6 +104,7 @@ if TYPE_CHECKING:
         AuditEventType,
         AuditLogger,
         ConnectionRateLimiter,
+        JsonTaskProtocol,
         ParsedResult,
         PendingTask,
         TLSConfig,
@@ -192,6 +193,7 @@ __all__ = [
     "WorkerCoordinator",
     "PendingTask",
     "WorkerTaskProtocol",
+    "JsonTaskProtocol",
     "ParsedResult",
 ]
 
@@ -274,6 +276,7 @@ _LAZY_EXPORTS = {
     "WorkerCoordinator": "juniper_service_core.workers",
     "PendingTask": "juniper_service_core.workers",
     "WorkerTaskProtocol": "juniper_service_core.workers",
+    "JsonTaskProtocol": "juniper_service_core.workers",
     "ParsedResult": "juniper_service_core.workers",
 }
 

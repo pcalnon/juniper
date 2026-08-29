@@ -6,7 +6,7 @@ Sub-Project: cross-repo tooling
 Author: Paul Calnon
 Created: 2026-08-22
 Status: ad-hoc — fills a gap in util/open_signed_pr.py
-Retire when: open_signed_pr.py grows an --amend mode, or this graduates to util/ proper.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: open_signed_pr.py grows an --amend mode, or this graduates to util/ proper.
 Related: util/open_signed_pr.py (whose create_signed_commit this reuses), juniper-ml#1254
 
 WHY THIS EXISTS

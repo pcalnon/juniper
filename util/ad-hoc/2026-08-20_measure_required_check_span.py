@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-20
 Status:      ad-hoc -- measurement (re-run whenever the required-context list changes)
-Retire when: `DEFAULT_TIMEOUT` is derived automatically, or the fleet's CI shape settles.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: `DEFAULT_TIMEOUT` is derived automatically, or the fleet's CI shape settles.
 Related:     HANDOFF_2026-08-19 section 2.3; util/safe_merge.py DEFAULT_TIMEOUT.
 
 Why not just time `ci.yml`
