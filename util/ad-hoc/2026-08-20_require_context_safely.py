@@ -80,6 +80,12 @@ DEFAULT_CONTEXT = "Guard PR base branch"
 ACTIONS_INTEGRATION_ID = 15368  # the GitHub Actions app
 SNAP_DIR = Path.home() / ".local" / "state" / "juniper-ruleset-snapshots"
 
+# The default READ and WRITE roster. It must name every governed repo: a repo missing here
+# is silently absent from `--status`, which reads as a complete census (ml#1403's class).
+# `juniper-recurrence` was omitted until 2026-08-29 -- it joined the fleet with the P5 port
+# and has carried `Memory Budget` as required since the 2026-08-27 promotion, so `--status`
+# reported 8 of 9 and looked whole. Kept in step with the census ROSTER in
+# `util/ad-hoc/2026-08-26_p5_fleet_state.py` by tests/test_require_context_safely.py.
 TARGETS = [
     "juniper-ml",
     "juniper-cascor",
@@ -89,6 +95,7 @@ TARGETS = [
     "juniper-cascor-client",
     "juniper-cascor-worker",
     "juniper-deploy",
+    "juniper-recurrence",
 ]
 
 
@@ -208,7 +215,7 @@ def observed_contexts(owner: str, repo: str, limit: int = 8):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--owner", default="pcalnon")
-    ap.add_argument("--repo", action="append", default=None, help="repeatable; default: all 8")
+    ap.add_argument("--repo", action="append", default=None, help="repeatable; default: all 9")
     ap.add_argument("--context", default=DEFAULT_CONTEXT)
     ap.add_argument("--integration-id", type=int, default=ACTIONS_INTEGRATION_ID)
     ap.add_argument("--apply", action="store_true", help="write (default is dry-run)")
