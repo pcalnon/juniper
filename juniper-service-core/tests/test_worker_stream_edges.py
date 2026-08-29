@@ -6,7 +6,7 @@ remaining blast-radius edges that were still untested on main:
 
 * ``worker_stream_handler`` must fail closed on auth (close 4001, never ``accept``) — the training
   stream has an equivalent handler-level pin; the worker channel did not.
-* ``validate_worker_registration`` shape edges (non-string / pattern-invalid ``worker_id``, non-dict
+* ``worker_stream_module.validate_worker_registration`` shape edges (non-string / pattern-invalid ``worker_id``, non-dict
   ``capabilities``, missing ``worker_id``) — only the missing-``capabilities`` handler arm was covered.
 * Heartbeat while the worker is still busy must NOT call dispatch (the idle guard at
   ``reg.idle``) — otherwise a mid-task heartbeat double-assigns and corrupts ``active_task_id``.
@@ -32,7 +32,6 @@ from fastapi import WebSocketDisconnect
 from juniper_service_core.security import build_api_key_auth
 from juniper_service_core.websocket import attach_worker_pool, worker_stream_handler
 from juniper_service_core.websocket import worker_stream as worker_stream_module
-from juniper_service_core.websocket.worker_stream import _handle_task_result, validate_worker_registration
 from juniper_service_core.workers import ParsedResult, WorkerCoordinator, WorkerRegistry
 
 
@@ -102,17 +101,17 @@ def _wire_app(registry, coordinator, **extra):
 
 
 # ======================================================================================
-# validate_worker_registration — pure shape edges
+# worker_stream_module.validate_worker_registration — pure shape edges
 # ======================================================================================
 
 
 def test_validate_registration_missing_worker_id() -> None:
-    errors = validate_worker_registration({"type": "register", "capabilities": {}})
+    errors = worker_stream_module.validate_worker_registration({"type": "register", "capabilities": {}})
     assert any("Missing required field: worker_id" in e for e in errors)
 
 
 def test_validate_registration_worker_id_must_be_string() -> None:
-    errors = validate_worker_registration({"worker_id": 123, "capabilities": {}})
+    errors = worker_stream_module.validate_worker_registration({"worker_id": 123, "capabilities": {}})
     assert any("worker_id must be a string" in e for e in errors)
 
 
@@ -127,17 +126,17 @@ def test_validate_registration_worker_id_must_be_string() -> None:
     ],
 )
 def test_validate_registration_worker_id_pattern_rejected(bad_id: str) -> None:
-    errors = validate_worker_registration({"worker_id": bad_id, "capabilities": {}})
+    errors = worker_stream_module.validate_worker_registration({"worker_id": bad_id, "capabilities": {}})
     assert any("worker_id must be 1-64 characters" in e for e in errors)
 
 
 def test_validate_registration_capabilities_must_be_dict() -> None:
-    errors = validate_worker_registration({"worker_id": "node-a", "capabilities": ["gpu"]})
+    errors = worker_stream_module.validate_worker_registration({"worker_id": "node-a", "capabilities": ["gpu"]})
     assert any("capabilities must be a dict" in e for e in errors)
 
 
 def test_validate_registration_happy_path_empty_errors() -> None:
-    assert validate_worker_registration({"worker_id": "node_1", "capabilities": {"gpu": True}}) == []
+    assert worker_stream_module.validate_worker_registration({"worker_id": "node_1", "capabilities": {"gpu": True}}) == []
 
 
 # ======================================================================================
@@ -377,7 +376,7 @@ async def test_over_long_attachment_list_is_rejected_before_any_frame_is_read() 
     ws = FakeWorkerWebSocket(inbound=[("bytes", b"x") for _ in too_many])
     inbound_before = len(ws._inbound)
 
-    await _handle_task_result(ws, "node-a", {"task_id": tid, "attachments": too_many}, coord)
+    await worker_stream_module._handle_task_result(ws, "node-a", {"task_id": tid, "attachments": too_many}, coord)
 
     assert len(ws._inbound) == inbound_before, "guard must fire before the first receive()"
     assert ws.sent and ws.sent[-1]["error"] == "Too many binary attachments"
@@ -397,7 +396,7 @@ async def test_cumulative_attachment_budget_is_enforced(monkeypatch: pytest.Monk
     # Each frame is 6 bytes: individually fine, cumulatively 12 > 10.
     ws = FakeWorkerWebSocket(inbound=[("bytes", b"aaaaaa"), ("bytes", b"bbbbbb")])
 
-    await _handle_task_result(ws, "node-a", {"task_id": tid, "attachments": ["a", "b"]}, coord)
+    await worker_stream_module._handle_task_result(ws, "node-a", {"task_id": tid, "attachments": ["a", "b"]}, coord)
 
     assert ws.sent and ws.sent[-1]["error"] == "Binary attachments exceed total size limit"
     assert coord.collect_results(timeout=0.1) == [], "an over-budget submission must not reach the coordinator"
@@ -412,7 +411,7 @@ async def test_attachments_within_both_budgets_are_still_accepted() -> None:
     _reg, coord, tid = _dispatched()
     ws = FakeWorkerWebSocket(inbound=[("bytes", b"aaaaaa"), ("bytes", b"bbbbbb")])
 
-    await _handle_task_result(ws, "node-a", {"task_id": tid, "attachments": ["a", "b"]}, coord)
+    await worker_stream_module._handle_task_result(ws, "node-a", {"task_id": tid, "attachments": ["a", "b"]}, coord)
 
     assert ws.sent and ws.sent[-1]["type"] == "result_ack"
     assert ws.sent[-1]["status"] == "accepted"
