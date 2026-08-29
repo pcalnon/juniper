@@ -116,7 +116,7 @@ The five stageable generators' ranking feeds the §12 difficulty axis; spiral's 
 | moon-n20 | moon      | 0.20  | 32    | 33    | 0.9775 | **0.9650** | 257.7    | `below_threshold`  |
 
 **Walls here are ADVISORY, not comparable to the T6 grid.** An unrelated 13-hour `clamscan` ran
-throughout. The overhead is measurable rather than guessed: `c001` is config-identical to E-I
+throughout. The overhead is measurable rather than guessed: `c001` is budget-equivalent to E-I
 `c001` and took 552.0 s against its 516.9 s — **+6.8%**. Accuracy is seed-deterministic and
 unaffected.
 
@@ -126,19 +126,34 @@ Output (accuracy-vs-noise):
 0.805–1.000. R-4's diagnosis was correct and simply had not been carried far enough; the cap-12
 reading measured the budget, exactly as the 2-unit smoke cap had before it.
 
-**The control reproduces exactly.** `spiral-baseline` pins `noise: 0.05`, so `c001` is the same
-effective configuration as E-I `c001` — and returns identical val (1.0000), train (0.9950), units
+**The control reproduces exactly.** `spiral-baseline` pins `noise: 0.05`, so `c001` is
+**budget-equivalent** to E-I `c001` — and returns identical val (1.0000), train (0.9950), units
 (64) and epoch (65). Two campaigns two days apart, different suites, different ports, and run from
 a *pinned worktree* rather than the primary checkout (ml#1412). That is simultaneously a
 cross-campaign determinism check and the end-to-end validation that worktree pinning reproduces
 what the primary produced.
+
+*Equivalent, not identical* — stated precisely because the determinism claim rests on it. The two
+cell YAMLs differ in **three** keys, so `config_sha256` differs (`experiment.name` alone would do
+that): `experiment.name`, `max_iterations` (E-I 128, E-C 64) and `outputs.max_wall_seconds` (14400
+vs 3600). **Neither budget key binds.** The 64-unit stop comes from `check_hidden_units_max()`
+(`len(self.hidden_units) >= self.max_hidden_units`, `cascade_correlation.py:5767`) → `early_stop` →
+break at `:4955`, not from the iteration bound; and both cells finished in ~9 minutes against wall
+budgets of one and four hours. `dataset_id` (`spiral-1.0.0-7a976ad4…`) and seed (20260729) are the
+same.
+
+> Note `effective_iterations = min(max_iterations, max_hidden_units)` — quoted elsewhere in this
+> document and in the suite YAMLs — lives in `derive_epochs_cap` and is a **reporting/display**
+> budget (the `Epoch: X / Y` denominator), *not* the enforced abort; its own docstring says so.
+> Enforcement is the granular limits. The formula still predicts which cap bites first, which is
+> why it is a sound planning rule — but do not cite it as the mechanism.
 
 **`moon-n20`'s 0.975 was confounded.** Freed of the cap it grows to 32 units and lands at
 **0.9650** `below_threshold` — a real measurement, and slightly *worse*: the extra capacity costs a
 little generalization. The moon curve is now 1.0 / 1.0 / 1.0 / 0.965 with nothing cap-bound, and
 is the study's clean deliverable.
 
-**The spiral curve is NON-MONOTONIC, and the dip is real — not capacity.** noise 0.00 → 0.8050 sits
+**The spiral curve is NON-MONOTONIC, and capacity is not the dominant constraint on the dip.** noise 0.00 → 0.8050 sits
 *below* noise 0.05 → 1.0000, which is backwards for a robustness curve. Noise is additive Gaussian
 jitter on x and y (`SpiralGenerator._make_noise`), so the parameter is applied, and all eight cells
 carry distinct content-addressed `dataset_id`s. Because every spiral cell consumed its **entire**
@@ -152,13 +167,33 @@ carry distinct content-addressed `dataset_id`s. Because every spiral cell consum
 | noise-0 @ cap128 | 0.00  | 128 | 128   | 129   | 0.8413 | **0.8450** | 909.3    |
 
 Doubling the budget buys **+0.04** (0.8050 → 0.8450) while the noise-0.05 row reaches 1.0000 on
-*half* of it. More telling, **train accuracy FELL** (0.8638 → 0.8413) and now sits *below* val: the
-network is not fitting its training set, so this is an optimization / geometry limit rather than
-capacity or overfitting. **The noise-free spiral is genuinely harder for this learner** — plausibly
-because with zero jitter the two arms lie exactly on a 1-D manifold with no margin anywhere. Why
-that defeats correlation-driven growth is **not answered here** and is recorded as an open item in
-**F-P4-7**; it is a property of the learner, not of the suite, so it does not qualify the noise
-rows at 0.05 / 0.10 / 0.20.
+*half* of it. **That comparison is what carries the conclusion**: it is between cells measured on
+the same tier, under the same split roles, so capacity is **not the dominant constraint in this
+range**.
+
+> **Stated no more strongly than that, deliberately.** The probe's pre-registered rule was "jumps
+> toward 1.0 → capacity; stays near 0.805 → real"; 0.8450 is neither, and the cap-128 cell *also*
+> recruited exactly its cap, so no unconstrained stopping point was ever observed. Capacity is not
+> excluded outright — only shown to buy little here. An earlier draft said the probe "rules out
+> capacity"; it does not.
+
+> **CORRECTION 2026-08-29 — do not read train-vs-val here as a fit diagnostic.** This paragraph
+> originally argued that train accuracy falling below val (0.8638 → 0.8413 vs 0.8450) showed the
+> network "is not fitting its training set", and inferred an optimization / geometry limit from
+> that. **cascor#582 (open) invalidates the inference**: on the SERVICE tier `_reload_dataset` maps
+> the artifact's `X_test`/`y_test` into *validation tensors* that then feed patience and early
+> stopping **in-loop** (`src/api/lifecycle/manager.py:3391`), whereas the direct CLI passes no val
+> tensors at all. Both noise-0 cells — the cap-64 grid row and the cap-128 probe — terminated `early_stopped`, i.e. that very series drove their stop. (Not every E-C cell did: `moon-n20` ended `below_threshold`.)
+> Train sitting below an in-loop-selected val is an expected signature of that promotion, not free
+> evidence about fit. The **capacity** conclusion is unaffected — it rests on the cross-cell
+> comparison above, not on train-vs-val.
+
+**The noise-free spiral is nonetheless harder for this learner at every budget tested** (0.8050 at
+cap 64, 0.8450 at cap 128, against 1.0000 at noise 0.05 and cap 64) — plausibly because with zero
+jitter the two arms lie exactly on a 1-D manifold with no margin anywhere. Why that is so is **not
+answered here**, and the mechanism is now *less* constrained than the original wording implied;
+recorded as an open item in **F-P4-7**. It is a property of the learner, not of the suite, so it
+does not qualify the noise rows at 0.05 / 0.10 / 0.20.
 
 The E-A / E-I currency caveat the old marker carried (both published grids predated cascor#514)
 is resolved the same way: both were re-measured at `67d7ea3` in the same campaign — see
@@ -246,7 +281,7 @@ Reading, in the order the tables support it:
 
 ## 4. Findings
 
-### F-P4-7 — E-C re-measured at cap 64: the flat spiral curve was the cap; the noise-0 dip is not
+### F-P4-7 — E-C re-measured at cap 64: the flat spiral curve was the cap; the noise-0 dip is not mainly capacity
 
 **Status: the E-C study is COMPLETE. One learner-level question is raised and left open.**
 
@@ -274,14 +309,34 @@ flat ≈0.63–0.66); `moon-n20`'s cap-bound 0.975 resolves to a genuine 0.965 a
 reproduces E-I `c001` **exactly** on val, train, units and epoch — a cross-campaign determinism
 check that doubles as end-to-end validation of worktree pinning.
 
-**Open — the noise-0 dip is a LEARNER property, not a budget one.** The curve is non-monotonic:
-noise 0.00 (0.8050) sits below noise 0.05 (1.0000). A cap-128 probe rules out capacity — doubling
-the budget moves val only 0.8050 → 0.8450 while noise 0.05 saturates at 1.0000 on half of it, and
-**train accuracy falls to 0.8413, below val**, so the network is not fitting its own training set.
-That is an optimization / geometry limit: with zero jitter both spiral arms lie exactly on a 1-D
-manifold with no margin. *Why* that defeats correlation-driven candidate growth is unanswered, and
-answering it is a cascor-learner investigation rather than a suite change. It does not qualify the
-0.05 / 0.10 / 0.20 rows.
+**Open — the noise-0 dip is not mainly a budget effect.** The curve is non-monotonic:
+noise 0.00 (0.8050) sits below noise 0.05 (1.0000). A cap-128 probe shows capacity is not the
+dominant constraint — doubling the budget moves val only 0.8050 → 0.8450 while noise 0.05 saturates
+at 1.0000 on half of it (it does **not** exclude capacity outright; see §3's caveat). That
+**cross-cell comparison, on one tier under identical split roles, is the whole basis**; see §3's
+CORRECTION 2026-08-29 for why the train-vs-val reading originally offered alongside it does not
+survive cascor#582 (the service promotes `X_test`/`y_test` to in-loop validation that drives the
+early stop; every cell here terminated `early_stopped`). *Why* the noise-free spiral is harder is
+unanswered and now less constrained than first written — a cascor-learner investigation rather than
+a suite change. It does not qualify the 0.05 / 0.10 / 0.20 rows.
+
+**Scope, restated because this grid publishes an accuracy jump.** The cap-12 → cap-64 improvement
+is a BUDGET change measured at one cascor sha; no part of it is attributed to any commit. Attribution
+across the #514 … #589 interval still needs the control arm F-P4-6 named and never budgeted.
+
+**Two rows remain cap-terminated.** `c002` (0.9800) and `c003` (0.9750) recruited exactly their
+64-unit cap and were never probed above it — only noise 0.00 was. Do not read this grid as "nothing
+is cap-bound"; read it as "the 12-unit iteration cap no longer binds, and the one row probed above
+64 gained +0.04".
+
+> **`completion_reason: early_stopped` does NOT mean "converged before the cap."** Hitting the unit
+> cap *produces* that label:
+> `early_stop = early_stopping and (train_accuracy_reached or max_units_reached or patience_exhausted)`
+> (`src/cascade_correlation/cascade_correlation.py:5697`, set at `:4954`). `max_iterations` appears
+> only on the for-else, so a run that exhausts its UNIT cap reports `early_stopped` while a run that
+> exhausts its ITERATION cap reports `max_iterations`. Every spiral cell in this grid, in E-I, and
+> in the cap-128 probe lands on its own cap while reporting `early_stopped`. **Read `units` against
+> `max_hidden_units`; never infer convergence from the label.**
 
 **Also confirmed in the field:** every cell's manifest carries
 `teardown_preempt: {"attempted": false, "settled": null}` — all eight succeeded, which is terminal
@@ -289,7 +344,7 @@ service-side, so ml#1408's teardown stop correctly never fired. The regression s
 this is the live confirmation.
 
 **Not measured.** Walls are advisory — an unrelated 13-hour `clamscan` ran throughout, costing a
-measured **+6.8%** on the config-identical `c001` (552.0 s vs E-I's 516.9 s). Every cell also logs
+measured **+6.8%** on the budget-equivalent `c001` (552.0 s vs E-I's 516.9 s). Every cell also logs
 the `max_epochs` / `output_epochs` split warning, inherited from `spiral-baseline`; the T6 grids ran
 under the identical condition, so the comparison is like-for-like, and it would only bite a
 CLI-vs-service comparison, which this is not.
@@ -379,10 +434,14 @@ in all 23 engine logs, lifecycle shut down in 0.00 s; scan by the stop-fix sessi
 `reports/stop-during-training-2026-08-25/t6_production_verification_scan.txt`), because
 `run_experiment.py` drives training to a terminal state before teardown and no cell timed out.
 The campaign therefore confirms the fix does **no harm on the idle-stop path** across 23 real
-stops; it did **not** exercise the stop-during-training path #589 was written for, which remains
-verified only by the pre-merge repro and a mocked mid-round unit test — a live run of both
-triggers at `67d7ea3` is still owed (that session's item, not T6's). The campaign finished five
-hours before the 09:00 CDT production backup, so no maintenance contention occurred.
+stops; it did **not** exercise the stop-during-training path #589 was written for. ~~A live run of
+both triggers at `67d7ea3` is still owed (that session's item, not T6's).~~ **DISCHARGED
+2026-08-26 by ml#1397** (*"docs(shm): live-verify the stop-during-training fix on deployed
+`67d7ea3`; T6 tested only the idle path"* — the second clause is the one this paragraph is about,
+so it is quoted in full), by the stop-fix session as expected; its body records live runs of **both**
+triggers (`hidden_unit` and `candidate_round`). This paragraph's "still owed" stood stale for three
+days and is corrected here. The campaign finished five hours before the 09:00 CDT production
+backup, so no maintenance contention occurred.
 
 What this resolves and what it does not:
 
@@ -397,7 +456,7 @@ What this resolves and what it does not:
 - ~~**Open, owner decision**: E-C's spiral rows are `max_iterations`-bound at 12 units under the
   inherited `spiral-baseline` budget (§3), so a spiral noise-robustness curve still needs an
   E-I-class `max_iterations` (≥ 64) on those four cells.~~ **CLOSED 2026-08-29 by
-  [F-P4-7](#f-p4-7--e-c-re-measured-at-cap-64-the-flat-spiral-curve-was-the-cap-the-noise-0-dip-is-not).**
+  [F-P4-7](#f-p4-7--e-c-re-measured-at-cap-64-the-flat-spiral-curve-was-the-cap-the-noise-0-dip-is-not-mainly-capacity).**
   Note the prescription recorded here was **incomplete**: `≥ 64` on `max_iterations` alone moves the
   bind to `spiral-baseline`'s `max_hidden_units: 24`, not to 64, because
   `effective_iterations = min(max_iterations, max_hidden_units)`. Both knobs were required.
