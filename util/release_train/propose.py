@@ -80,13 +80,17 @@ the train will not auto-author notes / move a CHANGELOG the detector found incon
 
 ``--dry-run`` is the DEFAULT: it prints the complete, well-formed proposal (unified diffs +
 drafted notes + PR body) and **writes nothing** to the repo and opens nothing. ``--execute``
-(opt-in, and overridden by ``--dry-run`` for safety) applies the edits, commits, pushes, and opens
-the PR -- wired into ``release-train.yml``'s write-scoped ``propose`` job. Cross-repo is
+(opt-in, and overridden by ``--dry-run`` for safety) applies the edits, commits them through the
+GitHub API, and opens the PR -- wired into ``release-train.yml``'s write-scoped ``propose`` job.
+Cross-repo is
 **capability-gated** (Phase 4.1, plan S9.2 / S12 step 4.1): with ``--cross-repo`` (the workflow
 passes it ONLY when it minted the GitHub App installation token) AND the sibling repo checked out on
-disk under ``--ecosystem-root``, a sibling package's proposal branches from that repo's
-``origin/main``, edits that checkout, pushes with the App token, and opens the PR in that repo (the
-dup-guard runs per-repo). WITHOUT the capability -- the degraded single-repo ``GITHUB_TOKEN`` path --
+disk under ``--ecosystem-root``, a sibling package's proposal branches from that repo's ``main``,
+commits through the GitHub API under the App identity, and opens the PR in that repo (the
+dup-guard runs per-repo). **The sibling checkout is a read-only INPUT, never a write target** --
+it is where ``read_file`` reads the current file bodies the edits are computed against; the branch,
+the commit and the PR are all created through ``gh api`` (see ``ProposeSources``). Nothing on disk
+is modified, in this repo or any sibling. WITHOUT the capability -- the degraded single-repo ``GITHUB_TOKEN`` path --
 a non-juniper-ml package is SKIPPED with the same clear reason as before. The in-repo meta
 consumer-pin co-changes (the #657 RK-11 lockstep) apply ONLY to juniper-ml packages; a sibling
 proposal never edits the meta from a sibling checkout -- it emits the S13 propagation edge instead.
@@ -146,8 +150,9 @@ _MINOR_BUMPS = frozenset({"minor", "major"})
 # ``GITHUB_TOKEN`` (plan S9.2), which can push a branch + open a PR only in juniper-ml. Cross-repo
 # writes are now unlocked by CAPABILITY, not hardcoding: with ``--cross-repo`` (the workflow passes it
 # only when it minted the GitHub App installation token, Phase 4.1) AND the sibling checked out on disk
-# under ``--ecosystem-root``, a sibling package is branched/edited/pushed in its OWN checkout and its PR
-# opened in its OWN repo (``make_live_sources`` is repo-aware -- ``_repo_dir(repo)``). WITHOUT the
+# under ``--ecosystem-root``, a sibling package's branch + commit + PR are created in its OWN repo
+# through the GitHub API (``make_live_sources`` is repo-aware -- ``_repo_dir(repo)``); the checkout is
+# only READ, to source the file bodies the edits apply to. WITHOUT the
 # capability a sibling is SKIPPED with the same clear reason as before (``cross_repo_skip_reason``).
 # ``--dry-run`` is unaffected -- it previews every repo's proposal and writes nothing.
 # Overridable for tests / a future multi-repo identity.
@@ -1166,8 +1171,10 @@ def enrich_edges_with_pin_state(edges: list, upstream_entry: "detect.PackageEntr
 
 def execute_follow_on(fo: "FollowOnPR", sources: ProposeSources, base_branch: str = "main", *, cross_repo: bool = False, ecosystem_root: "Path | None" = None) -> str:
     """Apply one follow-on to its consumer repo's checkout and open the PR there (Phase 4.2 execute).
-    Mirrors ``execute_proposal``: in-repo branches from ``base_branch``, a sibling from ``origin/main``;
-    the capability guard is belt-and-suspenders (the caller already skips a skipped/degraded follow-on)."""
+    Mirrors ``execute_proposal``: in-repo and sibling alike branch from ``base_branch``, resolved
+    through the API against the target repo's own ref -- there is no in-repo/sibling ``origin/main``
+    split any more (that was the removed local-git path).
+    The capability guard is belt-and-suspenders (the caller already skips a skipped/degraded follow-on)."""
     if sources.resolve_ref_sha is None or sources.create_branch is None or sources.create_signed_commit is None or sources.open_pr is None:
         raise SourceError("execute mode needs resolve_ref_sha/create_branch/create_signed_commit/open_pr seam members")
     if fo.skipped or not fo.branch or not fo.edits:
@@ -1625,16 +1632,24 @@ def cross_repo_skip_reason(repo: str, *, cross_repo_capable: bool = False, ecosy
       * a sibling repo AND NOT ``cross_repo_capable`` -> the SAME clear reason as before (the degraded
         path has no cross-repo write identity; the single-repo ``GITHUB_TOKEN`` cannot open a PR there).
       * a sibling repo, ``cross_repo_capable``, but its checkout is absent under ``ecosystem_root`` ->
-        a distinct reason (propose.py branches/edits/pushes the sibling checkout, so it must be present).
+        a distinct reason. The checkout is required as a READ source -- ``read_file`` sources the
+        current file bodies from it -- not as a write target; nothing is written to it.
       * a sibling repo, capable, checkout present -> ``None``: the GitHub App identity (plan S9.2) may
-        branch from that repo's ``origin/main``, edit it, push, and open the PR there (S12 step 4.1)."""
+        branch from that repo's ``main``, commit through the API and open the PR there (S12 step 4.1).
+
+    **Staleness is the live hazard here, not writes.** ``create_signed_commit`` sends WHOLE file
+    bodies, and those bodies come from the local checkout while the branch point comes from the
+    repo's live ``main``. A sibling checkout behind its remote therefore commits stale content over
+    whatever landed in between -- silently, because ``expectedHeadOid`` guards the freshly created
+    branch (which cannot have moved) and says nothing about the checkout's age. Fetch siblings before
+    an ``--execute --cross-repo`` run."""
     if repo == writable_repo:
         return None
     if not cross_repo_capable:
         return f"cross-repo: package lives in '{repo}', not the writable repo '{writable_repo}' -- the release-train workflow's single-repo GITHUB_TOKEN cannot open a PR there (Phase 2/3 in-repo pilot; Phase 4's GitHub App identity lifts this, plan S9.2 / S12 step 4.1)"
     checkout = (ecosystem_root / repo) if ecosystem_root is not None else None
     if checkout is None or not checkout.is_dir():
-        return f"cross-repo: '{repo}' is release-worthy and this run is cross-repo-capable, but its checkout is not present at {checkout} -- clone it (full history + tags) under --ecosystem-root so propose.py can branch/edit/push it (plan S12 step 4.1)"
+        return f"cross-repo: '{repo}' is release-worthy and this run is cross-repo-capable, but its checkout is not present at {checkout} -- clone it (full history + tags) under --ecosystem-root so propose.py can READ the current file bodies from it; the branch, commit and PR are created through the GitHub API, not in the checkout (plan S12 step 4.1)"
     return None
 
 

@@ -4,6 +4,7 @@
 **Date**: 2026-05-10
 **Companion to**: [`JUNIPER_2026-05-09_JUNIPER-DEPLOY_GO-PUBLIC-ANALYSIS.md`](./JUNIPER_2026-05-09_JUNIPER-DEPLOY_GO-PUBLIC-ANALYSIS.md) §6.4 / item #7
 **Status**: Walkthrough — execute end-to-end after any repo flips visibility (last flip: `juniper-deploy` 2026-05-10).
+**Live workflow contract**: [`docs/REFERENCE.md` § Claude Code Action](../docs/REFERENCE.md#claude-code-action) (SHA pin, `if:` / permissions, Dependabot; not this dated walkthrough).
 
 ---
 
