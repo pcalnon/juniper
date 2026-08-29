@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.18
-**Date**: 2026-08-07
+**Version**: 1.0.23
+**Date**: 2026-08-24
 **Project**: juniper-ml
 
 ---
@@ -236,6 +236,7 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 | Weekly lockfile refresh| Actions → Update Lockfiles (`juniper-generate-dep-docs` → PR on `chore/lockfile-update`)    |
 | Weekly docs-full-check | Mon 06:00 UTC / dispatch — clones `ECOSYSTEM_REPOS`, `--cross-repo check` + pin screens     |
 | Audit this `claude.yml`| `bash util/validate_claude_yaml_access.bash .github/workflows/claude.yml`                   |
+| Live `@claude` assistant | `.github/workflows/claude.yml` — SHA-pinned `anthropics/claude-code-action`; not a required check; see tip below |
 | Audit all siblings     | `JUNIPER_ROOT=/path/to/Juniper bash util/validate_claude_yaml_access.bash`                  |
 | AGENTS.md date bump    | **You bump it**; CI verifies on PRs touching `AGENTS.md` (`agents-md-touch-up.yml`; no bot commit) |
 | Shared-package CI      | Path-scoped `ci-<pkg>.yml` under `.github/workflows/` (six packages; see REFERENCE)         |
@@ -513,6 +514,14 @@ Tip: scheduled `security-scan.yml` keeps `pip-audit --strict --desc on` (no `--s
 
 Tip: two clone/audit lists move together. `docs-full-check.yml` `env.ECOSYSTEM_REPOS` decides which siblings are *cloned*; `DEFAULT_REPOS` in `util/validate_claude_yaml_access.bash` decides which cloned checkouts the `claude.yml` auditor *opens*. Both are "registry publishing repos plus `juniper-deploy`" — adding a sibling to one only leaves a silent gap. See [REFERENCE — Docs Full Check](REFERENCE.md#docs-full-check) and [Claude.yml Access Validation](REFERENCE.md#claudeyml-access-validation).
 
+**Claude Code Action (`claude.yml`):** GitHub `@claude` assistant, not the local `claudey` /
+`wake_the_claude.bash` launcher. SHA-pinned `anthropics/claude-code-action` (`# vX.Y.Z` comment);
+only input is `secrets.ANTHROPIC_API_KEY` (a **repo** secret). The job `if:` requires the literal
+`@claude` on every `on:` event. Dependabot groups only `codeql-action` — an ungrouped
+`claude-code-action` SHA bump is the healthy PR. Do not overwrite the live file with
+`notes/templates/ci/claude.yml` (2026-04-29 snapshot). Full contract:
+[REFERENCE — Claude Code Action](REFERENCE.md#claude-code-action).
+
 Tip: meta publish Gate 1 runs **three** TestPyPI installs (bare → `[clients]` → `[tools]`; never `--no-deps`, never the heavy extras) before PyPI. The six shared `publish-*.yml` are Release-only (`release: published`; no `push: tags` — the #555 double-publish race), each tag-prefix-guarded, with a `--no-deps` TestPyPI-only verify and `skip-existing: true`. See [REFERENCE — Build and Release](REFERENCE.md#build-and-release).
 
 Tip: shared-package `ci-*.yml` (six sub-packages) must keep path self-inclusion, matrix floors, `--cov-fail-under`, and a blocking `juniper-coverage-gap-map --enforce`. Dropping the workflow self-path or `--enforce` ships green while the package suite stops running or stops enforcing gaps; service-core installs sibling `juniper-model-core` from the monorepo root (no test-job `working-directory`). Full table: [REFERENCE — Shared-Package CI](REFERENCE.md#shared-package-ci-workflows).
@@ -536,6 +545,9 @@ Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or r
 
 | Symptom | Fast Check |
 |---------|------------|
+| `@claude` mention did nothing | Job `if:` needs the literal `@claude` in that event's body (or issue title); `issues: assigned` still needs it |
+| Copied `notes/templates/ci/claude.yml` onto live | Template snapshot lags Dependabot (checkout v6.0.2 / action v1.0.107); restore `.github/workflows/claude.yml` from `main` |
+| L2/L3 auditor green after permissions widen | Expected — bash is structure-only; `LiveClaudeWorkflowContractTests` pins the map |
 | Slack PR-budget WARN/ALARM | Open the `PR Budget Alarm` run step summary; drain oldest `cursor/` same-file clusters; confirm dashboard per-run caps. Raise thresholds only via `PR_BUDGET_WARN` / `PR_BUDGET_ALARM` repo vars. |
 | Budget alarm cron green but no Slack on breach | Confirm `SLACK_WEBHOOK_URL` is set; missing secret skips notification by design (run stays green). |
 | `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch ref — not a damage finding. |
@@ -646,12 +658,13 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 - [Ecosystem Guide](../AGENTS.md) -- project map, dependency graph, conventions
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
+- [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
 
 ---
 
-**Last Updated:** 2026-08-07
-**Version:** 1.0.18
+**Last Updated:** 2026-08-24
+**Version:** 1.0.23
 **Maintainer:** Paul Calnon
