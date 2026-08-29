@@ -33,7 +33,9 @@ import pytest
 from juniper_service_core.workers import (
     AnomalyDetector,
     ConnectionRateLimiter,
+    JsonTaskProtocol,
     ParsedResult,
+    PendingTask,
     TLSConfig,
     WorkerCoordinator,
     WorkerRegistration,
@@ -161,16 +163,145 @@ class _BadSnapshotRegistry:
 
 
 # ======================================================================================
-# coordinator: WorkerTaskProtocol default bodies
+# coordinator: WorkerTaskProtocol member convention (APD-SVCCORE-011)
 # ======================================================================================
 
 
-def test_worker_task_protocol_default_bodies_return_none() -> None:
-    """The Protocol's default (``pass``) method bodies are no-ops returning ``None`` (invoked directly)."""
+def test_worker_task_protocol_members_raise_not_implemented() -> None:
+    """Every :class:`WorkerTaskProtocol` member raises rather than silently returning ``None``.
+
+    **This assertion was inverted by the APD-SVCCORE-011 fix, and the previous form was the defect.**
+    It formerly read ``assert WorkerTaskProtocol.build_assignment(sentinel, None) is None`` and pinned
+    the ``pass`` bodies as correct -- so a partial implementation returned ``None`` into the
+    coordinator's dispatch path, and every re-reading of the source found a test agreeing with it.
+    The package's other Protocol (``websocket/commands.py``'s ``CommandExecutor``) already used
+    ``@abstractmethod`` + ``raise NotImplementedError``; the primer's instruction was to pick one
+    convention per package, and this is that convention applied.
+    """
     sentinel = object()
-    assert WorkerTaskProtocol.build_assignment(sentinel, None) is None
-    assert WorkerTaskProtocol.result_attachments(sentinel, {}) is None
-    assert WorkerTaskProtocol.parse_result(sentinel, "w1", {}, {}) is None
+    with pytest.raises(NotImplementedError):
+        WorkerTaskProtocol.build_assignment(sentinel, None)
+    with pytest.raises(NotImplementedError):
+        WorkerTaskProtocol.result_attachments(sentinel, {})
+    with pytest.raises(NotImplementedError):
+        WorkerTaskProtocol.parse_result(sentinel, "w1", {}, {})
+
+
+def test_partial_subclass_cannot_be_instantiated() -> None:
+    """A subclass leaving a member unimplemented fails at construction, not silently at dispatch.
+
+    The decisive arm for APD-SVCCORE-011: ``@abstractmethod`` on a ``Protocol`` makes the omission a
+    ``TypeError`` from ``ABCMeta`` the moment the consumer builds the object, rather than a ``None``
+    surfacing later inside ``get_next_assignment``. Asserting only that the members carry
+    ``__isabstractmethod__`` would pass while the enforcement did nothing.
+    """
+
+    class _Partial(WorkerTaskProtocol):
+        def build_assignment(self, task):
+            return ({"task_id": task.task_id}, [])
+
+        # result_attachments / parse_result deliberately omitted.
+
+    with pytest.raises(TypeError, match="abstract"):
+        _Partial()
+
+
+# ======================================================================================
+# coordinator: JsonTaskProtocol -- the shipped default (APD-SVCCORE-015)
+# ======================================================================================
+
+
+def test_json_task_protocol_round_trips_through_the_coordinator() -> None:
+    """The shipped default drives a real dispatch -> result -> collect cycle unmodified.
+
+    **This is the decisive arm.** A structural check (``isinstance(JsonTaskProtocol(),
+    WorkerTaskProtocol)``) passes on a default whose envelope omits ``task_id``, which would make
+    every result unattributable in ``submit_result`` -- the failure the entry is about. This drives
+    the coordinator the way a consumer would and reads the outcome back off it.
+    """
+    reg = WorkerRegistry()
+    reg.register("w1", {})
+    coord = WorkerCoordinator(reg, JsonTaskProtocol())
+    (tid,) = coord.submit_tasks("round-1", [{"payload-key": 7}])
+
+    msg, frames = coord.get_next_assignment("w1")
+    assert msg["type"] == "task_assign"
+    assert msg["task_id"] == tid  # without this, submit_result below cannot attribute the result
+    assert msg["round_id"] == "round-1"
+    assert msg["payload"] == {"payload-key": 7}
+    assert frames == []  # JSON-only: no binary frames are ever sent
+
+    accepted = coord.submit_result("w1", {"task_id": tid, "success": True, "result": {"v": 1}, "score": 0.25}, {})
+    assert accepted is True
+    results = coord.collect_results(timeout=0.5)
+    assert results == [{"v": 1}]
+
+
+def test_json_task_protocol_declares_no_attachments() -> None:
+    """The default never asks the stream to read a binary frame, whatever the worker claims.
+
+    Deliberate: ``websocket/worker_stream.py`` reads one frame per declared attachment, so a default
+    that echoed worker-declared names back would hand that read to every consumer who adopted it.
+    That loop is now bounded by count and by total bytes (APD-SVCCORE-001, fixed), but declaring
+    nothing is still the right default -- the safest attachment is the one never requested.
+    """
+    proto = JsonTaskProtocol()
+    assert proto.result_attachments({}) == []
+    assert proto.result_attachments({"attachments": ["a", "b", "c"]}) == []
+
+
+def test_json_task_protocol_rejects_a_result_with_no_task_id() -> None:
+    """A result envelope carrying no ``task_id`` is rejected rather than parsed into a stray result."""
+    proto = JsonTaskProtocol()
+    assert proto.parse_result("w1", {"success": True}, {}) is None
+
+
+def test_json_task_protocol_forwards_optional_anomaly_inputs() -> None:
+    """``score`` / ``duration`` reach :class:`ParsedResult` when present and stay ``None`` when absent."""
+    proto = JsonTaskProtocol()
+    full = proto.parse_result("w1", {"task_id": "t", "score": 0.5, "duration": 2.0, "result": "r"}, {})
+    assert (full.success, full.result, full.score, full.duration) == (True, "r", 0.5, 2.0)
+
+    bare = proto.parse_result("w1", {"task_id": "t"}, {})
+    assert (bare.success, bare.score, bare.duration) == (True, None, None)
+
+    failed = proto.parse_result("w1", {"task_id": "t", "success": False}, {})
+    assert failed.success is False
+
+
+def test_json_task_protocol_satisfies_the_protocol_structurally() -> None:
+    """Structural conformance. **Not the proof** -- kept because the seam is injected by duck-typing.
+
+    ``WorkerCoordinator`` accepts any object with the three members, so this would pass against a
+    default whose bodies were all wrong; ``test_json_task_protocol_round_trips_through_the_coordinator``
+    is the arm that fails in that case.
+    """
+    assert isinstance(JsonTaskProtocol(), WorkerTaskProtocol)
+    assert JsonTaskProtocol().build_assignment(PendingTask(task_id="t", round_id="r", payload=None))[1] == []
+
+
+def test_subclassing_the_default_protocol_is_refused() -> None:
+    """`JsonTaskProtocol` carries the same not-an-extension-point contract (APD-SVCCORE-012).
+
+    A consumer needing a different wire schema is in the case the seam exists for: implement
+    `WorkerTaskProtocol` directly, or wrap an instance. Subclassing would freeze the envelope keys
+    and the `task_id` rejection rule as inherited contract.
+
+    ``type(...)`` rather than a ``class`` statement for the reason given in
+    ``tests/test_websocket_commands.py::test_subclassing_the_default_executor_is_refused``: a
+    ``class`` block here binds a name that can never be read, which CodeQL reports as an unused
+    local. Do not "simplify" it back.
+    """
+    with pytest.raises(TypeError, match="not an extension point"):
+        type("_Subclass", (JsonTaskProtocol,), {})
+
+
+def test_the_default_protocol_still_constructs_after_the_guard() -> None:
+    """Negative control: the subclass guard must not disturb ordinary construction or dispatch."""
+    proto = JsonTaskProtocol()
+    msg, frames = proto.build_assignment(PendingTask(task_id="t1", round_id="r1", payload={"k": 1}))
+    assert msg["task_id"] == "t1"
+    assert frames == []
 
 
 # ======================================================================================

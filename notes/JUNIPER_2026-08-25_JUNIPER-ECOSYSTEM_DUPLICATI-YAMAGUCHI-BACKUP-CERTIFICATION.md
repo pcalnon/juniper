@@ -1083,3 +1083,463 @@ universal one. Both produce clean, plausible output while being wrong.
   dir's `results.json` / `drill-meta.json` / `provenance.txt` must stay.
 - Unchanged and still root-gated: loopback restage (§8.6-6), server-brain backup
   (§8.6-7), the old-archive tail.
+
+---
+
+### 8.14 Addendum (2026-08-28) — the first scheduled run from sda1; three more stale-path tools; `--tempdir` moved
+
+Written from a live session the morning after §8.13. Two of its open items are now closed by
+Paul's decisions, and the §8.13.2 defect class turned out to have three more instances that
+the previous session's grep instruction was pointing at but did not follow through.
+
+#### 8.14.1 The 2026-08-27 run — criterion 6 now has *scheduled-path* proof
+
+§8.13 closed criterion 6 on a **proof run** that was started by hand. The 08-27 run is the
+first one the **timer** drove at the new destination, and it is the stronger evidence:
+
+| | 08-26 proof run (manual) | **08-27 scheduled run** |
+|---|---|---|
+| Started by | hand | the schedule — `Schedule.LastRun` advanced to `2026-08-27T14:00:00Z` |
+| Result | Success, 9 m 31 s | **Success, 9 m 03 s** |
+| Uploaded | 198,609,655 B / 3 files | 167,073,415 B / 3 files |
+| Verification | `TestResults: Success on 3 file(s)` | `TestResults: Success on 3 file(s)`, 0 warnings, 0 errors |
+| Retention | thinned `20260826T131206` | thinned `20260826T174512`, `DeletedSets` = 1 |
+| Census | 813 / 210,486,704,937 B AGREE | **815 / 210,590,946,931 B — `-> AGREE`** |
+
+The manual run advanced nothing and so proved only that the destination *worked*; this one
+proves the **scheduled path** works from sda1 unattended, and it supersedes §8.10.1's "treat
+~12–16 min as the new steady-state class" outright.
+
+**A correction to §8.13's "under 10 minutes", made by the very next run.** The 08-28 scheduled
+run — the first to use the new tempdir (§8.14.4) — took **10 m 27 s**, so "under 10 minutes" is
+not a floor that every run clears. It is not a regression either, and the two runs together say
+something more useful than either alone:
+
+| | 08-27 | 08-28 |
+|---|---|---|
+| Added files | 429 | **18,151** (42×) |
+| Modified / deleted | 422 / 78 | 992 / 2,447 |
+| Uploaded | 167 MB | 310 MB |
+| Duration | 9 m 03 s | **10 m 27 s** |
+
+**42× the added-file churn cost about 1.5 minutes.** The run is dominated by the ~786 k-file scan
+and the ~587 MB post-backup verification download, not by the work the churn creates, which is why
+the duration is so insensitive to it. The honest class is therefore **~9–10.5 min, scan-bound**,
+and a run drifting well outside that band is a signal worth reading rather than noise.
+
+Retention did not thin on 08-28 (`DeletedSets=[]`) and the destination now carries **4 dlists**.
+That is correct, not drift: `1W:1D` keeps the earliest fileset per 1-day interval plus the newest,
+and 08-25/08-26/08-27/08-28 are four distinct days inside the 1-week window.
+
+The watchdog independently corroborates it: the `yamaguchi-watchdog.timer` fired **on its own
+schedule** for the first time at `2026-08-27T12:00:04-0500` and logged
+`OK backup=2 newest run 2026-08-27T14:00:00.1584685Z ParsedResult=Success age=3.0h`. §8.9
+closed criterion 4 on a hand-run of the unit; this is the timer proving itself.
+
+Cross-witness from a second, independent tool (`duplicati_dlist_query.py` against the newest
+dlist, `20260827T140000Z`): `IsFullBackup=True`, 771,048 File entries / 285,427,701,894 B —
+**exactly** the server's `SourceFilesCount` / `SourceFilesSize` — and exactly one `.vdi` entry
+(the static win10 image), so the win11 exclusion of §8.9 is still holding three runs later.
+
+#### 8.14.2 Three more tools carried the pre-migration path — and one of them is the drill
+
+§8.13.2 fixed `yamaguchi_census.py` and `yamaguchi_watch.bash`, and ended with the right
+instruction: *"Grep `util/ad-hoc/` for `temp_backups/Yamaguchi` before trusting any other
+tool."* Doing that turns up **three more**, none of which §8.13 fixed:
+
+| tool | stale thing | why it matters |
+|---|---|---|
+| `duplicati_drill_fresh.py` | `--dest` default | **The restore drill.** The arc's highest-value check. |
+| `duplicati_dlist_query.py` | `--dest` default + hardcoded `ismount()` guard | Answers "what is in the backup?" about the wrong set. |
+| `yamaguchi_build_job.py` | `TargetURL`, `--tempdir`, record dir | Re-running it creates a **second** job at the retired path. |
+
+Three others match the grep and are **correct**: `yamaguchi_migrate_copy.bash`'s `SRC`,
+`yamaguchi_retire_tier2.bash`'s `OLD_DEST`, and `patch_census_derive_dest.py`'s search string
+all legitimately name the old location.
+
+The drill is the serious one, and its own comment convicts it. The line directly above the
+stale default read:
+
+> `# A bare run against the wrong destination would print a true-looking PASS for the wrong set.`
+
+That was written as a caution about the *other* arguments. After the migration it described
+the default itself. And the failure is not loud: the old directory still exists as the frozen
+811-volume pre-migration copy, so a bare drill does not error — it drills a real, decryptable,
+internally consistent set and PASSes. Worse, that set's newest dlist is `20260826T181206Z`, a
+fileset the live set has since **retained away**: a bare drill would have certified as
+restorable a restore point the live backup no longer offers.
+
+**The remedy differs from §8.13.2's on purpose.** `yamaguchi_census.py` was fixed by *deriving*
+the destination from the job's `TargetURL`, which is right there because census must talk to the
+server anyway to reconcile against it. The drill and `dlist_query` are **destination-only**
+tools — the drill's requirement 1 is explicit about it — so making them ask the Duplicati server
+where to look would couple a disaster-recovery instrument to the service a disaster may have
+removed. For those two the remedy is **`--dest` with no default at all**: explicitness cannot
+rot, and it costs one argument. `yamaguchi_build_job.py` keeps defaults (it is a builder, not a
+checker) but they now name the current destination, and it **refuses by default if a job of
+that name already exists** — the duplicate-job hazard was the real one there.
+
+#### 8.14.3 `ismount()` is not a durability check — measured, not theorised
+
+Fixing the drill's hardcoded `ismount("/media/pcalnon/temp_backups")` meant deriving the mount
+guard instead. The obvious derivation — walk up to the containing mountpoint, refuse `/` — is
+what §8.13.2 used for census, and it is **not sufficient for a tool that writes**.
+
+Testing the new guard with a run root under `/tmp`, the drill **started**: `/tmp` is a genuine
+mountpoint, so the guard passed. `/tmp` on this host is **tmpfs, 47 G, RAM-backed**. The drill
+began restoring into RAM and **1.5 GB was resident** before the run was killed; a full drill
+restores tens of GB, and the machine has 92 G total with 41 G already in use. The run was
+killed, its orphaned `duplicati-cli` child killed separately (it does **not** die with its
+parent), and both scratch trees removed. The live destination is read-only to a drill and was
+never at risk, and the five real drill run dirs are intact.
+
+Three things follow, and all three are now code:
+
+1. A `VOLATILE_FSTYPES` refusal (`tmpfs`, `ramfs`, `devtmpfs`, `squashfs`, `overlay`) on the
+   drill's `--run-root`, read from `/proc/mounts`. **"Is a mountpoint" and "is somewhere it is
+   safe to write 64 GB" are different questions**, and `os.path.ismount()` only answers the first.
+2. A free-space warning below 100 GiB on the run root.
+3. The dest and run-root guards are now *separate*. The old single hardcoded guard covered the
+   run root only by coincidence — the run-root default happened to live on the filesystem it
+   named. Deriving the dest guard alone would have silently **dropped** run-root protection.
+
+This is less a new class than the oldest one in this job rediscovered: `--tempdir` exists on the
+Yamaguchi job at all because "the server's default `/tmp` is tmpfs — the run-1 trap". The hazard
+was known and documented in `yamaguchi_build_job.py` in August, and the drill — written later,
+by the same hand, for the same set — did not carry the lesson across.
+
+#### 8.14.4 `--tempdir` moved to `/home/pcalnon/.cache/duplicati-tmp` (§8.13.3 closed)
+
+Paul's decision: move it off sdc4, to `/home`. Executed 2026-08-28 13:2xZ.
+
+The chosen path is **`/home/pcalnon/.cache/duplicati-tmp`**, not a new `/home` top-level dir,
+because it satisfies one more constraint than `/home/duplicati-tmp` does:
+
+- `/home` is **ext4 and fstab-managed** — durable across a reboot, which is the whole point.
+- It is **not** the destination spindle: the destination is sda1, `/home` is sdc3.
+- It is inside the backup source `/home/pcalnon/` — but **filter 36 already excludes
+  `/home/pcalnon/.cache/`**, so the job cannot scan the temp volumes it is writing. No new
+  filter, and therefore no second live-config edit, was needed.
+- It needs **no root**: `/home` itself is `root:root`, so a top-level dir there would have.
+
+One honest limitation, recorded because the decision's stated rationale was "off the destination
+spindle": **`/home` (sdc3) and `/media/pcalnon/temp_backups` (sdc4) are partitions of the same
+physical disk** (`sdc`, WD 8 TB). The move buys fstab durability and gets off the deprecated
+filesystem, but it does not change which spindle the temp writes land on — they were on `sdc`
+before and they are on `sdc` now. The only truly spindle-independent option is `/` on the NVMe
+(`nvme0n1p5`, 264 G free). Left as-is: `/home` is what was chosen, it meets the durability
+requirement that motivated the change, and it keeps temp churn off the consolidating sda1
+destination, which matches the stated mid-term goal.
+
+The edit needed a third editor — `yamaguchi_edit_target.py` does the destination and
+`yamaguchi_edit_sources.py` the source list, but nothing edited `Settings`. New
+**`util/ad-hoc/yamaguchi_edit_setting.py`** does, generically, with the same passphrase-safe
+GET/modify/PUT and the same refusal discipline; the path-specific guards (`--path-value`) are
+the three failures above turned into checks. Verified against the live job before the PUT:
+
+- `--value /tmp` → **rc 4**, "not durable storage".
+- `--value /home/pcalnon/Development` → **rc 4**, "inside backup source … and no exclude filter covers it".
+- `--value /home/pcalnon/.cache/duplicati-tmp` → both guards pass, naming filter 36 as the cover.
+
+`PUT 200`, then **9/9 post-checks PASS**: `--tempdir` is the new value; `TargetURL`, sources,
+filter count (44), settings count (10), `encryption-module=aes`, passphrase re-masked,
+`Schedule.Time`/`Repeat` and `ProposedSchedule` all unchanged. Record:
+`_yamaguchi_check/yamaguchi-config-post-tempdir-move-20260828.json`.
+
+**Proven in flight, not merely configured.** The 08-28 14:00Z run was sampled while it was
+executing: **10 `dup-*` temp files in `/home/pcalnon/.cache/duplicati-tmp` and 0 in the old
+`_duplicati_tmp/` on sdc4**. The run completed Success (10 m 27 s, census **818 /
+210,901,216,426 B AGREE**, `TestResults: Success on 3 file(s)`, 0 errors, 0 retries) and Duplicati
+cleaned the new tempdir out behind itself. The old sdc4 `_duplicati_tmp/` is now provably unused
+and can be removed at any time.
+
+Note for any future settings edit: Duplicati setting names begin with `--`, so argparse needs
+the `=` form — `--name=--tempdir`, not `--name --tempdir`.
+
+#### 8.14.5 A refused run must not leave a trace — `build_job` did
+
+Adding the duplicate-job guard to `yamaguchi_build_job.py` surfaced an ordering defect in it.
+The script wrote its redacted config **record** before contacting the server, so the very first
+`--dry-run` — which then correctly refused — had *already* overwritten
+`_fresh_dlist_check/yamaguchi-config-imported.json`, the provenance record of the original
+2026-08-25 import, with a config carrying today's defaults.
+
+Recovered intact from the sda1 records mirror (`_yamaguchi_records/_fresh_dlist_check/`,
+6541 B, Aug 25 04:01, still naming `file:///media/pcalnon/temp_backups/Yamaguchi`) — which is
+the first time in this arc the records mirror has been *used* rather than merely maintained,
+and is the argument for keeping it.
+
+Both halves are now fixed: the record write happens **after** every guard and after the
+`--dry-run` return, and it **never clobbers** an existing record (a second import writes a
+UTC-stamped filename instead). The general rule: *a tool that refuses should leave the world
+exactly as it found it* — and a dry run most of all.
+
+#### 8.14.6 What remains
+
+- **Criterion 5 (reboot)** — still the only unexercised criterion, and it is now *cleaner*: with
+  `--tempdir` on `/home`, every path the job depends on is fstab-managed. After the next reboot
+  check `duplicati.service` active, job 2 + `ProposedSchedule` present,
+  `yamaguchi_destination_durability_check.bash`, `loginctl show-user pcalnon -p Linger` = yes,
+  and `systemctl --user is-enabled yamaguchi-watchdog.timer`.
+- **Group 2, the 196 GB sdc4 copy** — Paul's decision: **KEEP**. Post-drill it is a second,
+  independently decrypt-validated copy on a different physical disk, and sdc4 has 1.5 T free.
+  It is frozen at 811 volumes and tracks no further runs, so it ages as a restore point;
+  `yamaguchi_retire_tier2.bash --execute --execute-old-destination` removes it when wanted.
+- **Old sdc4 `_duplicati_tmp/`** — now provably unused (the 08-28 run wrote only to the new
+  tempdir); removable whenever wanted.
+- **The drill `restored/` tree** (~64 G) and the old-archive tail — unchanged from §8.13.7.
+- **Consolidation onto sda1** is the stated mid-term direction; sda1 is at 74 % / 909 G free
+  with the old `.gpg` archive still on it, so the old-archive purge is the decision that
+  actually gates it.
+
+### 8.15 Addendum (2026-08-28 evening) — the old-archive purge, made decidable
+
+§8.14.6 ended by naming the old-archive purge as "the decision that actually gates" consolidation
+onto sda1, and left it there. This section closes the analysis gap: what the archive *is*, whether
+it can still be read, and — the only question that matters — whether any of it is the **last copy**
+of something. Two new read-only tools do the work, so the finding is re-derivable rather than
+asserted.
+
+#### 8.15.1 What is actually on sda1
+
+`/mnt/Backups/Ubuntu` (sda1, 3.6 T, 74 % used, 908 G free) holds three things at its root: the live
+`Yamaguchi/` destination (196 GiB, §8.13), the `_yamaguchi_records/` mirror, and the **old gpg
+archive** — 5,366 loose `.gpg` volumes:
+
+| | count | note |
+|---|---|---|
+| `.dlist` | 10 | the restore points |
+| `.dblock` | 2,674 | |
+| `.dindex` | 2,682 | 8 more than dblock — see §8.15.5 |
+| total | **5,366 files / 2,551,196,522,664 B (2,376 GiB)** | |
+
+Ten restore points spanning **2024-03-04 → 2026-07-11**. The set went cold on 2026-07-11, six weeks
+before the live set's oldest surviving fileset (2026-08-25), so the two do not overlap in time at
+all: the archive is the *only* record of any state before 2026-08-25.
+
+**Purging it frees 2,376 GiB and takes sda1 from 74 % to roughly 8 %** (~3.2 T free). That is the
+whole of what consolidation is waiting on; the 196 GB sdc4 copy Paul chose to keep is not on sda1
+and is irrelevant to it.
+
+#### 8.15.2 The expired-YubiKey red herring
+
+`gpg --list-secret-keys --with-colons` shows the RSA-4096 key whose UID reads
+`…yamaguchi_gpg2-yubikey…` with validity `e` — **expired 2021-01-09** — and its subkeys resident on
+YubiKey serial `D2760001240102010006092583970000`, a *different* card from the current 3a/3c. Read
+alone, that says the archive may need a card that no longer exists, and makes the purge look
+either urgent or already-moot.
+
+It is not what encrypted these volumes. `gpg --list-packets` on any volume reports:
+
+```
+gpg: AES256.CFB encrypted data
+gpg: encrypted with 1 passphrase
+:symkey enc packet: version 4, cipher 9, aead 0, s2k 3, hash 10
+```
+
+`:symkey enc packet` — **symmetric passphrase encryption**. Duplicati's GPG module used a
+passphrase, not a recipient key. No key, no card, and no expiry is involved in reading these
+volumes. *Trap: on a GPG-encrypted archive, check the packet type before reasoning about keys —
+the key listing and the archive can be entirely unrelated, and here the alarming one was.*
+
+#### 8.15.3 The archive is decryptable — proven, not assumed
+
+`util/ad-hoc/old_archive_decrypt_probe.py` decrypts real volumes with `PASSPHRASE_OLD` (from
+`~/.config/duplicati-backup/env`, which retains both the current and the old passphrase) and
+requires the plaintext to begin with a **Zip magic number** — Duplicati volumes are Zip inside the
+GPG envelope, and a passphrase that "succeeds" while emitting garbage is exactly what a bare
+exit-code check would wave through.
+
+Result: **4/4 volumes, Zip-verified**, including the newest dlist (94,517,602 bytes of Zip). The
+archive is live, readable data — so the purge is a genuine retention decision, not the disposal of
+something already lost.
+
+#### 8.15.4 What the purge would actually destroy
+
+`util/ad-hoc/old_archive_coverage_diff.py` decrypts **all ten** old filesets — not just the newest,
+because a file deleted in 2025 is absent from the newest fileset and destroyed by the purge just
+the same, so a newest-to-newest comparison understates the loss — unions their paths, and diffs
+against the live set's newest fileset:
+
+| | files | bytes |
+|---|---|---|
+| old union (10 filesets) | 3,832,238 | 2.4 TiB |
+| live newest | 786,752 | 266.8 GiB |
+| **only in old** | **3,263,118** | **2.2 TiB** |
+| also in live | 569,120 | 14.9 % of old paths |
+
+The "all ten filesets" choice is not theoretical caution — it is worth a factor of two, and the
+tool will show it. Re-run with `--newest-only` and the same archive reports **1.1 TiB across
+596,783 orphans, 48.8 % covered**; the union reports **2.2 TiB across 3,263,118 orphans, 14.9 %
+covered**. A newest-to-newest comparison would have understated what the purge destroys by half,
+and would have made the archive look twice as redundant as it is.
+
+14.9 % coverage looks alarming until the 2.2 TiB is grouped. Every large group is either a
+**deliberate exclusion in the live job's own 44 filters** or **content deleted from disk that is
+re-obtainable externally**:
+
+| only-in-old group | size | why it is not a loss |
+|---|---|---|
+| `.local/share/Steam/steamapps` | 883.5 GiB | live filter 37; Steam re-downloads |
+| `Development/Llama2/{llama,codellama}` | ~530 GiB | **gone from disk**; published Meta weights, re-obtainable |
+| `anaconda3/envs` | 202.6 GiB | **gone from disk** (replaced by miniforge3); reinstallable |
+| `StarfieldData` | 122.2 GiB | live filter 39 |
+| `Development/python/Juniper/juniper-data` | 96.0 GiB | live filter 42 — the COCO / ImageNet zips; re-downloadable |
+| `VirtualBox/win10_vm_2023-04-29.vdi` | 57.7 GiB | **old path**; the VM moved to `VirtualMachines/`, where the live job backs it up as an explicit Source |
+| `rust_mudgeon/{juniper,reference,adamo}` | ~40.7 GiB | live filters 1–9 — `target/` and `libs/` build output, regenerable |
+| `Downloads` | 24.8 GiB | live filter 29 |
+| `.config/Duplicati/*.sqlite` | 23.0 GiB | live filter 41 — the *old job's own database*; self-referential |
+| `.cache` | 15.0 GiB | live filter 36 |
+
+The remaining groups are historical versions of files inside directories the live job **does**
+cover. That was verified rather than inferred from the absence of a filter — matching the live
+newest fileset directly:
+
+| path | entries in the LIVE set |
+|---|---|
+| `/home/pcalnon/.gnupg/` | 99 |
+| `/home/pcalnon/Documents/` | 9,390 |
+| `/home/pcalnon/.claude/` | 6,145 |
+| `/home/pcalnon/.mozilla/` | 42,310 |
+| `/home/pcalnon/Development/rust/rust_mudgeon/` | 4,417 |
+
+`rust_mudgeon` deserves the explicit note: it is a **live 46 GB project on disk**, and its source
+is fully covered — only the nine `target/` and `libs/` paths are excluded, which is why its
+orphaned bytes are build artifacts rather than code.
+
+**Verdict: nothing in the old archive is the last copy of irreplaceable data.** The two groups
+whose only copy it holds — the Llama-2 / CodeLlama weights and the `anaconda3` environments — are
+both re-obtainable from upstream. The archive's entire residual value is **point-in-time history
+for 2024-03-04 → 2026-07-11** on paths the live set already covers in their current form.
+
+#### 8.15.5 The dblock/dindex asymmetry, and the trap under it
+
+2,674 dblock vs 2,682 dindex is an 8-file gap, and the obvious move — set-diff the GUIDs in the
+filenames — is **wrong**. A dindex is named with its *own* random GUID (`duplicati-i<guid>`),
+not the GUID of the dblock it indexes (`duplicati-b<guid>`); the association lives inside the
+encrypted index. The two name sets are drawn from independent identifier spaces, so a filename
+diff would have reported ~2,674 "missing" volumes on either side and meant nothing.
+
+Attributing the 8 requires decrypting all 2,682 indexes and reading which dblock each names. That
+was not done: the gap is consistent with ordinary orphaned indexes from compaction or an
+interrupted run, and it does not change the decision — 8 indexes cannot make 2.2 TiB of
+deliberately-excluded and externally-re-obtainable content into a loss. *Trap: two counts differing
+by a small number invites a set-diff; check first that both sets are drawn from the same
+identifier space.*
+
+#### 8.15.6 The decision, for Paul
+
+The technical blocker is gone: the archive is readable, and purging it loses no irreplaceable
+data. What is left is a retention preference, and it is genuinely a preference:
+
+- **(a) Purge it.** Frees 2,376 GiB, sda1 74 % → ~8 %, consolidation unblocked immediately, and
+  Tier 3 (`_drill_scratch/`, 35 GB) unblocks with it. Costs every restore point before
+  2026-08-25 — including the ~530 GiB of Llama-2 weights, which are re-obtainable but not
+  *conveniently* so (Meta license request, then a large download).
+- **(b) Purge selectively.** Delete the volumes and keep nothing but the 10 dlists (~978 MB
+  total) as a *record* of what existed when — the file lists stay queryable forever, the bytes
+  go. This does not preserve restorability of anything; it preserves the manifest. Cheap, and
+  it makes any future "was X ever on this machine" question answerable.
+- **(c) Extract first, then purge.** Restore just `Development/Llama2` (~530 GiB) to a holding
+  location, then purge. Only worth it if re-downloading the weights is considered painful; it
+  spends 530 GiB of the 2,376 GiB being reclaimed.
+- **(d) Keep it.** Consolidation stays blocked. Note the archive is *cold* — nothing has written
+  to it since 2026-07-11 and nothing will, so it will not improve with age.
+
+**Recommendation: (b).** It captures essentially all of (a)'s space at a ~978 MB cost, and the
+one thing a purge genuinely destroys that cannot be reconstructed — the *knowledge* of what was
+on the machine between 2024 and 2026 — is exactly what the dlists preserve. If the Llama-2
+weights matter, (c) layers onto it.
+
+Nothing has been deleted. Every number above is re-derivable:
+
+```bash
+python3 util/ad-hoc/old_archive_decrypt_probe.py --try-current
+python3 util/ad-hoc/old_archive_coverage_diff.py --depth 6 \
+    --dump-orphans /home/pcalnon/.cache/old_archive_orphans.tsv
+```
+
+The second takes ~10 minutes (ten dlist decrypts); `--dump-orphans` writes every orphan as
+`size<TAB>path` so that later questions are a `grep`, not another decrypt pass.
+
+### 8.16 Addendum (2026-08-28 evening) — option (b) executed; the purge is done
+
+Paul picked **option (b)** from §8.15.6: delete the archive's data volumes, keep its ten dlists as
+a permanently queryable record. Executed by `util/ad-hoc/old_archive_purge.py`, which is dry-run by
+default and re-proves every claim §8.15 made rather than trusting the note — this deletes 2.3 TiB
+and cannot be undone.
+
+#### 8.16.1 The caveat that had to be closed first
+
+§8.15 was written knowing the dlists *decrypt*, but it had **not** been tested that a dlist stays
+readable once its dblock volumes are gone. The entire value of option (b) rests on that, so
+asserting it would have been the same error this arc keeps finding: a check that passes because it
+never really ran.
+
+It was proven on a copy first, and then made **gate 5** of the purge tool so it can never be
+skipped: one dlist, alone in a directory with **zero dindex and zero dblock**, was queried and
+yielded its full **1,360,811-entry** listing. A dlist is self-contained. (What it cannot do is
+restore — the file data is gone. It answers *what existed, how big, and when*.)
+
+That probe also produced a correction worth keeping. A first match for
+`/Development/Llama2/llama/llama-2-70b/` against the newest dlist returned **0 entries**, which
+reads as "the record is broken". It is not: the Llama-2 weights were deleted from disk *before* the
+final 2026-07-11 fileset, so they appear only in **earlier** ones (223 orphan paths, confirmed
+against the dumped orphan list). Verified by matching a path that *is* in the newest fileset —
+`rust_mudgeon/adamo/Cargo` → 3 entries with sizes and timestamps. **This is why option (b) keeps
+all ten dlists and not just the newest**, and why a zero-result match must be checked against a
+known-present control before it is believed.
+
+#### 8.16.2 Gates, all eight passed
+
+| gate | assertion |
+|---|---|
+| 0 | archive root on `/dev/sda1`, **fstab-managed** |
+| 1 | `ActiveTask=null`, scheduler queue empty |
+| 2 | live `TargetURL` is the `Yamaguchi/` **subdirectory** — what makes a non-recursive root delete safe |
+| 3 | live set reconciles: filesystem **818 files / 210,901,216,426 B** = server `TargetFilesCount`/`Size` |
+| 4 | all **10** dlists decrypt **and are Zip** |
+| 5 | isolated dlist (0 dblock, 0 dindex) yields **1,360,811 entries** |
+| 6 | deletion set is exactly **5,356** root-level volumes (2,674 dblock + 2,682 dindex); **0 dlists**, 0 paths under `Yamaguchi/` or `_yamaguchi_records/`, asserted explicitly rather than inferred from the glob |
+| 7 | the 10 dlists mirrored to `/media/pcalnon/temp_backups/_old_archive_dlists` on **`/dev/sdc4`** — a different physical disk — and **sha256-verified** before anything was deleted |
+
+Gate 2 deserves the note: the live destination being a *subdirectory* of the archive mountpoint
+(§8.13) is the only reason a root-level delete is safe at all. If the live job ever pointed at the
+root itself, the tool refuses.
+
+#### 8.16.3 Result
+
+```
+deleted 5356/5356 volumes, freed 2.3 TiB
+kept 10 dlists + README.md
+```
+
+| | before | after |
+|---|---|---|
+| sda1 used | 2.6 T (**74 %**) | 198 G (**6 %**) |
+| sda1 free | 908 G | **3.3 T** |
+| archive root | 5,366 `.gpg` files | 10 dlists (933 MiB) + `README.md` |
+
+Verified after the fact, not assumed:
+
+- **Live set unaffected** — census `818 files / 210,901,216,426 B -> AGREE`.
+- **The record works with the volumes actually gone** — querying
+  `--dest /mnt/Backups/Ubuntu` now reports `10 dlist / 0 dindex / 0 dblock` and still returns the
+  full 1,360,811-entry fileset and answers path queries.
+- `_yamaguchi_records/`, `lost+found/` and `temp/` untouched (they are directories; the deletion
+  set was root-level *files* only).
+- The sdc4 mirror holds all ten, 934 MB.
+
+A `README.md` was written at the archive root recording what was removed, what is kept, that the
+dlists cannot restore, that all ten must be kept, the exact query command, and where the second
+copy lives — so the next reader does not have to find this note first.
+
+#### 8.16.4 What this unblocks, and what is left
+
+**Consolidation onto sda1 is unblocked** — 3.3 T free, the stated mid-term goal. Tier 3
+(`_drill_scratch/`, 35 GB) is no longer gated. The 196 GB sdc4 `Yamaguchi/` copy is unaffected and
+remains KEEP per Paul's §8.14 decision.
+
+Still open, unchanged: **criterion 5 (reboot)** — now the last unexercised criterion in the whole
+arc; the old sdc4 `_duplicati_tmp/` (empty, removable); the drill `restored/` tree (~64 G); and the
+root-owned items (loopback restage, server-brain DB backup).

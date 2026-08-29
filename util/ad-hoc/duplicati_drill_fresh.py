@@ -91,6 +91,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -102,6 +103,40 @@ HASH_BYTES = 32
 def fail(msg):
     print(f"FATAL: {msg}", file=sys.stderr)
     sys.exit(2)
+
+
+def mount_point_of(path):
+    """Containing mountpoint of *path*, found by walking up. Returns "/" when nothing else matches.
+
+    Deliberately derived rather than named: a guard that hardcodes one filesystem keeps
+    passing after the thing it guards has moved, which is how the pre-migration destination
+    kept being checked (note 8.13) while the live one went unguarded.
+    """
+    p = os.path.realpath(path)
+    while p != "/" and not os.path.ismount(p):
+        p = os.path.dirname(p)
+    return p
+
+
+# Filesystems that are NOT durable storage.  os.path.ismount() is true for all of them, so a
+# mount check alone is not a storage check -- measured 2026-08-28: a run root under /tmp
+# passed the mountpoint guard and began restoring into tmpfs (47 G, RAM-backed); 1.5 GB was
+# resident before the run was killed, and a full drill restores tens of GB.  "Is a mount"
+# and "is somewhere it is safe to write 64 GB" are different questions.
+VOLATILE_FSTYPES = {"tmpfs", "ramfs", "devtmpfs", "squashfs", "overlay"}
+
+
+def fstype_of(mount_target):
+    """Filesystem type at *mount_target* per /proc/mounts, or None if not listed."""
+    try:
+        with open("/proc/mounts") as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) >= 3 and parts[1].replace("\\040", " ") == mount_target:
+                    return parts[2]
+    except OSError:
+        return None
+    return None
 
 
 def load_passphrase(cred_file, key):
@@ -381,11 +416,27 @@ def pick_candidates(filelist, block_to_dblock, blocklist_content, dblock_order, 
 
 def main():
     ap = argparse.ArgumentParser(description="fresh-set restore drill (destination-only, dual oracle)")
-    # defaults = the LIVE set (Yamaguchi, aes) since 2026-08-25; the old gpg fresh set needs
-    # --dest .../Ubuntu --run-root .../_fresh_drill --encryption gpg explicitly. A bare run
-    # against the wrong destination would print a true-looking PASS for the wrong set.
-    ap.add_argument("--dest", default="/media/pcalnon/temp_backups/Yamaguchi")
-    ap.add_argument("--run-root", default="/media/pcalnon/temp_backups/_yamaguchi_drill")
+    # --dest is REQUIRED, and that is the fix for a defect this comment used to describe
+    # without noticing it applied to the default itself: "a bare run against the wrong
+    # destination would print a true-looking PASS for the wrong set".  The default was
+    # /media/pcalnon/temp_backups/Yamaguchi, and the 2026-08-26 migration (note 8.13) moved
+    # the live set to /mnt/Backups/Ubuntu/Yamaguchi.  The old directory survives as a frozen
+    # pre-migration copy, so a bare run would not fail -- it would drill 811 stale volumes
+    # whose newest fileset (20260826T181206Z) the live set has since RETAINED AWAY, and
+    # report PASS.  A stale default on a checker is indistinguishable from a working one.
+    #
+    # The remedy here is explicitness rather than the derive-from-TargetURL used by
+    # yamaguchi_census.py, because this tool's requirement 1 is destination-ONLY operation:
+    # asking the Duplicati server where to look would couple the disaster-recovery drill to
+    # the service that a disaster may have taken with it.  Naming the destination costs one
+    # argument and cannot rot.
+    ap.add_argument("--dest", required=True,
+                    help="destination directory to drill (REQUIRED -- no default, deliberately). "
+                         "Live Yamaguchi set: /mnt/Backups/Ubuntu/Yamaguchi (--encryption aes). "
+                         "Old gpg fresh set: /media/pcalnon/temp_backups/Ubuntu (--encryption gpg).")
+    ap.add_argument("--run-root", default="/media/pcalnon/temp_backups/_yamaguchi_drill",
+                    help="scratch parent for the run dir; must NOT be on the destination filesystem "
+                         "and must not be an unmounted path (default: the sdc4 scratch area)")
     ap.add_argument("--cred-file", default=os.path.expanduser("~/.config/duplicati-backup/env"))
     ap.add_argument("--cred-key", default="PASSPHRASE")
     ap.add_argument("--blocksize", type=int, default=1024 * 1024)
@@ -410,8 +461,39 @@ def main():
         gpg_decrypt = aes_decrypt
 
     dest = os.path.realpath(args.dest)
-    if not os.path.ismount("/media/pcalnon/temp_backups"):
-        fail("/media/pcalnon/temp_backups is not a mountpoint")
+    if not os.path.isdir(dest):
+        fail(f"destination is not a directory: {dest}")
+    # Both mount guards are DERIVED by walking up to the containing mountpoint, never by
+    # naming one filesystem.  The previous guard hardcoded /media/pcalnon/temp_backups, which
+    # after the migration checked a filesystem neither argument necessarily refers to -- and
+    # it only happened to cover --run-root because that default lives there too.  Guarding
+    # the run root matters on its own: a drill restores tens of GB, and if its scratch path
+    # is not on a mounted filesystem those bytes land on the root filesystem instead
+    # (note 8.10.2's named failure -- 264 G free, so it fills rather than erroring early).
+    dest_mp = mount_point_of(dest)
+    if dest_mp == "/":
+        fail(f"destination {dest} is not on a mounted filesystem (walked up to /)")
+    print(f"dest mount  : {dest_mp}")
+    run_root = os.path.realpath(args.run_root)
+    run_root_mp = mount_point_of(run_root if os.path.isdir(run_root) else os.path.dirname(run_root))
+    if run_root_mp == "/":
+        fail(f"run root {run_root} is not on a mounted filesystem (walked up to /) -- refusing to "
+             "restore into the root filesystem")
+    run_root_fs = fstype_of(run_root_mp)
+    if run_root_fs in VOLATILE_FSTYPES:
+        fail(f"run root {run_root} is on {run_root_mp} ({run_root_fs}), which is not durable storage -- "
+             "a drill restores tens of GB and would consume RAM until the machine fails")
+    free_gb = shutil.disk_usage(run_root_mp).free / 2**30
+    print(f"run root    : {run_root_mp} ({run_root_fs}), {free_gb:.0f} GiB free")
+    if free_gb < 100:
+        print(f"WARNING     : only {free_gb:.0f} GiB free on {run_root_mp}; a full drill can restore "
+              "tens of GB and will fail part-way if it runs out")
+    # Same-filesystem is a WARNING, not a refusal: the drill only ever READS the destination,
+    # so sharing a spindle costs independence but breaks nothing, and drilling the retained
+    # pre-migration copy with the default scratch root is a legitimate thing to want.
+    if run_root_mp == dest_mp:
+        print(f"WARNING     : run root and destination share filesystem {dest_mp} -- the drill's "
+              "scratch writes are not independent of the disk under test")
     run_dir = os.path.join(args.run_root, f"drill-{time.strftime('%Y%m%d-%H%M%S')}")
     if os.path.realpath(run_dir).startswith(dest + os.sep):
         fail("run dir must not be inside the destination")

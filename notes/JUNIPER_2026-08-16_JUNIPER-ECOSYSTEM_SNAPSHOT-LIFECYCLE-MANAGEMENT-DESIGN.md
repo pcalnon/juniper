@@ -496,8 +496,8 @@ one of them is testable without the owner present:
 
 | # | class | question | status |
 |---|---|---|---|
-| 1 | **PIPELINE** | Does `tar -czf - \| gpg -e` round-trip a tree byte-for-byte, and do the script's two unattended checks actually fire? | **PASSES** (2026-08-26) |
-| 2 | **KEY** | Can the owner's YubiKey-backed private key decrypt a *real* archive? | **OWNER-GATED — still owed** |
+| 1 | **PIPELINE** | Does `tar -cjf - \| gpg -e` round-trip a tree byte-for-byte, and do the script's two unattended checks actually fire? | **PASSES** (re-drilled 2026-08-28 against the corrected bzip2 pipeline) |
+| 2 | **KEY** | Can the owner's YubiKey-backed private key decrypt a *real* archive? | **CLOSED 2026-08-28** |
 
 Class 1 was drilled by [`util/ad-hoc/2026-08-26_backup_restore_drill.bash`](../util/ad-hoc/2026-08-26_backup_restore_drill.bash),
 which reproduces this script's pipeline verbatim against a synthetic tree — text, incompressible
@@ -510,9 +510,19 @@ vacuous. The drill found one real defect, in its own recipient-count check, befo
 `gpg --with-colons --list-keys` emits an `fpr` record for the primary key *and* each subkey, so a
 naive `/^fpr:/` grep double-counts recipients.
 
+**Class 2 is CLOSED as of 2026-08-28.** All 15 archives of the `snapshot-2026-02-27` backup set were
+decrypted with the documented recipe (`gpg -d | tar -xjf -`) and diffed against the tree they were
+built from: every one restored, matched source, and was byte-identical across both devices. The
+decrypting subkeys are card-resident — `gpg --list-secret-keys --with-colons` reports YubiKey serials
+`D2760001240102010006092583970000` and `D2760001240100000006249551140000` on the encryption subkeys,
+with the primary secrets held offline (`#`) — so this exercised the real hardware path, not an
+on-disk copy. Re-runnable: [`util/ad-hoc/2026-08-28_verify_feb_backup_set.bash`](../util/ad-hoc/2026-08-28_verify_feb_backup_set.bash).
+
+The paragraph below is retained as the record of what was owed before that.
+
 Class 2 cannot be closed unattended: `ENCRYPT_KEYS` names two YubiKey-backed recipients, so
 decrypting a real archive requires the hardware. **What is owed is now specific** — take one real
-`.tgz.gpg`, decrypt it with a YubiKey, untar it, and confirm the tree lands — rather than the
+`.tbz2.gpg`, decrypt it with a YubiKey, untar it, and confirm the tree lands — rather than the
 open-ended "no drill has ever been run".
 
 **Both preconditions recorded earlier on 2026-08-26 are now CLEARED** (they were true when first
@@ -521,23 +531,58 @@ change is legible):
 
 | precondition, as first recorded | status now |
 |---|---|
-| "No archive exists to drill" — no project `.tgz.gpg` on this host | **cleared.** `juniper-backup.bash` now produces one on demand; several were written and verified during its repair. |
+| "No archive exists to drill" — no project `.tbz2.gpg` on this host | **cleared.** `juniper-backup.bash` now produces one on demand; several were written and verified during its repair. |
 | "The destination is not mounted" — `/media/pcalnon/DFF3-2782/` does not exist | **cleared.** Both `EBC5-F0A3` (`/dev/sdf1`) and `DFF3-2782` (`/dev/sdg1`) are mounted, each with a `Juniper-8.0.0.python/` directory. |
 
 **Class 2 no longer requires a full-tree backup, which is the useful part.** `--source` accepts any
-directory, so a *seconds-long* archive of a small tree is a real `.tgz.gpg` encrypted to the same two
+directory, so a *seconds-long* archive of a small tree is a real `.tbz2.gpg` encrypted to the same two
 YubiKey recipients as a 141 GB one — identical for the purpose of proving the key decrypts:
 
 ```bash
 util/juniper-backup.bash --source <any small dir> --dest <scratch dir>   # seconds, real archive
-gpg --decrypt <that>.tgz.gpg | tar -tzf -                                # YubiKey; lists the tree
+gpg --decrypt <that>.tbz2.gpg | tar -tjf -                               # YubiKey; lists the tree
 ```
 
-If that lists the tree, class 2 is closed and question 3 is fully answered. The full-tree run is then
-a capacity question, not a verification one — and note it is genuinely tight: the source measures
-**141.2 GB** while `EBC5-F0A3` has ~135 GiB free (the rest held by a pre-existing *unencrypted*
-`juniper-8.0.0_python_2026-02-27.tgz`, 111 GB) and `DFF3-2782` has ~67 GiB. The script now warns at
-both thresholds rather than only below 50%.
+If that lists the tree, class 2 is closed and question 3 is fully answered.
+
+**Capacity is no longer tight — corrected 2026-08-28.** This paragraph previously recorded the run as
+"genuinely tight" at **141.2 GB** against ~135 GiB free on `EBC5-F0A3`. That figure was an artifact of
+a defect, not a property of the tree: the script's `--exclude` flags were malformed and *inert for
+`tar`*, so it archived every directory the exclude list named — most importantly `juniper-data/data`,
+96 GB of regenerable dataset artifacts. With the exclude list actually applying (juniper-ml#1439), the
+measured footprint is:
+
+| | archived | unexcluded |
+|---|---|---|
+| whole project, 10 repos | **2.8 GB** | 113 GB |
+| `juniper-data` alone | **34 MB** | 97 GB |
+
+A **41x** reduction, and it fits both `EBC5-F0A3` (~135 GiB free) and `DFF3-2782` (~67 GiB) with room
+to spare. Re-measure with [`util/ad-hoc/2026-08-28_backup_footprint.bash`](../util/ad-hoc/2026-08-28_backup_footprint.bash),
+which uses the script's own exclude list and measurement path.
+
+**The 2026-02-27 snapshot has been re-archived — 2026-08-28.** The 111 GB *plaintext*
+`juniper-8.0.0_python_2026-02-27.tgz` was extracted once (applying the same repo-top-level exclude
+policy, 111 GB -> 5.2 GB, zero errors) and re-backed through the fixed script as the labelled set
+`snapshot-2026-02-27`: **15 archives, 186 MB, on both devices, all verified by restore**.
+
+The legacy trees were deliberately **excluded**. On 2026-02-27 they sat at the parent's top level as
+`JuniperCascor/ JuniperData/ JuniperLegacy/` (no `JuniperBackup/` yet) and were later consolidated
+into `juniper-legacy/`. Diffed with that mapping applied — a prefix-keyed diff wrongly reports them
+absent — the current tree reproduces **all** of it: **0 files exist only in the archive**, and once
+logs / `__pycache__` / `.venv` churn is set aside the only difference is 514 bytes of
+`.git/FETCH_HEAD`. 58,382 of 58,383 files match by size; 25/25 content hashes match. The current
+`juniper-legacy` is a strict superset (16.0 GB vs 4.2 GB, +7,370 files).
+
+Loose parent-level files (`AGENTS.md`, the `CLAUDE.md` symlink, the workspace file, a screenshot)
+were staged into `_juniper-parent-files/` because the script archives directories, never loose files.
+
+Once the owner is satisfied with the set, the 111 GB plaintext tarball can be deleted; it is the
+single largest consumer of `EBC5-F0A3` and the exposure this script's encryption exists to prevent.
+
+The script still warns at both thresholds rather than only below 50%. The pre-existing *unencrypted*
+`juniper-8.0.0_python_2026-02-27.tgz` (111 GB) on `EBC5-F0A3` remains an owner decision — it is both a
+plaintext copy of the whole project on removable media and most of that drive's used space.
 
 #### 6.4.3 The ratified policy
 
