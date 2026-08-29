@@ -1291,3 +1291,173 @@ exactly as it found it* — and a dry run most of all.
 - **Consolidation onto sda1** is the stated mid-term direction; sda1 is at 74 % / 909 G free
   with the old `.gpg` archive still on it, so the old-archive purge is the decision that
   actually gates it.
+
+### 8.15 Addendum (2026-08-28 evening) — the old-archive purge, made decidable
+
+§8.14.6 ended by naming the old-archive purge as "the decision that actually gates" consolidation
+onto sda1, and left it there. This section closes the analysis gap: what the archive *is*, whether
+it can still be read, and — the only question that matters — whether any of it is the **last copy**
+of something. Two new read-only tools do the work, so the finding is re-derivable rather than
+asserted.
+
+#### 8.15.1 What is actually on sda1
+
+`/mnt/Backups/Ubuntu` (sda1, 3.6 T, 74 % used, 908 G free) holds three things at its root: the live
+`Yamaguchi/` destination (196 GiB, §8.13), the `_yamaguchi_records/` mirror, and the **old gpg
+archive** — 5,366 loose `.gpg` volumes:
+
+| | count | note |
+|---|---|---|
+| `.dlist` | 10 | the restore points |
+| `.dblock` | 2,674 | |
+| `.dindex` | 2,682 | 8 more than dblock — see §8.15.5 |
+| total | **5,366 files / 2,551,196,522,664 B (2,376 GiB)** | |
+
+Ten restore points spanning **2024-03-04 → 2026-07-11**. The set went cold on 2026-07-11, six weeks
+before the live set's oldest surviving fileset (2026-08-25), so the two do not overlap in time at
+all: the archive is the *only* record of any state before 2026-08-25.
+
+**Purging it frees 2,376 GiB and takes sda1 from 74 % to roughly 8 %** (~3.2 T free). That is the
+whole of what consolidation is waiting on; the 196 GB sdc4 copy Paul chose to keep is not on sda1
+and is irrelevant to it.
+
+#### 8.15.2 The expired-YubiKey red herring
+
+`gpg --list-secret-keys --with-colons` shows the RSA-4096 key whose UID reads
+`…yamaguchi_gpg2-yubikey…` with validity `e` — **expired 2021-01-09** — and its subkeys resident on
+YubiKey serial `D2760001240102010006092583970000`, a *different* card from the current 3a/3c. Read
+alone, that says the archive may need a card that no longer exists, and makes the purge look
+either urgent or already-moot.
+
+It is not what encrypted these volumes. `gpg --list-packets` on any volume reports:
+
+```
+gpg: AES256.CFB encrypted data
+gpg: encrypted with 1 passphrase
+:symkey enc packet: version 4, cipher 9, aead 0, s2k 3, hash 10
+```
+
+`:symkey enc packet` — **symmetric passphrase encryption**. Duplicati's GPG module used a
+passphrase, not a recipient key. No key, no card, and no expiry is involved in reading these
+volumes. *Trap: on a GPG-encrypted archive, check the packet type before reasoning about keys —
+the key listing and the archive can be entirely unrelated, and here the alarming one was.*
+
+#### 8.15.3 The archive is decryptable — proven, not assumed
+
+`util/ad-hoc/old_archive_decrypt_probe.py` decrypts real volumes with `PASSPHRASE_OLD` (from
+`~/.config/duplicati-backup/env`, which retains both the current and the old passphrase) and
+requires the plaintext to begin with a **Zip magic number** — Duplicati volumes are Zip inside the
+GPG envelope, and a passphrase that "succeeds" while emitting garbage is exactly what a bare
+exit-code check would wave through.
+
+Result: **4/4 volumes, Zip-verified**, including the newest dlist (94,517,602 bytes of Zip). The
+archive is live, readable data — so the purge is a genuine retention decision, not the disposal of
+something already lost.
+
+#### 8.15.4 What the purge would actually destroy
+
+`util/ad-hoc/old_archive_coverage_diff.py` decrypts **all ten** old filesets — not just the newest,
+because a file deleted in 2025 is absent from the newest fileset and destroyed by the purge just
+the same, so a newest-to-newest comparison understates the loss — unions their paths, and diffs
+against the live set's newest fileset:
+
+| | files | bytes |
+|---|---|---|
+| old union (10 filesets) | 3,832,238 | 2.4 TiB |
+| live newest | 786,752 | 266.8 GiB |
+| **only in old** | **3,263,118** | **2.2 TiB** |
+| also in live | 569,120 | 14.9 % of old paths |
+
+The "all ten filesets" choice is not theoretical caution — it is worth a factor of two, and the
+tool will show it. Re-run with `--newest-only` and the same archive reports **1.1 TiB across
+596,783 orphans, 48.8 % covered**; the union reports **2.2 TiB across 3,263,118 orphans, 14.9 %
+covered**. A newest-to-newest comparison would have understated what the purge destroys by half,
+and would have made the archive look twice as redundant as it is.
+
+14.9 % coverage looks alarming until the 2.2 TiB is grouped. Every large group is either a
+**deliberate exclusion in the live job's own 44 filters** or **content deleted from disk that is
+re-obtainable externally**:
+
+| only-in-old group | size | why it is not a loss |
+|---|---|---|
+| `.local/share/Steam/steamapps` | 883.5 GiB | live filter 37; Steam re-downloads |
+| `Development/Llama2/{llama,codellama}` | ~530 GiB | **gone from disk**; published Meta weights, re-obtainable |
+| `anaconda3/envs` | 202.6 GiB | **gone from disk** (replaced by miniforge3); reinstallable |
+| `StarfieldData` | 122.2 GiB | live filter 39 |
+| `Development/python/Juniper/juniper-data` | 96.0 GiB | live filter 42 — the COCO / ImageNet zips; re-downloadable |
+| `VirtualBox/win10_vm_2023-04-29.vdi` | 57.7 GiB | **old path**; the VM moved to `VirtualMachines/`, where the live job backs it up as an explicit Source |
+| `rust_mudgeon/{juniper,reference,adamo}` | ~40.7 GiB | live filters 1–9 — `target/` and `libs/` build output, regenerable |
+| `Downloads` | 24.8 GiB | live filter 29 |
+| `.config/Duplicati/*.sqlite` | 23.0 GiB | live filter 41 — the *old job's own database*; self-referential |
+| `.cache` | 15.0 GiB | live filter 36 |
+
+The remaining groups are historical versions of files inside directories the live job **does**
+cover. That was verified rather than inferred from the absence of a filter — matching the live
+newest fileset directly:
+
+| path | entries in the LIVE set |
+|---|---|
+| `/home/pcalnon/.gnupg/` | 99 |
+| `/home/pcalnon/Documents/` | 9,390 |
+| `/home/pcalnon/.claude/` | 6,145 |
+| `/home/pcalnon/.mozilla/` | 42,310 |
+| `/home/pcalnon/Development/rust/rust_mudgeon/` | 4,417 |
+
+`rust_mudgeon` deserves the explicit note: it is a **live 46 GB project on disk**, and its source
+is fully covered — only the nine `target/` and `libs/` paths are excluded, which is why its
+orphaned bytes are build artifacts rather than code.
+
+**Verdict: nothing in the old archive is the last copy of irreplaceable data.** The two groups
+whose only copy it holds — the Llama-2 / CodeLlama weights and the `anaconda3` environments — are
+both re-obtainable from upstream. The archive's entire residual value is **point-in-time history
+for 2024-03-04 → 2026-07-11** on paths the live set already covers in their current form.
+
+#### 8.15.5 The dblock/dindex asymmetry, and the trap under it
+
+2,674 dblock vs 2,682 dindex is an 8-file gap, and the obvious move — set-diff the GUIDs in the
+filenames — is **wrong**. A dindex is named with its *own* random GUID (`duplicati-i<guid>`),
+not the GUID of the dblock it indexes (`duplicati-b<guid>`); the association lives inside the
+encrypted index. The two name sets are drawn from independent identifier spaces, so a filename
+diff would have reported ~2,674 "missing" volumes on either side and meant nothing.
+
+Attributing the 8 requires decrypting all 2,682 indexes and reading which dblock each names. That
+was not done: the gap is consistent with ordinary orphaned indexes from compaction or an
+interrupted run, and it does not change the decision — 8 indexes cannot make 2.2 TiB of
+deliberately-excluded and externally-re-obtainable content into a loss. *Trap: two counts differing
+by a small number invites a set-diff; check first that both sets are drawn from the same
+identifier space.*
+
+#### 8.15.6 The decision, for Paul
+
+The technical blocker is gone: the archive is readable, and purging it loses no irreplaceable
+data. What is left is a retention preference, and it is genuinely a preference:
+
+- **(a) Purge it.** Frees 2,376 GiB, sda1 74 % → ~8 %, consolidation unblocked immediately, and
+  Tier 3 (`_drill_scratch/`, 35 GB) unblocks with it. Costs every restore point before
+  2026-08-25 — including the ~530 GiB of Llama-2 weights, which are re-obtainable but not
+  *conveniently* so (Meta license request, then a large download).
+- **(b) Purge selectively.** Delete the volumes and keep nothing but the 10 dlists (~978 MB
+  total) as a *record* of what existed when — the file lists stay queryable forever, the bytes
+  go. This does not preserve restorability of anything; it preserves the manifest. Cheap, and
+  it makes any future "was X ever on this machine" question answerable.
+- **(c) Extract first, then purge.** Restore just `Development/Llama2` (~530 GiB) to a holding
+  location, then purge. Only worth it if re-downloading the weights is considered painful; it
+  spends 530 GiB of the 2,376 GiB being reclaimed.
+- **(d) Keep it.** Consolidation stays blocked. Note the archive is *cold* — nothing has written
+  to it since 2026-07-11 and nothing will, so it will not improve with age.
+
+**Recommendation: (b).** It captures essentially all of (a)'s space at a ~978 MB cost, and the
+one thing a purge genuinely destroys that cannot be reconstructed — the *knowledge* of what was
+on the machine between 2024 and 2026 — is exactly what the dlists preserve. If the Llama-2
+weights matter, (c) layers onto it.
+
+Nothing has been deleted. Every number above is re-derivable:
+
+```bash
+python3 util/ad-hoc/old_archive_decrypt_probe.py --try-current
+python3 util/ad-hoc/old_archive_coverage_diff.py --depth 6 \
+    --dump-orphans /home/pcalnon/.cache/old_archive_orphans.tsv
+```
+
+The second takes ~10 minutes (ten dlist decrypts); `--dump-orphans` writes every orphan as
+`size<TAB>path` so that later questions are a `grep`, not another decrypt pass.
