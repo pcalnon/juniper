@@ -546,6 +546,18 @@ jobs:
           # the containment ASYMMETRY (needle-in-candidate is a merge; candidate-in-needle
           # is a fragment and must not match) and four machinery negative controls.
           python3 -m unittest -v tests/test_relocation_check.py
+          # tests/test_p3_relocate_section.py: the gate for the RELOCATION ITSELF, added
+          # 2026-08-28 before the canopy cut. `heading_level` cannot tell a markdown heading
+          # from a shell comment -- both are `# text` at column 0 -- and `extract` was
+          # fence-blind, so the first `# Run all tests` inside a code block ended a `##`
+          # section. Simulated against canopy: 8 of 11 candidate sections truncated, `## Quick
+          # Start Commands` extracting 62 of 10,009 chars. It does NOT raise: the move
+          # succeeds, the remainder is orphaned under a "Moved to ..." pointer, and G3 above
+          # still PASSES, because every line it did remove IS in the destination -- G3 cannot
+          # see the lines that were never removed. This suite is the only thing between a
+          # fence-blind regression and a silent bad cut, so it also pins the four-backtick
+          # fence (canopy wraps ```-examples in ````) and the info-string closing rule.
+          python3 -m unittest -v tests/test_p3_relocate_section.py
           # tests/test_soak_ledger.py: the gate for util/soak_ledger.py (plan §6, the
           # pointer-follow soak). util/ is outside every pre-commit Python hook's scope,
           # so this suite IS the gate. It pins the properties that let the soak FALSIFY
