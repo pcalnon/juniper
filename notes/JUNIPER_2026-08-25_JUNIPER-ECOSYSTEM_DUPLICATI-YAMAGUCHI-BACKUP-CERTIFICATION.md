@@ -1543,3 +1543,177 @@ remains KEEP per Paul's §8.14 decision.
 Still open, unchanged: **criterion 5 (reboot)** — now the last unexercised criterion in the whole
 arc; the old sdc4 `_duplicati_tmp/` (empty, removable); the drill `restored/` tree (~64 G); and the
 root-owned items (loopback restage, server-brain DB backup).
+
+### 8.17 Addendum (2026-08-29) — Tier 3 retired; consolidation verified; only root/reboot work remains
+
+With the purge done (§8.16), the two items it was gating were executed and the sda1 consolidation
+claim was checked rather than assumed. After this section **every remaining item in the arc is
+root-owned or reboot-gated**, which is why the successor handoff exists.
+
+#### 8.17.1 Consolidation: the records mirror was already current
+
+The 2026-08-28 handoff stated the sda1 records mirror "has NOT been re-synced since (run
+`yamaguchi_records_sync.bash`)". Running it produced **no output at all** — rsync
+`--itemize-changes` transferred nothing. Silence from a sync is exactly the shape of a vacuous pass,
+so it was checked directly instead of believed: **73 evidence files on each side, identical path
+lists, and the newest drill's `results.json` byte-identical (`cmp`)**. The mirror was already
+current; the handoff's claim was stale. Recorded because the next reader will otherwise re-run it
+expecting work.
+
+This is what "consolidation onto sda1" actually amounts to for evidence: sdc4 is **not
+fstab-managed**, so anything whose only copy is there is on a mount that does not come back after a
+reboot. The durable copy is the sda1 mirror, and it is current.
+
+#### 8.17.2 Tier 3, and why the purge had to come first
+
+`_drill_scratch/` was never generic scratch: it is **35 GB of temporary SQLite databases built by
+the 2026-08-23 drill to index the very volumes §8.16 deleted** (13.2 GB + 17.3 GB + a 6.9 GB WAL +
+shm). While the archive existed those DBs were a plausible shortcut for re-drilling it; with the
+volumes gone they index nothing. That is the real reason Tier 3 was gated on the purge decision, and
+`yamaguchi_retire_tier3.py` **enforces** it as gate 3 (refuses while any `.dblock`/`.dindex` remains
+at the archive root) rather than trusting the ordering.
+
+Executed 2026-08-29, seven gates green:
+
+| deleted | size |
+|---|---|
+| `_drill_scratch/*.sqlite*` (4 files) | 34.8 GiB |
+| `_yamaguchi_drill/drill-20260826-175815/restored/` | 63.9 GiB |
+| `_duplicati_tmp/` (empty since §8.14) | — |
+| **total** | **98.7 GiB** |
+
+**sdc4: 296 G used (17 %) → 197 G (12 %), 1.6 T free.** The live set was re-checked afterwards:
+`818 files / 210,901,216,426 B -> AGREE`.
+
+#### 8.17.3 What was preserved, and the silent loss that was nearly shipped
+
+`_drill_scratch/restored/` held **nine restored sample files** (`good/` and `damaged/`) from the
+old-archive drill — 264 KB, and now the **only surviving artifact of a drill whose archive no longer
+exists**. The standing `yamaguchi_records_sync.bash` syncs `_yamaguchi_check`, `_fresh_dlist_check`,
+`_yamaguchi_drill` and `_fresh_drill` — **not `_drill_scratch`** — so a `rm -rf` of the directory
+would have destroyed them without any tool noticing. Gate 5 copies them to
+`_yamaguchi_records/_drill_scratch/restored/` on sda1 and verifies the count before the deletion
+proceeds. *A retirement tool must check what the standing sync does **not** cover; "the records are
+mirrored" is a claim about four named directories, not about the disk.*
+
+Gate 4 required all five drill evidence files (`results.json`, `drill-meta.json`, `provenance.txt`,
+`candidates.json`, `restore-all.log`) to exist on **both** spindles and be **byte-identical** before
+`restored/` was touched — because `yamaguchi_retire_tier2.bash` reads that same `results.json` as
+*its* gate 4, so deleting it would have silently disarmed a different tool. Confirmed still armed
+afterwards: tier 2 re-run reports `gate 4 PASS` on the same path.
+
+#### 8.17.4 Two stale items corrected
+
+- **§7's "loopback interface is already staged in `/etc/default/duplicati` pending restart" is no
+  longer true.** The file now reads `DAEMON_OPTS="--webservice-interface=any --webservice-port=8300
+  --portable-mode"` — Paul restored that at 14:14 on 2026-08-25 to close the restart trap (§2), which
+  overwrote the staged loopback. Loopback hardening is therefore an **open decision requiring a root
+  edit plus a restart**, not a change waiting to take effect.
+- **The superseded user-lane service fails safe.** `duplicati-backup.timer` is `disabled`, but the
+  unit files remain and could be started by hand. Its runner defaults to
+  `DEST_PATH=/media/pcalnon/temp_backups/Ubuntu` (retired in Tier 2 group 1) and
+  `TEMP_DIR=/media/pcalnon/temp_backups/_duplicati_tmp` (deleted above); both are now absent, and the
+  runner's own guard `[[ -d "${DEST_PATH}" ]] || fail` refuses before writing anything. No action
+  needed — recorded so nobody "fixes" the paths and re-arms a lane that is 0-for-3.
+
+#### 8.17.5 The arc's remaining surface
+
+| item | why it is not done |
+|---|---|
+| **Criterion 5 (reboot)** | deferred by Paul 2026-08-29; the last unexercised acceptance criterion |
+| **Loopback hardening** | root edit of `/etc/default/duplicati` + restart |
+| **Server-brain DB backup** | the job DB lives at `/usr/lib/duplicati/data/` — root-only, and **outside every backup Source** (`/home/pcalnon/` + one VDI), so it is in no backup at all |
+
+> **Superseded by [§8.18](#818-addendum-2026-08-29--the-key-to-the-backup-is-excluded-from-the-backup).**
+> The sentence below was true of the *retirement* work and false of the arc. A validation pass on
+> this section's successor handoff found that the backup's own passphrase is excluded from the
+> backup and shares a physical disk with the sources — an item that outranks all three rows above.
+> Read §8.18 before treating this table as the remaining surface.
+
+Every retirement tier is executed, both destinations reconcile, the watchdog is armed, and the
+record of the purged archive is on two spindles. Successor handoff:
+`prompts/thread-handoff_automated-prompts/HANDOFF_2026-08-29_duplicati-reboot-and-root-tail.md`.
+
+### 8.18 Addendum (2026-08-29) — the key to the backup is excluded from the backup
+
+Found by the multi-agent validation pass on the §8.17 successor handoff, not by the arc's own
+checks. It outranks every item §8.17.5 listed, and **§8.17.5's "Nothing else is outstanding" is
+superseded by this section.** It is recorded here, in the note, because a finding that lives only in
+a session handoff does not survive the handoff.
+
+#### 8.18.1 The finding
+
+| what | path | device |
+|---|---|---|
+| backup **Sources** (2) | `/home/pcalnon/` and `…/VirtualMachines/VirtualBox/win10_vm_2023-04-29/win10_vm_2023-04-29.vdi` | **sdc3** |
+| **the passphrase file** | `/home/pcalnon/.config/duplicati-backup/env` (388 B, 0600) | **sdc3** |
+| frozen second copy (196 GB) + `_old_archive_dlists/` mirror + drill evidence | `/media/pcalnon/temp_backups/` | **sdc4 — the same physical disk, `sdc`** |
+| destination (210 GB of AES ciphertext) | `/mnt/Backups/Ubuntu/Yamaguchi` | sda1 |
+
+`env` holds `PASSPHRASE` — the AES key for the entire destination — and `PASSPHRASE_OLD`, the only
+key to the ten retained dlists that are now the sole record of the purged 2.3 TiB archive (§8.16).
+**Live filter 43 (`Include: false`) excludes `/home/pcalnon/.config/duplicati-backup/`**, so the key
+is not in the backup that it unlocks.
+
+Consequence: **losing the physical disk `sdc` — the failure this backup exists to survive — takes
+the sources, the frozen second copy, the dlist mirror and the key in one event.** The arc has
+certified restores, run drills, censused volumes, deployed a watchdog and executed a purge without
+ever asking where the key lives.
+
+**Stated precisely, because the obvious phrasing overstates it.** It is *not* true that "nothing
+surviving can open the ciphertext" — §8.18.2 describes a route that does, and an earlier draft of
+this section contradicted itself two paragraphs apart. The defensible claim is:
+
+- **`PASSPHRASE` survives an `sdc` loss only as root-only material inside an unbacked-up database**
+  (`Duplicati-server.sqlite` on `/`). That is a single, unreplicated, unmonitored copy — not an
+  escrow.
+- **`PASSPHRASE_OLD` has no surviving out-of-band copy at all.** Its job no longer exists in the
+  server, so the DB does not carry it; it is recoverable only *through* `PASSPHRASE`, by restoring
+  the stray `.env` from the backup (§8.18.2).
+- Therefore a single additional failure — that DB lost or unreadable — makes both keys
+  unrecoverable and the 210 GB destination permanently opaque.
+
+**Trap:** §8.8 wants the stray `.env` swept as secrets sprawl. Doing so **removes the only in-backup
+copy of `PASSPHRASE_OLD`**. Escrow first, sweep second.
+
+Re-derive with `python3 util/ad-hoc/yamaguchi_config_record.py --out <file>` (44 filters, 2 sources;
+filter 43 is the exclusion). `yamaguchi_server_api.py export` currently fails `400`; the
+`GET /api/v1/serversettings` endpoint returns **200** through the tool's own login path.
+
+#### 8.18.2 Two partial mitigations that exist by accident, and neither is sufficient
+
+- **`Duplicati-server.sqlite`** (`/usr/lib/duplicati/data/`, root-only, on `/` = nvme0n1p5) holds the
+  job definition, filters, schedule **and the encrypted passphrase**. It is on a different physical
+  disk from `sdc`, so it is the one artifact that survives an `sdc` loss carrying key material — but
+  it is root-only, in no backup, and **Recreate does not restore it** (Recreate rebuilds only
+  `BMXWPAOGLP.sqlite`, the per-job index). §8.6-7's recipe copies it to
+  `/mnt/Backups/Ubuntu/_yamaguchi_records/`, which is on sda1 and **is not a backup Source** — so
+  running that recipe verbatim leaves "the brain is in no backup" exactly as true as before.
+- **The stray `…/juniper-ml/.claude/worktrees/curious-plotting-hummingbird/.env`** (114 B, Aug 23,
+  §8.8, never reconciled) carries `export PASSPHRASE=` and `export PASSPHRASE_OLD=` in cleartext,
+  sits inside Source `/home/pcalnon/`, and is matched by no filter — so the backup does contain a
+  copy of both passphrases, encrypted under `PASSPHRASE`. That makes `PASSPHRASE_OLD` recoverable
+  from the backup and `PASSPHRASE` **not**: it is the one secret its own copy cannot rescue. The file
+  is git-ignored, so `git worktree remove` deletes it **silently** — do not sweep that worktree
+  before §8.8's reconciliation.
+
+#### 8.18.3 What has to happen (owner decision)
+
+Agree an escrow for `PASSPHRASE` that is **off `sdc` and outside the ciphertext** — an offline or
+printed copy, and/or a copy on sda1 — and decide whether `Duplicati-server.sqlite` gets an automated
+root-owned copy into a non-excluded path (a one-shot decays: the DB advances every run). A headless
+session cannot do either: `/usr/lib/duplicati/data/` is `drwx------ root root` and `sudo -n true`
+fails with `interactive authentication is required`.
+
+Do **not** "fix" this by moving the key inside a Source — that puts the key inside the archive it
+unlocks, which is the same circularity in a new place.
+
+#### 8.18.4 A related exposure, same validation pass
+
+`remote-control-enabled = True` with `additional-report-url = https://ingress.duplicati.com/backupreports/…`
+— backup reports are being sent to Duplicati's cloud service. Separately, the server DB already
+stores `server-listen-interface = loopback`; the command line in `/etc/default/duplicati` is what
+overrides it, so the loopback hardening of §7 may be a *deletion* of `--webservice-interface=any`
+rather than an addition. **The commented-out line in that file omits `--portable-mode`**, so
+activating it by swapping comment markers reproduces the §2 restart trap — edit the active line in
+place.
