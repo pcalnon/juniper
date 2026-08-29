@@ -48,8 +48,8 @@ SECRET_CHECK = REPO_ROOT / "util" / "ad-hoc" / "duplicati_secret_check.py"
 SCRIPT_TIMEOUT_SECONDS = 20
 UBUNTU_MOUNT = "/mnt/Backups/Ubuntu"
 # Throwaway literals -- not credentials. Distinct so a leak of either is visible.
-SECRET_A = "unit-test-secret-AAA"
-SECRET_B = "unit-test-secret-BBB"
+FIXTURE_A = "unit-test-fixture-AAA"
+FIXTURE_B = "unit-test-fixture-BBB"
 
 
 def _load_secret_check():
@@ -78,7 +78,7 @@ class PurgeHarness:
         self.db = tmp / "drill.sqlite"
         self.db.write_text("not-a-real-db\n", encoding="utf-8")
         self.pw = tmp / "archive.pass"
-        self.pw.write_text(f"PASSPHRASE={SECRET_A}\n", encoding="utf-8")
+        self.pw.write_text(f"PASSPHRASE={FIXTURE_A}\n", encoding="utf-8")
         self.bin = tmp / "bin"
         self.bin.mkdir()
         self.cli_log = tmp / "duplicati-cli.log"
@@ -138,8 +138,8 @@ exit 0
 
 
 def _assert_no_secret_leak(testcase: unittest.TestCase, blob: str) -> None:
-    testcase.assertNotIn(SECRET_A, blob)
-    testcase.assertNotIn(SECRET_B, blob)
+    testcase.assertNotIn(FIXTURE_A, blob)
+    testcase.assertNotIn(FIXTURE_B, blob)
 
 
 class TestPurgeDryrunSourceContract(unittest.TestCase):
@@ -270,39 +270,39 @@ class TestPurgeDryrunPreflight(unittest.TestCase):
             log = harness.cli_log_text()
             self.assertIn("purge-broken-files", log)
             self.assertIn("--dry-run=true", log)
-            self.assertNotIn(SECRET_A, log)
+            self.assertNotIn(FIXTURE_A, log)
             self.assertNotIn("--passphrase", log)
             self.assertIn("env_passphrase_set=1", log)
             self.assertIn(f"mount to check: {harness.dest}", result.stdout)
             self.assertNotIn(f"mount to check: {UBUNTU_MOUNT}", result.stdout)
             _assert_no_secret_leak(self, result.stdout + result.stderr)
             # Length is logged (the live script does this); the value is not.
-            self.assertIn(f"({len(SECRET_A)} chars", result.stdout)
+            self.assertIn(f"({len(FIXTURE_A)} chars", result.stdout)
 
 
 class TestSecretFromFile(unittest.TestCase):
     def test_plain_key_equals_value(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "cred"
-            path.write_text(f"PASSPHRASE={SECRET_A}\n", encoding="utf-8")
-            self.assertEqual(sc.secret_from_file(str(path), "PASSPHRASE"), SECRET_A)
+            path.write_text(f"PASSPHRASE={FIXTURE_A}\n", encoding="utf-8")
+            self.assertEqual(sc.secret_from_file(str(path), "PASSPHRASE"), FIXTURE_A)
 
     def test_export_and_single_quotes_are_stripped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "cred"
-            path.write_text(f"export PASSPHRASE='{SECRET_A}'\n", encoding="utf-8")
-            self.assertEqual(sc.secret_from_file(str(path), "PASSPHRASE"), SECRET_A)
+            path.write_text(f"export PASSPHRASE='{FIXTURE_A}'\n", encoding="utf-8")
+            self.assertEqual(sc.secret_from_file(str(path), "PASSPHRASE"), FIXTURE_A)
 
     def test_double_quotes_are_stripped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "cred"
-            path.write_text(f'PASSPHRASE="{SECRET_A}"\n', encoding="utf-8")
-            self.assertEqual(sc.secret_from_file(str(path), "PASSPHRASE"), SECRET_A)
+            path.write_text(f'PASSPHRASE="{FIXTURE_A}"\n', encoding="utf-8")
+            self.assertEqual(sc.secret_from_file(str(path), "PASSPHRASE"), FIXTURE_A)
 
     def test_missing_key_is_none_not_the_whole_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "cred"
-            path.write_text(f"OTHER={SECRET_B}\n", encoding="utf-8")
+            path.write_text(f"OTHER={FIXTURE_B}\n", encoding="utf-8")
             self.assertIsNone(sc.secret_from_file(str(path), "PASSPHRASE"))
 
     def test_wrong_key_is_not_silently_taken_from_another_line(self) -> None:
@@ -310,11 +310,11 @@ class TestSecretFromFile(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "cred"
             path.write_text(
-                f"WEB_UI_PASSWORD={SECRET_B}\nPASSPHRASE={SECRET_A}\n",
+                f"WEB_UI_PASSWORD={FIXTURE_B}\nPASSPHRASE={FIXTURE_A}\n",
                 encoding="utf-8",
             )
-            self.assertEqual(sc.secret_from_file(str(path), "PASSPHRASE"), SECRET_A)
-            self.assertEqual(sc.secret_from_file(str(path), "WEB_UI_PASSWORD"), SECRET_B)
+            self.assertEqual(sc.secret_from_file(str(path), "PASSPHRASE"), FIXTURE_A)
+            self.assertEqual(sc.secret_from_file(str(path), "WEB_UI_PASSWORD"), FIXTURE_B)
 
 
 class TestFindPid(unittest.TestCase):
@@ -363,7 +363,7 @@ class TestSecretCheckCli(unittest.TestCase):
 
     def test_refuses_without_pid_or_match_cmd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cred = self._write_cred(Path(tmp), f"PASSPHRASE={SECRET_A}\n")
+            cred = self._write_cred(Path(tmp), f"PASSPHRASE={FIXTURE_A}\n")
             result = self._run_checker("--file", str(cred), "--key", "PASSPHRASE")
             self.assertEqual(result.returncode, 2, msg=result.stdout + result.stderr)
             self.assertIn("REFUSING: give --pid or --match-cmd", result.stdout)
@@ -371,7 +371,7 @@ class TestSecretCheckCli(unittest.TestCase):
 
     def test_undetermined_when_no_process_matches(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cred = self._write_cred(Path(tmp), f"PASSPHRASE={SECRET_A}\n")
+            cred = self._write_cred(Path(tmp), f"PASSPHRASE={FIXTURE_A}\n")
             needle = f"no-such-duplicati-process-{uuid.uuid4().hex}"
             result = self._run_checker(
                 "--match-cmd",
@@ -386,10 +386,10 @@ class TestSecretCheckCli(unittest.TestCase):
             _assert_no_secret_leak(self, result.stdout + result.stderr)
 
     def test_match_when_file_still_holds_what_the_process_uses(self) -> None:
-        holder = self._spawn_holder(SECRET_A)
+        holder = self._spawn_holder(FIXTURE_A)
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                cred = self._write_cred(Path(tmp), f"PASSPHRASE={SECRET_A}\n")
+                cred = self._write_cred(Path(tmp), f"PASSPHRASE={FIXTURE_A}\n")
                 result = self._run_checker(
                     "--pid",
                     str(holder.pid),
@@ -408,10 +408,10 @@ class TestSecretCheckCli(unittest.TestCase):
 
     def test_differ_does_not_print_either_secret(self) -> None:
         """#1281: the running job kept a rotated secret in RAM only."""
-        holder = self._spawn_holder(SECRET_A)
+        holder = self._spawn_holder(FIXTURE_A)
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                cred = self._write_cred(Path(tmp), f"PASSPHRASE={SECRET_B}\n")
+                cred = self._write_cred(Path(tmp), f"PASSPHRASE={FIXTURE_B}\n")
                 result = self._run_checker(
                     "--pid",
                     str(holder.pid),
@@ -429,10 +429,10 @@ class TestSecretCheckCli(unittest.TestCase):
             holder.wait(timeout=5)
 
     def test_missing_key_on_disk_is_differ_not_undetermined(self) -> None:
-        holder = self._spawn_holder(SECRET_A)
+        holder = self._spawn_holder(FIXTURE_A)
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                cred = self._write_cred(Path(tmp), f"WEB_UI_PASSWORD={SECRET_B}\n")
+                cred = self._write_cred(Path(tmp), f"WEB_UI_PASSWORD={FIXTURE_B}\n")
                 result = self._run_checker(
                     "--pid",
                     str(holder.pid),
@@ -450,7 +450,7 @@ class TestSecretCheckCli(unittest.TestCase):
 
     def test_gone_pid_is_undetermined(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cred = self._write_cred(Path(tmp), f"PASSPHRASE={SECRET_A}\n")
+            cred = self._write_cred(Path(tmp), f"PASSPHRASE={FIXTURE_A}\n")
             result = self._run_checker(
                 "--pid",
                 "1073741824",
