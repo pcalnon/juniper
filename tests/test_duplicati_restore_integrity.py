@@ -30,10 +30,10 @@ import subprocess
 import tempfile
 import textwrap
 import unittest
+import unittest.mock as mock
 import zipfile
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from unittest import mock
 
 from tests.redacted_env import RedactedEnv
 
