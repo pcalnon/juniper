@@ -75,9 +75,20 @@ It says so in its own Overview:
 > This document serves as a central index for all technical reference documentation in
 > juniper-canopy. Each section links to the detailed reference document for that subsystem.
 
-It is 9,672 chars of pointers into a 38-file `docs/` tree (`api/`, `cascor/`, `cassandra/`,
+It is 9,672 chars (chars, not the 9,676 bytes `wc -c` reports — the ceiling's unit is chars) spread
+over 11 content sections pointing into a 38-file `docs/` tree (`api/`, `cascor/`, `cassandra/`,
 `ci_cd/`, `demo/`, `deployment/`, `history/`, `redis/`, `testing/`). Relocating ~50K of `AGENTS.md`
-prose into it would destroy that role and leave the repo with no index.
+prose into it would swamp that role.
+
+**"It is an index" is only half true, corrected 2026-08-29.** Measured per section: five of the
+eleven carry **inline content** rather than links — Environment Variables Quick Reference (2,219, an
+18-row table, and *missing from the file's own ToC*), Configuration Reference (1,161), WebSocket
+Reference (1,045), Constants Reference (478), Overview (325). That is **5,228 of 9,672 = 54.1%
+inline**. So it is a hybrid: a hub for half its bulk and a content file for the other half. The
+index-vs-destination conclusion stands for the pointer half, but anyone relocating into it must plan
+to *merge* with existing content rather than append. Under the decision recorded in §7 nothing bulky
+lands there at all, so this does not bite — but that Environment Variables table is itself a
+relocation candidate the next pass should look at.
 
 This conflicts with canopy's own `conf/memory_budget.json`, whose `_README` states
 *"docs/REFERENCE.md is deliberately NOT governed. It is the migration DESTINATION"*. That line was
@@ -123,7 +134,13 @@ against `main`, chars (the ceiling's unit).
 | Documentation Organization | 3,334 |
 | Update Triggers | 3,186 |
 | Documentation Update Workflow | 671 |
-| **subtotal** | **27,687 (29%)** |
+| **subtotal** | **27,687 (29.1%)** |
+
+*The 27,687 is the **sum of those seven discrete sections**, which are not contiguous in the file —
+measuring any span between two of them instead (e.g. `## Documentation Organization` →
+`## Definition of Done` = 29,130) counts intervening sections and gives a different, larger number.
+Re-derived 2026-08-29 with `2026-08-28_p5_cut_section_sizes.py`: 6,771 + 5,109 + 4,896 + 3,720 +
+3,334 + 3,186 + 671 = 27,687 of 95,133.*
 
 That is rules for *authoring documentation*, resident in every session regardless of task — the
 strongest relocation candidate in the fleet so far. Technical reference is the next group:
@@ -243,11 +260,26 @@ what it costs to learn each the hard way:
 
 | # | Source | Directive |
 |---|---|---|
-| 1 | **NEW TEXT — not in `AGENTS.md` at all** | **Dash `no_update` chaining.** A clientside producer that returns `no_update` when idle must NEVER be an Input to an interval-driven callback — Dash skips that callback for the tick and *silently* re-creates the starvation. Also: derive liveness from frame-arrival age, never a sticky `received` flag. Both have already cost a P0/P1. |
+| 1 | **NEW TEXT — not in `AGENTS.md` at all** | **Dash `no_update` chaining.** A clientside producer that returns `no_update` when idle must NEVER be an Input to an interval-driven callback — Dash skips that callback for that tick, and the lane simply stops firing with no error and no failing test. Justification is the `CRITICAL` label its own author gave it plus the silence of the failure mode — **not** an incident receipt; see the correction below. |
 | 2 | `AGENTS.md` L1325 | "Do not change existing payload keys without versioning" — silent to the author, breaks clients, and it sat inside a relocation target. |
 | 3 | L887 | No global mutable state without locks. `TrainingState`'s lock is load-bearing; F-CANOPY-036 accumulates under it. A lockless shared write corrupts a run silently. |
 | 4 | L888 | Long-lived collections must be size-bounded. Documented memory pressure (`REPLAY_WEIGHT_BUFFER_MAX` reasons about a few-hundred-MB peak); unbounded growth kills a long run with no warning. |
 | 5 | L1420 | The `/tmp/` prohibition — the one hazard here with an actual incident record, and this arc added a second data point (§6b). |
+
+> **Correction, 2026-08-29 — bullet 1's original rationale was refuted, and the bullet survives on a
+> narrower basis.** It was first proposed with the claim that chained `no_update` had "already cost
+> a P0/P1". An adversarial fact-check found that unsourced, and the ledger contradicts it:
+> [`JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md:414-419`](JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md)
+> records the closest tested instance — `visualization-tabs.active_tab` as an Input poisoning a
+> writer, *"with a comment naming this hazard as 'the I-1 starvation'"* — and rules it **"Plausible,
+> and *wrong*: moving it to `State` … left the panel exactly as dead. Reverted."** F-CANOPY-027's
+> actual root cause was dash-renderer's hard-coded 12-slot pool.
+>
+> What survives is enough on its own: the comment is real, its author labelled it `CRITICAL`, the
+> Dash execution-model property it describes is genuine, violating it is **silent**, and it is
+> absent from `AGENTS.md`. Promote it on the CRITICAL-label + silent-failure basis. **Do not carry
+> any "already cost a P0/P1" wording.** Noted here because promoting on an unre-measured rationale
+> is the exact failure this whole prerequisite exists to prevent — the prerequisite caught itself.
 
 **Bullet 1 is the finding that justifies the whole prerequisite, and no scan of `AGENTS.md` could
 have produced it.** It lives at `src/frontend/dashboard_manager.py:3869`, labelled `CRITICAL` by its
@@ -365,26 +397,61 @@ unmatched. **The safe form is one G3 run per destination with the results unione
 cascor is unaffected — it is a single-destination cut into a `docs/REFERENCE.md` that must first be
 created.
 
-## 7. Decisions owed before execution
+## 7. Decisions — ALL RESOLVED (owner, 2026-08-29)
 
-1. **canopy's destination — RESOLVED in principle**, refined by the owning session, which
-   independently verified that `REFERENCE.md`'s 13 sections are one-line descriptions plus tables of
-   links, i.e. a hub. The two options are **not alternatives, they are two different materials**:
-   - the ~27.7K of documentation-**about**-documentation → `docs/DOCUMENTATION_OVERVIEW.md`, which is
-     literally the file whose subject that is (29% off the resident file on its own);
-   - everything else reference-shaped → a new `docs/AGENTS_REFERENCE.md`;
-   - `REFERENCE.md` gains one row per destination and **stays an index**.
+1. **canopy's destination — TWO SEQUENTIAL SINGLE-DESTINATION PRs.** The split agreed with the
+   owning session is by *subject*, not convenience: documentation-about-documentation goes to
+   `docs/DOCUMENTATION_OVERVIEW.md`, which is literally the file whose subject that is; everything
+   else reference-shaped goes to a new `docs/AGENTS_REFERENCE.md`; `REFERENCE.md` gains one row per
+   destination and keeps its index role.
 
-   Splitting by subject rather than convenience keeps either destination from becoming a junk
-   drawer. Still to do: correct the inherited `_README` line in canopy's `conf/memory_budget.json`,
-   which asserts something false about that repo — a stale pointer inside the config for the gate
-   whose purpose is to prevent exactly that.
-2. **cascor's new `REFERENCE.md`** and its relationship to the existing `docs/INDEX.md`.
-3. **cascor tier A or A+B.**
-4. ~~**Sequencing with `canopy e2e`**~~ — **RESOLVED, see §2.1.** It owns both primaries, has no
-   `AGENTS.md` work in flight, will signal when the stack is down, and has identified 7 of its 11
-   worktrees as sweepable. The remaining coordination is only *when*, and the answer is "whenever it
-   signals" — §8 shows neither repo is close to firing, so waiting costs nothing.
+   **Delivered as two PRs in sequence, each targeting one destination** — PR 1 (doc-about-doc), then
+   PR 2 branched from the new `main` (the remainder). This is what dissolves §6d: each PR is a
+   single-destination relocation, so `relocation_check.py` runs cleanly on it as-is. No repeatable
+   `--dest`, no union pass-condition, and therefore no opportunity for someone to hit a spurious
+   per-destination failure and "fix" it by relaxing G3. It also halves each diff.
+
+   Note the destination scaffold: the relocate script reads the destination file and requires
+   exactly one `--insert-before` heading, so `AGENTS_REFERENCE.md` must be created with a header, a
+   ToC and at least one terminal section **before** the first relocation into it.
+
+   Still to do in the same arc: correct the inherited `_README` line in canopy's
+   `conf/memory_budget.json`, which asserts something false about that repo — a stale pointer inside
+   the config for the gate whose purpose is to prevent exactly that.
+
+2. **cascor — TIER A, nine sections** (~35,786 chars; §4.2), landing `AGENTS.md` near 37,500. Pure
+   lookup-reference; nothing operational moves. Its `docs/REFERENCE.md` must be created first, and
+   its relationship to the existing `docs/INDEX.md` settled at that point — INDEX.md is 5,262 chars
+   and is the natural place to add the one pointer row.
+
+3. **cascor-worker and deploy — CUT BOTH.** They are the same shape as the three that shipped
+   2026-08-28: an existing `docs/REFERENCE.md` content file, a single destination, and the proven
+   driver. See §7.1 for the section sets and the exclusion rule applied to them.
+
+4. **The canopy hazards block — a SEPARATE PR, before the cut.** Promote the resident set first,
+   then cut around it; the cut cannot relocate something already pinned as resident. Bullet 1 is new
+   text drafted from the source comment, for the owning session to review before it lands.
+
+5. ~~**Sequencing with `canopy e2e`**~~ — **RESOLVED, see §2.1.** Waiting on its teardown ping only.
+
+### 7.1 worker and deploy — sections, and the exclusion rule
+
+Applied here for the first time and worth stating as a rule: **exclude from a cut any section
+carrying a score ≥ 2 candidate from the hazard triage.** A relocation turns a resident fact into a
+reference someone must know to look up, so a section holding a silent-failure directive should not
+move at all — which is cheaper than splitting the section and loses only its reference value.
+
+| Repo | Relocate | Excluded, and why |
+|---|---|---|
+| cascor-worker | Directory Layout 3,782 · Application Architecture 1,757 · Public API 2,179 · Test Details 2,085 · CLI Reference 1,665 (**11,468**) | `## CI/CD` — the no-`branches:`-filter fact (only check on a stacked PR, cannot block the merge). `## Constants` — *"a mismatch **silently** breaks worker connectivity"*. |
+| deploy | Environment Variables 5,809 · Directory Layout 3,983 · Security Architecture 2,428 · Testing 1,802 · Documentation 675 (**14,697**) | `## CI/CD Pipeline` — the same no-filter fact, plus the base-branch-guard warning that renaming the job makes `main` unmergeable. |
+
+Score-1 hits inside the retained sets were inspected and are false positives: worker L319 matches
+**"WARNING" as a log level** in a flag table; deploy L580 is a test-markers table.
+
+Both destinations already exist and carry 0% overlapping content (measured), so the two name
+collisions — worker's `CLI Reference`, deploy's `Environment Variables` — are resolved with distinct
+destination titles rather than by skipping the sections.
 
 ## 8. Urgency — neither is close to firing
 

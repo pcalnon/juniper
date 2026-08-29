@@ -73,6 +73,9 @@ PORT_HELPER = "util/ad-hoc/2026-08-25_p5_port_memory_budget.py"
 
 CANOPY_PY = "/opt/miniforge3/envs/JuniperCanopy1/bin/python"
 DATA_PY = "/opt/miniforge3/envs/JuniperData/bin/python"
+# JuniperCascor1, not JuniperCascor: the latter's torch import is broken, and cascor-worker's
+# tests/conftest.py imports the package, which needs juniper_config_tools.
+CASCOR_PY = "/opt/miniforge3/envs/JuniperCascor1/bin/python"
 
 # Per repo: the sections to move, in file order, each
 #   (source heading, destination title, anchor, insert-before heading, pointer sentence)
@@ -119,6 +122,61 @@ PLAN: dict[str, dict] = {
             ("## CI/CD Pipeline", "CI/CD Pipeline Reference", "cicd-pipeline-reference",
              "## Additional Resources",
              "Per-workflow reference for `.github/workflows/`, including the contract each job must not break."),
+        ],
+    },
+    # worker and deploy, added 2026-08-29 (owner decision to cut them). Section choice follows a
+    # rule this arc arrived at the hard way: EXCLUDE any section carrying a score>=2 hazard
+    # candidate from 2026-08-28_hazard_triage.py, because a relocation turns a resident fact into a
+    # reference someone must know to look up. Excluded here:
+    #   worker  `## CI/CD`      -- the no-`branches:`-filter fact (the only check on a stacked PR,
+    #                              and it cannot block the merge)
+    #   worker  `## Constants`  -- "re-run the cross-repo bit-identity check ... a mismatch SILENTLY
+    #                              breaks worker connectivity"
+    #   deploy  `## CI/CD Pipeline` -- the same no-filter fact, plus the base-branch-guard warning
+    #                              that renaming the job makes `main` unmergeable
+    # Score-1 hits inside the sets below were inspected and are false positives: worker L319 matches
+    # "WARNING" as a LOG LEVEL in a flag table; deploy L580 is a test-markers table.
+    "juniper-cascor-worker": {
+        "python": CASCOR_PY,   # its tests/conftest.py imports the package -> needs juniper_config_tools
+        "sections": [
+            ("## Directory Layout", "Directory Layout Reference", "directory-layout-reference",
+             "## Troubleshooting",
+             "The annotated source tree, with the purpose of every package and key module."),
+            ("## Application Architecture", "Application Architecture Reference", "application-architecture-reference",
+             "## Troubleshooting",
+             "The worker's process model, lease lifecycle, and how it attaches to a cascor run."),
+            ("## Public API", "Public API Reference", "public-api-reference",
+             "## Troubleshooting",
+             "Every public entry point, its signature, and the exception it raises."),
+            ("## Test Details", "Test Details Reference", "test-details-reference",
+             "## Troubleshooting",
+             "Per-suite detail: what each test file covers and the marker it carries."),
+            # dest already has a `## CLI Reference` (different content -- 0% line overlap), so the
+            # destination title must differ or the relocate script refuses on collision.
+            ("## CLI Reference", "Worker CLI Flag Reference", "worker-cli-flag-reference",
+             "## Troubleshooting",
+             "Every CLI flag, its default, and the behaviour it selects."),
+        ],
+    },
+    "juniper-deploy": {
+        "python": CANOPY_PY,   # deploy has no Python linters of its own; yamllint is its lane
+        "sections": [
+            # dest already has `## Environment Variables` (different content -- 0% overlap).
+            ("## Environment Variables", "Environment Variable Reference", "environment-variable-reference",
+             "## Test Configuration",
+             "Every environment variable the stack reads, its default, and which service consumes it."),
+            ("## Directory Layout", "Directory Layout Reference", "directory-layout-reference",
+             "## Test Configuration",
+             "The annotated repository tree, with the purpose of every directory and key file."),
+            ("## Security Architecture", "Security Architecture Reference", "security-architecture-reference",
+             "## Test Configuration",
+             "The stack's trust boundaries, bind posture, and the secret-delivery path."),
+            ("## Testing", "Testing Reference", "testing-reference",
+             "## Test Configuration",
+             "Per-suite detail: what each test file covers and the marker it carries."),
+            ("## Documentation", "Documentation Reference", "documentation-reference",
+             "## Test Configuration",
+             "The documentation set, what each document is for, and where it lives."),
         ],
     },
     "juniper-data-client": {
