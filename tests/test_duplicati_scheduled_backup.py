@@ -223,7 +223,10 @@ class _LaneFixture:
 
 
 def _hold_exclusive_lock(path: Path) -> int:
-    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+    # 0o600: this lock file needs no group/other access -- flock(2) works the
+    # same either way, and a world-readable temp file is a CodeQL py/overly-
+    # permissive-file finding (CWE-732) for no benefit.
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     return fd
 
@@ -581,7 +584,7 @@ class TestInstallerBehavioral(unittest.TestCase):
             self.assertFalse((unit_dir / "duplicati-backup.service").is_symlink())
             logged = fx.systemctl_log.read_text(encoding="utf-8").splitlines()
             self.assertEqual(logged, ["--user daemon-reload"])
-            self.assertTrue(stat.S_IMODE((home / ".config" / "duplicati-backup" / "env").stat().st_mode) == 0o600)
+            self.assertEqual(stat.S_IMODE((home / ".config" / "duplicati-backup" / "env").stat().st_mode), 0o600)
 
 
 if __name__ == "__main__":
