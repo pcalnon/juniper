@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.10
+**Version:** 0.6.11
 **Status:** Active
 **Last Updated:** 2026-08-24
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -30,6 +30,7 @@
 - [Release-Train Detect Summary and Slack](#release-train-detect-summary-and-slack)
 - [AGENTS.md Date Check](#agentsmd-date-check)
 - [Claude.yml Access Validation](#claudeyml-access-validation)
+- [Claude Code Action](#claude-code-action)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
@@ -1811,7 +1812,7 @@ With the `SLACK_WEBHOOK_URL` repo secret present (owner-provisioned incoming web
 
 ### Claude Code Action (`claude.yml`)
 
-Triggered by issue/PR comments and events mentioning @claude. Uses `anthropics/claude-code-action` for automated issue/PR assistance.
+GitHub `@claude` assistant (`anthropics/claude-code-action`). Event-driven (comments / reviews / issues), SHA-pinned, **not** a required check and **not** the local `claudey` launcher. Operator surface: [Claude Code Action](#claude-code-action). Access audit: [Claude.yml Access Validation](#claudeyml-access-validation).
 
 ---
 
@@ -1874,7 +1875,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Mode switch / rollback: repo variable `RELEASE_TRAIN_MODE` (`off`|`report`|`propose`|`ceremony`, default `report`) + a dispatch `mode` override; `off` quiesces entirely.
   - Operator guide: `notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`.
 - `.github/workflows/pr-budget-alarm.yml` -- Daily (14:00 UTC) scheduled open-PR budget alarm (flood-remediation guardrail, analysis §4 item 9 / P1 §5): counts total open PRs + `cursor/`-headed PRs against repo variables `PR_BUDGET_WARN` (default 15) / `PR_BUDGET_ALARM` (default 30), always writes a step-summary table, and on breach posts to Slack via `SLACK_WEBHOOK_URL` under the non-blocking contract mirrored from `release-train.yml`. Report-only -- a breach never blocks a PR.
-- `.github/workflows/claude.yml` -- Claude Code action for issue/PR automation (@claude mentions)
+- `.github/workflows/claude.yml` -- `@claude` assistant (`anthropics/claude-code-action`; SHA-pinned; not a required check). Operator surface: [Claude Code Action](#claude-code-action).
 - `.github/workflows/agents-md-touch-up.yml` -- **Verifies** (never rewrites) `AGENTS.md`'s `**Last Updated**:` field on every PR that touches `AGENTS.md`: the value must be a well-formed `YYYY-MM-DD`, not in the future, and **either already equal to today's UTC date OR changed in this PR** (`git diff <base>...HEAD`); a missing field warns and passes. Job `Verify AGENTS.md Last Updated`, `permissions: contents: read`, no fork guard (verification needs no token).
   - The **already-today** arm is a real escape hatch, not a rounding of the rule: a second same-day PR touching `AGENTS.md` — or a **stacked** PR whose base branch already carries the bump, so the line legitimately does not appear in its own diff — passes on the value alone. Note which arm each PR is relying on: the already-today arm is **re-evaluated every run** and expires at the next UTC midnight, while the changed-in-this-PR arm is **stable for the life of the PR** (that is the workflow's stated reason for preferring it — see `.github/workflows/agents-md-touch-up.yml`).
   - **A stacked pair that sits overnight: bump the line in the CHILD, not the base.** The child's own diff then contains `+**Last Updated**:`, which satisfies the durable changed-in-this-PR arm and keeps satisfying it however long the PR stays open. Re-bumping the **base** only re-arms the already-today arm for the child, so it passes today and is stale again tomorrow — a one-day shelf life, repaid every morning until the stack lands. (Earlier revisions of this page recommended exactly that; corrected 2026-08-24.) The child must set a value that actually differs from the base's, or the line does not appear in its diff and the durable arm is not engaged.
@@ -2541,7 +2542,51 @@ With no arguments and no `JUNIPER_ROOT`, the script audits `juniper-ml/.github/w
 | `ci.yml` / `main-verify.yml` battery | Same | `python3 -m unittest -v tests/test_validate_claude_yaml_access.py` |
 | `docs-full-check.yml` | Weekly Mon 06:00 UTC + dispatch | `JUNIPER_ROOT="$GITHUB_WORKSPACE" bash juniper-ml/util/validate_claude_yaml_access.bash` after the sibling clones |
 
-The bash auditor covers L2/L3 structure only; juniper-ml's own `on:` event matrix and exact job `permissions` are pinned separately in `tests/test_validate_claude_yaml_access.py` — a permissions widen that still carries an `@claude` guard would not trip L2/L3 alone.
+The bash auditor covers L2/L3 structure only; juniper-ml's own `on:` event matrix and exact job `permissions` are pinned separately in `tests/test_validate_claude_yaml_access.py` — a permissions widen that still carries an `@claude` guard would not trip L2/L3 alone. Live pin, inputs, and Dependabot contract: [Claude Code Action](#claude-code-action).
+
+---
+
+## Claude Code Action
+
+`.github/workflows/claude.yml` is the GitHub Actions `@claude` assistant. It is **not** the local CLI launcher (`scripts/wake_the_claude.bash` / `claudey`). Mentioning `@claude` on a public issue or PR spends `secrets.ANTHROPIC_API_KEY`. Access-safeguard audit (L2/L3, `DEFAULT_REPOS`) is [Claude.yml Access Validation](#claudeyml-access-validation); this section is the **live workflow contract** — triggers, permissions, SHA pin, and Dependabot.
+
+The job is **not** a required status check and is **not** in Quality Gate `needs:`. It has no `push` or `pull_request` trigger, so a commit to `main` does not start it.
+
+### Workflow contract
+
+| Item | Value |
+|------|-------|
+| Workflow / job name | `Claude Code` / `claude` |
+| Triggers | `issue_comment` (`created`); `pull_request_review_comment` (`created`); `issues` (`opened`, `assigned`); `pull_request_review` (`submitted`) |
+| Job `if:` | Every `on:` event is named in the expression; each arm requires the literal `@claude` (comment body, review body, or issue body/title) |
+| Permissions | Exact map: `contents: write`, `pull-requests: write`, `issues: write`, `id-token: write`, `actions: read` |
+| Checkout | SHA-pinned `actions/checkout` with `fetch-depth: 1` (shallow) |
+| Action | SHA-pinned `anthropics/claude-code-action` with a `# vX.Y.Z` comment. Only input: `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}` |
+| Required secret | Repo secret `ANTHROPIC_API_KEY` (personal-account owner — not an org Actions secret) |
+
+Read the live `# v…` comments in the workflow for the current pin — do not copy a version number out of this page.
+
+Gate: `tests/test_validate_claude_yaml_access.py` (`LiveClaudeWorkflowContractTests`) pins the `on:` set, that every event is named in `if:`, and the exact permissions map. It does **not** pin the action SHA — Dependabot patch bumps of `anthropics/claude-code-action` are expected and do not fail the suite.
+
+### SHA pin and Dependabot
+
+Both `uses:` lines are SHA-pinned with a trailing `# vX.Y.Z` comment. Do not retarget a floating tag (`@v1`).
+
+`.github/dependabot.yml` (`github-actions`, weekly Monday, `open-pull-requests-limit: 3`) groups **only** `github/codeql-action*`. `claude-code-action` is a single `uses:` line, so an ungrouped bump (one file, one SHA) is the healthy PR. That is unlike CodeQL, where an ungrouped bump splits `init` / `autobuild` / `analyze`.
+
+`notes/templates/ci/claude.yml` is the 2026-04-29 rollout snapshot (`actions/checkout` v6.0.2, `anthropics/claude-code-action` v1.0.107). The live workflow is the source of truth (the template header already says so). Copying the template over `.github/workflows/claude.yml` rewinds both pins.
+
+### Operator pitfalls
+
+| Symptom | What it actually is | What to do |
+|---------|---------------------|------------|
+| `@claude` did not run | Job `if:` requires the literal `@claude` in that event's body (or issue title). `issues: assigned` still needs it | Add `@claude` to the comment / review / issue text |
+| Action ran on every comment | Missing or weakened `if:` (L3) | Restore the four-arm `@claude` guard; `bash util/validate_claude_yaml_access.bash .github/workflows/claude.yml` |
+| Fork PR spent the key | `on:` gained `pull_request_target` or `workflow_run` (L2) | Remove those triggers; never add them |
+| Template "sync" rewound the pin | `notes/templates/ci/` snapshot lags Dependabot | Restore `.github/workflows/claude.yml` from `main`; leave the template as a historical snapshot |
+| Floating `@v1` / un-SHA'd tag | Mutable tag; SHA pin is the contract | Keep `uses: ...@<sha>  # vX.Y.Z` |
+| Permissions widen, auditor still green | L2/L3 bash does not pin the permissions map | `LiveClaudeWorkflowContractTests.test_job_permissions_exact` fails; do not drop that test |
+| Workflow file present, action cannot resolve the key | `ANTHROPIC_API_KEY` is a **repo** secret on this personal-account owner | Set the secret on the repo; walkthrough [§1.1](../notes/JUNIPER_2026-05-10_JUNIPER-ECOSYSTEM_ANTHROPIC-API-KEY-ACCESS-VALIDATION-WALKTHROUGH.md) |
 
 ---
 
@@ -2663,7 +2708,7 @@ Control receive rejects malformed / non-object JSON with close **1003** rather t
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0.6.10  | 2026-08-24 | Snapshot attribution dataset pin: `seeded_params` / `DATASET_SEED` / `--dataset-seed` vs `--seed`, `JUNIPER_CASCOR_SNAPSHOTS_DIR` chain trap, quoteable seeded counts (juniper-ml#1333) |
+| 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
@@ -2997,5 +3042,5 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 ---
 
 **Last Updated:** 2026-08-24
-**Version:** 0.6.10
+**Version:** 0.6.11
 **Maintainer:** Paul Calnon
