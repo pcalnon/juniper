@@ -304,6 +304,35 @@ what it costs to learn each the hard way:
 > evidenced from both sides rather than inferred from absence, and a `dcc.Store` renders no DOM,
 > which is why a clean static layout check missed it. It does not change bullet 1's narrowed basis.)*
 
+### Bullet 1 — drafted text, and why it is wider than the source comment
+
+The `:3869` comment says `ws-metrics-buffer` is deliberately **not** an Input on the guarded poll.
+What it does **not** say — established 2026-08-29 by the owning session's second adversarial round,
+and re-verified here against `src/frontend/dashboard_manager.py` on the canopy primary — is that the
+buffer reaches the same store anyway, through a **second callback with different guard semantics**:
+
+| writer | line | Output | identity guard |
+|---|---|---|---|
+| `update_metrics_store` (guarded REST poll) | `:3877` | `Output("metrics-panel-metrics-store", "data")` | yes — but its falsy-copy branches `return dash.no_update if current_metrics else []`, i.e. **`[]`, not `no_update`** |
+| `append_ws_metrics_store` | `:3909` | same store, **`allow_duplicate=True`**, `Input("ws-metrics-buffer", "data")` | **none** — handler ends `return merged[-window_size:] …`, so every write it makes is `no_update`-free by construction |
+
+So one store id has two writers with asymmetric identity behaviour, and the `CRITICAL` comment
+documents only the half that is *absent*. Proposed text for the resident block:
+
+> **Dash `no_update` chaining and duplicate store writers.** A clientside producer that returns
+> `no_update` while idle must never be an `Input` to an interval-driven callback: Dash skips the
+> dependent callback for that tick and the lane stops firing, with no error and no failing test.
+> **And before reasoning from a store's write census, count its writers** — an
+> `allow_duplicate=True` `Output` co-owns the same store id and is invisible to anyone reading the
+> handler they happened to open. `metrics-panel-metrics-store` has two, and only one carries an
+> identity guard.
+
+**That second sentence is the reusable half.** The failure it prevents is measured, not asserted:
+a census of 32 writes / 31 byte-identical / zero `no_update` was read as *"can only happen if the
+client's copy never advances"*, when in fact one of the two writers **cannot** emit `no_update` at
+all, and the other returns `[]` rather than `no_update` on a falsy copy — so the observation was
+partly *predicted by* the premise it was being used to prove. Four candidate explanations, not one.
+
 **Bullet 1 is the finding that justifies the whole prerequisite, and no scan of `AGENTS.md` could
 have produced it.** It lives at `src/frontend/dashboard_manager.py:3869`, labelled `CRITICAL` by its
 own author; `grep -icE "no_update|execution model|starv" AGENTS.md` → **0**. A cut that only decides
