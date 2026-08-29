@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-23
 # Status:      ad-hoc -- one-off (residual CLI-vs-service wall gap, post-#533)
-# Retire when: the residual wall-gap evidence note is merged; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the residual wall-gap evidence note is merged; delete then.
 # Related:     util/experiment_stack.bash (whose JUNIPER_EXP_CONDA_DIR hook this uses).
 #
 # WHY A SHIM AND NOT `py-spy record --pid`

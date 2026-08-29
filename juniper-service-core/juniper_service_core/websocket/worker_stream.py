@@ -71,6 +71,23 @@ MSG_TASK_RESULT = "task_result"
 _MAX_JSON_SIZE = 65536  # 64KB for JSON messages
 _MAX_BINARY_SIZE = 100 * 1024 * 1024  # 100MB for binary frames
 
+#: Maximum number of binary attachments one ``task_result`` may declare (``APD-SVCCORE-001``).
+#: Mirrors juniper-cascor's ``_MAX_TENSOR_MANIFEST_ENTRIES`` (``src/api/workers/protocol.py:64``,
+#: enforced at ``src/api/websocket/worker_stream.py:391``) -- its fork already carried this bound and
+#: the shared package did not, making the *shared* copy the weaker of the two.
+#: **Checked before the first ``receive()``**, which is the point: a hostile declaration must be
+#: rejected outright rather than allowed to stall the handler part-way through a binary sequence.
+_MAX_ATTACHMENTS = 32
+
+#: Aggregate binary budget across ONE result submission (``APD-SVCCORE-001``). The per-frame cap
+#: alone permitted ``len(attachment_names) x _MAX_BINARY_SIZE``, which is the defect: a bound on each
+#: item is not a bound on the sum, and ``frames`` accumulates every one of them in memory.
+#: Set equal to the per-frame cap by a stated principle rather than an invented magnitude -- *one
+#: submission may not deliver more bytes than a single frame was already permitted to carry*. The two
+#: remain **independent policies** that merely coincide today: raising this budget must not silently
+#: raise the per-frame cap, so both checks are kept rather than one deleted as redundant.
+_MAX_TOTAL_BINARY_SIZE = _MAX_BINARY_SIZE
+
 #: Worker-id sanity pattern (1-64 chars, alphanumeric / hyphen / underscore, alphanumeric start).
 _WORKER_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
 
@@ -320,7 +337,17 @@ async def _message_loop(websocket: WebSocket, worker_id: str, registry: WorkerRe
 async def _handle_task_result(websocket: WebSocket, worker_id: str, msg: dict[str, Any], coordinator: WorkerCoordinator) -> None:
     """Handle a result message + its associated binary frames, then submit to the coordinator."""
     attachment_names = coordinator.protocol.result_attachments(msg)
+
+    # Cardinality first, before any receive: the attachment list is worker-influenced, so an
+    # over-long declaration must be refused outright rather than allowed to hold the handler in a
+    # binary-receive loop it can keep feeding.
+    if len(attachment_names) > _MAX_ATTACHMENTS:
+        logger.error("Result from worker %s declares %d attachments (max %d) -- rejected", worker_id, len(attachment_names), _MAX_ATTACHMENTS)
+        await websocket.send_json(_error_frame("Too many binary attachments", details=f"{len(attachment_names)} > {_MAX_ATTACHMENTS}"))
+        return
+
     frames: dict[str, bytes] = {}
+    total_bytes = 0
 
     # Receive one binary frame per attachment, in protocol-declared order.
     for name in attachment_names:
@@ -335,6 +362,13 @@ async def _handle_task_result(websocket: WebSocket, worker_id: str, msg: dict[st
             logger.error("Binary frame for %s exceeds size limit from worker %s", name, worker_id)
             await websocket.send_json(_error_frame("Binary frame too large"))
             coordinator.release_worker_tasks(worker_id, free_worker=True)
+            return
+        # Cumulative budget: the per-frame cap above bounds each item, not the sum, and every frame
+        # accepted here is retained in ``frames`` until the submission completes.
+        total_bytes += len(raw_bytes)
+        if total_bytes > _MAX_TOTAL_BINARY_SIZE:
+            logger.error("Attachments from worker %s exceed the total budget at %s (%d > %d bytes) -- rejected", worker_id, name, total_bytes, _MAX_TOTAL_BINARY_SIZE)
+            await websocket.send_json(_error_frame("Binary attachments exceed total size limit"))
             return
         frames[name] = raw_bytes
 

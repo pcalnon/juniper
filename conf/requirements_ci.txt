@@ -9,7 +9,7 @@
 # File Path:     Juniper/juniper/conf/
 #
 # Date:          2025-12-06
-# Last Modified: 2026-08-17
+# Last Modified: 2026-08-24
 #
 # License:       MIT License
 # Copyright:     Copyright (c) 2024-2026 Paul Calnon
@@ -22,7 +22,7 @@
 #
 #     created-by: pip 26.2.1
 #     platform: linux-64
-#     python: 3.12.13
+#     python: 3.12.14
 #
 #     This file may be used to create the Juniper Project, juniper Application environment with pip using:
 #         create:  $ pip list --format=freeze >requirements_ci.txt

@@ -1,0 +1,23 @@
+[Unit]
+Description=Daily Duplicati server-DB snapshot, just before the Yamaguchi backup
+Documentation=file:///home/pcalnon/Development/python/Juniper/juniper-ml/util/ad-hoc/yamaguchi_server_db_snapshot.py
+
+[Timer]
+# The Yamaguchi job fires daily at 14:00Z. Snapshot 15 minutes earlier so the
+# copy is picked up by that same run rather than waiting a further 24 h.
+#
+# The UTC suffix is load-bearing, NOT decoration. OnCalendar defaults to LOCAL
+# time, and the backup schedule is fixed in UTC. A local "08:45" would sit 15 min
+# BEFORE the backup under CDT (UTC-5) and 45 min AFTER it under CST (UTC-6) --
+# so at the next DST change the snapshot would silently start missing its own
+# backup by a day, with no error anywhere. Pin it to UTC and the relationship
+# holds year-round.
+OnCalendar=*-*-* 13:45:00 UTC
+# A workstation is often off at the check time; without this a missed snapshot is
+# skipped silently. On catch-up the snapshot may land after that day's backup and
+# ride along in the next one -- still current, just one cycle behind.
+Persistent=true
+Unit=yamaguchi-server-db-snapshot.service
+
+[Install]
+WantedBy=timers.target

@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-17
 # Status:      ad-hoc — investigation
-# Retire when: environment ref policies are applied fleet-wide and a permanent drift gate covers them
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: environment ref policies are applied fleet-wide and a permanent drift gate covers them
 #              (see the publish-path design doc §7 P1 / §8), or the check moves into juniper-ci-tools.
 # Related:     notes/JUNIPER_2026-08-17_JUNIPER-ECOSYSTEM_PUBLISH-PATH-AUTHORIZATION-DESIGN.md §2.1 / §8
 #

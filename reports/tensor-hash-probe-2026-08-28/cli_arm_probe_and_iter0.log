@@ -1,0 +1,9 @@
+[cascade_correlation.py: fit:1939] (2026-08-28 20:04:03) [INFO] DIAG-TENSORHASH: x_train[shape=(800, 2) dtype=float32 raw=341d9dd0cb9ed0ea sorted=061649c115853d5a sum=-56.125038]
+[cascade_correlation.py: fit:1940] (2026-08-28 20:04:03) [INFO] DIAG-TENSORHASH: y_train[shape=(800, 2) dtype=float32 raw=8d92cbeba78a414e sorted=cb3326f2870073da sum=800.000000]
+[cascade_correlation.py: fit:1941] (2026-08-28 20:04:03) [INFO] DIAG-TENSORHASH: x_val[None]
+[cascade_correlation.py: fit:1942] (2026-08-28 20:04:03) [INFO] DIAG-TENSORHASH: y_val[None]
+[cascade_correlation.py: fit:1990] (2026-08-28 20:04:05) [INFO] CascadeCorrelationNetwork: fit: Initial - Train Loss: 0.246147
+[cascade_correlation.py: fit:2000] (2026-08-28 20:04:05) [INFO] CascadeCorrelationNetwork: fit: Initial - Train Accuracy: 0.5138
+[cascade_correlation.py: _add_best_candidate:5096] (2026-08-28 20:04:11) [INFO] CascadeCorrelationNetwork: _add_best_candidate: Adding best candidate CandidateUnit(candidate_index=7, uuid='21b4ebcb-d771-425e-ba6e-e03e657c21b9', correlation=0.09112932150459425) at iteration 0
+[cascade_correlation.py: validate_training:5644] (2026-08-28 20:04:12) [INFO] CascadeCorrelationNetwork: validate_training: Iteration 0 (no val data) - Train Loss: 0.239217, Train Acc: 0.5787, Patience: 0/200, Early Stop: False
+[cascade_correlation.py: grow_network:4987] (2026-08-28 20:04:12) [INFO] CascadeCorrelationNetwork: grow_network: Iteration 0 - Train Loss: 0.239217, Train Accuracy: 0.5787, Early stop: False

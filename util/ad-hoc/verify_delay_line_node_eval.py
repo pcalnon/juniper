@@ -35,7 +35,7 @@ Sub-Project: ad-hoc tooling
 Author: Claude (P4 design evaluation, for Paul Calnon)
 Created: 2026-06-09
 Status: ad-hoc - investigation (P4 delay-line / shift-register ARM A vs ARM B)
-Retire when: P4 design decision (FIR vs IIR) is ratified or the arm is dropped;
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: P4 design decision (FIR vs IIR) is ratified or the arm is dropped;
              this PoC's measured numbers are folded into the design doc.
 Related: notes/JUNIPER_2026-06-04_JUNIPER-RECURRENCE_RECURSE-OQ4-RECURRENT-CASCOR-PROPOSALS.md,
          notes/JUNIPER_2026-06-05_JUNIPER-RECURRENCE_RECURSE-DELTA-T-HANDLING.md (S8.6/S8.7),

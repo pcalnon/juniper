@@ -100,7 +100,33 @@ def _get_cooldown(websocket: WebSocket) -> HandshakeCooldown:
 
 
 async def _check_handshake_gates(websocket: WebSocket, client_ip: str) -> bool:
-    """Run pre-accept handshake gates. Returns ``True`` if the connection may proceed."""
+    """Run pre-accept handshake gates. Returns ``True`` if the connection may proceed.
+
+    **The distinct close codes below never reach the client, and that is correct** -- do not "fix"
+    it (``APD-SVCCORE-016``, triaged 2026-08-29 as won't-fix). Every gate here runs *before*
+    ``websocket.accept()``, so the connection is still an HTTP request: uvicorn converts a pre-accept
+    close into a plain **HTTP 403** and discards both the code and the reason
+    (``uvicorn/protocols/websockets/websockets_impl.py``; the sans-io implementation does the same).
+    So ``1013`` "Control endpoint disabled", ``4029`` "Too many rejected handshakes", ``4003``
+    "Origin not allowed" and ``manager.py``'s ``4001`` are all indistinguishable to the caller.
+
+    Three reasons this stays as it is:
+
+    * **It is what the RFC recommends.** A handshake failure is still HTTP, and RFC 6455 §10.2
+      recommends ``403 Forbidden`` for an unacceptable Origin. Collapsing to 403 is conformant
+      behaviour, not a defect in this function.
+    * **The obvious "fix" is a regression.** Making the codes observable requires accepting the
+      socket *first* and then closing it. The primer criticises exactly that pattern -- it is
+      "harder for the client to distinguish from a network failure" -- and it would also mean
+      completing a handshake for a caller the kill switch, the cooldown or the Origin allowlist has
+      already refused. Rejecting before accept is the stronger posture and must be preserved.
+    * **The codes are not wasted.** They are the honest ASGI-level reason and survive in
+      ``uvicorn``'s own logging; only the wire representation collapses.
+
+    The register's first wording for this row claimed these gates closed *after* accepting, which was
+    a false positive -- corrected 2026-08-28. The ordering asserted here (all four rejections
+    pre-accept, ``accept()`` strictly after) is the property worth protecting.
+    """
     if _setting(websocket, "disable_ws_control_endpoint"):
         await websocket.close(code=1013, reason="Control endpoint disabled")
         return False
@@ -202,8 +228,21 @@ async def _control_recv_loop(websocket: WebSocket, executor, valid_commands: set
             return
 
         if len(raw) > _MAX_MESSAGE_SIZE:
+            # Close rather than ``continue`` (``APD-SVCCORE-005``). The size check necessarily runs
+            # *after* ``receive_text()`` has already materialised the frame -- that part is a
+            # property of the transport, not something this loop can fix, and the real ceiling is
+            # uvicorn's ``ws_max_size`` (16 MiB by default, unset here). What *was* fixable is that
+            # ``continue`` let the same connection repeat that allocation indefinitely: the oversize
+            # path returns before ``_handle_command_message``, which is the only place the rate-limit
+            # token is spent, so every oversize frame was free. Charging the bucket instead would be
+            # accounting rather than protection -- the allocation has already happened by then.
+            # Closing is also what this loop already does for the adjacent protocol violations
+            # (malformed JSON, non-object JSON); an over-limit frame is the same class of client
+            # fault, and reconnection is governed by the handshake cooldown.
+            # 1009 is RFC 6455's "Message Too Big", which no other gate here uses.
             await websocket.send_json(create_control_ack_message("unknown", "error", error="Message too large"))
-            continue
+            await websocket.close(code=1009, reason="Message too large")
+            return
 
         try:
             msg = json.loads(raw)
@@ -221,6 +260,14 @@ async def _control_recv_loop(websocket: WebSocket, executor, valid_commands: set
             return
 
         if msg.get("type") == "pong":
+            # The other path that reaches ``continue`` without spending a rate-limit token, and
+            # deliberately so (``APD-SVCCORE-005``). The bucket is the *command* budget -- its
+            # tunable is ``ws_control_rate_limit_per_sec``, "control-command rate limit" -- and pong
+            # is keepalive, not command traffic. Charging it would let a burst of legitimate
+            # commands exhaust the budget and rate-limit the client's pong, which
+            # ``_control_heartbeat_loop`` then reads as a dead peer and closes with 1011: a
+            # self-inflicted disconnect on a healthy connection. A pong is bounded by
+            # ``_MAX_MESSAGE_SIZE`` like any other frame and does no work beyond setting an event.
             pong_received.set()
             continue
 

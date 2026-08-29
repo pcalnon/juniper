@@ -31,7 +31,8 @@ from fastapi import WebSocketDisconnect
 
 from juniper_service_core.security import build_api_key_auth
 from juniper_service_core.websocket import attach_worker_pool, worker_stream_handler
-from juniper_service_core.websocket.worker_stream import validate_worker_registration
+from juniper_service_core.websocket import worker_stream as worker_stream_module
+from juniper_service_core.websocket.worker_stream import _handle_task_result, validate_worker_registration
 from juniper_service_core.workers import ParsedResult, WorkerCoordinator, WorkerRegistry
 
 
@@ -340,3 +341,92 @@ async def test_oversize_binary_frame_requeues_and_frees_worker(monkeypatch: pyte
     assert [m["task_id"] for m in assigns] == [tid, tid], f"oversize abort must redispatch; got {assigns!r}"
     assert coord.has_pending_tasks() is True
     assert coord._pending_tasks[tid].assigned_worker_id is None
+
+# Attachment-list bounds — APD-SVCCORE-001
+#
+# The per-frame cap bounds each item, never the sum, and ``frames`` retains every accepted
+# item in memory until the submission completes. Two independent bounds are added: a
+# cardinality cap checked BEFORE the first receive, and a cumulative byte budget.
+# ======================================================================================
+
+
+def _dispatched(protocol=None):
+    """A registry+coordinator with one task already dispatched to ``node-a`` (so a result is valid)."""
+    reg = WorkerRegistry()
+    reg.register("node-a", {})
+    coord = WorkerCoordinator(reg, protocol or _TrivialProtocol())
+    (tid,) = coord.submit_tasks("round-1", [{"c": 0}])
+    coord.get_next_assignment("node-a")
+    return reg, coord, tid
+
+
+@pytest.mark.asyncio
+async def test_over_long_attachment_list_is_rejected_before_any_frame_is_read() -> None:
+    """A declaration of more than ``_MAX_ATTACHMENTS`` is refused without consuming a single frame.
+
+    **The decisive assertion is the un-consumed queue, not the error frame.** A cardinality check
+    placed *inside* the receive loop would also produce an error and also reject the submission --
+    and would still let a hostile worker hold the handler through 32 frames first. Pinning that the
+    inbound queue is untouched is what distinguishes the two implementations.
+
+    Uses the real ``_MAX_ATTACHMENTS`` rather than a monkeypatched one, so this arm pins the shipped
+    value and not just the mechanism.
+    """
+    _reg, coord, tid = _dispatched()
+    too_many = [f"t{i}" for i in range(worker_stream_module._MAX_ATTACHMENTS + 1)]
+    # Frames that WOULD satisfy the declaration, so consuming them is possible if the guard is late.
+    ws = FakeWorkerWebSocket(inbound=[("bytes", b"x") for _ in too_many])
+    inbound_before = len(ws._inbound)
+
+    await _handle_task_result(ws, "node-a", {"task_id": tid, "attachments": too_many}, coord)
+
+    assert len(ws._inbound) == inbound_before, "guard must fire before the first receive()"
+    assert ws.sent and ws.sent[-1]["error"] == "Too many binary attachments"
+    assert coord.collect_results(timeout=0.1) == [], "an over-long declaration must not submit"
+
+
+@pytest.mark.asyncio
+async def test_cumulative_attachment_budget_is_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Frames that each pass the per-frame cap are still refused once their SUM exceeds the budget.
+
+    This is the defect itself: ``len(attachment_names) x _MAX_BINARY_SIZE`` was reachable because a
+    bound on each item is not a bound on the sum. The budget is monkeypatched down so the arm costs
+    bytes rather than hundreds of megabytes -- the shipped magnitudes are pinned separately below.
+    """
+    monkeypatch.setattr(worker_stream_module, "_MAX_TOTAL_BINARY_SIZE", 10)
+    _reg, coord, tid = _dispatched()
+    # Each frame is 6 bytes: individually fine, cumulatively 12 > 10.
+    ws = FakeWorkerWebSocket(inbound=[("bytes", b"aaaaaa"), ("bytes", b"bbbbbb")])
+
+    await _handle_task_result(ws, "node-a", {"task_id": tid, "attachments": ["a", "b"]}, coord)
+
+    assert ws.sent and ws.sent[-1]["error"] == "Binary attachments exceed total size limit"
+    assert coord.collect_results(timeout=0.1) == [], "an over-budget submission must not reach the coordinator"
+
+
+@pytest.mark.asyncio
+async def test_attachments_within_both_budgets_are_still_accepted() -> None:
+    """Negative control: the two new guards must not reject a legitimate submission.
+
+    Without this, an implementation that refused every attachment list would pass both arms above.
+    """
+    _reg, coord, tid = _dispatched()
+    ws = FakeWorkerWebSocket(inbound=[("bytes", b"aaaaaa"), ("bytes", b"bbbbbb")])
+
+    await _handle_task_result(ws, "node-a", {"task_id": tid, "attachments": ["a", "b"]}, coord)
+
+    assert ws.sent and ws.sent[-1]["type"] == "result_ack"
+    assert ws.sent[-1]["status"] == "accepted"
+    assert len(ws._inbound) == 0, "both declared frames were consumed"
+
+
+def test_the_shipped_attachment_bounds_are_finite_and_independent() -> None:
+    """Structural. **Not the proof** -- pins the shipped magnitudes the arms above monkeypatch away.
+
+    The independence assertion is the load-bearing half: the two constants coincide today by a
+    stated principle, and a future change that raises the aggregate budget must not silently raise
+    the per-frame cap with it.
+    """
+    assert worker_stream_module._MAX_ATTACHMENTS == 32  # mirrors cascor's _MAX_TENSOR_MANIFEST_ENTRIES
+    assert worker_stream_module._MAX_TOTAL_BINARY_SIZE == worker_stream_module._MAX_BINARY_SIZE
+    assert worker_stream_module._MAX_TOTAL_BINARY_SIZE is not None

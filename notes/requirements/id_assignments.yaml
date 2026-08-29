@@ -461,7 +461,7 @@
   category: OBS
   status: designed
   priority: P0
-  brief: '>   per the canopy requirements (high-volume / low-latency metrics and the'
+  brief: 'P5-RC-05 (frontend WebSocket consumption) is STILL OPEN, not deferred — high-volume / low-latency metrics and the bidirectional `set_params` control channel depend on it'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''6.0 Phase 4 Execution Results (2026-04-10, REVISED)'']'
   sources:
@@ -3507,7 +3507,7 @@
   category: ARCH
   status: designed
   priority: P1
-  brief: '```bash ```'
+  brief: 'Improved `juniper_plant_all.bash` / `juniper_chop_all.bash`: health polling, port and conda-env validation, /proc-based PID checks, graceful SIGTERM→SIGKILL'
   merged_count: 2
   notes: '[v3 thin-brief flagged] [v4 brief repaired; was: ''9.5 Detailed Design: Improved `juniper_plant_all.bash`'']
 
@@ -12152,7 +12152,7 @@
   category: DATA
   status: proposed
   priority: P2
-  brief: '"""cascade_add WebSocket message must trigger topology broadcast."""'
+  brief: 'Phase 3 integration test: a `cascade_add` WebSocket message must trigger a topology broadcast'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Phase 3 Tests'']'
   sources:
@@ -12164,7 +12164,7 @@
   category: TRAIN
   status: proposed
   priority: P2
-  brief: '"""Demo backend must produce hidden-to-hidden cascade connections."""'
+  brief: 'Phase 2 test: the demo backend must produce hidden-to-hidden cascade connections'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Phase 2 Tests'']'
   sources:
@@ -21770,7 +21770,7 @@
   category: DATA
   status: proposed
   priority: P3
-  brief: '`juniper_cascor_client/client.py`'
+  brief: 'juniper-cascor-client (Phase 4): add `get_dataset_data()` to `juniper_cascor_client/client.py`'
   merged_count: 1
   notes: '[v4 brief repaired; was: ''9.3 juniper-cascor-client (Phase 4 only)'']'
   sources:

@@ -29,6 +29,22 @@ single **standard-gated release-proposal PR** (plan S5.4):
     ``AGENTS.md`` extras table -- IN THE SAME PR. This is the ml#657 RK-11 failure class (a
     service-core 0.5.0 proposal that bumped the sub-package but not the ``<0.5.0`` meta ceiling, so
     ``tests/test_service_core_drift.py`` failed and the proposal shipped red);
+
+    **KNOWN GAP -- the co-change set is short by three, and a proposal still ships red because of it
+    (found 2026-08-29 on the service-core 0.6.0 cut, ml#1458).** "Two lockstep artifacts" is wrong:
+    ``tests/test_pyproject_extras.py::ExtrasDocsLockstepTest`` asserts the extras tables in
+    ``README.md``, ``docs/QUICK_START.md`` and ``docs/REFERENCE.md`` against ``pyproject.toml`` too,
+    and its own failure message says "co-update the documented table in the same PR as the pin
+    change". None of the three is in this generator's edit set, so the 0.6.0 proposal failed 3 arms
+    on all three Python versions and had to be repaired by hand before it could merge. The next
+    escaping bump reproduces it.
+    ``docs/REFERENCE.md`` needs **two** edits, not one: it carries the inline table AND a separate
+    "Extras Reference" table with its own parser (``_pins_from_reference_extras_table``) where the
+    distribution and its specifier sit in **different columns** -- so a substitution on the combined
+    ``name>=x,<y`` string silently misses it, which is how the first hand-repair looked complete and
+    still failed one arm. :func:`apply_pin_edits_agents_table` is heading-scoped to AGENTS.md's
+    "Dependency extras reference"; README / QUICK_START share the inline row shape and want the same
+    editor re-anchored, while the REFERENCE split-column table needs its own;
   * the ``propagation_edges`` -- a pre-1.0 MINOR bump escapes a consumer's ``<next-minor``
     ceiling pin (plan S6/S13), so each reverse-dependency consumer gets an edge annotated with a
     ``consumer_pin_state`` (``within_range`` / ``floor_only`` / ``escaped -> follow-on`` /
@@ -1152,6 +1168,8 @@ def _pr_body(prop: Proposal, date: str) -> str:
         lines.append("### Consumer-pin co-changes (in-repo meta extras, plan S5.4)")
         if prop.consumer_pin_cochanges:
             lines.append("This escaping bump exceeds the meta-package's own `[project.optional-dependencies]` ceiling, so the pin + its two lockstep artifacts (`tests/test_pyproject_extras.py` membership and the `AGENTS.md` extras table) are moved IN THIS PR (closes the ml#657 RK-11 gap):")
+            lines.append("")
+            lines.append("> **Reviewer action required -- this generator has a known gap.** `tests/test_pyproject_extras.py` also asserts the extras tables in `README.md`, `docs/QUICK_START.md` and `docs/REFERENCE.md` against `pyproject.toml`, and none of the three is in the edit set above, so this PR will fail 3 arms until they are co-updated by hand. `docs/REFERENCE.md` needs **two** edits -- the inline table, and the separate \"Extras Reference\" table whose distribution and specifier sit in different columns, which a combined-string substitution misses. Found on the service-core 0.6.0 cut (ml#1458).")
             for cc in prop.consumer_pin_cochanges:
                 lines.append(f"- `[{cc.extra}]`: `{cc.old_req}` -> `{cc.new_req}`")
         else:

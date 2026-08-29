@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-17
 # Status:      ad-hoc -- one-off (2x root-cause investigation)
-# Retire when: the root cause is written up and remediated; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the root cause is written up and remediated; delete then.
 # Related:     util/experiments/suites/p4/e-k-thread-probe-cap16.yaml (the service reference);
 #              util/ad-hoc/2026-08-16_h2h_phase_split.py (reads what this produces).
 #

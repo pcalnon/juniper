@@ -6,7 +6,7 @@ Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-16
 Status: ad-hoc — investigation (produced the F-P1-4 lifecycle design's evidence)
-Retire when: the Phase 6.2 snapshot index ships in util/ proper and supersedes this scan.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the Phase 6.2 snapshot index ships in util/ proper and supersedes this scan.
 Related: notes/JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_SNAPSHOT-LIFECYCLE-MANAGEMENT-DESIGN.md (§2),
          F-P1-4, juniper-ml#1137
 
