@@ -42,8 +42,8 @@ CROSSCHECK = REPO_ROOT / "util" / "ad-hoc" / "duplicati_dlist_crosscheck.py"
 DECRYPT_ALL = REPO_ROOT / "util" / "ad-hoc" / "duplicati_decrypt_validate_all.bash"
 SCRIPT_TIMEOUT_SECONDS = 10
 SCRATCH_MOUNT = "/media/pcalnon/temp_backups"
-SECRET = "restore-integrity-secret-VALUE"
-OLD_SECRET = "old-archive-secret-VALUE"
+FIXTURE_VALUE = "restore-integrity-fixture-VALUE"
+OLD_FIXTURE_VALUE = "old-archive-fixture-VALUE"
 BLOCKSIZE = 1024 * 1024
 
 _spec = importlib.util.spec_from_file_location("duplicati_dlist_crosscheck", CROSSCHECK)
@@ -114,7 +114,7 @@ class CrosscheckHarness:
         self.dest.mkdir()
         self.work.mkdir()
         self.cred = tmp / "cred.env"
-        self.cred.write_text(f'export PASSPHRASE_OLD="{OLD_SECRET}"\nPASSPHRASE="{SECRET}"\n', encoding="utf-8")
+        self.cred.write_text(f'export PASSPHRASE_OLD="{OLD_FIXTURE_VALUE}"\nPASSPHRASE="{FIXTURE_VALUE}"\n', encoding="utf-8")
         self.dblock = "fresh.dblock.vol.gpg"
         self.dindex = "fresh.dindex.vol.gpg"
         self.dlist = "fresh.dlist.vol.gpg"
@@ -176,7 +176,7 @@ class DecryptAllHarness:
         self.dest = tmp / "dest"
         self.dest.mkdir()
         self.cred = tmp / "cred.env"
-        self.cred.write_text(f'export PASSPHRASE="{SECRET}"\nPASSPHRASE_OLD="{OLD_SECRET}"\n', encoding="utf-8")
+        self.cred.write_text(f'export PASSPHRASE="{FIXTURE_VALUE}"\nPASSPHRASE_OLD="{OLD_FIXTURE_VALUE}"\n', encoding="utf-8")
         self.argv_log = tmp / "gpg-argv.log"
         self.stdin_log = tmp / "gpg-stdin.log"
         self.mount_ok = tmp / "mount_ok"
@@ -244,12 +244,12 @@ class TestDecryptValidateAllPreflight(unittest.TestCase):
     def test_missing_passphrase_refuses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             h = DecryptAllHarness(Path(tmp))
-            h.cred.write_text(f'PASSPHRASE_OLD="{OLD_SECRET}"\n', encoding="utf-8")
+            h.cred.write_text(f'PASSPHRASE_OLD="{OLD_FIXTURE_VALUE}"\n', encoding="utf-8")
             result = h.run()
             self.assertEqual(result.returncode, 2, msg=result.stderr + result.stdout)
             self.assertIn("PASSPHRASE", result.stderr)
-            self.assertNotIn(OLD_SECRET, result.stdout)
-            self.assertNotIn(OLD_SECRET, result.stderr)
+            self.assertNotIn(OLD_FIXTURE_VALUE, result.stdout)
+            self.assertNotIn(OLD_FIXTURE_VALUE, result.stderr)
 
 
 class TestDecryptValidateAllDecrypt(unittest.TestCase):
@@ -267,14 +267,14 @@ class TestDecryptValidateAllDecrypt(unittest.TestCase):
             stdin = h.stdin_log.read_text(encoding="utf-8")
             self.assertIn("--passphrase-fd", argv)
             self.assertIn("--decrypt", argv)
-            self.assertNotIn(SECRET, argv)
-            self.assertNotIn(OLD_SECRET, argv)
-            self.assertIn(SECRET, stdin)
-            self.assertNotIn(OLD_SECRET, stdin)
+            self.assertNotIn(FIXTURE_VALUE, argv)
+            self.assertNotIn(OLD_FIXTURE_VALUE, argv)
+            self.assertIn(FIXTURE_VALUE, stdin)
+            self.assertNotIn(OLD_FIXTURE_VALUE, stdin)
             self.assertIn("ok-a.gpg", argv)
             self.assertIn("ok-b.gpg", argv)
-            self.assertNotIn(SECRET, result.stdout)
-            self.assertNotIn(SECRET, result.stderr)
+            self.assertNotIn(FIXTURE_VALUE, result.stdout)
+            self.assertNotIn(FIXTURE_VALUE, result.stderr)
 
     def test_one_failure_still_walks_every_volume_and_exits_1(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -296,19 +296,19 @@ class TestDlistCrosscheckPassphrase(unittest.TestCase):
     def test_load_passphrase_reads_quoted_export_form(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cred = Path(tmp) / "cred.env"
-            cred.write_text(f'export PASSPHRASE="{SECRET}"\n', encoding="utf-8")
+            cred.write_text(f'export PASSPHRASE="{FIXTURE_VALUE}"\n', encoding="utf-8")
             stdout = io.StringIO()
             with redirect_stdout(stdout):
                 got = crosscheck.load_passphrase(str(cred), "PASSPHRASE")
-            self.assertEqual(got, SECRET)
+            self.assertEqual(got, FIXTURE_VALUE)
             rendered = stdout.getvalue()
-            self.assertNotIn(SECRET, rendered)
-            self.assertIn(hashlib.sha256(SECRET.encode()).hexdigest()[:16], rendered)
+            self.assertNotIn(FIXTURE_VALUE, rendered)
+            self.assertIn(hashlib.sha256(FIXTURE_VALUE.encode()).hexdigest()[:16], rendered)
 
     def test_load_passphrase_missing_key_is_operational_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cred = Path(tmp) / "cred.env"
-            cred.write_text(f'PASSPHRASE_OLD="{OLD_SECRET}"\n', encoding="utf-8")
+            cred.write_text(f'PASSPHRASE_OLD="{OLD_FIXTURE_VALUE}"\n', encoding="utf-8")
             with self.assertRaises(SystemExit) as ctx, redirect_stderr(io.StringIO()):
                 crosscheck.load_passphrase(str(cred), "PASSPHRASE")
             self.assertEqual(_sys_exit_code(ctx.exception), 2)
@@ -368,9 +368,7 @@ class TestDlistCrosscheckPreflight(unittest.TestCase):
             # unexpected file, so this also proves the older dlist is never read.
             (h.dest / "aged.dlist.vol.gpg").write_bytes(b"older-ciphertext")
             h.payloads[h.dindex] = _dindex_zip(vol_name=h.dblock, hashes=[content, meta])
-            h.payloads[h.dlist] = _dlist_zip(
-                files=[{"type": "File", "path": "/tmp/a.txt", "size": 100, "hash": content, "metahash": meta, "metasize": 64}]
-            )
+            h.payloads[h.dlist] = _dlist_zip(files=[{"type": "File", "path": "/tmp/a.txt", "size": 100, "hash": content, "metahash": meta, "metasize": 64}])
             before = h.fingerprint()
             code, out, _err = h.run()
             self.assertEqual(code, 0)
@@ -386,17 +384,15 @@ class TestDlistCrosscheckCoverage(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             h = CrosscheckHarness(Path(tmp))
             h.payloads[h.dindex] = _dindex_zip(vol_name=h.dblock, hashes=[content, meta])
-            h.payloads[h.dlist] = _dlist_zip(
-                files=[{"type": "File", "path": "/tmp/a.txt", "size": 100, "hash": content, "metahash": meta, "metasize": 64}]
-            )
+            h.payloads[h.dlist] = _dlist_zip(files=[{"type": "File", "path": "/tmp/a.txt", "size": 100, "hash": content, "metahash": meta, "metasize": 64}])
             before = h.fingerprint()
             code, out, err = h.run()
             self.assertEqual(code, 0, msg=out + err)
             self.assertIn("COMPLETE COVERAGE", out)
             self.assertEqual(h.fingerprint(), before)
-            self.assertNotIn(SECRET, out)
-            self.assertNotIn(SECRET, err)
-            self.assertNotIn(OLD_SECRET, out)
+            self.assertNotIn(FIXTURE_VALUE, out)
+            self.assertNotIn(FIXTURE_VALUE, err)
+            self.assertNotIn(OLD_FIXTURE_VALUE, out)
 
     def test_missing_hash_exits_1(self) -> None:
         needed = _b64(_hash32("needed"))
@@ -417,9 +413,7 @@ class TestDlistCrosscheckCoverage(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             h = CrosscheckHarness(Path(tmp))
             h.payloads[h.dindex] = _dindex_zip(vol_name=h.dblock, hashes=[blh])
-            h.payloads[h.dlist] = _dlist_zip(
-                files=[{"type": "File", "path": "/tmp/big.bin", "size": 2 * BLOCKSIZE, "blocklists": [blh], "metasize": 0}]
-            )
+            h.payloads[h.dlist] = _dlist_zip(files=[{"type": "File", "path": "/tmp/big.bin", "size": 2 * BLOCKSIZE, "blocklists": [blh], "metasize": 0}])
             code, out, err = h.run()
             self.assertEqual(code, 1, msg=out + err)
             self.assertIn("UNEXPANDABLE blocklist", out)
@@ -477,9 +471,7 @@ class TestDlistCrosscheckCoverage(unittest.TestCase):
                 hashes=[bl_plain, h1_b64, h2_b64],
                 list_entries={bl_url: raw},
             )
-            h.payloads[h.dlist] = _dlist_zip(
-                files=[{"type": "File", "path": "/tmp/big.bin", "size": 2 * BLOCKSIZE, "blocklists": [bl_plain], "metasize": 0}]
-            )
+            h.payloads[h.dlist] = _dlist_zip(files=[{"type": "File", "path": "/tmp/big.bin", "size": 2 * BLOCKSIZE, "blocklists": [bl_plain], "metasize": 0}])
             code, out, err = h.run()
             self.assertEqual(code, 0, msg=out + err)
             self.assertIn("COMPLETE COVERAGE", out)
