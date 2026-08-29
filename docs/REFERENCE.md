@@ -2484,7 +2484,7 @@ Publish and CI constraints:
 | Field                 | Value                                                                    |
 |-----------------------|--------------------------------------------------------------------------|
 | **PyPI Name**         | `juniper-service-core`                                                   |
-| **Current Version**   | `0.5.1`                                                                  |
+| **Current Version**   | `0.6.0`                                                                  |
 | **Python**            | `>=3.12`                                                                 |
 | **Importable Module** | `juniper_service_core`                                                   |
 | **Meta pin**          | `juniper-service-core>=0.2.0,<0.7.0` under `[tools]` / `[all]`            |
