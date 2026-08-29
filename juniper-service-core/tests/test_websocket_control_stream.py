@@ -376,10 +376,61 @@ async def test_recv_loop_no_idle_timeout_and_malformed_json() -> None:
 
 @pytest.mark.asyncio
 async def test_recv_loop_rejects_oversized_message() -> None:
+    """An over-limit frame is answered and then closes the connection (1009).
+
+    **This assertion was inverted by the APD-SVCCORE-005 fix, and the previous form pinned the
+    defect.** It formerly wrapped the call in ``pytest.raises(WebSocketDisconnect)`` -- i.e. it
+    asserted the loop *kept running* past the oversize frame and only ended when the scripted input
+    ran out. That ``continue`` is what let one connection repeat the allocation indefinitely, since
+    the oversize path returns before ``_handle_command_message``, the only place a rate-limit token
+    is spent. Third instance of this shape in one arc, after ``test_docs_reachable_and_exempt`` and
+    ``test_worker_task_protocol_default_bodies_return_none``.
+    """
     ws = ControlFakeWS(incoming=["x" * (65536 + 1)])
-    with pytest.raises(WebSocketDisconnect):
-        await _control_recv_loop(ws, None, {"start"}, LeakyBucket(), asyncio.Event(), idle_timeout=0, client_ip="1.2.3.4")
+    await _control_recv_loop(ws, None, {"start"}, LeakyBucket(), asyncio.Event(), idle_timeout=0, client_ip="1.2.3.4")
     assert ws.sent[-1]["data"]["error"] == "Message too large"
+    assert ws.closed == (1009, "Message too large")
+
+
+@pytest.mark.asyncio
+async def test_oversized_frame_cannot_be_repeated_on_one_connection() -> None:
+    """**The decisive arm.** A second oversize frame is never read, because the first one closed.
+
+    Asserting only the close code would pass against an implementation that closed *after*
+    draining the rest of the queue. What the entry is about is repetition: the allocation itself is
+    unavoidable (``receive_text()`` has already materialised the frame, and the real ceiling is
+    uvicorn's ``ws_max_size``), so the only thing that changes an abusive client's cost is being
+    unable to do it again on the same connection.
+    """
+    oversize = "x" * (65536 + 1)
+    ws = ControlFakeWS(incoming=[oversize, oversize, oversize])
+
+    await _control_recv_loop(ws, None, {"start"}, LeakyBucket(), asyncio.Event(), idle_timeout=0, client_ip="1.2.3.4")
+
+    assert ws.closed == (1009, "Message too large")
+    # Exactly one rejection was sent: frames two and three were never received.
+    assert len([m for m in ws.sent if m.get("data", {}).get("error") == "Message too large"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_pong_still_costs_no_rate_limit_token() -> None:
+    """Deliberate non-change, pinned so it reads as a decision rather than an oversight.
+
+    The bucket is the *command* budget (``ws_control_rate_limit_per_sec``). Charging keepalive would
+    let a burst of legitimate commands exhaust it and rate-limit the client's pong, which the
+    heartbeat loop then reads as a dead peer and closes with 1011 -- a self-inflicted disconnect on
+    a healthy connection. An empty bucket must therefore still route a pong.
+    """
+    empty = LeakyBucket(capacity=1, refill_rate=0.0)
+    assert empty.try_acquire() is True  # drain the single token
+    assert empty.try_acquire() is False  # bucket is now empty and never refills
+
+    pong = asyncio.Event()
+    ws = ControlFakeWS(incoming=[json.dumps({"type": "pong"})])
+    with pytest.raises(WebSocketDisconnect):
+        await _control_recv_loop(ws, None, {"start"}, empty, pong, idle_timeout=0, client_ip="1.2.3.4")
+
+    assert pong.is_set(), "keepalive must not be gated on the command budget"
 
 
 @pytest.mark.asyncio

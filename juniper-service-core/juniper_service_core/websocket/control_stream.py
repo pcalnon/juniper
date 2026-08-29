@@ -202,8 +202,21 @@ async def _control_recv_loop(websocket: WebSocket, executor, valid_commands: set
             return
 
         if len(raw) > _MAX_MESSAGE_SIZE:
+            # Close rather than ``continue`` (``APD-SVCCORE-005``). The size check necessarily runs
+            # *after* ``receive_text()`` has already materialised the frame -- that part is a
+            # property of the transport, not something this loop can fix, and the real ceiling is
+            # uvicorn's ``ws_max_size`` (16 MiB by default, unset here). What *was* fixable is that
+            # ``continue`` let the same connection repeat that allocation indefinitely: the oversize
+            # path returns before ``_handle_command_message``, which is the only place the rate-limit
+            # token is spent, so every oversize frame was free. Charging the bucket instead would be
+            # accounting rather than protection -- the allocation has already happened by then.
+            # Closing is also what this loop already does for the adjacent protocol violations
+            # (malformed JSON, non-object JSON); an over-limit frame is the same class of client
+            # fault, and reconnection is governed by the handshake cooldown.
+            # 1009 is RFC 6455's "Message Too Big", which no other gate here uses.
             await websocket.send_json(create_control_ack_message("unknown", "error", error="Message too large"))
-            continue
+            await websocket.close(code=1009, reason="Message too large")
+            return
 
         try:
             msg = json.loads(raw)
@@ -221,6 +234,14 @@ async def _control_recv_loop(websocket: WebSocket, executor, valid_commands: set
             return
 
         if msg.get("type") == "pong":
+            # The other path that reaches ``continue`` without spending a rate-limit token, and
+            # deliberately so (``APD-SVCCORE-005``). The bucket is the *command* budget -- its
+            # tunable is ``ws_control_rate_limit_per_sec``, "control-command rate limit" -- and pong
+            # is keepalive, not command traffic. Charging it would let a burst of legitimate
+            # commands exhaust the budget and rate-limit the client's pong, which
+            # ``_control_heartbeat_loop`` then reads as a dead peer and closes with 1011: a
+            # self-inflicted disconnect on a healthy connection. A pong is bounded by
+            # ``_MAX_MESSAGE_SIZE`` like any other frame and does no work beyond setting an event.
             pong_received.set()
             continue
 
