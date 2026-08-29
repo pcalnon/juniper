@@ -12,7 +12,7 @@
 
 ## Requirements with Status: Designed, List
 
-### JR-ML-OBS-003 — >   per the canopy requirements (high-volume / low-latency metrics and the.
+### JR-ML-OBS-003 — P5-RC-05 (frontend WebSocket consumption) is STILL OPEN, not deferred — high-volume / low-latency metrics and the bidirectional `set_params` control channel depend on it
 
 **Status**: designed  **Priority**: P0  **Category**: OBS  **Owner**: ml
 
@@ -26,6 +26,8 @@
 **Notes**:
 
 [v3 brief repaired from cited content; was: '6.0 Phase 4 Execution Results (2026-04-10, REVISED)']
+
+[2026-08-29 brief repaired from cited content; was: '>   per the canopy requirements (high-volume / low-latency metrics and the.']
 
 ### JR-ML-SEC-003 — Issue Remediations, Section 4.
 
@@ -204,7 +206,7 @@
 
 [v3 brief repaired from cited content; was: '6.3 Phase 3 Proposal Agreement Matrix']
 
-### JR-ML-ARCH-014 — ```bash ```.
+### JR-ML-ARCH-014 — Improved `juniper_plant_all.bash` / `juniper_chop_all.bash`: health polling, port and conda-env validation, /proc-based PID checks, graceful SIGTERM→SIGKILL
 
 **Status**: designed  **Priority**: P1  **Category**: ARCH  **Owner**: ml
 
@@ -214,7 +216,7 @@
 
 **Detail**:
 
-# 1. wait_for_health() function that polls /v1/health with configurable timeout
+`# 1. wait_for_health() function that polls /v1/health with configurable timeout`
 
 **Notes**:
 
@@ -225,6 +227,8 @@
 [v3 thin-brief flagged] [v4 brief repaired; was: '9.6 Detailed Design: Improved `juniper_chop_all.bash`']
 
 *Merged from 2 extraction candidates (slices: 3c-2b).*
+
+[2026-08-29 brief repaired from cited content; was: '```bash ```.']
 
 ### JR-ML-ARCH-015 — Both Phase 5 proposals unanimously agree, and this final document adopts without change:.
 
