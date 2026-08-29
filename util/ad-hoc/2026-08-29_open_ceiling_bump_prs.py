@@ -16,10 +16,20 @@ so by **branching, editing and pushing the sibling's local checkout**. That is u
 ``src/`` -- so switching its working tree mid-release could disturb a running service. propose.py was
 therefore run WITHOUT ``--cross-repo``, which skipped the three follow-ons with an explicit reason.
 
-This opener touches **no local checkout at all**. Every read and write goes through the GitHub API,
-so the file content edited is always the branch tip's own content rather than a possibly-stale
-working copy -- which also sidesteps the whole-file-clobber class (a PR built from a behind-main copy
-reverting concurrent changes).
+This opener touches **no local checkout at all**. Every read is of the branch tip's own content
+rather than a possibly-stale working copy -- which sidesteps the whole-file-clobber class (a PR built
+from a behind-main copy reverting concurrent changes) that ``open_signed_pr.py``'s whole-file ``--add``
+otherwise invites.
+
+**COMMITS MUST BE SIGNED.** The first run of this script wrote through the REST contents API and
+produced ``verified=false reason=unsigned`` commits. All nine repos carry ``required_signatures``
+since the 2026-08-12 branch-protection normalization, so every PR sat GREEN on 10-24 required
+contexts and still reported ``mergeStateStatus=BLOCKED``; ``safe_merge.py`` refused with "required
+checks are green but GitHub will not merge". An unsigned commit ANYWHERE in a branch's history blocks
+the merge and squashing does not rescue it, so those three branches were closed and deleted rather
+than repaired. The signed path is the GraphQL ``createCommitOnBranch`` mutation, which GitHub signs
+server-side -- wrapped by ``util/open_signed_pr.py``, which exists for exactly this and which this
+script now delegates to.
 
 Per plan S13/D6 each follow-on is a **separate standard-gated PR** in the consumer's own repo, never
 folded into the upstream proposal.
@@ -36,6 +46,12 @@ import base64
 import json
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+OPEN_SIGNED_PR = _REPO_ROOT / "util" / "open_signed_pr.py"
+SCRATCH = Path(tempfile.mkdtemp(prefix="ceiling-bump-"))
 
 UPSTREAM = "juniper-service-core"
 OLD_SPEC = "juniper-service-core>=0.5.0,<0.6.0"
@@ -150,36 +166,35 @@ def main() -> int:
             print("  (dry-run: no branch, no PR)\n")
             continue
 
-        gh("api", f"repos/pcalnon/{repo}/git/refs", "-X", "POST", "-f", f"ref=refs/heads/{BRANCH}", "-f", f"sha={sha}")
-        gh(
-            "api",
-            f"repos/pcalnon/{repo}/contents/{path}",
-            "-X",
-            "PUT",
-            "-f",
-            f"message=chore(deps): raise the {UPSTREAM} ceiling to <{NEW_CEILING}\n\nPre-1.0 MINOR upstream bump (juniper-ml#1458) escapes this repo's <0.6.0\nceiling under plan S6. Ceiling only; floor and every other specifier preserved.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
-            "-f",
-            f"content={base64.b64encode(new_text.encode('utf-8')).decode('ascii')}",
-            "-f",
-            f"sha={blob_sha}",
-            "-f",
-            f"branch={BRANCH}",
+        # Stage the edited content and the PR body, then delegate to open_signed_pr.py so the commit
+        # is GitHub-signed (createCommitOnBranch). Writing through the REST contents API here would
+        # produce an unsigned commit that required_signatures blocks -- see the module docstring.
+        staged = SCRATCH / f"{repo}__pyproject.toml"
+        staged.write_text(new_text, encoding="utf-8")
+        body_file = SCRATCH / f"{repo}__body.md"
+        body_file.write_text(BODY, encoding="utf-8")
+
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(OPEN_SIGNED_PR),
+                "--repo", repo,
+                "--base", base,
+                "--branch", BRANCH,
+                "--add", f"{staged}:{path}",
+                "--message", f"chore(deps): raise the {UPSTREAM} ceiling to <{NEW_CEILING}",
+                "--commit-body", f"Pre-1.0 MINOR upstream bump (juniper-ml#1458) escapes this repo's <0.6.0 ceiling under plan S6.\nCeiling only; floor and every other specifier preserved.",
+                "--title", f"chore(deps): raise the {UPSTREAM} ceiling to <{NEW_CEILING}",
+                "--body-file", str(body_file),
+            ],
+            capture_output=True,
+            text=True,
         )
-        url = gh(
-            "pr",
-            "create",
-            "--repo",
-            f"pcalnon/{repo}",
-            "--base",
-            base,
-            "--head",
-            BRANCH,
-            "--title",
-            f"chore(deps): raise the {UPSTREAM} ceiling to <{NEW_CEILING}",
-            "--body",
-            BODY,
-        )
-        print(f"  opened: {url}\n")
+        out = (proc.stdout + proc.stderr).strip().splitlines()
+        print("  " + "\n  ".join(out[-3:]) if out else "  (no output)")
+        if proc.returncode != 0:
+            failures += 1
+        print()
 
     print(f"done. {failures} consumer(s) needed attention.")
     return 1 if failures else 0
