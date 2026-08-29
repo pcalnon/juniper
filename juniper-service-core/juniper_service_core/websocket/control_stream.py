@@ -100,7 +100,33 @@ def _get_cooldown(websocket: WebSocket) -> HandshakeCooldown:
 
 
 async def _check_handshake_gates(websocket: WebSocket, client_ip: str) -> bool:
-    """Run pre-accept handshake gates. Returns ``True`` if the connection may proceed."""
+    """Run pre-accept handshake gates. Returns ``True`` if the connection may proceed.
+
+    **The distinct close codes below never reach the client, and that is correct** -- do not "fix"
+    it (``APD-SVCCORE-016``, triaged 2026-08-29 as won't-fix). Every gate here runs *before*
+    ``websocket.accept()``, so the connection is still an HTTP request: uvicorn converts a pre-accept
+    close into a plain **HTTP 403** and discards both the code and the reason
+    (``uvicorn/protocols/websockets/websockets_impl.py``; the sans-io implementation does the same).
+    So ``1013`` "Control endpoint disabled", ``4029`` "Too many rejected handshakes", ``4003``
+    "Origin not allowed" and ``manager.py``'s ``4001`` are all indistinguishable to the caller.
+
+    Three reasons this stays as it is:
+
+    * **It is what the RFC recommends.** A handshake failure is still HTTP, and RFC 6455 §10.2
+      recommends ``403 Forbidden`` for an unacceptable Origin. Collapsing to 403 is conformant
+      behaviour, not a defect in this function.
+    * **The obvious "fix" is a regression.** Making the codes observable requires accepting the
+      socket *first* and then closing it. The primer criticises exactly that pattern -- it is
+      "harder for the client to distinguish from a network failure" -- and it would also mean
+      completing a handshake for a caller the kill switch, the cooldown or the Origin allowlist has
+      already refused. Rejecting before accept is the stronger posture and must be preserved.
+    * **The codes are not wasted.** They are the honest ASGI-level reason and survive in
+      ``uvicorn``'s own logging; only the wire representation collapses.
+
+    The register's first wording for this row claimed these gates closed *after* accepting, which was
+    a false positive -- corrected 2026-08-28. The ordering asserted here (all four rejections
+    pre-accept, ``accept()`` strictly after) is the property worth protecting.
+    """
     if _setting(websocket, "disable_ws_control_endpoint"):
         await websocket.close(code=1013, reason="Control endpoint disabled")
         return False
