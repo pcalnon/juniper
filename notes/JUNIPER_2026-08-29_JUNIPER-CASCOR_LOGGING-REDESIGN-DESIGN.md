@@ -207,7 +207,16 @@ count — [cascor#570](https://github.com/pcalnon/juniper-cascor/issues/570) has
 1,166 modules per worker and this design should not silently undo that. And the shared package's
 minimum pin moves, which is a fleet-wide change rather than a cascor-local one.
 
-## 5. What this is expected to be worth
+## 5. What this is expected to be worth — **MEASURED 2026-08-29; the priority order below is superseded**
+
+> **Result**: the 1.81 M `Tensor.__format__` calls come from ONE line, at **INFO** — an *enabled*
+> level — so guards and lazy args cannot recover them. The largest recoverable item is instead
+> `_filter_by_level` at **11.19 s / 13.2 %** of worker self time, paid on all 646,016 calls of which
+> **91 % are discarded**. Revised priority: (1) stop formatting whole tensors into the INFO line,
+> ~33 %; (2) cheap integer level compare, 13.2 %; (3) move frame/tsp inside, 1.0 %; (4) call-site
+> migration, small. **The call-site migration drops from headline to last.** Full decomposition:
+> [`JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_GATED-MEASUREMENTS-RESULTS.md`](JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_GATED-MEASUREMENTS-RESULTS.md) §3.
+
 
 Honest accounting, since #563's number is banked and must not be double-counted:
 
