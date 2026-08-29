@@ -1,0 +1,24 @@
+[Unit]
+Description=Snapshot the Duplicati server DB into a backed-up path (Yamaguchi)
+Documentation=file:///home/pcalnon/Development/python/Juniper/juniper-ml/util/ad-hoc/yamaguchi_server_db_snapshot.py
+# Note section 8.19. Duplicati-server.sqlite holds the job definition, 2 sources,
+# 44 filters, 10 settings, the schedule and the encrypted passphrase. "Recreate"
+# rebuilds the per-job index (BMXWPAOGLP.sqlite) from the destination but does NOT
+# restore this one, and it lives on / (nvme0n1p5), which no backup covers.
+#
+# This is a ROOT SYSTEM unit, and it is NOT the disabled duplicati-backup.* user
+# lane. Do not confuse them: that lane RUNS BACKUPS via the CLI and is 0-for-3,
+# deliberately disabled, and must stay that way. This unit only COPIES A FILE.
+
+[Service]
+Type=oneshot
+# Root is required: /usr/lib/duplicati/data is drwx------ root root.
+ExecStart=/usr/bin/python3 /home/pcalnon/Development/python/Juniper/juniper-ml/util/ad-hoc/yamaguchi_server_db_snapshot.py
+# Nothing secret reaches the command line or the journal -- the script prints only
+# sizes, table counts and the integrity_check verdict.
+#
+# The script path is the PRIMARY checkout, matching yamaguchi-watchdog.service.
+# Deploy only after the PR adding the script has merged AND that checkout is
+# synced, or every fire exits non-zero.
+Nice=10
+IOSchedulingClass=idle

@@ -1717,3 +1717,158 @@ overrides it, so the loopback hardening of §7 may be a *deletion* of `--webserv
 rather than an addition. **The commented-out line in that file omits `--portable-mode`**, so
 activating it by swapping comment markers reproduces the §2 restart trap — edit the active line in
 place.
+
+### 8.19 Addendum (2026-08-29 afternoon) — the four owner decisions, and the half of them a headless session could execute
+
+§8.18 ended by naming an owner decision. It was taken the same day. This section records the
+decisions, what was executed and verified against them, and what is still gated on root.
+
+#### 8.19.1 The decisions
+
+| § | Question | Decision |
+|---|---|---|
+| 8.18.3 | Where does the `PASSPHRASE` escrow live? | **Both** — an offline/printed copy *and* a copy on sda1 |
+| 8.18.2 | How is `Duplicati-server.sqlite` protected? | **Automated root-owned copy** into a non-excluded path |
+| 8.18.4 | How far to narrow the web service? | **Narrow bind only** — leave cloud reporting alone for now |
+| 7 (crit. 5) | Reboot? | **Prepare it; the owner reboots on his own schedule** |
+
+#### 8.19.2 Escrow — the sda1 half is DONE, the offline half is not
+
+`util/ad-hoc/yamaguchi_key_escrow.py --execute` wrote
+`/mnt/Backups/Ubuntu/_yamaguchi_keys/env` (388 B, mode 0600, in a 0700 directory), sha256
+`96ab727c…a74a`, **verified byte-identical to the source** by an independent `sha256sum` of both
+files. A `README.md` beside it states the accepted limitation in place.
+
+The tool's value is not the copy — `cp` could do that — it is three gates that encode the failure
+being defended, each **demonstrated to fire** rather than merely present:
+
+| Gate | Refuses | Why it is not decoration |
+|---|---|---|
+| inside a Source | `--dest-dir /home/pcalnon/…` | escrowing into a Source puts the key inside the archive it unlocks |
+| same filesystem | any dest whose `st_dev` matches the source's | a copy on the same filesystem is not an escrow |
+| **same physical disk** | `--dest-dir /media/pcalnon/temp_backups/…` | **`st_dev` separates sdc3 from sda1 but NOT sdc3 from sdc4** — the "second copy" that is not a second disk is exactly the trap §8.18 names, and only a `/sys/class/block` parent-device lookup catches it |
+
+Gate ordering is itself load-bearing and was corrected during the session. With the
+same-filesystem check first, every `/home/pcalnon/...` destination was swallowed by the vaguer
+"same filesystem" message and the specific "inside a Source" error was **unreachable**. The
+string test now runs first.
+
+The printable sheet lands at `~/.cache/yamaguchi-key-escrow-sheet.txt` (mode 0600). `.cache/` is
+**filter 36**, so the plaintext sheet is excluded from the job by construction — writing it
+anywhere else under `/home/pcalnon/` would have put both passphrases into the archive in the clear.
+
+> **The escrow is HALF DONE.** The offline copy requires a human at a printer. Until the sheet is
+> printed, stored away from the machine, and `shred -u`'d, the only escrow is the sda1 copy — which
+> sits beside the ciphertext it unlocks and does not survive losing sda1. **`PASSPHRASE_OLD` still
+> has no copy outside `sdc` + sda1.**
+
+#### 8.19.3 Server DB — tooling built, deployment gated on root
+
+`util/ad-hoc/yamaguchi_server_db_snapshot.py` + `util/systemd/yamaguchi-server-db-snapshot.{service,timer}`
++ `util/ad-hoc/yamaguchi_server_db_deploy.bash`.
+
+Destination `/home/pcalnon/.local/state/duplicati-server-db/` was **verified against all 44
+filters** — the job has **zero include filters and 44 excludes**, so everything under
+`/home/pcalnon/` is captured except those 44 paths; the nearest neighbours are filter 36
+(`.cache/`) and filter 37 (`.local/share/Steam/`), neither of which covers `.local/state/`.
+
+Three things worth keeping:
+
+- **`sqlite3.backup()`, not `cp`.** The server is running and writing. A byte copy of a live SQLite
+  file can land mid-transaction and restore as a corrupt DB **that still opens**. The snapshot is
+  then proved with `PRAGMA integrity_check` *before* it replaces the previous good one.
+- **The timer is pinned to UTC, and that is not cosmetic.** `OnCalendar` defaults to *local* time
+  while the backup schedule is fixed at 14:00**Z**. A local `08:45` sits 15 min *before* the backup
+  under CDT and 45 min *after* it under CST — so at the next DST change the snapshot would silently
+  start missing its own backup by a day, with no error anywhere. `13:45:00 UTC` holds year-round.
+  Both forms resolve identically *today*, which is precisely why the bug would be invisible now.
+- **This is not key escrow and must not be mistaken for it.** The passphrase inside this DB is
+  encrypted, and the archive the DB is copied into is encrypted with the very key one would be
+  trying to recover. It is a circle. §8.19.2 is the control that breaks it; this one restores the
+  *job definition and index*.
+
+A defect was found in this tool by running it: as an unprivileged user it reported
+`source DB missing`, because `/usr/lib/duplicati/data` is `drwx------ root root` and
+`os.path.isfile()` on a perfectly present DB returns `False`. That is a **fail-into-plausible**
+read — it would send an operator hunting for a deleted file instead of prefixing `sudo`. It now
+distinguishes `PermissionError` from `FileNotFoundError` and says so.
+
+#### 8.19.4 Narrow bind — tooling built, execution gated on root
+
+`util/ad-hoc/yamaguchi_narrow_bind.bash`. Two premises were verified rather than assumed:
+
+- **The edit will take effect.** `duplicati.service` is `EnvironmentFile=-/etc/default/duplicati`
+  with `ExecStart=/usr/bin/duplicati-server $DAEMON_OPTS`, and the live process cmdline is
+  `--webservice-interface=any --webservice-port=8300 --portable-mode` — exactly the active line.
+- **Deleting the flag is sufficient.** `GET /api/v1/serversettings` returns
+  `server-listen-interface = loopback` **already stored in the DB**. The command line is what
+  overrides it, so the fix is a *deletion*, not an addition.
+
+**The §2 restart trap now has a stated mechanism.** Both databases live in
+`/usr/lib/duplicati/data/` — the *portable* location. Drop `--portable-mode` and the server looks
+in root's profile instead, finds no job, and comes up **empty**: no Yamaguchi backup, no schedule,
+no history. It presents as total loss and is merely a wrong data directory. That is why the
+commented line in `/etc/default/duplicati` — which omits `--portable-mode` — must never be
+activated by swapping comment markers. The script edits the **active line in place**, asserts
+`--portable-mode` survived and the interface flag is gone, and **rolls back from a timestamped
+backup** if either assertion fails. The `sed` was proved on a copy of the real file: the active
+line is rewritten, the commented trap line is untouched.
+
+Restart is opt-in (`--restart`) and refuses unless `ActiveTask` is null.
+
+#### 8.19.5 Reboot — script written and validated end-to-end
+
+`util/ad-hoc/yamaguchi_reboot_verify.bash pre|post`. Both lanes were **executed** on the live
+(un-rebooted) system, so every code path has run; `post` returned `PASS` and its forced watchdog run
+refreshed `server-watchdog.status` from `12:00:54` to `15:42:46`.
+
+> That `PASS` validates **the script**, not criterion 5. Nothing has rebooted.
+
+The file carries the two traps that make the naive version of this check worthless:
+
+- `systemctl --user is-enabled` and `loginctl … Linger` **cannot fail because of a reboot** — they
+  read a symlink and a persisted file respectively. They test configuration, not survival. The real
+  evidence is that `systemctl --user` **connects at all**.
+- "`LAST` is after the boot time" is a **false negative on a healthy reboot**: the watchdog timer is
+  `OnCalendar=*-*-* 12:00:00 Persistent=true`, so it catches up only if a 12:00 point was crossed
+  while down. Reboot at any other hour and `LAST` legitimately stays pre-boot for ~23 h. Hence the
+  explicit `systemctl --user start` — `Type=oneshot`, safe on demand.
+
+#### 8.19.6 Residual closed: `_drill_scratch/` is now maintained, not a one-shot
+
+`yamaguchi_records_sync.bash` synced four named directories and excluded `restored/`, so the nine
+preserved drill samples that Tier 3 gate 5 placed on sda1 were unmaintained. `_drill_scratch` now
+has its own rsync invocation; both sides hold 9 files and a re-run is a no-op.
+
+It is a **separate invocation on purpose**. rsync matches each rule against the path relative to
+*each* transfer root, so any `--include=/restored/***` broad enough to rescue
+`_drill_scratch/restored` would equally un-exclude `_yamaguchi_drill/*/restored` — re-arming the
+copy the exclusion exists to prevent. A second call cannot make that mistake. A 50 MB guard turns a
+future large `_drill_scratch` into a loud refusal instead of a silent bulk copy.
+
+Measured while doing it: **the `restored/` exclusion is now vestigial** — Tier 3 deleted the 63.9 GB
+it was written to block, and it currently guards ~16 KB across three drill dirs. **It stays**: it is
+a standing guard against the next drill recreating a large tree, not a statement about today's sizes.
+
+#### 8.19.7 Expectation drift a fresh session will otherwise misread
+
+The predecessor handoff expects `818 files / 210,901,216,426 B`. The census now reports
+**823 files / 212,009,670,891 B** and still reconciles `-> AGREE`. This is the 2026-08-29T14:00Z run
+completing (`FilesUploaded=5`; 818 + 5 = 823), not drift. Next run `2026-08-30T14:00:00Z`.
+
+#### 8.19.8 Still open
+
+1. **The offline escrow copy** (§8.19.2) — needs a human at a printer. Highest remaining consequence.
+2. **`sudo bash util/ad-hoc/yamaguchi_server_db_deploy.bash`** — after the primary checkout is synced
+   to a `main` containing the script, or every timer fire exits non-zero.
+3. **`sudo bash util/ad-hoc/yamaguchi_narrow_bind.bash --restart`**.
+4. **Criterion 5** — owner reboots, then `yamaguchi_reboot_verify.bash pre` / `post`.
+5. **§8.8's `.env` sha256 reconciliation**, still unreconciled — and still the precondition for
+   sweeping `curious-plotting-hummingbird`. Note that §8.19.2 changes its risk: with the sda1 escrow
+   in place, sweeping it no longer destroys the only recoverable copy of `PASSPHRASE_OLD`. It is now
+   an ordinary secrets-sprawl item.
+6. **Cloud reporting** (§8.18.4) — owner-deferred, not rejected. `remote-control-enabled = True` and
+   `additional-report-url` embeds a **long-lived bearer JWT** (issuer `api.duplicati.com`, expiring
+   2028) — it is a credential, not merely a URL, and should be treated as one if that file is shared.
+7. **The disabled `duplicati-backup.*` user lane** (§8.11.3) — removal PR still unopened. The lane
+   fails safe; not urgent. Do **not** "repair" its paths.
