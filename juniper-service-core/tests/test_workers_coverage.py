@@ -240,9 +240,10 @@ def test_json_task_protocol_round_trips_through_the_coordinator() -> None:
 def test_json_task_protocol_declares_no_attachments() -> None:
     """The default never asks the stream to read a binary frame, whatever the worker claims.
 
-    Deliberate: ``websocket/worker_stream.py`` reads one frame per declared attachment with no
-    cumulative cap (APD-SVCCORE-001, still open), so a default that echoed worker-declared names back
-    would hand that unbounded read to every consumer who adopted it.
+    Deliberate: ``websocket/worker_stream.py`` reads one frame per declared attachment, so a default
+    that echoed worker-declared names back would hand that read to every consumer who adopted it.
+    That loop is now bounded by count and by total bytes (APD-SVCCORE-001, fixed), but declaring
+    nothing is still the right default -- the safest attachment is the one never requested.
     """
     proto = JsonTaskProtocol()
     assert proto.result_attachments({}) == []
