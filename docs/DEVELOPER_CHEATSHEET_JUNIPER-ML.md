@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.21
+**Version**: 1.0.27
 **Date**: 2026-08-24
 **Project**: juniper-ml
 
@@ -19,6 +19,8 @@
 | `python -m build && twine check dist/*`                | Build and validate package                      |
 | `python3 -m unittest -v tests/test_wake_the_claude.py` | Run launcher regression tests                   |
 | `python3 -m unittest -v tests/test_pyproject_extras.py`| Lint extras schema + docs↔pyproject pin lockstep |
+| `python3 -m unittest -v tests/test_publish_testpypi_verify.py` | Gate 1 two-phase verify + bounded TestPyPI poll (no `sleep 30`) |
+| `python3 -m unittest -v tests/test_publish_release_only_trigger.py` | All `publish*.yml` stay `release: published` only (no `push:`) |
 | `bash scripts/test_resume_file_safety.bash`            | Run resume file safety regression               |
 | `pre-commit run --all-files`                           | Run all pre-commit hooks                        |
 | `juniper-check-doc-links --cross-repo skip`            | Validate doc links (CI-parity mode; install via `pip install juniper-doc-tools`) |
@@ -42,6 +44,9 @@
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + merge order |
+| `python util/snapshot_attribute.py --null-only` | Print per-dataset untrained floors (no sidecar write) |
+| `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
+| `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -156,10 +161,10 @@ This behavior is regression-tested in `tests/test_wake_the_claude.py`:
 |------|---------------------|
 | Local package tests | `cd juniper-observability && python -m pytest --cov=juniper_observability --cov-report=term-missing --cov-fail-under=90` |
 | Local build check | `cd juniper-observability && python -m build --sdist --wheel && twine check dist/*` |
-| Publish | Push tag `juniper-observability-vX.Y.Z` to trigger `.github/workflows/publish-observability.yml` |
+| Publish | Cut a GitHub Release with tag `juniper-observability-vX.Y.Z` (never a bare `git push <tag>`) to trigger `.github/workflows/publish-observability.yml` |
 | Retry publish | Use `workflow_dispatch` on `.github/workflows/publish-observability.yml` against the existing tag |
 
-Publish flow: build uploads `juniper-observability-dist` for seven days, TestPyPI downloads and publishes it with OIDC, TestPyPI install is retried for index lag, then PyPI downloads the same artifact after TestPyPI verification succeeds.
+Publish flow: build uploads `juniper-observability-dist` for seven days, TestPyPI downloads and publishes it with OIDC, TestPyPI `--no-deps` install is retried 5×10s for index lag, then PyPI downloads the same artifact after TestPyPI verification succeeds.
 
 Constraint: publish jobs currently run on GitHub-hosted `ubuntu-latest` runners with SHA-pinned artifact actions. If switching to self-hosted runners, verify compatibility with the pinned `actions/upload-artifact` and `actions/download-artifact` versions before tagging a release.
 
@@ -239,6 +244,7 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 | Weekly lockfile refresh| Actions → Update Lockfiles (`juniper-generate-dep-docs` → PR on `chore/lockfile-update`)    |
 | Weekly docs-full-check | Mon 06:00 UTC / dispatch — clones `ECOSYSTEM_REPOS`, `--cross-repo check` + pin screens     |
 | Audit this `claude.yml`| `bash util/validate_claude_yaml_access.bash .github/workflows/claude.yml`                   |
+| Live `@claude` assistant | `.github/workflows/claude.yml` — SHA-pinned `anthropics/claude-code-action`; not a required check; see tip below |
 | Audit all siblings     | `JUNIPER_ROOT=/path/to/Juniper bash util/validate_claude_yaml_access.bash`                  |
 | AGENTS.md date bump    | **You bump it**; CI verifies on PRs touching `AGENTS.md` (`agents-md-touch-up.yml`; no bot commit) |
 | Shared-package CI      | Path-scoped `ci-<pkg>.yml` under `.github/workflows/` (six packages; see REFERENCE)         |
@@ -461,6 +467,9 @@ Pointer: [REFERENCE — YubiKey GPG Provisioning](REFERENCE.md#yubikey-gpg-provi
 | `JUNIPER_EXP_CONDA_DIR`        | `/opt/miniforge3`  | Conda root for experiment direct env-bin launch |
 | `JUNIPER_REAP_PROC_ROOT`       | `/proc`            | Proc root for `util/reap_pytest_orphans.bash` (tests override) |
 | `JUNIPER_REAP_KILL_CMD`        | `kill`             | Kill binary for `util/reap_pytest_orphans.bash` (tests override) |
+| `JUNIPER_CASCOR_SNAPSHOTS_DIR` | `~/Development/python/Juniper/juniper-cascor/cascor-snapshots` | Dual-use: cascor write dir **and** snapshot-tool `--root` default. Do **not** redirect for the sidecar chain — pass `--root`. |
+| `JUNIPER_CASCOR_SRC`           | `~/Development/python/Juniper/juniper-cascor/src` | Override cascor source tree for `snapshot_attribute.py` |
+| `JUNIPER_DATA_ROOT`            | `~/Development/python/Juniper/juniper-data` | Override juniper-data tree for generator imports |
 | `JUNIPER_FLEET_SKIP_PRECOMMIT` | unset              | When set, `predict_merge` skips the pre-commit battery (screens still run) |
 
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
@@ -521,7 +530,17 @@ Tip: scheduled `security-scan.yml` keeps `pip-audit --strict --desc on` (no `--s
 
 Tip: two clone/audit lists move together. `docs-full-check.yml` `env.ECOSYSTEM_REPOS` decides which siblings are *cloned*; `DEFAULT_REPOS` in `util/validate_claude_yaml_access.bash` decides which cloned checkouts the `claude.yml` auditor *opens*. Both are "registry publishing repos plus `juniper-deploy`" — adding a sibling to one only leaves a silent gap. See [REFERENCE — Docs Full Check](REFERENCE.md#docs-full-check) and [Claude.yml Access Validation](REFERENCE.md#claudeyml-access-validation).
 
-Tip: meta publish Gate 1 runs **three** TestPyPI installs (bare → `[clients]` → `[tools]`; never `--no-deps`, never the heavy extras) before PyPI. The six shared `publish-*.yml` are Release-only (`release: published`; no `push: tags` — the #555 double-publish race), each tag-prefix-guarded, with a `--no-deps` TestPyPI-only verify and `skip-existing: true`. See [REFERENCE — Build and Release](REFERENCE.md#build-and-release).
+**Claude Code Action (`claude.yml`):** GitHub `@claude` assistant, not the local `claudey` /
+`wake_the_claude.bash` launcher. SHA-pinned `anthropics/claude-code-action` (`# vX.Y.Z` comment);
+only input is `secrets.ANTHROPIC_API_KEY` (a **repo** secret). The job `if:` requires the literal
+`@claude` on every `on:` event. Dependabot groups only `codeql-action` — an ungrouped
+`claude-code-action` SHA bump is the healthy PR. Do not overwrite the live file with
+`notes/templates/ci/claude.yml` (2026-04-29 snapshot). Full contract:
+[REFERENCE — Claude Code Action](REFERENCE.md#claude-code-action).
+
+Tip: meta publish Gate 1 polls TestPyPI 10×6s (~60s ceiling) for the just-uploaded wheel, then runs **three** local-wheel installs (bare → `[clients]` → `[tools]`; never `--no-deps` on the installs, never `--extra-index-url`, never the heavy extras) before PyPI. Do not restore `sleep 30`.
+
+Tip: the six shared `publish-*.yml` are Release-only (`release: published`; no `push: tags` — the #555 double-publish race); a bare `git push <tag>` starts **no run**. Each is tag-prefix-guarded, with a `--no-deps` TestPyPI-only 5×10s verify and `skip-existing: true`. Do not resurrect a `Require a GitHub Release for this tag` step under `if: github.event_name == 'push'` — that condition is unreachable (#1310). See [REFERENCE — Build and Release](REFERENCE.md#build-and-release).
 
 Tip: shared-package `ci-*.yml` (six sub-packages) must keep path self-inclusion, matrix floors, `--cov-fail-under`, and a blocking `juniper-coverage-gap-map --enforce`. Dropping the workflow self-path or `--enforce` ships green while the package suite stops running or stops enforcing gaps; service-core installs sibling `juniper-model-core` from the monorepo root (no test-job `working-directory`). Full table: [REFERENCE — Shared-Package CI](REFERENCE.md#shared-package-ci-workflows).
 
@@ -539,11 +558,16 @@ Tip: juniper-service-core invariants — `RequestBodyLimitMiddleware` always str
 
 Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or returns non-JSON, while `--batch` soft-`ERROR`s that row and keeps going. A deleted `.py` stays in `true_delta` for the symbol screen but is filtered out of the pre-commit battery, so a pure-deletion PR can be gate-clean and still `DAMAGED-FIX-FIRST`.
 
+Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` only samples which snapshots to score; `--dataset-seed` (default `DATASET_SEED=20260824`) pins generators that declare `seed=None`. spiral keeps its own seed. Do not export `JUNIPER_CASCOR_SNAPSHOTS_DIR` for the sidecar chain — pass `--root`. See [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin).
+
 
 ### Host Stack Troubleshooting
 
 | Symptom | Fast Check |
 |---------|------------|
+| `@claude` mention did nothing | Job `if:` needs the literal `@claude` in that event's body (or issue title); `issues: assigned` still needs it |
+| Copied `notes/templates/ci/claude.yml` onto live | Template snapshot lags Dependabot (checkout v6.0.2 / action v1.0.107); restore `.github/workflows/claude.yml` from `main` |
+| L2/L3 auditor green after permissions widen | Expected — bash is structure-only; `LiveClaudeWorkflowContractTests` pins the map |
 | Slack PR-budget WARN/ALARM | Open the `PR Budget Alarm` run step summary; drain oldest `cursor/` same-file clusters; confirm dashboard per-run caps. Raise thresholds only via `PR_BUDGET_WARN` / `PR_BUDGET_ALARM` repo vars. |
 | Budget alarm cron green but no Slack on breach | Confirm `SLACK_WEBHOOK_URL` is set; missing secret skips notification by design (run stays green). |
 | `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch ref — not a damage finding. |
@@ -580,7 +604,7 @@ Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or r
 | systemd plant partial after health timeout | Run `util/juniper_chop_all.bash --systemd` (ERR cleanup does not `systemctl stop`). |
 | Duplicati installer refuses `env` / mode / Linger | `~/.config/duplicati-backup/env` mode `600` with `PASSPHRASE=`; `loginctl enable-linger $USER` |
 | Duplicati timer silent after logout | Linger was `no` — the original failure class. Confirm `list-timers duplicati-backup.timer` |
-| Duplicati `FATAL` unmounted dest / tmpfs tempdir | Mount the backup volume; set `DUPLICATI_TEMP_DIR` to a disk-backed sibling of the dest, not `/tmp` |
+| Duplicati `FATAL` unmounted dest / tmpfs tempdir | Mount the backup volume; point `DUPLICATI_TEMP_DIR` at any disk-backed path (the runner refuses a RAM-backed one outright, and `/tmp` is tmpfs here) |
 | Duplicati skip then next run escalates | Expected — skip overwrites `result=OK`. Inspect `~/.local/state/duplicati/{last-run.status,failures.log}` |
 | `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch ref — not a damage finding. |
 | Fleet `DAMAGED` on intentional docs rewrite | Add `Allow-Docs-Rewrite: <path>` or `*` in BASE..RESULT (#926); wrong-path trailers do not waive. |
@@ -622,6 +646,9 @@ Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or r
 | Worker WS closes 4001 / 4008 | 4001 = API-key auth enabled (send `X-API-Key`); 4008 = registration shape (string `worker_id` + dict `capabilities`). |
 | `--batch` row `verdict=ERROR` | Soft-fail for that tip only; the other PRs in the report remain valid. `--pr` would have exited `2` instead. |
 | Deleted `.py` gate-clean but `DAMAGED` | The battery skipped the missing path while the symbol screen saw `LOST` — expected. |
+| Two identical attribution runs differ | Unpinned generators (need #1333). `--seed` samples snapshots; `--dataset-seed` pins data. |
+| Sidecar chain wrote into scratch / empty archive | `JUNIPER_CASCOR_SNAPSHOTS_DIR` was redirected — unset it and pass `--root`. |
+| `--write` exits 2 before scoring | `--sample` / `--min-hidden` / `--from-sidecar` with `--write` is refused so the sidecar cannot cover a subset. |
 
 ## Quick Reference Tables
 
@@ -658,6 +685,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 - [Ecosystem Guide](../AGENTS.md) -- project map, dependency graph, conventions
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
+- [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
@@ -665,5 +693,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-08-24
-**Version:** 1.0.21
+**Version:** 1.0.27
 **Maintainer:** Paul Calnon
