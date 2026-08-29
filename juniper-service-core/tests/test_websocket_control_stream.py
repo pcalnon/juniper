@@ -198,6 +198,39 @@ async def test_handshake_gate_allows_clean_connection() -> None:
     assert await _check_handshake_gates(ws, "1.2.3.4") is True
 
 
+@pytest.mark.asyncio
+async def test_every_handshake_rejection_happens_before_accept() -> None:
+    """No rejection path may complete the handshake first (`APD-SVCCORE-016`, won't-fix triage).
+
+    The row is that the four distinct close codes are indistinguishable to the caller: uvicorn turns
+    a pre-accept close into a plain HTTP 403 and discards code and reason. Triaged 2026-08-29 as
+    **won't-fix**, because the only way to make those codes observable is to `accept()` the socket
+    *first* and then close it -- which the primer criticises as "harder for the client to distinguish
+    from a network failure", and which would complete a handshake for a caller the kill switch, the
+    cooldown or the Origin allowlist has already refused. Collapsing to 403 is also what RFC 6455
+    §10.2 recommends for an unacceptable Origin.
+
+    So the disposition is: keep the ordering, and pin it. **This is the arm that fails if someone
+    "fixes" the row.** The four existing gate tests above assert the return value and the close code;
+    none of them asserts that `accept()` was not reached, so all four would still pass against an
+    accept-then-close rewrite -- which is exactly the regression.
+    """
+    cooldown = HandshakeCooldown(max_rejections=1, block_sec=300)
+    cooldown.record_rejection("1.2.3.4")
+    auth = build_api_key_auth(["s3cret"])
+
+    rejections = {
+        "kill switch": ControlFakeWS(app=_app(settings=_settings(disable_ws_control_endpoint=True))),
+        "cooldown": ControlFakeWS(app=_app(settings=_settings(), ws_control_cooldown=cooldown)),
+        "auth": ControlFakeWS(headers={}, app=_app(settings=_settings(), api_key_auth=auth)),
+        "origin": ControlFakeWS(headers={"origin": "https://evil.example"}, app=_app(settings=_settings(ws_control_allowed_origins=["https://good.example"]))),
+    }
+
+    for gate, ws in rejections.items():
+        assert await _check_handshake_gates(ws, "1.2.3.4") is False, f"{gate}: expected rejection"
+        assert ws.accepted is False, f"{gate}: rejected the connection but had already called accept()"
+
+
 # ----------------------------------------------------------------------------------------
 # Command dispatch error arms
 # ----------------------------------------------------------------------------------------
