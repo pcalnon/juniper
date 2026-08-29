@@ -214,7 +214,25 @@ achieved level, not the aspirational one.
 
 ### P5 — Fleet rollout
 
-**Status: RATCHET DONE — 8 of 9 governable repos governed; `Memory Budget` BLOCKING with declared slack AND REQUIRED by ruleset on all 8 (promoted 2026-08-27); the cut (step e) has not started.** Tracking issue:
+**Status: CUT IN PROGRESS — the ratchet is done (8 of 9 governable repos governed; `Memory Budget`
+BLOCKING with declared slack AND REQUIRED by ruleset on all 8, promoted 2026-08-27), and step e has
+now cut 3 of them, removing ~50,200 always-resident chars.** Merged 2026-08-29 UTC (squash SHAs are
+`mergeCommit.oid`, NOT the head `safe_merge` names in its "MERGED #N at <sha>" line — that is the
+head it merged, and two figures were first recorded wrong that way):
+[juniper-cascor-client#142](https://github.com/pcalnon/juniper-cascor-client/pull/142) (`e19d7926`,
+`AGENTS.md` 34,695 → 15,832, ceiling 37,277 → 18,414),
+[juniper-data#296](https://github.com/pcalnon/juniper-data/pull/296) (`9f9c0b8c`, 43,493 → 24,965,
+45,493 → 26,965),
+[juniper-data-client#176](https://github.com/pcalnon/juniper-data-client/pull/176) (`e3a8ddb9`,
+28,369 → 15,531, 30,442 → 17,604).
+[juniper-recurrence#135](https://github.com/pcalnon/juniper-recurrence/pull/135) (`315d014b`) took a
+**policy ceiling raise instead of a cut** (13,698 → 20,000, owner decision): an 11.5K file across 6
+sections with no `docs/REFERENCE.md` has too little to relocate to be worth splitting.
+**Still uncut: juniper-canopy and juniper-cascor** (both blocked — see
+[the cut-prep note](JUNIPER_2026-08-28_JUNIPER-ECOSYSTEM_P5-CUT-CANOPY-CASCOR-PREP.md) for the
+destination and hazards prerequisites, and for a relocate-tool defect that would have silently
+truncated 8 of canopy's 11 candidate sections), **plus juniper-cascor-worker and juniper-deploy**,
+which are cuttable, unclaimed, and were simply out of scope for the first pass. Tracking issue:
 [juniper-ml#1326](https://github.com/pcalnon/juniper-ml/issues/1326) — its comment thread is the live
 per-repo ledger; read it before trusting this banner. Ports merged 2026-08-25:
 [juniper-canopy#516](https://github.com/pcalnon/juniper-canopy/pull/516) (`611141c1`, ceiling 95,133) and

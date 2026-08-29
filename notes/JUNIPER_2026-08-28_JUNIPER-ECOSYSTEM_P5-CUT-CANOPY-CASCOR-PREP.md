@@ -277,16 +277,27 @@ minutes ago. Keep the friction; reduce the noise.
 
 ## 8. Urgency — neither is close to firing
 
-Re-measured 2026-08-28 (`measure-growth --ref origin/main`):
-
-| Repo | AGENTS.md | ceiling | headroom | rate/day | days |
+| Repo | AGENTS.md | ceiling | headroom | rate/day | implied days |
 |---|---:|---:|---:|---:|---:|
-| juniper-canopy | 95,133 | 97,133 | 2,000 | 66 | ~30 |
-| juniper-cascor | 71,098 | 80,707 | 9,609 | 205 | ~47 |
+| juniper-canopy | 95,133 | 97,133 | 2,000 | 66 (30 d) | ~30 |
+| juniper-cascor | 71,098 | 80,707 | 9,609 | **711 (30 d) / 142 (14 d)** | **~13 or ~68** |
 
-**Note the ordering correction.** Plan §P5 says order by rate and names cascor "start here" — that
-was the input for the **port**. For the **cut** the input is `headroom ÷ rate`, and by that measure
-cascor is the least urgent repo in the fleet. Waiting for a clean window costs nothing.
+**A "days remaining" figure for cascor is not trustworthy, and an earlier draft of this note stated
+~47 days as though it were.** Corrected after a peer read a different number from the same helper.
+cascor's rate is entirely window-dependent — 711/day over 30 days (14 commits, 9 growing, largest
+**9,609**), 142/day over 14 days (one growing commit). An earlier 14-day read the same day gave 205.
+The measurement is not wrong; the *summary statistic* is, because the growth is bursty and n is 1–14.
+
+**State the risk structurally instead.** cascor's headroom is 9,609 and its largest observed single
+commit is 9,609 — identical, because the slack rule sized the ceiling from exactly that commit. So:
+**one commit of a size cascor has already produced once exhausts its entire headroom.** That is the
+real exposure, it does not depend on a window, and it is a stronger argument for cutting cascor than
+any days figure. Re-measure before scheduling; do not schedule from this table.
+
+**The ordering correction still stands, with a narrower claim.** Plan §P5 orders by rate and names
+cascor "start here" — that was the input for the **port**. For the **cut** the input is
+`headroom ÷ rate`. That reordering is right in principle; what it does *not* support is the specific
+conclusion "cascor is the least urgent repo in the fleet", which the 30-day window contradicts.
 
 ## 9. Tooling produced by this prep (juniper-ml, `util/ad-hoc/`)
 
