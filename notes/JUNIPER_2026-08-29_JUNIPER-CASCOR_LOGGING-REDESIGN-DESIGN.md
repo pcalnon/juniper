@@ -150,22 +150,38 @@ most of its risk in the parts that do not matter. Grep for tensor interpolation 
 
 A sink abstraction with, at minimum, a console sink and a rotating file sink:
 
-- The file sink holds an **open handle** for the process lifetime, flushing per record (or on an
-  interval — see Q2), instead of opening per record. Create-on-demand from F-2 moves into sink
+- The file sink holds an **open handle** for the process lifetime, **flushing per record**
+  (owner decision 2), instead of opening per record. Create-on-demand from F-2 moves into sink
   initialisation, preserving the `JUNIPER_CASCOR_LOG_DIR` and fresh-worktree cases.
-- The console sink is **independently configurable and independently disableable**, defaulting to
-  stderr rather than stdout so a process's stdout stays a clean data channel.
+- The console sink is **independently configurable and independently disableable**, and **stays on
+  stdout** (owner decision 4). It gains a disable switch, which the current unconditional `print()`
+  lacks; the swallowed-pytest problem is handled separately (§7.1), not by moving the stream.
 - Colourisation belongs to the console sink only, gated on a TTY check, never applied to the file
   sink (colour escapes in `juniper_cascor.log` would break every existing grep-based analysis and
   every log-parsing tool in `util/ad-hoc/`).
 
 **Forked-worker constraint — this is the part most likely to go wrong.** Candidate workers are
 forked from the parent. An inherited open file handle shared across processes gives interleaved and
-potentially torn writes. Options: per-process handle opened lazily on first write after fork
-(simplest, keeps one file), one file per PID (safest, changes the artifact layout every log-reading
-tool depends on), or a queue plus a single writer thread in the parent (cleanest, most machinery,
-and the queue must not become a fork-safety hazard of its own — see
-`util/ad-hoc/2026-08-26_fork_safety_import_surface.py`). **Q3.**
+potentially torn writes.
+
+**Owner decision 3: per-process handle**, opened lazily on first write after fork — the simplest
+option, and the only one that keeps a single log file and so keeps every existing log-reading tool
+working unchanged. Taken as **provisional**: if it proves untenable, the fallbacks are one file per
+PID (safest, but changes the artifact layout that the experiment harness, the census tooling and the
+snapshot pipeline all depend on) or a queue plus a single writer thread in the parent (cleanest, most
+machinery, and the queue must not become a fork-safety hazard of its own — screen it with
+`util/ad-hoc/2026-08-26_fork_safety_import_surface.py`).
+
+Two things must be **verified rather than assumed** before this is considered settled:
+
+1. **A handle inherited across `fork` shares its file offset.** Opening in append mode (`O_APPEND`)
+   makes each write seek-to-end atomically, which is what makes concurrent appenders survivable at
+   all; a handle opened *before* the fork and written by both parent and child without `O_APPEND`
+   will corrupt. "Opened lazily on first write after fork" is what avoids this — the laziness is
+   load-bearing, not an optimisation.
+2. **Atomicity has a size limit.** Appends larger than the platform's atomic-write guarantee can
+   still tear under concurrency. cascor log records embed formatted tensors and can be long. The
+   §5 measurement run must be checked for torn or interleaved records in the worker log.
 
 ### D-3 — per-logger levels from config and environment (scope 3)
 
@@ -180,9 +196,16 @@ Structured JSON output is the prerequisite and is worth doing regardless: one JS
 record with stable field names. Ship that as a sink option; leave the actual shipper (filebeat
 sidecar, HTTP appender, or a `juniper-observability` helper) out of the first change. A network sink
 on the per-record path in a forked worker is exactly where an unbounded queue or a blocking socket
-would cost more than the 18 % this design is trying to recover. `juniper-observability` already owns
-structured-JSON logging for the service tier and is the natural home — reuse rather than a second
-implementation.
+would cost more than the 18 % this design is trying to recover.
+
+**Owner decision 6: the JSON sink goes through `juniper-observability`**, which already owns
+structured-JSON logging for the service tier — one implementation, not a cascor-local second one.
+Two consequences to plan for: cascor gains a hard dependency on `juniper-observability` in the
+*worker* import path, so the addition must be screened for fork-safety
+(`util/ad-hoc/2026-08-26_fork_safety_import_surface.py`) and for its effect on the worker module
+count — [cascor#570](https://github.com/pcalnon/juniper-cascor/issues/570) has just been closed at
+1,166 modules per worker and this design should not silently undo that. And the shared package's
+minimum pin moves, which is a fleet-wide change rather than a cascor-local one.
 
 ## 5. What this is expected to be worth
 
@@ -218,21 +241,38 @@ and it should precede the implementation rather than justify it retroactively.
   that reads only `juniper_cascor.log` silently misses records — a rotating file sink must keep that
   behaviour predictable and documented, since it has already caused one truncated analysis.
 
-## 7. Open questions for the owner
+## 7. Owner decisions — SETTLED 2026-08-29
 
-1. **Measure the discarded-record share first?** Recommended — without it §5's headline is a
-   ceiling, not a benefit.
-2. **Flush per record or on an interval?** Per record is what the current code effectively gives
-   (open/write/close) and is what makes a crashed run's log complete. An interval is faster and can
-   lose the tail — which matters here, because a truncated log is how several analyses in this arc
-   went wrong.
-3. **Forked-worker file strategy** — per-process handle, per-PID file, or parent writer thread
-   (D-2). This is the highest-risk decision in the design.
-4. **Console default: stderr, or keep stdout?** Moving to stderr is the fix for the swallowed-pytest
-   problem but changes what existing runners capture.
-5. **How far does the call-site migration go?** Hot paths only (recommended) or a full sweep.
-6. **Does structured JSON go through `juniper-observability`** as a shared sink, or stay local to
-   cascor initially?
+All six questions answered by the owner. Recorded here as the design's binding constraints.
+
+| # | question | **decision** |
+| --- | --- | --- |
+| 1 | Measure the discarded-record share first? | **YES — measure before building.** §5's number stays a ceiling until then. This is now a gate on starting implementation, not a nice-to-have. |
+| 2 | Flush per record or on an interval? | **Per record.** A complete log for a crashed run outweighs the throughput; a truncated log is how several analyses in this arc went wrong. |
+| 3 | Forked-worker file strategy | **Per-process file handle**, opened lazily on first write after fork. Explicitly provisional — re-evaluate if it proves untenable. Per-PID files and the parent writer thread stay on the table as fallbacks. |
+| 4 | Console default stderr or stdout? | **Keep stdout.** The swallowed-pytest problem is not to be fixed by relocating the stream — it gets its own rigorous investigation (see F-3a below). Provisional; revisit if it becomes problematic. |
+| 5 | Call-site migration scope | **Deferred pending analysis** — written up separately in [`JUNIPER_2026-08-29_JUNIPER-CASCOR_LOGGING-CALL-SITE-MIGRATION-ANALYSIS.md`](JUNIPER_2026-08-29_JUNIPER-CASCOR_LOGGING-CALL-SITE-MIGRATION-ANALYSIS.md). Headline: 1,885 call sites, 879 f-strings, but 36 % of sites and essentially all tensor formatting sit in two files, so hot-path-only is a ~150-site diff. Recommends guards + `%`-args on the hot path, explicitly **not** a full sweep. Still owner's call. |
+| 6 | Structured JSON via `juniper-observability`? | **Yes — through `juniper-observability`.** No second implementation local to cascor. |
+
+Consequences of (2) + (3) together: per-record flush on a per-process handle means each forked
+worker holds its own descriptor to the same file and flushes every record. Interleaving is then at
+record granularity rather than byte granularity for writes under `PIPE_BUF`, but **this is an
+assumption that must be tested, not assumed** — a write larger than the atomic-append guarantee can
+still tear. The §5 measurement run should be used to check for torn or interleaved records in the
+worker log before the design is considered settled.
+
+Consequence of (4): stdout stays the log stream, so the existing runner convention of redirecting
+stdout wholesale and reading the log file remains correct and must keep working.
+
+### 7.1 Deferred to its own document — the swallowed-pytest problem (F-3a)
+
+Decision 4 keeps stdout *and* declines to treat relocation as the fix, which means the underlying
+cause is still unexplained. It is currently attributed to the unconditional `print()` at
+`logger.py:475`, but that attribution has never been tested — pytest captures stdout by default and
+restores it per test, so "the logger prints to stdout" is a plausible story rather than a
+demonstrated mechanism. Worth a bounded investigation of its own: reproduce the disappearance,
+identify whether it is pytest's capture, a `capsys`/`-s` interaction, the logger's `print`, or
+stream buffering, and only then propose a fix. Explicitly NOT a blocker on the rest of this design.
 
 ## 8. References
 
