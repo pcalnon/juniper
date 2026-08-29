@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.23
+**Version**: 1.0.24
 **Date**: 2026-08-24
 **Project**: juniper-ml
 
@@ -19,6 +19,8 @@
 | `python -m build && twine check dist/*`                | Build and validate package                      |
 | `python3 -m unittest -v tests/test_wake_the_claude.py` | Run launcher regression tests                   |
 | `python3 -m unittest -v tests/test_pyproject_extras.py`| Lint extras schema + docs↔pyproject pin lockstep |
+| `python3 -m unittest -v tests/test_publish_testpypi_verify.py` | Gate 1 two-phase verify + bounded TestPyPI poll (no `sleep 30`) |
+| `python3 -m unittest -v tests/test_publish_release_only_trigger.py` | All `publish*.yml` stay `release: published` only (no `push:`) |
 | `bash scripts/test_resume_file_safety.bash`            | Run resume file safety regression               |
 | `pre-commit run --all-files`                           | Run all pre-commit hooks                        |
 | `juniper-check-doc-links --cross-repo skip`            | Validate doc links (CI-parity mode; install via `pip install juniper-doc-tools`) |
@@ -156,10 +158,10 @@ This behavior is regression-tested in `tests/test_wake_the_claude.py`:
 |------|---------------------|
 | Local package tests | `cd juniper-observability && python -m pytest --cov=juniper_observability --cov-report=term-missing --cov-fail-under=90` |
 | Local build check | `cd juniper-observability && python -m build --sdist --wheel && twine check dist/*` |
-| Publish | Push tag `juniper-observability-vX.Y.Z` to trigger `.github/workflows/publish-observability.yml` |
+| Publish | Cut a GitHub Release with tag `juniper-observability-vX.Y.Z` (never a bare `git push <tag>`) to trigger `.github/workflows/publish-observability.yml` |
 | Retry publish | Use `workflow_dispatch` on `.github/workflows/publish-observability.yml` against the existing tag |
 
-Publish flow: build uploads `juniper-observability-dist` for seven days, TestPyPI downloads and publishes it with OIDC, TestPyPI install is retried for index lag, then PyPI downloads the same artifact after TestPyPI verification succeeds.
+Publish flow: build uploads `juniper-observability-dist` for seven days, TestPyPI downloads and publishes it with OIDC, TestPyPI `--no-deps` install is retried 5×10s for index lag, then PyPI downloads the same artifact after TestPyPI verification succeeds.
 
 Constraint: publish jobs currently run on GitHub-hosted `ubuntu-latest` runners with SHA-pinned artifact actions. If switching to self-hosted runners, verify compatibility with the pinned `actions/upload-artifact` and `actions/download-artifact` versions before tagging a release.
 
@@ -528,7 +530,9 @@ only input is `secrets.ANTHROPIC_API_KEY` (a **repo** secret). The job `if:` req
 `notes/templates/ci/claude.yml` (2026-04-29 snapshot). Full contract:
 [REFERENCE — Claude Code Action](REFERENCE.md#claude-code-action).
 
-Tip: meta publish Gate 1 runs **three** TestPyPI installs (bare → `[clients]` → `[tools]`; never `--no-deps`, never the heavy extras) before PyPI. The six shared `publish-*.yml` are Release-only (`release: published`; no `push: tags` — the #555 double-publish race), each tag-prefix-guarded, with a `--no-deps` TestPyPI-only verify and `skip-existing: true`. See [REFERENCE — Build and Release](REFERENCE.md#build-and-release).
+Tip: meta publish Gate 1 polls TestPyPI 10×6s (~60s ceiling) for the just-uploaded wheel, then runs **three** local-wheel installs (bare → `[clients]` → `[tools]`; never `--no-deps` on the installs, never `--extra-index-url`, never the heavy extras) before PyPI. Do not restore `sleep 30`.
+
+Tip: the six shared `publish-*.yml` are Release-only (`release: published`; no `push: tags` — the #555 double-publish race); a bare `git push <tag>` starts **no run**. Each is tag-prefix-guarded, with a `--no-deps` TestPyPI-only 5×10s verify and `skip-existing: true`. Do not resurrect a `Require a GitHub Release for this tag` step under `if: github.event_name == 'push'` — that condition is unreachable (#1310). See [REFERENCE — Build and Release](REFERENCE.md#build-and-release).
 
 Tip: shared-package `ci-*.yml` (six sub-packages) must keep path self-inclusion, matrix floors, `--cov-fail-under`, and a blocking `juniper-coverage-gap-map --enforce`. Dropping the workflow self-path or `--enforce` ships green while the package suite stops running or stops enforcing gaps; service-core installs sibling `juniper-model-core` from the monorepo root (no test-job `working-directory`). Full table: [REFERENCE — Shared-Package CI](REFERENCE.md#shared-package-ci-workflows).
 
@@ -677,5 +681,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-08-24
-**Version:** 1.0.23
+**Version:** 1.0.24
 **Maintainer:** Paul Calnon
