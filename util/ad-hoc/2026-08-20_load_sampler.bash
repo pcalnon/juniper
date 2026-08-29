@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-20
 # Status:      ad-hoc -- one-off (juniper-cascor#532 campaign instrumentation)
-# Retire when: the campaign is written up; delete with the rest of the #532 tooling.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the campaign is written up; delete with the rest of the #532 tooling.
 #
 # The determinism campaign reports mean +/- sd for training span and candidate throughput, and
 # that sd is the number the next measurement gets sized against. An sd inflated by an unrelated

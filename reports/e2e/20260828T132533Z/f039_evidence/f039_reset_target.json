@@ -1,0 +1,60 @@
+{
+  "count": 40,
+  "graph_path_depth": 18,
+  "clears_graph": 0,
+  "by_owner": {
+    "network-evolution-grid-container": 8,
+    "network-info-panel": 20,
+    "network-info-details-panel": 12
+  },
+  "samples": [
+    {
+      "clears_graph": false,
+      "owner": "network-evolution-grid-container",
+      "diverges_at": 12,
+      "depth": 27
+    },
+    {
+      "clears_graph": false,
+      "owner": "network-evolution-grid-container",
+      "diverges_at": 12,
+      "depth": 27
+    },
+    {
+      "clears_graph": false,
+      "owner": "network-evolution-grid-container",
+      "diverges_at": 12,
+      "depth": 24
+    },
+    {
+      "clears_graph": false,
+      "owner": "network-evolution-grid-container",
+      "diverges_at": 12,
+      "depth": 24
+    },
+    {
+      "clears_graph": false,
+      "owner": "network-evolution-grid-container",
+      "diverges_at": 12,
+      "depth": 27
+    },
+    {
+      "clears_graph": false,
+      "owner": "network-evolution-grid-container",
+      "diverges_at": 12,
+      "depth": 27
+    },
+    {
+      "clears_graph": false,
+      "owner": "network-evolution-grid-container",
+      "diverges_at": 12,
+      "depth": 24
+    },
+    {
+      "clears_graph": false,
+      "owner": "network-evolution-grid-container",
+      "diverges_at": 12,
+      "depth": 21
+    }
+  ]
+}

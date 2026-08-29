@@ -6,7 +6,7 @@ Sub-Project: ad-hoc tooling
 Author:      Paul Calnon
 Created:     2026-08-23
 Status:      ad-hoc -- one-off (residual CLI-vs-service wall gap, post-#533)
-Retire when: the residual wall-gap evidence note is merged; delete then.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the residual wall-gap evidence note is merged; delete then.
 Related:     util/experiments/suites/p4/e-n-profile-cap4.yaml (the service leg);
              the JUNIPER_CASCOR_WORKER_PROFILE dispatcher in train_candidate_worker.
 

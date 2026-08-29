@@ -13,7 +13,7 @@ Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-23
 Status: ad-hoc -- one-off (investigation)
-Retire when: the §6.4 retention policy is ratified and any retention tool reports
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the §6.4 retention policy is ratified and any retention tool reports
              its own footprint numbers.
 Related: notes/JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_SNAPSHOT-LIFECYCLE-MANAGEMENT-DESIGN.md
          section "6.4 Phase 4 -- Retention policy"

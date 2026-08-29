@@ -1,0 +1,117 @@
+{
+  "responses": [
+    {
+      "resp_bytes": 39319,
+      "status": 200,
+      "n_elements": 1,
+      "traces_before": 0,
+      "traces_after": 0,
+      "sig_before": 2,
+      "sig_after": 2,
+      "hidden_by": null,
+      "rect": [
+        1102,
+        600
+      ],
+      "plotly_inited": true,
+      "counts_after": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "connection": "0"
+      }
+    },
+    {
+      "resp_bytes": 39319,
+      "status": 200,
+      "n_elements": 1,
+      "traces_before": 0,
+      "traces_after": 0,
+      "sig_before": 2,
+      "sig_after": 2,
+      "hidden_by": null,
+      "rect": [
+        1102,
+        600
+      ],
+      "plotly_inited": true,
+      "counts_after": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "connection": "0"
+      }
+    },
+    {
+      "resp_bytes": 39319,
+      "status": 200,
+      "n_elements": 1,
+      "traces_before": 0,
+      "traces_after": 0,
+      "sig_before": 2,
+      "sig_after": 2,
+      "hidden_by": null,
+      "rect": [
+        1102,
+        600
+      ],
+      "plotly_inited": true,
+      "counts_after": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "connection": "0"
+      }
+    }
+  ],
+  "at_entry": {
+    "n_elements_with_graph_id": 1,
+    "elements": [
+      {
+        "attached": true,
+        "hidden_by": null,
+        "rect": [
+          1102,
+          600
+        ],
+        "plotly_found": true,
+        "n_traces": 0,
+        "plotly_inited": true,
+        "has_modebar": true,
+        "sig": 2
+      }
+    ],
+    "counts": {
+      "input": "0",
+      "hidden": "0",
+      "output": "0",
+      "connection": "0"
+    },
+    "active_tab": "Network Topology"
+  },
+  "at_end": {
+    "n_elements_with_graph_id": 1,
+    "elements": [
+      {
+        "attached": true,
+        "hidden_by": null,
+        "rect": [
+          1102,
+          600
+        ],
+        "plotly_found": true,
+        "n_traces": 0,
+        "plotly_inited": true,
+        "has_modebar": true,
+        "sig": 2
+      }
+    ],
+    "counts": {
+      "input": "0",
+      "hidden": "0",
+      "output": "0",
+      "connection": "0"
+    },
+    "active_tab": "Network Topology"
+  }
+}

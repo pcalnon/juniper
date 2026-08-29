@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-20
 Status:      ad-hoc -- audit
-Retire when: the bypass roster decision (HANDOFF_2026-08-19 section 2.5) is recorded.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the bypass roster decision (HANDOFF_2026-08-19 section 2.5) is recorded.
 Related:     util/ad-hoc/2026-08-20_bypass_actor_census.py; ml#1012.
 
 The finding this exists to make checkable
