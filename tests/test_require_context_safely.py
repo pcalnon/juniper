@@ -123,5 +123,40 @@ class FindRulesetTest(unittest.TestCase):
         self.assertIn("cannot list rulesets", err)
 
 
+CENSUS = REPO_ROOT / "util" / "ad-hoc" / "2026-08-26_p5_fleet_state.py"
+
+
+def _census_roster() -> set[str]:
+    spec = importlib.util.spec_from_file_location("p5_fleet_state", CENSUS)
+    mod_c = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod_c)
+    return {row[0] for row in mod_c.ROSTER}
+
+
+class TargetRosterTest(unittest.TestCase):
+    """`TARGETS` is the default roster for BOTH `--status` and a no-`--repo` `--apply`.
+
+    An omission here is silent and reads as a complete census: `--status` prints a banner
+    per repo it knows about and says nothing about one it does not, so 8 of 9 governed repos
+    looks exactly like all of them. That is the fail-into-plausible class of ml#1403 (census
+    columns) and ml#1429 (`find_ruleset` reporting a failed read as an absence) -- the third
+    instance in the same tool family, and the reason these two rosters are pinned to each
+    other rather than to a hand-written literal that would drift the same way.
+    """
+
+    def test_targets_matches_the_census_roster(self):
+        self.assertEqual(set(mod.TARGETS), _census_roster())
+
+    def test_recurrence_is_present(self):
+        # The specific omission, from the P5 port through the 2026-08-27 promotion until
+        # 2026-08-29: recurrence carries `Memory Budget` as a required check like the other
+        # eight, but no no-`--repo` run ever looked at it.
+        self.assertIn("juniper-recurrence", mod.TARGETS)
+
+    def test_no_duplicates(self):
+        self.assertEqual(len(mod.TARGETS), len(set(mod.TARGETS)))
+
+
 if __name__ == "__main__":
     unittest.main()

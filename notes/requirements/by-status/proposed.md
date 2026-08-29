@@ -7462,7 +7462,7 @@ Added 5 integration tests to `test_network_stats_endpoint.py` (`TestNetworkStats
 
 *Merged from 6 extraction candidates (slices: ml-C).*
 
-### JR-ML-DATA-010 — """cascade_add WebSocket message must trigger topology broadcast."""
+### JR-ML-DATA-010 — Phase 3 integration test: a `cascade_add` WebSocket message must trigger a topology broadcast
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
@@ -7478,7 +7478,9 @@ test_websocket_topology_push.py — New integration test
 
 [v3 brief repaired from cited content; was: 'Phase 3 Tests']
 
-### JR-ML-TRAIN-054 — """Demo backend must produce hidden-to-hidden cascade connections.""".
+[2026-08-29 brief repaired from cited content; was: '"""cascade_add WebSocket message must trigger topology broadcast."""']
+
+### JR-ML-TRAIN-054 — Phase 2 test: the demo backend must produce hidden-to-hidden cascade connections
 
 **Status**: proposed  **Priority**: P2  **Category**: TRAIN  **Owner**: ml
 
@@ -7487,11 +7489,13 @@ test_websocket_topology_push.py — New integration test
 
 **Detail**:
 
-# Setup: create network with 2+ hidden units
+`# Setup: create network with 2+ hidden units`
 
 **Notes**:
 
 [v3 brief repaired from cited content; was: 'Phase 2 Tests']
+
+[2026-08-29 brief repaired from cited content; was: '"""Demo backend must produce hidden-to-hidden cascade connections.""".']
 
 ### JR-ML-OBS-061 — """Exception during REST poll must NOT overwrite topology store.""".
 
@@ -16698,7 +16702,7 @@ P3-NEW-003: GPU/CUDA support (XL, 2-4 weeks, 🔴 NOT STARTED). P3-NEW-004: Cont
 
 [v3 brief repaired from cited content; was: 'Phase 5:'] From JUNIPER_2026-04-06_JUNIPER-ECOSYSTEM_CONSOLIDATED-DEVELOPMENT-ROADMAP.md
 
-### JR-ML-DATA-041 — `juniper_cascor_client/client.py`
+### JR-ML-DATA-041 — juniper-cascor-client (Phase 4): add `get_dataset_data()` to `juniper_cascor_client/client.py`
 
 **Status**: proposed  **Priority**: P3  **Category**: DATA  **Owner**: ml
 
@@ -16714,7 +16718,7 @@ P3-NEW-003: GPU/CUDA support (XL, 2-4 weeks, 🔴 NOT STARTED). P3-NEW-004: Cont
 
 [v4 brief repaired; was: '9.3 juniper-cascor-client (Phase 4 only)']
 
----
+[2026-08-29 brief repaired from cited content; was: '`juniper_cascor_client/client.py`']
 
 ### JR-CAN-ARCH-009 — Layout type sprint must forward positional/keyword parameters correctly.
 
