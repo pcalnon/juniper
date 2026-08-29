@@ -279,6 +279,30 @@ def test_json_task_protocol_satisfies_the_protocol_structurally() -> None:
     assert JsonTaskProtocol().build_assignment(PendingTask(task_id="t", round_id="r", payload=None))[1] == []
 
 
+def test_subclassing_the_default_protocol_is_refused() -> None:
+    """`JsonTaskProtocol` carries the same not-an-extension-point contract (APD-SVCCORE-012).
+
+    A consumer needing a different wire schema is in the case the seam exists for: implement
+    `WorkerTaskProtocol` directly, or wrap an instance. Subclassing would freeze the envelope keys
+    and the `task_id` rejection rule as inherited contract.
+
+    ``type(...)`` rather than a ``class`` statement for the reason given in
+    ``tests/test_websocket_commands.py::test_subclassing_the_default_executor_is_refused``: a
+    ``class`` block here binds a name that can never be read, which CodeQL reports as an unused
+    local. Do not "simplify" it back.
+    """
+    with pytest.raises(TypeError, match="not an extension point"):
+        type("_Subclass", (JsonTaskProtocol,), {})
+
+
+def test_the_default_protocol_still_constructs_after_the_guard() -> None:
+    """Negative control: the subclass guard must not disturb ordinary construction or dispatch."""
+    proto = JsonTaskProtocol()
+    msg, frames = proto.build_assignment(PendingTask(task_id="t1", round_id="r1", payload={"k": 1}))
+    assert msg["task_id"] == "t1"
+    assert frames == []
+
+
 # ======================================================================================
 # coordinator: anomaly_detector property + setter
 # ======================================================================================

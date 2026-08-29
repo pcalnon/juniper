@@ -20,7 +20,7 @@ Pure stdlib + typing -- no ``fastapi`` import (the control handler owns the tran
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, final, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -57,6 +57,7 @@ class CommandExecutor(Protocol):
         raise NotImplementedError
 
 
+@final
 class LifecycleCommandExecutor:
     """Default :class:`CommandExecutor` mapping the standard verbs onto a manager.
 
@@ -65,7 +66,28 @@ class LifecycleCommandExecutor:
     is delegated to the ``start`` callback (because binding training data is service-specific);
     when no ``start`` callback is supplied, ``start`` is dropped from :attr:`commands` and a
     ``start`` request is rejected as an unknown command.
+
+    **Not an extension point -- subclassing is refused, at runtime.** This class exists so that
+    publishing :class:`CommandExecutor` does not leave extension as pure obligation; it is *not* a
+    base class. Vary behaviour the way the design intends:
+
+    * **by injection** -- the ``start`` callback is the designed variation point;
+    * **by implementing** :class:`CommandExecutor` directly (it is structural: no import, no
+      inheritance, no registration); or
+    * **by wrapping** an instance of this class and delegating the verbs you do not change.
+
+    Subclassing instead re-creates the fragile-base-class coupling the composition-only design
+    exists to avoid: ``execute``'s verb chain, ``_commands``' construction and the ``start``-unbound
+    fallback would all silently become frozen contract. ``@final`` alone would not stop it --
+    nothing type-checks this package (the repo's mypy hook is scoped to ``^(scripts|tests)/``, and
+    the sub-packages are governed by Ruff, whose selected rules do not enforce ``@final``), so the
+    decorator would read as a protection it does not provide. :meth:`__init_subclass__` is what
+    actually holds.
     """
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Refuse subclassing. See the class docstring for the three supported variation points."""
+        raise TypeError(f"LifecycleCommandExecutor is final and is not an extension point (tried to subclass it as {cls.__name__!r}). Vary behaviour by injection (the `start` callback), by implementing the CommandExecutor protocol directly, or by wrapping an instance and delegating.")
 
     def __init__(
         self,

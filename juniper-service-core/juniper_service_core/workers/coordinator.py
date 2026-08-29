@@ -37,7 +37,7 @@ import uuid
 from abc import abstractmethod
 from dataclasses import dataclass, field
 from threading import Event, Lock, Thread
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, final, runtime_checkable
 
 if TYPE_CHECKING:
     from juniper_service_core.workers.registry import WorkerRegistry
@@ -125,6 +125,7 @@ class WorkerTaskProtocol(Protocol):
         raise NotImplementedError
 
 
+@final
 class JsonTaskProtocol:
     """The package default :class:`WorkerTaskProtocol` -- a JSON-only worker with no binary frames.
 
@@ -141,7 +142,17 @@ class JsonTaskProtocol:
     immune to the unbounded-attachment-list read in ``websocket/worker_stream.py``
     (``APD-SVCCORE-001``); a consumer that needs binary frames is writing its own codec anyway and
     takes on that bound itself.
+
+    **Not an extension point -- subclassing is refused, at runtime** (``APD-SVCCORE-012``, the same
+    contract :class:`~juniper_service_core.websocket.commands.LifecycleCommandExecutor` carries).
+    A consumer needing a different wire schema is in the case this seam exists for: **implement**
+    :class:`WorkerTaskProtocol` directly, or **wrap** an instance of this class. Subclassing would
+    freeze the envelope keys and the ``task_id`` rejection rule as inherited contract.
     """
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Refuse subclassing. Implement :class:`WorkerTaskProtocol` directly, or wrap an instance."""
+        raise TypeError(f"JsonTaskProtocol is final and is not an extension point (tried to subclass it as {cls.__name__!r}). Implement the WorkerTaskProtocol protocol directly, or wrap an instance and delegate.")
 
     #: Wire ``type`` of the dispatch envelope. Matches cascor's ``MessageType.TASK_ASSIGN`` so a
     #: worker written against either speaks the same verb. Defined here rather than imported from
