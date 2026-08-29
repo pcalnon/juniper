@@ -24,27 +24,36 @@ single **standard-gated release-proposal PR** (plan S5.4):
     a sub-package bumps its own row without ever touching the host repo's primary-tracking header;
   * for an **in-repo** package (the meta-package or one of its six co-located sub-packages), the
     meta-package's own **consumer-pin co-changes** (plan S5.4): a pre-1.0 MINOR bump that escapes a
-    ``[project.optional-dependencies]`` ``<next-minor`` ceiling moves that pin AND its two lockstep
-    artifacts -- the exact-string membership contract in ``tests/test_pyproject_extras.py`` and the
-    ``AGENTS.md`` extras table -- IN THE SAME PR. This is the ml#657 RK-11 failure class (a
+    ``[project.optional-dependencies]`` ``<next-minor`` ceiling moves that pin AND its FIVE lockstep
+    artifacts -- the exact-string membership contract in ``tests/test_pyproject_extras.py``, plus the
+    four documented extras tables that ``ExtrasDocsLockstepTest`` asserts against ``pyproject.toml``
+    (``AGENTS.md``, ``README.md``, ``docs/QUICK_START.md`` inline; ``docs/REFERENCE.md``
+    split-column) -- IN THE SAME PR. This is the ml#657 RK-11 failure class (a
     service-core 0.5.0 proposal that bumped the sub-package but not the ``<0.5.0`` meta ceiling, so
     ``tests/test_service_core_drift.py`` failed and the proposal shipped red);
 
-    **KNOWN GAP -- the co-change set is short by three, and a proposal still ships red because of it
-    (found 2026-08-29 on the service-core 0.6.0 cut, ml#1458).** "Two lockstep artifacts" is wrong:
-    ``tests/test_pyproject_extras.py::ExtrasDocsLockstepTest`` asserts the extras tables in
-    ``README.md``, ``docs/QUICK_START.md`` and ``docs/REFERENCE.md`` against ``pyproject.toml`` too,
-    and its own failure message says "co-update the documented table in the same PR as the pin
-    change". None of the three is in this generator's edit set, so the 0.6.0 proposal failed 3 arms
-    on all three Python versions and had to be repaired by hand before it could merge. The next
-    escaping bump reproduces it.
-    ``docs/REFERENCE.md`` needs **two** edits, not one: it carries the inline table AND a separate
-    "Extras Reference" table with its own parser (``_pins_from_reference_extras_table``) where the
-    distribution and its specifier sit in **different columns** -- so a substitution on the combined
-    ``name>=x,<y`` string silently misses it, which is how the first hand-repair looked complete and
-    still failed one arm. :func:`apply_pin_edits_agents_table` is heading-scoped to AGENTS.md's
-    "Dependency extras reference"; README / QUICK_START share the inline row shape and want the same
-    editor re-anchored, while the REFERENCE split-column table needs its own;
+    **The gap that made this three artifacts short was CLOSED here** (found 2026-08-29 on the
+    service-core 0.6.0 cut, ml#1458, which failed 3 arms on all three Python versions and had to be
+    repaired by hand). ``ExtrasDocsLockstepTest`` asserts ``README.md`` and ``docs/QUICK_START.md``
+    with the same inline parser it uses on ``AGENTS.md``, and ``docs/REFERENCE.md`` with a separate
+    one; its failure message says "co-update the documented table in the same PR as the pin change".
+    All four now move with the pin: the inline three through
+    :func:`apply_pin_edits_agents_table` re-anchored per file (``_INLINE_EXTRAS_TABLES``), and
+    REFERENCE through :func:`apply_pin_edits_reference_table`.
+
+    Two corrections to how that gap was first written up, both material to anyone extending this:
+    ``docs/REFERENCE.md`` needs **ONE** edit, not two -- it has no inline table at all
+    (``_pins_from_inline_extras_table`` returns ``{}`` for it, and ``_DOCS_INLINE_TABLES`` omits it),
+    only the split-column one where the distribution and its specifier sit in DIFFERENT columns, so a
+    substitution on the combined ``name>=x,<y`` string silently misses it -- which is how the first
+    hand-repair looked complete and still failed an arm. And the co-change set is **per-package, not
+    fixed**: a package pinned by a drift lint carries more. ``juniper-doc-tools`` and
+    ``juniper-ci-tools`` are each additionally pinned in ``.github/workflows/`` by
+    ``tests/test_doc_tools_drift.py`` / ``test_ci_tools_drift.py``
+    (``test_juniper_ml_own_workflows_pin_current_version``, which does NOT skip in per-PR mode), and
+    ``.pre-commit-config.yaml`` carries a doc-tools pin no gate reads at all. Those workflow pins are
+    NOT edited here -- a bump that escapes their ceiling still needs them by hand, and the co-change
+    checklist's version+pin+lint atomicity line is what says so;
   * the ``propagation_edges`` -- a pre-1.0 MINOR bump escapes a consumer's ``<next-minor``
     ceiling pin (plan S6/S13), so each reverse-dependency consumer gets an edge annotated with a
     ``consumer_pin_state`` (``within_range`` / ``floor_only`` / ``escaped -> follow-on`` /
@@ -653,9 +662,75 @@ def apply_pin_edits_exact(text: str, cochanges: list) -> str:
 
 _AGENTS_EXTRAS_HEADING = re.compile(r"^#{2,4}\s+Dependency extras reference\s*$", re.IGNORECASE)
 
+# The four documentation surfaces ``tests/test_pyproject_extras.py`` asserts against ``pyproject.toml``.
+# THREE share the inline row shape -- one cell holding a comma-joined list of backticked
+# ``name>=x,<y`` requirements -- and differ only in their heading anchor, which is why they take the
+# same editor re-anchored. ``docs/REFERENCE.md`` is the odd one out and needs its own (see
+# :func:`apply_pin_edits_reference_table`). Each heading was verified unique in its file: README's
+# ``### Extras`` does not also match REFERENCE's ``## Extras Reference``, and vice versa.
+_INLINE_EXTRAS_TABLES = (
+    ("AGENTS.md", _AGENTS_EXTRAS_HEADING),
+    ("README.md", re.compile(r"^#{2,4}\s+Extras\s*$", re.IGNORECASE)),
+    ("docs/QUICK_START.md", re.compile(r"^#{2,4}\s+What Each Extra Installs\s*$", re.IGNORECASE)),
+)
+_REFERENCE_EXTRAS_REL = "docs/REFERENCE.md"
+_REFERENCE_EXTRAS_HEADING = re.compile(r"^#{2,4}\s+Available Extras\s*$", re.IGNORECASE)
+# A ``| ... | `pkg` | `>=x,<y` |`` version cell: backticked and OPERATOR-led, which is what separates
+# it from the package-name cell beside it and from the ``all`` row's bare ``--``.
+_REFERENCE_SPEC_CELL = re.compile(r"^`[<>=!~][^`]*`$")
 
-def apply_pin_edits_agents_table(text: str, pypi_name: str, new_req: str) -> str:
-    """True up the ``AGENTS.md`` "Dependency extras reference" table: within THAT table only, replace
+
+def apply_pin_edits_reference_table(text: str, pypi_name: str, new_req: str) -> str:
+    """True up ``docs/REFERENCE.md``'s "Available Extras" table, whose shape defeats the inline editor.
+
+    That table is SPLIT-COLUMN: the distribution sits in one cell (``\\`juniper-doc-tools\\```, bare)
+    and its specifier in another (``\\`>=0.1.0,<0.2.0\\```). A substitution on the combined
+    ``name>=x,<y`` string therefore matches nothing here and reports success -- which is exactly how
+    the first hand-repair of the service-core 0.6.0 cut looked complete and still failed one arm.
+
+    Rows are matched on the backtick-DELIMITED package name, so ``\\`juniper-recurrence\\``` does not
+    also claim the ``\\`juniper-recurrence-model\\``` row beside it, and the extra-name column
+    (``\\`tools\\```, ``\\`doc-tools\\```) can never match a distribution. Every row naming the package
+    is updated -- ``juniper-doc-tools`` appears under both ``[tools]`` and ``[doc-tools]``. The cell's
+    original width is preserved where the new specifier fits, so the table stays aligned and the diff
+    stays one cell wide."""
+    if not new_req.startswith(pypi_name):
+        return text
+    spec = new_req[len(pypi_name) :]
+    if not spec:
+        return text
+    name_re = re.compile("`" + re.escape(pypi_name) + "`")
+    out: list = []
+    in_section = False
+    for line in text.splitlines(keepends=True):
+        stripped = line.strip()
+        if _REFERENCE_EXTRAS_HEADING.match(stripped):
+            in_section = True
+            out.append(line)
+            continue
+        if in_section and stripped.startswith("#"):
+            in_section = False  # the next heading closes the table's section
+        if in_section and stripped.startswith("|") and name_re.search(line):
+            line = _replace_reference_spec_cell(line, spec)
+        out.append(line)
+    return "".join(out)
+
+
+def _replace_reference_spec_cell(line: str, spec: str) -> str:
+    """Swap the operator-led backticked cell in one split-column row, preserving the column width."""
+    newline = "\n" if line.endswith("\n") else ""
+    cells = line[: len(line) - len(newline)].split("|")
+    for idx, cell in enumerate(cells):
+        if not _REFERENCE_SPEC_CELL.match(cell.strip()):
+            continue
+        replacement = " `" + spec + "`"
+        cells[idx] = replacement.ljust(len(cell)) if len(replacement) <= len(cell) else replacement + " "
+        break
+    return "|".join(cells) + newline
+
+
+def apply_pin_edits_agents_table(text: str, pypi_name: str, new_req: str, heading: "re.Pattern" = _AGENTS_EXTRAS_HEADING) -> str:
+    """True up ONE inline extras table: within THAT table only, replace
     the affected package's backtick-wrapped, digit-led versioned requirement (whatever ceiling it
     currently shows, in every row it appears -- ``juniper-doc-tools`` sits in both ``[tools]`` and
     ``[doc-tools]``) with the authoritative ``new_req``.
@@ -665,14 +740,21 @@ def apply_pin_edits_agents_table(text: str, pypi_name: str, new_req: str) -> str
     CI-pin description all live ELSEWHERE in AGENTS.md and must not move. Name-anchored (not
     exact-old-string) so a table row that has drifted from ``pyproject.toml`` -- the ml#657 case where
     the service-core row was stale at ``<0.4.0`` -- is corrected to the new pin too (1860dbb fixed
-    exactly this by hand). The operator+digit anchor also skips a bare name or a ``>=X,<Y`` placeholder."""
+    exactly this by hand). The operator+digit anchor also skips a bare name or a ``>=X,<Y`` placeholder.
+
+    ``heading`` re-anchors the same editor onto the other two inline surfaces (see
+    ``_INLINE_EXTRAS_TABLES``): README's ``### Extras`` and QUICK_START's ``### What Each Extra
+    Installs`` carry the identical row shape under different titles. It keeps the AGENTS.md default
+    because every existing caller and test passes three arguments. ``docs/REFERENCE.md`` is NOT in
+    this set -- it has no inline table at all, only the split-column one
+    :func:`apply_pin_edits_reference_table` handles."""
     pin_re = re.compile("`" + re.escape(pypi_name) + r"[<>=!~]+[0-9][^`]*`")
     replacement = "`" + new_req + "`"
     out: list = []
     in_section = False
     for line in text.splitlines(keepends=True):
         stripped = line.strip()
-        if _AGENTS_EXTRAS_HEADING.match(stripped):
+        if heading.match(stripped):
             in_section = True
             out.append(line)
             continue
@@ -1131,7 +1213,8 @@ def _co_change_checklist(entry: "detect.PackageEntry", bump: str, edges: list, a
         items.append(f"AGENTS.md per-package version-table row bump for `{entry.pypi_name}` (REQUIRED -- a row names the package but its version cell is not at the expected from-version, or the row is ambiguous; verify and edit manually, the train never guesses at a cell); a repo-local version-drift hook pins that row against the package version (ml#851).")
     if cochanges:
         extras_touched = ", ".join(sorted({f"[{cc.extra}]" for cc in cochanges}))
-        items.append(f"In-repo meta consumer pin (included in this PR): raised the {extras_touched} ceiling for {entry.pypi_name} to {cochanges[0].new_req} -- root pyproject.toml + tests/test_pyproject_extras.py membership + the AGENTS.md extras table, moved together in THIS PR (closes the ml#657 RK-11 gap; guarded by tests/test_pyproject_extras.py + the per-package RK-11 drift gate).")
+        items.append(f"In-repo meta consumer pin (included in this PR): raised the {extras_touched} ceiling for {entry.pypi_name} to {cochanges[0].new_req} -- root pyproject.toml + tests/test_pyproject_extras.py membership + all four documented extras tables (AGENTS.md, README.md, docs/QUICK_START.md, docs/REFERENCE.md), moved together in THIS PR (closes the ml#657 RK-11 gap and the ml#1458 docs-lockstep gap; guarded by tests/test_pyproject_extras.py + the per-package RK-11 drift gate).")
+        items.append(f"If `{entry.pypi_name}` is ALSO pinned in `.github/workflows/` by a drift lint (juniper-doc-tools / juniper-ci-tools carry one via test_*_drift.py::test_juniper_ml_own_workflows_pin_current_version, which does NOT skip in per-PR mode) or in `.pre-commit-config.yaml`, those pins are NOT edited by the train -- move them by hand in THIS PR or the bump ships red.")
     items.append("If this bump raises a runtime dependency floor, regenerate the lockfile (requirements.lock) in this PR (memory: 'regen on floor bump or gate fails').")
     items.append("Version+pin+lint atomicity: if a consumer pins this package behind a drift-lint contract (tests/test_*_drift.py), move the pin + the lint bound in the same change set (model-core precedent).")
     if edges:
@@ -1396,6 +1479,26 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
                 if atext is not None:
                     # composes onto the step-5/5a text (see the step-5 note): one AGENTS.md FileEdit only.
                     agents_new = apply_pin_edits_agents_table(agents_new, entry.pypi_name, cochanges[0].new_req)
+                # 5b-ii. The REST of the documented extras surface. ``ExtrasDocsLockstepTest`` asserts
+                # README.md and docs/QUICK_START.md with the SAME inline parser it uses on AGENTS.md,
+                # and docs/REFERENCE.md with a separate split-column one -- so all three fail the
+                # moment the pin escapes and only AGENTS.md moves (the ml#1458 service-core 0.6.0
+                # class: 3 arms red on all three Python versions, repaired by hand). AGENTS.md is
+                # excluded here because step 5b already composed it into the single 5d FileEdit.
+                for doc_rel, doc_heading in _INLINE_EXTRAS_TABLES:
+                    if doc_rel == "AGENTS.md":
+                        continue
+                    doc_text = sources.read_file(entry, doc_rel)
+                    if doc_text is None:
+                        continue
+                    doc_new = apply_pin_edits_agents_table(doc_text, entry.pypi_name, cochanges[0].new_req, doc_heading)
+                    if doc_new != doc_text:
+                        prop.edits.append(FileEdit(path=doc_rel, old_text=doc_text, new_text=doc_new))
+                ref_text = sources.read_file(entry, _REFERENCE_EXTRAS_REL)
+                if ref_text is not None:
+                    ref_new = apply_pin_edits_reference_table(ref_text, entry.pypi_name, cochanges[0].new_req)
+                    if ref_new != ref_text:
+                        prop.edits.append(FileEdit(path=_REFERENCE_EXTRAS_REL, old_text=ref_text, new_text=ref_new))
 
     # 5c. **Last Updated** true-up. Runs ONLY when a previous composer actually changed AGENTS.md --
     # the date-check workflow is path-filtered to AGENTS.md, so a proposal that does not touch the file
