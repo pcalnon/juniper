@@ -193,7 +193,7 @@ In-flight branch audit-fixup/stale-dashboard-panels exists as of 2026-05-06.
 
 Operational blocker. Recommend Option A - land in-flight PR + add dashboard-lint CI guardrail.
 
-### JR-ML-OBS-003 — >   per the canopy requirements (high-volume / low-latency metrics and the.
+### JR-ML-OBS-003 — P5-RC-05 (frontend WebSocket consumption) is STILL OPEN, not deferred — high-volume / low-latency metrics and the bidirectional `set_params` control channel depend on it
 
 **Status**: designed  **Priority**: P0  **Category**: OBS  **Owner**: ml
 
@@ -207,6 +207,8 @@ Operational blocker. Recommend Option A - land in-flight PR + add dashboard-lint
 **Notes**:
 
 [v3 brief repaired from cited content; was: '6.0 Phase 4 Execution Results (2026-04-10, REVISED)']
+
+[2026-08-29 brief repaired from cited content; was: '>   per the canopy requirements (high-volume / low-latency metrics and the.']
 
 ### JR-ML-SEC-003 — Issue Remediations, Section 4.
 
@@ -1892,7 +1894,7 @@ In-flight sister PR exists. Add unit test asserting Gauge.value == len(cache) af
 
 [v3 brief repaired from cited content; was: '6.3 Phase 3 Proposal Agreement Matrix']
 
-### JR-ML-ARCH-014 — ```bash ```.
+### JR-ML-ARCH-014 — Improved `juniper_plant_all.bash` / `juniper_chop_all.bash`: health polling, port and conda-env validation, /proc-based PID checks, graceful SIGTERM→SIGKILL
 
 **Status**: designed  **Priority**: P1  **Category**: ARCH  **Owner**: ml
 
@@ -1902,7 +1904,7 @@ In-flight sister PR exists. Add unit test asserting Gauge.value == len(cache) af
 
 **Detail**:
 
-# 1. wait_for_health() function that polls /v1/health with configurable timeout
+`# 1. wait_for_health() function that polls /v1/health with configurable timeout`
 
 **Notes**:
 
@@ -1913,6 +1915,8 @@ In-flight sister PR exists. Add unit test asserting Gauge.value == len(cache) af
 [v3 thin-brief flagged] [v4 brief repaired; was: '9.6 Detailed Design: Improved `juniper_chop_all.bash`']
 
 *Merged from 2 extraction candidates (slices: 3c-2b).*
+
+[2026-08-29 brief repaired from cited content; was: '```bash ```.']
 
 ### JR-ML-ARCH-015 — Both Phase 5 proposals unanimously agree, and this final document adopts without change:.
 
@@ -7968,7 +7972,7 @@ Superseded: V5 VALIDATED snapshot; check v6/v7 remediation entries
 
 [v3 brief repaired from cited content; was: '23. Validation Methodology (v5.0.0 - v1.0.0)'] Superseded: V5 VALIDATED snapshot; check v6/v7 remediation entries
 
-### JR-ML-DATA-010 — """cascade_add WebSocket message must trigger topology broadcast."""
+### JR-ML-DATA-010 — Phase 3 integration test: a `cascade_add` WebSocket message must trigger a topology broadcast
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
@@ -7984,7 +7988,9 @@ test_websocket_topology_push.py — New integration test
 
 [v3 brief repaired from cited content; was: 'Phase 3 Tests']
 
-### JR-ML-TRAIN-054 — """Demo backend must produce hidden-to-hidden cascade connections.""".
+[2026-08-29 brief repaired from cited content; was: '"""cascade_add WebSocket message must trigger topology broadcast."""']
+
+### JR-ML-TRAIN-054 — Phase 2 test: the demo backend must produce hidden-to-hidden cascade connections
 
 **Status**: proposed  **Priority**: P2  **Category**: TRAIN  **Owner**: ml
 
@@ -7993,11 +7999,13 @@ test_websocket_topology_push.py — New integration test
 
 **Detail**:
 
-# Setup: create network with 2+ hidden units
+`# Setup: create network with 2+ hidden units`
 
 **Notes**:
 
 [v3 brief repaired from cited content; was: 'Phase 2 Tests']
+
+[2026-08-29 brief repaired from cited content; was: '"""Demo backend must produce hidden-to-hidden cascade connections.""".']
 
 ### JR-ML-OBS-061 — """Exception during REST poll must NOT overwrite topology store.""".
 
@@ -15201,7 +15209,7 @@ Development workflow optimization.
 
 [v3 brief repaired from cited content; was: 'Phase 5:'] From JUNIPER_2026-04-06_JUNIPER-ECOSYSTEM_CONSOLIDATED-DEVELOPMENT-ROADMAP.md
 
-### JR-ML-DATA-041 — `juniper_cascor_client/client.py`
+### JR-ML-DATA-041 — juniper-cascor-client (Phase 4): add `get_dataset_data()` to `juniper_cascor_client/client.py`
 
 **Status**: proposed  **Priority**: P3  **Category**: DATA  **Owner**: ml
 
@@ -15217,7 +15225,7 @@ Development workflow optimization.
 
 [v4 brief repaired; was: '9.3 juniper-cascor-client (Phase 4 only)']
 
----
+[2026-08-29 brief repaired from cited content; was: '`juniper_cascor_client/client.py`']
 
 ### JR-ML-DOC-012 — Maintain cheatsheet mapping AGENTS.md sections to project/repo; enable rapid reference.
 
