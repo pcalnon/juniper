@@ -6,7 +6,7 @@ Sub-Project: ad-hoc tooling
 Author:      Paul Calnon
 Created:     2026-08-20
 Status:      ad-hoc -- one-off (juniper-cascor#532 seeded-run reproducibility)
-Retire when: #532 is root-caused or accepted and the evidence note is merged; delete then.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: #532 is root-caused or accepted and the evidence note is merged; delete then.
 Related:     2026-08-18_h2h_pair_compare.py (the PAIR-shaped predecessor this replaces for
              N-run work; kept for its existing callers);
              2026-08-16_h2h_phase_split.py (where the phase-split idea comes from -- but see

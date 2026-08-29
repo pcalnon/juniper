@@ -71,7 +71,7 @@ Sub-Project: ad-hoc tooling
 Author: Claude (P5 design evaluation, for Paul Calnon)
 Created: 2026-06-10
 Status: ad-hoc - investigation (P5 frozen-FIR cascade + trained recurrent output)
-Retire when: P5 design decision is ratified or the arm is dropped; this PoC's
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: P5 design decision is ratified or the arm is dropped; this PoC's
              measured numbers are folded into the P5 design doc.
 Related: notes/JUNIPER_2026-06-09_JUNIPER-RECURRENCE_RECURSE-DELAY-LINE-NODE-DESIGN-EVAL.md,
          util/ad-hoc/verify_delay_line_node_eval.py (P4 PoC; helpers reused),

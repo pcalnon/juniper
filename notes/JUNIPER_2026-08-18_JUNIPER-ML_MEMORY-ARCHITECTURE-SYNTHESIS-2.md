@@ -448,6 +448,15 @@ where one is needed. **`AGENTS.md`'s `**Last Updated**` must be today's date or 
 own diff** (`agents-md-touch-up.yml`); a stacked pair that sits overnight needs its base re-bumped,
 not the child edited.
 
+> **CORRECTION 2026-08-24 — that last clause is backwards.** The two passing arms differ in
+> durability: *already-today* is re-evaluated every run and expires at the next UTC midnight,
+> while *changed-in-this-PR* holds for the life of the PR (which is the workflow's own stated
+> reason for preferring it). Re-bumping the **base** only re-arms the expiring arm for the child,
+> so it passes today and is stale again tomorrow — repaid every morning until the stack lands.
+> Bump the line in the **child**, to a value that differs from the base's: its own diff then
+> contains `+**Last Updated**:` and the durable arm stays satisfied. See
+> [`docs/REFERENCE.md`](../docs/REFERENCE.md) § the touch-up lane.
+
 ### P0 — `MEMORY.md` triage (the 19-day fuse). Ships alone, day 0.
 
 **Ships:**

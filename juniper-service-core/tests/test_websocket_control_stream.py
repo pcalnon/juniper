@@ -198,6 +198,39 @@ async def test_handshake_gate_allows_clean_connection() -> None:
     assert await _check_handshake_gates(ws, "1.2.3.4") is True
 
 
+@pytest.mark.asyncio
+async def test_every_handshake_rejection_happens_before_accept() -> None:
+    """No rejection path may complete the handshake first (`APD-SVCCORE-016`, won't-fix triage).
+
+    The row is that the four distinct close codes are indistinguishable to the caller: uvicorn turns
+    a pre-accept close into a plain HTTP 403 and discards code and reason. Triaged 2026-08-29 as
+    **won't-fix**, because the only way to make those codes observable is to `accept()` the socket
+    *first* and then close it -- which the primer criticises as "harder for the client to distinguish
+    from a network failure", and which would complete a handshake for a caller the kill switch, the
+    cooldown or the Origin allowlist has already refused. Collapsing to 403 is also what RFC 6455
+    §10.2 recommends for an unacceptable Origin.
+
+    So the disposition is: keep the ordering, and pin it. **This is the arm that fails if someone
+    "fixes" the row.** The four existing gate tests above assert the return value and the close code;
+    none of them asserts that `accept()` was not reached, so all four would still pass against an
+    accept-then-close rewrite -- which is exactly the regression.
+    """
+    cooldown = HandshakeCooldown(max_rejections=1, block_sec=300)
+    cooldown.record_rejection("1.2.3.4")
+    auth = build_api_key_auth(["s3cret"])
+
+    rejections = {
+        "kill switch": ControlFakeWS(app=_app(settings=_settings(disable_ws_control_endpoint=True))),
+        "cooldown": ControlFakeWS(app=_app(settings=_settings(), ws_control_cooldown=cooldown)),
+        "auth": ControlFakeWS(headers={}, app=_app(settings=_settings(), api_key_auth=auth)),
+        "origin": ControlFakeWS(headers={"origin": "https://evil.example"}, app=_app(settings=_settings(ws_control_allowed_origins=["https://good.example"]))),
+    }
+
+    for gate, ws in rejections.items():
+        assert await _check_handshake_gates(ws, "1.2.3.4") is False, f"{gate}: expected rejection"
+        assert ws.accepted is False, f"{gate}: rejected the connection but had already called accept()"
+
+
 # ----------------------------------------------------------------------------------------
 # Command dispatch error arms
 # ----------------------------------------------------------------------------------------
@@ -376,10 +409,61 @@ async def test_recv_loop_no_idle_timeout_and_malformed_json() -> None:
 
 @pytest.mark.asyncio
 async def test_recv_loop_rejects_oversized_message() -> None:
+    """An over-limit frame is answered and then closes the connection (1009).
+
+    **This assertion was inverted by the APD-SVCCORE-005 fix, and the previous form pinned the
+    defect.** It formerly wrapped the call in ``pytest.raises(WebSocketDisconnect)`` -- i.e. it
+    asserted the loop *kept running* past the oversize frame and only ended when the scripted input
+    ran out. That ``continue`` is what let one connection repeat the allocation indefinitely, since
+    the oversize path returns before ``_handle_command_message``, the only place a rate-limit token
+    is spent. Third instance of this shape in one arc, after ``test_docs_reachable_and_exempt`` and
+    ``test_worker_task_protocol_default_bodies_return_none``.
+    """
     ws = ControlFakeWS(incoming=["x" * (65536 + 1)])
-    with pytest.raises(WebSocketDisconnect):
-        await _control_recv_loop(ws, None, {"start"}, LeakyBucket(), asyncio.Event(), idle_timeout=0, client_ip="1.2.3.4")
+    await _control_recv_loop(ws, None, {"start"}, LeakyBucket(), asyncio.Event(), idle_timeout=0, client_ip="1.2.3.4")
     assert ws.sent[-1]["data"]["error"] == "Message too large"
+    assert ws.closed == (1009, "Message too large")
+
+
+@pytest.mark.asyncio
+async def test_oversized_frame_cannot_be_repeated_on_one_connection() -> None:
+    """**The decisive arm.** A second oversize frame is never read, because the first one closed.
+
+    Asserting only the close code would pass against an implementation that closed *after*
+    draining the rest of the queue. What the entry is about is repetition: the allocation itself is
+    unavoidable (``receive_text()`` has already materialised the frame, and the real ceiling is
+    uvicorn's ``ws_max_size``), so the only thing that changes an abusive client's cost is being
+    unable to do it again on the same connection.
+    """
+    oversize = "x" * (65536 + 1)
+    ws = ControlFakeWS(incoming=[oversize, oversize, oversize])
+
+    await _control_recv_loop(ws, None, {"start"}, LeakyBucket(), asyncio.Event(), idle_timeout=0, client_ip="1.2.3.4")
+
+    assert ws.closed == (1009, "Message too large")
+    # Exactly one rejection was sent: frames two and three were never received.
+    assert len([m for m in ws.sent if m.get("data", {}).get("error") == "Message too large"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_pong_still_costs_no_rate_limit_token() -> None:
+    """Deliberate non-change, pinned so it reads as a decision rather than an oversight.
+
+    The bucket is the *command* budget (``ws_control_rate_limit_per_sec``). Charging keepalive would
+    let a burst of legitimate commands exhaust it and rate-limit the client's pong, which the
+    heartbeat loop then reads as a dead peer and closes with 1011 -- a self-inflicted disconnect on
+    a healthy connection. An empty bucket must therefore still route a pong.
+    """
+    empty = LeakyBucket(capacity=1, refill_rate=0.0)
+    assert empty.try_acquire() is True  # drain the single token
+    assert empty.try_acquire() is False  # bucket is now empty and never refills
+
+    pong = asyncio.Event()
+    ws = ControlFakeWS(incoming=[json.dumps({"type": "pong"})])
+    with pytest.raises(WebSocketDisconnect):
+        await _control_recv_loop(ws, None, {"start"}, empty, pong, idle_timeout=0, client_ip="1.2.3.4")
+
+    assert pong.is_set(), "keepalive must not be gated on the command budget"
 
 
 @pytest.mark.asyncio

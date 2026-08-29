@@ -96,6 +96,46 @@ def _project_name(pyproject: Path) -> "str | None":
     return None
 
 
+def _juniper_pinned_deps(pyproject: Path) -> "set[str] | None":
+    """Every ``juniper-*`` distribution this project pins; ``None`` if unreadable.
+
+    Scans ``[project].dependencies`` only -- matching registry.yaml's own definition of the field
+    ("upstream juniper-* **runtime** deps"). Self-references are dropped: a monorepo root and several
+    repos list their own distribution in an extra, and a package is never its own upstream.
+
+    **Known limitation, stated because it is load-bearing:** ``[project.optional-dependencies]`` is
+    NOT scanned, so a ceiling that lives only in an extra is invisible here. ``juniper-data`` is the
+    worked example -- it pins ``juniper-service-core>=0.5.0,<0.6.0`` *only* in its ``api`` extra,
+    which is how that service is actually installed, so a service-core minor does strand it and this
+    guard will not say so. Its registry edge is therefore declared by hand.
+    Widening the scan to all extras was tried and rejected: dev/test extras pull in most of the
+    fleet, which produced nine false positives across eight packages. Separating ceiling-bearing
+    extras from dev extras needs a policy the registry does not currently express, so this guard
+    stays sound-but-incomplete (no false positives) rather than noisy.
+    """
+    if tomllib is None:
+        return None
+    try:
+        with pyproject.open("rb") as handle:
+            data = tomllib.load(handle)
+    except (OSError, ValueError):
+        return None
+    project = data.get("project", {})
+    deps = project.get("dependencies")
+    if not isinstance(deps, list):
+        return set()
+    own = project.get("name") if isinstance(project.get("name"), str) else None
+    found = set()
+    for dep in deps:
+        if not isinstance(dep, str):
+            continue
+        # Strip everything from the first specifier / marker / bracket character on.
+        name = re.split(r"[<>=!~;\[\s]", dep.strip(), maxsplit=1)[0]
+        if name.startswith("juniper-") and name != own:
+            found.add(name)
+    return found
+
+
 def _project_version(pyproject: Path) -> "str | None":
     if tomllib is not None:
         try:
@@ -414,6 +454,65 @@ class RegistryCrossRepoResolutionTest(unittest.TestCase):
                 self.assertTrue(pyproject.is_file(), f"{pkg['pypi_name']}: no pyproject at {pyproject}")
                 name = _project_name(pyproject)
                 self.assertEqual(name, pkg["pypi_name"], f"{pyproject}: [project].name '{name}' != registry '{pkg['pypi_name']}'")
+
+    def test_declared_depends_on_covers_every_real_juniper_dependency(self):
+        """Every ``juniper-*`` runtime dep in a package's REAL pyproject must appear in ``depends_on``.
+
+        **The direction that strands consumers.** ``test_depends_on_references_known_packages`` checks
+        that each *declared* edge points at a registered package -- a bogus edge. It cannot catch a
+        *missing* edge, and a missing edge is the one with consequences: ``propose.py`` computes the
+        D6 propagation edges from ``depends_on``, so an unrecorded consumer never receives a
+        ceiling-bump follow-on PR and is silently stranded below the upstream's next-minor, never
+        receiving that release or any later one in the series.
+
+        Found live on 2026-08-29: ``juniper-data`` and ``juniper-cascor`` both pin
+        ``juniper-service-core>=0.5.0,<0.6.0`` and both import ``enforce_auth_posture``, but neither
+        declared the edge. A ``juniper-service-core`` 0.6.0 proposal generated a follow-on for
+        ``juniper-recurrence`` only, and would have left the other two pinned below the release
+        carrying the OpenAPI-auth security fix. registry.yaml's own header says ``depends_on`` mirrors
+        "each package's real pyproject"; nothing enforced it.
+
+        **This guard catches one of those two, not both.** ``juniper-cascor`` pins service-core as a
+        runtime dependency and is caught here; ``juniper-data`` pins it only in its ``api`` extra and
+        is *not* -- its edge is declared by hand. See :func:`_juniper_pinned_deps` for why widening
+        the scan to extras was tried and rejected. Verified by
+        ``util/ad-hoc/2026-08-29_registry_depends_on_probe.py``, which evaluates this comparison
+        against the real sibling pyprojects for both the pre-fix and post-fix registry.
+
+        **Where this does NOT run:** neither ``ci.yml`` nor ``main-verify.yml`` clones the sibling
+        repos, so like the rest of this class it auto-skips in juniper-ml CI. It is an
+        ecosystem-checkout gate, not a CI gate -- stated so it is not mistaken for one.
+        """
+        if self.ecosystem_root is None:
+            self.skipTest("ecosystem siblings not on disk")
+        if os.environ.get("GITHUB_ACTIONS") != "true" and not os.environ.get("JUNIPER_DRIFT_TEST_FORCE_LOCAL"):
+            self.skipTest("skipping local cross-repo resolution (set JUNIPER_DRIFT_TEST_FORCE_LOCAL=1 to override; siblings must be pulled to origin/main first)")
+        known = {pkg["pypi_name"] for pkg in self.packages}
+        checked = 0
+        for pkg in self.packages:
+            if pkg["pypi_name"] == "juniper-ml":
+                continue  # the meta-package's surface is its extras, covered by test_meta_depends_on_the_widest_set
+            with self.subTest(pkg=pkg["pypi_name"]):
+                base = REPO_ROOT if pkg["repo"] == "juniper-ml" else self.ecosystem_root / pkg["repo"]
+                if not base.is_dir():
+                    print(f"WARN: {pkg['repo']} not present -- skipping {pkg['pypi_name']}")
+                    continue
+                pyproject = (base / pkg["path"] / "pyproject.toml") if pkg["path"] != "." else (base / "pyproject.toml")
+                if not pyproject.is_file():
+                    continue  # resolution itself is asserted by test_cross_repo_entries_resolve_to_real_pyprojects
+                real = _juniper_pinned_deps(pyproject)
+                if real is None:
+                    continue
+                checked += 1
+                # Only registered distributions are in scope: an unregistered juniper-* dep is the
+                # separate "package escaped the train" failure, caught by the resolution tests.
+                missing = sorted((real & known) - set(pkg["depends_on"]))
+                self.assertEqual(
+                    missing,
+                    [],
+                    f"{pkg['pypi_name']}: {pyproject} declares {missing} as a runtime dependency but registry depends_on omits it -- " f"propose.py would not generate a D6 ceiling-bump follow-on for it, stranding it below the next minor",
+                )
+        self.assertGreater(checked, 0, "no pyprojects were read -- the guard would pass vacuously")
 
 
 if __name__ == "__main__":

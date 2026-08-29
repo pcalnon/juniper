@@ -21,7 +21,7 @@ Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-24
 Status: ad-hoc -- investigation
-Retire when: section 3 item 4 of the 2026-08-23 handoff is closed.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: section 3 item 4 of the 2026-08-23 handoff is closed.
 Related: notes/JUNIPER_2026-08-24_JUNIPER-CASCOR_ATTRIBUTION-NULL-MODEL-FINDINGS.md
 """
 

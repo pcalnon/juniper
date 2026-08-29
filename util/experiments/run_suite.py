@@ -130,13 +130,20 @@ def _resolve_base_config(suite_path: Path, config_rel: str) -> Path:
 
     Sibling-repo references (``../../../../juniper-cascor/...``) assume the
     canonical ecosystem layout; from a session worktree the relative walk lands
-    outside the ecosystem. When the literal resolution does not exist and
-    ``JUNIPER_EXP_PROJECT_DIR`` is set (the launcher's own worktree override),
-    the path is rebased onto it from its first ``juniper-*`` component.
+    outside the ecosystem. When ``JUNIPER_EXP_PROJECT_DIR`` is set (the launcher's
+    own worktree override), the path is rebased onto it from its first
+    ``juniper-*`` component.
+
+    The override WINS over a literal walk that happens to resolve. It used to be
+    consulted only when the literal missed, which made it an override in name and a
+    fallback in fact: launched from the canonical juniper-ml checkout the literal
+    always resolves, so a campaign that pinned cascor to a worktree would silently
+    take its CODE from the worktree and its CONFIG from the primary. That mixed tree
+    is worse than either pure one, and nothing in the manifest would have shown it.
+    An override that does not exist on disk still falls back, so a stale or
+    mistyped ``JUNIPER_EXP_PROJECT_DIR`` degrades rather than hard-failing the suite.
     """
     literal = (suite_path.parent / config_rel).resolve()
-    if literal.exists():
-        return literal
     project_dir = os.environ.get("JUNIPER_EXP_PROJECT_DIR", "").strip()
     if project_dir:
         parts = Path(config_rel).parts
