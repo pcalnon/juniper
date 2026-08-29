@@ -177,8 +177,8 @@ class TestPurgeDryrunSourceContract(unittest.TestCase):
 
     def test_mount_is_derived_from_dest_not_a_ubuntu_literal(self) -> None:
         """#1268: dest override used to mount-check Ubuntu while purging elsewhere."""
-        self.assertIn('file://*) MOUNT=${DEST#file://} ;;', self.src)
-        self.assertNotIn(f'MOUNT={UBUNTU_MOUNT}', self.src)
+        self.assertIn("file://*) MOUNT=${DEST#file://} ;;", self.src)
+        self.assertNotIn(f"MOUNT={UBUNTU_MOUNT}", self.src)
         self.assertNotIn(f'MOUNT="{UBUNTU_MOUNT}"', self.src)
 
 
@@ -319,16 +319,14 @@ class TestSecretFromFile(unittest.TestCase):
 
 class TestFindPid(unittest.TestCase):
     def test_skips_grep_and_the_checker_itself(self) -> None:
-        ps_out = textwrap.dedent(
-            f"""\
+        ps_out = textwrap.dedent(f"""\
             PID COMMAND
               1 /sbin/init
             222 duplicati-cli backup {UBUNTU_MOUNT}
             333 grep duplicati-cli backup
             444 pgrep duplicati-cli
             555 python3 util/ad-hoc/duplicati_secret_check.py --match-cmd duplicati-cli backup
-            """
-        )
+            """)
         completed = subprocess.CompletedProcess(args=["ps"], returncode=0, stdout=ps_out, stderr="")
         with mock.patch.object(sc.subprocess, "run", return_value=completed):
             hits = sc.find_pid("duplicati-cli backup")
@@ -463,8 +461,7 @@ class TestSecretCheckCli(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 2, msg=result.stdout + result.stderr)
             self.assertTrue(
-                "UNDETERMINED: pid 1073741824 is gone" in result.stdout
-                or "has no PASSPHRASE in its environment" in result.stdout,
+                "UNDETERMINED: pid 1073741824 is gone" in result.stdout or "has no PASSPHRASE in its environment" in result.stdout,
                 msg=result.stdout + result.stderr,
             )
             _assert_no_secret_leak(self, result.stdout + result.stderr)
