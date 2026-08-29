@@ -339,6 +339,32 @@ run: against the old fence-blind logic the load-bearing case extracts 3 lines wh
 so the suite bites. It also pins the four-backtick fence, the info-string closing rule, and
 heading-inside-a-fence non-matching.
 
+## 6d. KNOWN GAP — the agreed canopy split is not executable by the current tooling
+
+Raised by the validators on the arc-wide handoff (ml#1456) and confirmed here. The two-destination
+canopy plan agreed in §7 — documentation-about-documentation to `docs/DOCUMENTATION_OVERVIEW.md`,
+everything else to a new `docs/AGENTS_REFERENCE.md` — **cannot be run by the tooling as it stands**:
+
+- [`util/relocation_check.py`](../util/relocation_check.py) takes a **single** `--dest`
+  (`ap.add_argument("--dest", default="docs/REFERENCE.md")`, not `action="append"`). It diffs the
+  whole of `AGENTS.md`, so a per-destination run sees the *other* destination's removals too and
+  reports them unmatched. G3 over a two-destination cut therefore needs either a repeatable
+  `--dest`, or one run per destination with the pass condition being **every removed line matched in
+  at least one run** — a union, which no current invocation computes.
+- [`util/ad-hoc/2026-08-28_p5_cut.py`](../util/ad-hoc/2026-08-28_p5_cut.py) hard-codes
+  `DEST = "docs/REFERENCE.md"` as a module constant, threaded through the relocation loop, the TOC
+  maintenance and the waiver's heading verification. It has **no per-section destination**.
+
+Neither is hard to fix, and neither is fixed here — execution is blocked on other prerequisites
+anyway, and building it before the destination decision is final would be speculative. But it must
+be done *before* the canopy cut, and the union pass-condition matters: running G3 twice and
+accepting "both passed" is wrong, because each run legitimately reports the other's lines as
+unmatched. **The safe form is one G3 run per destination with the results unioned, or a repeatable
+`--dest`; anything else either fails spuriously or passes without checking.**
+
+cascor is unaffected — it is a single-destination cut into a `docs/REFERENCE.md` that must first be
+created.
+
 ## 7. Decisions owed before execution
 
 1. **canopy's destination — RESOLVED in principle**, refined by the owning session, which
