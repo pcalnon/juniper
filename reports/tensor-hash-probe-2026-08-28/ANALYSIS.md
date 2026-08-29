@@ -88,6 +88,63 @@ forked workers". This probe cannot, and should not be read as having done so.
 pass) are robust to that — they are exact equalities, not statistics. The correlation-difference
 magnitude is a single observation and should not be treated as a characterised effect size.
 
+## Follow-up probe, 2026-08-29 — #572 CONFIRMED, and it is not float noise
+
+The question left open above ("different candidate init (#572)" vs "float-reduction
+nondeterminism across forked workers") was settled by a second probe on the same harness: promote
+`_seed_random_generator`'s existing `verbose` roll-count line to INFO with the seeder's name
+(commit `3a8f8ea`, same diag branch).
+
+`_initialize_randomness` calls `_seed_random_generator` **four** times on this host — `np.random.seed`,
+`random.seed`, `torch.manual_seed`, and `torch.cuda.manual_seed` (CUDA is available). Each call does:
+
+```python
+seeder(seed)
+random_sequence = random.randint(0, max_value)   # ALWAYS the global `random` module
+self._roll_sequence_number(sequence=random_sequence, ..., generator=generator)
+```
+
+Candidate 0, one growth round:
+
+| call site | CLI | service |
+| --- | --- | --- |
+| `np.random.seed` | **96** | **27** |
+| `random.seed` | 26 | 26 |
+| `torch.manual_seed` | 90 | 90 |
+| `torch.cuda.manual_seed` | 99 | 99 |
+
+Aggregate over the complete record — 8 candidates × 4 rounds × 4 sites = **128 lines per arm**,
+matching the raw log count exactly (no truncation):
+
+- **All 63 distinct `manual_seed` (seed, roll) pairs are identical across arms** (`diff` exit 0).
+- `seed`-labelled pairs: 38 shared, 26 service-only, 25 CLI-only — consistent with `random.seed`
+  (32 (cand, seed) combinations) always matching, plus a few coincidental collisions in the 0–100
+  roll range, and `np.random.seed` otherwise differing.
+- **The derived candidate seeds are identical across arms in every case** — seed derivation is not
+  the problem.
+
+Exactly the one call site whose roll is drawn *before* `random` is re-seeded diverges; every site
+after the re-seed agrees. At site 1 `random.randint()` reads whatever position the **process** left
+the global module in, and a long-lived uvicorn worker and a fresh `python main.py` do not share that
+history. Numpy's generator is therefore rolled a different number of times for the same seed —
+[cascor#572](https://github.com/pcalnon/juniper-cascor/issues/572)'s title, reproduced.
+
+This is not service-vs-CLI specific: any two processes with different `random` histories diverge,
+including the same service having handled a different number of prior requests. Cross-arm parity is
+one visible symptom of a general reproducibility defect, and it is consistent with #530 (a pinned
+seed does not pin numpy).
+
+**Fix direction**: `_seed_random_generator` should draw the roll count from the `generator` it was
+handed, never from a hard-coded `random.randint`, so the count is always a function of the seed just
+set. That moves every numpy-drawn candidate initialisation, so it is a behaviour change and should
+be sequenced with the partition/tier decision rather than landed alone.
+
+**Probe-design note for the next reader**: labelling the sites by `seeder.__name__` collapsed two
+pairs — `np.random.seed` and `random.seed` are both `seed`, and both torch seeders are
+`manual_seed`. The aggregate `seed`-site counts above are muddied by that; the per-candidate ordered
+reading and the unambiguous `manual_seed` result are what carry the conclusion. A future probe
+should label by call-site index, not by function name.
+
 ## Reproduce
 
 ```bash
