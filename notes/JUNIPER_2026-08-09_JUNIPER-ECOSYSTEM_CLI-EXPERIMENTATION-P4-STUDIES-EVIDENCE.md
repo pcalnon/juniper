@@ -93,39 +93,72 @@ Fixed budget = the `spiral-smoke` training block (`max_epochs 50, max_iterations
 Output — difficulty ranking at the smoke budget, with an honest re-frame: **moon/gaussian easiest** (1 unit, ≥0.995), **xor/circles middle** (2 units, ≈0.96), **checkerboard beyond this budget's capacity** (0.500 ≈ majority — the P2 under-fit observation confirmed at n=2000), and **spiral unmeasurable on the service path pending F-P4-1 (§4)**: the service terminates spiral training at ≈epoch 2 with ≤1 hidden unit at every budget tested, so a fixed-budget comparison against it is degenerate rather than "hardest".
 The five stageable generators' ranking feeds the §12 difficulty axis; spiral's slot awaits the F-P4-1 resolution.
 
-### E-C — noise robustness on spiral + moon (8 cells) — RE-BASELINED 2026-08-26
+### E-C — noise robustness on spiral + moon (8 cells) — RE-MEASURED AT CAP 64, 2026-08-29
 
-> **This table replaces the 08-09/08-11 smoke-cap surface** (which carried a KNOWINGLY STALE marker
-> from 2026-08-16 until this re-run; the superseded rows remain in git history). Re-measured by the
-> T6 campaign at cascor **`67d7ea3`** under the current suite
-> (`util/experiments/suites/p4/e-c-cascor-noise-robustness.yaml`, rebased onto `spiral-baseline`
-> per the closed R-4 disposition), suite dir `e-c-cascor-noise-robustness-20260826T084722Z`,
-> 8/8 `succeeded`, 622 s total. Conditions and provenance: **F-P4-6** (§4).
+> **This table replaces the cap-12 surface published 2026-08-26** (itself a replacement for the
+> 08-09/08-11 smoke-cap rows; both supersessions remain in git history). That grid's four spiral
+> rows were `max_iterations`-bound at 12 units and flat at ≈0.63–0.66, and `moon-n20` was bound at
+> the same 12 — a capacity artifact, not a noise result. The suite now pins the budget itself
+> (ml#1409): `max_hidden_units: 64` **and** `max_iterations: 64`, on the matrix and repeated on
+> each moon `include` (`expand_cells` does not hand includes the matrix). Re-measured at cascor
+> **`67d7ea3`** — the T6 pin — suite dir `e-c-cascor-noise-robustness-20260829T003546Z`,
+> 8/8 `succeeded`, 2,437 s. Conditions and provenance: **F-P4-7** (§4).
 
-| cell     | generator | noise | units | epoch | train  | val        | wall (s) | completion       |
-|----------|-----------|-------|-------|-------|--------|------------|----------|------------------|
-| c000     | spiral    | 0.00  | 12    | 13    | 0.6175 | 0.6350     | 104.8    | `max_iterations` |
-| c001     | spiral    | 0.05  | 12    | 13    | 0.6362 | 0.6600     | 109.8    | `max_iterations` |
-| c002     | spiral    | 0.10  | 12    | 13    | 0.6262 | 0.6250     | 104.9    | `max_iterations` |
-| c003     | spiral    | 0.20  | 12    | 13    | 0.6188 | 0.6400     | 104.7    | `max_iterations` |
-| moon-n0  | moon      | 0.00  | 2     | 3     | 1.0000 | 1.0000     | 34.6     | `early_stopped`  |
-| moon-n05 | moon      | 0.05  | 1     | 2     | 1.0000 | 1.0000     | 24.5     | `early_stopped`  |
-| moon-n10 | moon      | 0.10  | 3     | 4     | 1.0000 | 1.0000     | 39.5     | `early_stopped`  |
-| moon-n20 | moon      | 0.20  | 12    | 13    | 0.9750 | **0.9750** | 99.7     | `max_iterations` |
+| cell     | generator | noise | units | epoch | train  | val        | wall (s) | completion         |
+|----------|-----------|-------|-------|-------|--------|------------|----------|--------------------|
+| c000     | spiral    | 0.00  | 64    | 65    | 0.8638 | **0.8050** | 491.4    | `early_stopped`    |
+| c001     | spiral    | 0.05  | 64    | 65    | 0.9950 | **1.0000** | 552.0    | `early_stopped`    |
+| c002     | spiral    | 0.10  | 64    | 65    | 0.9838 | **0.9800** | 499.1    | `early_stopped`    |
+| c003     | spiral    | 0.20  | 64    | 65    | 0.9738 | **0.9750** | 512.3    | `early_stopped`    |
+| moon-n0  | moon      | 0.00  | 2     | 3     | 1.0000 | 1.0000     | 42.8     | `early_stopped`    |
+| moon-n05 | moon      | 0.05  | 1     | 2     | 1.0000 | 1.0000     | 29.7     | `early_stopped`    |
+| moon-n10 | moon      | 0.10  | 3     | 4     | 1.0000 | 1.0000     | 52.0     | `early_stopped`    |
+| moon-n20 | moon      | 0.20  | 32    | 33    | 0.9775 | **0.9650** | 257.7    | `below_threshold`  |
 
-Output (accuracy-vs-noise): the **moon curve** remains the study's deliverable — 1.0 through noise
-0.10 at one to three units, **0.975 at 0.20** (vs 0.965 under the old 2-unit smoke cap), where it
-spends the whole 12-round budget: graceful degradation, now measured at a budget the problem does
-not exhaust before 0.20. The four **spiral rows are no longer F-P4-1-degenerate** — every one
-recruits units — but they are **`max_iterations`-bound**: the suite inherits `spiral-baseline`'s
-12-round cap, all four stop at exactly 12 units, and 12 units is far below where spiral
-(`n_rotations 3.0`) resolves (E-I below: 64 units → 1.00). So the spiral curve is flat at
-≈0.63–0.66 for the reason F-6 of the
-[spiral-resurface evidence](JUNIPER_2026-08-12_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P4-SPIRAL-RESURFACE-EVIDENCE.md)
-gave — *the cap binds* — with the iteration cap now playing the unit cap's old role. **Flatness here
-is still not a spiral noise-robustness result.** Measuring one needs E-C's spiral rows at an
-E-I-class `max_iterations` (≥ 64), which is a budget decision the R-4 disposition did not make and
-this document does not make for it; recorded as an open item in **F-P4-6**.
+**Walls here are ADVISORY, not comparable to the T6 grid.** An unrelated 13-hour `clamscan` ran
+throughout. The overhead is measurable rather than guessed: `c001` is config-identical to E-I
+`c001` and took 552.0 s against its 516.9 s — **+6.8%**. Accuracy is seed-deterministic and
+unaffected.
+
+Output (accuracy-vs-noise):
+
+**The flatness was the cap.** ≈0.63–0.66 across all four noise levels becomes a curve spanning
+0.805–1.000. R-4's diagnosis was correct and simply had not been carried far enough; the cap-12
+reading measured the budget, exactly as the 2-unit smoke cap had before it.
+
+**The control reproduces exactly.** `spiral-baseline` pins `noise: 0.05`, so `c001` is the same
+effective configuration as E-I `c001` — and returns identical val (1.0000), train (0.9950), units
+(64) and epoch (65). Two campaigns two days apart, different suites, different ports, and run from
+a *pinned worktree* rather than the primary checkout (ml#1412). That is simultaneously a
+cross-campaign determinism check and the end-to-end validation that worktree pinning reproduces
+what the primary produced.
+
+**`moon-n20`'s 0.975 was confounded.** Freed of the cap it grows to 32 units and lands at
+**0.9650** `below_threshold` — a real measurement, and slightly *worse*: the extra capacity costs a
+little generalization. The moon curve is now 1.0 / 1.0 / 1.0 / 0.965 with nothing cap-bound, and
+is the study's clean deliverable.
+
+**The spiral curve is NON-MONOTONIC, and the dip is real — not capacity.** noise 0.00 → 0.8050 sits
+*below* noise 0.05 → 1.0000, which is backwards for a robustness curve. Noise is additive Gaussian
+jitter on x and y (`SpiralGenerator._make_noise`), so the parameter is applied, and all eight cells
+carry distinct content-addressed `dataset_id`s. Because every spiral cell consumed its **entire**
+64-unit budget, the dip was initially confounded with starvation — E-I's saturation at noise 0.05
+(cap 64 and cap 128 both 1.0000) does not transfer to noise 0.00. A one-cell probe settles it
+(`util/ad-hoc/2026-08-28_ec_noise0_cap128_probe.yaml`, suite dir
+`ec-noise0-cap128-probe-20260829T012038Z`):
+
+| probe            | noise | cap | units | epoch | train  | val        | wall (s) |
+|------------------|-------|-----|-------|-------|--------|------------|----------|
+| noise-0 @ cap128 | 0.00  | 128 | 128   | 129   | 0.8413 | **0.8450** | 909.3    |
+
+Doubling the budget buys **+0.04** (0.8050 → 0.8450) while the noise-0.05 row reaches 1.0000 on
+*half* of it. More telling, **train accuracy FELL** (0.8638 → 0.8413) and now sits *below* val: the
+network is not fitting its training set, so this is an optimization / geometry limit rather than
+capacity or overfitting. **The noise-free spiral is genuinely harder for this learner** — plausibly
+because with zero jitter the two arms lie exactly on a 1-D manifold with no margin anywhere. Why
+that defeats correlation-driven growth is **not answered here** and is recorded as an open item in
+**F-P4-7**; it is a property of the learner, not of the suite, so it does not qualify the noise
+rows at 0.05 / 0.10 / 0.20.
 
 The E-A / E-I currency caveat the old marker carried (both published grids predated cascor#514)
 is resolved the same way: both were re-measured at `67d7ea3` in the same campaign — see
@@ -213,10 +246,58 @@ Reading, in the order the tables support it:
 
 ## 4. Findings
 
+### F-P4-7 — E-C re-measured at cap 64: the flat spiral curve was the cap; the noise-0 dip is not
+
+**Status: the E-C study is COMPLETE. One learner-level question is raised and left open.**
+
+F-P4-6 closed the T6 re-baseline but recorded E-C's spiral rows as still capacity-bound — one cap
+up from the R-4 finding, with the inherited `max_iterations: 12` playing the unit cap's old role.
+The prescription carried in that item, *"an E-I-class `max_iterations` (≥ 64)"*, was **incomplete
+and would not have worked**: `derive_epochs_cap` computes
+`effective_iterations = min(max_iterations, max_hidden_units)` and `spiral-baseline` caps
+`max_hidden_units: 24`, so raising iterations alone moves the bind from 12 to 24 — still far short
+of where spiral resolves. Both knobs move together (ml#1409), which is what E-A (`[32]`) and E-I
+(`[128]`) had already been doing since R-3.
+
+**Run conditions.** cascor `67d7ea3`, the T6 pin, from a **pinned worktree** rather than the
+primary checkout — the primary was in use by an unrelated live E2E stack, and ml#1412 made that a
+non-blocker. The pin was verified three independent ways rather than trusted: the import-provenance
+probe (`util/ad-hoc/2026-08-26_cascor_import_provenance.py`) resolved all six top-level cascor
+modules inside the worktree; the live service's `/proc/<pid>/cwd` was that worktree's `src`; and
+`JUNIPER_CASCOR_GIT_SHA` read `67d7ea359f2b`. The third alone is **vacuous** — the launcher stamps
+it from the requested tree, so it cannot disagree — and is evidence only alongside the other two.
+`base_config` resolved through the same pinned tree (`JUNIPER_EXP_PROJECT_DIR`), so this is pinned
+code *and* pinned config, not the mixed tree ml#1412 also fixed.
+
+**Results** (§3): the spiral curve gains real structure (0.805 / 1.000 / 0.980 / 0.975 against a
+flat ≈0.63–0.66); `moon-n20`'s cap-bound 0.975 resolves to a genuine 0.965 at 32 units; and `c001`
+reproduces E-I `c001` **exactly** on val, train, units and epoch — a cross-campaign determinism
+check that doubles as end-to-end validation of worktree pinning.
+
+**Open — the noise-0 dip is a LEARNER property, not a budget one.** The curve is non-monotonic:
+noise 0.00 (0.8050) sits below noise 0.05 (1.0000). A cap-128 probe rules out capacity — doubling
+the budget moves val only 0.8050 → 0.8450 while noise 0.05 saturates at 1.0000 on half of it, and
+**train accuracy falls to 0.8413, below val**, so the network is not fitting its own training set.
+That is an optimization / geometry limit: with zero jitter both spiral arms lie exactly on a 1-D
+manifold with no margin. *Why* that defeats correlation-driven candidate growth is unanswered, and
+answering it is a cascor-learner investigation rather than a suite change. It does not qualify the
+0.05 / 0.10 / 0.20 rows.
+
+**Also confirmed in the field:** every cell's manifest carries
+`teardown_preempt: {"attempted": false, "settled": null}` — all eight succeeded, which is terminal
+service-side, so ml#1408's teardown stop correctly never fired. The regression suite asserts this;
+this is the live confirmation.
+
+**Not measured.** Walls are advisory — an unrelated 13-hour `clamscan` ran throughout, costing a
+measured **+6.8%** on the config-identical `c001` (552.0 s vs E-I's 516.9 s). Every cell also logs
+the `max_epochs` / `output_epochs` split warning, inherited from `spiral-baseline`; the T6 grids ran
+under the identical condition, so the comparison is like-for-like, and it would only bite a
+CLI-vs-service comparison, which this is not.
+
 ### F-P4-6 — the T6 re-baseline: first attempt partial (timings NOT usable); second attempt complete
 
 **Status: RESOLVED 2026-08-26.** The re-baseline ran to completion on the second attempt — 23/23
-cells at cascor `67d7ea3`, published in §3 ([E-C](#e-c--noise-robustness-on-spiral--moon-8-cells--re-baselined-2026-08-26),
+cells at cascor `67d7ea3`, published in §3 ([E-C](#e-c--noise-robustness-on-spiral--moon-8-cells--re-measured-at-cap-64-2026-08-29),
 [E-A / E-I](#e-a--e-i-re-baselined-2026-08-26-cascor-67d7ea3--t6)); the record of that run is at
 the end of this finding. The first attempt's analysis is kept below because its conclusion —
 **do not cite its wall-clock deltas as a cascor#514 measurement** — still governs how the
@@ -313,10 +394,13 @@ What this resolves and what it does not:
   accuracy gains in §3 sit across the same multi-commit span. Attribution would need the control
   arm this finding named from the start (the same grid at a single intermediate commit under
   equal conditions), which was neither scheduled nor budgeted.
-- **Open, owner decision**: E-C's spiral rows are `max_iterations`-bound at 12 units under the
+- ~~**Open, owner decision**: E-C's spiral rows are `max_iterations`-bound at 12 units under the
   inherited `spiral-baseline` budget (§3), so a spiral noise-robustness curve still needs an
-  E-I-class `max_iterations` (≥ 64) on those four cells. The R-4 disposition is not reopened by
-  noting this; it is the next decision, if the curve is wanted.
+  E-I-class `max_iterations` (≥ 64) on those four cells.~~ **CLOSED 2026-08-29 by
+  [F-P4-7](#f-p4-7--e-c-re-measured-at-cap-64-the-flat-spiral-curve-was-the-cap-the-noise-0-dip-is-not).**
+  Note the prescription recorded here was **incomplete**: `≥ 64` on `max_iterations` alone moves the
+  bind to `spiral-baseline`'s `max_hidden_units: 24`, not to 64, because
+  `effective_iterations = min(max_iterations, max_hidden_units)`. Both knobs were required.
 
 Method notes that generalise, added by the second attempt: a host-drain gate must read
 instantaneous CPU, not `ps %CPU`; a freed GPU window on this host is claimed by another session

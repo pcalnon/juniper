@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-29
+
 ### Added
 
 - **A guard on the three parallel declarations of the public surface** (`APD-SVCCORE-009`).
@@ -61,7 +63,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Note the throttle is in-memory and per-process: behind multiple replicas the effective budget
   multiplies by the replica count, and exact fleet-wide enforcement needs a shared store.
 
+- **`JsonTaskProtocol`** — the package default `WorkerTaskProtocol`, a JSON-only worker with no
+  binary frames (`APD-SVCCORE-015`). The `LifecycleCommandExecutor` analogue for the worker seam:
+  publishing the Protocol *and* a working default means a consumer implements the three methods
+  only when it actually carries a model-specific wire schema. Structural, not inherited — a
+  consumer may use it, wrap it, or ignore it.
+  **Derived, not invented**: the envelope is the one this package's own tests already wrote from
+  scratch three times, and `PendingTask`'s docstring already named the shape ("a JSON-only worker
+  packs a plain dict").
+  It declares **no** attachments deliberately, so it never enters the binary-receive loop at all.
+  Exported through the lazy PEP 562 surface, so the dependency-free top-level import is unchanged.
+
+### Changed
+
+- **`WorkerTaskProtocol`'s members are now `@abstractmethod` and raise `NotImplementedError`**
+  (`APD-SVCCORE-011`). They previously had `pass` bodies, so a partial implementation returned
+  `None` into `WorkerCoordinator.get_next_assignment`'s dispatch path. The package's other Protocol
+  (`CommandExecutor`) already used the abstract convention; the primer's instruction was to pick one
+  per package, and this is that convention applied. Because `Protocol`'s metaclass derives from
+  `ABCMeta`, an incomplete implementation now fails at **construction** rather than silently at
+  dispatch.
+  **Potentially breaking** for a consumer that subclassed `WorkerTaskProtocol` without implementing
+  all three members — no such consumer exists in the ecosystem, and no service imports this module.
+
+- **The two shipped defaults refuse subclassing** (`APD-SVCCORE-012`). `LifecycleCommandExecutor`
+  and `JsonTaskProtocol` are `@final` **and** raise `TypeError` from `__init_subclass__`. Publishing
+  a concrete default beside a Protocol invites the inheritance the composition-only design exists to
+  avoid, and neither docstring said whether it was supported — so the answer was whatever the first
+  consumer assumed. It is now stated and enforced, and each docstring names the supported variation
+  points instead: injection (the `start` callback), implementing the Protocol directly, or wrapping
+  an instance.
+  `@final` alone would not have held — nothing type-checks this package — so the runtime guard is
+  the enforcement and the decorator is documentation for a later checker adoption.
+  **Potentially breaking** for a consumer that subclassed either class; verified zero such consumers
+  across cascor, data, canopy, recurrence and cascor-worker.
+
+- **An over-limit `/ws/control` frame now closes the connection (1009) instead of continuing**
+  (`APD-SVCCORE-005`). The size check necessarily runs after `receive_text()` has materialised the
+  frame — that is a transport property, and the real ceiling is uvicorn's `ws_max_size` (16 MiB by
+  default) — but the `continue` returned before `_handle_command_message`, the only place a
+  rate-limit token is spent, so every oversize frame was free and one connection could repeat the
+  allocation indefinitely. Charging the bucket instead would be accounting, not protection: by then
+  the allocation has already happened. Closing is also what this loop already does for the adjacent
+  protocol violations (malformed JSON, non-object JSON both close 1003), and reconnection is
+  governed by the handshake cooldown. 1009 is RFC 6455's "Message Too Big".
+  A `pong` frame still costs no token, deliberately and now pinned: the bucket is the *command*
+  budget, and charging keepalive would let a command burst rate-limit the client's pong, which the
+  heartbeat loop reads as a dead peer and closes 1011.
+
 ### Fixed
+
+- **`LeakyBucket`'s docstring no longer misdescribes its own algorithm** (`APD-SVCCORE-013`).
+  The class is a **token bucket** — it accumulates up to `capacity` tokens at `refill_rate` per
+  second and decrements one per admission, so an idle connection banks a burst and may spend it at
+  once. The docstring asserted "leaky-bucket" (a traffic shaper draining at exactly `R`) with no
+  correction anywhere, so a reader had nothing to weigh the class name against.
+  **The name is deliberately unchanged**: it is exported from `juniper_service_core.websocket`, and
+  renaming it would break a published surface to settle an ambiguity the reference material calls
+  conventional ("in practice the two are implemented identically and named interchangeably — read
+  the code, not the class name"). The docstring now states which algorithm this is, why the name
+  stays, and the consequence a caller must not get wrong: **sizing `capacity` as though output were
+  smoothed to `refill_rate` will admit `capacity` commands in one instant.** Documentation only: no
+  behaviour change, and the burst is now pinned by a test.
+
+- **The `/ws/control` handshake gates are documented as deliberately pre-accept, and the ordering is
+  pinned** (`APD-SVCCORE-016`). The four distinct close codes (`1013`, `4029`, `4003`, `4001`) do
+  not reach the client — uvicorn converts a pre-accept close into a plain HTTP 403 and discards both
+  code and reason. That is **conformant**, not defective: a handshake failure is still HTTP, and
+  RFC 6455 §10.2 recommends `403` for an unacceptable Origin. Making the codes observable would
+  require accepting the socket *first* and then closing it, completing a handshake for a caller the
+  kill switch, the cooldown or the Origin allowlist has already refused — a weaker posture.
+  Recorded at `_check_handshake_gates` so the ordering is not "fixed" into that regression, and a
+  new test asserts every rejection path leaves the socket un-accepted. Documentation and test only:
+  no behaviour change.
+
+- **The worker attachment list is now bounded by count and by total bytes** (`APD-SVCCORE-001`).
+  `_handle_task_result` received one binary frame per declared attachment and checked only
+  `len(raw_bytes) > _MAX_BINARY_SIZE` per frame, so one submission permitted
+  `len(attachment_names) × _MAX_BINARY_SIZE` — a bound on each item is not a bound on the sum, and
+  every accepted frame is retained in memory until the submission completes.
+  Two independent bounds: `_MAX_ATTACHMENTS = 32` (cardinality, checked **before the first
+  `receive()`** so an over-long declaration cannot hold the handler in a receive loop) — ported from
+  juniper-cascor's `_MAX_TENSOR_MANIFEST_ENTRIES`, whose own comment names this failure mode — and
+  `_MAX_TOTAL_BINARY_SIZE` (aggregate per submission), set equal to the per-frame cap by a stated
+  principle rather than an invented magnitude: one submission may not deliver more bytes than a
+  single frame was already permitted to carry. The two stay independent policies that merely
+  coincide today.
 
 - **The rate limiter's per-process scope is now stated where it is used** (`APD-SVCCORE-007`).
   The constraint itself is deliberate and unchanged — fixed-window counters live in memory, so
