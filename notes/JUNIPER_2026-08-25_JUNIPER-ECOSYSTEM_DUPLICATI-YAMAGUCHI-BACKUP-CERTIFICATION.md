@@ -1461,3 +1461,85 @@ python3 util/ad-hoc/old_archive_coverage_diff.py --depth 6 \
 
 The second takes ~10 minutes (ten dlist decrypts); `--dump-orphans` writes every orphan as
 `size<TAB>path` so that later questions are a `grep`, not another decrypt pass.
+
+### 8.16 Addendum (2026-08-28 evening) — option (b) executed; the purge is done
+
+Paul picked **option (b)** from §8.15.6: delete the archive's data volumes, keep its ten dlists as
+a permanently queryable record. Executed by `util/ad-hoc/old_archive_purge.py`, which is dry-run by
+default and re-proves every claim §8.15 made rather than trusting the note — this deletes 2.3 TiB
+and cannot be undone.
+
+#### 8.16.1 The caveat that had to be closed first
+
+§8.15 was written knowing the dlists *decrypt*, but it had **not** been tested that a dlist stays
+readable once its dblock volumes are gone. The entire value of option (b) rests on that, so
+asserting it would have been the same error this arc keeps finding: a check that passes because it
+never really ran.
+
+It was proven on a copy first, and then made **gate 5** of the purge tool so it can never be
+skipped: one dlist, alone in a directory with **zero dindex and zero dblock**, was queried and
+yielded its full **1,360,811-entry** listing. A dlist is self-contained. (What it cannot do is
+restore — the file data is gone. It answers *what existed, how big, and when*.)
+
+That probe also produced a correction worth keeping. A first match for
+`/Development/Llama2/llama/llama-2-70b/` against the newest dlist returned **0 entries**, which
+reads as "the record is broken". It is not: the Llama-2 weights were deleted from disk *before* the
+final 2026-07-11 fileset, so they appear only in **earlier** ones (223 orphan paths, confirmed
+against the dumped orphan list). Verified by matching a path that *is* in the newest fileset —
+`rust_mudgeon/adamo/Cargo` → 3 entries with sizes and timestamps. **This is why option (b) keeps
+all ten dlists and not just the newest**, and why a zero-result match must be checked against a
+known-present control before it is believed.
+
+#### 8.16.2 Gates, all eight passed
+
+| gate | assertion |
+|---|---|
+| 0 | archive root on `/dev/sda1`, **fstab-managed** |
+| 1 | `ActiveTask=null`, scheduler queue empty |
+| 2 | live `TargetURL` is the `Yamaguchi/` **subdirectory** — what makes a non-recursive root delete safe |
+| 3 | live set reconciles: filesystem **818 files / 210,901,216,426 B** = server `TargetFilesCount`/`Size` |
+| 4 | all **10** dlists decrypt **and are Zip** |
+| 5 | isolated dlist (0 dblock, 0 dindex) yields **1,360,811 entries** |
+| 6 | deletion set is exactly **5,356** root-level volumes (2,674 dblock + 2,682 dindex); **0 dlists**, 0 paths under `Yamaguchi/` or `_yamaguchi_records/`, asserted explicitly rather than inferred from the glob |
+| 7 | the 10 dlists mirrored to `/media/pcalnon/temp_backups/_old_archive_dlists` on **`/dev/sdc4`** — a different physical disk — and **sha256-verified** before anything was deleted |
+
+Gate 2 deserves the note: the live destination being a *subdirectory* of the archive mountpoint
+(§8.13) is the only reason a root-level delete is safe at all. If the live job ever pointed at the
+root itself, the tool refuses.
+
+#### 8.16.3 Result
+
+```
+deleted 5356/5356 volumes, freed 2.3 TiB
+kept 10 dlists + README.md
+```
+
+| | before | after |
+|---|---|---|
+| sda1 used | 2.6 T (**74 %**) | 198 G (**6 %**) |
+| sda1 free | 908 G | **3.3 T** |
+| archive root | 5,366 `.gpg` files | 10 dlists (933 MiB) + `README.md` |
+
+Verified after the fact, not assumed:
+
+- **Live set unaffected** — census `818 files / 210,901,216,426 B -> AGREE`.
+- **The record works with the volumes actually gone** — querying
+  `--dest /mnt/Backups/Ubuntu` now reports `10 dlist / 0 dindex / 0 dblock` and still returns the
+  full 1,360,811-entry fileset and answers path queries.
+- `_yamaguchi_records/`, `lost+found/` and `temp/` untouched (they are directories; the deletion
+  set was root-level *files* only).
+- The sdc4 mirror holds all ten, 934 MB.
+
+A `README.md` was written at the archive root recording what was removed, what is kept, that the
+dlists cannot restore, that all ten must be kept, the exact query command, and where the second
+copy lives — so the next reader does not have to find this note first.
+
+#### 8.16.4 What this unblocks, and what is left
+
+**Consolidation onto sda1 is unblocked** — 3.3 T free, the stated mid-term goal. Tier 3
+(`_drill_scratch/`, 35 GB) is no longer gated. The 196 GB sdc4 `Yamaguchi/` copy is unaffected and
+remains KEEP per Paul's §8.14 decision.
+
+Still open, unchanged: **criterion 5 (reboot)** — now the last unexercised criterion in the whole
+arc; the old sdc4 `_duplicati_tmp/` (empty, removable); the drill `restored/` tree (~64 G); and the
+root-owned items (loopback restage, server-brain DB backup).
