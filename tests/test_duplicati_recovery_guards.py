@@ -36,9 +36,9 @@ import sys
 import tempfile
 import textwrap
 import unittest
+import unittest.mock as mock
 import uuid
 from pathlib import Path
-from unittest import mock
 
 from tests.redacted_env import RedactedEnv
 
