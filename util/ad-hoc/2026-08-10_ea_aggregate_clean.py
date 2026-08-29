@@ -5,7 +5,7 @@ Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-10
 Status: ad-hoc -- one-off
-Retire when: the F-P4-1 re-surface evidence note is written; delete with the campaign scripts.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the F-P4-1 re-surface evidence note is written; delete with the campaign scripts.
 Related: F-P4-1 re-surface; the cascor GPU-leak trap (cascor#509).
 
 A grid collected under the GPU leak spans several suite runs -- per-cell reaping produces

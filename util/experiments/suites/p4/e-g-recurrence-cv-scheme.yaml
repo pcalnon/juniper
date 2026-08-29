@@ -6,7 +6,7 @@ suite:
   app: recurrence
   base_config: [../../../../../juniper-recurrence/conf/experiments/irregular-sine-rff.yaml]
   seed_policy: fixed
-execution: {mode: parallel, max_parallel: 2, continue_on_failure: true, per_run_timeout_seconds: 900}
+execution: {mode: parallel, max_parallel: 2, continue_on_failure: true, per_run_timeout_seconds: 1800}
 matrix:
   crossval.scheme: [expanding, rolling]
   crossval.embargo: [0, 2, 5]

@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-20
 Status:      ad-hoc -- migration
-Retire when: the rollout is merged and verified on all 9 repos.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the rollout is merged and verified on all 9 repos.
 Related:     ml#434; util/ad-hoc/base_branch_guard/rollout.py
 
 Why this does not read the rollup

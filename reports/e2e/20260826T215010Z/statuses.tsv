@@ -1,0 +1,11 @@
+row_id	status	notes	screenshots
+M-TOPOLOGY-01	BLOCKED	F-CANOPY-037: rebuild starved absent (2 renders in 11 live sessions). Blocker re-attributed from closed F-CANOPY-006. Layout cycle unreachable while the graph never paints.	seg17_topodiag.png
+M-TOPOLOGY-08	BLOCKED	F-CANOPY-037. When the rebuild DOES run the stats bar is correct: 2/10/2/89 matching GET /api/topology (39319 B, 206 traces, ~22 s) - but only 2 of 11 sessions.	seg17_topo.png
+W1-12	BLOCKED	F-CANOPY-037: tab entry does not reliably paint the graph; server truth 14 nodes / 89 connections throughout.	seg17_topodiag.png
+W4-02	BLOCKED	F-CANOPY-037. Dash-3 idiom recorded: layout-selector is a native button.dash-dropdown, not react-select.	-
+W5-22	PASS	F-CANOPY-014 speed slider DRIVES via the corrected Dash-3 Radix idiom (keyboard-on-focused-thumb); status "Speed updated".	p1wave_f014_replay.png
+W5-21	BLOCKED	Precondition, not idiom: replay opened on a V1 (metrics only) snapshot with empty history - epoch-readout 0/0, so the scrubber has min==max==0. Needs a V2 snapshot with samples.	p1wave_f014_replay.png
+W5-23	BLOCKED	Precondition, not idiom: range-readout [0, 0] on the same empty V1 replay session; both handles have no range. Needs a V2 snapshot with samples.	p1wave_f014_replay.png
+W5-01	PASS	f031 driver step (owed since its probes were lost to /tmp): panel rendered 200 rows in 2.0 s, "Showing newest 200 of 28042 snapshot(s)", empty-state correctly hidden.	seg17_f031.png
+M-SNAPSHOTS-19	PASS	Corroborated: data-snapshot-row and data-snapshot-id now present on 200/200 rendered rows (the F-031 finding recorded ZERO). Context menu has its required attributes.	seg17_f031.png
+M-DATASET-14	PASS	Theme flip recolours the stats summary: rgb(33,37,41)/rgb(248,249,250) -> rgb(233,236,239)/rgb(45,45,45) in 17.5 s (at/just past the <=16 s interaction bound; 2 s poll granularity). Scored on computed colours, not toggle state.	seg17_theme.png

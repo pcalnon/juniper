@@ -226,7 +226,7 @@ route: receiver=default, group_by=[alertname,service], group_wait=30s, group_int
 
 [v3 brief repaired from cited content; was: '6.3 Phase 3 Proposal Agreement Matrix']
 
-### JR-ML-ARCH-014 — ```bash ```.
+### JR-ML-ARCH-014 — Improved `juniper_plant_all.bash` / `juniper_chop_all.bash`: health polling, port and conda-env validation, /proc-based PID checks, graceful SIGTERM→SIGKILL
 
 **Status**: designed  **Priority**: P1  **Category**: ARCH  **Owner**: ml
 
@@ -236,7 +236,7 @@ route: receiver=default, group_by=[alertname,service], group_wait=30s, group_int
 
 **Detail**:
 
-# 1. wait_for_health() function that polls /v1/health with configurable timeout
+`# 1. wait_for_health() function that polls /v1/health with configurable timeout`
 
 **Notes**:
 
@@ -247,6 +247,8 @@ route: receiver=default, group_by=[alertname,service], group_wait=30s, group_int
 [v3 thin-brief flagged] [v4 brief repaired; was: '9.6 Detailed Design: Improved `juniper_chop_all.bash`']
 
 *Merged from 2 extraction candidates (slices: 3c-2b).*
+
+[2026-08-29 brief repaired from cited content; was: '```bash ```.']
 
 ### JR-ML-ARCH-015 — Both Phase 5 proposals unanimously agree, and this final document adopts without change:.
 

@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-20
 Status:      ad-hoc -- investigation (one-off, may be re-run after a client upgrade)
-Retire when: the kill mechanism is identified, or the mechanism class is excluded and
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the kill mechanism is identified, or the mechanism class is excluded and
              `notes/JUNIPER_2026-08-19_JUNIPER-ECOSYSTEM_SAFE-MERGE-KILL-FORENSICS.md`
              section 3.3 is closed.
 Related:     forensics doc section 3.3 ("the cheap decisive test -- not run"),

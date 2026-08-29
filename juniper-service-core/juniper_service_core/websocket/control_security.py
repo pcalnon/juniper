@@ -51,10 +51,30 @@ def validate_control_origin(websocket: WebSocket, allowed_origins: list[str]) ->
 
 
 class LeakyBucket:
-    """Per-connection leaky-bucket rate limiter.
+    """Per-connection **token-bucket** rate limiter. The class name says leaky bucket; the code is
+    the authority, and the code is a token bucket (``APD-SVCCORE-013``).
 
     Allows ``capacity`` commands, refills at ``refill_rate`` per second. Thread-safe for use
     from an async context.
+
+    **Which algorithm this actually is, and why the name stays.** :meth:`try_acquire` accumulates up
+    to ``capacity`` tokens at ``refill_rate`` per second and decrements one per admission, so an idle
+    connection banks a burst and may spend it at once. That is a token bucket — an *admission
+    controller*. A leaky bucket is a *traffic shaper*: a queue draining at exactly ``R`` regardless
+    of input, which this is not, because nothing here smooths output.
+
+    The name is deliberately **not** changed. The primer's own treatment of the two algorithms
+    concludes that "in practice the two are implemented identically and named interchangeably --
+    read the code, not the class name", and calls this class "misnamed, correctly implemented".
+    Renaming a name exported from ``juniper_service_core.websocket`` would be a breaking change to a
+    published surface in order to resolve an ambiguity the reference material calls conventional, and
+    the register classes the row ``M`` / ``Low`` for exactly that reason. What was actually missing
+    was this paragraph: the docstring previously asserted "leaky-bucket" with no correction anywhere,
+    so a reader had nothing to weigh the name against.
+
+    The behavioural consequence a caller must not get wrong: **bursts up to ``capacity`` are admitted
+    immediately.** Sizing ``capacity`` as though output were smoothed to ``refill_rate`` will admit
+    ``capacity`` commands in one instant.
     """
 
     def __init__(self, capacity: int = 10, refill_rate: float = 10.0):

@@ -111,6 +111,13 @@ class _ScriptedState:
         self.start_409_detail = "Training cannot be started: Training already in progress"
         self.fsm_override: "str | None" = None
         self.stop_status = 200
+        # What the lifecycle settles to once a stop succeeds. None reproduces the 409-preempt
+        # arms' behaviour (clear the override, fall back to status_sequence); a state name
+        # pins the post-stop lifecycle, which is what the teardown-preempt path polls for.
+        self.stop_settles_to: "str | None" = None
+        # W-4 `install_hint` on the unavailable generator. None = the field is absent entirely,
+        # which is both the numpy-only-synthetic case and every juniper-data release <= v0.11.0.
+        self.generator_install_hint: "str | None" = None
         self.completion_reason = "max_iterations"
         self.train_status = 200
         self.train_delay = 0.0
@@ -242,7 +249,10 @@ class _StubHandler(BaseHTTPRequestHandler):
                         {"name": "irregular_sine", "version": "1.0.0", "description": "", "available": True, "schema": {}},
                         {"name": "checkerboard", "version": "1.0.0", "description": "", "available": True, "schema": {}},
                         {"name": "arc_agi", "version": "1.0.0", "description": "", "available": True, "schema": {}},
-                        {"name": "mnist", "version": "1.0.0", "description": "", "available": False, "schema": {}},
+                        # The one unavailable generator. `install_hint` is present only when the
+                        # arm asks for it: juniper-data omits it for generators declaring no hook,
+                        # and a release older than W-4 omits it entirely.
+                        {"name": "mnist", "version": "1.0.0", "description": "", "available": False, "schema": {}, **({"install_hint": state.generator_install_hint} if state.generator_install_hint is not None else {})},
                     ]
                 ).encode("utf-8"),
             )
@@ -378,7 +388,7 @@ class _StubHandler(BaseHTTPRequestHandler):
         elif path == "/v1/training/stop":
             if state.stop_status == 200:
                 with state.lock:
-                    state.fsm_override = None
+                    state.fsm_override = state.stop_settles_to
                     state.start_409_remaining = 0
                 self._send(200, _envelope({"stopped": True}))
             else:
@@ -1010,6 +1020,100 @@ class PreemptArmsTest(_StubTestCase):
         self.assertEqual(len(self._posts("/v1/training/start")), 1)
 
 
+class TeardownPreemptTest(_StubTestCase):
+    """A `stalled` / `timed_out` cell is stopped BEFORE collect, not left to the SIGTERM.
+
+    The driver giving up does not stop the service: it keeps recruiting units. Collect then
+    samples /v1/metrics, /v1/network and /v1/network/topology off a moving network, and the
+    stop falls to experiment_stack.bash's teardown SIGTERM on a 10s grace -- a path cascor#589
+    made safe but that no campaign has exercised (T6's 23 inter-cell stops all landed 2-7s
+    AFTER `Training ended`, so only the idle path was ever proven).
+    """
+
+    def _order(self, method: str, path: str) -> int:
+        for index, (req_method, req_path, _body) in enumerate(self.state.requests):
+            if req_method == method and req_path == path:
+                return index
+        return -1
+
+    def _stall(self, *extra: str):
+        self.state.status_sequence = [("STARTED", 1, 0)]
+        config = _write_config(self.tmp, _base_config())
+        return _invoke(config, self.run_dir, "--stall-seconds", "0.2", *extra)
+
+    def test_a_stalled_cell_is_stopped_before_collect(self) -> None:
+        self.state.stop_settles_to = "STOPPED"
+        code, _ = self._stall()
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        self.assertEqual(_manifest(self.run_dir)["outcome"], "stalled")
+        self.assertEqual(len(self._posts("/v1/training/stop")), 1)
+        # The ORDERING is the fix. Collect's first call is GET /v1/metrics -- the drive loop
+        # samples the bare /metrics exposition, a different path -- so a stop landing after it
+        # would have settled nothing that collect went on to read.
+        stop_at = self._order("POST", "/v1/training/stop")
+        collect_at = self._order("GET", "/v1/metrics")
+        self.assertGreater(stop_at, -1, "no stop was issued for a stalled cell")
+        self.assertGreater(collect_at, -1, "collect never ran")
+        self.assertLess(stop_at, collect_at)
+
+    def test_the_manifest_records_a_settled_stop(self) -> None:
+        self.state.stop_settles_to = "STOPPED"
+        self._stall()
+        record = _manifest(self.run_dir)["teardown_preempt"]
+        self.assertTrue(record["attempted"])
+        self.assertTrue(record["settled"])
+
+    def test_a_timed_out_cell_is_stopped_too(self) -> None:
+        self.state.increment_epochs = True
+        self.state.stop_settles_to = "STOPPED"
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir, "--max-wall-seconds", "0.3")
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        self.assertEqual(_manifest(self.run_dir)["outcome"], "timed_out")
+        self.assertEqual(len(self._posts("/v1/training/stop")), 1)
+
+    def test_a_refused_stop_still_writes_the_evidence(self) -> None:
+        """Best-effort: a refused stop degrades to the pre-fix behaviour and loses nothing."""
+        self.state.stop_status = 409
+        code, _ = self._stall()
+        self.assertEqual(code, rx.EXIT_ACCEPTANCE)
+        manifest = _manifest(self.run_dir)
+        self.assertEqual(manifest["outcome"], "stalled")
+        self.assertTrue(manifest["teardown_preempt"]["attempted"])
+        self.assertFalse(manifest["teardown_preempt"]["settled"])
+        self.assertTrue((self.run_dir / "artifacts" / "results" / "stats.json").is_file())
+
+    def test_a_succeeded_run_is_never_stopped(self) -> None:
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_SUCCESS)
+        self.assertEqual(self._posts("/v1/training/stop"), [])
+        self.assertFalse(_manifest(self.run_dir)["teardown_preempt"]["attempted"])
+
+    def test_a_failed_run_is_never_stopped(self) -> None:
+        """FAILED is already terminal service-side -- there is nothing left to settle."""
+        self.state.status_sequence = [("STARTED", 1, 0), ("FAILED", 1, 0)]
+        config = _write_config(self.tmp, _base_config())
+        code, _ = _invoke(config, self.run_dir)
+        self.assertEqual(code, rx.EXIT_RUN_FAILED)
+        self.assertEqual(self._posts("/v1/training/stop"), [])
+
+    def test_a_stop_that_never_settles_gives_up_on_its_own_budget(self) -> None:
+        """A service that accepts the stop but never leaves STARTED must not hold the manifest
+        write hostage to run_suite's `per_run_timeout_seconds` subprocess kill."""
+        self.state.status_sequence = [("STARTED", 1, 0)]
+        self.state.stop_settles_to = "STARTED"
+        started = time.monotonic()
+        self.assertFalse(rx.preempt_training(self.server.base_url, timeout=0.3))
+        self.assertLess(time.monotonic() - started, 10.0)
+
+    def test_the_teardown_budget_is_shorter_than_the_start_path_s(self) -> None:
+        """The 409-on-start preempt gates a run that has not begun and can afford to wait;
+        this one spends margin the manifest write needs. Ordering them wrong is the bug."""
+        self.assertLess(rx.TEARDOWN_PREEMPT_TIMEOUT_SECONDS, rx.PREEMPT_TIMEOUT_SECONDS)
+        self.assertEqual(rx.TERMINAL_UNSETTLED, frozenset({"stalled", "timed_out"}))
+
+
 class StallWindowCoherenceTest(unittest.TestCase):
     """An inert stall window is reported, never fatal (pf3's shipped shape)."""
 
@@ -1125,6 +1229,45 @@ class FailureArmsTest(_StubTestCase):
         config = _write_config(self.tmp, cfg)
         code, _ = _invoke(config, self.run_dir)
         self.assertEqual(code, rx.EXIT_MISUSE)
+
+    def test_an_unavailable_generator_reports_the_services_install_hint(self) -> None:
+        """W-4 put `install_hint` on GeneratorInfo so a caller could say what to install.
+
+        The driver was still telling the operator to make the same call it had just made and
+        was holding the answer to. Asserted on the message, not the exit code — the exit code
+        was already correct and is not what was wrong.
+        """
+        self.state.generator_install_hint = "pip install 'juniper-data[mnist]'"
+        with self.assertRaises(rx.ConfigError) as caught:
+            rx.preflight_generator(self.server.base_url, "mnist")
+        message = str(caught.exception)
+        self.assertIn("pip install 'juniper-data[mnist]'", message)
+        self.assertNotIn("see GET /v1/generators", message)
+
+    def test_a_missing_install_hint_falls_back_to_the_pointer(self) -> None:
+        """Absent is NORMAL, not an error.
+
+        juniper-data returns None for the thirteen numpy-only synthetics, and a release older
+        than W-4 omits the key entirely — as of 2026-08-26 the newest release (v0.11.0) does,
+        so on a released deployment this is the path that actually runs.
+        """
+        self.state.generator_install_hint = None
+        with self.assertRaises(rx.ConfigError) as caught:
+            rx.preflight_generator(self.server.base_url, "mnist")
+        self.assertIn("see GET /v1/generators", str(caught.exception))
+
+    def test_a_blank_install_hint_falls_back_to_the_pointer(self) -> None:
+        """Present-but-empty must not produce a message that trails off into nothing."""
+        self.state.generator_install_hint = "   "
+        with self.assertRaises(rx.ConfigError) as caught:
+            rx.preflight_generator(self.server.base_url, "mnist")
+        self.assertIn("see GET /v1/generators", str(caught.exception))
+
+    def test_an_available_generator_is_unaffected_by_the_hint(self) -> None:
+        """The hint is reported whether or not the generator is available (juniper-data's
+        `generator_install_hint` docstring); it must never turn an available one into an error."""
+        self.state.generator_install_hint = "pip install 'juniper-data[mnist]'"
+        self.assertEqual(rx.preflight_generator(self.server.base_url, "spiral")["name"], "spiral")
 
 
 class StagingPathTest(_StubTestCase):

@@ -72,6 +72,57 @@ class RoundTripTest(unittest.TestCase):
             self.assertIn("Merged from", rc.render_entry(entry))
 
 
+class DerivedViewTest(unittest.TestCase):
+    """``by-repo`` / ``by-status`` are a PROJECTION of ``by-area``, not independent copies.
+
+    The round-trip contract above proves each file re-renders from its OWN entries — which every
+    shipped file satisfied even while the three families disagreed with each other, because
+    nothing ever compared them. Measured 2026-08-29 (ml#1415): 52 entries differed between
+    by-area and by-repo and 149 between by-area and by-status, on zero id and zero metadata
+    differences — trailing punctuation and a blank line after ``**Sources**:``. Independent
+    maintenance of three full copies produced that, exactly as the plan's §97 predicted it would.
+    These tests are what makes the projection enforceable.
+    """
+
+    def test_the_derived_families_match_the_corpus(self) -> None:
+        for path, text in rc.render_derived().items():
+            with self.subTest(view=f"{path.parent.name}/{path.name}"):
+                self.assertTrue(path.is_file(), f"{path} is projected by the corpus but absent")
+                self.assertEqual(path.read_text(encoding="utf-8"), text)
+
+    def test_the_check_views_entrypoint_agrees(self) -> None:
+        """The CLI gate operators actually run must agree with this suite."""
+        self.assertEqual(rc.check_views(), 0)
+
+    def test_no_orphan_derived_files(self) -> None:
+        """A file the corpus no longer projects — an owner or status that lost its last entry."""
+        projected = set(rc.render_derived())
+        for sub, _attr, _renderer in rc.DERIVED_FAMILIES:
+            for path in sorted((rc.REQ_ROOT / sub).glob("*.md")):
+                self.assertIn(path, projected, f"{sub}/{path.name} is on disk but nothing projects into it")
+
+    def test_the_projection_covers_every_entry_exactly_once_per_family(self) -> None:
+        """Guards the grouping key, not the rendering: a bad key would silently drop entries."""
+        entries = rc.load_corpus()
+        rendered = rc.render_derived(entries=entries)
+        for sub, _attr, _renderer in rc.DERIVED_FAMILIES:
+            ids: "list[str]" = []
+            for path, text in rendered.items():
+                if path.parent.name == sub:
+                    ids += [rc.parse_entry(b).id for b in rc._split_blocks(text)]
+            with self.subTest(family=sub):
+                self.assertEqual(len(ids), len(entries), f"{sub} projects {len(ids)} of {len(entries)} entries")
+                self.assertEqual(len(set(ids)), len(entries), f"{sub} projects a duplicate")
+
+    def test_regeneration_is_idempotent(self) -> None:
+        """A second regeneration must change nothing — otherwise the gate would flap in CI."""
+        self.assertEqual(rc.regenerate_views(apply=False), [])
+
+    def test_write_all_does_not_touch_the_derived_families(self) -> None:
+        """They are owned by the projection; two writers would reintroduce the drift."""
+        self.assertEqual([sub for sub, _a, _r in rc.FAMILIES_WRITTEN_BY_WRITE_ALL], ["by-area"])
+
+
 class CorpusIntegrityTest(unittest.TestCase):
     def test_ids_are_unique(self) -> None:
         ids = [e.id for e in rc.load_corpus()]

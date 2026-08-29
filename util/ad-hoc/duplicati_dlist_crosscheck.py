@@ -85,6 +85,16 @@ def gpg_decrypt(src, dst, passphrase):
         fail(f"gpg failed on {os.path.basename(src)}: {proc.stderr.decode(errors='replace')[:300]}")
 
 
+def aes_decrypt(src, dst, passphrase):
+    # SharpAESCrypt takes the password on argv -- accepted deviation on this
+    # single-user host (documented in the certification note); rc 3 = HMAC
+    # mismatch, rc 4 = wrong password.
+    proc = subprocess.run(["duplicati-aescrypt", "d", passphrase, src, dst],
+                          capture_output=True, check=False)
+    if proc.returncode != 0:
+        fail(f"aescrypt rc={proc.returncode} on {os.path.basename(src)}: {proc.stderr.decode(errors='replace')[:200]}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="dlist vs dindex block-coverage cross-check")
     ap.add_argument("--dest", default="/media/pcalnon/temp_backups/Ubuntu")
@@ -92,7 +102,11 @@ def main():
     ap.add_argument("--cred-file", default=os.path.expanduser("~/.config/duplicati-backup/env"))
     ap.add_argument("--cred-key", default="PASSPHRASE", help="FRESH-set key; never PASSPHRASE_OLD here")
     ap.add_argument("--blocksize", type=int, default=1024 * 1024, help="job --blocksize (1MB)")
+    ap.add_argument("--encryption", choices=["gpg", "aes"], default="gpg")
     args = ap.parse_args()
+    global gpg_decrypt
+    if args.encryption == "aes":
+        gpg_decrypt = aes_decrypt
 
     dest = os.path.realpath(args.dest)
     workdir = os.path.realpath(args.workdir)
@@ -107,8 +121,12 @@ def main():
     dindexes = [n for n in names if ".dindex." in n]
     dblocks = [n for n in names if ".dblock." in n]
     print(f"destination: {dest} -> {len(dlists)} dlist / {len(dindexes)} dindex / {len(dblocks)} dblock")
-    if len(dlists) != 1:
-        fail(f"expected exactly 1 dlist, found {len(dlists)}")
+    if not dlists:
+        fail("no dlist in destination")
+    # 2026-08-25: a live destination accumulates dlists; check the NEWEST one (names embed the
+    # UTC start stamp, so the lexically last is the newest -- dlists[0] would be the original full).
+    dlist_name = dlists[-1]
+    print(f"dlist      : {dlist_name} (newest of {len(dlists)})")
 
     passphrase = load_passphrase(args.cred_file, args.cred_key)
 
@@ -117,6 +135,7 @@ def main():
     blocklist_content = {}   # blocklist hash (b64) -> [data-block hashes (b64)]
     indexed_dblocks = set()
     poisoned = 0
+    list_entries = 0
     for i, name in enumerate(dindexes, 1):
         plain = os.path.join(workdir, "dindex.zip")
         gpg_decrypt(os.path.join(dest, name), plain, passphrase)
@@ -128,6 +147,7 @@ def main():
                     for blk in data.get("blocks", []):
                         available.add(blk["hash"])
                 elif entry.startswith("list/"):
+                    list_entries += 1
                     raw = zf.read(entry)
                     if len(raw) % HASH_BYTES:
                         fail(f"list entry {entry} in {name} has length {len(raw)} not divisible by {HASH_BYTES} -- refusing to under-build NEEDED")
@@ -151,6 +171,7 @@ def main():
             print(f"  parsed {i}/{len(dindexes)} dindex files ...")
     if poisoned:
         fail(f"{poisoned} poisoned list/ entries -- index is untrustworthy, coverage verdict would be vacuous")
+    print(f"list entries: {list_entries} blocklist entries across all dindexes, all content-hash-verified against their filenames")
     print(f"available  : {len(available)} distinct blocks declared across {len(indexed_dblocks)} indexed dblocks")
 
     missing_dblock_index = sorted(set(dblocks) - indexed_dblocks)
@@ -159,7 +180,7 @@ def main():
 
     # ---- NEEDED: every hash the dlist references ----------------------------
     plain = os.path.join(workdir, "dlist.zip")
-    gpg_decrypt(os.path.join(dest, dlists[0]), plain, passphrase)
+    gpg_decrypt(os.path.join(dest, dlist_name), plain, passphrase)
     with zipfile.ZipFile(plain) as zf:
         filelist = json.loads(zf.read("filelist.json"))
         manifest = json.loads(zf.read("manifest"))

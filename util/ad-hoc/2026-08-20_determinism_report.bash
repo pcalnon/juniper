@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-20
 # Status:      ad-hoc -- one-off (juniper-cascor#532 seeded-run reproducibility)
-# Retire when: #532 is root-caused or accepted and the evidence note is merged; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: #532 is root-caused or accepted and the evidence note is merged; delete then.
 # Related:     2026-08-20_determinism_campaign.bash (produces what this reads).
 #
 # The rate, the localisation and the contention record are three separate tools, and a written-up

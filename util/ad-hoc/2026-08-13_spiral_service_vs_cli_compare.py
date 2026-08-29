@@ -5,7 +5,7 @@ Sub-Project: ad-hoc tooling
 Author: Paul Calnon
 Created: 2026-08-13
 Status: ad-hoc -- one-off
-Retire when: R-5 is closed out in the P4 follow-up write-up.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: R-5 is closed out in the P4 follow-up write-up.
 Related: P4 §7 R-5 (service 0.670 val vs ~0.995 direct CLI).
 
 R-5 reads a service-vs-CLI accuracy gap as if both paths were solving one problem. Before

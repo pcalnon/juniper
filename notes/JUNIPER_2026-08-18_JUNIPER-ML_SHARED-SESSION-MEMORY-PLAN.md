@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-18
+**Last Updated**: 2026-08-27
 
 ---
 
@@ -214,7 +214,63 @@ achieved level, not the aspirational one.
 
 ### P5 — Fleet rollout
 
-**Status: NOT STARTED.** No tracking issue exists in any repo.
+**Status: CUT IN PROGRESS — the ratchet is done (8 of 9 governable repos governed; `Memory Budget`
+BLOCKING with declared slack AND REQUIRED by ruleset on all 8, promoted 2026-08-27), and step e has
+now cut 3 of them, removing ~50,200 always-resident chars.** Merged 2026-08-29 UTC (squash SHAs are
+`mergeCommit.oid`, NOT the head `safe_merge` names in its "MERGED #N at <sha>" line — that is the
+head it merged, and two figures were first recorded wrong that way):
+[juniper-cascor-client#142](https://github.com/pcalnon/juniper-cascor-client/pull/142) (`e19d7926`,
+`AGENTS.md` 34,695 → 15,832, ceiling 37,277 → 18,414),
+[juniper-data#296](https://github.com/pcalnon/juniper-data/pull/296) (`9f9c0b8c`, 43,493 → 24,965,
+45,493 → 26,965),
+[juniper-data-client#176](https://github.com/pcalnon/juniper-data-client/pull/176) (`e3a8ddb9`,
+28,369 → 15,531, 30,442 → 17,604).
+[juniper-recurrence#135](https://github.com/pcalnon/juniper-recurrence/pull/135) (`315d014b`) took a
+**policy ceiling raise instead of a cut** (13,698 → 20,000, owner decision): an 11.5K file across 6
+sections with no `docs/REFERENCE.md` has too little to relocate to be worth splitting.
+**Still uncut: juniper-canopy and juniper-cascor** (both blocked — see
+[the cut-prep note](JUNIPER_2026-08-28_JUNIPER-ECOSYSTEM_P5-CUT-CANOPY-CASCOR-PREP.md) for the
+destination and hazards prerequisites, and for a relocate-tool defect that would have silently
+truncated 8 of canopy's 11 candidate sections), **plus juniper-cascor-worker and juniper-deploy**,
+which are cuttable, unclaimed, and were simply out of scope for the first pass. Tracking issue:
+[juniper-ml#1326](https://github.com/pcalnon/juniper-ml/issues/1326) — its comment thread is the live
+per-repo ledger; read it before trusting this banner. Ports merged 2026-08-25:
+[juniper-canopy#516](https://github.com/pcalnon/juniper-canopy/pull/516) (`611141c1`, ceiling 95,133) and
+[juniper-cascor#585](https://github.com/pcalnon/juniper-cascor/pull/585) (`c83c3407`, ceiling 71,098);
+merged 2026-08-26 under the owner's arc-wide authorization, squash-of-one each:
+[juniper-cascor-client#139](https://github.com/pcalnon/juniper-cascor-client/pull/139) (`b1c1acd7`, 34,695),
+[juniper-recurrence#131](https://github.com/pcalnon/juniper-recurrence/pull/131) (`369d8f59`, 11,578; standalone workflow),
+[juniper-data-client#173](https://github.com/pcalnon/juniper-data-client/pull/173) (`918f1dee`, 28,369),
+[juniper-data#291](https://github.com/pcalnon/juniper-data/pull/291) (`19b84a8a`, 43,493),
+[juniper-cascor-worker#162](https://github.com/pcalnon/juniper-cascor-worker/pull/162) (`177c2a15`, 35,126),
+[juniper-deploy#195](https://github.com/pcalnon/juniper-deploy/pull/195) (`7e046491`, 34,569).
+juniper-slacker has no `AGENTS.md` and nothing to govern. **Preconditions 2–4 (step d) shipped 2026-08-26
+evening — all 8 BLOCKING with declared slack**: one signed PR per repo on
+`feat/memory-budget-blocking` removed `--advisory`, re-ran the three controls against the non-advisory
+job, and raised the ceiling with an `Allow-Ceiling-Raise: AGENTS.md` trailer sized as max(largest
+30-day growing commit, a 2,000 fan-out floor) —
+[juniper-deploy#196](https://github.com/pcalnon/juniper-deploy/pull/196) (`1fe58592`, 34,569 → 36,569),
+[juniper-recurrence#132](https://github.com/pcalnon/juniper-recurrence/pull/132) (`a80a7dc9`, 11,578 → 13,698),
+[juniper-cascor-worker#163](https://github.com/pcalnon/juniper-cascor-worker/pull/163) (`cf5ae76d`, 35,126 → 37,126),
+[juniper-cascor-client#140](https://github.com/pcalnon/juniper-cascor-client/pull/140) (`87464c35`, 34,695 → 37,277),
+[juniper-data#294](https://github.com/pcalnon/juniper-data/pull/294) (`e0b738e6`, 43,493 → 45,493),
+[juniper-cascor#591](https://github.com/pcalnon/juniper-cascor/pull/591) (`c6cd2f09`, 71,098 → 80,707, its own max),
+[juniper-data-client#174](https://github.com/pcalnon/juniper-data-client/pull/174) (`a3226826`, 28,369 → 30,442);
+[juniper-canopy#529](https://github.com/pcalnon/juniper-canopy/pull/529) (`9f6fac97`, 95,133 → 97,133).
+`Memory Budget` reported SUCCESS on every one of those PR heads through the non-advisory job
+(`[RAISE-WAIVED] … headroom=<slack>`), and every squash SHA above was re-probed against the ceiling in that
+repo's `conf/memory_budget.json` and the checker's invocation line in its workflow. For all eight, all four
+preconditions held, and **promotion followed on 2026-08-27 ~21:17 CDT on the owner's explicit go** — one
+ruleset PUT per repo via `require_context_safely.py --apply` (dry-run first; every invariant held; pre-write
+snapshots under `~/.local/state/juniper-ruleset-snapshots/`, rollback = `gh api … -X PUT --input <snapshot>`):
+canopy 20 → 21 contexts (ruleset 14249530), cascor 23 → 24 (15081045), data 21 → 22 (14748749),
+data-client 19 → 20 (13316681), cascor-client 19 → 20 (13490605), cascor-worker 21 → 22 (14250447),
+deploy 11 → 12 (14715370), recurrence 9 → 10 (20634527); `Memory Budget` / integration 15368 confirmed in
+`rules/branches/main` on all eight. No `pull_request` trigger in any of the eight workflows carries a
+`paths:` filter, so the context can always report. A PR whose head predates its repo's port shows the
+context as *expected* until the branch is updated — by design under the strict policy; such heads were
+BEHIND anyway. *(Status updated 2026-08-27; the previous evening it read "none promoted". Status may not
+be demoted or left stale — §4a.)*
 
 > **This section was a four-line stub until 2026-08-24.** The working procedure lived only in
 > a session handoff, and handoffs lose material across generations — an earlier one in this
@@ -231,24 +287,37 @@ those gates enforced structure or currency; none measured size.
 **Do not order the fleet by size** ("canopy is the big win, start there"). Port the ratchet
 first, everywhere; cut afterwards.
 
-#### Current sizes — RE-MEASURE, never transcribe
+#### Current sizes and rates — RE-MEASURE, never transcribe
 
-Measured 2026-08-24. They move daily; this table is evidence that they move, not an input.
+Measured 2026-08-25 with
+`python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py measure-growth <repo-path> --days 30`
+(`AGENTS.md` in **chars**, the unit the ceiling uses; `docs/REFERENCE.md` in bytes from the API
+census). They move daily; the table is evidence that they move, and the **rate column is the
+ordering input** — the size column is not. `measure-growth` measures the checkout's **HEAD**
+unless you pass `--ref origin/main` after a fetch — do that: a primary that has not been pulled
+reports yesterday's `main` as today's rate (the flag was lost in the #1378 → #1379 fold and
+restored 2026-08-26; the `render-*` commands always measure the checkout, because a port renders
+into it). Re-measured 2026-08-26 from primaries at `origin/main`: cascor and deploy unchanged.
 
-| Repo | `AGENTS.md` | `docs/REFERENCE.md` | Note |
-|---|---:|---:|---|
-| juniper-canopy | 95,133 | 9,328 | largest; was 94,373 when this plan was written |
-| juniper-cascor | 71,098 | — | **no `docs/REFERENCE.md`** — create the destination first |
-| juniper-data | 43,493 | 19,403 | |
-| juniper-cascor-worker | 35,126 | 12,062 | |
-| juniper-cascor-client | 34,695 | 14,019 | |
-| juniper-deploy | 34,569 | 18,667 | |
-| juniper-ml | 36,960 | 336,020 | governed; ceiling 38,000 |
-| juniper-data-client | 28,369 | 11,946 | |
-| juniper-recurrence | 11,578 | — | **no `docs/REFERENCE.md`** |
-| juniper-slacker | — | — | no `AGENTS.md` at all |
+| Repo | `AGENTS.md` | Rate/day | Net 30 d | Max single commit | `docs/REFERENCE.md` | Status |
+|---|---:|---:|---:|---:|---:|---|
+| juniper-cascor | 71,098 | **730** | +21,891 | 9,609 | **none — create first** | BLOCKING, ceiling 80,707 (#585 → #591) |
+| juniper-cascor-client | 34,695 | 196 | +5,884 | 2,582 | 14,119 | BLOCKING, ceiling 37,277 (#139 → #140) |
+| juniper-recurrence | 11,578 | 137 | +4,102 | 2,120 | **none — create first** | BLOCKING, ceiling 13,698 (#131 → #132, standalone workflow) |
+| juniper-data-client | 28,369 | 135 | +4,055 | 2,073 | 11,976 | BLOCKING, ceiling 30,442 (#173 → #174) |
+| juniper-data | 43,493 | 109 | +3,257 | 1,982 | 19,883 | BLOCKING, ceiling 45,493 (#291 → #294) |
+| juniper-canopy | 95,133 | 81 | +2,425 | 1,982 | 9,328 | BLOCKING, ceiling 97,133 (#516 → #529) |
+| juniper-cascor-worker | 35,126 | 66 | +1,982 | 1,982 | 12,122 | BLOCKING, ceiling 37,126 (#162 → #163) |
+| juniper-deploy | 34,569 | 66 | +1,982 | 1,982 | 18,673 | BLOCKING, ceiling 36,569 (#195 → #196) |
+| juniper-ml | 36,960 | — | — | — | 336,020 | GOVERNED, BLOCKING + required; ceiling 38,000 |
+| juniper-slacker | — | — | — | — | — | no `AGENTS.md` at all |
 
-canopy grew ~2K in the day before this measurement. That is the rate axis, unmanaged.
+Two things the table shows that the size axis hides. cascor's file is smaller than canopy's and
+grows **nine times faster**, which is the whole case for ordering by rate. And the same **+1,982**
+growth appears in six of eight repos: one fleet-wide `AGENTS.md` fan-out adds ~2K to every file
+at once, so per-repo slack has to absorb that class — a zero-slack ceiling fires fleet-wide on
+the first fan-out, by construction. Size the slack from `max`, not from the helper's `p90`, which
+is unreliable below ~10 growing commits.
 
 #### Per-repo recipe
 
@@ -257,18 +326,25 @@ canopy grew ~2K in the day before this measurement. That is the rate axis, unman
 [`conf/memory_budget.json`](../conf/memory_budget.json). Both scripts take `--repo-root` and
 are repo-agnostic; nothing in them is juniper-ml-specific.
 
-**b. Seed the ceiling by running `--ratchet` IN the target repo.** Never by transcribing a
-number out of a note — not 38,000, not 32,443, not anything in the table above.
+**b. Seed the ceiling IN the target repo — measured, never transcribed.** Not 38,000, not
+32,443, not anything in the table above. `--ratchet` only **lowers** an existing `ceiling_chars`
+entry (`if row["chars"] < row["ceiling"]` in `util/memory_budget_check.py`); it never raises one,
+so a config copied from juniper-ml seeds nothing in a repo whose `AGENTS.md` is already larger
+than 38,000 chars (canopy, cascor, data) and the first check fails as over-budget. Render the
+config in the target instead — it writes the measured size as the ceiling — then confirm with
+`--ratchet`, which prints `no ceiling could be tightened` when the ceiling is already exact:
 
 ```bash
+python3 <juniper-ml>/util/ad-hoc/2026-08-25_p5_port_memory_budget.py render-config . --out conf/memory_budget.json
 python3 util/memory_budget_check.py --repo-root . --ratchet
 ```
 
-`--ratchet` **seeds**; it does not **tighten** after a cut. In a repo with no ceiling yet
-(every P5 target) it is the only correct way to set one. Run in a repo that already has a
-ceiling, straight after a cut, it leaves ZERO headroom and fails the next author on a single
-character — hand-edit with slack sized to the observed burn instead (this repo: +937 over
-four days / five PRs, median +58, one docs PR +605).
+`--ratchet` **seeds** (down from a placeholder above the current size); it does not **tighten**
+gracefully after a cut. Run in a repo that already has a ceiling, straight after a cut, it leaves
+ZERO headroom and fails the next author on a single character — hand-edit with slack sized to the
+observed burn instead (this repo: +937 over four days / five PRs, median +58, one docs PR +605).
+*(Corrected 2026-08-26: this step used to say `--ratchet` alone was "the only correct way" to set
+a first ceiling; for the three repos above it sets nothing.)*
 
 **c. Copy the standalone `memory-budget` job** from [`ci.yml`](../.github/workflows/ci.yml)
 (job `memory-budget`, `name: Memory Budget`). **Standalone — NOT in the Quality Gate
@@ -284,15 +360,54 @@ the right one, which is how `Sequence Safety` was promoted.
 | `Allow-Budget-Overrun: <path>` trailer | exit 0 |
 
 **A blocking gate that cannot fail is worse than none** — it converts an unmeasured risk into
-a measured-looking one. Only then promote to a required context:
+a measured-looking one. Promotion to a required context is a governance change (owner-approved)
+with **four preconditions, all of them**:
+
+1. the port is merged to that repo's `main`;
+2. `--advisory` has been **removed** from the job — promoting an advisory job creates a required
+   check that cannot fail, the vacuous-pass class;
+3. the three negative controls above were re-run against the **non-advisory** job — the controls
+   gate removing `--advisory`, not promotion; an earlier handoff collapsed the two steps;
+4. the ceiling has real slack. A ceiling seeded by `--ratchet` has none, and once blocking it
+   fails the next author on one character. Raise it with an `Allow-Ceiling-Raise: AGENTS.md`
+   commit trailer, sized to that repo's **re-measured** largest single commit (table above:
+   canopy ≥ 2,000; cascor's largest was 9,609).
+
+*Status 2026-08-27: PROMOTED on all eight (the banner above has the ruleset ids and the before → after
+context counts). Two read-side traps met on the way, neither able to reach the write path. Do not read
+`advisory=True` or a `NONE` REFERENCE.md from an unpatched `util/ad-hoc/2026-08-26_p5_fleet_state.py`
+census as state: before ml#1403 it matched `--advisory` anywhere in the workflow text (comments included)
+and turned any non-2xx API reply into "absent" — probe the invocation line and the file directly. And
+`require_context_safely.py`'s own `find_ruleset` swallows a transient per-ruleset GET failure and reports
+"no ruleset carries required_status_checks" — seen twice during the promotion (cascor-client on the
+dry-run, data on the post-apply `--status`) while `rules/branches/main` showed both rulesets intact;
+`--apply` merely skips that repo (rc 1), so re-run rather than believe it.*
+
+Only then, and with the writer that pre-flights the context string:
 
 ```bash
-gh api repos/pcalnon/<repo>/rulesets                     # find <ID>
-python3 util/ad-hoc/2026-08-20_add_required_context.py \
-  --repo pcalnon/<repo> --ruleset-id <ID> --context 'Memory Budget' --apply
+python3 util/ad-hoc/2026-08-20_require_context_safely.py --status                                  # what is required today
+python3 util/ad-hoc/2026-08-20_require_context_safely.py --repo <repo> --context 'Memory Budget'          # dry run (default)
+python3 util/ad-hoc/2026-08-20_require_context_safely.py --repo <repo> --context 'Memory Budget' --apply  # the write
 ```
 
-The script is dry-run by default; `--apply` is what writes.
+It **refuses by default** unless that exact context string has been observed reporting on a
+recent commit in that repo; `--allow-unobserved` is the dangerous opt-out, and there is no
+`--require-observed` flag (one handoff cited one — observed-only is simply the default). It
+snapshots the ruleset to disk before the PUT, carries `rules` and `bypass_actors` verbatim, and
+re-reads after. Prefer it over `2026-08-20_add_required_context.py`, which writes no snapshot and
+verifies contexts only — the gap it leaves is *"SILENT and TOTAL"*: a required context nothing
+publishes is never satisfied, and that is how `main` went unmergeable on five repos.
+
+Two things its pre-flight will show that are **not** defects, verified on all eight ports 2026-08-26.
+Every port carries ml's guard `if: github.event_name == 'pull_request' || github.event_name ==
+'merge_group'`, so the `Memory Budget` check-run on **every `main` commit has conclusion `skipped`**
+(recurrence's standalone workflow is `pull_request`-only and publishes nothing on `main` at all) — the
+ratchet is a diff-against-base rule and has no meaning on a push. And `observed_contexts()` reads
+check-run **names** on the heads of the eight most recently updated PRs, conclusion-agnostic, so a
+port is "observed" from the moment its own PR ran the job; the `skipped` rows on `main` neither help
+nor hurt. **Do not reach for `--allow-unobserved` because `main` shows `skipped`.** The pre-flight
+refuses honestly only when none of those eight PR heads ran the job at all.
 
 **e. Then G3, then the cut.** Relocate with
 [`util/ad-hoc/2026-08-19_p3_relocate_section.py`](../util/ad-hoc/2026-08-19_p3_relocate_section.py)
@@ -305,6 +420,30 @@ so a green PR proves nothing (§7.2).
 
 For **juniper-cascor** and **juniper-recurrence**, create `docs/REFERENCE.md` before
 relocating anything into it.
+
+#### Porting hazards, measured on the first two ports — pre-commit catches NONE of these
+
+- **`Version:` header lines cut both ways.** cascor forbids them repo-wide via a pytest test in a
+  *different* file (`test_no_version_header_lines_in_source`, BUG-CC-04) that rglobs `src/**`, so
+  a verbatim port fails while the ported file's own tests pass (cascor#585 was red for exactly
+  this). juniper-data-client enforces the **inverse**: every `Version:` under `tests/` and the
+  package must **equal `__version__`** (`tests/test_file_header_versions.py`). Both are invisible
+  to pre-commit. **Run the target repo's FULL unit suite during a port.**
+- **bandit strictness differs per repo, and `# nosec` codes must be SPACE-separated.** On bandit
+  1.9.4 `# nosec B603,B607` suppressed B607 and left B603 reported — the count *drops*, so the
+  comma form reads as applied. ml's own comma forms are inert (its hook skips those codes), so
+  ml's copy is not evidence. Run the target repo's own `pre-commit run --files <paths>`.
+- **`REPO_ROOT` depth.** `tests/` → `parents[1]`; `src/tests/` (canopy, cascor) → `parents[2]`;
+  `juniper_data/tests/unit/` → `parents[3]`. Wrong depth does not raise; it resolves to the wrong
+  directory and fails later as a missing config.
+- **Test selection.** juniper-data's unit lane runs `-m "unit and not slow"` over
+  `juniper_data/tests/unit` only; the ported test must live there and carry
+  `pytestmark = pytest.mark.unit` (strict markers) or it is silently deselected — a vacuous port.
+  The other repos run `pytest tests/` unfiltered.
+- **Workflow shape.** juniper-recurrence has no `ci.yml`; its per-package lanes each carry a
+  `required-checks` job. Use a **standalone workflow** like its `sequence-safety.yml`. juniper-deploy
+  has no `conf/` — create it. Every repo's Python-version env var and pinned action SHAs differ;
+  copy them from the target's own `ci.yml`, never from canopy's block.
 
 #### HAZARD — do not demote this to a pointer
 

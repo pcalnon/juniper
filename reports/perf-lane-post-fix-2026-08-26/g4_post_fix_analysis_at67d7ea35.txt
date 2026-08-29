@@ -1,0 +1,49 @@
+# G4 post-fix analysis for /home/pcalnon/.local/state/juniper-experiments/g4-paired-cap16-at67d7ea35
+# provenance: {"cascor_sha":"67d7ea359f2bca5bbe8eb5dc9bd2b18a3ea94160","suite":"util/experiments/suites/p4/e-k-thread-probe-cap16.yaml","k":4,"started_utc":"2026-08-26T17:34:06Z","host_nproc":16}
+CELL=/home/pcalnon/.local/state/juniper-experiments/suites/e-k-thread-probe-cap16-20260826T173406Z/cells/c000-896256c7/experiment.yaml
+CONFIG_SHA256=2a60040aff9d42d6a4342e153dbe63c15a5bb5f49265ebf93c37b2ffa5a46c08
+STACK_RUN_ID=20260826T173539Z-6f17
+# service legs (resolved from this campaign's legs.jsonl -> registry.jsonl): 4; CLI legs: 4
+#   service pair 1: /home/pcalnon/.local/state/juniper-experiments/20260826T173406Z-a1e0  (load1 at launch 4.14)
+#   service pair 2: /home/pcalnon/.local/state/juniper-experiments/20260826T173653Z-8ccf  (load1 at launch 7.05)
+#   service pair 3: /home/pcalnon/.local/state/juniper-experiments/20260826T173943Z-6b8d  (load1 at launch 12.13)
+#   service pair 4: /home/pcalnon/.local/state/juniper-experiments/20260826T174228Z-4b5d  (load1 at launch 7.39)
+#   cli     pair 1: /home/pcalnon/.local/state/juniper-experiments/g4-paired-cap16-at67d7ea35/cli-01  (load1 at launch 5.55)
+#   cli     pair 2: /home/pcalnon/.local/state/juniper-experiments/g4-paired-cap16-at67d7ea35/cli-02  (load1 at launch 11.04)
+#   cli     pair 3: /home/pcalnon/.local/state/juniper-experiments/g4-paired-cap16-at67d7ea35/cli-03  (load1 at launch 9.13)
+#   cli     pair 4: /home/pcalnon/.local/state/juniper-experiments/g4-paired-cap16-at67d7ea35/cli-04  (load1 at launch 8.3)
+
+## ungraceful worker stops per leg (the acceptance discriminator)
+pattern: /did not stop gra/ counted across logs/juniper_cascor.log* (rotated siblings included)
+  cli     pair 1:   0   files=['juniper_cascor.log']
+  cli     pair 2:   0   files=['juniper_cascor.log']
+  cli     pair 3:   0   files=['juniper_cascor.log']
+  cli     pair 4:   0   files=['juniper_cascor.log']
+  service pair 1:   0   files=['juniper_cascor.log', 'juniper_cascor.log.1']
+  service pair 2:   0   files=['juniper_cascor.log', 'juniper_cascor.log.1']
+  service pair 3:   0   files=['juniper_cascor.log', 'juniper_cascor.log.1']
+  service pair 4:   0   files=['juniper_cascor.log', 'juniper_cascor.log.1']
+  TOTAL cli=0 service=0
+
+## decomposition
+$ /opt/miniforge3/envs/JuniperCascor1/bin/python3 /home/pcalnon/Development/python/Juniper/juniper-ml/.claude/worktrees/clever-conjuring-hanrahan/util/ad-hoc/2026-08-25_g4_overhead_decomposition.py --dir-arm cli /home/pcalnon/.local/state/juniper-experiments/g4-paired-cap16-at67d7ea35 --run-arm service /home/pcalnon/.local/state/juniper-experiments/20260826T173406Z-a1e0 /home/pcalnon/.local/state/juniper-experiments/20260826T173653Z-8ccf /home/pcalnon/.local/state/juniper-experiments/20260826T173943Z-6b8d /home/pcalnon/.local/state/juniper-experiments/20260826T174228Z-4b5d
+
+=== arm cli: 4 usable, unusable=[] ===
+run              pre_dataset     dataset     pre_fit  pool_setup   candidate      output   snapshots train_other    teardown    unloggedtotal_loggedprocess_wall
+cli-01                     0           0           1           2          40          17           1           1           0           5          60          65
+cli-02                     0           0           1           2          44          25           0           1           0           5          71          76
+cli-03                     0           0           1           2          41          18           0           0           0           5          60          65
+cli-04                     0           0           1           2          40          18           0           0           1           4          60          64
+mean±sd               0±0         0±0         1±0         2±0        41±2        20±4         0±0         0±1         0±0         5±0        63±6        68±6   
+train_span mean 62 s; candidate share of training 67%
+
+=== arm service: 4 usable, unusable=[] ===
+run              pre_dataset     dataset     pre_fit  pool_setup   candidate      output   snapshots train_other    teardown    unloggedtotal_loggedprocess_wall
+20260826T173406Z-a1e0         nan         nan           2           1          44          28           1           1           6         nan          83         nan
+20260826T173653Z-8ccf         nan         nan           2           2          48          24           0           2           6         nan          84         nan
+20260826T173943Z-6b8d         nan         nan           2           2          45          32           1           1           5         nan          88         nan
+20260826T174228Z-4b5d         nan         nan           1           2          45          26           1           0           3         nan          77         nan
+mean±sd                    —           —      2±0         2±0        46±2        28±3         1±0         1±1         5±1              —     83±5              —
+train_span mean 75 s; candidate share of training 61%
+
+# decomposer exit 0

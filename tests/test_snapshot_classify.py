@@ -22,9 +22,11 @@ hypothetical:
   out empty against an archive that demonstrably has one attributed snapshot.
 * ``ReadableIsNotLoadableTest`` -- the handoff's §3.1 claim that category 1 is derivable
   from the index. It is not: ``readable`` is an h5py fact. Measured 7/300.
-* ``IterationsNotEpochsTest``  -- ``meta.current_epoch`` is inert (0 across all 27,908
-  snapshots, including a network that grew to 260 units). Reading it as progress is what
-  would have justified deleting 27,005 real models.
+* ``IterationsNotEpochsTest``  -- ``meta.current_epoch`` is inert (nonzero in 0 of 28,040
+  archive snapshots, including a network that grew to 260 units). Reading it as progress
+  is what would have justified deleting 27,005 real models. ``snapshot_counter`` is NOT
+  inert (nonzero in 13,001 of 28,040), is no longer claimed to be, and is pinned as
+  still-not-the-bound.
 * ``SidecarTest``             -- replace-not-append, because a deeper stage revises a
   verdict and two contradictory rows for one path would make the answer file-order.
 * ``NoDestructivePathTest``   -- anti-resurrection, mirroring the same guard on
@@ -167,10 +169,17 @@ class FailureSignatureTest(unittest.TestCase):
 class IterationsNotEpochsTest(unittest.TestCase):
     """§2.1 — hidden-unit count, never an epoch counter.
 
-    ``meta.current_epoch`` is 0 across all 27,908 snapshots including all 174 belonging
-    to a network that grew to 260 hidden units; ``snapshot_counter`` is 0 and
-    ``best_value_loss`` is inf. Reading those as progress says 'nothing here was trained',
-    which would have justified deleting 27,005 real models.
+    ``meta.current_epoch`` is nonzero in ZERO of the 28,040 archive snapshots, including
+    all 174 belonging to a network that grew to 260 hidden units, and ``best_value_loss``
+    is inf beside it in 27,907 of them. Reading those as progress says 'nothing here was
+    trained', which would have justified deleting 27,005 real models.
+
+    ``snapshot_counter`` is NOT in that set -- an earlier revision of this docstring said
+    it was 0 too, and the 2026-08-26 census found it nonzero in 13,001 of the 28,040. It
+    counts snapshots written rather than training progress, so the tool still must not
+    read it as an iteration count; it is simply not a dead field, and the guard below
+    pins that distinction in both directions.
+    See ``util/snapshot_classify.py`` § ITERATIONS, NOT EPOCHS for the measured cohorts.
     """
 
     def test_hidden_units_is_the_measure(self) -> None:
@@ -179,6 +188,19 @@ class IterationsNotEpochsTest(unittest.TestCase):
     def test_inert_epoch_counter_is_never_consulted(self) -> None:
         verdict = sc.classify_index_stage(index_row(arch={"num_hidden_units": 12}, current_epoch=0))
         self.assertEqual(verdict["iterations_lower_bound"], 12, "an inert current_epoch=0 must not reduce the bound")
+
+    def test_live_snapshot_counter_is_still_not_the_bound(self) -> None:
+        """A LIVE ``snapshot_counter`` is still not an iteration count.
+
+        This guard exists because the docstring used to call ``snapshot_counter`` dead,
+        and the 2026-08-26 survey showed it is not (nonzero in 180 of a seeded 400-file
+        archive sample). The tempting next step -- "it's live, so use it" -- is wrong:
+        it counts snapshots WRITTEN. A run that snapshots every 10 seconds and one that
+        snapshots per installed unit produce wildly different counters for the same
+        training. ``arch.num_hidden_units`` remains the only defensible bound.
+        """
+        verdict = sc.classify_index_stage(index_row(arch={"num_hidden_units": 12}, snapshot_counter=65))
+        self.assertEqual(verdict["iterations_lower_bound"], 12, "a live snapshot_counter must not become the bound")
 
     def test_absent_arch_yields_no_bound_rather_than_zero(self) -> None:
         """``None`` and ``0`` mean different things: unknown vs measured-as-none."""
