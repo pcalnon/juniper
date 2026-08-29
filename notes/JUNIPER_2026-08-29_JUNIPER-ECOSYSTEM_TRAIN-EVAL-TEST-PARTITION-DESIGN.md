@@ -273,7 +273,15 @@ situation went unnoticed.
   asymmetry, but it *is* a behavioural change to the arm that was previously unbiased-but-
   unregularised, and it should be measured, not assumed benign.
 
-## 8. Proposed measurement before the change
+## 8. Proposed measurement before the change — **DONE 2026-08-29, and it did not find a resolvable effect**
+
+> **Result**: mean optimism **+0.0088**, sd 0.0323, n=8 dataset seeds at cap 4; 95 % CI
+> **[-0.0136, +0.0311] includes zero**. Early stopping genuinely engaged, so the measurement is not
+> vacuous — but at this scale the bias is not distinguishable from noise, and the single-cell figure
+> (+0.0400) was the second-highest of eight. **The motivation for this design is methodological, not
+> a measured inflation.** Full result and caveats:
+> [`JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_GATED-MEASUREMENTS-RESULTS.md`](JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_GATED-MEASUREMENTS-RESULTS.md) §2.
+
 
 Cheap and worth doing first: on the current build, run one cell and compute the final metric on
 **both** the promoted `X_test` (as today) and a freshly held-out slice never seen by early
