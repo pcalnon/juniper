@@ -138,10 +138,11 @@ class JsonTaskProtocol:
     Structural, not inherited: like ``LifecycleCommandExecutor`` this satisfies the Protocol by shape
     rather than by subclassing, so a consumer may use it, wrap it, or ignore it.
 
-    Deliberately declares **no** attachments. A JSON-only protocol that never reads binary frames is
-    immune to the unbounded-attachment-list read in ``websocket/worker_stream.py``
-    (``APD-SVCCORE-001``); a consumer that needs binary frames is writing its own codec anyway and
-    takes on that bound itself.
+    Deliberately declares **no** attachments, so it never enters the binary-receive loop in
+    ``websocket/worker_stream.py`` at all. That loop is now bounded in both dimensions
+    (``_MAX_ATTACHMENTS`` and ``_MAX_TOTAL_BINARY_SIZE``, ``APD-SVCCORE-001``, fixed); declaring
+    nothing remains the right default regardless, since a consumer that needs binary frames is
+    writing its own codec anyway and takes on those bounds itself.
 
     **Not an extension point -- subclassing is refused, at runtime** (``APD-SVCCORE-012``, the same
     contract :class:`~juniper_service_core.websocket.commands.LifecycleCommandExecutor` carries).
