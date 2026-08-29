@@ -398,11 +398,12 @@ Consolidates 80 commits delivering: CasCor backend (async training, remote worke
 
 [v2 ARCH→TEST re-bucket]
 
-### JR-CAN-DATA-001 — JuniperCanopy ↔ JuniperData integration: replace local client with shared package, mandatory JUNIPER_DATA_URL, schema mismatch fixes.
+### JR-CAN-DATA-001 — JuniperCanopy ↔ JuniperData integration: replace local client with shared package, mandatory JUNIPER_DATA_URL, schema mismatch fixes
 
 **Status**: shipped  **Priority**: P1  **Category**: DATA  **Owner**: can
 
 **Sources**:
+
 - `juniper-canopy/notes/history/CANOPY_JUNIPER_DATA_INTEGRATION_PLAN.md` (lines 1-100)
 
 **Detail**:
@@ -845,11 +846,12 @@ DemoBackend is the reference implementation. ServiceBackend must produce identic
 
 Root cause of metrics display failure in service mode. Phase 1 plan addressed envelope unwrapping but did not establish dashboard-compatibility contract.
 
-### JR-CAN-DATA-002 — CascorIntegration must implement save_snapshot() and load_snapshot() for persistence and recovery.
+### JR-CAN-DATA-002 — CascorIntegration must implement save_snapshot() and load_snapshot() for persistence and recovery
 
 **Status**: proposed  **Priority**: P1  **Category**: DATA  **Owner**: can
 
 **Sources**:
+
 - `juniper-canopy/notes/history/JUNIPER-CANOPY_POST-RELEASE_DEVELOPMENT-ROADMAP_2026-02-25.md` (lines 96-115)
 
 **Detail**:
@@ -1791,11 +1793,12 @@ Issue 3.4.1: Default API timeout too long for frequently-polled endpoints.
 Set shorter timeout (2-5s) for metrics/state endpoints, keep longer (10s) for
 heavy operations like dataset upload.
 
-### JR-CAN-DATA-003 — Architecture adapter must handle dataset-triggered shape changes: equal-dim (no-op), grow-only (append nodes), shrink (prepend adapter layer).
+### JR-CAN-DATA-003 — Architecture adapter must handle dataset-triggered shape changes: equal-dim (no-op), grow-only (append nodes), shrink (prepend adapter layer)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: can
 
 **Sources**:
+
 - `juniper-canopy/notes/ISSUE_3_PHASE_2_LIVE_DATASET_SWAP_2026-05-09.md` (lines 122-126)
 
 **Detail**:
@@ -2319,11 +2322,12 @@ ISS-05 MODERATE. During initial state sync (state_sync.py:115-129), CascorStateS
 
 [v2 ARCH→TRAIN re-bucket] Identified by v1, v3, v5, v6, v7. Structural cause underlying ISS-05, ISS-06, ISS-12. Sync module should go through adapter or replicate normalization logic.
 
-### JR-CAN-DATA-004 — NPZ dataset loading must validate dtype and shape of all arrays beyond key existence checks.
+### JR-CAN-DATA-004 — NPZ dataset loading must validate dtype and shape of all arrays beyond key existence checks
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: can
 
 **Sources**:
+
 - `juniper-canopy/notes/history/JUNIPER-CANOPY_POST-RELEASE_DEVELOPMENT-ROADMAP_2026-02-25.md` (lines 141-154)
 
 **Detail**:

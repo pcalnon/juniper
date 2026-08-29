@@ -6,7 +6,7 @@ Sub-Project: ad-hoc tooling
 Author:      Paul Calnon
 Created:     2026-08-18
 Status:      ad-hoc -- one-off (CLI reproducibility investigation)
-Retire when: the reproducibility defect is root-caused and written up; delete then.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the reproducibility defect is root-caused and written up; delete then.
 Related:     2026-08-18_h2h_determinism_sweep.bash (produces the pairs this reads).
 
 The direct CLI finished two runs of one identical cell 10 pp apart in validation accuracy while the

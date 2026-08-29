@@ -8,7 +8,7 @@ Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-20
 Status:      ad-hoc -- audit (re-run before any bypass-roster change)
-Retire when: the bypass roster is settled and the decision recorded.
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the bypass roster is settled and the decision recorded.
 Related:     HANDOFF_2026-08-19 section 2.5; ml#1012.
 
 Why this exists

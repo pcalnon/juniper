@@ -213,6 +213,26 @@ class RootCauseTest(unittest.TestCase):
             self.assertEqual(cause["cohort"], "B")
             self.assertIn("truncated write", cause["explanation"])
 
+    def test_the_post_575_absent_format_spelling_still_maps_to_cohort_b(self) -> None:
+        """The loader's wording is an undeclared contract with ``ROOT_CAUSES``.
+
+        juniper-cascor#575 split an ABSENT ``format`` attribute out of the present-but-wrong
+        branch, so the message became ``Missing required attribute: format``. This table matched
+        only the old ``Invalid format`` spelling, so those six files silently lost their root
+        cause on the next rebuild -- backfill coverage fell 273 -> 267 while every other count
+        stayed correct, which is exactly the kind of drop nothing else would have flagged.
+        """
+        cause = sb.classify_root_cause("Missing required attribute: format")
+        self.assertIsNotNone(cause, "the post-#575 spelling must still be recognised")
+        self.assertEqual(cause["cohort"], "B")
+        self.assertIn("truncated write", cause["explanation"])
+
+    def test_both_format_spellings_agree_on_the_cohort(self) -> None:
+        """Same physical condition, two wordings; they must not classify differently."""
+        old = sb.classify_root_cause("Invalid format: None")
+        new = sb.classify_root_cause("Missing required attribute: format")
+        self.assertEqual(old["cohort"], new["cohort"])
+
     def test_the_random_group_case_names_the_irrecoverable_loss(self) -> None:
         """265 of the 273 died inside _save_hidden_units; those tensors are simply gone."""
         cause = sb.classify_root_cause("Missing required group: random")

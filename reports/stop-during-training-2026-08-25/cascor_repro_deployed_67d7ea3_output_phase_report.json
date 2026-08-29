@@ -1,0 +1,40 @@
+{
+  "app_dir": "/tmp/claude-1000/-home-pcalnon-Development-python-Juniper-juniper-ml/ba713a42-a661-4cbd-b0f4-68b5b4d242db/scratchpad/cascor/src",
+  "trigger": "hidden_unit",
+  "engine_log_signature": {
+    "did_not_unwind_warnings": 0,
+    "stop_requested_lines": 1,
+    "training_ended_lines": 1,
+    "lifecycle_shutdown_line": "[manager.py: shutdown:5111] (2026-08-26 12:53:55,726) [INFO] TrainingLifecycleManager shut down (1.34s)",
+    "rounds_started": 1,
+    "last_parent_line_ts": "(2026-08-26 12:53:55,727)",
+    "last_worker_line_ts": "(2026-08-26 12:53:52)",
+    "worker_lines_after_parent_last_s": -3.727
+  },
+  "hung_past_death_wait": false,
+  "sigterm_to_death_s": 1.656,
+  "wait_status": "143",
+  "wait_status_meaning": "killed by signal 15",
+  "descendants_recorded": 17,
+  "orphans_alive_after_death": [],
+  "shm_created_by_run": [
+    "juniper_train_39afe13d",
+    "sem.mp-1njwjdre",
+    "sem.mp-244pi61q",
+    "sem.mp-55_y_617",
+    "sem.mp-5d3e2wio",
+    "sem.mp-8e9br7jc",
+    "sem.mp-bo3mk9do",
+    "sem.mp-lovf3_ni",
+    "sem.mp-tvkkd43y",
+    "sem.mp-vwx9ji__"
+  ],
+  "shm_leaked_after_death": [],
+  "shm_leaked_after_reap": [],
+  "leak_signature": {
+    "juniper_train_segments": 0,
+    "sem_mp": 0
+  },
+  "peer_cascor_present_at_end": true,
+  "leak_lists_safe_to_remove": false
+}

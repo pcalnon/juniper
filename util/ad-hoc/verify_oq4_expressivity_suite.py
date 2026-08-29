@@ -65,7 +65,7 @@ Version:    0.1.0
 License:    MIT License
 Created:    2026-06-12
 Status:     ad-hoc - investigation (OQ-4 ceiling head-to-head; held-out is headline)
-Retire when: the OQ-4 model pick is ratified; measured numbers folded into
+Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the OQ-4 model pick is ratified; measured numbers folded into
              notes/JUNIPER_RECURSE_*  (do NOT edit those docs from here).
 Related: util/ad-hoc/verify_p5_recurrent_output_eval.py (P5 helpers reused),
          util/ad-hoc/verify_delay_line_node_eval.py (P4 FIR helpers reused),

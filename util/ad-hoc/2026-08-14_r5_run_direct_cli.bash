@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-14
 # Status:      ad-hoc -- one-off (R-5 arm C runner)
-# Retire when: R-5 is written up and merged; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: R-5 is written up and merged; delete then.
 # Related:     P4 §7 R-5; premise check util/ad-hoc/2026-08-13_spiral_service_vs_cli_compare.py
 #
 # Exists because the direct CLI must run with cwd == juniper-cascor/src: main.py relies on

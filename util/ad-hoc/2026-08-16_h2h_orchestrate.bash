@@ -6,7 +6,7 @@
 # Author:      Paul Calnon
 # Created:     2026-08-16
 # Status:      ad-hoc -- one-off (wide-budget head-to-head campaign)
-# Retire when: the wide-budget head-to-head evidence note is merged; delete then.
+# Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: the wide-budget head-to-head evidence note is merged; delete then.
 # Related:     the e-j-h2h-wide-cap{64,128} suites; 2026-08-16_h2h_cli_campaign.bash.
 #
 # The campaign is four sequential phases -- cap-64 service, cap-64 CLI, cap-128 service, cap-128
