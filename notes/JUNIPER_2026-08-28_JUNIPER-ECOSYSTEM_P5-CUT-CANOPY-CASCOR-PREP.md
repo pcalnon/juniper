@@ -281,6 +281,29 @@ what it costs to learn each the hard way:
 > any "already cost a P0/P1" wording.** Noted here because promoting on an unre-measured rationale
 > is the exact failure this whole prerequisite exists to prevent — the prerequisite caught itself.
 
+> **A second live instance of the same class, 2026-08-29, volunteered by the owning session against
+> its own work.** Its F-CANOPY-039 headline — *"the client's copy of `network-visualizer-topology-store`
+> is permanently the 75-byte empty default; it never advances, not once"* — was **wrong**, and had
+> already been written into an evidence ledger, a click-by-click matrix, a PR test docstring and a
+> handoff. The probe log's first four samples showed `eq=False, cur_len=75`; its **last eleven**
+> showed `eq=True, cur_len=7059` over one continuous 71-second window with no restart. The store is
+> empty for ~22 s and then converges.
+>
+> **The mistake was not the measurement. It was reading the head of an instrument's output and
+> writing the generalisation into four documents before reading the tail.**
+>
+> What caught it is the counter-practice worth copying: the session had just generalised that
+> one-off probe into a **re-runnable tool** — motivated by an earlier amputation finding, so the
+> instrument would not be lost — and the first thing it did was replay it over its own archived
+> evidence. The tool refuted its author on first use. It has since been changed to print the
+> distinct values unconditionally, so that specific generalisation cannot recur silently.
+>
+> *(The underlying finding got stronger, not weaker: over the same window the rebuild renders empty,
+> which it can only do via its `input_units == 0` fast path — so the store's writer sees 7,059 bytes
+> while its reader sees 0, simultaneously, for one store id. That is a duplicate-instance signature
+> evidenced from both sides rather than inferred from absence, and a `dcc.Store` renders no DOM,
+> which is why a clean static layout check missed it. It does not change bullet 1's narrowed basis.)*
+
 **Bullet 1 is the finding that justifies the whole prerequisite, and no scan of `AGENTS.md` could
 have produced it.** It lives at `src/frontend/dashboard_manager.py:3869`, labelled `CRITICAL` by its
 own author; `grep -icE "no_update|execution model|starv" AGENTS.md` → **0**. A cut that only decides
