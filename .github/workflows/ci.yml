@@ -873,6 +873,13 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
+          # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
+          # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
+          # poisoned-list fail-closed / missing+unexpandable exit 1 / dest never written /
+          # PASSPHRASE not PASSPHRASE_OLD, plus unmounted/missing-cred refuse and
+          # passphrase-fd (secret not on argv). No live Duplicati, no real archive.
+          python3 -m unittest -v tests/test_duplicati_restore_integrity.py
           # tests/test_duplicati_db_holder_guard.py: Guard 5 of
           # util/duplicati_scheduled_backup.bash -- stand down when any live process already
           # has the Duplicati local DB open. Pins DETECTION, which had no test: a fail-closed
