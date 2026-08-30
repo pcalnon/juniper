@@ -79,7 +79,39 @@ Key context:
 - **Include file paths**: The new thread doesn't know what you've been looking at
 - **State decisions made**: So the new thread doesn't re-litigate them
 - **Mention verification status**: If builds/checks were run, state pass/fail
-- **Keep it under ~500 words**: Dense signal, no filler
+- **Keep it under ~1,200 words**: Dense signal, no filler
+
+> **On the ~1,200 figure — amended 2026-08-30, previously ~500.**
+>
+> Measured over the 148 handoffs in `prompts/thread-handoff_automated-prompts/` with
+> `util/ad-hoc/2026-08-30_handoff_length_census.py`: prose median **1,150** words, **1,270**
+> including fenced blocks, **IQR 778–2,718**. Only **18 of 148** met the old ~500.
+>
+> Three things this figure is **not**:
+>
+> - **Not a description.** It is a target. The median is what practice *is*; ~1,200 is set
+>   near it so the rule is reachable — not so it is automatically satisfied.
+> - **Not one population.** Handoffs carrying the mandatory independent-validation apparatus
+>   occupy the top quarter by length, for reasons unrelated to writing discipline. A single
+>   scalar hides that: treat the **IQR as the real guidance** and the median as a midpoint.
+> - **Not the whole document.** This rule governs the **goal statement** above. The census
+>   measures whole archived handoffs, which now carry sections the original 4-part template
+>   never scoped (verification commands, traps, validation results). The measured figures are
+>   therefore an *upper bound* on what the goal statement itself should run to.
+>
+> **This is a loosening, and it is recorded as one.** The sibling memory-budget system
+> requires an explicit `Allow-Ceiling-Raise:` trailer before a ceiling can rise, precisely so
+> drift cannot be ratified silently (`util/memory_budget_check.py`, "the anti-loosening
+> guard"). No equivalent gate exists for this figure; this note is the manual substitute.
+>
+> **Do not raise it again on the same reasoning without checking the shape of the sample.**
+> August 2026 alone contributed **88 of the 148** files at a median of **2,206**, while May
+> (530) and July (478) sat at the old target. A median dominated by one saturated month is a
+> load artifact, not a new normal.
+>
+> **What this evidence does not establish:** nothing in the tracker, the validation-failure
+> ledger, or the soak ledger links handoff length to whether the successor session succeeded.
+> The number is calibrated to practice, not to outcomes.
 
 ### Step 3: Execute the Handoff
 
