@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-30
+
 ### Fixed
 
 - `ECOSYSTEM_REPOS` was missing **`juniper-recurrence`** and **`juniper-slacker`**,
