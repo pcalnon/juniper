@@ -60,7 +60,7 @@ BRANCH = "docs/p5-cut-agents-md"
 SAFE_BRANCH = BRANCH.replace("/", "--")
 
 GOVERNED = "AGENTS.md"
-DEST = "docs/REFERENCE.md"
+DEST = "docs/REFERENCE.md"   # default destination; a PLAN entry may override with "dest"
 CONF = "conf/memory_budget.json"
 SLACK_FLOOR = 2000
 STATE_DIR = Path.home() / ".local" / "state" / "juniper-p5-cut"
@@ -122,6 +122,46 @@ PLAN: dict[str, dict] = {
             ("## CI/CD Pipeline", "CI/CD Pipeline Reference", "cicd-pipeline-reference",
              "## Additional Resources",
              "Per-workflow reference for `.github/workflows/`, including the contract each job must not break."),
+        ],
+    },
+    # juniper-canopy PR1 of TWO sequential single-destination PRs (owner decision 2026-08-29).
+    # This one moves the documentation-ABOUT-documentation cluster -- 27,687 chars, 29.1% of the
+    # always-resident file -- into docs/DOCUMENTATION_OVERVIEW.md, which is literally the file whose
+    # subject that is. PR2 then moves the remaining reference material into a new
+    # docs/AGENTS_REFERENCE.md. Two PRs rather than one two-destination PR because each is then a
+    # single-destination relocation that `relocation_check.py` verifies with its one `--dest` as-is
+    # (prep note §6d): no repeatable --dest, no union pass-condition, no chance of someone hitting a
+    # spurious per-destination failure and "fixing" it by relaxing G3.
+    #
+    # `## Documentation Standards` collides with a section the destination already has (1,630 chars,
+    # different content), so its destination title differs. Verified with the fence-aware section
+    # tool, not a raw grep: DOCUMENTATION_OVERVIEW.md has 15 REAL sections -- a grep also reports
+    # `## Table of Contents` / `## Section 1` / `## Section 2`, which are inside a fenced example.
+    "juniper-canopy": {
+        "python": CANOPY_PY,
+        "dest": "docs/DOCUMENTATION_OVERVIEW.md",
+        "sections": [
+            ("## Documentation Organization", "Documentation Organization", "documentation-organization",
+             "## Contact & Support",
+             "How the documentation set is organised: which tree holds what, and why."),
+            ("## Documentation Standards", "Documentation Authoring Standards", "documentation-authoring-standards",
+             "## Contact & Support",
+             "House style for authoring docs: headings, anchors, code samples, and link forms."),
+            ("## Documentation Maintenance Workflow", "Documentation Maintenance Workflow", "documentation-maintenance-workflow",
+             "## Contact & Support",
+             "The end-to-end workflow for keeping documentation current as the code moves."),
+            ("## Documentation File Types", "Documentation File Types", "documentation-file-types",
+             "## Contact & Support",
+             "Every documentation file type, what belongs in it, and where it lives."),
+            ("## Update Triggers", "Documentation Update Triggers", "documentation-update-triggers",
+             "## Contact & Support",
+             "Which code changes oblige a documentation update, and which document each one touches."),
+            ("## Archive Procedures", "Archive Procedures", "archive-procedures",
+             "## Contact & Support",
+             "How superseded documentation is archived under `docs/history/` without breaking links."),
+            ("## Documentation Update Workflow", "Documentation Update Workflow", "documentation-update-workflow",
+             "## Contact & Support",
+             "The per-change checklist for updating documentation alongside a code change."),
         ],
     },
     # worker and deploy, added 2026-08-29 (owner decision to cut them). Section choice follows a
@@ -226,6 +266,16 @@ RAISE_BRANCH = "chore/p5-ceiling-raise"
 RAISE_TRAILER = f"Allow-Ceiling-Raise: {GOVERNED}"
 
 
+def dest_of(repo: str) -> str:
+    """The destination for this repo's cut. Per-plan, defaulting to DEST.
+
+    Each cut stays SINGLE-destination. This is not the multi-dest G3 union (see the prep note
+    §6d) -- it exists so juniper-canopy's agreed split can ship as two sequential single-dest
+    PRs, each of which `relocation_check.py` can verify with its one `--dest` as-is.
+    """
+    return PLAN.get(repo, {}).get("dest", DEST)
+
+
 class Stop(RuntimeError):
     """A precondition failed; nothing after it may run."""
 
@@ -264,12 +314,13 @@ def measure_growth(wt: Path) -> dict:
 
 
 def relocate_all(wt: Path, repo: str) -> list[dict]:
+    dest = dest_of(repo)
     moved = []
     for heading, title, anchor, before, pointer in PLAN[repo]["sections"]:
         before_chars = len((wt / GOVERNED).read_text(encoding="utf-8"))
         run([
             sys.executable, str(ML / RELOCATE),
-            "--repo-root", str(wt), "--source", GOVERNED, "--dest", DEST,
+            "--repo-root", str(wt), "--source", GOVERNED, "--dest", dest,
             "--heading", heading, "--dest-title", title, "--anchor", anchor,
             "--insert-before", before, "--pointer", pointer,
         ], quiet=True)
@@ -300,7 +351,7 @@ def fix_toc(wt: Path, repo: str) -> int:
     Each entry is inserted immediately before the TOC line for that section's `--insert-before`
     heading, so TOC order keeps matching document order. Returns the number of entries added.
     """
-    path = wt / DEST
+    path = wt / dest_of(repo)
     lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
     toc_start = next((i for i, ln in enumerate(lines) if ln.strip().lower() == "## table of contents"), None)
     if toc_start is None:
@@ -314,7 +365,18 @@ def fix_toc(wt: Path, repo: str) -> int:
         before_anchor = anchorise(before[3:])
         at = next((i for i in range(toc_start, toc_end) if f"(#{before_anchor})" in lines[i]), None)
         if at is None:
-            raise Stop(f"TOC has no entry for {before!r} (#{before_anchor}) to insert {title!r} before")
+            # A PARTIAL TOC is normal and must not be a hard stop. juniper-canopy's
+            # docs/DOCUMENTATION_OVERVIEW.md lists 8 of its 15 sections, stopping well before the
+            # `--insert-before` anchor. Appending after the LAST existing entry still preserves
+            # document order here, because every unlisted section sits after every listed one --
+            # but say so out loud rather than silently choosing a position: a TOC entry in the
+            # wrong place is exactly the stale-index failure this whole exercise is about.
+            last = max((i for i in range(toc_start, toc_end) if lines[i].lstrip().startswith("- [")), default=None)
+            if last is None:
+                raise Stop(f"destination TOC has no entries at all; cannot place {title!r}")
+            at = last + 1
+            print(f"   !! TOC does not list {before!r}; appending after the last entry "
+                  f"({lines[last].strip()[:48]}) — verify order")
         lines.insert(at, f"- [{title}](#{anchor})\n")
         toc_end += 1
         added += 1
@@ -323,13 +385,13 @@ def fix_toc(wt: Path, repo: str) -> int:
     return added
 
 
-def edit_budget(text: str, old: int, new: int, chars: int, slack: int, growth: dict) -> str:
+def edit_budget(text: str, old: int, new: int, chars: int, slack: int, growth: dict, dest: str = DEST) -> str:
     data = json.loads(text)
     if data["files"][GOVERNED]["ceiling_chars"] != old:
         raise Stop(f"budget ceiling is not {old}")
     data["files"][GOVERNED]["ceiling_chars"] = new
     data["_note"] = (
-        f"P5 step e (the cut): {GOVERNED} relocated to {DEST} verbatim, {chars:,} chars remaining. "
+        f"P5 step e (the cut): {GOVERNED} relocated to {dest} verbatim, {chars:,} chars remaining. "
         f"Ceiling lowered {old:,} -> {new:,} = size + {slack:,} slack, where slack is "
         f"max(largest single 30-day growing commit, {SLACK_FLOOR:,} fleet fan-out floor). "
         f"Set by hand, NOT by --ratchet: run straight after a cut --ratchet leaves zero headroom "
@@ -342,6 +404,7 @@ def cmd_prepare(repo: str, reuse: bool = False) -> int:
     if repo not in PLAN:
         raise Stop(f"no cut plan for {repo}; known: {sorted(PLAN)}")
     cfg = PLAN[repo]
+    dest = dest_of(repo)
     primary = JUNIPER / repo
     if not primary.is_dir():
         raise Stop(f"primary checkout missing: {primary}")
@@ -374,7 +437,7 @@ def cmd_prepare(repo: str, reuse: bool = False) -> int:
         run(["git", "-C", str(primary), "worktree", "add", "-b", BRANCH, str(wt), "origin/main"], quiet=True)
         print(f"   worktree {wt}\n   branch {BRANCH} @ origin/main {sha}")
 
-    for required in (GOVERNED, DEST, CONF):
+    for required in (GOVERNED, dest, CONF):
         if not (wt / required).is_file():
             raise Stop(f"{repo} has no {required} -- this cut plan assumes it exists")
 
@@ -383,10 +446,10 @@ def cmd_prepare(repo: str, reuse: bool = False) -> int:
     print("   " + growth["raw"].replace("\n", "\n   "))
 
     before_chars = len((wt / GOVERNED).read_text(encoding="utf-8"))
-    before_dest = len((wt / DEST).read_text(encoding="utf-8"))
+    before_dest = len((wt / dest).read_text(encoding="utf-8"))
     old = json.loads((wt / CONF).read_text(encoding="utf-8"))["files"][GOVERNED]["ceiling_chars"]
 
-    step(f"relocate {len(cfg['sections'])} sections verbatim ({GOVERNED} -> {DEST})")
+    step(f"relocate {len(cfg['sections'])} sections verbatim ({GOVERNED} -> {dest})")
     moved = relocate_all(wt, repo)
 
     step("update the destination's Table of Contents (the relocate script does not)")
@@ -396,31 +459,31 @@ def cmd_prepare(repo: str, reuse: bool = False) -> int:
     bump_last_updated(wt)
 
     chars = len((wt / GOVERNED).read_text(encoding="utf-8"))
-    dest_chars = len((wt / DEST).read_text(encoding="utf-8"))
+    dest_chars = len((wt / dest).read_text(encoding="utf-8"))
     slack = max(growth["max"], SLACK_FLOOR)
     new = chars + slack
     step(f"{GOVERNED} {before_chars:,} -> {chars:,} ({chars - before_chars:+,}); "
-         f"{DEST} {before_dest:,} -> {dest_chars:,} ({dest_chars - before_dest:+,})")
+         f"{dest} {before_dest:,} -> {dest_chars:,} ({dest_chars - before_dest:+,})")
     print(f"   ceiling {old:,} -> {new:,} = {chars:,} + {slack:,} slack "
           f"(max single commit {growth['max']:,} vs floor {SLACK_FLOOR:,})")
     if new >= old:
         raise Stop(f"a cut must LOWER the ceiling; {new:,} >= {old:,}")
 
-    (wt / CONF).write_text(edit_budget((wt / CONF).read_text(encoding="utf-8"), old, new, chars, slack, growth), encoding="utf-8")
+    (wt / CONF).write_text(edit_budget((wt / CONF).read_text(encoding="utf-8"), old, new, chars, slack, growth, dest), encoding="utf-8")
 
     # The controls below are DIFF-based (origin/main..HEAD), so they need a commit to read.
     # Run them against a temporary UNSIGNED commit, then `reset --soft` so `ship` still makes the
     # single real signed commit. Without this the check sees an empty diff and -- to its credit --
     # refuses with "would have passed vacuously" rather than reporting success (rc=2).
     step("temporary unsigned commit, so the diff-based controls have something to read")
-    run(["git", "-C", str(wt), "add", GOVERNED, DEST, CONF], quiet=True)
+    run(["git", "-C", str(wt), "add", GOVERNED, dest, CONF], quiet=True)
     run(["git", "-C", str(wt), "commit", "--no-gpg-sign", "-q", "-m", "temp: P5 cut, for local verification only"], quiet=True)
 
     try:
         step("CONTENT-LOSS CONTROL: relocation_check --expect-removals (this local run IS the control)")
         reloc = run([sys.executable, str(ML / RELOCHECK), "--repo-root", str(wt),
                      "--base", "origin/main", "--head", "HEAD",
-                     "--source", GOVERNED, "--dest", DEST, "--expect-removals"], expect=None)
+                     "--source", GOVERNED, "--dest", dest, "--expect-removals"], expect=None)
         if reloc.returncode != 0:
             raise Stop(f"relocation check FAILED (rc={reloc.returncode}) -- content was lost, not moved:\n{reloc.stdout[-3000:]}\n{reloc.stderr[-2000:]}")
         print("   relocation check PASSED — every removed substantive line reappears in the destination")
@@ -429,7 +492,7 @@ def cmd_prepare(repo: str, reuse: bool = False) -> int:
         run([sys.executable, str(ML / BUDGET), "--repo-root", str(wt)], expect=0)
 
         step("target's own pre-commit on the three changed files")
-        pc = run(["pre-commit", "run", "--files", GOVERNED, DEST, CONF], cwd=wt, expect=None)
+        pc = run(["pre-commit", "run", "--files", GOVERNED, dest, CONF], cwd=wt, expect=None)
         if pc.returncode != 0:
             raise Stop(f"pre-commit failed:\n{pc.stdout[-4000:]}")
     finally:
@@ -444,6 +507,7 @@ def cmd_prepare(repo: str, reuse: bool = False) -> int:
         "repo": repo, "worktree": str(wt), "branch": BRANCH, "base_sha": sha,
         "before_chars": before_chars, "chars": chars, "before_dest": before_dest, "dest_chars": dest_chars,
         "old_ceiling": old, "new_ceiling": new, "slack": slack, "growth": growth, "moved": moved,
+        "dest": dest,
         "toc_added": toc_added,
         "prepared_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
     }
@@ -456,13 +520,14 @@ def cmd_prepare(repo: str, reuse: bool = False) -> int:
 
 
 def commit_message(s: dict) -> str:
+    dest = s.get("dest", DEST)
     repo, moved = s["repo"], s["moved"]
     saved = s["before_chars"] - s["chars"]
     lines = [
         f"docs(p5): cut {GOVERNED} {s['before_chars']:,} -> {s['chars']:,} chars; relocate {len(moved)} reference sections",
         "",
         f"Plan §P5 step e (the cut) for {repo}. {GOVERNED} is resident in every session's",
-        f"context; {DEST} is read on demand. Moving reference material between them is the",
+        f"context; {dest} is read on demand. Moving reference material between them is the",
         "only lever that lowers the resident cost without losing anything.",
         "",
         "Relocated VERBATIM via util/ad-hoc/2026-08-19_p3_relocate_section.py, so G3 passes by",
@@ -471,10 +536,10 @@ def commit_message(s: dict) -> str:
         "",
     ]
     for m in moved:
-        lines.append(f"  {m['heading']:<48} -{m['removed']:>7,} chars -> {DEST} § {m['dest_title']}")
+        lines.append(f"  {m['heading']:<48} -{m['removed']:>7,} chars -> {dest} § {m['dest_title']}")
     lines += [
         "",
-        f"{GOVERNED} {s['before_chars']:,} -> {s['chars']:,} ({-saved:+,}); {DEST} {s['before_dest']:,} -> {s['dest_chars']:,}",
+        f"{GOVERNED} {s['before_chars']:,} -> {s['chars']:,} ({-saved:+,}); {dest} {s['before_dest']:,} -> {s['dest_chars']:,}",
         f"(+{s['dest_chars'] - s['before_dest']:,}). Each source heading stays, with a one-line pointer, so the",
         "docs-deletion screen sees no heading deletion.",
         "",
@@ -495,18 +560,19 @@ def commit_message(s: dict) -> str:
 
 
 def pr_body(s: dict) -> str:
+    dest = s.get("dest", DEST)
     repo, moved = s["repo"], s["moved"]
     rows = "\n".join(
-        f"| `{m['heading'][3:]}` | {m['removed']:,} | [§ {m['dest_title']}](../{DEST}#{m['anchor']}) |" for m in moved
+        f"| `{m['heading'][3:]}` | {m['removed']:,} | [§ {m['dest_title']}](../{dest}#{m['anchor']}) |" for m in moved
     )
     return f"""## Summary
 
 Plan §P5 **step e — the cut** for `{repo}`. `{GOVERNED}` is resident in every session's context;
-`{DEST}` is read on demand. Relocating reference material between them is the only lever that lowers
+`{dest}` is read on demand. Relocating reference material between them is the only lever that lowers
 the resident cost without losing anything.
 
 **`{GOVERNED}` {s['before_chars']:,} → {s['chars']:,} chars ({s['chars'] - s['before_chars']:+,}).**
-`{DEST}` {s['before_dest']:,} → {s['dest_chars']:,} ({s['dest_chars'] - s['before_dest']:+,}).
+`{dest}` {s['before_dest']:,} → {s['dest_chars']:,} ({s['dest_chars'] - s['before_dest']:+,}).
 
 ## What moved
 
@@ -584,11 +650,11 @@ def cmd_ship(repo: str) -> int:
         print(f"   replaced the unpushed commit {ahead[0]}")
     status = run(["git", "-C", str(wt), "status", "--short"], quiet=True).stdout.strip().splitlines()
     changed = sorted(ln.split()[-1] for ln in status)
-    if changed != sorted([GOVERNED, DEST, CONF]):
+    if changed != sorted([GOVERNED, state.get("dest", DEST), CONF]):
         raise Stop(f"working tree drifted since prepare (a peer?): {status}")
 
     step("signed commit (YubiKey)")
-    run(["git", "-C", str(wt), "add", GOVERNED, DEST, CONF], quiet=True)
+    run(["git", "-C", str(wt), "add", GOVERNED, state.get("dest", DEST), CONF], quiet=True)
     run(["git", "-C", str(wt), "commit", "-S", "-q", "-F", str(msg)], quiet=True)
     head = run(["git", "-C", str(wt), "rev-parse", "--short=8", "HEAD"], quiet=True).stdout.strip()
     sig = run(["git", "-C", str(wt), "log", "-1", "--format=%G?"], quiet=True).stdout.strip()
@@ -855,6 +921,7 @@ def cmd_waive(repo: str) -> int:
     """
     state = json.loads(state_path(repo).read_text(encoding="utf-8"))
     wt = Path(state["worktree"])
+    dest = state.get("dest", DEST)
     if not wt.is_dir():
         raise Stop(f"worktree is gone: {wt}")
 
@@ -866,29 +933,29 @@ def cmd_waive(repo: str) -> int:
         raise Stop("no headings were removed -- nothing to waive; is this the right branch?")
     print(f"   {len(removed)} headings removed from {GOVERNED}")
 
-    step(f"assert every one of them is present in {DEST} at HEAD (G3 does NOT check this)")
-    dest_text = run(["git", "-C", str(wt), "show", f"HEAD:{DEST}"], quiet=True).stdout
+    step(f"assert every one of them is present in {dest} at HEAD (G3 does NOT check this)")
+    dest_text = run(["git", "-C", str(wt), "show", f"HEAD:{dest}"], quiet=True).stdout
     dest_headings = {ln.strip() for ln in dest_text.splitlines() if re.match(r"^#{2,6}\s", ln)}
     missing = [h for h in removed if h not in dest_headings]
     for h in removed:
         print(f"   {'MISSING ' if h in missing else 'present '} {h[:88]}")
     if missing:
-        raise Stop(f"{len(missing)} heading(s) removed from {GOVERNED} do NOT appear in {DEST}: {missing}\n"
+        raise Stop(f"{len(missing)} heading(s) removed from {GOVERNED} do NOT appear in {dest}: {missing}\n"
                    "REFUSING to waive -- that is real heading loss, not a relocation.")
-    print(f"   all {len(removed)} headings verified present in {DEST}")
+    print(f"   all {len(removed)} headings verified present in {dest}")
 
     msg = (
         f"docs(p5): waive the docs deletion-magnitude screen for the {GOVERNED} relocation\n"
         "\n"
         "The docs screen FAILs with [heading-deletion] on the cut commit: relocating a section\n"
-        f"moves its `###` sub-headings into {DEST} and removes them from {GOVERNED}, while the\n"
+        f"moves its `###` sub-headings into {dest} and removes them from {GOVERNED}, while the\n"
         "`##` heading stays behind with a pointer. That is the intended shape of a relocation,\n"
         "and the screen is right to make it declare itself.\n"
         "\n"
         "Waiver rationale\n"
         "----------------\n"
         f"Verified before waiving: all {len(removed)} headings removed from {GOVERNED} are present\n"
-        f"in {DEST} at this HEAD, checked by re-deriving them from the diff and matching against\n"
+        f"in {dest} at this HEAD, checked by re-deriving them from the diff and matching against\n"
         "the destination's own headings -- not assumed from the relocation being mechanical.\n"
         "\n"
         "This check is NOT redundant with G3. `relocation_check` matches substantive PROSE and\n"
@@ -898,7 +965,7 @@ def cmd_waive(repo: str) -> int:
         "\n"
         "Verification on the cut commit:\n"
         f"  G3 (--expect-removals)   removed_substantive={state.get('g3_removed', 'see PR')}  unmatched=0\n"
-        f"  headings                 {len(removed)} removed from {GOVERNED}, {len(removed)} present in {DEST}\n"
+        f"  headings                 {len(removed)} removed from {GOVERNED}, {len(removed)} present in {dest}\n"
         f"  memory budget            ceiling {state['old_ceiling']:,} -> {state['new_ceiling']:,} (downward)\n"
         "  pre-commit               all hooks pass\n"
         "\n"
