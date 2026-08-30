@@ -15,8 +15,13 @@ For a PR branch (``--pr N``) or every open PR (``--batch``) it, per PR:
       never a ``git worktree`` of the primary repo, never the invoking checkout,
       never a push (the merge stays local and is discarded);
   (b) merges ``origin/main`` into the branch tip (``git merge --no-ff``) so the
-      RESULT is the tree GitHub would actually land -- the merge CI never sees
-      because ``strict_required_status_checks_policy`` is ``false``;
+      RESULT is the tree GitHub would actually land -- previewed here WITHOUT
+      paying for it. ``strict_required_status_checks_policy`` is ``true`` on all
+      nine repos, and ``allow_update_branch`` is ``false``, so a PR that has gone
+      ``BEHIND`` cannot merge and GitHub will not sync it for you: every sync is a
+      manual ``update-branch`` that creates a fresh head and restarts the FULL
+      required-check battery (~10 min on juniper-ml). CI does eventually run on a
+      main-merged tree -- after that cycle. This gives the verdict before it;
   (c) on that RESULT runs the repo-pinned fast gates on the touched files
       (``pre-commit run black isort flake8 mypy check-ast --files <changed>``)
       PLUS two screens CI cannot see, BOTH delegating to the juniper-ci-tools console
