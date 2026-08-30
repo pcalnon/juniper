@@ -13,13 +13,13 @@ used to close a finding, or used to justify shipping or reverting a change.
 Every failure this procedure targets was found the same way: **by re-deriving something from its
 source, not by re-reading a report of it.** In the 2026-08-29/30 juniper-canopy E2E session alone:
 
-| what failed | how it was caught | how it was NOT caught |
-|---|---|---|
-| "the store never advances" — read from the first 4 lines of a 35-line log | replaying the probe over its own archive | four documents quoted the conclusion; an adversarial fact-check missed it |
-| "zero `no_update` can only happen if…" — reasoned from 1 of the store's 2 writers | a second adversarial pass, prompted to refute | the first review pass accepted it |
-| a hazard promoted because it "already cost a P0/P1" | re-reading the ledger before quoting it to a peer | it had been asserted twice already |
-| "both signals ride as `State`" | a peer checking the callback SIGNATURE, not the prose about it | the prose had been read completely and carefully |
-| a PR watcher declaring a suite terminal mid-run | comparing its verdict against the shared waiter | it had shipped, reviewed, one PR earlier |
+| what failed                                                                       | how it was caught                                              | how it was NOT caught                                                     |
+|-----------------------------------------------------------------------------------|----------------------------------------------------------------|---------------------------------------------------------------------------|
+| "the store never advances" — read from the first 4 lines of a 35-line log         | replaying the probe over its own archive                       | four documents quoted the conclusion; an adversarial fact-check missed it |
+| "zero `no_update` can only happen if…" — reasoned from 1 of the store's 2 writers | a second adversarial pass, prompted to refute                  | the first review pass accepted it                                         |
+| a hazard promoted because it "already cost a P0/P1"                               | re-reading the ledger before quoting it to a peer              | it had been asserted twice already                                        |
+| "both signals ride as `State`"                                                    | a peer checking the callback SIGNATURE, not the prose about it | the prose had been read completely and carefully                          |
+| a PR watcher declaring a suite terminal mid-run                                   | comparing its verdict against the shared waiter                | it had shipped, reviewed, one PR earlier                                  |
 
 The common shape is **a correct local reading generalised past the evidence actually examined**.
 Review of the *writing* does not catch it, because the writing is internally consistent. Only
@@ -79,7 +79,7 @@ Requirements:
 Pool size and iteration count scale with **uncertainty × criticality**. Both axes, not either alone.
 
 | | **Low criticality** (local, easily reversed) | **High criticality** (document of record, gates a ship/revert, closes a finding) |
-|---|---|---|
+| --- | --- | --- |
 | **Low uncertainty** — directly measured, instrument known good, result reproduced | 0–1 reviewers. Self-check by re-running the instrument. | 1–2 Lane A. Confirm the instrument could have produced a different answer. |
 | **Medium uncertainty** — measured once, or derived from a measurement | 1 Lane A | 2 Lane A + 1–2 Lane B adversarial |
 | **High uncertainty** — inferred, small sample, instrument novel or previously wrong, or the conclusion overturns a standing one | 1–2 Lane A + 1 Lane B | **3+ Lane A (distinct entry points) + 2+ Lane B (opposing briefs), and at least 2 iterations** |
