@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.12
+**Version:** 0.6.13
 **Status:** Active
 **Last Updated:** 2026-08-24
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -14,6 +14,7 @@
 - [Package Overview](#package-overview)
 - [Extras Reference](#extras-reference)
 - [Ecosystem Compatibility](#ecosystem-compatibility)
+- [HTTP Client Base-URL Contract](#http-client-base-url-contract)
 - [Host Orchestration Utilities](#host-orchestration-utilities)
 - [Editable Install Drift Check](#editable-install-drift-check)
 - [Pytest Orphan Reaper](#pytest-orphan-reaper)
@@ -192,6 +193,65 @@ The three services intentionally ship with **different** `rate_limit_enabled` de
 | `juniper-canopy` | `JUNIPER_CANOPY_RATE_LIMIT_ENABLED`  | `JUNIPER_CANOPY_RATE_LIMIT_REQUESTS_PER_MINUTE`   |
 
 The split-default is intentional, not an oversight: `juniper-data` is a higher-risk, public-facing surface (dataset generation, paginated reads), so it ships rate-limited by default; the other two run behind a known reverse proxy / authenticated client surface, where the rate-limit value adds operator friction during local development. Closes the documentation gap tracked in the v7 outstanding-development roadmap under CFG-08.
+
+---
+
+## HTTP Client Base-URL Contract
+
+The three separately released HTTP clients — `juniper-data-client`, `juniper-cascor-client`, and `juniper-recurrence-client` — now share one REST `base_url` treatment. That closes defect-register `APD-DCLIENT-004` / `APD-CCLIENT-005` (sibling PRs [data-client#165](https://github.com/pcalnon/juniper-data-client/pull/165) + [#166](https://github.com/pcalnon/juniper-data-client/pull/166), [cascor-client#129](https://github.com/pcalnon/juniper-cascor-client/pull/129), [recurrence#129](https://github.com/pcalnon/juniper-recurrence/pull/129)). Register status is recorded by open [juniper-ml#1331](https://github.com/pcalnon/juniper-ml/pull/1331).
+
+**This is GitHub-main of those clients, not a `juniper-ml` extra floor.** `[clients]` still pins `juniper-data-client>=0.4.1` and `juniper-cascor-client>=0.5.0`; the latest *released* data-client wheel is `0.4.2` (2026-06-18) and still lacks the host guard. `pip install juniper-ml[clients]` can resolve a wheel that silently accepts `HTTPS://host` (TLS downgrade) or a hostless URL. Confirm `JuniperDataConfigurationError` / `JuniperCascorConfigurationError` exist before relying on the fail-fast path.
+
+### What REST constructors do
+
+`JuniperDataClient`, `JuniperCascorClient`, and `JuniperRecurrenceClient` run `_normalize_url` on the constructor `base_url` (defaults: data `http://localhost:8100`, cascor REST `http://localhost:8200`). Steps, in order:
+
+1. `str.strip()`
+2. If the value does **not** case-insensitively start with `http://` or `https://`, prefix `http://`. A case-sensitive check re-prefixed `HTTPS://host` into `http://HTTPS://host` — silent TLS downgrade, API key sent to hostname `https`.
+3. `urllib.parse.urlparse`. Empty **`hostname`** (not `netloc`) raises the client's configuration error: `base_url must include a host; got {url!r}` with `status_code=None`. `netloc` is truthy for userinfo-only `http://user:secret@` while `hostname` is `None`.
+4. Rebuild `{scheme}://{netloc}{path}`, `rstrip("/")`, then strip a trailing `/v1`.
+
+Cascor REST then sets `api_url = f"{self.base_url}{API_VERSION_PATH}"` (`/v1`). Stripping the suffix is what stops a caller-supplied `…/v1` from becoming `…/v1/v1`.
+
+Each configuration error subclasses that client's base (`JuniperDataClientError`, `JuniperCascorClientError`, `JuniperRecurrenceClientError`), so existing `except Juniper*ClientError` handlers still catch a hostless URL.
+
+```python
+from juniper_data_client import JuniperDataClient
+from juniper_data_client.exceptions import JuniperDataConfigurationError
+from juniper_cascor_client import JuniperCascorClient
+
+JuniperDataClient("http://localhost:8100")       # unchanged
+JuniperDataClient("localhost:8100")              # → http://localhost:8100
+JuniperDataClient("HTTPS://data.example/v1/")    # → https://data.example  (scheme lowercased, /v1 stripped)
+JuniperDataClient("http://")                     # raises JuniperDataConfigurationError
+
+cascor = JuniperCascorClient("http://localhost:8200/v1")
+assert cascor.base_url == "http://localhost:8200"
+assert cascor.api_url == "http://localhost:8200/v1"
+```
+
+Hostless shapes that raise (pinned in each client's constructor tests): `""`, whitespace-only, `http://`, `https://`, `/v1`, `http:///v1`, `http://user:secret@`.
+
+### Deliberately not covered
+
+| Surface | URL treatment | Why |
+|---------|---------------|-----|
+| `CascorTrainingStream` / `CascorControlStream` | `base_url.rstrip("/")` only | `ws://` / `wss://` defaulting is a different scheme family; no register row names them. Default `ws://localhost:8200`. |
+| `FakeCascorClient` / `FakeCascorTrainingStream` | `rstrip("/")` only | Test doubles; they do not run `_normalize_url`. |
+
+### Remaining sibling drift (retries)
+
+Base-URL normalisation/validation is aligned. The last sibling-package retry drift is still open: `juniper-cascor-client` `RETRY_ALLOWED_METHODS` is `GET` / `POST` / `DELETE` / `PUT` / `PATCH` (`APD-CCLIENT-001`). `juniper-data-client` retries `HEAD` / `GET` / `PUT`; `juniper-recurrence-client` retries `HEAD` / `GET` only. Do not assume a failed cascor `POST` was not retried.
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| `Juniper*ConfigurationError: base_url must include a host` | Constructor got `""`, `http://`, `/v1`, or `http://user:secret@`. Fix the URL; this is not a retryable transport error. |
+| `HTTPS://host` talks HTTP / hostname is `https` | Wheel predates the case-insensitive scheme check. Install from GitHub main of the client, or wait for the next PyPI release past data-client `0.4.2` / cascor-client `0.7.0`. |
+| Cascor REST to `:8200` on the host stack | Constructor default is the **container** port. Host `plant_all` / Docker publish `:8201` — pass `base_url="http://localhost:8201"`. |
+| WS stream accepts a hostless / schemeless URL | Expected. REST `_normalize_url` is not applied to `CascorTrainingStream` / `CascorControlStream`. |
+| Catch-all `except Exception` around client init | Configuration errors subclass the client base, but a bare `Exception` handler will swallow a hostless URL as if the service were down. |
 
 ---
 
@@ -2727,6 +2787,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate |
+| 0.6.13   | 2026-08-24 | HTTP client `base_url` contract: shared REST `_normalize_url` (case-insensitive scheme, `hostname` guard, `/v1` strip), WS/fake rstrip-only, extras-floor honesty vs unreleased wheels |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
@@ -3059,6 +3120,7 @@ These variables are consumed by Juniper packages documented in this repository. 
 
 > These are not set by juniper-ml itself — they are consumed by the installed sub-packages.
 > `CASCOR_SERVICE_URL` defaults to the cascor service/container port (`8200`). The host-level stack and `util/get_cascor_*.bash` helpers target the host-facing port (`8201`) unless overridden.
+> REST constructor `base_url` values are normalised as of the GitHub-main clients documented in [HTTP Client Base-URL Contract](#http-client-base-url-contract); those env vars are **not** themselves passed through `_normalize_url` unless the caller feeds them into the constructor.
 
 Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities), the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities), and the per-run experiment overrides in [Experiment Stack Utilities](#experiment-stack-utilities).
 
@@ -3071,5 +3133,5 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 ---
 
 **Last Updated:** 2026-08-24
-**Version:** 0.6.11
+**Version:** 0.6.13
 **Maintainer:** Paul Calnon
