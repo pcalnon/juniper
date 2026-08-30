@@ -16,7 +16,17 @@ Gates, ALL of which must pass per worktree before anything is removed:
 4. **Nothing unrecoverable is ignored.** `git status --porcelain` is BLIND to ignored files
    and `worktree remove` deletes them: 551 `.h5` snapshots once hid in "clean" cascor
    worktrees. Every ignored entry must match a known-disposable pattern (caches, build
-   artifacts) or this refuses.
+   artifacts) or this refuses. Size and newest-mtime are printed per entry so a human can
+   tell a 0-byte three-week-old `custom.log` from a 424 KB one written 20 minutes ago.
+
+   **`--harvest DIR` is the way through**, and it exists because refusing with no escape
+   pushes people to remove by hand, which is where the loss actually happens. **The sweep is
+   where evidence dies**: 2026-08-29, seven canopy worktrees each held their own ignored
+   `logs/system.log`, and one was the ONLY surviving copy of a log whose `/tmp` original had
+   been truncated by a `nohup >` redirect — invisible to three measurement agents, two
+   adversarial agents and a reconciler, all of whom searched tracked files, `/tmp` and git
+   objects. Harvest copies the payload out, then allows removal; it does NOT bypass gates
+   1-3.
 
 Then, in order: remove the worktree, prune, delete the local branch, and finally
 fast-forward the primary if it is on `main` and clean.
@@ -35,6 +45,7 @@ import argparse
 import datetime as dt
 import fnmatch
 import os
+import shutil
 import subprocess  # nosec B404 -- fixed-argv git/gh calls; nothing is shell-interpolated
 import sys
 from pathlib import Path
@@ -115,6 +126,39 @@ def describe(wt: Path, rel: str) -> str:
     return f"{rel} ({files} file{'s' if files != 1 else ''}, {size}, newest {when})"
 
 
+def harvest(wt: Path, entries: list[str], dest_root: Path) -> list[str]:
+    """Copy non-disposable ignored payload out of a worktree before it is removed.
+
+    **The sweep is where evidence dies.** `git status --porcelain` does not list ignored files and
+    `git worktree remove` deletes them, so an ignored `logs/` directory is invisible to every search
+    that looks at tracked files, `/tmp` and git objects — and one command from gone.
+
+    Not hypothetical. 2026-08-29, juniper-canopy: seven arc worktrees each carried their own
+    `logs/system.log` (203-434 KB, 2.3 MB total). One of them recorded seven server starts with
+    request bursts at exactly two census session times, and it was the ONLY surviving copy — the
+    `/tmp` original had been truncated by a `nohup >` redirect. Three measurement agents, two
+    adversarial agents and a reconciler had all hunted for that evidence and missed it. It did not
+    rescue the finding, but it qualified a published "no artifact establishes it" that was too
+    strong.
+
+    So: refusing is right, but refusing with no way through pushes people to remove by hand, which
+    is where the loss happens. This makes the safe path the easy one — harvest, then remove.
+    """
+    saved = []
+    for rel in entries:
+        src = wt / rel
+        if not src.exists():
+            continue
+        dst = dest_root / wt.name / rel.rstrip("/")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if src.is_dir():
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+        else:
+            shutil.copy2(src, dst)
+        saved.append(rel)
+    return saved
+
+
 def undisposable(entries: list[str]) -> list[str]:
     return [e for e in entries if not any(fnmatch.fnmatch(e, p) or fnmatch.fnmatch(e.rstrip("/") + "/", p) for p in DISPOSABLE)]
 
@@ -150,6 +194,9 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--pattern", required=True, help="glob over worktree directory names")
     ap.add_argument("--execute", action="store_true", help="actually remove (default: report only)")
+    ap.add_argument("--harvest", metavar="DIR", type=Path, default=None,
+                    help="copy non-disposable ignored payload to DIR/<worktree>/ and then ALLOW removal; "
+                         "without it such payload blocks removal outright")
     ns = ap.parse_args(argv)
 
     wts = sorted(WORKTREES.glob(ns.pattern))
@@ -177,6 +224,14 @@ def main(argv: list[str]) -> int:
         if dirty:
             reasons.append(f"dirty ({len(dirty.splitlines())} entries)")
         keep = undisposable(ignored_entries(wt))
+        if keep and ns.harvest:
+            print(f"  HARVEST {name}")
+            for k in keep:
+                print(f"          {describe(wt, k)}")
+            if ns.execute:
+                saved = harvest(wt, keep, ns.harvest.resolve())
+                print(f"          -> saved {len(saved)} to {ns.harvest.resolve() / name}")
+            keep = []
         if keep:
             detail = "; ".join(describe(wt, k) for k in keep[:5])
             more = f" (+{len(keep) - 5} more)" if len(keep) > 5 else ""
