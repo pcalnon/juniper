@@ -197,6 +197,10 @@ async def worker_stream_handler(websocket: WebSocket) -> None:
             ws_manager.unregister_endpoint_connection(websocket)
         if worker_id is not None:
             coordinator.unregister_send_callback(worker_id)
+            # Reclaim before deregister: a clean disconnect used to leave the assigned
+            # task stuck until task_reassignment_timeout (default 120s). The stale-heartbeat
+            # sweep already requeued; this is the disconnect equivalent.
+            coordinator.release_worker_tasks(worker_id)
             registry.deregister(worker_id)
             if audit_logger is not None:
                 from juniper_service_core.workers.audit import AuditEventType
@@ -351,11 +355,13 @@ async def _handle_task_result(websocket: WebSocket, worker_id: str, msg: dict[st
         if "bytes" not in frame_msg:
             logger.error("Expected binary frame for %s, got text from worker %s", name, worker_id)
             await websocket.send_json(_error_frame(f"Expected binary frame for: {name}"))
+            coordinator.release_worker_tasks(worker_id, free_worker=True)
             return
         raw_bytes = frame_msg["bytes"]
         if len(raw_bytes) > _MAX_BINARY_SIZE:
             logger.error("Binary frame for %s exceeds size limit from worker %s", name, worker_id)
             await websocket.send_json(_error_frame("Binary frame too large"))
+            coordinator.release_worker_tasks(worker_id, free_worker=True)
             return
         # Cumulative budget: the per-frame cap above bounds each item, not the sum, and every frame
         # accepted here is retained in ``frames`` until the submission completes.

@@ -11,8 +11,8 @@ Coverage:
 * ``WorkerCoordinator`` -- submit / dispatch (assignment built via the protocol) / submit-result
   (accept, reject-unknown, reject-duplicate, reject-on-parse-None, reject-wrong-worker,
   reject-unassigned) / collect (+ worker-liveness early-exit) / pending-count / task-timeout
-  reassignment / stale-worker reassignment / anomaly hook / send-callback bookkeeping / cancel +
-  shutdown.
+  reassignment / stale-worker reassignment / ``release_worker_tasks`` (disconnect + abort
+  reclaim) / anomaly hook / send-callback bookkeeping / cancel + shutdown.
 * ``/ws/workers`` stream -- origin reject, uninitialised-pool reject, rate-limit reject, registration
   (server-assigned id + client_name), invalid-registration reject, registry-full reject, the full
   register -> dispatch -> result -> collect flow, heartbeat ack + enriched-field forwarding, a
@@ -404,6 +404,47 @@ def test_stale_worker_reassigns_active_task() -> None:
 
     assert reg.get("w1") is None  # deregistered
     assert coord.has_pending_tasks() is True  # task back in the unassigned queue
+
+
+def test_release_worker_tasks_requeues_sole_assignment() -> None:
+    """Disconnect-equivalent reclaim: the only assigned task returns to the unassigned queue."""
+    reg = WorkerRegistry()
+    reg.register("w1", {})
+    coord = WorkerCoordinator(reg, _RecordingProtocol())
+    (tid,) = coord.submit_tasks("r", [{"c": 0}])
+    coord.get_next_assignment("w1")
+    assert coord.has_pending_tasks() is False
+    assert reg.get("w1").active_task_id == tid
+
+    n = coord.release_worker_tasks("w1")
+    assert n == 1
+    assert coord.has_pending_tasks() is True
+    assert coord._pending_tasks[tid].assigned_worker_id is None
+    # Disconnect callers leave the registry entry for the stream finally to deregister.
+    assert reg.get("w1").active_task_id == tid
+
+    # Idempotent: a second call (finally after an abort that already requeued) must not duplicate.
+    assert coord.release_worker_tasks("w1") == 0
+    assert coord._unassigned_tasks.count(tid) == 1
+
+
+def test_release_worker_tasks_free_worker_clears_active_task_id() -> None:
+    """Abort-equivalent reclaim: still-connected worker becomes idle so dispatch can continue."""
+    reg = WorkerRegistry()
+    reg.register("w1", {})
+    coord = WorkerCoordinator(reg, _RecordingProtocol())
+    (tid,) = coord.submit_tasks("r", [{"c": 0}])
+    coord.get_next_assignment("w1")
+
+    n = coord.release_worker_tasks("w1", free_worker=True)
+    assert n == 1
+    assert reg.get("w1").idle is True
+    assert reg.get("w1").active_task_id is None
+    assert coord.has_pending_tasks() is True
+    # Worker is idle and the task is unassigned, so a subsequent get_next_assignment redispatches.
+    assignment = coord.get_next_assignment("w1")
+    assert assignment is not None
+    assert assignment[0]["task_id"] == tid
 
 
 def test_send_callback_register_unregister() -> None:
