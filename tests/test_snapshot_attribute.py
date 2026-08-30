@@ -31,6 +31,11 @@ label on a research artifact, so the tests are weighted toward proving the tool 
 * ``PartialSidecarGuardTest``    -- a sidecar silently covering a subset is worse than none.
 * ``NoDestructivePathTest``      -- retention is §6.4 and is INFORMED by this tool, never
   performed by it.
+* ``DatasetInstanceIsFixedTest`` -- generators declaring ``seed=None`` must be pinned;
+  a declared seed (spiral) must be left alone; the CLI ``--dataset-seed`` flag (not the
+  snapshot-sampling ``--seed``) is what ``load_datasets`` receives.
+* ``RegenerateSidecarChainGuardTest`` -- the ad-hoc chain driver refuses to start without
+  a complete backup and must not redirect ``JUNIPER_CASCOR_SNAPSHOTS_DIR``.
 """
 
 from __future__ import annotations
@@ -38,6 +43,7 @@ from __future__ import annotations
 import ast
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -50,6 +56,14 @@ sys.path.insert(0, str(REPO_ROOT / "util"))
 import snapshot_attribute as sa  # noqa: E402 - path bootstrap must precede the import
 
 MODULE_PATH = REPO_ROOT / "util" / "snapshot_attribute.py"
+CHAIN_SCRIPT = REPO_ROOT / "util" / "ad-hoc" / "2026-08-24_regenerate_sidecar_chain.bash"
+CHAIN_TIMEOUT_SECONDS = 15
+SIDECAR_BASENAMES = (
+    "snapshots_index.jsonl",
+    "snapshots_classification.jsonl",
+    "snapshots_attribution.jsonl",
+    "snapshots_backfill.jsonl",
+)
 
 
 def null_from(**floors) -> dict:
@@ -200,6 +214,56 @@ class DatasetInstanceIsFixedTest(unittest.TestCase):
         self.assertEqual(params.noise, 0.1)
 
     def test_the_module_pins_a_constant_rather_than_leaving_it_to_a_default(self) -> None:
+        """A drifting default would silently redefine the canonical instance.
+
+        20260824 is the published instance every seeded sidecar was scored against.
+        Changing it is allowed, but it is a new canonical instance, not a silent tweak.
+        """
+        self.assertEqual(sa.DATASET_SEED, 20260824, "changing DATASET_SEED redefines the canonical instance and invalidates existing sidecars")
+
+    def test_a_different_seed_is_a_different_instance(self) -> None:
+        """The pin is only load-bearing if the seed actually reaches the params."""
+        self.assertNotEqual(
+            sa.seeded_params(_ParamsDeclaringNoSeed, 1).seed,
+            sa.seeded_params(_ParamsDeclaringNoSeed, 2).seed,
+            "distinct seeds must produce distinct params, or the pin is a no-op",
+        )
+
+    def test_dataset_seed_cli_defaults_to_the_pinned_constant(self) -> None:
+        """Without the flag, the pin is unreachable from the operator surface."""
+        found = None
+        for node in ast.walk(ast.parse(MODULE_PATH.read_text())):
+            if not isinstance(node, ast.Call):
+                continue
+            if not (isinstance(node.func, ast.Attribute) and node.func.attr == "add_argument"):
+                continue
+            flags = [a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+            if "--dataset-seed" not in flags:
+                continue
+            found = node
+            break
+        assert found is not None, "--dataset-seed must exist; without it the pin cannot be overridden or inspected"
+        default = next((k.value for k in found.keywords if k.arg == "default"), None)
+        assert isinstance(default, ast.Name), "--dataset-seed must default to the DATASET_SEED name, not a drifting literal"
+        self.assertEqual(default.id, "DATASET_SEED")
+
+    def test_load_datasets_is_wired_to_dataset_seed_not_the_sampling_seed(self) -> None:
+        """--seed samples snapshots; --dataset-seed pins the generator instance.
+
+        Confusing them is the remaining footgun. ``--seed`` defaults to 20260823 and
+        ``--dataset-seed`` to 20260824. Wiring ``load_datasets(..., seed=args.seed)``
+        would silently redefine the canonical instance and invalidate every comparison
+        with an existing sidecar, while still looking reproducible run-to-run.
+        """
+        calls = [node for node in ast.walk(ast.parse(MODULE_PATH.read_text())) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "load_datasets"]
+        self.assertEqual(len(calls), 1, f"expected exactly one load_datasets call, found {len(calls)}")
+        seed_kw = next((k for k in calls[0].keywords if k.arg == "seed"), None)
+        self.assertIsNotNone(seed_kw, "load_datasets must be passed seed= explicitly so the sampling seed cannot sneak in positionally")
+        assert seed_kw is not None
+        assert isinstance(seed_kw.value, ast.Attribute), "load_datasets seed= must be an attribute access like args.dataset_seed"
+        self.assertEqual(seed_kw.value.attr, "dataset_seed", f"load_datasets seed= must be args.dataset_seed, not args.{seed_kw.value.attr}")
+        assert isinstance(seed_kw.value.value, ast.Name)
+        self.assertEqual(seed_kw.value.value.id, "args")
         """A drifting default would silently redefine the canonical instance."""
         self.assertIsInstance(sa.DATASET_SEED, int)
         self.assertIsNotNone(sa.DATASET_SEED)
@@ -677,6 +741,96 @@ class NoDestructivePathTest(unittest.TestCase):
     def test_snapshots_are_never_opened_writable(self) -> None:
         source = MODULE_PATH.read_text()
         self.assertNotIn("h5py", source, "attribution goes through cascor's loader; it must not open .h5 files itself")
+
+
+def _run_chain(*argv: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(CHAIN_SCRIPT), *argv],
+        capture_output=True,
+        text=True,
+        timeout=CHAIN_TIMEOUT_SECONDS,
+        check=False,
+    )
+
+
+def _complete_backup(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    for name in SIDECAR_BASENAMES:
+        (path / name).write_text("{}\n")
+    return path
+
+
+class RegenerateSidecarChainGuardTest(unittest.TestCase):
+    """The chain overwrites four gitignored sidecars that cost ~1h to rebuild.
+
+    The backup refuse is the load-bearing guard: without it a typo in --root still
+    runs, and the script's own comment records that JUNIPER_CASCOR_SNAPSHOTS_DIR is
+    both cascor's write dir AND snapshot_index.default_root(), so redirecting it
+    would point every stage at a scratch dir and look like success.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "snapshots"
+        self.root.mkdir()
+        for name in SIDECAR_BASENAMES:
+            (self.root / name).write_text("")
+        self.repo = Path(self.tmp.name) / "repo"
+        self.repo.mkdir()
+        self.backup = _complete_backup(Path(self.tmp.name) / "backup")
+
+    def _argv(self, *extra: str) -> list[str]:
+        return [
+            "--root",
+            str(self.root),
+            "--repo",
+            str(self.repo),
+            "--python",
+            "/bin/false",
+            "--backup",
+            str(self.backup),
+            *extra,
+        ]
+
+    def test_refuses_to_start_without_a_backup(self) -> None:
+        result = _run_chain("--root", str(self.root), "--repo", str(self.repo), "--python", "/bin/false", "--dry-run")
+        self.assertEqual(result.returncode, 2, msg=result.stderr)
+        self.assertIn("--backup", result.stderr)
+
+    def test_refuses_an_incomplete_backup(self) -> None:
+        (self.backup / "snapshots_attribution.jsonl").unlink()
+        result = _run_chain(*self._argv("--dry-run"))
+        self.assertEqual(result.returncode, 2, msg=result.stderr)
+        self.assertIn("incomplete", result.stderr)
+        self.assertIn("snapshots_attribution.jsonl", result.stderr)
+
+    def test_dry_run_does_not_invoke_python(self) -> None:
+        """/bin/false as --python would fail the script if any stage actually ran."""
+        result = _run_chain(*self._argv("--dry-run"))
+        self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+        self.assertIn("[dry-run] not executed", result.stdout)
+        self.assertIn("CHAIN COMPLETE", result.stdout)
+
+    def test_skip_index_omits_the_index_stage(self) -> None:
+        result = _run_chain(*self._argv("--dry-run", "--skip-index"))
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertNotIn("1/4 index", result.stdout)
+        self.assertIn("2/4 classify", result.stdout)
+
+    def test_does_not_redirect_the_snapshots_dir(self) -> None:
+        """Assigning JUNIPER_CASCOR_SNAPSHOTS_DIR would retarget every stage at scratch.
+
+        The probe scripts in this directory redirect it so they cannot grow the archive;
+        this chain must not, or index/classify/attribute/backfill would look for the
+        archive in the scratch dir and report success against nothing.
+        """
+        source = CHAIN_SCRIPT.read_text()
+        self.assertNotIn(
+            "JUNIPER_CASCOR_SNAPSHOTS_DIR=",
+            source,
+            "the chain must pass --root explicitly; assigning JUNIPER_CASCOR_SNAPSHOTS_DIR retargets snapshot_index.default_root()",
+        )
 
 
 if __name__ == "__main__":

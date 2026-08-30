@@ -6,119 +6,108 @@
 # Author:       Paul Calnon
 # License:      MIT
 #
-# Purpose: Emit ONE line per PR the moment its checks reach a terminal state, and
-#          exit when every watched PR has done so. Intended as a `Monitor` command.
+# Purpose: A `Monitor`-shaped wrapper around `util/wait_for_checks.py`: emit ONE
+#          line per PR when it reaches a terminal state, exit when all have.
 #
-#          It reports the three things that actually gate a merge here, because a
-#          green rollup does NOT mean mergeable:
-#            * fail=       failing checks
-#            * threads=    UNRESOLVED, NON-OUTDATED review threads. CodeQL posts
-#                          these; they block the merge while the check rollup reads
-#                          entirely green. Measured twice on 2026-08-29:
-#                          juniper-canopy#537 sat at 23 SUCCESS / 0 failures and was
-#                          held by two `py/mixed-returns` threads; juniper-ml#1444 by
-#                          five `File is not always closed` threads.
-#            * mergeState= GitHub's own verdict (CLEAN / BLOCKED / BEHIND / UNKNOWN).
-#                          BLOCKED does NOT mean behind -- BEHIND is its own value.
+#          It adds exactly ONE thing the shared waiter does not cover, and that is
+#          the only reason it exists: **unresolved review threads**. A PR can sit at
+#          all-required-green and still be unmergeable because CodeQL posted a
+#          review thread — measured three times on 2026-08-29 (canopy#537 at 23
+#          SUCCESS / 0 failures held by two `py/mixed-returns`; ml#1444 by five
+#          `File is not always closed`; ml#1480 by one `py/empty-except`). So each
+#          line reports fail=, threads= and mergeState= together.
 #
 # ---------------------------------------------------------------------------
-# THIS SCRIPT'S FIRST VERSION FAILED SILENTLY FOR 45 MINUTES. Read before editing.
+# DO NOT REPLACE THE wait_for_checks.py CALL WITH A HAND-ROLLED POLL. Two versions
+# of this script already did, and each hit a documented trap within the hour:
 #
-#   It called `gh pr checks <n> --json name,bucket`. **`--json` does not exist on
-#   `gh pr checks` in gh 2.46.0** (the pinned fleet version): it exits with
-#   "unknown flag" AND status 0. The result was assigned to an empty string, the
-#   loop hit `continue`, and the monitor emitted NOTHING for its entire 45-minute
-#   window -- indistinguishable from "CI is still running".
+#   v1 called `gh pr checks --json`, a flag gh 2.46.0 does not have. It exits
+#   "unknown flag" with status 0, so the loop saw an empty result, hit `continue`,
+#   and emitted NOTHING for 45 minutes — indistinguishable from "still running".
 #
-#   The header of that version claimed "silence means still running and never
-#   failed quietly." That claim was false for the one path that mattered: its own
-#   tool call failing. A zero is not a result until you know the instrument could
-#   have produced a non-zero.
+#   v2 polled `gh pr view --json statusCheckRollup` and treated "no entry has a
+#   null conclusion" as terminal. **The rollup GROWS as jobs start**: it held 7
+#   entries mid-run where the finished suite had 26, so a lull between waves reads
+#   as completion. It declared ml#1480 terminal while `Analyze (python)` was still
+#   QUEUED — the exact trap `wait_for_checks.py --anchor observed` exists to
+#   reproduce, and which its default (anchor on the ruleset's REQUIRED contexts)
+#   prevents.
 #
-#   Two consequences, both now enforced below:
-#     1. Query via `gh pr view --json statusCheckRollup`, which 2.46.0 DOES
-#        support, and verify support once at startup rather than per-round.
-#     2. **Never `continue` past a failed probe.** Emit a PROBE-ERROR event. A
-#        monitor whose failure mode is silence cannot be trusted to be watching.
+# The general rule both violated: **terminal must be defined POSITIVELY, against a
+# closed set.** "Everything I can see is done" is not "it is done", because what
+# you can see is open-ended. Anchor on the required contexts; let the shared waiter
+# do it.
 # ---------------------------------------------------------------------------
 #
 # Usage:
-#   util/ad-hoc/watch_prs_until_terminal.bash juniper-ml:1444 juniper-canopy:537
+#   util/ad-hoc/watch_prs_until_terminal.bash juniper-ml:1480 juniper-canopy:537
 #
-# Exit: 0 once all watched PRs are terminal, 1 on timeout, 2 on bad invocation.
+# Env: OWNER (default pcalnon), PER_PR_TIMEOUT (default 2400 seconds).
+#
+# Exit: 0 once all watched PRs are terminal, 1 if any timed out, 2 on bad
+#       invocation or a broken probe.
 
 set -uo pipefail
 
 OWNER="${OWNER:-pcalnon}"
-POLL_SECONDS="${POLL_SECONDS:-45}"
-MAX_ROUNDS="${MAX_ROUNDS:-80}"
-CONSECUTIVE_ERROR_LIMIT="${CONSECUTIVE_ERROR_LIMIT:-4}"
+PER_PR_TIMEOUT="${PER_PR_TIMEOUT:-2400}"
+
+_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WAITER="${_HERE}/../wait_for_checks.py"
 
 if [[ $# -eq 0 ]]; then
     echo "usage: $0 <repo>:<pr> [<repo>:<pr> ...]" >&2
     exit 2
 fi
-
-# Fail LOUDLY and immediately if the query form is unsupported, rather than
-# discovering it as silence 45 minutes later.
-probe_repo="${1%%:*}"
-probe_pr="${1##*:}"
-if ! gh pr view "$probe_pr" --repo "${OWNER}/${probe_repo}" --json statusCheckRollup >/dev/null 2>&1; then
-    echo "PROBE-ERROR startup: 'gh pr view --json statusCheckRollup' failed for ${probe_repo}#${probe_pr}."
-    echo "PROBE-ERROR check gh auth and that the PR exists. gh version: $(gh --version 2>&1 | head -1)"
+if [[ ! -f "$WAITER" ]]; then
+    echo "PROBE-ERROR: shared waiter not found at ${WAITER}" >&2
+    echo "PROBE-ERROR: run this from a juniper-ml checkout; do NOT substitute a hand-rolled poll." >&2
     exit 2
 fi
 
-declare -A done_pr=()
-errors=0
+rc=0
 
-for ((round = 1; round <= MAX_ROUNDS; round++)); do
-    for spec in "$@"; do
-        repo="${spec%%:*}"
-        pr="${spec##*:}"
-        [[ -n "${done_pr[$spec]:-}" ]] && continue
+for spec in "$@"; do
+    repo="${spec%%:*}"
+    pr="${spec##*:}"
 
-        rollup="$(gh pr view "$pr" --repo "${OWNER}/${repo}" \
-            --json statusCheckRollup,mergeStateStatus,state 2>&1)"
-        if [[ $? -ne 0 || -z "$rollup" ]] || ! jq -e . >/dev/null 2>&1 <<<"$rollup"; then
-            errors=$((errors + 1))
-            echo "PROBE-ERROR ${repo}#${pr} round=${round} consecutive=${errors}: ${rollup:0:160}"
-            if [[ "$errors" -ge "$CONSECUTIVE_ERROR_LIMIT" ]]; then
-                echo "PROBE-ERROR giving up after ${errors} consecutive failures — NOT a CI verdict"
-                exit 1
-            fi
-            continue
-        fi
-        errors=0
+    out="$(python3 "$WAITER" --pr "$pr" --repo "$repo" --owner "$OWNER" \
+        --json --timeout "$PER_PR_TIMEOUT" 2>&1)"
+    waiter_rc=$?
 
-        # A merged/closed PR is terminal too; without this the watch hangs on it.
-        pr_state="$(jq -r '.state' <<<"$rollup")"
-        if [[ "$pr_state" != "OPEN" ]]; then
-            echo "DONE ${repo}#${pr} state=${pr_state} (no longer open)"
-            done_pr[$spec]=1
-            continue
-        fi
-
-        pending="$(jq -r '[.statusCheckRollup[]? | select(.conclusion == null)] | length' <<<"$rollup")"
-        [[ "$pending" != "0" ]] && continue
-
-        failed="$(jq -r '[.statusCheckRollup[]? | select(.conclusion == "FAILURE" or .conclusion == "TIMED_OUT" or .conclusion == "CANCELLED" or .conclusion == "ACTION_REQUIRED")] | length' <<<"$rollup")"
-        state="$(jq -r '.mergeStateStatus' <<<"$rollup")"
-
-        gql="{repository(owner:\"${OWNER}\",name:\"${repo}\"){pullRequest(number:${pr}){reviewThreads(first:50){nodes{isResolved isOutdated}}}}}"
-        threads="$(gh api graphql -f query="$gql" \
-            -q '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == false)] | length' \
-            2>/dev/null)" || threads="UNKNOWN(probe-failed)"
-
-        echo "DONE ${repo}#${pr} fail=${failed} threads=${threads} mergeState=${state}"
-        done_pr[$spec]=1
-    done
-
-    if [[ "${#done_pr[@]}" -ge $# ]]; then
-        exit 0
+    if ! jq -e . >/dev/null 2>&1 <<<"$out"; then
+        # Exit 3 is the waiter's own hard-error code; anything unparseable is a
+        # broken probe and must be LOUD, never silence.
+        echo "PROBE-ERROR ${repo}#${pr} waiter rc=${waiter_rc}, unparseable output: ${out:0:200}"
+        rc=2
+        continue
     fi
-    sleep "$POLL_SECONDS"
+
+    status="$(jq -r '.status' <<<"$out")"
+    failed="$(jq -r '.failed | length' <<<"$out")"
+    state="$(jq -r '.merge_state // "?"' <<<"$out")"
+    prstate="$(jq -r '.pr_state // "?"' <<<"$out")"
+
+    if [[ "$prstate" != "OPEN" ]]; then
+        echo "DONE ${repo}#${pr} state=${prstate} (no longer open)"
+        continue
+    fi
+
+    # The bit the shared waiter does not do.
+    gql="{repository(owner:\"${OWNER}\",name:\"${repo}\"){pullRequest(number:${pr}){reviewThreads(first:50){nodes{isResolved isOutdated}}}}}"
+    threads="$(gh api graphql -f query="$gql" \
+        -q '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == false)] | length' \
+        2>/dev/null)" || threads="UNKNOWN(probe-failed)"
+
+    if [[ "$status" == "timeout" ]]; then
+        running="$(jq -r '(.running // []) | join(", ")' <<<"$out")"
+        absent="$(jq -r '(.absent // []) | join(", ")' <<<"$out")"
+        echo "TIMEOUT ${repo}#${pr} after ${PER_PR_TIMEOUT}s — NOT a verdict. running=[${running}] absent=[${absent}]"
+        rc=1
+        continue
+    fi
+
+    echo "DONE ${repo}#${pr} status=${status} fail=${failed} threads=${threads} mergeState=${state}"
 done
 
-echo "TIMEOUT after $((MAX_ROUNDS * POLL_SECONDS))s; ${#done_pr[@]} of $# watched PRs reached terminal"
-exit 1
+exit "$rc"

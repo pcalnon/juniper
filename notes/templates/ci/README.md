@@ -45,3 +45,7 @@ The 2026-04-29 snapshot lags the fleet: juniper-ml's live `claude.yml` SHA-pins
 `actions/checkout` and `anthropics/claude-code-action` independently of this table
 (the action moves by ungrouped Dependabot PR). Operator surface:
 [`docs/REFERENCE.md` § Claude Code Action](../../docs/REFERENCE.md#claude-code-action).
+
+The 2026-04-29 snapshot lags the fleet: juniper-ml's CodeQL pins, the `codeql-action` Dependabot
+group, and the accepted `merge_group` trigger live in `.github/workflows/codeql.yml`. Operator
+surface: [`docs/REFERENCE.md` § CodeQL Analysis](../../docs/REFERENCE.md#codeql-analysis).

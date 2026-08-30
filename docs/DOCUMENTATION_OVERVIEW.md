@@ -2,7 +2,7 @@
 
 ## Navigation Guide to juniper-ml Documentation
 
-**Version:** 0.2.17
+**Version:** 0.2.20
 **Status:** Active
 **Last Updated:** 2026-08-24
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -26,7 +26,9 @@
 |-----------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|----------|
 | **Install Juniper packages**            | [QUICK_START.md](QUICK_START.md)                                                                                                 | docs/    |
 | **See extras and version info**         | [REFERENCE.md](REFERENCE.md)                                                                                                     | docs/    |
+| **Configure HTTP client `base_url`**    | [REFERENCE.md](REFERENCE.md#http-client-base-url-contract)                                                                       | docs/    |
 | **Run the local host stack**            | [REFERENCE.md](REFERENCE.md#host-orchestration-utilities)                                                                        | docs/    |
+| **Operate the scheduled Duplicati backup lane** | [REFERENCE — Scheduled Duplicati Backup Lane](REFERENCE.md#scheduled-duplicati-backup-lane)                                | docs/    |
 | **Reap orphaned Juniper pytest children** | [REFERENCE.md](REFERENCE.md#pytest-orphan-reaper)                                                                              | docs/    |
 | **Check installed juniper-* floor drift** | [REFERENCE.md](REFERENCE.md#environment-floor-drift-check)                                                                     | docs/    |
 | **Check custom-agent suite health**     | [REFERENCE.md](REFERENCE.md#agent-suite-doctor)                                                                                  | docs/    |
@@ -49,6 +51,7 @@
 | **Debug shared-package subdirectory CI**| [REFERENCE — Shared-Package CI Workflows](REFERENCE.md#shared-package-ci-workflows)                                              | docs/    |
 | **Operate weekly docs-full-check**      | [REFERENCE — Docs Full Check](REFERENCE.md#docs-full-check)                                                                     | docs/    |
 | **Understand weekly security / lockfile hygiene** | [REFERENCE — Scheduled Security Scan and Lockfile Update](REFERENCE.md#scheduled-security-scan-and-lockfile-update)     | docs/    |
+| **Triage CodeQL / `Analyze (python)`** | [REFERENCE — CodeQL Analysis](REFERENCE.md#codeql-analysis) (SHA group, `merge_group` divergence, review-thread stall) | docs/    |
 | **Read the release-train detect summary / Slack** | [REFERENCE — Detect Summary and Slack](REFERENCE.md#release-train-detect-summary-and-slack)                             | docs/    |
 | **Understand the AGENTS.md date check** | [REFERENCE — AGENTS.md Date Check](REFERENCE.md#agentsmd-date-check)                                                             | docs/    |
 | **Audit `claude.yml` access safeguards**| [REFERENCE — Claude.yml Access Validation](REFERENCE.md#claudeyml-access-validation) + [ANTHROPIC API key walkthrough](../notes/JUNIPER_2026-05-10_JUNIPER-ECOSYSTEM_ANTHROPIC-API-KEY-ACCESS-VALIDATION-WALKTHROUGH.md) | docs/ + notes/ |
@@ -72,6 +75,8 @@
 | **QUICK_START.md**                     | Tutorial   | Install Juniper packages in under a minute                                                       |
 | **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, agent-suite doctor, post-merge main-verify, YubiKey GPG pointer, fleet triage / sequence-safety, shared-package CI + publish pipelines (Gate 1 poll; release-only trigger), scheduled security-scan / lockfile-update, docs-full-check, release-train detect summary, AGENTS.md date check, `claude.yml` access validation, Claude Code Action (`@claude` assistant), sibling packages (incl. service-core), release-workflow, flood CI gates, and open-PR budget alarm |
 | **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, CI guardrail and hygiene tasks, signing-ceremony tasks, service-core contracts, and experiment-stack tasks |
+| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, Duplicati backup, agent-suite doctor, post-merge main-verify, YubiKey GPG, fleet triage / sequence-safety, shared-package CI + publish, security-scan / lockfile, docs-full-check, release-train detect, AGENTS.md date check, `claude.yml` access, sibling packages (incl. service-core), flood CI gates, and open-PR budget alarm |
+| **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, backup-lane, CI guardrail and hygiene tasks, signing-ceremony tasks, service-core contracts, and experiment-stack tasks |
 
 > The deprecated monolithic cheatsheet (`DEVELOPER_CHEATSHEET-ORIGINAL.md`)
 > was relocated to `notes/history/` in 2026-04 and consolidated into
@@ -105,6 +110,8 @@ Each subpackage has its own `README.md`, `CHANGELOG.md`, and `pyproject.toml`.
 |-----------------------------------------------------------------------------------------------|-------------|--------------------------------------------------------------------------------------------------|
 | **JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md**                     | Runbook     | Modes (`off`/`report`/`propose`/`ceremony`), Gate 1/2 review, HALTs, App-token setup             |
 | **JUNIPER_2026-08-03_JUNIPER-ECOSYSTEM_YUBIKEY-GPG-ED448-KEYTOCARD-PROCEDURE.md**              | Procedure   | YubiKey 5 ed448 `keytocard` root cause + validated ed25519/cv25519 transfer (pointer in [REFERENCE](REFERENCE.md#yubikey-gpg-provisioning)) |
+| **JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md**                  | Findings    | Why the July restore points are gone; scheduled lane is the replacement (pointer in [REFERENCE](REFERENCE.md#scheduled-duplicati-backup-lane)) |
+| **JUNIPER_2026-08-24_JUNIPER-ECOSYSTEM_DUPLICATI-GPG-FLUSH-FAILURE-INVESTIGATION.md**          | Investigation | GPGFlushError / Duplicati GPG wrapper; not a reason to drop `--no-auto-compact` |
 | **JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md**                      | Analysis    | Flood remediation (§4 item 9 = open-PR budget alarm; operator surface in [REFERENCE](REFERENCE.md#open-pr-budget-alarm)) |
 | **JUNIPER_2026-07-30_JUNIPER-ML_CURSOR-DASHBOARD-CONFIG-REQUESTS.md**                          | Requests    | Source-side Cursor dashboard caps (companion to the repo budget alarm)                           |
 | **JUNIPER_2026-05-10_JUNIPER-ECOSYSTEM_ANTHROPIC-API-KEY-ACCESS-VALIDATION-WALKTHROUGH.md**    | Walkthrough | L2/L3 `claude.yml` safeguards + `validate_claude_yaml_access.bash`; `DEFAULT_REPOS` fan-out in [REFERENCE](REFERENCE.md#claudeyml-access-validation); live pin in [Claude Code Action](REFERENCE.md#claude-code-action) |
@@ -153,8 +160,8 @@ Exact floors and ranges: [`REFERENCE.md`](REFERENCE.md#extras-reference) and `py
 
 ### Installed Packages
 
-- **juniper-data-client** -- [Docs](https://github.com/pcalnon/juniper-data-client) (HTTP client for juniper-data)
-- **juniper-cascor-client** -- [Docs](https://github.com/pcalnon/juniper-cascor-client) (HTTP/WS client for juniper-cascor)
+- **juniper-data-client** -- [Docs](https://github.com/pcalnon/juniper-data-client) (HTTP client for juniper-data) + [REFERENCE `base_url`](REFERENCE.md#http-client-base-url-contract)
+- **juniper-cascor-client** -- [Docs](https://github.com/pcalnon/juniper-cascor-client) (HTTP/WS client for juniper-cascor) + [REFERENCE `base_url`](REFERENCE.md#http-client-base-url-contract)
 - **juniper-cascor-worker** -- [Docs](https://github.com/pcalnon/juniper-cascor-worker) (distributed training worker)
 - **juniper-observability** -- [Local docs](../juniper-observability/README.md) (shared health, logging, middleware, Prometheus, and Sentry primitives)
 - **juniper-doc-tools** -- [Local docs](../juniper-doc-tools/README.md) (markdown link validator)
@@ -170,5 +177,5 @@ Exact floors and ranges: [`REFERENCE.md`](REFERENCE.md#extras-reference) and `py
 ---
 
 **Last Updated:** 2026-08-24
-**Version:** 0.2.17
+**Version:** 0.2.20
 **Maintainer:** Paul Calnon

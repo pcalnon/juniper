@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.24
+**Version**: 1.0.27
 **Date**: 2026-08-24
 **Project**: juniper-ml
 
@@ -29,6 +29,9 @@
 | `util/juniper_chop_all.bash`                           | Stop the host-level stack from `JuniperProject.pid` |
 | `util/juniper_plant_all.bash --systemd`                | Start via `systemctl --user` (no pidfile; curl required) |
 | `util/juniper_chop_all.bash --systemd`                 | Stop via `systemctl --user` (reverse order; soft-fail; no pidfile path) |
+| `util/install_duplicati_timer.bash`                    | Install (copy, not symlink) the `systemd --user` Duplicati backup lane; does **not** enable the timer |
+| `systemctl --user enable --now duplicati-backup.timer` | Enable the overnight timer **after** a first full backup and a restore drill |
+| `systemctl --user list-timers duplicati-backup.timer`  | Confirm the next `duplicati-backup.timer` fire time |
 | `util/experiment_stack.bash --dry-run --up --cascor`   | Preview a per-run experiment stack (ports 8110–8289; no side effects) |
 | `util/experiment_stack.bash --up --cascor --config PATH` | Bring up data+cascor for one experiment run (`--recurrence` for LMU) |
 | `python util/experiments/run_experiment.py --config PATH --run-dir RUN_DIR` | Drive one YAML against the run's `ports.json` (plots + stats + manifest) |
@@ -223,6 +226,8 @@ npz = client.download_artifact_npz(dataset_id)
 
 Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`, `mnist`, `arc_agi`
 
+REST `base_url` (data / cascor / recurrence HTTP clients on GitHub main): strip, case-insensitive `http(s)://` default, require `hostname` (not `netloc`), drop trailing `/` and `/v1`. Hostless values raise `Juniper*ConfigurationError` at init. Cascor WS streams (`CascorTrainingStream` / `CascorControlStream`) and `FakeCascorClient` stay `rstrip("/")` only. Extras floors do not yet require the new wheels — see [REFERENCE — HTTP Client Base-URL](REFERENCE.md#http-client-base-url-contract).
+
 ---
 
 ## CI/CD
@@ -238,6 +243,7 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 | Publish shared package | Create GitHub Release with a `juniper-<pkg>-vX.Y.Z` tag → `publish-<pkg>.yml` (six packages)|
 | Retry shared publish   | `gh workflow run publish-<pkg>.yml --repo pcalnon/juniper-ml --ref juniper-<pkg>-vX.Y.Z`    |
 | Weekly security scan   | Actions → Scheduled Security Scan (`pip-audit --strict --desc on` after `pip install -e .`) |
+| CodeQL Analysis        | `.github/workflows/codeql.yml` — required context `Analyze (python)`; see tip below         |
 | Weekly lockfile refresh| Actions → Update Lockfiles (`juniper-generate-dep-docs` → PR on `chore/lockfile-update`)    |
 | Weekly docs-full-check | Mon 06:00 UTC / dispatch — clones `ECOSYSTEM_REPOS`, `--cross-repo check` + pin screens     |
 | Audit this `claude.yml`| `bash util/validate_claude_yaml_access.bash .github/workflows/claude.yml`                   |
@@ -414,6 +420,14 @@ main-verify tip when it is an ancestor of HEAD (sweeps `[skip ci]` gaps), else `
 `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite:` commit trailers. Keep the battery list in lockstep with
 `ci.yml`'s `tests` job. Full contract: [REFERENCE — Post-Merge Main Verification](REFERENCE.md#post-merge-main-verification).
 
+**CodeQL Analysis (`Analyze (python)`):** `.github/workflows/codeql.yml` is Python semantic SAST
+(`queries: +security-and-quality`). The check is a **ruleset** required context, not a Quality Gate
+`needs:` member. All three `github/codeql-action/{init,autobuild,analyze}` pins must share one SHA —
+Dependabot group `codeql-action` (`github/codeql-action*` in `.github/dependabot.yml`) is what keeps
+a bump atomic (one PR, three updates). `merge_group:` is an accepted juniper-ml-only divergence so
+the context re-posts on a queued merge; do not overwrite the file with the `notes/templates/ci/`
+snapshot. Full contract: [REFERENCE — CodeQL Analysis](REFERENCE.md#codeql-analysis).
+
 **YubiKey ed448 `keytocard` (ml#904 / #914):** YubiKey 5 OpenPGP cannot hold Ed448/X448 — `KEYTOCARD failed:
 Invalid value` is a hardware limit, not a bad PIN. Keep ed448 certify offline; put ed25519/cv25519
 subkeys on the card. Procedure:
@@ -505,6 +519,11 @@ Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant he
 
 Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
 
+Tip: `util/install_duplicati_timer.bash` **copies** the Duplicati runner/units (a worktree symlink dies with `git worktree remove`) and does **not** `enable --now`.
+Linger must be `yes`; `~/.config/duplicati-backup/env` must be mode `600` with `PASSPHRASE=`. `--no-auto-compact=true` is load-bearing.
+A skip overwrites `result=OK`, so the next skip always escalates. Distinct from `util/juniper-backup.bash`.
+Full contract: [REFERENCE — Scheduled Duplicati Backup Lane](REFERENCE.md#scheduled-duplicati-backup-lane).
+
 Tip: before merging a Cursor-fleet batch, run `python util/fleet_triage/predict_merge.py --batch --json`.
 Prefer heal PRs first (title/branch tokens `restore`/`heal`/`repair`/`fix-first` sort ahead of colliding
 feat PRs); never treat script exit `0` as “all clean” — read each `verdict`. Symbol screen matches
@@ -547,6 +566,8 @@ Tip: `experiment_stack.bash` legs are OR-listed (`*_up || failed=1`), which disa
 Tip: a renderer `ValueError` is a per-plot SKIP (exit `0`, no PNG); missing matplotlib, a failed payload fetch, or any other render exception is SKIP **and** acceptance failure (exit `1`). Inspect `jq '.driver.plots' $RUN_DIR/manifest.json`. See [REFERENCE — Plot SKIP vs acceptance](REFERENCE.md#plot-skip-vs-acceptance-valueerror-contract).
 
 Tip: juniper-service-core invariants — `RequestBodyLimitMiddleware` always stream-caps POST/PUT/PATCH (`Content-Length` is a hint only); auth runs before rate limiting and 429s must pass `exc.headers` through; control-WS reject logs stay single-line via `_sanitize_for_log`; `ws_control_rate_limit_per_sec=0` yields `retry_after=3600` instead of dividing by zero; `/ws/workers` closes **4001** on bad auth and **4008** on a bad registration shape. See [REFERENCE — juniper-service-core](REFERENCE.md#juniper-service-core).
+
+Tip: REST client `base_url` on GitHub-main data/cascor/recurrence clients is normalised (case-insensitive scheme, `hostname` required, trailing `/v1` stripped). `HTTPS://host` on an older wheel silently becomes `http://HTTPS://host`. Cascor WS streams stay rstrip-only. Host cascor is `:8201`, constructor default is `:8200`. See [REFERENCE — HTTP Client Base-URL](REFERENCE.md#http-client-base-url-contract).
 
 Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or returns non-JSON, while `--batch` soft-`ERROR`s that row and keeps going. A deleted `.py` stays in `true_delta` for the symbol screen but is filtered out of the pre-commit battery, so a pure-deletion PR can be gate-clean and still `DAMAGED-FIX-FIRST`.
 
@@ -594,6 +615,10 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Chop preserves pidfile after WARNING stop failures | A `graceful_stop` failed — inspect survivors (`ss -tlnp`), then re-chop or kill manually. |
 | systemd plant: missing `curl` | Install/expose `curl`; abort is before any `systemctl start`. |
 | systemd plant partial after health timeout | Run `util/juniper_chop_all.bash --systemd` (ERR cleanup does not `systemctl stop`). |
+| Duplicati installer refuses `env` / mode / Linger | `~/.config/duplicati-backup/env` mode `600` with `PASSPHRASE=`; `loginctl enable-linger $USER` |
+| Duplicati timer silent after logout | Linger was `no` — the original failure class. Confirm `list-timers duplicati-backup.timer` |
+| Duplicati `FATAL` unmounted dest / tmpfs tempdir | Mount the backup volume; point `DUPLICATI_TEMP_DIR` at any disk-backed path (the runner refuses a RAM-backed one outright, and `/tmp` is tmpfs here) |
+| Duplicati skip then next run escalates | Expected — skip overwrites `result=OK`. Inspect `~/.local/state/duplicati/{last-run.status,failures.log}` |
 | `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch ref — not a damage finding. |
 | Fleet `DAMAGED` on intentional docs rewrite | Add `Allow-Docs-Rewrite: <path>` or `*` in BASE..RESULT (#926); wrong-path trailers do not waive. |
 | Mixed `--systemd` / pidfile modes | Match plant and chop modes; systemd never writes `JuniperProject.pid`. |
@@ -603,7 +628,10 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | `--fix` JSON shows `ERROR` mid-plan | Inspect `error` (stderr/`OSError`, ≤500 chars); fix env python / pip cause; re-run `--fix`. Other items may already be `FIXED`. |
 | Sequence Safety red, Quality Gate green | Advisory by design — download `sequence-safety-report`; waive with trailers or (owner) labels |
 | Label greens Sequence Safety; `main-verify` fails | Put `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite:` on a landed commit; labels are PR-only |
-| Merge queue stalled (no required check) | Confirm `ci.yml` `on.merge_group` still present; required contexts must re-post on queue |
+| Merge queue stalled (no required check) | Confirm `ci.yml` **and** `codeql.yml` `on.merge_group` still present; `Analyze (python)` must re-post |
+| `Analyze (python)` red: version mismatch | `init`/`autobuild`/`analyze` SHAs split — align to one SHA; keep Dependabot group `codeql-action` |
+| Checks green, merge `BLOCKED` (CodeQL) | Unresolved CodeQL review thread (not in the check rollup) — fix the finding in code |
+| Waiting for results from CodeQL | Ruleset `code_scanning` has no SARIF yet — wait for `Analyze (python)`; restore `merge_group` if a queued merge never gets a context |
 | Tiny PR still fails global doc-link hook | G4: `pass_filenames: false` hooks still run repo-wide under `--from-ref` |
 | `KEYTOCARD failed: Invalid value` (ed448) | Hardware — YubiKey 5 OpenPGP has no Ed448; use ed25519/cv25519 subkeys. See [REFERENCE](REFERENCE.md#yubikey-gpg-provisioning). |
 | Stub pinentry “No pinentry” / dead agent | Assuan greeting must be `OK …` (#914); check `util/ad-hoc/2026-08-03_yubikey_test_pinentry.bash`. Throwaway creds only. |
@@ -628,6 +656,10 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Driver exit `1` `matplotlib unavailable` | Install matplotlib or drop `outputs.plots`; other render exceptions and fetch failures also fail acceptance. |
 | `residuals.png` has only 2 panels | Optional `target_dt_*` missing or length-mismatched — pred/truth still plotted; not a SKIP. |
 | HTTP 429 missing `Retry-After` | `SecurityMiddleware` must pass `exc.headers` into the `JSONResponse`. |
+| `Juniper*ConfigurationError: base_url must include a host` | Hostless constructor URL (`""`, `http://`, `http://user:secret@`) — fix the URL, not the service. |
+| `HTTPS://host` talks HTTP / hostname `https` | Wheel predates case-insensitive scheme matching; install client GitHub main or wait for the next PyPI cut. |
+| Cascor REST connection refused on `:8200` | Constructor default is the container port; host stack publishes `:8201`. |
+| WS stream does not default `ws://` / reject hostless | Deliberate — `CascorTrainingStream` / `CascorControlStream` only `rstrip("/")`. |
 | A probe gets 429 on `/v1/health` | Health/docs/metrics are exempt in service-core — check an upstream proxy or a non-exempt path. |
 | Large POST accepted despite the body limit | The mutating-method stream cap must be unconditional; a `Content-Length`-only fast path is the bypass. |
 | Control-WS reject log spans multiple lines | `_sanitize_for_log` regression — never interpolate raw Origin/command into logger format strings. |
@@ -674,6 +706,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Ecosystem Guide](../AGENTS.md) -- project map, dependency graph, conventions
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
+- [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
@@ -681,5 +714,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-08-24
-**Version:** 1.0.24
+**Version:** 1.0.27
 **Maintainer:** Paul Calnon
