@@ -299,25 +299,7 @@ read it when working on this area.
 
 ## Pre-commit Hooks
 
-Setup:
-
-```bash
-pip install pre-commit
-pre-commit install
-pre-commit run --all-files
-```
-
-Configured hooks (`.pre-commit-config.yaml`):
-
-| Hook Group         | Version   | Scope                                            | Purpose                                                                                                                       |
-|--------------------|-----------|--------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| pre-commit-hooks   | v4.6.0    | All files                                        | YAML/TOML/JSON check, EOF fixer, trailing whitespace, merge conflicts, large files, AST check, debug statements, private keys |
-| flake8             | 7.1.1     | `scripts/`, `tests/` `.py`                       | Python linting (max-line-length: 512) with bugbear, comprehensions, simplify                                                  |
-| bandit             | 1.9.4     | `scripts/`, `tests/` `.py`                       | Python security scanning                                                                                                      |
-| shellcheck         | v0.10.0.1 | `.sh`, `.bash`                                   | Shell script linting (severity: warning)                                                                                      |
-| markdownlint       | v0.42.0   | `.md` (excl. CHANGELOG, notes/, docs/, prompts/) | Markdown linting with auto-fix                                                                                                |
-| yamllint           | v1.35.1   | YAML files                                       | YAML linting (relaxed mode)                                                                                                   |
-| no-unencrypted-env | local     | `.env`, `.env.secrets`                           | Blocks unencrypted env files from commit                                                                                      |
+Setup commands and the full hook table (version, scope, and the failure each hook catches). Moved to [`docs/REFERENCE.md` § Pre-commit Hook Reference](docs/REFERENCE.md#pre-commit-hook-reference) — read it when working on this area.
 
 ## Secrets Management (SOPS)
 

@@ -227,11 +227,50 @@ points keeps `train` identical to what it is today, so the only behavioural chan
 stopping now has a partition to consult. That converts §7's "existing baselines shift" from a
 certainty into a much narrower question.
 
-**Open consequence to verify, not assume**: whether generating 1700 points and taking the first 1000
-as `train` yields the *same* 1000 rows as generating 1000. It does **not** in general — a generator
-that draws sequentially will, but one that normalises, shuffles or balances over the full requested
-set will not. This must be checked per generator before claiming existing baselines are preserved
-(§9 V-1).
+**V-1 MEASURED 2026-08-30 — the baseline-preservation benefit does NOT hold. Do not claim it.**
+
+The question was whether generating N+M points yields the *same* first N rows as generating N.
+Measured across all six cascor-relevant generators with `seed=42` held fixed
+(`util/ad-hoc/2026-08-30_v1_generator_prefix_check.py`):
+
+| generator | `X_full` | `X_train` |
+| --- | --- | --- |
+| spiral | DIFFERS | **DIFFERS** |
+| moon | DIFFERS | **DIFFERS** |
+| xor | DIFFERS | **DIFFERS** |
+| circles | DIFFERS | **DIFFERS** |
+| checkerboard | DIFFERS | **DIFFERS** |
+| gaussian | DIFFERS | **DIFFERS** |
+
+**6/6 differ, on both keys.** Two mechanisms, and the second is the more general one:
+
+1. Nine of sixteen generators call `shuffle_and_split(X, y, …)` over the **full** generated set
+   before splitting, so a permutation over 1,700 rows shares nothing with one over 1,000.
+2. `X_full` differs too — so it is not only the shuffle. The raw generation itself is not
+   prefix-stable: a larger N consumes the RNG stream differently (vectorised draws are sized to N),
+   so even the pre-split data changes.
+
+**The precise consequence — keep these two apart:**
+
+- *"`train` does not shrink"* — **TRUE**, and unaffected. Ask for 1,000 training points and you get
+  1,000. The COUNT is preserved.
+- *"existing baselines are preserved"* — **FALSE**. The CONTENT changes: different rows, same count.
+
+So §6.3's stated advantage over a 600/200/200 carve-up — that it avoids invalidating the corpus —
+**evaporates**. Under either sizing model every existing baseline moves, and a re-baseline is
+required either way. The choice between them must now be made on other grounds (dataset economy,
+whether a 1,000-row training set is wanted at all), not on baseline preservation.
+
+This does **not** overturn decision 2 — honouring the requested training count is still a defensible
+default, and is still what a caller asking for 1,000 points expects. It removes the *reason* that
+was given for it, and it re-prices decision 4 (re-measure pre-change results) from "narrow" back to
+"required".
+
+Instrument note: the first run of this check reported `xor` and `gaussian` as PREFIX-STABLE. That
+was **vacuous** — their size parameters are `n_points_per_quadrant` and `n_samples_per_class`, the
+generic `n_samples` kwarg was silently ignored by the params model, and both runs came out at the
+default size, so the comparison was between two identical generations. The script now refuses to
+report stability when the two runs produced the same row count.
 
 ### 6.4 The gate when `X_val` is missing
 
@@ -255,7 +294,9 @@ situation went unnoticed.
   literally and `eval`/`test` are generated as additional points. This removes the largest source of
   baseline invalidation before it happens.
 - **Existing baselines still shift, but for one reason instead of two.** `train` is preserved
-  (subject to V-1), so the remaining change is behavioural: the service already early-stopped and
+  in COUNT but **not in content** (V-1, measured 2026-08-30 — see §6.3), so the rows move under
+  either sizing model and a re-baseline is required regardless. Beyond that the change is
+  behavioural: the service already early-stopped and
   will now do so against a partition it does not report, and the CLI gains early stopping it never
   had (§9 decision 5). The T6 re-baseline, the P3 thresholds and the attribution corpora were all
   measured under the old semantics and none of them are wrong — they answer a different question.
@@ -306,12 +347,10 @@ unquantified motivation, and §7's "existing baselines shift" has no size attach
   APIs, not a partition. Under external validation as of 2026-08-29; see §10.1. **Do not treat
   `X_val` as decided.** Whatever name wins, the contract key, the config vocabulary and the
   consumer code should all use it consistently.
-- **V-1 — does generating N+M points preserve the first N?** §6.3's claim that existing `train` rows
-  are unchanged holds only if each generator produces the same first N rows when asked for N+M. A
-  sequential generator will; one that normalises, shuffles or class-balances over the full requested
-  set will not. **Verify per generator before claiming baselines are preserved.** The juniper-data
-  generators are also known to default to `seed=None` in 5 of 6 cases, which is an independent
-  reproducibility hazard on any regeneration path.
+- **V-1 — RESOLVED 2026-08-30: NO.** All six cascor-relevant generators produce different
+  rows when asked for N+M vs N at the same seed, on both `X_full` and `X_train`. The COUNT
+  is preserved; the CONTENT is not, so baseline preservation was never available under this
+  sizing model. See §6.3 for the table, the two mechanisms, and what it re-prices.
 - **V-2 — measure the leak before removing it** (§8). Still the right first step, and now doubly so:
   it is the only way to size what decision 4's re-measurement will change.
 - **V-3 — CLI early stopping changes CLI results.** Decision 5 is correct for parity but is a
