@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.14
+**Version:** 0.6.15
 **Status:** Active
 **Last Updated:** 2026-08-24
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -16,6 +16,7 @@
 - [Ecosystem Compatibility](#ecosystem-compatibility)
 - [HTTP Client Base-URL Contract](#http-client-base-url-contract)
 - [Host Orchestration Utilities](#host-orchestration-utilities)
+- [Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane)
 - [Editable Install Drift Check](#editable-install-drift-check)
 - [Pytest Orphan Reaper](#pytest-orphan-reaper)
 - [Environment Floor Drift Check](#environment-floor-drift-check)
@@ -475,6 +476,115 @@ Troubleshooting:
 | systemd plant health timeout / partial stack | `cleanup_on_failure` did **not** stop user units. Inspect `systemctl --user status juniper-{data,cascor,canopy,cascor-worker}` and tear down with `util/juniper_chop_all.bash --systemd` (or matching `systemctl --user stop`) before re-planting. |
 | Worker WARNING: healthy but unit not active | HTTP `/v1/health/ready` passed but `is-active` failed — check `journalctl --user -u juniper-cascor-worker` / unit file; plant still exited 0. |
 | Mixed plant/chop modes | Never plant with `--systemd` and chop via pidfile (or the reverse). Match the mode used at start. |
+
+---
+
+## Scheduled Duplicati Backup Lane
+
+Host-level `$HOME` backup under `systemd --user`, independent of the GNOME tray instance and of Duplicati's own scheduler (the server DB `Schedule` table was empty when this lane shipped). Merged in [juniper-ml#1292](https://github.com/pcalnon/juniper-ml/pull/1292). This is **not** `util/juniper-backup.bash` (that script `tar | gpg -e` encrypts the Juniper *project tree* to an external drive with asymmetric YubiKey recipients).
+
+The 2026-07-13 archive damage went undetected for six weeks because the only runner was a gnome-shell-launched scope under a user manager with `Linger=no`: it died at logout and nothing said so. This lane is the replacement.
+
+### Install (copies, not symlinks)
+
+```bash
+util/install_duplicati_timer.bash
+# after the first full backup AND a restore drill against the new set:
+systemctl --user enable --now duplicati-backup.timer
+systemctl --user list-timers duplicati-backup.timer
+```
+
+`install_duplicati_timer.bash` copies (never symlinks) into `~/.local/bin/` and `~/.config/systemd/user/`:
+
+| Installed path | Source |
+|----------------|--------|
+| `~/.local/bin/duplicati-scheduled-backup.bash` | `util/duplicati_scheduled_backup.bash` |
+| `~/.local/bin/duplicati-backup-failure.bash` | `util/duplicati_backup_failure.bash` |
+| `~/.config/systemd/user/duplicati-backup.service` | `util/systemd/duplicati-backup.service` |
+| `~/.config/systemd/user/duplicati-backup.timer` | `util/systemd/duplicati-backup.timer` |
+| `~/.config/systemd/user/duplicati-backup-failure.service` | `util/systemd/duplicati-backup-failure.service` |
+
+Canonical copies live in a git worktree. A symlink into one turns `git worktree remove` into a silent breakage of the backup lane — the same class that left a live passphrase inside a disposable worktree.
+
+The installer **does not** `enable --now` the timer. Enabling while a first full backup is still in flight risks a second run against the same local DB. It refuses unless:
+
+1. `~/.config/duplicati-backup/env` exists, is mode `600`, and contains a `PASSPHRASE=` line (the service will not start without it).
+2. `loginctl show-user "$USER" --property=Linger --value` is `yes` (`loginctl enable-linger $USER` otherwise — without linger the user manager exits at logout and the timer never fires).
+
+Then `systemctl --user daemon-reload`.
+
+### Timer and unit contract
+
+| Knob | Value | Why |
+|------|-------|-----|
+| `OnCalendar` | `*-*-* 02:30:00` | Overnight, off the interactive work window |
+| `RandomizedDelaySec` | `30m` | Wake-from-suspend does not stampede other timers |
+| `Persistent` | `true` | A workstation powered off at 02:30 still runs the missed window; without this the set silently goes stale |
+| `TimeoutStartSec` | `infinity` | A full run takes many hours; an inherited start timeout would kill a healthy backup and leave a partial fileset |
+| `Nice` / `IOSchedulingPriority` | `10` / `7` (`best-effort`) | Workstation neighbour |
+| `EnvironmentFile` | `%h/.config/duplicati-backup/env` | Passphrase via environment, **never** on the command line (`/proc/<pid>/cmdline` is world-readable; `environ` is not) |
+| `OnFailure` | `duplicati-backup-failure.service` | A backup that silently stops is indistinguishable from one that works |
+
+The failure unit writes `${DUPLICATI_STATE_DIR:-$HOME/.local/state/duplicati}/failures.log` first (journal tail + `last-run.status`), then best-effort `notify-send` (`|| true` — under `Linger=yes` with no graphical session there is no session bus). The reporter always exits `0` so a second failed unit does not bury the original. It is **not** chained to another `OnFailure=`.
+
+### Runner guards
+
+`util/duplicati_scheduled_backup.bash` encodes failures actually observed in this arc. Defaults are overridable; destination / dbpath / source / tempdir are host paths, not ecosystem ports.
+
+| Override | Default | Role |
+|----------|---------|------|
+| `PASSPHRASE` | *(required)* | GPG passphrase; length floor 12 chars (cannot detect a *wrong* value — Duplicati will encrypt a fresh set under any passphrase) |
+| `DUPLICATI_DEST_URL` / `DUPLICATI_DEST_PATH` | `file:///media/pcalnon/temp_backups/Ubuntu` / that path | Backend URL and local directory |
+| `DUPLICATI_DEST_MOUNT` | `/media/pcalnon/temp_backups` | Must be a real mountpoint (`mountpoint -q`) |
+| `DUPLICATI_DBPATH` | `~/.config/Duplicati/DQRVQNDIFX.sqlite` | Local job DB |
+| `DUPLICATI_SOURCE` | `/home/pcalnon` | Source tree |
+| `DUPLICATI_TEMP_DIR` | `/media/pcalnon/temp_backups/_duplicati_tmp` | Volume staging; a **sibling** of the destination, same filesystem (finished volumes rename, not copy). Must not be tmpfs/ramfs |
+| `DUPLICATI_STATE_DIR` | `~/.local/state/duplicati` | `backup.lock`, `last-run.status`, per-run logs, `failures.log` |
+| `DUPLICATI_STALE_DAYS` | `3` | Skip-escalation ceiling (see below) |
+
+Guards, in order:
+
+| # | Check | On fail |
+|---|-------|---------|
+| 1 | `PASSPHRASE` set and ≥ 12 chars | `FATAL` |
+| 2 | dest is a mounted, existing, writable directory | `FATAL` (an unmounted path is an empty dir on `/` and reads to Duplicati as "everything is missing") |
+| 3 | dest is empty **or** already holds `duplicati-*` volumes | `FATAL` (wrong filesystem) |
+| 3b | `DUPLICATI_TEMP_DIR` fstype is not `tmpfs` / `ramfs` | `FATAL` (observed 2026-08-23: unset `--tempdir` staged 500 MB volumes in `/tmp` tmpfs — 8.4 GB RAM in flight) |
+| 4 | non-blocking `flock` on `${STATE_DIR}/backup.lock` | `skip_or_fail` |
+| 5 | no other live process has `DBPATH` open (`/proc/*/fd` realpath, **not** `pgrep -f`) | `skip_or_fail` |
+
+Guard 5 is on the **database**, not the process name: a hand-started `duplicati-cli backup`, the same binary by absolute path, and `duplicati-server` running the job in-process from the web UI all hold the DB open. `pgrep -f` self-matches and already produced a wrong status line in this arc.
+
+`--no-auto-compact=true` is load-bearing. An interrupted compact on 2026-07-13 deleted 1,208 dblock/dindex pairs and wrote zero replacements. Do not drop it without a considered compaction-safety decision.
+
+### Skip vs failure (OnFailure only fires on non-zero)
+
+A skip is `exit 0`, so systemd reports success and `OnFailure=` does **not** run. Two properties make that safe:
+
+1. Every skip still stamps `last-run.status` with a **current** timestamp (`result=SKIPPED`), so the file cannot freeze at an old `OK`.
+2. `skip_or_fail` only treats the file as a success stamp when its *current* contents match `^result=OK`. After one skip the next skip sees no OK stamp (`last_ok=0`) and **always escalates** to `FATAL` (OnFailure fires) — including a first skip that never had a prior OK. A persistently hung `duplicati` therefore cannot make every nightly run skip forever.
+
+Do **not** read `DUPLICATI_STALE_DAYS` as "N consecutive skips are allowed." The OK stamp is overwritten on the first skip.
+
+### Related (do not treat as runnable restore steps)
+
+- Archive damage findings: [`notes/JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md`](../notes/JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md)
+- GPGFlushError investigation (open; not a reason to drop `--no-auto-compact`): [`notes/JUNIPER_2026-08-24_JUNIPER-ECOSYSTEM_DUPLICATI-GPG-FLUSH-FAILURE-INVESTIGATION.md`](../notes/JUNIPER_2026-08-24_JUNIPER-ECOSYSTEM_DUPLICATI-GPG-FLUSH-FAILURE-INVESTIGATION.md)
+- `notes/JUNIPER_2026-08-22_JUNIPER-ECOSYSTEM_DUPLICATI-DB-RESTORE-RUNBOOK.md` is **withdrawn** — restoring the archived job DB reproduces the wedge. Do not execute it.
+
+Troubleshooting:
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Installer: missing `env` / not mode `600` / no `PASSPHRASE=` | Create `~/.config/duplicati-backup/env` mode `600` with a `PASSPHRASE=` line; the service reads it via `EnvironmentFile=` |
+| Installer: Linger is NOT enabled | `loginctl enable-linger $USER`; without this the timer dies at logout |
+| Timer never fires after logout | Linger was the original failure class — confirm `Linger=yes` and `systemctl --user list-timers duplicati-backup.timer` |
+| `FATAL: … is NOT a mountpoint` | The dest path resolved onto `/` — mount the backup volume before retrying |
+| `FATAL: … tmpfs (RAM-backed)` | Point `DUPLICATI_TEMP_DIR` at any disk-backed path — the runner stats the filesystem and refuses a RAM-backed one; `/tmp` is tmpfs on this host |
+| Skip then the next run `FATAL` escalating | Expected — a skip overwrites `result=OK`; the following skip always escalates. Inspect `last-run.status` and `failures.log` |
+| Two runners / web UI plus timer | Guard 4/5: wait, or stop the other holder of `DBPATH`; do not `pgrep -f` to decide |
+| Failed run, no desktop popup | Reporter still wrote `failures.log`; `notify-send` is best-effort under linger with no session bus |
+| Partial fileset / killed run | The unit sets `TimeoutStartSec=infinity` so systemd will not SIGTERM a long healthy run. An abrupt `kill -9` mid-WAL is the class the [archive-damage findings](../notes/JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md) warn against — TERM, then wait. |
 
 ---
 
@@ -1356,6 +1466,10 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 
 - `util/worktree_cleanup.bash` -- Automated worktree cleanup with CWD-safe session continuity (V2 procedure). `MAIN_REPO` derives from `${BASH_SOURCE[0]}` (one dir up) with a `JUNIPER_ML_MAIN_REPO` override for test fixtures. Flags: `--old-worktree`, `--old-branch`, `--parent-branch`, `--new-worktree`, `--new-branch`, `--skip-pr`, `--skip-remote-delete`, `--dry-run`. Phase 7 always restores the primary checkout to an up-to-date `main` (skips on a dirty tree or a checkout refusal; F-6 stale-checkout class).
   - Phase 1: non-empty `status --porcelain` in the old worktree → `exit 1` (`Commit or stash…`) before any push; `--dry-run` skips the check. Clean tree then pushes when ahead/`-u` when no upstream/skips when synced. Phase 2 refuses an existing `NEW_WORKTREE` path (`exit 1`, never clobbers).
+- `util/duplicati_scheduled_backup.bash` / `util/install_duplicati_timer.bash` / `util/duplicati_backup_failure.bash` -- Host `$HOME` Duplicati lane under `systemd --user` (#1292).
+  - Installer **copies** (never symlinks) the runner, OnFailure reporter, and three user units; does **not** `enable --now` the timer.
+  - Runner fail-closes on empty/short passphrase, unmounted dest, wrong-filesystem dest, and tmpfs `--tempdir`; `flock` / DB-open holders `skip_or_fail` (a skip overwrites `result=OK`, so the next skip always escalates).
+  - `--no-auto-compact=true` is load-bearing. Distinct from `util/juniper-backup.bash` (project-tree `tar | gpg -e`). Operator surface: [`docs/REFERENCE.md` § Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane).
 - `util/reap_pytest_orphans.bash` -- Safely reaps orphaned Juniper pytest multiprocessing children (`--dry-run` / `--verbose`).
   - Candidate awk gate: current-user + `/python/` + (`JuniperC[a-z0-9]+` conda path or `Juniper/worktrees/`); empty set exits 0 with "No Juniper python processes found."
   - Orphan when ppid is `1`, user `systemd --user`, or parent gone; live parents KEEP. `SKIPPED` on ps→gone race or missing `PPid:` (never kill).
@@ -2845,8 +2959,8 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
-| 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate |
-| 0.6.14   | 2026-08-24 | CodeQL Analysis operator surface: `Analyze (python)` ruleset context, SHA-grouped Dependabot bumps, accepted `merge_group` divergence, split-pin / review-thread pitfalls |
+| 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
+| 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
@@ -3181,7 +3295,7 @@ These variables are consumed by Juniper packages documented in this repository. 
 > `CASCOR_SERVICE_URL` defaults to the cascor service/container port (`8200`). The host-level stack and `util/get_cascor_*.bash` helpers target the host-facing port (`8201`) unless overridden.
 > REST constructor `base_url` values are normalised as of the GitHub-main clients documented in [HTTP Client Base-URL Contract](#http-client-base-url-contract); those env vars are **not** themselves passed through `_normalize_url` unless the caller feeds them into the constructor.
 
-Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities), the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities), and the per-run experiment overrides in [Experiment Stack Utilities](#experiment-stack-utilities).
+Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities), the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities), the per-run experiment overrides in [Experiment Stack Utilities](#experiment-stack-utilities), and the Duplicati lane overrides in [Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane).
 
 `JUNIPER_CASCOR_SNAPSHOTS_DIR` is **dual-use**: cascor's snapshot write directory **and** `snapshot_index.default_root()`.
 Experiment `--up` may redirect it to `$RUN_DIR/snapshots` (W-6). The attribution sidecar chain must **not** — pass `--root` instead.
@@ -3192,5 +3306,5 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 ---
 
 **Last Updated:** 2026-08-24
-**Version:** 0.6.14
+**Version:** 0.6.15
 **Maintainer:** Paul Calnon
