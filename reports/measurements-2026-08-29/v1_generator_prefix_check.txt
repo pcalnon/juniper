@@ -1,0 +1,15 @@
+# V-1: does generating the LARGER set preserve the smaller set's first N rows?
+# small=500 large=850 seed=42 (same seed both runs)
+# X_full  = the raw generated set before splitting
+# X_train = the post-split training partition -- the one section 6.3's claim is about
+
+spiral         X_full=DIFFERS(1000 vs 1700)  X_train=DIFFERS(800 vs 1360)
+moon           X_full=DIFFERS(500 vs 850)  X_train=DIFFERS(400 vs 680)
+xor            X_full=DIFFERS(2000 vs 3400)  X_train=DIFFERS(1600 vs 2720)
+circles        X_full=DIFFERS(500 vs 850)  X_train=DIFFERS(400 vs 680)
+checkerboard   X_full=DIFFERS(500 vs 850)  X_train=DIFFERS(400 vs 680)
+gaussian       X_full=DIFFERS(1000 vs 1700)  X_train=DIFFERS(800 vs 1360)
+
+# generators probed: 6/6
+# A DIFFERS on X_train means section 6.3's 'train does not shrink, so baselines are
+# preserved' does NOT hold for that generator: the rows change even at the same count.
