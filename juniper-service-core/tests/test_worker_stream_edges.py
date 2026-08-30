@@ -1,4 +1,4 @@
-"""High-signal edge coverage for ``/ws/workers`` transport (auth fail-closed + registration shape + busy heartbeat).
+"""High-signal edge coverage for ``/ws/workers`` transport (auth fail-closed + registration shape + busy heartbeat + disconnect/abort reclaim).
 
 Companion to ``test_t2_worker_coordinator.py``. That suite covers origin/rate-limit/uninitialised
 rejects, missing-``capabilities`` → 4008, and the *idle* heartbeat redispatch arm. This file pins the
@@ -6,10 +6,15 @@ remaining blast-radius edges that were still untested on main:
 
 * ``worker_stream_handler`` must fail closed on auth (close 4001, never ``accept``) — the training
   stream has an equivalent handler-level pin; the worker channel did not.
-* ``validate_worker_registration`` shape edges (non-string / pattern-invalid ``worker_id``, non-dict
+* ``worker_stream_module.validate_worker_registration`` shape edges (non-string / pattern-invalid ``worker_id``, non-dict
   ``capabilities``, missing ``worker_id``) — only the missing-``capabilities`` handler arm was covered.
 * Heartbeat while the worker is still busy must NOT call dispatch (the idle guard at
   ``reg.idle``) — otherwise a mid-task heartbeat double-assigns and corrupts ``active_task_id``.
+* Clean disconnect of a busy worker must requeue its sole in-flight task (the stale-heartbeat
+  sweep already did; the stream ``finally`` did not).
+* Mid-result transport abort (expected-binary-got-text / oversize) must free the worker so the
+  post-result ``_try_dispatch_task`` redispatches — distinguishable from finally-only reclaim
+  by a second ``task_assign`` before the socket closes.
 
 Self-contained doubles (no imports from the contested coordinator test module) so concurrent coverage
 PRs that edit ``test_t2_worker_coordinator.py`` cannot collide.
@@ -27,7 +32,6 @@ from fastapi import WebSocketDisconnect
 from juniper_service_core.security import build_api_key_auth
 from juniper_service_core.websocket import attach_worker_pool, worker_stream_handler
 from juniper_service_core.websocket import worker_stream as worker_stream_module
-from juniper_service_core.websocket.worker_stream import _handle_task_result, validate_worker_registration
 from juniper_service_core.workers import ParsedResult, WorkerCoordinator, WorkerRegistry
 
 
@@ -97,17 +101,17 @@ def _wire_app(registry, coordinator, **extra):
 
 
 # ======================================================================================
-# validate_worker_registration — pure shape edges
+# worker_stream_module.validate_worker_registration — pure shape edges
 # ======================================================================================
 
 
 def test_validate_registration_missing_worker_id() -> None:
-    errors = validate_worker_registration({"type": "register", "capabilities": {}})
+    errors = worker_stream_module.validate_worker_registration({"type": "register", "capabilities": {}})
     assert any("Missing required field: worker_id" in e for e in errors)
 
 
 def test_validate_registration_worker_id_must_be_string() -> None:
-    errors = validate_worker_registration({"worker_id": 123, "capabilities": {}})
+    errors = worker_stream_module.validate_worker_registration({"worker_id": 123, "capabilities": {}})
     assert any("worker_id must be a string" in e for e in errors)
 
 
@@ -122,17 +126,17 @@ def test_validate_registration_worker_id_must_be_string() -> None:
     ],
 )
 def test_validate_registration_worker_id_pattern_rejected(bad_id: str) -> None:
-    errors = validate_worker_registration({"worker_id": bad_id, "capabilities": {}})
+    errors = worker_stream_module.validate_worker_registration({"worker_id": bad_id, "capabilities": {}})
     assert any("worker_id must be 1-64 characters" in e for e in errors)
 
 
 def test_validate_registration_capabilities_must_be_dict() -> None:
-    errors = validate_worker_registration({"worker_id": "node-a", "capabilities": ["gpu"]})
+    errors = worker_stream_module.validate_worker_registration({"worker_id": "node-a", "capabilities": ["gpu"]})
     assert any("capabilities must be a dict" in e for e in errors)
 
 
 def test_validate_registration_happy_path_empty_errors() -> None:
-    assert validate_worker_registration({"worker_id": "node_1", "capabilities": {"gpu": True}}) == []
+    assert worker_stream_module.validate_worker_registration({"worker_id": "node_1", "capabilities": {"gpu": True}}) == []
 
 
 # ======================================================================================
@@ -223,12 +227,119 @@ async def test_heartbeat_while_busy_does_not_redispatch() -> None:
     assert tid2 != tid1
     # Heartbeat ack still fires (the guard skips dispatch, not the ack).
     assert any(m.get("type") == "heartbeat" for m in ws.sent)
-    # tid2 was never assigned on the wire; after disconnect requeue, at least one task is pending.
+    # tid2 was never assigned on the wire, so it stays pending regardless of whether disconnect
+    # reclaims tid1. That reclaim is pinned separately in test_disconnect_requeues_sole_in_flight_task.
     assert coord.has_pending_tasks() is True
     assert coord.pending_tasks_count() >= 1
 
 
 # ======================================================================================
+# Disconnect / mid-result abort must reclaim in-flight work (not wait the 120s timeout)
+# ======================================================================================
+
+
+def _binary(payload: bytes) -> tuple[str, bytes]:
+    return ("bytes", payload)
+
+
+class _NeedsBlob:
+    """Protocol that declares a binary attachment so abort paths are reachable."""
+
+    def build_assignment(self, task):
+        return ({"type": "task_assign", "task_id": task.task_id, "round_id": task.round_id, "payload": task.payload}, [])
+
+    def result_attachments(self, msg):
+        return ["blob"]
+
+    def parse_result(self, worker_id, msg, frames):  # pragma: no cover - abort must not parse
+        raise AssertionError("parse_result must not run after a transport abort")
+
+
+@pytest.mark.asyncio
+async def test_disconnect_requeues_sole_in_flight_task() -> None:
+    """Clean disconnect of a busy worker must requeue its *only* assigned task.
+
+    The stale-heartbeat sweep already reclaims; the stream ``finally`` used to deregister
+    only. With a single in-flight task there is no leftover unassigned sibling to hide the
+    gap (unlike the busy-heartbeat fixture), so ``has_pending_tasks()`` going False is the
+    production failure: the round waits the full ``task_reassignment_timeout``.
+    """
+    reg = WorkerRegistry()
+    coord = WorkerCoordinator(reg, _TrivialProtocol())
+    (tid,) = coord.submit_tasks("round-1", [{"c": 0}])
+    app = _wire_app(reg, coord)
+
+    ws = FakeWorkerWebSocket(app=app, inbound=[_text(_REGISTER)])
+    await worker_stream_handler(ws)
+
+    assigns = [m for m in ws.sent if m.get("type") == "task_assign"]
+    assert len(assigns) == 1
+    assert assigns[0]["task_id"] == tid
+    assert reg.worker_count == 0  # finally deregistered
+    assert coord.has_pending_tasks() is True
+    task = coord._pending_tasks[tid]
+    assert task.assigned_worker_id is None
+    assert task.completed is False
+
+
+@pytest.mark.asyncio
+async def test_expected_binary_got_text_requeues_and_frees_worker() -> None:
+    """A result that promises a blob but sends text must free the worker *before* disconnect.
+
+    Distinguishes abort-path reclaim from finally-only reclaim: after the error frame the
+    handler still calls ``_try_dispatch_task``, so a freed+requeued worker receives a second
+    ``task_assign`` for the same id while the socket is still open.
+    """
+    reg = WorkerRegistry()
+    coord = WorkerCoordinator(reg, _NeedsBlob())
+    (tid,) = coord.submit_tasks("round-1", [{"c": 0}])
+    app = _wire_app(reg, coord)
+    ws = FakeWorkerWebSocket(
+        app=app,
+        inbound=[
+            _text(_REGISTER),
+            _text({"type": "task_result", "task_id": tid}),
+            _text({"type": "heartbeat"}),  # text where the blob was required
+        ],
+    )
+    await worker_stream_handler(ws)
+
+    assert any("Expected binary frame" in m.get("error", "") for m in ws.sent)
+    assert not any(m.get("type") == "result_ack" for m in ws.sent)
+    assigns = [m for m in ws.sent if m.get("type") == "task_assign"]
+    assert [m["task_id"] for m in assigns] == [tid, tid], f"abort must free+requeue so the post-result dispatch re-sends the same task; got {assigns!r}"
+    assert coord.has_pending_tasks() is True
+    assert coord._pending_tasks[tid].assigned_worker_id is None
+
+
+@pytest.mark.asyncio
+async def test_oversize_binary_frame_requeues_and_frees_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Oversize attachment abort must free the worker so post-result dispatch can requeue."""
+    import juniper_service_core.websocket.worker_stream as worker_stream_mod
+
+    monkeypatch.setattr(worker_stream_mod, "_MAX_BINARY_SIZE", 16)
+    reg = WorkerRegistry()
+    coord = WorkerCoordinator(reg, _NeedsBlob())
+    (tid,) = coord.submit_tasks("round-1", [{"c": 0}])
+    app = _wire_app(reg, coord)
+    ws = FakeWorkerWebSocket(
+        app=app,
+        inbound=[
+            _text(_REGISTER),
+            _text({"type": "task_result", "task_id": tid}),
+            _binary(b"x" * 17),
+        ],
+    )
+    await worker_stream_handler(ws)
+
+    assert any(m.get("error") == "Binary frame too large" for m in ws.sent)
+    assert not any(m.get("type") == "result_ack" for m in ws.sent)
+    assigns = [m for m in ws.sent if m.get("type") == "task_assign"]
+    assert [m["task_id"] for m in assigns] == [tid, tid], f"oversize abort must redispatch; got {assigns!r}"
+    assert coord.has_pending_tasks() is True
+    assert coord._pending_tasks[tid].assigned_worker_id is None
+
+
 # Attachment-list bounds — APD-SVCCORE-001
 #
 # The per-frame cap bounds each item, never the sum, and ``frames`` retains every accepted
@@ -265,7 +376,7 @@ async def test_over_long_attachment_list_is_rejected_before_any_frame_is_read() 
     ws = FakeWorkerWebSocket(inbound=[("bytes", b"x") for _ in too_many])
     inbound_before = len(ws._inbound)
 
-    await _handle_task_result(ws, "node-a", {"task_id": tid, "attachments": too_many}, coord)
+    await worker_stream_module._handle_task_result(ws, "node-a", {"task_id": tid, "attachments": too_many}, coord)
 
     assert len(ws._inbound) == inbound_before, "guard must fire before the first receive()"
     assert ws.sent and ws.sent[-1]["error"] == "Too many binary attachments"
@@ -285,7 +396,7 @@ async def test_cumulative_attachment_budget_is_enforced(monkeypatch: pytest.Monk
     # Each frame is 6 bytes: individually fine, cumulatively 12 > 10.
     ws = FakeWorkerWebSocket(inbound=[("bytes", b"aaaaaa"), ("bytes", b"bbbbbb")])
 
-    await _handle_task_result(ws, "node-a", {"task_id": tid, "attachments": ["a", "b"]}, coord)
+    await worker_stream_module._handle_task_result(ws, "node-a", {"task_id": tid, "attachments": ["a", "b"]}, coord)
 
     assert ws.sent and ws.sent[-1]["error"] == "Binary attachments exceed total size limit"
     assert coord.collect_results(timeout=0.1) == [], "an over-budget submission must not reach the coordinator"
@@ -300,7 +411,7 @@ async def test_attachments_within_both_budgets_are_still_accepted() -> None:
     _reg, coord, tid = _dispatched()
     ws = FakeWorkerWebSocket(inbound=[("bytes", b"aaaaaa"), ("bytes", b"bbbbbb")])
 
-    await _handle_task_result(ws, "node-a", {"task_id": tid, "attachments": ["a", "b"]}, coord)
+    await worker_stream_module._handle_task_result(ws, "node-a", {"task_id": tid, "attachments": ["a", "b"]}, coord)
 
     assert ws.sent and ws.sent[-1]["type"] == "result_ack"
     assert ws.sent[-1]["status"] == "accepted"

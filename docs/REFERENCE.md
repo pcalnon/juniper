@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.12
+**Version:** 0.6.15
 **Status:** Active
 **Last Updated:** 2026-08-24
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -14,7 +14,9 @@
 - [Package Overview](#package-overview)
 - [Extras Reference](#extras-reference)
 - [Ecosystem Compatibility](#ecosystem-compatibility)
+- [HTTP Client Base-URL Contract](#http-client-base-url-contract)
 - [Host Orchestration Utilities](#host-orchestration-utilities)
+- [Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane)
 - [Editable Install Drift Check](#editable-install-drift-check)
 - [Pytest Orphan Reaper](#pytest-orphan-reaper)
 - [Environment Floor Drift Check](#environment-floor-drift-check)
@@ -175,7 +177,7 @@ Notes, and two gaps worth knowing before you rely on this table:
 
 ### Rate Limiting Defaults
 
-The three services intentionally ship with **different** `rate_limit_enabled` defaults — `juniper-data` enables rate limiting out of the box; `juniper-cascor` and `juniper-canopy` leave it disabled by default for local-dev ergonomics. The per-minute threshold is uniform across services (60 req/min) so only the enable flag varies.
+The three services intentionally ship with **different** `rate_limit_enabled` defaults — `juniper-data` enables rate limiting out of the box; `juniper-cascor` and `juniper-canopy` leave it disabled by default for local-dev ergonomics. The per-minute threshold is uniform across services (60 req/min), so only the enable flag varies.
 
 | Service          | `rate_limit_enabled` default | `rate_limit_requests_per_minute` default | Source                                                                  |
 |------------------|------------------------------|------------------------------------------|-------------------------------------------------------------------------|
@@ -191,7 +193,66 @@ The three services intentionally ship with **different** `rate_limit_enabled` de
 | `juniper-cascor` | `JUNIPER_CASCOR_RATE_LIMIT_ENABLED`  | `JUNIPER_CASCOR_RATE_LIMIT_REQUESTS_PER_MINUTE`   |
 | `juniper-canopy` | `JUNIPER_CANOPY_RATE_LIMIT_ENABLED`  | `JUNIPER_CANOPY_RATE_LIMIT_REQUESTS_PER_MINUTE`   |
 
-The split-default is intentional, not an oversight: `juniper-data` is a higher-risk public-shaped surface (dataset generation, paginated reads), so it ships rate-limited by default; the other two run behind a known reverse-proxy / authenticated client surface where the rate-limit value adds operator friction during local development. Closes the documentation gap tracked in the v7 outstanding-development roadmap under CFG-08.
+The split-default is intentional, not an oversight: `juniper-data` is a higher-risk, public-facing surface (dataset generation, paginated reads), so it ships rate-limited by default; the other two run behind a known reverse proxy / authenticated client surface, where the rate-limit value adds operator friction during local development. Closes the documentation gap tracked in the v7 outstanding-development roadmap under CFG-08.
+
+---
+
+## HTTP Client Base-URL Contract
+
+The three separately released HTTP clients — `juniper-data-client`, `juniper-cascor-client`, and `juniper-recurrence-client` — now share one REST `base_url` treatment. That closes defect-register `APD-DCLIENT-004` / `APD-CCLIENT-005` (sibling PRs [data-client#165](https://github.com/pcalnon/juniper-data-client/pull/165) + [#166](https://github.com/pcalnon/juniper-data-client/pull/166), [cascor-client#129](https://github.com/pcalnon/juniper-cascor-client/pull/129), [recurrence#129](https://github.com/pcalnon/juniper-recurrence/pull/129)). Register status is recorded by open [juniper-ml#1331](https://github.com/pcalnon/juniper-ml/pull/1331).
+
+**This is GitHub-main of those clients, not a `juniper-ml` extra floor.** `[clients]` still pins `juniper-data-client>=0.4.1` and `juniper-cascor-client>=0.5.0`; the latest *released* data-client wheel is `0.4.2` (2026-06-18) and still lacks the host guard. `pip install juniper-ml[clients]` can resolve a wheel that silently accepts `HTTPS://host` (TLS downgrade) or a hostless URL. Confirm `JuniperDataConfigurationError` / `JuniperCascorConfigurationError` exist before relying on the fail-fast path.
+
+### What REST constructors do
+
+`JuniperDataClient`, `JuniperCascorClient`, and `JuniperRecurrenceClient` run `_normalize_url` on the constructor `base_url` (defaults: data `http://localhost:8100`, cascor REST `http://localhost:8200`). Steps, in order:
+
+1. `str.strip()`
+2. If the value does **not** case-insensitively start with `http://` or `https://`, prefix `http://`. A case-sensitive check re-prefixed `HTTPS://host` into `http://HTTPS://host` — silent TLS downgrade, API key sent to hostname `https`.
+3. `urllib.parse.urlparse`. Empty **`hostname`** (not `netloc`) raises the client's configuration error: `base_url must include a host; got {url!r}` with `status_code=None`. `netloc` is truthy for userinfo-only `http://user:secret@` while `hostname` is `None`.
+4. Rebuild `{scheme}://{netloc}{path}`, `rstrip("/")`, then strip a trailing `/v1`.
+
+Cascor REST then sets `api_url = f"{self.base_url}{API_VERSION_PATH}"` (`/v1`). Stripping the suffix is what stops a caller-supplied `…/v1` from becoming `…/v1/v1`.
+
+Each configuration error subclasses that client's base (`JuniperDataClientError`, `JuniperCascorClientError`, `JuniperRecurrenceClientError`), so existing `except Juniper*ClientError` handlers still catch a hostless URL.
+
+```python
+from juniper_data_client import JuniperDataClient
+from juniper_data_client.exceptions import JuniperDataConfigurationError
+from juniper_cascor_client import JuniperCascorClient
+
+JuniperDataClient("http://localhost:8100")       # unchanged
+JuniperDataClient("localhost:8100")              # → http://localhost:8100
+JuniperDataClient("HTTPS://data.example/v1/")    # → https://data.example  (scheme lowercased, /v1 stripped)
+JuniperDataClient("http://")                     # raises JuniperDataConfigurationError
+
+cascor = JuniperCascorClient("http://localhost:8200/v1")
+assert cascor.base_url == "http://localhost:8200"
+assert cascor.api_url == "http://localhost:8200/v1"
+```
+
+Hostless shapes that raise (pinned in each client's constructor tests): `""`, whitespace-only, `http://`, `https://`, `/v1`, `http:///v1`, `http://user:secret@`.
+
+### Deliberately not covered
+
+| Surface | URL treatment | Why |
+|---------|---------------|-----|
+| `CascorTrainingStream` / `CascorControlStream` | `base_url.rstrip("/")` only | `ws://` / `wss://` defaulting is a different scheme family; no register row names them. Default `ws://localhost:8200`. |
+| `FakeCascorClient` / `FakeCascorTrainingStream` | `rstrip("/")` only | Test doubles; they do not run `_normalize_url`. |
+
+### Remaining sibling drift (retries)
+
+Base-URL normalisation/validation is aligned. The last sibling-package retry drift is still open: `juniper-cascor-client` `RETRY_ALLOWED_METHODS` is `GET` / `POST` / `DELETE` / `PUT` / `PATCH` (`APD-CCLIENT-001`). `juniper-data-client` retries `HEAD` / `GET` / `PUT`; `juniper-recurrence-client` retries `HEAD` / `GET` only. Do not assume a failed cascor `POST` was not retried.
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| `Juniper*ConfigurationError: base_url must include a host` | Constructor got `""`, `http://`, `/v1`, or `http://user:secret@`. Fix the URL; this is not a retryable transport error. |
+| `HTTPS://host` talks HTTP / hostname is `https` | Wheel predates the case-insensitive scheme check. Install from GitHub main of the client, or wait for the next PyPI release past data-client `0.4.2` / cascor-client `0.7.0`. |
+| Cascor REST to `:8200` on the host stack | Constructor default is the **container** port. Host `plant_all` / Docker publish `:8201` — pass `base_url="http://localhost:8201"`. |
+| WS stream accepts a hostless / schemeless URL | Expected. REST `_normalize_url` is not applied to `CascorTrainingStream` / `CascorControlStream`. |
+| Catch-all `except Exception` around client init | Configuration errors subclass the client base, but a bare `Exception` handler will swallow a hostless URL as if the service were down. |
 
 ---
 
@@ -238,9 +299,9 @@ Lifecycle details:
 - `plant_all` derives the Juniper project root from the script location (`util/` -> repository -> parent directory). `chop_all` honors `JUNIPER_PROJECT_DIR` directly instead of deriving it from the checkout, so non-standard layouts must stop with the same root explicitly set, for example `JUNIPER_PROJECT_DIR=/path/to/Juniper util/juniper_chop_all.bash`.
 - Default data bind is loopback: `JUNIPER_DATA_HOST` defaults to `127.0.0.1` (export `0.0.0.0` only when you intentionally want all-interfaces). See [`notes/JUNIPER_2026-07-06_JUNIPER-ECOSYSTEM_LAUNCH-PATH-BIND-AUDIT.md`](../notes/JUNIPER_2026-07-06_JUNIPER-ECOSYSTEM_LAUNCH-PATH-BIND-AUDIT.md) (SEC-F28).
 
-Failure / health / port contract (`nohup` mode):
+Failure/health/port contract (`nohup` mode):
 
-- After each successful `nohup` launch, the PID is appended to `STARTED_PIDS`. An `ERR` trap runs `cleanup_on_failure` (JR-ML-SEC-042): SIGTERM every tracked PID, wait 3s, SIGKILL any survivors, `rm -f` the project pidfile, then exit 1 — even when `STARTED_PIDS` is still empty (preflight / early failure).
+- After each successful `nohup` launch, the PID is appended to `STARTED_PIDS`. An `ERR` trap runs `cleanup_on_failure` (JR-ML-SEC-042): SIGTERM every tracked PID, wait 3s, SIGKILL any survivors, `rm -f` the project pidfile, then exit 1 — even when `STARTED_PIDS` is still empty (preflight/early-failure).
   - **The pidfile removal is skipped in systemd mode** (2026-08-23). The `ERR` trap is armed *before* the systemd branch, so a failed `--systemd` plant used to delete a pidfile it never wrote — one belonging to a **nohup** stack that was very likely still running, stranding those services with no PID record to chop them by and removing one of the orphan reaper's two protection keys. The guard is inside `cleanup_on_failure` rather than fixed by moving the trap, deliberately: the trap must still fire in systemd mode so a failed plant aborts with exit 1. Gate: `tests/test_juniper_plant_all.py` `TestSystemdCleanupLeavesNohupPidfile`.
 - `wait_for_health` polls `curl -sf` every `HEALTH_CHECK_INTERVAL` seconds (default `2`) until success or `HEALTH_CHECK_TIMEOUT` (default `60`). Timeout returns 1 and trips the ERR cleanup above; it does not hang forever.
 - `check_port_available` rejects a busy port (exit 1). If `ss` is missing or unusable when the helper runs, it **fail-opens** (treats the port as free). The `nohup` preflight still hard-requires `ss`, so normal host-mode plant never relies on that fail-open; hermetic tests and any out-of-band caller of the helper can.
@@ -250,7 +311,7 @@ Failure / health / port contract (`nohup` mode):
 
 `wait_for_health` polls `curl -sf` and advances `elapsed` by the poll interval each loop (default `HEALTH_CHECK_INTERVAL=2`, timeout `HEALTH_CHECK_TIMEOUT=60`). An interval `<= 0` never advances `elapsed` (`sleep 0` is a no-op) and busy-loops forever — including `HEALTH_CHECK_INTERVAL=0` or a zero/invalid 4th argument.
 
-Post-[#782](https://github.com/pcalnon/juniper-ml/pull/782): if the interval is not a positive integer (`^[1-9][0-9]*$`), plant logs `WARNING: invalid health-check interval … clamping to 1s` and uses `1`. Prefer the default `2`. Do **not** set `HEALTH_CHECK_INTERVAL=0` to "poll as fast as possible" — that was the busy-loop class. Coverage: `tests/test_juniper_plant_all.py` (`TestWaitForHealth`).
+Post-[#782](https://github.com/pcalnon/juniper-ml/pull/782): if the interval is not a positive integer (`^[1-9][0-9]*$`), plant logs `WARNING: invalid health-check interval … clamping to 1s` and use `1`. Prefer the default `2`. Do **not** set `HEALTH_CHECK_INTERVAL=0` to "poll as fast as possible" — that was the busy-loop class. Coverage: `tests/test_juniper_plant_all.py` (`TestWaitForHealth`).
 
 #### Conda activate nounset (`safe_conda_activate`)
 
@@ -284,7 +345,7 @@ Troubleshooting:
 | Symptom | Check / Fix |
 |---------|-------------|
 | Port preflight fails | Run `ss -tlnp` and free the reported port (`8100`, `8201`, `8050`, or `8210` by default), or override the matching `JUNIPER_*_PORT` before startup. |
-| Mid-plant health timeout / abort | Read the failing service log under that repo's `logs/`. `cleanup_on_failure` already tried SIGTERM→SIGKILL on `STARTED_PIDS` and removed `JuniperProject.pid`. Confirm nothing is still listening (`ss -tlnp`) before re-planting; do not expect `chop_all` to find a pidfile after a failed plant. |
+| Mid-plant health timeout/abort | Read the failing service log under that repo's `logs/`. `cleanup_on_failure` already tried SIGTERM→SIGKILL on `STARTED_PIDS` and removed `JuniperProject.pid`. Confirm nothing is still listening (`ss -tlnp`) before re-planting; do not expect `chop_all` to find a pidfile after a failed plant. |
 | `juniper-cascor` never reaches `/v1/health` | Inspect `juniper-cascor/logs/juniper-cascor_*.log`. Prefer the default `JuniperCascor1` env; the legacy `JuniperCascor` Python 3.14 / torch layout is a known health-startup trap. See [`notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md`](../notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md). |
 | Worker startup says binary missing | Activate the worker env and install the package: `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` completed successfully in `nohup` mode and check the PID path printed at startup (`${JUNIPER_PROJECT_DIR}/juniper-ml/JuniperProject.pid`). Missing **and** empty (zero-byte) files both abort before the service-stop loop — see below. In non-standard layouts, rerun with `JUNIPER_PROJECT_DIR` set to that same project root. For systemd mode, stop with `util/juniper_chop_all.bash --systemd` instead (no pidfile path). |
@@ -297,13 +358,13 @@ Troubleshooting:
 | Chop logs `KILL_WORKERS flag is not set to 1` | Expected when `KILL_WORKERS` is unset/`0` (default). Benign on the post-pidfile path (`|| true`); set `KILL_WORKERS=1` only when you intend the pgrep cleanup. |
 | Chop WARNING `cmdline does not match … skipping (stale PID / wrong process)` | Expected when the pidfile PID was reused by an unrelated process — `validate_pid` refuses the kill (JR-ML-SEC-045). Not a `STOP_FAILURES` increment; successful chop still truncates the pidfile. See [non-empty pidfile stop path](#non-empty-pidfile-stop-path-validate_pid). |
 | Chop WARNING `PID file preserved … for investigation` | At least one `graceful_stop` failed (`STOP_FAILURES > 0`) — pidfile is **not** truncated. Inspect survivors with `ss -tlnp` / the preserved lines, then re-chop or kill manually. |
-| Mid-plant unset-variable / odd conda activate noise | Confirm `safe_conda_activate` restores with `set -u` (see above). A broken restore disables nounset for later steps, so typos that should have failed may look like unrelated mid-plant failures. |
+| Mid-plant unset-variable / odd conda activate noise | Confirm `safe_conda_activate` restores with `set -u` (see above). A broken restore disables nounset for subsequent steps, so typos that should have failed may appear as unrelated mid-plant failures. |
 
 #### Orphaned worker cleanup (`KILL_WORKERS`)
 
 Host-mode `chop_all` optionally reaps leftover cascor workers that are **not** in `JuniperProject.pid` (crashed plant, manual launches, or workers started outside the pidfile loop). This path is **opt-in** and **nohup-only**:
 
-- Gate: `KILL_WORKERS` must be exactly `1` (default `0`). Otherwise chop logs `KILL_WORKERS flag is not set to 1` and returns without signaling.
+- Gate: `KILL_WORKERS` must be exactly `1` (default `0`). Otherwise, chop logs: `KILL_WORKERS flag is not set to 1` and returns without signaling.
 - Discovery: `pgrep -af juniper-cascor-worker`, then a **strict** cmdline filter that keeps only `juniper-cascor-worker`, `juniper_cascor_worker`, or the search term. The old `cascor.*worker` alternative was over-greedy (matched unrelated shells that merely mentioned both tokens).
 - Stop: each match calls `graceful_stop <pid> cascor-worker 5` — timeout is hard-coded `5` seconds here (not `SIGTERM_TIMEOUT`).
 - Call sites: missing/empty pidfile (best-effort before `exit 1`); after the pidfile loop with `|| true` so a benign "nothing to clean" return `1` cannot abort chop under `set -e` when every pidfile service already stopped.
@@ -368,7 +429,7 @@ When `JuniperProject.pid` is present and non-empty, `chop_all` enters `=== Stopp
 
 | Result | Pidfile |
 |--------|---------|
-| Every line stopped or skipped as stale / wrong process (`STOP_FAILURES == 0`) | Truncated (`: >` the file) — chop exits 0 |
+| Every line stopped or skipped as stale/wrong process (`STOP_FAILURES == 0`) | Truncated (`: >` the file) — chop exits 0 |
 | Any `graceful_stop` failure (`STOP_FAILURES > 0`) | **Preserved** for investigation — chop exits 1 |
 
 ```bash
@@ -392,8 +453,8 @@ Opt in with `--systemd` or `USE_SYSTEMD=1` (default `0`). Both launchers enter t
 1. Requires `curl` on `PATH` for health polls — missing `curl` exits `1` **before** any `systemctl --user start` (unlike `nohup` mode, `ss` is not required here).
 2. Starts units in dependency order: `juniper-data` → `juniper-cascor` → `juniper-canopy` → `juniper-cascor-worker`, waiting on each health gate (`/v1/health`, worker `/v1/health/ready`).
 3. After the worker health gate, if `systemctl --user is-active juniper-cascor-worker.service` fails, plant logs a WARNING and runs `systemctl --user status … --no-pager`, then still exits `0` (HTTP-ready is treated as success).
-4. **Known blast-radius gap:** systemd starts are **not** appended to `STARTED_PIDS`. On a mid-plant health timeout the ERR trap still runs `cleanup_on_failure` (logs cleanup; it no longer touches the pidfile in this mode — see below), but it **does not** `systemctl --user stop` any units already started.
-   - This entry previously described the removal as `rm -f` of "the **unused** pidfile path". That assumption was the bug: the path is only unused if no *nohup* stack ever wrote it, and when one had, a failed systemd plant deleted a live stack's only PID record. Fixed 2026-08-23. Operators must stop leftovers manually or with `util/juniper_chop_all.bash --systemd`. Do not "fix" this by inventing `systemctl stop` inside cleanup without updating the hermetic pin.
+4. **Known blast-radius gap:** systemd starts are **not** appended to `STARTED_PIDS`. On a mid-plant health timeout, the ERR trap still runs `cleanup_on_failure` (logs cleanup; it no longer touches the pidfile in this mode — see below), but it **does not** `systemctl --user stop` any units already started.
+   - This entry previously described the removal as `rm -f` of "the **unused** pidfile path". That assumption was the bug: the path is unused only if no *nohup* stack ever wrote to it, and when one did, a failed systemd plant deleted a live stack's only PID record. Fixed 2026-08-23. Operators must stop leftovers manually or with `util/juniper_chop_all.bash --systemd`. Do not "fix" this by inventing `systemctl stop` inside cleanup without updating the hermetic pin.
 
 **Chop (`util/juniper_chop_all.bash --systemd`):**
 
@@ -406,7 +467,7 @@ Troubleshooting:
 | Symptom | Check / Fix |
 |---------|-------------|
 | Port preflight fails | Run `ss -tlnp` and free the reported port (`8100`, `8201`, `8050`, or `8210` by default), or override the matching `JUNIPER_*_PORT` before startup. |
-| Mid-plant health timeout / abort | Read the failing service log under that repo's `logs/`. `cleanup_on_failure` already tried SIGTERM→SIGKILL on `STARTED_PIDS` and removed `JuniperProject.pid`. Confirm nothing is still listening (`ss -tlnp`) before re-planting; do not expect `chop_all` to find a pidfile after a failed plant. |
+| Mid-plant health timeout/abort | Read the failing service log under that repo's `logs/`. `cleanup_on_failure` already tried SIGTERM→SIGKILL on `STARTED_PIDS` and removed `JuniperProject.pid`. Confirm nothing is still listening (`ss -tlnp`) before re-planting; do not expect `chop_all` to find a pidfile after a failed plant. |
 | `juniper-cascor` never reaches `/v1/health` | Inspect `juniper-cascor/logs/juniper-cascor_*.log`. Prefer the default `JuniperCascor1` env; the legacy `JuniperCascor` Python 3.14 / torch layout is a known health-startup trap. See [`notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md`](../notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md). |
 | Worker startup says binary missing | Activate the worker env and install the package: `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` completed successfully in `nohup` mode and check the PID path printed at startup. In non-standard layouts, rerun shutdown with `JUNIPER_PROJECT_DIR` set to that same project root. If using systemd mode, stop with `util/juniper_chop_all.bash --systemd` instead. |
@@ -414,6 +475,115 @@ Troubleshooting:
 | systemd plant health timeout / partial stack | `cleanup_on_failure` did **not** stop user units. Inspect `systemctl --user status juniper-{data,cascor,canopy,cascor-worker}` and tear down with `util/juniper_chop_all.bash --systemd` (or matching `systemctl --user stop`) before re-planting. |
 | Worker WARNING: healthy but unit not active | HTTP `/v1/health/ready` passed but `is-active` failed — check `journalctl --user -u juniper-cascor-worker` / unit file; plant still exited 0. |
 | Mixed plant/chop modes | Never plant with `--systemd` and chop via pidfile (or the reverse). Match the mode used at start. |
+
+---
+
+## Scheduled Duplicati Backup Lane
+
+Host-level `$HOME` backup under `systemd --user`, independent of the GNOME tray instance and of Duplicati's own scheduler (the server DB `Schedule` table was empty when this lane shipped). Merged in [juniper-ml#1292](https://github.com/pcalnon/juniper-ml/pull/1292). This is **not** `util/juniper-backup.bash` (that script `tar | gpg -e` encrypts the Juniper *project tree* to an external drive with asymmetric YubiKey recipients).
+
+The 2026-07-13 archive damage went undetected for six weeks because the only runner was a gnome-shell-launched scope under a user manager with `Linger=no`: it died at logout and nothing said so. This lane is the replacement.
+
+### Install (copies, not symlinks)
+
+```bash
+util/install_duplicati_timer.bash
+# after the first full backup AND a restore drill against the new set:
+systemctl --user enable --now duplicati-backup.timer
+systemctl --user list-timers duplicati-backup.timer
+```
+
+`install_duplicati_timer.bash` copies (never symlinks) into `~/.local/bin/` and `~/.config/systemd/user/`:
+
+| Installed path | Source |
+|----------------|--------|
+| `~/.local/bin/duplicati-scheduled-backup.bash` | `util/duplicati_scheduled_backup.bash` |
+| `~/.local/bin/duplicati-backup-failure.bash` | `util/duplicati_backup_failure.bash` |
+| `~/.config/systemd/user/duplicati-backup.service` | `util/systemd/duplicati-backup.service` |
+| `~/.config/systemd/user/duplicati-backup.timer` | `util/systemd/duplicati-backup.timer` |
+| `~/.config/systemd/user/duplicati-backup-failure.service` | `util/systemd/duplicati-backup-failure.service` |
+
+Canonical copies live in a git worktree. A symlink into one turns `git worktree remove` into a silent breakage of the backup lane — the same class that left a live passphrase inside a disposable worktree.
+
+The installer **does not** `enable --now` the timer. Enabling while a first full backup is still in flight risks a second run against the same local DB. It refuses unless:
+
+1. `~/.config/duplicati-backup/env` exists, is mode `600`, and contains a `PASSPHRASE=` line (the service will not start without it).
+2. `loginctl show-user "$USER" --property=Linger --value` is `yes` (`loginctl enable-linger $USER` otherwise — without linger the user manager exits at logout and the timer never fires).
+
+Then `systemctl --user daemon-reload`.
+
+### Timer and unit contract
+
+| Knob | Value | Why |
+|------|-------|-----|
+| `OnCalendar` | `*-*-* 02:30:00` | Overnight, off the interactive work window |
+| `RandomizedDelaySec` | `30m` | Wake-from-suspend does not stampede other timers |
+| `Persistent` | `true` | A workstation powered off at 02:30 still runs the missed window; without this the set silently goes stale |
+| `TimeoutStartSec` | `infinity` | A full run takes many hours; an inherited start timeout would kill a healthy backup and leave a partial fileset |
+| `Nice` / `IOSchedulingPriority` | `10` / `7` (`best-effort`) | Workstation neighbour |
+| `EnvironmentFile` | `%h/.config/duplicati-backup/env` | Passphrase via environment, **never** on the command line (`/proc/<pid>/cmdline` is world-readable; `environ` is not) |
+| `OnFailure` | `duplicati-backup-failure.service` | A backup that silently stops is indistinguishable from one that works |
+
+The failure unit writes `${DUPLICATI_STATE_DIR:-$HOME/.local/state/duplicati}/failures.log` first (journal tail + `last-run.status`), then best-effort `notify-send` (`|| true` — under `Linger=yes` with no graphical session there is no session bus). The reporter always exits `0` so a second failed unit does not bury the original. It is **not** chained to another `OnFailure=`.
+
+### Runner guards
+
+`util/duplicati_scheduled_backup.bash` encodes failures actually observed in this arc. Defaults are overridable; destination / dbpath / source / tempdir are host paths, not ecosystem ports.
+
+| Override | Default | Role |
+|----------|---------|------|
+| `PASSPHRASE` | *(required)* | GPG passphrase; length floor 12 chars (cannot detect a *wrong* value — Duplicati will encrypt a fresh set under any passphrase) |
+| `DUPLICATI_DEST_URL` / `DUPLICATI_DEST_PATH` | `file:///media/pcalnon/temp_backups/Ubuntu` / that path | Backend URL and local directory |
+| `DUPLICATI_DEST_MOUNT` | `/media/pcalnon/temp_backups` | Must be a real mountpoint (`mountpoint -q`) |
+| `DUPLICATI_DBPATH` | `~/.config/Duplicati/DQRVQNDIFX.sqlite` | Local job DB |
+| `DUPLICATI_SOURCE` | `/home/pcalnon` | Source tree |
+| `DUPLICATI_TEMP_DIR` | `/media/pcalnon/temp_backups/_duplicati_tmp` | Volume staging; a **sibling** of the destination, same filesystem (finished volumes rename, not copy). Must not be tmpfs/ramfs |
+| `DUPLICATI_STATE_DIR` | `~/.local/state/duplicati` | `backup.lock`, `last-run.status`, per-run logs, `failures.log` |
+| `DUPLICATI_STALE_DAYS` | `3` | Skip-escalation ceiling (see below) |
+
+Guards, in order:
+
+| # | Check | On fail |
+|---|-------|---------|
+| 1 | `PASSPHRASE` set and ≥ 12 chars | `FATAL` |
+| 2 | dest is a mounted, existing, writable directory | `FATAL` (an unmounted path is an empty dir on `/` and reads to Duplicati as "everything is missing") |
+| 3 | dest is empty **or** already holds `duplicati-*` volumes | `FATAL` (wrong filesystem) |
+| 3b | `DUPLICATI_TEMP_DIR` fstype is not `tmpfs` / `ramfs` | `FATAL` (observed 2026-08-23: unset `--tempdir` staged 500 MB volumes in `/tmp` tmpfs — 8.4 GB RAM in flight) |
+| 4 | non-blocking `flock` on `${STATE_DIR}/backup.lock` | `skip_or_fail` |
+| 5 | no other live process has `DBPATH` open (`/proc/*/fd` realpath, **not** `pgrep -f`) | `skip_or_fail` |
+
+Guard 5 is on the **database**, not the process name: a hand-started `duplicati-cli backup`, the same binary by absolute path, and `duplicati-server` running the job in-process from the web UI all hold the DB open. `pgrep -f` self-matches and already produced a wrong status line in this arc.
+
+`--no-auto-compact=true` is load-bearing. An interrupted compact on 2026-07-13 deleted 1,208 dblock/dindex pairs and wrote zero replacements. Do not drop it without a considered compaction-safety decision.
+
+### Skip vs failure (OnFailure only fires on non-zero)
+
+A skip is `exit 0`, so systemd reports success and `OnFailure=` does **not** run. Two properties make that safe:
+
+1. Every skip still stamps `last-run.status` with a **current** timestamp (`result=SKIPPED`), so the file cannot freeze at an old `OK`.
+2. `skip_or_fail` only treats the file as a success stamp when its *current* contents match `^result=OK`. After one skip the next skip sees no OK stamp (`last_ok=0`) and **always escalates** to `FATAL` (OnFailure fires) — including a first skip that never had a prior OK. A persistently hung `duplicati` therefore cannot make every nightly run skip forever.
+
+Do **not** read `DUPLICATI_STALE_DAYS` as "N consecutive skips are allowed." The OK stamp is overwritten on the first skip.
+
+### Related (do not treat as runnable restore steps)
+
+- Archive damage findings: [`notes/JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md`](../notes/JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md)
+- GPGFlushError investigation (open; not a reason to drop `--no-auto-compact`): [`notes/JUNIPER_2026-08-24_JUNIPER-ECOSYSTEM_DUPLICATI-GPG-FLUSH-FAILURE-INVESTIGATION.md`](../notes/JUNIPER_2026-08-24_JUNIPER-ECOSYSTEM_DUPLICATI-GPG-FLUSH-FAILURE-INVESTIGATION.md)
+- `notes/JUNIPER_2026-08-22_JUNIPER-ECOSYSTEM_DUPLICATI-DB-RESTORE-RUNBOOK.md` is **withdrawn** — restoring the archived job DB reproduces the wedge. Do not execute it.
+
+Troubleshooting:
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Installer: missing `env` / not mode `600` / no `PASSPHRASE=` | Create `~/.config/duplicati-backup/env` mode `600` with a `PASSPHRASE=` line; the service reads it via `EnvironmentFile=` |
+| Installer: Linger is NOT enabled | `loginctl enable-linger $USER`; without this the timer dies at logout |
+| Timer never fires after logout | Linger was the original failure class — confirm `Linger=yes` and `systemctl --user list-timers duplicati-backup.timer` |
+| `FATAL: … is NOT a mountpoint` | The dest path resolved onto `/` — mount the backup volume before retrying |
+| `FATAL: … tmpfs (RAM-backed)` | Point `DUPLICATI_TEMP_DIR` at any disk-backed path — the runner stats the filesystem and refuses a RAM-backed one; `/tmp` is tmpfs on this host |
+| Skip then the next run `FATAL` escalating | Expected — a skip overwrites `result=OK`; the following skip always escalates. Inspect `last-run.status` and `failures.log` |
+| Two runners / web UI plus timer | Guard 4/5: wait, or stop the other holder of `DBPATH`; do not `pgrep -f` to decide |
+| Failed run, no desktop popup | Reporter still wrote `failures.log`; `notify-send` is best-effort under linger with no session bus |
+| Partial fileset / killed run | The unit sets `TimeoutStartSec=infinity` so systemd will not SIGTERM a long healthy run. An abrupt `kill -9` mid-WAL is the class the [archive-damage findings](../notes/JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md) warn against — TERM, then wait. |
 
 ---
 
@@ -437,7 +607,7 @@ What it breaks, since `import` keeps working: anything reading the *installed* v
 
 Distinct from `juniper-env-drift-check` (juniper-ci-tools), which asks whether an installed version satisfies a consumer's declared **floor**. A stale editable can sit comfortably above every floor and still be wrong; only an editable install can drift this way.
 
-`STALE` is **soft** — exit stays `0`, because `import` still resolves. `--strict-version` makes it exit `1`. `--strict` remains about the path axis only.
+`STALE` is **soft** — exit stays `0`, because `import` still resolves. `--strict-version` makes it exit `1`. `--strict` applies only to the path axis.
 
 ```bash
 python util/editable_install_drift_check.py                     # report (STALE is soft)
@@ -448,7 +618,7 @@ python util/editable_install_drift_check.py --fix --fix-stale             # re-s
 
 `--fix-stale` repairs a stale-but-`FRESH` install against the path it **already points at** (`drift: "stale-metadata"`), not a canonical-discovery result — reinstalling from the recorded path is what re-stamps the metadata, and routing it through discovery could re-point a deliberate checkout. `ORPHANED` items keep resolving to their canonical repo (`drift: "path"`).
 
-A dynamic version is read only from an **explicit** declaration (setuptools `[tool.setuptools.dynamic] version.attr`, hatch `[tool.hatch.version] path`); an unrecognized backend reports `UNKNOWN` rather than guessing at a plausible `_version.py`.
+A dynamic version is read-only from an **explicit** declaration (setuptools `[tool.setuptools.dynamic] version.attr`, hatch `[tool.hatch.version] path`); an unrecognized backend reports `UNKNOWN` rather than guessing at a plausible `_version.py`.
 
 > **Live services:** `--fix`/`--fix-stale` reinstall into the env. Scope with `--env NAME` if a long-lived service is running from one of them.
 
@@ -518,7 +688,7 @@ Empty candidate set → `No Juniper python processes found.` and exit `0` (no ki
 
 #### Live-experiment protection (checked FIRST)
 
-**A live experiment stack or campaign is never an orphan, however it is parented.** `experiment_stack.bash` and `isolated_stack.bash` launch their services with `nohup` inside a subshell, so the services reparent to `systemd --user` — which is precisely the orphan predicate below. A campaign orchestrator or watchdog started with `setsid` / `disown` lands there too.
+**A live experiment stack or campaign is never an orphan; however, it is parented.** `experiment_stack.bash` and `isolated_stack.bash` launch their services with `nohup` inside a subshell, so the services reparent to `systemd --user` — which is precisely the orphan predicate below. A campaign orchestrator or watchdog started with `setsid` / `disown` lands there too.
 
 Observed live on **2026-08-16** against campaign `e-j-h2h-wide-cap6`: a `--dry-run` classified the campaign **orchestrator**, the experiment **cascor service**, and the follow-on **watchdog** all as `WOULD REAP` while every one was healthy and mid-run. A live sweep would have destroyed a multi-hour campaign.
 
@@ -537,7 +707,7 @@ Over-protection is deliberately the safe direction: a false protect costs one re
 
 For each candidate not protected above, read `PPid:` from `${JUNIPER_REAP_PROC_ROOT:-/proc}/<pid>/status`. Mark orphan when parent is PID `1` (init), the resolved user-session `systemd --user` PID, or the parent directory is gone. Live parents → `KEEP` (printed only with `--verbose`).
 
-`SKIPPED` increments (never WOULD REAP / kill) when:
+`SKIPPED` increments (never WOULD REAP/kill) when:
 
 - `/proc/<pid>` disappeared between `ps` and the loop (ps→gone race)
 - status is missing / unreadable / has no `PPid:` line
@@ -567,7 +737,7 @@ Troubleshooting:
 
 `util/env_floor_drift_check.py` (gap I-2) compares each `juniper-*` floor declared in a target repo's `pyproject.toml` against the **installed** wheel version read from `*.dist-info/METADATA` — the below-floor plain-wheel case that pin-linters and the editable checker miss. It does **not** invoke the environment's interpreter (so a broken env still reports).
 
-Classifications: `OK` (installed ≥ floor), `BELOW_FLOOR` (installed < floor), `MISSING` (not installed). Exit `0` when no `BELOW_FLOOR`; `1` on any `BELOW_FLOOR` (`--strict` also fails on `MISSING`); `2` on invocation / resolution errors.
+Classifications: `OK` (installed ≥ floor), `BELOW_FLOOR` (installed < floor), `MISSING` (not installed). Exit `0` when no `BELOW_FLOOR`; `1` on any `BELOW_FLOOR` (`--strict` also fails on `MISSING`); `2` on invocation/resolution errors.
 
 #### Env selection precedence (`resolve_site_dirs`)
 
@@ -575,7 +745,7 @@ Env names are **never** hardcoded. Resolution order (`util/env_floor_drift_check
 
 1. `--site-packages PATH` (repeatable) — scan those dirs; missing paths → exit `2` with `no --site-packages dir exists: …`
 2. Else `--env NAME` (repeatable) — expand `<conda-dir>/envs/<NAME>/lib/python*/site-packages`; empty expand → exit `2` with `no site-packages under …`
-3. Else `prompts/agent_templates/data/ecosystem.yaml` — map the target `[project].name` via `conda_envs[].used_by`; missing name / mapping / site-packages → exit `2` with the matching reason (pass `--env` or `--site-packages` to override)
+3. Else `prompts/agent_templates/data/ecosystem.yaml` — map the target `[project].name` via `conda_envs[].used_by`; missing name/mapping/site-packages → exit `2` with the matching reason (pass `--env` or `--site-packages` to override)
 
 Default `--conda-dir` is `$JUNIPER_CONDA_DIR` or `/opt/miniforge3`.
 
@@ -693,7 +863,7 @@ Live compose (verified against `util/isolated_stack.bash`; coverage in `tests/te
 
 `--dry-run --up` announces the venv/pip/launch lines and returns from `data_up` without creating the venv or writing a pidfile.
 
-Constraints / pitfalls:
+Constraints/pitfalls:
 
 - `PYTHON_GIL=0` is required for the free-threading `python3.14` path the checklist assumes; dropping it leaves a wrong or dead data service on `8101` while later legs still start.
 - Pidfiles under `RUN_DIR` are bring-up bookkeeping — `--down` still stops by **port** (`stop_port`), not by reading `juniper-data.pid`.
@@ -761,7 +931,7 @@ Confirm with `rg -n 'if ! conda activate' util/isolated_stack.bash`. A missing `
 
 #### Kill-by-port teardown (`port_pid` / `stop_port`)
 
-`--down` does **not** use `JuniperProject.pid`. It stops canopy → cascor → data via `stop_port`, which asks `ss -tlnpH "sport = :<port>"` for the first `pid=N` (`port_pid`), then `kill`s that PID.
+`--down` does **not** use `JuniperProject.pid`. It stops the canopy → cascor → data via `stop_port`, which runs `ss -tlnpH "sport = :<port>"` to find the first `pid=N` (`port_pid`), then `kill`s that PID.
 
 Soft-fail when `ss` is missing, exits nonzero, or reports no `pid=` (logs "nothing listening"; not a failure). `--dry-run --down` announces the kill line but never kills. After stop, live mode removes `${RUN_DIR}/data`, the data venv, `*.pid`, and `snapshot_*.h5` under canopy `src/snapshots/` (non-matching names are left alone). It deliberately does **not** touch cascor's shared snapshot root `juniper-cascor/cascor-snapshots/` — that is a project asset store outliving every stack, and repointing the teardown glob at it is the mistake the in-script comment guards against. Per-run snapshot sweeping is done by giving the run its own `JUNIPER_CASCOR_SNAPSHOTS_DIR`, as `experiment_stack.bash` does.
 
@@ -769,7 +939,7 @@ Orphaned listeners on `8101`/`8202`/`8051` after a broken teardown collide with 
 
 Coverage: `tests/test_isolated_stack_script.py` (`TestPortPid` / `TestStopPort` / `TestLiveDown` in juniper-ml#786/#788).
 
-#### Health wait / status probe
+#### Health wait/status probe
 
 - `wait_for_health` (live `--up` only): polls `curl -sf` every **2s** (hard-coded; not plant's `HEALTH_CHECK_INTERVAL`) until success or `JUNIPER_E2E_HEALTH_TIMEOUT` (default `60`). Timeout logs `ERROR: … see ${LOG_DIR}` and returns `1` (aborts `--up` under `set -e`).
 - `probe_health` (`--status`): reports HTTP code (or `000` on curl failure) plus `port_pid`; never fails the script on an unhealthy service.
@@ -791,7 +961,7 @@ Troubleshooting:
 | Ports still busy after `--down` | Confirm `ss` is on `PATH` and can see user processes; re-run `--down` or kill the `pid=` from `ss -tlnpH` manually. |
 | Health timeout mid-`--up` | Inspect `${JUNIPER_E2E_RUN_DIR:-/tmp/juniper-e2e}/logs/*.log`; raise `JUNIPER_E2E_HEALTH_TIMEOUT` only after fixing the service, not as a silent hang workaround. |
 | Cascor dies / wrong torch after `--up` | Confirm live launch emptied `LD_LIBRARY_PATH` (`--dry-run --up` shows `LD_LIBRARY_PATH=`); prefer default `JuniperCascor1`. |
-| Canopy looks "up" but training APIs are demo stubs | `JUNIPER_CANOPY_DEMO_MODE` must be `0` on the live launch line. |
+| Canopy looks "up," but training APIs are demo stubs | `JUNIPER_CANOPY_DEMO_MODE` must be `0` on the live launch line. |
 | Control-WS `403` / reconnect churn | Cascor allowlist + canopy Origin must both be canopy's origin (`http://127.0.0.1:<CANOPY_PORT>`). See checklist §4. |
 
 Do **not** point isolated ports at the host stack or run `--up` on ports `plant_all` already owns.
@@ -800,13 +970,13 @@ Do **not** point isolated ports at the host stack or run `--up` on ports `plant_
 
 ## Fleet Triage and Sequence Safety
 
-Flood-remediation tooling for Cursor-fleet / third-party open PRs and for silent symbol / docs damage that ordinary lint cannot see. Two layers:
+Flood-remediation tooling for Cursor-fleet / third-party open PRs and for silent symbol/docs damage that ordinary lint cannot see. Two layers:
 
 | Layer | Path | Role |
 |-------|------|------|
 | Sequence-safety screens | the `juniper-symbol-loss-check` / `juniper-docs-additions-check` console scripts (PyPI `juniper-ci-tools>=0.8.0`) | Path-invoked BASE..HEAD screens used by CI (`sequence-safety` job, `main-verify.yml`) |
 | Predicted-merge triage | `util/fleet_triage/predict_merge.py` | Detached-clone merge of `origin/main` into a PR tip; runs fast gates + screens on the **merge RESULT** |
-| Fleet supervisor agent | `.claude/agents/fleet-supervisor.md` | Read-only adjudication over a `--batch` report (never pushes / merges / closes) |
+| Fleet supervisor agent | `.claude/agents/fleet-supervisor.md` | Read-only adjudication over a `--batch` report (never pushes/merges/closes) |
 
 Design context: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md`](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) §4 items 7–8.
 
@@ -842,7 +1012,7 @@ python util/fleet_triage/predict_merge.py --pr 895 --repo-root .
 JUNIPER_FLEET_SKIP_PRECOMMIT=1 python util/fleet_triage/predict_merge.py --pr 895
 ```
 
-Per PR the script:
+Per PR, the script:
 
 1. Creates a throwaway **detached** `git clone --shared` under the system tempdir (never a worktree, never writes the source checkout, never pushes).
 2. Merges `origin/main` into the branch tip (`git merge --no-ff`, `commit.gpgsign=false`).
@@ -857,11 +1027,11 @@ Per PR the script:
 | `CONFLICT` | Merge conflict against `origin/main` |
 | `ERROR` | `--batch` only: soft-fail row when a single PR cannot be simulated (e.g. unresolvable `origin/<headRefName>`); `true_delta=[]` and the rest of the open-PR set still runs |
 
-`--batch` also builds a same-file cluster map and a suggested merge order. Heal-first detection (`_is_heal`) looks at the PR **title** and **branch** (case-insensitive) for any of `restore` / `heal` / `repair` / `fix-first`, sorts those ahead of ordinary PRs, then ascending same-file contention. `triage_batch` **continues** after a per-PR `PredictMergeError` (the `ERROR` row above). Exit `0` always reports (even when every verdict is `DAMAGED` / `CONFLICT` / `ERROR`); exit `2` is usage / precondition only (`gh` missing, bad `--repo-root`, or an unresolvable ref in single `--pr` mode).
+`--batch` also builds a same-file cluster map and a suggested merge order. Heal-first detection (`_is_heal`) looks at the PR **title** and **branch** (case-insensitive) for any of `restore` / `heal` / `repair` / `fix-first`, sorts those ahead of ordinary PRs, then ascending same-file contention. `triage_batch` **continues** after a per-PR `PredictMergeError` (the `ERROR` row above). Exit `0` always reports (even when every verdict is `DAMAGED` / `CONFLICT` / `ERROR`); exit `2` is usage/precondition only (`gh` missing, bad `--repo-root`, or an unresolvable ref in single `--pr` mode).
 
-**`--pr` hard-fail vs `--batch` soft-ERROR.** The two modes deliberately diverge on a `gh` failure: in single-PR mode `triage_pr` raises `PredictMergeError` when `gh` exits nonzero or returns non-JSON, so the CLI exits `2` (there is no partial report worth printing). In `--batch`, the same condition becomes a soft `ERROR` row for that PR only and the rest of the open-PR set still runs. An exit `2` from `--pr` is a precondition failure, never a damage finding.
+**`--pr` hard-fail vs `--batch` soft-ERROR.** The two modes deliberately diverge on a `gh` failure: in single-PR mode `triage_pr` raises `PredictMergeError` when `gh` exits nonzero or returns non-JSON, so the CLI exits `2` (there is no partial report worth printing). In `--batch`, the same condition becomes a soft `ERROR` row for that PR only, and the rest of the open-PR set still runs. An exit `2` from `--pr` is a precondition failure, never a damage finding.
 
-Degrade paths (never crash the report): missing / broken `symbol_loss_check.py`, checker exit `2`, or non-JSON stdout → symbol screen `status=skip`. A delta with no `.py`/`.bash` short-circuits the symbol subprocess. Gate: `tests/test_predict_merge.py` (incl. `Allow-Symbol-Loss` and `Allow-Docs-Rewrite` trailer → `MERGE-CLEAN` arms).
+Degrade paths (never crash the report): missing/broken `symbol_loss_check.py`, checker exit `2`, or non-JSON stdout → symbol screen `status=skip`. A delta with no `.py`/`.bash` short-circuits the symbol subprocess. Gate: `tests/test_predict_merge.py` (incl. `Allow-Symbol-Loss` and `Allow-Docs-Rewrite` trailer → `MERGE-CLEAN` arms).
 
 #### Docs screen vs `docs_additions_check.py` (honesty)
 
@@ -910,7 +1080,7 @@ method. Full evidence:
 
 ### The scale of it, measured
 
-On 2026-08-19, of 23 live worktrees there were **11 distinct `AGENTS.md` contents
+On 2026-08-19, of 23 live worktrees, there were **11 distinct `AGENTS.md` contents
 and only 1 matched the main checkout** — so 22 of 23 sessions were loading two full
 copies. A session in a divergent worktree carried **344,450 characters (~43% of a
 200k window)** against 204,889 (~26%) for a matching one.
@@ -929,7 +1099,7 @@ copies. A session in a divergent worktree carried **344,450 characters (~43% of 
 ### Before removing anything: check for a live session
 
 `scripts/cleanup_session_worktrees.py` gates on **not locked**, then on *branch*
-state — merged, clean, not the current cwd. Even together those are necessary and
+state — merged, clean, not the current cwd. Even together, those are necessary and
 **not sufficient: merged-and-clean does not mean idle.** A session can have just
 merged its PR and be about to start the next task in the same worktree.
 
@@ -945,7 +1115,7 @@ reconciles that contradiction reaches for `-f -f` or unlocks by hand. The remova
 call no longer passes `--force` at all. Gate: `tests/test_cleanup_session_worktrees.py`
 `LockGateTest`.
 
-The flag is still only a *supplement* to judgement: a session idling elsewhere while
+The flag is still only a *supplement* to judgment: a session idling elsewhere while
 holding a worktree open is invisible to it, and during the 2026-08-20 sweep both
 worktrees locked earlier in that effort had already released.
 
@@ -971,10 +1141,10 @@ files, declared in `conf/memory_budget.json`. Run by the standalone `Memory Budg
 job in `ci.yml`.
 
 > **BLOCKING as of 2026-08-20 (P4).** The budget step no longer passes `--advisory`;
-> a violation exits 1 and fails the check. The companion **G3** step in the same job
+> a violation exits `exit 1` and fails the check. The companion **G3** step in the same job
 > stays advisory — see [Relocation Completeness](#relocation-completeness-g3) for why.
 >
-> To make it actually gate a merge it must also be a **required context** in the branch
+> To make it actually gate a merge, it must also be a **required context** in the branch
 > ruleset. That is a settings change, not a repo change, and it is deliberately promoted
 > there rather than through the Quality Gate `needs:` — a standalone job that skips on
 > `push` must never be able to fail the aggregate gate.
@@ -1010,7 +1180,7 @@ the cleanup it is asking for.
 ### The waiver is a loan, not a pass
 
 `Allow-Budget-Overrun: <path>` in a commit message suppresses the failure for that
-path **without moving the ceiling** — the debt is still owed and the next author
+path **without moving the ceiling** — the debt is still owed, and the next author
 still sees it. That is the property the house `Allow-Symbol-Loss:` idiom lacks.
 Waivers are always reported, never silent. Carry the trailer into the **squash**
 commit message; trailers travel in git history.
@@ -1033,7 +1203,7 @@ documentation did nothing and gave no clue why.
 ### Not governed: `docs/REFERENCE.md`
 
 Deliberately absent from the budget. It is the migration **destination**; capping it
-would penalise exactly the relocation the plan wants, and it is not an always-loaded
+would penalize exactly the relocation the plan wants, and it is not an always-loaded
 memory file — it is read on demand, which is the entire point.
 `tests/test_memory_budget_check.py` pins this.
 
@@ -1089,7 +1259,7 @@ So without G3 the migration would proceed with **no** content-loss control.
 
 Every substantive line **removed** from the source between BASE and HEAD must have
 a sufficiently similar line **present** in the destination at HEAD. Similarity is
-computed on normalised prose (markdown emphasis, link syntax, list markers and
+computed on normalized prose (markdown emphasis, link syntax, list markers and
 backticks stripped; whitespace collapsed; lowercased), so a faithfully reworded
 relocation passes while a dropped explanation does not.
 
@@ -1107,7 +1277,7 @@ and anything under `--min-chars` (default 40).
 | `needle in candidate` | **full match** | The destination contains the whole removed line — a merge, not a loss. |
 | `candidate in needle` | **not a match** | The destination holds only a *fragment* — the bare identifier survived and the reasoning did not. |
 
-Getting this backwards makes the gate tautological. It is pinned directly by
+Getting this backward makes the gate tautological. It is pinned directly by
 `ContainmentAsymmetryTest` and by
 `test_identifiers_carried_but_prose_dropped_fails`.
 
@@ -1130,7 +1300,7 @@ is left in deliberately:
   can cover any needle — which is how this gate would decay into the token-level
   check it exists to replace.
 
-For P3 the distinction matters little: relocation moves prose largely intact.
+For P3, the distinction matters little: relocation leaves the prose largely intact.
 Compression-and-redistribution is a different operation, and a human should verify
 it when flagged.
 
@@ -1159,13 +1329,13 @@ machinery.
 Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it is read on demand rather than loaded into every session.
 
 - `tests/test_wake_the_claude.py` -- Regression tests for resume/session-id and argument handling in `wake_the_claude.bash`
-- `tests/test_env_repr_safety.py` -- Lint + behaviour gate for the env-repr secret-leak class: forbids raw `os.environ`-derived subprocess `env=` mappings in `tests/` (they leak secrets through pytest `--showlocals`-style frame-local reprs) and proves `tests/redacted_env.py`'s `RedactedEnv` masks its repr while behaving as a normal subprocess env mapping. Includes a synthetic-violation self-test; `patch.dict(os.environ, ...)` is deliberately exempt.
+- `tests/test_env_repr_safety.py` -- Lint + behavior gate for the env-repr secret-leak class: forbids raw `os.environ`-derived subprocess `env=` mappings in `tests/` (they leak secrets through pytest `--showlocals`-style frame-local reprs) and proves `tests/redacted_env.py`'s `RedactedEnv` masks its repr while behaving as a normal subprocess env mapping. Includes a synthetic-violation self-test; `patch.dict(os.environ, ...)` is deliberately exempt.
 - Doc-link validator regression tests live in [`juniper-doc-tools/tests/`](juniper-doc-tools/tests/) (Wave 4 of the doc-link migration; exercised by the dedicated `CI -- juniper-doc-tools` workflow).
 - `tests/test_worktree_cleanup.py` -- Tests for `util/worktree_cleanup.bash` argument parsing, dry-run, and error handling; Phase 1 dirty porcelain exit-1 gate (juniper-ml#747) and clean push / Phase 2 path-collision arms (open #753) drive fixture repos via sourced `phase_1_save_and_push` / `phase_2_create_new_worktree`
 - `tests/test_worktree_sweep_scripts.py` -- Tests for `util/ad-hoc/worktree_sweep_*.bash`: survey/apply row compatibility, `SAFE`-only removal, and unknown-repo skips
 - `tests/test_cleanup_session_worktrees.py` -- Hermetic tests for `scripts/cleanup_session_worktrees.py`: `_has_merged_pr` fail-closed (gh fail / bad JSON), dirty/unmerged/detached keeps, self-cwd skip, and `--dry-run` remove of main-ancestor / MERGED-PR clean tips. `LockGateTest` pins the 2026-08-21 liveness gate against real locked worktrees: an otherwise-removable locked tree is kept, the `--dry-run` plan does not promise to remove it, unlocking the same tree makes it removable again (proving the lock is what held it), and an anti-resurrection arm asserts the source never passes `--force`/`-f` to `worktree remove`
 - `tests/test_reap_pytest_orphans.py` -- Tests for `util/reap_pytest_orphans.bash` dry-run, live-parent safety, orphan detection, and isolated kill invocation
-  - `TestLiveExperimentProtection`: the P1 pidfile + P2 cmdline keys, reproducing the three shapes a 2026-08-16 dry run would have killed (service / orchestrator / watchdog); the load-bearing live-mode arm proving a genuine orphan still dies while the protected service does not; stale-pidfile conservatism; and a malformed pidfile not aborting the sweep under `set -euo pipefail`
+  - `TestLiveExperimentProtection`: the P1 pidfile + P2 cmdline keys, reproducing the three shapes a 2026-08-16 dry run would have killed (service/orchestrator/watchdog); the load-bearing live-mode arm proving a genuine orphan still dies while the protected service does not; stale-pidfile conservatism; and a malformed pidfile not aborting the sweep under `set -euo pipefail`
 - `tests/test_kill_helpers.py` -- Hermetic process-filter / kill-path tests for `util/kill_all_pythons.bash` and `util/juniper_worker_kill.bash` (PATH-stubbed `ps`/`sudo`/`kill`; bash `kill` builtin disabled; never touches live PIDs)
 - `tests/test_check_conda_env_torch.py` -- Hermetic exit-matrix tests for `util/check_conda_env_torch.bash` (P-5 torch._C shadow diagnostic: 0/1/2/3/4 via `JUNIPER_CONDA_DIR` + stub python; no real conda/torch)
 - `tests/test_requirements_drift_check.py` -- Tests for `util/requirements_drift_check.py`: structural range validation, BAD_PATH / BAD_RANGE classification, `--ecosystem-root` rewriting, CLI exit codes, JSON output
@@ -1179,18 +1349,18 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `tests/test_workflow_script_paths.py` -- Lint test: every `python <path.py>` / `bash <path.bash>` invocation in `.github/workflows/*.yml` must reference a path that exists in the repo. Cross-repo paths (`juniper-X/...`) are skipped as runtime-resolved. Catches the failure class that broke 3 juniper-X CIs on 2026-05-18.
 - The sequence-safety screen unit tests (symbol + docs: `LOST`/`WEAKENED`/`DUPLICATED`, SF3 masking pin, relocation WARN, heading / `>=N`-run FAIL, both trailer escapes + wildcard, `--min-run`, the `--scope` glob engine, exit codes 0/1/2) moved to `juniper-ci-tools/tests/` with the package migration (rollout W3); they run under the dedicated `CI -- juniper-ci-tools` workflow. juniper-ml's `tests/test_ci_tools_drift.py` carries the anti-resurrection guard + the two new screen-pin drift checks.
 - `tests/test_doc_tools_drift.py` -- Lint test (plan §5.1) for `juniper-doc-tools` pins. Extracts the `juniper-doc-tools>=X,<Y` pin from juniper-ml's own workflows and each cloned consumer repo's `ci.yml`, then asserts the range still admits the current version (read from `juniper-doc-tools/pyproject.toml`). Soft-warns on pins more than 2 minors behind; hard-fails when the upper bound excludes current.
-- `tests/test_service_fork_drift.py` -- Drift gate for the security guards that must hold identically in `juniper-data`'s and `juniper-cascor`'s forks of the `juniper-service-core` middleware / security code (defect-register §2.3 "Copy drift").
+- `tests/test_service_fork_drift.py` -- Drift gate for the security guards that must hold identically in `juniper-data`'s and `juniper-cascor`'s forks of the `juniper-service-core` middleware/security code (defect-register §2.3 "Copy drift").
   - A registry of named guards, each detected by a small source marker, rather than a file diff: the forks diverge legitimately and constantly (juniper-data deliberately holds API keys in a `list` for `compare_digest` timing where service-core uses a `set`), so a diff would drown the signal.
   - Two-sided by design. `ENFORCED` guards must be **present** in every fork; their disappearance is a regression. `KNOWN_GAP` guards must still be **absent** -- when someone closes one, the gate fails and instructs them to promote the row to `ENFORCED`, so the ledger cannot rot into a list of things that used to be true.
   - Cross-repo assertions gate exactly like `test_ci_tools_drift.py` (`GITHUB_ACTIONS=true` or `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`); the registry-structure checks and the matcher's negative controls always run. It bites in `docs-full-check.yml`, the only job that clones the siblings.
-  - A site may be marked **`ordered`**, meaning its markers must appear in the declared sequence, not merely be present. `cors-outside-auth` (register `APD-CASCOR-001b` / `APD-DATA-035`) is the reason the flag exists: that guard regresses by two `add_middleware` calls **swapping places**, so both markers are present either way and a presence-only check would report SUCCESS on the exact defect it guards -- the vacuous-pass class. Requiring `RequestIdMiddleware` to be registered before `CORSMiddleware` *is* the invariant "CORS is registered last, so it runs outermost". Its negative controls live in the always-on structural class, so they still run in `ci.yml` where the cross-repo arms skip.
+  - A site may be marked **`ordered`**, meaning its markers must appear in the declared sequence, not merely be present. `cors-outside-auth` (register `APD-CASCOR-001b` / `APD-DATA-035`) is the reason the flag exists: that guard regresses by two `add_middleware` calls **swapping places**, so both markers are present either way and a presence-only check would report SUCCESS on the exact defect it guards -- the vacuous-pass class. Requiring `RequestIdMiddleware` to be registered before `CORSMiddleware` *is* the invariant "CORS is registered last, so it runs outermost". Its negative controls are in the always-on structural class, so they still run in `ci.yml`, where the cross-repo arms are skipped.
   - **No `KNOWN_GAP` rows currently remain** -- all six copy-drift guards are `ENFORCED`. The `KNOWN_GAP` machinery is retained for the next row that acquires a reference implementation; note that with zero such rows `test_known_gaps_are_still_open_or_get_promoted` iterates an empty set and passes **vacuously**.
-- `tests/test_assert_release_tag.py` -- Behavioural tests for `util/assert_release_tag.bash` plus a **wiring gate** asserting all 7 publishers invoke it with their own `--expect-prefix`, and that **no publisher grants `id-token` at workflow level** (P4).
+- `tests/test_assert_release_tag.py` -- Behavioral tests for `util/assert_release_tag.bash` plus a **wiring gate** asserting all 7 publishers invoke it with their own `--expect-prefix`, and that **no publisher grants `id-token` at workflow level** (P4).
   - Drives synthetic dist directories: happy paths (meta, sub-package, `-rc1` normalization, alpha), and the refusals that matter -- branch ref, **empty** ref_type (must fail closed, not read as a tag), tag/version mismatch, wrong package prefix, missing dist dir, sdist-only, version-less tag, misuse exit 2.
   - The mismatch case is a live regression guard: it originally passed because `tr -d '-_'` errored on this host and both sides normalized to empty. `util/` is outside every pre-commit Python hook's scope, so this suite is the gate.
 - `tests/test_publish_testpypi_verify.py` -- Structural + hermetic YAML-extraction gate for `.github/workflows/publish.yml` TestPyPI **Gate 1**.
   Pins the two-phase verify (TestPyPI-only `pip download --no-deps` provenance, then three PyPI-only local-wheel installs of bare / `[clients]` / `[tools]`, never `--extra-index-url`, never the heavy extras), the `v*` tag guard, TestPyPI `skip-existing` vs strict PyPI, and `pypi needs: testpypi`.
-  Since juniper-ml#1310 the index-lag buffer is a **bounded poll** (no unconditional `sleep 30`; remaining `sleep` values are poll intervals `<=10s`; exhausting the loop is a real `::error::`, not a silent fall-through).
+  Since juniper-ml#1310, the index-lag buffer is a **bounded poll** (no unconditional `sleep 30`; remaining `sleep` values are poll intervals `<=10s`; exhausting the loop is a real `::error::`, not a silent fall-through).
   The extracted verify shell is rehearsed with PATH stubs so a rewrite that drops a phase fails in CI without hitting the network.
 - `tests/test_publish_release_only_trigger.py` -- Glob-discovered gate that `release: published` stays the **only** automatic trigger on every `publish*.yml` (juniper-ml#1310).
   Re-adding `push:` recreates the #555 double-publish race against the immutable TestPyPI upload; removing `release:` disarms publishing silently (a workflow that never fires reports nothing).
@@ -1200,19 +1370,19 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - The control lives in GitHub **settings, not the repo**: no test covered it, no reviewer sees a diff when a policy is deleted, and the failure is silent -- the publish path just becomes permissive again.
   - Two load-bearing invariants: **no branch-type policy may exist** (adding a `main` branch policy re-opens branch dispatch while every tag pattern stays intact and the environment still looks configured -- owner decision D3 was tag-only), and **`pypi` must retain `required_reviewers`** (a `PUT` is create-or-update, so a careless payload clears the human gate while successfully setting a ref policy -- the environment then looks *more* configured while being weaker).
   - Structural checks + the detector's **negative control** always run offline (a gate that cannot fail is not a gate; an untyped policy must read as `branch`, never `tag`). The live half is gated on `GITHUB_ACTIONS=true` / `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1` and is read-only (`gh api` GETs).
-  - **No silent caps**: per-PR CI's built-in `GITHUB_TOKEN` reaches juniper-ml only, so the live half partitions the registry repos into readable / unreadable, verifies the readable ones, **names** the unverified ones, and refuses to pass if nothing at all was readable. A repo that IS readable but whose environment 404s is a real finding (deleted environment), not a permission skip. Full-fleet cover: `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`.
+  - **No silent caps**: per-PR CI's built-in `GITHUB_TOKEN` reaches juniper-ml only, so the live half partitions the registry repos into readable/unreadable, verifies the readable ones, **names** the unverified ones, and refuses to pass if nothing at all was readable. A repo that IS readable but whose environment 404s is a real finding (deleted environment), not a permission skip. Full-fleet cover: `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`.
   - Repair: `util/ad-hoc/2026-08-17_apply_env_tag_policies.bash --apply <repo> <env>`.
 - `tests/test_pyproject_extras.py` -- Lint test pinning the `[project.optional-dependencies]` surface (`clients`, `worker`, `servers`, `tools`, `doc-tools`, `all`). Asserts the exact set of extras, the exact membership of each, that `[all]` aggregates every non-alias extra exactly once, and that `[project].version` is semver-ish. Added pre-0.5.0 after juniper-ml#295 introduced `[servers]` + `[tools]` without regression coverage; any future edit to extras must update the lint contract in the same PR.
   - juniper-ml's own pin check runs every PR; the cross-repo assertion auto-skips when siblings aren't on disk and additionally skips local runs by default. Set `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1` to opt in locally.
-- `tests/test_template_library_drift.py` -- Lint test enforcing manifest <-> template consistency for the custom-agent template library (`prompts/agent_templates/`): every registered template exists and every template is registered; each follows the canonical section skeleton in order; every `{{placeholder}}` matches the systematic convention; the `generic` fallback always matches.
+- `tests/test_template_library_drift.py` -- Lint test enforcing manifest <-> template consistency for the custom-agent template library (`prompts/agent_templates/`): every registered template exists, and every template is registered; each follows the canonical section skeleton in order; every `{{placeholder}}` matches the systematic convention; the `generic` fallback always matches.
   - The **sole gate** for the library because `prompts/**` is excluded from all pre-commit hooks, so it must stay wired into `ci.yml`. Design-of-record §5.4/§9.
 - `tests/test_template_selection.py` -- Lint validating `manifest.yaml`'s `match_signals` support deterministic category selection: exactly one always-match fallback (`generic`), every other template has non-empty keyword signals, no two share an identical keyword set, and every `class` is allowed. Companion gate to the library drift test.
 - `tests/test_template_select_preview.py` -- Tests for `util/template_select_preview.py` (the offline selection preview, P2): drives the real manifest (so it also guards selection drift) -- a task with a template's keyword selects that template (`failing-tests`), a no-keyword task falls back to `generic`, the ranked candidates exclude the always-match fallback, and the CLI exits 0 with the documented JSON shape.
 - `tests/test_template_data_resolver.py` -- Tests + drift gate for the custom-agent suite data layer (PR 6b): the five `prompts/agent_templates/data/*.yaml` files load, `util/template_data_resolver.py`'s `load`/`resolve` (dotted lookup) work, and -- since `prompts/**` is pre-commit-excluded -- this is the sole gate; also asserts `conventions.line_length` matches `.markdownlint.yaml` and the handoff threshold is the current 95-99% (not a stale 80%).
 - `tests/test_safe_merge.py` -- Tests for `util/safe_merge.py` (the R4 merge gate). Hermetic: `_gh`, `pr_state`, `wait_for_required` and `update_branch` are replaced with recorders, so no network / `gh` / repo / PR is touched.
   Pins the safety contract -- every refusal path (closed / draft / conflicted / checks-failed / checks-unfinished / unsettled-ref / sync-cycles-exhausted / merge-returned-but-PR-not-merged) asserts that **no** `pr merge` was issued, plus `--match-head-commit` head pinning, the server-side (`PUT`) branch refresh, the async ref-settle poll, moved-head-is-a-refusal, the no-local-git invariant, and dry-run writing nothing.
-- `tests/test_open_signed_pr.py` -- Tests for `util/open_signed_pr.py` (signed cross-repo PR opener). Hermetic: `gh` is a PATH stub that records argv and replays canned stdout, so no network / repo / `git` is touched.
-  - Pins the mutation name (`createCommitOnBranch` -- the whole point), `expectedHeadOid` == the resolved base sha, base64 additions, `fileChanges.deletions` present for `--delete` and **omitted** when unused, and the explicit `ref=refs/heads/<branch>` on the refs POST (the ml#770 R7 lesson).
+- `tests/test_open_signed_pr.py` -- Tests for `util/open_signed_pr.py` (signed cross-repo PR opener). Hermetic: `gh` is a PATH stub that records argv and replays canned stdout, so no network/repo/`git` is touched.
+  - Pins the mutation name (`createCommitOnBranch` -- the whole point), `expectedHeadOid` == the resolved base SHA, base64 additions, `fileChanges.deletions` present for `--delete` and **omitted** when unused, and the explicit `ref=refs/heads/<branch>` on the refs POST (the ml#770 R7 lesson).
   - Also pins every refusal path writing nothing: dup-guard exit 1, existing-branch exit 1, no-changes exit 2, unreadable source exit 2. `util/` is outside every pre-commit Python hook's scope, so this suite is the gate.
 - `tests/test_scaffold_template.py` -- Tests for `util/scaffold_template.py` (P5 generator): the generated template passes the real library-drift helpers (skeleton order + placeholder well-formedness), `--dry-run` writes nothing, refuse-on-collision (exit 1), bad-class / missing-keywords (exit 2), and -- the safety contract -- the tool NEVER edits `manifest.yaml` (prints the stanza).
 - `tests/test_prompt_validator_contract.py` -- Static contract test for the `prompt-validator` subagent (`.claude/agents/prompt-validator.md`, PR 3): frontmatter shape (`tools` = exactly `Read, Grep, Glob, Bash`, `model` concretely pinned per OQ-4), every rubric ID it cites exists in `RUBRIC.md` (incl. the `R2.0`/`R3.4` hard gates), and the pinned verdict schema + PASS/FAIL samples in `tests/fixtures/prompt_validator/` match the §5.3 contract. E-3: re-probe block is `<target>`-qualified (not CWD).
@@ -1247,11 +1417,11 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - notes_render meta/MAJOR/Breaking/`*` bullets: juniper-ml#756.
 - `tests/test_release_train_archive_guard.py` -- Hermetic tests for `archive_guard.py` (Phase 3.1, §7.2); no network/git/gh. Drives the four-rule classifier with synthetic `git diff --name-status` sets + the CLI (`--name-status-file`) against the real `registry.yaml`: a pure notes-add PASSES, a non-archive PR SKIPs, and modify/delete/out-of-path/bad-name/mixed diffs each FAIL; plus filename convention, parsing, exit codes 0/1/2. The gate for `util/`.
 - `tests/test_release_train_ceremony.py` -- Hermetic tests for `ceremony.py` (Phase 3.2, plan §7/§8/§9.3); no network/gh/git/writes.
-  Covers every §8 precondition HALT (main-CI / anomaly / missing-CHANGELOG / notes-render-failed / TestPyPI-verify), execute `RELEASED` when both publish gates completed, the happy-path exact action sequence, dup-guard/idempotent re-entry, the R7 gh-surface invariant (live seam issues only the allowlisted verbs + the 2 archive api calls -- `git/refs` POST + `createCommitOnBranch`), and a dry-run leaving `git status` clean. The gate for `util/`.
+  Covers every §8 precondition HALT (main-CI / anomaly / missing-CHANGELOG / notes-render-failed / TestPyPI-verify), execute `RELEASED` when both publish gates are completed, the happy-path exact action sequence, dup-guard/idempotent re-entry, the R7 gh-surface invariant (live seam issues only the allowlisted verbs + the 2 archive api calls -- `git/refs` POST + `createCommitOnBranch`), and a dry-run leaving `git status` clean. The gate for `util/`.
   - Execute-time open-PR reuse + archive-already-on-main idempotent re-entry arms (juniper-ml#730).
   - R7 archive-lane `ref=` required (juniper-ml#770): missing/empty `ref=` on a `git/refs` POST is `SeamViolation` (not deferred to the live API).
 - `tests/test_agents_md_version_drift.py` -- Lint test pinning `AGENTS.md`'s `**Version**:` header to `pyproject.toml`'s `[project].version`. Added after juniper-ml#295 bumped pyproject 0.4.1→0.5.0 but left AGENTS.md at 0.4.0 for ~6 days (fixed in juniper-ml#304); this lint makes the drift impossible to ship. Intentionally portable: auto-locates the repo root, so the module can be dropped into any Juniper repo's `tests/` (skips loudly if AGENTS.md has no canonical header).
-- `tests/test_agents_md_header_schema.py` -- Lint pinning `AGENTS.md`'s canonical header schema. Six required fields in this relative order: `**Project**`, `**Repository**`, `**Author**`, `**License**`, `**Version**`, `**Last Updated**`. Extras (e.g. `**Python**:`) may be interleaved freely. Validates each value non-empty and `**Last Updated**` is `YYYY-MM-DD`. Currency of the date is enforced by `.github/workflows/agents-md-touch-up.yml`. Portable (self-locating).
+- `tests/test_agents_md_header_schema.py` -- Lint pinning `AGENTS.md`'s canonical header schema. Six required fields in this relative order: `**Project**`, `**Repository**`, `**Author**`, `**License**`, `**Version**`, `**Last Updated**`. Extras (e.g. `**Python**:`) may be interleaved freely. Validates each value as non-empty and `**Last Updated**` is `YYYY-MM-DD`. Currency of the date is enforced by `.github/workflows/agents-md-touch-up.yml`. Portable (self-locating).
 - `tests/test_agents_md_tree_drift.py` -- Lint (gap G-3) asserting every tracked non-hidden top-level dir (`git ls-tree`; the `ls -d */` surface) appears as a node in `AGENTS.md`'s fenced Repository-Structure tree, catching the indented-tree omission the grep-based `test_agent_suite_path_drift.py` cannot (stale `templates/`, missing `conf/`/`papers/` + 6 sub-package dirs). Portable; a synthetic negative case proves it bites.
 - `tests/test_isolated_stack_script.py` -- Contract tests for `util/isolated_stack.bash` (plan unit E1): `bash -n` syntax, launch-line text assertions (dedicated-venv install, `python -m juniper_data`, `uvicorn api.app:create_app --factory`, canonical canopy env vars, the control-WS origin/allowlist pair), and hermetic `--dry-run` behavioural checks (prints commands with ports expanded, touches nothing; misuse exits 2).
 - `tests/test_experiment_stack_script.py` -- Contract + behavioural tests for `util/experiment_stack.bash` (CLI experimentation plan Wave 2.1; `util/` is not
@@ -1259,8 +1429,8 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   recipes env-set by env-set, the **F-6** listener-pid rule (no `$!` in any `*_up`; `record_listener_pid` runs after `wait_for_health`; teardown verifies uid + cmdline),
   §7.3 suffix-based `_monitoring$` gateway discovery + the exact socat relay line, the §7.2 target file rendered and parsed as JSON (four labels), and the operator-safety
   invariants (no `JuniperProject.pid`, no canopy, no repo `.env` write, no operator port).
-  - Behavioural arms are hermetic: `JUNIPER_EXP_{RUN,LOCK}_ROOT` / `_DEPLOY_DIR` / `_CONDA_DIR` redirect every path into a tempdir and `ss`/`curl`/`docker`/`socat` are PATH
-    stubs -- `--dry-run --up` prints all three launch classes with allocated ports expanded while leaving run root / lock root / targets dir non-existent; `allocate_port`
+  - Behavioral arms are hermetic: `JUNIPER_EXP_{RUN,LOCK}_ROOT` / `_DEPLOY_DIR` / `_CONDA_DIR` redirect every path into a tempdir and `ss`/`curl`/`docker`/`socat` are PATH
+    stubs -- `--dry-run --up` prints all three launch classes with allocated ports expanded while leaving run root/lock root/targets dir non-existent; `allocate_port`
     skips locked and bound ports and fails loudly on an exhausted range; `--down` kills a self-spawned detached child through the **pidfile** path (the stubbed `ss` reports
     no listener, so kill-by-port cannot be what fired), removes the target file, releases the lockdirs, writes `teardown.json`, and preserves `artifacts/`.
   Live `cascor_up` / `canopy_up` compose pins (`TestCascorUp` / `TestCanopyUp` — fake `conda.sh` + PATH stubs; juniper-ml#813). Wired into `ci.yml` beside the `test_juniper_{plant,chop}_all.py` launcher tests.
@@ -1269,9 +1439,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - `DatasetInstanceIsFixedTest` (juniper-ml#1333): a generator declaring `seed=None` is given `DATASET_SEED`; a declared seed (spiral) is kept; two calls with the same seed agree; a params class with **no** `seed` field is left untouched; `DATASET_SEED` is a constant, not a drifting default. Stand-ins — no cascor tree, no juniper-data tree, no archive. Operator surface: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 - `tests/test_run_experiment.py` -- Hermetic tests for `util/experiments/run_experiment.py` (CLI experimentation plan Waves 2.2-2.6: the cascor + recurrence service paths, the §8.1 + §8.2 plot sets, and the §8.3 stats/summary renderers (e2e stats assertions for both kinds + every-outcome coverage + the `StatsSummaryUnitTest` percentile/delta/grouping/degraded-notes units) --
   plot arms cover all-rendered PNGs for both kinds (sequence-NPZ stub artifact for §8.2), per-kind plot-name validation, skip-vs-acceptance semantics (eval-disabled / degraded-sampling / disabled-phase skips, matplotlib-unavailable failure), and the `plots_cascor.py` / `plots_recurrence.py` renderer units incl. the `y_reg_` target-key preference;
-  `util/` is not pre-commit-lint-gated, so this unittest is the gate). A scripted stub HTTP server stands in for juniper-data, cascor, and recurrence (no live services): the
+  `util/` is not pre-commit-lint-gated, so this unittest is the gate. A scripted stub HTTP server stands in for juniper-data, cascor, and recurrence (no live services): the
   §5.6 YAML validation arms (unknown block/key, `schema_version`, mandatory `experiment.seed`, the rule-6 infra-key rejection, kind resolution, the §5.5 recurrence blocks
-  incl. `dataset.split` / `crossval.n_folds` / `predict.from_dataset_split`), the cascor drive loop (completion / `FAILED` / Q-2 stall / wall-clock budget with
+  incl. `dataset.split` / `crossval.n_folds` / `predict.from_dataset_split`), the cascor drive loop (completion / `FAILED` / Q-2 stall/wall-clock budget with
   CLI-beats-YAML precedence), the F-1 `/metrics` 307-redirect sampling arm + the G-3 404 degrade, the G-6 staging path (alias map, no inline `dataset` on start,
   shape-assert pass/mismatch, unstageable-generator refusal), the recurrence path (synchronous train 200/409/422/socket-timeout arms, predict/crossval `dataset_id` refs +
   record-and-continue on failure, the G-18 `save_model` CLI re-run via a PATH stub + missing-CLI acceptance failure), `ports.json` endpoint resolution, the §13.4 manifest
@@ -1293,12 +1463,16 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 
 Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it is read on demand rather than loaded into every session.
 
-- `util/worktree_cleanup.bash` -- Automated worktree cleanup with CWD-safe session continuity (V2 procedure). `MAIN_REPO` derives from `${BASH_SOURCE[0]}` (one dir up) with a `JUNIPER_ML_MAIN_REPO` override for test fixtures. Flags: `--old-worktree`, `--old-branch`, `--parent-branch`, `--new-worktree`, `--new-branch`, `--skip-pr`, `--skip-remote-delete`, `--dry-run`. Phase 7 always restores the primary checkout to up-to-date `main` (skips on dirty tree or checkout refusal; F-6 stale-checkout class).
-  - Phase 1: non-empty `status --porcelain` in the old worktree → `exit 1` (`Commit or stash…`) before any push; `--dry-run` skips the check. Clean tree then pushes when ahead / `-u` when no upstream / skips when synced. Phase 2 refuses an existing `NEW_WORKTREE` path (`exit 1`, never clobbers).
+- `util/worktree_cleanup.bash` -- Automated worktree cleanup with CWD-safe session continuity (V2 procedure). `MAIN_REPO` derives from `${BASH_SOURCE[0]}` (one dir up) with a `JUNIPER_ML_MAIN_REPO` override for test fixtures. Flags: `--old-worktree`, `--old-branch`, `--parent-branch`, `--new-worktree`, `--new-branch`, `--skip-pr`, `--skip-remote-delete`, `--dry-run`. Phase 7 always restores the primary checkout to an up-to-date `main` (skips on a dirty tree or a checkout refusal; F-6 stale-checkout class).
+  - Phase 1: non-empty `status --porcelain` in the old worktree → `exit 1` (`Commit or stash…`) before any push; `--dry-run` skips the check. Clean tree then pushes when ahead/`-u` when no upstream/skips when synced. Phase 2 refuses an existing `NEW_WORKTREE` path (`exit 1`, never clobbers).
+- `util/duplicati_scheduled_backup.bash` / `util/install_duplicati_timer.bash` / `util/duplicati_backup_failure.bash` -- Host `$HOME` Duplicati lane under `systemd --user` (#1292).
+  - Installer **copies** (never symlinks) the runner, OnFailure reporter, and three user units; does **not** `enable --now` the timer.
+  - Runner fail-closes on empty/short passphrase, unmounted dest, wrong-filesystem dest, and tmpfs `--tempdir`; `flock` / DB-open holders `skip_or_fail` (a skip overwrites `result=OK`, so the next skip always escalates).
+  - `--no-auto-compact=true` is load-bearing. Distinct from `util/juniper-backup.bash` (project-tree `tar | gpg -e`). Operator surface: [`docs/REFERENCE.md` § Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane).
 - `util/reap_pytest_orphans.bash` -- Safely reaps orphaned Juniper pytest multiprocessing children (`--dry-run` / `--verbose`).
   - Candidate awk gate: current-user + `/python/` + (`JuniperC[a-z0-9]+` conda path or `Juniper/worktrees/`); empty set exits 0 with "No Juniper python processes found."
   - Orphan when ppid is `1`, user `systemd --user`, or parent gone; live parents KEEP. `SKIPPED` on ps→gone race or missing `PPid:` (never kill).
-  - **Live-experiment protection, checked BEFORE the orphan predicate.** `experiment_stack.bash` / `isolated_stack.bash` launch services under `nohup` in a subshell, so they reparent to `systemd --user` — the orphan predicate itself; orchestrators / watchdogs started with `setsid`/`disown` land there too.
+  - **Live-experiment protection, checked BEFORE the orphan predicate.** `experiment_stack.bash` / `isolated_stack.bash` launch services under `nohup` in a subshell, so they reparent to `systemd --user` — the orphan predicate itself; orchestrators/watchdogs started with `setsid`/`disown` land there too.
   - Two protection keys, either sufficient: **P1** the pid is in a run-dir `*.pid`; **P2** the pid's cmdline references a run root (`JUNIPER_EXP_RUN_ROOT`, default `~/.local/state/juniper-experiments`, or `JUNIPER_E2E_RUN_DIR`). Prints `PROTECT` **always** (not `--verbose`-gated) and counts separately.
   - Observed live 2026-08-16 on campaign `e-j-h2h-wide-cap6`: a dry run called the orchestrator, the experiment cascor service, and the watchdog all `WOULD REAP` while healthy. Over-protection is the deliberate safe direction — a stale pidfile still protects.
   - Test hooks: `JUNIPER_REAP_PROC_ROOT`, `JUNIPER_REAP_KILL_CMD` (plus the two run-root vars, redirected per-test). Operator surface: [docs/REFERENCE.md § Pytest Orphan Reaper](#pytest-orphan-reaper).
@@ -1310,7 +1484,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - **Version axis** (`MATCH` / `STALE` / `UNKNOWN`), orthogonal to the path axis: compares the version the install RECORDED at pip time against the version its target declares NOW. An editable never re-derives its version — `import` follows the live tree while `*.dist-info/METADATA` stays frozen — so a `FRESH` install can be badly stale.
   - Blind spot it closes: on 2026-08-14 **7 of 8** installs on this host were FRESH *and* stale (juniper-data 5 minors behind, `0.6.0` vs `0.11.0`), invisible to both the path axis and `juniper-env-drift-check`'s floor check — a stale editable sits above every floor and is still wrong. It breaks whatever reads the *installed* version: a repo's `version == pyproject` self-check (cascor's `test_version_matches_pyproject`) and a host-launched service's build-info metric.
   - STALE is **soft** (exit 0 — `import` still resolves); `--strict-version` makes it exit 1, while `--strict` stays about the path axis. `--fix-stale` refreshes stale installs against the path they ALREADY point at (`drift: "stale-metadata"`) rather than a canonical-discovery result, which would risk re-pointing a deliberate checkout; ORPHANED repair is unchanged (`drift: "path"`).
-  - Dynamic versions are read only from an explicit `[tool.setuptools.dynamic] version.attr` (flat or `src/`) / `[tool.hatch.version] path` declaration — an unrecognized backend reports UNKNOWN instead of guessing at a `_version.py`. Operator surface: [`docs/REFERENCE.md` § Editable Install Drift Check](#editable-install-drift-check).
+  - Dynamic versions are read-only from an explicit `[tool.setuptools.dynamic] version.attr` (flat or `src/`) / `[tool.hatch.version] path` declaration — an unrecognized backend reports UNKNOWN instead of guessing at a `_version.py`. Operator surface: [`docs/REFERENCE.md` § Editable Install Drift Check](#editable-install-drift-check).
   - Ambiguous canonical (juniper-ml#795 coverage): `discover_canonical` returns `(None, [.., ..])` when two+ non-worktree checkouts share a `[project].name`; `--fix` then `action=SKIP` with `reason` containing `ambiguous` (never picks `candidates[0]`). Operator surface: `docs/REFERENCE.md` Editable Install Drift Check + cheatsheet tip.
   - Live `--fix` actions (juniper-ml#802 coverage): `run_fix` marks `FIXED` on successful `pip install -e <canonical> --no-deps --force-reinstall`; `OSError` / `CalledProcessError` become `action=ERROR` (stderr truncated to 500 chars) without aborting later plan items; after a non-dry run, `main` re-scans so exit `1` still reflects remaining orphans. Operator surface: `docs/REFERENCE.md` Editable Install Drift Check + cheatsheet tip.
 - `util/env_floor_drift_check.py` -- Floor-drift checker (gap I-2): reads each installed `juniper-*` version from its `*.dist-info/METADATA` and compares to the target repo's `pyproject.toml` floors -> `OK` / `BELOW_FLOOR` / `MISSING` -- the below-floor plain-wheel case the pins/editable checkers miss. Env selection is data-driven (`--site-packages`/`--env`/`ecosystem.yaml`); exit 1 on `BELOW_FLOOR` (`--strict` also `MISSING`); `--json`; structural CI gate. Tests: `tests/test_env_floor_drift_check.py`.
@@ -1320,7 +1494,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - SHIP / SemVer edges: whitespace + pure comment deletion discounted; pure code deletion ships; `local_git_compare` A/D/R/**C** of a `.py` module is inherently substantive (no blob compare); Keep-a-Changelog `Security` → patch, `Changed`/`feat!`/`BREAKING CHANGE` → minor pre-1.0. Operator tables: release-train operator runbook §3.1.
   - Soft-fail `SHIP_UNCERTAIN` (unreadable declared version / missing tag / `comp.ok=False` / truncated empty window / patch-uncertain) is an action class — never silent `UP_TO_DATE`.
   - Hygiene `list_releases` `SourceError` sets `tag_only=None` + an unavailable note (does not exit 2 or invent TAG_ONLY). Offline `--local-git` must raise (open #773), not return `set()`. Operator tables: release-train runbook §3.1.
-  - On the live daily path a Releases-API 404 / `None` from `_gh_lines` must **raise** rather than coerce via `or []` into an empty set — an empty set makes `diff_base_tag not in releases` always true and yields a false TAG_ONLY for every package. An *authenticated* empty Releases list remains a genuine TAG_ONLY.
+  - On the live daily path, a Releases-API 404 / `None` from `_gh_lines` must **raise** rather than coerce via `or []` into an empty set — an empty set makes `diff_base_tag not in releases` always true and yields a false TAG_ONLY for every package. An *authenticated* empty Releases list remains a genuine TAG_ONLY.
   - Detect step summary / Slack footers: report and propose count the full action set `UNRELEASED_CHANGES` + `BUMPED_NOT_RELEASED` + `SHIP_UNCERTAIN`, while the ceremony footer counts **only** `BUMPED_NOT_RELEASED` (the ceremonial class). A missing or empty `release-manifest.json` surfaces the hard-fail banner / `FAILED HARD` Slack line, never a quiet clear.
     Pins: `DetectSummaryRehearsalTest` / `DetectSlackPayloadRehearsalTest`. Operator surface: [`docs/REFERENCE.md` § Release-Train Detect Summary and Slack](#release-train-detect-summary-and-slack).
 - `util/release_train/propose.py` -- Proposal-PR generator (Phase 2.1, plan §5.4): from `detect.py`'s manifest, for each `UNRELEASED_CHANGES` package builds the standard-gated proposal -- static/dynamic version bump, the CHANGELOG `[Unreleased]`->`[<version>]` move, a `notes_render` notes draft (not archived), the meta AGENTS.md co-change, and `propagation_edges`; dup-guard + `changelog_conflict` refusal via a seam. **`--dry-run` default writes nothing.** Tests: `tests/test_release_train_propose.py`.
@@ -1334,12 +1508,12 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - `link_base` rewrite (`--link-base`; ceremony = owning repo's tag-pinned blob URL, propose = `blob/main`): repo-relative CHANGELOG links render absolute so centrally archived notes don't 404 (the canopy v0.6.0 class).
   - Gate 1 draft signals: meta `display_name` → `Juniper ML`; `release_type("major")` → MAJOR (`none`/unknown → PATCH); Breaking YES iff a `Removed` category is present; `_split_bullets` accepts `*` as well as `-` and folds continuations. Operator table: release-train runbook §3.2 (coverage juniper-ml#756).
 - `util/release_train/archive_guard.py` -- Structural guard (Phase 3.1, plan §7.2) for the release-train's gate-exempt notes-archive PR. Passes a PR diff (`git diff --name-status`; injected) ONLY if it is **add-only**, **path-confined** to `notes/releases/RELEASE_NOTES_*.md`, **name-valid** (`_v<semver>`, registry `pypi_name`), and **single-purpose**; non-archive PRs `SKIP`, a violation only `FAIL`s the check (R7). Run by `ci.yml`'s PR-only lane. Tests: `tests/test_release_train_archive_guard.py`.
-  - `touches_releases` inspects **both** sides of a rename/copy so a rename-OUT of `notes/releases/` is still an archive PR and FAILs (never SKIP). Copy (`C`) and Typechange (`T`) are non-`A` and FAIL rule1. Operator triage: release-train runbook §3.3.
-  - `Allow-Archive-Edit: <path>|<basename>|*` commit trailer (house `Allow-*` idiom; injected via `--trailers-file`, produced by `ci.yml` from `git log --format=%B FETCH_HEAD..HEAD`) waives rules 1/4 for in-place edits of FLAT `notes/releases/RELEASE_NOTES_*.md` files -> distinct `WAIVED` verdict (exit 0, waived paths named); anything dragging an out-of-archive or nested path still FAILs. The #1003 link-repair class / issue #1013. **Carry the trailer into the squash commit message.**
+  - `touches_releases` inspects **both** sides of a rename/copy so a rename-OUT of `notes/releases/` is still an archive PR and `FAIL`s (never `SKIP`s). Copy (`C`) and Typechange (`T`) are non-`A` and FAIL rule1. Operator triage: release-train runbook §3.3.
+  - `Allow-Archive-Edit: <path>|<basename>|*` commit trailer (house `Allow-*` idiom; injected via `--trailers-file`, produced by `ci.yml` from `git log --format=%B FETCH_HEAD..HEAD`) waives rules 1/4 for in-place edits of FLAT `notes/releases/RELEASE_NOTES_*.md` files -> distinct `WAIVED` verdict (exit 0, waived paths named); anything dragging an out-of-archive or nested path still FAILs. The #1003 link-repair class/issue #1013. **Carry the trailer into the squash commit message.**
 - `util/release_train/ceremony.py` -- Exempt-archive + Release ceremony (Phase 3.2, plan §7/§8/§10) for `BUMPED_NOT_RELEASED` packages: §8 preconditions (each HALTs + dedup issue), notes from the CHANGELOG `[<version>]` section, open the exempt archive PR (signed API commit), enable auto-merge, cut the Release (`--latest=false`; no `--verify-tag`), monitor -> `PENDING_PYPI_APPROVAL`. R7 gh-surface allowlist; idempotent re-entry. **`--dry-run` writes nothing.** Tests: `tests/test_release_train_ceremony.py`.
   - Signed-archive re-entry: reuse tip-at-base / single-commit-atop-base; HALT on unresolvable base/tip, non-422 refs errors, or diverged branch (never invent a sha). Operator table: release-train operator runbook §3.3.
   - Open archive-PR reuse (juniper-ml#730): `enable_automerge(…, pr_ref or plan.archive_branch)`; archive-already-on-main → release only; Release-exists → `RESUME_MONITOR`.
-  - Precondition: `notes-render-failed` HALTs when `notes_render.render_notes` raises `OSError` (missing/unreadable `TEMPLATE_RELEASE_NOTES.md` / security template) — restore the template, re-run; never invent archive body. Operator catalog: release-train operator runbook §4.
+  - Precondition: `notes-render-failed` HALTs when `notes_render.render_notes` raises `OSError` (missing/unreadable `TEMPLATE_RELEASE_NOTES.md` / security template) — restore the template, re-run; never invent archive body. Operator catalogue: release-train operator runbook §4.
   - Monitor: `NOT_FOUND` (run invisible right after `cut_release`) is **not** terminal — keep polling; timeout while still building or permanently missing → honest `IN_PROGRESS` (never invent PENDING/RELEASED/HALT). Operator guidance: release-train operator runbook §3.3.
   - Monitor run **selection** (`select_publish_run`): a Release fires EVERY `release: published` publisher in the owning repo, and the tag-guarded ones finish `completed/skipped`
     sharing the real run's `displayTitle` **and** `headBranch`. Feeding a skipped run to `classify_publish_run` yields `IN_PROGRESS` forever, so the monitor burns its whole
@@ -1372,9 +1546,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Asserts (1) the run is on a **tag**, not a branch, and the tag carries this package's prefix; (2) the tag's version equals the version actually built.
   - The built version is read from the **wheel filename**, not `pyproject.toml` -- it is the version that will really be uploaded, and it works identically for static and dynamic (setuptools-scm / hatch) version backends where parsing pyproject reports nothing useful.
   - Versions compare PEP 440-normalized, so a `v1.0.0-rc1` tag agrees with a `1.0.0rc1` wheel. `tr -d -- '-_'` needs the `--`: some `tr` builds (the Rust coreutils rewrite) parse a leading-dash SET as an option, and without it BOTH sides normalize to empty, making the mismatch check pass **vacuously**. An explicit empty-result guard backs that up.
-  - **Defense in depth, not the control.** Anyone who can edit a workflow can delete this step; the environment tag policy is what survives that. Value here is failing earlier, naming the reason, and keeping the invariant visible in the repo.
+  - **Defence in depth, not the control.** Anyone who can edit a workflow can delete this step; the environment tag policy is what survives that. Value here is failing earlier, naming the reason, and keeping the invariant visible in the repo.
   - `--ref` / `--dist-dir` / `--expect-prefix`; exit 0 pass / 1 assertion failed / 2 misuse. Tests: `tests/test_assert_release_tag.py` (wired into `ci.yml`'s Regression Tests — `util/` is outside every pre-commit Python hook's scope, so that suite is the gate).
-    - **`--ref` takes the fully-formed `github.ref`** (`refs/tags/<tag>`), NOT `github.ref_name` plus a separate `github.ref_type`. The two-flag form was deliberately rejected (`util/assert_release_tag.bash:38-44`): `ref_type`'s value on a `release` event is far less clearly specified, and an assumption that is wrong there "does not fail safe, it fails EVERY publish". This line documented the rejected form until 2026-08-19 — a caller following it got `unknown argument` → exit 2 on all 7 publishers.
+    - **`--ref` takes the fully-formed `github.ref`** (`refs/tags/<tag>`), NOT `github.ref_name` plus a separate `github.ref_type`. The two-flag form was deliberately rejected (`util/assert_release_tag.bash:38-44`): `ref_type`'s value on a `release` event is far less clearly specified, and an assumption that is wrong there "does not fail safe; it fails EVERY publish". This line documented the rejected form until 2026-08-19 — a caller following it got `unknown argument` → exit 2 on all 7 publishers.
 - `util/safe_merge.py` -- Merge gate (synthesis R4): merges a PR **only** after its REQUIRED checks have finished green, refusing otherwise. Closes the measured failure where **12% of freshness-synced PRs merged before the re-test they had just paid for could finish**.
   - Evidence: ml#932 merged 66 s after its sync on a head with zero CI check-runs; ml#924 merged 25 s after its update-branch head. Both then reddened `main` -- strictly worse than not syncing, since a stale-but-tested head is replaced by a fresh-but-untested one.
   - Delegates "is it finished?" to `util/wait_for_checks.py` as a **subprocess** (deliberately not an import -- the waiter owns that definition and coupling would let the two drift), and maps its 0/1/2/3 exit codes.
@@ -1389,10 +1563,10 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - **CI budget is PER-REPO** (`REPO_TIMEOUTS`, `timeout_for()`), re-measured 2026-08-20 across *all required contexts on one head* (`util/ad-hoc/2026-08-20_measure_required_check_span.py`), not one workflow. Spans differ ~6x: ml p90 263 s / max 273; data 1100 / 1196; cascor 1065 / 1547; cascor-worker 1122 / 1717; canopy 1371 / 1719.
     The prior single `900 s` was derived from ml's `ci.yml` median alone and sat at **canopy's median**, so roughly half of canopy's healthy merges would have refused with "checks did not finish". Tiers ≈ 2x p90: ml 900, data/cascor/worker 2400 (also the fallback), canopy/cascor-client 3300.
     Sized on **p90, not max**: cascor-client's max is 15,616 s (4h20m) — a *queued* check, not CI working. Absorbing that would make stuck indistinguishable from slow, which is the one distinction the timeout exists to draw. `TIMEOUT_CEILING = 3300` sits below the 3600 s worker lease, because a local wait longer than the lease is unreachable for a background-run invocation.
-  - **Kill-proof net (RC-4):** whenever there is something to wait for, the merge is ALSO handed to GitHub via `gh pr merge --auto`, so a killed run does not strand it. Gated on the repo's `allow_auto_merge` -- where that is false `--auto` does not arm but falls back to an **immediate merge**, which with the owner's `always` bypass could land a PR whose checks never finished.
+  - **Kill-proof net (RC-4):** whenever there is something to wait for, the merge is ALSO handed to GitHub via `gh pr merge --auto`, so a killed run does not strand it. Gated on the repo's `allow_auto_merge` -- where that is false, `--auto` does not arm but falls back to an **immediate merge**, which with the owner's `always` bypass could land a PR whose checks never finished.
     Enabled fleet-wide 2026-08-19 (`util/ad-hoc/2026-08-19_enable_allow_auto_merge.py`); the gate stays because a setting can be switched off again. Not armed on an already-green PR (there `--auto` merges at once, skipping head pinning). `--no-auto-fallback` opts out.
   - **Net armed on `BLOCKED` / `BEHIND` / `UNKNOWN`** (`ARMABLE_STATES`, fixes D1). It previously armed on `BLOCKED` only, while the `BEHIND` branch `continue`d past the arming site — so the **post-sync full CI re-run, the longest and most kill-exposed wait the tool performs, was the one wait entered with no net**. That is the exact shape of the incident. Arming now happens *before* the `update-branch`, covering the sync itself.
-  - **A refusal disarms the net** (`disarm_auto_merge`, fixes D3). Previously a refusal left a live server-side auto-merge, so a stated refusal could still become a merge minutes later — observed live on ml#1185. The disarm wraps *every* refusal path at one choke point rather than at each `raise` site. If the teardown itself fails the refusal says so **loudly** and names the PR; that is the one state where a refusal and a live net coexist.
+  - **A refusal disarms the net** (`disarm_auto_merge`, fixes D3). Previously, a refusal left a live server-side auto-merge in place, so a stated refusal could still become a merge minutes later — observed live on ml#1185. The disarm wraps *every* refusal path at one choke point rather than at each `raise` site. If the teardown itself fails, the refusal says so **loudly** and names the PR; that is the one state where a refusal and a live net coexist.
     **Ordering is load-bearing:** D1 strictly increases the number of refusals that would leave a live net, so D3 must hold before D1 widens the exposure. Never ship D1 alone.
     Exit **4 (INTERRUPTED) deliberately does NOT disarm** — surviving the kill is the entire point of the net — and the interrupt message now says so and prints the `--disable-auto` command, instead of the previous flat "nothing was merged".
   - **`UNKNOWN` is re-polled, not refused** (fixes D2). GitHub reports `mergeStateStatus=UNKNOWN` while recomputing mergeability, routinely for seconds after an `update-branch`; treating it as a verdict produced spurious refusals indistinguishable from real blockers. Bounded by `MERGEABILITY_POLLS` x `MERGEABILITY_INTERVAL`.
@@ -1401,21 +1575,21 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
     That distinction was load-bearing and is why it was measured rather than assumed: had it been continuous, pinning would kill the net the moment GitHub moved the head itself to satisfy `strict` — i.e. exactly when the net matters — silently negating the D1 fix. A *push* is a stronger head move than GitHub's own sync, so the probe settles the case that mattered.
     What pinning buys: the net cannot be armed over a **stale read**. What it still does not buy: once armed, the net merges whatever head is current when the checks pass. So the net carries *"merges only when required checks are green"* but not *"merges only the SHA this run vouched for"* — callers needing the stronger property use `--no-auto-fallback`.
     Note the flag needs the **full 40-char OID** (`headRefOid`); an abbreviated SHA is rejected with `Could not coerce value ... to GitObjectID`.
-  - **Not enforcement.** A script can be skipped; the owner's `always` ruleset bypass is what makes required checks advisory for that actor. `python util/safe_merge.py --pr N [--repo R] [--execute]`; **`--dry-run` is the default**. Exit 0 merged / 1 refused / 2 misuse / 3 hard error / **4 interrupted**. Tests: `tests/test_safe_merge.py`.
+  - **No enforcement** A script can be skipped; the owner's `always` ruleset bypass is what makes required checks advisory for that actor. `python util/safe_merge.py --pr N [--repo R] [--execute]`; **`--dry-run` is the default**. Exit 0 merged / 1 refused / 2 misuse / 3 hard error / **4 interrupted**. Tests: `tests/test_safe_merge.py`.
 - `util/memory_budget_check.py` + `util/relocation_check.py` -- Memory-size gates (`Memory Budget` job — BLOCKING and a required context since 2026-08-20 (P4); only its G3 step stays advisory). **Don't grow `AGENTS.md`: relocate to `docs/REFERENCE.md`, leaving a pointer that keeps an accurate open/closed status.** G3 proves a relocation moved the *prose*, not just the identifiers — the docs screen cannot see that shape. `Allow-Budget-Overrun:` is a loan, not a pass. [Budget](#memory-file-size-budget) / [G3](#relocation-completeness-g3).
 - `util/open_signed_pr.py` -- Opens a PR on any Juniper repo whose commit is **GitHub-signed**, by creating branch + commit + PR through the API (`createCommitOnBranch`) instead of a local checkout. Promoted from `util/ad-hoc/` after it landed the ml#1099 signing fan-out across 8 repos.
   - Why it exists: `required_signatures` (2026-08-12) rejects unsigned commits fleet-wide, GPG/YubiKey signing is unavailable to a runner, and an unsigned commit **anywhere** in a branch's history blocks the merge (squash does not rescue it). GitHub signs API-authored commits, so this is the portable way to land a signed change. It needs no working tree, which also makes it the path of choice when a session is confined to one worktree and cannot commit in sibling checkouts.
   - `python util/open_signed_pr.py --repo R --branch B --add LOCAL:REPOPATH [--delete REPOPATH] --message M --title T --body-file F [--base main] [--owner pcalnon] [--dry-run]`. `--add` / `--delete` are repeatable and together express a file move; at least one is required. Exit 0 opened / 1 refused / 2 hard error.
-  - Safety: refuses on an existing open PR for the branch (dup-guard -- concurrent sessions are a real hazard here) and on an existing branch (never force-updates another ref); `expectedHeadOid` is pinned to the resolved base sha so a concurrent push fails loudly rather than clobbering; `--dry-run` resolves read-only and writes nothing. Mirrors `util/release_train/propose.py`'s `create_signed_commit`. Tests: `tests/test_open_signed_pr.py`.
-- `util/wait_for_checks.py` -- Waits for a PR's **required** status checks to finish, then reports honestly. The shared replacement for the hand-rolled "wait for CI" loops that sessions keep re-writing and keep getting wrong the same two ways. Read-only (only `gh pr view` / `gh api .../rules/...` reads — never merges, updates a branch, pushes or comments), so any session can run it at any time.
+  - Safety: refuses on an existing open PR for the branch (dup-guard -- concurrent sessions are a real hazard here) and on an existing branch (never force-update another ref); `expectedHeadOid` is pinned to the resolved base sha so a concurrent push fails loudly rather than clobbering; `--dry-run` resolves read-only and writes nothing. Mirrors `util/release_train/propose.py`'s `create_signed_commit`. Tests: `tests/test_open_signed_pr.py`.
+- `util/wait_for_checks.py` -- Waits for a PR's **required** status checks to finish, then reports honestly. The shared replacement for the hand-rolled "wait for CI" loops that sessions keep re-writing and keep getting wrong the same two ways. Read-only (only `gh pr view` / `gh api .../rules/...` reads — never merges, updates a branch, pushes, or comments), so any session can run it at any time.
   - `python util/wait_for_checks.py --pr N [--repo juniper-cascor] [--owner pcalnon] [--anchor required|observed] [--fail-fast] [--timeout 1800] [--interval 20] [--json] [--verbose]`. Exit **0** all required green / **1** a required check failed (named) / **2** timeout with the still-running and never-reported contexts named / **3** hard error.
   - `--fail-fast` returns on the first failed required context instead of waiting for the full picture. The result also carries a `stalled` flag — true when nothing is in flight **and** something failed **and** required contexts are still absent, which means those absent contexts are downstream jobs (`needs:` a failed job) that will never report, so further polling cannot change the answer. Found by dogfooding: the tool burned 27 polls in exactly that state on its own PR.
   - **Trap 1 — terminal is defined POSITIVELY.** An in-flight check run carries `conclusion: null` and no `state`, so a loop written as "not in my list of pending states" reads it as finished. The pending set is open-ended (`QUEUED`/`IN_PROGRESS`/`WAITING`/`REQUESTED`/…); the finished set is closed. `is_terminal` therefore asks "is it definitely done?" and an unrecognized future conclusion reads as unfinished.
   - **Trap 2 — the rollup GROWS, so "everything I can see is done" is not "the suite is done".** Jobs are appended to `statusCheckRollup` as they start, so a lull between waves (pre-commit matrix finished, test matrix not yet created) is indistinguishable from completion.
-  - The only stable anchor is therefore the branch ruleset's **required** contexts; a required context that has not appeared is `absent`, not `running`. `--anchor observed` reproduces the buggy behaviour and is opt-in only — `tests/test_wait_for_checks.py` pins both anchors side by side so the difference is executable, not just asserted.
+  - The only stable anchor is therefore the branch ruleset's **required** contexts; a required context that has not appeared is `absent`, not `running`. `--anchor observed` reproduces the buggy behavior and is opt-in only — `tests/test_wait_for_checks.py` pins both anchors side by side so the difference is executable, not just asserted.
   - `absent` is deliberately its own bucket: a required context that never reports may never report (the `[skip ci]` head-commit orphan class, where the aggregate rollup can read SUCCESS while the PR is permanently unmergeable), so the tool names it instead of waiting mutely.
   - A `gh` non-zero exit is a `ProbeError` → exit 3, never a silently-empty result; that conflation is the same class as trap 1. A missing `required_status_checks` rule is likewise a hard error rather than a quiet downgrade.
-  - Probes retry up to `PROBE_RETRIES` (3) times with backoff. The retry is **delay-only** and never classifies errors as transient-vs-permanent — a genuinely broken probe fails every attempt and still raises, so the honesty property holds. It exists because two of the first three live runs died on a transient `TLS handshake timeout` / `unexpected EOF`, discarding a wait that was minutes from finishing.
+  - Probes retry up to `PROBE_RETRIES` (3) times with backoff. The retry is **delay-only** and never classifies errors as transient vs. permanent — a genuinely broken probe fails every attempt and still raises, so the honesty property holds. It exists because two of the first three live runs died due to a transient `TLS handshake timeout` / `unexpected EOF`, discarding a wait that was minutes away from finishing.
   - `mergeStateStatus` is reported but never gated on. `BEHIND` is branch freshness, not check completion — all 9 repos set `strict_required_status_checks_policy: true` ("Require branches to be up to date before merging"), which is a **different** setting from the removed `update` rule ("Restrict updates"); the signing-safe fix is `gh api repos/<owner>/<repo>/pulls/<n>/update-branch -X PUT` (server-side, therefore GitHub-signed). Tests: `tests/test_wait_for_checks.py`.
 - `util/ad-hoc/` -- Home for single-use / temporary / unfinished scripts. See `util/ad-hoc/README.md` for file-header conventions and graduation lifecycle. `/tmp/` is prohibited for script source files per the [Script placement](../AGENTS.md#script-placement-mandatory) rule.
 - Dependency-documentation generator now lives in [`juniper-ci-tools/`](juniper-ci-tools/) and is published to PyPI as `juniper-ci-tools` (Wave 4 of the dep-docs migration plan; install with `pip install juniper-ci-tools` and invoke via `juniper-generate-dep-docs`). The legacy `util/generate_dep_docs.sh` was deleted in juniper-ml#298.
@@ -1450,15 +1624,15 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   recurrence `serve` with metrics on / rate-limit off — all three metrics toggles on and `JUNIPER_DATA_URL` at the run's data port.
   - RUN_DIR contract (§6.4): `RUN_ID=<UTC yyyymmddThhmmssZ>-<4 hex>` under `JUNIPER_EXP_RUN_ROOT` (default `~/.local/state/juniper-experiments` — under `$HOME`, **not** `/tmp`,
     so a reaped sandbox cannot destroy results, H-15); everything (pidfiles, `logs/`, `relays/`, `config/`, `env/launch.env`, `data/`, `equities-cache/`,
-    `artifacts/{plots,results}/`, `ports.json`, `teardown.json`) lives inside it. `JuniperProject.pid` is never read or written, no repo `.env` is ever written (all per-run
+    `artifacts/{plots,results}/`, `ports.json`, `teardown.json`) lives inside it. `JuniperProject.pid` is never read or written; no repo `.env` is ever written (all per-run
     config is process env, H-3), and operator ports 8100/8200/8201/8210/8050 are never touched.
   - Ports (§9.3): first free port in data `8110-8139` / cascor `8230-8259` / recurrence `8260-8289`, claimed by an atomic `mkdir "$LOCK_ROOT/<port>.lock"`
-    (`JUNIPER_EXP_LOCK_ROOT`, default `${XDG_RUNTIME_DIR:-/tmp}/juniper-experiments`) plus an `ss` probe, released at teardown. The lockdir serialises experiment launchers
+    (`JUNIPER_EXP_LOCK_ROOT`, default `${XDG_RUNTIME_DIR:-/tmp}/juniper-experiments`) plus an `ss` probe, released at teardown. The lockdir serializes experiment launchers
     against each other; the residual race vs a non-participating binder is deliberately left to surface as the service's own bind failure through the health gate (H-1).
   - **F-6 pid rule (binding)**: `$!` after `( cd … && nohup <server> … & )` is the backgrounded **subshell**, not the server, so no `*_up` records it. Each service's pidfile
     is written by `record_listener_pid` from `ss -tlnpH "sport = :<port>"` **after** the health gate, with the process cmdline stored alongside; teardown kills pidfile-first
     and only after proving the pid is alive, owned by the current uid, and still running the recorded cmdline (SIGTERM then bounded SIGKILL). If the pidfile path refuses
-    (pid gone / wrong uid / cmdline mismatch), `stop_service` logs `pidfile path refused — falling back to the recorded port <N>` and kills via `ss` only on that run's
+    (pid-gone/wrong-uid/cmdline-mismatch), `stop_service` logs `pidfile path refused — falling back to the recorded port <N>` and kills via `ss` only on that run's
     recorded port. `artifacts/` is never deleted.
   - Partial-failure teardown: `do_up` writes `ports.json` before any `*_up`; on `failed=1` it logs
     `bring-up failed — tearing the partial run back down` and calls `teardown_run` (live only; not `--dry-run`), keeping `logs/` + `artifacts/` and releasing lockdirs.
@@ -1468,7 +1642,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
     ${DATA_PORT}` / `api.app:create_app .*--port ${CASCOR_PORT}` / `juniper-recurrence serve .*--port ${RECURRENCE_PORT}`) so a sibling run can never satisfy this run's gate.
     Two **consecutive** misses end the wait with `process is gone … died during startup` naming the leg's log, instead of burning the full 90 s per leg on a process that already
     exited (the P4-campaign class). Two misses, not one, and the first probe runs after the first sleep — the launch subshell returns before its child execs, so fork+exec keeps a
-    >=4 s grace. **F-6 intact**: the pattern is only ever read; it never resolves a pid and never kills. No `pgrep` on PATH degrades to the prior timeout-only behaviour (an
+    >=4 s grace. **F-6 intact**: the pattern is only ever read; it never resolves a pid and never kills. No `pgrep` on PATH degrades to the prior timeout-only behavior (an
     unavailable probe must never manufacture a failure), and passing no pattern is unchanged back-compat. Pins: `TestHealthGateLiveness` in `tests/test_experiment_stack_script.py`.
   - **OR-list fail-closed**: `do_up` invokes `*_up || failed=1`, which disables `set -e` inside each body. `require_env_bin` / `activate_conda` / `wait_for_health` / `record_listener_pid` therefore each end with `|| return 1`, or a health
     timeout with a live listener false-greens `--up` and skips `teardown_run`. A mid-`allocate_port` failure calls `release_held_locks` (else prior `*.lock` dirs starve later `--up`), and an opt-in `bridge_up` failure after healthy
@@ -1480,14 +1654,14 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
     (`docker network ls | grep -E '_monitoring$'` — a worktree-launched compose project renames the network; loud default-bridge fallback), start one
     `socat "TCP-LISTEN:<port>,bind=<gateway>,fork,reuseaddr" "TCP:127.0.0.1:<port>"` relay per scraped service (pids under `RUN_DIR/relays/`), and write the §7.2 target file
     to `<JUNIPER_EXP_DEPLOY_DIR>/prometheus/targets/<RUN_ID>.json` (labels `service` / `environment=host-experiment` / `run_id` / `experiment`; removed at teardown).
-    Without it `--status` reports the run as UNSCRAPED.
+    Without it, `--status` reports the run as UNSCRAPED.
 - `util/experiments/run_experiment.py` -- Single-run experiment driver (plan §6.3; Wave 2.2 = the cascor **service** path, Wave 2.3 = the recurrence **service** path, Waves 2.4/2.5 = the §8.1/§8.2 plot sets via `plots_cascor.py` / `plots_recurrence.py` (2.5 closes G-5), Wave 2.6 = the §8.3 stats/summary via `stats_summary.py`).
   - Stats (§8.3): every run also writes `artifacts/results/stats.json` + human-readable `summary.md` (stdlib-only renderer, every outcome incl. stalled/failed): identity / dataset-shape (tabular vs sequence from meta) / outcome-timing blocks from the manifest, cascor candidate-correlation-per-round + step-duration p50/p95 from the driver's own `metrics_series.csv` (honestly labeled per-poll means -- true per-step quantiles are not recoverable from a sum/count exposition), the recurrence train/CV/θ/readout block.
   - Stats degraded-mode notes surface G-3 sampling errors, collect errors, plot skips, eval-disabled, and G-6 failures; a stats failure is recorded on the manifest (`stats_error`), never fatal.
   - Recurrence plots (§8.2): `dataset_overview` (sampled 3-D windows, target starred), `dt_histogram` (per-step Δt + `target_dt` -- the irregularity signature; skips non-Δt artifacts), `forecast_vs_truth` + `residuals` (predict response vs the predict split's target, `y_reg_{split}` preferred over `y_{split}` -- the equities regression target; residual-vs-`target_dt` panel when available), `crossval_folds` (per-fold eval bars + aggregate line), `metrics_table` (train + CV ± std).
   - A disabled/failed predict or crossval phase is a per-plot SKIP. Deliberately NO recurrence training-history plot (TrainResponse carries no per-epoch series -- §8.2 note).
   - Plots (§8.1, `outputs.plots`, validated per kind): `dataset` (fetched NPZ artifact scatter; 2-feature generators only), `decision_boundary` (collected grid + sample overlay), `training_history` (history rows, hidden-unit-insertion markers), `candidate_correlation` (from the driver's own `metrics_series.csv` -- the sole source), `eval_metrics` (scalar bars) -- rendered client-side by `plots_cascor.py` (lazy-loaded, Agg backend; NEVER imports cascor, whose plotter imports torch).
-  - Plot semantics: structurally-unavailable data = recorded per-plot SKIP (exit 0); a render error / failed fetch / missing matplotlib on a requested plot = acceptance failure (exit 1); the manifest `driver.plots` block records requested/rendered/skipped.
+  - Plot semantics: structurally unavailable data = recorded per-plot SKIP (exit 0); a render error / failed fetch / missing matplotlib on a requested plot = acceptance failure (exit 1); the manifest `driver.plots` block records requested/rendered/skipped.
   - A renderer `ValueError` is the explicit **no-renderable-data contract**: recorded as a per-plot SKIP only, with no PNG and no acceptance error (exit 0) — distinct from a non-`ValueError` render exception, a failed payload fetch, or a
     missing matplotlib on a requested plot, which are SKIP **and** acceptance failure. Soft edges that deliberately do not raise: a misaligned optional `target_dt` just omits the residual-vs-dt panel, and an empty `eval_aggregate` falls
     back to `folds[0].eval_metrics`. Operator table: [`docs/REFERENCE.md` § Plot SKIP vs acceptance](#plot-skip-vs-acceptance-valueerror-contract).
@@ -1502,16 +1676,16 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
     - Root-cause note: [`notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_F-P4-1-SERVICE-SPIRAL-ROOT-CAUSE.md`](../notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_F-P4-1-SERVICE-SPIRAL-ROOT-CAUSE.md); cascor-side fidelity fix cascor#504; candidate-param plumbing gap cascor#505.
   - Each poll samples the loopback `/metrics` allowlist (`candidate_correlation` / `hidden_units_total` / `training_loss` / `training_accuracy_ratio` / step-duration sum+count) into `artifacts/results/metrics_series.csv` -- correlation exists ONLY there, never in `/v1/metrics/history` rows; a 404 (metrics disabled, G-3) degrades sampling, not the run.
   - Recurrence drive (Wave 2.3): health-gates `/v1/health/ready`, then the **synchronous** `POST /v1/train` (the response IS completion — no poll loop; the Q-2 budget is the request's socket timeout → `timed_out`), then optional `POST /v1/predict` (`predict.from_dataset_split`, default `test`) and `POST /v1/crossval` (same LMU hyperparams as `train:` for bench comparability); every phase refs the dataset by content-addressed `dataset_id` (H-8).
-  - Predict/crossval failures are recorded and the run continues to the manifest (acceptance failure), never dying mid-evidence. `outputs.save_model: true` (G-18) re-runs the `juniper-recurrence train` CLI with `--dataset <dataset_id>` + identical hyperparam flags + `--out .../model.npz` as a manifest-recorded extra step (the CLI has no `--params` flag, so the dataset_id ref is the only faithful form).
+  - Predict/crossval failures are recorded, and the run continues to the manifest (acceptance failure), never dying mid-evidence. `outputs.save_model: true` (G-18) re-runs the `juniper-recurrence train` CLI with `--dataset <dataset_id>` + identical hyperparam flags + `--out .../model.npz` as a manifest-recorded extra step (the CLI has no `--params` flag, so the dataset_id ref is the only faithful form).
   - Collects `metrics_final.json` / `metrics_history.json` / `topology.json` / `decision_boundary.npz` (2-D input only) + optional `POST /v1/snapshots` (cascor), `train_response.json` / `predict_response.json` / `crossval_response.json` (recurrence); ALWAYS writes the §13.4 `manifest.json` (also for stalled / timed-out / failed runs) and prints a one-screen summary.
-  - **409 preempt (§3.4)**: `start_fresh: true` does NOT stop a live run — the lifecycle lock is held, so the 409 is raised before `start_fresh` is consulted, and after a driver-side stall/budget abort the naive re-run dies on `Training already in progress`. A 409 now gets ONE preemption attempt: `POST /v1/training/stop`, wait for the lifecycle to leave the active set, retry start once.
+  - **409 preempt (§3.4)**: `start_fresh: true` does NOT stop a live run — the lifecycle lock is held, so the 409 is raised before `start_fresh` is consulted, and after a driver-side stall/budget abort the naive re-run dies on `Training already in progress`. A 409 now gets ONE preemption attempt: `POST /v1/training/stop`; wait for the lifecycle to leave the active set; retry starting once.
   - Preemption is decided on **lifecycle state, not message text**: cascor's `routes/training.py:117` wraps every start failure as 409 (including "Training data not provided"), so only `STARTED` / `PAUSED` are preempted. `REPLAYING` rejects all training commands (exit is `/replay/control`) and `INVESTIGATING` needs `/retrain` / `/resume` — a stop there would fail and bury the real reason.
-  - **Inert stall window**: when `--stall-seconds >=` the resolved wall budget the Q-2 stall detector can never fire (the budget ends the run first) — a healthy long candidate phase is then labelled `timed_out` rather than `stalled`. Reported as a WARNING plus `driver.stall_window_inert` on the manifest, never fatal: the run is valid, only its guard is weaker than declared.
+  - **Inert stall window**: when `--stall-seconds >=` the resolved wall budget, the Q-2 stall detector can never fire (the budget ends the run first) — a healthy long candidate phase is then labeled `timed_out` rather than `stalled`. Reported as a WARNING plus `driver.stall_window_inert` on the manifest, never fatal: the run is valid, only its guard is weaker than declared.
   - The driver is the sole place both Q-2 knobs are resolved, so it is the only layer that can see their interaction — the suite gate structurally cannot, since a budget may be inherited from `base_config` (`pf3-cascor-pool-scaling` shipped exactly this shape: a 1200 s window against a 600 s inherited budget).
   - Exit codes: 0 success / 1 acceptance (stalled, timed_out, G-6 mismatch, missing essential artifact) / 2 misuse-validation / 3 unreachable / 4 FAILED-5xx. Tests: `tests/test_run_experiment.py`.
 - `util/experiments/run_suite.py` -- Suite driver. `EXECUTION_KEYS` forwards **both** Q-2 budget knobs to the driver: `execution.stall_seconds` → `--stall-seconds` (ml#1069) and `execution.max_wall_seconds` → `--max-wall-seconds`. Absent key ⇒ flag omitted entirely, so the driver keeps owning its default.
   - Do not confuse `execution.max_wall_seconds` with `execution.per_run_timeout_seconds`: the latter is only the **subprocess** timeout, which kills the driver from the OUTSIDE and records `timed_out` where the driver would otherwise write an honest `timed_out` manifest (§13.4). Size `per_run_timeout_seconds` ABOVE the wall budget so the driver is the one that stops.
-  - A suite could always reach the budget through a dotted `outputs.max_wall_seconds` override (`suites/p4/e-i-cascor-cap-ceiling.yaml:71` does exactly that), but before this key an un-overridden cell silently inherited `base_config`'s value — 3600 s for `spiral-baseline` — with no signal. Both mechanisms are accepted by the R-6 gate. Tests: `tests/test_run_suite.py`.
+  - A suite could always reach the budget through a dotted `outputs.max_wall_seconds` override (`suites/p4/e-i-cascor-cap-ceiling.yaml:71` does exactly that), but before this key, an un-overridden cell silently inherited `base_config`'s value — 3600 s for `spiral-baseline` — with no signal. Both mechanisms are accepted by the R-6 gate. Tests: `tests/test_run_suite.py`.
 - `util/snapshot_attribute.py` -- Read-only dataset attribution over the classification sidecar (handoff §3.2). Scores each loadable snapshot against the six 2-D generators with permutation-corrected accuracy, gated on the untrained-null **max** plus a schema-v2 cross-dataset floor.
   - **Dataset instance must be pinned** or the scores are not reproducible: five generators declare `seed=None` and redraw every call.
   - `seeded_params` (juniper-ml#1333) supplies `DATASET_SEED` (`20260824`) only where a generator declares none; spiral keeps its declared seed; `--dataset-seed` overrides; `--seed` only samples snapshots. `--write` refuses `--sample`/`--min-hidden`. Tests: `tests/test_snapshot_attribute.py`. Operator surface: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
@@ -1570,10 +1744,10 @@ juniper-ml/
 ├── juniper-service-core/      # Published sub-package: shared FastAPI service-tier primitives
 │
 ├── docs/                      # User-facing documentation
-│   ├── DOCUMENTATION_OVERVIEW.md         # Navigation index for all docs
-│   ├── QUICK_START.md                    # Installation and verification guide
-│   ├── REFERENCE.md                      # Extras, compatibility, env vars, service ports
-│   └── DEVELOPER_CHEATSHEET_JUNIPER-ML.md# Quick-reference card for development tasks
+│   ├── DOCUMENTATION_OVERVIEW.md           # Navigation index for all docs
+│   ├── QUICK_START.md                      # Installation and verification guide
+│   ├── REFERENCE.md                        # Extras, compatibility, env vars, service ports
+│   └── DEVELOPER_CHEATSHEET_JUNIPER-ML.md  # Quick-reference card for development tasks
 │
 ├── conf/                      # Project configuration files
 ├── images/                    # Project branding (logos v0-v9 in PNG/XCF/ICO, tree photos)
@@ -1586,7 +1760,7 @@ juniper-ml/
 │   ├── JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md       # Worktree creation procedure
 │   ├── JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md  # Worktree cleanup procedure (CWD-safe)
 │   ├── JUNIPER_2026-02-23_JUNIPER-ML_THREAD-HANDOFF-PROCEDURE.md       # Thread handoff protocol
-│   ├── JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md              # Secrets encryption guide
+│   ├── JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md        # Secrets encryption guide
 │   ├── backups/               # Backup analysis/plan documents
 │   ├── concurrency/           # Concurrency-related handoff notes
 │   ├── development/           # Development analysis documents
@@ -1617,7 +1791,7 @@ juniper-ml/
 ├── tests/                     # Regression test suites (Python unittest)
 │   ├── test_wake_the_claude.py           # Launcher script regression (1470 lines)
 │   ├── redacted_env.py                   # RedactedEnv helper: subprocess env mapping with masked repr (secret-leak class)
-│   ├── test_env_repr_safety.py           # Lint gate: no raw os.environ-derived subprocess env in tests/ + RedactedEnv behaviour
+│   ├── test_env_repr_safety.py           # Lint gate: no raw os.environ-derived subprocess env in tests/ + RedactedEnv behavior
 │   ├── test_worktree_cleanup.py          # Worktree cleanup script tests (225 lines)
 │   ├── test_worktree_sweep_scripts.py    # Ad-hoc sweep script safety/contract tests
 │   ├── test_cleanup_session_worktrees.py # Session .claude/worktrees cleaner (merged-PR fail-closed + dry-run)
@@ -1631,10 +1805,10 @@ juniper-ml/
 │   ├── test_symbol_overlay.py            # Serena symbol overlay (OQ-8) deterministic merge (Serena wins, grep fallback)
 │   ├── test_generated_prompt_index.py    # Behavioural: util/generated_prompt_index.py index + safety-gated prune/archive (P4)
 │   ├── test_thread_handoff_archive.py    # Drift: archived handoff prompt filenames + top-level note references
-│   ├── test_install_agents.py            # Behavioural: util/install_agents.bash ~/.claude mirror (idempotent/reversible/dry-run/no-clobber)
+│   ├── test_install_agents.py            # Behavioral: util/install_agents.bash ~/.claude mirror (idempotent/reversible/dry-run/no-clobber)
 │   ├── test_agent_suite_doctor.py        # Behavioural: util/agent_suite_doctor.py suite health check (dogfood; consumes every layer)
 │   ├── test_agent_suite_summary.py       # Behavioural: util/agent_suite_summary.py suite quick-reference (P3)
-│   ├── test_predict_merge.py             # Behavioural: util/fleet_triage/predict_merge.py predicted-merge (4 verdicts, TRUE-delta, cluster/order, no-mutate, exit codes; hermetic)
+│   ├── test_predict_merge.py             # Behavioral: util/fleet_triage/predict_merge.py predicted-merge (4 verdicts, TRUE-delta, cluster/order, no-mutate, exit codes; hermetic)
 │   ├── test_fleet_supervisor_contract.py # Lint: fleet-supervisor subagent frontmatter + body wiring (predict_merge.py, 4 verdicts, read-only/never-push, two-key DUP-CLOSE)
 │   ├── test_workflow_script_paths.py     # Lint: every .github/workflows/*.yml script path exists
 │   ├── test_doc_tools_drift.py           # Lint: consumer-repo juniper-doc-tools pins still admit current version (plan §5.1)
@@ -1652,47 +1826,47 @@ juniper-ml/
 │   ├── test_open_signed_pr.py            # Behavioural: util/open_signed_pr.py signed cross-repo PR opener (hermetic gh stub; dry-run/dup-guard/refs-ref=/deletions)
 │   ├── test_wait_for_checks.py           # Behavioural: util/wait_for_checks.py required-context CI waiter (hermetic scripted-gh stub; positive-terminal, growing-rollup + observed-anchor negative control, absent-vs-running, hard-error, read-only)
 │   ├── test_experiment_stack_script.py   # Contract + behavioural: util/experiment_stack.bash per-run launcher (§6.1 recipes, §6.4 RUN_DIR, §7.2 target file, §9.3 ranges, F-6 listener pid, dry-run + teardown; hermetic)
-│   ├── test_run_suite.py                 # Behavioural: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume, both Q-2 budget flags; hermetic)
-│   ├── test_list_runs.py                 # Behavioural: util/experiments/list_runs.py lister/pruner (state classification, --older-than, prune safety gates; hermetic RUN_ROOT fixtures)
-│   ├── test_snapshot_index.py            # Behavioural: util/snapshot_index.py snapshot index/query (design §6.2) — bytes-attr decode, append-only rescan, --limit deferred-vs-present counting, D-C provenance filters, and an AST anti-resurrection guard that the tool stays READ-ONLY (retention is §6.4 and gated)
-│   ├── test_snapshot_classify.py         # Behavioural: util/snapshot_classify.py owner-scheme classifier (handoff 2026-08-22 §2.4) — the two-axis category/health rule (incl. the attributed zero-node row that made category 5 read empty), `readable`-is-not-loadable, iterations-not-epochs (inert meta.current_epoch), replace-not-append sidecar, fd-level stdout muffling, the train-stage scratch-root refusal, and an AST anti-resurrection guard that the tool stays READ-ONLY
+│   ├── test_run_suite.py                 # Behavioral: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume, both Q-2 budget flags; hermetic)
+│   ├── test_list_runs.py                 # Behavioral: util/experiments/list_runs.py lister/pruner (state classification, --older-than, prune safety gates; hermetic RUN_ROOT fixtures)
+│   ├── test_snapshot_index.py            # Behavioral: util/snapshot_index.py snapshot index/query (design §6.2) — bytes-attr decode, append-only rescan, --limit deferred-vs-present counting, D-C provenance filters, and an AST anti-resurrection guard that the tool stays READ-ONLY (retention is §6.4 and gated)
+│   ├── test_snapshot_classify.py         # Behavioral: util/snapshot_classify.py owner-scheme classifier (handoff 2026-08-22 §2.4) — the two-axis category/health rule (incl. the attributed zero-node row that made category 5 read empty), `readable`-is-not-loadable, iterations-not-epochs (inert meta.current_epoch), replace-not-append sidecar, fd-level stdout muffling, the train-stage scratch-root refusal, and an AST anti-resurrection guard that the tool stays READ-ONLY
 │   ├── test_snapshot_attribute.py        # Behavioural: util/snapshot_attribute.py dataset attribution (handoff §3.2) — permutation-corrected scoring (raw accuracy reports an inverted-label network as BELOW chance; archive snapshots at 0.010 are 0.990 inverted), the null floor being the untrained MAXIMUM rather than its p95 (a zero-hidden-unit network is a linear model yet scored ~0.624 on non-linearly-separable checkerboard, inside the tail a 120-sample null cannot characterise), the SECOND (cross-dataset) floor — a candidate must clear both, because the untrained null only asks "did this learn anything?" while attribution needs "did it learn THIS rather than something else?" — that a snapshot may not help set the bar it is judged against (a perfect 1.000 on moon must not be recorded as confidently circles), that a dataset an untrained network aces (gaussian, floor 1.000) can never be an answer, ambiguity/missing-null refusals, the partial-sidecar --write guards, and an AST read-only guard. Hermetic — no cascor tree, no juniper-data tree, no archive
-│   ├── test_snapshot_backfill.py          # Behavioural: util/snapshot_backfill.py consolidated recovered-metadata record (handoff §3.4) — the caveats ARE the feature. Pins that a SAMPLED cohort result (380 of 15,927 zero-node snapshots trained) stays quarantined in the `population` bucket rather than being written onto 15,547 files nobody trained, that an inferred dataset never reads as observed/measured, that run identity is never invented (zero run dirs survive from before 2026-07-30), that every failing snapshot gets a named root cause, and an AST read-only guard
-│   ├── test_run_experiment.py            # Behavioural: util/experiments/run_experiment.py cascor + recurrence driver (§6.3 drive loops, Q-2 stall/budget, F-1 redirect sampling, G-6 staging, §5.5 blocks + G-18 save_model, §8.1/§8.2 plot sets, §8.3 stats/summary, §13.4 manifest, exit matrix 0-4; hermetic stub HTTP)
-│   ├── test_experiment_config_schemas.py # Drift gate (Wave 3.5): sibling conf/experiments/*.yaml ↔ driver load_config + AST-extracted app Settings fields (CI/force-local gated; always-on extractor self-check)
-│   ├── test_experiment_suite_yamls.py    # Drift gate (R-6): every util/experiments/suites/**/*.yaml passes run_suite.load_suite + oversize cascor suites (pool >= 16 OR cap >= 64) declare execution.stall_seconds (ml#1069) + wide-cap suites pin a wall budget; anti-resurrection for the ad-hoc stall shim
-│   ├── test_prompt_validator_contract.py # Lint: prompt-validator subagent frontmatter + pinned verdict schema/fixtures
-│   ├── test_template_agent_skill_lint.py # Lint: template-agent Skill frontmatter + wiring to real artifacts (PR 5)
-│   ├── test_service_smoke_skill_lint.py  # Lint: service-smoke Skill frontmatter (declared browser MCP for opt-in --ui, NO Agent) + teardown wiring (E-1 Stage 1/2)
-│   ├── test_ui_test_author_skill_lint.py # Lint: ui-test-author Skill frontmatter (Write + declared browser MCP, NO Agent) + models canopy src/tests/ui/ + teardown (E-6)
-│   ├── test_agents_frontmatter.py        # Lint: every .claude/agents/*.md honours the suite frontmatter contract (opus+max)
-│   ├── test_agents_md_version_drift.py   # Lint: AGENTS.md **Version** header matches pyproject.toml [project].version
-│   ├── test_agents_md_header_schema.py   # Lint: AGENTS.md canonical header schema (6 required fields, ISO date format)
-│   ├── test_agents_md_tree_drift.py       # Lint: every tracked top-level dir appears in the Repository-Structure tree (G-3)
-│   ├── test_coverage_gap_mapper_drift.py  # Dogfood/drift (E-4): juniper-coverage-gap-map console script registered + version/pin coherent (ci-tools)
-│   ├── test_env_drift_check_drift.py      # Dogfood/drift (§10.1): juniper-env-drift-check entry point registered + every cli*.py wired (0.5.1 #580-clobber guard)
-│   ├── test_release_train_registry.py    # Lint + drift gate: util/release_train/registry.yaml (18 packages/8 repos/enums) <-> pyproject resolution (plan §4.1) + the ml#701 static-package pyproject==dunder lockstep gate
-│   ├── test_release_train_detect.py      # Behavioural: util/release_train/detect.py detection engine (classifications, substantive-hunk, SemVer, exit codes; hermetic)
-│   ├── test_release_train_propose.py     # Behavioural: util/release_train/{propose,notes_render}.py proposal-PR generator (dry-run bump+CHANGELOG move+notes, dup-guard, conflict refusal; hermetic) (plan §5.4)
-│   ├── test_release_train_archive_guard.py # Behavioural: util/release_train/archive_guard.py exempt notes-archive structural guard (add-only/path-confined/name-valid/single-purpose; SKIP for non-archive; hermetic) (plan §7.2 / step 3.1)
-│   ├── test_release_train_ceremony.py    # Behavioural: util/release_train/ceremony.py exempt-archive + Release ceremony (§8 HALTs, happy-path, signed-archive HALT/parse edges, dup-guard/idempotent, R7 gh-surface, dry-run; hermetic) (plan §7/§8/§9.3 / step 3.2)
+│   ├── test_snapshot_backfill.py           # Behavioural: util/snapshot_backfill.py consolidated recovered-metadata record (handoff §3.4) — the caveats ARE the feature. Pins that a SAMPLED cohort result (380 of 15,927 zero-node snapshots trained) stays quarantined in the `population` bucket rather than being written onto 15,547 files nobody trained, that an inferred dataset never reads as observed/measured, that run identity is never invented (zero run dirs survive from before 2026-07-30), that every failing snapshot gets a named root cause, and an AST read-only guard
+│   ├── test_run_experiment.py              # Behavioural: util/experiments/run_experiment.py cascor + recurrence driver (§6.3 drive loops, Q-2 stall/budget, F-1 redirect sampling, G-6 staging, §5.5 blocks + G-18 save_model, §8.1/§8.2 plot sets, §8.3 stats/summary, §13.4 manifest, exit matrix 0-4; hermetic stub HTTP)
+│   ├── test_experiment_config_schemas.py   # Drift gate (Wave 3.5): sibling conf/experiments/*.yaml ↔ driver load_config + AST-extracted app Settings fields (CI/force-local gated; always-on extractor self-check)
+│   ├── test_experiment_suite_yamls.py      # Drift gate (R-6): every util/experiments/suites/**/*.yaml passes run_suite.load_suite + oversize cascor suites (pool >= 16 OR cap >= 64) declare execution.stall_seconds (ml#1069) + wide-cap suites pin a wall budget; anti-resurrection for the ad-hoc stall shim
+│   ├── test_prompt_validator_contract.py   # Lint: prompt-validator subagent frontmatter + pinned verdict schema/fixtures
+│   ├── test_template_agent_skill_lint.py   # Lint: template-agent Skill frontmatter + wiring to real artifacts (PR 5)
+│   ├── test_service_smoke_skill_lint.py    # Lint: service-smoke Skill frontmatter (declared browser MCP for opt-in --ui, NO Agent) + teardown wiring (E-1 Stage 1/2)
+│   ├── test_ui_test_author_skill_lint.py   # Lint: ui-test-author Skill frontmatter (Write + declared browser MCP, NO Agent) + models canopy src/tests/ui/ + teardown (E-6)
+│   ├── test_agents_frontmatter.py          # Lint: every .claude/agents/*.md honours the suite frontmatter contract (opus+max)
+│   ├── test_agents_md_version_drift.py     # Lint: AGENTS.md **Version** header matches pyproject.toml [project].version
+│   ├── test_agents_md_header_schema.py     # Lint: AGENTS.md canonical header schema (6 required fields, ISO date format)
+│   ├── test_agents_md_tree_drift.py        # Lint: every tracked top-level dir appears in the Repository-Structure tree (G-3)
+│   ├── test_coverage_gap_mapper_drift.py   # Dogfood/drift (E-4): juniper-coverage-gap-map console script registered + version/pin coherent (ci-tools)
+│   ├── test_env_drift_check_drift.py       # Dogfood/drift (§10.1): juniper-env-drift-check entry point registered + every cli*.py wired (0.5.1 #580-clobber guard)
+│   ├── test_release_train_registry.py      # Lint + drift gate: util/release_train/registry.yaml (18 packages/8 repos/enums) <-> pyproject resolution (plan §4.1) + the ml#701 static-package pyproject==dunder lockstep gate
+│   ├── test_release_train_detect.py        # Behavioral: util/release_train/detect.py detection engine (classifications, substantive-hunk, SemVer, exit codes; hermetic)
+│   ├── test_release_train_propose.py       # Behavioral: util/release_train/{propose,notes_render}.py proposal-PR generator (dry-run bump+CHANGELOG move+notes, dup-guard, conflict refusal; hermetic) (plan §5.4)
+│   ├── test_release_train_archive_guard.py # Behavioral: util/release_train/archive_guard.py exempt notes-archive structural guard (add-only/path-confined/name-valid/single-purpose; SKIP for non-archive; hermetic) (plan §7.2 / step 3.1)
+│   ├── test_release_train_ceremony.py      # Behavioral: util/release_train/ceremony.py exempt-archive + Release ceremony (§8 HALTs, happy-path, signed-archive HALT/parse edges, dup-guard/idempotent, R7 gh-surface, dry-run; hermetic) (plan §7/§8/§9.3 / step 3.2)
 │   └── fixtures/
 │       └── prompt_validator/             # PR 3: verdict.schema.json + verdict.sample.{pass,fail}.json (validator contr
-│   # Doc-link validator regression tests moved to juniper-doc-tools/tests/
-│   # (Wave 4 of the doc-link migration plan; published under the dedicated
-│   #  juniper-doc-tools PyPI package).
+│                                         # Doc-link validator regression tests moved to juniper-doc-tools/tests/
+│                                         # (Wave 4 of the doc-link migration plan; published under the dedicated
+│                                         #  juniper-doc-tools PyPI package).
 │
-└── util/                      # Utility scripts and tools
-    ├── ad-hoc/                           # Single-use / temporary / unfinished scripts (see ad-hoc/README.md)
-    ├── assert_release_tag.bash            # Publish guard (P3): ref must be a TAG, and the tag's version must match the wheel actually built
-    ├── open_signed_pr.py                  # Cross-repo: open a PR on any Juniper repo with a GitHub-SIGNED commit (createCommitOnBranch)
-    ├── wait_for_checks.py                  # Cross-repo: wait for a PR's REQUIRED status checks (ruleset-anchored) to finish; read-only, exit 0/1/2/3
+└── util/                                 # Utility scripts and tools
+    ├── ad-hoc/                           # Single-use/temporary/unfinished scripts (see ad-hoc/README.md)
+    ├── assert_release_tag.bash           # Publish guard (P3): ref must be a TAG, and the tag's version must match the wheel actually built
+    ├── open_signed_pr.py                 # Cross-repo: open a PR on any Juniper repo with a GitHub-SIGNED commit (createCommitOnBranch)
+    ├── wait_for_checks.py                # Cross-repo: wait for a PR's REQUIRED status checks (ruleset-anchored) to finish; read-only, exit 0/1/2/3
     ├── requirements_drift_check.py       # Drift checker for the requirements snapshot (--mode quick)
     ├── editable_install_drift_check.py   # Drift checker for juniper editable installs across conda envs
     ├── env_floor_drift_check.py          # Floor-drift checker: installed juniper-* vs target-repo pyproject floors (I-2)
-    ├── release_train/                     # PyPI release-train: registry.yaml (18-package registry) + detect.py (report-only "needs deploy?" engine, Phase 1) + propose.py/notes_render.py (manifest -> proposal-PR content, dry-run, Phase 2.1) + archive_guard.py (exempt notes-archive PR structural guard, Phase 3.1) + ceremony.py (exempt-archive + Release ceremony, dry-run, Phase 3.2)
-    ├── prompt_discovery/                  # Custom-agent suite (PR 4): env-discovery probes -> JSON grounding bundle (path-invoked, --repo-root)
-    ├── fleet_triage/                      # Flood §4 item 7 (Stage-0 supervisor script layer): predict_merge.py -- detached-clone predicted-merge per PR (4 verdicts, TRUE delta, cluster map + order; delegates the 2 screens to juniper-ci-tools console scripts); --pr N | --batch, exit 0/2
+    ├── release_train/                    # PyPI release-train: registry.yaml (18-package registry) + detect.py (report-only "needs deploy?" engine, Phase 1) + propose.py/notes_render.py (manifest -> proposal-PR content, dry-run, Phase 2.1) + archive_guard.py (exempt notes-archive PR structural guard, Phase 3.1) + ceremony.py (exempt-archive + Release ceremony, dry-run, Phase 3.2)
+    ├── prompt_discovery/                 # Custom-agent suite (PR 4): env-discovery probes -> JSON grounding bundle (path-invoked, --repo-root)
+    ├── fleet_triage/                     # Flood §4 item 7 (Stage-0 supervisor script layer): predict_merge.py -- detached-clone predicted-merge per PR (4 verdicts, TRUE delta, cluster map + order; delegates the 2 screens to juniper-ci-tools console scripts); --pr N | --batch, exit 0/2
     ├── generated_prompt_index.py         # Custom-agent suite (P4): index + safety-gated prune of prompts/generated/
     ├── template_data_resolver.py         # Custom-agent suite (PR 6b): loads prompts/agent_templates/data/*.yaml (data-layer resolver)
     ├── template_select_preview.py        # Custom-agent suite (P2): offline preview of the Template Agent's match_signals selection
@@ -1710,9 +1884,9 @@ juniper-ml/
     ├── prune_git_branches_without_working_dirs.bash  # Branch hygiene
     ├── juniper_plant_all.bash            # Starts all Juniper ecosystem services
     ├── juniper_chop_all.bash             # Stops all Juniper ecosystem services
-    ├── snapshot_index.py                 # Snapshot archive index + query (design §6.2, delivers R2): --scan builds an append-only snapshots_index.jsonl per snapshot root; queries filter on the D-C provenance (--experiment/--cell-id/--run-id), tier and attribution. `dataset_id` is DERIVED, not stored — it is content-addressed on a generator version only known from a live juniper-data query after bring-up, so `--resolve-datasets` (implied by `--dataset-id`) joins run_id -> <RUN_ROOT>/<run_id>/manifest.json instead; opt-in because it reads outside the snapshot root. READ-ONLY BY CONSTRUCTION — no prune/delete path, because retention is §6.4 and gated on this index existing; an AST test enforces it. Records which groups a file has rather than judging validity, so cascor keeps sole ownership of the format policy (--verify opts into cascor's own verifier).
+    ├── snapshot_index.py                 # Snapshot archive index + query (design §6.2, delivers R2): --scan builds an append-only snapshots_index.jsonl per snapshot root; queries filter on the D-C provenance (--experiment/--cell-id/--run-id), tier and attribution. `dataset_id` is DERIVED, not stored — it is content-addressed on a generator version only known from a live juniper-data query after bring-up, so `--resolve-datasets` (implied by `--dataset-id`) joins run_id -> <RUN_ROOT>/<run_id>/manifest.json instead; opt-in because it reads outside the snapshot root. READ-ONLY BY CONSTRUCTION — no prune/delete path, because retention is §6.4 and gated on this index existing; an AST test enforces it. Records which groups a file belongs to rather than judging validity, so cascor retains sole ownership of the format policy (--verify opts into cascor's own verifier).
     ├── snapshot_classify.py             # Snapshot classifier over the §6.2 index (handoff 2026-08-22 §2.4). STAGED because the five categories cost between a second and CPU-days: `--stage index` (~1s) settles categories 4/5; `--stage load` asks cascor's OWN `load_network_result` and settles category 1 (~15 min, 27.9k files); `--stage train` is deliberately unimplemented (item 3) and refuses without a scratch $JUNIPER_CASCOR_SNAPSHOTS_DIR, because `train_output_layer` calls `create_snapshot()` unconditionally and would grow the archive under study. Emits TWO axes — `category` (must we reconstruct this snapshot's metadata?) and `health` (what can the artifact do?) — because the owner's five categories are not a partition and a literal first-match reading leaves category 5 unreachable. Reports `iterations_lower_bound` from arch.num_hidden_units, never an epoch count (meta.current_epoch is INERT: nonzero in 0 of the 28,040 archive files censused 2026-08-26, with best_value_loss inf in 27,907 of them — but NOT `snapshot_counter`, nonzero in 13,001 of 28,040, which the docstring no longer calls dead and which a regression test now pins as live-but-still-not-the-bound; the archive-vs-current split is a WRITER-PATH split, not a serializer-version one — 28,034 archive files are already serializer_version 2.0.0, and `current_epoch` present ⟺ best_value_loss inf holds without exception across all 30,948 files measured; re-derive with `util/ad-hoc/2026-08-26_snapshot_meta_field_survey.py`). Writes only a derived, replace-not-append snapshots_classification.jsonl sidecar, read back by `--from-sidecar` in ~0.5s (without it the tool could WRITE a verdict it could not READ -- only the load stage sets `fails_to_load`, so a later `--category fails_to_load` re-derived from the index and reported "no matching snapshots" against a sidecar holding 526 of them). READ-ONLY over snapshots, AST-enforced, with no prune path because retention is §6.4 and gated on this output
-    ├── snapshot_attribute.py            # Dataset attribution over the classification sidecar (handoff §3.2): which dataset was each snapshot trained on? Scores every shape-compatible juniper-data 2-D classification generator (spiral/xor/gaussian/circles/moon/checkerboard) with a PERMUTATION-CORRECTED accuracy — one-hot column order is an arbitrary convention, so a network that learned a set with swapped columns scores 1-p and raw accuracy reads it as below chance. Gated against an UNTRAINED-NETWORK NULL per (input,output) shape, because 'beats chance' is not evidence here: an untrained net already beats chance on gaussian by +0.408 (up to a perfect 1.000), so gaussian is structurally unattributable. The floor is the null's observed MAX, not p95 — zero-hidden-unit linear models scored ~0.624 on checkerboard, inside the tail a 120-sample null cannot characterise. SECOND FLOOR (schema v2): that untrained null only answers 'did this learn anything?', so a cross-dataset empirical floor built from snapshots attributed ELSEWHERE answers 'did it learn THIS rather than something else?', and a candidate must clear BOTH; a snapshot is excluded from the bar it is judged against, since one that tops a rival's floor with its own score would suppress that rival. `--no-cross-dataset-floor` restores the single-floor behaviour. DATASET INSTANCE IS PINNED: 5 of the 6 generators declare `seed: int | None = Field(default=None)`, so building them from bare defaults REDREW the data on every call and attribution was not reproducible — two `load_datasets` calls in one process returned different arrays for checkerboard/circles/gaussian/moon/xor, and a rebuild moved moon's count 0 → 6 (its score shifted 1.000 → 0.995, flipping one snapshot's first-pass winner, removing it from moon's reference class, dropping moon's cross floor 1.000 → 0.850). `seeded_params` supplies `DATASET_SEED` only where a generator declares none, so spiral keeps the exact instance every prior analysis used; `--dataset-seed` overrides, and changing it redefines the canonical instance. Verdicts: attributed / ambiguous / indeterminate; on the 27,689-row seeded rebuild, 124 single-floor attributions become **108** under both floors (xor 94, circles 7, spiral 4, moon 3) plus 8 ambiguous, 0 with zero hidden units. Validated by a 4/4 positive control. A capacity-matched null was measured and is NOT the fix — it withdrew only 3, because ~100 random cascade units inject noise columns and push the score toward chance, making the matched floor LOWER than the zero-unit one (notes/JUNIPER_2026-08-24_JUNIPER-CASCOR_ATTRIBUTION-NULL-MODEL-FINDINGS.md). READ-ONLY; --write refuses --sample/--min-hidden so the sidecar can never silently cover a subset
+    ├── snapshot_attribute.py            # Dataset attribution over the classification sidecar (handoff §3.2): which dataset was each snapshot trained on? Scores every shape-compatible juniper-data 2-D classification generator (spiral/xor/gaussian/circles/moon/checkerboard) with a PERMUTATION-CORRECTED accuracy — one-hot column order is an arbitrary convention, so a network that learned a set with swapped columns scores 1-p and raw accuracy reads it as below chance. Gated against an UNTRAINED-NETWORK NULL per (input, output) shape, because 'beats chance' is not evidence here: an untrained net already beats chance on Gaussian by +0.408 (up to a perfect 1.000), so Gaussian is structurally unattributable. The floor is the null's observed MAX, not p95 — zero-hidden-unit linear models scored ~0.624 on checkerboard, inside the tail a 120-sample null cannot characterize. SECOND FLOOR (schema v2): that untrained null only answers 'did this learn anything?', so a cross-dataset empirical floor built from snapshots attributed ELSEWHERE answers 'did it learn THIS rather than something else?', and a candidate must clear BOTH; a snapshot is excluded from the bar it is judged against, since one that tops a rival's floor with its own score would suppress that rival. `--no-cross-dataset-floor` restores the single-floor behaviour. DATASET INSTANCE IS PINNED: 5 of the 6 generators declare `seed: int | None = Field(default=None)`, so building them from bare defaults REDREW the data on every call and attribution was not reproducible — two `load_datasets` calls in one process returned different arrays for checkerboard/circles/gaussian/moon/xor, and a rebuild moved moon's count 0 → 6 (its score shifted 1.000 → 0.995, flipping one snapshot's first-pass winner, removing it from moon's reference class, dropping moon's cross floor 1.000 → 0.850). `seeded_params` supplies `DATASET_SEED` only where a generator declares none, so spiral keeps the exact instance every prior analysis used; `--dataset-seed` overrides, and changing it redefines the canonical instance. Verdicts: attributed/ambiguous/indeterminate; on the 27,689-row seeded rebuild, 124 single-floor attributions become **108** under both floors (xor 94, circles 7, spiral 4, moon 3) plus 8 ambiguous, 0 with zero hidden units. Validated by a 4/4 positive control. A capacity-matched null was measured and is NOT the fix — it withdrew only 3, because ~100 random cascade units inject noise columns and push the score toward chance, making the matched floor LOWER than the zero-unit one (notes/JUNIPER_2026-08-24_JUNIPER-CASCOR_ATTRIBUTION-NULL-MODEL-FINDINGS.md). READ-ONLY; --write refuses --sample/--min-hidden so the sidecar can never silently cover a subset
     ├── snapshot_backfill.py             # Consolidates the index + classification + attribution sidecars into ONE record per snapshot (handoff §3.4 'backfill'), with every field labelled by HOW it was obtained. Four derivation levels that differ in KIND, not degree: `observed` (read from the .h5), `measured` (obtained by running the artifact — load status, per-dataset accuracy), `inferred` (a judgement from those measurements — dataset attribution, always carrying confidence/meaning/evidence/caveat), and `population` (true of the COHORT, NOT verified for this snapshot). That fourth level is the point: item 3 trained 380 of 15,927 zero-node snapshots, so writing `formerly_broken` onto all of them as fact would fabricate a per-snapshot result for 15,547 files — a confidence SCORE would have licensed exactly that. Names a root cause for all 273 failing snapshots (cohort B, truncated writes). Run identity is never invented: no run dir survives from before 2026-07-30, so absence stays absence. `--explain NAME` prints one snapshot's full provenance. READ-ONLY — writes only snapshots_backfill.jsonl beside the index and never touches a .h5 (it does not import h5py at all); no prune path, because retention is §6.4
     ├── isolated_stack.bash               # Isolated training-runtime E2E trio (data 8101 / cascor 8202 / canopy 8051): --up/--down/--status/--dry-run
     ├── experiment_stack.bash             # Per-run experiment launcher (data 8110-8139 / cascor 8230-8259 / recurrence 8260-8289): --up/--down/--status/--dry-run
@@ -1746,7 +1920,7 @@ Jobs:
 4. **docs** -- Documentation link validation (`--cross-repo skip`)
 5. **security** -- pip-audit for dependency vulnerabilities
 6. **dependency-docs** -- Generates dependency documentation via the `juniper-generate-dep-docs` console script from the PyPI-published `juniper-ci-tools>=0.1.0,<0.2.0` package (replaces the legacy `util/generate_dep_docs.sh` deleted in juniper-ml#298)
-7. **release-train-archive-guard** (`pull_request` + `merge_group`) -- Runs `util/release_train/archive_guard.py` over the PR's changed files to prove the exempt notes-archive PR is add-only / path-confined / name-valid / single-purpose (plan §7.2 / step 3.1). SKIPs (passes) for any PR not touching `notes/releases/`, so it never blocks a normal PR; a violation fails only this check (the PR falls back to the standard owner gate).
+7. **release-train-archive-guard** (`pull_request` + `merge_group`) -- Runs `util/release_train/archive_guard.py` over the PR's changed files to prove the exempt notes-archive PR is add-only / path-confined / name-valid / single-purpose (plan §7.2 / step 3.1). SKIPs (passes) for any PR that doesn't touch `notes/releases/`, so it never blocks a normal PR; a violation fails only this check (the PR falls back to the standard owner gate).
     It also admits `merge_group` so the required context re-posts on a queued merge commit — but `merge_group` has no `github.base_ref`, so the job short-circuits to a green notice before any checkout and every real work step stays
     `if: github.event_name == 'pull_request'`. Standalone (and absent from the Quality Gate `needs:`) so the owner can later mark it a **required** status check (step 3.3). Gate: `tests/test_archive_guard_workflow.py`.
 8. **sequence-safety** (ADVISORY; `pull_request` + `merge_group`) -- Installs `juniper-ci-tools` (>=0.8.0) + runs `juniper-symbol-loss-check` (explicit ml `--scope`) + `juniper-docs-additions-check` over the PR base..HEAD (P2 G1/G2); uploads `sequence-safety-report` (G5-vi). Standalone, ABSENT from the Quality Gate `needs:` so its skip-on-push never fails the gate — soak-advisory, promoted in the ruleset later, never via the QG `needs:`. WARN-only `allow-symbol-loss` / `docs-rewrite` label hatch.
@@ -1794,20 +1968,20 @@ Detector exit 1 (action needed) is a normal green outcome; only exit >= 2 (hard 
 The operator's guide to the four modes, the two owner gates, the §8 HALT catalog, and rollback is [`notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md).
 
 **Propose mode (Phase 2.2, opt-in).** Dispatching with `mode=propose` (or setting `RELEASE_TRAIN_MODE=propose`) adds a second, **write-scoped** `propose` job — `permissions: {contents: write, pull-requests: write}`, gated `if: needs.detect.outputs.mode == 'propose'`.
-So the detect/report path stays `contents: read` and the write scope is unreachable off the propose path — the R7 privilege boundary (plan §9.3), pinned by `tests/test_release_train_workflow_guard.py`.
+So the detect/report path stays `contents: read`, and the write scope is unreachable off the propose path — the R7 privilege boundary (plan §9.3), pinned by `tests/test_release_train_workflow_guard.py`.
 It runs `util/release_train/propose.py --execute` to open **standard-gated** release-proposal PRs (owner reviews and merges; never auto-merged; touches neither TestPyPI nor PyPI). The optional `packages` dispatch input (whitespace/comma-separated pypi_names; empty = all eligible) restricts which packages are proposed.
-Garbage `packages` tokens (Title Case, underscores, path fragments, shell metacharacters) exit **2** with `::error::` in **both** write jobs before python runs (`release-train.yml` propose/ceremony shell; pin open juniper-ml#729 `PackagesInputRehearsalTest`). `--cross-repo` is appended **only** when `APP_TOKEN` is non-empty. Operator: runbook §3.2.
+Garbage `packages` tokens (Title Case, underscores, path fragments, shell metacharacters) exit **2** with `::error::` in **both** write jobs before Python runs (`release-train.yml` propose/ceremony shell; pin open juniper-ml#729 `PackagesInputRehearsalTest`). `--cross-repo` is appended **only** when `APP_TOKEN` is non-empty. Operator: runbook §3.2.
 **Cross-repo write identity (Phase 4.1, plan §9.2 / §12 step 4.1).** The propose job mints a GitHub App installation token (`actions/create-github-app-token`, SHA-pinned) scoped to the 8 publishing repos and passes `propose.py --cross-repo`, so a sibling package's proposal branches from that repo's `origin/main`, edits its own checkout, pushes with the App token, and opens the PR **in that sibling repo** (the dup-guard runs per-repo).
 In-repo meta consumer-pin co-changes (the #661 RK-11 lockstep) apply only to juniper-ml packages; a sibling proposal never edits the meta from a sibling checkout — it emits the §13 propagation edge instead.
-**Graceful degradation is mandatory:** the mint step is gated on the repo variable `RELEASE_TRAIN_APP_ID` (owner-provisioned with the `RELEASE_TRAIN_APP_PRIVATE_KEY` secret), and when it is unset the job falls back to the single-repo `GITHUB_TOKEN` and `propose.py` skips sibling packages with a clear reason — the prior in-repo-only behaviour.
+**Graceful degradation is mandatory:** the mint step is gated on the repo variable `RELEASE_TRAIN_APP_ID` (owner-provisioned with the `RELEASE_TRAIN_APP_PRIVATE_KEY` secret), and when it is unset the job falls back to the single-repo `GITHUB_TOKEN` and `propose.py` skips sibling packages with a clear reason — the prior in-repo-only behavior.
 The App private-key secret is referenced **only** in the mint step and the minted token **only** in the propose job (both pinned by `tests/test_release_train_workflow_guard.py`); the App token is never a `pypi` environment reviewer (R7).
 The cross-repo **ceremony** (`ceremony.py --cross-repo`) keeps the exempt notes-archive PR **central in juniper-ml** (§10.2) while cutting the Release on the owning repo (`gh release create --repo pcalnon/<repo>`); its seam bounds every `--repo` — and the archive lane's two api calls' repo bind — to the 8 publishing repos without widening the verb allowlist.
 **Both** write lanes create their commits through the GitHub API (`createCommitOnBranch`, no local commit), so every commit is **GitHub-signed / Verified** and satisfies the ruleset's `required_signatures` rule -> hands-free auto-merge (2026-07-23 ml#707 was the unsigned-commit block that motivated this for `ceremony.py`).
-`propose.py` previously made **unsigned** local git commits (`-c commit.gpgsign=false`) so a headless run never tripped the owner's YubiKey config. Once the 2026-08-12 branch-protection normalization added `required_signatures` to all 9 repos, that made every proposal PR unmergeable — an unsigned commit anywhere on the branch blocks the merge and squash does not rescue it (cascor#515; the pre-normalization cascor#497 merged with the identical unsigned commits).
+`propose.py` previously made **unsigned** local git commits (`-c commit.gpgsign=false`) so a headless run never tripped the owner's YubiKey config. Once the 2026-08-12 branch-protection normalization added `required_signatures` to all 9 repos, that made every proposal PR unmergeable — an unsigned commit anywhere on the branch blocks the merge, and squash does not rescue it (cascor#515; the pre-normalization cascor#497 merged with the identical unsigned commits).
 `execute_proposal` and `execute_follow_on` both route through one `_execute_signed_pr` helper, and `propose.py` deliberately carries **no** local-`git` helper so the unsigned path cannot grow back (anti-resurrection pin: `ExecuteCrossRepoGuardTest.test_execute_path_makes_no_local_git_commit`). The API path needs no working tree — checkouts are read-only inputs.
 
 `propose.py` also bumps the `AGENTS.md` **Last Updated** header in the same edit as **Version**, which now satisfies the `agents-md-touch-up.yml` **date check** as authored (the lane verifies the header rather than rewriting the branch — juniper-ml#1099).
-Before #1099 that lane pushed its own `[skip ci]` commit when the date was stale; that commit became the PR head, and because it carried `[skip ci]` **no required context ever reported on it**, leaving the proposal permanently BLOCKED with every check stuck at "expected" (the other half of cascor#515). It also raced `Update Lockfile (Dependabot)`, whose push was then rejected. Pre-setting the date remains correct and is now the *only* thing needed.
+Before #1099, that lane pushed its own `[skip ci]` commit when the date was stale; that commit became the PR head, and because it carried `[skip ci]` **no required context ever reported on it**, leaving the proposal permanently BLOCKED with every check stuck at "expected" (the other half of cascor#515). It also raced `Update Lockfile (Dependabot)`, whose push was then rejected. Pre-setting the date remains correct and is now the *only* thing needed.
 Both write jobs must configure that headless git identity with `git config --global` (not repo-local) so sibling clones inherit `user.name` / `user.email` / `commit.gpgsign` — a juniper-ml-only identity fails the first sibling commit with `Author identity unknown` (ml#705 / run 30040138774; workflow-guard invariant `(g)` in #718).
 
 **Ceremony mode (Phase 4.3, opt-in).** Dispatching with `mode=ceremony` (or setting `RELEASE_TRAIN_MODE=ceremony`) adds a second write-scoped `ceremony` job — identical `permissions: {contents: write, pull-requests: write}`, gated `if: needs.detect.outputs.mode == 'ceremony'`, with its own App-token mint step — that runs `util/release_train/ceremony.py --execute --monitor-timeout 900` for `BUMPED_NOT_RELEASED` packages.
@@ -1818,13 +1992,13 @@ The workflow's R7 boundary — both write jobs' exact perms, the mode gates, off
 The same guard pins every `<<'PY'` heredoc as balanced (`HeredocBalanceTest`, ml#708) and `compile()`-clean (`HeredocCompileTest`, ml#723) so a broken summary/Slack body cannot turn a successful run red only after the real work finishes.
 
 **Known limitation (degraded no-App path only):** on the fallback path (`RELEASE_TRAIN_APP_ID` unset), a PR opened with the built-in `GITHUB_TOKEN` does **not** trigger CI workflows (GitHub's recursion guard), so a proposal PR shows **no checks** until the owner re-triggers them — close and reopen the PR, or push an empty commit.
-When the GitHub App token is minted (the primary Phase 4.1 path) the PR is opened by the App identity and CI runs normally, so the caveat no longer applies; the repo's `can_approve_pull_request_reviews` setting is already enabled.
+When the GitHub App token is minted (the primary Phase 4.1 path), the PR is opened by the App identity, and CI runs normally, so the caveat no longer applies; the repo's `can_approve_pull_request_reviews` setting is already enabled.
 
 With the `SLACK_WEBHOOK_URL` repo secret present (owner-provisioned incoming webhook; Q-CHANNEL), each run also posts a compact summary — classification counts, packages needing action, run URL — to the Juniper Slack channel. Strictly non-blocking: a missing secret skips the step, and a post failure never fails the run.
 
 ### Claude Code Action (`claude.yml`)
 
-GitHub `@claude` assistant (`anthropics/claude-code-action`). Event-driven (comments / reviews / issues), SHA-pinned, **not** a required check and **not** the local `claudey` launcher. Operator surface: [Claude Code Action](#claude-code-action). Access audit: [Claude.yml Access Validation](#claudeyml-access-validation).
+GitHub `@claude` assistant (`anthropics/claude-code-action`). Event-driven (comments/reviews/issues), SHA-pinned, **not** a required check and **not** the local `claudey` launcher. Operator surface: [Claude Code Action](#claude-code-action). Access audit: [Claude.yml Access Validation](#claudeyml-access-validation).
 
 ---
 
@@ -1842,7 +2016,7 @@ happened three times in this ecosystem (`juniper-recurrence#7`/`#8`, `juniper-ca
 
 **Why it matters more than it looks.** Both rulesets here are scoped to `~DEFAULT_BRANCH`, so
 a PR whose base is a feature branch is governed by **no ruleset at all** -- it has zero
-required status checks and merges clean with nothing having run:
+required status checks and merges cleanly with nothing having run:
 
 ```bash
 gh api repos/pcalnon/<repo>/rules/branches/feature%2Fanything --jq length   # -> 0
@@ -1850,13 +2024,13 @@ gh api repos/pcalnon/<repo>/rules/branches/main               --jq length   # ->
 ```
 
 This workflow carries no `branches:` filter, so it is the **only** check that runs on such a
-PR. It cannot block the merge there -- no ruleset applies -- but it turns a silent merge into
+PR. It cannot block the merge there, since no ruleset applies, but it turns a silent merge into
 a visibly red one.
 
 **If it fails.** Re-open the work against the default branch. The house practice is
 **close and re-open** a fresh PR titled `[retarget #NNN]`. Retargeting in place is *not*
 sufficient on its own: every `ci*.yml` here uses the default `pull_request` types
-`[opened, synchronize, reopened]`, which exclude `edited`, so a retarget re-runs this guard
+`[opened, synchronized, reopened]`, which exclude `edited`, so a retarget re-runs this guard
 and nothing else -- the PR stays blocked on its other required contexts until a push or a
 close/re-open.
 
@@ -1889,7 +2063,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `.github/workflows/release-train.yml` -- Daily (13:00 UTC) PyPI release-train orchestrator.
   - The `detect` job (report path) runs `util/release_train/detect.py` over the 18-package registry and renders a step-summary table; it never writes.
   - Two opt-in write-scoped lanes gate on the resolved mode: `propose` (Phase 2.2/4.1 — standard-gated proposal PRs) and `ceremony` (Phase 4.3 — exempt archive PR + Release cut → owner-gated `pypi` Gate 2).
-  - Mode switch / rollback: repo variable `RELEASE_TRAIN_MODE` (`off`|`report`|`propose`|`ceremony`, default `report`) + a dispatch `mode` override; `off` quiesces entirely.
+  - Mode switch/rollback: repo variable `RELEASE_TRAIN_MODE` (`off`|`report`|`propose`|`ceremony`, default `report`) + a dispatch `mode` override; `off` quiesces entirely.
   - Operator guide: `notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md`.
 - `.github/workflows/pr-budget-alarm.yml` -- Daily (14:00 UTC) scheduled open-PR budget alarm (flood-remediation guardrail, analysis §4 item 9 / P1 §5): counts total open PRs + `cursor/`-headed PRs against repo variables `PR_BUDGET_WARN` (default 15) / `PR_BUDGET_ALARM` (default 30), always writes a step-summary table, and on breach posts to Slack via `SLACK_WEBHOOK_URL` under the non-blocking contract mirrored from `release-train.yml`. Report-only -- a breach never blocks a PR.
 - `.github/workflows/claude.yml` -- `@claude` assistant (`anthropics/claude-code-action`; SHA-pinned; not a required check). Operator surface: [Claude Code Action](#claude-code-action).
@@ -1915,9 +2089,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - **CR-024 body limit** — `RequestBodyLimitMiddleware` treats `Content-Length` as an early-reject hint only and **always** stream-caps `POST` / `PUT` / `PATCH` against the cumulative limit (default 10 MiB), so an under-declared header or a chunked body with none still 413s. Skipping the stream when the declared length is present-and-small is the classic bypass.
 - **Auth before rate limit** — with API keys configured, `APIKeyAuth` runs first, so a 401 never consumes a rate-limit token. Blank / whitespace-only configured keys are filtered out (the `auth_posture.real_keys` rule) so an empty secret file cannot enable auth that then accepts an empty `X-API-Key`.
 - **429 header passthrough** — `RateLimiter` raises `HTTPException` carrying `Retry-After` + `X-RateLimit-*`; `SecurityMiddleware.dispatch` must rebuild `JSONResponse(..., headers=exc.headers)`. RateLimiter unit tests alone do not exercise that catch path.
-- **Control-WS log sanitizing** — reject logs that interpolate untrusted Origin / command text go through the module-local `_sanitize_for_log` helpers (`control_security` strips `\r`/`\n`; `control_stream` also drops other C0 controls, keeping tab) so CRLF cannot forge multi-line control-plane records. Sanitizing changes log records only, never handshake outcomes or ack JSON.
+- **Control-WS log sanitizing** — reject logs that interpolate untrusted Origin/command text; go through the module-local `_sanitize_for_log` helpers (`control_security` strips `\r`/`\n`; `control_stream` also drops other C0 controls, keeping tabs) so CRLF cannot forge multi-line control-plane records. Sanitizing changes log records only, never handshake outcomes or ack JSON.
 - **Zero rate limit** — `ws_control_rate_limit_per_sec=0` builds a `LeakyBucket` with no refill; `retry_after` returns `3600.0` (hard backoff) rather than dividing by zero and tearing down the receive loop.
-- **`/ws/workers` fail-closed** — a bad/missing `X-API-Key` closes **4001** without accepting; a non-object or shape-invalid registration closes **4008** with no `registration_ack`; `submit_result` rejects wrong-worker / unassigned results before the protocol parse; binary attachments over 100 MB get `Binary frame too large`. Control receive rejects malformed / non-object JSON with close **1003** rather than an `AttributeError`.
+- **`/ws/workers` fail-closed** — a bad/missing `X-API-Key` closes **4001** without accepting; a non-object or shape-invalid registration closes **4008** with no `registration_ack`; `submit_result` rejects wrong-worker / unassigned results before the protocol parse; binary attachments over 100 MB get `Binary frame too large`. A clean disconnect and a mid-result transport abort (expected-binary-got-text / oversize) **requeue** the in-flight task rather than leaving it assigned until `task_reassignment_timeout`. Control receive rejects malformed / non-object JSON with close **1003** rather than an `AttributeError`.
 - **WS tunables are declared, not implicit** — `websocket/tunables.py` holds all eleven settings fields the WebSocket handlers read, each with its default and a `security` flag. Six are security controls: the Origin allowlist, the control-endpoint kill switch, the control rate limit, and the three handshake-cooldown parameters. Call sites pass only a name; the default lives in the registry.
   - The `getattr`-based decoupling is deliberate and kept — the shared package still never imports a consuming service's settings class. What changes is that a miss which looks like a misspelling now logs a WARNING naming both spellings, instead of silently reverting a security control to a library default forever (`ws_control_rate_limit_per_second` vs `..._per_sec`).
   - `resolve()` on an undeclared name raises rather than defaulting; `audit(settings)` is the boot-time counterpart, reporting defaulted security controls and suspected typos. Closes APD-SVCCORE-003 / -010. `tests/test_ws_tunables.py` pins the pre-refactor defaults byte-for-byte and source-scans both handlers so registry and call sites cannot drift.
@@ -1959,7 +2133,7 @@ concurrency:
   cancel-in-progress: false
 ```
 
-Contrast `ci.yml` (`group: ci-${{ github.ref }}` + `cancel-in-progress: true`): rapid serial merges to `main` cancel each other's CI runs, so only the last tip survives. Main-verify **must not** drop intermediate merges during a storm — each SHA gets its own group and is never cancelled (may queue behind the runner cap).
+Contrast `ci.yml` (`group: ci-${{ github.ref }}` + `cancel-in-progress: true`): rapid serial merges to `main` cancel each other's CI runs, so only the last tip survives. Main-verify **must not** drop intermediate merges during a storm — each SHA gets its own group and is never canceled (may queue behind the runner cap).
 
 #### G3.1 catch-up BASE
 
@@ -1969,9 +2143,9 @@ BASE resolution order (written to the job step summary as “Post-merge sequence
 
 1. **Catch-up** — `head_sha` of the most recent **successful** `main-verify` run on `main`, when that commit is an ancestor of `HEAD` and ≠ `HEAD` → reason `catch-up from <sha> (N commits)`.
 2. Else **`github.event.before`** (the push's first parent), when resolvable and not the all-zero SHA.
-3. Else **`HEAD^1`** (force-push / initial commit / dispatch fallback).
+3. Else **`HEAD^1`** (force-push/initial-commit/dispatch-fallback).
 
-Screens then run as `juniper-{symbol-loss,docs-additions}-check --base <BASE> --head <HEAD>` (human log + guarded `--json` artifact). Exit `≥2` is invocation error; exit `≥1` is a compositional-loss finding.
+Screens then run as `juniper-{symbol-loss,docs-additions}-check --base <BASE> --head <HEAD>` (human log + guarded `--json` artifact). Exit `≥2` is an invocation error; exit `≥1` is a compositional-loss finding.
 
 #### Waivers: trailers vs PR labels
 
@@ -1980,7 +2154,7 @@ Screens then run as `juniper-{symbol-loss,docs-additions}-check --base <BASE> --
 | Commit trailer `Allow-Symbol-Loss: <qualified.symbol>` / `Allow-Docs-Rewrite: …` in `BASE..HEAD` | Honored by the screen CLIs | **Honored** — required for post-merge green on intentional removals |
 | PR label `allow-symbol-loss` / `docs-rewrite` | Demotes that screen to `--advisory` (WARN-only exit 0) | **Invisible** — labels never reach `push:main` |
 
-Do not expect a label hatch to green main after merge. Blanket `Allow-Symbol-Loss: *` is rejected.
+Do not expect a label hatch to turn green on main after a merge. Blanket `Allow-Symbol-Loss: *` is rejected.
 
 **The trailer must ride on the commit that survives the squash — a waiver added as a *second* commit is silently discarded.** Squash-and-merge composes the merge commit's message from the PR's *first* commit, so a correct, well-argued waiver commit pushed on top of an existing branch never reaches `main`, and the screen behaves exactly as if it had never been written. Observed 2026-08-21 on ml#1228: waiver commit `38df160a` carried a valid `Allow-Symbol-Loss:` trailer, the PR merged as `14e7af4` **without** it, and main-verify then failed on every subsequent merge via the G3.1 catch-up base. Before merging a PR that removes a symbol, verify the trailer is where it will land:
 
@@ -1998,7 +2172,7 @@ The `battery` job runs its own `Detect relevant path changes` step (P2 S3 burst-
 
 1. Start from `github.event.before`.
 2. If it is empty, the all-zero SHA, or unresolvable → fall back to `HEAD^1`.
-3. If there is still no base (orphan / initial tip / force push) → **fail-open** `run=true` (`No resolvable base (initial / force push) -> running the battery to be safe.`).
+3. If there is still no base (orphan/initial-tip/force-push) → **fail-open** `run=true` (`No resolvable base (initial / force push) -> running the battery to be safe.`).
 4. Otherwise `git diff --name-only <base> <HEAD>` → `run=true` on a match against `tests/` | `util/` | `scripts/` | `.github/` | `pyproject.toml`, else `run=false`.
 
 This detector is **independent of** the G3.1 catch-up BASE used by `symbol-screen`: the screen sweeps skipped windows, the battery only decides whether the enumerated suite is worth re-running. `symbol-screen` still always runs when the battery skips, so a docs-only merge legitimately shows a skipped battery and a green screen. Hermetic rehearsal: `tests/test_main_verify_battery_paths.py`.
@@ -2021,7 +2195,7 @@ gh run download <run-id> -n sequence-safety-report
 | Symptom | Check / Fix |
 |---------|-------------|
 | Red `symbol-screen` after a “green” PR | Per-PR job may have been `--advisory` via labels, or BASE was narrower than G3.1 catch-up. Download `sequence-safety-report`; waive with a **commit trailer** on a follow-up commit, or restore the deleted symbol/docs. |
-| Waiver was written but main is still red | Check the *merged* commit, not the branch: `git log -1 --format='%B' <sha> \| grep Allow-Symbol-Loss`. Squash ships the **first** commit's message, so a waiver added as a second commit never lands. Repair with a follow-up PR whose own first commit carries the trailer. |
+| Waiver was written, but main is still red | Check the *merged* commit, not the branch: `git log -1 --format='%B' <sha> \| grep Allow-Symbol-Loss`. Squash ships the **first** commit's message, so a waiver added as a second commit never lands. Repair with a follow-up PR whose own first commit carries the trailer. |
 | Suspected `[skip ci]` gap | Open the next main-verify run's step summary — look for `catch-up from <sha> (N commits)`. That run screens every merge since the last successful tip. |
 | Docs-only merge, no battery | Expected — `battery` path-gate skips; `symbol-screen` still always runs. |
 | Initial / force-push tip never ran the battery | The detector must fail-open to `run=true` when no parent base resolves — inspect the `Detect relevant path changes` step log. |
@@ -2084,33 +2258,33 @@ Optional flags on `--up`:
 
 `RUN_ID=<UTC yyyymmddThhmmssZ>-<4 hex>` under `JUNIPER_EXP_RUN_ROOT` (default `~/.local/state/juniper-experiments` — under `$HOME`, **not** `/tmp`, so a reaped sandbox cannot destroy results). Everything for the run lives inside `$RUN_DIR`: pidfiles + recorded cmdlines, `logs/`, `relays/`, `config/`, `env/launch.env`, `data/`, `equities-cache/`, `snapshots/`, `artifacts/{plots,results}/`, `ports.json`, `teardown.json`.
 
-Port locks use atomic `mkdir "$LOCK_ROOT/<port>.lock"` (`JUNIPER_EXP_LOCK_ROOT`, default `${XDG_RUNTIME_DIR:-/tmp}/juniper-experiments`) plus an `ss` probe. The lockdir serialises experiment launchers against each other; a foreign binder can still race — that surfaces as the service's own bind failure through the health gate.
+Port locks use atomic `mkdir "$LOCK_ROOT/<port>.lock"` (`JUNIPER_EXP_LOCK_ROOT`, default `${XDG_RUNTIME_DIR:-/tmp}/juniper-experiments`) plus an `ss` probe. The lockdir serializes experiment launchers against each other; a foreign binder can still race — that surfaces as the service's own bind failure through the health gate.
 
 #### Concurrency (Wave 5)
 
-`cascor_up` exports `JUNIPER_CASCOR_SNAPSHOTS_DIR=$RUN_DIR/snapshots` (W-6), so each run's cascor writes snapshots into its own `RUN_DIR` instead of the shared root `juniper-cascor/cascor-snapshots/` (the `.h5`-debris class). This is the sanctioned use of the override: the shared root is the default precisely so CLI, service and container runs find each other's models, and a per-run root is the opt-out for isolated experiments; concurrent bench runs use `python -m bench.run_benchmark --results-dir` (W-7, juniper-recurrence). Two live runs are fully isolated — disjoint ports via the lockdirs, and `--down` of one run touches nothing of the other (pinned by `TestTwoRunConcurrency`).
+`cascor_up` exports `JUNIPER_CASCOR_SNAPSHOTS_DIR=$RUN_DIR/snapshots` (W-6), so each run's cascor writes snapshots into its own `RUN_DIR` instead of the shared root `juniper-cascor/cascor-snapshots/` (the `.h5`-debris class). This is the sanctioned use of the override: the shared root is the default precisely so CLI, service, and container runs find each other's models, and a per-run root is the opt-out for isolated experiments; concurrent bench runs use `python -m bench.run_benchmark --results-dir` (W-7, juniper-recurrence). Two live runs are fully isolated — disjoint ports via the lockdirs, and `--down` of one run touches nothing of the other (pinned by `TestTwoRunConcurrency`).
 
-**Q-6 is resolved (2026-08-15) and the one-cascor-per-checkout rule is retired.** `cascor_up` now also exports `JUNIPER_CASCOR_LOG_DIR=$RUN_DIR/logs` (juniper-cascor#523), so each run's cascor writes its own file log instead of the repo-shared `logs/juniper_cascor.log` (H-7). Requires `juniper-cascor` carrying that override; against an older cascor the export is simply ignored and the shared-log constraint below still applies.
+**Q-6 is resolved (2026-08-15) and the one-cascor-per-checkout rule is retired.** `cascor_up` now also exports `JUNIPER_CASCOR_LOG_DIR=$RUN_DIR/logs` (juniper-cascor#523), so each run's cascor writes its own file log instead of the repo-shared `logs/juniper_cascor.log` (H-7). Requires `juniper-cascor` carrying that override; against an older cascor, the export is simply ignored, and the shared-log constraint below still applies.
 
-Why this mattered more than ordinary log interleaving: **cascor's parent logger writes only to that file** — stdout carries just candidate-worker lines — so the markers that decide a run's verdict (`Training completed`, `Completed solving …`) exist nowhere else. A second cascor process in the same checkout does not merely mix the logs, it **rotates the evidence away**, which is how the F-P1-3 arm A/B run logs were lost. One other cascor process is enough, so the previous mitigation (use a distinct checkout per instance) never actually protected a single run against a long-lived service sharing its checkout.
+Why this mattered more than ordinary log interleaving: **cascor's parent logger writes only to that file** — stdout carries just candidate-worker lines — so the markers that decide a run's verdict (`Training completed`, `Completed solving …`) exist nowhere else. A second cascor process in the same checkout does not merely mix the logs; it **rotates the evidence away**, which is how the F-P1-3 arm A/B run logs were lost. One other cascor process is enough, so the previous mitigation (using a distinct checkout per instance) never actually protected a single run against a long-lived service that shares its checkout.
 
 Data and recurrence instances never had a per-checkout constraint.
 
 #### F-6 listener pid rule (binding)
 
-`$!` after `( cd … && nohup <server> … & )` is the backgrounded **subshell**, not the server. No `*_up` records `$!`. After the health gate, `record_listener_pid` writes the listener from `ss -tlnpH "sport = :<port>"` plus the process cmdline. Teardown kills pidfile-first only after proving the pid is alive, owned by the current uid, and still running the recorded cmdline (SIGTERM then bounded SIGKILL).
+`$!` after `( cd … && nohup <server> … & )` is the backgrounded **subshell**, not the server. No `*_up` records `$!`. After the health gate, `record_listener_pid` writes the listener from `ss -tlnpH "sport = :<port>"` plus the process cmdline. Teardown kills pidfile-first only after proving the pid is alive, owned by the current uid, and still running the recorded cmdline (sending SIGTERM, then a bounded SIGKILL).
 
 If the pidfile path refuses (pid gone, wrong uid, or cmdline no longer matches — the pid-reuse class), `stop_service` logs `pidfile path refused — falling back to the recorded port <N>` and kills via `ss` **only** on that run's recorded port. A listener still present after both attempts logs a WARNING. `artifacts/` is never deleted.
 
 #### Partial-failure teardown (`do_up` → `teardown_run`)
 
-`do_up` writes `ports.json` **before** any `*_up` launch so a half-started run is still teardown-able. Launch order is data → cascor → recurrence; the first failing leg sets `failed=1` and skips later services.
+`do_up` writes `ports.json` **before** any `*_up` launch, so a half-started run is still teardown-able. Launch order is data → cascor → recurrence; the first failing leg sets `failed=1` and skips later services.
 
 On failure (live mode, not `--dry-run`):
 
 1. Logs `ERROR: bring-up failed — tearing the partial run back down (logs kept under ${LOG_DIR})`.
 2. Calls `teardown_run "${RUN_ID}"` (same path as `--down`): reverse-order `stop_service`, release port lockdirs, write `teardown.json`, keep `artifacts/` + `logs/`.
-3. Returns `1` (does **not** leave the partial listeners / locks for the operator to discover later).
+3. Returns `1` (does **not** leave the partial listeners/locks for the operator to discover later).
 
 `--dry-run --up` never creates dirs or calls `teardown_run`. After a live partial failure, inspect `$RUN_DIR/logs/` and `$RUN_DIR/teardown.json`; re-run `--up` only after confirming the port range is free (`ss` / lockdirs under `JUNIPER_EXP_LOCK_ROOT`). Source: `util/experiment_stack.bash` `do_up` / `teardown_run`. Pidfile-refuse → port fallback coverage: open juniper-ml#923 (`TestTeardownBehaviour`).
 
@@ -2128,7 +2302,7 @@ Coverage: `tests/test_experiment_stack_script.py` (incl. live `*_up` compose + p
 
 | Path | Fail-closed behavior |
 |------|----------------------|
-| `data_up` / `cascor_up` / `recurrence_up` | `require_env_bin`, `activate_conda`, `wait_for_health`, and `record_listener_pid` each end with `\|\| return 1`, so the OR-list absorb sees a real failure |
+| `data_up` / `cascor_up` / `recurrence_up` | `require_env_bin`, `activate_conda`, `wait_for_health`, and `record_listener_pid` each end with `\|\| return 1`, so the OR-list `absorb` sees a real failure |
 | `activate_conda` (only when `JUNIPER_EXP_CONDA_ACTIVATE=1`) | `source … \|\| return 1`; `if ! conda activate …; then set -u; return 1; fi` — the trailing `set -u` must not mask an activate failure as exit `0` (ambient-PATH launch). Same class as isolated-stack and plant |
 | Mid-`allocate_port` exhaustion | `release_held_locks` before returning, so earlier `*.lock` dirs do not starve a later `--up` |
 | Opt-in `--grafana-bridge` after healthy services | `if ! bridge_up`, log `ERROR: grafana bridge failed — tearing the run back down`, call `teardown_run` (live only), return `1` — a bare `bridge_up` under `set -e` used to abort without teardown. `bridge_up` itself pins `require_cmd socat` / `docker`, `discover_gateway_ip`, `relay_up`, and both target-file writes with `\|\| return 1` |
@@ -2167,9 +2341,9 @@ Kind selection from YAML shape: `training:` → cascor path; `train:` / `crossva
 |------|---------|
 | `0` | Success (COMPLETED + acceptance) |
 | `1` | Acceptance failure (stalled, timed_out, G-6 mismatch, missing essential artifact, predict/crossval fail) |
-| `2` | Misuse / validation (bad CLI/YAML/generator, API `422`) |
-| `3` | Unreachable (health-wait / connection failures) |
-| `4` | Run `FAILED` / service `5xx` |
+| `2` | Misuse/validation (bad CLI/YAML/generator, API `422`) |
+| `3` | Unreachable (health-wait/connection-failures) |
+| `4` | Run-`FAILED`/service-`5xx` |
 
 Always writes §13.4 `manifest.json` (including stalled / timed-out / failed runs). Also writes `artifacts/results/stats.json` + `summary.md` (Wave 2.6; stats failure → `stats_error` on the manifest, never fatal). Plots (Wave 2.4/2.5) render client-side when `outputs.plots` requests them — structurally unavailable data is a per-plot SKIP; render errors / missing matplotlib on a requested plot fail acceptance.
 
@@ -2197,7 +2371,7 @@ jq '.driver.plots' "$RUN_DIR/manifest.json"
 ls "$RUN_DIR/artifacts/plots/"
 ```
 
-Do not read a SKIP-only `ValueError` as a blank-PNG or acceptance regression.
+Do not read a SKIP-only `ValueError` as a blank PNG or acceptance regression.
 
 ### Environment overrides
 
@@ -2317,7 +2491,7 @@ A one-in-a-thousand jitter in generated data moved a floor by 0.15 and changed s
 
 Passing `--seed` does **not** pin the generators. That mix-up is the operator class this section exists to stop.
 
-Every scoring run logs `dataset seed: <n> (applied only to generators declaring none; spiral keeps its own)` on stderr. Until #1333 is on the checkout you are running, `seeded_params` / `--dataset-seed` / that log line do not exist and two identical invocations will still differ.
+Every scoring run logs `dataset seed: <n> (applied only to generators declaring none; spiral keeps its own)` on stderr. Until #1333 is on the checkout you are running, `seeded_params` / `--dataset-seed` / that log line do not exist, and two identical invocations will still differ.
 
 ### Reproducibility check
 
@@ -2334,9 +2508,9 @@ diff A.json B.json      # must be empty after #1333; was non-empty before it
 
 The four sidecars are strictly ordered: **index → classify → attribute → backfill**. Attribution reads the classification sidecar and covers only what it lists, so a stale classification silently caps coverage.
 
-Do **not** export `JUNIPER_CASCOR_SNAPSHOTS_DIR` for this chain. That variable is both cascor's snapshot **write** directory and `snapshot_index.default_root()`. Probe scripts under `util/ad-hoc/` redirect it so they cannot grow the archive; the chain must not, or every stage looks for the archive in the scratch dir. Pass `--root` explicitly instead.
+Do **not** export `JUNIPER_CASCOR_SNAPSHOTS_DIR` for this chain. That variable is both cascor's snapshot **write** directory and `snapshot_index.default_root()`. Probe scripts under `util/ad-hoc/` redirect them so they cannot grow the archive; the chain must not, or every stage will look for the archive in the scratch dir. Pass `--root` explicitly instead.
 
-The one-off driver `util/ad-hoc/2026-08-24_regenerate_sidecar_chain.bash` lands with #1333. It refuses to start without `--backup DIR` containing all four `snapshots_*.jsonl` files — the sidecars are gitignored and a full run costs ~1h. Pass `--repo` / `--python` when not on the hardcoded worktree path. `--skip-index` is the only skip (append-only scan is cheap); classification, attribution, and backfill always re-derive.
+The one-off driver `util/ad-hoc/2026-08-24_regenerate_sidecar_chain.bash` lands with #1333. It refuses to start without `--backup DIR` that contains all four `snapshots_*.jsonl` files — the sidecars are gitignored, and a full run takes ~1h. Pass `--repo` / `--python` when not on the hardcoded worktree path. `--skip-index` is the only skip (append-only scan is cheap); classification, attribution, and backfill always re-derive.
 
 ### Counts you may quote
 
@@ -2370,7 +2544,7 @@ Regression: `python3 -m unittest -v tests/test_snapshot_attribute.py` (`DatasetI
 
 ## Shared-Package CI Workflows
 
-Each in-repo published sub-package has its own subdirectory CI at `.github/workflows/ci-<suffix>.yml`. These are **distinct** from the meta `ci.yml` and from the `publish-*.yml` publishers: they are the only always-on gate for that package's pytest / coverage / wheel smoke.
+Each in-repo published sub-package has its own subdirectory CI at `.github/workflows/ci-<suffix>.yml`. These are **distinct** from the meta `ci.yml` and the `publish-*.yml` publishers: they are the only always-on gate for that package's pytest/coverage/wheel smoke.
 
 | Workflow | Package dir | Python matrix (min) | `--cov-fail-under` | Test `working-directory` | Wheel smoke (installed into a throwaway venv) |
 |----------|-------------|---------------------|--------------------|--------------------------|-----------------------------------------------|
@@ -2389,7 +2563,7 @@ Matrix rows are **minimum floors** — extra versions are fine. Every workflow i
 | Path filters | `push` / `pull_request` paths include `<subdir>/**` **and** the workflow's own path | Dropping the self-path lets a broken gate land with no red check |
 | `fail-fast` | `strategy.fail-fast: false` on the test matrix | One Python version must not cancel the rest |
 | Coverage | `--cov=<import>` + `--cov-fail-under=<floor>` + `coverage.json` | Per-package line-coverage floor |
-| Gap-map enforce | `juniper-coverage-gap-map --coverage-json coverage.json --enforce` | Without `--enforce` the gap map is advisory and a gutted module ships green |
+| Gap-map enforce | `juniper-coverage-gap-map --coverage-json coverage.json --enforce` | Without `--enforce`, the gap map is advisory and a gutted module ships green |
 | ci-tools omit | Only `ci-ci-tools.yml` passes `--omit "*/__main__.py"` (the C-2 shim) | Other packages must not silently adopt a broad omit |
 | Build after test | `build.needs: test`; build `working-directory` is the package subdir | A red matrix must not look like a successful wheel smoke |
 | service-core install | No test-job `working-directory`; install sibling `juniper-model-core` **before** `juniper-service-core` | Sibling-first ordering; a package-scoped WD would break the path |
@@ -2427,13 +2601,13 @@ When adding a publishing sibling: register it in `util/release_train/registry.ya
 
 ### Archive-guard `merge_group` short-circuit
 
-`ci.yml`'s `release-train-archive-guard` is a required merge-queue context, so it runs on `pull_request` **and** `merge_group`. On `merge_group` there is no `github.base_ref`, so the job short-circuits to a green notice before any checkout or base-ref work, and every real work step stays `if: github.event_name == 'pull_request'`. It remains ABSENT from Quality Gate `needs:` so its skip on push cannot paint `push:main` red. Gate: `tests/test_archive_guard_workflow.py` (classifier behaviour stays in `tests/test_release_train_archive_guard.py`).
+`ci.yml`'s `release-train-archive-guard` is a required merge-queue context, so it runs on `pull_request` **and** `merge_group`. On `merge_group`, there is no `github.base_ref`, so the job short-circuits to a green notice before any checkout or base-ref work, and every real work step stays `if: github.event_name == 'pull_request'`. It remains ABSENT from Quality Gate `needs:` so its skip on push cannot paint `push:main` red. Gate: `tests/test_archive_guard_workflow.py` (classifier behaviour stays in `tests/test_release_train_archive_guard.py`).
 
 ---
 
 ## Scheduled Security Scan and Lockfile Update
 
-Operator contract for the two Monday scheduled workflows that keep dependency hygiene unattended. Both are distinct from the per-PR `ci.yml` `security` / `dependency-docs` jobs.
+Operator contract for the two Monday-scheduled workflows that keep dependency hygiene unattended. Both are distinct from the per-PR `ci.yml` `security` / `dependency-docs` jobs.
 
 ### Security Scan (`security-scan.yml`)
 
@@ -2445,7 +2619,7 @@ Operator contract for the two Monday scheduled workflows that keep dependency hy
 | Install | `pip install pip-audit` then `pip install -e .` |
 | Audit | a **sole** invocation: `pip-audit --strict --desc on` |
 
-**Why `--strict` here but not in per-PR CI.** The scheduled scan must fail the run on a known finding. The per-PR `ci.yml` `security` job intentionally runs with `--skip-editable` and **omits** `--strict`: pip-audit counts a skipped editable install as a dependency-collection failure, and `--strict` would escalate that to a fatal error on every PR that installs the unreleased meta-package editable. Do **not** copy `--skip-editable` into the scheduled workflow, and do **not** drop `--strict` from it. Structural gate: `tests/test_security_scan_workflow.py`.
+**Why `--strict` here but not in per-PR CI.** The scheduled scan must fail the run on a known finding. The per-PR `ci.yml` `security` job intentionally runs with `--skip-editable`, and **omits** `--strict`: pip-audit counts a skipped editable install as a dependency-collection failure, and `--strict` would escalate that to a fatal error on every PR that installs the unreleased meta-package editable. Do **not** copy `--skip-editable` into the scheduled workflow, and do **not** drop `--strict` from it. Structural gate: `tests/test_security_scan_workflow.py`.
 
 ### Lockfile Update (`lockfile-update.yml`)
 
@@ -2481,11 +2655,11 @@ Both renderers treat `UNRELEASED_CHANGES`, `BUMPED_NOT_RELEASED`, and `SHIP_UNCE
 | `propose` | Full action set | Read the **propose** job summary for `opened:` / `skip:` |
 | `ceremony` | **Only** `BUMPED_NOT_RELEASED` | `UNRELEASED_CHANGES` / `SHIP_UNCERTAIN` are not ceremony candidates |
 
-With a present, non-empty manifest the summary carries the title, package total, per-classification counts, a `Release hygiene: TAG_ONLY=N, NOTES_MISSING=M` line (truthy values only), the per-package table, collapsed detector notes, and the mode footer.
+With a present, non-empty manifest, the summary carries the title, package total, per-classification counts, a `Release hygiene: TAG_ONLY=N, NOTES_MISSING=M` line (truthy values only), the per-package table, collapsed detector notes, and the mode footer.
 
 ### Hard-fail banner and Slack
 
-If `release-manifest.json` is absent or blank the summary writes only `**Detector failed hard -- no manifest was produced.** See the run log.` — no package table. The step still exits 0 (`if: always()`); treat it as a red detector outcome, never a quiet "0 packages need action". The Slack step posts only when `SLACK_WEBHOOK_URL` is set, is `continue-on-error`, and sends counts plus the run URL (or the `detector FAILED HARD` line) — no secrets, diffs, or CHANGELOG bodies.
+If `release-manifest.json` is absent or blank, the summary writes only `**Detector failed hard -- no manifest was produced.** See the run log.` — no package table. The step still exits 0 (`if: always()`); treat it as a red detector outcome, never a quiet "0 packages need action". The Slack step posts only when `SLACK_WEBHOOK_URL` is set, is `continue-on-error`, and sends counts plus the run URL (or the `detector FAILED HARD` line) — no secrets, diffs, or CHANGELOG bodies.
 
 | Symptom | Likely cause | What to do |
 |---------|--------------|------------|
@@ -2507,9 +2681,9 @@ If `release-manifest.json` is absent or blank the summary writes only `**Detecto
 | Permissions | `contents: read` |
 | Concurrency | `agents-md-date-check-<PR number>`, `cancel-in-progress: true` |
 
-Behaviour: check out the PR head with full history; if `AGENTS.md` has **no** `**Last Updated**:` line, emit a `::warning::` and pass; otherwise the value must be a well-formed `YYYY-MM-DD` date and must not be in the future. It then passes on **either** of two arms, checked in this order: the value **already equals today's UTC date**, or the line **changed in this PR** (`git diff <base>...HEAD` contains `+**Last Updated**:`). Anything else fails the check and prints the exact line to write.
+Behavior: check out the PR head with full history; if `AGENTS.md` has **no** `**Last Updated**:` line, emit a `::warning::` and pass; otherwise, the value must be a well-formed `YYYY-MM-DD` date and must not be in the future. It then passes on **either** of two arms, checked in this order: the value **already equals today's UTC date**, or the line **changed in this PR** (`git diff <base>...HEAD` contains `+**Last Updated**:`). Anything else fails the check and prints the exact line to write.
 
-> Both arms are load-bearing, and this paragraph previously named only the second — which made a same-day PR that legitimately has nothing to bump look like a check failure waiting to happen. The two arms differ in **durability**: already-today is re-evaluated every run and expires at the next UTC midnight; changed-in-this-PR holds for the life of the PR. That distinction is what decides the stacked-PR remedy above.
+> Both arms are load-bearing, and this paragraph previously named only the second — which made a same-day PR that legitimately has nothing to bump look like a check failure waiting to happen. The two arms differ in **durability**: already-today is re-evaluated every run and expires at the next UTC midnight; changed-in-this-PR holds for the life of the PR. That distinction determines the stacked-PR remedy above.
 
 The predicate is "the line changed", not "the line equals today": a PR opened Monday and merged Thursday would fail an equals-today check on every re-run. `util/release_train/propose.py` sets this header in its own commit, so release-train proposals satisfy the check as authored.
 
@@ -2573,7 +2747,7 @@ The job is **not** a required status check and is **not** in Quality Gate `needs
 
 | Item | Value |
 |------|-------|
-| Workflow / job name | `Claude Code` / `claude` |
+| Workflow/job-name | `Claude Code`/`claude` |
 | Triggers | `issue_comment` (`created`); `pull_request_review_comment` (`created`); `issues` (`opened`, `assigned`); `pull_request_review` (`submitted`) |
 | Job `if:` | Every `on:` event is named in the expression; each arm requires the literal `@claude` (comment body, review body, or issue body/title) |
 | Permissions | Exact map: `contents: write`, `pull-requests: write`, `issues: write`, `id-token: write`, `actions: read` |
@@ -2597,7 +2771,7 @@ Both `uses:` lines are SHA-pinned with a trailing `# vX.Y.Z` comment. Do not ret
 
 | Symptom | What it actually is | What to do |
 |---------|---------------------|------------|
-| `@claude` did not run | Job `if:` requires the literal `@claude` in that event's body (or issue title). `issues: assigned` still needs it | Add `@claude` to the comment / review / issue text |
+| `@claude` did not run | Job `if:` requires the literal `@claude` in that event's body (or issue title). `issues: assigned` still needs it | Add `@claude` to the comment/review/issue text |
 | Action ran on every comment | Missing or weakened `if:` (L3) | Restore the four-arm `@claude` guard; `bash util/validate_claude_yaml_access.bash .github/workflows/claude.yml` |
 | Fork PR spent the key | `on:` gained `pull_request_target` or `workflow_run` (L2) | Remove those triggers; never add them |
 | Template "sync" rewound the pin | `notes/templates/ci/` snapshot lags Dependabot | Restore `.github/workflows/claude.yml` from `main`; leave the template as a historical snapshot |
@@ -2639,7 +2813,7 @@ Publish and CI constraints:
 
 ### juniper-service-core
 
-`juniper-service-core` lives under `juniper-service-core/` and publishes independently (`juniper-service-core-v*` → `.github/workflows/publish-service-core.yml`; CI: `ci-service-core.yml`). Since `juniper-ml` 0.5.0 it is aggregated under the `[tools]` and `[all]` extras. Model services inject lifecycle / command executors; this package owns the shared FastAPI + WebSocket + worker-pool plumbing.
+`juniper-service-core` lives under `juniper-service-core/` and publishes independently (`juniper-service-core-v*` → `.github/workflows/publish-service-core.yml`; CI: `ci-service-core.yml`). Since `juniper-ml` 0.5.0, it is aggregated under the `[tools]` and `[all]` extras. Model services inject lifecycle / command executors; this package owns the shared FastAPI + WebSocket + worker-pool plumbing.
 
 | Field                 | Value                                                                    |
 |-----------------------|--------------------------------------------------------------------------|
@@ -2657,8 +2831,8 @@ Publish and CI constraints:
 - **429 header passthrough.** `RateLimiter` raises `HTTPException` carrying `Retry-After` and the `X-RateLimit-*` headers; `SecurityMiddleware.dispatch` catches it and rebuilds `JSONResponse(..., headers=exc.headers)`. Dropping those headers makes well-behaved clients retry immediately, and `RateLimiter` unit tests alone do not exercise the catch path.
 - **Exempt paths.** `EXEMPT_PATHS` covers `/v1/health`, `/v1/health/live`, `/v1/health/ready`, `/docs`, `/openapi.json`, `/redoc`, and both literal `/metrics` forms (gated instead by the parallel `MetricsAuthMiddleware` allowlist). WebSocket upgrades are not intercepted by `BaseHTTPMiddleware`, so `/ws/*` is inherently outside this path.
 - **Blank API keys.** `APIKeyAuth` filters blank / whitespace-only configured keys (the `auth_posture.real_keys` rule), so an empty secret file cannot enable auth that would then accept an empty `X-API-Key`.
-- **Rate-limit keying.** `RateLimiter._get_key` buckets by `key:<api_key>` when the request authenticated, otherwise by `ip:<client.host>` — falling back to `ip:unknown` when Starlette reports no client. Authenticated callers therefore get their own budget rather than sharing one per source IP (and a shared NAT egress cannot exhaust an authenticated client's budget).
-- **Worker mTLS half-config.** `TLSConfig` (`juniper_service_core.workers.security`) fails closed: with TLS enabled and only one of `cert_file` / `key_file` set it raises `ValueError` naming both paths, rather than returning a bare `SSLContext` with neither chain nor key. A silent half-config is the dangerous shape — it looks "TLS enabled" to callers while presenting nothing.
+- **Rate-limit keying.** `RateLimiter._get_key` buckets by `key:<api_key>` when the request is authenticated, otherwise by `ip:<client.host>` — falling back to `ip:unknown` when Starlette reports no client. Authenticated callers therefore get their own budget rather than sharing one per source IP (and a shared NAT egress cannot exhaust an authenticated client's budget).
+- **Worker mTLS half-config.** `TLSConfig` (`juniper_service_core.workers.security`) fails closed: with TLS enabled and only one of `cert_file` / `key_file` set, it raises `ValueError` naming both paths, rather than returning a bare `SSLContext` with neither chain nor key. A silent half-config is the dangerous shape — it looks "TLS enabled" to callers while presenting nothing.
 
 #### Control WS log sanitizer
 
@@ -2682,7 +2856,7 @@ Control-plane WebSockets build a per-connection `LeakyBucket` from `ws_control_r
 
 A client seeing a very large `retry_after` on a zero limit is the expected hard-backoff path; raise the setting if you want faster refill.
 
-Repeated *rejected handshakes* are throttled separately by `HandshakeCooldown`, which tracks rejections per client IP: more than `max_rejections` (default **10**) within `window_sec` (default **60**) blocks that IP for `block_sec` (default **300**, i.e. 5 minutes) and closes further attempts with **4029** `Too many rejected handshakes`. The state is in-memory only, so a server restart clears it — a deliberate NAT-hostile escape hatch, since many clients can share one egress IP.
+Repeated *rejected handshakes* are throttled separately by `HandshakeCooldown`, which tracks rejections per client IP: more than `max_rejections` (default **10**) within `window_sec` (default **60**) blocks that IP for `block_sec` (default **300**, i.e. 5 minutes) and closes further attempts with **4029** `Too many rejected handshakes`. The state is in memory only, so a server restart clears it — a deliberate NAT-hostile escape hatch, since many clients can share a single egress IP.
 
 #### `/ws/workers` contracts
 
@@ -2702,14 +2876,14 @@ The handshake runs **Origin → auth → per-source rate limit → accept → re
 - **Binary frame cap.** Attachments over `_MAX_BINARY_SIZE` (100 MB) get `Binary frame too large` before `submit_result`.
 - **Unknown lifecycle frames.** `build_frame_sink` maps unknown or missing frame types onto the generic `event` envelope rather than dropping or raising.
 
-Control receive rejects malformed / non-object JSON with close **1003** rather than an `AttributeError`.
+Control receives rejects malformed/non-object JSON with close **1003** rather than an `AttributeError`.
 
 | Symptom | Check / Fix |
 |---------|-------------|
 | HTTP 429 arrives without `Retry-After` | `SecurityMiddleware` must pass `exc.headers` into the `JSONResponse` — RateLimiter unit tests alone do not cover that catch path. |
-| A health probe gets 429 | Health / docs / metrics are exempt in service-core — check an upstream proxy or a non-exempt path. |
+| A health probe gets 429 | Health/docs/metrics are exempt in service-core — check an upstream proxy or a non-exempt path. |
 | A large POST is accepted despite the body limit | The mutating-method stream cap must be unconditional; a `Content-Length`-only fast path is the bypass class. |
-| Multi-line or forged log record after a bad Origin / command | `_sanitize_for_log` regression — never interpolate unsanitized Origin / command into logger format strings. |
+| Multi-line or forged log record after a bad Origin/command | `_sanitize_for_log` regression — never interpolate unsanitized Origin/command into logger format strings. |
 | Worker WS closes 4001 before `connection_established` | API-key auth is enabled — send `X-API-Key`, or disable `app.state.api_key_auth` locally. |
 | Worker WS closes 4008 after accept | Fix the registration shape: string `worker_id` plus dict `capabilities`. |
 | Worker WS closes 4003 immediately | The client sent an `Origin` header — workers are not browsers; drop it from the client's WS options. |
@@ -2726,7 +2900,8 @@ Control receive rejects malformed / non-object JSON with close **1003** rather t
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
-| 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate |
+| 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
+| 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
@@ -2772,8 +2947,8 @@ Release flow:
 
 **Upload strictness:** the TestPyPI upload sets `skip-existing: true` so re-cutting a Release for a version TestPyPI already holds is a no-op rather than an immutable-upload 400; the production PyPI upload deliberately stays strict.
 
-**Index-lag poll (juniper-ml#1310).** TestPyPI's simple index is CDN-fronted and lags an upload by ~5–30s, so the first fetch of a just-published version can 404.
-The previous unconditional `sleep 30` was 77% of a measured 39s step, paid in full on **every** publish even when the index was already warm, and still a coin-flip if propagation ran long.
+**Index-lag poll (juniper-ml#1310).** TestPyPI's simple index is CDN-fronted, and lags uploads by ~5–30s, so the first fetch of a just-published version can return a 404.
+The previous unconditional `sleep 30` was 77% of a measured 39s step, paid in full on **every** publish, even when the index was already warm, and still a coin flip if propagation ran long.
 The poll returns as soon as the artifact is servable (usually the first attempt) and fails with `::error::TestPyPI never served juniper-ml==${VERSION} within ~60s of upload` if the ceiling is hit. Do not restore `sleep 30`.
 
 **The trigger is the gate (juniper-ml#1310).** Every publisher is `release: published` + `workflow_dispatch` only. A bare `git push <tag>` starts **no run** — nothing is built, nothing is uploaded.
@@ -2802,7 +2977,7 @@ Contracts every one of them shares:
 |----------|----------------|
 | **Release-only trigger** (`release: published` + `workflow_dispatch`; **no** `push: tags`) | Cutting a Release also creates the tag. Subscribing to both raced the immutable TestPyPI upload (#555). The trigger **is** the gate: a bare `git push <tag>` starts no run. Do not resurrect a push-gated Release step (#1310). Gate: `tests/test_publish_release_only_trigger.py`. |
 | **Build-job tag-prefix guard** | `release: published` fires *every* `publish-*.yml`, so each build job gates on `startsWith(github.event.release.tag_name, '<pkg>-v')` to keep package A's Release from publishing package B. |
-| **`--no-deps` TestPyPI-only verify** | With `--no-deps` no dependencies are fetched, so adding an `--extra-index-url` to production PyPI would only risk resolving a squatted *target* package during TestPyPI index lag. Sibling verify must not add a PyPI fallback. Index lag is a 5×10s retry around `pip install` (~50s), distinct from the meta publisher's 10×6s `pip download` poll (~60s). |
+| **`--no-deps` TestPyPI-only verify** | With `--no-deps`, no dependencies are fetched, so adding an `--extra-index-url` to production PyPI would only risk resolving a squatted *target* package during TestPyPI index lag. Sibling verify must not add a PyPI fallback. Index lag is a 5×10s retry around `pip install` (~50s), distinct from the meta publisher's 10×6s `pip download` poll (~60s). |
 | **`skip-existing: true`** on both publish steps | Residual overlap (a manual dispatch during a Release) is a no-op instead of an immutable-upload 400. |
 | **OIDC + concurrency** | `permissions: {id-token: write, contents: read}`; `concurrency.group: publish-<suffix>-${{ github.ref_name }}` with `cancel-in-progress: false`; environments `testpypi` then `pypi`. |
 
@@ -2845,7 +3020,7 @@ Design context: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATIO
 | Fleet PR lint | `ci.yml` → `fleet-pr-lint` | `pull_request` whose head starts with `cursor/` | **Advisory** (never fails, never comments) |
 | Post-merge net | `main-verify.yml` | every `push:main` + dispatch | **Bypass-proof** (owner/Cursor App cannot skip by merging green) |
 
-Quality Gate (`required-checks`) needs exactly: `pre-commit`, `tests`, `build`, `docs`, `security`, `claude-yaml-audit`, `dependency-docs`. Folding `sequence-safety` / `fleet-pr-lint` / `release-train-archive-guard` into that `needs:` would fail every `push:main` (those jobs skip on push while the gate is `if: always()`).
+Quality Gate (`required-checks`) needs exactly the following: `pre-commit`, `tests`, `build`, `docs`, `security`, `claude-yaml-audit`, `dependency-docs`. Folding `sequence-safety` / `fleet-pr-lint` / `release-train-archive-guard` into that `needs:` would fail every `push:main` (those jobs skip on push while the gate is `if: always()`).
 
 #### Security soft-fail
 
@@ -2907,7 +3082,7 @@ juniper-symbol-loss-check --base origin/main --head HEAD --advisory
 
 ### Fleet PR Lint (#880 phase 4)
 
-`cursor/*` head branches only (`pull_request` + `startsWith(github.head_ref, 'cursor/')`), `contents: read` only. Every signal goes to the job step summary and the shell ends with `exit 0` under `set +e`, so a probe failure cannot paint the check red.
+`cursor/*` head branches only (`pull_request` + `startsWith(github.head_ref, 'cursor/')`), `contents: read` only. Every signal goes to the job step summary, and the shell ends with `exit 0` under `set +e`, so a probe failure cannot paint the check red.
 
 | Signal | Threshold / match |
 |--------|-------------------|
@@ -2964,12 +3139,12 @@ Validated layout (ed448 requirement kept where hardware allows):
 
 ### Harness safety
 
-The pinentry stub answers Admin PIN / user PIN / passphrase from `TEST_ADMIN_PIN` / `TEST_USER_PIN` / `TEST_PASSPHRASE`. It defeats interactive secret entry — **never** point it at a real keyring or a live-provisioned card.
+The pinentry stub answers Admin-PIN/user-PIN/passphrase from `TEST_ADMIN_PIN` / `TEST_USER_PIN` / `TEST_PASSPHRASE`. It defeats interactive secret entry — **never** point it at a real keyring or a live-provisioned card.
 
 ### Related
 
 - Code-signing migration status: [`notes/JUNIPER_2026-07-16_JUNIPER-ECOSYSTEM_CODE-SIGNING-KEY-MIGRATION-STATUS.md`](../notes/JUNIPER_2026-07-16_JUNIPER-ECOSYSTEM_CODE-SIGNING-KEY-MIGRATION-STATUS.md)
-- Release-train headless commits are **API-signed on both lanes** (`createCommitOnBranch` in propose *and* ceremony), so they avoid the owner’s YubiKey while still satisfying `required_signatures`. Propose was unsigned until the 2026-08-12 ruleset normalization made that unmergeable (cascor#515) — see AGENTS.md / release-train runbook
+- Release-train headless commits are **API-signed on both lanes** (`createCommitOnBranch` in propose *and* ceremony), so they avoid the owner’s YubiKey while still satisfying `required_signatures`. The propose was unsigned until the 2026-08-12 ruleset normalization made it unmergeable (cascor#515) — see AGENTS.md / release-train runbook
 
 ## Open-PR Budget Alarm
 
@@ -2991,7 +3166,7 @@ Source-side throttle (Cursor dashboard per-run caps) is a separate owner action;
 | Concurrency | `group: pr-budget-alarm`, `cancel-in-progress: true` |
 
 ```bash
-# Manual dry look at the same counts the alarm uses
+# Manual dry run to look at the same counts the alarm uses
 gh pr list --repo pcalnon/juniper-ml --state open --limit 500 --json number,headRefName
 gh workflow run pr-budget-alarm.yml --repo pcalnon/juniper-ml
 ```
@@ -3013,7 +3188,7 @@ Level resolution (either metric can trip the level):
 
 `cursor` = open PRs whose `headRefName` starts with `cursor/`.
 
-Constraint: the workflow queries with `gh pr list --limit 500`. Past 500 open PRs the counts understate the real queue — read a near-ceiling number as a soft floor, not exact cardinality.
+Constraint: the workflow queries with `gh pr list --limit 500`. Past 500 open PRs, the counts understate the real queue — read a near-ceiling number as a soft floor, not exact cardinality.
 
 ### Outputs and Slack
 
@@ -3059,8 +3234,9 @@ These variables are consumed by Juniper packages documented in this repository. 
 
 > These are not set by juniper-ml itself — they are consumed by the installed sub-packages.
 > `CASCOR_SERVICE_URL` defaults to the cascor service/container port (`8200`). The host-level stack and `util/get_cascor_*.bash` helpers target the host-facing port (`8201`) unless overridden.
+> REST constructor `base_url` values are normalised as of the GitHub-main clients documented in [HTTP Client Base-URL Contract](#http-client-base-url-contract); those env vars are **not** themselves passed through `_normalize_url` unless the caller feeds them into the constructor.
 
-Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities), the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities), and the per-run experiment overrides in [Experiment Stack Utilities](#experiment-stack-utilities).
+Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities), the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities), the per-run experiment overrides in [Experiment Stack Utilities](#experiment-stack-utilities), and the Duplicati lane overrides in [Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane).
 
 `JUNIPER_CASCOR_SNAPSHOTS_DIR` is **dual-use**: cascor's snapshot write directory **and** `snapshot_index.default_root()`.
 Experiment `--up` may redirect it to `$RUN_DIR/snapshots` (W-6). The attribution sidecar chain must **not** — pass `--root` instead.
@@ -3071,5 +3247,5 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 ---
 
 **Last Updated:** 2026-08-24
-**Version:** 0.6.11
+**Version:** 0.6.15
 **Maintainer:** Paul Calnon

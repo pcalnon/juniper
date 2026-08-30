@@ -254,6 +254,13 @@ jobs:
           # util/kill_all_pythons.bash and util/juniper_worker_kill.bash (PATH-stubbed
           # ps/sudo/kill; bash kill builtin disabled). util/ is not pre-commit-lint-gated.
           python3 -m unittest -v tests/test_kill_helpers.py
+          # tests/test_duplicati_scheduled_backup.py: fail-closed guards for the
+          # systemd --user scheduled-backup lane (empty/short PASSPHRASE, unmounted
+          # dest, wrong-filesystem dest, tmpfs tempdir, skip-or-fail stale
+          # escalation, OnFailure reporter, installer copies-not-symlinks / no
+          # enable --now). PATH-stubbed; no live Duplicati. util/ is not
+          # pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_duplicati_scheduled_backup.py
           python3 -m unittest -v tests/test_editable_install_drift_check.py
           # tests/test_env_floor_drift_check.py: gap-I-2 floor-drift checker --
           # installed juniper-* (dist-info METADATA) vs the target repo's pyproject
@@ -579,6 +586,12 @@ jobs:
           # The probe registry is the seeded arm's denominator. A dangling pointer
           # silently invalidates a probe, so verify it in CI rather than on trust.
           python3 util/soak_ledger.py verify-probes
+          # tests/test_duplicati_recovery_guards.py: hermetic gate for the #1268
+          # recovery-tooling fail-closed paths — dest-derived mount on
+          # purge-broken-files dry-run, and file-vs-process passphrase divergence
+          # (#1281). util/ad-hoc is not pre-commit-lint-gated, so this unittest is
+          # the gate. Distinct from the scheduled-backup lane suite.
+          python3 -m unittest -v tests/test_duplicati_recovery_guards.py
           # tests/test_lockfile_update_workflow.py: structural gate for the weekly
           # lockfile-update.yml refresh — juniper-generate-dep-docs (not the deleted
           # inline dep-docs shell script), SHA-pinned create-pull-request, branch/labels/
@@ -860,6 +873,22 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
+          # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
+          # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
+          # poisoned-list fail-closed / missing+unexpandable exit 1 / dest never written /
+          # PASSPHRASE not PASSPHRASE_OLD, plus unmounted/missing-cred refuse and
+          # passphrase-fd (secret not on argv). No live Duplicati, no real archive.
+          python3 -m unittest -v tests/test_duplicati_restore_integrity.py
+          # tests/test_duplicati_db_holder_guard.py: Guard 5 of
+          # util/duplicati_scheduled_backup.bash -- stand down when any live process already
+          # has the Duplicati local DB open. Pins DETECTION, which had no test: a fail-closed
+          # guard that stops detecting goes green while the backup runs against a database
+          # somebody else is writing. Covers a live holder, the empty control, and a DBPATH
+          # reaching the DB through a symlinked directory (the kernel stores /proc/<pid>/fd/<n>
+          # resolved, so DBPATH must be resolved too or the comparison matches nothing).
+          # Also pins the scan shape: one find, not a readlink fork per fd on the host.
+          python3 -m unittest -v tests/test_duplicati_db_holder_guard.py
 
       - name: Run bash regression tests
         run: |
