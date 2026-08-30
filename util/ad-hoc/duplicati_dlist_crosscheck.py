@@ -39,17 +39,26 @@ workdir; nothing under the destination is ever written, and the script refuses
 a workdir inside it. The passphrase key is named explicitly (PASSPHRASE, the
 FRESH-set key -- never PASSPHRASE_OLD) and only its sha256[:16] is logged.
 
+``--dest`` is required and the mount guard is derived from it by walking up to
+the containing mountpoint. Neither is cosmetic: until 2026-08-30 this tool
+defaulted to the pre-migration destination and asserted a hardcoded scratch
+mount, so it checked a filesystem neither argument referred to -- and would have
+refused every destination once that scratch mount went away (note 8.20.3).
+
 Exit codes: 0 = complete coverage; 1 = missing hashes or unexpandable
 blocklists; 2 = operational failure.
 """
 
 import argparse
+import atexit
 import base64
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 HASH_BYTES = 32  # SHA-256
@@ -58,6 +67,20 @@ HASH_BYTES = 32  # SHA-256
 def fail(msg):
     print(f"FATAL: {msg}", file=sys.stderr)
     sys.exit(2)
+
+
+def mount_point_of(path):
+    """Containing mountpoint of *path*, found by walking up. Returns "/" when nothing else matches.
+
+    Deliberately derived rather than named, matching duplicati_drill_fresh.py and
+    duplicati_dlist_query.py: a guard that hardcodes one filesystem keeps passing
+    after the thing it guards has moved, and keeps *refusing* after that filesystem
+    goes away (notes 8.13.2 / 8.14.2 / 8.20.3).
+    """
+    p = os.path.realpath(path)
+    while p != "/" and not os.path.ismount(p):
+        p = os.path.dirname(p)
+    return p
 
 
 def load_passphrase(cred_file, key):
@@ -97,24 +120,67 @@ def aes_decrypt(src, dst, passphrase):
 
 def main():
     ap = argparse.ArgumentParser(description="dlist vs dindex block-coverage cross-check")
-    ap.add_argument("--dest", default="/media/pcalnon/temp_backups/Ubuntu")
-    ap.add_argument("--workdir", default="/media/pcalnon/temp_backups/_fresh_dlist_check")
+    # REQUIRED, for the same reason as duplicati_drill_fresh.py and duplicati_dlist_query.py:
+    # the old default (/media/pcalnon/temp_backups/Ubuntu) named the pre-migration fresh set,
+    # so a bare run cross-checked a stale fileset while looking entirely healthy -- and once
+    # sdc4 is unmounted it names nothing at all. Naming the destination costs one argument
+    # and cannot rot.
+    ap.add_argument("--dest", required=True,
+                    help="destination directory to cross-check (REQUIRED -- no default, "
+                         "deliberately). Live Yamaguchi set: /mnt/Backups/Ubuntu/Yamaguchi "
+                         "(--encryption aes). Old gpg fresh set: "
+                         "/media/pcalnon/temp_backups/Ubuntu (--encryption gpg).")
+    ap.add_argument("--workdir", default=None,
+                    help="scratch dir for decrypted index plaintext (default: a private "
+                         "temporary directory, removed on exit). There is deliberately no "
+                         "hardcoded default path -- that is what rotted.")
     ap.add_argument("--cred-file", default=os.path.expanduser("~/.config/duplicati-backup/env"))
     ap.add_argument("--cred-key", default="PASSPHRASE", help="FRESH-set key; never PASSPHRASE_OLD here")
     ap.add_argument("--blocksize", type=int, default=1024 * 1024, help="job --blocksize (1MB)")
-    ap.add_argument("--encryption", choices=["gpg", "aes"], default="gpg")
+    # NOTE: still defaults to gpg, which is the OLD fresh set -- the live Yamaguchi set is
+    # aes. Left as-is on purpose: unlike a stale path, a wrong algorithm fails LOUDLY (gpg
+    # exits nonzero on an AES-crypt volume and this tool fails(2)), so it cannot produce the
+    # confident-but-wrong answer a stale path produces. Pass --encryption aes for the live set.
+    ap.add_argument("--encryption", choices=["gpg", "aes"], default="gpg",
+                    help="volume encryption; the LIVE Yamaguchi set is aes (default: gpg, "
+                         "the old fresh set)")
     args = ap.parse_args()
     global gpg_decrypt
     if args.encryption == "aes":
         gpg_decrypt = aes_decrypt
 
     dest = os.path.realpath(args.dest)
-    workdir = os.path.realpath(args.workdir)
-    if not os.path.ismount("/media/pcalnon/temp_backups"):
-        fail("/media/pcalnon/temp_backups is not a mountpoint")
+    if not os.path.isdir(dest):
+        fail(f"destination is not a directory: {dest}")
+    # The mount guard is DERIVED by walking up from the destination, never by naming one
+    # filesystem. The previous guard asserted os.path.ismount("/media/pcalnon/temp_backups"),
+    # a path neither --dest nor --workdir necessarily refers to: it therefore passed while
+    # this tool was pointed anywhere else, and -- because sdc4 is not in fstab -- it would
+    # refuse EVERY destination after a reboot, including the live sda1 set this tool exists
+    # to validate (note 8.20.3). Same defect class as the five tools fixed in 8.13.2 / 8.14.2.
+    dest_mp = mount_point_of(dest)
+    if dest_mp == "/":
+        fail(f"destination {dest} is not on a mounted filesystem (walked up to /)")
+    print(f"dest mount : {dest_mp}")
+
+    if args.workdir:
+        workdir = os.path.realpath(args.workdir)
+    else:
+        workdir = tempfile.mkdtemp(prefix="dlist-crosscheck-")
+        atexit.register(shutil.rmtree, workdir, True)
     if workdir == dest or workdir.startswith(dest + os.sep):
         fail("workdir must not be inside the destination")
     os.makedirs(workdir, exist_ok=True)
+    workdir_mp = mount_point_of(workdir)
+    print(f"workdir    : {workdir} (mount {workdir_mp})")
+    if workdir_mp == dest_mp:
+        # A WARNING rather than a refusal, unlike duplicati_dlist_query.py, which refuses the
+        # same case. That tool writes a whole plaintext dlist and keeps it; this one unlinks
+        # each decrypted zip as soon as it is parsed. Refusing here would re-create the very
+        # failure being fixed -- a guard blocking a valid run for a reason unrelated to the
+        # destination's integrity -- on the one day (post-reboot, sda1 only) it is needed most.
+        print(f"WARNING    : workdir shares filesystem {dest_mp} with the destination -- "
+              "decrypted index plaintext is landing on the disk holding the ciphertext")
 
     names = sorted(os.listdir(dest))
     dlists = [n for n in names if ".dlist." in n]
