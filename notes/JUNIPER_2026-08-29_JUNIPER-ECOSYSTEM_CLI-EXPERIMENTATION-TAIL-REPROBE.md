@@ -13,9 +13,55 @@ handoff records what the *previous* session believed, and belief is not a probe.
 **Result**: of 16 tail buckets, **6 are already shipped**, **2 carry a label error**, **7 are
 genuinely open**, and **1 was already recorded as needing no action**. One new finding sizes a
 previously-unscoped item at 172 instances.
+*(Counts as of 2026-08-29. Three more closed on 2026-08-30 — **see §0**, which overrides this
+line and the §1 table.)*
 
 **Method**: every claim below is a `file:line`, a merge commit, or a command and its output.
 Nothing is carried over on the strength of the handoff saying it.
+
+---
+
+## 0. UPDATE 2026-08-30 — five buckets closed; read this before §1
+
+This document went stale in exactly the direction it was written to prevent: it lists work as
+open that has since been done. §1's table and §4's prose are preserved as the 2026-08-29
+record — **this section overrides them where they disagree.**
+
+| bucket | was | now |
+|---|---|---|
+| **4d — G-5** recurrence plotting | OPEN (rated High) | **CLOSED** — juniper-recurrence#139 |
+| **6b — §12.2 item 3** cross-app surface | OPEN | **CLOSED** — juniper-deploy#198 + ml#1489 |
+| **12 — the two ml#1412 callers** | OPEN | **CLOSED** — ml#1488 (T6 driver + import probe); the h2h caller was closed independently by ml#1477 |
+| **4e — G-17** | HALF OPEN | **still half open** — the marker is genuinely absent; note `--strict-markers` is set, so it needs a `markers = [...]` section, not merely a usage |
+| **15 — corpus title artifacts** | measured, unowned | **still open** — 172 entries, 163 of them already visited by a repair pass that left the title broken. The extraction rule is an owner decision |
+
+**Two corrections to this document's own claims.**
+
+1. **§2.4 overstated G-17's second sub-item.** It reads as though recurrence timings *reach*
+   Grafana. The panels are correctly wired and the metric names are right — but there are
+   currently **zero** recurrence series under `environment="host-experiment"`, so that row has
+   never been observed populated. The plumbing is complete (`util/experiment_stack.bash:900`
+   puts recurrence in `SCRAPE_TARGETS`); what is missing is a recurrence run launched with
+   `--grafana-bridge`. Read §2.4 as "the wiring shipped", not "data flows".
+2. **A defect was found and fixed in a repo this document did not examine.** juniper-recurrence's
+   app CI lane was **red on `main`** and invisibly so: service-core 0.6.0 narrowed `EXEMPT_PATHS`
+   (dropping `/docs` and `/openapi.json`), and recurrence's `test_app_smoke.py` asserted the old,
+   defective contract. It stayed hidden because that lane is **path-filtered** — `main`'s newest
+   *green* app run was for an OLDER sha than `main` itself. Fixed in juniper-recurrence#141
+   (assert the real contract both ways; floor raised to `>=0.6.0` so a security behaviour stops
+   being resolution-dependent). Fanned out to juniper-cascor#599 and juniper-canopy#539, which
+   carried the same *coupling* though — unlike recurrence — no live exposure, because both
+   un-mount docs whenever auth is on. juniper-data was already correct (APD-DATA-024).
+
+**Method note worth keeping**: "is `main` green?" is not answered by the newest run's conclusion.
+It is answered by **which sha that run was for**. A path-filtered lane that never ran and a lane
+that passed are indistinguishable in `gh run list` output.
+
+**Still open after 2026-08-30**: G-16 (needs HF `datasets` + a live mnist-capable juniper-data),
+`install_hint` (needs a juniper-data release), T2 (declined; needs a scope written before it can
+be revived), G-17's marker half, R-1's second clause, Q-6's unfollowed half (needs a *released*
+cascor carrying #523 plus a floor asserted at suite load), PF-4/PF-8 + PF threshold ratification,
+the 172 title artifacts, plan §97, F-P4-7, and E-C's untested 0.10/0.20 rows at cap 128.
 
 ---
 
@@ -29,18 +75,18 @@ Nothing is carried over on the strength of the handoff saying it.
 | 4a | G-4 recurrence Grafana dashboard | **SHIPPED** | juniper-deploy#166 |
 | 4b | W-5 `ar_p` in bench registry | **SHIPPED** | juniper-recurrence#100 |
 | 4c | W-7 `--results-dir` | **SHIPPED** | juniper-recurrence#102 |
-| 4d | G-5 recurrence plotting | **OPEN** | zero `matplotlib`/`pyplot` in the repo |
+| 4d | G-5 recurrence plotting | **CLOSED 08-30** (§0) | was: zero `matplotlib`/`pyplot` — recurrence#139 |
 | 4e | G-17 `performance` marker | **HALF OPEN** | marker absent; metrics half shipped |
 | 4f | "Wave 7.6" as the container | **LABEL ERROR** | Wave 7.6 is the `JR-REC-*` block, and it shipped |
 | 5 | R-1 second clause | **OPEN** | adjacent guard exists but predates the finding |
 | 6a | §12.2 item 1 — run durations | **SUBSTANTIALLY MET** | recommendation (c) is on the dashboard |
-| 6b | §12.2 item 3 — cross-app surface | **OPEN** | no comparison row exists |
+| 6b | §12.2 item 3 — cross-app surface | **CLOSED 08-30** (§0) | was: no comparison row — deploy#198 + ml#1489 |
 | 7 | PF-4 / PF-8 decision | **OPEN, with an unblocked entry point** | perf-lane note Tier 4 |
 | 8 | PF threshold / W-12+Q-7 / F-P1-2 | **OPEN** | evidence doc §6, unchanged |
 | 9 | Q-6 unfollowed half | **OPEN, correctly stated** | `run_suite.py:112-124` |
 | 10 | Launcher fast-fail | **SHIPPED** | ml#1061, 2026-08-10 |
 | 11 | F-7 provenance re-pin | **NO ACTION** (as recorded) | disposition already settled |
-| 12 | Two ml#1412 callers | **OPEN, confirmed** | both scripts read as described |
+| 12 | Two ml#1412 callers | **CLOSED 08-30** (§0) | ml#1488; h2h closed separately by ml#1477 |
 | 13 | F-P4-7 learner question | **OPEN** | no entry point |
 | 14 | E-C noise 0.10/0.20 at cap 128 | **OPEN, minor** | as stated |
 | 15 | Requirements Detail selection | **OPEN — and 172× larger than stated** | new scan, §5 |
