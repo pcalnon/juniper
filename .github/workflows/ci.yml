@@ -867,6 +867,15 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_duplicati_db_holder_guard.py: Guard 5 of
+          # util/duplicati_scheduled_backup.bash -- stand down when any live process already
+          # has the Duplicati local DB open. Pins DETECTION, which had no test: a fail-closed
+          # guard that stops detecting goes green while the backup runs against a database
+          # somebody else is writing. Covers a live holder, the empty control, and a DBPATH
+          # reaching the DB through a symlinked directory (the kernel stores /proc/<pid>/fd/<n>
+          # resolved, so DBPATH must be resolved too or the comparison matches nothing).
+          # Also pins the scan shape: one find, not a readlink fork per fd on the host.
+          python3 -m unittest -v tests/test_duplicati_db_holder_guard.py
 
       - name: Run bash regression tests
         run: |
