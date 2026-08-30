@@ -951,10 +951,34 @@ and driven with `JUNIPER_E2E_CANOPY_URL`. It fails **identically**: `painted=Fal
 > **"0 of 2" is n=2.** No artifact for either was ever committed; both survived only as orphaned `/tmp`
 > tempfiles, now recovered to `reports/e2e/_recovered/20260828_census_artifacts/`.
 >
-> **2. Neither census can be tied to a build.** The `:8051` leg log shows 16-line session bursts at each
+> **2. Neither census can be tied to a build — PARTIALLY REVERSED, see the teardown recovery below.** The `:8051` leg log shows 16-line session bursts at each
 > 0-of-5 census timestamp, and **exactly one line per minute** (heartbeat only) through the 0-of-2 and
 > 0-of-1 windows. Those runs drove a second leg whose log a truncating `nohup >` redirect destroyed.
 > **Nothing establishes that the code under test contained either fix.**
+>
+> **2b. RECOVERED AT TEARDOWN (2026-08-30) — the provenance was NOT destroyed, and finding 2 above is
+> too strong.** The claim rested on `/tmp/juniper-e2e/juniper-canopy-ab.log` having been truncated by a
+> `nohup >` redirect. That file was truncated. But **each arc worktree kept its own `logs/system.log`**,
+> ignored by git and therefore invisible to every search the measurement round ran — and about to be
+> deleted by `git worktree remove`, which does not respect `--porcelain`'s blindness to ignored files.
+>
+> `fix/f039-stale-shortcircuit`'s copy (433,745 B) records **7 server starts**, including
+> `:8052` at **19:25:05** and again at **19:37:28**, with request bursts at **19:30** and **19:34** (the
+> two 0-of-2 census sessions), **19:37** (30 lines) and **19:42** (36 lines). So a second leg *was*
+> restarted between the census runs, which is consistent with different builds being loaded and is more
+> than the record previously held.
+>
+> **This does not rescue the census** — the log still does not name a commit, so *which* build each run
+> drove remains unestablished, and findings 1, 3, 4 and 5 are untouched. But "no artifact establishes
+> it" was wrong; the correct statement is "no artifact NAMES the build, though the leg restarts are now
+> visible". All seven worktree logs (2.3 MB) are preserved under
+> `reports/e2e/_recovered/20260827-28_arc_worktree_leg_logs/`.
+>
+> **The methodological point is the durable one.** Three measurement agents, two adversarial agents and
+> a reconciler all searched for this evidence and all missed it, because every one of them searched
+> tracked files, `/tmp`, and git objects — and this lived in an ignored directory inside a worktree
+> queued for deletion. **`git status --porcelain` is blind to ignored files, and `git worktree remove`
+> deletes them.** Harvest ignored `logs/` before any sweep; the sweep is where evidence dies.
 >
 > **3. The stated rationale is false against the artifact it cites.** canopy#537's body justifies the
 > revert with *"its comparison can never fire while `current` is always the empty default."* The cited log
