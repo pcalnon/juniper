@@ -956,7 +956,7 @@ Blocks training completion.
 
 Blocking training completion; high priority fix.
 
-### JR-ML-TRAIN-047 — Strengths of B**: More explicit parsing, handles whitespace in values.
+### JR-ML-TRAIN-047 — **Strengths of B**: More explicit parsing, handles whitespace in values.
 
 **Status**: proposed  **Priority**: P1  **Category**: TRAIN  **Owner**: ml
 
@@ -1391,7 +1391,7 @@ During `CascorStateSync.sync()`, the topology is fetched and transformed correct
 
 [v2 ARCH→TRAIN re-bucket] Approved for implementation.
 
-### JR-ML-TRAIN-072 — File**: `juniper-cascor-client/constants.py:31`.
+### JR-ML-TRAIN-072 — **File**: `juniper-cascor-client/constants.py:31`.
 
 **Status**: proposed  **Priority**: P2  **Category**: TRAIN  **Owner**: ml
 
@@ -1545,7 +1545,7 @@ Cascor lifecycle method swap_dataset_live: acquire _training_lock, validate gate
 
 Requires P2-PRE-1 pause/stop audit. Original draft referenced non-existent cascor components; design review replaced with actual surface.
 
-### JR-ML-TRAIN-080 — M-JCW-2: No WebSocket receive timeout** (`ws_connection.py:134`).
+### JR-ML-TRAIN-080 — M-JCW-2: No WebSocket receive timeout (`ws_connection.py:134`).
 
 **Status**: proposed  **Priority**: P2  **Category**: TRAIN  **Owner**: ml
 
@@ -1622,7 +1622,7 @@ ISS-05 MODERATE. During initial state sync (state_sync.py:115-129), CascorStateS
 **Sources**:
 - `juniper-ml/notes/proposals/JUNIPER_2026-03-19_JUNIPER-CASCOR_PROPOSAL-05-OUTPUT-WEIGHT-INIT.md` (lines 1-38)
 
-### JR-ML-TRAIN-085 — Outstanding**: No version bump for unreleased constants refactor. Integration test marker defined but zero tests.
+### JR-ML-TRAIN-085 — **Outstanding**: No version bump for unreleased constants refactor. Integration test marker defined but zero tests.
 
 **Status**: proposed  **Priority**: P2  **Category**: TRAIN  **Owner**: ml
 
@@ -1784,7 +1784,7 @@ Remove or reconnect to active candidate pool UI.
 
 [v3 brief repaired from cited content; was: '3.3 State Name Inconsistency']
 
-### JR-ML-TRAIN-098 — Topology updates after `cascade_add` are delayed by **up to 5 seconds.
+### JR-ML-TRAIN-098 — Topology updates after `cascade_add` are delayed by up to 5 seconds.
 
 **Status**: proposed  **Priority**: P2  **Category**: TRAIN  **Owner**: ml
 
@@ -1973,7 +1973,7 @@ Current architecture embeds CasCor within Canopy process. Deferral justified by 
 
 [v2 ARCH→TRAIN re-bucket] Phase 4 deferred; has explicit trigger conditions
 
-### JR-ML-TRAIN-106 — Goal**: Ensure cascor exposes all required fields for canopy consumption.
+### JR-ML-TRAIN-106 — **Goal**: Ensure cascor exposes all required fields for canopy consumption.
 
 **Status**: proposed  **Priority**: P3  **Category**: TRAIN  **Owner**: ml
 

@@ -394,7 +394,7 @@ arbitrary file paths). Tracked as **AMTOOL-CI** (P3) on the
 
 [v4 brief repaired; was: 'By Category']
 
-### JR-ML-ARCH-001 — > **Blocks**: All releases, deployments, and downstream development.
+### JR-ML-ARCH-001 — **Blocks**: All releases, deployments, and downstream development.
 
 **Status**: proposed  **Priority**: P0  **Category**: ARCH  **Owner**: ml
 
@@ -412,7 +412,7 @@ arbitrary file paths). Tracked as **AMTOOL-CI** (P3) on the
 
 *Merged from 2 extraction candidates (slices: 3b-3).*
 
-### JR-ML-ARCH-002 — > **Prerequisite**: Phase 1 (training must work for connection to matter).
+### JR-ML-ARCH-002 — **Prerequisite**: Phase 1 (training must work for connection to matter).
 
 **Status**: proposed  **Priority**: P0  **Category**: ARCH  **Owner**: ml
 
@@ -571,7 +571,7 @@ M-SEC-03 (P0). Must precede Phase B per R1-03. Phase B-pre-a (Day 5 of runbook).
 
 [v4 brief repaired; was: '4.1 Bugs']
 
-### JR-ML-ARCH-005 — Blocks**: All downstream canopy monitoring fixes.
+### JR-ML-ARCH-005 — **Blocks**: All downstream canopy monitoring fixes.
 
 **Status**: proposed  **Priority**: P0  **Category**: ARCH  **Owner**: ml
 
@@ -894,7 +894,7 @@ Both Option A and Option B.
     Option A will allow accurate, critical code path coverage checks with non-limiting runtimes.
     Option B will allow the more rigorous checks needed for this application critical code path.
 
-### JR-ML-SEC-025 — Critical deployment gap.** The worker is the only distributed component that runs on remote machines but has zero deployment infrastructure:.
+### JR-ML-SEC-025 — Critical deployment gap. The worker is the only distributed component that runs on remote machines but has zero deployment infrastructure:.
 
 **Status**: proposed  **Priority**: P0  **Category**: SEC  **Owner**: ml
 
@@ -1119,7 +1119,7 @@ Pre-flight checks (must complete before Phase B PR): (1) Confirm ecosystem clean
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-04_JUNIPER-CASCOR_CODE-REVIEW-FINDINGS.md` (lines 700-718)
 
-### JR-ML-OBS-010 — Impact.** The juniper-data dashboard panel "Cached Datasets".
+### JR-ML-OBS-010 — Impact. The juniper-data dashboard panel "Cached Datasets".
 
 **Status**: proposed  **Priority**: P0  **Category**: OBS  **Owner**: ml
 
@@ -1134,7 +1134,7 @@ Pre-flight checks (must complete before Phase B PR): (1) Confirm ecosystem clean
 
 [v3 brief repaired from cited content; was: '15.1 `juniper_data_datasets_cached` is defined-and-emitted i']
 
-### JR-ML-DATA-003 — Impact**: `FakeDataClient` masks this — unit tests pass but real server requests fail with 400
+### JR-ML-DATA-003 — **Impact**: `FakeDataClient` masks this — unit tests pass but real server requests fail with 400
 
 **Status**: proposed  **Priority**: P0  **Category**: DATA  **Owner**: ml
 
@@ -1660,7 +1660,7 @@ Phase 2 P1 fix; data already available in TrainingResults; doc status COMPLETE
 **Sources**:
 - `juniper-ml/notes/releases/RELEASE_WALKTHROUGH_juniper-ml-v0.4.1_juniper-observability-v0.1.1a_2026-04-28.md` (lines 1-50)
 
-### JR-ML-OBS-018 — Strengths**: Near-real-time topology updates, no additional REST calls, leverages existing WebSocket infrastructure.
+### JR-ML-OBS-018 — **Strengths**: Near-real-time topology updates, no additional REST calls, leverages existing WebSocket infrastructure.
 
 **Status**: shipped  **Priority**: P1  **Category**: OBS  **Owner**: ml
 
@@ -1966,7 +1966,7 @@ context: ../juniper-cascor-worker
 
 [v4 brief repaired; was: '4.1 Final Registry']
 
-### JR-ML-ARCH-018 — Divergence**: Whether the uppercase status normalization gap should be removed (Proposal A) or retained as a latent bug (Proposal B).
+### JR-ML-ARCH-018 — **Divergence**: Whether the uppercase status normalization gap should be removed (Proposal A) or retained as a latent bug (Proposal B).
 
 **Status**: designed  **Priority**: P1  **Category**: ARCH  **Owner**: ml
 
@@ -2018,7 +2018,7 @@ context: ../juniper-cascor-worker
 
 [v3 brief repaired from cited content; was: '4.3 CR-024: Chunked Encoding Body Limit']
 
-### JR-ML-ARCH-019 — Final resolution**: **6 confirmed** at lines 1000, 1021, 1155, 1187, 1231, 1274.
+### JR-ML-ARCH-019 — **Final resolution**: **6 confirmed** at lines 1000, 1021, 1155, 1187, 1231, 1274.
 
 **Status**: designed  **Priority**: P1  **Category**: ARCH  **Owner**: ml
 
@@ -2528,7 +2528,7 @@ FROM python:3.14-slim AS builder
 **Sources**:
 - `juniper-ml/notes/JUNIPER_2026-05-04_JUNIPER-ECOSYSTEM_PHASE-6E-DEFERRED-CAN-015GH-DESIGN.md` (lines 1-100)
 
-### JR-ML-DATA-004 — Deferred items**: RD-008 (SIM117 test fixes), RD-015 (IPC/ZeroMQ), RD-016 (GPU), RD-017 (continuous profiling)
+### JR-ML-DATA-004 — **Deferred items**: RD-008 (SIM117 test fixes), RD-015 (IPC/ZeroMQ), RD-016 (GPU), RD-017 (continuous profiling)
 
 **Status**: deferred  **Priority**: P1  **Category**: DATA  **Owner**: ml
 
@@ -2962,7 +2962,7 @@ Phase 0-cascor checklist item from R3-03 §3.1 deliverables
 
 *Merged from 6 extraction candidates (slices: ml-C).*
 
-### JR-ML-ARCH-055 — > **Prerequisite**: Phase 2 (connection must work for UI to receive data).
+### JR-ML-ARCH-055 — **Prerequisite**: Phase 2 (connection must work for UI to receive data).
 
 **Status**: proposed  **Priority**: P1  **Category**: ARCH  **Owner**: ml
 
@@ -4339,7 +4339,7 @@ IMPL-SEC-30 checkpoint.
 
 IMPL-SEC-30. Idle timeout does not force disconnect during long polling; only closes on true inactivity. Phase B-pre (Day 6).
 
-### JR-ML-OBS-034 — canopy work was already implemented** in the months between the 2026-04-08.
+### JR-ML-OBS-034 — canopy work was already implemented in the months between the 2026-04-08.
 
 **Status**: proposed  **Priority**: P1  **Category**: OBS  **Owner**: ml
 
@@ -5507,7 +5507,7 @@ Development tooling issue.
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-10_JUNIPER-ECOSYSTEM_WEBSOCKET-MESSAGING-ARCHITECTURE-1.md` (lines 1348-1352)
 
-### JR-ML-WS-071 — GAP-WS-13: (P1) — Lossless reconnect via sequence numbers and replay buffer.** Required components:.
+### JR-ML-WS-071 — GAP-WS-13: (P1) — Lossless reconnect via sequence numbers and replay buffer. Required components:.
 
 **Status**: proposed  **Priority**: P1  **Category**: WS  **Owner**: ml
 
@@ -5542,7 +5542,7 @@ Development tooling issue.
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-10_JUNIPER-ECOSYSTEM_WEBSOCKET-MESSAGING-ARCHITECTURE-1.md` (lines 2005-2009)
 
-### JR-ML-WS-076 — GAP-WS-13: sequence numbers land). Currently there is no mechanism to reject an outdated client. **De.
+### JR-ML-WS-076 — GAP-WS-13: sequence numbers land). Currently there is no mechanism to reject an outdated client. De.
 
 **Status**: proposed  **Priority**: P1  **Category**: WS  **Owner**: ml
 
@@ -5661,7 +5661,7 @@ Development tooling issue.
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-10_JUNIPER-ECOSYSTEM_WEBSOCKET-MESSAGING-ARCHITECTURE-1.md` (lines 1404-1408)
 
-### JR-ML-WS-093 — GAP-WS-20: (P3)**: normalize bidirectional envelope to use `{type, timestamp, data}` everywhere. Trac.
+### JR-ML-WS-093 — **GAP-WS-20: (P3)**: normalize bidirectional envelope to use `{type, timestamp, data}` everywhere. Trac.
 
 **Status**: proposed  **Priority**: P1  **Category**: WS  **Owner**: ml
 
@@ -5675,7 +5675,7 @@ Development tooling issue.
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-10_JUNIPER-ECOSYSTEM_WEBSOCKET-MESSAGING-ARCHITECTURE-1.md` (lines 1412-1416)
 
-### JR-ML-WS-095 — GAP-WS-21: (P1)** in §7.
+### JR-ML-WS-095 — GAP-WS-21: (P1) in §7.
 
 **Status**: proposed  **Priority**: P1  **Category**: WS  **Owner**: ml
 
@@ -5703,7 +5703,7 @@ Development tooling issue.
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-10_JUNIPER-ECOSYSTEM_WEBSOCKET-MESSAGING-ARCHITECTURE-1.md` (lines 1420-1424)
 
-### JR-ML-WS-099 — GAP-WS-22: (P2)** in §7.
+### JR-ML-WS-099 — GAP-WS-22: (P2) in §7.
 
 **Status**: proposed  **Priority**: P1  **Category**: WS  **Owner**: ml
 
@@ -5724,7 +5724,7 @@ Development tooling issue.
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-10_JUNIPER-ECOSYSTEM_WEBSOCKET-MESSAGING-ARCHITECTURE-1.md` (lines 1431-1435)
 
-### JR-ML-WS-102 — GAP-WS-23: (P1)** in §7: clientside chart updates must use `Plotly.extendTraces()` with `maxPoints` p.
+### JR-ML-WS-102 — GAP-WS-23: (P1) in §7: clientside chart updates must use `Plotly.extendTraces()` with `maxPoints` p.
 
 **Status**: proposed  **Priority**: P1  **Category**: WS  **Owner**: ml
 
@@ -5738,7 +5738,7 @@ Development tooling issue.
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-10_JUNIPER-ECOSYSTEM_WEBSOCKET-MESSAGING-ARCHITECTURE-1.md` (lines 1439-1443)
 
-### JR-ML-WS-104 — GAP-WS-24: (P2)** in §7. Phase B includes the instrumentation; Phase C+ uses the data to validate (or.
+### JR-ML-WS-104 — GAP-WS-24: (P2) in §7. Phase B includes the instrumentation; Phase C+ uses the data to validate (or.
 
 **Status**: proposed  **Priority**: P1  **Category**: WS  **Owner**: ml
 
@@ -6663,7 +6663,7 @@ Phase A-SDK checklist item from R3-03 §4.1 deliverables
 
 #### New file: `src/tests/unit/test_convergence_ui_regression.py`
 
-### JR-ML-TRAIN-047 — Strengths of B**: More explicit parsing, handles whitespace in values.
+### JR-ML-TRAIN-047 — **Strengths of B**: More explicit parsing, handles whitespace in values.
 
 **Status**: proposed  **Priority**: P1  **Category**: TRAIN  **Owner**: ml
 
@@ -6903,7 +6903,7 @@ Added 5 integration tests to `test_network_stats_endpoint.py` (`TestNetworkStats
 
 *Merged from 6 extraction candidates (slices: ml-C).*
 
-### JR-ML-SEC-106 — > bound 2 user-supporting SLIs (§4.3, §4.4) to 2 of them. Result: ≥8 dashboard.
+### JR-ML-SEC-106 — bound 2 user-supporting SLIs (§4.3, §4.4) to 2 of them. Result: ≥8 dashboard.
 
 **Status**: shipped  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -6944,7 +6944,7 @@ Added 5 integration tests to `test_network_stats_endpoint.py` (`TestNetworkStats
 
 - juniper-cascor#221 — Final E.6 audit follow-up: WorkerRegistry size cap + WS handshake rejection plumbing (MERGED 2026-05-05)
 
-### JR-ML-SEC-108 — emits per-worker gauges. `juniper-cascor-worker` itself does **not.
+### JR-ML-SEC-108 — emits per-worker gauges. `juniper-cascor-worker` itself does not.
 
 **Status**: shipped  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -6981,7 +6981,7 @@ Settled position C-11 from R3-03 table; cross-round consensus consolidation
 
 Settled position C-22 from R3-03 table; cross-round consensus consolidation
 
-### JR-ML-API-029 — Output weights transposition bug**: ALREADY FIXED (merged). `_transform_topology()` now.
+### JR-ML-API-029 — **Output weights transposition bug**: ALREADY FIXED (merged). `_transform_topology()` now.
 
 **Status**: shipped  **Priority**: P2  **Category**: API  **Owner**: ml
 
@@ -7033,7 +7033,7 @@ Settled position C-23 from R3-03 table; cross-round consensus consolidation
 
 cause: the pre-METRICS-MON observability scaffolding in
 
-### JR-ML-OBS-051 — Source-of-truth:** `juniper-deploy/prometheus/alert_rules.yml` (1146 lines).
+### JR-ML-OBS-051 — **Source-of-truth:** `juniper-deploy/prometheus/alert_rules.yml` (1146 lines).
 
 **Status**: shipped  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -7078,7 +7078,7 @@ cause: the pre-METRICS-MON observability scaffolding in
 
 [v4 brief repaired; was: '1.3 Code Quality']
 
-### JR-ML-SEC-109 — TODO/FIXME/HACK**: 3 empty `# TODO :` banner placeholders in canopy frontend.
+### JR-ML-SEC-109 — **TODO/FIXME/HACK**: 3 empty `# TODO :` banner placeholders in canopy frontend.
 
 **Status**: shipped  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -7093,7 +7093,7 @@ cause: the pre-METRICS-MON observability scaffolding in
 
 [v3 brief repaired from cited content; was: '4.5 Dimension E — Throttles + tech debt + race conditions']
 
-### JR-ML-SEC-110 — Version**: 0.3.0 (unreleased constants refactor on main) | **Python**: ≥3.11 | **Coverage**: 91.47%.
+### JR-ML-SEC-110 — **Version**: 0.3.0 (unreleased constants refactor on main) | **Python**: ≥3.11 | **Coverage**: 91.47%.
 
 **Status**: shipped  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -7295,7 +7295,7 @@ Batch-level metrics collection.
 
 | Two-flag design: `enable_browser_ws_bridge` + `disable_ws_bridge`   | ✅ In `settings.py`                        |
 
-### JR-ML-SEC-116 — R4.6 request-id propagation**: Correctly implemented and well-tested in.
+### JR-ML-SEC-116 — **R4.6 request-id propagation**: Correctly implemented and well-tested in.
 
 **Status**: designed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -8037,7 +8037,7 @@ mock_requests.get.return_value = Mock(ok=False, status_code=503)
 
 [v3 brief repaired from cited content; was: '4.4 Applied Params Store Structure']
 
-### JR-ML-DATA-011 — 2.4.1 Fix `wait_for_ready()`** (`client.py:86`)
+### JR-ML-DATA-011 — 2.4.1 Fix `wait_for_ready()` (`client.py:86`)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
@@ -8104,7 +8104,7 @@ mock_requests.get.return_value = Mock(ok=False, status_code=503)
 
 *Merged from 2 extraction candidates (slices: 3c-2b).*
 
-### JR-ML-OBS-065 — 5 fast/slow pairs = 10 MWMBR rules** of the 16 page+ticket count;.
+### JR-ML-OBS-065 — 5 fast/slow pairs = 10 MWMBR rules of the 16 page+ticket count;.
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -8389,7 +8389,7 @@ Add input/candidate emission sites at corresponding training stages.
 
 R3.5: Drive API_METRICS_BUFFER_SIZE + 1 updates; assert oldest evicted, newest retained, no exception.
 
-### JR-ML-UI-030 — Add symlink** `scripts/juniper-ctl` -> `juniper-canopy-ctl`.
+### JR-ML-UI-030 — Add symlink `scripts/juniper-ctl` -> `juniper-canopy-ctl`.
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 
@@ -9293,7 +9293,7 @@ Categories: 5 RED panels (Request Rate, Error Rate, p95 Latency stats +
 **Sources**:
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 5095-5109)
 
-### JR-ML-SEC-136 — CHANGELOG changes**: Add sections for v0.1.1, v0.3.0 covering:.
+### JR-ML-SEC-136 — **CHANGELOG changes**: Add sections for v0.1.1, v0.3.0 covering:.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -9719,7 +9719,7 @@ BASELINE phase of METRICS-MON program.
 
 Settled position C-34 from R3-03 table; cross-round consensus consolidation
 
-### JR-ML-UI-039 — Contrast with service adapter** (`cascor_service_adapter.py` lines 617-621):.
+### JR-ML-UI-039 — Contrast with service adapter (`cascor_service_adapter.py` lines 617-621):.
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 
@@ -9815,7 +9815,7 @@ Cross-link: panels bind catalog §3.5 (`dataset_post_total`) and §4.7.
 
 [v3 brief repaired from cited content; was: '6.4 juniper-data.json (17 panels, version 3, title "JuniperD']
 
-### JR-ML-SEC-143 — Cross-references.** Runbook §5.3, §7 · OBS-ROUTE-01 PR juniper-deploy#60 (validation evidence in PR body).
+### JR-ML-SEC-143 — Cross-references. Runbook §5.3, §7 · OBS-ROUTE-01 PR juniper-deploy#60 (validation evidence in PR body).
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -9972,7 +9972,7 @@ Settled position C-29 from R3-03 table; cross-round consensus consolidation
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-04_JUNIPER-CASCOR_CODE-REVIEW-FINDINGS.md` (lines 913-931)
 
-### JR-ML-DEP-022 — Decision**: Bind to `127.0.0.1:8200` (settings default).
+### JR-ML-DEP-022 — **Decision**: Bind to `127.0.0.1:8200` (settings default).
 
 **Status**: proposed  **Priority**: P2  **Category**: DEP  **Owner**: ml
 
@@ -9987,7 +9987,7 @@ Settled position C-29 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: '2.1 juniper-cascor bind address']
 
-### JR-ML-UI-041 — Decision**: Rename canopy's `juniper-ctl` to `juniper-canopy-ctl` for consistency.
+### JR-ML-UI-041 — **Decision**: Rename canopy's `juniper-ctl` to `juniper-canopy-ctl` for consistency.
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 
@@ -10002,7 +10002,7 @@ Settled position C-29 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: '2.4 CLI naming convention']
 
-### JR-ML-WS-146 — Decision**: Support both `--systemd` flag and `USE_SYSTEMD=1` env var.
+### JR-ML-WS-146 — **Decision**: Support both `--systemd` flag and `USE_SYSTEMD=1` env var.
 
 **Status**: proposed  **Priority**: P2  **Category**: WS  **Owner**: ml
 
@@ -10017,7 +10017,7 @@ Settled position C-29 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: '2.3 Plant/chop systemd mode activation']
 
-### JR-ML-UI-042 — Decision**: Use `Wants=` (not `Requires=`).
+### JR-ML-UI-042 — **Decision**: Use `Wants=` (not `Requires=`).
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 
@@ -10147,7 +10147,7 @@ RISK-08, GAP-WS-33. Phase B (Day 9). Demo users see same UI feedback as live use
 **Sources**:
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 3386-3397)
 
-### JR-ML-DEP-023 — Deployment choice**: User units (`~/.config/systemd/user/`) vs system units (`/etc/systemd/system/`).
+### JR-ML-DEP-023 — **Deployment choice**: User units (`~/.config/systemd/user/`) vs system units (`/etc/systemd/system/`).
 
 **Status**: proposed  **Priority**: P2  **Category**: DEP  **Owner**: ml
 
@@ -10533,7 +10533,7 @@ Extend to accept and store all new `nn_*` and `cn_*` keyword arguments. Unknown 
 **Sources**:
 - `juniper-ml/notes/interface_proposals/JUNIPER_2026-04-12_JUNIPER-ECOSYSTEM_R0-04-SDK-SET-PARAMS.md` (lines 403-432)
 
-### JR-ML-OBS-093 — File**: `juniper-canopy/src/backend/cascor_service_adapter.py`.
+### JR-ML-OBS-093 — **File**: `juniper-canopy/src/backend/cascor_service_adapter.py`.
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -10548,7 +10548,7 @@ Extend to accept and store all new `nn_*` and `cn_*` keyword arguments. Unknown 
 
 [v3 brief repaired from cited content; was: 'Evidence']
 
-### JR-ML-UI-047 — File**: `juniper-canopy/src/backend/state_sync.py` (lines 125-135) — correctly fetches and transforms topology.
+### JR-ML-UI-047 — **File**: `juniper-canopy/src/backend/state_sync.py` (lines 125-135) — correctly fetches and transforms topology.
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 
@@ -10563,7 +10563,7 @@ Extend to accept and store all new `nn_*` and `cn_*` keyword arguments. Unknown 
 
 [v3 brief repaired from cited content; was: 'Evidence']
 
-### JR-ML-TRAIN-072 — File**: `juniper-cascor-client/constants.py:31`.
+### JR-ML-TRAIN-072 — **File**: `juniper-cascor-client/constants.py:31`.
 
 **Status**: proposed  **Priority**: P2  **Category**: TRAIN  **Owner**: ml
 
@@ -10772,7 +10772,7 @@ Settled position C-20 from R3-03 table; cross-round consensus consolidation
 
 [v4 brief repaired; was: '3.1 Bugs']
 
-### JR-ML-API-056 — Guardrails**: Validate params against same whitelist as REST endpoint.
+### JR-ML-API-056 — **Guardrails**: Validate params against same whitelist as REST endpoint.
 
 **Status**: proposed  **Priority**: P2  **Category**: API  **Owner**: ml
 
@@ -10787,7 +10787,7 @@ Settled position C-20 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: '3.3 CR-008: Implement WebSocket `set_params`']
 
-### JR-ML-DATA-018 — H-JDC-2: PATCH excluded from retry allowed_methods** (`client.py:101`)
+### JR-ML-DATA-018 — H-JDC-2: PATCH excluded from retry allowed_methods (`client.py:101`)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
@@ -10803,7 +10803,7 @@ Settled position C-20 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: 'High Issues']
 
-### JR-ML-SEC-155 — H-JDP-1: Makefile `prepare-secrets` uses undefined variables** (`Makefile:70-72`).
+### JR-ML-SEC-155 — H-JDP-1: Makefile `prepare-secrets` uses undefined variables (`Makefile:70-72`).
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -11137,7 +11137,7 @@ The `sync_multi_node_checkboxes` callback has components as both Input and Outpu
 
 [v4 brief repaired; was: '4.1 Create Missing Retroactive Tags']
 
-### JR-ML-DEP-027 — Image availability**: k3s uses containerd, not Docker. Images built with Docker must be imported:.
+### JR-ML-DEP-027 — **Image availability**: k3s uses containerd, not Docker. Images built with Docker must be imported:.
 
 **Status**: proposed  **Priority**: P2  **Category**: DEP  **Owner**: ml
 
@@ -11596,7 +11596,7 @@ Settled position C-35 from R3-03 table; cross-round consensus consolidation
 
 [v4 brief repaired; was: '6.2 Guardrails']
 
-### JR-ML-API-062 — M-JCC-3: Handshake not validated in `CascorControlStream.connect()`** (`ws_client.py:178`).
+### JR-ML-API-062 — M-JCC-3: Handshake not validated in `CascorControlStream.connect()` (`ws_client.py:178`).
 
 **Status**: proposed  **Priority**: P2  **Category**: API  **Owner**: ml
 
@@ -11611,7 +11611,7 @@ Settled position C-35 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: 'Medium Issues']
 
-### JR-ML-TRAIN-080 — M-JCW-2: No WebSocket receive timeout** (`ws_connection.py:134`).
+### JR-ML-TRAIN-080 — M-JCW-2: No WebSocket receive timeout (`ws_connection.py:134`).
 
 **Status**: proposed  **Priority**: P2  **Category**: TRAIN  **Owner**: ml
 
@@ -11626,7 +11626,7 @@ Settled position C-35 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: 'Medium Issues']
 
-### JR-ML-OBS-101 — M-JD-1: Sentry PII enabled by default** (`observability.py:139`).
+### JR-ML-OBS-101 — M-JD-1: Sentry PII enabled by default (`observability.py:139`).
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -11641,7 +11641,7 @@ Settled position C-35 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: 'Medium Issues']
 
-### JR-ML-API-063 — M-JDC-2: docs/QUICK_START.md references `FakeJuniperDataClient`** — should be `FakeDataClient`.
+### JR-ML-API-063 — **M-JDC-2: docs/QUICK_START.md references `FakeJuniperDataClient`** — should be `FakeDataClient`.
 
 **Status**: proposed  **Priority**: P2  **Category**: API  **Owner**: ml
 
@@ -11656,7 +11656,7 @@ Settled position C-35 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: 'Medium Issues']
 
-### JR-ML-DATA-031 — M-ML-1: `test_worktree_cleanup.py` not run in CI** (`ci.yml:109-110`)
+### JR-ML-DATA-031 — M-ML-1: `test_worktree_cleanup.py` not run in CI (`ci.yml:109-110`)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
@@ -11836,7 +11836,7 @@ Settled position C-21 from R3-03 table; cross-round consensus consolidation
 
 [v4 brief repaired; was: '2.1 Neural Network Subsection (12 inputs)']
 
-### JR-ML-UI-052 — New file**: `juniper-cascor/scripts/juniper-cascor-ctl`.
+### JR-ML-UI-052 — **New file**: `juniper-cascor/scripts/juniper-cascor-ctl`.
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 
@@ -11851,7 +11851,7 @@ Settled position C-21 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: '5.5 juniper-cascor-ctl (Step 2.5)']
 
-### JR-ML-SEC-166 — New file**: `juniper-cascor/scripts/juniper-cascor.service`.
+### JR-ML-SEC-166 — **New file**: `juniper-cascor/scripts/juniper-cascor.service`.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -11866,7 +11866,7 @@ Settled position C-21 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: '5.4 juniper-cascor.service (Step 2.2)']
 
-### JR-ML-SEC-167 — New file**: `juniper-data/scripts/juniper-data.service`.
+### JR-ML-SEC-167 — **New file**: `juniper-data/scripts/juniper-data.service`.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -11881,7 +11881,7 @@ Settled position C-21 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: '5.2 juniper-data.service (Step 2.1)']
 
-### JR-ML-UI-053 — New file**: `juniper-ml/scripts/juniper-all.target`.
+### JR-ML-UI-053 — **New file**: `juniper-ml/scripts/juniper-all.target`.
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 
@@ -12074,7 +12074,7 @@ Settled position C-25 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: 'Evidence']
 
-### JR-ML-TRAIN-085 — Outstanding**: No version bump for unreleased constants refactor. Integration test marker defined but zero tests.
+### JR-ML-TRAIN-085 — **Outstanding**: No version bump for unreleased constants refactor. Integration test marker defined but zero tests.
 
 **Status**: proposed  **Priority**: P2  **Category**: TRAIN  **Owner**: ml
 
@@ -12111,7 +12111,7 @@ Settled position C-37 from R3-03 table; cross-round consensus consolidation
 
 | **3.2** | juniper-deploy | Alertmanager `tickets` receiver is a placeholder | Open small PR wiring real notification config (webhook/email/Slack); decide
 
-### JR-ML-OBS-110 — panels (**STALE — see §15 unexpected findings; metric family removed.
+### JR-ML-OBS-110 — panels (STALE — see §15 unexpected findings; metric family removed.
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -12830,7 +12830,7 @@ D1 resolution: rAF coalescer disabled.
 
 [v4 brief repaired; was: '3.2 README & Documentation Updates']
 
-### JR-ML-API-068 — Recommendation**: Add a startup sweep that removes stale `juniper_train_*` blocks from `/dev/shm`.
+### JR-ML-API-068 — **Recommendation**: Add a startup sweep that removes stale `juniper_train_*` blocks from `/dev/shm`.
 
 **Status**: proposed  **Priority**: P2  **Category**: API  **Owner**: ml
 
@@ -13128,7 +13128,7 @@ Settled position C-05 from R3-03 table; cross-round consensus consolidation
 
 Settled position C-07 from R3-03 table; cross-round consensus consolidation
 
-### JR-ML-DATA-036 — Repositories**: juniper-data, juniper-data-client
+### JR-ML-DATA-036 — **Repositories**: juniper-data, juniper-data-client
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
@@ -13144,7 +13144,7 @@ Settled position C-07 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: '3.1 Generator Name Mismatch']
 
-### JR-ML-SEC-186 — Repositories**: juniper-data, juniper-deploy.
+### JR-ML-SEC-186 — **Repositories**: juniper-data, juniper-deploy.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -13321,7 +13321,7 @@ Settled position C-19 from R3-03 table; cross-round consensus consolidation
 **Sources**:
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-ECOSYSTEM_R5-01-CANONICAL-DEVELOPMENT-PLAN.md` (lines 143-144)
 
-### JR-ML-OBS-126 — Risk**: Low-Medium. systemd is well-understood, but conda integration adds complexity.
+### JR-ML-OBS-126 — **Risk**: Low-Medium. systemd is well-understood, but conda integration adds complexity.
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -13501,7 +13501,7 @@ Settled position C-04 from R3-03 table; cross-round consensus consolidation
 
 Settled position C-06 from R3-03 table; cross-round consensus consolidation
 
-### JR-ML-SEC-192 — Service file**: `juniper-canopy/scripts/juniper-canopy.service`.
+### JR-ML-SEC-192 — **Service file**: `juniper-canopy/scripts/juniper-canopy.service`.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -13643,7 +13643,7 @@ Several `CascorServiceAdapter` methods catch only `JuniperCascorClientError`, wh
 
 - `juniper-data/juniper_data/api/observability.py` (juniper-data `88149bf`)
 
-### JR-ML-OBS-130 — Source-of-truth:** `juniper-deploy/alertmanager/alertmanager.yml` (154 lines).
+### JR-ML-OBS-130 — **Source-of-truth:** `juniper-deploy/alertmanager/alertmanager.yml` (154 lines).
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -13658,7 +13658,7 @@ Three ServiceMonitor templates: `data-servicemonitor.yaml`,
 
 [v3 brief repaired from cited content; was: '8.2 Kubernetes (`juniper-deploy/k8s/helm/juniper/templates/*']
 
-### JR-ML-SEC-195 — Source-of-truth:** `juniper-deploy/notes/SLO_CATALOG_2026-05-03.md`.
+### JR-ML-SEC-195 — **Source-of-truth:** `juniper-deploy/notes/SLO_CATALOG_2026-05-03.md`.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -13800,7 +13800,7 @@ Add Phase 5.3 section to `notes/CASCOR_DEMO_TRAINING_ERROR_PLAN.md` documenting:
 
 [v3 brief repaired from cited content; was: '1.4 juniper-deploy: Network Isolation']
 
-### JR-ML-SEC-199 — Strengths of A**: Preserves functionality, standard security pattern, configurable per deployment.
+### JR-ML-SEC-199 — **Strengths of A**: Preserves functionality, standard security pattern, configurable per deployment.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -13815,7 +13815,7 @@ Add Phase 5.3 section to `notes/CASCOR_DEMO_TRAINING_ERROR_PLAN.md` documenting:
 
 [v3 brief repaired from cited content; was: '1.2 juniper-data: CSV Import Path Traversal Fix']
 
-### JR-ML-OBS-132 — Strengths**: Comprehensive fix, prevents the same class of bug across all tabs.
+### JR-ML-OBS-132 — **Strengths**: Comprehensive fix, prevents the same class of bug across all tabs.
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -13830,7 +13830,7 @@ Add Phase 5.3 section to `notes/CASCOR_DEMO_TRAINING_ERROR_PLAN.md` documenting:
 
 [v3 brief repaired from cited content; was: 'Fix Approaches']
 
-### JR-ML-UI-069 — Strengths**: Fixes demo mode topology to match CasCor architecture.
+### JR-ML-UI-069 — **Strengths**: Fixes demo mode topology to match CasCor architecture.
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 
@@ -13959,7 +13959,7 @@ Add Phase 5.3 section to `notes/CASCOR_DEMO_TRAINING_ERROR_PLAN.md` documenting:
 
 [v3 brief repaired from cited content; was: '3.2 Wire Protocol Alignment']
 
-### JR-ML-API-078 — The core CR-006 issue has been SUBSTANTIALLY ADDRESSED since the prior analysis.** Verification against the current codebase shows:.
+### JR-ML-API-078 — The core CR-006 issue has been SUBSTANTIALLY ADDRESSED since the prior analysis. Verification against the current codebase shows:.
 
 **Status**: proposed  **Priority**: P2  **Category**: API  **Owner**: ml
 
@@ -14116,7 +14116,7 @@ There is no unified multi-service startup mechanism. Each service is started ind
 
 *Merged from 2 extraction candidates (slices: 3c-2b).*
 
-### JR-ML-TRAIN-098 — Topology updates after `cascade_add` are delayed by **up to 5 seconds.
+### JR-ML-TRAIN-098 — Topology updates after `cascade_add` are delayed by up to 5 seconds.
 
 **Status**: proposed  **Priority**: P2  **Category**: TRAIN  **Owner**: ml
 
@@ -14181,7 +14181,7 @@ Settled position C-36 from R3-03 table; cross-round consensus consolidation
 **Sources**:
 - `juniper-ml/notes/development/JUNIPER_2026-04-23_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V6-REMEDIATION-ANALYSIS.md` (lines 4824-4835)
 
-### JR-ML-DEP-041 — Training control** (called from `/ws/control` handler and Dash callbacks):.
+### JR-ML-DEP-041 — Training control (called from `/ws/control` handler and Dash callbacks):.
 
 **Status**: proposed  **Priority**: P2  **Category**: DEP  **Owner**: ml
 
@@ -14192,7 +14192,7 @@ Settled position C-36 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: 'Phase 5:']
 
-### JR-ML-OBS-135 — Trigger / due date.** No fixed date — fires off CALIB-01 ratification, expected mid- to late-June 2026.
+### JR-ML-OBS-135 — Trigger / due date. No fixed date — fires off CALIB-01 ratification, expected mid- to late-June 2026.
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -14244,7 +14244,7 @@ The mixed approach (Pydantic Settings for two services, YAML for one) creates in
 **Sources**:
 - `juniper-ml/notes/proposals/JUNIPER_2026-03-19_JUNIPER-CANOPY_PROPOSAL-08-UI-LOCK-AND-VISUALIZATION.md` (lines 1-45)
 
-### JR-ML-SEC-205 — Unvalidated `params` dict in `TrainingStartRequest` passed as `**kwargs` to `network.fit()`.
+### JR-ML-SEC-205 — Unvalidated `params` dict in `TrainingStartRequest` passed as `kwargs` to `network.fit()`.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -14355,7 +14355,7 @@ The mixed approach (Pydantic Settings for two services, YAML for one) creates in
 
 [v3 brief repaired from cited content; was: 'Overview']
 
-### JR-ML-SEC-208 — Version**: 0.2.1 | **Stack**: Docker Compose + Helm + Prometheus + Grafana + AlertManager.
+### JR-ML-SEC-208 — **Version**: 0.2.1 | **Stack**: Docker Compose + Helm + Prometheus + Grafana + AlertManager.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -14385,7 +14385,7 @@ The mixed approach (Pydantic Settings for two services, YAML for one) creates in
 
 [v3 brief repaired from cited content; was: 'Overview']
 
-### JR-ML-DATA-039 — Version**: 0.4.0 | **Python**: ≥3.12 | **Dependencies**: numpy≥1.24, requests≥2.28, urllib3≥2.0
+### JR-ML-DATA-039 — **Version**: 0.4.0 | **Python**: ≥3.12 | **Dependencies**: numpy≥1.24, requests≥2.28, urllib3≥2.0
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
@@ -14416,7 +14416,7 @@ The mixed approach (Pydantic Settings for two services, YAML for one) creates in
 
 [v3 brief repaired from cited content; was: 'Overview']
 
-### JR-ML-SEC-209 — Version**: 0.6.0 (unreleased hardcoded-values refactor on main) | **Python**: ≥3.12.
+### JR-ML-SEC-209 — **Version**: 0.6.0 (unreleased hardcoded-values refactor on main) | **Python**: ≥3.12.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -14431,7 +14431,7 @@ The mixed approach (Pydantic Settings for two services, YAML for one) creates in
 
 [v3 brief repaired from cited content; was: '2.5 CI/CD & Dockerfile']
 
-### JR-ML-OBS-137 — Weaknesses**: Additional REST call for raw format, two stores to maintain.
+### JR-ML-OBS-137 — **Weaknesses**: Additional REST call for raw format, two stores to maintain.
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -14978,7 +14978,7 @@ Decided: no full migration now. Use contract constants only.
 
 [v4 brief repaired; was: '9.4 Recommended Approach']
 
-### JR-ML-API-088 — R5.6-THROTTLE** (P3, deferred) on the carry-forward tracker.
+### JR-ML-API-088 — R5.6-THROTTLE (P3, deferred) on the carry-forward tracker.
 
 **Status**: deferred  **Priority**: P3  **Category**: API  **Owner**: ml
 
@@ -15143,7 +15143,7 @@ Draft release descriptions for each application (templates provided in the code 
 **Sources**:
 - `juniper-ml/notes/legacy/CASCOR_CONCURRENCY_PLAN.md` (lines 914-932)
 
-### JR-ML-TRAIN-106 — Goal**: Ensure cascor exposes all required fields for canopy consumption.
+### JR-ML-TRAIN-106 — **Goal**: Ensure cascor exposes all required fields for canopy consumption.
 
 **Status**: proposed  **Priority**: P3  **Category**: TRAIN  **Owner**: ml
 
@@ -15154,7 +15154,7 @@ Draft release descriptions for each application (templates provided in the code 
 
 [v2 ARCH→TRAIN re-bucket] [v3 brief repaired from cited content; was: 'Phase 2:'] From JUNIPER_2026-04-02_JUNIPER-ECOSYSTEM_REGRESSION-DEVELOPMENT-ROADMAP-04.md
 
-### JR-ML-ARCH-298 — Goal**: Fix all dark mode styling issues and UI layout problems.
+### JR-ML-ARCH-298 — **Goal**: Fix all dark mode styling issues and UI layout problems.
 
 **Status**: proposed  **Priority**: P3  **Category**: ARCH  **Owner**: ml
 
@@ -15165,7 +15165,7 @@ Draft release descriptions for each application (templates provided in the code 
 
 [v3 brief repaired from cited content; was: 'Phase 4:'] From JUNIPER_2026-04-02_JUNIPER-ECOSYSTEM_REGRESSION-DEVELOPMENT-ROADMAP-04.md
 
-### JR-ML-ARCH-299 — Goal**: Fix parameter initialization and value mapping issues.
+### JR-ML-ARCH-299 — **Goal**: Fix parameter initialization and value mapping issues.
 
 **Status**: proposed  **Priority**: P3  **Category**: ARCH  **Owner**: ml
 
@@ -15176,7 +15176,7 @@ Draft release descriptions for each application (templates provided in the code 
 
 [v3 brief repaired from cited content; was: 'Phase 3:'] From JUNIPER_2026-04-02_JUNIPER-ECOSYSTEM_REGRESSION-DEVELOPMENT-ROADMAP-04.md
 
-### JR-ML-ARCH-300 — Goal**: Implement new features requested in the regression report.
+### JR-ML-ARCH-300 — **Goal**: Implement new features requested in the regression report.
 
 **Status**: proposed  **Priority**: P3  **Category**: ARCH  **Owner**: ml
 
