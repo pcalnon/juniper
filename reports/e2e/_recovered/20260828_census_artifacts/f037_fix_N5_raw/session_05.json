@@ -1,0 +1,32 @@
+{
+  "topodiag": {
+    "verdict": "FAIL",
+    "server": {
+      "input_units": 2,
+      "hidden_units": 10,
+      "output_units": 2,
+      "n_nodes": 14,
+      "n_conns": 89
+    },
+    "counts": {
+      "input": "0",
+      "hidden": "0",
+      "output": "0",
+      "conn": "0"
+    },
+    "traces": 0,
+    "sig": 2,
+    "store": null,
+    "api_hits": 0,
+    "elapsed_s": 240.4,
+    "depth": {
+      "n_thumbs": 1,
+      "now": 0,
+      "min": 0,
+      "max": 10,
+      "num_value": 0,
+      "num_min": 0,
+      "num_max": 10
+    }
+  }
+}
