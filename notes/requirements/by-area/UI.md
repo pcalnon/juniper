@@ -782,7 +782,7 @@ Audit all links and update URLs or remove invalid references.
 
 [v3 brief repaired from cited content; was: '5.4 Canopy Progress Indicators']
 
-### JR-ML-UI-030 — Add symlink** `scripts/juniper-ctl` -> `juniper-canopy-ctl`.
+### JR-ML-UI-030 — Add symlink `scripts/juniper-ctl` -> `juniper-canopy-ctl`.
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 
@@ -894,7 +894,7 @@ submit before debounce commits value. ~10 lines of JS.
 
 Part of Issue
 
-### JR-ML-UI-039 — Contrast with service adapter** (`cascor_service_adapter.py` lines 617-621):.
+### JR-ML-UI-039 — Contrast with service adapter (`cascor_service_adapter.py` lines 617-621):.
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 
@@ -955,7 +955,7 @@ Identified by v4. Known Phase 1 limitation; architectural enhancement scope.
 
 Settled position C-29 from R3-03 table; cross-round consensus consolidation
 
-### JR-ML-UI-041 — Decision**: Rename canopy's `juniper-ctl` to `juniper-canopy-ctl` for consistency.
+### JR-ML-UI-041 — **Decision**: Rename canopy's `juniper-ctl` to `juniper-canopy-ctl` for consistency.
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 
@@ -970,7 +970,7 @@ Settled position C-29 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: '2.4 CLI naming convention']
 
-### JR-ML-UI-042 — Decision**: Use `Wants=` (not `Requires=`).
+### JR-ML-UI-042 — **Decision**: Use `Wants=` (not `Requires=`).
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 
@@ -1032,7 +1032,7 @@ RISK-08, GAP-WS-33. Phase B (Day 9). Demo users see same UI feedback as live use
 
 [v3 brief repaired from cited content; was: '4.3 Radio Button Enable/Disable Pattern']
 
-### JR-ML-UI-047 — File**: `juniper-canopy/src/backend/state_sync.py` (lines 125-135) — correctly fetches and transforms topology.
+### JR-ML-UI-047 — **File**: `juniper-canopy/src/backend/state_sync.py` (lines 125-135) — correctly fetches and transforms topology.
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 
@@ -1115,7 +1115,7 @@ Can cause race conditions in multi-user scenarios. Use dcc.Store for theme state
 
 Settled position C-21 from R3-03 table; cross-round consensus consolidation
 
-### JR-ML-UI-052 — New file**: `juniper-cascor/scripts/juniper-cascor-ctl`.
+### JR-ML-UI-052 — **New file**: `juniper-cascor/scripts/juniper-cascor-ctl`.
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 
@@ -1130,7 +1130,7 @@ Settled position C-21 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: '5.5 juniper-cascor-ctl (Step 2.5)']
 
-### JR-ML-UI-053 — New file**: `juniper-ml/scripts/juniper-all.target`.
+### JR-ML-UI-053 — **New file**: `juniper-ml/scripts/juniper-all.target`.
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 
@@ -1388,7 +1388,7 @@ File: src/frontend/components/metrics_panel.py
 
 | B-5.1 | `_apply_parameters_handler` stores `"enabled" in (conv_enabled or [])` → correct boolean. No continuous sync. |
 
-### JR-ML-UI-069 — Strengths**: Fixes demo mode topology to match CasCor architecture.
+### JR-ML-UI-069 — **Strengths**: Fixes demo mode topology to match CasCor architecture.
 
 **Status**: proposed  **Priority**: P2  **Category**: UI  **Owner**: ml
 

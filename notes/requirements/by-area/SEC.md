@@ -388,7 +388,7 @@ Both Option A and Option B.
     Option A will allow accurate, critical code path coverage checks with non-limiting runtimes.
     Option B will allow the more rigorous checks needed for this application critical code path.
 
-### JR-ML-SEC-025 — Critical deployment gap.** The worker is the only distributed component that runs on remote machines but has zero deployment infrastructure:.
+### JR-ML-SEC-025 — Critical deployment gap. The worker is the only distributed component that runs on remote machines but has zero deployment infrastructure:.
 
 **Status**: proposed  **Priority**: P0  **Category**: SEC  **Owner**: ml
 
@@ -1539,7 +1539,7 @@ Security issue in deployment pipeline.
 **Sources**:
 - `juniper-ml/notes/JUNIPER_2026-05-10_JUNIPER-ECOSYSTEM_ANTHROPIC-API-KEY-ACCESS-VALIDATION-WALKTHROUGH.md` (lines 1-50)
 
-### JR-ML-SEC-106 — > bound 2 user-supporting SLIs (§4.3, §4.4) to 2 of them. Result: ≥8 dashboard.
+### JR-ML-SEC-106 — bound 2 user-supporting SLIs (§4.3, §4.4) to 2 of them. Result: ≥8 dashboard.
 
 **Status**: shipped  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -1569,7 +1569,7 @@ Security issue in deployment pipeline.
 
 [v3 brief repaired from cited content; was: '3.12 DASHBOARD-STALE-PANELS — 7 stale Grafana panels post au']
 
-### JR-ML-SEC-108 — emits per-worker gauges. `juniper-cascor-worker` itself does **not.
+### JR-ML-SEC-108 — emits per-worker gauges. `juniper-cascor-worker` itself does not.
 
 **Status**: shipped  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -1584,7 +1584,7 @@ Security issue in deployment pipeline.
 
 [v3 brief repaired from cited content; was: '3.2 juniper-cascor']
 
-### JR-ML-SEC-109 — TODO/FIXME/HACK**: 3 empty `# TODO :` banner placeholders in canopy frontend.
+### JR-ML-SEC-109 — **TODO/FIXME/HACK**: 3 empty `# TODO :` banner placeholders in canopy frontend.
 
 **Status**: shipped  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -1599,7 +1599,7 @@ Security issue in deployment pipeline.
 
 [v3 brief repaired from cited content; was: '4.5 Dimension E — Throttles + tech debt + race conditions']
 
-### JR-ML-SEC-110 — Version**: 0.3.0 (unreleased constants refactor on main) | **Python**: ≥3.11 | **Coverage**: 91.47%.
+### JR-ML-SEC-110 — **Version**: 0.3.0 (unreleased constants refactor on main) | **Python**: ≥3.11 | **Coverage**: 91.47%.
 
 **Status**: shipped  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -1665,7 +1665,7 @@ Security issue in deployment pipeline.
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-04_JUNIPER-CASCOR_CODE-REVIEW-FINDINGS.md` (lines 1058-1076)
 
-### JR-ML-SEC-116 — R4.6 request-id propagation**: Correctly implemented and well-tested in.
+### JR-ML-SEC-116 — **R4.6 request-id propagation**: Correctly implemented and well-tested in.
 
 **Status**: designed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -1951,7 +1951,7 @@ Medium severity: documents security tooling
 
 [v2 ARCH→SEC re-bucket]
 
-### JR-ML-SEC-136 — CHANGELOG changes**: Add sections for v0.1.1, v0.3.0 covering:.
+### JR-ML-SEC-136 — **CHANGELOG changes**: Add sections for v0.1.1, v0.3.0 covering:.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -2055,7 +2055,7 @@ remove CI skip, strengthen to multi-field SOPS validation + ciphertext line chec
 
 Every line number, code snippet, and factual claim about the codebase was verified against the current source files. No shifted, wrong, or missing references found.
 
-### JR-ML-SEC-143 — Cross-references.** Runbook §5.3, §7 · OBS-ROUTE-01 PR juniper-deploy#60 (validation evidence in PR body).
+### JR-ML-SEC-143 — Cross-references. Runbook §5.3, §7 · OBS-ROUTE-01 PR juniper-deploy#60 (validation evidence in PR body).
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -2211,7 +2211,7 @@ Every line number, code snippet, and factual claim about the codebase was verifi
 
 SEC-004 MEDIUM (P2). ci.yml:70,73,84, etc.
 
-### JR-ML-SEC-155 — H-JDP-1: Makefile `prepare-secrets` uses undefined variables** (`Makefile:70-72`).
+### JR-ML-SEC-155 — H-JDP-1: Makefile `prepare-secrets` uses undefined variables (`Makefile:70-72`).
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -2332,7 +2332,7 @@ Settled position C-30 from R3-03 table; cross-round consensus consolidation
 
 [v4 brief repaired; was: '5.2 Kubernetes/Helm Issues']
 
-### JR-ML-SEC-166 — New file**: `juniper-cascor/scripts/juniper-cascor.service`.
+### JR-ML-SEC-166 — **New file**: `juniper-cascor/scripts/juniper-cascor.service`.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -2347,7 +2347,7 @@ Settled position C-30 from R3-03 table; cross-round consensus consolidation
 
 [v3 brief repaired from cited content; was: '5.4 juniper-cascor.service (Step 2.2)']
 
-### JR-ML-SEC-167 — New file**: `juniper-data/scripts/juniper-data.service`.
+### JR-ML-SEC-167 — **New file**: `juniper-data/scripts/juniper-data.service`.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -2594,7 +2594,7 @@ Settled position C-26 from R3-03 table; cross-round consensus consolidation
 
 *Merged from 2 extraction candidates (slices: 3c-2b).*
 
-### JR-ML-SEC-186 — Repositories**: juniper-data, juniper-deploy.
+### JR-ML-SEC-186 — **Repositories**: juniper-data, juniper-deploy.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -2664,7 +2664,7 @@ Settled position C-26 from R3-03 table; cross-round consensus consolidation
 **Sources**:
 - `juniper-ml/notes/development/JUNIPER_2026-04-20_JUNIPER-ECOSYSTEM_OUTSTANDING-DEVELOPMENT-ITEMS-V3-VALIDATED.md` (lines 337-348)
 
-### JR-ML-SEC-192 — Service file**: `juniper-canopy/scripts/juniper-canopy.service`.
+### JR-ML-SEC-192 — **Service file**: `juniper-canopy/scripts/juniper-canopy.service`.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -2725,7 +2725,7 @@ Remediation: Add _sanitize_snapshot_name() with regex ^[a-zA-Z0-9_-]+$; verify r
 
 CODE_REVIEW_ANALYSIS v0.4.0; path sanitization + path confinement (defense in depth) recommended.
 
-### JR-ML-SEC-195 — Source-of-truth:** `juniper-deploy/notes/SLO_CATALOG_2026-05-03.md`.
+### JR-ML-SEC-195 — **Source-of-truth:** `juniper-deploy/notes/SLO_CATALOG_2026-05-03.md`.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -2773,7 +2773,7 @@ Add Phase 5.3 section to `notes/CASCOR_DEMO_TRAINING_ERROR_PLAN.md` documenting:
 
 [v3 brief repaired from cited content; was: '1.4 juniper-deploy: Network Isolation']
 
-### JR-ML-SEC-199 — Strengths of A**: Preserves functionality, standard security pattern, configurable per deployment.
+### JR-ML-SEC-199 — **Strengths of A**: Preserves functionality, standard security pattern, configurable per deployment.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -2839,7 +2839,7 @@ Add Phase 5.3 section to `notes/CASCOR_DEMO_TRAINING_ERROR_PLAN.md` documenting:
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-04_JUNIPER-CASCOR_CODE-REVIEW-FINDINGS.md` (lines 541-571)
 
-### JR-ML-SEC-205 — Unvalidated `params` dict in `TrainingStartRequest` passed as `**kwargs` to `network.fit()`.
+### JR-ML-SEC-205 — Unvalidated `params` dict in `TrainingStartRequest` passed as `kwargs` to `network.fit()`.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -2868,7 +2868,7 @@ Add Phase 5.3 section to `notes/CASCOR_DEMO_TRAINING_ERROR_PLAN.md` documenting:
 
 [v3 brief repaired from cited content; was: 'Overview']
 
-### JR-ML-SEC-208 — Version**: 0.2.1 | **Stack**: Docker Compose + Helm + Prometheus + Grafana + AlertManager.
+### JR-ML-SEC-208 — **Version**: 0.2.1 | **Stack**: Docker Compose + Helm + Prometheus + Grafana + AlertManager.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -2883,7 +2883,7 @@ Add Phase 5.3 section to `notes/CASCOR_DEMO_TRAINING_ERROR_PLAN.md` documenting:
 
 [v3 brief repaired from cited content; was: '4.4 CI/CD']
 
-### JR-ML-SEC-209 — Version**: 0.6.0 (unreleased hardcoded-values refactor on main) | **Python**: ≥3.12.
+### JR-ML-SEC-209 — **Version**: 0.6.0 (unreleased hardcoded-values refactor on main) | **Python**: ≥3.12.
 
 **Status**: proposed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
