@@ -1184,6 +1184,71 @@ and driven with `JUNIPER_E2E_CANOPY_URL`. It fails **identically**: `painted=Fal
 > Evidence: `reports/e2e/20260830T000000Z/f039_dupstore/` (duplicate-store probe JSON, and two
 > render-state runs taken with the rebuild instrumented and un-instrumented).
 >
+> ## THE THIRD TRIGGER HAS A SOURCE, AND IT MAKES canopy#537 STRUCTURALLY DEAD (2026-08-30, from source)
+>
+> Derived by reading the declarations, no stack required. The trigger list above has three entries and
+> this entry has been attributing all three to the store write. **`depth-slider.value` has its own causal
+> path**, and naming it settles a question this arc has been treating as statistical.
+>
+> The slider's clientside bounds-sync (`network_visualizer.py:706-738`) takes
+> `network-visualizer-topology-store` as its **only** Input, and its return array re-emits
+> `depth-slider.value` **unconditionally** (`:731-736`) — including when the value is unchanged. So the
+> store's own write manufactures a second consumer trigger, which arrives back at the rebuild as Input #7
+> (`:347`). The full cycle:
+>
+> ```
+> update_topology_store  (dashboard_manager.py:3924/:6797)   identical 7,059 B every 5 s
+>    |-> update_network_graph                                 [trigger 2: topology-store.data]
+>    \-> clientside slider-sync (network_visualizer.py:706)
+>           \-> depth-slider.value := 2 (unchanged, still fires)
+>                  \-> update_network_graph                   [trigger 3: depth-slider.value]
+> tabpoll-topology.n_intervals                                [trigger 1]
+> ```
+>
+> **canopy#537's guard (`network_visualizer.py:447`) requires `len(ctx.triggered) == 1`. On a poll cycle
+> that is always 3.** The guard is structurally dead — not statistically unlucky — and no census size
+> would ever have shown otherwise. That in turn *explains* both prior results rather than explaining them
+> away, which matters because the consensus re-read left supersession neither refuted nor confirmed:
+>
+> | trial | measured | why, structurally |
+> |---|---|---|
+> | canopy#537 alone | 0 of 2 | the guard cannot fire; sample size was never the issue |
+> | suppression alone | 0 of 6 | removes triggers 2 and 3, leaving a bare tick — but #537 did not exist in that build (primary at `27af847`), so a full rebuild still ran every 5 s |
+> | **the pair** | **never run** | suppression leaves a bare tick, which #537's guard then catches |
+>
+> So the "underpowered census" argument is no longer load-bearing in either direction. **Neither fix could
+> have worked alone, for reasons visible in the source.**
+>
+> **Shipped as canopy#542** (`fix/f039-topology-noop-suppression`): the store rides as `State` on its own
+> writer; `_update_topology_store_handler` gains a canonical identity guard at both success returns;
+> `current=None` never suppresses, so all seven existing direct call sites stay valid. The WS `cascade_add`
+> path is deliberately left unsuppressed — such a frame is by construction a change. Consumer starvation
+> was checked: all three consumers of this store have a second Input, so suppression strands none of them.
+> Pinned by `TestF039TopologyIdentitySuppression` (7 tests, 6 of which fail on the parent), including one
+> that pins the store as `State` and never as an `Input` of its own writer — because dropping that `State`
+> would disable the guard **silently** (`current` would be `None` forever) and no other test would notice.
+>
+> ## THE CENSUS THAT VALIDATES THIS MUST RUN UNDER LIVE TOPOLOGY CHANGE — an idle one reads green either way
+>
+> **This is a predicted vacuous pass, recorded before the census rather than after it.**
+>
+> The pair works by stopping the rebuild from *running* on no-op cycles. At idle that is sufficient and
+> the graph will paint. But a server-side `dash.no_update` **does not save a renderer slot** — the round
+> trip already happened, which F-CANOPY-027's own remediation established. So on a cycle where the
+> topology *genuinely* changes, the rebuild starts (1.5-5 s) and the next 5 s tick still issues a
+> bare-tick invocation against the same 8 outputs, which may still retire it.
+>
+> If that is what happens, the pair yields **correct at idle, still broken during cascade growth** — which
+> is the only time the panel matters, and which an idle census would certify as FIXED. Any census run
+> against canopy#542 that does not drive live topology change is therefore **vacuous by construction**,
+> regardless of its N.
+>
+> **Do not re-run the renderer-apply instrument.** `util/ad-hoc/e2e_f039_renderer_apply.py` has already
+> been run and its result is recorded above in this same entry (7 responses, 5,556 actions, 126 naming the
+> graph, **none carrying the figure**, lifecycle complete with exact itempaths). The 2026-08-30 handoff
+> lists it as "never been run" and prefers it as the next step; that is wrong, and following it would buy
+> a measurement this ledger already holds.
+>
 > ---
 >
 > ~~Superseded — retained so the reasoning error stays visible:~~
