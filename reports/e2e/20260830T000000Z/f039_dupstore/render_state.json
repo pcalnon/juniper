@@ -1,0 +1,56 @@
+[
+  {
+    "counts": [
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    "graph_plotly": true,
+    "graph_present": true,
+    "graph_sig": 2,
+    "graph_traces": 0,
+    "sample": 1,
+    "store_connections": 89,
+    "store_error": null,
+    "store_hidden_units": 10,
+    "store_input_units": 2,
+    "store_len": 6434
+  },
+  {
+    "counts": [
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    "graph_plotly": true,
+    "graph_present": true,
+    "graph_sig": 2,
+    "graph_traces": 0,
+    "sample": 2,
+    "store_connections": 89,
+    "store_error": null,
+    "store_hidden_units": 10,
+    "store_input_units": 2,
+    "store_len": 6434
+  },
+  {
+    "counts": [
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    "graph_plotly": true,
+    "graph_present": true,
+    "graph_sig": 2,
+    "graph_traces": 0,
+    "sample": 3,
+    "store_connections": 89,
+    "store_error": null,
+    "store_hidden_units": 10,
+    "store_input_units": 2,
+    "store_len": 6434
+  }
+]
