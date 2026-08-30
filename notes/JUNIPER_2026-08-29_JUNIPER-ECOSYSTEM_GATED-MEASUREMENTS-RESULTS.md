@@ -5,9 +5,9 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-29
+**Last Updated**: 2026-08-30
 **Status**: RESULTS — both designs gated implementation on these; **both results change their designs**
-**Measured at**: cascor `67d7ea35` + diag branch `diag/tensor-hash-probe-572` (not for merge)
+**Measured at**: cascor `67d7ea35` (cap 4, logging) and `64ff9ab8` post-#598 (cap 16); probes on diag branches `diag/tensor-hash-probe-572` and `diag/valsplit-cap16-582` (neither for merge)
 **Evidence**: `reports/measurements-2026-08-29/`
 
 ---
@@ -27,7 +27,7 @@ argument for the gate having been worth imposing.
 
 ---
 
-## 2. Selection bias (cascor#582) — real mechanism, effect NOT established at this scale
+## 2. Selection bias (cascor#582) — real mechanism, effect bounded below ~2 pp at two budgets
 
 ### Method
 
@@ -57,6 +57,39 @@ estimate of the optimism.
 **mean optimism +0.0088, sd 0.0323, n=8; 95 % CI [−0.0136, +0.0311] — the interval INCLUDES ZERO.**
 5 cells positive, 1 zero, 2 negative. 8/8 cells reported; nothing missing.
 
+### cap 16, n=20 — measured 2026-08-30, and it REFUTES this document's own caveat
+
+The cap-4 section below argued that cap 4 is *"the weakest case, so this is a lower bound"* —
+selection pressure scales with the number of decisions taken against the partition, so a larger
+budget should show a larger bias. **That prediction was tested and is wrong.**
+
+Suite `util/experiments/suites/p4/e-p-val-split-bias-cap16.yaml`, 20 dataset seeds (42–61), network
+seed held at 42, cap 16, on the post-#598 build:
+
+| | cap 4 (n=8) | **cap 16 (n=20)** |
+| --- | --- | --- |
+| mean optimism | +0.0088 | **+0.0055** |
+| sd | 0.0323 | 0.0353 |
+| se of mean | 0.0114 | **0.0079** |
+| 95 % CI | [−0.0136, +0.0311] | **[−0.0100, +0.0210]** |
+| sign split | 5 + / 1 zero / 2 − | **10 + / 0 zero / 10 −** |
+
+**An exactly even 10/10 sign split** is about as close to "no effect" as a paired sample gets, and
+the mean went *down* with more selection pressure, not up.
+
+**Vacuity control passed, and more strongly than at cap 4.** A cap-16 run performs **16**
+early-stopping evaluations (15 `Stop Training Early: False` plus one `True`) with the patience
+counter reaching 2, against ~4 at cap 4. So the mechanism was exercised four times harder and the
+bias still did not appear. This is a real test of the pressure hypothesis, not a failure to engage.
+
+**Upper bound.** With se = 0.0079, an effect larger than about **2.1 pp** is excluded at 95 %
+confidence. That is now the useful quantitative statement: not "the bias is zero", but "if there is
+one at these scales it is smaller than ~2 points, and two independent samples at different budgets
+both fail to distinguish it from zero."
+
+**Accuracies are much higher at cap 16** (mean 0.789 vs 0.591), so this is not a case of the model
+failing to learn and the metric being noise-dominated for that reason.
+
 ### What this does and does not say
 
 **It does not establish a nonzero bias at this scale.** The mean is in the predicted direction and
@@ -80,10 +113,11 @@ in the run logs alongside an incrementing patience counter — so the selected-o
 selected on. Had early stopping never fired, there would have been no selection and the whole
 measurement would have been hollow while still producing plausible numbers.
 
-**cap 4 is the weakest case, so this is a lower bound.** Selection pressure scales with the number
-of decisions taken against the partition. Cap 4 allows ~4 growth iterations and a handful of
-early-stopping checks. At cap 16 or 64 there are far more, and the bias should grow. A measurement
-that fails to find an effect at the *smallest* budget says little about the largest.
+**~~cap 4 is the weakest case, so this is a lower bound.~~ SUPERSEDED 2026-08-30.** The original
+argument was that selection pressure scales with decisions taken against the partition, so cap 16
+or 64 should show more. Measured at cap 16 with n=20 and 4x the early-stopping evaluations: the
+mean optimism *fell* to +0.0055 with an exactly even 10/10 sign split. The pressure hypothesis is
+refuted at this range; see the cap-16 subsection above. Cap 64 remains unmeasured.
 
 ### Consequence for the partition design
 
@@ -92,11 +126,19 @@ is that selection and reporting must not share rows — which is a fact about th
 without statistics, and independently sufficient. It is **not** "the reported numbers are inflated
 by N points", and the design should not claim that.
 
-This also *reduces* the urgency of decision 4 (re-measure pre-change results): if the bias at
-production scale turns out to be of this order, the existing corpus is not materially wrong, only
-methodologically unsound. Re-measuring stays correct; it is not an emergency.
+On its own this would *reduce* the urgency of decision 4 (re-measure pre-change results): if the
+bias is under ~2 pp, the existing corpus is not materially wrong, only methodologically unsound.
 
-Open: repeat at cap 16 with n ≥ 20 before concluding anything about production-scale runs.
+**But decision 4 is required anyway, for an unrelated reason.** V-1 (measured 2026-08-30) found
+that all six cascor-relevant generators produce **different rows** when asked for N+M vs N at the
+same seed — see the partition design §6.3. So adopting the three-way split moves every baseline's
+*data*, regardless of how small the selection bias turns out to be. Decision 4 stands as
+**required**; what changed is why. It is not "the old numbers were inflated" — they were not,
+measurably — it is "the old numbers describe different data."
+
+~~Open: repeat at cap 16 with n ≥ 20.~~ **DONE 2026-08-30** — see the cap-16 subsection above.
+Cap 64 remains unmeasured, but two budgets differing 4× in selection pressure both return intervals
+containing zero, so a cap-64 run is no longer the obvious next question.
 
 ---
 

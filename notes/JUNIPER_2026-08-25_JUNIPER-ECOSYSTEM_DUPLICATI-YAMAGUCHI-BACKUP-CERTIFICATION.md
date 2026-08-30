@@ -386,13 +386,20 @@ dblock/dindex volumes remain until an explicit compact.
 6. **Loopback restage**: edit only `any` → `loopback` in the ACTIVE line of
    `/etc/default/duplicati`, then restart when no task is running.
 7. **Server-brain backup** (§7 item): the job definition, schedule, filters and
-   encrypted passphrase live only in `/usr/lib/duplicati/data/Duplicati-server.sqlite`
+   passphrase live only in `/usr/lib/duplicati/data/Duplicati-server.sqlite`
    (job DB `BMXWPAOGLP.sqlite`, both root-owned, outside every backup). Copy via the
    SQLite backup API — a live `cp` of a WAL-mode DB can tear. The `sqlite3` CLI is
    **not installed** on this host; the stdlib does it:
-   `sudo python3 -c "import sqlite3; s=sqlite3.connect('/usr/lib/duplicati/data/Duplicati-server.sqlite'); d=sqlite3.connect('/mnt/Backups/Ubuntu/_yamaguchi_records/Duplicati-server.sqlite'); s.backup(d); d.close()"`.
+   `sudo python3 -c "import sqlite3; s=sqlite3.connect('/usr/lib/duplicati/data/Duplicati-server.sqlite'); d=sqlite3.connect('/mnt/Backups/Ubuntu/_yamaguchi_keys/Duplicati-server.sqlite'); s.backup(d); d.close()"`.
    The redacted config record plus `~/.config/duplicati-backup/env` is a
    re-creatable definition.
+
+   > **CORRECTED 2026-08-30 (§8.20).** This item said "**encrypted** passphrase". It is
+   > **cleartext** — `Option` row `BackupID=2, Name=passphrase`, byte-identical to the
+   > `env` file's `PASSPHRASE`. The destination above was also changed from
+   > `_yamaguchi_records/` (mode **0775**) to `_yamaguchi_keys/` (mode **0700**): the
+   > original target would have placed a cleartext key in a group/other-readable
+   > directory, protected only by the parent's 0770. Treat this DB as key material.
 8. **Migration (plan §7 criterion 6, OPEN)**: Yamaguchi is on sdc4, the same
    physical disk as `/home` (sdc3). Facts for the decision: sda1 (SATA WD40EZAZ,
    `/mnt/Backups/Ubuntu`, 1.1 TB free) hosts the damaged old archive at its root — a
@@ -1683,7 +1690,8 @@ filter 43 is the exclusion). `yamaguchi_server_api.py export` currently fails `4
 #### 8.18.2 Two partial mitigations that exist by accident, and neither is sufficient
 
 - **`Duplicati-server.sqlite`** (`/usr/lib/duplicati/data/`, root-only, on `/` = nvme0n1p5) holds the
-  job definition, filters, schedule **and the encrypted passphrase**. It is on a different physical
+  job definition, filters, schedule **and the passphrase — in CLEARTEXT, corrected 2026-08-30, see
+  §8.20; this bullet originally said "encrypted"**. It is on a different physical
   disk from `sdc`, so it is the one artifact that survives an `sdc` loss carrying key material — but
   it is root-only, in no backup, and **Recreate does not restore it** (Recreate rebuilds only
   `BMXWPAOGLP.sqlite`, the per-job index). §8.6-7's recipe copies it to
@@ -1782,10 +1790,14 @@ Three things worth keeping:
   under CDT and 45 min *after* it under CST — so at the next DST change the snapshot would silently
   start missing its own backup by a day, with no error anywhere. `13:45:00 UTC` holds year-round.
   Both forms resolve identically *today*, which is precisely why the bug would be invisible now.
-- **This is not key escrow and must not be mistaken for it.** The passphrase inside this DB is
-  encrypted, and the archive the DB is copied into is encrypted with the very key one would be
-  trying to recover. It is a circle. §8.19.2 is the control that breaks it; this one restores the
-  *job definition and index*.
+- **This is not key escrow and must not be mistaken for it.** The archive the DB is copied into is
+  encrypted with the very key one would be trying to recover. It is a circle. §8.19.2 is the control
+  that breaks it; this one restores the *job definition and index*.
+
+  > **CORRECTED 2026-08-30 (§8.20).** This bullet originally opened "The passphrase inside this DB
+  > is encrypted, and…". **It is cleartext.** The circularity conclusion still holds — it rests on
+  > the *archive* being encrypted, not the DB — but the premise was false, and it was written by the
+  > session that built the snapshot. Treat the snapshot as key material.
 
 A defect was found in this tool by running it: as an unprivileged user it reported
 `source DB missing`, because `/usr/lib/duplicati/data` is `drwx------ root root` and
@@ -1872,3 +1884,245 @@ completing (`FilesUploaded=5`; 818 + 5 = 823), not drift. Next run `2026-08-30T1
    2028) — it is a credential, not merely a URL, and should be treated as one if that file is shared.
 7. **The disabled `duplicati-backup.*` user lane** (§8.11.3) — removal PR still unopened. The lane
    fails safe; not urgent. Do **not** "repair" its paths.
+
+### 8.20 Addendum (2026-08-30) — the passphrase is cleartext, and two harnesses that break on reboot
+
+Three of §8.19.1's four owner decisions were executed by the owner overnight (items 2 and 3 in full;
+item 1's sda1 half on 08-29). A validation pass the next morning found two things the arc had been
+carrying wrongly. Handoff:
+[`HANDOFF_2026-08-30_duplicati-cleartext-passphrase-and-escrow-tail.md`](../prompts/thread-handoff_automated-prompts/HANDOFF_2026-08-30_duplicati-cleartext-passphrase-and-escrow-tail.md).
+
+#### 8.20.1 Executed by the owner, verified here
+
+| Item | Evidence |
+|---|---|
+| **Narrow bind (§8.19.4)** | `/etc/default/duplicati` active line is `DAEMON_OPTS="--webservice-port=8300 --portable-mode"`; rollback file `duplicati.bak-20260830-010814`; journal *"listening on localhost, port 8300"*; `ss` shows only `127.0.0.1:8300` + `[::1]:8300` |
+| **Server-DB snapshot (§8.19.3)** | `yamaguchi-server-db-snapshot.timer` `enabled`, next elapse 13:45Z; snapshot on disk 160 KB, `integrity_check` = ok, 16 tables, 0600 in 0700 |
+
+**The §2 restart trap did not fire.** `--portable-mode` survived, the commented trap line is
+untouched, and the census still finds job 2 and reconciles `-> AGREE`.
+
+**`ProgramState=Paused` after that restart is not an incident** — `startup-delay=30m`, with
+`paused-until = 0` (no manual pause). There was **no reboot**: `journalctl --list-boots` shows one
+boot ID spanning 08-16 → 08-30.
+
+**Item 2 is deployed, not yet proven.** The snapshot is inside Source `/home/pcalnon/` and matched by
+no filter, so the next 14:00Z run *should* capture it — but that run had not happened when this was
+written. Do not mark §8.19.8 item 2 closed until a completed run shows it.
+
+#### 8.20.2 The passphrase is stored in CLEARTEXT — three sections corrected
+
+The value in `Duplicati-server.sqlite` (`Option`, `BackupID=2`, `Name=passphrase`) has the **same
+SHA-256** as `PASSPHRASE` in `~/.config/duplicati-backup/env`. Byte-identical to a known plaintext,
+so it is not ciphertext. `PASSPHRASE_OLD` is absent from all 16 tables — correct, it is not a
+Duplicati setting. `duplicati-server` has announced this on every start all along: *"No database
+encryption key was found. The database will be stored unencrypted."*
+
+Corrected in place: **§8.6 item 7** (line 389), **§8.18.2**, **§8.19.3**. The first is the one the
+08-29 session quoted for the copy-recipe and read past — a reminder that quoting a section is not
+reading it.
+
+**Scoped honestly: the snapshot is not a new leak.** `pcalnon` already reads the passphrase in
+cleartext from the `env` file, and the archive already held a cleartext copy via the stray `.env` of
+§8.18.2. What changed is the **handling class** of the DB, plus one latent hazard: §8.6-7's recipe
+targeted `_yamaguchi_records/` (mode **0775**) rather than `_yamaguchi_keys/` (**0700**). That is
+**latent, not live** — the parent `/mnt/Backups/Ubuntu` is 0770 so "other" cannot traverse, and
+`pcalnon` is the only human account. A first draft of the handoff called it a live leak "readable by
+any local account"; that was false and was caught in validation, which is worth recording because
+the predecessor chain had *already* flagged overstatement of exactly this shape.
+
+**Owner decision (2026-08-30): accept as-is and document.** `SETTINGS_ENCRYPTION_KEY` was rejected —
+it adds a third key needing escrow and makes the DB unreadable if lost. Excluding the snapshot from
+the backup was rejected — it defeats the purpose and the archive holds a cleartext copy regardless.
+The recipe target was changed to `_yamaguchi_keys/`.
+
+#### 8.20.3 Both #1319 restore-integrity harnesses refuse to run once sdc4 is unmounted
+
+Never previously recorded anywhere in this note or the ten handoffs.
+
+| File | Line | Gate |
+|---|---|---|
+| `util/ad-hoc/duplicati_dlist_crosscheck.py` | 113 | `if not os.path.ismount("/media/pcalnon/temp_backups"): fail(...)` |
+| `util/ad-hoc/duplicati_decrypt_validate_all.bash` | 26 | `mountpoint -q /media/pcalnon/temp_backups \|\| fail` |
+
+Both gates are **hardcoded and fire regardless of the destination under test** — `--dest` (py) and
+`$1` (bash) do not influence them — and both still default to the pre-migration
+`/media/pcalnon/temp_backups/Ubuntu`.
+
+This matters because **criterion 5 is a reboot and sdc4 is not in fstab**. After it, the two scripts
+that `tests/test_duplicati_restore_integrity.py` exists to pin will refuse against *any* destination,
+including the live sda1 backup they validate, with a `FATAL: not mounted` unrelated to the
+destination.
+
+It is the **same defect class** §8.13.2 / §8.14.2 already found and fixed in five other tools. It
+survived because the sweep used `grep -rn 'temp_backups/Yamaguchi' util/ad-hoc/`, and these two files
+contain `temp_backups/`**`Ubuntu`** — the grep structurally could not match them. **Re-run that sweep
+against the mount path, not the job name.**
+
+#### 8.20.4 Two §7 items orphaned since the note's first snapshot
+
+Neither is a live hazard, but 19 addenda and ten handoffs have passed without either being closed or
+re-asked, so they are recorded here to stop them dissolving:
+
+- the root `duplicati.service` **on 8200 was repurposed to 8300 rather than removed** (line 193);
+- the **schema-19 profile server DB** (jobs `Ubuntu` / `Ubuntu-fresh`) is orphaned from any running
+  server, openable by 2.3.0.4+ if ever needed (lines 194-195).
+
+*(Guard against a false third: §7's "release-train key in the backup" item **is** closed — §8.9
+item 4, "KEEP. No change". A literal-string sweep flags it as orphaned; it is not.)*
+
+#### 8.20.5 Still open
+
+1. ~~**De-drift the two harnesses in §8.20.3**~~ — **DONE 2026-08-30, see §8.21**; landed before the
+   reboot, as this item required. A vacuous pass was found underneath the gate and closed with it.
+2. **The offline escrow copy** (§8.19.2) — still owed. `~/.cache/yamaguchi-key-escrow-sheet.txt` is
+   present and unprinted; `.cache/` is filter 36 so it is out of the archive by construction. Until
+   it is printed and stored off-machine, `PASSPHRASE_OLD` has no copy outside `sdc` + sda1.
+3. **Criterion 5 (reboot)** — `util/ad-hoc/yamaguchi_reboot_verify.bash pre|post` is written and both
+   lanes have been executed on the live system; that PASS validates the script, not the criterion.
+4. **Confirm item 2's capture** in a completed backup (§8.20.1).
+5. §8.8's `.env` reconciliation; 6. cloud reporting (owner-deferred); 7. the disabled user-lane
+   removal PR; 8. the two §8.20.4 items.
+
+---
+
+### 8.21 Addendum (2026-08-30) — the two #1319 harnesses de-drifted, and the vacuous pass underneath
+
+Closes §8.20.5 item 1, the arc's only unstarted engineering task. Done **before** the reboot, as
+that item required.
+
+#### 8.21.1 The gate now follows the destination
+
+| File | Was | Is |
+|---|---|---|
+| `duplicati_dlist_crosscheck.py` | `if not os.path.ismount("/media/pcalnon/temp_backups")` | `mount_point_of(dest)`, refusing only when the walk-up reaches `/` |
+| `duplicati_decrypt_validate_all.bash` | `mountpoint -q /media/pcalnon/temp_backups` | `mount_point_of "$DEST"`, same rule |
+
+`mount_point_of()` is the helper `duplicati_drill_fresh.py`, `duplicati_dlist_query.py` and
+`yamaguchi_census.py` already use; the bash version mirrors it line for line so `mountpoint` stays
+the single stubbable primitive. Both tools now **print the mount they derived**, so the filesystem
+actually checked is visible in the output instead of assumed — the direct antidote to §8.14.2's
+"confident, well-formatted, wrong answer".
+
+Stale defaults went with the gate, following §8.13.2's precedent that a checker's default must not
+be able to rot:
+
+- **`--dest` / `$1` are now REQUIRED.** Both defaulted to `/media/pcalnon/temp_backups/Ubuntu`, the
+  pre-migration fresh set.
+- **`--workdir` has no path default at all.** It was `/media/pcalnon/temp_backups/_fresh_dlist_check`;
+  it is now a generated temp dir removed on exit, so nothing is left that *can* rot.
+
+Derived-gate behaviour, measured on the live system with no stubs:
+
+```text
+/mnt/Backups/Ubuntu/Yamaguchi        -> mount /mnt/Backups/Ubuntu    (sda1 — accepted)
+/media/pcalnon/temp_backups/Ubuntu   -> mount /media/pcalnon/temp_backups
+/home/pcalnon                        -> mount /home
+/etc                                 -> mount /                      (would refuse)
+```
+
+**Scoped honestly.** Today, with sdc4 still mounted, the old code *could* be driven at the live set
+by overriding both `--dest` and `--workdir` — the hardcoded gate passed incidentally, not because it
+had checked anything relevant. What the de-drift changes is that the gate now checks the set under
+test, and that the tools keep working once sdc4 is gone.
+
+#### 8.21.2 A vacuous pass was sitting underneath the gate
+
+Found while de-drifting; not previously recorded. `duplicati_decrypt_validate_all.bash` counted
+volumes in a loop and then asked only whether any had *failed*. Zero volumes means zero failures, so
+an empty destination fell straight through to the success branch. Reproduced against the pre-fix
+script with the mount gate satisfied and an empty directory:
+
+```text
+validated  : 0 volumes in 0s
+failures   : 0
+RESULT: ALL VOLUMES DECRYPT-VALID (full MDC verification)
+>>> EXIT CODE: 0
+```
+
+That is this arc's own vacuous-pass class, and it is precisely what an unmounted, mistyped, or
+wrong-`ENCRYPTION` destination looks like. **The hardcoded mount gate had been the accidental proxy
+for this check** — so de-drifting the gate *without* adding a real one would have widened the hole
+rather than closing it. Zero volumes is now `RESULT: NO VOLUMES FOUND`, exit 2. The Python tool
+never had this hole: it already failed with `no dlist in destination`.
+
+#### 8.21.3 The sweep, re-run against the mount instead of the job name
+
+§8.20.3 asked for this: the earlier sweep used `temp_backups/Yamaguchi` and structurally could not
+match files containing `temp_backups/`**`Ubuntu`**. Re-run as `grep -rln 'temp_backups' util/ scripts/ tests/`
+— the **mount**, not the job — which matches 24 files. The discriminator is *not* whether a path is
+hardcoded; it is **whether a hardcoded path gates an operation whose target is parameterised**:
+
+| Class | n | Files |
+|---|---|---|
+| Same defect — **fixed here** | 2 | the two harnesses above |
+| Same defect — **still present, recorded** | 1 | `duplicati_first_backup.bash` |
+| Hardcoded but internally consistent | 1 | `duplicati_gpg_macro_repro.bash` |
+| sdc4 **is** the subject — correct as written | 8 | `yamaguchi_retire_tier{1,2,3}`, `yamaguchi_migrate_copy`, `yamaguchi_records_sync`, `yamaguchi_destination_durability_check`, `yamaguchi_reboot_verify` (comment), `patch_census_derive_dest` (its `OLD` literal must match) |
+| Stale scratch/mirror **defaults** — won't run post-reboot, cannot give a wrong answer | 6 | `duplicati_dlist_query` `--scratch`, `duplicati_drill_fresh` `--run-root`, `old_archive_purge` `--mirror`, `yamaguchi_build_job` `DEFAULT_RECORD_DIR`, `duplicati_purge_dryrun` `DBPATH`, `gpg_tail_latency` `--workdir` |
+| Historical fresh-set / gpg-benchmark tooling | 2 | `duplicati_build_fresh_job.py`, `duplicati_gpg_throughput.bash` |
+| Docstring examples only | 2 | `yamaguchi_census.py`, `yamaguchi_config_record.py` |
+| **Explicitly out of bounds** | 1 | `util/duplicati_scheduled_backup.bash` |
+| Test fixture (now a NEGATIVE one) | 1 | `tests/test_duplicati_restore_integrity.py` |
+
+Two entries need their reasoning on the record:
+
+- **`duplicati_first_backup.bash` carries the same defect and is deliberately not fixed here.**
+  `DESTDIR` is `$3`, but `MOUNT=/media/pcalnon/temp_backups` is hardcoded and *both* the mountpoint
+  gate and the `df -BG --output=avail "$MOUNT"` free-space check measure that literal — so pointing
+  it at sda1 sizes the wrong disk. It is left alone because the first backup it exists to create was
+  made in August, it is not on the reboot-validation path, and it has no test pin; fixing it would
+  mean writing that pin, which is a separate change. Recorded so the next sweep need not rediscover it.
+- **`util/duplicati_scheduled_backup.bash` is the disabled user lane of §8.11.3** — confirmed here:
+  `systemctl --user list-unit-files` reports `duplicati-backup.timer` `disabled`, and both user units
+  name this script in `Documentation=`. Its `DUPLICATI_DEST_MOUNT` default *is* independently
+  overridable from `DUPLICATI_DEST_PATH`, i.e. the same divergence in latent form — but the standing
+  instruction holds: **do not repair its paths**, that re-arms a CLI lane which is 0-for-3. The lane
+  fails safe; the open work is its removal PR, not its repair.
+
+#### 8.21.4 Verification
+
+- `tests/test_duplicati_restore_integrity.py`: **21 → 27 tests, green**. The six new pins cover both
+  tools' derived gate, the required destination, the temp workdir, and the zero-volume refusal.
+- **The pins are not vacuous**: replayed against the pre-fix scripts they produce 21 failures + 1
+  error. The two `..._follows_the_destination_not_the_legacy_scratch_path` pins declare *only*
+  `/media/pcalnon/temp_backups` mounted with the destination elsewhere — the exact post-reboot shape —
+  and the old code passed that preflight without ever consulting the destination.
+- **The vacuous pass was reproduced and then re-run against the fix**, which returns
+  `NO VOLUMES FOUND` / exit 2.
+- **Live run against sda1**, which is the point of the exercise:
+
+```text
+python3 util/ad-hoc/duplicati_dlist_crosscheck.py --dest /mnt/Backups/Ubuntu/Yamaguchi --encryption aes
+dest mount : /mnt/Backups/Ubuntu
+workdir    : /tmp/dlist-crosscheck-gdqjbhye (mount /tmp)
+destination: /mnt/Backups/Ubuntu/Yamaguchi -> 5 dlist / 409 dindex / 409 dblock
+dlist      : duplicati-20260829T140000Z.dlist.zip.aes (newest of 5)
+list entries: 8241 blocklist entries across all dindexes, all content-hash-verified against their filenames
+available  : 1328363 distinct blocks declared across 409 indexed dblocks
+fileset    : IsFullBackup=True
+dlist      : 794535 files, 116530 non-file entries -> 1244900 distinct needed hashes, 0 unexpandable blocklists
+
+RESULT: COMPLETE COVERAGE -- all 1244900 hashes the dlist references are declared present by the dindex set.
+```
+
+  This is **new certification evidence in its own right**, not merely a smoke test: the live
+  Yamaguchi set's newest fileset is destination-self-sufficient — every one of 1,244,900 referenced
+  hashes is declared present by the destination's own index, with zero unexpandable blocklists. The
+  temp workdir was removed on exit (no `/tmp/dlist-crosscheck-*` survives the run).
+
+#### 8.21.5 Residuals recorded, not fixed
+
+1. **`--encryption` still defaults to `gpg`** in both tools, while the live set is `aes`. Left
+   deliberately: unlike a stale path, a wrong algorithm fails **loudly** (gpg exits nonzero on an
+   AES-crypt volume and the tool fails 2), so it cannot produce the confident-but-wrong answer a
+   stale path produces. Both help strings now name which set is which.
+2. **`duplicati_dlist_crosscheck.py` rebinds the module-global `gpg_decrypt`** when `--encryption aes`
+   is passed. Harmless for one-shot CLI use, but it means an in-process caller cannot reliably stub
+   the decrypt seam for the aes path — which is why the hermetic tests exercise the gpg path.
+3. **Same-filesystem workdir is a WARNING, not a refusal**, diverging from `duplicati_dlist_query.py`,
+   which refuses it. That tool writes a whole plaintext dlist and keeps it; this one unlinks each
+   decrypted zip as it is parsed. Refusing here would re-create the failure just fixed — a guard
+   blocking a valid run for a reason unrelated to the destination's integrity — on the one day
+   (post-reboot, sda1 only) it is needed most.
+4. **`duplicati_first_backup.bash`** — §8.21.3.

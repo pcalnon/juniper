@@ -1,0 +1,115 @@
+2026-08-28 19:42:48 | system | INFO | WebSocketManager initialized: max_connections=50, heartbeat_interval=30s, reconnect_attempts=5, reconnect_delay=2s
+2026-08-28 19:42:48 | system | INFO | Starting server on 127.0.0.1:8052
+2026-08-28 19:42:48 | system | INFO | Debug mode: False
+2026-08-28 19:42:48 | system | INFO | Dashboard available at: http://127.0.0.1:8052/dashboard/
+2026-08-28 19:42:48 | system | INFO | WebSocket endpoint: ws://127.0.0.1:8052/ws
+2026-08-28 19:42:48 | system | INFO | API documentation: http://127.0.0.1:8052/docs
+2026-08-28 19:42:49 | system | INFO | Dependency floor check passed (3 juniper-* floor(s) satisfied).
+2026-08-28 19:42:49,023 [INFO] system: Dependency floor check passed (3 juniper-* floor(s) satisfied).
+2026-08-28 19:42:49 | system | WARNING | juniper-canopy is running OPEN — no API-key authentication is configured and require_auth is False, so protected routes will serve UNAUTHENTICATED. Set require_auth=True and populate the API-key secret to fail closed in a secured deployment.
+2026-08-28 19:42:49,023 [WARNING] system: juniper-canopy is running OPEN — no API-key authentication is configured and require_auth is False, so protected routes will serve UNAUTHENTICATED. Set require_auth=True and populate the API-key secret to fail closed in a secured deployment.
+2026-08-28 19:42:49 | system | INFO | Starting Juniper Canopy application
+2026-08-28 19:42:49,024 [INFO] system: Starting Juniper Canopy application
+2026-08-28 19:42:49 | system | INFO | Settings: server=127.0.0.1:8052, demo=False
+2026-08-28 19:42:49,024 [INFO] system: Settings: server=127.0.0.1:8052, demo=False
+2026-08-28 19:42:49 | system | INFO | Event loop captured for thread-safe broadcasting
+2026-08-28 19:42:49,024 [INFO] system: Event loop captured for thread-safe broadcasting
+2026-08-28 19:42:50,244 [INFO] juniper_canopy.backend: Service mode: connecting to CasCor at http://127.0.0.1:8202
+2026-08-28 19:42:50,279 [INFO] httpx: HTTP Request: GET http://127.0.0.1:8101/v1/health/live "HTTP/1.1 200 OK"
+2026-08-28 19:42:50 | system | INFO | JuniperData reachable at http://127.0.0.1:8101 (36.3ms)
+2026-08-28 19:42:50,280 [INFO] system: JuniperData reachable at http://127.0.0.1:8101 (36.3ms)
+2026-08-28 19:42:50,293 [INFO] httpx: HTTP Request: GET http://127.0.0.1:8202/v1/health/live "HTTP/1.1 200 OK"
+2026-08-28 19:42:50 | system | INFO | JuniperCascor reachable at http://127.0.0.1:8202 (13.2ms)
+2026-08-28 19:42:50,294 [INFO] system: JuniperCascor reachable at http://127.0.0.1:8202 (13.2ms)
+2026-08-28 19:42:50,302 [INFO] juniper_canopy.backend.cascor_service_adapter: Attached to existing cascor network (non-destructive)
+2026-08-28 19:42:50,302 [INFO] juniper_canopy.backend.service_backend: ServiceBackend: attached to existing cascor network
+2026-08-28 19:42:50,334 [INFO] juniper_canopy.backend.state_sync: State sync complete: status=Completed, epoch=11, metrics=500 entries
+2026-08-28 19:42:50,334 [INFO] juniper_canopy.backend.service_backend: ServiceBackend: state synced — status=Completed, epoch=11, params=23 keys
+2026-08-28 19:42:50,334 [INFO] juniper_canopy.backend.cascor_service_adapter: Metrics relay started
+2026-08-28 19:42:50,334 [INFO] juniper_canopy.backend.cascor_service_adapter: Control stream supervisor started (use_websocket_set_params=True)
+2026-08-28 19:42:50,334 [INFO] juniper_canopy.backend.service_backend: ServiceBackend connected to http://127.0.0.1:8202
+2026-08-28 19:42:50 | system | INFO | Global training_state synced with cascor: status=Completed, epoch=11, params=23 keys
+2026-08-28 19:42:50,334 [INFO] system: Global training_state synced with cascor: status=Completed, epoch=11, params=23 keys
+2026-08-28 19:42:50 | system | INFO | Backend initialized: service
+2026-08-28 19:42:50,334 [INFO] system: Backend initialized: service
+2026-08-28 19:42:50 | system | INFO | WebSocket keepalive heartbeat started (interval=30s, channel=training)
+2026-08-28 19:42:50,335 [INFO] system: WebSocket keepalive heartbeat started (interval=30s, channel=training)
+2026-08-28 19:42:50 | system | INFO | Application startup complete
+2026-08-28 19:42:50,335 [INFO] system: Application startup complete
+2026-08-28 19:42:50,339 [INFO] juniper_canopy.backend.cascor_service_adapter: Cascor metrics stream connected to ws://127.0.0.1:8202
+2026-08-28 19:42:50,339 [WARNING] juniper_canopy.backend.cascor_service_adapter: Control stream supervisor disconnected (Failed to connect to ws://127.0.0.1:8202/ws/control: server rejected WebSocket connection: HTTP 403), reconnecting in 1s
+2026-08-28 19:42:51,343 [WARNING] juniper_canopy.backend.cascor_service_adapter: Control stream supervisor disconnected (Failed to connect to ws://127.0.0.1:8202/ws/control: server rejected WebSocket connection: HTTP 403), reconnecting in 2s
+2026-08-28 19:42:53,346 [WARNING] juniper_canopy.backend.cascor_service_adapter: Control stream supervisor disconnected (Failed to connect to ws://127.0.0.1:8202/ws/control: server rejected WebSocket connection: HTTP 403), reconnecting in 5s
+2026-08-28 19:42:55,344 [WARNING] juniper_cascor_client.observability: juniper_cascor_client_unrecognized_ws_frame type=initial_status endpoint=training
+2026-08-28 19:42:55,345 [WARNING] juniper_canopy.observability: juniper_canopy_unrecognized_ws_frame
+2026-08-28 19:42:58,350 [WARNING] juniper_canopy.backend.cascor_service_adapter: Control stream supervisor disconnected (Failed to connect to ws://127.0.0.1:8202/ws/control: server rejected WebSocket connection: HTTP 403), reconnecting in 10s
+2026-08-28 19:42:59 | system | INFO | Client connected: training-client-130248395581520 (Total: 1)
+2026-08-28 19:42:59,884 [INFO] system: Client connected: training-client-130248395581520 (Total: 1)
+2026-08-28 19:42:59 | system | INFO | Client connected: control-client-130248395666576 (Total: 2)
+2026-08-28 19:42:59,926 [INFO] system: Client connected: control-client-130248395666576 (Total: 2)
+2026-08-28 19:43:03,012 [INFO] config_manager: Configuration loaded from /home/pcalnon/Development/python/Juniper/worktrees/juniper-canopy--fix--f039-stale-shortcircuit--20260828-1914--27af8472/conf/app_config.yaml
+2026-08-28 19:43:03,013 [INFO] backend.redis_client: Redis library not installed - Redis integration disabled
+2026-08-28 19:43:04,686 [INFO] httpx: HTTP Request: GET http://127.0.0.1:8101/v1/generators "HTTP/1.1 200 OK"
+2026-08-28 19:43:05,258 [INFO] httpx: HTTP Request: GET http://127.0.0.1:8101/v1/generators "HTTP/1.1 200 OK"
+2026-08-28 19:43:05,348 [INFO] frontend.base_component.HDF5SnapshotsPanel: Fetching snapshots from API
+2026-08-28 19:43:08,354 [WARNING] juniper_canopy.backend.cascor_service_adapter: Control stream supervisor disconnected (Failed to connect to ws://127.0.0.1:8202/ws/control: server rejected WebSocket connection: HTTP 403), reconnecting in 30s
+2026-08-28 19:43:17,661 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=False cur_type=dict cur_len=75 new_len=7059 canon_eq=False
+2026-08-28 19:43:17,661 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='connections' cur=[] new=[{'from': 'input_0', 'to': 'hidden_0', 'weight': -0.42033839225769043}, {'from':
+2026-08-28 19:43:17,661 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='hidden_units' cur=0 new=10
+2026-08-28 19:43:17,661 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='input_units' cur=0 new=2
+2026-08-28 19:43:17,661 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='nodes' cur=None new=[{'id': 'input_0', 'type': 'input', 'layer': 0}, {'id': 'input_1', 'type': 'inpu
+2026-08-28 19:43:17,661 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='output_units' cur=0 new=2
+2026-08-28 19:43:26,807 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=False cur_type=dict cur_len=75 new_len=7059 canon_eq=False
+2026-08-28 19:43:26,807 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='connections' cur=[] new=[{'from': 'input_0', 'to': 'hidden_0', 'weight': -0.42033839225769043}, {'from':
+2026-08-28 19:43:26,807 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='hidden_units' cur=0 new=10
+2026-08-28 19:43:26,807 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='input_units' cur=0 new=2
+2026-08-28 19:43:26,807 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='nodes' cur=None new=[{'id': 'input_0', 'type': 'input', 'layer': 0}, {'id': 'input_1', 'type': 'inpu
+2026-08-28 19:43:26,807 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='output_units' cur=0 new=2
+2026-08-28 19:43:29,193 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=False cur_type=dict cur_len=75 new_len=7059 canon_eq=False
+2026-08-28 19:43:29,193 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='connections' cur=[] new=[{'from': 'input_0', 'to': 'hidden_0', 'weight': -0.42033839225769043}, {'from':
+2026-08-28 19:43:29,193 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='hidden_units' cur=0 new=10
+2026-08-28 19:43:29,193 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='input_units' cur=0 new=2
+2026-08-28 19:43:29,193 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='nodes' cur=None new=[{'id': 'input_0', 'type': 'input', 'layer': 0}, {'id': 'input_1', 'type': 'inpu
+2026-08-28 19:43:29,193 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='output_units' cur=0 new=2
+2026-08-28 19:43:33,023 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=False cur_type=dict cur_len=75 new_len=7059 canon_eq=False
+2026-08-28 19:43:33,023 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='connections' cur=[] new=[{'from': 'input_0', 'to': 'hidden_0', 'weight': -0.42033839225769043}, {'from':
+2026-08-28 19:43:33,023 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='hidden_units' cur=0 new=10
+2026-08-28 19:43:33,023 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='input_units' cur=0 new=2
+2026-08-28 19:43:33,023 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='nodes' cur=None new=[{'id': 'input_0', 'type': 'input', 'layer': 0}, {'id': 'input_1', 'type': 'inpu
+2026-08-28 19:43:33,023 [WARNING] frontend.dashboard_manager: TOPOPROBE   differs key='output_units' cur=0 new=2
+2026-08-28 19:43:38,374 [WARNING] juniper_canopy.backend.cascor_service_adapter: Control stream supervisor disconnected (Failed to connect to ws://127.0.0.1:8202/ws/control: server rejected WebSocket connection: HTTP 403), reconnecting in 30s
+2026-08-28 19:43:39,588 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:43:43,558 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:43:49,552 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:43:50,336 [INFO] juniper_canopy.backend.cascor_service_adapter: Metrics relay summary: 4 frame(s) in last 60s (metrics=0, state=1, topology=0, connection_established=1, initial_metrics=1, initial_status=1); status=healthy; last-frame-age=25.0s; reconnects=0
+2026-08-28 19:43:52,896 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:43:58,073 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:44:03,968 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:44:08,378 [WARNING] juniper_canopy.backend.cascor_service_adapter: Control stream supervisor disconnected (Failed to connect to ws://127.0.0.1:8202/ws/control: server rejected WebSocket connection: HTTP 403), reconnecting in 30s
+2026-08-28 19:44:08,743 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:44:13,616 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:44:18,599 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:44:23,975 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:44:28,669 [WARNING] frontend.dashboard_manager: TOPOPROBE eq=True cur_type=dict cur_len=7059 new_len=7059 canon_eq=True
+2026-08-28 19:44:28 | system | INFO | Control client disconnected: control-client-130248395666576
+2026-08-28 19:44:28,973 [INFO] system: Control client disconnected: control-client-130248395666576
+2026-08-28 19:44:28 | system | INFO | Client disconnected: control-client-130248395666576 (Remaining: 1)
+2026-08-28 19:44:28,974 [INFO] system: Client disconnected: control-client-130248395666576 (Remaining: 1)
+2026-08-28 19:44:28 | system | INFO | Client disconnected: training-client-130248395581520
+2026-08-28 19:44:28,975 [INFO] system: Client disconnected: training-client-130248395581520
+2026-08-28 19:44:28 | system | INFO | Client disconnected: training-client-130248395581520 (Remaining: 0)
+2026-08-28 19:44:28,975 [INFO] system: Client disconnected: training-client-130248395581520 (Remaining: 0)
+2026-08-28 19:44:38,382 [WARNING] juniper_canopy.backend.cascor_service_adapter: Control stream supervisor disconnected (Failed to connect to ws://127.0.0.1:8202/ws/control: server rejected WebSocket connection: HTTP 403), reconnecting in 30s
+2026-08-28 19:44:50,337 [INFO] juniper_canopy.backend.cascor_service_adapter: Metrics relay summary: 0 frame(s) in last 60s (metrics=0, state=0, topology=0); status=healthy; last-frame-age=25.0s; reconnects=0
+2026-08-28 19:45:08,386 [WARNING] juniper_canopy.backend.cascor_service_adapter: Control stream supervisor disconnected (Failed to connect to ws://127.0.0.1:8202/ws/control: server rejected WebSocket connection: HTTP 403), reconnecting in 30s
+2026-08-28 19:45:26 | system | INFO | Shutting down Juniper Canopy application
+2026-08-28 19:45:26,994 [INFO] system: Shutting down Juniper Canopy application
+2026-08-28 19:45:26,995 [INFO] juniper_canopy.backend.cascor_service_adapter: Metrics relay stopped
+2026-08-28 19:45:26,995 [INFO] juniper_canopy.backend.cascor_service_adapter: CascorServiceAdapter shutting down — cascor continues running
+2026-08-28 19:45:26,995 [INFO] juniper_canopy.backend.service_backend: ServiceBackend disconnected — cascor continues running independently
+2026-08-28 19:45:26 | system | INFO | Shutting down WebSocket manager
+2026-08-28 19:45:26,996 [INFO] system: Shutting down WebSocket manager
+2026-08-28 19:45:26 | system | INFO | WebSocket manager shutdown complete
+2026-08-28 19:45:26,996 [INFO] system: WebSocket manager shutdown complete
+2026-08-28 19:45:26 | system | INFO | Application shutdown complete
+2026-08-28 19:45:26,996 [INFO] system: Application shutdown complete

@@ -158,6 +158,45 @@ End-to-end isolation, all captured live on run 2's completed 10-unit network: (1
 **F-CASCOR-001 — CUDA OOM in candidate seeding is classified "Completed — stalled (0 new units)" instead of an error state (P1, cascor repo, OPEN; filed as juniper-cascor#590 on 2026-08-26).**
 W1 run 1: every `CandidateUnit` construction raised `torch.AcceleratorError: CUDA error: out of memory` at `candidate_unit.py:333`/`:392` (`torch.rand(1, device="cuda")` seed-roll) via `train_candidate_worker` (`cascade_correlation.py:3270`) — repeated per candidate — and the run transitioned `Started -> Completed` with the stall label. The UI surfaced cascor's classification faithfully (`Status: Completed — stalled (0 new units)` — honest-label plumbing WORKS, plan §7.3), but a hard environmental failure is indistinguishable from a legitimate correlation stall at every surface. Host cause: 7563/8192 MiB VRAM pinned by ~50 orphaned `JuniperCascor1` forkserver workers (the known orphan class). **Filed as [juniper-cascor#590](https://github.com/pcalnon/juniper-cascor/issues/590) on 2026-08-26** with the current anchors (`src/candidate_unit/candidate_unit.py:352` seed-roll; `cascade_correlation.py:3436` `train_candidate_worker`; `manager.py` ~`:2596` `completion_reason`, whose enumeration has no error value) and a proposed `candidate_error` completion reason / FAILED terminal state.
 
+**F-ML-002 — `isolated_stack.bash --down` stops `${RECURRENCE_PORT}` unconditionally where `--up` refuses on collision; the in-source safety argument is unsound, though the blast radius is NARROWER than this arc has been claiming (P2, juniper-ml repo; OPEN; found 2026-08-30 at arc teardown).**
+
+`do_down` (`util/isolated_stack.bash:466-469`) calls `stop_port "${RECURRENCE_PORT}"` — default **8211** —
+with no occupancy check, justified in-source by:
+
+> the recurrence stop is unconditional (idempotent when the leg was never started — `stop_port` logs
+> "nothing listening"), so `--down` does not need to know whether `--up` ran with `--with-recurrence`.
+
+**That argument is unsound as written.** It assumes two states — our leg running, or nothing listening —
+and omits the third: *someone else* listening. `stop_port` (`:398-409`) kills whatever pid holds the
+port; it cannot tell whose it is. And `--up` knows this: `recurrence_port_precheck` (`:310-318`) refuses
+to start the leg when 8211 is occupied, naming the cause — *"likely the juniper-deploy stack (host 8211
+-> recurrence container 8210)"*. **The up path guards the collision the down path ignores.**
+
+**BUT — measured, and this corrects an overstatement this arc has repeated in the ledger, two handoffs
+and a peer message.** `port_pid` (`:179-183`) resolves the pid via `ss -tlnpH "sport = :PORT"`, and on
+this host that returns **empty** for 8211: the deploy container publishes through a proxy in another
+namespace, so `ss` attributes no pid to it for this user. `stop_port` therefore logs "nothing listening"
+and **kills nothing**. The claim "`--down` will kill the deploy container" is **not true as configured**.
+
+**The accurate statement:** the missing pre-check is a real asymmetry, and the risk is *conditional on
+pid visibility* — it would bite where `ss` does attribute a pid to the collider (running as root, a
+runtime that publishes in the host namespace, or a non-container process squatting 8211). It is a latent
+correctness defect, not the live container-killer it was described as.
+
+**How the overstatement propagated, which is the more useful half.** It entered as a hazard line in a
+handoff, was carried forward verbatim into the next handoff and the ledger, was repeated to a peer
+session, and was acted on — this session stopped the trio by pid *specifically to avoid it*. Stopping by
+pid was correct and harmless, but the reason given for it was not verified until after the fact. **Nobody
+ran the one command that checks it** (`ss -tlnpH "sport = :8211" | grep -oE 'pid=[0-9]+'`) across four
+documents and two sessions. Same shape as the arc's other propagated errors: a claim quoted forward
+rather than re-derived, with the check costing one command.
+
+**Fix (not applied here):** give `do_down` the same occupancy discrimination `--up` already has — skip
+the recurrence stop unless the listener is ours (run-dir pidfile, or cmdline referencing the run root,
+matching the two protection keys `reap_pytest_orphans.bash` uses). Until then, prefer stopping legs by
+pid.
+
+
 **F-ML-001 — `util/reap_pytest_orphans.bash` kills nohup-detached isolated-stack services (P1, juniper-ml repo; FIXED by juniper-ml#1133 `b7f7ec20` on 2026-08-17 — verified 2026-08-26, closure below).**
 Freeing the VRAM via the repo's own reaper took down the live cascor service leg: isolated-stack services are launched `( cd … && nohup … & )`, so after the subshell exits they are parentless BY DESIGN — exactly the reaper's orphan predicate (candidate gate: JuniperC-env python; orphan: parent gone/init/systemd). Dry-run listed only forkserver/resource-tracker rows, but the live pass cascaded 145 kills including the service (`52 would be reaped` → `145 reaped`; the dry-run/live delta is itself a gap — children of reaped orphans re-classify mid-pass). The data leg survived only because its venv python path escapes the `JuniperC[a-z0-9]+` gate; canopy (JuniperCanopy1 — gate-matching) survived this pass but is equally exposed. Needs a service-pidfile exclusion (read `${RUN_DIR}/juniper-*.pid`) or a listener-port KEEP gate.
 
@@ -951,10 +990,34 @@ and driven with `JUNIPER_E2E_CANOPY_URL`. It fails **identically**: `painted=Fal
 > **"0 of 2" is n=2.** No artifact for either was ever committed; both survived only as orphaned `/tmp`
 > tempfiles, now recovered to `reports/e2e/_recovered/20260828_census_artifacts/`.
 >
-> **2. Neither census can be tied to a build.** The `:8051` leg log shows 16-line session bursts at each
+> **2. Neither census can be tied to a build — PARTIALLY REVERSED, see the teardown recovery below.** The `:8051` leg log shows 16-line session bursts at each
 > 0-of-5 census timestamp, and **exactly one line per minute** (heartbeat only) through the 0-of-2 and
 > 0-of-1 windows. Those runs drove a second leg whose log a truncating `nohup >` redirect destroyed.
 > **Nothing establishes that the code under test contained either fix.**
+>
+> **2b. RECOVERED AT TEARDOWN (2026-08-30) — the provenance was NOT destroyed, and finding 2 above is
+> too strong.** The claim rested on `/tmp/juniper-e2e/juniper-canopy-ab.log` having been truncated by a
+> `nohup >` redirect. That file was truncated. But **each arc worktree kept its own `logs/system.log`**,
+> ignored by git and therefore invisible to every search the measurement round ran — and about to be
+> deleted by `git worktree remove`, which does not respect `--porcelain`'s blindness to ignored files.
+>
+> `fix/f039-stale-shortcircuit`'s copy (433,745 B) records **7 server starts**, including
+> `:8052` at **19:25:05** and again at **19:37:28**, with request bursts at **19:30** and **19:34** (the
+> two 0-of-2 census sessions), **19:37** (30 lines) and **19:42** (36 lines). So a second leg *was*
+> restarted between the census runs, which is consistent with different builds being loaded and is more
+> than the record previously held.
+>
+> **This does not rescue the census** — the log still does not name a commit, so *which* build each run
+> drove remains unestablished, and findings 1, 3, 4 and 5 are untouched. But "no artifact establishes
+> it" was wrong; the correct statement is "no artifact NAMES the build, though the leg restarts are now
+> visible". All seven worktree logs (2.3 MB) are preserved under
+> `reports/e2e/_recovered/20260827-28_arc_worktree_leg_logs/`.
+>
+> **The methodological point is the durable one.** Three measurement agents, two adversarial agents and
+> a reconciler all searched for this evidence and all missed it, because every one of them searched
+> tracked files, `/tmp`, and git objects — and this lived in an ignored directory inside a worktree
+> queued for deletion. **`git status --porcelain` is blind to ignored files, and `git worktree remove`
+> deletes them.** Harvest ignored `logs/` before any sweep; the sweep is where evidence dies.
 >
 > **3. The stated rationale is false against the artifact it cites.** canopy#537's body justifies the
 > revert with *"its comparison can never fire while `current` is always the empty default."* The cited log

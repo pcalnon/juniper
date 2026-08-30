@@ -1,0 +1,52 @@
+2026-08-28 09:04:58 | system | INFO | None:272 | WebSocketManager initialized: max_connections=50, heartbeat_interval=30s, reconnect_attempts=5, reconnect_delay=2s
+2026-08-28 09:04:59 | system | INFO | None:4380 | Starting server on 127.0.0.1:8052
+2026-08-28 09:04:59 | system | INFO | None:4381 | Debug mode: False
+2026-08-28 09:04:59 | system | INFO | None:4382 | Dashboard available at: http://127.0.0.1:8052/dashboard/
+2026-08-28 09:04:59 | system | INFO | None:4383 | WebSocket endpoint: ws://127.0.0.1:8052/ws
+2026-08-28 09:04:59 | system | INFO | None:4384 | API documentation: http://127.0.0.1:8052/docs
+2026-08-28 09:04:59 | system | INFO | None:219 | Dependency floor check passed (3 juniper-* floor(s) satisfied).
+2026-08-28 09:04:59 | system | WARNING | None:121 | juniper-canopy is running OPEN — no API-key authentication is configured and require_auth is False, so protected routes will serve UNAUTHENTICATED. Set require_auth=True and populate the API-key secret to fail closed in a secured deployment.
+2026-08-28 09:04:59 | system | INFO | None:275 | Starting Juniper Canopy application
+2026-08-28 09:04:59 | system | INFO | None:276 | Settings: server=127.0.0.1:8052, demo=False
+2026-08-28 09:04:59 | system | INFO | None:280 | Event loop captured for thread-safe broadcasting
+2026-08-28 09:04:59 | system | DEBUG | None:282 | Event loop set for WebSocketManager
+2026-08-28 09:05:00 | system | INFO | None:316 | JuniperData reachable at http://127.0.0.1:8101 (45.6ms)
+2026-08-28 09:05:00 | system | INFO | None:326 | JuniperCascor reachable at http://127.0.0.1:8202 (17.5ms)
+2026-08-28 09:05:00 | system | INFO | None:195 | Global training_state synced with cascor: status=Completed, epoch=11, params=23 keys
+2026-08-28 09:05:00 | system | INFO | None:351 | Backend initialized: service
+2026-08-28 09:05:00 | system | INFO | None:370 | WebSocket keepalive heartbeat started (interval=30s, channel=training)
+2026-08-28 09:05:00 | system | INFO | None:374 | Application startup complete
+2026-08-28 09:05:00 | system | DEBUG | None:702 | No active connections for broadcast
+2026-08-28 09:05:05 | system | DEBUG | None:702 | No active connections for broadcast
+2026-08-28 09:05:05 | system | DEBUG | None:702 | No active connections for broadcast
+2026-08-28 09:05:05 | system | DEBUG | None:702 | No active connections for broadcast
+2026-08-28 09:05:10 | system | INFO | None:399 | Client connected: training-client-132303021517840 (Total: 1)
+2026-08-28 09:05:10 | system | INFO | None:399 | Client connected: control-client-132303019962016 (Total: 2)
+2026-08-28 09:05:30 | system | DEBUG | None:764 | Broadcast message #1 to 1 clients (type: ping)
+2026-08-28 09:05:32 | system | DEBUG | None:733 | Received message: pong
+2026-08-28 09:06:00 | system | DEBUG | None:764 | Broadcast message #2 to 1 clients (type: ping)
+2026-08-28 09:06:01 | system | DEBUG | None:733 | Received message: pong
+2026-08-28 09:06:30 | system | DEBUG | None:764 | Broadcast message #3 to 1 clients (type: ping)
+2026-08-28 09:06:31 | system | DEBUG | None:733 | Received message: pong
+2026-08-28 09:07:00 | system | DEBUG | None:764 | Broadcast message #4 to 1 clients (type: ping)
+2026-08-28 09:07:01 | system | DEBUG | None:733 | Received message: pong
+2026-08-28 09:07:30 | system | DEBUG | None:764 | Broadcast message #5 to 1 clients (type: ping)
+2026-08-28 09:07:31 | system | DEBUG | None:733 | Received message: pong
+2026-08-28 09:08:00 | system | DEBUG | None:764 | Broadcast message #6 to 1 clients (type: ping)
+2026-08-28 09:08:01 | system | DEBUG | None:733 | Received message: pong
+2026-08-28 09:08:30 | system | DEBUG | None:764 | Broadcast message #7 to 1 clients (type: ping)
+2026-08-28 09:08:31 | system | DEBUG | None:733 | Received message: pong
+2026-08-28 09:09:00 | system | DEBUG | None:764 | Broadcast message #8 to 1 clients (type: ping)
+2026-08-28 09:09:02 | system | DEBUG | None:733 | Received message: pong
+2026-08-28 09:09:30 | system | DEBUG | None:764 | Broadcast message #9 to 1 clients (type: ping)
+2026-08-28 09:09:32 | system | DEBUG | None:733 | Received message: pong
+2026-08-28 09:09:43 | system | INFO | None:1023 | Control client disconnected: control-client-132303019962016
+2026-08-28 09:09:43 | system | INFO | None:606 | Client disconnected: control-client-132303019962016 (Remaining: 1)
+2026-08-28 09:09:43 | system | INFO | None:740 | Client disconnected: training-client-132303021517840
+2026-08-28 09:09:43 | system | INFO | None:606 | Client disconnected: training-client-132303021517840 (Remaining: 0)
+2026-08-28 09:10:00 | system | DEBUG | None:702 | No active connections for broadcast
+2026-08-28 09:10:19 | system | INFO | None:379 | Shutting down Juniper Canopy application
+2026-08-28 09:10:19 | system | INFO | None:968 | Shutting down WebSocket manager
+2026-08-28 09:10:19 | system | DEBUG | None:702 | No active connections for broadcast
+2026-08-28 09:10:19 | system | INFO | None:983 | WebSocket manager shutdown complete
+2026-08-28 09:10:19 | system | INFO | None:392 | Application shutdown complete
