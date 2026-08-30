@@ -1,0 +1,44 @@
+# E-P: the cap-16 arm of the cascor#582 selection-bias measurement.
+#
+# WHY A SECOND SUITE RATHER THAN AN EDIT TO E-O
+# E-O measured this at cap 4 and found mean optimism +0.0088, sd 0.0323, n=8, 95% CI
+# [-0.0136, +0.0311] -- an interval that INCLUDES ZERO (juniper-ml
+# notes/JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_GATED-MEASUREMENTS-RESULTS.md section 2). That result
+# is kept as the cap-4 record; this is a separate arm, not a replacement, so the two remain
+# independently citable.
+#
+# WHY CAP 16 SPECIFICALLY
+# Selection pressure scales with the number of decisions taken against the validation partition.
+# Cap 4 allows ~4 growth iterations and a handful of early-stopping checks, which is the WEAKEST
+# case -- the cap-4 result is therefore a lower bound, and failing to find an effect at the
+# smallest budget says little about production-scale runs. Cap 16 quadruples the growth iterations
+# and so the number of times the partition is consulted.
+#
+# WHY TWENTY SEEDS
+# Each eval half is ~100 rows, so a single accuracy carries se ~= sqrt(0.25/100) = 0.05 and a
+# paired difference ~0.07. At n=8 the se of the mean was 0.0114 -- too coarse to resolve a
+# single-digit-percentage-point effect. At n=20 it falls to ~0.0072, which resolves an effect of
+# roughly 1.5 pp at 2 se. Below that, this instrument still cannot answer, and the honest report
+# is another interval containing zero.
+#
+# `experiment.seed` is held at 42 across all cells DELIBERATELY: the dataset is the replicate axis,
+# the network initialisation is held fixed, so dataset variation is not confounded with init
+# variation. seed_policy MUST stay `fixed` -- `per_cell` rewrites BOTH seeds to
+# base_seed + cell.index and would silently turn this into a two-factor sweep.
+#
+# Pair with the cascor branch `diag/valsplit-cap16-582` and JUNIPER_DIAG_VAL_SPLIT=1, and collect
+# with util/ad-hoc/2026-08-29_val_split_bias_collect.py.
+schema_version: 1
+suite:
+  name: e-p-val-split-bias-cap16
+  description: "E-P: selection-bias measurement for cascor#582 at cap 16 -- 20 dataset seeds, network seed fixed at 42"
+  app: cascor
+  base_config: [../../../ad-hoc/2026-08-16_h2h_wide_nrot3.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 15600, stall_seconds: 1200}
+matrix:
+  training.params.max_hidden_units: [16]
+  dataset.params.seed: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61]
+  experiment.seed: [42]
+  experiment.description: ["E-P selection-bias probe -- cap 16, network seed 42, dataset seed swept"]
+outputs: {suite_dir: null, aggregate: [csv, markdown]}
