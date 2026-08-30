@@ -14,24 +14,47 @@ Created: 2026-08-26
 Status: ad-hoc -- investigation (T6 tail: make experiment_stack.bash worktree-safe)
 Retire when: RETAINED -- ad-hoc scripts are kept as provenance of record (owner policy 2026-08-25)
 Related: prompts/thread-handoff_automated-prompts/HANDOFF_2026-08-26_t6-rebaseline-complete.md;
-         util/experiment_stack.bash:95 (CASCOR_SRC_DIR, hard-wired to the primary checkout)
+         util/experiment_stack.bash:112 (``CASCOR_SRC_DIR``, overridable via
+         ``JUNIPER_EXP_CASCOR_SRC_DIR`` since ml#1412 -- which THIS probe's result unblocked);
+         util/ad-hoc/2026-08-28_ec_cap64_launch.bash (the pin-aware reference launcher)
 
-Why this exists
----------------
-``experiment_stack.bash`` pins ``CASCOR_SRC_DIR`` to the PRIMARY checkout, so a campaign
-freezes that checkout for its whole life and any session running a stack out of it blocks
-every campaign. The obvious fix -- run the campaign from a pinned worktree -- was talked out
-of on the theory that ``JuniperCascor1``'s editable install would drag imports back to the
-primary. That theory is testable, and this is the test.
+Why this exists -- and what it FOUND
+------------------------------------
+Originally: ``experiment_stack.bash`` pinned ``CASCOR_SRC_DIR`` to the PRIMARY checkout, so a
+campaign froze that checkout for its whole life and any session running a stack out of it
+blocked every campaign. The obvious fix -- run the campaign from a pinned worktree -- was
+talked out of on the theory that ``JuniperCascor1``'s editable install would drag imports back
+to the primary. That theory was testable, and this was the test.
+
+**The theory was REFUTED, and the header above is written in the past tense for that reason.**
+The editable finder registers itself with ``sys.meta_path.append(_EditableFinder)`` -- see
+``__editable___juniper_cascor_0_9_0_finder.py:74-76``, where ``append`` is the operative word:
+it lands AFTER the default ``PathFinder``, so the launcher's CWD wins and the finder only ever
+acts as a fallback. A pinned worktree therefore yields a PURE tree, not a mixed one. ml#1412
+then added the ``JUNIPER_EXP_CASCOR_SRC_DIR`` override that makes a pinned launch expressible.
+
+**Run it anyway rather than trusting that result.** The refutation is a fact about one env's
+install layout, and a rebuilt env, a different interpreter, or a stray ``PYTHONPATH`` can each
+change the answer without announcing it.
+
+What this does NOT retire: the campaign drivers' own freeze logic against the SHARED primary,
+and peer GPU/CPU contention holds -- a module-resolution fact says nothing about contention
+(a concurrent ``clamscan`` was measured at +6.8% on one cell).
 
 It matters which way it falls, because the failure is SILENT: a stack that reads its git sha
 from ``git -C ${CASCOR_SRC_DIR} rev-parse`` reports the worktree's sha in every manifest while
 importing whatever resolution actually chose. That is a vacuous check -- it cannot fail. This
-probe asks the import system instead of asking the label.
+probe asks the import system instead of asking the label. For the same reason the run record
+cannot stand in for it: a pinned run's ``manifest.json`` carries ``git = {}`` and an
+``editable_source`` pointing at the PRIMARY regardless of what actually ran.
 
 Usage
 -----
-    python3 util/ad-hoc/2026-08-26_cascor_import_provenance.py <cascor-src-dir> [--json]
+    # MUST be the JuniperCascor1 interpreter -- that is the env cascor experiments run in,
+    # and the whole question is what THAT env's import system resolves. Bare ``python3``
+    # probes a different env and answers a different question.
+    /opt/miniforge3/envs/JuniperCascor1/bin/python3.13 \
+        util/ad-hoc/2026-08-26_cascor_import_provenance.py <cascor-src-dir> [--json]
 
 Exit 0 = every probed module resolved inside the requested tree; 1 = at least one did not
 (a MIXED tree, which is worse than either pure one); 2 = the directory is unusable.
