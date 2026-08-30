@@ -1,0 +1,203 @@
+{
+  "probe": {
+    "counts": {
+      "input": "0",
+      "hidden": "0",
+      "output": "0",
+      "conn": "0"
+    },
+    "depth_bounds": null
+  },
+  "topodiag": {
+    "verdict": "FAIL",
+    "server": {
+      "input_units": 2,
+      "hidden_units": 10,
+      "output_units": 2,
+      "n_nodes": 14,
+      "n_conns": 89
+    },
+    "counts": {
+      "input": "0",
+      "hidden": "0",
+      "output": "0",
+      "conn": "0"
+    },
+    "traces": 0,
+    "sig": 2,
+    "store": null,
+    "api_hits": 0,
+    "elapsed_s": 241.6,
+    "depth": {
+      "n_thumbs": 1,
+      "now": 0,
+      "min": 0,
+      "max": 10,
+      "num_value": 0,
+      "num_min": 0,
+      "num_max": 10
+    }
+  },
+  "rebuildprobe": {
+    "n_rebuild_posts": 3,
+    "posts": [
+      {
+        "t": 1787925585.7340848,
+        "status": 200,
+        "req_len": 8709,
+        "output": "..network-visualizer-graph.figure...network-visualizer-graph.config...network-visualizer-input-count.children...network-visualizer-hidden-count.children...network-visualizer-output-count.children...network-visualizer-connection-count.children...network-visualizer-topology-hash.data...network-visualizer-new-node-highlight.data..",
+        "parse_error": "'str' object has no attribute 'get'",
+        "resp_len": 39319,
+        "n_traces": 206,
+        "empty_fig": false,
+        "resp_head": "{\"multi\":true,\"response\":{\"network-visualizer-graph\":{\"figure\":{\"data\":[{\"hoverinfo\":\"text\",\"hovertext\":\"Weight: -0.420\",\"line\":{\"color\":\"#e74c3c\",\"width\":1.2610151767730713},\"mode\":\"lines\",\"showlegen"
+      },
+      {
+        "t": 1787925594.6317837,
+        "status": 200,
+        "req_len": 8709,
+        "output": "..network-visualizer-graph.figure...network-visualizer-graph.config...network-visualizer-input-count.children...network-visualizer-hidden-count.children...network-visualizer-output-count.children...network-visualizer-connection-count.children...network-visualizer-topology-hash.data...network-visualizer-new-node-highlight.data..",
+        "parse_error": "'str' object has no attribute 'get'",
+        "resp_len": 39319,
+        "n_traces": 206,
+        "empty_fig": false,
+        "resp_head": "{\"multi\":true,\"response\":{\"network-visualizer-graph\":{\"figure\":{\"data\":[{\"hoverinfo\":\"text\",\"hovertext\":\"Weight: -0.420\",\"line\":{\"color\":\"#e74c3c\",\"width\":1.2610151767730713},\"mode\":\"lines\",\"showlegen"
+      },
+      {
+        "t": 1787925600.6537788,
+        "status": 200,
+        "req_len": 8709,
+        "output": "..network-visualizer-graph.figure...network-visualizer-graph.config...network-visualizer-input-count.children...network-visualizer-hidden-count.children...network-visualizer-output-count.children...network-visualizer-connection-count.children...network-visualizer-topology-hash.data...network-visualizer-new-node-highlight.data..",
+        "parse_error": "'str' object has no attribute 'get'",
+        "resp_len": 39319,
+        "n_traces": 206,
+        "empty_fig": false,
+        "resp_head": "{\"multi\":true,\"response\":{\"network-visualizer-graph\":{\"figure\":{\"data\":[{\"hoverinfo\":\"text\",\"hovertext\":\"Weight: -0.420\",\"line\":{\"color\":\"#e74c3c\",\"width\":1.2610151767730713},\"mode\":\"lines\",\"showlegen"
+      }
+    ],
+    "dom_counts": {
+      "input": "0",
+      "hidden": "0",
+      "output": "0",
+      "conn": "0"
+    },
+    "dom_traces": 0,
+    "dom_sig": 2
+  },
+  "wirecensus": {
+    "total_posts": 166,
+    "distinct": 8,
+    "top": [
+      {
+        "output": "..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-e",
+        "n": 36
+      },
+      {
+        "output": "metrics-panel-metrics-store.data",
+        "n": 36
+      },
+      {
+        "output": "button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491",
+        "n": 36
+      },
+      {
+        "output": "..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..",
+        "n": 12
+      },
+      {
+        "output": "dataset-swap-events-store.data",
+        "n": 12
+      },
+      {
+        "output": "network-visualizer-topology-store.data",
+        "n": 12
+      },
+      {
+        "output": "network-visualizer-raw-topology-store.data",
+        "n": 12
+      },
+      {
+        "output": "..network-visualizer-graph.figure...network-visualizer-graph.config...network-visualizer-input-count.children...network-visualizer-hidden-count.children...network-visualizer-output-count.children...ne",
+        "n": 10
+      }
+    ],
+    "nv_outputs": [
+      "network-visualizer-topology-store.data",
+      "network-visualizer-raw-topology-store.data",
+      "..network-visualizer-graph.figure...network-visualizer-graph.config...network-visualizer-input-count.children...network-visualizer-hidden-count.children...network-visualizer-output-count.children...ne"
+    ],
+    "tabpoll": "<not found>"
+  },
+  "quietread": {
+    "verdict": "FAIL",
+    "wait_s": 90,
+    "counts": {
+      "input": "0",
+      "hidden": "0",
+      "output": "0",
+      "conn": "0"
+    },
+    "traces": 0,
+    "sig": 2
+  },
+  "topo": {
+    "verdict": "BLOCKED",
+    "reason": "graph never painted",
+    "wake": {
+      "already": false,
+      "woke": false,
+      "elapsed_s": 109.5
+    },
+    "server": {
+      "input": "2",
+      "hidden": "10",
+      "output": "2",
+      "conn": "89"
+    }
+  },
+  "storestorm": {
+    "writes": 32,
+    "rate_per_s": 0.53,
+    "identical_consecutive": 31,
+    "no_update": 0,
+    "watch_s": 60,
+    "graph_sig": 2,
+    "counts": {
+      "input": "0",
+      "hidden": "0",
+      "output": "0",
+      "conn": "0"
+    }
+  },
+  "f031": {
+    "verdict": "PASS",
+    "server_total": 28042,
+    "rows": 200,
+    "elapsed_s": 2.0,
+    "status_text": "Showing newest 200 of 28042 snapshot(s)",
+    "empty_state_display": "none",
+    "ctx_menu_attrs": {
+      "row": 200,
+      "id": 200
+    }
+  },
+  "theme": {
+    "verdict": "PASS",
+    "before": {
+      "present": true,
+      "color": "rgb(33, 37, 41)",
+      "bg": "rgb(248, 249, 250)",
+      "border": "rgb(33, 37, 41)",
+      "theme": null
+    },
+    "after": {
+      "present": true,
+      "color": "rgb(233, 236, 239)",
+      "bg": "rgb(45, 45, 45)",
+      "border": "rgb(233, 236, 239)",
+      "theme": null
+    },
+    "elapsed_s": 17.5,
+    "toggle": "dark-mode-toggle"
+  }
+}

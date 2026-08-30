@@ -936,6 +936,100 @@ and driven with `JUNIPER_E2E_CANOPY_URL`. It fails **identically**: `painted=Fal
 > rather than shipped.** Recorded in full because the reasoning was plausible at every step and still
 > ended in the wrong place.
 >
+> ## THE CENSUS THAT CONDEMNED THESE FIXES DOES NOT SUPPORT THE CONCLUSION DRAWN FROM IT (2026-08-30)
+>
+> Re-read under the independent-agent consensus procedure
+> (`JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md`): 3 measurement agents
+> with distinct entry points (ledger text / git+PR history / raw evidence tree), 2 adversarial analysis
+> agents with opposing briefs, every load-bearing single-sourced claim re-derived by the reconciler.
+>
+> **1. "0 of 1" is not a census.** It is ONE session
+> (`reports/e2e/_recovered/.../single_session_runs/f039_fix_check.json`, 534 B) that never went through
+> `util/ad-hoc/e2e_f037_render_census.py` at all. That tool's own header says a fix **"CANNOT be validated
+> by one session"**, and `DEFAULT_SESSIONS = 11` carries the comment *"2/11 vs 11/11 is a claim, 2/11 vs
+> 1/1 is not."* The suppression was discarded on exactly the sample size the tool exists to forbid.
+> **"0 of 2" is n=2.** No artifact for either was ever committed; both survived only as orphaned `/tmp`
+> tempfiles, now recovered to `reports/e2e/_recovered/20260828_census_artifacts/`.
+>
+> **2. Neither census can be tied to a build.** The `:8051` leg log shows 16-line session bursts at each
+> 0-of-5 census timestamp, and **exactly one line per minute** (heartbeat only) through the 0-of-2 and
+> 0-of-1 windows. Those runs drove a second leg whose log a truncating `nohup >` redirect destroyed.
+> **Nothing establishes that the code under test contained either fix.**
+>
+> **3. The stated rationale is false against the artifact it cites.** canopy#537's body justifies the
+> revert with *"its comparison can never fire while `current` is always the empty default."* The cited log
+> is **11 `eq=True` in 15 samples** — the comparison fired, and returned equal, 73% of the time. This is
+> the same head-of-log misreading corrected elsewhere in this entry, except here it was load-bearing for a
+> discard decision.
+>
+> **4. The suppression's source was never staged and is unrecoverable** — no branch, commit, stash,
+> worktree, backup, dangling object, or loose object in the window. Reinstating means rewriting from a
+> twelve-word description, so its next measurement is not comparable to the 0-of-1.
+>
+> **5. The configuration the mechanism predicts would work has never been run.** The short-circuit branch
+> touches only `network_visualizer.py` and its test — `dashboard_manager.py` is untouched in all four of
+> its commits — and the primary checkout sat at `27af847` (no short-circuit) throughout the suppression's
+> test window. Short-circuit shipped alone; suppression was tested alone; **the pair has never been
+> tested together.**
+>
+> ### Where the two adversarial briefs each proved weaker than they looked
+>
+> **Against the revert — "the census was underpowered" is much weaker than it first appears.** P(0 painted
+> | no effect) ≈ 82% at n=1 assumes a *stochastic* null at p=2/11. But the current regime is **0 of 6
+> across two canopy builds** with identical deterministic signatures (`sig=2`, `counts 0/0/0/0`, full
+> 240 s budget), and this ledger already notes the post-fix rate is *more* deterministic than 2/11. Under
+> a deterministic failure n=1 carries far more information than that arithmetic implies. **The baseline
+> the arithmetic is computed against also has no surviving artifact** — the census tool postdates the
+> "2 of 11" claim by two days and cannot have produced it.
+>
+> **For the revert — "the store write demonstrably works" does not survive inspection.** The brief's
+> strongest point is that `depth-slider.max` reads **10** against a layout default of **0** in all ten
+> recovered failing sessions, and its only writer takes the topology store as its sole `Input` — so the
+> write reaches the client. True, and verified. **But that writer is `app.clientside_callback`
+> (`network_visualizer.py:706`) — it runs in the browser with no round trip**, whereas the rebuild is
+> `@app.callback` (`:332`), server-side at 1.5-5 s. A fast clientside consumer landing while a slow
+> server consumer does not is *what supersession predicts*. The observation is consistent with the
+> hypothesis it was offered against.
+>
+> **Also for the revert, and also overstated** — that the blocked rows test a *growing* cascade, where a
+> suppression that "only helps at idle" would be inert. In fact **15 of the 16 blocked M-TOPOLOGY rows are
+> static control rows** (layout selector, show-weights, display mode, view mode, depth slider, stats bar,
+> graph interactions), testable on a completed network — the idle regime where the lever bites hardest.
+> Only M-TOPOLOGY-16 (cascade-add glow) requires growth.
+>
+> **Against the revert, and also weaker than argued** — that the identical fix is already shipped on the
+> sibling store, so the codebase ratified the principle. It shipped
+> (`dashboard_manager.py:6783-6790`, whose comment names "the 8-output topology renderer" as a harmed
+> consumer) — **but it is INERT**: F-CANOPY-038 measured **zero** `no_update` in 32 writes, and the
+> 2026-08-29 metrics probe explains why (`current_metrics` is always `[]`, so the comparison is always
+> False). The precedent is a fix that never fires. *Note the asymmetry that makes the topology case
+> different, and better:* the topology store's client copy **converges** (11 of 15 `eq=True`), so a
+> suppression there **would** fire — the probe log is direct evidence its precondition held on 11
+> consecutive ticks.
+>
+> ### Disposition
+>
+> **The revert is not supported by its evidence, and the supersession hypothesis is NOT refuted.** It was
+> discarded on one session, against an untraceable baseline, on a build that cannot be identified, for a
+> stated reason that its own cited artifact contradicts.
+>
+> **This is not licence to reinstate.** The implementation is gone, so any reinstatement is a rewrite; and
+> the newest instrumentation (see the OVERTURNED block) shows the rebuild receiving correct data and its
+> response never being applied, which supersession explains but does not uniquely explain — a pure
+> dash-renderer apply failure fits equally, and the one runtime manipulation that discriminates them
+> (disabling `tabpoll-topology`) is itself n=1.
+>
+> **The owed experiment is specific:** rewrite the suppression (five edit sites — `dashboard_manager.py`
+> `:3924` add the `State`, `:3959`/`:3966` thread it as `current=`, `:6797` extend the signature, `:6829`
+> add the guard), run it **together with #537's short-circuit** — the pair never yet tested — at
+> **N >= 11**, and record the canopy commit in the census artifact, which no census in this arc has ever
+> done.
+>
+> **Correction of record:** the sentence below says both fixes were "reverted rather than shipped". The
+> short-circuit **shipped** — `c0c873c` is an ancestor of canopy `main` (canopy#537, merged 2026-08-29).
+> Only the suppression was reverted.
+>
+
 > The discriminating test *appeared* to confirm supersession: disabling `tabpoll-topology` at runtime made
 > the graph paint immediately (traces 0 -> 181, sig 2 -> **31152**, byte-identical to F-CANOPY-037's two
 > painting sessions). But two fixes derived from it both failed a live census — the stale-identifier
