@@ -41,7 +41,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CROSSCHECK = REPO_ROOT / "util" / "ad-hoc" / "duplicati_dlist_crosscheck.py"
 DECRYPT_ALL = REPO_ROOT / "util" / "ad-hoc" / "duplicati_decrypt_validate_all.bash"
 SCRIPT_TIMEOUT_SECONDS = 10
-SCRATCH_MOUNT = "/media/pcalnon/temp_backups"
+# The mount both harnesses used to assert unconditionally. It is now only ever used as a
+# NEGATIVE fixture: the gate must follow --dest / $1, so declaring *this* path mounted while
+# the destination is elsewhere has to REFUSE. Before 2026-08-30 it made both tools pass
+# regardless of the destination, and -- since sdc4 is not in fstab -- would have made them
+# refuse every destination after a reboot (note 8.20.3).
+LEGACY_SCRATCH_MOUNT = "/media/pcalnon/temp_backups"
 FIXTURE_VALUE = "restore-integrity-fixture-VALUE"
 OLD_FIXTURE_VALUE = "old-archive-fixture-VALUE"
 BLOCKSIZE = 1024 * 1024
@@ -109,6 +114,9 @@ class CrosscheckHarness:
 
     def __init__(self, tmp: Path) -> None:
         self.tmp = tmp
+        # The temp root stands in for the destination's real mountpoint, so the derived
+        # walk-up guard has something to find. Nothing here names a real filesystem.
+        self.mount_root = os.path.realpath(str(tmp))
         self.dest = tmp / "dest"
         self.work = tmp / "work"
         self.dest.mkdir()
@@ -126,11 +134,21 @@ class CrosscheckHarness:
     def fingerprint(self) -> dict[str, tuple[int, int, bytes]]:
         return _dest_fingerprint(self.dest)
 
-    def run(self, *, mounted: bool = True, extra_argv: list[str] | None = None, workdir: Path | None = None) -> tuple[int, str, str]:
+    def run(
+        self,
+        *,
+        mounted: bool = True,
+        extra_argv: list[str] | None = None,
+        workdir: Path | None = None,
+        mount_root: str | None = None,
+        omit_workdir: bool = False,
+        omit_dest: bool = False,
+    ) -> tuple[int, str, str]:
         work = workdir if workdir is not None else self.work
+        fake_mount = self.mount_root if mount_root is None else mount_root
 
         def ismount(path: str) -> bool:
-            return mounted and path == SCRATCH_MOUNT
+            return mounted and os.path.realpath(path) == fake_mount
 
         def gpg_decrypt(src: str, dst: str, passphrase: str) -> None:
             name = os.path.basename(src)
@@ -138,15 +156,12 @@ class CrosscheckHarness:
                 raise AssertionError(f"unexpected decrypt of {name}")
             Path(dst).write_bytes(self.payloads[name])
 
-        argv = [
-            "duplicati_dlist_crosscheck.py",
-            "--dest",
-            str(self.dest),
-            "--workdir",
-            str(work),
-            "--cred-file",
-            str(self.cred),
-        ]
+        argv = ["duplicati_dlist_crosscheck.py"]
+        if not omit_dest:
+            argv.extend(["--dest", str(self.dest)])
+        if not omit_workdir:
+            argv.extend(["--workdir", str(work)])
+        argv.extend(["--cred-file", str(self.cred)])
         if extra_argv:
             argv.extend(extra_argv)
         stdout = io.StringIO()
@@ -181,11 +196,19 @@ class DecryptAllHarness:
         self.stdin_log = tmp / "gpg-stdin.log"
         self.mount_ok = tmp / "mount_ok"
         self.mount_ok.write_text("1", encoding="utf-8")
+        # The ONE path the stub reports as a mountpoint. The script derives its guard by
+        # walking up from DEST, so this is what makes "the gate follows the destination"
+        # testable: point it at LEGACY_SCRATCH_MOUNT with a dest elsewhere and the run must
+        # be refused -- which is exactly the case the old hardcoded gate let through.
+        self.fake_mount = tmp / "fake_mount"
+        self.fake_mount.write_text(os.path.realpath(str(tmp)), encoding="utf-8")
         _write_executable(
             self.bin / "mountpoint",
             f"""\
             #!/usr/bin/env bash
-            if [[ -f "{self.mount_ok}" ]]; then exit 0; fi
+            # stub: `mountpoint -q PATH` succeeds only for the one designated path
+            [[ -f "{self.mount_ok}" ]] || exit 1
+            [[ "$2" == "$(cat "{self.fake_mount}")" ]] && exit 0
             exit 1
             """,
         )
@@ -205,9 +228,12 @@ class DecryptAllHarness:
     def env(self) -> RedactedEnv:
         return RedactedEnv(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}")
 
-    def run(self, dest: Path | None = None, cred: Path | None = None) -> subprocess.CompletedProcess[str]:
+    def run(self, dest: Path | None = None, cred: Path | None = None, *, no_args: bool = False) -> subprocess.CompletedProcess[str]:
+        argv = ["bash", str(DECRYPT_ALL)]
+        if not no_args:
+            argv.extend([str(dest if dest is not None else self.dest), str(cred if cred is not None else self.cred)])
         return subprocess.run(
-            ["bash", str(DECRYPT_ALL), str(dest if dest is not None else self.dest), str(cred if cred is not None else self.cred)],
+            argv,
             capture_output=True,
             text=True,
             env=self.env(),
@@ -223,15 +249,59 @@ class TestDecryptValidateAllSyntax(unittest.TestCase):
 
 
 class TestDecryptValidateAllPreflight(unittest.TestCase):
-    def test_unmounted_scratch_refuses(self) -> None:
+    def test_unmounted_destination_refuses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             h = DecryptAllHarness(Path(tmp))
             h.mount_ok.unlink()
             before = _dest_fingerprint(h.dest)
             result = h.run()
             self.assertEqual(result.returncode, 2, msg=result.stderr + result.stdout)
-            self.assertIn("not mounted", result.stderr)
+            self.assertIn("not on a mounted filesystem", result.stderr)
             self.assertEqual(_dest_fingerprint(h.dest), before)
+
+    def test_mount_gate_follows_the_destination_not_the_legacy_scratch_path(self) -> None:
+        """The gate must derive from $1, not assert a filesystem $1 cannot influence.
+
+        Regression pin for note 8.20.3. The stub reports ONLY the old hardcoded
+        ``/media/pcalnon/temp_backups`` as a mountpoint while the destination lives
+        elsewhere -- the exact shape of a post-reboot run against the live sda1 set.
+        The pre-2026-08-30 script passed this preflight (it never looked at $1) and
+        went on to validate whatever it was pointed at; it must now refuse.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            h = DecryptAllHarness(Path(tmp))
+            h.fake_mount.write_text(LEGACY_SCRATCH_MOUNT, encoding="utf-8")
+            (h.dest / "ok.gpg").write_bytes(b"cipher-ok")
+            result = h.run()
+            self.assertEqual(result.returncode, 2, msg=result.stderr + result.stdout)
+            self.assertIn("not on a mounted filesystem", result.stderr)
+            self.assertNotIn("DECRYPT-VALID", result.stdout)
+            self.assertFalse(h.argv_log.exists(), "refused preflight must not decrypt anything")
+
+    def test_missing_dest_argument_refuses_with_usage(self) -> None:
+        """No default destination: a bare run must not silently pick a stale path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            h = DecryptAllHarness(Path(tmp))
+            result = h.run(no_args=True)
+            self.assertEqual(result.returncode, 2, msg=result.stderr + result.stdout)
+            self.assertIn("usage:", result.stderr)
+            self.assertIn("REQUIRED", result.stderr)
+
+    def test_zero_volumes_is_operational_failure_not_a_clean_pass(self) -> None:
+        """An empty destination must not read as ALL VOLUMES DECRYPT-VALID.
+
+        Found while de-drifting the mount gate: the loop simply never ran, so
+        ``total=0, bad=0`` fell through to the success branch and exit 0. That is a
+        vacuous pass, and it is what an unmounted, mistyped, or wrong-``ENCRYPTION``
+        destination looks like -- the very condition the hardcoded mount gate had been
+        the accidental proxy for.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            h = DecryptAllHarness(Path(tmp))
+            result = h.run()
+            self.assertEqual(result.returncode, 2, msg=result.stderr + result.stdout)
+            self.assertIn("NO VOLUMES FOUND", result.stdout)
+            self.assertNotIn("ALL VOLUMES DECRYPT-VALID", result.stdout)
 
     def test_missing_destination_refuses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -320,14 +390,65 @@ class TestDlistCrosscheckPassphrase(unittest.TestCase):
 
 
 class TestDlistCrosscheckPreflight(unittest.TestCase):
-    def test_unmounted_scratch_refuses_before_listing_dest(self) -> None:
+    def test_unmounted_destination_refuses_before_listing_dest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             h = CrosscheckHarness(Path(tmp))
             before = h.fingerprint()
             code, _out, err = h.run(mounted=False)
             self.assertEqual(code, 2)
-            self.assertIn("not a mountpoint", err)
+            self.assertIn("not on a mounted filesystem", err)
             self.assertEqual(h.fingerprint(), before)
+
+    def test_mount_gate_follows_the_destination_not_the_legacy_scratch_path(self) -> None:
+        """The gate must derive from --dest, not assert a filesystem --dest cannot influence.
+
+        Regression pin for note 8.20.3, mirroring the bash harness test of the same
+        name. Only the old hardcoded ``/media/pcalnon/temp_backups`` is reported
+        mounted, while the destination is elsewhere -- the shape of every run once
+        sdc4 (not in fstab) is gone. The pre-2026-08-30 script passed this preflight
+        without ever consulting --dest.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            h = CrosscheckHarness(Path(tmp))
+            before = h.fingerprint()
+            code, out, err = h.run(mount_root=LEGACY_SCRATCH_MOUNT)
+            self.assertEqual(code, 2, msg=out + err)
+            self.assertIn("not on a mounted filesystem", err)
+            self.assertNotIn("COMPLETE COVERAGE", out)
+            self.assertEqual(h.fingerprint(), before)
+
+    def test_dest_is_required(self) -> None:
+        """No default destination: a bare run must not cross-check a stale fileset."""
+        with tempfile.TemporaryDirectory() as tmp:
+            h = CrosscheckHarness(Path(tmp))
+            code, _out, err = h.run(omit_dest=True)
+            self.assertEqual(code, 2)
+            self.assertIn("--dest", err)
+
+    def test_default_workdir_is_a_private_tempdir_outside_dest(self) -> None:
+        """Omitting --workdir must not fall back to a hardcoded scratch path.
+
+        The old default (``/media/pcalnon/temp_backups/_fresh_dlist_check``) dies with
+        sdc4. The replacement is a generated temp dir registered for removal, so there
+        is no path left that can rot.
+        """
+        content = _b64(_hash32("content"))
+        meta = _b64(_hash32("meta"))
+        with tempfile.TemporaryDirectory() as tmp:
+            h = CrosscheckHarness(Path(tmp))
+            h.payloads[h.dindex] = _dindex_zip(vol_name=h.dblock, hashes=[content, meta])
+            h.payloads[h.dlist] = _dlist_zip(files=[{"type": "File", "path": "/tmp/a.txt", "size": 100, "hash": content, "metahash": meta, "metasize": 64}])
+            registered: list[tuple] = []
+            with mock.patch.object(crosscheck.atexit, "register", lambda *a: registered.append(a)):
+                code, out, err = h.run(omit_workdir=True)
+            self.assertEqual(code, 0, msg=out + err)
+            self.assertIn("COMPLETE COVERAGE", out)
+            workdir = next(line.split(":", 1)[1].split("(mount")[0].strip() for line in out.splitlines() if line.startswith("workdir"))
+            self.assertTrue(os.path.basename(workdir).startswith("dlist-crosscheck-"), workdir)
+            self.assertFalse(workdir.startswith(str(h.dest)), "temp workdir must not be inside the destination")
+            self.assertNotIn(LEGACY_SCRATCH_MOUNT, workdir)
+            self.assertEqual(registered, [(crosscheck.shutil.rmtree, workdir, True)])
+            crosscheck.shutil.rmtree(workdir, True)
 
     def test_workdir_inside_dest_refuses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
