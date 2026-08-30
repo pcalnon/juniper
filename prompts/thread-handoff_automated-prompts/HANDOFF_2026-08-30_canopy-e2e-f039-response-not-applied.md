@@ -124,9 +124,14 @@ arc has already paid for three times.
 
 ## Standing constraints — these have all drawn blood
 
-- **`isolated_stack.bash --down` stops port `${RECURRENCE_PORT}` (default 8211) unconditionally and,
-  unlike `--up`, with no pre-check.** 8211 is the DEPLOY container. Stop the trio by pid instead. It
-  also `rm -f`s `${CANOPY_SRC_DIR}/snapshots/snapshot_*.h5` from the primary.
+- **`isolated_stack.bash --down` stops `${RECURRENCE_PORT}` (default 8211) unconditionally where `--up`
+  refuses on collision — but the blast radius is NARROWER than earlier handoffs claimed, and this one
+  corrects them.** Measured 2026-08-30: `port_pid` resolves via `ss -tlnpH`, which returns **empty** for
+  the deploy container's 8211 (published from another namespace), so `stop_port` logs "nothing listening"
+  and kills nothing. "`--down` will kill the deploy container" is **false as configured**; the risk is
+  conditional on pid visibility (root, host-namespace runtime, or a non-container squatter). Registered
+  as **F-ML-002**. Stopping by pid is still the safer habit, and `--down` also `rm -f`s
+  `${CANOPY_SRC_DIR}/snapshots/snapshot_*.h5` from the primary, which is unconditional and real.
 - **The sweep is where evidence dies.** Every arc worktree held a 203-434 KB ignored `logs/system.log`;
   `git status --porcelain` cannot see them and `git worktree remove` deletes them. One of those logs
   turned out to carry the leg provenance a five-agent review had just declared destroyed. **Harvest

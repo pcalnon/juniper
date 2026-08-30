@@ -158,6 +158,45 @@ End-to-end isolation, all captured live on run 2's completed 10-unit network: (1
 **F-CASCOR-001 — CUDA OOM in candidate seeding is classified "Completed — stalled (0 new units)" instead of an error state (P1, cascor repo, OPEN; filed as juniper-cascor#590 on 2026-08-26).**
 W1 run 1: every `CandidateUnit` construction raised `torch.AcceleratorError: CUDA error: out of memory` at `candidate_unit.py:333`/`:392` (`torch.rand(1, device="cuda")` seed-roll) via `train_candidate_worker` (`cascade_correlation.py:3270`) — repeated per candidate — and the run transitioned `Started -> Completed` with the stall label. The UI surfaced cascor's classification faithfully (`Status: Completed — stalled (0 new units)` — honest-label plumbing WORKS, plan §7.3), but a hard environmental failure is indistinguishable from a legitimate correlation stall at every surface. Host cause: 7563/8192 MiB VRAM pinned by ~50 orphaned `JuniperCascor1` forkserver workers (the known orphan class). **Filed as [juniper-cascor#590](https://github.com/pcalnon/juniper-cascor/issues/590) on 2026-08-26** with the current anchors (`src/candidate_unit/candidate_unit.py:352` seed-roll; `cascade_correlation.py:3436` `train_candidate_worker`; `manager.py` ~`:2596` `completion_reason`, whose enumeration has no error value) and a proposed `candidate_error` completion reason / FAILED terminal state.
 
+**F-ML-002 — `isolated_stack.bash --down` stops `${RECURRENCE_PORT}` unconditionally where `--up` refuses on collision; the in-source safety argument is unsound, though the blast radius is NARROWER than this arc has been claiming (P2, juniper-ml repo; OPEN; found 2026-08-30 at arc teardown).**
+
+`do_down` (`util/isolated_stack.bash:466-469`) calls `stop_port "${RECURRENCE_PORT}"` — default **8211** —
+with no occupancy check, justified in-source by:
+
+> the recurrence stop is unconditional (idempotent when the leg was never started — `stop_port` logs
+> "nothing listening"), so `--down` does not need to know whether `--up` ran with `--with-recurrence`.
+
+**That argument is unsound as written.** It assumes two states — our leg running, or nothing listening —
+and omits the third: *someone else* listening. `stop_port` (`:398-409`) kills whatever pid holds the
+port; it cannot tell whose it is. And `--up` knows this: `recurrence_port_precheck` (`:310-318`) refuses
+to start the leg when 8211 is occupied, naming the cause — *"likely the juniper-deploy stack (host 8211
+-> recurrence container 8210)"*. **The up path guards the collision the down path ignores.**
+
+**BUT — measured, and this corrects an overstatement this arc has repeated in the ledger, two handoffs
+and a peer message.** `port_pid` (`:179-183`) resolves the pid via `ss -tlnpH "sport = :PORT"`, and on
+this host that returns **empty** for 8211: the deploy container publishes through a proxy in another
+namespace, so `ss` attributes no pid to it for this user. `stop_port` therefore logs "nothing listening"
+and **kills nothing**. The claim "`--down` will kill the deploy container" is **not true as configured**.
+
+**The accurate statement:** the missing pre-check is a real asymmetry, and the risk is *conditional on
+pid visibility* — it would bite where `ss` does attribute a pid to the collider (running as root, a
+runtime that publishes in the host namespace, or a non-container process squatting 8211). It is a latent
+correctness defect, not the live container-killer it was described as.
+
+**How the overstatement propagated, which is the more useful half.** It entered as a hazard line in a
+handoff, was carried forward verbatim into the next handoff and the ledger, was repeated to a peer
+session, and was acted on — this session stopped the trio by pid *specifically to avoid it*. Stopping by
+pid was correct and harmless, but the reason given for it was not verified until after the fact. **Nobody
+ran the one command that checks it** (`ss -tlnpH "sport = :8211" | grep -oE 'pid=[0-9]+'`) across four
+documents and two sessions. Same shape as the arc's other propagated errors: a claim quoted forward
+rather than re-derived, with the check costing one command.
+
+**Fix (not applied here):** give `do_down` the same occupancy discrimination `--up` already has — skip
+the recurrence stop unless the listener is ours (run-dir pidfile, or cmdline referencing the run root,
+matching the two protection keys `reap_pytest_orphans.bash` uses). Until then, prefer stopping legs by
+pid.
+
+
 **F-ML-001 — `util/reap_pytest_orphans.bash` kills nohup-detached isolated-stack services (P1, juniper-ml repo; FIXED by juniper-ml#1133 `b7f7ec20` on 2026-08-17 — verified 2026-08-26, closure below).**
 Freeing the VRAM via the repo's own reaper took down the live cascor service leg: isolated-stack services are launched `( cd … && nohup … & )`, so after the subshell exits they are parentless BY DESIGN — exactly the reaper's orphan predicate (candidate gate: JuniperC-env python; orphan: parent gone/init/systemd). Dry-run listed only forkserver/resource-tracker rows, but the live pass cascaded 145 kills including the service (`52 would be reaped` → `145 reaped`; the dry-run/live delta is itself a gap — children of reaped orphans re-classify mid-pass). The data leg survived only because its venv python path escapes the `JuniperC[a-z0-9]+` gate; canopy (JuniperCanopy1 — gate-matching) survived this pass but is equally exposed. Needs a service-pidfile exclusion (read `${RUN_DIR}/juniper-*.pid`) or a listener-port KEEP gate.
 
