@@ -397,7 +397,7 @@ Timers fire every 30 seconds (OnActiveSec=30, OnUnitActiveSec=30, AccuracySec=5s
 One-shot units run health_check_systemd.sh, query /v1/health/ready endpoint, parse JSON,
 output structured results to journal. Non-zero exit enables OnFailure= triggers.
 
-### JR-ML-DEP-022 — Decision**: Bind to `127.0.0.1:8200` (settings default).
+### JR-ML-DEP-022 — **Decision**: Bind to `127.0.0.1:8200` (settings default).
 
 **Status**: proposed  **Priority**: P2  **Category**: DEP  **Owner**: ml
 
@@ -412,7 +412,7 @@ output structured results to journal. Non-zero exit enables OnFailure= triggers.
 
 [v3 brief repaired from cited content; was: '2.1 juniper-cascor bind address']
 
-### JR-ML-DEP-023 — Deployment choice**: User units (`~/.config/systemd/user/`) vs system units (`/etc/systemd/system/`).
+### JR-ML-DEP-023 — **Deployment choice**: User units (`~/.config/systemd/user/`) vs system units (`/etc/systemd/system/`).
 
 **Status**: proposed  **Priority**: P2  **Category**: DEP  **Owner**: ml
 
@@ -482,7 +482,7 @@ ISS-10 MODERATE. Multiple metrics_panel.py locations use hardcoded http://localh
 
 Identified by v4. Validation found 4 additional hardcoded localhost URLs beyond initial 2 identified.
 
-### JR-ML-DEP-027 — Image availability**: k3s uses containerd, not Docker. Images built with Docker must be imported:.
+### JR-ML-DEP-027 — **Image availability**: k3s uses containerd, not Docker. Images built with Docker must be imported:.
 
 **Status**: proposed  **Priority**: P2  **Category**: DEP  **Owner**: ml
 
@@ -665,7 +665,7 @@ There is no unified multi-service startup mechanism. Each service is started ind
 
 [v3 brief repaired from cited content; was: '2.1 Current State']
 
-### JR-ML-DEP-041 — Training control** (called from `/ws/control` handler and Dash callbacks):.
+### JR-ML-DEP-041 — Training control (called from `/ws/control` handler and Dash callbacks):.
 
 **Status**: proposed  **Priority**: P2  **Category**: DEP  **Owner**: ml
 

@@ -93,7 +93,7 @@ Foundational data contract enforced by E2E tests.
 
 *Merged from 2 extraction candidates (slices: 3c-2b).*
 
-### JR-ML-DATA-003 — Impact**: `FakeDataClient` masks this — unit tests pass but real server requests fail with 400
+### JR-ML-DATA-003 — **Impact**: `FakeDataClient` masks this — unit tests pass but real server requests fail with 400
 
 **Status**: proposed  **Priority**: P0  **Category**: DATA  **Owner**: ml
 
@@ -147,7 +147,7 @@ Critical integration plan Phase 0 (CRITICAL): Replace local client with shared p
 
 - `juniper-data/notes/history/pull_requests/PR_DESCRIPTION_POST_REFACTOR_v0.24.0_2026-01-11.md` (lines 1-50)
 
-### JR-ML-DATA-004 — Deferred items**: RD-008 (SIM117 test fixes), RD-015 (IPC/ZeroMQ), RD-016 (GPU), RD-017 (continuous profiling)
+### JR-ML-DATA-004 — **Deferred items**: RD-008 (SIM117 test fixes), RD-015 (IPC/ZeroMQ), RD-016 (GPU), RD-017 (continuous profiling)
 
 **Status**: deferred  **Priority**: P1  **Category**: DATA  **Owner**: ml
 
@@ -273,7 +273,7 @@ test_websocket_topology_push.py — New integration test
 
 [2026-08-29 brief repaired from cited content; was: '"""cascade_add WebSocket message must trigger topology broadcast."""']
 
-### JR-ML-DATA-011 — 2.4.1 Fix `wait_for_ready()`** (`client.py:86`)
+### JR-ML-DATA-011 — 2.4.1 Fix `wait_for_ready()` (`client.py:86`)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
@@ -396,7 +396,7 @@ MAX_MAX_ITERATIONS: Final[int] = 100000
 
 [v3 brief repaired from cited content; was: 'Low Issues']
 
-### JR-ML-DATA-018 — H-JDC-2: PATCH excluded from retry allowed_methods** (`client.py:101`)
+### JR-ML-DATA-018 — H-JDC-2: PATCH excluded from retry allowed_methods (`client.py:101`)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
@@ -539,7 +539,7 @@ MAX_MAX_ITERATIONS: Final[int] = 100000
 
 [v3 brief repaired from cited content; was: '1.3 juniper-data-client: Version Alignment']
 
-### JR-ML-DATA-031 — M-ML-1: `test_worktree_cleanup.py` not run in CI** (`ci.yml:109-110`)
+### JR-ML-DATA-031 — M-ML-1: `test_worktree_cleanup.py` not run in CI (`ci.yml:109-110`)
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
@@ -628,7 +628,7 @@ CAN-HIGH-002; HIGH priority post-release item; marked PARTIALLY IMPLEMENTED.
 
 1. Create retroactive git tags for v0.2.1 and v0.3.0
 
-### JR-ML-DATA-036 — Repositories**: juniper-data, juniper-data-client
+### JR-ML-DATA-036 — **Repositories**: juniper-data, juniper-data-client
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 
@@ -676,7 +676,7 @@ Several `CascorServiceAdapter` methods catch only `JuniperCascorClientError`, wh
 
 [v3 brief repaired from cited content; was: '7.4 `absent_over_time(...) == 0` inertness guards']
 
-### JR-ML-DATA-039 — Version**: 0.4.0 | **Python**: ≥3.12 | **Dependencies**: numpy≥1.24, requests≥2.28, urllib3≥2.0
+### JR-ML-DATA-039 — **Version**: 0.4.0 | **Python**: ≥3.12 | **Dependencies**: numpy≥1.24, requests≥2.28, urllib3≥2.0
 
 **Status**: proposed  **Priority**: P2  **Category**: DATA  **Owner**: ml
 

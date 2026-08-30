@@ -209,7 +209,7 @@ point configuration to provisioning.
 
 [v3 brief repaired from cited content; was: '3.1 SLO catalog target calibration against soak-window data']
 
-### JR-ML-OBS-010 — Impact.** The juniper-data dashboard panel "Cached Datasets".
+### JR-ML-OBS-010 — Impact. The juniper-data dashboard panel "Cached Datasets".
 
 **Status**: proposed  **Priority**: P0  **Category**: OBS  **Owner**: ml
 
@@ -394,7 +394,7 @@ Tentative pending R5.1 SLO design. Bucket rationale documented for each boundary
 
 RD-001 complete 2026-02-24. Only B008 warnings remain. v0.5.0 scope updated.
 
-### JR-ML-OBS-018 — Strengths**: Near-real-time topology updates, no additional REST calls, leverages existing WebSocket infrastructure.
+### JR-ML-OBS-018 — **Strengths**: Near-real-time topology updates, no additional REST calls, leverages existing WebSocket infrastructure.
 
 **Status**: shipped  **Priority**: P1  **Category**: OBS  **Owner**: ml
 
@@ -643,7 +643,7 @@ Settings: audit_log_path, audit_log_retention_days.
 
 IMPL-SEC-32..35. Configurable path and retention. Phase B-pre (Day 6). M-SEC-10 consolidation per R1-03.
 
-### JR-ML-OBS-034 — canopy work was already implemented** in the months between the 2026-04-08.
+### JR-ML-OBS-034 — canopy work was already implemented in the months between the 2026-04-08.
 
 **Status**: proposed  **Priority**: P1  **Category**: OBS  **Owner**: ml
 
@@ -1050,7 +1050,7 @@ optional integration with soft-fail on missing libraries.
 
 cause: the pre-METRICS-MON observability scaffolding in
 
-### JR-ML-OBS-051 — Source-of-truth:** `juniper-deploy/prometheus/alert_rules.yml` (1146 lines).
+### JR-ML-OBS-051 — **Source-of-truth:** `juniper-deploy/prometheus/alert_rules.yml` (1146 lines).
 
 **Status**: shipped  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -1225,7 +1225,7 @@ mock_requests.get.return_value = Mock(ok=False, status_code=503)
 
 **File:** `src/frontend/components/metrics_panel.py`, `src/frontend/dashboard_manager.py`
 
-### JR-ML-OBS-065 — 5 fast/slow pairs = 10 MWMBR rules** of the 16 page+ticket count;.
+### JR-ML-OBS-065 — 5 fast/slow pairs = 10 MWMBR rules of the 16 page+ticket count;.
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -1697,7 +1697,7 @@ Extract to plot_utils.py or equivalent shared module.
 
 [v3 brief repaired from cited content; was: 'Root Cause']
 
-### JR-ML-OBS-093 — File**: `juniper-canopy/src/backend/cascor_service_adapter.py`.
+### JR-ML-OBS-093 — **File**: `juniper-canopy/src/backend/cascor_service_adapter.py`.
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -1816,7 +1816,7 @@ JuniperCanopy implements a two-mode activation system in `src/main.py` (lines 21
 
 [v3 brief repaired from cited content; was: '3.1 Current Implementation']
 
-### JR-ML-OBS-101 — M-JD-1: Sentry PII enabled by default** (`observability.py:139`).
+### JR-ML-OBS-101 — M-JD-1: Sentry PII enabled by default (`observability.py:139`).
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -1942,7 +1942,7 @@ Settled position C-37 from R3-03 table; cross-round consensus consolidation
 
 | **3.2** | juniper-deploy | Alertmanager `tickets` receiver is a placeholder | Open small PR wiring real notification config (webhook/email/Slack); decide
 
-### JR-ML-OBS-110 — panels (**STALE — see §15 unexpected findings; metric family removed.
+### JR-ML-OBS-110 — panels (STALE — see §15 unexpected findings; metric family removed.
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -2150,7 +2150,7 @@ Establish shared observability library.
 
 [v3 brief repaired from cited content; was: 'Evidence']
 
-### JR-ML-OBS-126 — Risk**: Low-Medium. systemd is well-understood, but conda integration adds complexity.
+### JR-ML-OBS-126 — **Risk**: Low-Medium. systemd is well-understood, but conda integration adds complexity.
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -2213,7 +2213,7 @@ INF-004 MEDIUM (P2). ci.yml:320.
 
 - `juniper-data/juniper_data/api/observability.py` (juniper-data `88149bf`)
 
-### JR-ML-OBS-130 — Source-of-truth:** `juniper-deploy/alertmanager/alertmanager.yml` (154 lines).
+### JR-ML-OBS-130 — **Source-of-truth:** `juniper-deploy/alertmanager/alertmanager.yml` (154 lines).
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -2239,7 +2239,7 @@ Three ServiceMonitor templates: `data-servicemonitor.yaml`,
 
 1. **Phase 6 training improvements**: Constants, demo_mode algorithm changes, demo_backend, phase6 tests
 
-### JR-ML-OBS-132 — Strengths**: Comprehensive fix, prevents the same class of bug across all tabs.
+### JR-ML-OBS-132 — **Strengths**: Comprehensive fix, prevents the same class of bug across all tabs.
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -2302,7 +2302,7 @@ F2.7: History shall record swap with timestamp + before/after cfg. F2.8: Snapsho
 
 Persistence schema TBD during review.
 
-### JR-ML-OBS-135 — Trigger / due date.** No fixed date — fires off CALIB-01 ratification, expected mid- to late-June 2026.
+### JR-ML-OBS-135 — Trigger / due date. No fixed date — fires off CALIB-01 ratification, expected mid- to late-June 2026.
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -2339,7 +2339,7 @@ Persistence schema TBD during review.
 **Sources**:
 - `juniper-cascor/notes/development/JUNIPER-CASCOR_POST-RELEASE_DEVELOPMENT-ROADMAP.md` (lines 870-874)
 
-### JR-ML-OBS-137 — Weaknesses**: Additional REST call for raw format, two stores to maintain.
+### JR-ML-OBS-137 — **Weaknesses**: Additional REST call for raw format, two stores to maintain.
 
 **Status**: proposed  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
