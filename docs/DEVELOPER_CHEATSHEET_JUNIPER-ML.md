@@ -223,6 +223,8 @@ npz = client.download_artifact_npz(dataset_id)
 
 Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`, `mnist`, `arc_agi`
 
+REST `base_url` (data / cascor / recurrence HTTP clients on GitHub main): strip, case-insensitive `http(s)://` default, require `hostname` (not `netloc`), drop trailing `/` and `/v1`. Hostless values raise `Juniper*ConfigurationError` at init. Cascor WS streams (`CascorTrainingStream` / `CascorControlStream`) and `FakeCascorClient` stay `rstrip("/")` only. Extras floors do not yet require the new wheels — see [REFERENCE — HTTP Client Base-URL](REFERENCE.md#http-client-base-url-contract).
+
 ---
 
 ## CI/CD
@@ -557,6 +559,8 @@ Tip: a renderer `ValueError` is a per-plot SKIP (exit `0`, no PNG); missing matp
 
 Tip: juniper-service-core invariants — `RequestBodyLimitMiddleware` always stream-caps POST/PUT/PATCH (`Content-Length` is a hint only); auth runs before rate limiting and 429s must pass `exc.headers` through; control-WS reject logs stay single-line via `_sanitize_for_log`; `ws_control_rate_limit_per_sec=0` yields `retry_after=3600` instead of dividing by zero; `/ws/workers` closes **4001** on bad auth and **4008** on a bad registration shape. See [REFERENCE — juniper-service-core](REFERENCE.md#juniper-service-core).
 
+Tip: REST client `base_url` on GitHub-main data/cascor/recurrence clients is normalised (case-insensitive scheme, `hostname` required, trailing `/v1` stripped). `HTTPS://host` on an older wheel silently becomes `http://HTTPS://host`. Cascor WS streams stay rstrip-only. Host cascor is `:8201`, constructor default is `:8200`. See [REFERENCE — HTTP Client Base-URL](REFERENCE.md#http-client-base-url-contract).
+
 Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or returns non-JSON, while `--batch` soft-`ERROR`s that row and keeps going. A deleted `.py` stays in `true_delta` for the symbol screen but is filtered out of the pre-commit battery, so a pure-deletion PR can be gate-clean and still `DAMAGED-FIX-FIRST`.
 
 Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` only samples which snapshots to score; `--dataset-seed` (default `DATASET_SEED=20260824`) pins generators that declare `seed=None`. spiral keeps its own seed. Do not export `JUNIPER_CASCOR_SNAPSHOTS_DIR` for the sidecar chain — pass `--root`. See [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin).
@@ -640,6 +644,10 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Driver exit `1` `matplotlib unavailable` | Install matplotlib or drop `outputs.plots`; other render exceptions and fetch failures also fail acceptance. |
 | `residuals.png` has only 2 panels | Optional `target_dt_*` missing or length-mismatched — pred/truth still plotted; not a SKIP. |
 | HTTP 429 missing `Retry-After` | `SecurityMiddleware` must pass `exc.headers` into the `JSONResponse`. |
+| `Juniper*ConfigurationError: base_url must include a host` | Hostless constructor URL (`""`, `http://`, `http://user:secret@`) — fix the URL, not the service. |
+| `HTTPS://host` talks HTTP / hostname `https` | Wheel predates case-insensitive scheme matching; install client GitHub main or wait for the next PyPI cut. |
+| Cascor REST connection refused on `:8200` | Constructor default is the container port; host stack publishes `:8201`. |
+| WS stream does not default `ws://` / reject hostless | Deliberate — `CascorTrainingStream` / `CascorControlStream` only `rstrip("/")`. |
 | A probe gets 429 on `/v1/health` | Health/docs/metrics are exempt in service-core — check an upstream proxy or a non-exempt path. |
 | Large POST accepted despite the body limit | The mutating-method stream cap must be unconditional; a `Content-Length`-only fast path is the bypass. |
 | Control-WS reject log spans multiple lines | `_sanitize_for_log` regression — never interpolate raw Origin/command into logger format strings. |

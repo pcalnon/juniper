@@ -26,6 +26,7 @@
 |-----------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|----------|
 | **Install Juniper packages**            | [QUICK_START.md](QUICK_START.md)                                                                                                 | docs/    |
 | **See extras and version info**         | [REFERENCE.md](REFERENCE.md)                                                                                                     | docs/    |
+| **Configure HTTP client `base_url`**    | [REFERENCE.md](REFERENCE.md#http-client-base-url-contract)                                                                       | docs/    |
 | **Run the local host stack**            | [REFERENCE.md](REFERENCE.md#host-orchestration-utilities)                                                                        | docs/    |
 | **Reap orphaned Juniper pytest children** | [REFERENCE.md](REFERENCE.md#pytest-orphan-reaper)                                                                              | docs/    |
 | **Check installed juniper-* floor drift** | [REFERENCE.md](REFERENCE.md#environment-floor-drift-check)                                                                     | docs/    |
@@ -72,7 +73,6 @@
 | **DOCUMENTATION_OVERVIEW.md**          | Overview   | This file -- navigation index                                                                    |
 | **QUICK_START.md**                     | Tutorial   | Install Juniper packages in under a minute                                                       |
 | **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, agent-suite doctor, post-merge main-verify, YubiKey GPG pointer, fleet triage / sequence-safety, shared-package CI + publish pipelines (Gate 1 poll; release-only trigger), scheduled security-scan / lockfile-update, docs-full-check, release-train detect summary, AGENTS.md date check, `claude.yml` access validation, Claude Code Action (`@claude` assistant), sibling packages (incl. service-core), release-workflow, flood CI gates, and open-PR budget alarm |
-| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, agent-suite doctor, post-merge main-verify, YubiKey GPG pointer, fleet triage / sequence-safety, shared-package CI + publish pipelines, scheduled security-scan / lockfile-update, docs-full-check, release-train detect summary, AGENTS.md date check, `claude.yml` access validation, CodeQL Analysis (`Analyze (python)`), sibling packages (incl. service-core), release-workflow, flood CI gates, and open-PR budget alarm |
 | **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, CI guardrail and hygiene tasks, signing-ceremony tasks, service-core contracts, and experiment-stack tasks |
 
 > The deprecated monolithic cheatsheet (`DEVELOPER_CHEATSHEET-ORIGINAL.md`)
@@ -155,8 +155,8 @@ Exact floors and ranges: [`REFERENCE.md`](REFERENCE.md#extras-reference) and `py
 
 ### Installed Packages
 
-- **juniper-data-client** -- [Docs](https://github.com/pcalnon/juniper-data-client) (HTTP client for juniper-data)
-- **juniper-cascor-client** -- [Docs](https://github.com/pcalnon/juniper-cascor-client) (HTTP/WS client for juniper-cascor)
+- **juniper-data-client** -- [Docs](https://github.com/pcalnon/juniper-data-client) (HTTP client for juniper-data) + [REFERENCE `base_url`](REFERENCE.md#http-client-base-url-contract)
+- **juniper-cascor-client** -- [Docs](https://github.com/pcalnon/juniper-cascor-client) (HTTP/WS client for juniper-cascor) + [REFERENCE `base_url`](REFERENCE.md#http-client-base-url-contract)
 - **juniper-cascor-worker** -- [Docs](https://github.com/pcalnon/juniper-cascor-worker) (distributed training worker)
 - **juniper-observability** -- [Local docs](../juniper-observability/README.md) (shared health, logging, middleware, Prometheus, and Sentry primitives)
 - **juniper-doc-tools** -- [Local docs](../juniper-doc-tools/README.md) (markdown link validator)
