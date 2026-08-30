@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `tests/test_duplicati_scheduled_backup.py` — hermetic gate for the #1292 systemd
+  `--user` scheduled-backup lane (`util/duplicati_scheduled_backup.bash`,
+  `util/duplicati_backup_failure.bash`, `util/install_duplicati_timer.bash`, and the
+  three unit files). Pins the fail-closed class the 2026-07-13 silent-stop incident
+  encoded: empty/short passphrase, unmounted or wrong-filesystem destination, tmpfs
+  volume staging, skip-or-fail stale escalation, OnFailure reporter (durable log
+  first; `notify-send` cannot change the exit), installer copies-not-symlinks and
+  never `enable --now`. Wired into `ci.yml` / `main-verify.yml`.
+
 - **`util/open_signed_pr.py`** — promoted from `util/ad-hoc/` to a permanent utility after it landed
   the #1099 signing fan-out across 8 repos. Opens a PR on any Juniper repo whose commit is
   **GitHub-signed**, by creating branch + commit + PR through the API (`createCommitOnBranch`) rather
