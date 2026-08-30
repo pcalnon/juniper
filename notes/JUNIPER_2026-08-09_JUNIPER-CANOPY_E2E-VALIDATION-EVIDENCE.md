@@ -980,6 +980,57 @@ and driven with `JUNIPER_E2E_CANOPY_URL`. It fails **identically**: `painted=Fal
 > while the server returns the correct 7,059-byte topology every 5 s. It never advances — not once, across
 > every tick of every session.~~
 >
+> ## OVERTURNED BY DIRECT MEASUREMENT, 2026-08-30. Read this before the paragraph below.
+>
+> The paragraph below concluded that the rebuild "is not failing to apply anything" and is "faithfully
+> rendering an empty topology, because that is what it is given". **Both halves are false.** It was an
+> inference from the store's contents, never a measurement of the callback. The callback has now been
+> instrumented directly (`util/ad-hoc/e2e_f039_rebuild_instrument.py`), on the live trio, while the
+> failure was reproducing (`traces=0`, counts `0/0/0/0`, 3/3 samples):
+>
+> ```
+> 8 invocations of update_network_graph
+>  1 x  td_len=75    input_units=0  takes_empty_path=True    <- MOUNT ONLY
+>  7 x  td_len=7059  input_units=2  takes_empty_path=False   <- every subsequent tick
+> ```
+>
+> **The rebuild RUNS, RECEIVES the correct 7,059 B topology, and does NOT take the empty fast path** —
+> seven times out of eight — while the DOM keeps showing the mount-time empty render. So the response is
+> computed correctly and **never applied**. That is the original F-CANOPY-039 statement, which this entry
+> abandoned on the strength of a store reading rather than a callback reading.
+>
+> **The duplicate-instance hypothesis this entry built up is also refuted** (`util/ad-hoc/
+> e2e_f039_duplicate_store_probe.py`): exactly ONE instance of `network-visualizer-topology-store` on all
+> three tabs, and one each of `metrics-panel-metrics-store`, `ws-metrics-buffer`,
+> `metrics-panel-display-mode-store` and `ws-liveness-store` — the last three carried as controls
+> precisely so that an all-duplicated result would read as the probe measuring itself.
+>
+> **The trigger list is the mechanism, and it is visible in every one of the seven:**
+>
+> ```
+> triggered=['tabpoll-topology.n_intervals',
+>            'network-visualizer-topology-store.data',
+>            'network-visualizer-depth-slider.value']
+> ```
+>
+> The topology poll rewrites an IDENTICAL 7,059 B payload every 5 s, and Dash fires consumers on any
+> write, identical or not. So the store re-triggers the rebuild on every tick; it is never a *bare* tick,
+> which is why canopy#537's short-circuit correctly does not fire; and each invocation is superseded
+> before its response can land. That is also why disabling `tabpoll-topology` at runtime made the graph
+> paint instantly (traces 0 -> 181): it stopped the supersession, not "the empty-store invocations".
+>
+> **This points back at the no-op-write suppression on the topology store that this arc built and
+> REVERTED** for failing a live census. Do not simply reinstate it: the census that condemned it was read
+> under the same wrong premise, so *that reading* needs re-examining first. But it is now the leading
+> candidate rather than a discarded one.
+>
+> Evidence: `reports/e2e/20260830T000000Z/f039_dupstore/` (duplicate-store probe JSON, and two
+> render-state runs taken with the rebuild instrumented and un-instrumented).
+>
+> ---
+>
+> ~~Superseded — retained so the reasoning error stays visible:~~
+>
 > **Given that, the rebuild is behaving correctly.** Its own fast path is
 > `if not topology_data or topology_data.get("input_units", 0) == 0: return empty_fig, ..., "0","0","0","0"`
 > (`network_visualizer.py`). Handed an empty store it returns an empty figure and `"0"` counts — which is
