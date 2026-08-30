@@ -656,7 +656,7 @@
   category: ARCH
   status: proposed
   priority: P0
-  brief: '> **Blocks**: All releases, deployments, and downstream development.'
+  brief: '**Blocks**: All releases, deployments, and downstream development.'
   merged_count: 2
   notes: '[v3 brief repaired from cited content; was: ''Phase 1:''] From JUNIPER_2026-04-02_JUNIPER-ECOSYSTEM_REGRESSION-DEVELOPMENT-ROADMAP-06.md
 
@@ -677,7 +677,7 @@
   category: ARCH
   status: proposed
   priority: P0
-  brief: '> **Prerequisite**: Phase 1 (training must work for connection to matter)'
+  brief: '**Prerequisite**: Phase 1 (training must work for connection to matter)'
   merged_count: 2
   notes: '[v3 brief repaired from cited content; was: ''Phase 2:''] From JUNIPER_2026-04-02_JUNIPER-ECOSYSTEM_REGRESSION-DEVELOPMENT-ROADMAP-06.md
 
@@ -857,7 +857,7 @@
   category: ARCH
   status: proposed
   priority: P0
-  brief: 'Blocks**: All downstream canopy monitoring fixes'
+  brief: '**Blocks**: All downstream canopy monitoring fixes'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Phase 1:''] From JUNIPER_2026-04-02_JUNIPER-ECOSYSTEM_REGRESSION-DEVELOPMENT-ROADMAP-04.md'
   sources:
@@ -1227,7 +1227,7 @@
   category: SEC
   status: proposed
   priority: P0
-  brief: 'Critical deployment gap.** The worker is the only distributed component that runs on remote machines but has zero deployment infrastructure:'
+  brief: 'Critical deployment gap. The worker is the only distributed component that runs on remote machines but has zero deployment infrastructure:'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''6.2 juniper-cascor-worker'']'
   sources:
@@ -1508,7 +1508,7 @@
   category: ARCH
   status: proposed
   priority: P0
-  brief: Fix invalid CandidateUnit constructor parameters in fit() method - all parameters silently absorbed by **kwargs.
+  brief: 'Fix invalid CandidateUnit constructor parameters in fit() method - all parameters silently absorbed by kwargs.'
   merged_count: 1
   notes: null
   sources:
@@ -1616,7 +1616,7 @@
   category: OBS
   status: proposed
   priority: P0
-  brief: Impact.** The juniper-data dashboard panel "Cached Datasets"
+  brief: 'Impact. The juniper-data dashboard panel "Cached Datasets"'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''15.1 `juniper_data_datasets_cached` is defined-and-emitted i'']'
   sources:
@@ -1628,7 +1628,7 @@
   category: DATA
   status: proposed
   priority: P0
-  brief: "Impact**: `FakeDataClient` masks this \u2014 unit tests pass but real server requests fail with 400."
+  brief: '**Impact**: `FakeDataClient` masks this \u2014 unit tests pass but real server requests fail with 400.'
   merged_count: 1
   notes: "[v3 brief repaired from cited content; was: '6.1 Critical: Generator Name Mismatch (XREPO-01 \u2014 confirmed ']"
   sources:
@@ -3195,7 +3195,7 @@
   category: OBS
   status: shipped
   priority: P1
-  brief: 'Strengths**: Near-real-time topology updates, no additional REST calls, leverages existing WebSocket infrastructure'
+  brief: '**Strengths**: Near-real-time topology updates, no additional REST calls, leverages existing WebSocket infrastructure'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Fix Approaches'']'
   sources:
@@ -3576,7 +3576,7 @@
   category: ARCH
   status: designed
   priority: P1
-  brief: 'Divergence**: Whether the uppercase status normalization gap should be removed (Proposal A) or retained as a latent bug (Proposal B).'
+  brief: '**Divergence**: Whether the uppercase status normalization gap should be removed (Proposal A) or retained as a latent bug (Proposal B).'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''1.4 Final Resolution of the Main Divergence'']'
   sources:
@@ -3624,7 +3624,7 @@
   category: ARCH
   status: designed
   priority: P1
-  brief: 'Final resolution**: **6 confirmed** at lines 1000, 1021, 1155, 1187, 1231, 1274.'
+  brief: '**Final resolution**: **6 confirmed** at lines 1000, 1021, 1155, 1187, 1231, 1274.'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''7.4 Hardcoded URL Count: 2 vs 6'']'
   sources:
@@ -4200,7 +4200,7 @@
   category: DATA
   status: deferred
   priority: P1
-  brief: 'Deferred items**: RD-008 (SIM117 test fixes), RD-015 (IPC/ZeroMQ), RD-016 (GPU), RD-017 (continuous profiling).'
+  brief: '**Deferred items**: RD-008 (SIM117 test fixes), RD-015 (IPC/ZeroMQ), RD-016 (GPU), RD-017 (continuous profiling).'
   merged_count: 1
   notes: "[v3 brief repaired from cited content; was: '7.3 juniper-data \u2014 Constants Refactor \u2705; Roadmap Items Defer']"
   sources:
@@ -4698,7 +4698,7 @@
   category: ARCH
   status: proposed
   priority: P1
-  brief: '> **Prerequisite**: Phase 2 (connection must work for UI to receive data)'
+  brief: '**Prerequisite**: Phase 2 (connection must work for UI to receive data)'
   merged_count: 2
   notes: '[v3 brief repaired from cited content; was: ''Phase 3:''] From JUNIPER_2026-04-02_JUNIPER-ECOSYSTEM_REGRESSION-DEVELOPMENT-ROADMAP-06.md
 
@@ -6600,7 +6600,7 @@
   category: OBS
   status: proposed
   priority: P1
-  brief: canopy work was already implemented** in the months between the 2026-04-08
+  brief: 'canopy work was already implemented in the months between the 2026-04-08'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''5.0 Phase 3 Execution Results (2026-04-09)'']'
   sources:
@@ -8490,7 +8490,7 @@
   category: WS
   status: proposed
   priority: P1
-  brief: "GAP-WS-13: (P1) \u2014 Lossless reconnect via sequence numbers and replay buffer.** Required components:"
+  brief: 'GAP-WS-13: (P1) \u2014 Lossless reconnect via sequence numbers and replay buffer. Required components:'
   merged_count: 1
   notes: null
   sources:
@@ -8550,7 +8550,7 @@
   category: WS
   status: proposed
   priority: P1
-  brief: 'GAP-WS-13: sequence numbers land). Currently there is no mechanism to reject an outdated client. **De'
+  brief: 'GAP-WS-13: sequence numbers land). Currently there is no mechanism to reject an outdated client. De'
   merged_count: 1
   notes: null
   sources:
@@ -8754,7 +8754,7 @@
   category: WS
   status: proposed
   priority: P1
-  brief: 'GAP-WS-20: (P3)**: normalize bidirectional envelope to use `{type, timestamp, data}` everywhere. Trac'
+  brief: '**GAP-WS-20: (P3)**: normalize bidirectional envelope to use `{type, timestamp, data}` everywhere. Trac'
   merged_count: 1
   notes: null
   sources:
@@ -8778,7 +8778,7 @@
   category: WS
   status: proposed
   priority: P1
-  brief: "GAP-WS-21: (P1)** in \xA77."
+  brief: 'GAP-WS-21: (P1) in \xA77.'
   merged_count: 1
   notes: null
   sources:
@@ -8826,7 +8826,7 @@
   category: WS
   status: proposed
   priority: P1
-  brief: "GAP-WS-22: (P2)** in \xA77."
+  brief: 'GAP-WS-22: (P2) in \xA77.'
   merged_count: 1
   notes: null
   sources:
@@ -8862,7 +8862,7 @@
   category: WS
   status: proposed
   priority: P1
-  brief: "GAP-WS-23: (P1)** in \xA77: clientside chart updates must use `Plotly.extendTraces()` with `maxPoints` p"
+  brief: 'GAP-WS-23: (P1) in \xA77: clientside chart updates must use `Plotly.extendTraces()` with `maxPoints` p'
   merged_count: 1
   notes: null
   sources:
@@ -8886,7 +8886,7 @@
   category: WS
   status: proposed
   priority: P1
-  brief: "GAP-WS-24: (P2)** in \xA77. Phase B includes the instrumentation; Phase C+ uses the data to validate (or"
+  brief: 'GAP-WS-24: (P2) in \xA77. Phase B includes the instrumentation; Phase C+ uses the data to validate (or'
   merged_count: 1
   notes: null
   sources:
@@ -10445,7 +10445,7 @@
   category: TRAIN
   status: proposed
   priority: P1
-  brief: 'Strengths of B**: More explicit parsing, handles whitespace in values'
+  brief: '**Strengths of B**: More explicit parsing, handles whitespace in values'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''2.1 juniper-ml: CI & Script Fixes'']'
   sources:
@@ -10785,7 +10785,7 @@
   category: SEC
   status: shipped
   priority: P2
-  brief: "> bound 2 user-supporting SLIs (\xA74.3, \xA74.4) to 2 of them. Result: \u22658 dashboard"
+  brief: 'bound 2 user-supporting SLIs (\xA74.3, \xA74.4) to 2 of them. Result: \u22658 dashboard'
   merged_count: 1
   notes: "[v3 brief repaired from cited content; was: '4.1 Dimension A \u2014 Metrics surface integrity']"
   sources:
@@ -10869,7 +10869,7 @@
   category: SEC
   status: shipped
   priority: P2
-  brief: emits per-worker gauges. `juniper-cascor-worker` itself does **not
+  brief: 'emits per-worker gauges. `juniper-cascor-worker` itself does not'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''3.2 juniper-cascor'']'
   sources:
@@ -10991,7 +10991,7 @@
   category: API
   status: shipped
   priority: P2
-  brief: 'Output weights transposition bug**: ALREADY FIXED (merged). `_transform_topology()` now'
+  brief: '**Output weights transposition bug**: ALREADY FIXED (merged). `_transform_topology()` now'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''4.1 Root Cause'']'
   sources:
@@ -11123,7 +11123,7 @@
   category: OBS
   status: shipped
   priority: P2
-  brief: Source-of-truth:** `juniper-deploy/prometheus/alert_rules.yml` (1146 lines).
+  brief: '**Source-of-truth:** `juniper-deploy/prometheus/alert_rules.yml` (1146 lines).'
   merged_count: 1
   notes: "[v3 brief repaired from cited content; was: '6.5 Placeholder text panels (intentional gaps \u2014 OBS-WIRE-01)']"
   sources:
@@ -11171,7 +11171,7 @@
   category: SEC
   status: shipped
   priority: P2
-  brief: 'TODO/FIXME/HACK**: 3 empty `# TODO :` banner placeholders in canopy frontend'
+  brief: '**TODO/FIXME/HACK**: 3 empty `# TODO :` banner placeholders in canopy frontend'
   merged_count: 1
   notes: "[v3 brief repaired from cited content; was: '4.5 Dimension E \u2014 Throttles + tech debt + race conditions']"
   sources:
@@ -11183,7 +11183,7 @@
   category: SEC
   status: shipped
   priority: P2
-  brief: "Version**: 0.3.0 (unreleased constants refactor on main) | **Python**: \u22653.11 | **Coverage**: 91.47%"
+  brief: '**Version**: 0.3.0 (unreleased constants refactor on main) | **Python**: \u22653.11 | **Coverage**: 91.47%'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''1.5 CI/CD'']'
   sources:
@@ -11411,7 +11411,7 @@
   category: SEC
   status: designed
   priority: P2
-  brief: 'R4.6 request-id propagation**: Correctly implemented and well-tested in'
+  brief: '**R4.6 request-id propagation**: Correctly implemented and well-tested in'
   merged_count: 1
   notes: "[v3 brief repaired from cited content; was: '4.3 Dimension C \u2014 Shared lib + WS schema + middleware']"
   sources:
@@ -12212,7 +12212,7 @@
   category: DATA
   status: proposed
   priority: P2
-  brief: '2.4.1 Fix `wait_for_ready()`** (`client.py:86`):'
+  brief: '2.4.1 Fix `wait_for_ready()` (`client.py:86`):'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''2.4 juniper-cascor-client: Semantic & Coverage Fixes'']'
   sources:
@@ -12275,7 +12275,7 @@
   category: OBS
   status: proposed
   priority: P2
-  brief: 5 fast/slow pairs = 10 MWMBR rules** of the 16 page+ticket count;
+  brief: '5 fast/slow pairs = 10 MWMBR rules of the 16 page+ticket count;'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''7.2 MWMBR burn-rate pairs'']'
   sources:
@@ -12728,7 +12728,7 @@
   category: UI
   status: proposed
   priority: P2
-  brief: Add symlink** `scripts/juniper-ctl` -> `juniper-canopy-ctl`
+  brief: 'Add symlink `scripts/juniper-ctl` -> `juniper-canopy-ctl`'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''5.1 juniper-canopy changes (Step 2.3)'']'
   sources:
@@ -14012,7 +14012,7 @@
   category: SEC
   status: proposed
   priority: P2
-  brief: 'CHANGELOG changes**: Add sections for v0.1.1, v0.3.0 covering:'
+  brief: '**CHANGELOG changes**: Add sections for v0.1.1, v0.3.0 covering:'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''1.5 juniper-cascor-worker: CHANGELOG & Tags'']'
   sources:
@@ -14708,7 +14708,7 @@
   category: UI
   status: proposed
   priority: P2
-  brief: 'Contrast with service adapter** (`cascor_service_adapter.py` lines 617-621):'
+  brief: 'Contrast with service adapter (`cascor_service_adapter.py` lines 617-621):'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Evidence'']'
   sources:
@@ -14852,7 +14852,7 @@
   category: SEC
   status: proposed
   priority: P2
-  brief: "Cross-references.** Runbook \xA75.3, \xA77 \xB7 OBS-ROUTE-01 PR juniper-deploy#60 (validation evidence in PR body)."
+  brief: 'Cross-references. Runbook \xA75.3, \xA77 \xB7 OBS-ROUTE-01 PR juniper-deploy#60 (validation evidence in PR body).'
   merged_count: 1
   notes: "[v3 brief repaired from cited content; was: '3.5 AMTOOL-CI \u2014 `amtool check-config` snap-confinement gap']"
   sources:
@@ -15116,7 +15116,7 @@
   category: DEP
   status: proposed
   priority: P2
-  brief: 'Decision**: Bind to `127.0.0.1:8200` (settings default).'
+  brief: '**Decision**: Bind to `127.0.0.1:8200` (settings default).'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''2.1 juniper-cascor bind address'']'
   sources:
@@ -15128,7 +15128,7 @@
   category: UI
   status: proposed
   priority: P2
-  brief: 'Decision**: Rename canopy''s `juniper-ctl` to `juniper-canopy-ctl` for consistency.'
+  brief: '**Decision**: Rename canopy''s `juniper-ctl` to `juniper-canopy-ctl` for consistency.'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''2.4 CLI naming convention'']'
   sources:
@@ -15140,7 +15140,7 @@
   category: WS
   status: proposed
   priority: P2
-  brief: 'Decision**: Support both `--systemd` flag and `USE_SYSTEMD=1` env var.'
+  brief: '**Decision**: Support both `--systemd` flag and `USE_SYSTEMD=1` env var.'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''2.3 Plant/chop systemd mode activation'']'
   sources:
@@ -15152,7 +15152,7 @@
   category: UI
   status: proposed
   priority: P2
-  brief: 'Decision**: Use `Wants=` (not `Requires=`).'
+  brief: '**Decision**: Use `Wants=` (not `Requires=`).'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''2.2 juniper-all.target: Wants= vs Requires='']'
   sources:
@@ -15323,7 +15323,7 @@
   category: DEP
   status: proposed
   priority: P2
-  brief: 'Deployment choice**: User units (`~/.config/systemd/user/`) vs system units (`/etc/systemd/system/`).'
+  brief: '**Deployment choice**: User units (`~/.config/systemd/user/`) vs system units (`/etc/systemd/system/`).'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Phase 2:'']'
   sources:
@@ -15767,7 +15767,7 @@
   category: OBS
   status: proposed
   priority: P2
-  brief: 'File**: `juniper-canopy/src/backend/cascor_service_adapter.py`'
+  brief: '**File**: `juniper-canopy/src/backend/cascor_service_adapter.py`'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Evidence'']'
   sources:
@@ -15779,7 +15779,7 @@
   category: UI
   status: proposed
   priority: P2
-  brief: "File**: `juniper-canopy/src/backend/state_sync.py` (lines 125-135) \u2014 correctly fetches and transforms topology."
+  brief: '**File**: `juniper-canopy/src/backend/state_sync.py` (lines 125-135) \u2014 correctly fetches and transforms topology.'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Evidence'']'
   sources:
@@ -15791,7 +15791,7 @@
   category: TRAIN
   status: proposed
   priority: P2
-  brief: 'File**: `juniper-cascor-client/constants.py:31`'
+  brief: '**File**: `juniper-cascor-client/constants.py:31`'
   merged_count: 1
   notes: "[v3 brief repaired from cited content; was: '6.2 Medium: 503 Not Retried (XREPO-02 \u2014 confirmed STILL PRES']"
   sources:
@@ -16096,7 +16096,7 @@
   category: API
   status: proposed
   priority: P2
-  brief: 'Guardrails**: Validate params against same whitelist as REST endpoint.'
+  brief: '**Guardrails**: Validate params against same whitelist as REST endpoint.'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''3.3 CR-008: Implement WebSocket `set_params`'']'
   sources:
@@ -16108,7 +16108,7 @@
   category: DATA
   status: proposed
   priority: P2
-  brief: 'H-JDC-2: PATCH excluded from retry allowed_methods** (`client.py:101`)'
+  brief: 'H-JDC-2: PATCH excluded from retry allowed_methods (`client.py:101`)'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''High Issues'']'
   sources:
@@ -16120,7 +16120,7 @@
   category: SEC
   status: proposed
   priority: P2
-  brief: 'H-JDP-1: Makefile `prepare-secrets` uses undefined variables** (`Makefile:70-72`)'
+  brief: 'H-JDP-1: Makefile `prepare-secrets` uses undefined variables (`Makefile:70-72`)'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''High Issues'']'
   sources:
@@ -16553,7 +16553,7 @@
   category: DEP
   status: proposed
   priority: P2
-  brief: 'Image availability**: k3s uses containerd, not Docker. Images built with Docker must be imported:'
+  brief: '**Image availability**: k3s uses containerd, not Docker. Images built with Docker must be imported:'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Phase 4:'']'
   sources:
@@ -17120,7 +17120,7 @@
   category: API
   status: proposed
   priority: P2
-  brief: 'M-JCC-3: Handshake not validated in `CascorControlStream.connect()`** (`ws_client.py:178`)'
+  brief: 'M-JCC-3: Handshake not validated in `CascorControlStream.connect()` (`ws_client.py:178`)'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Medium Issues'']'
   sources:
@@ -17132,7 +17132,7 @@
   category: TRAIN
   status: proposed
   priority: P2
-  brief: 'M-JCW-2: No WebSocket receive timeout** (`ws_connection.py:134`)'
+  brief: 'M-JCW-2: No WebSocket receive timeout (`ws_connection.py:134`)'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Medium Issues'']'
   sources:
@@ -17144,7 +17144,7 @@
   category: OBS
   status: proposed
   priority: P2
-  brief: 'M-JD-1: Sentry PII enabled by default** (`observability.py:139`)'
+  brief: 'M-JD-1: Sentry PII enabled by default (`observability.py:139`)'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Medium Issues'']'
   sources:
@@ -17156,7 +17156,7 @@
   category: API
   status: proposed
   priority: P2
-  brief: "M-JDC-2: docs/QUICK_START.md references `FakeJuniperDataClient`** \u2014 should be `FakeDataClient`"
+  brief: 'M-JDC-2: docs/QUICK_START.md references `FakeJuniperDataClient` \u2014 should be `FakeDataClient`'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Medium Issues'']'
   sources:
@@ -17168,7 +17168,7 @@
   category: DATA
   status: proposed
   priority: P2
-  brief: 'M-ML-1: `test_worktree_cleanup.py` not run in CI** (`ci.yml:109-110`)'
+  brief: 'M-ML-1: `test_worktree_cleanup.py` not run in CI (`ci.yml:109-110`)'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Medium Issues'']'
   sources:
@@ -17435,7 +17435,7 @@
   category: UI
   status: proposed
   priority: P2
-  brief: 'New file**: `juniper-cascor/scripts/juniper-cascor-ctl`'
+  brief: '**New file**: `juniper-cascor/scripts/juniper-cascor-ctl`'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''5.5 juniper-cascor-ctl (Step 2.5)'']'
   sources:
@@ -17447,7 +17447,7 @@
   category: SEC
   status: proposed
   priority: P2
-  brief: 'New file**: `juniper-cascor/scripts/juniper-cascor.service`'
+  brief: '**New file**: `juniper-cascor/scripts/juniper-cascor.service`'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''5.4 juniper-cascor.service (Step 2.2)'']'
   sources:
@@ -17459,7 +17459,7 @@
   category: SEC
   status: proposed
   priority: P2
-  brief: 'New file**: `juniper-data/scripts/juniper-data.service`'
+  brief: '**New file**: `juniper-data/scripts/juniper-data.service`'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''5.2 juniper-data.service (Step 2.1)'']'
   sources:
@@ -17471,7 +17471,7 @@
   category: UI
   status: proposed
   priority: P2
-  brief: 'New file**: `juniper-ml/scripts/juniper-all.target`'
+  brief: '**New file**: `juniper-ml/scripts/juniper-all.target`'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''5.6 juniper-all.target (Step 2.6)'']'
   sources:
@@ -17711,7 +17711,7 @@
   category: TRAIN
   status: proposed
   priority: P2
-  brief: 'Outstanding**: No version bump for unreleased constants refactor. Integration test marker defined but zero tests.'
+  brief: '**Outstanding**: No version bump for unreleased constants refactor. Integration test marker defined but zero tests.'
   merged_count: 1
   notes: "[v3 brief repaired from cited content; was: '7.2 juniper-cascor-worker \u2014 All Planned Work \u2705 COMPLETE']"
   sources:
@@ -17747,7 +17747,7 @@
   category: OBS
   status: proposed
   priority: P2
-  brief: "panels (**STALE \u2014 see \xA715 unexpected findings; metric family removed"
+  brief: 'panels (STALE \u2014 see \xA715 unexpected findings; metric family removed'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''6.3 juniper-cascor.json (22 panels, version 3, title "Junipe'']'
   sources:
@@ -18544,7 +18544,7 @@
   category: API
   status: proposed
   priority: P2
-  brief: 'Recommendation**: Add a startup sweep that removes stale `juniper_train_*` blocks from `/dev/shm`.'
+  brief: '**Recommendation**: Add a startup sweep that removes stale `juniper_train_*` blocks from `/dev/shm`.'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''1.4 Shared Memory and Multiprocessing Issues'']'
   sources:
@@ -19000,7 +19000,7 @@
   category: DATA
   status: proposed
   priority: P2
-  brief: 'Repositories**: juniper-data, juniper-data-client'
+  brief: '**Repositories**: juniper-data, juniper-data-client'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''3.1 Generator Name Mismatch'']'
   sources:
@@ -19012,7 +19012,7 @@
   category: SEC
   status: proposed
   priority: P2
-  brief: 'Repositories**: juniper-data, juniper-deploy'
+  brief: '**Repositories**: juniper-data, juniper-deploy'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''1.5 Security Concerns'']'
   sources:
@@ -19192,7 +19192,7 @@
   category: OBS
   status: proposed
   priority: P2
-  brief: 'Risk**: Low-Medium. systemd is well-understood, but conda integration adds complexity.'
+  brief: '**Risk**: Low-Medium. systemd is well-understood, but conda integration adds complexity.'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''9.3 Approach C: systemd-First + Makefile Enhancement'']'
   sources:
@@ -19420,7 +19420,7 @@
   category: SEC
   status: proposed
   priority: P2
-  brief: 'Service file**: `juniper-canopy/scripts/juniper-canopy.service`'
+  brief: '**Service file**: `juniper-canopy/scripts/juniper-canopy.service`'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''3.3 Current State: systemd (juniper-canopy only)'']'
   sources:
@@ -19588,7 +19588,7 @@
   category: OBS
   status: proposed
   priority: P2
-  brief: Source-of-truth:** `juniper-deploy/alertmanager/alertmanager.yml` (154 lines).
+  brief: '**Source-of-truth:** `juniper-deploy/alertmanager/alertmanager.yml` (154 lines).'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''8.2 Kubernetes (`juniper-deploy/k8s/helm/juniper/templates/*'']'
   sources:
@@ -19600,7 +19600,7 @@
   category: SEC
   status: proposed
   priority: P2
-  brief: Source-of-truth:** `juniper-deploy/notes/SLO_CATALOG_2026-05-03.md`
+  brief: '**Source-of-truth:** `juniper-deploy/notes/SLO_CATALOG_2026-05-03.md`'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''4.4 MetricsAuthMiddleware confinement'']'
   sources:
@@ -19726,7 +19726,7 @@
   category: SEC
   status: proposed
   priority: P2
-  brief: 'Strengths of A**: Preserves functionality, standard security pattern, configurable per deployment'
+  brief: '**Strengths of A**: Preserves functionality, standard security pattern, configurable per deployment'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''1.2 juniper-data: CSV Import Path Traversal Fix'']'
   sources:
@@ -19738,7 +19738,7 @@
   category: OBS
   status: proposed
   priority: P2
-  brief: 'Strengths**: Comprehensive fix, prevents the same class of bug across all tabs'
+  brief: '**Strengths**: Comprehensive fix, prevents the same class of bug across all tabs'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Fix Approaches'']'
   sources:
@@ -19750,7 +19750,7 @@
   category: UI
   status: proposed
   priority: P2
-  brief: 'Strengths**: Fixes demo mode topology to match CasCor architecture'
+  brief: '**Strengths**: Fixes demo mode topology to match CasCor architecture'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Fix Approaches'']'
   sources:
@@ -19967,7 +19967,7 @@
   category: API
   status: proposed
   priority: P2
-  brief: 'The core CR-006 issue has been SUBSTANTIALLY ADDRESSED since the prior analysis.** Verification against the current codebase shows:'
+  brief: 'The core CR-006 issue has been SUBSTANTIALLY ADDRESSED since the prior analysis. Verification against the current codebase shows:'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''3.1 CR-006: Verify `max_iterations` End-to-End Implementatio'']'
   sources:
@@ -20102,7 +20102,7 @@
   category: TRAIN
   status: proposed
   priority: P2
-  brief: Topology updates after `cascade_add` are delayed by **up to 5 seconds
+  brief: 'Topology updates after `cascade_add` are delayed by up to 5 seconds'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Consequence'']'
   sources:
@@ -20186,7 +20186,7 @@
   category: DEP
   status: proposed
   priority: P2
-  brief: 'Training control** (called from `/ws/control` handler and Dash callbacks):'
+  brief: 'Training control (called from `/ws/control` handler and Dash callbacks):'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Phase 5:'']'
   sources:
@@ -20222,7 +20222,7 @@
   category: OBS
   status: proposed
   priority: P2
-  brief: "Trigger / due date.** No fixed date \u2014 fires off CALIB-01 ratification, expected mid- to late-June 2026."
+  brief: 'Trigger / due date. No fixed date \u2014 fires off CALIB-01 ratification, expected mid- to late-June 2026.'
   merged_count: 1
   notes: "[v3 brief repaired from cited content; was: '3.2 R5.1c-BUCKETS \u2014 Cascor sub-ms bucket re-evaluation']"
   sources:
@@ -20270,7 +20270,7 @@
   category: SEC
   status: proposed
   priority: P2
-  brief: Unvalidated `params` dict in `TrainingStartRequest` passed as `**kwargs` to `network.fit()`
+  brief: 'Unvalidated `params` dict in `TrainingStartRequest` passed as `kwargs` to `network.fit()`'
   merged_count: 1
   notes: null
   sources:
@@ -20414,7 +20414,7 @@
   category: SEC
   status: proposed
   priority: P2
-  brief: 'Version**: 0.2.1 | **Stack**: Docker Compose + Helm + Prometheus + Grafana + AlertManager'
+  brief: '**Version**: 0.2.1 | **Stack**: Docker Compose + Helm + Prometheus + Grafana + AlertManager'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''4.4 CI/CD'']'
   sources:
@@ -20438,7 +20438,7 @@
   category: DATA
   status: proposed
   priority: P2
-  brief: "Version**: 0.4.0 | **Python**: \u22653.12 | **Dependencies**: numpy\u22651.24, requests\u22652.28, urllib3\u22652.0"
+  brief: '**Version**: 0.4.0 | **Python**: \u22653.12 | **Dependencies**: numpy\u22651.24, requests\u22652.28, urllib3\u22652.0'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''3.6 CI/CD'']'
   sources:
@@ -20462,7 +20462,7 @@
   category: SEC
   status: proposed
   priority: P2
-  brief: "Version**: 0.6.0 (unreleased hardcoded-values refactor on main) | **Python**: \u22653.12"
+  brief: '**Version**: 0.6.0 (unreleased hardcoded-values refactor on main) | **Python**: \u22653.12'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''2.5 CI/CD & Dockerfile'']'
   sources:
@@ -20474,7 +20474,7 @@
   category: OBS
   status: proposed
   priority: P2
-  brief: 'Weaknesses**: Additional REST call for raw format, two stores to maintain'
+  brief: '**Weaknesses**: Additional REST call for raw format, two stores to maintain'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Fix Approaches'']'
   sources:
@@ -21194,7 +21194,7 @@
   category: API
   status: deferred
   priority: P3
-  brief: R5.6-THROTTLE** (P3, deferred) on the carry-forward tracker.
+  brief: 'R5.6-THROTTLE (P3, deferred) on the carry-forward tracker.'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''7.3 The 25-epoch throttle caveat'']'
   sources:
@@ -21662,7 +21662,7 @@
   category: TRAIN
   status: proposed
   priority: P3
-  brief: 'Goal**: Ensure cascor exposes all required fields for canopy consumption'
+  brief: '**Goal**: Ensure cascor exposes all required fields for canopy consumption'
   merged_count: 1
   notes: "[v2 ARCH\u2192TRAIN re-bucket] [v3 brief repaired from cited content; was: 'Phase 2:'] From JUNIPER_2026-04-02_JUNIPER-ECOSYSTEM_REGRESSION-DEVELOPMENT-ROADMAP-04.md"
   sources:
@@ -21674,7 +21674,7 @@
   category: ARCH
   status: proposed
   priority: P3
-  brief: 'Goal**: Fix all dark mode styling issues and UI layout problems'
+  brief: '**Goal**: Fix all dark mode styling issues and UI layout problems'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Phase 4:''] From JUNIPER_2026-04-02_JUNIPER-ECOSYSTEM_REGRESSION-DEVELOPMENT-ROADMAP-04.md'
   sources:
@@ -21686,7 +21686,7 @@
   category: ARCH
   status: proposed
   priority: P3
-  brief: 'Goal**: Fix parameter initialization and value mapping issues'
+  brief: '**Goal**: Fix parameter initialization and value mapping issues'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Phase 3:''] From JUNIPER_2026-04-02_JUNIPER-ECOSYSTEM_REGRESSION-DEVELOPMENT-ROADMAP-04.md'
   sources:
@@ -21698,7 +21698,7 @@
   category: ARCH
   status: proposed
   priority: P3
-  brief: 'Goal**: Implement new features requested in the regression report'
+  brief: '**Goal**: Implement new features requested in the regression report'
   merged_count: 1
   notes: '[v3 brief repaired from cited content; was: ''Phase 5:''] From JUNIPER_2026-04-02_JUNIPER-ECOSYSTEM_REGRESSION-DEVELOPMENT-ROADMAP-04.md'
   sources:

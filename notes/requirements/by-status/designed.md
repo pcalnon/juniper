@@ -278,7 +278,7 @@ context: ../juniper-cascor-worker
 
 [v4 brief repaired; was: '4.1 Final Registry']
 
-### JR-ML-ARCH-018 — Divergence**: Whether the uppercase status normalization gap should be removed (Proposal A) or retained as a latent bug (Proposal B).
+### JR-ML-ARCH-018 — **Divergence**: Whether the uppercase status normalization gap should be removed (Proposal A) or retained as a latent bug (Proposal B).
 
 **Status**: designed  **Priority**: P1  **Category**: ARCH  **Owner**: ml
 
@@ -330,7 +330,7 @@ context: ../juniper-cascor-worker
 
 [v3 brief repaired from cited content; was: '4.3 CR-024: Chunked Encoding Body Limit']
 
-### JR-ML-ARCH-019 — Final resolution**: **6 confirmed** at lines 1000, 1021, 1155, 1187, 1231, 1274.
+### JR-ML-ARCH-019 — **Final resolution**: **6 confirmed** at lines 1000, 1021, 1155, 1187, 1231, 1274.
 
 **Status**: designed  **Priority**: P1  **Category**: ARCH  **Owner**: ml
 
@@ -1003,7 +1003,7 @@ Batch-level metrics collection.
 
 | Two-flag design: `enable_browser_ws_bridge` + `disable_ws_bridge`   | ✅ In `settings.py`                        |
 
-### JR-ML-SEC-116 — R4.6 request-id propagation**: Correctly implemented and well-tested in.
+### JR-ML-SEC-116 — **R4.6 request-id propagation**: Correctly implemented and well-tested in.
 
 **Status**: designed  **Priority**: P2  **Category**: SEC  **Owner**: ml
 

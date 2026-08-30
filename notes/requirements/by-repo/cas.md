@@ -177,7 +177,7 @@ Codebase validation CONFIRMED duplicate at lines 291 and 138.
 
 Helper scripts (GET_OS_SCRIPT, GET_PROJECT_SCRIPT, DATE_FUNCTIONS_SCRIPT) are overridden as bare filenames. Fix to use absolute paths derived from BASH_SOURCE[0]. Update conf/script_util.cfg to correctly compute ROOT_PROJECT_DIR with proper project hierarchy.
 
-### JR-CAS-ARCH-002 — Fix invalid CandidateUnit constructor parameters in fit() method - all parameters silently absorbed by **kwargs.
+### JR-CAS-ARCH-002 — Fix invalid CandidateUnit constructor parameters in fit() method - all parameters silently absorbed by kwargs.
 
 **Status**: proposed  **Priority**: P0  **Category**: ARCH  **Owner**: cas
 
