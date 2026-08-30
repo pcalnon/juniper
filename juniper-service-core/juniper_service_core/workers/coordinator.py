@@ -297,6 +297,43 @@ class WorkerCoordinator:
         with self._lock:
             self._send_callbacks.pop(worker_id, None)
 
+    def release_worker_tasks(self, worker_id: str, *, free_worker: bool = False) -> int:
+        """Requeue incomplete tasks assigned to ``worker_id``.
+
+        Two production callers share this helper:
+
+        * The ``/ws/workers`` stream ``finally`` (clean disconnect). The stale-heartbeat
+          sweep already reclaims before deregister; a clean disconnect used to
+          ``deregister`` only, so the in-flight task sat assigned until
+          ``task_reassignment_timeout`` (default 120s). ``free_worker`` stays False
+          because the stream deregisters immediately afterwards.
+        * Mid-result transport aborts (expected-binary-got-text / oversize). The worker
+          is still connected, so ``free_worker=True`` clears ``active_task_id`` and the
+          handler's post-result ``_try_dispatch_task`` can redispatch.
+
+        Idempotent: a second call after the assignment is already cleared is a no-op and
+        does not duplicate the unassigned queue entry.
+
+        Returns:
+            The number of tasks requeued.
+        """
+        with self._lock:
+            return self._release_worker_tasks_locked(worker_id, free_worker=free_worker)
+
+    def _release_worker_tasks_locked(self, worker_id: str, *, free_worker: bool = False) -> int:
+        requeued = 0
+        for task in self._pending_tasks.values():
+            if task.assigned_worker_id == worker_id and not task.completed:
+                task.assigned_worker_id = None
+                task.dispatched_at = time.time()
+                if task.task_id not in self._unassigned_tasks:
+                    self._unassigned_tasks.append(task.task_id)
+                    logger.info("Task %s reassigned to queue (worker %s released)", task.task_id, worker_id)
+                requeued += 1
+        if free_worker:
+            self._registry.complete_task(worker_id, success=False)
+        return requeued
+
     def submit_tasks(self, round_id: str, payloads: list[Any]) -> list[str]:
         """Submit a batch of opaque task payloads for the current round.
 
@@ -547,15 +584,10 @@ class WorkerCoordinator:
                     continue
 
                 logger.warning("Worker %s heartbeat timeout -- deregistering", worker.worker_id)
-                # Read both the current entry's and the snapshot's active task so a task dispatched
-                # between snapshot and re-check (under the same lock) is not lost.
-                active_task_id = current.active_task_id or worker.active_task_id
-                if active_task_id is not None:
-                    task = self._pending_tasks.get(active_task_id)
-                    if task is not None and not task.completed:
-                        task.assigned_worker_id = None
-                        self._unassigned_tasks.append(active_task_id)
-                        logger.info("Task %s reassigned to queue (worker %s died)", active_task_id, worker.worker_id)
+                # Scan by assigned_worker_id under this lock so a task dispatched between the
+                # stale snapshot and the re-check is not lost (get_next_assignment takes the
+                # same lock). Mirrors the disconnect/abort reclaim helper.
+                self._release_worker_tasks_locked(worker.worker_id)
                 self._registry.deregister(worker.worker_id)
             # Send-callback bookkeeping takes its own lock; keep it outside the registry critical section.
             self.unregister_send_callback(worker.worker_id)
