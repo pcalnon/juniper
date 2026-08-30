@@ -122,7 +122,7 @@ EXPECTED_EXTRAS = {
         "juniper-doc-tools>=0.1.0,<0.2.0",
         "juniper-model-core>=0.1.0,<0.4.0",
         "juniper-observability>=0.2.0",
-        "juniper-service-core>=0.2.0,<0.7.0",
+        "juniper-service-core>=0.2.0,<0.8.0",
     },
     "doc-tools": {
         "juniper-doc-tools>=0.1.0,<0.2.0",
