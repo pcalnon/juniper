@@ -83,6 +83,26 @@ and collector helpers (pin `>=0.2.0`). The client libraries
 current version is shown by the badge above; see [`CHANGELOG.md`](./CHANGELOG.md). Consumers pin
 `juniper-observability>=0.2.0`.
 
+### Compatibility policy — pinning, not deprecation cycles
+
+This package ships **no deprecation machinery**: no `DeprecationWarning`, no
+`PendingDeprecationWarning`, no legacy aliases. That is deliberate, not an oversight
+(defect-register `APD-ECO-007`).
+
+While pre-1.0, compatibility is managed by **external pinning** — consumers pin a floor
+and a ceiling, so each `0.x` is a compatibility boundary and a breaking change is
+absorbed by a ceiling raise the consumer performs deliberately. That holds while the
+consumer set is a known, enumerable handful of first-party repositories.
+
+**What would change this:** a third-party dependant, or 1.0 — at which point the
+consumer set stops being enumerable and a census stops being a sufficient substitute
+for a deprecation cycle. When that happens, reuse the implementations this ecosystem
+already has rather than writing a third:
+`juniper_config_tools.env_with_legacy_alias` for env-var renames, and the
+`juniper-data-client` alias pattern (a `DeprecationWarning` with a correct `stacklevel`
+and a **dated** removal window) for API renames. Re-derivation is exactly how the
+env-var lookup drifted across three services before it was consolidated.
+
 ## Design
 
 Part of the [Juniper](https://github.com/pcalnon) ML research platform. Rationale and history:
