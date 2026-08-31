@@ -1513,7 +1513,8 @@ def build_proposal(entry: "detect.PackageEntry", pkg: dict, sources: ProposeSour
 
     # 6. drafted release notes (template-driven; NOT archived here, plan S10.1/S10.2).
     prop.notes_relpath = notes_render.archive_relpath(entry.pypi_name, to_version)
-    prop.notes_draft = notes_render.render_notes(entry.pypi_name, to_version, bump=bump, release_date=date, sections=sections, repo_root=repo_root, link_base=f"https://github.com/{DEFAULT_OWNER}/{entry.repo}/blob/main")
+    _nb = f"https://github.com/{DEFAULT_OWNER}/{entry.repo}/blob/main"
+    prop.notes_draft = notes_render.render_notes(entry.pypi_name, to_version, bump=bump, release_date=date, sections=sections, repo_root=repo_root, link_base=_nb, changelog_url=f"{_nb}/{_changelog_rel(entry)}")
 
     # 7. propagation edges (annotated with the consumer pin state) + follow-on PRs + co-change checklist.
     prop.propagation_edges = propagation_edges(entries, entry, bump)
