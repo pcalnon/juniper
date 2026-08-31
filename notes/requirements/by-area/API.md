@@ -1095,7 +1095,7 @@ HDF5 groups: meta, config, params, arch, random, hidden_units. Backward compatib
 
 Settled position C-22 from R3-03 table; cross-round consensus consolidation
 
-### JR-ML-API-029 — Output weights transposition bug**: ALREADY FIXED (merged). `_transform_topology()` now.
+### JR-ML-API-029 — **Output weights transposition bug**: ALREADY FIXED (merged). `_transform_topology()` now.
 
 **Status**: shipped  **Priority**: P2  **Category**: API  **Owner**: ml
 
@@ -1529,7 +1529,7 @@ Post-validation finding: current production WebSocket state messages use title-c
 
 [v4 brief repaired; was: '3.1 Bugs']
 
-### JR-ML-API-056 — Guardrails**: Validate params against same whitelist as REST endpoint.
+### JR-ML-API-056 — **Guardrails**: Validate params against same whitelist as REST endpoint.
 
 **Status**: proposed  **Priority**: P2  **Category**: API  **Owner**: ml
 
@@ -1615,7 +1615,7 @@ Post-validation finding: current production WebSocket state messages use title-c
 
 [v3 brief repaired from cited content; was: '7.1 Health Check Consistency']
 
-### JR-ML-API-062 — M-JCC-3: Handshake not validated in `CascorControlStream.connect()`** (`ws_client.py:178`).
+### JR-ML-API-062 — M-JCC-3: Handshake not validated in `CascorControlStream.connect()` (`ws_client.py:178`).
 
 **Status**: proposed  **Priority**: P2  **Category**: API  **Owner**: ml
 
@@ -1630,7 +1630,7 @@ Post-validation finding: current production WebSocket state messages use title-c
 
 [v3 brief repaired from cited content; was: 'Medium Issues']
 
-### JR-ML-API-063 — M-JDC-2: docs/QUICK_START.md references `FakeJuniperDataClient`** — should be `FakeDataClient`.
+### JR-ML-API-063 — **M-JDC-2: docs/QUICK_START.md references `FakeJuniperDataClient`** — should be `FakeDataClient`.
 
 **Status**: proposed  **Priority**: P2  **Category**: API  **Owner**: ml
 
@@ -1727,7 +1727,7 @@ Causes param sync to apply updates to wrong canopy parameter.
 
 [v4 brief repaired; was: '3.2 README & Documentation Updates']
 
-### JR-ML-API-068 — Recommendation**: Add a startup sweep that removes stale `juniper_train_*` blocks from `/dev/shm`.
+### JR-ML-API-068 — **Recommendation**: Add a startup sweep that removes stale `juniper_train_*` blocks from `/dev/shm`.
 
 **Status**: proposed  **Priority**: P2  **Category**: API  **Owner**: ml
 
@@ -1887,7 +1887,7 @@ Status bar works via /api/status endpoint transformation; inconsistent when back
 
 [v3 brief repaired from cited content; was: '3.2 Wire Protocol Alignment']
 
-### JR-ML-API-078 — The core CR-006 issue has been SUBSTANTIALLY ADDRESSED since the prior analysis.** Verification against the current codebase shows:.
+### JR-ML-API-078 — The core CR-006 issue has been SUBSTANTIALLY ADDRESSED since the prior analysis. Verification against the current codebase shows:.
 
 **Status**: proposed  **Priority**: P2  **Category**: API  **Owner**: ml
 
@@ -2040,7 +2040,7 @@ Settled position C-40 from R3-03 table; cross-round consensus consolidation
 
 1. **No application has all git tags**: This is a systemic process gap. Releases are documented in changelogs but tags are not created, meaning GitHub releases and PyPI publishes may not ha
 
-### JR-ML-API-088 — R5.6-THROTTLE** (P3, deferred) on the carry-forward tracker.
+### JR-ML-API-088 — R5.6-THROTTLE (P3, deferred) on the carry-forward tracker.
 
 **Status**: deferred  **Priority**: P3  **Category**: API  **Owner**: ml
 

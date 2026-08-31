@@ -12,7 +12,7 @@
 
 ---
 
-### JR-ML-ARCH-001 — > **Blocks**: All releases, deployments, and downstream development.
+### JR-ML-ARCH-001 — **Blocks**: All releases, deployments, and downstream development.
 
 **Status**: proposed  **Priority**: P0  **Category**: ARCH  **Owner**: ml
 
@@ -30,7 +30,7 @@
 
 *Merged from 2 extraction candidates (slices: 3b-3).*
 
-### JR-ML-ARCH-002 — > **Prerequisite**: Phase 1 (training must work for connection to matter).
+### JR-ML-ARCH-002 — **Prerequisite**: Phase 1 (training must work for connection to matter).
 
 **Status**: proposed  **Priority**: P0  **Category**: ARCH  **Owner**: ml
 
@@ -70,7 +70,7 @@
 
 [v4 brief repaired; was: 'By Severity']
 
-### JR-ML-ARCH-005 — Blocks**: All downstream canopy monitoring fixes.
+### JR-ML-ARCH-005 — **Blocks**: All downstream canopy monitoring fixes.
 
 **Status**: proposed  **Priority**: P0  **Category**: ARCH  **Owner**: ml
 
@@ -95,7 +95,7 @@ If ACTIVATION_MAP diverges between copies, deserialized objects behave different
 Fix: extract to shared module (e.g., src/utils/activation.py) and import from both.
 Codebase validation CONFIRMED duplicate at lines 291 and 138.
 
-### JR-CAS-ARCH-002 — Fix invalid CandidateUnit constructor parameters in fit() method - all parameters silently absorbed by **kwargs.
+### JR-CAS-ARCH-002 — Fix invalid CandidateUnit constructor parameters in fit() method - all parameters silently absorbed by kwargs.
 
 **Status**: proposed  **Priority**: P0  **Category**: ARCH  **Owner**: cas
 
@@ -283,7 +283,7 @@ route: receiver=default, group_by=[alertname,service], group_wait=30s, group_int
 
 [v4 brief repaired; was: '4.1 Final Registry']
 
-### JR-ML-ARCH-018 — Divergence**: Whether the uppercase status normalization gap should be removed (Proposal A) or retained as a latent bug (Proposal B).
+### JR-ML-ARCH-018 — **Divergence**: Whether the uppercase status normalization gap should be removed (Proposal A) or retained as a latent bug (Proposal B).
 
 **Status**: designed  **Priority**: P1  **Category**: ARCH  **Owner**: ml
 
@@ -294,7 +294,7 @@ route: receiver=default, group_by=[alertname,service], group_wait=30s, group_int
 
 [v3 brief repaired from cited content; was: '1.4 Final Resolution of the Main Divergence']
 
-### JR-ML-ARCH-019 — Final resolution**: **6 confirmed** at lines 1000, 1021, 1155, 1187, 1231, 1274.
+### JR-ML-ARCH-019 — **Final resolution**: **6 confirmed** at lines 1000, 1021, 1155, 1187, 1231, 1274.
 
 **Status**: designed  **Priority**: P1  **Category**: ARCH  **Owner**: ml
 
@@ -650,7 +650,7 @@ route: receiver=default, group_by=[alertname,service], group_wait=30s, group_int
 
 *Merged from 6 extraction candidates (slices: ml-C).*
 
-### JR-ML-ARCH-055 — > **Prerequisite**: Phase 2 (connection must work for UI to receive data).
+### JR-ML-ARCH-055 — **Prerequisite**: Phase 2 (connection must work for UI to receive data).
 
 **Status**: proposed  **Priority**: P1  **Category**: ARCH  **Owner**: ml
 
@@ -3120,7 +3120,7 @@ to parse as False instead of 0. Reorder checks: int/float before bool.
 **Sources**:
 - `juniper-ml/notes/legacy/CASCOR_CONCURRENCY_PLAN.md` (lines 914-932)
 
-### JR-ML-ARCH-298 — Goal**: Fix all dark mode styling issues and UI layout problems.
+### JR-ML-ARCH-298 — **Goal**: Fix all dark mode styling issues and UI layout problems.
 
 **Status**: proposed  **Priority**: P3  **Category**: ARCH  **Owner**: ml
 
@@ -3131,7 +3131,7 @@ to parse as False instead of 0. Reorder checks: int/float before bool.
 
 [v3 brief repaired from cited content; was: 'Phase 4:'] From JUNIPER_2026-04-02_JUNIPER-ECOSYSTEM_REGRESSION-DEVELOPMENT-ROADMAP-04.md
 
-### JR-ML-ARCH-299 — Goal**: Fix parameter initialization and value mapping issues.
+### JR-ML-ARCH-299 — **Goal**: Fix parameter initialization and value mapping issues.
 
 **Status**: proposed  **Priority**: P3  **Category**: ARCH  **Owner**: ml
 
@@ -3142,7 +3142,7 @@ to parse as False instead of 0. Reorder checks: int/float before bool.
 
 [v3 brief repaired from cited content; was: 'Phase 3:'] From JUNIPER_2026-04-02_JUNIPER-ECOSYSTEM_REGRESSION-DEVELOPMENT-ROADMAP-04.md
 
-### JR-ML-ARCH-300 — Goal**: Implement new features requested in the regression report.
+### JR-ML-ARCH-300 — **Goal**: Implement new features requested in the regression report.
 
 **Status**: proposed  **Priority**: P3  **Category**: ARCH  **Owner**: ml
 

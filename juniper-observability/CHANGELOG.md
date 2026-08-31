@@ -8,6 +8,41 @@ with [PEP 440](https://peps.python.org/pep-0440/) pre-release identifiers.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Inbound `X-Request-ID` is validated before propagation** (defect-register `APD-OBS-001`,
+  [ml#1156](https://github.com/pcalnon/juniper-ml/pull/1156)). The header is attacker-controlled and
+  its value flows into a process-wide `ContextVar` that any consumer may write to a line-oriented
+  sink, and that is echoed back on the response. That was contained only *incidentally*, by machinery
+  this package does not own: h11 caps the whole request head at `max_incomplete_event_size` (16384 by
+  default, and uvicorn leaves it alone) and rejects CR/LF in header values outright. Both are h11
+  defaults, so the guarantee was borrowed rather than held. Ingress validation moves it here: a new
+  `MAX_REQUEST_ID_LENGTH` (128 — generous beside a 36-character UUID4 or a 55-character W3C
+  `traceparent`, small enough not to bloat a log line) and an **allowlist** pattern
+  `[A-Za-z0-9._:-]+`, chosen over a denylist because the set of characters safe in *every* downstream
+  sink is far easier to enumerate correctly than the set dangerous in any of them. An invalid inbound
+  value is replaced with a freshly generated ID rather than rejected.
+- **`register_info_or_update` declares its real return type** (defect-register `APD-OBS-003`,
+  [ml#1245](https://github.com/pcalnon/juniper-ml/pull/1245)). It returned `Any`, which silently
+  laundered the type for every caller. It now returns `Info`, imported under `TYPE_CHECKING` only —
+  `prometheus_client` is an optional extra and must never be imported at runtime here, and
+  `from __future__ import annotations` makes the annotation a string, so the import costs nothing
+  outside a type checker.
+- **`__all__` is pinned against the module's actual public surface** (defect-register `APD-OBS-004`,
+  [ml#1245](https://github.com/pcalnon/juniper-ml/pull/1245)). A guard test now fails when the two
+  disagree, so an export can no longer be added or removed without the advertised surface following.
+- **The `py.typed` marker is actually shipped in the wheel** (defect-register `APD-OBS-002`,
+  [ml#1237](https://github.com/pcalnon/juniper-ml/pull/1237)). The package carried the
+  `Typing :: Typed` classifier while the marker was not included as package data, so every consumer's
+  type checker silently treated this package as untyped. Part of the six-sub-package packaging sweep.
+
+> These four entries are a **backfill**: the changes shipped between 0.4.0 and this release with an
+> empty `[Unreleased]` section, which is what the release-train detector reported as
+> "CHANGELOG [Unreleased] has no feature/fix/security bullets (under-documented)". All four are
+> fixes; none adds package-level public API — `is_valid_request_id` and `MAX_REQUEST_ID_LENGTH` are
+> module-level and are not exported from `juniper_observability.__init__`. The bump this documents is
+> therefore a **patch**, which is what `detect.py --local-git` proposes for this package.
+
 ## [0.4.0] - 2026-06-14
 
 ### Added

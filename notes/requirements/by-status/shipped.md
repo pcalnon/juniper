@@ -1520,7 +1520,7 @@ Root causes: RC-1 missing JuniperData service lifecycle management, RC-2 ${VAR:d
 
 **PRs**: #146
 
-### JR-ML-OBS-018 — Strengths**: Near-real-time topology updates, no additional REST calls, leverages existing WebSocket infrastructure.
+### JR-ML-OBS-018 — **Strengths**: Near-real-time topology updates, no additional REST calls, leverages existing WebSocket infrastructure.
 
 **Status**: shipped  **Priority**: P1  **Category**: OBS  **Owner**: ml
 
@@ -1689,7 +1689,7 @@ P0 critical (10 fixed): type mismatches, field consistency, gradient descent, ma
 
 [v2 remap: BG→TRAIN]
 
-### JR-ML-SEC-106 — > bound 2 user-supporting SLIs (§4.3, §4.4) to 2 of them. Result: ≥8 dashboard.
+### JR-ML-SEC-106 — bound 2 user-supporting SLIs (§4.3, §4.4) to 2 of them. Result: ≥8 dashboard.
 
 **Status**: shipped  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -1784,7 +1784,7 @@ Completed: UUID persistence, Python/NumPy/PyTorch RNG state, config JSON seriali
 
 See histogram_rationale file for bucket selection rationale.
 
-### JR-ML-SEC-108 — emits per-worker gauges. `juniper-cascor-worker` itself does **not.
+### JR-ML-SEC-108 — emits per-worker gauges. `juniper-cascor-worker` itself does not.
 
 **Status**: shipped  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -1926,7 +1926,7 @@ Phase 2 feature; shipped with 17 tests, visual regression verification recommend
 
 Settled position C-22 from R3-03 table; cross-round consensus consolidation
 
-### JR-ML-API-029 — Output weights transposition bug**: ALREADY FIXED (merged). `_transform_topology()` now.
+### JR-ML-API-029 — **Output weights transposition bug**: ALREADY FIXED (merged). `_transform_topology()` now.
 
 **Status**: shipped  **Priority**: P2  **Category**: API  **Owner**: ml
 
@@ -2075,7 +2075,7 @@ Shipped in v0.2.0 (2026-03-21); ecosystem standard convention
 
 cause: the pre-METRICS-MON observability scaffolding in
 
-### JR-ML-OBS-051 — Source-of-truth:** `juniper-deploy/prometheus/alert_rules.yml` (1146 lines).
+### JR-ML-OBS-051 — **Source-of-truth:** `juniper-deploy/prometheus/alert_rules.yml` (1146 lines).
 
 **Status**: shipped  **Priority**: P2  **Category**: OBS  **Owner**: ml
 
@@ -2135,7 +2135,7 @@ Thread compaction introduces information loss (subtle decisions, edge cases, par
 
 Handoff protocol: (1) Checkpoint current state (task, completed, remaining, discovered, files in play), (2) Compose concise actionable goal (be specific, include paths, state decisions, mention test status, keep <500 words), (3) Present to user via handoff() tool if available (follow=true for current thread stop, follow=false rare).
 
-### JR-ML-SEC-109 — TODO/FIXME/HACK**: 3 empty `# TODO :` banner placeholders in canopy frontend.
+### JR-ML-SEC-109 — **TODO/FIXME/HACK**: 3 empty `# TODO :` banner placeholders in canopy frontend.
 
 **Status**: shipped  **Priority**: P2  **Category**: SEC  **Owner**: ml
 
@@ -2150,7 +2150,7 @@ Handoff protocol: (1) Checkpoint current state (task, completed, remaining, disc
 
 [v3 brief repaired from cited content; was: '4.5 Dimension E — Throttles + tech debt + race conditions']
 
-### JR-ML-SEC-110 — Version**: 0.3.0 (unreleased constants refactor on main) | **Python**: ≥3.11 | **Coverage**: 91.47%.
+### JR-ML-SEC-110 — **Version**: 0.3.0 (unreleased constants refactor on main) | **Python**: ≥3.11 | **Coverage**: 91.47%.
 
 **Status**: shipped  **Priority**: P2  **Category**: SEC  **Owner**: ml
 

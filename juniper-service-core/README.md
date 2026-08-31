@@ -99,7 +99,7 @@ Any new Juniper model service should build on this rather than re-implementing t
 ## Status
 
 **Live** on PyPI (Beta). The current version is shown by the badge above; see
-[`CHANGELOG.md`](./CHANGELOG.md) for history. Pin with `juniper-service-core>=0.2.0,<0.7.0` —
+[`CHANGELOG.md`](./CHANGELOG.md) for history. Pin with `juniper-service-core>=0.2.0,<0.8.0` —
 the range the `juniper-ml` meta-package uses for its `tools` / `all` extras.
 
 ## Development

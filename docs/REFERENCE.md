@@ -74,7 +74,7 @@
 |             | `juniper-doc-tools`                                                                      | `>=0.1.0,<0.2.0`  |
 |             | `juniper-model-core`                                                                     | `>=0.1.0,<0.4.0`  |
 |             | `juniper-observability`                                                                  | `>=0.2.0`         |
-|             | `juniper-service-core`                                                                   | `>=0.2.0,<0.7.0`  |
+|             | `juniper-service-core`                                                                   | `>=0.2.0,<0.8.0`  |
 | `doc-tools` | `juniper-doc-tools` (back-compat alias for the doc-tools entry in `tools`)               | `>=0.1.0,<0.2.0`  |
 | `recurrence`| `juniper-recurrence-model`                                                               | `>=0.1.5,<0.3.0`  |
 |             | `juniper-recurrence`                                                                     | `>=0.2.0,<0.5.0`  |
@@ -2877,7 +2877,7 @@ Services that don't need the full meta-package can still depend on `juniper-obse
 | Field                 | Value                                                                      |
 |-----------------------|----------------------------------------------------------------------------|
 | **PyPI Name**         | `juniper-observability`                                                    |
-| **Current Version**   | `0.1.1`                                                                    |
+| **Current Version**   | `0.4.0`                                                                    |
 | **Python**            | `>=3.12`                                                                   |
 | **Importable Module** | `juniper_observability`                                                    |
 | **Package Docs**      | [`../juniper-observability/README.md`](../juniper-observability/README.md) |
@@ -2903,10 +2903,10 @@ Publish and CI constraints:
 | Field                 | Value                                                                    |
 |-----------------------|--------------------------------------------------------------------------|
 | **PyPI Name**         | `juniper-service-core`                                                   |
-| **Current Version**   | `0.6.0`                                                                  |
+| **Current Version**   | `0.7.0`                                                                  |
 | **Python**            | `>=3.12`                                                                 |
 | **Importable Module** | `juniper_service_core`                                                   |
-| **Meta pin**          | `juniper-service-core>=0.2.0,<0.7.0` under `[tools]` / `[all]`            |
+| **Meta pin**          | `juniper-service-core>=0.2.0,<0.8.0` under `[tools]` / `[all]`            |
 | **Package Docs**      | [`../juniper-service-core/README.md`](../juniper-service-core/README.md) |
 
 #### HTTP middleware contracts
