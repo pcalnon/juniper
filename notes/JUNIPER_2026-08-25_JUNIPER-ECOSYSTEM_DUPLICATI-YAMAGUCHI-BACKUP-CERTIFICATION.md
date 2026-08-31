@@ -1980,7 +1980,10 @@ item 4, "KEEP. No change". A literal-string sweep flags it as orphaned; it is no
    it is printed and stored off-machine, `PASSPHRASE_OLD` has no copy outside `sdc` + sda1.
 3. **Criterion 5 (reboot)** — `util/ad-hoc/yamaguchi_reboot_verify.bash pre|post` is written and both
    lanes have been executed on the live system; that PASS validates the script, not the criterion.
-4. **Confirm item 2's capture** in a completed backup (§8.20.1).
+4. ~~**Confirm item 2's capture** in a completed backup (§8.20.1).~~ — **DONE 2026-08-31, §8.22.4**
+   (163,840 B at `20260830T134500Z`, present in dlist `20260831T085413Z`, control-query verified).
+   Confirming it is what exposed §8.22: there was no completed run to check, because the server had
+   been stuck `Paused` for 42.6 h.
 5. §8.8's `.env` reconciliation; 6. cloud reporting (owner-deferred); 7. the disabled user-lane
    removal PR; 8. the two §8.20.4 items.
 
@@ -2126,3 +2129,96 @@ RESULT: COMPLETE COVERAGE -- all 1244900 hashes the dlist references are declare
    blocking a valid run for a reason unrelated to the destination's integrity — on the one day
    (post-reboot, sda1 only) it is needed most.
 4. **`duplicati_first_backup.bash`** — §8.21.3.
+
+---
+
+### 8.22 Addendum (2026-08-31) — a stuck `startup-delay` pause silently ate a scheduled backup
+
+**Found by going to verify §8.20.5 item 4 and discovering there was no run to verify.** The item
+asked for confirmation that the server-DB snapshot was captured in a *completed* backup. There was
+no completed backup: the 2026-08-30 14:00Z run never started, and the arc was **42.6 hours** without
+one at the moment of discovery.
+
+#### 8.22.1 What was observed
+
+| Fact | Value at 2026-08-31T08:51Z |
+|---|---|
+| Last successful backup | `2026-08-29T14:13:38Z` — **42.6 h earlier** |
+| 2026-08-30 14:00Z run | never started; **no log entry of any kind** for it |
+| `ProgramState` | `Paused`, with `paused-until = '0'` — no expiry, no manual pause |
+| `SchedulerQueueIds` | **`[{Item1: 2}]`** — the trigger DID fire; the job sat queued ~19 h |
+| `startup-delay` | `30m` |
+| Server uptime | started 2026-08-30 01:08:45 CDT, so that delay expired 01:38 — **26 h earlier** |
+
+The queue entry is the load-bearing evidence: the scheduler fired on time and enqueued job 2, and
+the pause held it there. This was not a missed trigger, a bad `OnCalendar`, or a dead timer.
+
+**Resolved** by `POST /api/v1/serverstate/resume` (owner-approved). The queued job dequeued
+immediately and ran to `Backup Success 2026-08-31T08:54:13Z -> 09:07:23Z` (13 m 10 s, `Errors=[]`).
+Census reconciles at the new baseline **826 files / 212,336,971,122 B `-> AGREE`**;
+`BackupListCount` 5 → 6; next run `2026-08-31T14:00:00Z`.
+
+#### 8.22.2 Root cause is NOT established — and that matters for the reboot
+
+What is proven: the server was Paused long past its `startup-delay` window, with `paused-until = 0`,
+and resuming fixed it. **Why the startup-delay pause was never lifted is unknown.** Candidates not
+discriminated here: a resume timer that does not fire under `--portable-mode`; `paused-until = 0`
+meaning *indefinite* rather than *not paused*; or a one-off. Do not write a mechanism into this note
+that has not been tested — this arc has been burned by exactly that twice (§8.20.2, §8.20.3).
+
+> **This is a reboot hazard, and criterion 5 is a reboot.** The pause followed a
+> `duplicati.service` restart. If it is reproducible on restart rather than a one-off, the
+> post-reboot server comes up Paused and **the backup silently stops again**, with the first
+> external signal ~26 h later. Before rebooting, either establish the cause, or add a
+> `ProgramState` check to the post-reboot verification (`yamaguchi_reboot_verify.bash post`
+> currently does not look at it).
+
+**§8.20.1's reading needs a qualifier.** "`ProgramState=Paused` = startup-delay 30m, not an
+incident" was true *within* the 30-minute window in which it was written. Past that window the same
+observation is an outage. The distinguishing evidence is cheap and should be stated with the claim:
+**`Paused` + a non-empty `SchedulerQueueIds` is always a fault**, whatever the uptime.
+
+#### 8.22.3 The watchdog would not have caught this any sooner
+
+`yamaguchi-watchdog.timer` is `enabled` and firing normally (last 2026-08-30 12:00:54, next
+2026-08-31 12:00). It is not broken. But it has two gaps, stated at their real severity:
+
+1. **It never inspects `ProgramState`.** A paused server with a queued job is invisible to it. It
+   can only notice this class once raw staleness crosses `--max-age-hours` (26.0) — which is why a
+   42 h outage was still unreported.
+2. **It anchors on the newest log entry of ANY `MainOperation`** (`GET /api/v1/backup/2/log?pagesize=1`,
+   then `ParsedResult` / `BeginTime`), so a **Compact** refreshes the backup-freshness clock.
+
+Gap 2 is **latent and did not cause this miss** — at 08-30 12:00 the newest entry was the 08-29T21:33Z
+Compact at 19.5 h, but the newest *Backup* was 08-29T14:00Z at 22 h, and both are under 26 h, so the
+verdict was `OK` either way. Recorded because a more recent Compact *would* have masked it.
+
+#### 8.22.4 §8.20.5 item 4 — CLOSED
+
+The 08-31 run captured the snapshot. Proven by querying the newest dlist rather than inferring from
+the filter list:
+
+```text
+duplicati_dlist_query.py --dest /mnt/Backups/Ubuntu/Yamaguchi --encryption aes \
+    --match 'duplicati-server-db' --match 'rust_mudgeon/adamo/Cargo'
+
+dlist : duplicati-20260831T085413Z.dlist.zip.aes (newest of 6)
+match 'duplicati-server-db': 2 entries
+  [ Folder]        0 B                    /home/pcalnon/.local/state/duplicati-server-db/
+  [   File]   163840 B  20260830T134500Z  /home/pcalnon/.local/state/duplicati-server-db/Duplicati-server.sqlite
+match 'rust_mudgeon/adamo/Cargo': 3 entries      <- CONTROL: exactly 3, as documented
+```
+
+163,840 B at `20260830T134500Z` matches the on-disk snapshot exactly. The control query is not
+decoration: a zero from this tool would otherwise be indistinguishable from a filter excluding the
+path, and the arc's standing counter-practice is to pair any believed result with a sibling query
+known to return non-empty.
+
+#### 8.22.5 Consequences for the open list
+
+- **§8.20.5 item 4 — CLOSED** (this section). §8.19.8 item 2 may be marked closed with it.
+- **§8.20.5 item 3 (reboot) gains a precondition**: §8.22.2's hazard. Do not treat the reboot as
+  low-risk until `ProgramState` is either explained or checked post-reboot.
+- **New, unfixed**: the watchdog's two gaps (§8.22.3). A `ProgramState`/queue check is cheap and
+  would have turned a 42 h silent outage into a same-day alert.
+- Unchanged and still the top item: **the offline escrow copy** (§8.19.2).

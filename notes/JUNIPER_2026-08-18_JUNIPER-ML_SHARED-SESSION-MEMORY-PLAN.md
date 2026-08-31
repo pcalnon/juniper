@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-27
+**Last Updated**: 2026-08-31
 
 ---
 
@@ -214,29 +214,60 @@ achieved level, not the aspirational one.
 
 ### P5 — Fleet rollout
 
-**Status: CUT IN PROGRESS — the ratchet is done (8 of 9 governable repos governed; `Memory Budget`
-BLOCKING with declared slack AND REQUIRED by ruleset on all 8, promoted 2026-08-27), and step e has
-now cut 3 of them, removing ~50,200 always-resident chars.** Merged 2026-08-29 UTC (squash SHAs are
-`mergeCommit.oid`, NOT the head `safe_merge` names in its "MERGED #N at <sha>" line — that is the
-head it merged, and two figures were first recorded wrong that way):
+**Status: CUT COMPLETE — the ratchet is done (8 of 9 governable repos governed; `Memory Budget`
+BLOCKING with declared slack AND REQUIRED by ruleset on all 8, promoted 2026-08-27), step e has now
+cut all 7 cuttable repos, and all 9 carry a resident `## Hazards` block.** Net across the 8 governed
+repos: **−133,851 always-resident chars**, measured at `origin/main` on 2026-08-31 with
+`python3 util/ad-hoc/2026-08-31_p5_arc_net_delta.py` — re-run it rather than transcribing. Its
+anchor is each repo's **port squash**, so it nets every cut against the Hazards block that repo
+gained afterwards; a cut-only figure overstates the reduction. (An earlier handoff recorded
+−135,118 from the later parent-of-first-cut-commit boundary, which excludes 1,267 chars of
+unrelated canopy and cascor growth between the two points. Both are defensible; this one states
+its anchor and is reproducible.)
+
+| Repo | at port | now | net | ceiling | headroom |
+|---|---:|---:|---:|---:|---:|
+| juniper-canopy | 95,133 | 48,915 | −46,218 | 51,329 | 2,414 |
+| juniper-cascor | 71,098 | 50,697 | −20,401 | 58,189 | 7,492 |
+| juniper-cascor-client | 34,695 | 16,599 | −18,096 | 18,414 | 1,815 |
+| juniper-data | 43,493 | 25,732 | −17,761 | 26,965 | 1,233 |
+| juniper-deploy | 34,569 | 21,841 | −12,728 | 23,074 | 1,233 |
+| juniper-data-client | 28,369 | 17,118 | −11,251 | 17,604 | **486** |
+| juniper-cascor-worker | 35,126 | 26,049 | −9,077 | 26,832 | **783** |
+| juniper-recurrence | 11,578 | 13,259 | **+1,681** | 20,000 | 6,741 |
+
+**Headroom, not size, is now the live risk.** juniper-data-client has 486 chars and
+juniper-cascor-worker 783 against a BLOCKING *required* gate — one added paragraph in either fails
+CI. Check `python3 util/ad-hoc/2026-08-26_p5_fleet_state.py` before editing any `AGENTS.md`.
+
+Cut squashes, each verified an ancestor of its `origin/main` by
+`… 2026-08-31_p5_arc_net_delta.py --check-shas` (squash SHAs are `mergeCommit.oid`, NOT the head
+`safe_merge` names in its "MERGED #N at <sha>" line — three figures were first recorded wrong that
+way, and the cascor port SHA below stayed wrong for five days):
+[juniper-canopy#540](https://github.com/pcalnon/juniper-canopy/pull/540) (`1a29ca4e`, `AGENTS.md`
+97,723 → 72,004, 7 sections) then
+[#541](https://github.com/pcalnon/juniper-canopy/pull/541) (`f7e0213e`, 72,004 → 48,915, 3
+sections) — two sequential single-destination PRs, per §7 of the cut-prep note;
+[juniper-cascor#600](https://github.com/pcalnon/juniper-cascor/pull/600) (`9820ebd6`, 72,188 →
+48,580) with [#601](https://github.com/pcalnon/juniper-cascor/pull/601) (`9c813ba5`) adding its
+Hazards block and the `docs/INDEX.md` pointer row;
 [juniper-cascor-client#142](https://github.com/pcalnon/juniper-cascor-client/pull/142) (`e19d7926`,
-`AGENTS.md` 34,695 → 15,832, ceiling 37,277 → 18,414),
-[juniper-data#296](https://github.com/pcalnon/juniper-data/pull/296) (`9f9c0b8c`, 43,493 → 24,965,
-45,493 → 26,965),
+ceiling 37,277 → 18,414),
+[juniper-data#296](https://github.com/pcalnon/juniper-data/pull/296) (`9f9c0b8c`, 45,493 → 26,965),
 [juniper-data-client#176](https://github.com/pcalnon/juniper-data-client/pull/176) (`e3a8ddb9`,
-28,369 → 15,531, 30,442 → 17,604).
+30,442 → 17,604),
+[juniper-cascor-worker#164](https://github.com/pcalnon/juniper-cascor-worker/pull/164) (`9abbe3cc`),
+[juniper-deploy#197](https://github.com/pcalnon/juniper-deploy/pull/197) (`4d2a66fa`).
 [juniper-recurrence#135](https://github.com/pcalnon/juniper-recurrence/pull/135) (`315d014b`) took a
 **policy ceiling raise instead of a cut** (13,698 → 20,000, owner decision): an 11.5K file across 6
-sections with no `docs/REFERENCE.md` has too little to relocate to be worth splitting.
-**Still uncut: juniper-canopy and juniper-cascor** (both blocked — see
-[the cut-prep note](JUNIPER_2026-08-28_JUNIPER-ECOSYSTEM_P5-CUT-CANOPY-CASCOR-PREP.md) for the
-destination and hazards prerequisites, and for a relocate-tool defect that would have silently
-truncated 8 of canopy's 11 candidate sections), **plus juniper-cascor-worker and juniper-deploy**,
-which are cuttable, unclaimed, and were simply out of scope for the first pass. Tracking issue:
-[juniper-ml#1326](https://github.com/pcalnon/juniper-ml/issues/1326) — its comment thread is the live
-per-repo ledger; read it before trusting this banner. Ports merged 2026-08-25:
+sections with no `docs/REFERENCE.md` has too little to relocate to be worth splitting. Tracking
+issue: [juniper-ml#1326](https://github.com/pcalnon/juniper-ml/issues/1326) — its comment thread is
+the live per-repo ledger; read it before trusting this banner. Ports merged 2026-08-25:
 [juniper-canopy#516](https://github.com/pcalnon/juniper-canopy/pull/516) (`611141c1`, ceiling 95,133) and
-[juniper-cascor#585](https://github.com/pcalnon/juniper-cascor/pull/585) (`c83c3407`, ceiling 71,098);
+[juniper-cascor#585](https://github.com/pcalnon/juniper-cascor/pull/585) (`fa649d0b`, ceiling 71,098
+— **corrected 2026-08-31**: this read `c83c3407` for five days, which is the PR *head* (a test fix,
+"drop the `Version:` header") and is **not an ancestor of `origin/main`**, so it resolves locally
+while pointing at nothing in the shipped history);
 merged 2026-08-26 under the owner's arc-wide authorization, squash-of-one each:
 [juniper-cascor-client#139](https://github.com/pcalnon/juniper-cascor-client/pull/139) (`b1c1acd7`, 34,695),
 [juniper-recurrence#131](https://github.com/pcalnon/juniper-recurrence/pull/131) (`369d8f59`, 11,578; standalone workflow),
