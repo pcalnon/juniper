@@ -210,13 +210,85 @@ class ExpandTest(unittest.TestCase):
                 ("schema_version: 1\nsuite: {name: s, app: nope, base_config: [b]}\n", "app"),
                 ("schema_version: 1\nsuite: {name: s, app: cascor, base_config: []}\n", "base_config"),
                 ("schema_version: 1\nsuite: {name: s, app: cascor, base_config: [b]}\nexecution: {mode: bogus}\n", "sequential.*parallel"),
-                ("schema_version: 1\nsuite: {name: s, app: cascor, base_config: [b]}\nexecution: {mode: parallel, max_parallel: 2}\n", "Q-6"),
+                # The cascor-parallel case moved to CascorParallelFloorTest: since the Q-6 floor
+                # landed its outcome depends on the resolved cascor tree's VERSION, so asserted
+                # here it would pass or fail according to whether the host happens to have a
+                # juniper-cascor sibling — the environment-dependent-test class.
                 ("schema_version: 1\nsuite: {name: s, app: recurrence, base_config: [b]}\nexecution: {mode: parallel, max_parallel: 0}\n", "max_parallel"),
                 ("schema_version: 1\nsuite: {name: s, app: cascor, base_config: [b]}\nbogus: {}\n", "unknown"),
             ):
                 bad.write_text(body)
                 with self.assertRaisesRegex(run_suite.SuiteError, msg):
                     run_suite.load_suite(bad)
+
+
+class CascorParallelFloorTest(unittest.TestCase):
+    """Q-6: cascor parallel cells are gated on the LAUNCHED tree's version, and fail closed.
+
+    Every case pins ``JUNIPER_EXP_CASCOR_SRC_DIR`` at a tree this test builds, so the outcome
+    never depends on whether the host has a juniper-cascor sibling checkout. Asserting the old
+    blanket refusal without that pin is what made the previous placement environment-dependent.
+    """
+
+    SUITE = "schema_version: 1\n" "suite: {{name: s, app: cascor, base_config: [b]}}\n" "execution: {{mode: {mode}, max_parallel: {par}}}\n"
+
+    def setUp(self) -> None:
+        self._saved = {k: os.environ.get(k) for k in ("JUNIPER_EXP_CASCOR_SRC_DIR", "JUNIPER_EXP_PROJECT_DIR")}
+
+    def tearDown(self) -> None:
+        for key, val in self._saved.items():
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
+
+    def _tree(self, root: Path, version: "str | None") -> Path:
+        tree = root / "juniper-cascor"
+        (tree / "src").mkdir(parents=True, exist_ok=True)
+        if version is not None:
+            (tree / "pyproject.toml").write_text(f'[project]\nname = "juniper-cascor"\nversion = "{version}"\n')
+        os.environ["JUNIPER_EXP_CASCOR_SRC_DIR"] = str(tree / "src")
+        return tree
+
+    def _suite(self, root: Path, mode: str = "parallel", par: int = 4) -> Path:
+        path = root / "suite.yaml"
+        path.write_text(self.SUITE.format(mode=mode, par=par))
+        return path
+
+    def test_at_floor_allows_parallel(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root, ".".join(str(p) for p in run_suite.CASCOR_PARALLEL_FLOOR))
+            self.assertIsInstance(run_suite.load_suite(self._suite(root)), dict)
+
+    def test_below_floor_refuses_and_names_the_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root, "0.9.0")
+            with self.assertRaisesRegex(run_suite.SuiteError, r"0\.9\.0"):
+                run_suite.load_suite(self._suite(root))
+
+    def test_unreadable_version_fails_closed(self) -> None:
+        """An unknowable version must not resolve the same way as a compliant one."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root, None)  # no pyproject.toml -> version unknowable
+            with self.assertRaisesRegex(run_suite.SuiteError, "could not be read"):
+                run_suite.load_suite(self._suite(root))
+
+    def test_sequential_is_never_gated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root, "0.9.0")  # below the floor, and irrelevant in sequential mode
+            self.assertIsInstance(run_suite.load_suite(self._suite(root, mode="sequential", par=1)), dict)
+
+    def test_recurrence_parallel_is_never_gated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root, "0.9.0")
+            path = root / "rec.yaml"
+            path.write_text("schema_version: 1\n" "suite: {name: s, app: recurrence, base_config: [b]}\n" "execution: {mode: parallel, max_parallel: 4}\n")
+            self.assertIsInstance(run_suite.load_suite(path), dict)
 
 
 class MaterialiseTest(unittest.TestCase):
