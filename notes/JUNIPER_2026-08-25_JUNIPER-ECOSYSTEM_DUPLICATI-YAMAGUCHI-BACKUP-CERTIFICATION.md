@@ -2166,6 +2166,10 @@ discriminated here: a resume timer that does not fire under `--portable-mode`; `
 meaning *indefinite* rather than *not paused*; or a one-off. Do not write a mechanism into this note
 that has not been tested — this arc has been burned by exactly that twice (§8.20.2, §8.20.3).
 
+> **[REFUTED 2026-08-31 — see §8.23. The restart experiment was run and the server auto-resumed
+> on schedule. Criterion 5 does NOT carry this hazard. The warning below is retained as written
+> so the reasoning that motivated the test is legible.]**
+>
 > **This is a reboot hazard, and criterion 5 is a reboot.** The pause followed a
 > `duplicati.service` restart. If it is reproducible on restart rather than a one-off, the
 > post-reboot server comes up Paused and **the backup silently stops again**, with the first
@@ -2222,3 +2226,72 @@ known to return non-empty.
 - **New, unfixed**: the watchdog's two gaps (§8.22.3). A `ProgramState`/queue check is cheap and
   would have turned a 42 h silent outage into a same-day alert.
 - Unchanged and still the top item: **the offline escrow copy** (§8.19.2).
+
+---
+
+### 8.23 Addendum (2026-08-31) — the reboot hazard of §8.22.2 is REFUTED by direct test
+
+§8.22.2 warned that if the stuck pause reproduced on restart, the post-reboot server would come up
+`Paused` and the backup would silently stop again. **The owner ran the restart. It does not
+reproduce.**
+
+#### 8.23.1 The measurement
+
+One variable, one restart, sampled every 60 s across the whole `startup-delay` window:
+
+```text
+restart = 15:35:56 CDT      startup-delay = 30m      window expires 16:05:56
+
+15:37:39 [in-window]   ProgramState=Paused   queue=[]
+   ... 29 consecutive samples, all Paused, all queue=[] ...
+16:05:39 [in-window]   ProgramState=Paused   queue=[]
+16:06:39 [PAST-WINDOW] ProgramState=Running  queue=[]   <-- CHANGE
+16:09:39 [PAST-WINDOW] ProgramState=Running  queue=[]
+
+VERDICT: RESUMED
+```
+
+`startup-delay` works. The pause during the window is correct behaviour, the resume fires on
+expiry, and — per §8.22.2's own discriminator — the queue was **empty** throughout, so this pause
+was never of the faulting kind.
+
+**Consequence: criterion 5 needs no resume step and no `startup-delay` change.** The reboot is not
+riskier than any other restart on this axis.
+
+#### 8.23.2 What the 08-30 event was NOT
+
+Two candidates are now eliminated, which is worth more than the refutation itself because it stops
+the next session re-deriving them:
+
+| Candidate | Status |
+|---|---|
+| `startup-delay` resume timer does not fire | **REFUTED** — §8.23.1, it fires |
+| System suspend / hibernate paused the service | **REFUTED** — zero `systemd-suspend`/`sleep.target` entries and zero *"Entering sleep state"* messages since 08-29 |
+| First start after a `DAEMON_OPTS` change behaves differently | not tested; no evidence for it |
+
+*(Method note: the first suspend sweep used `grep -iE 'suspend|hibernat|sleep|lid'` and returned
+dozens of kubelet lines — `lid` matches **va·lid·ate**. A loose alternation over short tokens
+produces confident noise. Re-run against the unit names and the literal sleep messages, it returns
+nothing.)*
+
+`journalctl -u duplicati` across the entire 08-30 01:08 → 08-31 14:32 window contains **only** the
+start lines — no error, no warning, no second restart. The 08-30 stuck pause therefore stands as a
+**single unexplained event, not a reproducible fault**, and nothing in the record explains it.
+
+#### 8.23.3 One observation worth sampling next time
+
+`paused-until` read **`'0'`** while the server was stuck on 08-31 morning, and reads **`''`** now
+that it is running. The in-window pause of §8.23.1 was **not** sampled for this field — an omission,
+because it is exactly the discriminator that would say whether a `startup-delay` pause and the stuck
+pause are the same state. **If a stuck pause is ever seen again, read `paused-until` before
+resuming.** A cheap way to get the baseline without waiting for a fault: sample it during the next
+routine restart's 30-minute window.
+
+#### 8.23.4 Net effect on the open list
+
+- §8.22.2's reboot hazard: **closed, refuted.** §8.20.5 item 3 (the reboot) returns to its previous
+  risk level.
+- The `ProgramState` + queue check (§8.22.3) is **still worth building** — it is independent of
+  cause, and would have turned the 08-30 event into a same-day alert whatever produced it.
+- Health at time of writing: `Running`, empty queue, `LastBackupDate=20260831T140000Z`, snapshot
+  lane fired on schedule 08-31 08:45, next run `2026-09-01T14:00:00Z`.
