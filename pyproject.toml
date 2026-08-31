@@ -54,7 +54,7 @@ tools = [
     "juniper-doc-tools>=0.1.0,<0.2.0",
     "juniper-model-core>=0.1.0,<0.4.0",
     "juniper-observability>=0.2.0",
-    "juniper-service-core>=0.2.0,<0.7.0",
+    "juniper-service-core>=0.2.0,<0.8.0",
 ]
 # The Δt-native recurrence stack (WS-4 / WS-4b): the closed-form variable-Δt
 # LMU regressor library, the FastAPI/CLI application that wraps it, and the HTTP

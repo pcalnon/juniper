@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-30
+
+### Added
+
+- **`WorkerCoordinator.release_worker_tasks` — new public method on an exported class.** The shared
+  helper that returns a worker's in-flight tasks to the unassigned queue. Idempotent, and takes
+  `free_worker` so an abort on a still-connected worker also marks it idle. `WorkerCoordinator` is
+  exported from `juniper_service_core` (`__init__.py:193`, lazy map `:276`), so this is **new public
+  API surface**, which is what makes the release carrying it a minor rather than a patch under
+  SemVer §7. Filed here rather than under `Fixed` deliberately: the behaviour change below is what
+  the work was *for*, but the new method is what consumers can now call, and the release-train
+  detector derives its bump proposal from these headings.
+
 ### Fixed
 
 - **Worker-stream disconnect and mid-result abort now reclaim in-flight tasks.** A clean
@@ -16,8 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stale-heartbeat sweep already requeued; disconnect did not. The same hole existed on
   expected-binary-got-text and oversize attachment aborts: the handler sent an error and
   returned while leaving the worker busy, so `_try_dispatch_task` could not redispatch.
-  `WorkerCoordinator.release_worker_tasks` is the shared helper (idempotent; `free_worker=True`
-  on abort so a still-connected worker becomes idle).
+  Both paths now go through `release_worker_tasks` (above).
 
 ## [0.6.0] - 2026-08-29
 

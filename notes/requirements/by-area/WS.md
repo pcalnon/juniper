@@ -963,7 +963,7 @@ Phase A-SDK checklist item from R3-03 §4.1 deliverables
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-10_JUNIPER-ECOSYSTEM_WEBSOCKET-MESSAGING-ARCHITECTURE-1.md` (lines 1348-1352)
 
-### JR-ML-WS-071 — GAP-WS-13: (P1) — Lossless reconnect via sequence numbers and replay buffer.** Required components:.
+### JR-ML-WS-071 — GAP-WS-13: (P1) — Lossless reconnect via sequence numbers and replay buffer. Required components:.
 
 **Status**: proposed  **Priority**: P1  **Category**: WS  **Owner**: ml
 
@@ -998,7 +998,7 @@ Phase A-SDK checklist item from R3-03 §4.1 deliverables
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-10_JUNIPER-ECOSYSTEM_WEBSOCKET-MESSAGING-ARCHITECTURE-1.md` (lines 2005-2009)
 
-### JR-ML-WS-076 — GAP-WS-13: sequence numbers land). Currently there is no mechanism to reject an outdated client. **De.
+### JR-ML-WS-076 — GAP-WS-13: sequence numbers land). Currently there is no mechanism to reject an outdated client. De.
 
 **Status**: proposed  **Priority**: P1  **Category**: WS  **Owner**: ml
 
@@ -1117,7 +1117,7 @@ Phase A-SDK checklist item from R3-03 §4.1 deliverables
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-10_JUNIPER-ECOSYSTEM_WEBSOCKET-MESSAGING-ARCHITECTURE-1.md` (lines 1404-1408)
 
-### JR-ML-WS-093 — GAP-WS-20: (P3)**: normalize bidirectional envelope to use `{type, timestamp, data}` everywhere. Trac.
+### JR-ML-WS-093 — **GAP-WS-20: (P3)**: normalize bidirectional envelope to use `{type, timestamp, data}` everywhere. Trac.
 
 **Status**: proposed  **Priority**: P1  **Category**: WS  **Owner**: ml
 
@@ -1131,7 +1131,7 @@ Phase A-SDK checklist item from R3-03 §4.1 deliverables
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-10_JUNIPER-ECOSYSTEM_WEBSOCKET-MESSAGING-ARCHITECTURE-1.md` (lines 1412-1416)
 
-### JR-ML-WS-095 — GAP-WS-21: (P1)** in §7.
+### JR-ML-WS-095 — GAP-WS-21: (P1) in §7.
 
 **Status**: proposed  **Priority**: P1  **Category**: WS  **Owner**: ml
 
@@ -1159,7 +1159,7 @@ Phase A-SDK checklist item from R3-03 §4.1 deliverables
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-10_JUNIPER-ECOSYSTEM_WEBSOCKET-MESSAGING-ARCHITECTURE-1.md` (lines 1420-1424)
 
-### JR-ML-WS-099 — GAP-WS-22: (P2)** in §7.
+### JR-ML-WS-099 — GAP-WS-22: (P2) in §7.
 
 **Status**: proposed  **Priority**: P1  **Category**: WS  **Owner**: ml
 
@@ -1180,7 +1180,7 @@ Phase A-SDK checklist item from R3-03 §4.1 deliverables
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-10_JUNIPER-ECOSYSTEM_WEBSOCKET-MESSAGING-ARCHITECTURE-1.md` (lines 1431-1435)
 
-### JR-ML-WS-102 — GAP-WS-23: (P1)** in §7: clientside chart updates must use `Plotly.extendTraces()` with `maxPoints` p.
+### JR-ML-WS-102 — GAP-WS-23: (P1) in §7: clientside chart updates must use `Plotly.extendTraces()` with `maxPoints` p.
 
 **Status**: proposed  **Priority**: P1  **Category**: WS  **Owner**: ml
 
@@ -1194,7 +1194,7 @@ Phase A-SDK checklist item from R3-03 §4.1 deliverables
 **Sources**:
 - `juniper-ml/notes/code-review/JUNIPER_2026-04-10_JUNIPER-ECOSYSTEM_WEBSOCKET-MESSAGING-ARCHITECTURE-1.md` (lines 1439-1443)
 
-### JR-ML-WS-104 — GAP-WS-24: (P2)** in §7. Phase B includes the instrumentation; Phase C+ uses the data to validate (or.
+### JR-ML-WS-104 — GAP-WS-24: (P2) in §7. Phase B includes the instrumentation; Phase C+ uses the data to validate (or.
 
 **Status**: proposed  **Priority**: P1  **Category**: WS  **Owner**: ml
 
@@ -1625,7 +1625,7 @@ Comprehensive extraction plan synthesizing 3 proposals, phases 0-4 complete (76 
 
 Settled position C-01 from R3-03 table; cross-round consensus consolidation
 
-### JR-ML-WS-146 — Decision**: Support both `--systemd` flag and `USE_SYSTEMD=1` env var.
+### JR-ML-WS-146 — **Decision**: Support both `--systemd` flag and `USE_SYSTEMD=1` env var.
 
 **Status**: proposed  **Priority**: P2  **Category**: WS  **Owner**: ml
 

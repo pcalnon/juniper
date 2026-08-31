@@ -137,7 +137,7 @@ This behavior is regression-tested in `tests/test_wake_the_claude.py`:
    - When adding a new extra, include it in `[all]` (except the `[doc-tools]` alias, already covered by `[tools]`)
 4. **Verify**: `python3 -m unittest -v tests/test_pyproject_extras.py` (covers both gates once #907 lands)
 
-> Tip: Inline extras tables must keep the **full** pin in backticks (`juniper-foo>=X,<Y`). Stale `tools` ceilings (`model-core` / `service-core`) and omitted REFERENCE rows are the drift class #906 synced; after #907 merges, `ExtrasDocsLockstepTest` fails CI on that class. Current truth: `juniper-model-core>=0.1.0,<0.4.0`, `juniper-service-core>=0.2.0,<0.7.0`.
+> Tip: Inline extras tables must keep the **full** pin in backticks (`juniper-foo>=X,<Y`). Stale `tools` ceilings (`model-core` / `service-core`) and omitted REFERENCE rows are the drift class #906 synced; after #907 merges, `ExtrasDocsLockstepTest` fails CI on that class. Current truth: `juniper-model-core>=0.1.0,<0.4.0`, `juniper-service-core>=0.2.0,<0.8.0`.
 > See: per-repo `pyproject.toml` | `juniper-data/notes/DEPENDENCY_UPDATE_WORKFLOW.md` | [REFERENCE.md § Extras Reference](REFERENCE.md#extras-reference)
 
 ### Cross-Repo Version Sync

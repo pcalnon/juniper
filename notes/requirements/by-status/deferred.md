@@ -120,7 +120,7 @@ arbitrary file paths). Tracked as **AMTOOL-CI** (P3) on the
 **Sources**:
 - `juniper-ml/notes/JUNIPER_2026-05-04_JUNIPER-ECOSYSTEM_PHASE-6E-DEFERRED-CAN-015GH-DESIGN.md` (lines 1-100)
 
-### JR-ML-DATA-004 — Deferred items**: RD-008 (SIM117 test fixes), RD-015 (IPC/ZeroMQ), RD-016 (GPU), RD-017 (continuous profiling)
+### JR-ML-DATA-004 — **Deferred items**: RD-008 (SIM117 test fixes), RD-015 (IPC/ZeroMQ), RD-016 (GPU), RD-017 (continuous profiling)
 
 **Status**: deferred  **Priority**: P1  **Category**: DATA  **Owner**: ml
 
@@ -438,7 +438,7 @@ RD-016 (DATA-019). Deferred. PyTorch no longer a dependency. CUDA not in CI.
 
 [v4 brief repaired; was: '9.4 Recommended Approach']
 
-### JR-ML-API-088 — R5.6-THROTTLE** (P3, deferred) on the carry-forward tracker.
+### JR-ML-API-088 — R5.6-THROTTLE (P3, deferred) on the carry-forward tracker.
 
 **Status**: deferred  **Priority**: P3  **Category**: API  **Owner**: ml
 

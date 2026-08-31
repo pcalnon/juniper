@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "juniper-service-core"
-version = "0.6.0"
+version = "0.7.0"
 description = "Shared service-tier scaffolding (FastAPI app factory, settings base, generic routes) for Juniper ML model services"
 readme = "README.md"
 requires-python = ">=3.12"

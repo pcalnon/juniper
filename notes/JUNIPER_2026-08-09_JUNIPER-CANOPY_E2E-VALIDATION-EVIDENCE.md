@@ -1986,8 +1986,14 @@ corrections (read `fsm_status`; fetch `/api/topology`) plus a test that pins the
 **VERIFIED LIVE (2026-08-26, run `20260826T174225Z`, `e2e_p1wave_redrive.py --step f011,f011check`).** After a UI restore (FSM → `INVESTIGATING`), the editor's active surface rendered with badge **`FSM: Investigating`** (the flat `fsm_status` read), the topology readout **`Inputs: 2 Outputs: 2 Hidden units: 9`** (the `/api/topology` fetch — was a permanent 404 → *"No topology loaded."*), and the remove dropdown **populated** (10 options; was empty under D-0); a UI **remove** operated live (10 → 9 hidden units; `/api/topology` = 2/9/2). The render lagged ~65 s under F-CANOPY-004 congestion during the restore+ops window (the `f011check` quiescent re-read is clean) — F-004, not an F-011 regression. W5-09/-10 → PASS. **FIXED.**
 
 **F-CASCOR-002 — snapshot restore ALWAYS drops optimizer state: `learning_rate` is written as a string and
-read back undecoded, so the Adam constructor raises and the optimizer is silently set to `None` (P2, cascor
-repo, OPEN; root-caused and reproduced).**
+read back undecoded, so the Adam constructor raises and the optimizer is silently set to `None` (P1, cascor
+repo, OPEN; root-caused and reproduced; FILED 2026-08-30 as
+[juniper-cascor#602](https://github.com/pcalnon/juniper-cascor/issues/602)).**
+
+> **Severity synchronised 2026-08-30, not re-judged.** This header read `P2` while the UPGRADE section
+> below — written in the same segment — argues `P2 -> P1` and gives the artifact evidence for it. The
+> header was simply never updated, so the triage script has been counting this finding one band low ever
+> since. Changing the header to `P1` makes it agree with its own body; no new judgement was made here.
 Save/load asymmetry in `src/snapshots/snapshot_serializer.py`. `:448` writes
 `write_str_attr(opt_group, "learning_rate", network.learning_rate)` — a **string** attribute. `:1037` reads
 it back with a raw `opt_group.attrs.get("learning_rate", …)` — **no decode** — while its sibling one line
