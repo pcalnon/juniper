@@ -115,14 +115,82 @@ def load_suite(path: Path) -> dict:
         # ONLY place the parent logger writes, the race destroys run evidence rather than merely
         # interleaving it. Recurrence suites parallelise freely.
         #
-        # Q-6 has since landed the JUNIPER_CASCOR_LOG_DIR override (juniper-cascor#523), and
-        # experiment_stack.bash exports it per run — so the mechanism now exists. The refusal stays
-        # because run_suite cannot verify the *installed* cascor honours it: against an older cascor
-        # the export is silently ignored and parallel cells would race the shared log exactly as
-        # before, with no signal. Lifting this needs a cascor version floor asserted at suite load,
-        # which is a separate change — do not relax it merely because the override exists upstream.
-        raise SuiteError("app: cascor cannot run parallel cells from one checkout (Q-6 / H-7 shared-log race) — the race is only avoided when the installed cascor honours JUNIPER_CASCOR_LOG_DIR (cascor#523), which run_suite cannot yet verify; use mode: sequential, or distinct checkouts outside run_suite")
+        # The blanket refusal is LIFTED as of cascor 0.10.0 (2026-08-30), the first release
+        # carrying the JUNIPER_CASCOR_LOG_DIR override (cascor#523) that experiment_stack.bash
+        # exports per run. What replaces it is the version floor the old comment demanded — read
+        # from the tree that will actually be LAUNCHED, not from the driver's own environment.
+        #
+        # FAILS CLOSED. An undeterminable version refuses, because "we could not read it" and
+        # "it is new enough" must not resolve the same way: the failure this guards is silent, so
+        # a guard that defaults to permissive would restore the exact race it exists to prevent.
+        version, how = _cascor_tree_version()
+        if version is None:
+            raise SuiteError(
+                f"app: cascor with max_parallel > 1 needs a verifiable cascor >= "
+                f"{'.'.join(map(str, CASCOR_PARALLEL_FLOOR))} (JUNIPER_CASCOR_LOG_DIR, cascor#523), "
+                f"and the version could not be read: {how}. Refusing rather than assuming — the "
+                f"shared-log race (Q-6 / H-7) destroys run evidence silently. Use mode: sequential."
+            )
+        if version < CASCOR_PARALLEL_FLOOR:
+            raise SuiteError(
+                f"app: cascor with max_parallel > 1 needs cascor >= "
+                f"{'.'.join(map(str, CASCOR_PARALLEL_FLOOR))}; the tree that will run is "
+                f"{'.'.join(map(str, version))} ({how}). Below that floor "
+                f"JUNIPER_CASCOR_LOG_DIR is silently ignored and parallel cells race the shared "
+                f"logs/juniper_cascor.log (Q-6 / H-7). Use mode: sequential, or point "
+                f"JUNIPER_EXP_CASCOR_SRC_DIR at a tree >= the floor."
+            )
     return doc
+
+
+#: Q-6: the first cascor release carrying JUNIPER_CASCOR_LOG_DIR (cascor#523, published
+#: 2026-08-30). Below this the export is silently ignored and parallel cells race the shared
+#: logs/juniper_cascor.log — the H-7 evidence-destroying race, with no signal that it happened.
+CASCOR_PARALLEL_FLOOR = (0, 10, 0)
+
+
+def _cascor_tree_version() -> "tuple[tuple | None, str]":
+    """Version of the cascor tree the stack will LAUNCH, and how it was resolved.
+
+    Returns ``(version_tuple_or_None, description)``.
+
+    **Not** ``importlib.metadata.version("juniper-cascor")``. That reads the DRIVER's
+    environment, which is not necessarily what runs: ``experiment_stack.bash`` launches uvicorn
+    with the cascor tree as CWD, and ``JuniperCascor1``'s editable finder registers itself with
+    ``sys.meta_path.append`` — *after* the default ``PathFinder`` — so CWD wins and the installed
+    distribution is only a fallback (measured, ml#1488). A metadata read would therefore be a
+    vacuous check: it can report a compliant version while a pinned worktree runs an older tree.
+
+    Resolution mirrors ``experiment_stack.bash:112`` exactly, so the version reported here is the
+    version of the code that will actually serve the run.
+    """
+    src = os.environ.get("JUNIPER_EXP_CASCOR_SRC_DIR", "").strip()
+    project = os.environ.get("JUNIPER_EXP_PROJECT_DIR", "").strip()
+    if src:
+        tree, how = Path(src).parent, "JUNIPER_EXP_CASCOR_SRC_DIR"
+    elif project:
+        tree, how = Path(project) / "juniper-cascor", "JUNIPER_EXP_PROJECT_DIR"
+    else:
+        # No fixed parent depth. From the canonical checkout the ecosystem root is parents[3],
+        # but from a session worktree the same index lands on `.../.claude/worktrees` — the trap
+        # experiment_stack.bash calls out at its own PROJECT_DIR resolution, and which the first
+        # version of this function walked straight into. Probe upward for the ancestor that
+        # actually contains a juniper-cascor sibling instead of asserting a layout.
+        tree, how = None, "ancestor probe (no JUNIPER_EXP_* override set)"
+        for parent in Path(__file__).resolve().parents:
+            candidate = parent / "juniper-cascor"
+            if (candidate / "pyproject.toml").is_file():
+                tree, how = candidate, "ancestor probe"
+                break
+        if tree is None:
+            return None, f"{how}: no juniper-cascor sibling found above {Path(__file__).resolve()}"
+    pyproject = tree / "pyproject.toml"
+    if not pyproject.is_file():
+        return None, f"{how} -> {tree} (no pyproject.toml)"
+    m = re.search(r'(?m)^version\s*=\s*"([0-9]+(?:\.[0-9]+)*)"', pyproject.read_text(encoding="utf-8"))
+    if not m:
+        return None, f"{how} -> {tree} (no static version in pyproject.toml)"
+    return tuple(int(p) for p in m.group(1).split(".")), f"{how} -> {tree} @ {m.group(1)}"
 
 
 def _resolve_base_config(suite_path: Path, config_rel: str) -> Path:
