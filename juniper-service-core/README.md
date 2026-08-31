@@ -102,6 +102,36 @@ Any new Juniper model service should build on this rather than re-implementing t
 [`CHANGELOG.md`](./CHANGELOG.md) for history. Pin with `juniper-service-core>=0.2.0,<0.8.0` —
 the range the `juniper-ml` meta-package uses for its `tools` / `all` extras.
 
+### Compatibility policy — pinning, not deprecation cycles
+
+This package ships **no deprecation machinery**: no `DeprecationWarning`, no
+`PendingDeprecationWarning`, no legacy aliases. That is deliberate, not an oversight
+(defect-register `APD-ECO-007`).
+
+While pre-1.0, compatibility is managed by **external pinning**: consumers pin
+`>=floor,<next-minor`, so each `0.x` is a compatibility boundary and a breaking change
+is absorbed by a ceiling raise the consumer performs deliberately. That works because
+the consumer set is a known, enumerable handful of first-party repositories — and it
+has been exercised: the two changes this package has shipped marked *"potentially
+breaking"* were both cleared by **censusing the consumers** and verifying zero were
+affected, which a deprecation cycle would only have made slower.
+
+**What would change this.** A deprecation cycle is the right tool the moment the
+consumer set stops being enumerable — a third-party dependant, or 1.0. At that point
+do **not** invent machinery: two implementations already exist in this ecosystem and
+should be reused rather than re-derived, since re-derivation is precisely how the
+env-var lookup drifted across three services before it was consolidated.
+
+| Need | Use |
+|---|---|
+| Env-var rename | `juniper_config_tools.env_with_legacy_alias` |
+| API/argument rename | the `juniper-data-client` alias pattern (`warnings.warn(..., DeprecationWarning, stacklevel=N)` plus a **dated** removal window) |
+
+A dated window is the part that matters: it turns a deprecation from a permanent tax
+into a plan. See `juniper-cascor-client`'s `AUTO_PONG_REMOVAL_VERSION` for a worked
+example, including how to verify `stacklevel` attributes the warning to the caller
+rather than to library code.
+
 ## Development
 
 ```bash
