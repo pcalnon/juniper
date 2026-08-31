@@ -13,11 +13,57 @@ handoff records what the *previous* session believed, and belief is not a probe.
 **Result**: of 16 tail buckets, **6 are already shipped**, **2 carry a label error**, **7 are
 genuinely open**, and **1 was already recorded as needing no action**. One new finding sizes a
 previously-unscoped item at 172 instances.
-*(Counts as of 2026-08-29. Three more closed on 2026-08-30 — **see §0**, which overrides this
+*(Counts as of 2026-08-29 and are now wrong. **Read §0.1 first**, then §0; both override this
 line and the §1 table.)*
 
 **Method**: every claim below is a `file:line`, a merge commit, or a command and its output.
 Nothing is carried over on the strength of the handoff saying it.
+
+---
+
+## 0.1 UPDATE 2026-08-31 — four more closed; this supersedes §0 as well
+
+| bucket | §0 said | now |
+|---|---|---|
+| **3 — T2** | "OPEN, undefined" | **CLOSED, and it was never undefined** — see below |
+| **2 — `install_hint`** | blocked on a juniper-data release | **UNBLOCKED** — juniper-data **0.12.0** published to PyPI 2026-08-31 |
+| **9 — Q-6's unfollowed half** | needs a *released* cascor carrying #523 | **CLOSED** — cascor **0.10.0** published; the floor landed in **ml#1521** |
+| **1 — G-16** | needs HF `datasets` + a live mnist-capable juniper-data | **premise now FALSE** — see below |
+| **15 — title artifacts** | 172, unowned | **81 repaired** (ml#1511); **91 remain**, all needing an editorial decision |
+
+**T2 was closed on 2026-08-21 and this document said otherwise for two days.** It shipped in
+**ml#1231** (`c8ecbba6`, "Q-1 — write `experiment.resolved.yaml`, scoped to what is verifiable"),
+covered by `tests/test_run_experiment.py:1980-2037`; plan `:571` now reads **`SHIPPED (Q-1)`**.
+
+**And the tail's name for it was wrong**, which is why §1 recorded it as "undefined". T2 is
+`experiment.resolved.yaml`; "the read-only settings surface" was only **option (1)** of two
+unblocking routes the 2026-08-18 handoff listed. What shipped is a **third** route: record only
+what is verifiable, each half tagged by source — `driver_resolved` (true by construction) plus
+`service_training_params` (the service's own echo, cascor only) — with an explicit `NOT COVERED`
+statement so the file cannot be read as a complete config, and failures *recorded* so "could not
+read it" never looks like "it was empty".
+
+> **The method error was this document's.** §1 searched for the tail's *phrase* ("read-only
+> settings"), correctly found nothing in `notes/`, and concluded "OPEN, undefined". The search was
+> right; the inference was not. T2's definition lived in
+> `prompts/thread-handoff_automated-prompts/HANDOFF_2026-08-18_cli-experimentation-unowned-tasks.md` §2,
+> which that phrase never matches. **When a tail entry cannot be found, trace it to the handoff
+> that first defined it before calling it undefined.**
+
+**G-16's premise is now false, and its two halves have diverged.** HF `datasets` 5.0.1 is installed
+in the `JuniperData` env, so `mnist` reports `available=True` and a cascor mnist experiment can run —
+that half is done. The *live-refusal* half is now **untestable in that environment**, because no
+generator there is unavailable any more: fixing availability removed the thing the refusal path
+needed to demonstrate itself. Exercising it now requires deliberately withholding an optional
+dependency, which is a test-fixture question rather than a host-provisioning one.
+
+**Running total: four tail entries were found already-done** — launcher fast-fail (ml#1061), the
+G-4 / W-5 / W-7 group, §12.2 item 1, and T2. Six items by individual count. The tail's failure
+mode is systematic, not incidental.
+
+**Still open after 2026-08-31**: G-17's marker half, R-1's second clause, PF-4/PF-8 + PF threshold
+ratification, the 91 remaining title artifacts, plan §97, F-P4-7, E-C's untested 0.10/0.20 rows at
+cap 128, W-12/Q-7, F-P1-2, and G-16's refusal half under the caveat above.
 
 ---
 
@@ -69,9 +115,9 @@ the 172 title artifacts, plan §97, F-P4-7, and E-C's untested 0.10/0.20 rows at
 
 | # | Tail item | Verdict | Evidence |
 |---|---|---|---|
-| 1 | G-16 live-refusal half | **OPEN** | HF `datasets` still absent from both candidate envs |
-| 2 | `install_hint` inert | **OPEN (external)** | absent from `v0.11.0` tag, present on `origin/main` |
-| 3 | T2 read-only settings surface | **OPEN, undefined** | phrase is unfindable in `notes/`; no PR/issue |
+| 1 | G-16 live-refusal half | **PREMISE FALSE 08-31** (§0.1) | mnist now available; refusal half untestable there |
+| 2 | `install_hint` inert | **UNBLOCKED 08-31** (§0.1) | juniper-data 0.12.0 on PyPI |
+| 3 | T2 (`experiment.resolved.yaml`) | **CLOSED 08-31** (§0.1) | shipped ml#1231 on 08-21; §1's name for it was wrong |
 | 4a | G-4 recurrence Grafana dashboard | **SHIPPED** | juniper-deploy#166 |
 | 4b | W-5 `ar_p` in bench registry | **SHIPPED** | juniper-recurrence#100 |
 | 4c | W-7 `--results-dir` | **SHIPPED** | juniper-recurrence#102 |
@@ -83,13 +129,13 @@ the 172 title artifacts, plan §97, F-P4-7, and E-C's untested 0.10/0.20 rows at
 | 6b | §12.2 item 3 — cross-app surface | **CLOSED 08-30** (§0) | was: no comparison row — deploy#198 + ml#1489 |
 | 7 | PF-4 / PF-8 decision | **OPEN, with an unblocked entry point** | perf-lane note Tier 4 |
 | 8 | PF threshold / W-12+Q-7 / F-P1-2 | **OPEN** | evidence doc §6, unchanged |
-| 9 | Q-6 unfollowed half | **OPEN, correctly stated** | `run_suite.py:112-124` |
+| 9 | Q-6 unfollowed half | **CLOSED 08-31** (§0.1) | cascor 0.10.0 published; floor in ml#1521 |
 | 10 | Launcher fast-fail | **SHIPPED** | ml#1061, 2026-08-10 |
 | 11 | F-7 provenance re-pin | **NO ACTION** (as recorded) | disposition already settled |
 | 12 | Two ml#1412 callers | **CLOSED 08-30** (§0) | ml#1488; h2h closed separately by ml#1477 |
 | 13 | F-P4-7 learner question | **OPEN** | no entry point |
 | 14 | E-C noise 0.10/0.20 at cap 128 | **OPEN, minor** | as stated |
-| 15 | Requirements Detail selection | **OPEN — and 172× larger than stated** | new scan, §5 |
+| 15 | Requirements title artifacts | **81 REPAIRED 08-30** (ml#1511); 91 open | new scan, §5 |
 | 16 | Requirements plan §97 | **OPEN, confirmed** | `:97` still says "thin indexes" |
 
 ---
