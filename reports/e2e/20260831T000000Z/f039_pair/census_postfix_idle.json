@@ -1,0 +1,412 @@
+{
+  "sessions": 11,
+  "painted": 0,
+  "absent": 11,
+  "no_verdict": 0,
+  "baseline": "2 of 11 (F-CANOPY-037 as found)",
+  "provenance": {
+    "captured_utc": "2026-08-31T09:57:27Z",
+    "canopy_src_resolved_from": "default primary checkout",
+    "juniper_canopy": {
+      "path": "/home/pcalnon/Development/python/Juniper/juniper-ml/.claude/worktrees/juniper-canopy",
+      "sha": null,
+      "unknown_because": "path does not exist"
+    },
+    "juniper_cascor": {
+      "path": "/home/pcalnon/Development/python/Juniper/juniper-ml/.claude/worktrees/juniper-cascor",
+      "sha": null,
+      "unknown_because": "path does not exist"
+    },
+    "juniper_ml": {
+      "path": "/home/pcalnon/Development/python/Juniper/juniper-ml/.claude/worktrees/hazy-toasting-abelson",
+      "sha": "78b2ee81ffe3d3db877f49e0a45b6166b6f7ff5c",
+      "branch": "worktree-hazy-toasting-abelson",
+      "dirty": true
+    }
+  },
+  "topology_conditions": {
+    "hidden_units_observed": [
+      "10"
+    ],
+    "populated": true,
+    "varied": false,
+    "scope": "idle",
+    "note": "VALID, IDLE SCOPE. The topology was populated but never changed, so this run does test F-CANOPY-039's core question (was the single populated rebuild's response applied?) but does NOT cover the growth-dependent rows or the per-change bare-tick race. Do not generalise a PASS here to 'the panel tracks a live cascade'."
+  },
+  "entries": [
+    {
+      "session": 1,
+      "wall_s": 281.1,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 245.9,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      }
+    },
+    {
+      "session": 2,
+      "wall_s": 282.4,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 247.0,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      }
+    },
+    {
+      "session": 3,
+      "wall_s": 288.1,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 241.5,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      }
+    },
+    {
+      "session": 4,
+      "wall_s": 279.9,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 243.9,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      }
+    },
+    {
+      "session": 5,
+      "wall_s": 287.4,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 240.7,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      }
+    },
+    {
+      "session": 6,
+      "wall_s": 281.3,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 244.0,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      }
+    },
+    {
+      "session": 7,
+      "wall_s": 287.6,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 242.5,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      }
+    },
+    {
+      "session": 8,
+      "wall_s": 292.5,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 246.3,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      }
+    },
+    {
+      "session": 9,
+      "wall_s": 284.2,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 243.6,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      }
+    },
+    {
+      "session": 10,
+      "wall_s": 290.7,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 244.2,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      }
+    },
+    {
+      "session": 11,
+      "wall_s": 281.0,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "FAIL",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 10,
+        "output_units": 2,
+        "n_nodes": 14,
+        "n_conns": 89
+      },
+      "counts": {
+        "input": "0",
+        "hidden": "0",
+        "output": "0",
+        "conn": "0"
+      },
+      "traces": 0,
+      "sig": 2,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 240.0,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 10,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 10
+      }
+    }
+  ]
+}
