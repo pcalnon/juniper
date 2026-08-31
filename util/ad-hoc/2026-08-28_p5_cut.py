@@ -77,6 +77,70 @@ DATA_PY = "/opt/miniforge3/envs/JuniperData/bin/python"
 # tests/conftest.py imports the package, which needs juniper_config_tools.
 CASCOR_PY = "/opt/miniforge3/envs/JuniperCascor1/bin/python"
 
+CASCOR_REFERENCE_SCAFFOLD = '''# Technical Reference — juniper-cascor
+
+**Project**: juniper-cascor — Cascade Correlation Neural Network backend
+**Author**: Paul Calnon
+**License**: MIT License
+**Last Updated**: 2026-08-30
+
+Reference material relocated **verbatim** out of `AGENTS.md` under the shared-session-memory plan
+(juniper-ml plan §P5 step e, Tier A). `AGENTS.md` is loaded into every session; this file is read on
+demand. Nothing here was rewritten — each section carries a provenance line naming where it came
+from.
+
+**Hazards are deliberately NOT here.** Sections carrying directives whose *non-application destroys
+work* were left resident in `AGENTS.md` rather than relocated — `## CI/CD Pipelines` and
+`## Middleware Stack` were both excluded from this cut for that reason.
+
+See also [`docs/INDEX.md`](INDEX.md), the documentation index for this repository.
+
+---
+
+## Table of Contents
+
+- [Further Reading](#further-reading)
+
+---
+
+## Further Reading
+
+- [`AGENTS.md`](../AGENTS.md) — the resident agent guide this material was relocated from.
+- [`docs/INDEX.md`](INDEX.md) — index of this repository's documentation.
+- [`docs/DEVELOPER_CHEATSHEET.md`](DEVELOPER_CHEATSHEET.md) — quick-reference card for development.
+'''
+
+CANOPY_AGENTS_REFERENCE_SCAFFOLD = '''# AGENTS Reference — juniper-canopy
+
+**Project**: juniper-canopy — Real-Time Monitoring Dashboard for Juniper
+**Author**: Paul Calnon
+**License**: MIT License
+**Last Updated**: 2026-08-30
+
+Reference material relocated **verbatim** out of `AGENTS.md` under the shared-session-memory plan
+(juniper-ml plan §P5 step e). `AGENTS.md` is loaded into every session; this file is read on demand.
+Nothing here was rewritten — each section carries a provenance line naming where it came from.
+
+**Hazards are deliberately NOT here.** Directives whose *non-application destroys work* stay
+resident in [`AGENTS.md` § Hazards](../AGENTS.md#hazards-resident--do-not-relocate), because a
+pointer only helps an agent that already knows to look.
+
+---
+
+## Table of Contents
+
+- [Further Reading](#further-reading)
+
+---
+
+## Further Reading
+
+- [`AGENTS.md`](../AGENTS.md) — the resident agent guide this material was relocated from.
+- [`docs/REFERENCE.md`](REFERENCE.md) — index of technical reference documents.
+- [`docs/DOCUMENTATION_OVERVIEW.md`](DOCUMENTATION_OVERVIEW.md) — documentation navigation, and the
+  authoring/maintenance rules relocated in the preceding cut.
+'''
+
 # Per repo: the sections to move, in file order, each
 #   (source heading, destination title, anchor, insert-before heading, pointer sentence)
 # Destination titles deliberately avoid colliding with a `## ` section the destination
@@ -124,44 +188,75 @@ PLAN: dict[str, dict] = {
              "Per-workflow reference for `.github/workflows/`, including the contract each job must not break."),
         ],
     },
-    # juniper-canopy PR1 of TWO sequential single-destination PRs (owner decision 2026-08-29).
-    # This one moves the documentation-ABOUT-documentation cluster -- 27,687 chars, 29.1% of the
-    # always-resident file -- into docs/DOCUMENTATION_OVERVIEW.md, which is literally the file whose
-    # subject that is. PR2 then moves the remaining reference material into a new
-    # docs/AGENTS_REFERENCE.md. Two PRs rather than one two-destination PR because each is then a
-    # single-destination relocation that `relocation_check.py` verifies with its one `--dest` as-is
-    # (prep note §6d): no repeatable --dest, no union pass-condition, no chance of someone hitting a
-    # spurious per-destination failure and "fixing" it by relaxing G3.
+    # juniper-canopy PR2 of two (owner decision 2026-08-29), run AFTER PR1 merged. Moves the
+    # remaining reference-shaped material into a NEW docs/AGENTS_REFERENCE.md, scaffolded below.
     #
-    # `## Documentation Standards` collides with a section the destination already has (1,630 chars,
-    # different content), so its destination title differs. Verified with the fence-aware section
-    # tool, not a raw grep: DOCUMENTATION_OVERVIEW.md has 15 REAL sections -- a grep also reports
-    # `## Table of Contents` / `## Section 1` / `## Section 2`, which are inside a fenced example.
+    # Safe to move now BECAUSE the hazards block landed first (canopy#538): the payload-keys
+    # directive that used to live only in `## API and WebSocket Contracts` is now ALSO resident at
+    # AGENTS.md § Hazards, so relocating the section leaves the hazard where an agent will see it.
+    # Re-ran the triage after PR1: zero score>=2 candidates remain in these three sections, and the
+    # score-1 hits are a routes table, a loud-failing env-prefix convention, and descriptive
+    # counter semantics.
     "juniper-canopy": {
         "python": CANOPY_PY,
-        "dest": "docs/DOCUMENTATION_OVERVIEW.md",
+        "dest": "docs/AGENTS_REFERENCE.md",
+        "scaffold": CANOPY_AGENTS_REFERENCE_SCAFFOLD,
         "sections": [
-            ("## Documentation Organization", "Documentation Organization", "documentation-organization",
-             "## Contact & Support",
-             "How the documentation set is organised: which tree holds what, and why."),
-            ("## Documentation Standards", "Documentation Authoring Standards", "documentation-authoring-standards",
-             "## Contact & Support",
-             "House style for authoring docs: headings, anchors, code samples, and link forms."),
-            ("## Documentation Maintenance Workflow", "Documentation Maintenance Workflow", "documentation-maintenance-workflow",
-             "## Contact & Support",
-             "The end-to-end workflow for keeping documentation current as the code moves."),
-            ("## Documentation File Types", "Documentation File Types", "documentation-file-types",
-             "## Contact & Support",
-             "Every documentation file type, what belongs in it, and where it lives."),
-            ("## Update Triggers", "Documentation Update Triggers", "documentation-update-triggers",
-             "## Contact & Support",
-             "Which code changes oblige a documentation update, and which document each one touches."),
-            ("## Archive Procedures", "Archive Procedures", "archive-procedures",
-             "## Contact & Support",
-             "How superseded documentation is archived under `docs/history/` without breaking links."),
-            ("## Documentation Update Workflow", "Documentation Update Workflow", "documentation-update-workflow",
-             "## Contact & Support",
-             "The per-change checklist for updating documentation alongside a code change."),
+            ("## Architecture", "Architecture Reference", "architecture-reference",
+             "## Further Reading",
+             "The dashboard's layered architecture, callback topology, and the store//relay data path."),
+            ("## Configuration Management", "Configuration Reference", "configuration-reference",
+             "## Further Reading",
+             "The three-level configuration hierarchy, every setting, and which layer wins."),
+            ("## API and WebSocket Contracts", "API and WebSocket Contract Reference", "api-and-websocket-contract-reference",
+             "## Further Reading",
+             "Route-by-route REST contracts and the WebSocket message envelope."),
+        ],
+    },
+    # juniper-cascor, Tier A (owner decision 2026-08-29), into a docs/REFERENCE.md this repo does
+    # not yet have -- scaffolded below.
+    #
+    # Tier A as agreed was NINE sections; TWO were dropped after running the hazard triage, under
+    # the rule this arc arrived at the hard way (exclude any section carrying a hazard whose
+    # violation is silent, because a relocation turns a resident fact into a reference someone must
+    # know to look up):
+    #   `## CI/CD Pipelines` (9,142) -- TWO score>=2 candidates, incl. the no-`branches:`-filter
+    #        fact that also excluded it in worker and deploy.
+    #   `## Middleware Stack` (2,418) -- score-1 but genuine on inspection, and security-relevant:
+    #        "CORSMiddleware must stay outermost -- a browser preflight carries no X-API-Key", and
+    #        "RequestBodyLimitMiddleware uses Content-Length only as an early-reject fast path ...
+    #        must always stream-read with a cumulative cap". Both fail silently.
+    # Score-1 hits in the retained set were inspected and are routes tables, a JSON-object format
+    # note, an identity-key mechanism description, and a constants alignment table.
+    #
+    # juniper-cascor has NO `## Hazards` block. The exclusion rule is the protection here; adding
+    # one (as canopy#538 did) is a reasonable follow-up but was not in scope for this cut.
+    "juniper-cascor": {
+        "python": CASCOR_PY,
+        "dest": "docs/REFERENCE.md",
+        "scaffold": CASCOR_REFERENCE_SCAFFOLD,
+        "sections": [
+            ("## Directory Structure", "Directory Structure Reference", "directory-structure-reference",
+             "## Further Reading",
+             "The annotated source tree, with the purpose of every package and key module."),
+            ("## REST API", "REST API Reference", "rest-api-reference",
+             "## Further Reading",
+             "Every REST route, its auth posture, and its request/response shape."),
+            ("## WebSocket Protocol", "WebSocket Protocol Reference", "websocket-protocol-reference",
+             "## Further Reading",
+             "The three WebSocket channels, their message envelopes, and the admission rules."),
+            ("## Core Components", "Core Components Reference", "core-components-reference",
+             "## Further Reading",
+             "The cascade-correlation network, candidate units, and the configuration objects."),
+            ("## Constants Configuration", "Constants Configuration Reference", "constants-configuration-reference",
+             "## Further Reading",
+             "The constants packages, what each owns, and the alignment requirements between them."),
+            ("## Documentation Files", "Documentation Files Reference", "documentation-files-reference",
+             "## Further Reading",
+             "Every documentation file, what belongs in it, and where it lives."),
+            ("## Key Dependencies", "Key Dependencies Reference", "key-dependencies-reference",
+             "## Further Reading",
+             "The runtime and development dependencies, and what each one is relied on for."),
         ],
     },
     # worker and deploy, added 2026-08-29 (owner decision to cut them). Section choice follows a
@@ -436,6 +531,15 @@ def cmd_prepare(repo: str, reuse: bool = False) -> int:
         wt = WORKTREES / f"{repo}--{SAFE_BRANCH}--{stamp}--{sha}"
         run(["git", "-C", str(primary), "worktree", "add", "-b", BRANCH, str(wt), "origin/main"], quiet=True)
         print(f"   worktree {wt}\n   branch {BRANCH} @ origin/main {sha}")
+
+    # A brand-new destination has to exist before the first relocation into it: the relocate
+    # script READS the destination and requires exactly one `--insert-before` heading in it. So a
+    # plan may carry a `scaffold` -- header, ToC and one terminal section -- written only when the
+    # destination is absent. Never overwrites an existing file.
+    if cfg.get("scaffold") and not (wt / dest).is_file():
+        (wt / dest).parent.mkdir(parents=True, exist_ok=True)
+        (wt / dest).write_text(cfg["scaffold"], encoding="utf-8")
+        print(f"   scaffolded {dest} ({len(cfg['scaffold']):,} chars)")
 
     for required in (GOVERNED, dest, CONF):
         if not (wt / required).is_file():
