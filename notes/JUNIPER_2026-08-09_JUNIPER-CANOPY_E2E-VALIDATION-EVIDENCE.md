@@ -871,7 +871,7 @@ the congestion hypothesis (ii) depends on — so re-measuring **after** that mer
 > > investigation.
 
 
-**F-CANOPY-039 — the topology rebuild's response is provably CORRECT on the wire and the DOM never applies it; this, not starvation, is what now blocks the topology block (P0/P1, OPEN; found 2026-08-28 during the F-CANOPY-037 post-fix re-drive).**
+**F-CANOPY-039 — the topology rebuild's response is provably CORRECT on the wire and the DOM never applies it; this, not starvation, is what blocked the topology block (P0/P1; found 2026-08-28 during the F-CANOPY-037 post-fix re-drive; root-caused in dash-renderer's own source and FIXED 2026-08-31 by canopy#549, censused 0-of-11 -> 11-of-11 at idle scope).**
 Measured on the isolated trio (data 8101 / cascor 8202 / canopy 8051, service mode; cascor `a709d52`,
 canopy `6b55399`) against a **completed 10-unit network whose server truth is byte-identical to the one
 F-CANOPY-037 was found on** — `GET /api/topology` = `2 / 10 / 2 / 89`, 14 nodes.
@@ -1228,7 +1228,110 @@ and driven with `JUNIPER_E2E_CANOPY_URL`. It fails **identically**: `painted=Fal
 > that pins the store as `State` and never as an `Input` of its own writer — because dropping that `State`
 > would disable the guard **silently** (`current` would be `None` forever) and no other test would notice.
 >
-> ## THE CENSUS THAT VALIDATES THIS MUST RUN UNDER LIVE TOPOLOGY CHANGE — an idle one reads green either way
+> ## ROOT CAUSE — CONFIRMED IN dash-renderer's SOURCE, AND FIXED (2026-08-31, canopy#549)
+>
+> **The response was never applied because the renderer RETIRES the in-flight invocation whenever the
+> same callback identity is re-requested.** Read from the shipped unminified bundle, not inferred:
+>
+> - `getUniqueIdentifier` (`dash_renderer.dev.js:1715`) hashes a pending callback's **inputs + outputs +
+>   state — NOT what triggered it**. So a rebuild triggered by the topology store and one triggered by a
+>   bare tick are the *same identity*.
+> - `:3026` computes `eDuplicates = concat(executing, requested)`, grouped by that identity, each group
+>   sliced `[0:-1]`, and hands the result to `removeExecutingCallbacks`. `requested` is concatenated
+>   **last**, so the newly-requested invocation survives and the **in-flight** one is dropped.
+> - Its response then arrives for a callback no longer in `executing`, and is discarded rather than applied.
+>
+> The rebuild takes 1.5-5 s; `tabpoll-topology` ticked every 5 s. As an **Input**, the tick retired the
+> populated rebuild on essentially every cycle. That is F-CANOPY-039, and it retro-explains every
+> measurement in this entry — the 7 responses none of which carried the figure, the `RemoveRequested`
+> traffic (one set over from `RemoveExecuting`, which is where the response actually dies), and the
+> instant paint when the tick was disabled at runtime.
+>
+> **The fix is an Input -> State demotion** — the same move F-CANOPY-037 made on
+> `metrics-panel-metrics-store` one layer up. State does not trigger, so the tick can no longer
+> re-request the callback, while `n_intervals` stays readable for the P2-1 pulse.
+>
+> **CENSUS — one fixture, one variable, provenance recorded in both artifacts**
+> (`reports/e2e/20260831T000000Z/f039_pair/`, canopy `4e6faae`, cascor `e1b4988`, a completed 10-unit
+> cascade, `scope=idle populated=True`):
+>
+> | build | painted | signature |
+> |---|---|---|
+> | merged pair (#537 + #542), tick as Input | **0 of 11** | deterministic, `counts=0/0/0/0`, `traces=0`, `sig=2` |
+> | + tick as State (canopy#549) | **11 of 11** | `counts=2/10/2/89`, `traces=181`, `sig=30850` |
+>
+> Paint 7.1 s min / 17.8 s median / 31.1 s max — inside F-CANOPY-004's ≤16 s interaction bound at the
+> median. The counts match server truth exactly, and **`traces=181` is the same figure this entry
+> recorded when `tabpoll-topology` was disabled at RUNTIME** — the source fix and the runtime
+> manipulation converge from opposite directions on the identical result.
+>
+> **canopy#537's guard is REMOVED, and it made the defect worse rather than better.** Before it, a bare
+> tick ran a full rebuild that at least computed a correct figure (the measured "7 responses carrying the
+> graph"). With it, the tick's invocation returned `no_update` for all 8 outputs — so it still displaced
+> the in-flight populated rebuild via the dedup above, and then contributed nothing in its place. That is
+> what converted an intermittent miss into a deterministic never-paint.
+>
+> **The durable rule, worth more than the fix: a server-side `no_update` does NOT save a renderer slot
+> and does NOT prevent the invocation.** The round trip already happened and the invocation had already
+> displaced its predecessor. **Suppress the TRIGGER, not the work.**
+>
+> **GROWTH SCOPE ALSO CONFIRMED (2026-08-31) — 11 of 11 against the MERGED build, clean.**
+> `reports/e2e/20260831T000000Z/f039_pair/census_growth_scope.json`: canopy **`b9ad825`** (the shipped
+> #549 merge, `dirty=False`), cascor `e1b4988`, `scope=growth populated=True varied=True`,
+> `hidden_units_observed=['25','6']`. Paint 9.5 s min / 25.7 s median / 53.7 s max.
+>
+> The three arms together, each with provenance in its artifact:
+>
+> | arm | build | topology | painted |
+> |---|---|---|---|
+> | idle, tick as **Input** (the merged #537+#542 pair) | `4e6faae` clean | static 10 | **0 of 11** |
+> | idle, tick as **State** | `4e6faae` dirty | static 10 | **11 of 11** |
+> | **growth, tick as State** | **`b9ad825` clean** | **6 -> 25** | **11 of 11** |
+>
+> It also renders at scale: the 25-unit topology is `2/25/2/404` — **811 traces**, 4.5x the connections
+> of the 10-unit case — and still paints, without falling back to the empty path.
+>
+> **Read `varied=True` narrowly, and this is a limit of the check I added rather than of the result.**
+> It compares the topology each session OBSERVED, so it cannot separate "the cascade grew while a session
+> watched" from "consecutive sessions saw different static topologies". Here it was mostly the latter:
+> training completed before sessions 1-3 (at 6 units) and again before 4-11 (at 25). The tool's note now
+> says so explicitly instead of claiming "the topology changed during the census".
+>
+> The best single datapoint for painting *during* active growth is from the aborted first attempt:
+> one session at `2/10/2/89` with **`traces=196` against that topology's static signature of 181**, and
+> `elapsed=117 s` against an idle median of ~18 s — a longer paint carrying extra traces, consistent with
+> an active new-unit highlight. Suggestive, n=1, and NOT load-bearing for anything claimed here.
+>
+> **Still NOT covered: M-TOPOLOGY-16 itself.** The census scores *whether the graph paints*, not whether
+> the cascade-add glow appears — `e2e_seg17_topology_driver.py` has no M-TOPOLOGY-16 step. That row also
+> depends on `metrics-panel-metrics-store` reaching the client, which is a separate open question. See
+> the M-TOPOLOGY-16 note below before treating it as owed work.
+>
+> **Two cascor fixture traps, both of which silently produced the wrong network** (found while building
+> the growth arm; each cost a census run):
+>
+> - **`POST /v1/training/start {"start_fresh": true}` discards the network's configured
+>   `max_hidden_units`** and rebuilds from service defaults. A network created with `max_hidden_units=25`
+>   trained to exactly 10 and reported success. Start without `start_fresh` to keep the network you made.
+> - **`POST /v1/network` fills unspecified params from the REQUEST schema, not the service config.**
+>   Naming only `max_hidden_units` and `candidate_epochs` silently takes `correlation_threshold=0.1` and
+>   `patience=5` — far stricter than the service's own `0.01` / `50` — and the cascade early-stopped at 6
+>   of 25. Specify every param that governs cascade depth, or PATCH `/v1/training/params` after creating.
+>
+> ---
+>
+> ## THE SECTION BELOW IS WRONG AND IS RETAINED AS THE RECORD OF THE ERROR (written 2026-08-30, refuted 2026-08-31)
+>
+> It claimed an idle census "reads green either way" and would therefore be vacuous. **That is false, and
+> the error was a conflation**: the fix suppresses *redundant* rebuilds, not the rebuild that matters.
+> Post-suppression the idle sequence contains exactly ONE populated rebuild — the mount-time fetch, where
+> the 7,059 B payload differs from the 75 B store default — so whether the graph paints at idle *is*
+> precisely whether that one response was applied. The idle census was fully discriminating, and it is
+> what produced the 0-of-11 that led to the root cause.
+>
+> What survives from it: an idle census cannot speak to the **growth-dependent rows**, and the real
+> vacuity risk is an **empty** topology (nothing to draw, so a FAIL means "nothing to paint"). The census
+> tool now pins that as its `populated` precondition and reports `scope` as invalid / idle / growth.
 >
 > **This is a predicted vacuous pass, recorded before the census rather than after it.**
 >

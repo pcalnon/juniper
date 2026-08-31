@@ -79,6 +79,32 @@ def run_session(index: int, python_exe: str, workdir: str, tmpdir: str, timeout_
     return entry
 
 
+def _find_juniper_root(start: str = None) -> str:
+    """Walk UP from this script until we find the dir holding the sibling repos.
+
+    Must not be computed as a fixed number of ``dirname`` hops. This tool is
+    routinely run from a git worktree nested INSIDE the repo
+    (``juniper-ml/.claude/worktrees/<name>/util/ad-hoc``), where the old
+    three-hop form landed on ``worktrees/`` and every sibling-repo lookup missed.
+    Measured 2026-08-31: the first census to carry provenance recorded
+    ``sha=None`` for canopy -- the single field the block exists to capture.
+
+    Identified by containing BOTH juniper-canopy and juniper-cascor, so a
+    partial match cannot satisfy it. Falls back to the three-hop guess only if
+    the walk finds nothing, so behaviour never gets worse than before.
+    """
+    here = start or _HERE
+    cur = here
+    for _ in range(12):
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+        if os.path.isdir(os.path.join(cur, "juniper-canopy")) and os.path.isdir(os.path.join(cur, "juniper-cascor")):
+            return cur
+    return os.path.dirname(os.path.dirname(os.path.dirname(here)))
+
+
 def _repo_provenance(path: str) -> dict:
     """HEAD sha + dirty flag for one repo, or an explicit reason it is unknown.
 
@@ -109,18 +135,35 @@ def _repo_provenance(path: str) -> dict:
         return {"path": path, "sha": None, "unknown_because": f"{type(exc).__name__}: {exc}"}
 
 
-def _topology_varied(entries: list) -> dict:
-    """Did the cascade actually GROW while the census ran?
+def _topology_conditions(entries: list) -> dict:
+    """What did this census actually put the panel through?
 
-    F-CANOPY-039's fix works by stopping the rebuild from running on cycles
-    where nothing changed. At idle that is sufficient and the graph paints
-    regardless of whether the underlying apply failure survives -- so an idle
-    census certifies the fix green either way, whatever its N. That is a vacuous
-    pass, and this makes it visible in the artifact instead of depending on
-    someone remembering to ask.
+    Two INDEPENDENT questions, and conflating them produced a wrong claim once
+    already (recorded here so it is not repeated):
 
-    A census whose server-side ``hidden_units`` never moves did not test the
-    case the panel exists for.
+    ``populated`` -- did the server ever offer a non-trivial topology? If every
+    session saw ``hidden_units == 0`` there was nothing to draw, so a FAIL means
+    "nothing to paint", not "failed to paint". **This is the real vacuity: the
+    census tested nothing.** A census that is not populated cannot be read at
+    all, in either direction.
+
+    ``varied`` -- did the cascade GROW mid-census? This does NOT decide whether
+    the census is valid. An idle (populated, non-varying) census is a perfectly
+    good test of F-CANOPY-039's core question, because after the identity
+    suppression there is exactly ONE populated rebuild -- the mount-time fetch,
+    where the 7,059 B payload differs from the 75 B store default -- and whether
+    the graph paints is precisely whether that one response was applied. It
+    discriminates supersession from a contention-independent apply failure.
+
+    What an idle census does NOT cover is the growth-dependent rows
+    (M-TOPOLOGY-16's cascade-add glow and friends) and the residual per-change
+    race: a server-side ``no_update`` does not save a renderer slot, so the 5 s
+    bare tick is still a real invocation against the same 8 outputs and can
+    retire an in-flight rebuild. At idle that races one rebuild; during growth
+    it races every one of them.
+
+    So: ``populated`` false invalidates the run. ``varied`` false merely bounds
+    what may be concluded from it.
     """
     seen = []
     for e in entries:
@@ -129,17 +172,41 @@ def _topology_varied(entries: list) -> dict:
             hidden = server.get("hidden_units", server.get("hidden"))
             if hidden is not None:
                 seen.append(str(hidden))
+
     distinct = sorted(set(seen))
+    nonzero = [h for h in distinct if h not in ("0", "None", "")]
+    populated = bool(nonzero)
+
+    if not populated:
+        note = (
+            "INVALID: the server never offered a non-trivial topology (hidden_units was 0 or absent in "
+            "every session). There was nothing to draw, so neither PASS nor FAIL can be read from this "
+            "run. Train a network before censusing."
+        )
+    elif len(distinct) <= 1:
+        note = (
+            "VALID, IDLE SCOPE. The topology was populated but never changed, so this run does test "
+            "F-CANOPY-039's core question (was the single populated rebuild's response applied?) but "
+            "does NOT cover the growth-dependent rows or the per-change bare-tick race. Do not "
+            "generalise a PASS here to 'the panel tracks a live cascade'."
+        )
+    else:
+        note = (
+            "VALID, GROWTH SCOPE -- distinct topologies were observed ACROSS sessions, so the rebuild "
+            "was exercised against more than the one it saw at mount. NOTE the limit of this check: it "
+            "compares the value each session OBSERVED, so it cannot distinguish 'the cascade grew while "
+            "a session watched' from 'consecutive sessions saw different static topologies'. For the "
+            "stronger claim -- painting while units are actively being added -- read the per-session "
+            "elapsed_s and trace counts, where a mid-growth paint shows up as a longer elapsed and a "
+            "trace count above the static signature for that unit count."
+        )
+
     return {
         "hidden_units_observed": distinct,
+        "populated": populated,
         "varied": len(distinct) > 1,
-        "note": (
-            "VACUOUS RISK: hidden_units never changed across this census, so it ran against a static "
-            "topology. An F-CANOPY-039 fix that works by suppressing no-op rebuilds passes this "
-            "trivially. Drive live cascade growth before reading a PASS as a fix."
-            if len(distinct) <= 1
-            else "topology varied during the census -- the growth case was exercised."
-        ),
+        "scope": "invalid" if not populated else ("idle" if len(distinct) <= 1 else "growth"),
+        "note": note,
     }
 
 
@@ -189,7 +256,7 @@ def main() -> int:
         servers = {json.dumps(e.get("server"), sort_keys=True) for e in painted}
         print(f"  server truth seen: {len(servers)} distinct -> {list(servers)[:2]}", flush=True)
 
-    juniper_root = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
+    juniper_root = _find_juniper_root()
     # Record the source the STACK ran from, not a hardcoded primary. The stack
     # takes CANOPY_SRC_DIR / CASCOR_SRC_DIR, so a fix under test usually lives in
     # a worktree while the primary sits on main -- recording the primary's sha
@@ -205,12 +272,14 @@ def main() -> int:
         "juniper_cascor": _repo_provenance(cascor_src),
         "juniper_ml": _repo_provenance(os.path.dirname(os.path.dirname(_HERE))),
     }
-    growth = _topology_varied(entries)
+    conditions = _topology_conditions(entries)
 
     print(f"\n  build under test: canopy {provenance['juniper_canopy'].get('sha')} "
           f"(dirty={provenance['juniper_canopy'].get('dirty')})", flush=True)
-    if not growth["varied"]:
-        print(f"  !! {growth['note']}", flush=True)
+    print(f"  conditions: scope={conditions['scope']} populated={conditions['populated']} "
+          f"varied={conditions['varied']} hidden_units_seen={conditions['hidden_units_observed']}", flush=True)
+    if conditions["scope"] != "growth":
+        print(f"  !! {conditions['note']}", flush=True)
 
     summary = {
         "sessions": len(entries),
@@ -219,7 +288,7 @@ def main() -> int:
         "no_verdict": len(broken),
         "baseline": "2 of 11 (F-CANOPY-037 as found)",
         "provenance": provenance,
-        "topology_growth": growth,
+        "topology_conditions": conditions,
         "entries": entries,
     }
     if args.out:

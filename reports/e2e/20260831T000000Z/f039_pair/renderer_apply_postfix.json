@@ -1,0 +1,156 @@
+{
+  "total": 4242,
+  "naming_count": 48,
+  "samples": [
+    {
+      "type": "SET_PATHS",
+      "len": 534391,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534391,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534391,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 18126,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.AddRequested\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-graph\",\"property\":\"figure\",\"out\":true},{\"id\":\"network-visualizer-graph\",\"property\":\"conf"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534541,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534621,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534631,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 12371,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.AddRequested\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-graph\",\"property\":\"figure\",\"out\":true},{\"id\":\"network-visualizer-graph\",\"property\":\"conf"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534372,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534421,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534461,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 22738,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.RemoveExecuted\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\",\"out\":true}],\"output\":\"network-visualizer-topology-s"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 18162,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.AddRequested\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-graph\",\"property\":\"figure\",\"out\":true},{\"id\":\"network-visualizer-graph\",\"property\":\"conf"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534381,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534381,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534381,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534391,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 13068,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.AddRequested\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-graph\",\"property\":\"figure\",\"out\":true},{\"id\":\"network-visualizer-graph\",\"property\":\"conf"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534471,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 23436,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.RemoveExecuted\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-depth-slider\",\"property\":\"max\",\"out\":true},{\"id\":\"network-visualizer-depth-slider\",\"pr"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 20922,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.AddRequested\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-graph\",\"property\":\"figure\",\"out\":true},{\"id\":\"network-visualizer-graph\",\"property\":\"conf"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534381,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534381,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "SET_PATHS",
+      "len": 534391,
+      "head": "{\"type\":\"SET_PATHS\",\"payload\":{\"strs\":{\"dark-mode-toggle\":[\"components\",\"props\",\"children\",0,\"props\",\"children\",1,\"props\",\"children\",0],\"dark-mode-store\":[\"components\",\"props\",\"children\",2],\"theme-state\":[\"components\",\"props\",\"children\",3],\"experimental-flags-"
+    },
+    {
+      "type": "Callbacks.Aggregate",
+      "len": 12553,
+      "head": "{\"type\":\"Callbacks.Aggregate\",\"payload\":[{\"type\":\"Callbacks.AddRequested\",\"payload\":[{\"callback\":{\"matchKeys\":[],\"firstSingleOutput\":0,\"outputs\":[{\"id\":\"network-visualizer-graph\",\"property\":\"figure\",\"out\":true},{\"id\":\"network-visualizer-graph\",\"property\":\"conf"
+    }
+  ],
+  "types": {
+    "LOADING": 390,
+    "Callbacks.Aggregate": 2205,
+    "LOADED": 379,
+    "function": 426,
+    "SET_PATHS": 30,
+    "RESET_COMPONENT_STATE": 812
+  },
+  "sub": {
+    "?": 10534,
+    "Callbacks.RemovePrioritized": 179,
+    "Callbacks.AddExecuting": 179,
+    "Callbacks.RemoveExecuting": 179,
+    "Callbacks.AddWatched": 179,
+    "Callbacks.RemoveWatched": 314,
+    "Callbacks.AddExecuted": 275,
+    "Callbacks.RemoveExecuted": 283,
+    "Callbacks.Completed": 283,
+    "Callbacks.AddStored": 283,
+    "Callbacks.RemoveStored": 282,
+    "Callbacks.AddRequested": 74,
+    "Callbacks.RemoveRequested": 93,
+    "Callbacks.AddPrioritized": 71
+  },
+  "rebuild_responses": 1
+}
