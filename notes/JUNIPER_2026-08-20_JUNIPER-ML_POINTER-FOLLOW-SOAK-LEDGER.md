@@ -765,3 +765,58 @@ result stays interpretable:
 
 `INCONCLUSIVE` remains the standing verdict until a post-intervention sample exists. It may
 not be reported as a pass or a failure, and this section does not change that.
+
+---
+
+## 16. Rung-2 gate audit — 2026-08-31: all five preconditions are already met
+
+Rung 2 says *"promote the missed hazard to a CI gate or hook. NEVER re-inline."*
+This section records an audit of whether that has, in fact, already happened. It
+**discharges nothing** — see §16.3.
+
+### 16.1 The five escalations are three facts
+
+| Probe | Open escalations | Fact |
+|---|---|---|
+| P14-per-run-timeout-ordering | 2 | `per_run_timeout_seconds` must sit ABOVE `max_wall_seconds`, or the subprocess kill pre-empts the driver |
+| P23-reaper-over-protection-bias | 2 | the reaper is deliberately biased to over-protect; a false reap costs the campaign |
+| P21-pidfile-key-prefix-guard | 1 | `juniper-cascor` is a PREFIX of `junipercascorworker`, so a naive match kills the worker as the service |
+
+### 16.2 Every one already has a landed, CI-wired gate
+
+| Fact | Gate | Wired |
+|---|---|---|
+| P14 | `tests/test_experiment_suite_yamls.py:526` — hard-fail; its failure text names the exact remedy and the offending suite | `.github/workflows/ci.yml:856` |
+| P21 | `tests/test_juniper_chop_all.py:662` `test_cascor_does_not_match_worker_cmdline`, plus `:952` `test_overgreedy_cascor_worker_pair_is_not_killed`; the guard itself is `util/juniper_chop_all.bash:176-179` | `ci.yml:779` (41 tests, OK) |
+| P23 | `tests/test_reap_pytest_orphans.py` — six protection tests, including `test_stale_pidfile_protects_conservatively`, which pins the asymmetry itself | `ci.yml:252` |
+
+**No new gate is needed for any of the five.** An earlier pass of this audit
+concluded P21 was ungated and was about to write a redundant test; it had grepped
+`tests/test_kill_helpers.py`, which covers two *different* scripts. The guard's
+test lives in `test_juniper_chop_all.py`. Recorded because "no test found" is a
+claim about where you looked, not about what exists.
+
+### 16.3 Why this section discharges nothing
+
+Every one of the five notes reads **ANSWER CORRECT**; two read **CORRECT AND
+BEYOND**. They were scored misses solely because the fact was recovered from
+source rather than from `docs/REFERENCE.md`. Two of them explicitly *cited the
+gate* while answering — P14 run 2 "citing the ordering-contract test", P14 run 3
+"cited the fatal ordering gate and re-ran the preserved survey (23 suites, 0
+inverted)".
+
+So the hazard was never mishandled, and the ladder's own text governs what
+follows:
+
+> *If the miss was a CORRECT answer scored conservatively, that is an owner
+> decision about SCORING, not a discharge.*
+> *Do NOT run [resolve] to make `status` exit 0 — exiting 1 here is the design.*
+
+Discharging these would be exactly the prohibited move: using `resolve` to clear
+a signal rather than to record a remedy. **The decision is the owner's**, and it
+is the same question C.1 left open — whether source-recovery should be re-scored
+as its own outcome rather than as a miss. It is presented, not taken.
+
+**If the owner does discharge them**, the refs are the gates above, not this
+note — a discharge should point at the artifact that makes the hazard impossible,
+which in all three cases already exists and already runs.
