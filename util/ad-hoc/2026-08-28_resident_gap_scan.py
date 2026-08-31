@@ -46,6 +46,27 @@ import re
 import sys
 from pathlib import Path
 
+# Directory names that hold COPIES of the repo (or of other projects), not source to scan.
+#
+# ``.claude/worktrees`` is the one that matters and the one that bit: juniper-ml keeps its
+# session worktrees INSIDE the repo, so the default ``*/**/*.py`` glob walked ~60 full copies
+# of the tree. A 2026-08-31 run reported 23,120 files / 15,285 candidates, the top hits being
+# the same ``util/experiments/run_experiment.py`` counted once per worktree. That is not a
+# large result, it is one result multiplied -- the sort of number a reader trusts because it
+# is big. Scoped to real source the same repo yields 419 files / 294 candidates.
+SKIP_DIRS = frozenset({
+    ".git",
+    ".claude",          # session worktrees live under .claude/worktrees/ in juniper-ml
+    "worktrees",        # and directly under <repo>/worktrees/ elsewhere
+    "backups",
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "legacy",
+    "juniper-legacy",
+})
+
 MARKER = re.compile(
     r"\b(CRITICAL|IMPORTANT|WARNING|HAZARD|NEVER|MUST NOT|DO NOT|deliberately not|"
     r"silently|silent|never be|must never|do not remove|do not change|gotcha|footgun|"
@@ -136,8 +157,11 @@ def main(argv: list[str]) -> int:
     seen: set[Path] = set()
     for g in globs:
         for p in repo.glob(g):
-            if p.is_file() and ".git" not in p.parts and "test" not in p.name:
-                seen.add(p)
+            if not p.is_file() or "test" in p.name:
+                continue
+            if SKIP_DIRS.intersection(p.parts):
+                continue
+            seen.add(p)
     files = sorted(seen)
 
     cands = []
