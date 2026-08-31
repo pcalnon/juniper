@@ -96,6 +96,27 @@ notes/requirements/
 
 The **canonical** definition of each requirement lives once in `by-area/<area>.md`. The `by-repo/` and `by-status/` files are thin indexes that link into `by-area/` — not duplicates. This avoids the maintenance trap of three copies of every requirement going stale independently.
 
+> **SUPERSEDED 2026-08-31 — what shipped is a generated projection, not a thin index.** The design
+> above was never built as written: `by-repo/` and `by-status/` carry **full entry bodies**, and by
+> 2026-08-26 the three families had begun to drift apart in 201 places (52 by-repo vs by-area, 149
+> by-status vs by-area) — the exact trap this paragraph was written to prevent.
+>
+> **ml#1462 removed the trap by a different route.** `by-area` stays canonical and the other two
+> families are **derived from it**: `FAMILIES_WRITTEN_BY_WRITE_ALL` is `by-area` alone, so exactly
+> one writer owns each file, and `--check-views` fails when a derived family disagrees with its
+> source. Three independent copies is what caused the drift; derivation eliminates that regardless
+> of whether the copies are thin. Link-only would *also* have removed the trap, but at the cost of
+> content readers use — which was never the point of the constraint.
+>
+> Keep the sentence above as the recorded intent; treat the projection as the shipped design. The
+> owner decision that chose it is in
+> [`JUNIPER_2026-08-26_JUNIPER-ECOSYSTEM_REQUIREMENTS-CROSS-VIEW-MEASUREMENT.md`](JUNIPER_2026-08-26_JUNIPER-ECOSYSTEM_REQUIREMENTS-CROSS-VIEW-MEASUREMENT.md).
+>
+> **A limit worth carrying with it:** `--check-views` compares the families against each other, so
+> it can only find a defect they DISAGREE about. A defect every family shares — because all three
+> are generated from one canonical entry — is invisible to it by construction. That is how 172
+> malformed entry titles survived every view gate (ml#1475 §5; 81 repaired in ml#1511).
+
 ### Q3 — Snapshot or living document?
 
 **Question**: Capture state as-of-today, or also wire a refresh path?

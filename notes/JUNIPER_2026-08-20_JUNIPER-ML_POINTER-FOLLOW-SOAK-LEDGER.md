@@ -695,3 +695,73 @@ retrieved from prose, then re-soak. But the per-probe table suggests a cheaper m
 — for P19, P14 and P23 the fact is *already* discoverable at its point of use, so an index
 row buys little. The honest experiment is to add index rows only for the **policy** facts
 and see whether the follow rate on those moves.
+
+---
+
+## 15. Rung 1 EXECUTED — 2026-08-31, widened to all four facts
+
+**Owner decision, taken twice.** The recommendation in §14 narrows rung 1 to the *policy*
+facts. The owner chose to **widen it to all four never-retrieved facts** instead, and
+reaffirmed that after this session presented evidence arguing the experiment will not move
+the number. Both the decision and the objection are recorded here so the result is readable
+either way.
+
+### 15.1 Why the §14 narrowing was rejected
+
+The policy stratum is **24/24 — already 100%**. An index-row intervention aimed at it cannot
+raise a rate that is already at ceiling, so a policy-only rung 1 is a null experiment by
+construction. Widening to the four probes that actually scored zero is the only version of
+rung 1 that can move a measured quantity.
+
+### 15.2 What was added
+
+Four index rows in the auto-memory `MEMORY.md`, one per never-retrieved probe, each a
+pointer to the relocated fact plus a backing topic file:
+
+| Probe | Row | Topic file |
+|---|---|---|
+| P19 port-check fail-opens | "missing `ss` reads \"free\"; clean ≠ proof" | `reference_port_check_fail_opens.md` |
+| P14 per-run timeout ordering | "must exceed max_wall_seconds" | `reference_per_run_timeout_ordering.md` |
+| P23 reaper over-protection | "false reap = the campaign" | `reference_reaper_over_protection_bias.md` |
+| P15 worktree converge | "converge; 4 gates + probe" | `reference_worktree_converge_not_remove.md` |
+
+Each row is **within the 120-byte cap** the plan's §5 row 4 fixes for new entries (108 / 100 /
+106 / 105 bytes). `verify-probes` re-run after the change: **15 probes, all pointers resolve.**
+
+**The intervention had a precondition worth recording.** `MEMORY.md` stood at 24,804 bytes
+against a 25,000-byte cap — **196 bytes of margin** — so the four rows could not be added
+without first freeing space, and truncation drops the **newest** rows, which would have been
+these four. Three rows were compressed first (Duplicati, defect register, safe_merge — live
+facts preserved, superseded accretions dropped). Post-intervention: 24,768 bytes, 138 lines.
+**An experiment whose instrument competes for space with the thing it measures is itself a
+finding**, and it is the reason the byte budget is now on the critical path of the soak.
+
+### 15.3 The falsifiable prediction, recorded BEFORE the re-soak
+
+This session predicts **rung 1 will not move the follow rate on these four probes**, on the
+strength of a natural experiment already inside this ledger:
+
+> **P23's fact was already resident** — the first bullet of `AGENTS.md`'s `## Hazards` block,
+> under a heading that reads "non-application destroys work" — and it still scored **0 follows
+> in 2 runs**. Residency did not produce retrieval. An index row is *another form of
+> residency*, so the mechanism rung 1 relies on has already been observed failing for one of
+> the four probes it is being applied to.
+
+If the re-soak shows these four moving to a materially non-zero follow rate, **that prediction
+is wrong and the §14 conclusion needs revisiting** — it would mean an index row does something
+a resident hazard bullet does not. If they stay at zero, rung 1 is discharged as attempted and
+the ladder should not be re-run on the same reasoning.
+
+### 15.4 What the re-soak requires, and what it must not do
+
+Future sessions record runs with `util/soak_ledger.py probe-run` as before. Two rules so the
+result stays interpretable:
+
+- **Do not pool post-intervention runs with the 35 pre-intervention ones.** The 68.6% headline
+  is already a mixture of 0/11 and 24/24 and describes neither stratum; pooling across an
+  intervention boundary would make it describe nothing at all.
+- **The four probes are the only ones this intervention touches.** A movement in the policy
+  stratum after 2026-08-31 is not evidence about rung 1.
+
+`INCONCLUSIVE` remains the standing verdict until a post-intervention sample exists. It may
+not be reported as a pass or a failure, and this section does not change that.
