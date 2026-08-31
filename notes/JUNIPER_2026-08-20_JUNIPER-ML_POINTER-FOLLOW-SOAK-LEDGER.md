@@ -820,3 +820,71 @@ as its own outcome rather than as a miss. It is presented, not taken.
 **If the owner does discharge them**, the refs are the gates above, not this
 note — a discharge should point at the artifact that makes the hazard impossible,
 which in all three cases already exists and already runs.
+
+---
+
+## 17. The re-soak CANNOT be run from the session that ran rung 1 — measured, 2026-08-31
+
+The obvious way to re-soak is to hand each probe's `task` to a subagent and score
+its tool log. **That instrument cannot produce a valid post-intervention result**,
+and the reason is mechanical rather than a matter of care.
+
+### 17.1 The measurement
+
+Two throwaway agents (not probes — spending a probe on an instrument check would
+burn a run) were asked to audit their own context. The second compared the
+in-context `MEMORY.md` block against the on-disk file:
+
+| | in-context | on-disk |
+|---|---|---|
+| rows | **126** | **133** |
+| `Port check fail-opens` | **absent** | line 130 |
+| `Per-run timeout ordering` | **absent** | line 131 |
+| `Reaper over-protects by design` | **absent** | line 132 |
+| `Diverging worktree: converge` | **absent** | line 133 |
+
+The drift is not merely a shorter tail: 8 new rows at the end, **4 inserted
+mid-list**, at least one row deleted (`pydantic-settings .env leak`, evicted by
+§16's own pass), and several rewritten in place — the defect register reads
+"63 fixed / 33 open (round 28)" in context and "75 fixed / 21 open (round 32)" on
+disk. On-disk rows carry 08-31 timestamps that post-date the snapshot entirely.
+
+**A subagent's memory context is a point-in-time snapshot taken when the PARENT
+session started, not a live read.** This session began 2026-08-29; the rung-1 rows
+landed 2026-08-31. No agent it spawns can see them.
+
+### 17.2 Why running it anyway would have been worse than not running it
+
+Every rung-1 probe run from this session would have scored a **miss** on all four
+facts — not because an index row fails to aid retrieval, but because the index row
+**was not in the agent's context at all**. The result would have been:
+
+- a clean-looking 0/n,
+- exactly matching §15.3's recorded prediction,
+- produced by an instrument that could not have returned anything else.
+
+That is a zero from a probe that cannot produce a non-zero — the definition of an
+inadequate instrument under the consensus procedure §2 — and it would have been
+**self-serving**, since the prediction it appears to confirm is this session's own.
+The prediction in §15.3 stands untested, and must stay that way until it is tested
+properly.
+
+### 17.3 What a valid re-soak requires
+
+1. **A session started AFTER 2026-08-31**, so its memory snapshot contains rows
+   130-133. Verify before scoring, do not assume: ask the session to confirm the
+   four titles are in its context, or check that its snapshot row count is ≥ 133.
+2. The probe's `task` handed over **unprimed** — no mention of the soak, the fact,
+   the pointer, or §15.3's prediction (§7, and the priming that invalidated
+   option A in §11 D2).
+3. Scored against the probe's `discriminator` from the session's tool log.
+4. Recorded **separately from the 35 pre-intervention runs** (§15.4).
+
+### 17.4 The generalisable finding
+
+**An agent's memory context is a snapshot, so any experiment that manipulates
+memory and then measures agents spawned from the manipulating session is measuring
+the state before its own intervention.** This applies well beyond the soak: it
+means a session cannot validate its own memory edits by delegating, and that
+"I added it and the subagent still did not use it" is not evidence about
+discoverability.
