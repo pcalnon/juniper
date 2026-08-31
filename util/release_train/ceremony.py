@@ -926,7 +926,8 @@ def plan_ceremony(entry: "detect.PackageEntry", pkg: dict, sources: CeremonySour
         return _halt(plan, "changelog-section-missing", f"no non-empty CHANGELOG [{target}] section to source the release notes from (the proposal PR should have created it)", when)
     bump = infer_bump(plan.released_version, target)
     try:
-        plan.archive_content = notes_render.render_notes(entry.pypi_name, target, bump=bump, release_date=when, sections=sections, repo_root=repo_root, link_base=f"https://github.com/{DEFAULT_OWNER}/{entry.repo}/blob/{plan.tag}")
+        link_base = f"https://github.com/{DEFAULT_OWNER}/{entry.repo}/blob/{plan.tag}"
+        plan.archive_content = notes_render.render_notes(entry.pypi_name, target, bump=bump, release_date=when, sections=sections, repo_root=repo_root, link_base=link_base, changelog_url=f"{link_base}/{changelog_rel(entry)}", final=True)
     except OSError as exc:
         return _halt(plan, "notes-render-failed", f"could not render the release notes template: {exc}", when)
 

@@ -234,7 +234,7 @@ def _remaining_sections_comment(template_text: str, filled: tuple, repo_root: "P
     return lines
 
 
-def _render_standard(pypi_name: str, version: str, bump: str, date: str, sections: "OrderedDict[str, list]", template_text: str, repo_root: "Path | None") -> str:
+def _render_standard(pypi_name: str, version: str, bump: str, date: str, sections: "OrderedDict[str, list]", template_text: str, repo_root: "Path | None", changelog_url: "str | None" = None, final: bool = False) -> str:
     rtype = release_type(bump)
     breaking = "YES" if ("removed" in {k.lower() for k in sections}) else "NO"
     focus = ", ".join(dict.fromkeys(_FOCUS.get(k.lower(), k.lower()) for k in sections)) or "maintenance"
@@ -284,16 +284,17 @@ def _render_standard(pypi_name: str, version: str, bump: str, date: str, section
             "",
             "## Links",
             "",
-            "- [Full Changelog](../../CHANGELOG.md)",
+            f"- [Full Changelog]({changelog_url or '../../CHANGELOG.md'})",
             f"- Archive target: `{archive_relpath(pypi_name, version)}`",
             "",
         ]
     )
-    lines.extend(_remaining_sections_comment(template_text, STANDARD_FILLED_SECTIONS, repo_root))
+    if not final:
+        lines.extend(_remaining_sections_comment(template_text, STANDARD_FILLED_SECTIONS, repo_root))
     return "\n".join(lines) + "\n"
 
 
-def _render_security(pypi_name: str, version: str, bump: str, date: str, sections: "OrderedDict[str, list]", template_text: str, repo_root: "Path | None") -> str:
+def _render_security(pypi_name: str, version: str, bump: str, date: str, sections: "OrderedDict[str, list]", template_text: str, repo_root: "Path | None", changelog_url: "str | None" = None, final: bool = False) -> str:
     name = display_name(pypi_name)
     lines: list = [
         f"# {name} v{version} – :lock: SECURITY PATCH RELEASE",
@@ -336,12 +337,13 @@ def _render_security(pypi_name: str, version: str, bump: str, date: str, section
             "",
             "## References",
             "",
-            "- [CHANGELOG.md](../../CHANGELOG.md)",
+            f"- [CHANGELOG.md]({changelog_url or '../../CHANGELOG.md'})",
             f"- Archive target: `{archive_relpath(pypi_name, version)}`",
             "",
         ]
     )
-    lines.extend(_remaining_sections_comment(template_text, SECURITY_FILLED_SECTIONS, repo_root))
+    if not final:
+        lines.extend(_remaining_sections_comment(template_text, SECURITY_FILLED_SECTIONS, repo_root))
     return "\n".join(lines) + "\n"
 
 
@@ -405,13 +407,26 @@ def render_notes(
     template_text: "str | None" = None,
     repo_root: "Path | None" = None,
     link_base: "str | None" = None,
+    changelog_url: "str | None" = None,
+    final: bool = False,
 ) -> str:
-    """Render a well-formed release-notes DRAFT (markdown string) for one package+version.
+    """Render a well-formed release-notes body (markdown string) for one package+version.
 
     ``sections`` is the ordered ``{Category: [bullets]}`` from :func:`parse_unreleased`; when
     omitted the draft is still well-formed with a placeholder in the changes group. ``is_security``
     defaults to detection from the ``sections`` categories (plan S10.1). ``template_text`` /
-    ``repo_root`` let the tests inject a template offline; by default the live template is read."""
+    ``repo_root`` let the tests inject a template offline; by default the live template is read.
+
+    ``changelog_url`` is the absolute URL of the package's OWN ``CHANGELOG.md``. The archive lives
+    centrally under juniper-ml's ``notes/releases/``, so the historical relative ``../../CHANGELOG.md``
+    resolved to juniper-ml's ROOT changelog for every sub-package, and resolved to nothing at all in a
+    GitHub Release body (relative links do not work there). Callers should build it as
+    ``f"{link_base}/{changelog_rel(entry)}"``; omitted, the old relative link is kept so existing
+    callers and the CLI are unchanged.
+
+    ``final=True`` marks a body that is about to be PUBLISHED (the ceremony's archive + Release), and
+    suppresses the trailing "complete or delete these template sections" HTML comment. That comment is
+    correct guidance for a ``propose`` draft and is stale the moment it ships inside a cut Release."""
     sections = sections if sections is not None else OrderedDict()
     if link_base:
         sections = _rewrite_sections(sections, link_base)
@@ -421,8 +436,8 @@ def render_notes(
     if template_text is None:
         template_text = read_template(is_security, repo_root)
     if is_security:
-        return _render_security(pypi_name, version, bump, date, sections, template_text, repo_root)
-    return _render_standard(pypi_name, version, bump, date, sections, template_text, repo_root)
+        return _render_security(pypi_name, version, bump, date, sections, template_text, repo_root, changelog_url, final)
+    return _render_standard(pypi_name, version, bump, date, sections, template_text, repo_root, changelog_url, final)
 
 
 # ── CLI (independently invokable, plan S10.1) ────────────────────────────────
@@ -439,6 +454,8 @@ def parse_args(argv: "list[str] | None" = None) -> argparse.Namespace:
     p.add_argument("--repo-root", default=None, help="juniper-ml checkout root for template lookup (default: three parents up)")
     p.add_argument("--print-archive-name", action="store_true", help="print only the central archive relpath and exit")
     p.add_argument("--link-base", default=None, metavar="URL", help="absolute URL prefix (https://github.com/<owner>/<repo>/blob/<ref>) to rewrite relative CHANGELOG links onto (central-archive correctness; default: no rewrite)")
+    p.add_argument("--changelog-url", default=None, metavar="URL", help="absolute URL of the package's OWN CHANGELOG.md for the Links section (default: the legacy relative ../../CHANGELOG.md, which resolves to juniper-ml's ROOT changelog)")
+    p.add_argument("--final", action="store_true", help="render a body destined to be PUBLISHED: drop the trailing 'complete or delete these template sections' comment, which is stale once a Release is cut from it")
     return p.parse_args(argv)
 
 
@@ -457,7 +474,7 @@ def main(argv: "list[str] | None" = None) -> int:
     is_security = True if args.security else None
     repo_root = Path(args.repo_root).resolve() if args.repo_root else None
     try:
-        text = render_notes(args.package, args.version, bump=args.bump, release_date=args.release_date, sections=sections, is_security=is_security, repo_root=repo_root, link_base=args.link_base)
+        text = render_notes(args.package, args.version, bump=args.bump, release_date=args.release_date, sections=sections, is_security=is_security, repo_root=repo_root, link_base=args.link_base, changelog_url=args.changelog_url, final=args.final)
     except OSError as exc:
         print(f"ERROR: cannot read release-notes template: {exc}", file=sys.stderr)
         return 2
