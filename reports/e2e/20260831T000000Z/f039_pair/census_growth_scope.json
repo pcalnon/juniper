@@ -1,0 +1,415 @@
+{
+  "sessions": 11,
+  "painted": 11,
+  "absent": 0,
+  "no_verdict": 0,
+  "baseline": "2 of 11 (F-CANOPY-037 as found)",
+  "provenance": {
+    "captured_utc": "2026-08-31T21:24:47Z",
+    "canopy_src_resolved_from": "default primary checkout",
+    "juniper_canopy": {
+      "path": "/home/pcalnon/Development/python/Juniper/juniper-canopy",
+      "sha": "b9ad825563bd0e94a030a7554266e36c3e1f53ad",
+      "branch": "main",
+      "dirty": false
+    },
+    "juniper_cascor": {
+      "path": "/home/pcalnon/Development/python/Juniper/juniper-cascor",
+      "sha": "e1b4988cda00764a75638a0cdc94b71571115773",
+      "branch": "main",
+      "dirty": false
+    },
+    "juniper_ml": {
+      "path": "/home/pcalnon/Development/python/Juniper/juniper-ml/.claude/worktrees/hazy-toasting-abelson",
+      "sha": "f896aad0abc9140c6d33717fff7908164c95bda4",
+      "branch": "worktree-hazy-toasting-abelson",
+      "dirty": false
+    }
+  },
+  "topology_conditions": {
+    "hidden_units_observed": [
+      "25",
+      "6"
+    ],
+    "populated": true,
+    "varied": true,
+    "scope": "growth",
+    "note": "VALID, GROWTH SCOPE -- the topology changed during the census, so the growth case was exercised."
+  },
+  "entries": [
+    {
+      "session": 1,
+      "wall_s": 65.4,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "PASS",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 6,
+        "output_units": 2,
+        "n_nodes": 10,
+        "n_conns": 43
+      },
+      "counts": {
+        "input": "2",
+        "hidden": "6",
+        "output": "2",
+        "conn": "43"
+      },
+      "traces": 89,
+      "sig": 15641,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 30.1,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 6,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 6
+      }
+    },
+    {
+      "session": 2,
+      "wall_s": 58.7,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "PASS",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 6,
+        "output_units": 2,
+        "n_nodes": 10,
+        "n_conns": 43
+      },
+      "counts": {
+        "input": "2",
+        "hidden": "6",
+        "output": "2",
+        "conn": "43"
+      },
+      "traces": 89,
+      "sig": 15641,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 15.6,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 6,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 6
+      }
+    },
+    {
+      "session": 3,
+      "wall_s": 69.8,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "PASS",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 6,
+        "output_units": 2,
+        "n_nodes": 10,
+        "n_conns": 43
+      },
+      "counts": {
+        "input": "2",
+        "hidden": "6",
+        "output": "2",
+        "conn": "43"
+      },
+      "traces": 89,
+      "sig": 15641,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 26.1,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 6,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 6
+      }
+    },
+    {
+      "session": 4,
+      "wall_s": 91.4,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "PASS",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 6,
+        "output_units": 2,
+        "n_nodes": 10,
+        "n_conns": 43
+      },
+      "counts": {
+        "input": "2",
+        "hidden": "25",
+        "output": "2",
+        "conn": "404"
+      },
+      "traces": 811,
+      "sig": 135764,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 53.7,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 25,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 25
+      }
+    },
+    {
+      "session": 5,
+      "wall_s": 66.6,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "PASS",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 25,
+        "output_units": 2,
+        "n_nodes": 29,
+        "n_conns": 404
+      },
+      "counts": {
+        "input": "2",
+        "hidden": "25",
+        "output": "2",
+        "conn": "404"
+      },
+      "traces": 811,
+      "sig": 135764,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 26.1,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 25,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 25
+      }
+    },
+    {
+      "session": 6,
+      "wall_s": 65.5,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "PASS",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 25,
+        "output_units": 2,
+        "n_nodes": 29,
+        "n_conns": 404
+      },
+      "counts": {
+        "input": "2",
+        "hidden": "25",
+        "output": "2",
+        "conn": "404"
+      },
+      "traces": 811,
+      "sig": 135764,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 20.5,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 25,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 25
+      }
+    },
+    {
+      "session": 7,
+      "wall_s": 59.0,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "PASS",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 25,
+        "output_units": 2,
+        "n_nodes": 29,
+        "n_conns": 404
+      },
+      "counts": {
+        "input": "2",
+        "hidden": "25",
+        "output": "2",
+        "conn": "404"
+      },
+      "traces": 811,
+      "sig": 135764,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 25.0,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 25,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 25
+      }
+    },
+    {
+      "session": 8,
+      "wall_s": 55.4,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "PASS",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 25,
+        "output_units": 2,
+        "n_nodes": 29,
+        "n_conns": 404
+      },
+      "counts": {
+        "input": "2",
+        "hidden": "25",
+        "output": "2",
+        "conn": "404"
+      },
+      "traces": 811,
+      "sig": 135764,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 21.7,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 25,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 25
+      }
+    },
+    {
+      "session": 9,
+      "wall_s": 70.1,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "PASS",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 25,
+        "output_units": 2,
+        "n_nodes": 29,
+        "n_conns": 404
+      },
+      "counts": {
+        "input": "2",
+        "hidden": "25",
+        "output": "2",
+        "conn": "404"
+      },
+      "traces": 811,
+      "sig": 135764,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 25.7,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 25,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 25
+      }
+    },
+    {
+      "session": 10,
+      "wall_s": 59.6,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "PASS",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 25,
+        "output_units": 2,
+        "n_nodes": 29,
+        "n_conns": 404
+      },
+      "counts": {
+        "input": "2",
+        "hidden": "25",
+        "output": "2",
+        "conn": "404"
+      },
+      "traces": 811,
+      "sig": 135764,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 9.5,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 25,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 25
+      }
+    },
+    {
+      "session": 11,
+      "wall_s": 69.8,
+      "returncode": 0,
+      "timed_out": false,
+      "verdict": "PASS",
+      "server": {
+        "input_units": 2,
+        "hidden_units": 25,
+        "output_units": 2,
+        "n_nodes": 29,
+        "n_conns": 404
+      },
+      "counts": {
+        "input": "2",
+        "hidden": "25",
+        "output": "2",
+        "conn": "404"
+      },
+      "traces": 811,
+      "sig": 135764,
+      "store": null,
+      "api_hits": 0,
+      "elapsed_s": 26.6,
+      "depth": {
+        "n_thumbs": 1,
+        "now": 0,
+        "min": 0,
+        "max": 25,
+        "num_value": 0,
+        "num_min": 0,
+        "num_max": 25
+      }
+    }
+  ]
+}
