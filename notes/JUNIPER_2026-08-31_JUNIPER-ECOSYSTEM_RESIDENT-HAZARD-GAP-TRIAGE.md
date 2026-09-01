@@ -119,7 +119,12 @@ fact**. `snapshot_serializer.py`'s `hasattr` guard looks like defensive over-eng
 who does not know what the defaults cost; a future tidy-up removing it would read as a
 simplification.
 
-## 5. Recommended, but BLOCKED on budget — owner decision required
+## 5. Recommended, and initially blocked on budget — RESOLVED, all four landed (§5a)
+
+> **RESOLVED — all four landed 2026-08-31; see §5a.** The blocker below was headroom, never
+> evidence. Each shipped as hazard + verbatim relocation in one PR, and **every file shrank while
+> gaining a hazard.** The section is kept as written because the *reasoning* for not taking them
+> unilaterally is the reusable part.
 
 These four clear the bar on evidence. They are **not** landed, because each target repo's remaining
 headroom is at or below the **1,982-char fleet fan-out floor** — the size of the single sweep
@@ -141,6 +146,34 @@ unilaterally.
 
 The data one is the most consequential of the four for a research platform: it protects **train/test
 leakage**, and leakage does not announce itself — it inflates every downstream result.
+
+### 5a. How they were paid for — 2026-08-31
+
+| Repo | PR | `AGENTS.md` | Headroom | Relocated to pay |
+|---|---|---:|---:|---|
+| juniper-data | [#312](https://github.com/pcalnon/juniper-data/pull/312) `b11b84ad` | 25,732 → 24,619 | 1,233 → **2,346** | Code Style Conventions, Development Workflow |
+| juniper-cascor-client | [#152](https://github.com/pcalnon/juniper-cascor-client/pull/152) `f3d54307` | 16,599 → 16,040 | 1,815 → **2,374** | Test Organization, Linting & Formatting |
+| juniper-canopy | [#554](https://github.com/pcalnon/juniper-canopy/pull/554) `9a4a2f22` | 48,915 → 46,163 | 2,414 → **5,166** | Code Style Guidelines → `docs/AGENTS_REFERENCE.md` |
+
+**The ratchet rule bought headroom rather than spending it.** All three now clear the fan-out floor.
+
+Three procedural findings, each of which would have cost a rerun:
+
+1. **A commit trailer in its own paragraph registers as NOTHING.** Git parses only the *last*
+   paragraph as trailers, so `Allow-Docs-Rewrite: AGENTS.md` above a blank line and
+   `Co-Authored-By` was absent — and every P5 cut deletes headings, so Sequence Safety would have
+   failed the PR with the *relocation* as the obvious suspect. Nothing errored; the commit was
+   created cleanly and signed. Verify with
+   `git log -1 --format="%(trailers:key=Allow-Docs-Rewrite)"` — empty means not registered. Applies
+   equally to `Allow-Ceiling-Raise` and `Allow-Budget-Overrun`.
+2. **Heading survival must be checked by diffing the SETS.** G3 does not examine headings at all,
+   and grepping *guessed* heading names is a false-negative machine — on canopy a guessed list
+   matched 2 of 7. Diff `grep '^-###'` on the source against `grep '^+###'` on the destination.
+3. **Operational-sounding section names need reading before they move.** canopy's `Code Style
+   Guidelines` contains `Thread Safety`, `Blocking Rules` and `Async/Thread Communication`.
+   Section-level triage cleared it and reading confirmed why: code *examples*, and `Blocking Rules`
+   is a **weaker duplicate** of two directives that stay resident in stronger form. The move
+   de-duplicated rather than demoted — but the name alone was evidence in neither direction.
 
 ## 6. Rejected, with reasons
 
@@ -178,6 +211,51 @@ python3 util/ad-hoc/2026-08-31_resident_gap_triage.py \
     ../juniper-cascor-client ../juniper-data-client ../juniper-cascor-worker ../juniper-deploy \
     --min-score 3 --json /tmp/fleet_triage.json
 ```
+
+## 7a. Continuation — the pass is now CLOSED at score ≥ 2
+
+The four §5 hazards landed (see §5a), and the triage was then carried through the **whole** score-≥2
+shortlist rather than stopping at score 3. Re-running after those merges returned **281 rows**, down
+from 285: each landed hazard removed itself from the candidate set, which is the expected
+self-check — a promoted directive is no longer "resident nowhere".
+
+**One further promotion**, the last unreviewed score-3 row in the fleet:
+
+| Repo | Source | PR | Why |
+|---|---|---|---|
+| cascor | `cascade_correlation.py:2518` (BUG-CC-18 / ROBUST-01) | [#615](https://github.com/pcalnon/juniper-cascor/pull/615) | a full GPU makes every candidate error *individually*; the handlers **return** `success=False` results, so no exception is raised and the list is non-empty — the run reports `succeeded` / `no_candidate` / 1 hidden unit **having trained nothing** |
+
+Two details in that one are worth the residency, and neither is recoverable from a single call site:
+
+- **`success_count` is the test; `failed_count` is not.** `failed_count` is
+  `len(results) - successful_candidates` — candidates that missed the *correlation threshold*, an
+  ordinary algorithmic outcome. Using it conflates "nothing trained" with "nothing was good enough",
+  which are exactly the two states the guard exists to separate.
+- **`_get_dummy_results` (`:3057`) still exists and is still called at `:3005`.** Tracing the single
+  call path (`train_candidates:2275`) shows guard (b) raises on empty results first, so that branch
+  is **dead today** — and dead *only* because of that ordering. Weaken (b) and zero-correlation
+  fabrication is live again. Stated as the coupling it is, rather than as a live defect (it is not)
+  or as nothing (it is not that either).
+
+**Rejected in the continuation**, with reasons, so the next pass does not re-open them:
+
+| Repo | Source | Why not |
+|---|---|---|
+| cascor | `api/models/training.py:53` | `extra="forbid"` genuinely prevents silently-dropped params — the class that bit canopy's `init_output_weights`. Rejected on the **residency test, not severity**: the `ConfigDict` and the docstring explaining it are adjacent in the same class, so reading the code recovers the fact. The real risk is a *new* request model omitting it, which is a lint's job, not a resident bullet's |
+| data-client | `testing/fake_client.py:227` | The fake's `_GENERATOR_FUNCTIONS` must match the server `GENERATOR_REGISTRY`. Checked the drift **direction**: the fake carries 4 generators against the server's many, so it *rejects* what the service accepts — tests fail conservatively. The dangerous direction (fake accepting what the server rejects) is not the current state, and data-client has the fleet's tightest headroom (486) |
+| cascor | `api/observability.py:53`, `lifecycle/manager.py:391` + `:1818`, `log_config/logger/logger.py:208`, `snapshots/snapshot_serializer.py:1694`, `cascade_correlation.py:4139`, `tests/golden_support.py:151` | correct-by-construction or module-local: the code enforces what the comment describes, and a reader who never learns the fact cannot break it from elsewhere |
+| recurrence | `settings.py:249` | describes the *desired* loud-failure behaviour (a bad CIDR raises rather than never-matching), not a directive that can be violated |
+| cascor-client | `constants.py:190`, `ws_client.py:385` + `:400` | the `:385`/`:400` pair are the previously-rejected `:327`/`:342` blocks, shifted by [#151](https://github.com/pcalnon/juniper-cascor-client/pull/151); line numbers move, so match on content |
+
+**Net for the whole arc: 7 hazard entries promoted across 6 PRs** — cascor
+[#609](https://github.com/pcalnon/juniper-cascor/pull/609),
+[#613](https://github.com/pcalnon/juniper-cascor/pull/613),
+[#615](https://github.com/pcalnon/juniper-cascor/pull/615); data
+[#312](https://github.com/pcalnon/juniper-data/pull/312); cascor-client
+[#152](https://github.com/pcalnon/juniper-cascor-client/pull/152); canopy
+[#554](https://github.com/pcalnon/juniper-canopy/pull/554), which carries two —
+**against 14 recorded rejections, and 0 candidates left unexamined at score ≥ 2.** What remains is
+the score-1 tail characterised in §7.
 
 ## 8. What this pass establishes
 
