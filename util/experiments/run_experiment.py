@@ -105,6 +105,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import quote
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -282,6 +283,64 @@ class RunFailed(Exception):
 # --------------------------------------------------------------------------- #
 # HTTP helpers (stdlib urllib; redirect-following GETs per F-1)
 # --------------------------------------------------------------------------- #
+
+
+#: Where to ask whether a run's metrics actually reached Prometheus. Overridable because the
+#: experiment host and the compose stack do not always agree on the address.
+PROMETHEUS_URL = os.environ.get("JUNIPER_EXP_PROMETHEUS_URL", "http://127.0.0.1:9090").rstrip("/")
+
+
+def _metrics_scraped(run_dir: Path, run_id: str, bridge: bool) -> Dict[str, Any]:
+    """Did this run's metrics actually reach Prometheus? Ask Prometheus, not the filesystem.
+
+    The field this replaces was ``present: prometheus_target.json.is_file()`` — it asserted that a
+    JSON file existed, under a key named ``metrics_scraped``. That could not fail: writing the
+    target file is the same act that set the flag. It read as "metrics were scraped" and meant
+    "we wrote a file", and on 2026-09-01 five bridged PF-1 runs all reported ``present: true``
+    while Prometheus held **zero** series for any of them — the target was never discovered inside
+    the ~20 s the service lived (file_sd refresh 15 s + scrape 15 s).
+
+    So the two facts are now reported separately and named for what they are:
+
+    ``target_file_written`` — the local act, still useful for debugging a bridge that did nothing.
+    ``scrape_confirmed``    — a query against Prometheus for at least one sample carrying this
+                              ``run_id``. Falsifiable: it is false exactly when no sample exists.
+
+    Never raises, and never lets an unreachable Prometheus masquerade as a negative result:
+    ``scrape_confirmed`` is ``None`` (not ``False``) when the question could not be asked, with the
+    reason recorded. "We could not check" and "nothing was scraped" are different findings and must
+    not collapse into the same value — that collapse is the defect this function exists to end.
+    """
+    target = run_dir / "artifacts" / "prometheus_target.json"
+    out: Dict[str, Any] = {
+        "grafana_bridge": bridge,
+        "target_file": str(target),
+        "target_file_written": target.is_file(),
+        "scrape_confirmed": None,
+        "series_found": None,
+        "reason": None,
+        "prometheus_url": PROMETHEUS_URL,
+    }
+    if not bridge:
+        out["reason"] = "grafana bridge was OFF for this run; nothing was published to scrape"
+        out["scrape_confirmed"] = False
+        return out
+    query = f'count({{__name__=~"juniper_.+", run_id="{run_id}"}})'
+    try:
+        code, payload = _http_json("GET", f"{PROMETHEUS_URL}/api/v1/query?query={quote(query)}", timeout=10.0)
+    except Exception as exc:  # noqa: BLE001 - provenance must never break a run
+        out["reason"] = f"could not reach Prometheus at {PROMETHEUS_URL}: {exc}"
+        return out
+    if code != 200 or not isinstance(payload, dict) or payload.get("status") != "success":
+        out["reason"] = f"Prometheus query returned HTTP {code} / status {payload.get('status') if isinstance(payload, dict) else '?'}"
+        return out
+    result = (payload.get("data") or {}).get("result") or []
+    found = int(float(result[0]["value"][1])) if result else 0
+    out["series_found"] = found
+    out["scrape_confirmed"] = found > 0
+    if found == 0:
+        out["reason"] = "target file written but Prometheus holds no series for this run_id — discovery/scrape did not complete within the run's lifetime"
+    return out
 
 
 def _http_json(method: str, url: str, body: Optional[dict] = None, timeout: float = DEFAULT_HTTP_TIMEOUT) -> Tuple[int, Any]:
@@ -1596,11 +1655,7 @@ def _run_cascor(args: argparse.Namespace, config: Dict[str, Any], config_path: P
             # false means the outcome was already terminal service-side; `settled` false means
             # collect below sampled a live network -- read the run's numbers accordingly.
             "teardown_preempt": teardown_preempt,
-            "metrics_scraped": {
-                "grafana_bridge": bool(ports.get("grafana_bridge", False)),
-                "target_file": str(run_dir / "artifacts" / "prometheus_target.json"),
-                "present": (run_dir / "artifacts" / "prometheus_target.json").is_file(),
-            },
+            "metrics_scraped": _metrics_scraped(run_dir, run_id, bool(ports.get("grafana_bridge", False))),
             "g6_shape_check": g6,
             "collect_errors": collect_errors,
             "snapshot": extras.get("snapshot"),
@@ -1944,11 +1999,7 @@ def _run_recurrence(args: argparse.Namespace, config: Dict[str, Any], config_pat
             "acceptance": {"ok": exit_code == EXIT_SUCCESS, "reasons": acceptance_reasons},
             "completion_reason": None,
             "drive_loop": {},
-            "metrics_scraped": {
-                "grafana_bridge": bool(ports.get("grafana_bridge", False)),
-                "target_file": str(run_dir / "artifacts" / "prometheus_target.json"),
-                "present": (run_dir / "artifacts" / "prometheus_target.json").is_file(),
-            },
+            "metrics_scraped": _metrics_scraped(run_dir, run_id, bool(ports.get("grafana_bridge", False))),
             "g6_shape_check": None,
             "collect_errors": collect_errors,
             "snapshot": None,

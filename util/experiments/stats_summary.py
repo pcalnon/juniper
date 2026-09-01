@@ -332,7 +332,16 @@ def render_summary_md(stats: Mapping[str, Any]) -> str:
 
     lines += ["", "## Provenance / health", ""]
     scraped = provenance.get("metrics_scraped") or {}
-    lines.append(f"- grafana bridge: {scraped.get('grafana_bridge')}, target file present: {scraped.get('present')}")
+    # Report BOTH facts, and never let the local one stand in for the remote one. A target file
+    # written is not a scrape confirmed: five bridged PF-1 runs wrote the file and Prometheus held
+    # no series for any of them. ``scrape_confirmed`` is tri-state — None means the question could
+    # not be asked (Prometheus unreachable), which is not the same finding as "nothing was scraped".
+    # ``present`` is the pre-2026-09-01 key name, read as a fallback so old manifests still render.
+    written = scraped.get("target_file_written", scraped.get("present"))
+    confirmed = scraped.get("scrape_confirmed", "n/a (pre-2026-09-01 manifest)")
+    lines.append(f"- grafana bridge: {scraped.get('grafana_bridge')}, target file written: {written}, scrape confirmed: {confirmed}")
+    if scraped.get("reason"):
+        lines.append(f"  - {scraped['reason']}")
     notes = provenance.get("degraded_notes") or []
     if notes:
         lines += ["- degraded-mode notes:"] + [f"  - {note}" for note in notes]

@@ -222,6 +222,105 @@ class ExpandTest(unittest.TestCase):
                     run_suite.load_suite(bad)
 
 
+class GrafanaBridgeToggleTest(unittest.TestCase):
+    """``JUNIPER_SUITE_GRAFANA_BRIDGE`` adds ``--grafana-bridge`` to ``--up``, and is off by default.
+
+    PF-1's first execution produced ``metrics_scraped`` with no scrape because the launcher was
+    never given the flag — `run_suite` had no way to pass it. These pin both directions, and pin
+    that the toggle does NOT alter the cell YAML: it is an env toggle precisely so a bridged and an
+    unbridged run of the same scenario keep an identical ``config_sha256`` and stay comparable.
+    """
+
+    STUB = "#!/usr/bin/env bash\n" 'printf "%s\\n" "$@" >> "$ARGV_LOG"\n' 'if [[ "$1" == "--up" ]]; then echo "=== Experiment run STUBRUN is up ==="; exit 0; fi\n' "exit 0\n"
+
+    def _run_one(self, root: Path, bridge_value: "str | None") -> "list[str]":
+        launcher = root / "stub_launcher.sh"
+        launcher.write_text(self.STUB)
+        launcher.chmod(launcher.stat().st_mode | stat.S_IEXEC)
+        driver = root / "stub_driver.py"
+        _write_stub_driver(driver)
+        argv_log = root / "argv.txt"
+        argv_log.write_text("")
+
+        saved = os.environ.get("JUNIPER_SUITE_GRAFANA_BRIDGE")
+        os.environ["ARGV_LOG"] = str(argv_log)
+        if bridge_value is None:
+            os.environ.pop("JUNIPER_SUITE_GRAFANA_BRIDGE", None)
+        else:
+            os.environ["JUNIPER_SUITE_GRAFANA_BRIDGE"] = bridge_value
+        try:
+            cell_yaml = root / "cell.yaml"
+            cell_yaml.write_text(BASE_CONFIG)
+            cell = {"cell_id": "c000-aaaa1111", "index": 0, "name": None, "overrides": {}}
+            row = run_suite.execute_cell(cell, cell_yaml, "cascor", 60.0, launcher, driver, sys.executable)
+            self.assertIn("grafana_bridge", row, "the registry row must record whether the bridge was on")
+        finally:
+            os.environ.pop("ARGV_LOG", None)
+            if saved is None:
+                os.environ.pop("JUNIPER_SUITE_GRAFANA_BRIDGE", None)
+            else:
+                os.environ["JUNIPER_SUITE_GRAFANA_BRIDGE"] = saved
+        return argv_log.read_text().splitlines()
+
+    def test_absent_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            argv = self._run_one(Path(tmp), None)
+            self.assertIn("--up", argv)
+            self.assertNotIn("--grafana-bridge", argv)
+
+    def test_present_when_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            argv = self._run_one(Path(tmp), "1")
+            self.assertIn("--grafana-bridge", argv)
+
+    def test_falsey_values_do_not_enable_it(self) -> None:
+        """An unset-like value must not silently switch on a host-dependent capability."""
+        for value in ("0", "", "false", "no"):
+            with tempfile.TemporaryDirectory() as tmp:
+                argv = self._run_one(Path(tmp), value)
+                self.assertNotIn("--grafana-bridge", argv, f"{value!r} must not enable the bridge")
+
+    def _row_for(self, root: Path, bridge_value: "str | None") -> dict:
+        """Run one cell through execute_cell and return its registry row."""
+        launcher = root / "stub_launcher.sh"
+        launcher.write_text(self.STUB)
+        launcher.chmod(launcher.stat().st_mode | stat.S_IEXEC)
+        driver = root / "stub_driver.py"
+        _write_stub_driver(driver)
+        saved = os.environ.get("JUNIPER_SUITE_GRAFANA_BRIDGE")
+        os.environ["ARGV_LOG"] = str(root / "argv.txt")
+        if bridge_value is None:
+            os.environ.pop("JUNIPER_SUITE_GRAFANA_BRIDGE", None)
+        else:
+            os.environ["JUNIPER_SUITE_GRAFANA_BRIDGE"] = bridge_value
+        try:
+            cell_yaml = root / "cell.yaml"
+            cell_yaml.write_text(BASE_CONFIG)
+            cell = {"cell_id": "c000-aaaa1111", "index": 0, "name": None, "overrides": {}}
+            return run_suite.execute_cell(cell, cell_yaml, "cascor", 60.0, launcher, driver, sys.executable)
+        finally:
+            os.environ.pop("ARGV_LOG", None)
+            if saved is None:
+                os.environ.pop("JUNIPER_SUITE_GRAFANA_BRIDGE", None)
+            else:
+                os.environ["JUNIPER_SUITE_GRAFANA_BRIDGE"] = saved
+
+    def test_toggle_does_not_change_the_cell_config_hash(self) -> None:
+        """The comparability property, exercised through execute_cell rather than asserted.
+
+        This is the reason the toggle is an env var and not a suite key: a bridged and an
+        unbridged run of the same scenario must remain strictly comparable, which means the cell
+        config — and therefore ``config_sha256`` — cannot differ between them. Hashing two files
+        this test wrote itself would prove nothing; both rows must come from real calls.
+        """
+        with tempfile.TemporaryDirectory() as tmp_off, tempfile.TemporaryDirectory() as tmp_on:
+            off = self._row_for(Path(tmp_off), None)
+            on = self._row_for(Path(tmp_on), "1")
+            self.assertFalse(off["grafana_bridge"])
+            self.assertTrue(on["grafana_bridge"])
+            self.assertEqual(off["config_sha256"], on["config_sha256"], "the bridge toggle must not perturb the cell config")
+
+
 class CascorParallelFloorTest(unittest.TestCase):
     """Q-6: cascor parallel cells are gated on the LAUNCHED tree's version, and fail closed.
 

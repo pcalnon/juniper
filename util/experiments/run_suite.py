@@ -31,6 +31,11 @@ cells (or aggregation found none succeeded); 2 = misuse / suite-validation error
 Test seams: ``JUNIPER_SUITE_LAUNCHER`` / ``JUNIPER_SUITE_DRIVER`` override the
 launcher script and driver script paths; ``JUNIPER_SUITE_PYTHON`` overrides the
 interpreter used for the driver (defaults to this interpreter).
+
+``JUNIPER_SUITE_GRAFANA_BRIDGE=1`` adds ``--grafana-bridge`` to every ``--up``, so the
+run's metrics are scraped into Prometheus (socat relay + file_sd target). Off by default:
+without it a run is UNSCRAPED and ``metrics_scraped.scrape_confirmed`` is ``false``.
+It is an env toggle rather than a suite key on purpose — see ``execute_cell``.
 """
 
 from __future__ import annotations
@@ -411,8 +416,23 @@ def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher
     if suite_name:
         provenance_env["JUNIPER_CASCOR_EXPERIMENT"] = suite_name
     env = {**os.environ, **provenance_env, **(extra_env or {})}
-    row = {"cell_id": cell["cell_id"], "name": cell["name"], "overrides": cell["overrides"], "config_sha256": hashlib.sha256(cell_yaml.read_bytes()).hexdigest(), "run_id": None, "outcome": "failed", "exit_code": None, "error": None, "thread_budget": dict(extra_env) if extra_env else None}
-    up = subprocess.run(["/bin/bash", str(launcher), "--up", f"--{app}", "--config", str(cell_yaml), "--experiment", cell["cell_id"]], capture_output=True, text=True, timeout=max(timeout, 300), env=env)
+
+    # Grafana bridge: OPT-IN via environment, deliberately NOT a suite key.
+    #
+    # Two reasons, and the first is the load-bearing one. (1) A suite key would change the suite
+    # file, and therefore every cell's `config_sha256`, between a bridged and an unbridged run of
+    # the SAME scenario — destroying the comparability that repeat-measurement scenarios like PF-1
+    # exist to provide. An env toggle leaves the YAML byte-identical. (2) The bridge is a
+    # host-capability concern (it needs docker and the monitoring network) rather than a property
+    # of the experiment; a suite that hard-declared it would simply fail on a host without them,
+    # and `bridge_up` failing tears the whole run down.
+    bridge = os.environ.get("JUNIPER_SUITE_GRAFANA_BRIDGE", "").strip().lower() in ("1", "true", "yes", "on")
+    up_args = ["/bin/bash", str(launcher), "--up", f"--{app}", "--config", str(cell_yaml), "--experiment", cell["cell_id"]]
+    if bridge:
+        up_args.append("--grafana-bridge")
+
+    row = {"cell_id": cell["cell_id"], "name": cell["name"], "overrides": cell["overrides"], "config_sha256": hashlib.sha256(cell_yaml.read_bytes()).hexdigest(), "run_id": None, "outcome": "failed", "exit_code": None, "error": None, "thread_budget": dict(extra_env) if extra_env else None, "grafana_bridge": bridge}
+    up = subprocess.run(up_args, capture_output=True, text=True, timeout=max(timeout, 300), env=env)
     match = RUN_ID_BANNER.search(up.stdout + up.stderr)
     if up.returncode != 0 or not match:
         row["error"] = f"launcher --up failed (exit {up.returncode}): {(up.stderr or up.stdout)[-500:]}"
