@@ -34,7 +34,7 @@ interpreter used for the driver (defaults to this interpreter).
 
 ``JUNIPER_SUITE_GRAFANA_BRIDGE=1`` adds ``--grafana-bridge`` to every ``--up``, so the
 run's metrics are scraped into Prometheus (socat relay + file_sd target). Off by default:
-without it a run is UNSCRAPED and ``metrics_scraped.present`` is ``false`` in its manifest.
+without it a run is UNSCRAPED and ``metrics_scraped.scrape_confirmed`` is ``false``.
 It is an env toggle rather than a suite key on purpose — see ``execute_cell``.
 """
 

@@ -33,8 +33,30 @@
 
 set -uo pipefail
 
+# NAMED PROFILES, because "how loaded was the host?" has to be answerable from a results doc
+# months later. A bare worker count in someone's shell history is not a reproducible condition.
+#
+#   modest  4 of 16 cores. What the 2026-09-01 loaded-repeat test used. Twelve cores stay free,
+#           so the stack still runs on what are effectively dedicated cores — which is why `drive`
+#           was untouched (+0.051%) and is the LIMIT of what that run established.
+#   heavy  14 of 16 cores. The owner's 2026-09-01 requirement: "load should be substantial enough
+#           that the stack is not able to run, undisturbed, on what are effectively dedicated
+#           cores." Deliberately 14 rather than 16 — leaving two cores keeps the host responsive
+#           enough to observe and tear down, and full saturation is not required to remove the
+#           stack's free-core headroom, which is the property under test.
+#
+# The distinction matters for what a result can claim: `modest` tests resilience to a background
+# scanner, `heavy` tests resilience to genuine core contention. A threshold derived under `modest`
+# alone would be silently scoped to hosts with spare cores.
+PROFILE="${LOAD_PROFILE:-modest}"
+case "${PROFILE}" in
+    modest) DEFAULT_WORKERS=4 ;;
+    heavy)  DEFAULT_WORKERS=14 ;;
+    *) echo "FATAL: unknown LOAD_PROFILE '${PROFILE}' (expected: modest | heavy)" >&2; exit 2 ;;
+esac
+
 DURATION="${LOAD_DURATION:-300}"
-WORKERS="${LOAD_WORKERS:-4}"
+WORKERS="${LOAD_WORKERS:-${DEFAULT_WORKERS}}"
 TREE="${LOAD_TREE:-/opt/miniforge3/envs/JuniperData}"
 
 [[ -d "${TREE}" ]] || { echo "FATAL: load tree not found: ${TREE}" >&2; exit 2; }
@@ -50,7 +72,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "[load] tree=${TREE} workers=${WORKERS} duration=${DURATION}s  start $(date -u +%FT%TZ)"
+echo "[load] profile=${PROFILE} tree=${TREE} workers=${WORKERS} duration=${DURATION}s  start $(date -u +%FT%TZ)"
 
 for _ in $(seq 1 "${WORKERS}"); do
     (
@@ -63,5 +85,25 @@ for _ in $(seq 1 "${WORKERS}"); do
     pids+=("$!")
 done
 
-sleep "${DURATION}"
+# SETTLE BEFORE THE MEASUREMENT STARTS — measured 2026-09-01, and this is not optional.
+#
+# The workers ramp: load average is a lagging one-minute figure, and the first pass of each worker
+# reads from disk while later passes hit page cache, so the load's CHARACTER shifts from I/O-bound
+# to CPU-bound over the first couple of minutes. Two `heavy` runs launched at different load ages
+# produced +165% and +90% slowdowns for the SAME profile (load average 8.55 at one run's start,
+# 22.88 at its end) — i.e. the named profile was not yet a reproducible condition, which defeats
+# the point of naming it.
+#
+# So the script announces READY only once the load has settled, and a caller that wants a
+# comparable measurement must wait for that line before starting its workload.
+SETTLE="${LOAD_SETTLE:-120}"
+if (( SETTLE > 0 )); then
+    echo "[load] settling for ${SETTLE}s before announcing ready (ramp is real: see header)"
+    sleep "${SETTLE}"
+    echo "[load] READY $(date -u +%FT%TZ)  load=$(cut -d' ' -f1-3 /proc/loadavg)"
+fi
+
+REMAIN=$(( DURATION - SETTLE ))
+(( REMAIN > 0 )) || REMAIN=0
+sleep "${REMAIN}"
 echo "[load] duration reached"
