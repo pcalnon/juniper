@@ -45,19 +45,35 @@ headroom and the same workload takes **1.9× to 2.6× longer**.
 ### 2.1 The contaminated run is evidence, not waste
 
 The first `heavy` attempt was mis-sized — the load was budgeted from *quiet* cell durations and
-expired during cell 4. The resulting gradient is causally unambiguous:
+expired during cell 4. The resulting gradient is ordered and load-dependent (see the correction below for what it does and does not establish):
 
 ```text
 c000 170.999  loaded
 c001 176.102  loaded
 c002 170.990  loaded
 c003 105.560  load expiring mid-cell
-c004  70.211  unloaded — back to the quiet range
+c004  70.211  unloaded — NOT the quiet value (65.2); this is 12 ms from the quiet run's own excursion cell
 ```
 
-Removing the load **restored the quiet timing**. That upgrades (c) from a correlation to a
-demonstrated mechanism. The three loaded cells are reported as n=3 above and are not mixed into any
-five-repeat statistic.
+**CORRECTION 2026-09-01 (adversarial validation).** This paragraph originally read "removing the
+load **restored the quiet timing** … upgrades (c) from a correlation to a demonstrated mechanism."
+Both halves overreach.
+
+`c004` is **70.211 s**. The quiet cells are 65.211–65.244 s, and the quiet run's *excursion* cell is
+**70.199 s** — `c004` is **12 ms** from the excursion value, not back at the quiet value. The same
+number is therefore classed as effect (b) in one run and as "restored" in another; the taxonomy
+cannot have both. Residual load (a lagging one-minute average, a warm page cache, draining workers)
+explains it.
+
+And a dose-response gradient shows a causal **effect**, not a **mechanism**: the generator contends
+for cores, page cache and disk bandwidth at once, and §3 records that its character shifts I/O-bound
+→ CPU-bound over the first minutes — so nothing here separates core contention from I/O contention,
+though the effect is labelled "core contention". Cell *position* is a known non-null covariate here
+(the quiet run's outlier was also its last cell).
+
+What survives: removing the load produced a large, ordered reduction, so the load is causally
+implicated in the slowdown. "Causally unambiguous" was too strong. The three loaded cells are
+reported as n=3 above and are not mixed into any five-repeat statistic.
 
 ---
 
@@ -74,8 +90,18 @@ shifts from I/O-bound to CPU-bound over the first minutes.
 
 **Fixed**: the generator now settles for `LOAD_SETTLE` (default 120 s) and announces `READY` with the
 observed load average. A caller wanting a comparable measurement waits for that line before starting
-its workload. **The +90% figure above was taken during ramp and should be treated as a lower bound**;
-the +165% figure, taken against an already-running load, is the better estimate of settled `heavy`.
+its workload.
+
+**CORRECTION 2026-09-01: the "lower bound" inference is refuted by its own per-cell data.** A
+monotone load ramp predicts monotonically *increasing* cell durations. The clean run's cells are
+**125.783, 125.736, 120.677, 120.642, 125.744** — non-monotone and bimodal, with the middle two the
+*fastest*. Load average nearly tripled (8.55 → 22.88) while workload cost stayed flat within ±2% and
+did not trend upward at all.
+
+Two consequences. The "+90% is a lower bound" claim has no support in the timing trajectory — its
+only support was the load-average trajectory, which the timings contradict. And **load average is a
+poor predictor of workload cost in this regime**, which matters directly: load-average-derived
+headroom is the instrument a host-state precondition (§4) would use.
 
 **A settled-`heavy` five-repeat measurement has not yet been taken.** It is the obvious next run and
 costs about 20 minutes.
@@ -96,12 +122,43 @@ Two shapes are viable, and they compose:
    contract already records the fingerprint, so the data exists; what is missing is a rule that
    consults it. Effect (c) then cannot reach the comparison at all.
 2. **A median-of-repeats statistic.** PF-1 already runs five repeats. The median is unmoved by one
-   outlier in five, which is exactly (b)'s observed frequency — the 66 s median is 65.244 s against
-   a mean of 66.223 s. Gating the median rather than any single run removes (b) without loosening
-   sensitivity to a real shift.
+   outlier in five, which is exactly (b)'s observed frequency — the 66 s median is **65.233 s**
+   against a mean of 66.223 s. Gating the median rather than any single run reduces (b)'s influence
+   without loosening sensitivity to a real shift.
+
+   **CORRECTION 2026-09-01, two errors in this item.** The median was originally stated as 65.244 s;
+   that is the *maximum of the four clean cells*. Sorted, the run is 65.211 / 65.226 / **65.233** /
+   65.244 / 70.199.
+
+   More importantly, "removes (b)" was asserted without arithmetic and is **too strong**. The median
+   of five is contaminated whenever ≥3 cells excurse; at the observed p̂ = 1/5 that is
+   **P(X≥3 | n=5) ≈ 5.8%**, and each such run overshoots a 1% gate by ~7.6×. The Clopper-Pearson
+   upper 95% bound on p from 1/5 is ~0.72, so the data cannot exclude p values at which the median
+   fails routinely. Independence is also optimistic: the four clean cells are strictly monotone
+   decreasing with the excursion last, under a rising load — position and value are correlated,
+   which pushes P(≥3) above the binomial figure. The median *reduces* (b); it does not remove it.
+
+   **The precondition does not screen (b) either.** The excursion occurred in the **quiet** run, at
+   load average 2.82 on 16 cores — any plausible headroom floor admits that run.
 
 **With both, a threshold near 1% on the median of `drive` is defensible** — comfortably above (a)'s
-0.02% intrinsic noise, robust to (b), and never evaluated in (c)'s regime. That is roughly 7× tighter
+0.02% intrinsic noise, materially less exposed to (b), and never evaluated in (c)'s regime.
+
+> **CORRECTION 2026-09-01: ~1% does not follow from P1 §5's ratified rule, and is a judgement call.**
+> sd of the four clean 66 s cells is 0.01383 s = **0.0212%**, so the rule's ≥3×sd yields **0.064%**.
+> 1% is **16×** that (the withdrawn 0.5% was 8×). Neither figure is derived from the rule; both are
+> judgement wearing the vocabulary of a derivation.
+>
+> Worse, 0.02% is the wrong noise quantity for this gate. It is a *within-run*, *single-run*,
+> outlier-excluded dispersion across cells sharing one warm cache, one service instance and one host
+> state. The gate compares a **new run's median against a baseline median from a different run, day
+> and host state**. Between-run variability at 66 s is **unmeasured — n=1 run**. The only between-run
+> evidence is at 20 s (3 runs: 20.084 / 20.081 / 20.091 → sd 0.026%). Justifying a 66 s threshold
+> from 20 s between-run figures is the *same* scope error that got 0.5% withdrawn.
+>
+> **What would actually settle it: 2–4 more quiet 66 s five-repeat runs** (~6 min each), which
+> measure between-run median variability directly and move (b)'s frequency estimate off 1/5. That is
+> cheaper and more decision-relevant than refining the contention point estimate. That is roughly 7× tighter
 than the 6.8% the original contention figure would have forced, and it is honest about *why* it can
 be that tight: because the conditions under which it applies are stated rather than assumed.
 
