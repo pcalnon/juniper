@@ -9,12 +9,14 @@
 **Status**: DESIGN — decisions 1–5 settled 2026-08-29; **6–8 settled 2026-08-31 (§9.2)**;
 **9 settled 2026-09-01 (§9.3.2): P-1b, per-partition name-keyed seed substreams**, after P-1a was
 measured BLOCKED (§9.3.1). Prefix stability is abandoned as unobtainable.
-**Two items now gate Chunk 3.** (1) P-1b introduces a leak P-1a did not have — independently
-generated partitions can share grid positions, producing **byte-identical train/val rows at
-`noise=0`, which is reachable config** (§9.3.2); three guards are specified, **none ruled**.
-(2) **P-1b applies only to the SYNTHESISED generator class** (§9.3.3) — 5 of 16 generators draw from
-a finite pool, and for the ordered ones (`equities`) applying P-1b would be a **regression**, not an
-improvement. Decisions 8 and 9 both need that scope limit read before implementation.
+**Two items now gate Chunk 3.** (1) P-1b introduces a leak P-1a did not have (§9.3.2). The full
+class-1 census (§9.3.4) settles the guard: **G-b and G-c are UNSOUND — G-a, de-duplicate at
+assembly, is the only candidate covering the measured leak set.** Still owner-ruled.
+(2) **P-1b applies only to SEED-DEPENDENT generators** (§9.3.3 + §9.3.4) — 5 of 16 draw from a
+finite pool, applying P-1b to the ordered ones (`equities`) would be a **regression**, and
+**`mackey_glass` ignores its seed entirely at default config**, so its partitions come out 100 %
+identical and P-1b is *inapplicable* rather than merely leaky. Class membership there is
+**configuration-dependent**, not a fixed property of the generator.
 **Tracks**: [cascor#582](https://github.com/pcalnon/juniper-cascor/issues/582) (tier parity),
 [cascor#578](https://github.com/pcalnon/juniper-cascor/issues/578) (baseline-tier decision),
 [cascor#530](https://github.com/pcalnon/juniper-cascor/issues/530) (no seed field)
@@ -579,6 +581,62 @@ that no duplicate-row guard would detect, because the rows are genuinely distinc
 **Not verified.** `equities_seq` was classified from its name and its shared lineage with `equities`,
 not read. `csv_import` was classified from its loader, not from its selection logic. The class-1 list
 is by exclusion — only `spiral`, `moon` and `gaussian` were examined directly (§9.3.1).
+*(§9.3.4 now supplies the measured census the last sentence was hedging about.)*
+
+#### 9.3.4 The class-1 census — G-b is UNSOUND, and one generator ignores its seed entirely
+
+§9.3.2 left G-a / G-b / G-c unruled, and the choice turns on **how many class-1 generators actually
+leak** — which had been inferred from `grep linspace`, i.e. from an artifact *adjacent* to the one
+that could falsify it. Measured instead:
+`util/ad-hoc/2026-09-01_class1_duplicate_census.py` generates a `train` and a `val` partition
+independently, each from its own name-keyed substream, and counts byte-identical rows. **All 11
+class-1 generators, no skips.**
+
+| generator | dupes @ `noise=0` | dupes @ default | verdict |
+| --- | --- | --- | --- |
+| `spiral` | 8 / 800 | 0 | **leaks** (mechanism A) |
+| `moon` | 4 / 400 | 0 | **leaks** (mechanism A) |
+| `mackey_glass` | **368 / 368** | **368 / 368** | **leaks TOTALLY — see below** |
+| `gaussian`, `xor`, `circles`, `checkerboard` | 0 | 0 | clean |
+| `ar_p`, `delay_product`, `irregular_sine`, `multi_sine` | 0 | 0 | clean |
+
+**G-b is unsound; G-a is required.** `mackey_glass` leaks **100 %** and is *not*
+linspace-parameterised, so a per-partition grid offset — which addresses mechanism A only — would
+leave the worst case entirely untouched. **G-a (de-duplicate at assembly) is the only candidate that
+covers the measured leak set.** G-c is also insufficient for the same reason.
+
+**Why `mackey_glass` is total: it ignores its seed.** `MackeyGlassParams.init_noise_std` defaults to
+`0.0` (`params.py:33`), and the seed is consumed **only** inside `if params.init_noise_std > 0`
+(`generator.py:64-66`). At the default the trajectory is an exact deterministic Euler integration
+from a constant history, so *every* seed produces byte-identical output — verified directly: seed 1
+and seed 999999 give `max|Δ| == 0.0`.
+
+This is **documented and intentional** — the field's own description says *"0 yields an exact
+deterministic init"* — but it has a consequence the design must record: **no seeding scheme can
+separate `mackey_glass`'s partitions**, because the seed is inert. P-1b is not merely leaky there;
+it is *inapplicable*.
+
+**The taxonomy needs a second axis.** §9.3.3 split generators by *where the data comes from*
+(synthesised vs finite pool). `mackey_glass` shows that is not sufficient: it is fully synthesised
+and still cannot use P-1b. The operative question is **whether the output is seed-dependent at the
+configured parameters**:
+
+- **seed-dependent** → P-1b applies (with G-a for the mechanism-A residue).
+- **seed-invariant** → partitions must be **disjoint segments of one generated trajectory** — the
+  class-3 carve-up, for a class-1 generator. `mackey_glass` at default `init_noise_std` is here.
+  Raising `init_noise_std > 0` moves it to the first row, which is a **configuration-dependent
+  class membership** and needs to be resolved per run, not per generator.
+
+**A non-finding, recorded so it is not re-derived as alarm.** `mackey_glass` is used by
+`util/experiments/suites/p4/e-d-recurrence-d-sweep.yaml`, but that suite runs `seed_policy: fixed`
+with `seed: 0` and sweeps `train.d` (8/16/32). It does **not** rely on seed variance, so its results
+are unaffected by the determinism. No existing measurement is invalidated by this finding.
+
+**What this evidence does not cover.** One size pair only (train 1000 / val 400 as requested, which
+the generators expand differently — `spiral` to 2000/800, the sequence generators to 968/368 after
+windowing). Duplicate counts are size-dependent, so these are existence proofs, not magnitudes.
+`train` vs `test` and `val` vs `test` were not measured — only `train` vs `val`. The five class-2/3
+generators are out of scope here by construction (§9.3.3).
 
 ## 10. Naming — SETTLED: `X_val` / `y_val`, **not** `X_eval`
 
