@@ -72,7 +72,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "[load] tree=${TREE} workers=${WORKERS} duration=${DURATION}s  start $(date -u +%FT%TZ)"
+echo "[load] profile=${PROFILE} tree=${TREE} workers=${WORKERS} duration=${DURATION}s  start $(date -u +%FT%TZ)"
 
 for _ in $(seq 1 "${WORKERS}"); do
     (
@@ -85,5 +85,25 @@ for _ in $(seq 1 "${WORKERS}"); do
     pids+=("$!")
 done
 
-sleep "${DURATION}"
+# SETTLE BEFORE THE MEASUREMENT STARTS — measured 2026-09-01, and this is not optional.
+#
+# The workers ramp: load average is a lagging one-minute figure, and the first pass of each worker
+# reads from disk while later passes hit page cache, so the load's CHARACTER shifts from I/O-bound
+# to CPU-bound over the first couple of minutes. Two `heavy` runs launched at different load ages
+# produced +165% and +90% slowdowns for the SAME profile (load average 8.55 at one run's start,
+# 22.88 at its end) — i.e. the named profile was not yet a reproducible condition, which defeats
+# the point of naming it.
+#
+# So the script announces READY only once the load has settled, and a caller that wants a
+# comparable measurement must wait for that line before starting its workload.
+SETTLE="${LOAD_SETTLE:-120}"
+if (( SETTLE > 0 )); then
+    echo "[load] settling for ${SETTLE}s before announcing ready (ramp is real: see header)"
+    sleep "${SETTLE}"
+    echo "[load] READY $(date -u +%FT%TZ)  load=$(cut -d' ' -f1-3 /proc/loadavg)"
+fi
+
+REMAIN=$(( DURATION - SETTLE ))
+(( REMAIN > 0 )) || REMAIN=0
+sleep "${REMAIN}"
 echo "[load] duration reached"
