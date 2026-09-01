@@ -2106,3 +2106,74 @@ class SubprocessSmokeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class MetricsScrapedTest(unittest.TestCase):
+    """``metrics_scraped`` must be falsifiable — the field it replaces could not fail.
+
+    The old shape was ``present: prometheus_target.json.is_file()`` under a key named
+    ``metrics_scraped``: writing the target file was the same act that set the flag, so it read as
+    "metrics were scraped" and meant "we wrote a file". On 2026-09-01 five bridged PF-1 runs all
+    reported ``present: true`` while Prometheus held zero series for any of them.
+
+    The property these pin is that ``scrape_confirmed`` is TRI-STATE. "We could not ask" must not
+    collapse into "nothing was scraped"; that collapse is the whole defect.
+    """
+
+    def _run_dir(self, tmp: str, with_target: bool) -> Path:
+        rd = Path(tmp)
+        (rd / "artifacts").mkdir(parents=True, exist_ok=True)
+        if with_target:
+            (rd / "artifacts" / "prometheus_target.json").write_text("[]")
+        return rd
+
+    def test_bridge_off_is_confirmed_false_not_none(self) -> None:
+        """Bridge off is a KNOWN negative — nothing was published, so nothing could be scraped."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = rx._metrics_scraped(self._run_dir(tmp, False), "RID", False)
+            self.assertIs(out["scrape_confirmed"], False)
+            self.assertIn("bridge was OFF", out["reason"])
+
+    def test_target_written_does_not_imply_scraped(self) -> None:
+        """The exact false positive that motivated this: file on disk, no series in Prometheus."""
+        with tempfile.TemporaryDirectory() as tmp:
+            rd = self._run_dir(tmp, True)
+            with mock.patch.object(rx, "_http_json", return_value=(200, {"status": "success", "data": {"result": []}})):
+                out = rx._metrics_scraped(rd, "RID", True)
+            self.assertTrue(out["target_file_written"])
+            self.assertIs(out["scrape_confirmed"], False)
+            self.assertEqual(out["series_found"], 0)
+
+    def test_series_found_confirms_the_scrape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            rd = self._run_dir(tmp, True)
+            payload = {"status": "success", "data": {"result": [{"value": [0, "7"]}]}}
+            with mock.patch.object(rx, "_http_json", return_value=(200, payload)):
+                out = rx._metrics_scraped(rd, "RID", True)
+            self.assertIs(out["scrape_confirmed"], True)
+            self.assertEqual(out["series_found"], 7)
+            self.assertIsNone(out["reason"])
+
+    def test_unreachable_prometheus_is_none_not_false(self) -> None:
+        """The tri-state property: an unaskable question is not a negative answer."""
+        with tempfile.TemporaryDirectory() as tmp:
+            rd = self._run_dir(tmp, True)
+            with mock.patch.object(rx, "_http_json", side_effect=OSError("connection refused")):
+                out = rx._metrics_scraped(rd, "RID", True)
+            self.assertIsNone(out["scrape_confirmed"], "unreachable must not read as 'nothing scraped'")
+            self.assertIn("could not reach", out["reason"])
+
+    def test_a_non_success_status_is_none_not_false(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            rd = self._run_dir(tmp, True)
+            with mock.patch.object(rx, "_http_json", return_value=(503, {"status": "error"})):
+                out = rx._metrics_scraped(rd, "RID", True)
+            self.assertIsNone(out["scrape_confirmed"])
+
+    def test_never_raises(self) -> None:
+        """Provenance must not be able to fail a run."""
+        with tempfile.TemporaryDirectory() as tmp:
+            rd = self._run_dir(tmp, True)
+            with mock.patch.object(rx, "_http_json", side_effect=RuntimeError("boom")):
+                out = rx._metrics_scraped(rd, "RID", True)
+            self.assertIsNone(out["scrape_confirmed"])

@@ -225,7 +225,7 @@ class ExpandTest(unittest.TestCase):
 class GrafanaBridgeToggleTest(unittest.TestCase):
     """``JUNIPER_SUITE_GRAFANA_BRIDGE`` adds ``--grafana-bridge`` to ``--up``, and is off by default.
 
-    PF-1's first execution produced ``metrics_scraped: {present: false}`` because the launcher was
+    PF-1's first execution produced ``metrics_scraped`` with no scrape because the launcher was
     never given the flag — `run_suite` had no way to pass it. These pin both directions, and pin
     that the toggle does NOT alter the cell YAML: it is an env toggle precisely so a bridged and an
     unbridged run of the same scenario keep an identical ``config_sha256`` and stay comparable.
