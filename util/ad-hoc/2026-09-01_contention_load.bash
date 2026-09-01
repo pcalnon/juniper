@@ -33,8 +33,30 @@
 
 set -uo pipefail
 
+# NAMED PROFILES, because "how loaded was the host?" has to be answerable from a results doc
+# months later. A bare worker count in someone's shell history is not a reproducible condition.
+#
+#   modest  4 of 16 cores. What the 2026-09-01 loaded-repeat test used. Twelve cores stay free,
+#           so the stack still runs on what are effectively dedicated cores — which is why `drive`
+#           was untouched (+0.051%) and is the LIMIT of what that run established.
+#   heavy  14 of 16 cores. The owner's 2026-09-01 requirement: "load should be substantial enough
+#           that the stack is not able to run, undisturbed, on what are effectively dedicated
+#           cores." Deliberately 14 rather than 16 — leaving two cores keeps the host responsive
+#           enough to observe and tear down, and full saturation is not required to remove the
+#           stack's free-core headroom, which is the property under test.
+#
+# The distinction matters for what a result can claim: `modest` tests resilience to a background
+# scanner, `heavy` tests resilience to genuine core contention. A threshold derived under `modest`
+# alone would be silently scoped to hosts with spare cores.
+PROFILE="${LOAD_PROFILE:-modest}"
+case "${PROFILE}" in
+    modest) DEFAULT_WORKERS=4 ;;
+    heavy)  DEFAULT_WORKERS=14 ;;
+    *) echo "FATAL: unknown LOAD_PROFILE '${PROFILE}' (expected: modest | heavy)" >&2; exit 2 ;;
+esac
+
 DURATION="${LOAD_DURATION:-300}"
-WORKERS="${LOAD_WORKERS:-4}"
+WORKERS="${LOAD_WORKERS:-${DEFAULT_WORKERS}}"
 TREE="${LOAD_TREE:-/opt/miniforge3/envs/JuniperData}"
 
 [[ -d "${TREE}" ]] || { echo "FATAL: load tree not found: ${TREE}" >&2; exit 2; }
