@@ -13,11 +13,11 @@ them remains the owner's.
 
 ## 1. The §3.1 question is answered: the contention floor **is** duration-scoped
 
-| condition | load avg | `drive` mean | `drive` sd | sd % | `total` sd % |
-|---|---|---|---|---|---|
-| unbridged, interactive | 6.31 | 20.084 s | 0.0065 | 0.033% | 0.370% |
-| bridged, quiet | 3.12 | 20.081 s | 0.0099 | 0.049% | 0.343% |
-| **bridged, deliberate load** | **6.6 + 4 synthetic workers** | **20.091 s** | **0.0084** | **0.042%** | 0.293% |
+| condition                    | load avg                      | `drive` mean | `drive` sd | sd %       | `total` sd % |
+|------------------------------|-------------------------------|--------------|------------|------------|--------------|
+| unbridged, interactive       | 6.31                          | 20.084 s     | 0.0065     | 0.033%     | 0.370%       |
+| bridged, quiet               | 3.12                          | 20.081 s     | 0.0099     | 0.049%     | 0.343%       |
+| **bridged, deliberate load** | **6.6 + 4 synthetic workers** | **20.091 s** | **0.0084** | **0.042%** | 0.293%       |
 
 **Under a deliberate clamscan-shaped load, `drive` moved by +0.051%** (20.081 → 20.091 s) and its
 spread did not widen at all.
@@ -43,11 +43,11 @@ saturates all 16 cores; 12 were left free, which is plausibly why the workload w
 P1 §5's rule: **≥3× sd, and never below the largest contention excursion observed on this host** —
 now qualified by §1 as *for the relevant duration class*.
 
-| input | value |
-|---|---|
-| 3 × sd(`drive`, loaded) | 3 × 0.0084 s = 0.0252 s → **0.125%** |
-| largest excursion at this duration | **+0.051%** |
-| **binding constraint** | **3-sigma, at 0.125%** |
+| input                              | value                                |
+|------------------------------------|--------------------------------------|
+| 3 × sd(`drive`, loaded)            | 3 × 0.0084 s = 0.0252 s → **0.125%** |
+| largest excursion at this duration | **+0.051%**                          |
+| **binding constraint**             | **3-sigma, at 0.125%**               |
 
 For the first time the *statistical* term binds rather than the contention floor, because the floor
 collapsed from 6.8% to 0.05% once measured at the right duration. That is a **54× improvement in
@@ -71,7 +71,7 @@ holds **zero** series for them:
 
 ```text
 count by (run_id) (juniper_cascor_training_step_duration_seconds_bucket{environment="host-experiment"})  -> 0
-up{environment="host-experiment"} @ run-B time                                                          -> 0
+up{environment="host-experiment"} @ run-B time                                                           -> 0
 ```
 
 Not "the metric is missing" — **nothing from these runs was ever scraped**. The cause is the
@@ -153,9 +153,12 @@ UTC) fully containing run B (02:21–02:24 UTC).
 ## 7. For the owner
 
 1. **Ratify or adjust the 0.5% candidate** on `timings.drive` for PF-1-class scenarios — §2.
-2. **Choose among the three step-duration options** — §4. Decision 4 kept the metric; it is not
-   obtainable at the current cell duration without one of these.
-3. **Note the `metrics_scraped` fix as a defect to schedule** — §3. It is not perf-lane work, but it
-   produced a false positive in this analysis and will produce more.
-4. **Long-duration scenarios remain unmeasured.** The 0.5% candidate is explicitly scoped to
-   PF-1-class runs; E-A/E-C-class durations need their own measurement before any threshold.
+    - Response: i concur. a 0.5% regression threshold strikes a good balance between sensitivity and noise tolerance. this is a design choice that we should come back and verify after this gate goes live.
+2. **Choose among the three step-duration options** — §4. Decision 4 kept the metric; it is not obtainable at the current cell duration without one of these.
+    - Response: let's go with option 1: lengthening the time for PF-1's cells.  ~60 s is a good first choice; i'd be willing to go as high as ~120 s if necessary.
+3. **Note the `metrics_scraped` fix as a defect to schedule** — §3. It is not perf-lane work, but it produced a false positive in this analysis and will produce more.
+    - Response: implementing the recommended fix for the metrics_scraped.present defect should be considered a high priority.
+    the ability to include a range of potentially complex metrics in the performance calculations and checks will become increasingly important as the underlying model architectures become larger, hybridized, and more complex.
+    the metrics scraping functionality will also become increasingly important as additional, and heterogenous, systems are brought online to support juniper platform compute.
+4. **Long-duration scenarios remain unmeasured.** The 0.5% candidate is explicitly scoped to PF-1-class runs; E-A/E-C-class durations need their own measurement before any threshold.
+    - Response: i concur. classes other than PF-1 should have their own run measurements performed.
