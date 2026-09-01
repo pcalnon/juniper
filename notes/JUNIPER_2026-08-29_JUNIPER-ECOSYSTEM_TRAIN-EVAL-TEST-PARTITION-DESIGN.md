@@ -5,11 +5,11 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-31
+**Last Updated**: 2026-09-01
 **Status**: DESIGN — decisions 1–5 settled 2026-08-29; **D-1, D-2 and normalisation fit scope settled
-2026-08-31 as decisions 6–8 (§9.2)**. One derived requirement is newly OPEN and blocks the sizing
-work: **prefix stability (§9.3)** — D-1's cross-snapshot-comparison rationale is not achievable
-under D-2 without it, which V-1 measured rather than predicted.
+2026-08-31 as decisions 6–8 (§9.2)**. The derived **prefix-stability** requirement (§9.3) is open but
+no longer undecidable: **P-1a is measured BLOCKED (§9.3.1, 2026-09-01)** — partly semantic, not merely
+expensive — so **P-1b is recommended** and awaits a ruling.
 **Tracks**: [cascor#582](https://github.com/pcalnon/juniper-cascor/issues/582) (tier parity),
 [cascor#578](https://github.com/pcalnon/juniper-cascor/issues/578) (baseline-tier decision),
 [cascor#530](https://github.com/pcalnon/juniper-cascor/issues/530) (no seed field)
@@ -392,17 +392,65 @@ So under decisions 6 and 8 as ruled, adding the third partition **moves the trai
 existing baseline**, and two snapshots taken either side of the change are not comparable *even on
 `train`* — which is the property D-1 was ruled in order to obtain.
 
-Two ways to close it; **not yet ruled**:
+Two ways to close it:
 
 - **P-1a — prefix-stable generation.** Guarantee the first N rows are invariant to the requested
-  total, so `generate(N+M)[:N] == generate(N)`. Preserves the existing corpus.
+  total, so `generate(N+M)[:N] == generate(N)`. Would preserve the existing corpus.
 - **P-1b — per-partition seed streams.** Derive each partition from an independent, named substream
   (e.g. `seed` → `seed_train` / `seed_val` / `seed_test`) so adding a partition cannot perturb the
   others. Does not preserve the existing corpus, but makes the invariant structural rather than a
   property each generator must be individually audited for.
 
-Either closes it; neither is free; **P-1b does not rescue the existing baselines**, so decision 4
-(re-measure) stands regardless — as §9.1's V-1 entry already records.
+#### 9.3.1 P-1a is BLOCKED — measured 2026-09-01
+
+V-1 established *that* the generators are not prefix-stable. It did not establish *why*, and §6.3's
+stated mechanism — *"vectorised draws are sized to N, so a larger N consumes the RNG stream
+differently"* — turns out to be **not quite right**, in a way that changes the ruling.
+
+Instrument: `util/ad-hoc/2026-09-01_prefix_stability_mechanism.py` (seven probes, each falsifiable
+alone; `small=500 large=850 seed=42`).
+
+| probe | result | what it isolates |
+| --- | --- | --- |
+| Q1 `normal(size=N)` prefix | **STABLE** | numpy itself |
+| Q1b `random(size=N)` prefix | **STABLE** | numpy itself |
+| Q2 one spiral arm, fresh rng | DIFFERS | per-stratum generation, layout excluded |
+| Q3 arm 1 under shared rng | DIFFERS | cross-stratum RNG coupling |
+| Q4 `X_full` under vstack | DIFFERS | stratified layout |
+| Q5 spiral `legacy_cascor` (pure RNG) | DIFFERS | **refuted** the "RNG paths are fine" guess |
+| Q6 bare `np.linspace` | DIFFERS | **mechanism A**, no juniper-data code involved |
+| Q7 2nd of two N-sized draws | DIFFERS | **mechanism B**, no juniper-data code involved |
+
+**numpy is not the problem** (Q1/Q1b). Two independent mechanisms are, and both bite:
+
+- **Mechanism A — parametric-curve sampling.** `np.linspace(0, r, N)`'s spacing is a function of N,
+  so a larger N **resamples the whole curve more densely** rather than extending it. `spiral`'s
+  default `modern` path is built on it (`generator.py:138-139`), as is `moon`
+  (`generator.py:81,86`). **Not fixable without redefining the dataset**: making
+  `arm(N+M)[:N] == arm(N)` requires fixed-density sampling, so the extra points *extend* the curve —
+  a longer spiral, i.e. a different dataset, not the same one with more rows.
+  **Scope: 2 of 17 generators.** `gaussian`'s `linspace` is over `n_classes`
+  (`generator.py:119`), not the point count, so A does not apply to it.
+- **Mechanism B — sequential multi-draw offset.** A generator making *k* draws each sized N has
+  draw #2 begin at stream position N, so changing N moves it — draw #1 is prefix-stable, draw #2 is
+  not. This is why spiral's *pure-RNG* `legacy_cascor` path also differs (Q5): it draws distance,
+  then x-noise, then y-noise off one rng. `gaussian` is hit the same way — a per-class
+  `standard_normal` off a shared rng (`generator.py:89`) plus a whole-array noise draw (`:95`).
+  Fixable in principle (per-draw substreams, or one max-sized draw), but that is **surgery on every
+  generator's draw structure**.
+
+**Ruling implication: P-1a is not merely expensive, it is partly semantic.** Mechanism B is a cost;
+mechanism A means that for `spiral` and `moon` *"the same dataset with more rows"* is not a thing
+that exists. **P-1b sidesteps both**, because each partition is generated at its own size and never
+claims to be a prefix of another.
+
+**Recommended: P-1b.** It does not preserve the existing corpus — but per V-1, **nothing does**, so
+that was never a live advantage. Decision 4 (re-measure) stands regardless, as §9.1's V-1 entry
+already records.
+
+**What this evidence does not cover.** Only `spiral` was probed in situ (Q2–Q5); `moon` and
+`gaussian` were read from source, not measured. The mechanism-A/B isolations (Q6/Q7) are
+generator-independent and hold regardless. The other 14 generators were not classified.
 
 ## 10. Naming — SETTLED: `X_val` / `y_val`, **not** `X_eval`
 

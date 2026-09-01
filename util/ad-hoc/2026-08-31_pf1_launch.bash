@@ -29,6 +29,7 @@
 set -euo pipefail
 
 ML_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
 # --snapshot-after is handled FIRST and exits. The completion hook re-invokes this script to take
 # the closing host snapshot, and without an early exit that re-invocation would fall through and
@@ -83,7 +84,7 @@ setsid nohup bash -c "
     cd '${ML_DIR}' &&
     JUNIPER_EXP_PROJECT_DIR='${JUNIPER_EXP_PROJECT_DIR}' python3 util/experiments/run_suite.py --suite '${SUITE}';
     rc=\$?;
-    '${BASH_SOURCE[0]}' --snapshot-after '${OUT_ROOT}' >/dev/null 2>&1 || true;
+    bash '${SELF}' --snapshot-after '${OUT_ROOT}' 2>&1 || echo 'WARNING: after-snapshot failed';
     echo \"run_suite exit: \$rc\"
 " >"${LOG}" 2>&1 &
 
