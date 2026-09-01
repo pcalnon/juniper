@@ -970,3 +970,75 @@ not currently a `miss`, refuses a double re-score, and requires a `--reason`;
 each of the nine carries the scorer's own contemporaneous note as its
 justification. §15.3's prediction and §17's instrument limit are unaffected — the
 re-soak is still owed, and still cannot be run from the session that ran rung 1.
+
+---
+
+## 19. The re-soak cannot be SCHEDULED remotely either — measured, 2026-09-01
+
+§17 ruled out subagents (their memory context is a snapshot frozen at
+parent-session start). The natural next move is to schedule the runs. Both
+available schedulers were checked, and neither can carry a valid probe.
+
+### 19.1 Cloud routines have no memory index at all
+
+A one-shot cloud routine was created and run purely as an instrument check
+(`trig_01Gz8PLGmRUrp4Lia8k3E1MB`, since disabled). Its own tool output:
+
+```
+=== ls -la ~/.claude/projects/ ===
+drwx------ 3 root root 4096 Sep  1 01:08 -home-user-juniper-ml
+=== find MEMORY.md ===
+(end find)
+=== pwd ===
+/home/user/juniper-ml
+```
+
+The sandbox holds a **fresh, empty project directory** for the cloud session and
+**no `MEMORY.md` anywhere on the filesystem**. This is not a stale snapshot like
+§17's — the index does not exist in that environment. `MEMORY.md` lives at
+`~/.claude/projects/-home-pcalnon-…/memory/` on the workstation, outside the git
+repo, and the routine documentation states plainly that cloud agents "cannot
+access local files".
+
+**A cloud probe would score a guaranteed miss on every rung-1 fact, for a third
+distinct reason.** Same vacuous shape, new mechanism.
+
+### 19.2 `CronCreate` fires into the scheduling session
+
+Local cron jobs are session-only: they enqueue a prompt into **this** session,
+which is both primed (it authored the prediction) and holding the pre-08-31
+snapshot. It also expires after 7 days.
+
+### 19.3 What follows
+
+The valid instrument is a **fresh local Claude Code session on the workstation**,
+started after 2026-08-31. That is not something either scheduler provides, so the
+re-soak is **operator-dispatched, not automated** — and saying so is better than
+automating something that returns numbers meaning nothing.
+
+`util/soak_next_probe.py` makes each run cheap and keeps requirement 2 (unprimed)
+enforceable by construction:
+
+- prints the probe's `task` **and nothing else** to stdout, so it can be piped or
+  pasted without the operator reading the fact they are about to test for;
+- puts the probe id, coverage and warnings on **stderr**, so a redirect carries
+  none of it;
+- keeps fact, pointer, evidence and discriminator behind `--reveal`, which is for
+  **scoring, after the run**;
+- picks the least-covered probe by default, so coverage stays even without anyone
+  choosing which fact to test next — choosing is itself a way to bias the sample;
+- counts only runs with `ts >= 2026-08-31`, so post-intervention runs are never
+  pooled with the 35 pre-intervention ones (§15.4).
+
+Current post-intervention coverage: **0 of 15 probes, 0 runs.**
+
+### 19.4 The general shape, now three deep
+
+Three independent instruments have now been ruled out for the same experiment:
+subagents (snapshot frozen at parent start), cloud routines (no index at all),
+and local cron (fires into the primed session). Each would have produced a clean
+0/n that matched §15.3's prediction, and each for a different reason.
+
+**When an intervention lives in a session's context rather than in the
+repository, almost nothing that is convenient to automate can measure it.** The
+convenience is exactly what removes the thing under test.

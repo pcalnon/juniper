@@ -5,8 +5,11 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-29
-**Status**: DESIGN — owner decision required before any code moves
+**Last Updated**: 2026-08-31
+**Status**: DESIGN — decisions 1–5 settled 2026-08-29; **D-1, D-2 and normalisation fit scope settled
+2026-08-31 as decisions 6–8 (§9.2)**. One derived requirement is newly OPEN and blocks the sizing
+work: **prefix stability (§9.3)** — D-1's cross-snapshot-comparison rationale is not achievable
+under D-2 without it, which V-1 measured rather than predicted.
 **Tracks**: [cascor#582](https://github.com/pcalnon/juniper-cascor/issues/582) (tier parity),
 [cascor#578](https://github.com/pcalnon/juniper-cascor/issues/578) (baseline-tier decision),
 [cascor#530](https://github.com/pcalnon/juniper-cascor/issues/530) (no seed field)
@@ -356,6 +359,50 @@ unquantified motivation, and §7's "existing baselines shift" has no size attach
 - **V-3 — CLI early stopping changes CLI results.** Decision 5 is correct for parity but is a
   behavioural change to the arm that was previously unregularised. Measure it rather than assuming
   it is benign.
+
+### 9.2 Owner decisions — SETTLED 2026-08-31 (plan §3's D-1 and D-2)
+
+Ruled after the implementation plan's D-1 was **re-posed**: the plan justified the question by
+claiming `full == train + test` is *"already violated by every shuffled tabular generator"*, which is
+false. Both normative clauses (`USER_MANUAL.md:367`, `JUNIPER_DATA_API.md:1001`) are **length**
+identities, which shuffling cannot violate, and
+`juniper_data/tests/integration/test_e2e_workflow.py:299-301` asserts
+`n_train + n_test == n_full` and passes today. What *is* true: the **array-equality** form fails for
+shuffled tabular generators, and the length clause is violable **via request params**, since the two
+cross-field validators reject only `train_ratio + test_ratio > 1.0`.
+
+| # | question | **decision** |
+| --- | --- | --- |
+| 6 | **D-1** — what does `X_full` mean under three partitions? | **`X_full` is ASSEMBLED, not split.** The three subsets are generated first, each given its appropriate shuffling and normalisation, and `X_full` is then produced by concatenating them. This **inverts today's data flow** (generate `X_full` → `shuffle_and_split`) and makes the identity true *by construction* — in the array-equality form, not merely by length. It is stronger than the plan's option (a), which would only have made the length clause normative. Rationale of record: with deterministic pseudorandomness configured properly and a shared seed, this permits **dataset comparison across snapshots**. |
+| 7 | **Normalisation fit scope** (sub-question of D-1) | **Fit on `train` only; apply those statistics unchanged to `val` and `test`.** No quantity derived from the reported partition may reach the training data — the same invariant §5 states for the reported score, applied to the scaler. **Consequence to state in the contract: `X_full` is deliberately NOT uniformly normalised**, because it is a concatenation of three subsets scaled by train's statistics rather than a uniformly-scaled array. Any consumer that treats `X_full` as a homogeneous array must be checked (§7). |
+| 8 | **D-2** — how is additive sizing implemented? | **Dataset-level row counts.** The ratios denote absolute rows of the realised dataset, identically for every generator regardless of its native size knob (`n_points_per_spiral`, `n_points_per_quadrant`, `n_samples_per_class`, `n_samples`). `n_points_per_spiral=500, n_spirals=2` with `100/40/30` means `n_train=1000, n_val=400, n_test=300` — 1700 rows total. This resolves the plan's open question *"what '40 % of train' means for a per-spiral knob"*: it means rows, never per-spiral units. |
+
+### 9.3 Derived requirement — PREFIX STABILITY (new, opened 2026-08-31)
+
+**D-1's stated rationale is not achievable under D-2 without a further change to the generators, and
+this is measured, not predicted.**
+
+D-1 wants a shared seed to permit dataset comparison across snapshots. D-2 makes the request for a
+third partition an ask for **N + M rows instead of N**. V-1 measured exactly that case: **all six
+cascor-relevant generators return different rows for N+M vs N at the same seed**, on both `X_full`
+and `X_train` — the count is preserved, the content is not (§6.3; instrument
+`util/ad-hoc/2026-08-30_v1_generator_prefix_check.py`, ml#1492).
+
+So under decisions 6 and 8 as ruled, adding the third partition **moves the training rows of every
+existing baseline**, and two snapshots taken either side of the change are not comparable *even on
+`train`* — which is the property D-1 was ruled in order to obtain.
+
+Two ways to close it; **not yet ruled**:
+
+- **P-1a — prefix-stable generation.** Guarantee the first N rows are invariant to the requested
+  total, so `generate(N+M)[:N] == generate(N)`. Preserves the existing corpus.
+- **P-1b — per-partition seed streams.** Derive each partition from an independent, named substream
+  (e.g. `seed` → `seed_train` / `seed_val` / `seed_test`) so adding a partition cannot perturb the
+  others. Does not preserve the existing corpus, but makes the invariant structural rather than a
+  property each generator must be individually audited for.
+
+Either closes it; neither is free; **P-1b does not rescue the existing baselines**, so decision 4
+(re-measure) stands regardless — as §9.1's V-1 entry already records.
 
 ## 10. Naming — SETTLED: `X_val` / `y_val`, **not** `X_eval`
 
