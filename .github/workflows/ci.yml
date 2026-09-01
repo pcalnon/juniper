@@ -583,6 +583,14 @@ jobs:
           #     is routine across ~24 concurrent worktrees);
           #   * a lost, empty or corrupt ledger reports NO-DATA/DEGRADED, never health.
           python3 -m unittest -v tests/test_soak_ledger.py
+          # tests/test_soak_next_probe.py: the gate for util/soak_next_probe.py, which
+          # dispatches a probe to a fresh session. Its load-bearing property is a
+          # NEGATIVE one -- stdout must carry the task and nothing else -- because a
+          # leaked fact, pointer or discriminator PRIMES the session, a primed run
+          # cannot be un-primed, and nothing downstream can tell: the run just looks
+          # like a follow. A leak is invisible by reading the output (it reads as extra
+          # helpful context), so it needs a test rather than a careful author.
+          python3 -m unittest -v tests/test_soak_next_probe.py
           # The probe registry is the seeded arm's denominator. A dangling pointer
           # silently invalidates a probe, so verify it in CI rather than on trust.
           python3 util/soak_ledger.py verify-probes
