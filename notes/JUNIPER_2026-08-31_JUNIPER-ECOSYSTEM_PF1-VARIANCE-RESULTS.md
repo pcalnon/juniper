@@ -16,16 +16,16 @@ to sit above rather than an invented number.
 Five repeats of one unchanged config (`spiral-smoke.yaml`, `max_iterations: 2`,
 `max_hidden_units: 2`), differing only in `experiment.description`.
 
-| component | mean (s) | sd (s) | **sd %** | min | max |
-|---|---|---|---|---|---|
-| **`drive`** (the training loop) | 20.084 | 0.0065 | **0.03%** | 20.078 | 20.095 |
-| `total` (driver end-to-end) | 21.974 | 0.0812 | 0.37% | 21.854 | 22.064 |
-| suite `wall_seconds` | 33.861 | 0.0985 | 0.29% | 33.724 | 33.979 |
-| `start` | 0.535 | 0.0194 | 3.63% | 0.502 | 0.554 |
-| `plots` | 1.061 | 0.0892 | 8.40% | 0.934 | 1.179 |
-| `dataset_create` | 0.083 | 0.0090 | 10.85% | 0.069 | 0.094 |
-| `collect` | 0.169 | 0.0229 | 13.58% | 0.142 | 0.197 |
-| `stage` | 0.023 | 0.0059 | 25.54% | 0.018 | 0.033 |
+| component                       | mean (s) | sd (s) | **sd %**  | min    | max    |
+|---------------------------------|----------|--------|-----------|--------|--------|
+| **`drive`** (the training loop) | 20.084   | 0.0065 | **0.03%** | 20.078 | 20.095 |
+| `total` (driver end-to-end)     | 21.974   | 0.0812 | 0.37%     | 21.854 | 22.064 |
+| suite `wall_seconds`            | 33.861   | 0.0985 | 0.29%     | 33.724 | 33.979 |
+| `start`                         | 0.535    | 0.0194 | 3.63%     | 0.502  | 0.554  |
+| `plots`                         | 1.061    | 0.0892 | 8.40%     | 0.934  | 1.179  |
+| `dataset_create`                | 0.083    | 0.0090 | 10.85%    | 0.069  | 0.094  |
+| `collect`                       | 0.169    | 0.0229 | 13.58%    | 0.142  | 0.197  |
+| `stage`                         | 0.023    | 0.0059 | 25.54%    | 0.018  | 0.033  |
 
 **The workload is extraordinarily reproducible: `drive` varies by 0.03%.** Every noisy component is
 infrastructure — staging, plotting, artifact collection — and every one of them is small in
@@ -67,9 +67,9 @@ The rule fixed in advance:
 > at least **3× the observed standard deviation**, and never smaller than the largest single
 > contention excursion observed on this host.
 
-| clause | value on `drive` |
-|---|---|
-| 3 × sd | 3 × 0.0065 s = 0.0195 s → **0.10%** |
+| clause                                | value on `drive`                                                                             |
+|---------------------------------------|----------------------------------------------------------------------------------------------|
+| 3 × sd                                | 3 × 0.0065 s = 0.0195 s → **0.10%**                                                          |
 | largest observed contention excursion | **+6.8%** (a 13-hour `clamscan` against a budget-equivalent spiral cell: 552.0 s vs 516.9 s) |
 
 **The contention floor binds, and it binds by a factor of 68.** A threshold that honours the rule
@@ -136,10 +136,13 @@ and its caveat travel together.
 ## 6. For P3 (owner)
 
 1. **Ratify the metric before the number.** `timings.drive`, not `wall_seconds` — §2.
-2. **Decide whether to run the loaded-repeat test** in §3.1 before fixing a threshold. It is one
-   PF-1 run and it determines whether a meaningful gate is possible at all.
+    - Response: timings.drive metric approved.
+2. **Decide whether to run the loaded-repeat test** in §3.1 before fixing a threshold. It is one PF-1 run and it determines whether a meaningful gate is possible at all.
+    - Response: running loaded-repeat test approved
 3. **Then ratify a threshold**, which by P1 §5's rule is 6.8% unless §3.1 narrows the floor.
+    - Response: this decision is deferred until loaded-repeat test and analysis has been completed.
 4. **Accept or reject dropping step duration** from PF-1's metric list — §4.
+    - Response: dropping the step duration metric is Rejected. Re-running the PF-1 tests with grafana bridge, is approved.
 
 Items 1 and 4 are refinements to P1 that this measurement produced; they are recorded here rather
 than edited into P1, because P1 is a reviewed document and this is the evidence that would justify

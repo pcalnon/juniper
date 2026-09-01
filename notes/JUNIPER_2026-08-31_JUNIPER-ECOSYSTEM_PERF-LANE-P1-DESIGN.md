@@ -44,11 +44,11 @@ sentence would otherwise be inherited by P2 as though the instrument were ready.
 
 ## 2. Tiers — what is measured, and what regression means at each
 
-| tier | instrument | baseline | regression means | gate? |
-|---|---|---|---|---|
-| **Micro** | cascor `src/tests/performance/` (10 modules), `--run-performance` + `CASCOR_BENCHMARK_MODE=1` | `baselines/baseline_20260526.json` | **memory**: RSS over baseline by >50%, or absolute >2000 MB. **timing**: undefined — no baseline data exists (§1) | memory yes (already); timing no |
-| **Run** | `util/experiments/run_suite.py` + the PF suites | a *set of run manifests* under a named tag, in the Q-8 directory (§4) | a statistically meaningful slowdown of the **same YAML, same hardware, same thread budget** | **no** — report-only until variance is characterised (§5) |
-| **Cross-app** | the `juniper-experiments` Grafana dashboard | none | not a regression surface; a comparison surface | never |
+| tier          | instrument                                                                                    | baseline                                                              | regression means                                                                                                  | gate?                                                     |
+|---------------|-----------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|
+| **Micro**     | cascor `src/tests/performance/` (10 modules), `--run-performance` + `CASCOR_BENCHMARK_MODE=1` | `baselines/baseline_20260526.json`                                    | **memory**: RSS over baseline by >50%, or absolute >2000 MB. **timing**: undefined — no baseline data exists (§1) | memory yes (already); timing no                           |
+| **Run**       | `util/experiments/run_suite.py` + the PF suites                                               | a *set of run manifests* under a named tag, in the Q-8 directory (§4) | a statistically meaningful slowdown of the **same YAML, same hardware, same thread budget**                       | **no** — report-only until variance is characterised (§5) |
+| **Cross-app** | the `juniper-experiments` Grafana dashboard                                                   | none                                                                  | not a regression surface; a comparison surface                                                                    | never                                                     |
 
 **The run tier never compares across differing `runtime:` blocks.** That is why H-11 records the
 thread budget in every manifest: two runs with different budgets are different workloads, and
@@ -60,16 +60,16 @@ comparing them produces a number that looks like a regression and is not one.
 
 Plan §12.3's draft is adopted with three changes, all forced by what exists on disk.
 
-| ID | scenario | suite | status |
-|---|---|---|---|
-| **PF-1** | cascor spiral, fixed budget, 5 repeats | `util/experiments/suites/perf/pf1-cascor-spiral-repeats.yaml` | **FIXED — and promoted to prerequisite** (§5) |
-| **PF-2** | cascor dataset-size scaling | `perf/pf2-cascor-dataset-scaling.yaml` | FIXED |
-| **PF-3** | cascor candidate-pool × process scaling | `perf/pf3-cascor-pool-scaling.yaml` | FIXED |
-| **PF-4** | cascor micro-benchmarks | *(no suite — reuses cascor's pytest layer)* | **RESCOPED**: establish a timing baseline first; comparison is a later item (§1) |
-| **PF-5** | recurrence `d`-scaling | `perf/pf5-recurrence-d-scaling.yaml` | FIXED |
-| **PF-6** | recurrence dataset-size scaling | `perf/pf6-recurrence-nsteps-scaling.yaml` | FIXED |
-| **PF-7** | recurrence readout-rung cost | `perf/pf7-recurrence-readout-rungs.yaml` | FIXED |
-| **PF-8** | two-run concurrency cost | **none exists** | **DEFERRED to P2** — needs a concurrent-launch harness `run_suite` does not have; `execution.mode: parallel` runs cells of *one* suite, not two suites at once |
+| ID       | scenario                                | suite                                                         | status                                                                                                                                                         |
+|----------|-----------------------------------------|---------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **PF-1** | cascor spiral, fixed budget, 5 repeats  | `util/experiments/suites/perf/pf1-cascor-spiral-repeats.yaml` | **FIXED — and promoted to prerequisite** (§5)                                                                                                                  |
+| **PF-2** | cascor dataset-size scaling             | `perf/pf2-cascor-dataset-scaling.yaml`                        | FIXED                                                                                                                                                          |
+| **PF-3** | cascor candidate-pool × process scaling | `perf/pf3-cascor-pool-scaling.yaml`                           | FIXED                                                                                                                                                          |
+| **PF-4** | cascor micro-benchmarks                 | *(no suite — reuses cascor's pytest layer)*                   | **RESCOPED**: establish a timing baseline first; comparison is a later item (§1)                                                                               |
+| **PF-5** | recurrence `d`-scaling                  | `perf/pf5-recurrence-d-scaling.yaml`                          | FIXED                                                                                                                                                          |
+| **PF-6** | recurrence dataset-size scaling         | `perf/pf6-recurrence-nsteps-scaling.yaml`                     | FIXED                                                                                                                                                          |
+| **PF-7** | recurrence readout-rung cost            | `perf/pf7-recurrence-readout-rungs.yaml`                      | FIXED                                                                                                                                                          |
+| **PF-8** | two-run concurrency cost                | **none exists**                                               | **DEFERRED to P2** — needs a concurrent-launch harness `run_suite` does not have; `execution.mode: parallel` runs cells of *one* suite, not two suites at once |
 
 **None of PF-1…PF-7 has ever been executed** — `~/.local/state/juniper-experiments/suites/` contains
 no `pf*` run directory as of 2026-08-31. Every number in this lane is therefore prospective. The
@@ -199,7 +199,7 @@ The phasing table's P1 is *"done when: a `notes/` design doc exists and is revie
 - [x] What regression *means*, per tier — §2
 - [x] §12.3 scenario matrix, draft → fixed — §3 (PF-4 rescoped, PF-8 deferred, rationale recorded)
 - [x] Q-8 baseline directory: name, layout, retention, who writes it — §4
-- [ ] **Reviewed** — owner
+- [x] **Reviewed** — owner
 
 Review is the remaining half. The two items most worth an owner's attention are **§1** (PF-4's
 instrument does not hold timing data, so the reuse decision behind it is half-true) and **§5's
