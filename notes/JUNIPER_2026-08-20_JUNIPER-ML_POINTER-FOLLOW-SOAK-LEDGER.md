@@ -888,3 +888,85 @@ the state before its own intervention.** This applies well beyond the soak: it
 means a session cannot validate its own memory edits by delegating, and that
 "I added it and the subagent still did not use it" is not evidence about
 discoverability.
+
+---
+
+## 18. SOURCE-RECOVERED re-scored as its own outcome — owner decision, 2026-08-31
+
+### 18.1 The decision and what it changed
+
+A run where the agent produced the **correct** answer but reached the fact from
+source — the helper, its test, a grep — rather than through the relocated pointer
+is not the same event as failing to obtain the fact. Scoring both as `miss`
+conflated them. `source-recovered` is now a first-class outcome.
+
+| | before | after |
+|---|---|---|
+| follows | 24 | 24 |
+| misses | 11 | **2** |
+| source-recovered | — | **9** |
+| **pointer-follow rate** | **68.6%** CI [0.520, 0.814] | **68.6%** CI [0.520, 0.814] |
+| retention | not reported | **94.3%** CI [0.814, 0.984] |
+| open hazard escalations | 5 | **0** |
+| verdict | INCONCLUSIVE | **INCONCLUSIVE** |
+
+### 18.2 The design decision that matters most: the denominator
+
+**Source-recovery does NOT leave the denominator, and that is deliberate.**
+
+The alternative was costed before implementing, precisely because it is the
+tempting one: dropping the nine re-scored runs moves the rate from 24/35 (68.6%,
+spanning the boundary) to **24/26 (92.3%, CI [0.759, 0.979] — clearing it)**. That
+would have converted the standing INCONCLUSIVE verdict into a pass **by
+redefinition**, on a decision taken by the party the verdict was about.
+
+The pointer either did the work or it did not. Recovering the fact another way
+does not make it a follow. So the rate is **unchanged**, and a second quantity is
+reported beside it:
+
+- **rate (68.6%)** — did the POINTER do the work? Still unproven.
+- **retention (94.3%)** — did relocation LOSE the fact? Almost never.
+
+Reporting only one of these is how a safe relocation reads as a failure, or an
+unproven pointer reads as a success. `tests/test_soak_ledger.py`'s
+`RescoreSourceRecovered` pins the denominator, the unchanged rate, and the
+degenerate all-re-scored case; a positive control (removing source-recovered from
+the denominator) fails 8 of them.
+
+### 18.3 What stayed a miss, and why it matters
+
+**Two of the eleven were not re-scored** — both `P15-worktree-converge-not-remove`,
+both proposing REMOVAL rather than convergence. One is annotated *"RETRIEVED via
+search output, so this is a retrieval-positive miss"*: the agent **found the fact
+and still answered wrong**.
+
+They are the only rows left proving the discriminator can still fail something. A
+re-score that emptied the miss column entirely would have left an instrument that
+cannot return a negative — which is the defect v0.2 was built to remove.
+
+### 18.4 The escalations closed as a consequence, not by discharge
+
+All five open rung-2 escalations were among the nine. They are no longer misses,
+so they no longer escalate — and `resolve` was never called on any of them. This
+is the correct mechanism: §16 established that all five already had landed,
+CI-wired gates and that the hazard was handled correctly in every case. Recording
+them as source-recovered says what actually happened; discharging them would have
+said a remedy was newly applied, which would have been false.
+
+### 18.5 A defect this change introduced, and the test that now pins it
+
+The first implementation built the session count from follows+misses only. The
+moment the backlog was re-scored, **N fell from 35 to 26** — a reclassification
+silently shrinking the reported size of the study. Source-recovered rows are
+rate-bearing (they are in the denominator), so their sessions count.
+`test_rescoring_does_not_shrink_the_session_count` pins it.
+
+### 18.6 Forward
+
+`probe-run --outcome source-recovered` records the outcome directly, so a future
+scorer does not file a miss and re-score it. The `rescore` verb exists for the
+2026-08-22 backlog, accepts **only** `source-recovered`, refuses anything that is
+not currently a `miss`, refuses a double re-score, and requires a `--reason`;
+each of the nine carries the scorer's own contemporaneous note as its
+justification. §15.3's prediction and §17's instrument limit are unaffected — the
+re-soak is still owed, and still cannot be run from the session that ran rung 1.

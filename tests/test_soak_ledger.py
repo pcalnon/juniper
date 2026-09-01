@@ -725,3 +725,99 @@ class Invalidation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class RescoreSourceRecovered(unittest.TestCase):
+    """Re-scoring must reclassify a run WITHOUT flattering the follow rate.
+
+    Owner decision 2026-08-31: a run where the agent produced the correct answer
+    from source rather than through the relocated pointer is not the same event
+    as failing to obtain the fact. The dangerous implementation is the one that
+    also drops the run from the denominator: 9 of the real ledger's 11
+    architectural misses are source-recovered, so dropping them moves the rate
+    from 24/35 (68.6%, spanning the 0.75 boundary) to 24/26 (92.3%, clearing it)
+    and converts INCONCLUSIVE into a pass by redefinition. These tests pin the
+    denominator against exactly that.
+    """
+
+    def _rows(self, n_follow: int, n_miss: int, n_rescored: int) -> list[dict]:
+        rows = [obs(session="f%d" % i, outcome="follow") for i in range(n_follow)]
+        misses = [obs(session="m%d" % i, outcome="miss", miss_class="discoverability") for i in range(n_miss)]
+        rows += misses
+        for r in misses[:n_rescored]:
+            rows.append(
+                {
+                    "obs_id": "rs-" + r["obs_id"],
+                    "kind": "rescore",
+                    "rescores": r["obs_id"],
+                    "from_outcome": "miss",
+                    "to_outcome": "source-recovered",
+                    "reason": "correct answer, reached from source",
+                }
+            )
+        return rows
+
+    def test_rescored_run_stays_in_the_denominator(self) -> None:
+        st = sl.analyse(self._rows(24, 11, 9))["seeded"]
+        self.assertEqual(st["denom"], 35, "re-scoring must not shrink the denominator")
+
+    def test_rescoring_does_not_change_the_follow_rate(self) -> None:
+        before = sl.analyse(self._rows(24, 11, 0))["seeded"]["rate"]
+        after = sl.analyse(self._rows(24, 11, 9))["seeded"]["rate"]
+        self.assertAlmostEqual(before, after)
+
+    def test_rescored_runs_leave_the_miss_column(self) -> None:
+        st = sl.analyse(self._rows(24, 11, 9))["seeded"]
+        self.assertEqual(st["misses"], 2)
+        self.assertEqual(st["source_recovered"], 9)
+
+    def test_retention_is_reported_and_differs_from_the_rate(self) -> None:
+        st = sl.analyse(self._rows(24, 11, 9))["seeded"]
+        self.assertAlmostEqual(st["retention"], 33 / 35)
+        self.assertLess(st["rate"], st["retention"])
+
+    def test_arm_sums_stay_consistent_with_a_source_recovered_bucket(self) -> None:
+        st = sl.analyse(self._rows(24, 11, 9))["seeded"]
+        total = st["follows"] + st["misses"] + st["source_recovered"] + st["pointer_defects"] + st["unclassified"]
+        self.assertEqual(total, st["runs"])
+
+    def test_a_rescored_hazard_miss_stops_escalating(self) -> None:
+        haz = obs(session="h", outcome="miss", miss_class="hazard", severity="hazard")
+        rows = seeded_run(20, 0) + [haz]
+        kinds = [e["kind"] for e in sl.analyse(rows)["escalations"]]
+        self.assertIn("hazard", kinds)
+        rows.append(
+            {
+                "obs_id": "rs-h",
+                "kind": "rescore",
+                "rescores": haz["obs_id"],
+                "from_outcome": "miss",
+                "to_outcome": "source-recovered",
+                "reason": "correct, cited the gate while answering",
+            }
+        )
+        kinds_after = [e["kind"] for e in sl.analyse(rows)["escalations"]]
+        self.assertNotIn("hazard", kinds_after)
+
+    def test_rescore_rows_are_not_themselves_counted_as_runs(self) -> None:
+        st = sl.analyse(self._rows(10, 4, 4))["seeded"]
+        self.assertEqual(st["runs"], 14)
+
+    def test_an_all_rescored_ledger_does_not_read_as_a_pass(self) -> None:
+        # The degenerate case the denominator rule exists to prevent. If every
+        # miss were re-scored AND re-scoring removed rows, this would be 0/0 or a
+        # perfect score. It must stay a real rate over every run.
+        st = sl.analyse(self._rows(0, 10, 10))["seeded"]
+        self.assertEqual(st["denom"], 10)
+        self.assertEqual(st["rate"], 0.0)
+        self.assertAlmostEqual(st["retention"], 1.0)
+
+    def test_rescoring_does_not_shrink_the_session_count(self) -> None:
+        # Regression: source-recovered rows are rate-bearing (they sit in the
+        # denominator), so their sessions must still count. The first cut of this
+        # change built `sessions` from follows+misses only, and N silently fell
+        # from 35 to 26 the moment the backlog was re-scored -- a reclassification
+        # that quietly shrank the reported size of the study.
+        before = sl.analyse(self._rows(24, 11, 0))["sessions"]
+        after = sl.analyse(self._rows(24, 11, 9))["sessions"]
+        self.assertEqual(before, after)
