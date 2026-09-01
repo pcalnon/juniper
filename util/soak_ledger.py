@@ -96,7 +96,14 @@ Z_95 = 1.959963984540054
 AREA_MIN_MISSES = 3
 AREA_ALPHA = 0.05
 
-OUTCOMES = ("follow", "miss")
+# "source-recovered" (owner decision 2026-08-31): the agent produced the CORRECT
+# answer but reached the fact from source -- the helper, its test, a grep -- rather
+# than through the relocated pointer. It is recordable directly so a future scorer
+# does not have to file a miss and then re-score it; the `rescore` verb exists for
+# the 2026-08-22 backlog that was scored before this outcome did.
+#
+# It is NOT a follow and does NOT leave the denominator. See `analyse`.
+OUTCOMES = ("follow", "miss", "source-recovered")
 ARMS = ("seeded", "organic")
 SEVERITIES = ("hazard", "operational", "reference")
 
@@ -219,8 +226,27 @@ def analyse(rows: list[dict], bad_lines: int = 0) -> dict:
     # 2026-08-21 pilot needed this: 9 of 15 probes turned out to test facts that
     # had never been relocated, so their runs measured nothing.
     invalidated = {r.get("invalidates") for r in rows if r.get("kind") == "invalidate"}
+
+    # Re-scoring (owner decision 2026-08-31). A run where the agent produced the
+    # CORRECT answer but reached it from source rather than through the relocated
+    # pointer is not the same event as failing to obtain the fact, and scoring
+    # both as "miss" conflated them. Like resolve and invalidate this is an
+    # APPEND -- the original observation stays in the file, so the record shows
+    # what was scored as well as what it was re-scored to.
+    #
+    # It deliberately does NOT remove the run from the follow-rate denominator.
+    # Doing so was considered and rejected: 9 of the 11 architectural misses are
+    # source-recovered, so dropping them would move the rate from 24/35 (68.6%,
+    # spanning the boundary) to 24/26 (92.3%, clearing it) and convert
+    # INCONCLUSIVE into a pass by redefinition. The pointer either did the work
+    # or it did not; recovering the fact another way does not make it a follow.
+    rescored = {
+        r.get("rescores"): r.get("to_outcome")
+        for r in rows
+        if r.get("kind") == "rescore" and r.get("rescores") and r.get("to_outcome")
+    }
     obs = [r for r in rows
-           if r.get("kind") not in ("resolve", "invalidate")
+           if r.get("kind") not in ("resolve", "invalidate", "rescore")
            and r.get("obs_id") not in invalidated]
 
     # in_scope must be EXPLICITLY true. v0.1 used `is not False`, so a missing
@@ -232,15 +258,21 @@ def analyse(rows: list[dict], bad_lines: int = 0) -> dict:
     seeded = [r for r in in_scope if r.get("arm") == "seeded"]
     organic = [r for r in in_scope if r.get("arm") == "organic"]
 
+    def eff(r: dict) -> str | None:
+        """The outcome after re-scoring. Never read `outcome` directly below."""
+        return rescored.get(r.get("obs_id"), r.get("outcome"))
+
     def rate_of(rs: list[dict]) -> dict:
         # pointer-defect is excluded from the ARCHITECTURAL rate (the agent did
         # try to follow; the target was broken) but is counted and thresholded
         # separately, so a pile of broken pointers cannot read as success.
         arch = [r for r in rs if r.get("miss_class") != "pointer-defect"]
-        f = [r for r in arch if r.get("outcome") == "follow"]
-        m = [r for r in arch if r.get("outcome") == "miss"]
+        f = [r for r in arch if eff(r) == "follow"]
+        m = [r for r in arch if eff(r) == "miss"]
+        sr = [r for r in arch if eff(r) == "source-recovered"]
         pd = [r for r in rs if r.get("miss_class") == "pointer-defect"]
-        n = len(f) + len(m)
+        # source-recovered stays IN the denominator -- see the note on `rescored`.
+        n = len(f) + len(m) + len(sr)
         lo, hi = wilson(len(f), n)
         return {
             "runs": len(rs),
@@ -251,11 +283,20 @@ def analyse(rows: list[dict], bad_lines: int = 0) -> dict:
             "rate": (len(f) / n) if n else None,
             "ci_low": lo,
             "ci_high": hi,
+            # source_recovered: the agent got the fact, but NOT via the pointer.
+            # retention answers a different question from `rate`: `rate` asks
+            # whether the pointer did the work, retention asks whether relocation
+            # LOST the fact. Reporting only one of them is how a safe relocation
+            # reads as a failure, or an unproven pointer reads as a success.
+            "source_recovered": len(sr),
+            "retention": ((len(f) + len(sr)) / n) if n else None,
+            "retention_ci": wilson(len(f) + len(sr), n),
             # An unclassifiable row is neither follow nor miss nor defect. v0.1
             # let those inflate the occasion count while contributing nothing.
-            "unclassified": len(rs) - len(f) - len(m) - len(pd),
+            "unclassified": len(rs) - len(f) - len(m) - len(sr) - len(pd),
             "_follows": f,
             "_misses": m,
+            "_source_recovered": sr,
         }
 
     s = rate_of(seeded)
@@ -264,13 +305,26 @@ def analyse(rows: list[dict], bad_lines: int = 0) -> dict:
     # N counts only sessions that contributed a RATE-BEARING row. v0.1 counted
     # every in-scope session, so 19 pointer-defect sessions plus one follow
     # reached "N=20" on a denominator of 1.
-    sessions = {r.get("session") for r in (s["_follows"] + s["_misses"]) if r.get("session")}
+    # Source-recovered rows are RATE-BEARING -- they sit in the denominator -- so
+    # their sessions count here too. Omitting them dropped N from 35 to 26 the
+    # moment the backlog was re-scored, understating the study's own size on a
+    # change that was supposed to reclassify rows, not lose them.
+    sessions = {
+        r.get("session")
+        for r in (s["_follows"] + s["_misses"] + s["_source_recovered"])
+        if r.get("session")
+    }
     probes_run = {r.get("probe_id") for r in seeded if r.get("probe_id")}
 
     # Severity strata. Severity comes from the probe registry, never from a
     # judgement at scoring time, so the hazard stratum cannot be defined post hoc.
     haz = [r for r in seeded if r.get("severity") == "hazard"]
-    haz_misses = [r for r in haz if r.get("outcome") == "miss" and r.get("miss_class") != "pointer-defect"]
+    # Reads the EFFECTIVE outcome. A hazard run re-scored to source-recovered is
+    # no longer an escalation: the agent obtained the fact and handled the hazard
+    # correctly, which is what rung 2 exists to guarantee. It did not reach the
+    # fact through the pointer, and that shortfall is carried by the follow rate,
+    # not by a standing hazard alarm.
+    haz_misses = [r for r in haz if eff(r) == "miss" and r.get("miss_class") != "pointer-defect"]
     haz_open = [r for r in haz_misses if r.get("obs_id") not in resolved]
 
     # Area escalation: rate rule with Bonferroni over observed areas.
@@ -281,7 +335,10 @@ def analyse(rows: list[dict], bad_lines: int = 0) -> dict:
         if not a:
             continue
         by_area_n[a] += 1
-        if r.get("outcome") == "miss" and r.get("miss_class") != "pointer-defect":
+        # Effective outcome here too, or an area would look systematically bad on
+        # runs that were re-scored out of the miss column everywhere else -- the
+        # rung-3 alarm would then fire on a rate no other view still reports.
+        if eff(r) == "miss" and r.get("miss_class") != "pointer-defect":
             by_area_miss[a] += 1
     pooled = s["rate"]
     pooled_miss = (1 - pooled) if pooled is not None else None
@@ -514,6 +571,57 @@ def cmd_invalidate(args: argparse.Namespace) -> int:
     return _write(ledger, row, args.dry_run)
 
 
+RESCORE_OUTCOMES = ("source-recovered",)
+
+
+def cmd_rescore(args: argparse.Namespace) -> int:
+    """Re-score an observation to a different outcome (owner decision 2026-08-31).
+
+    Distinct from both siblings: ``invalidate`` says the run should never have
+    counted; ``resolve`` discharges an escalation that was real and has been
+    fixed; ``rescore`` says the run happened and counts, but was filed under the
+    wrong outcome.
+
+    Only ``source-recovered`` is accepted, deliberately. An open-ended re-score
+    verb is a way to move any inconvenient row to any convenient column, and the
+    whole reason this exists is that 9 of 11 architectural misses were CORRECT
+    answers reached from source. Widening it needs the same scrutiny this did.
+
+    It does NOT remove the run from the follow-rate denominator -- see the
+    ``rescored`` note in ``analyse``. If it did, this command would convert the
+    standing INCONCLUSIVE verdict into a pass by redefinition.
+    """
+    root = args.repo_root or repo_root(Path.cwd())
+    ledger = args.ledger or (root / DEFAULT_LEDGER)
+    rows, _ = load_rows(ledger)
+    target = next((r for r in rows if r.get("obs_id") == args.obs_id), None)
+    if target is None:
+        return _reject(f"no observation with obs_id {args.obs_id!r} in {ledger}")
+    if target.get("kind") not in (None, "observation"):
+        return _reject(f"obs_id {args.obs_id!r} is a {target.get('kind')!r} row, not an observation")
+    if args.to not in RESCORE_OUTCOMES:
+        return _reject(f"--to must be one of {RESCORE_OUTCOMES}, got {args.to!r}")
+    if target.get("outcome") != "miss":
+        return _reject(
+            f"only a miss can be re-scored; obs_id {args.obs_id!r} is {target.get('outcome')!r}"
+        )
+    if any(r.get("kind") == "rescore" and r.get("rescores") == args.obs_id for r in rows):
+        return _reject(f"obs_id {args.obs_id!r} has already been re-scored")
+    if not (args.reason or "").strip():
+        return _reject("--reason is required: say what evidence shows the fact was obtained")
+    row = {
+        "obs_id": str(uuid.uuid4()),
+        "kind": "rescore",
+        "ts": _utcnow(),
+        "rescores": args.obs_id,
+        "from_outcome": target.get("outcome"),
+        "to_outcome": args.to,
+        "reason": args.reason.strip(),
+        "note": args.note,
+    }
+    return _write(ledger, row, args.dry_run)
+
+
 def _slugs(path: Path) -> set[str]:
     out = set()
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -615,10 +723,19 @@ def cmd_report(args: argparse.Namespace) -> int:
           f"distinct probes {st['distinct_probes']}/{st['min_distinct_probes']}   "
           f"sessions {st['sessions']}")
     print(f"     follows     {s['follows']}   misses {s['misses']}   "
+          f"src-recovered {s['source_recovered']}   "
           f"ptr-defects {s['pointer_defects']}   unclassified {s['unclassified']}")
     if s["rate"] is not None:
         print(f"     rate        {s['rate']:.1%}   95% CI "
               f"[{s['ci_low']:.3f}, {s['ci_high']:.3f}]   boundary {st['boundary']}")
+    # Printed next to the rate, never instead of it. They answer different
+    # questions -- rate: did the POINTER do the work; retention: did relocation
+    # LOSE the fact -- and showing only the flattering one is how a safe
+    # relocation reads as a failure, or an unproven pointer reads as a success.
+    if s.get("retention") is not None and s["source_recovered"]:
+        rlo, rhi = s["retention_ci"]
+        print(f"     retention   {s['retention']:.1%}   95% CI [{rlo:.3f}, {rhi:.3f}]"
+              f"   (follow OR source-recovered; NOT a pointer-follow rate)")
     print(f"     hazard      {st['hazard_runs']} runs, {st['hazard_misses_open']} open misses")
     print()
     print("  -- organic arm (DESCRIPTIVE ONLY -- an UPPER BOUND, never a verdict) --")
@@ -738,6 +855,15 @@ def main() -> int:
     inv.add_argument("--note", default=None)
     inv.add_argument("--dry-run", action="store_true")
     inv.set_defaults(func=cmd_invalidate)
+
+    rsc = sub.add_parser("rescore",
+                         help="re-file a miss under a different outcome (source-recovered)")
+    rsc.add_argument("--obs-id", required=True)
+    rsc.add_argument("--to", required=True, choices=list(RESCORE_OUTCOMES))
+    rsc.add_argument("--reason", required=True)
+    rsc.add_argument("--note", default=None)
+    rsc.add_argument("--dry-run", action="store_true")
+    rsc.set_defaults(func=cmd_rescore)
 
     vp = sub.add_parser("verify-probes",
                         help="check pointers resolve AND facts actually left the source")
