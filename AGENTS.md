@@ -337,6 +337,7 @@ This repo is part of the broader Juniper ecosystem. See the parent directory's `
 - Shell scripts use bash with `shellcheck` compliance
 - Markdown files use `.markdownlint.yaml` configuration
 - `notes/` documents are named `JUNIPER_<YYYY-MM-DD>_JUNIPER-<REPO>_<CONTENTS-DESCRIPTION-PHRASE>.md` (REPO one of ML / CANOPY / RECURRENCE / CASCOR / CASCOR-CLIENT / CASCOR-WORKER / DATA / DATA-CLIENT / DEPLOY / ECOSYSTEM). Exempt: `notes/{templates,releases,requirements,legacy}/` and README files. Full rules + migration record: [`notes/JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md`](notes/JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md)
+- **Name the document in every summary reference** (mandatory, ecosystem-wide, 2026-09-01): in a step-completion or work-arc summary, a reference to a numbered section or item must name its document — once on first reference if the summary cites one document, on **every** reference if it cites two or more. Covers summaries, PR bodies, handoffs, issue comments. Examples + rationale: `Juniper/AGENTS.md` § Cross-Project Conventions, which is **unversioned** — this bullet is the versioned record.
 
 ### Script placement (mandatory)
 
