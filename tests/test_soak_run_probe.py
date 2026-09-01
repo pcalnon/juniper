@@ -60,7 +60,10 @@ class DryRunDoesNotLeakTheTask(unittest.TestCase):
     def test_dry_run_stdout_contains_no_probe_task(self) -> None:
         r = subprocess.run(  # nosec B603
             [sys.executable, str(SCRIPT), "--dry-run"],
-            cwd=REPO_ROOT, capture_output=True, text=True, timeout=120,
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         self.assertEqual(r.returncode, 0)
         for p in probes():
@@ -69,7 +72,10 @@ class DryRunDoesNotLeakTheTask(unittest.TestCase):
     def test_dry_run_stdout_contains_no_fact_or_discriminator(self) -> None:
         r = subprocess.run(  # nosec B603
             [sys.executable, str(SCRIPT), "--dry-run"],
-            cwd=REPO_ROOT, capture_output=True, text=True, timeout=120,
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         for p in probes():
             for field in ("fact", "discriminator"):
@@ -80,7 +86,10 @@ class DryRunDoesNotLeakTheTask(unittest.TestCase):
     def test_dry_run_says_why_the_task_is_withheld(self) -> None:
         r = subprocess.run(  # nosec B603
             [sys.executable, str(SCRIPT), "--dry-run"],
-            cwd=REPO_ROOT, capture_output=True, text=True, timeout=120,
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         self.assertIn("priming", r.stdout.lower())
 
@@ -119,13 +128,20 @@ class EventParsing(unittest.TestCase):
         return p
 
     def test_extracts_answer_and_tool_calls(self) -> None:
-        log = self._log([
-            {"type": "assistant", "message": {"content": [
-                {"type": "tool_use", "name": "Read", "input": {"file_path": "util/x.bash"}},
-            ]}},
-            {"type": "assistant", "message": {"content": [{"type": "text", "text": "the answer"}]}},
-            {"type": "result", "subtype": "success", "is_error": False, "num_turns": 2},
-        ])
+        log = self._log(
+            [
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {"type": "tool_use", "name": "Read", "input": {"file_path": "util/x.bash"}},
+                        ]
+                    },
+                },
+                {"type": "assistant", "message": {"content": [{"type": "text", "text": "the answer"}]}},
+                {"type": "result", "subtype": "success", "is_error": False, "num_turns": 2},
+            ]
+        )
         out = mod.parse_events(log)
         self.assertIn("the answer", out["answer"])
         self.assertEqual(out["tool_calls"], ["Read"])
@@ -134,8 +150,7 @@ class EventParsing(unittest.TestCase):
     def test_malformed_lines_do_not_abort_the_parse(self) -> None:
         d = Path(tempfile.mkdtemp())
         p = d / "stream.jsonl"
-        p.write_text('not json\n{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}\n',
-                     encoding="utf-8")
+        p.write_text('not json\n{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}\n', encoding="utf-8")
         self.assertIn("ok", mod.parse_events(p)["answer"])
 
     def test_empty_log_yields_no_answer_rather_than_crashing(self) -> None:
