@@ -62,6 +62,31 @@ is `@pytest.mark.slow`, and the only lane running `slow` is schedule/dispatch-ga
 
 ## 3. Decisions required before any code · **round-3 target**
 
+> **RULED 2026-08-31 — both D-1 and D-2 are settled. Read the design of record, not this section.**
+> The rulings live in [`…TRAIN-EVAL-TEST-PARTITION-DESIGN.md` §9.2](JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_TRAIN-EVAL-TEST-PARTITION-DESIGN.md)
+> as decisions 6–8, together with a sub-ruling on normalisation fit scope that this section never
+> asked for and that is load-bearing.
+>
+> - **D-1 → `X_full` is ASSEMBLED, not split.** The three subsets are generated first, each shuffled
+>   and normalised, and `X_full` is their concatenation. This inverts today's flow and is *stronger*
+>   than option (a) below: it makes the identity true by construction in the array-equality form,
+>   not merely by length.
+> - **Normalisation → fit on `train` only**, applied unchanged to `val` and `test`. Therefore
+>   **`X_full` is deliberately not uniformly normalised**.
+> - **D-2 → dataset-level row counts.** Ratios mean rows of the realised dataset, identically for
+>   every generator regardless of its native size knob.
+>
+> **D-1's stated premise below is FALSE and is retained only as revision history** — see S-2 in §9.
+> The clauses it cites are *length* identities, which shuffling cannot violate, and
+> `test_e2e_workflow.py:299-301` asserts one and passes. The question was re-posed before it was put
+> to the owner.
+>
+> **One new requirement is OPEN and gates the sizing work: prefix stability** (design §9.3). D-1's
+> rationale is cross-snapshot dataset comparison under a shared seed; D-2 makes adding the third
+> partition an ask for N+M rows instead of N; and V-1 *measured* that all six cascor-relevant
+> generators return different rows in that case. So the ruling's own goal is unreachable until
+> either generation is made prefix-stable or each partition draws from its own seed substream.
+
 ### D-1 — what does `X_full` mean under three partitions?
 
 **Partly an existing divergence, not purely a new decision.** For tabular generators `X_full` is the
