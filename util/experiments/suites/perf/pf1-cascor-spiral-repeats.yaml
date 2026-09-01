@@ -1,17 +1,38 @@
 # PF-1 (plan §12.3): cascor spiral, fixed budget, N repeats — variance of p50/p95 step duration and
 # total wall-clock under an unchanged config (compute nondeterminism, not config variance).
-# Thresholds unratified (§12); this file is the instrument, not the verdict.
+# Thresholds unratified as of writing (§12); this file is the instrument, not the verdict.
+#
+# CELL DURATION IS LOAD-BEARING (owner decision 2, 2026-09-01). The original cells inherited
+# spiral-smoke's max_iterations/max_hidden_units of 2 and ran ~20 s of `drive`. At that length the
+# run was NEVER SCRAPED: the host-experiments job discovers targets by file_sd every 15 s and
+# scrapes every 15 s, while the target file is written at bring-up and deleted at teardown — so the
+# discover-then-scrape cycle could not complete inside the service's lifetime, and PF-1's p50/p95
+# step-duration metric (its primary metric per §12.3) was silently unobtainable.
+#
+# Calibrated 2026-09-01: (6, 6) -> 40.17 s drive, at which a run yields 255 series including the
+# full juniper_cascor_training_step_duration_seconds histogram (measured p50 25.1 ms, p95 47.7 ms).
+# (10, 10) targets ~60 s for margin, the owner's first choice, with ~120 s the sanctioned ceiling.
+#
+# THE REPEATS ARE A MATRIX AXIS, NOT `include` ENTRIES. `include` cells carry only their own
+# overrides and do NOT inherit the matrix, so expressing repeats as includes while putting the
+# workload override in the matrix would have run one cell at (10, 10) and four at the inherited
+# (2, 2) — five cells that are not repeats of each other, which is the one thing this suite must
+# not produce.
 schema_version: 1
 suite:
   name: pf1-cascor-spiral-repeats
-  description: "PF-1: fixed-budget spiral, 5 repeats"
+  description: "PF-1: fixed-budget spiral, 5 repeats, ~60s drive"
   app: cascor
   base_config: [../../../../../juniper-cascor/conf/experiments/spiral-smoke.yaml]
   seed_policy: fixed
 execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1200}
-include:
-  - {name: repeat-2, overrides: {experiment.description: "PF-1 repeat 2"}}
-  - {name: repeat-3, overrides: {experiment.description: "PF-1 repeat 3"}}
-  - {name: repeat-4, overrides: {experiment.description: "PF-1 repeat 4"}}
-  - {name: repeat-5, overrides: {experiment.description: "PF-1 repeat 5"}}
+matrix:
+  training.params.max_hidden_units: [10]
+  training.params.max_iterations: [10]
+  experiment.description:
+    - "PF-1 repeat 1"
+    - "PF-1 repeat 2"
+    - "PF-1 repeat 3"
+    - "PF-1 repeat 4"
+    - "PF-1 repeat 5"
 outputs: {suite_dir: null, aggregate: [csv, markdown]}
