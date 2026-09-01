@@ -1302,10 +1302,60 @@ and driven with `JUNIPER_E2E_CANOPY_URL`. It fails **identically**: `painted=Fal
 > `elapsed=117 s` against an idle median of ~18 s — a longer paint carrying extra traces, consistent with
 > an active new-unit highlight. Suggestive, n=1, and NOT load-bearing for anything claimed here.
 >
-> **Still NOT covered: M-TOPOLOGY-16 itself.** The census scores *whether the graph paints*, not whether
-> the cascade-add glow appears — `e2e_seg17_topology_driver.py` has no M-TOPOLOGY-16 step. That row also
-> depends on `metrics-panel-metrics-store` reaching the client, which is a separate open question. See
-> the M-TOPOLOGY-16 note below before treating it as owed work.
+> **M-TOPOLOGY-16 — INVESTIGATED AND FIXED 2026-08-31 (canopy#555), and it overturned the "BLOCKED"
+> reading recorded here hours earlier.**
+>
+> The claim above — that this row "depends on `metrics-panel-metrics-store` reaching the client, which is
+> a separate open question", and was therefore probably BLOCKED rather than owed — is **refuted by direct
+> measurement**. It was an inference from the ledger's older "the client copy never advances" note, and it
+> was flagged at the time as needing a measurement rather than a reading. The measurement went the other
+> way.
+>
+> `util/ad-hoc/e2e_m16_glow_instrument.py` logs the detector's OWN ARGUMENTS from inside the callback —
+> the same technique that broke F-CANOPY-039 open, and for the same reason: every browser-side probe in
+> this arc has been unreliable, and the argument is what the detector actually sees. On the live trio:
+>
+> ```
+> GLOWPROBE metrics_len=4   last_pair=40->40  window_span=(39, 40)  armed=0  newly_added_unit=None
+> GLOWPROBE metrics_len=23  last_pair=17->17  window_span=(0, 17)   armed=0  newly_added_unit=None
+> ```
+>
+> - **`metrics_len` is 4 and 23, NOT 0.** The metrics store reaches the callback. The row was never
+>   blocked on it.
+> - **The second line is the whole defect**: a window carrying **seventeen** unit additions, and the glow
+>   armed **zero** times. "Flaky by design" understates it — on this evidence it essentially never fired.
+> - The cause is the **last-pair check** (`network_visualizer.py`, `metrics_data[-2]` vs `[-1]`). The
+>   rebuild does not run on every metrics sample, so by the time it runs those two are equal and the
+>   addition has scrolled into the middle of the window.
+>
+> After the whole-window scan, an **identical window shape** arms:
+>
+> ```
+> GLOWPROBE metrics_len=4   last_pair=40->40  window_span=(39, 40)  armed=1  newly_added_unit=39
+> ```
+>
+> Same window, same last pair, same topology — the scan is the only variable. Corroborated at the render:
+> **1936 traces vs 1891** on the same `2/40/2/944` topology, consistent with highlight traces drawing.
+>
+> **The fix is THREE coupled edits, because the one-liner ships broken.** `_update_highlight_state`
+> resets on any detection, so a whole-window scan alone re-arms the same unit every rebuild and the glow
+> never fades. And the obvious dedupe — "is it already the current highlight?" — **does not close the
+> loop**: once the glow fades the scan still reports that unit and re-arms it forever. The memory must
+> OUTLIVE the highlight, so the fade path now returns `{"node_id": None, "state": "done",
+> "shown_unit": N}` and `_calculate_highlight_properties` gained a `node_id` guard so the marker renders
+> nothing. Pinned by `TestM16WholeWindowGlowDetection` (6 tests, 5 fail on the parent).
+>
+> **Row verdict NOT changed.** M-TOPOLOGY-16 is a **MANUAL / VIS** row — its contract is that the glow is
+> *visible*, driven through active→fading with pulse scale and opacity. What is proven here is that the
+> **detector arms**, plus a suggestive trace delta. Scoring the row still needs a visual drive, and
+> `e2e_seg17_topology_driver.py` has no M-TOPOLOGY-16 step.
+>
+> **F-CANOPY-039's fix UNBLOCKS THE WHOLE M-TOPOLOGY BLOCK.** `FA-1` in the matrix is a feature-area
+> label ("Topology display"), not a blocker — M-TOPOLOGY-01..18 were BLOCKED on F-039 itself. With the
+> graph now painting 11/11 at idle and 11/11 under growth, those rows are drivable again. The AUTO ones
+> (02/04/05/06/07/08/17) are covered by the driver's `topo` step; the rest are MANUAL. **They are owed a
+> re-drive, and none of them should be scored from the census alone** — the census measures paint, not
+> each row's contract.
 >
 > **Two cascor fixture traps, both of which silently produced the wrong network** (found while building
 > the growth arm; each cost a census run):
