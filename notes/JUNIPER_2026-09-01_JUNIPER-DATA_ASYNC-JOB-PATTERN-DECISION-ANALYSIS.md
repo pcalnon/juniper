@@ -141,7 +141,8 @@ Class B generators perform external fetches, and that the caller's timeout gover
 - **Weaknesses.** Leaves a supported configuration with no working path. The operator learns the
   limit by hitting it, in production, with a 30 s stall and an opaque client-side timeout.
 - **Risks.** The row stays open indefinitely and the next reader re-derives this analysis — the
-  "unexamined, not deferred" failure the register's §4.1 lesson block already records three times.
+  "unexamined, not deferred" failure the §4.1 lesson block of the defect register
+  (`JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_DEFECT-REGISTER.md`) already records three times.
 - **Guardrails if chosen.** Write the constraint where a caller meets it, not only in notes; add
   the Class A/Class B split to the generator table; re-file the row as documentation-closed rather
   than leaving it open with no stated reason.
