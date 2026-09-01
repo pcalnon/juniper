@@ -1042,3 +1042,81 @@ and local cron (fires into the primed session). Each would have produced a clean
 **When an intervention lives in a session's context rather than in the
 repository, almost nothing that is convenient to automate can measure it.** The
 convenience is exactly what removes the thing under test.
+
+---
+
+## 20. CORRECTION: the re-soak IS automatable — a local headless run works
+
+§17 and §19 ruled out three instruments and then generalised to *"the re-soak is
+operator-dispatched, not automated"*. **That generalisation was wrong**, and it is
+the same failure this ledger keeps cataloguing: a correct local reading extended
+past the evidence actually examined. Three mechanisms were tested; a fourth was
+not, and it works.
+
+### 20.1 The measurement
+
+A local headless `claude -p` invocation, run from the repo on the workstation,
+2026-09-01:
+
+```json
+{"port_check_fail_opens": true, "per_run_timeout_ordering": true,
+ "reaper_over_protects": true, "diverging_worktree_converge": true,
+ "last_row_title": "ps cmdline leaks the aescrypt passphrase"}
+```
+
+All four rung-1 index rows are visible — **and so is a row a peer session added
+after them**, so the snapshot is live at invocation rather than merely
+post-intervention. It satisfies every requirement the other three failed:
+
+| instrument | fresh session | has the index | unprimed | usable |
+|---|---|---|---|---|
+| subagent | no — parent's snapshot | stale | yes | **no** (§17) |
+| cloud routine | yes | **absent entirely** | yes | **no** (§19.1) |
+| `CronCreate` | no — the scheduling session | stale | **no** | **no** (§19.2) |
+| **local `claude -p`** | **yes** | **yes, live** | **yes** | **YES** |
+
+Two operational notes: a stale `ANTHROPIC_API_KEY` in the environment fails the
+run with *"Credit balance is too low"* before the probe starts, so the wrapper
+unsets it and falls through to subscription auth; and `--output-format
+stream-json` yields the tool calls, which is what makes the retrieval channel
+mechanically determinable.
+
+### 20.2 What is automated, and the line that is not crossed
+
+`util/soak_run_probe.py` dispatches, runs, captures and prepares scoring. It
+automates only what is mechanical:
+
+- probe selection (least-covered first — choosing is itself a way to bias);
+- dispatch of the bare task with no preamble;
+- the **retrieval channel** — did the run read the probe's pointer document, or
+  reach the fact from source? A file-path question, not a judgement.
+
+It stops before **correctness against the frozen discriminator**, which stays a
+scorer's call. A wrapper that guessed it would be scoring its own experiment, and
+`test_soak_run_probe.py` pins that a pointer *miss* is never reported as a scored
+miss: no pointer hit is consistent with a correct source-recovered answer as much
+as with a wrong one.
+
+### 20.3 First automated run
+
+`P02-assert-release-tag-ref`, session `3a9e07ae`, 15 tool calls. **ANSWER
+CORRECT** — proposed `--ref "${{ github.ref }}"` and explicitly rejected
+`github.ref_name` / `ref_type`, citing `util/assert_release_tag.bash:38-43`.
+`docs/REFERENCE.md` appeared in none of the 15 tool calls. Recorded
+**source-recovered**, matching this probe's pre-intervention run.
+
+Seeded arm now 36 runs: follows 24, misses 2, source-recovered 10. The
+pointer-follow rate moved **68.6% → 66.7%**, which is the re-scoring model
+behaving correctly — a source-recovered run stays in the denominator without
+counting as a follow, so it *lowers* the rate rather than flattering it.
+
+Post-intervention coverage: **1 of 15 probes.** §15.3's prediction concerns
+P19/P14/P23/P15 and remains untested; P02 is not one of them.
+
+### 20.4 The reaper hazard, handled
+
+`AGENTS.md` § Hazards: the orphan reaper treats reparenting to `systemd --user`
+as its predicate, so a `--background` probe launched under a new session group is
+a reap candidate, and **a killed probe is not a miss** — it is a lost run that
+would otherwise be scored. The wrapper writes a run-dir `*.pid` (one of the two
+documented protection keys) before the child can be reparented.

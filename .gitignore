@@ -189,3 +189,8 @@ scripts/sessions/nohup.out
 *.env
 !.env.example
 resources/duplicati.env
+
+# Soak probe run artifacts: per-run transcripts, pidfiles and scoring packets.
+# The scored OUTCOME lives in reports/soak/pointer_follow_soak.jsonl, which is
+# tracked; these are the raw evidence behind one run and are large and numerous.
+reports/soak/runs/
