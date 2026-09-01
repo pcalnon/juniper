@@ -1769,6 +1769,10 @@ anywhere else under `/home/pcalnon/` would have put both passphrases into the ar
 > printed, stored away from the machine, and `shred -u`'d, the only escrow is the sda1 copy — which
 > sits beside the ciphertext it unlocks and does not survive losing sda1. **`PASSPHRASE_OLD` still
 > has no copy outside `sdc` + sda1.**
+>
+> **[SUPERSEDED 2026-08-31 — §8.24.1. The sheet is now in a synced password manager, so this
+> "no copy outside `sdc` + sda1" claim is FALSE. The single-disk exposure is closed; the printed
+> copy is still wanted, but as a different trust model rather than the last line of defence.]**
 
 #### 8.19.3 Server DB — tooling built, deployment gated on root
 
@@ -1870,7 +1874,9 @@ completing (`FilesUploaded=5`; 818 + 5 = 823), not drift. Next run `2026-08-30T1
 
 #### 8.19.8 Still open
 
-1. **The offline escrow copy** (§8.19.2) — needs a human at a printer. Highest remaining consequence.
+1. ~~**The offline escrow copy** (§8.19.2) — needs a human at a printer. Highest remaining consequence.~~
+   **DOWNGRADED 2026-08-31 (§8.24.1): a synced password-manager copy exists; the print is deferred on a
+   printer fault. No longer the highest remaining consequence.**
 2. **`sudo bash util/ad-hoc/yamaguchi_server_db_deploy.bash`** — after the primary checkout is synced
    to a `main` containing the script, or every timer fire exits non-zero.
 3. **`sudo bash util/ad-hoc/yamaguchi_narrow_bind.bash --restart`**.
@@ -1978,6 +1984,7 @@ item 4, "KEEP. No change". A literal-string sweep flags it as orphaned; it is no
 2. **The offline escrow copy** (§8.19.2) — still owed. `~/.cache/yamaguchi-key-escrow-sheet.txt` is
    present and unprinted; `.cache/` is filter 36 so it is out of the archive by construction. Until
    it is printed and stored off-machine, `PASSPHRASE_OLD` has no copy outside `sdc` + sda1.
+   **[SUPERSEDED 2026-08-31 — §8.24.1: a synced password-manager copy now exists.]**
 3. **Criterion 5 (reboot)** — `util/ad-hoc/yamaguchi_reboot_verify.bash pre|post` is written and both
    lanes have been executed on the live system; that PASS validates the script, not the criterion.
 4. ~~**Confirm item 2's capture** in a completed backup (§8.20.1).~~ — **DONE 2026-08-31, §8.22.4**
@@ -2225,7 +2232,8 @@ known to return non-empty.
   low-risk until `ProgramState` is either explained or checked post-reboot.
 - **New, unfixed**: the watchdog's two gaps (§8.22.3). A `ProgramState`/queue check is cheap and
   would have turned a 42 h silent outage into a same-day alert.
-- Unchanged and still the top item: **the offline escrow copy** (§8.19.2).
+- ~~Unchanged and still the top item: **the offline escrow copy** (§8.19.2).~~ **Superseded
+  2026-08-31 — §8.24.1; the print is deferred, not owed as a last copy.**
 
 ---
 
@@ -2295,3 +2303,115 @@ routine restart's 30-minute window.
   cause, and would have turned the 08-30 event into a same-day alert whatever produced it.
 - Health at time of writing: `Running`, empty queue, `LastBackupDate=20260831T140000Z`, snapshot
   lane fired on schedule 08-31 08:45, next run `2026-09-01T14:00:00Z`.
+
+---
+
+### 8.24 Addendum (2026-08-31) — escrow reaches an acceptable interim, and the sdc4 retirement is scoped
+
+#### 8.24.1 Key escrow: the single-disk exposure is CLOSED (interim), printing deferred
+
+Owner, 2026-08-31: the escrow sheet is **stored in a synced password manager**, judged an acceptable
+level for now. Printing is still intended but **deferred on a printer-connection fault**, and will
+follow the reboot.
+
+**This retires the arc's top risk and falsifies a statement repeated in four places.** Every
+"`PASSPHRASE_OLD` has no copy outside `sdc` + sda1" claim — §8.18's callout (line ~1771), §8.19.2,
+§8.20.5 item 2, §8.21/§8.22's open lists — **is now false.** A synced password manager is off-machine
+and off-both-disks by construction, which is precisely the property the offline print was wanted for.
+
+Scoped honestly, because this arc has twice overstated a finding of this shape:
+
+- **What is closed**: losing physical disk `sdc` (or `sda`, or both) no longer destroys the last copy
+  of either passphrase. That was the whole of §8.18's finding.
+- **What is not**: a synced password manager is a *different* trust model, not a strictly better one —
+  it depends on an account, a provider, and a device that can reach it. The paper copy remains worth
+  producing because it fails independently of all three. It is a **downgrade in urgency, not a
+  closure of the item.**
+- `~/.cache/yamaguchi-key-escrow-sheet.txt` is still present, still `0600`, still excluded from the
+  archive by filter 36. `shred -u` it only *after* the print exists.
+
+#### 8.24.2 sdc4 (`/media/pcalnon/temp_backups`) retirement — inventory and verdict
+
+The partition is to be removed and its space returned to a neighbouring partition. Full inventory,
+measured 2026-08-31:
+
+| Item | Size | What it actually is |
+|---|---|---|
+| `Yamaguchi/` | **196 GB** | frozen pre-migration copy — 811 files, 3 dlists |
+| `_old_archive_dlists/` | 934 MB | the 10 old-archive dlists — **exact mirror** of sda1 (name sets `diff`-identical) |
+| `_yamaguchi_check/` | 284 KB | **17 certification artifacts §5 cites as durable** |
+| `_yamaguchi_drill/` | 672 KB | drill evidence: `results.json`, `provenance.txt`, `drill-meta.json`, restore logs |
+| `_fresh_drill/`, `_drill_scratch/`, `_fresh_dlist_check/` | ~570 KB | further drill / verification evidence |
+| `lost+found/` | 16 KB | filesystem metadata |
+
+**Capacity is not the constraint.** sda1 is 3.6 T with **3.3 T free (6 % used)**; the whole 197 GB is
+~6 % of free space and would leave sda1 near 11 %. Everything fits trivially. The question is what
+each item is *for*.
+
+**Finding 1 — the 196 GB is NOT purely redundant.** Two of its three dlists are present on sda1; one
+is not:
+
+| sdc4 dlist | on sda1 live set? |
+|---|---|
+| `duplicati-20260825T102739Z` | present |
+| `duplicati-20260826T140000Z` | present |
+| **`duplicati-20260826T181206Z`** | **UNIQUE to sdc4 — exists nowhere else** |
+
+The live set retained that fileset away. Deleting sdc4 therefore **permanently loses one restore
+point**, not merely a copy. Its marginal value is low — it is bracketed by 08-26T14:00 and everything
+after — but it is non-zero and irreversible, and extracting only it is not obviously cheap, since the
+volumes it references are shared across the three filesets.
+
+**Finding 2 — the evidence dirs are ALREADY MIRRORED to sda1, and that is now verified by content.**
+~1.5 MB across `_yamaguchi_check/` and the drill dirs is the certification evidence base for this
+entire note. A first pass here recommended moving it "now, unconditionally", having inventoried sdc4
+without checking whether sda1 already held it. It does — `yamaguchi_records_sync.bash` had already
+mirrored it into `/mnt/Backups/Ubuntu/_yamaguchi_records/` (§8.19.6).
+
+Verified 2026-09-01, by SHA-256 of every file rather than by the sync's exit code or by matching
+sizes:
+
+```text
+content-verified pairs: 82
+MISMATCHES: NONE — every co-present file is byte-identical
+_yamaguchi_check   sdc4=22 sda1=22   missing 0
+_fresh_dlist_check sdc4=6  sda1=6    missing 0
+_drill_scratch     sdc4=9  sda1=9    missing 0
+_yamaguchi_drill   sdc4=29 sda1=25   missing 4
+_fresh_drill       sdc4=21 sda1=20   missing 1
+```
+
+The 5 uncopied files are **deliberate exclusions, not gaps**: `yamaguchi_records_sync.bash` carries
+`--exclude='restored/' --exclude='tmp/'`, and the five are four `dupl-usagereport-*.json` telemetry
+files under `tmp/` plus one restored `.ipynb` under `restored/`. Nothing §5 cites is among them.
+
+**Consequence: no evidence move is owed.** All 22 `_yamaguchi_check` artifacts, and every drill
+`results.json` / `provenance.txt` / `drill-meta.json`, are already on sda1 and byte-identical.
+
+*(Method note, since the same trap recurs in this arc: a keyword sweep for `passphrase|password|
+encryption-key` flagged 23 of these files. **None contains a credential.** The hits are labels —
+`key=PASSPHRASE`, `sha256[:16]=…`. Proven by hashing every quoted string in every evidence JSON
+against the real `PASSPHRASE` and `PASSPHRASE_OLD` values: zero matches. A grep for the NAME of a
+secret does not find the secret, and treating it as if it did would have blocked a safe copy — or,
+inverted, waved through an unsafe one.)*
+
+**Finding 3 — retiring sdc4 ends ALL off-disk redundancy for the backup.** Today sda1 holds the live
+set and sdc4 holds a second, mostly-parallel copy on a *different physical disk*. Afterwards
+everything backup-related is on sda1 alone. That is the same class of exposure §8.18 raised about the
+key, and it deserves an explicit decision rather than arriving as a side effect of reclaiming space.
+Note the interaction: moving the 196 GB copy *to sda1* preserves the unique restore point but does
+**not** preserve redundancy — one disk cannot be its own second copy.
+
+#### 8.24.3 Recommendation (owner-deferrable; on the radar per owner, 2026-08-31)
+
+1. ~~**Do now, unconditionally**: move `_yamaguchi_check/` + the four drill/scratch dirs (~1.5 MB) to
+   sda1 under `_yamaguchi_records/`.~~ **ALREADY DONE — verified by content 2026-09-01 (§8.24.2
+   Finding 2): 82 files, all byte-identical, 5 deliberate exclusions.** Nothing owed here.
+2. **Decide explicitly**: keep or drop restore point `20260826T181206Z`. Keeping it means moving
+   196 GB to sda1 and accepting that off-disk redundancy ends anyway.
+3. **`_old_archive_dlists/` (934 MB)**: an exact mirror, so nothing is lost by dropping it *if* the
+   sda1 primary is verified intact first. It is cheap enough (934 MB) that relocating it to any third
+   location is the better trade, since those ten dlists are the sole record of the purged 2.3 TiB
+   archive.
+4. **Sequence**: do all of the above **before** the partition is removed, and re-verify sda1's copies
+   after each move rather than trusting the copy tool's exit code.
