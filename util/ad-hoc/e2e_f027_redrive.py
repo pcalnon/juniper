@@ -152,13 +152,25 @@ def fig_info(page, container_id: str):
              const r = root.getBoundingClientRect();
              const out = {present:true, w:Math.round(r.width), h:Math.round(r.height),
                           plotly: !!gd, modebar: !!root.querySelector('.modebar'),
-                          traces: [], annotations: [], sig: 0,
+                          traces: [], annotations: [], sig: 0, fig_hash: null,
                           text:(root.innerText||'').trim().slice(0,100)};
              if (gd && gd.data) {
                out.traces = gd.data.map(t => ({type: t.type || 'scatter', name: t.name || '',
                                                nx: (t.x && t.x.length) || 0, nz: (t.z && t.z.length) || 0,
                                                visible: t.visible === undefined ? true : t.visible}));
+               // ``sig`` is a LENGTH, kept unchanged so every sig recorded in the
+               // ledger and matrix stays comparable. It is a weak proxy: two
+               // different figures can share a byte COUNT, which is exactly what
+               // made M-TOPOLOGY-01's distinct_sigs wobble 3->2->3 across runs on
+               // an unchanged topology. Prefer ``fig_hash`` for "did the figure
+               // change"; keep ``sig`` for continuity with historical records.
                try { out.sig = JSON.stringify(gd.data).length; } catch (e) { out.sig = -1; }
+               try {
+                 const s = JSON.stringify(gd.data);
+                 let h = 0x811c9dc5;                       // FNV-1a, 32-bit
+                 for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+                 out.fig_hash = h.toString(16);
+               } catch (e) { out.fig_hash = null; }
              }
              if (gd && gd.layout && gd.layout.annotations)
                out.annotations = gd.layout.annotations.map(a => (a.text || '').slice(0, 80));

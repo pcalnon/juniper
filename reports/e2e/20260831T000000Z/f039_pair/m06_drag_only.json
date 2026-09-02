@@ -1,0 +1,56 @@
+{
+  "before": {
+    "slider": {
+      "n_thumbs": 1,
+      "now": 0,
+      "min": 0,
+      "max": 40,
+      "num_value": 0,
+      "num_min": 0,
+      "num_max": 40
+    },
+    "label": "0 of 40",
+    "counts": {
+      "input": "2",
+      "hidden": "40",
+      "output": "2",
+      "conn": "944"
+    },
+    "fig_hash": "de463bff",
+    "traces": 1891
+  },
+  "after": {
+    "slider": {
+      "n_thumbs": 1,
+      "now": 20,
+      "min": 0,
+      "max": 40,
+      "num_value": 20,
+      "num_min": 0,
+      "num_max": 40
+    },
+    "label": "0 of 40",
+    "counts": {
+      "input": "2",
+      "hidden": "20 of 40",
+      "output": "2",
+      "conn": "274"
+    },
+    "fig_hash": "ab8c6d50",
+    "traces": 551
+  },
+  "set_slider": {
+    "from_x": 467.0,
+    "to_x": 961.953125,
+    "after": {
+      "n_thumbs": 1,
+      "now": 20,
+      "min": 0,
+      "max": 40,
+      "num_value": 20,
+      "num_min": 0,
+      "num_max": 40
+    }
+  },
+  "verdict": "PASS-SHAPED: the figure and at least one readout both moved; re-read the row's exact expectation."
+}

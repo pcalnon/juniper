@@ -1,0 +1,65 @@
+{
+  "before": {
+    "slider": {
+      "n_thumbs": 1,
+      "now": 0,
+      "min": 0,
+      "max": 40,
+      "num_value": 0,
+      "num_min": 0,
+      "num_max": 40
+    },
+    "label": "0 of 40",
+    "counts": {
+      "input": "2",
+      "hidden": "40",
+      "output": "2",
+      "conn": "944"
+    },
+    "fig_hash": "de463bff",
+    "traces": 1891
+  },
+  "after": {
+    "slider": {
+      "n_thumbs": 1,
+      "now": 20,
+      "min": 0,
+      "max": 40,
+      "num_value": 20,
+      "num_min": 0,
+      "num_max": 40
+    },
+    "label": "0 of 40",
+    "counts": {
+      "input": "2",
+      "hidden": "40",
+      "output": "2",
+      "conn": "944"
+    },
+    "fig_hash": "de463bff",
+    "traces": 1891
+  },
+  "set_slider": {
+    "target": 20,
+    "idiom": "number-input",
+    "before": {
+      "n_thumbs": 1,
+      "now": 0,
+      "min": 0,
+      "max": 40,
+      "num_value": 0,
+      "num_min": 0,
+      "num_max": 40
+    },
+    "after": {
+      "n_thumbs": 1,
+      "now": 20,
+      "min": 0,
+      "max": 40,
+      "num_value": 20,
+      "num_min": 0,
+      "num_max": 40
+    }
+  },
+  "verdict": "HARNESS: the DOM moved but Dash never received the value \u2014 the figure is byte-identical, so `-depth-slider.value` never reached update_network_graph. The row is undriveable until the widget is driven through a path Dash observes; it is NOT a product defect."
+}

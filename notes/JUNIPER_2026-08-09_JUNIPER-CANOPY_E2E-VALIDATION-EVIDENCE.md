@@ -871,6 +871,166 @@ the congestion hypothesis (ii) depends on — so re-measuring **after** that mer
 > > investigation.
 
 
+**F-CANOPY-042 — the depth-filter LABEL never updates when the user moves the slider; only the graph and the stats bar do (P2, OPEN; found 2026-09-02, and only visible once the slider could be driven at all).**
+Drag the depth slider to 20 on a 40-unit cascade and the filter works: the figure re-renders
+(`de463bff` -> `ab8c6d50`, 1891 -> 551 traces) and the stats bar updates (`hidden` `40` -> `20 of 40`,
+`conn` `944` -> `274`). **The depth label beside the slider stays `"0 of 40"`.**
+
+Cause, from the wiring rather than the symptom: the label is an Output of the CLIENTSIDE slider-bounds
+sync (`network_visualizer.py:706-738`), whose only Input is `network-visualizer-topology-store`. The
+slider's own value rides there as **State**. So the label is recomputed when the TOPOLOGY changes, never
+when the user moves the slider — and post-F-CANOPY-039 the topology store is identity-suppressed, so at
+idle it never changes at all. The label is therefore frozen at whatever the last topology write produced.
+
+Severity P2: the filter itself is correct and the stats bar tells the truth, so the user is not misled
+about the graph — but the one readout attached to the control they are actually manipulating disagrees
+with it.
+
+**It was undiscoverable until the harness could drive the slider.** M-TOPOLOGY-06's expectation is
+`label == want OR counts["hidden"] == want`, and it now passes on the counts branch, so the row's PASS
+does not cover this. Recorded separately for that reason.
+
+---
+
+**M-TOPOLOGY RE-DRIVE COMPLETE (2026-09-02) — 9 of 9 PASS, and the two "harness" failures were real
+harness defects with a shared root cause.**
+
+Final: M-TOPOLOGY-01, -02, -03, -04, -05, -06, -07, -08, -17 all PASS against a live 2/40/2/944 network
+on canopy `30e15b7`. The driver needed four fixes, and each was verified by effect, not by a sleep.
+
+**One root cause behind three symptoms: the driver acted and read INSIDE the rebuild window.** It waited
+1200-1500 ms against a rebuild that settles at 2.8-7 s. Consequences, all of which looked like product
+defects:
+
+- layouts appeared to render identically (Spring's figure matched Hierarchical's on a fast read and
+  DIFFERED once settled), so the distinct count wobbled 3 -> 2 -> 3 across runs of an unchanged topology;
+- the next interaction landed mid-render, so the dropdown portal never opened and "Staggered" scored
+  `driven=False` on every run;
+- the depth label and stats bar were read before the rebuild that would have updated them.
+
+Fixes: `settle_figure()` (polls until the figure hash holds steady, and reports `painted` because **a
+stable EMPTY figure is not a ready one** — a first probe run settled on an unpainted graph and concluded
+"the widget could not move"); `fig_hash` added beside `sig` in `fig_info` (`sig` is
+`JSON.stringify(gd.data).length`, kept unchanged so historical values stay comparable); `set_dropdown`
+settles before and after and retries the portal 3x.
+
+**M-TOPOLOGY-06 was an IDIOM-ORDERING defect, and the ordering made a WORKING control look dead.** The
+slider is `updatemode="mouseup"`: Dash is notified only by a mouseup concluding a real drag, so the
+synthetic idioms (React native-value-setter, keyboard arrows) cannot deliver the value **by design**.
+Worse, running them first moved the DOM to the target, after which the drag computed a destination the
+thumb already occupied and degenerated into a no-op gesture. Measured on the same control and target:
+
+| order | figure | stats bar |
+|---|---|---|
+| drag AFTER synthetic | unchanged | unchanged |
+| **drag FIRST** | **`de463bff` -> `ab8c6d50`, 1891 -> 551 traces** | **`40` -> `20 of 40`, `944` -> `274`** |
+
+`set_slider` now takes an optional `effect` predicate; when given, it drags FIRST and treats a
+DOM-only move as a FAILURE so the remaining idioms are actually tried. Verifying by re-reading the widget
+proves the DOM moved, **not** that Dash received the value, and on this slider those come apart.
+
+**Fixing M-06 broke M-TOPOLOGY-17, which is the most useful thing in this re-drive.** M-06 leaves the
+filter applied; the existing reset called `set_slider(..., 0)` **without** an effect, so it moved the DOM
+back to 0 while Dash kept 20. That never mattered while M-06 was broken and applied no filter — **every
+earlier PASS of M-TOPOLOGY-17 was valid only BECAUSE M-06 was broken.** The moment M-06 worked, M-17 read
+`hidden="20 of 40"` / `conn=274` against a server truth of 40 / 944 and failed. The reset now demands the
+downstream effect and logs loudly if the filter fails to clear, so a later row cannot silently inherit a
+filtered graph and report a defect belonging to an earlier one.
+
+That is the same shape as F-CANOPY-040 masking F-CANOPY-041, one layer up: **a broken thing was masking a
+second broken thing, and the mask was load-bearing for a green result.**
+
+
+---
+
+**F-CANOPY-040 — the raw-topology poll was gated on the 2D/3D toggle, so the Weight Matrix heatmap could never have data (P1; found 2026-09-01 in the post-F-039 M-TOPOLOGY re-drive; FIXED canopy#557).**
+`update_raw_topology_store` passed `State("network-visualizer-view-mode", "value")` — the **2D/3D toggle**,
+whose only values are `"2d"` and `"3d"` — into a handler gating on:
+
+```python
+if active_tab != "topology" or view_mode != "weight_matrix":
+    return dash.no_update
+```
+
+`"weight_matrix"` is a value of `network-visualizer-display-mode` (Node Graph / Weight Matrix), never of
+the 2D/3D toggle. **The comparison was always true**, the poll returned `no_update` on every tick, the
+store was never populated, and the heatmap drew nothing — deterministically, for every user.
+
+Measured: `/api/topology/raw` served a full 40-unit weight payload at the same moment the heatmap
+reported `heatmap=False types=[]`. Data present, frontend never received it.
+
+**Third instance in this arc of "a guard that exists, reads as correct, and never fires because it names
+an identifier that moved"** — after canopy#537's dead short-circuit (F-CANOPY-039) and F-CANOPY-038/018.
+The docstring even states the correct intent while the code names the wrong control.
+
+**Why no test caught it, which is the transferable part.** All five handler tests call
+`_update_raw_topology_store_handler(..., view_mode="weight_matrix")` **directly**. The handler was always
+correct; only the wiring was wrong, and nothing asserted the wiring. **Unit coverage of a correct
+function cannot see a caller that never supplies the value.** The new tests pin the CALLBACK's
+dependencies, plus a class-level invariant that generalises past these two ids: *whatever control a gate
+reads must be able to hold the value the gate tests for.* On the parent it reports that the gate tests
+for `weight_matrix` while reading only controls that can never hold it.
+
+---
+
+**F-CANOPY-041 — the Weight Matrix heatmap raised ValueError -> HTTP 500 from 26 hidden units upward (P1; found 2026-09-01 by fixing F-CANOPY-040 first; FIXED canopy#558).**
+`make_subplots` enforces `vertical_spacing <= 1 / (n_rows - 1)`; `_create_weight_heatmap` passed a fixed
+`0.08 if n_rows <= 5 else 0.04` with no reference to that constraint. One row per hidden unit plus one
+for the output weights puts the boundary at **26 hidden units**:
+
+| hidden | n_rows | spacing | plotly limit | |
+|---|---|---|---|---|
+| 25 | 26 | 0.040 | 0.0400 | fits, exactly |
+| 26 | 27 | 0.040 | 0.0385 | **ValueError -> 500** |
+| 40 | 41 | 0.040 | 0.0250 | **ValueError -> 500** |
+
+The view did not degrade on a tall cascade — it **broke**, 500ing on every poll tick, with repeated
+"Failed to load resource: 500" in the browser console.
+
+**THE ORDERING IS THE FINDING.** F-CANOPY-040 and F-CANOPY-041 present the *identical* symptom —
+M-TOPOLOGY-03 reporting `heatmap=False types=[] conn='—'`. While the store was never populated,
+`_create_weight_heatmap` was never reached with real data, so this crash **could not occur**. Fixing the
+outer defect is what made the inner one visible. **canopy#557 was necessary but NOT sufficient: M-03
+still failed after it, and only passed after canopy#558.** Two stacked causes behind one symptom.
+
+Two reasons it stayed hidden: the service default `max_hidden_units` is 10, well under the boundary; and
+F-CANOPY-040 meant nothing rendered regardless. It took a deliberately tall (40-unit) fixture to surface.
+
+---
+
+**M-TOPOLOGY RE-DRIVE (2026-09-01) — 7 of 9 PASS; the 2 failures are HARNESS, not product.**
+Driven three times against a live 2/40/2/944 network, canopy `a3dad69` then `30e15b7`. Verdicts were
+byte-stable across runs (same baseline 1891 traces / `sig=314447` every time).
+
+| row | verdict | note |
+|---|---|---|
+| M-TOPOLOGY-02, -04, -05, -07, -08, -17 | **PASS** | unblocked by F-CANOPY-039 |
+| M-TOPOLOGY-03 | **PASS** | only after BOTH canopy#557 and canopy#558 |
+| M-TOPOLOGY-01 | FAIL — **harness** | see below |
+| M-TOPOLOGY-06 | FAIL — **harness** | see below |
+
+**M-TOPOLOGY-06 is not a defect.** `_apply_hierarchy_filter` was exercised directly:
+`depth=20 -> hidden_units=20, label='20 of 40', conns=20`. The filter is correct; the driver's
+number-input write never reached Dash state (the documented keystrokes-don't-land trap).
+
+**M-TOPOLOGY-01 is not a defect either, and it has TWO harness causes.** All four layouts produce
+genuinely distinct coordinates, verified by calling `_calculate_layout` directly for each
+(`hierarchical`/`staggered`/`spring`/`circular`, all six pairwise comparisons `identical=False`). So:
+
+- **`sig` is `JSON.stringify(gd.data).length`** (`util/ad-hoc/e2e_f027_redrive.py:161`) — a LENGTH proxy,
+  not a content hash. Hierarchical and Spring collided at 314447 despite different layouts, which is why
+  `distinct_sigs` wobbled 3 -> 2 -> 3 across runs while `driven` never moved. **Equal sigs do not prove
+  an unchanged figure.**
+- **`set_dropdown` fails on "Staggered"** (`driven=False` every run).
+
+The verdict requires `len(sigs) == 4`, which **cannot be satisfied while Staggered will not drive** — the
+row is unpassable by construction as the driver is written. That is the same shape as canopy#537's
+unfireable guard and F-CANOPY-040's gate: **the third "condition that can never be true" this session.**
+Both rows stay BLOCKED, attributed to the harness rather than scored FAIL against the product.
+
+
+---
+
 **F-CANOPY-039 — the topology rebuild's response is provably CORRECT on the wire and the DOM never applies it; this, not starvation, is what blocked the topology block (P0/P1; found 2026-08-28 during the F-CANOPY-037 post-fix re-drive; root-caused in dash-renderer's own source and FIXED 2026-08-31 by canopy#549, censused 0-of-11 -> 11-of-11 at idle scope).**
 Measured on the isolated trio (data 8101 / cascor 8202 / canopy 8051, service mode; cascor `a709d52`,
 canopy `6b55399`) against a **completed 10-unit network whose server truth is byte-identical to the one

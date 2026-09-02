@@ -5,11 +5,25 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-08-31
-**Status**: PLAN v3 — **round 3 ran and returned NOT RESOLVED on all four targets.** Its findings are
-recorded in §9 as known-open and are **not** yet folded into §§2–7, which should be read as v3-as-reviewed
-rather than v3-as-corrected. **Do not implement from this document.** A structural question upstream of
-both candidate designs (§9 S-1) must be answered first. **No code has moved.**
+**Last Updated**: 2026-09-01
+**Status**: PLAN v3 — **round 3 returned NOT RESOLVED on all four targets; four of its seven findings
+have since moved.** §9 is still the live record and is **not** folded into §§2–7, which remain
+v3-as-reviewed rather than v3-as-corrected. **Still do not implement from this document.**
+
+| finding | state |
+| --- | --- |
+| S-1 cascor has no test slot | **PARTLY CLOSED** — cascor#614 built the machinery, cascor#616 populates it from the **inline** path. The **artifact** ingress still needs the ecosystem change (Chunk 4). |
+| S-2 D-1's premise is false | **CLOSED** — D-1 re-posed and **ruled** 2026-08-31, with D-2 and a normalisation sub-ruling. See §3's banner and design §9.2. |
+| S-3 `NPZ_SPLITS` owned by no chunk | **CONFIRMED** from source 2026-09-01. Still unhomed. |
+| S-4 §6a rejects sequence val artifacts | OPEN. |
+| S-5 three of four ml homes wrong | OPEN. |
+| S-6 store-root count vacuous | **RESOLVED** 2026-09-01 — full census; **R-4 downgraded to theoretical**, R-3 re-homed to LocalFS. |
+| S-7 stale env justifying dead code | **FILED** as juniper-canopy#559. |
+
+**A new requirement has since opened and gates the sizing work: prefix stability** (design §9.3).
+**P-1a is measured BLOCKED** (design §9.3.1) — partly semantic, not merely expensive — so **P-1b is
+recommended and awaits a ruling.** Code has moved in cascor only (#614, #616); no producer or
+contract change has shipped.
 **Design of record**: [`JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_TRAIN-EVAL-TEST-PARTITION-DESIGN.md`](JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_TRAIN-EVAL-TEST-PARTITION-DESIGN.md)
 **Reviewed under**: [`JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md`](JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md) — record in §8
 
@@ -286,6 +300,26 @@ Consequence: extending `NPZ_SPLITS` with `"val"` — the only thing that makes a
 `validate_npz_contract` never validates. Restore it and Chunk 2 earns its minor; leave it out and
 Chunk 2 is three cosmetic edits.
 
+#### S-3 CONFIRMED 2026-09-01 — re-derived from source
+
+Both halves check out, and the distinction S-3 draws is exactly the one E-1 lost.
+
+- **The CONSTANT is contract-internal.** `NPZ_SPLITS: Tuple[str, ...] = ("train", "test", "full")` is
+  declared at `juniper_data_client/constants.py:421` and referenced in exactly two places, both
+  inside `contract.py` — the import at `:39` and `for split in NPZ_SPLITS:` at `:75`. E-1's claim was
+  true *of the constant*.
+- **The FUNCTION has a fleet consumer.** `juniper-recurrence/juniper_recurrence/data.py:18` does
+  `from juniper_data_client import JuniperDataClient, validate_npz_contract` — a module-level import
+  on the app's data-fetch path, its own docstring calling it the *"full-contract validator"*.
+  `juniper-recurrence-model/juniper_recurrence_model/data.py` applies a deliberate strict subset.
+  E-1's claim was **false of the function**, and §2's detection table said so all along.
+
+Path note: the checkout root `juniper-recurrence/` contains a package directory of the same name, so
+the doubled `juniper-recurrence/juniper-recurrence/juniper_recurrence/data.py` is correct from the
+ecosystem root. There is **no `src/`** in that repo — a `src/`-bearing path does not resolve.
+
+The consequence stands exactly as stated above.
+
 ### S-4 — §6a rejects every sequence val artifact
 
 §6a specifies "`X_val` present ⟹ **2-D**". Sequence `X_*` is 3-D `(W, L, F)`. It needs the ndim
@@ -317,6 +351,46 @@ worktree-named volumes are read as root.
 **R-3's blast radius therefore includes a store this plan did not know existed** — two weeks stale
 relative to every working tree, read through `DatasetMeta(**meta_dict)` (`local_fs.py:248`).
 
+#### S-6 RESOLVED 2026-09-01 — full census taken, and R-4 is DEAD CODE
+
+S-6 said *"no upper bound until three stale worktree-named volumes are read as root."* They do not
+need root: `docker run --rm -v <volume>:/x alpine ls /x` reads any named volume without touching
+`/var/lib/docker/volumes`. Census taken that way.
+
+| root | `.meta.json` | distinct contribution |
+| --- | --- | --- |
+| `juniper-deploy_juniper-data-datasets` (**live**; `juniper-data` Up healthy) | **10** | 10 |
+| `juniper-deploy--fix--canopy-demo-ws-origin-allowlist--…` | 1 | **0** |
+| `juniper-deploy--fix--cascor-demo-juniper-data-api-key--…` | 1 | **0** |
+| `juniper-deploy--fix--demo-seed-x-api-key--…` | 1 | **0** |
+| host `juniper-data/data/datasets/` | **18** | 16 |
+
+**5 reachable roots, 26 distinct artifacts** — against §8's "19 across three roots" and S-6's own
+"≥4 roots, 29 files".
+
+- **The three stale volumes are redundant, not unbounded.** Each holds exactly one file; all three
+  hold the *same* file (`spiral-1.0.0-ff889b96de118f5c.meta.json`); and it is already in the live
+  volume. They contribute **zero** distinct artifacts. S-6's "no upper bound" was over-cautious.
+- **The live volume and the host directory are near-disjoint.** 8 of the live 10 exist nowhere in the
+  host directory; 16 of the host 18 exist nowhere in the live volume; only 2 are shared. Neither root
+  enumerates the other — which is precisely why a host sweep produced a plausible-but-wrong total.
+- **The live count is volatile**: 5 on 2026-08-31, 10 on 2026-09-01. Treat any figure here as a
+  sample, not a constant.
+
+**R-4 is THEORETICAL — `PostgresDatasetStore` has no production construction site.** `api/app.py:42`
+unconditionally builds `LocalFSDatasetStore(storage_path)`; no env var, setting or branch selects
+Postgres. `get_postgres_store()` exists, but every call to it and every `PostgresDatasetStore(...)`
+construction is **in tests** (`tests/unit/test_storage.py:660`;
+`tests/unit/test_postgres_store.py:86,95,113,122`). R-4's `ADD COLUMN` / `IF NOT EXISTS` /
+`NOT NULL` failure modes cannot fire in the served path. §8's *"circumstantially dormant"* is
+confirmed as **structurally dormant**. **Downgrade R-4 from HIGH.**
+
+**R-3 stays HIGH — but it is a LocalFS risk, not a Postgres one.** The live mechanism is
+`DatasetMeta(**meta_dict)` at `storage/local_fs.py:249` (**S-6 and §5 say `:248` — off by one**),
+against `n_train: int` / `n_test: int` declared **required with no default** at
+`core/models.py:38-39`. An `n_val: int` added without a default fails **all 26** existing artifacts
+on load. The stated mitigation — default the field — is correct, and is the whole of it.
+
 ### S-7 — side-finding: a stale local env is justifying dead code
 
 `juniper-canopy/src/demo_mode.py:1845` justifies a hand-rolled rank probe on the grounds that
@@ -324,6 +398,19 @@ relative to every working tree, read through `DatasetMeta(**meta_dict)` (`local_
 live canopy container runs **0.4.2** and the module is **present**; only the local `JuniperCanopy1`
 env (0.4.1) lacks it — and that env is behind the container *within the same pin range*. The comment
 is false in production. Unrelated to this arc; worth its own ticket.
+
+#### S-7 FILED 2026-09-01 — juniper-canopy#559
+
+Re-verified before filing, against the container rather than the host:
+`docker exec juniper-canopy` reports `juniper-data-client` **0.4.2** with `validate_npz_contract`
+**present**; `/opt/miniforge3/envs/JuniperCanopy1` reports **0.4.1**, **absent**. canopy pins
+`juniper-data-client>=0.4.1,<0.5.0` (`pyproject.toml:148`), so the comment is defensible about the
+**floor** and wrong about the **range** — the function landed inside `0.4.x`.
+
+The ticket records one thing this arc did **not** check: whether `validate_npz_contract` is a
+behavioural drop-in for the current probe. The probe dispatches on `ndim == 3` only, while the shared
+function validates a full contract, so swapping them could turn a permissive path strict. That needs
+checking before the swap, and the ticket says so.
 
 ### The failure mode this document keeps exhibiting
 

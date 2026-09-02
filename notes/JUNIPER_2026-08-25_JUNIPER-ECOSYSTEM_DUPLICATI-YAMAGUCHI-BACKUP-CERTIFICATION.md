@@ -2358,7 +2358,9 @@ is not:
 | **`duplicati-20260826T181206Z`** | **UNIQUE to sdc4 — exists nowhere else** |
 
 The live set retained that fileset away. Deleting sdc4 therefore **permanently loses one restore
-point**, not merely a copy. Its marginal value is low — it is bracketed by 08-26T14:00 and everything
+point**, not merely a copy. **[CORRECTED 2026-09-01 — §8.25.5: true of the MANIFEST, false of the
+DATA. The live set holds every one of that fileset's 1,216,100 blocks; the genuinely unique content
+is 0.82 GiB of rotating logs and SQLite session state. The stakes were overstated.]** Its marginal value is low — it is bracketed by 08-26T14:00 and everything
 after — but it is non-zero and irreversible, and extracting only it is not obviously cheap, since the
 volumes it references are shared across the three filesets.
 
@@ -2415,3 +2417,117 @@ Note the interaction: moving the 196 GB copy *to sda1* preserves the unique rest
    archive.
 4. **Sequence**: do all of the above **before** the partition is removed, and re-verify sda1's copies
    after each move rather than trusting the copy tool's exit code.
+
+---
+
+### 8.25 Addendum (2026-09-01) — the frozen set is preserved and certified, and sdc4 is cleared by three-lane consensus
+
+Owner decision (2026-09-01): **keep** restore point `20260826T181206Z`. Executed, certified, then
+verified for retirement by independent-agent consensus.
+
+#### 8.25.1 The copy, and its certification
+
+`/media/pcalnon/temp_backups/Yamaguchi` → `/mnt/Backups/Ubuntu/_yamaguchi_frozen_20260826`, a
+**sibling** of the live destination and never inside it: copying into
+`/mnt/Backups/Ubuntu/Yamaguchi/` would have injected 811 foreign volumes into the live set.
+Duplicati's file backend lists non-recursively, so the sibling is invisible to both jobs.
+
+Certified three independent ways, none of them a copy tool's exit code:
+
+| Check | Result |
+|---|---|
+| Structural | 811 files / 210,349,834,271 B — identical; 0 missing, 0 extra, 0 size mismatch |
+| Block coverage (`duplicati_dlist_crosscheck.py`) | **COMPLETE COVERAGE** — 1,216,100 hashes, 0 unexpandable blocklists |
+| Full HMAC (`duplicati_decrypt_validate_all.bash`) | **ALL 811 VOLUMES DECRYPT-VALID**, 0 failures, 3172 s |
+
+Both tools ran against this destination only because §8.21's de-drift landed the same day — before it,
+each asserted a hardcoded sdc4 mountpoint that no argument could influence. The validation header
+reads `dest mount : /mnt/Backups/Ubuntu`, which is the de-drifted derived gate doing its job.
+
+*(Operational note: the first `rsync` was killed at 190 GB by a background-task lease, not a fault.
+`rsync -a` writes to temp names and renames, so nothing partial survived; the resume moved 417 files
+with `Matched data: 0`. Long jobs on this host must be launched with `setsid` to outlive the lease.)*
+
+#### 8.25.2 The consensus verification, and what it actually found
+
+Three agents, deliberately independent entry points, the third briefed that a false "yes" causes
+irreversible loss and instructed to **refute** rather than confirm:
+
+**Verdict: the literal claim is FALSE; the operational claim holds.** Five paths and 17 directories
+exist only on sdc4 — four Duplicati usage-telemetry JSONs (536 / 584 / 584 / 623 B) and a zero-byte
+`Untitled7-checkpoint.ipynb`, all under `tmp/` and `restored/` subtrees that
+`util/ad-hoc/yamaguchi_records_sync.bash` excludes by design (`--exclude='restored/' --exclude='tmp/'
+--exclude='work/'`). ~2.3 KB of drill debris. **No backup data exists only on sdc4.**
+
+**The bit-rot residual is closed.** The filesystem lane hashed **all 908 files with full SHA-256 on
+both sides — no sampling**, 0 read errors, 908/908 decided. It added controls the other lanes did not:
+a drift re-census after the ~50 min run (sdc4 908→908, sda1 1737→1737), byte-for-byte `cmp` on 14
+"identical" pairs, and a **negative control** proving `cmp` would catch a mismatch (rc=1,
+"differ: byte 199"). Two earlier lanes had explicitly left same-size bit rot unexcluded; this closes it.
+
+**A vacuous match only the refutation lane framed correctly.** The zero-byte `.ipynb` scores as
+"matched" purely because sda1 contains *other* empty files — no sda1 file is named `Untitled7*` and no
+directory `c00` exists. A content-hash comparison reports it preserved; it is not. This is the
+[[vacuous-pass]] class arriving inside the very check meant to prevent data loss, and it is the
+concrete argument for briefing one lane to attack rather than confirm.
+
+**Negative results worth not re-deriving**: zero xattrs, zero POSIX ACLs, zero symlinks, zero
+hardlinks (`nlink>1` on neither side), zero sparse files, no immutable flags, `lost+found` empty, no
+submounts under sdc4, and four independent proofs the enumeration was not vacuous (find stderr = 0
+errors; directory `nlink` arithmetic; inode accounting matching `df` IUsed exactly; space accounting
+leaving only 5.1 MiB of ext4 metadata). sdc4 and sda1 are distinct **physical** disks — different
+model, serial, WWN and capacity — so this was not a comparison of a thing to itself.
+
+#### 8.25.3 The reclaim is a bigger hazard than the deletion — verified geometry
+
+Found by the refutation lane's scope attack, then re-verified directly from `/sys/block/sdc/*/start`:
+
+| partition | start (sectors) | size | position |
+|---|---|---|---|
+| sdc2 (NTFS, unmounted) | 32,768 | 1.78 TiB | ends at 3,813,408,768 |
+| **sdc4** (the target) | **3,813,408,768** | **1.85 TiB** | — |
+| sdc3 (`/home`, live) | 7,782,432,768 | 3.65 TiB | begins exactly where sdc4 ends |
+
+sdc4 is **sandwiched between the NTFS partition and `/home`**. Growing **sdc2** into the freed space
+is a trivial extend with no data movement. Growing **`/home`** requires relocating the entire 3.65 TiB
+sdc3 partition 1.85 TiB backwards — hours of offline block movement whose failure mode is losing
+`/home`, on the same physical disk, at a moment when sda1 has just become single-copy for the items
+in §8.25.4. **"Add the space back to an existing partition" is cheap in one direction only.**
+
+#### 8.25.4 Two redundancy regressions to accept knowingly
+
+1. **The ten old-archive dlists go 2 copies → 1.** Byte-identical by full SHA-256 (two lanes,
+   independently), so nothing is lost at destruction — but they are the sole record of the 5,356
+   volumes / 2.3 TiB purged on 2026-08-28. **`/mnt/Backups/Ubuntu/README.md` asserts a second copy
+   lives on sdc4; that sentence becomes false the moment sdc4 dies, and nothing will flag it.** Fix
+   the README as part of the retirement, or relocate the 934 MB to a third location.
+   *(Both lanes also confirm neither location holds a single dindex or dblock — the 1,319.5 GiB those
+   manifests describe is not restorable from either disk. They are records, not restore points.)*
+2. **`_yamaguchi_frozen_20260826/` becomes sda1's only copy of the `20260826T181206Z` manifest**, and
+   it is invisible to the live Duplicati job. A future cleanup deleting it as "stale" would destroy
+   it. Label it; do not rely on its name being self-explanatory.
+
+#### 8.25.5 Correction to §8.24.2 — the stakes were overstated
+
+§8.24.2 says deleting sdc4 "permanently loses one restore point, not merely a copy". That is right
+about the **manifest** and wrong about the **data**. The live set already holds **every** block that
+fileset needs — 0 of its 1,216,100 blocks are absent from the live index, and the frozen block
+universe is a strict subset of live (1,285,504 ⊂ 1,369,997; 0 frozen-only blocks). What was unique was
+the point-in-time *addressability*, not the bytes.
+
+Scoped properly: of 868,779 entries in that fileset, only **1,224 match no live fileset at all** —
+1,103 files, 0.82 GiB, and they are rotating logs and SQLite session state (`juniper_cascor.log.2`,
+`system.log`, Firefox `places.sqlite`, Cursor `state.vscdb`). The copy was still worth making — it
+preserves the point-in-time — but "irreversible loss" overstated it, and this arc has now made that
+same class of overstatement three times (§8.20.2, §8.22.3, here).
+
+#### 8.25.6 Still not verified
+
+- Drive health: no lane could read SMART or `dumpe2fs` without passwordless sudo. This matters
+  precisely because §8.25.4 leaves irreplaceable manifests depending on sda alone.
+- `sda1/Yamaguchi` vs `sda1/_yamaguchi_frozen_20260826` was compared by name+size only. The
+  sdc4 → frozen relation is fully hashed; the live → frozen relation is not, and does not need to be.
+- The deployed `~/.local/bin/duplicati-scheduled-backup.bash` **differs from the repo copy** and still
+  defaults every destination knob to sdc4. Its timer is `disabled` and its last run FAILED (2026-08-25),
+  so retirement changes its error message, not its outcome — but the deployed/repo divergence is real
+  and unrelated to this arc's open items.
