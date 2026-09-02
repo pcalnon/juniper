@@ -246,7 +246,8 @@ def main():
     path = os.path.join(os.path.realpath(args.repo_root), WORKFLOW_REL)
     if not os.path.isfile(path):
         fail(f"no {WORKFLOW_REL} at {path}")
-    original = open(path, encoding="utf-8").read()
+    with open(path, encoding="utf-8") as fh:
+        original = fh.read()
 
     if TIER1_MARKER in original:
         print(f"ALREADY PORTED: {path}")
