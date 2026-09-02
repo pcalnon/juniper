@@ -1,5 +1,14 @@
 # PF-1 — host variance measured; the workload is stable and the *metric choice* is the decision
 
+> **CORRECTED 2026-09-02 — the title claim does not hold.** §1's `drive` sd of **0.03%** is an
+> instrument artifact, not workload stability. `timings.drive` is quantized to the driver's 5-second
+> status-poll interval, and this run's 20-second cells sat entirely inside one poll cycle, so `drive`
+> reported ~20.08 s regardless of whether the work took 14.6 s or 18.3 s. Measured on the
+> poll-independent step-duration histogram, this run's within-run spread is **5.92% sd**, ~180x
+> larger. See
+> [`JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md`](JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md)
+> §1, §3 and §4.1. The `total`, `start` and `plots` rows are unaffected — they are not poll-bounded.
+
 **Run**: `pf1-cascor-spiral-repeats-20260831T233254Z`, 5/5 succeeded, cascor **0.10.0** (primary
 checkout), service tier, sequential.
 **Purpose**: the prerequisite named in

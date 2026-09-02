@@ -1,0 +1,46 @@
+# Headroom sweep cell — one block of 3 repeats at the spiral-smoke base budget (2, 2).
+#
+# Project:    juniper-ml
+# Sub-Project: ad-hoc tooling
+# Author:     Paul Calnon
+# Created:    2026-09-02
+# Status:     ad-hoc -- investigation (perf lane P3: where does the free-core floor sit?)
+# Driver:     util/ad-hoc/2026-09-02_headroom_sweep.bash runs this once per load block.
+#
+# WHY 20 s CELLS AND NOT PF-1's 60 s
+#
+# PF-1's header says a 20 s cell "was NEVER SCRAPED" and lengthened its cells to ~60 s for that
+# reason. That is true of PROMETHEUS -- the host-experiments job discovers by file_sd every 15 s
+# and scrapes every 15 s, so a 20 s service lifetime cannot complete the cycle.
+#
+# It is NOT true of the metric this sweep reads. `run_experiment.py`'s drive loop samples the
+# service's /metrics endpoint DIRECTLY on every poll (run_experiment.py:917) into
+# artifacts/results/metrics_series.csv. That path does not involve Prometheus, and the 2026-08-31
+# and 2026-09-01 20 s runs all carry a complete step-duration histogram (804 steps) despite
+# reporting `scrape_confirmed: absent`. The `absent` flag is about the Prometheus scrape, not the
+# driver's sampling.
+#
+# So a 20 s cell is a valid instrument for step_sum / step_count, and is ~3x cheaper than a 60 s
+# one -- which is what a drift-confounded sweep needs, since points-per-unit-time is the binding
+# constraint on separating a load effect from run-to-run drift.
+#
+# WHY 3 REPEATS AND NOT 5
+#
+# The sweep's budget buys either 4 load points at 5 repeats with no drift control, or 4 load points
+# plus 3 interleaved quiet control blocks at 3 repeats. Between-run drift measured 2026-09-02 is
+# ~13% -- the same order as the load effects being sought -- so an uncontrolled sweep cannot
+# attribute a trend to load at all. The controls buy more than the two extra repeats would.
+schema_version: 1
+suite:
+  name: headroom-sweep-block
+  description: "Headroom sweep: 3 repeats at base budget, one load block"
+  app: cascor
+  base_config: [/home/pcalnon/Development/python/Juniper/juniper-cascor/conf/experiments/spiral-smoke.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1200}
+matrix:
+  experiment.description:
+    - "headroom sweep repeat 1"
+    - "headroom sweep repeat 2"
+    - "headroom sweep repeat 3"
+outputs: {suite_dir: null, aggregate: [csv, markdown]}
