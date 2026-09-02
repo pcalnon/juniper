@@ -501,7 +501,10 @@ design (its OQ-N6).
 - **F5 (relocating the capability model)** is correctly scoped as the end-state the defect
   revealed, not the fix for it. P4 named its own over-scoping: a perfect capability feed still
   yields a disconnected graph without a connectivity fix. Note the §5.3 landmine.
-- **§6.2's five hidden generators** — real, counted, unvalidated end-to-end.
+- ~~**§6.2's five hidden generators**~~ — **superseded 2026-09-02**: the ten unseeded generators
+  were moved **into** the arc as iteration 2 (companion design §11–§12). The caveat that made them
+  "deferred" here still holds and is carried forward — they are counted, not validated end-to-end —
+  so the companion treats per-generator validation as part of the work rather than an assumption.
 
 ---
 
