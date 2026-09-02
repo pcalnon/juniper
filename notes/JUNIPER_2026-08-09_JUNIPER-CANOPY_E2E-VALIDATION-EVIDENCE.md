@@ -973,7 +973,74 @@ for `weight_matrix` while reading only controls that can never hold it.
 
 ---
 
-**F-CANOPY-041 — the Weight Matrix heatmap raised ValueError -> HTTP 500 from 26 hidden units upward (P1; found 2026-09-01 by fixing F-CANOPY-040 first; FIXED canopy#558).**
+**F-CANOPY-043 — fixing F-CANOPY-040 made a previously-dead 5 s poll LIVE, and it feeds the rebuild with no identity suppression: the same hazard class as F-CANOPY-037 and -039, re-created by the fix for -040 (P2, OPEN; found 2026-09-02 by adversarial review).**
+`network-visualizer-raw-topology-store` is an **Input** of `update_network_graph`
+(`network_visualizer.py:349`). Its writer (`dashboard_manager.py:3983-3984`) is driven by
+`Input("tabpoll-topology", "n_intervals")` — the same 5 s tick F-CANOPY-039 demoted one layer down — and
+`_update_raw_topology_store_handler` has **no identity comparison at all**: it returns the fetched payload
+unconditionally.
+
+**Before canopy#557 this was harmless because the poll never wrote.** Its gate read the 2D/3D toggle and
+was always true, so it returned `dash.no_update` on every tick — that *was* F-CANOPY-040. Fixing the gate
+turned a permanently-dead poll into a live one that rewrites an identical payload every 5 s into an Input
+of a 1.5-5 s rebuild. That is precisely the shape of F-CANOPY-037 (a 1 Hz store) and F-CANOPY-039 (a 5 s
+tick).
+
+**Scope, stated precisely:** the handler still gates on `active_tab == "topology"` **and**
+`display_mode == "weight_matrix"`, so the rewrite only fires while the user is actually on the Weight
+Matrix view. It is not always-on, and no live starvation has been measured for it — this is registered on
+the wiring, not on an observation.
+
+**The lesson is the registration, not the severity.** The arc's own remediation pattern (identity-suppress
+every unconditional feeder, F-CANOPY-027 Stage 2) was not applied to a feeder that this session brought
+back to life. A fix that revives dormant code inherits the obligations that code never had to meet.
+The suppression to add is the one `update_topology_store` already carries (canopy#542).
+
+---
+
+**F-CANOPY-041 — the Weight Matrix heatmap raised ValueError -> HTTP 500 from 26 hidden units upward (P1; found 2026-09-01 by fixing F-CANOPY-040 first; canopy#558 did NOT fix it — see F-CANOPY-041b below; OPEN pending canopy#561).**
+
+> **DISPOSITION CORRECTED 2026-09-02. This entry said FIXED for a day and was wrong.**
+> canopy#558 removed the HTTP 500 and replaced it with a **silent blank canvas**, which is worse: the
+> 500 was visible. Clamping `vertical_spacing` **to** `1/(n_rows-1)` is clamping to the value at which
+> the inter-row gaps consume the entire figure, so every row renders at zero height. Measured on the
+> real `_create_weight_heatmap`: `min_row_h=0.000000`, `total_plot_area=0.0000` at 25 / 26 / 40 / 80
+> hidden units, and only **4%** plot area at 24 — degradation begins well before the stated boundary.
+>
+> **Three checks certified the blank, and that taxonomy is the durable part:**
+> 1. #558's regression test was a **tautology** — `assert min(desired, limit) <= limit` is true for every
+>    input, never called the function, and could not fail for any implementation;
+> 2. its sibling asserted only `len(fig.data) > 0`, satisfied by zero-height traces;
+> 3. **M-TOPOLOGY-03's driver predicate** was `any(type == "heatmap")`, so the row **PASSED on the
+>    blank** — confirmed live afterwards at `plot_area=0, n_yaxes=41`.
+>
+> Found by an adversarial reviewer under the independent-agent consensus procedure, running the
+> production function rather than reading the diff. **Every check that existed at merge time was blind
+> to it.**
+
+---
+
+**F-CANOPY-041b — canopy#558's clamp renders every heatmap subplot at ZERO height from 25 hidden units up (P1; found 2026-09-02 by adversarial review of the F-041 fix; FIX OPEN as canopy#561).**
+`min(desired, 1/(n_rows-1))` returns exactly the limit for every `n_rows >= 26`. canopy#561 reserves plot
+area instead (`GAP_BUDGET = 0.30`), giving a **floor** of 70% plot area on tall cascades:
+
+| hidden | #558 min_row_h / plot_area | #561 min_row_h / plot_area |
+|---|---|---|
+| 24 | 0.001538 / 0.0400 | 0.026923 / 0.7000 |
+| 25 | **0.000000 / 0.0000** | 0.025926 / 0.7000 |
+| 40 | **0.000000 / 0.0000** | 0.016667 / 0.7000 |
+| 80 | **0.000000 / 0.0000** | 0.008537 / 0.7000 |
+
+**Correction to canopy#561's own wording**, caught in review and recorded rather than quietly fixed: the
+PR says short cascades keep "exactly their previous appearance" and the handoff said "70% at every
+depth". Both are false in detail — at `n_rows = 5` and `9` the budget binds and plot area moves
+0.68 -> 0.70, and small depths sit at 92 / 84 / 76 / 80 / 76 / 72%, above the 70% floor. The direction is
+benign (more plot area everywhere, no regression at any depth), but the universal claim was wrong.
+
+`M-TOPOLOGY-03`'s predicate now also requires `plot_area >= 0.05` (`fig_info` gained `plot_area` /
+`n_yaxes`), so the row can no longer certify a blank. **Residual, unfixed:** that row's `wait_for` is
+still the bare `any(type == "heatmap")` and is satisfiable by a blank, and `area_ok` treats a missing
+measurement as passing.
 `make_subplots` enforces `vertical_spacing <= 1 / (n_rows - 1)`; `_create_weight_heatmap` passed a fixed
 `0.08 if n_rows <= 5 else 0.04` with no reference to that constraint. One row per hidden unit plus one
 for the output weights puts the boundary at **26 hidden units**:

@@ -20,17 +20,34 @@ Run under the only env that has playwright, with LD_LIBRARY_PATH cleared:
     LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python \
         util/ad-hoc/e2e_seg17_topology_driver.py --step probe
 
-Steps (comma-separated, order preserved):
+Steps (comma-separated, order preserved). **This list is the authority for what is
+IMPLEMENTED; it was stale and is corrected here.** An earlier version advertised
+``w1grow`` and ``toposel`` and claimed ``topo`` covered M-TOPOLOGY-01..09/16..18 and
+``theme`` covered M-TOPOLOGY-09 — none of which is true. A reader who trusted it
+would run a step and score rows it never touches, which is a vacuous pass. The
+registered set is ``STEPS`` at the bottom of this file; ``--step`` rejects anything
+else, so a wrong name fails loudly rather than silently.
+
   probe    -- dump the REAL DOM shape of the four topology controls (dcc.Dropdown /
               Checklist / RadioItems are NOT native selects; this pins the idiom
               before any row is scored)
-  w1grow   -- W1-12..14: tab entry fires GET /api/topology, the graph renders, a
-              cascade add increments -hidden-count, top bar == topology count
-  topo     -- M-TOPOLOGY-01..09/16..18 + W4-02..10: layout cycle, show-weights,
-              display-mode, view-mode, depth slider, stats bar, store refresh
-  toposel  -- M-TOPOLOGY-10..15 + W4-11..16: node click, box select, clear, zoom/pan
-              restore, camera PNG, hover-is-inert
-  theme    -- M-TOPOLOGY-09 + W4-17 + M-DATASET-14: dark-mode flip recolours
+  topo     -- scores EXACTLY M-TOPOLOGY-01..08 and -17. Layout cycle, show-weights,
+              display-mode, view-mode, depth slider, stats bar, store refresh.
+  theme    -- scores EXACTLY M-DATASET-14 (dark-mode recolour of the DATASET figures,
+              read off ``dataset-plotter-stats-summary`` on the Dataset View tab).
+              It does NOT touch M-TOPOLOGY-09, which lives on the Topology tab.
+  topodiag / rebuildprobe / wirecensus / quietread / storestorm / f031
+           -- diagnostic instruments, not row scorers.
+
+NOT IMPLEMENTED (no step exists; these rows have no scorer anywhere in the repo):
+  M-TOPOLOGY-09          -- stats-bar theme recolour, needs a Topology-tab theme step
+  M-TOPOLOGY-10..14      -- node click, box select, clear, zoom/pan restore, camera
+  M-TOPOLOGY-15          -- hover; matrix marks it DEAD-EXPECTED (no hoverData
+                            callback exists), so it needs an inertness assertion
+  M-TOPOLOGY-16          -- cascade-add glow; MANUAL/VIS, and needs a cascade ADD, so
+                            a saturated fixture (40/40) cannot exercise it
+  M-TOPOLOGY-18          -- raw-store refresh
+  W1-12..14, W4-*        -- walkthrough steps, tracked in the plan document
 
 Observation discipline (arc traps): poll for TRANSITIONS with long budgets, read
 figures off the plotly gd object, verify every widget write by its EFFECT (never by
@@ -888,19 +905,34 @@ def step_topo(page, capture):
     page.wait_for_timeout(2000)
 
     # M-TOPOLOGY-02 / W4-03 -- show-weights off then on.
+    #
+    # SETTLE at every read, and compare CONTENT HASHES. This block was the fourth
+    # site of the read-inside-the-rebuild-window defect and was missed when the
+    # other three were fixed: it settled for a fixed 3 s against a rebuild that
+    # takes 1.5-5 s and settles at 2.8-7 s. It passed on timing luck, and adding
+    # settle_figure everywhere ELSE slowed the run enough to expose it —
+    # `on_sig == off_sig == 394731` with `back_sig` holding the PREVIOUS state,
+    # i.e. all three reads shifted one toggle behind.
+    #
+    # The old `wait_for(sig != previous)` is also wrong twice over: `sig` is a byte
+    # LENGTH that can collide, and a wait keyed to "different from the value I read
+    # too early" can be satisfied by the render the PREVIOUS action was still
+    # completing.
+    settle_figure(page)
     on_g = _graph(page)
     set_checklist(page, f"{NV}-show-weights", False)
-    page.wait_for_timeout(3000)
-    wait_for(lambda: _graph(page).get("sig") != on_g.get("sig"), budget_s=30, every_s=2.0)
+    wait_for(lambda: (_graph(page).get("fig_hash")) not in (None, on_g.get("fig_hash")), budget_s=30, every_s=2.0)
+    settle_figure(page)
     off_g = _graph(page)
     set_checklist(page, f"{NV}-show-weights", True)
-    page.wait_for_timeout(3000)
-    wait_for(lambda: _graph(page).get("sig") != off_g.get("sig"), budget_s=30, every_s=2.0)
+    wait_for(lambda: (_graph(page).get("fig_hash")) not in (None, off_g.get("fig_hash")), budget_s=30, every_s=2.0)
+    settle_figure(page)
     back_g = _graph(page)
-    m02 = off_g.get("sig") != on_g.get("sig") and back_g.get("sig") != off_g.get("sig")
+    m02 = off_g.get("fig_hash") != on_g.get("fig_hash") and back_g.get("fig_hash") != off_g.get("fig_hash")
     res["M-TOPOLOGY-02"] = {
         "verdict": "PASS" if m02 else "FAIL",
         "on_sig": on_g.get("sig"), "off_sig": off_g.get("sig"), "back_sig": back_g.get("sig"),
+        "on_hash": on_g.get("fig_hash"), "off_hash": off_g.get("fig_hash"), "back_hash": back_g.get("fig_hash"),
         "on_ann": len(on_g.get("annotations") or []), "off_ann": len(off_g.get("annotations") or []),
     }
     log(f"  M-TOPOLOGY-02 show-weights: on={on_g.get('sig')} off={off_g.get('sig')} back={back_g.get('sig')} -> {m02}")
@@ -911,13 +943,27 @@ def step_topo(page, capture):
     wait_for(lambda: any((t.get("type") == "heatmap") for t in (_graph(page).get("traces") or [])), budget_s=45, every_s=2.0)
     wm = _graph(page)
     wm_counts = counts(page)
+    # A trace that EXISTS is not a trace that is VISIBLE. This row used to assert
+    # only ``any(type == "heatmap")`` — and canopy#558 shipped a heatmap whose
+    # vertical_spacing equalled plotly's own limit, so all 41 rows rendered at ZERO
+    # height. Every trace object was present; the canvas was blank; **this row
+    # PASSED on it** (F-CANOPY-041b). Require the subplots to own a real share of
+    # the figure as well, so the row cannot certify a blank again.
     is_heat = any(t.get("type") == "heatmap" for t in (wm.get("traces") or []))
+    plot_area = wm.get("plot_area")
+    # ``None`` means an older fig_info without the field — do not fail the row on a
+    # missing measurement, but say so rather than silently treating it as passing.
+    area_ok = plot_area is None or plot_area >= 0.05
     res["M-TOPOLOGY-03"] = {
-        "verdict": "PASS" if is_heat else "FAIL",
+        "verdict": "PASS" if (is_heat and area_ok) else "FAIL",
         "heatmap": is_heat, "types": [t.get("type") for t in (wm.get("traces") or [])][:6],
+        "plot_area": plot_area, "n_yaxes": wm.get("n_yaxes"),
+        "area_measured": plot_area is not None,
         "connection_count": wm_counts["conn"],
     }
-    log(f"  M-TOPOLOGY-03 weight matrix: heatmap={is_heat} types={res['M-TOPOLOGY-03']['types']} conn={wm_counts['conn']!r}")
+    log(f"  M-TOPOLOGY-03 weight matrix: heatmap={is_heat} plot_area={plot_area} n_yaxes={wm.get('n_yaxes')} types={res['M-TOPOLOGY-03']['types']} conn={wm_counts['conn']!r}")
+    if is_heat and plot_area is not None and plot_area < 0.05:
+        log(f"  !! heatmap traces exist but occupy only {plot_area:.1%} of the figure — this is the blank-canvas class, not a render")
 
     # M-TOPOLOGY-04 / W4-07 -- back to Node Graph, connection count restored.
     set_radio(page, f"{NV}-display-mode", "node_graph")
