@@ -174,6 +174,25 @@ def fig_info(page, container_id: str):
              }
              if (gd && gd.layout && gd.layout.annotations)
                out.annotations = gd.layout.annotations.map(a => (a.text || '').slice(0, 80));
+             // ``plot_area`` = the fraction of the figure the subplots actually
+             // occupy. A trace that EXISTS is not a trace that is VISIBLE: a
+             // subplot figure whose vertical_spacing equals plotly's own limit
+             // renders every row at ZERO height, so the trace objects are all
+             // present and the canvas is blank. F-CANOPY-041b shipped exactly
+             // that, and M-TOPOLOGY-03's "a heatmap trace exists" predicate
+             // passed on it. Any row asserting that something RENDERED must
+             // check this, not just the trace list.
+             if (gd && gd.layout) {
+               let area = 0, n = 0;
+               for (const k in gd.layout) {
+                 const ax = gd.layout[k];
+                 if (k.indexOf('yaxis') === 0 && ax && ax.domain && ax.domain.length === 2) {
+                   area += (ax.domain[1] - ax.domain[0]); n++;
+                 }
+               }
+               out.plot_area = Math.round(area * 1000) / 1000;
+               out.n_yaxes = n;
+             }
              return out; }""",
         container_id,
     )
