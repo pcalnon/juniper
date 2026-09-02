@@ -1,5 +1,19 @@
 # PF-1 at 60 s and under heavy load — three separable effects, and why a bare percentage cannot gate this host
 
+> **CORRECTED 2026-09-02 — the effects are not separable, and the tight-gate proposal is withdrawn.**
+> `timings.drive` is quantized to the driver's 5-second status-poll interval, so §1's first three
+> rows (20 s cells) are saturated and carry no information; §2's effect **(a) "intrinsic workload
+> variance ~0.02%"** is that saturation, not stability — the real figure is **1.25%–5.92% sd**.
+> Effect **(b) "duration exposure"** is not a distinct effect: the 66 s outlier is a genuine 8.6%
+> host speed excursion that `drive` rendered as a discrete 5-second jump. Consequently §4's
+> *"a threshold near 1% on the median of `drive` is defensible"* is **withdrawn** — measured
+> between-run drift is **13%**, so 1% sits far below the floor. §6 item 4's expectation that
+> E-A/E-C have higher exposure "by construction" inverts for the quantization component: one cycle
+> is a fixed 5 s, hence 25% of a 20 s cell but 0.9% of a 552 s one. See
+> [`JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md`](JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md).
+> **What stands**: effect (c), the +90–165% contention finding at 66 s and 126 s, where `drive` and
+> the resolving instrument agree to ~1x; and §5's step-duration calibration.
+
 **Executes** the owner's 2026-09-01 decisions — cells lengthened to ~60 s (decision 2), step duration
 retained (decision 4), plus the **new requirement** for a scenario loading all 16 cores rather than
 leaving the stack effectively-dedicated ones.
