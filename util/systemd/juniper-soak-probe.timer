@@ -1,0 +1,31 @@
+[Unit]
+# Scheduled arm: run one soak probe on a cadence.
+#
+# Enable EITHER this or the .path unit, or both -- they activate the same
+# oneshot service and systemd serialises them, so a probe already running is not
+# started twice.
+#
+#   systemctl --user enable --now juniper-soak-probe.timer
+#   systemctl --user list-timers juniper-soak-probe.timer
+Description=Periodic Juniper pointer-follow soak probe
+Documentation=file:%h/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md
+
+[Timer]
+# Every six hours, not hourly. Each firing spends a real Claude session, and the
+# corpus is 15 probes needing a handful of runs each -- hourly would burn ~24
+# sessions a day to answer a question that needs tens of runs in total. The
+# wrapper picks the least-covered probe, so coverage stays even at any cadence.
+OnCalendar=*-*-* 03,09,15,21:23:00
+
+# Do not stampede a machine that was asleep: without this, a laptop resuming
+# after two days fires every missed interval at once.
+Persistent=false
+
+# Off the :00 mark by 23 minutes, and jittered, so this never lands with every
+# other scheduled job on the host.
+RandomizedDelaySec=900
+
+Unit=juniper-soak-probe.service
+
+[Install]
+WantedBy=timers.target
