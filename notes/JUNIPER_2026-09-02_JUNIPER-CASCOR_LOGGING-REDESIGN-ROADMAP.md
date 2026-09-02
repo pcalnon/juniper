@@ -51,7 +51,7 @@
    `_filter_by_level` is measured post-fix at **1.20 s / 2.8 %** (#598's PR body), which is already
    enough to question whether further logger-internal work earns its risk.
 3. That a format change is safe because cascor's CI is green. It would be (RECON N-4).
-4. **That "the existing test suite is green" verifies anything about emission.** `conftest.py:870-926`
+4. **That "the existing test suite is green" verifies anything about emission.** `conftest.py:870-927`
    stubs `Logger._log_at_level` to a no-op for the whole session (RECON N-8).
 
 ---
@@ -64,7 +64,7 @@
 | **P1** | Level-system correctness | — | P4, P6 | **L** | no |
 | **P2** | Logger internals | P0.4 | P3 | S–M | no |
 | **P3** | Sink architecture | P0.4, P2, **P5.1** | P5.2 | L | yes (P3-G3) |
-| **P4** | Per-logger levels | P1, **P3.3** | — | M–L | yes (P4.4) |
+| **P4** | Per-logger levels | P1, **P3.4** | — | M–L | yes (P4.4) |
 | **P5** | Structured output and observability convergence | P0 (P5.1: none) | P7 | M | yes (P5.4) |
 | **P6** | Call-site policy and dead-code removal | P0.4, P1, P2 | — | M | no |
 | **P7** | Export / ELK | P5 | — | deferred | — |
@@ -78,10 +78,10 @@
           ├───► P2 ───► P3 ───► P5.2 ───► P7     │
           │  (internals) (sinks) (JSON)  (ELK)   │
           │              ▲                       │
-          │   P5.1 ──────┘  (decides P3.4)       │
+          │   P5.1 ──────┘  (decides P3.3)       │
           │                                      │
    P1 ────┴───► P4        P1 ───────────────────┘
- (levels)    (per-logger; P4.4 also needs P3.3)
+ (levels)    (per-logger; P4.4 also needs P3.4)
 ```
 
 ### 2.1 What can run concurrently
@@ -90,8 +90,8 @@
 | --- | --- |
 | **P0 ∥ P1** | P0 measures, P1 edits — but see trap 2 for P1's internal serialisation |
 | **P0.1 ∥ P0.3** | **only under distinct `JUNIPER_CASCOR_LOG_DIR` and distinct run dirs.** Otherwise they destroy each other's evidence — see trap 1 |
-| **P5.1 ∥ everything** | it is an adjudication, not a code change. Free on day one |
-| **P4.1–P4.3 ∥ P3** | P4.4 is **not** — it needs P3.3 |
+| **P5.1 ∥ everything except P3.1 and P3.3** | it gates both. It can *start* on day one; P3 cannot start until it closes |
+| **P4.1–P4.3 ∥ P3** | P4.4 is **not** — it needs P3.4 |
 | **P6.2 → P6.3** | **not** parallel — see trap 3 |
 
 ### 2.2 What looks parallel and is not — five traps
@@ -111,11 +111,11 @@
 3. **P6.3's lint rule fails on P6.2's intermediate commits.** G-6 mandates one PR per file, so P6.2 is
    a multi-PR sequence; a rule banning bare numeric levels lands red until the last one merges. Ship
    P6.3 after P6.2, or behind `--advisory`.
-4. **P3.3 without P3.4 is a regression.** A persistent handle converts Path A from open-by-name —
+4. **P3.4 without P3.3 is a regression.** A persistent handle converts Path A from open-by-name —
    which *survives* Path C's rotation — into a held descriptor, which follows the renamed inode and
    appends to `.1` forever while the live file, the one ~17 juniper-ml consumers glob first, stays
-   near-empty. Nothing errors. **P3.4 runs BEFORE P3.3.**
-5. **The mirror gate is one-directional.** `test_drift.py:74` walks the **package** tree
+   near-empty. Nothing errors. **P3.3 (rotation owner) runs BEFORE P3.4 (persistent handle).**
+5. **The mirror gate is one-directional.** `test_drift.py:78` walks the **package** tree
    (`(self.package_root / d).rglob("*.py")`), so a file that exists only in `src/` is never compared.
    P3.1 adds `src/log_config/sinks.py`; drift stays green while the package ships a logging tree
    missing the module. And because `logger.py` is allowlisted, the package's logger will not even
@@ -146,7 +146,7 @@ merge, and no corpus postdates it.
 | **P0.2** Decompose the remainder | (a) re-run `juniper-ml/util/ad-hoc/2026-08-29_format_caller_attribution.py`; (b) attribute `logger.py`, `_io.open`, `strftime`, `print`; (c) report the **emitted** share and the **discard count** — see the acceptance caveat | P0.1 | no |
 | **P0.3** Volume census | (a) bytes per record for **Path A** vs **{Path B ∪ Path C}** — B and C are byte-identical on disk (RECON §3), so a per-path split needs instrumentation or must be reported as a union; (b) the 1.89× duplication factor re-measured; (c) per-run totals at cap 4 and cap 16, **extrapolated** to cap 64 rather than run there; (d) how many Path-B/C records are lost to a descriptor held across Path C's rename | — | **yes** |
 | **P0.4** Envelope + marker harness *(the guardrail every later phase uses)* | see §3.1 | — | once, to capture |
-| **P0.5** Characterise the stubbed emit path | `conftest.py:870-926` replaces `Logger._log_at_level` with a no-op, autouse, session scope. State **per phase** which acceptance criteria that invalidates, and whether it is also the §7.1 swallowed-pytest mechanism | — | no |
+| **P0.5** Characterise the stubbed emit path | `conftest.py:870-927` replaces `Logger._log_at_level` with a no-op, autouse, session scope. State **per phase** which acceptance criteria that invalidates, and whether it is also the §7.1 swallowed-pytest mechanism | — | no |
 | **P0.6** Settle the mirror policy | Decide now whether `juniper-cascor-model`'s logger copy is backported (as `test_drift.py`'s docstring promises for Wave 2) or frozen. Every P1/P4 edit to a byte-gated tree carries a mirror **and a package-release** obligation to `juniper-cascor-worker`; deciding this in P5 is five phases too late | — | no |
 | **P0.7** Restore the written record | Comment on #573 with #598, the measurement, this roadmap and the deferral | P0.2, P0.3 | no |
 
@@ -164,9 +164,10 @@ unenforceable.
 - (c) **A named-marker inventory** — the half of G-3 that matters most. RECON N-4 rates anchored
   **message text** BREAKING for ~17 juniper-ml scripts, and an envelope check passes a message-text
   change. Enumerate every marker string those scripts anchor on and assert each is still emitted.
-- (d) **The enforcement mechanism.** A test sited in juniper-ml cannot fail a cascor PR — there is no
-  cross-repo hook, and juniper-ml CI has no cascor checkout, no torch and no service, so a
-  juniper-ml-side fixture comparison is a staleness detector, not a breakage detector. **Choose one**:
+- (d) **The enforcement mechanism.** A test sited in juniper-ml cannot fail a cascor PR — separate
+  repos, no status-check propagation — so a juniper-ml-side comparison detects breakage only after
+  the fact. (It is *feasible*: `juniper-ml/.github/workflows/docs-full-check.yml:107-110` already
+  shallow-clones every ecosystem repo, so option (ii)'s harness exists.) **Choose one**:
   (i) a **cascor-side** test asserting the formatter strings in `constants_logging.py:152-158`,
   `conf/logging_config.yaml:47` and `api/observability.py:119` against a checked-in golden — mechanical,
   runs in cascor CI, catches the change at its source, and covers **all three copies of the prefix**;
@@ -277,7 +278,7 @@ harness, **dropping P2 does not drop P3's guardrail**.
 | step | tasks | depends on |
 | --- | --- | --- |
 | **P2.1** Move `frame`/`tsp` inside `_log_at_level` | (a) drop the eager `cls._frm()` / `cls._tsp()` arguments from all eight methods; (b) capture inside, after the filter; **(c) preserve `_frame_info`'s one-hop contract** — pass `cls._frm().f_back` from `_log_at_level` rather than making `_frame_info` walk two hops; (d) assert `_log_at_level` has no callers outside the eight methods | P0.4 |
-| **P2.2** Hoist the formatter closures | **Seven** closures are allocated per emitted record, not two: `_logging_message` ×2 (`logger.py:521,522`), a `_frame_info` and a `_date` closure inside **each** of `_console_dict` (`:302,303`) and `_file_dict` (`:320,321`), and `_get_log_level`'s lambda (`:516`). The two named in the original F-4a are the two *cheapest*. Name all seven or state why the others are out of scope | P0.4 |
+| **P2.2** Hoist the formatter closures | **Six** closures per *emitted* record plus **one per call**, against the two the design names: `_logging_message` ×2 (`logger.py:521,522`), a `_frame_info` and a `_date` closure inside **each** of `_console_dict` (`:302,303`) and `_file_dict` (`:320,321`), and `_get_log_level`'s lambda (`:391`, built at `:516`) — the last **before the filter**, so it is the most frequent of the seven. The two named in F-4a are the two *cheapest* | P0.4 |
 | **P2.3** Widen the invalidation set to match | The `:459` closure captures `formatter_string` and `dict_method` by value and is hoistable; but the dict builders read `cls._date_format`, `cls._field_names_*`, `cls._frame_file/_line/_func` and `cls._frame_unknown` **at call time**. Hoisting far enough to matter widens invalidation to all of them | P2.2 |
 
 **Why P2.1(c) matters.** `test_logger_frame_resolution.py` calls `_frame_info` **directly** (`:71`,
@@ -327,8 +328,8 @@ volume win and most of the design risk.
 | --- | --- | --- |
 | **P3.1** Sink abstraction | (a) a minimal sink protocol; (b) a registry on `Logger` — **first fix the shadowed binding** at `logger.py:136`/`:155` (see below); (c) route `_log_at_level`'s tail through it, **each sink with its own byte contract**; (d) add the new module to the package tree in the same PR (trap 5) | P0.4, P2, **P5.1** |
 | **P3.2** Independently disableable console sink | (a) an **explicit switch** (env + config) defaulted per §13 decision 2. Do **not** condition on "stdout is redirected" — the only runtime signal is `isatty()`, false for a redirect *and* a pipe *and* systemd, i.e. false always for the service; (b) TTY-gated colourisation, console sink only, **never** the file sink | P3.1 |
-| **P3.3** Rotation with a single owner *(before P3.3b)* | (a) **give the file one owner.** Path C's `RotatingFileHandler` (`api/observability.py:110-115`, 10 MB / 5 backups) rotates the same file Path A appends to per record and Path B holds open. Either the sink owns rotation for all three paths, or the paths get distinct files; (b) document rotation as a property of the file sink; (c) confirm the `.N` glob ~17 juniper-ml consumers use still holds | P0.3, P3.1, P5.1 |
-| **P3.4** Persistent file handle | (a) hold one handle for the process lifetime; (b) flush per record (owner decision 2); (c) **open in append mode (`O_APPEND`)**; (d) **open lazily, relative to forkserver start** (RECON N-2); (e) preserve create-on-demand and the `FileNotFoundError` retry (F-2b); (f) survive P3.3's rollover. All five constraints explained below | **P3.3** |
+| **P3.3** Rotation with a single owner *(before P3.4)* | (a) **give the file one owner.** Path C's `RotatingFileHandler` (`api/observability.py:110-115`, 10 MB / 5 backups) rotates the same file Path A appends to per record and Path B holds open. Either the sink owns rotation for all three paths, or the paths get distinct files; (b) document rotation as a property of the file sink; (c) confirm the `.N` glob ~17 juniper-ml consumers use still holds | P0.3, P3.1, P5.1 |
+| **P3.4** Persistent file handle | (a) hold one handle for the process lifetime; (b) flush per record (owner decision 2); (c) **open in append mode (`O_APPEND`)**; (d) **open lazily, relative to forkserver start** (RECON N-2); (e) preserve create-on-demand and the `FileNotFoundError` retry (F-2b); (f) survive P3.3's rollover. Constraints (b), (c), (d) and (f) explained below | **P3.3** |
 
 **P3.1(b) — the shadowed binding.** `logger.py:136` sets `_file_name = "file"` (the destination name);
 `:155` overwrites it with `"filename"` (the format field). `Logger._file_name` is therefore
@@ -383,13 +384,16 @@ green; per-run bytes down by the factor P0.3 measured.
   invariant under P3.2 by construction, so counting it proves nothing. P3.2 removes records from the
   **redirected-stdout** file, which has real consumers —
   `juniper-ml/util/ad-hoc/2026-08-10_ea_aggregate_clean.py:44` (`LOG_CANDIDATES = ("logs/juniper-cascor.log", …)`),
-  `util/ad-hoc/e2e_cascor_leg_supervise.bash:96`, `e2e_cascor_leg_restart.bash:50`. Enumerate and
+  `juniper-ml/util/ad-hoc/e2e_cascor_leg_supervise.bash:96`, `juniper-ml/util/ad-hoc/e2e_cascor_leg_restart.bash:50`. Enumerate and
   re-point every one.
-- **P3-G7 — the `+` sentinel and the second-resolution timestamp are load-bearing.** Two scripts split
-  worker from parent lines on `line.startswith("+")` and on Path A's *absence* of milliseconds
+- **P3-G7 — the `+` sentinel is load-bearing, and the timestamp is load-bearing for a different set.**
+  Two scripts split worker from parent lines on `line.startswith("+")` alone
   (`juniper-ml/util/ad-hoc/2026-08-25_cascor_stop_during_training_repro.bash:309`,
-  `util/ad-hoc/2026-08-26_t6_stop_evidence_scan.py:103`). **A "richer sink" that adds sub-second
-  precision to Path A silently nulls their orphaned-worker signal.**
+  `juniper-ml/util/ad-hoc/2026-08-26_t6_stop_evidence_scan.py:103`); removing or relocating the
+  sentinel **silently nulls their orphaned-worker signal**. Separately, 3 of the 6 timestamp parsers
+  have no optional `,millis` group and would silently skip every line if Path A gained sub-second
+  precision — but they are a **disjoint set** from the two sentinel consumers, which both carry
+  `(?:,(\d{3}))?` and tolerate it. Guard the two surfaces separately; do not conflate them.
 
 ---
 
@@ -421,7 +425,7 @@ per-logger config entry → global config → default.
 | --- | --- |
 | **Strengths** | Addresses owner-raised scope. Retires the remaining per-record level resolution as a side effect |
 | **Weaknesses** | **P4.1 may find the phase is L, not M.** If per-logger means per-instance, it is an API break across ~1,200 Path-A call sites; if it means named sub-loggers on the class, it is tractable. That is a scoping decision, not an implementation detail |
-| **Opportunities** | A per-logger level is what makes the ~919 live suppressed-by-default sites cheap to turn on selectively — the operator need behind the whole f-string argument |
+| **Opportunities** | A per-logger level is what makes the ~872 live Path-A suppressed-by-default sites cheap to turn on selectively — the operator need behind the whole f-string argument |
 | **Threats** | Precedence chains are where silent misconfiguration lives. A per-logger var that loses when it should win produces *no error* — just the wrong records |
 | **Risks** | P4.4 is the classic failure: configuration applied in the parent after the forkserver started is invisible to children |
 
@@ -580,8 +584,7 @@ Option D is off the table, and vice versa. **They must not be adopted independen
 
 Option D carries two further constraints if it is ever revisited: a lambda that raises must not take
 down a training run, so it needs its own try/except — **a new swallow-path to get right**; and it
-allocates a closure per call **even when suppressed**, a new per-call cost at ~919 live suppressed
-sites.
+allocates a closure per call **even when suppressed**, a new per-call cost at ~872 live Path-A suppressed sites.
 
 ---
 
@@ -617,7 +620,7 @@ Sizing per [`JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PR
 convenient finding) → Lane A ≥ 2 distinct entry points, Lane B ≥ 2 opposing briefs, ≥ 2 iterations.
 
 **Lane A** — two agents, distinct entry points (the code tree; git/GitHub/disk history). Recorded in
-RECON §9.
+RECON §8.
 
 **Lane B round 1** — three agents, three lenses: factual over-generalisation, amputation,
 executability. Each briefed that a finding of soundness is worth nothing. It changed this document
@@ -628,7 +631,7 @@ structurally, not cosmetically:
 | The level system has **two disjoint configured-level states**; `set_level()` is a no-op for emission — found by *running* the logger, and reached independently by two reviewers | P1 rewritten around it and resized M → **L**; P1.5 re-declared as depending on it; P1-G4 changed to verify by probe because the log cannot show this fix working |
 | `is_valid_level` returns `True` for every input (`level == level`) | new P1.1(c); P4-G4 declared unimplementable without it |
 | P1's deletion target was **wrong** — `constants.py` is canonical and *imported* by `logger.py` | P1.2 rewritten; "three contradictory tables" corrected to two-agree-one-contradicts |
-| `conftest.py:870-926` stubs `_log_at_level` for the whole session | new **P0.5**; "the suite is green" struck as an acceptance criterion in §1 and P2 |
+| `conftest.py:870-927` stubs `_log_at_level` for the whole session | new **P0.5**; "the suite is green" struck as an acceptance criterion in §1 and P2 |
 | The envelope harness was sited where it **cannot fail a cascor PR**, and its CI wiring was missing | moved into **P0.4** with an enforcement mechanism, two captures, a marker inventory, and the hand-maintained CI-list obligation |
 | G-2 was declared "implemented by P1.4" — a test that cannot exercise converted call sites | false discharge removed; P6-G1 restored to its real scope |
 | **`O_APPEND`** — the one constraint that makes concurrent appending safe — had been dropped | restored as P3.4(c); `PIPE_BUF` restored to P3-G3 |
@@ -643,8 +646,22 @@ structurally, not cosmetically:
 | Conversion hazards 2 and 3 (precision-as-parsing-change; tuple splat) dropped | restored to P6 Threats |
 | Cross-repo script paths unprefixed | path convention added at the head |
 
-**Round 2** is briefed specifically on these corrections — per the procedure's finding that the fix
-pass is the least trustworthy part of any document — rather than on the roadmap as a whole.
+**Lane B round 2 — briefed on the corrections, not on the roadmap.** It found **24 defects**, which
+is the procedure's premise vindicated: the fix pass is where new errors enter. What it changed here:
+
+| what round 2 found in round 1's fixes | resolution |
+| --- | --- |
+| **Round 1's own P3 reorder was not propagated.** Trap 4 still read *"P3.4 runs BEFORE P3.3"* — after renumbering, that instructs the exact ordering the reorder was made to prevent | trap 4 inverted; P3.3's title no longer points at a non-existent "P3.3b"; the §2 phase table, graph and concurrency table renumbered (P4.4 needs **P3.4**; P5.1 decides **P3.3**) |
+| **§2.1 still listed "P5.1 ∥ everything"** after the correction that made P5.1 a blocker of P3.1 and P3.3 | qualified: it may *start* on day one, but P3 cannot start until it closes |
+| **P0.4(d)'s stated ground was false** — "juniper-ml CI has no cascor checkout". `docs-full-check.yml:107-110` shallow-clones every ecosystem repo | the conclusion survives on the correct ground (separate repos, no status-check propagation); option (ii)'s harness is noted as already existing |
+| The seventh closure was filed as per-**emitted**-record. `_get_log_level`'s lambda is built **before the filter**, so it is paid on the 91 % discarded and is the most frequent of the seven | P2.2 restated as six-per-emitted plus one-per-call |
+| The restored "absence of milliseconds" hazard in P3-G7 is **false** — both sentinel scripts carry an optional `,millis` group | P3-G7 rewritten: the `+` sentinel and the timestamp are **disjoint** surfaces with disjoint consumers |
+| P3.4 promised "all five constraints explained below"; four are, and (e) is explained nowhere | corrected to name the four |
+| Two `util/` paths remained unprefixed — which the document's own head rule calls a defect | prefixed |
+| §14 cited "RECON §9"; RECON has no §9 | corrected to §8, and RECON's References renumbered |
+
+**Termination.** Round 2's remaining findings were anchor and pointer slips changing no number,
+disposition or action — the procedure's stopping condition. Round 3 is not warranted.
 
 ## 15. References
 

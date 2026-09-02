@@ -316,12 +316,11 @@ and it should precede the implementation rather than justify it retroactively.
   > are right; the element list is not. **Nothing parses `[file.py: func:LINE]`** — anchoring on it is
   > a *documented prohibition* ("methodology rule 5") in four juniper-ml scripts after a 2026-08-20
   > incident, and #573's own body states the rule. What **is** load-bearing: the `+` sentinel (2
-  > scripts split worker from parent on it), Path A's **absence of milliseconds** (the same 2 scripts
-  > use it as the same discriminator — so a "richer sink" adding sub-second precision breaks them
-  > silently), the `(YYYY-MM-DD HH:MM:SS)` timestamp (6 scripts, 3 of which cannot read a `,millis`
-  > form and fail by **silent skip**), anchored **message text** (~17 scripts), and the
-  > `juniper_cascor.log*` filename/rotation scheme. All of this breakage is **cross-repo — cascor's
-  > CI stays green**. See the reconciliation's N-4.
+  > scripts split worker from parent on it), the `(YYYY-MM-DD HH:MM:SS)` timestamp (6 scripts, of
+  > which **3** carry no optional `,millis` group and would fail by **silent skip** if Path A gained
+  > sub-second precision — a **disjoint set** from the two sentinel consumers), anchored **message
+  > text** (~17 scripts), and the `juniper_cascor.log*` filename/rotation scheme. All of this breakage
+  > is **cross-repo — cascor's CI stays green**. See the reconciliation's N-4.
 - **Do not fold this into a hot-path bugfix.** #573 was deliberately kept out of #563 so neither
   justifies the other; keep that separation.
 - **Log rotation already happens** (`juniper_cascor.log.1` exists in service runs) and any analysis

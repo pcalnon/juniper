@@ -60,12 +60,20 @@ headline −49 % is approximate."
 the analysis quote **1,813,318**; #598's commit-message table quotes **3,626,636**; #598's own prose
 quotes 1,813,318. Both are correct and neither supersedes the other:
 
-- **1,813,318** = calls to `Tensor.__format__` alone.
-- **3,626,636** = the whole *matched-callee set* the attribution tool targeted —
-  `Tensor.__format__`, `float.__format__`, **and** `_tensor.py:1144(__format__)`, which appears in
-  the corpus as its own caller with 1,813,210 calls (the delegation edge). 1,813,318 + 1,813,210 =
-  3,626,528, with the 108-call residue in `float.__format__`
-  (`reports/measurements-2026-08-29/format_caller_attribution.txt`, header + caller table).
+- **1,813,318** = calls to `Tensor.__format__` alone — which *is* the key
+  `torch/_tensor.py:1144(__format__)`, not a separate entry.
+- **3,626,636** = the whole *matched-callee set* the attribution tool targeted. Re-derived by summing
+  total call counts over the 32-profile corpus at `~/.local/state/juniper-experiments/census-at67d7ea35/prof`:
+
+  | key | calls |
+  | --- | --- |
+  | `torch/_tensor.py:1144(__format__)` — i.e. `Tensor.__format__` | 1,813,318 |
+  | `{method '__format__' of 'float' objects}` — the `self.item().__format__` delegation | 1,810,992 |
+  | `{function Tensor.__format__ at 0x…}` — the torch-function-override key | 2,326 |
+  | **sum** | **3,626,636** |
+
+  So the two headline figures differ by the **delegated-to callee**, not by a caller edge: each
+  `Tensor.__format__` on a 0-dim tensor delegates to `float.__format__`, roughly doubling the count.
 
 The **2,262** figure is a third population again: the calls attributed to
 `candidate_unit.py:702(_display_training_progress)` specifically — arithmetically confirmed in
@@ -230,10 +238,10 @@ scope. **STALE** = was true, overtaken. **WRONG** = not true at the time of writ
 | F-1a | `frame`/`tsp` eagerly evaluated before the level check | **CONFIRMED** | `logger.py:554-610`, all eight methods |
 | F-1b | the lazy `%`-args path exists and "essentially no call site uses it" | **STALE** | the path exists (`logger.py:520-521`); **97** call sites now use it, including in the hot files (`candidate_unit.py:855`) |
 | F-1c | the f-string cost is "the single highest-value finding" | **SUPERSEDED** | measured: the cost was one line at an *enabled* level; banked by #598 |
-| F-2 | the log file is opened per record | **CONFIRMED** | `logger.py:525-526`, retry at `:543` |
+| F-2 | the log file is opened per record | **CONFIRMED** | `logger.py:526-527`, retry at `:543` |
 | F-2b | the `FileNotFoundError` retry is correct and load-bearing | **CONFIRMED** | `logger.py:527-543`; keep it |
-| F-3 | stdout is written unconditionally; no independently disableable console sink | **CONFIRMED, and under-stated** | `logger.py:523`. See N-1: it is a 2× write amplification, not only an ergonomics issue |
-| F-4a | two formatter closures built per record | **CONFIRMED** | `logger.py:521-522` |
+| F-3 | stdout is written unconditionally; no independently disableable console sink | **CONFIRMED, and under-stated** | `logger.py:523`. See N-1: under the juniper-ml launchers it is a **1.89×** write amplification on Path-A records, not only an ergonomics issue; it does not apply to the deployed service |
+| F-4a | two formatter closures built per record | **CONFIRMED but UNDER-COUNTED — seven, not two** | `_logging_message` ×2 (`logger.py:521,522`), plus a `_frame_info` and a `_date` closure inside **each** of `_console_dict` (`:302,303`) and `_file_dict` (`:320,321`), plus `_get_log_level`'s lambda (`:391`, built at `:516`). The two named are the two cheapest; the last is allocated **per call**, before the filter, so it is paid on the 91 % discarded |
 | F-4b | `_is_valid_level_name` is 2.66 % of worker self time | **BANKED** | #598's `_resolve_level_number` memoisation |
 | §4 D-1 | expose an `is_enabled_for(level)` predicate | **REFINED, not refuted** (a proposal has no truth value) | A predicate exists — `Logger.isEnabledFor`, since PR #116 (`logger.py:1027`) — already used at 8 sites in `candidate_unit.py`, so the *machinery* half is met. Unmet: it takes an **integer** where D-1 proposed a **symbolic** argument, and — decisively — it reads different state than the emit filter (N-3) |
 | §4 D-2 | "Candidate workers are **forked** from the parent"; strategy hinges on "opened lazily on first write **after fork**" | **WRONG** | the pool is **forkserver** by default (`cascade_correlation.py:1103-1109`). The in-source comment even records the correction: *"(Issue #569: an earlier comment here said the code used the 'fork' context — it never did on this path.)"* See N-2 |
@@ -246,7 +254,7 @@ scope. **STALE** = was true, overtaken. **WRONG** = not true at the time of writ
 | §6-c | "Log rotation already happens… a rotating file sink must keep that behaviour predictable" | **CONFIRMED and EXPLAINED** | the rotator is **Path C**: `api/observability.py:110` names `log_dir / "juniper_cascor.log"` and `:111-115` wraps it in a `RotatingFileHandler` at 10 MB / 5 backups (`constants_logging.py:276-277`) — the same file Paths A and B write. `logs/` holding exactly `.1`…`.5` matches `backupCount=5`. See N-9 |
 | §7 dec. 2 | flush per record — *"a complete log for a crashed run outweighs the throughput; a truncated log is how several analyses in this arc went wrong"* | **CONFIRMED as a decision, rationale intact** | Path A already achieves it by closing the file every record. The rationale must travel with the decision: per-record flush is the obvious thing to trade away once an I/O cost is measured |
 | §7 dec. 3 | per-process file handle, opened lazily **on first write after fork**; provisional | **PREMISE REFUTED, DECISION SALVAGEABLE** | the premise is `fork`; the pool is `forkserver` (N-2). The decision's *shape* survives, but "after fork" must be re-read as "after forkserver start", and the `O_APPEND` requirement from the same section is what makes it safe at all. **Never formally re-issued against the corrected process model** |
-| §7 dec. 5 | call-site migration scope — *"Still owner's call"* | **STILL OPEN, STILL THE OWNER'S** | the analysis it was deferred pending has been delivered and its recommendation overturned by measurement, so the decision is now *ripe* — but it has not been taken. It is **not** discharged by this roadmap; carried to roadmap §12 |
+| §7 dec. 5 | call-site migration scope — *"Still owner's call"* | **STILL OPEN, STILL THE OWNER'S** | the analysis it was deferred pending has been delivered and its recommendation overturned by measurement, so the decision is now *ripe* — but it has not been taken. It is **not** discharged by this roadmap; carried to roadmap §13 item 6 |
 | §7 dec. 4 | keep console on stdout | **CONFIRMED as a decision** | but `juniper_observability.configure_logging` uses **stderr** (`logging.py:75`), so "keep stdout" is a divergence from the shared library, not alignment with it |
 | §7.1 | the swallowed-pytest problem is unexplained | **CONFIRMED, still unexplained** | untouched since |
 
@@ -256,19 +264,19 @@ scope. **STALE** = was true, overtaken. **WRONG** = not true at the time of writ
 
 | # | claim | verdict | evidence |
 | --- | --- | --- | --- |
-| §3 | 1,885 call sites, 879 f-strings | **CONFIRMED to method** | at `70edfc4` a broader regex gives 1,943 / 870 excluding tests. Per-file counts at `67d7ea35` vs HEAD differ by **+2 records total** — the surface has not moved |
-| §3 | "36 % of call sites… in two files"; "the expensive sites are concentrated in two files" | **ARITHMETIC WRONG, CONCLUSION STRENGTHENED** | the denominator includes **472 dead** sites (N-6) and **250 stdlib-bound** sites in `src/api/`. Excluding them **raises** the two-file concentration to **46.2 %**, or **55.7 %** of live Path-A sites (§3.1) — the correction *confirms* the claim. The real defect is the **file set**: `spiral_problem.py`'s 264 sites are omitted; three files reach **64.2 % / 77.3 %** |
+| §3 | 1,885 call sites, 879 f-strings | **CONFIRMED to method** | at `70edfc4` a broader regex gives 1,943 / 905 excluding tests (870 f-strings once the dead `backups/` tree comes out too). Per-file counts at `67d7ea35` vs HEAD differ by **+2 records total** — the surface has not moved |
+| §3 | "36 % of call sites… in two files"; "the expensive sites are concentrated in two files" | **DENOMINATOR WRONG, CONCLUSION STRENGTHENED** (672/1,885 is right on its own denominator; the *population* is wrong) | it includes **472 dead** sites (N-6) and **250 stdlib-bound** sites in `src/api/`. Excluding the 472 raises the two-file concentration to **46.2 %**; excluding the 250 too, to **55.7 %** (§3.1). The real defect is the **file set**: `spiral_problem.py`'s 264 sites are omitted |
 | §3 | 146 tensor-ish interpolations (heuristic) | **CONFIRMED as a heuristic, and refuted as a proxy** | reproduces today at 127 in the two files (+45 in the omitted third). The measured answer was **one line**. The heuristic overstated by ~two orders of magnitude — exactly what its own G-1 warned |
 | §4 A/B | `%`-conversion hazards §5.1–5.4 | **CONFIRMED** and still the right reason to refuse Option B | |
 | §5.4 | "conversion bugs are not discoverable by the ordinary test suite" — level-gated failures hide | **CONFIRMED, and it has already happened — to the guards, not the conversions** | N-3 |
 | §6 | recommendation "C + D as the standing idiom, A as the immediate work" | **PARTIALLY OVERTAKEN** | step 1 (logger internals) and step 2 (measure first) both happened; step 3's premise — that the expensive sites are in that ~146 — is refuted |
 | §8 Q2 | "Should `is_enabled_for` be public API? …the current class exposes no such predicate" | **HALF ANSWERED** — the existence half only | A predicate exists (`isEnabledFor`, `logger.py:1027`), so the second clause is wrong. **The question itself — should there be a documented, supported predicate that call sites are directed to use — is still open**, and N-3 re-raises its substance: an integer-taking `isEnabledFor` is what let the wrong integers ship. Carried to roadmap P1.1 |
-| §8 Q4 | "Is `logger.debug` suppressed in production?" | **ANSWERED: yes** | default resolves to INFO (`constants.py:663-668`); `_filter_by_level` requires `level_num >= log_level_num`, so DEBUG(10) < INFO(20) is discarded. **517 live `logger.debug` sites** (§3.1) are suppressed by default; **919** counting `trace` and `verbose`. The analysis's 707/1,255 include the dead `backups/` tree |
+| §8 Q4 | "Is `logger.debug` suppressed in production?" | **ANSWERED: yes** | default resolves to INFO (`constants.py:663-668`); `_filter_by_level` requires `level_num >= log_level_num`, so DEBUG(10) < INFO(20) is discarded. **470 Path-A `logger.debug` sites** — 517 live less the 47 in `src/api/`, which are stdlib-bound and suppressed by a different mechanism; **872** counting `trace` and `verbose`. The analysis's 707/1,255 include the dead `backups/` tree |
 | §7 G-1 | get the real hot-site list from the profile | **DISCHARGED**, and it changed the recommendation | GATED-MEASUREMENTS §3 |
 | §7 G-3 | "Identical bytes is the acceptance criterion" | **CONTRADICTED BY SHIPPED PRACTICE** | #598 deliberately changed message *content* (`Norm Output: tensor([…])` → `shape=… l2=…`). The criterion must be restated as record-*envelope* stability plus a named-marker inventory — N-4 |
 | §7 G-5 clause (i) | "mirror `log_config` into `juniper-cascor-model`… byte-gated by `test_drift`" | **WRONG for `logger.py`, RIGHT for the other three** | mirroring `logger.py` **fails** `test_intentional_divergences_actually_differ`; #598 hit this and reverted. But `log_config/__init__.py`, `log_config/log_config.py` and `log_config/logger/__init__.py` **are** byte-gated and must be mirrored. N-5 |
 | §7 G-5 clause (ii) | "pre-commit's black hook covers only `src/`, so it reformats one side of the pair — re-sync after every pre-commit run" | **FULLY CORRECT — retain** | independently confirmed by #598's PR body. Carried unchanged as roadmap P1-G2. **Deleting G-5 wholesale would lose this trap**, which is why clause (i)'s narrowing is stated separately |
-| §7 G-6 | one PR per file | **CONFIRMED** | `cascade_correlation.py` (504 sites) and `candidate_unit.py` (172) are separately reviewable; together they are not |
+| §7 G-6 | one PR per file | **CONFIRMED** | `cascade_correlation.py` (508 sites) and `candidate_unit.py` (172) are separately reviewable; together they are not |
 
 ---
 
@@ -294,8 +302,9 @@ daemon's json-file log outside the log dir; a terminal CLI run writes nothing ex
 | `juniper-cascor.log` — stdout capture | 77,790 | 11,889,782 |
 
 Record counts reproduce exactly; bytes differ because the console formatter drops the function name
-(`constants_logging.py:157`). Removing the `print()` recovers **11.89 MB of the run's 27.07 MB — 44 %**,
-i.e. **1.89×**, not 2×.
+(`constants_logging.py:157`). Removing the `print()` recovers **11.89 MB of the run's 27.07 MB — 44 % of all log bytes**.
+Measured on Path-A records alone it is a **1.89×** write amplification (25.21 MB written for 13.32 MB
+of records), not 2×.
 
 **The 3.3 GB resident figure is real but historical, and mostly a third harness.** Splitting
 `juniper-cascor/logs/` by writer: the file sink's `juniper_cascor.log*` is 249 MB (the real log, not
@@ -409,8 +418,7 @@ consumers:
 | --- | --- | --- |
 | `[file.py: func:LINE]` prefix | **NOT breaking** | none — anchoring on it is a *documented prohibition* ("methodology rule 5") stated in four scripts after the 2026-08-20 incident. Searched for regex, `split`, `awk -F']'`, `cut -d']'` and `funcName` consumers; found none |
 | **the `+` sentinel** | **BREAKING** | **2 scripts** — `juniper-ml/util/ad-hoc/2026-08-25_cascor_stop_during_training_repro.bash:309` and `util/ad-hoc/2026-08-26_t6_stop_evidence_scan.py:103` both do `line.startswith("+")` to split **worker from parent** lines. It carries the orphaned-worker signal; remove or relocate it and `last_worker_ts` goes null **silently** |
-| **Path A's absence of milliseconds** | **BREAKING** | the same 2 scripts use "no `,millis`" as the same parent/worker discriminator. **A "richer sink" that adds sub-second precision to Path A breaks them identically and silently** |
-| `(YYYY-MM-DD HH:MM:SS)` timestamp | **BREAKING** | **6** scripts compile a regex and `strptime` it: 3 tolerate an optional `,millis`, **3 do not** — and the intolerant failure mode is a **silent skip** (`re.search` misses, the line is dropped), not an exception |
+| `(YYYY-MM-DD HH:MM:SS)` timestamp | **BREAKING for 3 of 6** | 3 of the 6 parsers carry `(?:,(\d{3}))?` and tolerate sub-second precision; **3 do not**, failing by **silent skip** rather than exception: `2026-08-16_h2h_collect.py:55`, `2026-08-16_h2h_phase_split.py:47`, `2026-08-20_determinism_nrun.py:109`. **Disjoint from the two `+`-sentinel consumers**, which are tolerant |
 | anchored **message text** | **BREAKING** | ~17 juniper-ml scripts; #573's body states this as the rule, naming the **phase-split and determinism tooling** as the victims |
 | `logs/juniper_cascor.log*` filename + rotation scheme | **BREAKING** | ~17 scripts glob it |
 
@@ -469,10 +477,10 @@ analysis." This is the mechanism behind that.
 **Why the rollover fires late, and why the live file is nearly empty.** `RotatingFileHandler` checks
 size **only when it emits**. Path C emits ~21 records per run while Path A writes ~78,000 outside its
 accounting, so the check is consulted ~21 times against a file being inflated out of band. That
-explains both observations in §3 at once: the rotated `.1` is **15,161,801 B against a 10 MB
-threshold** (and `logs/` holds files at 41 MB and 129 MB), and the live `juniper_cascor.log` is
+explains both observations in §3 at once: the rotated `.1` is **15,161,801 B against a 10 MiB
+threshold — 45 % over** (and `logs/` holds files at 41 MB and 129 MB), and the live `juniper_cascor.log` is
 **2,122 B of 21 non-`+` records** — Path C rolled over and then wrote only its own handful of records
-into the new file. Two independent reviewers reached this mechanism from the same artifacts.
+into the new file. Two Lane-B reviewers (the evidence lens and the executability lens) reached this mechanism independently from the same artifacts; it is recorded in §8's round-1 table.
 
 **N-8 — the test net exists but the emit path is stubbed out for the whole suite.** There are
 ~1,441 lines of logger tests — `test_logger_coverage.py` (723), `test_logger_extended.py` (569),
@@ -486,7 +494,7 @@ def _cache_logging_system():
     @classmethod
     def _noop_log_at_level(cls, **kwargs):
         pass
-    Logger._log_at_level = _noop_log_at_level          # conftest.py:924-926
+    Logger._log_at_level = _noop_log_at_level          # conftest.py:924-927
 ```
 
 **`Logger._log_at_level` is replaced by a no-op for the entire pytest session**, autouse, session
@@ -524,22 +532,29 @@ Two controls that make the §3 finding checkable, and that support N-3:
 - **Arithmetic confirmation**: the run log contains **1,131** emitted `Norm Output:` lines × 2 tensors
   = **2,262** attributed `__format__` calls — exactly the attributed count, not an inference.
 - **The log contains zero VERBOSE records**, so the neighbouring unguarded `logger.verbose` line
-  contributed nothing. This is also the direct evidence that N-3's mis-numbered guards are **latent
-  at the production level** rather than actively mis-emitting.
+  contributed nothing. Note what this does **not** show: a record count measures the *emit* path, and
+  N-3 establishes that the guard path reads separate state — so this says the emit threshold was INFO
+  and says nothing about guard state. (N-3's "latent" claim rests on the guarded blocks containing
+  only `.trace()` calls, which is a property of the code, not of this log.)
 
 ### The residual uncertainty, restated because Phase 0 depends on it
 
 GATED §3 states a limit on its own instrument, and it constrains what Phase 0 can promise:
 
 > f-string *construction* cost for the 587,617 discarded records is inline in each calling function's
-> own self time and is therefore **not separately attributable** from this corpus… A true bound would
-> need a build with the log calls removed outright, which is not cheaply obtainable; raising
-> `CASCOR_LOG_LEVEL` does **not** measure it, because arguments are evaluated at the call site
-> regardless of level.
+> own self time and is therefore **not separately attributable** from this corpus. **It is bounded
+> small by the finding that the only expensive interpolation in the hot path — tensor formatting — is
+> entirely in the emitted INFO line.** A true bound would need a build with the log calls removed
+> outright, which is not cheaply obtainable; raising `CASCOR_LOG_LEVEL` does **not** measure it,
+> because arguments are evaluated at the call site regardless of level.
 
 **Two consequences.** (1) Caller attribution can give the *emitted* share and the discard *count*, but
-**not** the construction cost of discarded records — so no phase may set that as an acceptance
-criterion. (2) The disabled-logging A/B was **already considered and rejected**: it gives total
+**not** a number for the construction cost of discarded records — so no phase may set that as an
+acceptance criterion. Note the bound, though: GATED already argues the quantity is **small**, because
+the only expensive interpolation in the hot path was in the emitted INFO line. The rule is "promise no
+number", not "treat it as unknown" — which matters to §13 decision 1 of the roadmap, since a small
+unmeasurable residue plus a measured 2.8 % filter is already an argument for dropping further
+logger-internal work. (2) The disabled-logging A/B was **already considered and rejected**: it gives total
 logging cost but "cannot separate discarded from emitted records, which is precisely the split that
 was being asked for." The design's §5 still proposes it un-retracted at the sentence level; it should
 not be reached for.
@@ -552,7 +567,7 @@ not be reached for.
    resident — but bytes-per-record and the duplication factor are not characterised.
 4. ~~**Which mechanism rotates `juniper_cascor.log`.**~~ **ANSWERED — N-9.** Path C's
    `RotatingFileHandler`, 10 MB / 5 backups, on the file all three paths share. What remains
-   unmeasured is *why the rollover fires 52 % late*, and how many Path-B records are lost to a
+   unmeasured is *why the rollover fires ~45 % late*, and how many Path-B records are lost to a
    held descriptor after a rename.
 5. **Whether Path A records can tear** under concurrent forkserver-child appends.
 6. **The swallowed-pytest mechanism** (design §7.1), untouched.
@@ -590,19 +605,40 @@ materially and the changes are recorded in place, not appended:
 | N-3's mechanism | **rewritten.** Two reviewers independently found that `isEnabledFor` and `_filter_by_level` read **disjoint state**, and that `set_level()` is a no-op for emission — a larger defect than the wrong integers, found by *running* the logger rather than reading it |
 | N-3's manifestation | **reversed.** "Emits TRACE-guarded blocks at VERBOSE" is false; the guarded blocks contain only `.trace()` calls. It is a performance defect with no output change |
 | N-1's scope | **narrowed.** The deployed service does not redirect stdout into the log dir; only the juniper-ml launchers do. Magnitude corrected 2× → **1.89×**; the 3.3 GB attributed to a third harness and marked historical |
-| N-4's `+`-sentinel row | **reversed.** Two scripts *do* consume it, and also consume Path A's *absence* of milliseconds — so a "richer sink" adding sub-second precision breaks them silently. Timestamp parsers recounted 5→**6** |
+| N-4's `+`-sentinel row | **reversed.** Two scripts *do* consume the sentinel. Round 1 also claimed they consume Path A's *absence* of milliseconds; **round 2 refuted that** — see below. Timestamp parsers recounted 5→**6** |
 | N-8 | **reversed.** A session-scoped autouse fixture stubs `Logger._log_at_level` to a no-op, so "the suite is green" is vacuous for the emit path |
 | §3's Path-A reach | **corrected.** `src/api/`'s 250 sites are stdlib-bound, so a call-site count is not a Path-A count |
 | §4 §6-a, §5 "36 %", §5 Q2, §5 G-5, §4 D-1 | **verdicts softened.** Each was over-harsh: the original was right about more than the verdict allowed, and in the "36 %" case the correction *strengthens* the claim it was attached to |
 | §2 "nothing decomposes it" | **withdrawn.** #598's PR body decomposes `_filter_by_level` post-fix at 1.20 s / 2.8 % |
 | dropped inheritance | **restored** as §6.1 — the pre-#598 baseline table, per-level histogram, 91 % discard rate, the arithmetic control, and GATED's residual-uncertainty limit |
 
-**Round 2** is briefed on these corrections specifically, per the procedure's rule that the fix pass
-is the least trustworthy part of any document.
+**Lane B round 2 — briefed on the corrections, not on the document.** It returned **24 defects, and
+it was right about the premise**: the fix pass introduced new errors. The ones that changed meaning:
+
+| what round 2 found in round 1's fixes | resolution |
+| --- | --- |
+| The `__format__` reconciliation was **arithmetic coincidence**. `_tensor.py:1144(__format__)` *is* `Tensor.__format__`, not a third callee, and `float.__format__` has **1,810,992** calls, not the 108 claimed | re-derived from the 32-profile corpus with `pstats`; §2's table is now the measured decomposition. The two figures differ by the **delegated-to callee**, not a caller edge |
+| **The restored "absence of milliseconds" hazard is false.** Both `+`-sentinel scripts compile `(?:,(\d{3}))?` — the group is explicitly optional, and both are among the *tolerant* parsers | row deleted from N-4; the roadmap's P3-G7 rewritten to guard the sentinel and the timestamp as **disjoint** surfaces. **This was a round-1 correction accepted without re-derivation — the exact failure the procedure names, committed while applying the procedure** |
+| The GATED quote's `…` elided *"It is bounded small by the finding that the only expensive interpolation… is entirely in the emitted INFO line"* — turning a bounded caveat into an open one | sentence restored; the derived rule softened from "unknown" to "promise no number, but it is known to be small" |
+| The restored zero-VERBOSE control acquired a gloss claiming it evidences N-3's latency. A record count measures the **emit** path; N-3 is about the **guard** path | gloss replaced with what the control actually shows |
+| `1,943 / 870` mixed two denominators, in the very section that promises not to | corrected to `1,943 / 905` |
+| The "36 %" verdict still read **ARITHMETIC WRONG**; the arithmetic is right, the *population* is wrong | re-labelled **DENOMINATOR WRONG**; the two exclusions separated (46.2 % / 55.7 %) |
+| F-4a still said "two closures" while the roadmap cited it for "seven"; F-3 still said "2×" after N-1 was corrected to 1.89× | both verdict rows updated; the seventh closure re-classed as **per call**, not per emitted record — it is the most frequent of the seven |
+| 44 % and 1.89× were joined by "i.e."; they are ratios over different bases | separated |
+| Q4's Path-A/stdlib split was not propagated: 47 of the 517 `debug` sites are in `src/api/` and governed by a different mechanism | corrected to 470 Path-A / 872 suppressed |
+| "52 % late" used 10⁷ B where the constant is 10 **MiB** | corrected to ~45 % |
+| N-9's "two independent reviewers" had no counterpart in this section; §9 was cited where §8 exists; decision 5's pointer named the wrong roadmap section | all three fixed |
+
+Also corrected: line anchors (`logger.py:526-527`, `conftest.py:870-927`, `test_drift.py:78`), and in
+the roadmap a set of stale `P3.3`/`P3.4` references left by round 1's own reordering — including a
+trap that, after the reorder, instructed the exact ordering it was written to prevent.
+
+**Termination.** Round 2's remaining findings were anchor and pointer slips that change no number,
+disposition or action. Round 3 is not warranted on this material.
 
 ---
 
-## 10. References
+## 9. References
 
 - [cascor#573](https://github.com/pcalnon/juniper-cascor/issues/573) — the issue; owner scope, the message-text anchoring rule, the 637 MB leg. **OPEN, zero comments, untouched since 2026-08-24**
 - [cascor#598](https://github.com/pcalnon/juniper-cascor/pull/598) (`64ff9ab8`) — the shipped remediation and its post-fix numbers
