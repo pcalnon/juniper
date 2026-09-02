@@ -1,11 +1,11 @@
 # Juniper-Canopy — Selection Reachability: Remediation Design
 
-**Project**: Juniper — juniper-canopy
-**Author**: Paul Calnon
-**Date**: 2026-09-02
-**Status**: Design of record for the remediation — open questions in §10
-**Amends**: [`JUNIPER_2026-06-17_JUNIPER-CANOPY_MODEL-DATASET-SELECTION-DESIGN.md`](JUNIPER_2026-06-17_JUNIPER-CANOPY_MODEL-DATASET-SELECTION-DESIGN.md)
-**Evaluation of record**: [`JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md`](JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md)
+- **Project**: Juniper — juniper-canopy
+- **Author**: Paul Calnon
+- **Date**: 2026-09-02
+- **Status**: Design of record for the remediation — open questions in §10
+- **Amends**: [`JUNIPER_2026-06-17_JUNIPER-CANOPY_MODEL-DATASET-SELECTION-DESIGN.md`](JUNIPER_2026-06-17_JUNIPER-CANOPY_MODEL-DATASET-SELECTION-DESIGN.md)
+- **Evaluation of record**: [`JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md`](JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md)
 
 Guardrail identifiers **G1–G6** and defect identifiers **X1–X6 / Y1–Y9** are defined in the
 evaluation document (its §8 and §6) and are used here with the same meaning.
@@ -60,17 +60,17 @@ is a prerequisite of `⊥`, not an enhancement.
 
 ## 3. Decisions
 
-| id | decision |
-| --- | --- |
-| **N1** | **Reachability is a stated invariant, not an emergent property.** `I-cover` and `I-safe` (§2) are written down, tested at handler level, and fail the build when violated. The design of record's silence on reachability is the root omission. |
-| **N2** | **Restore the unset dataset state (implements ratified D4/FR6, in part).** `clearable=True` on the sidebar dataset dropdown. §5.5 of the design of record specifies **two** affordances; only the dropdown ✕ is in scope here (see OQ-N6). |
-| **N3** | **The gate stays symmetric and hard (upholds D2/FR5 unchanged).** No `disabled` predicate is relaxed. Family F2 would have amended this, and both adversarial rounds rejected that amendment (evaluation §5.1, §7). |
-| **N4** | **Name the consequence at the locus, in rendered content.** Never via `title=`, which §8 of the design of record rules out and which Y7 shows is a dead accessibility channel here. |
-| **N5** | **A model whose displayed identity differs from the live backend is a defect, not a display lag.** The UI reads `swapped` and `backend`. Silent misattribution is worse than a blocked control for a benchmarking platform (X1). |
-| **N6** | **Fail closed and say so.** The `ok=True`-then-fail-in-thread pattern (`recurrence_backend.py:154-156`) is not acceptable on a newly-reachable path. |
+| id     | decision                                                                                                                                                                                                                                                               |
+|--------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **N1** | **Reachability is a stated invariant, not an emergent property.** `I-cover` and `I-safe` (§2) are written down, tested at handler level, and fail the build when violated. The design of record's silence on reachability is the root omission.                        |
+| **N2** | **Restore the unset dataset state (implements ratified D4/FR6, in part).** `clearable=True` on the sidebar dataset dropdown. §5.5 of the design of record specifies **two** affordances; only the dropdown ✕ is in scope here (see OQ-N6).                             |
+| **N3** | **The gate stays symmetric and hard (upholds D2/FR5 unchanged).** No `disabled` predicate is relaxed. Family F2 would have amended this, and both adversarial rounds rejected that amendment (evaluation §5.1, §7).                                                    |
+| **N4** | **Name the consequence at the locus, in rendered content.** Never via `title=`, which §8 of the design of record rules out and which Y7 shows is a dead accessibility channel here.                                                                                    |
+| **N5** | **A model whose displayed identity differs from the live backend is a defect, not a display lag.** The UI reads `swapped` and `backend`. Silent misattribution is worse than a blocked control for a benchmarking platform (X1).                                       |
+| **N6** | **Fail closed and say so.** The `ok=True`-then-fail-in-thread pattern (`recurrence_backend.py:154-156`) is not acceptable on a newly-reachable path.                                                                                                                   |
 | **N7** | **OQ-6 remains open.** This design does not choose a conflict-policy default; it makes OQ-6 *answerable*, since under `clearable=False` both policies in §5.6 of the design of record were unimplementable — both say *clear*, and a null dataset was not expressible. |
-| **N8** | **The empty compatible∩available set is an explicit state.** It renders a recovery affordance, never `no_update`. |
-| **N9** | **A control that cannot be honoured is disabled at the control, not discovered at the backend.** Start requires a dataset (X5); Apply Dataset requires a dataset (X4). |
+| **N8** | **The empty compatible∩available set is an explicit state.** It renders a recovery affordance, never `no_update`.                                                                                                                                                      |
+| **N9** | **A control that cannot be honoured is disabled at the control, not discovered at the backend.** Start requires a dataset (X5); Apply Dataset requires a dataset (X4).                                                                                                 |
 
 ---
 
@@ -171,17 +171,17 @@ call site and surface a real message; full fix is a `stage_dataset` implementati
 Specified to **fail on today's code**, which the guardrail everyone first proposed did not
 (evaluation §5.2). Identifiers match the evaluation's §8.
 
-| id | test | status before | status after |
-| --- | --- | --- | --- |
-| **G1a** | BFS the composed transition relation; assert `Reach ⊇ compatible ∩ available` | fails (5 of 6) | passes |
-| **G1b** | same BFS; assert `Reach ⊆ compatible ∪ {(m, ⊥)}` | passes | passes — **fails under F2** |
-| **G1c** | G1a/G1b over a synthetic **≥3-component** registry | fails (2 unreachable) | passes |
-| **G1d** | G1a/G1b with an **injected all-unavailable** generator list | fails (parks) | passes **vacuously for `⊥`** — asserts the recovery state, not reachability |
-| **G2** | no committed pair with `compatible()` False is reachable | passes | passes |
-| **G3** | empty compatible∩available renders recovery, not `no_update` | fails | passes |
-| **G4** | canopy `DATASET_TYPES` maps onto juniper-data `GENERATOR_REGISTRY` **through `generator_name_for_type`** | **fails** (`spirals`/`moons` are not keys) | passes |
-| **G5** | model summary reflects `swapped is False` | fails | passes |
-| **G6** | Start disabled at `⊥` | fails | passes |
+| id      | test                                                                                                     | status before                              | status after                                                                |
+|---------|----------------------------------------------------------------------------------------------------------|--------------------------------------------|-----------------------------------------------------------------------------|
+| **G1a** | BFS the composed transition relation; assert `Reach ⊇ compatible ∩ available`                            | fails (5 of 6)                             | passes                                                                      |
+| **G1b** | same BFS; assert `Reach ⊆ compatible ∪ {(m, ⊥)}`                                                         | passes                                     | passes — **fails under F2**                                                 |
+| **G1c** | G1a/G1b over a synthetic **≥3-component** registry                                                       | fails (2 unreachable)                      | passes                                                                      |
+| **G1d** | G1a/G1b with an **injected all-unavailable** generator list                                              | fails (parks)                              | passes **vacuously for `⊥`** — asserts the recovery state, not reachability |
+| **G2**  | no committed pair with `compatible()` False is reachable                                                 | passes                                     | passes                                                                      |
+| **G3**  | empty compatible∩available renders recovery, not `no_update`                                             | fails                                      | passes                                                                      |
+| **G4**  | canopy `DATASET_TYPES` maps onto juniper-data `GENERATOR_REGISTRY` **through `generator_name_for_type`** | **fails** (`spirals`/`moons` are not keys) | passes                                                                      |
+| **G5**  | model summary reflects `swapped is False`                                                                | fails                                      | passes                                                                      |
+| **G6**  | Start disabled at `⊥`                                                                                    | fails                                      | passes                                                                      |
 
 Two specification notes that cost round 1 a defect each:
 
@@ -223,11 +223,11 @@ untouched here but means the lane is not clean.
 
 ## 7. Phasing
 
-| PR | contents | rationale |
-| --- | --- | --- |
-| **1** | §4.4 (X1 model-state truth) + **G5** | Must precede reachability. Independently correct; shippable alone. |
+| PR    | contents                                                                                   | rationale                                                                                                                                |
+|-------|--------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| **1** | §4.4 (X1 model-state truth) + **G5**                                                       | Must precede reachability. Independently correct; shippable alone.                                                                       |
 | **2** | §4.1 ✕ + §4.2 guard + §4.8 Start gate + §4.3 naming + §4.7 empty-set + **G1a–G1d, G3, G6** | The reachability fix and its invariant, landed together. **Land G1a red first**, then green it. §4.8 is a prerequisite, not a follow-up. |
-| **3** | §4.5 restart modal + §4.6 alias + §4.9 staging + **G2, G4** | Activated by PR 2; smaller and independently reviewable. |
+| **3** | §4.5 restart modal + §4.6 alias + §4.9 staging + **G2, G4**                                | Activated by PR 2; smaller and independently reviewable.                                                                                 |
 
 If PR 3 cannot land with PR 2, the restart modal must be **quarantined** (its dataset field
 disabled) in PR 2 rather than left inverted.
@@ -264,17 +264,45 @@ gap stays visible.
   invokes `RecurrenceBackend.stage_dataset`. **It does not** — the failure fires on **Apply
   Dataset**; one-shot Start bypasses staging. Round 1 recorded this as unresolved dissent, which
   was itself an error: two reviewers were describing different controls. Carried as work item §4.9.
+  - Response: already resolved.
+
 - **OQ-N2** — should `⊥` be the *mount* state rather than a transit state? It would make the first
   interaction an explicit choice and remove the seeded-default asymmetry, at the cost of an extra
   click for the common case and an FR15 interaction.
+  - Response: it should be the mount state for normal canopy operations.
+  demo mode should continue to auto-load the default spiral dataset.
+  this apporoach honors the fundamental design philosophy of the juniper project: power and flexibility over simplicity for the research platform--as normally utilzed--and a simpler, works-out-of-the-box user experience for demo mode.
+  Specifically, the demo mode design should enable processing of an actual, live dataset, defaulting to dog-fooding the platform code and infrastruture, and minimizing custom, demo-only code or local versions of functions that exist elsewhere in the platform.
+
 - **OQ-N3** — *(narrowed)* §4.8 settles that Start must be gated at `⊥`. Remaining: should Apply
   Dataset be disabled at `⊥` (§4.2 assumes yes), or should `⊥` be non-committable by construction?
+  - Response: yes, apply dataset should be disabled when no dataset has been selected or dataset selection has been cleared.
+
 - **OQ-N4** — is the §5.6 notice a toast, an inline alert, or a persistent annotation? N4 fixes the
   *locus*, not the form.
+  - Response: let's go with a toast when the gate fails and a persistent error message until the situation is resolved.
+
 - **OQ-N5** — the browser falsifier is still open (evaluation §9): no agent clicked the greyed
   option in a live DOM, because canopy accepts TCP on 8050 but never responds. Cheapest remaining
   check.
+  - Response: in the interest of being thorough, and avoiding the introduction of subtle gaps, let's perform the check.
+
 - **OQ-N6** — D4's **second** affordance, the "clear model / show all" reset on the model surface
   (§5.5 of the design of record), is NO ARTIFACT and out of scope here. Ship it, or descope it on
   the record — it should not remain silently unbuilt a second time, which is how this defect
   arose.
+  - Response: we should ship the "clear model / show all" reset.
+
+---
+
+## 11. Notes
+
+### Revaluation of scope-of-work, prioritization of fixes, and overarching goals for this development plan
+
+the ten unseeded generators represent a substantial gap between the project requirements, along with their corresponding implementation of functionality, and the reality of the research platform as it currently exists.
+the availability of all of the specified datasets is critical if the juniper research platform is to be actually useful.
+while the missing generators might have been overshadowed by the work-flow deadlock initially, i would argue that they are, effectively, just as critical a defect in the juniper platform.
+as such, i'd like to include the dataset defects in this work arc and design, even if added as a second iteration of work.
+getting the platform to a usable state--without the current gaps in required functionality--is my primary goal for this development plan and this work arc.
+
+---
