@@ -62,7 +62,7 @@ median as the fix — and 0.5% survives that fix with ~25× margin. So the numbe
 alongside the shape, not treated as dead. The owner's own standing rider on it is recorded in §7 of
 the loaded-and-bridged results
 (`notes/JUNIPER_2026-09-01_JUNIPER-ECOSYSTEM_PF1-LOADED-AND-BRIDGED-RESULTS.md`): "come back and
-verify after this gate goes live." 
+verify after this gate goes live."
 
 **P2 has never been produced, and it PRECEDES P3.** Tier 4 of the perf-lane phasing note
 (`notes/JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md`) orders the
