@@ -1,0 +1,124 @@
+[Unit]
+# Run ONE pointer-follow soak probe.
+#
+# Protocol: notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md
+# Role analysis: notes/JUNIPER_2026-09-02_JUNIPER-ML_SOAK-SESSION-ROLE-AUTOMATION-ANALYSIS.md
+#
+# This is a USER unit, not a system unit, and that is load-bearing rather than a
+# preference. The probe must run as pcalnon with the user's Claude credentials
+# and the user's auto-memory project directory: a system unit runs as root with a
+# different HOME, so ~/.claude/projects/-home-pcalnon-.../memory/MEMORY.md does
+# not exist for it. The whole experiment measures whether a session retrieves a
+# fact from that index, so a probe that cannot see the index measures nothing.
+# That is the same class of failure that ruled out cloud routines (soak ledger
+# section 19.1).
+#
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp util/systemd/juniper-soak-probe.* ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#
+# Manual launch is retained and unchanged; this unit is additive:
+#   python3 util/soak_run_probe.py                 # direct, no systemd
+#   systemctl --user start juniper-soak-probe      # same thing, via systemd
+Description=Run one Juniper pointer-follow soak probe
+# Make a broken environment visible instead of silently re-firing into it four
+# times a day forever. The timer interval (~6h) is far longer than systemd's
+# default start-limit window (10s/5), so the built-in rate limiter never engages
+# and cannot serve as the backstop.
+OnFailure=juniper-soak-probe-failed.service
+Documentation=file:%h/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md
+
+# NO After=network-online.target here. An earlier draft had one, to avoid starting
+# a probe while offline. It was INERT: under the user manager that target does not
+# exist --
+#     systemctl --user show network-online.target -p LoadState
+#     LoadState=not-found
+# -- so the ordering was against a unit that can never become active, and the
+# offline guard it appeared to provide did not exist. An ordering dependency on a
+# not-found unit is worse than none, because it reads as a guard in review.
+#
+# If an offline guard is wanted it has to be real: a systemd-networkd-wait-online
+# equivalent reachable from --user, or a connectivity check inside the wrapper.
+
+[Service]
+Type=oneshot
+
+# The PRIMARY checkout: the auto-memory project key is derived from the working
+# directory, and this path maps to -home-pcalnon-Development-python-Juniper-juniper-ml,
+# the project whose MEMORY.md carries the rung-1 index rows. A session that cannot
+# see that index measures nothing.
+WorkingDirectory=%h/Development/python/Juniper/juniper-ml
+
+# A stale ANTHROPIC_API_KEY with no credit fails the run with "Credit balance is
+# too low" BEFORE the probe starts. The wrapper unsets it too; belt and braces,
+# because a systemd environment is assembled differently from a login shell.
+UnsetEnvironment=ANTHROPIC_API_KEY
+
+# Reaper protection key #1 must land somewhere reap_pytest_orphans.bash actually
+# scans -- it walks only these two roots. Set it explicitly so the unit does not
+# silently depend on the wrapper's default matching the reaper's default.
+Environment=JUNIPER_EXP_RUN_ROOT=%h/.local/state/juniper-experiments
+
+# PATH, explicitly, because the default one does NOT reach the claude binary.
+# Measured on this host:
+#     systemctl --user show-environment | grep ^PATH=
+#     PATH=%h/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:
+#          /sbin:/bin:/usr/games:/usr/local/games:/snap/bin
+# `claude` is at %h/.local/bin/claude, which is absent from that list, so a bare
+# `claude` in the wrapper raised FileNotFoundError before any probe started --
+# and because the run directory is created first, every firing left task.txt and
+# meta.json with no status.json: debris that reads like a crashed probe rather
+# than a launcher that never launched. The wrapper now resolves the binary
+# itself; this is belt and braces, and it also fixes any other tool the wrapper
+# may shell out to later.
+Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+
+# /usr/bin/python3 EXPLICITLY, and this is a safety property rather than a
+# preference. The orphan reaper's candidate filter is, verbatim
+# (util/reap_pytest_orphans.bash:161):
+#
+#     $2 == me && /python/ && (/JuniperC[a-z0-9]+/ || /Juniper\/worktrees\//)
+#
+# It matches against the process's CMDLINE TEXT and never inspects cwd -- ps
+# reports argv, not the working directory. So the checkout location grants no
+# immunity in either direction; the INTERPRETER PATH decides it:
+#
+#   /usr/bin/python3 util/soak_run_probe.py              -> not a candidate
+#   /opt/miniforge3/envs/JuniperCascor/bin/python3 ...   -> IS a candidate,
+#                                                          from the same cwd
+#
+# Do not "simplify" this to `python3`: if PATH ever resolves to a JuniperC*
+# conda interpreter, every probe becomes reapable and the guard pidfile below
+# becomes the only thing standing between a live probe and an unrelated sweep.
+ExecStart=/usr/bin/python3 util/soak_run_probe.py --timeout 900
+
+# Must exceed the wrapper's WHOLE sequential budget, not just its --timeout.
+# The wrapper runs dispatch (_py, 120s cap) + claude (900s) + the --reveal call
+# (_py, 120s cap) = up to 1140s. An earlier 1200 left a 60s margin, which is not
+# a margin: if systemd wins the race it cgroup-kills the wrapper BEFORE
+# status.json is written, producing the "crash, not timeout" outcome this
+# ordering exists to prevent. 1500 leaves a real one.
+TimeoutStartSec=1500
+
+# A probe that fails is data about the harness, not about the fleet: do not
+# retry automatically, or a broken environment silently burns the corpus.
+Restart=no
+
+# The probe answers a question by reading the repo; it never needs to write
+# outside its own run directory and the ledger.
+NoNewPrivileges=true
+PrivateTmp=false
+
+StandardOutput=append:%h/Development/python/Juniper/juniper-ml/logs/soak_probe.log
+StandardError=append:%h/Development/python/Juniper/juniper-ml/logs/soak_probe.log
+
+# NO [Install] section, deliberately. The .timer and .path units start this
+# service through their own Unit= line, so it never needs enabling on its own.
+# An [Install] block here is a footgun: an operator pattern-matching the timer's
+# `systemctl --user enable` onto the service would get an extra, uncoordinated
+# probe at every login and boot, outside any schedule or rate limit.
+#
+# Manual one-off runs do not need it either -- `systemctl --user start
+# juniper-soak-probe` works on a unit with no [Install].

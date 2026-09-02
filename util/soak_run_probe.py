@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one soak probe end to end: dispatch, execute, capture evidence, score-prep.
+r"""Run one soak probe end to end: dispatch, execute, capture evidence, score-prep.
 
 Project:     Juniper
 Sub-Project: juniper-ml
@@ -51,14 +51,31 @@ That last one is judgement, and a wrapper that guessed it would be scoring its
 own experiment. The script emits a scoring packet and stops. `soak_ledger.py
 probe-run` still needs a human or a separate session to supply `--outcome`.
 
-The reaper hazard
------------------
+The reaper hazard, stated correctly
+-----------------------------------
 `AGENTS.md` § Hazards: `util/reap_pytest_orphans.bash` treats reparenting to
-`systemd --user` as its orphan predicate, so anything launched under `nohup` --
-including a backgrounded probe -- is a reap candidate. Two protection keys exist
-and either suffices; this writes the first, a `*.pid` in the run directory,
-BEFORE the child can be reparented. Without it a `--background` run is liable to
-be killed mid-probe by an unrelated sweep, and a killed probe is not a miss.
+`systemd --user` as its orphan predicate. But being an orphan is only the SECOND
+half of the test. The candidate filter comes first, verbatim from
+`util/reap_pytest_orphans.bash:161`:
+
+    $2 == me && /python/ && (/JuniperC[a-z0-9]+/ || /Juniper\/worktrees\//)
+
+It matches CMDLINE TEXT and never inspects cwd -- `ps` reports argv, not the
+working directory. So where the wrapper runs from grants no immunity in either
+direction; the interpreter path decides it. `/usr/bin/python3` matches neither
+alternative and is not a candidate at all; a `JuniperC*` conda interpreter is a
+candidate from the identical directory.
+
+An earlier version of this docstring claimed immunity followed from running in
+the primary checkout. That was wrong -- cwd is structurally invisible to the
+filter -- and it mattered, because it would have made a conda-interpreter
+invocation look safe when it is not.
+
+The guard below is therefore defence for the case that filter does catch. It
+must be written where the reaper actually LOOKS: `collect_protected_pids`
+(`:93-105`) walks only `$JUNIPER_EXP_RUN_ROOT` and `$JUNIPER_E2E_RUN_DIR`, so a
+pidfile under `reports/soak/runs/` -- as the first version wrote -- is never
+read and grants nothing. A killed probe is not a miss; it is a lost run.
 
 Usage:
     python3 util/soak_run_probe.py                     # least-covered probe
@@ -77,6 +94,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess  # nosec B404 - fixed argv, no shell
 import sys
 import uuid
@@ -88,6 +106,39 @@ DISPATCH = ROOT / "util" / "soak_next_probe.py"
 LEDGER_TOOL = ROOT / "util" / "soak_ledger.py"
 RUNS = ROOT / "reports" / "soak" / "runs"
 DEFAULT_TIMEOUT = 900
+
+
+def resolve_claude() -> str:
+    """Absolute path to the `claude` binary, or exit 2 saying so.
+
+    NOT `Popen(["claude", ...])`. `subprocess` resolves a bare name against the
+    PATH in the env dict it is HANDED, and every unattended launcher hands it a
+    minimal one. Measured on this host:
+
+        systemctl --user show-environment | grep ^PATH=
+        PATH=/home/pcalnon/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:
+             /usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
+
+    `claude` lives in ~/.local/bin, which is NOT on it, so a bare name raises
+    FileNotFoundError before the probe starts. cron's environment is smaller
+    still. The first version of this script had exactly that bug, and it was
+    silent in the worst way: the run directory is created first, so each firing
+    left task.txt and meta.json with no status.json -- debris that reads like a
+    crashed probe rather than a launcher that never launched.
+    """
+    found = shutil.which("claude")
+    if found:
+        return found
+    for cand in (Path.home() / ".local/bin/claude", Path("/usr/local/bin/claude")):
+        if cand.is_file() and os.access(cand, os.X_OK):
+            return str(cand)
+    raise SystemExit(
+        "cannot find the `claude` binary. PATH as seen by this process:\n"
+        f"  {os.environ.get('PATH', '(unset)')}\n"
+        "Under systemd --user or cron this is expected: ~/.local/bin is not on the "
+        "default PATH. Set Environment=PATH=... in the unit, or install claude on "
+        "a system path."
+    )
 
 
 def _now() -> str:
@@ -188,31 +239,56 @@ def main() -> int:
     ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     ap.add_argument("--background", action="store_true", help="detach; poll the run dir")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--force", action="store_true",
+                    help="run even when the soak verdict is terminal")
     ap.add_argument("--notify-cmd", default=None,
                     help="shell-free command run on completion; the run dir is appended as argv")
     args = ap.parse_args()
+
+    # STOPPING RULE. Nothing else in the dispatch path consults the verdict, so
+    # without this an enabled timer keeps spending real Claude sessions forever --
+    # including after the soak has already reached a terminal answer, which is
+    # spend that cannot change a conclusion. Adversarial review raised this as a
+    # blocking gap in the unattended (systemd) path specifically.
+    terminal = ("BET-FAILING", "HOLDS-AT-")
+    st = _py(str(LEDGER_TOOL), "status")
+    verdict = (st.stdout.split() or [""])[0]
+    if any(verdict.startswith(t) for t in terminal) and not args.force:
+        print(f"REFUSING: soak verdict is {verdict} -- terminal. Further runs cannot "
+              f"change it and each one spends a session.\nPass --force to override "
+              f"(e.g. to re-baseline after a deliberate intervention).", file=sys.stderr)
+        return 2
 
     probe_id, task = dispatch(args.probe_id)
     session_id = str(uuid.uuid4())
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     run_dir = RUNS / f"{stamp}-{probe_id}"
 
-    cmd = [
-        "claude", "-p", task,
-        "--output-format", "stream-json",
-        "--verbose",
-        "--session-id", session_id,
-    ]
-
+    # Resolve LAZILY, after the dry-run branch. Building the command eagerly made
+    # --dry-run require the `claude` binary, so on any machine without it (every
+    # CI runner) the dry run exited 1 with empty stdout instead of describing what
+    # it would do. A dry run must not depend on the thing it is only describing.
     if args.dry_run:
         print(f"probe    : {probe_id}")
         print(f"session  : {session_id}")
         print(f"run dir  : {run_dir}")
         print(f"timeout  : {args.timeout}s")
-        print("command  : claude -p <task> --output-format stream-json --verbose --session-id <uuid>")
+        try:
+            binary = resolve_claude()
+        except SystemExit:
+            binary = "NOT FOUND on this PATH (fine for a dry run; fatal for a real one)"
+        print(f"claude   : {binary}")
+        print("command  : <claude> -p <task> --output-format stream-json --verbose --session-id <uuid>")
         print("\nThe task is NOT printed here: this script's own stdout is read by operators,")
         print("and echoing the task where a scorer can see it is how priming leaks back in.")
         return 0
+
+    cmd = [
+        resolve_claude(), "-p", task,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--session-id", session_id,
+    ]
 
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "task.txt").write_text(task + "\n", encoding="utf-8")
@@ -234,7 +310,32 @@ def main() -> int:
             start_new_session=args.background,
         )
         # Reaper protection key #1, written BEFORE the child can be reparented.
+        #
+        # It must go in a directory the reaper actually SCANS. `collect_protected_pids`
+        # in util/reap_pytest_orphans.bash walks only $JUNIPER_EXP_RUN_ROOT and
+        # $JUNIPER_E2E_RUN_DIR (`find <root> -maxdepth 3 -name '*.pid'`). The first
+        # version of this wrapper wrote the pidfile into reports/soak/runs/ inside the
+        # repo -- in neither root -- so it granted ZERO protection while reading like
+        # a mitigation. A protection artifact that does not protect is worse than an
+        # acknowledged gap, because it stops anyone looking again.
+        #
+        # The run-dir copy is kept as well: it is what an operator polls, and it is
+        # the second documented protection key (a cmdline referencing a run root)
+        # for anything that reads it.
         (run_dir / f"probe-{proc.pid}.pid").write_text(f"{proc.pid}\n", encoding="utf-8")
+        reaper_root = Path(
+            os.environ.get("JUNIPER_EXP_RUN_ROOT", str(Path.home() / ".local/state/juniper-experiments"))
+        ) / "soak-probes"
+        try:
+            reaper_root.mkdir(parents=True, exist_ok=True)
+            guard = reaper_root / f"soak-probe-{proc.pid}.pid"
+            guard.write_text(f"{proc.pid}\n", encoding="utf-8")
+            (run_dir / "reaper_guard_path.txt").write_text(str(guard) + "\n", encoding="utf-8")
+        except OSError as exc:
+            # Loud, not silent: an unprotected probe can be reaped mid-run, and a
+            # reaped probe is not a miss -- it is a lost run that would have scored.
+            print(f"WARNING: could not write reaper guard under {reaper_root}: {exc}",
+                  file=sys.stderr)
         if args.background:
             print(f"probe {probe_id} detached: pid {proc.pid}, run dir {run_dir}")
             print("Poll status.json; the pidfile protects it from the orphan reaper.")
@@ -242,11 +343,26 @@ def main() -> int:
         try:
             _, err = proc.communicate(timeout=args.timeout)
         except subprocess.TimeoutExpired:
+            # kill() reaps only the direct child. If `claude` spawned tool
+            # subprocesses that inherited the stderr pipe, they hold it open and
+            # a bare communicate() with no timeout blocks forever -- the wrapper
+            # then hangs past TimeoutStartSec and systemd cgroup-kills the unit
+            # BEFORE status.json is written, producing exactly the "crash, not
+            # timeout" outcome the 900/1200 split exists to prevent.
             proc.kill()
-            _, err = proc.communicate()
+            try:
+                _, err = proc.communicate(timeout=30)
+            except subprocess.TimeoutExpired:
+                err = "(stderr unreadable: child or its descendants held the pipe open)"
+            # Record the captured stderr. An earlier version bound `err` here and
+            # dropped it -- CodeQL flagged the unused variable, and it was a real
+            # defect rather than a lint nit: a timeout is precisely when the
+            # child's last words are worth having, and the status file was the
+            # only place they could have been read afterwards.
             (run_dir / "status.json").write_text(json.dumps({
                 "probe_id": probe_id, "session_id": session_id, "state": "TIMEOUT",
                 "timeout_s": args.timeout, "ended_at": _now(),
+                "stderr_tail": (err or "")[-400:],
             }, indent=2) + "\n", encoding="utf-8")
             print(f"TIMEOUT after {args.timeout}s -- run dir {run_dir}", file=sys.stderr)
             return 1
@@ -258,6 +374,17 @@ def main() -> int:
         if ln.startswith("pointer"):
             pointer = ln.split(":", 1)[1].strip()
     channel = retrieval_channel(parsed, pointer)
+
+    # REDACTION. `--reveal` prints a "post-interv. : N run(s)" coverage line, and an
+    # earlier version embedded its stdout verbatim in the scoring packet -- so the
+    # supposedly isolated scorer read a coverage number sitting beside the
+    # discriminator. The whole point of separating the scorer from the orchestrator
+    # is that the scorer has no stake in how the corpus is progressing; handing it
+    # the tally defeats that in the one artifact built to implement it.
+    scorer_reveal = "".join(
+        ln + "\n" for ln in reveal.stdout.splitlines()
+        if not ln.startswith("post-interv.")
+    )
 
     ok = bool(parsed["answer"]) and not parsed["result"].get("is_error")
     status = {
@@ -275,7 +402,7 @@ def main() -> int:
     (run_dir / "scoring_packet.md").write_text(
         f"# Scoring packet -- {probe_id}\n\n"
         f"session: `{session_id}`\nrun dir: `{run_dir}`\n\n"
-        f"## Discriminator, pointer and fact (from --reveal)\n\n```\n{reveal.stdout}```\n\n"
+        f"## Discriminator, pointer and fact (from --reveal)\n\n```\n{scorer_reveal}```\n\n"
         f"## Mechanical retrieval channel\n\n```json\n{json.dumps(channel, indent=2)}\n```\n\n"
         f"## The run's answer\n\n{parsed['answer']}\n\n"
         f"## Record it\n\n```bash\npython3 util/soak_ledger.py probe-run \\\n"

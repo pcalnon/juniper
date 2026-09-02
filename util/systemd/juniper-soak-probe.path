@@ -1,0 +1,60 @@
+[Unit]
+# EVENT arm: run a probe when the auto-memory index changes.
+#
+# The soak measures whether a session retrieves a relocated fact through the
+# memory index. A change to that index is therefore the one event that can
+# actually change the answer -- which makes it the honest trigger, and makes a
+# purely time-based cadence a proxy for it.
+#
+#   systemctl --user enable --now juniper-soak-probe.path
+#
+# READ THIS BEFORE ENABLING. MEMORY.md is edited by peer sessions continuously --
+# the shared-session-memory arc measured rows being rewritten within minutes, and
+# this session watched it grow ~2.5 KB in a single working day. PathChanged fires
+# on every one of those writes. Unmoderated, this arm will start probes far
+# faster than they are worth, and each one spends a real Claude session.
+#
+# Two ways to make it safe, neither of which this unit can decide for you:
+#   * leave it DISABLED and use the .timer (the conservative default), or
+#   * enable it and accept that the rate is set by peer-session write frequency,
+#     not by anything in this file.
+#
+# It is shipped disabled-by-default and documented rather than tuned, because the
+# right rate is an owner decision about how much a probe run is worth.
+Description=Run a Juniper soak probe when the auto-memory index changes
+Documentation=file:%h/Development/python/Juniper/juniper-ml/notes/JUNIPER_2026-09-02_JUNIPER-ML_SOAK-SESSION-ROLE-AUTOMATION-ANALYSIS.md
+
+[Path]
+# The index whose contents the probe is testing retrieval from.
+PathChanged=%h/.claude/projects/-home-pcalnon-Development-python-Juniper-juniper-ml/memory/MEMORY.md
+
+# systemd will not start the service again while a probe is already running, so a
+# burst of index writes collapses into one run. That de-dup only helps DURING a
+# run, though -- it does nothing about the sustained per-edit cadence across a
+# working day, which is the actual hazard here.
+#
+# So use the purpose-built limiter (systemd >= 250; this host runs 257). Default
+# is 200 activations / 2s, which is no limit at all for this use. One activation
+# per hour is a deliberate floor: past that, extra probes are measuring the same
+# index state twice.
+#
+# NOTE: if the limit is hit, systemd puts the PATH UNIT into a failure state and
+# stops watching until it is restarted. That is the correct trade here -- a
+# stopped watcher is visible, a runaway spender is not -- but it does mean this
+# arm can go quiet and needs an occasional `systemctl --user status`.
+TriggerLimitIntervalSec=1h
+TriggerLimitBurst=1
+
+# UNVERIFIED, and it cuts both ways. PathChanged is IN_CLOSE_WRITE-shaped, and
+# Claude Code edits files by atomic replace (verified: editing a scratch file
+# changed its inode). inotify watches are inode-based, so the write-and-close
+# happens on the temp file's inode, not the watched one. Whether systemd
+# compensates via a directory-level watch was not established. The unit's earlier
+# comments reasoned only about firing TOO OFTEN; it may equally fire NOT AT ALL,
+# which is the more damaging failure for an event-driven measurement. Confirm
+# empirically before trusting either direction: enable, make one real edit, then
+# check `systemctl --user status juniper-soak-probe.path`.
+Unit=juniper-soak-probe.service
+
+[Install]
+WantedBy=default.target

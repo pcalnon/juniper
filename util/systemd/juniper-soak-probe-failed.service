@@ -1,0 +1,21 @@
+[Unit]
+# OnFailure= handler for juniper-soak-probe.service.
+#
+# Without this, a broken environment is invisible: the timer fires every ~6 hours,
+# the service fails, and nothing surfaces it. systemd's own start-limit backstop
+# (default 5 starts / 10s) never engages, because the interval between firings is
+# three orders of magnitude larger than the window -- so the counter resets every
+# time and a permanently broken unit looks exactly like a healthy idle one.
+#
+# This does not page anyone. It appends a dated strike line to a file an operator
+# (or a session) can read, so "has this been failing silently for a week?" has an
+# answer that does not require reading journald.
+Description=Record a failed Juniper soak probe run
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Development/python/Juniper/juniper-ml
+
+# `sh -c` rather than a script file: this must not itself depend on anything that
+# can go missing, since it only ever runs when something already went wrong.
+ExecStart=/bin/sh -c 'printf "%%s FAILED juniper-soak-probe\\n" "$(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)" >> "%h/Development/python/Juniper/juniper-ml/logs/soak_probe_failures.log"'
