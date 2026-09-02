@@ -354,9 +354,15 @@ def main() -> int:
                 _, err = proc.communicate(timeout=30)
             except subprocess.TimeoutExpired:
                 err = "(stderr unreadable: child or its descendants held the pipe open)"
+            # Record the captured stderr. An earlier version bound `err` here and
+            # dropped it -- CodeQL flagged the unused variable, and it was a real
+            # defect rather than a lint nit: a timeout is precisely when the
+            # child's last words are worth having, and the status file was the
+            # only place they could have been read afterwards.
             (run_dir / "status.json").write_text(json.dumps({
                 "probe_id": probe_id, "session_id": session_id, "state": "TIMEOUT",
                 "timeout_s": args.timeout, "ended_at": _now(),
+                "stderr_tail": (err or "")[-400:],
             }, indent=2) + "\n", encoding="utf-8")
             print(f"TIMEOUT after {args.timeout}s -- run dir {run_dir}", file=sys.stderr)
             return 1
