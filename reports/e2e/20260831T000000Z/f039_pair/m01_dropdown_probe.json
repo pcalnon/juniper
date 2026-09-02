@@ -1,0 +1,96 @@
+{
+  "rows": [
+    {
+      "layout": "Hierarchical",
+      "before": "Hierarchical",
+      "after": "Hierarchical",
+      "committed": true,
+      "why": "ok",
+      "n_options_in_portal": 13,
+      "portal_texts": [
+        "Enable multi-node layers",
+        "Enable multi-candidate selection",
+        "HierarchicalStaggeredSpringCircular",
+        "Hierarchical",
+        "Staggered",
+        "Spring",
+        "Circular",
+        ""
+      ],
+      "len": 314447,
+      "hash": "de463bff"
+    },
+    {
+      "layout": "Staggered",
+      "before": "Hierarchical",
+      "after": "Hierarchical",
+      "committed": false,
+      "why": "OPTION-ABSENT-FROM-PORTAL",
+      "n_options_in_portal": 8,
+      "portal_texts": [
+        "Enable multi-node layers",
+        "Enable multi-candidate selection",
+        "",
+        "Node Graph",
+        "Weight Matrix",
+        "2D",
+        "3D",
+        ""
+      ],
+      "len": 314447,
+      "hash": "de463bff"
+    },
+    {
+      "layout": "Spring",
+      "before": "Hierarchical",
+      "after": "Spring",
+      "committed": true,
+      "why": "ok",
+      "n_options_in_portal": 13,
+      "portal_texts": [
+        "Enable multi-node layers",
+        "Enable multi-candidate selection",
+        "HierarchicalStaggeredSpringCircular",
+        "Hierarchical",
+        "Staggered",
+        "Spring",
+        "Circular",
+        ""
+      ],
+      "len": 394312,
+      "hash": "c51ff7a4"
+    },
+    {
+      "layout": "Circular",
+      "before": "Spring",
+      "after": "Circular",
+      "committed": true,
+      "why": "ok",
+      "n_options_in_portal": 13,
+      "portal_texts": [
+        "Enable multi-node layers",
+        "Enable multi-candidate selection",
+        "HierarchicalStaggeredSpringCircular",
+        "Hierarchical",
+        "Staggered",
+        "Spring",
+        "Circular",
+        ""
+      ],
+      "len": 394731,
+      "hash": "26d0f961"
+    }
+  ],
+  "length_collisions": {
+    "314447": [
+      "Hierarchical",
+      "Staggered"
+    ]
+  },
+  "content_duplicates": {
+    "de463bff": [
+      "Hierarchical",
+      "Staggered"
+    ]
+  }
+}
