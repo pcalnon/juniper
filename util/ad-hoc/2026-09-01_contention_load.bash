@@ -48,11 +48,25 @@ set -uo pipefail
 # The distinction matters for what a result can claim: `modest` tests resilience to a background
 # scanner, `heavy` tests resilience to genuine core contention. A threshold derived under `modest`
 # alone would be silently scoped to hosts with spare cores.
+#   sweep6 / sweep8 / sweep10 / sweep12
+#           Added 2026-09-02 for the headroom sweep. `modest` (4) and `heavy` (14) are the only
+#           two points ever measured, and the gap between them is where a free-core floor would
+#           sit. These fill it at 6, 8, 10 and 12 loaded cores (10, 8, 6 and 4 free).
+#
+#           They are named rather than passed as a bare LOAD_WORKERS number for the reason this
+#           header already gives: a worker count in someone's shell history is not a reproducible
+#           condition. Adding cases here does not change what `modest` or `heavy` do, so the
+#           provenance of the 2026-09-01 runs is unaffected.
 PROFILE="${LOAD_PROFILE:-modest}"
 case "${PROFILE}" in
-    modest) DEFAULT_WORKERS=4 ;;
-    heavy)  DEFAULT_WORKERS=14 ;;
-    *) echo "FATAL: unknown LOAD_PROFILE '${PROFILE}' (expected: modest | heavy)" >&2; exit 2 ;;
+    modest)  DEFAULT_WORKERS=4 ;;
+    heavy)   DEFAULT_WORKERS=14 ;;
+    sweep6)  DEFAULT_WORKERS=6 ;;
+    sweep8)  DEFAULT_WORKERS=8 ;;
+    sweep10) DEFAULT_WORKERS=10 ;;
+    sweep12) DEFAULT_WORKERS=12 ;;
+    quiet)   DEFAULT_WORKERS=0 ;;
+    *) echo "FATAL: unknown LOAD_PROFILE '${PROFILE}' (expected: quiet | modest | sweep6 | sweep8 | sweep10 | sweep12 | heavy)" >&2; exit 2 ;;
 esac
 
 DURATION="${LOAD_DURATION:-300}"
@@ -62,15 +76,39 @@ TREE="${LOAD_TREE:-/opt/miniforge3/envs/JuniperData}"
 [[ -d "${TREE}" ]] || { echo "FATAL: load tree not found: ${TREE}" >&2; exit 2; }
 
 pids=()
+NAP_PID=""
 cleanup() {
     local p
+    # The interruptible-sleep helper leaves a backgrounded `sleep` child. A bare `wait` below would
+    # block on IT for the rest of ${DURATION} -- the same class of hang `napp` was added to fix,
+    # just moved. Kill it first. (Measured 2026-09-02: cleanup ran, workers died, and the script
+    # still sat for the full remaining duration with nothing left to do.)
+    [[ -n "${NAP_PID}" ]] && kill "${NAP_PID}" 2>/dev/null
     for p in "${pids[@]:-}"; do
-        [[ -n "${p}" ]] && kill "${p}" 2>/dev/null || true
+        [[ -n "${p}" ]] || continue
+        # Kill the worker subshell's descendants (`find`, `xargs`, `sha256sum`) before the subshell
+        # itself -- killing the parent alone orphans them and they keep hashing.
+        pkill -TERM -P "${p}" 2>/dev/null || true
+        kill "${p}" 2>/dev/null || true
     done
+    pkill -KILL -x sha256sum 2>/dev/null || true
     wait 2>/dev/null || true
-    echo "[load] stopped $(date -u +%FT%TZ)"
+    if (( STOPPED_EARLY )); then
+        echo "[load] stopped EARLY (signal) $(date -u +%FT%TZ) -- the load did NOT run its full ${DURATION}s"
+    else
+        echo "[load] stopped $(date -u +%FT%TZ)"
+    fi
 }
-trap cleanup EXIT INT TERM
+# Distinguish "ran to completion" from "was cut short" in the log. These logs are the provenance for
+# a results document, and an interrupted run that reports "duration reached" misstates the condition
+# the measurement was taken under.
+STOPPED_EARLY=0
+trap cleanup EXIT
+trap 'STOPPED_EARLY=1; exit 143' INT TERM
+
+# Publish our pid so a caller can address this process GROUP. `$!` on a backgrounded `setsid`
+# names setsid's own short-lived wrapper, not the leader, so a caller cannot derive it.
+[[ -n "${LOAD_PIDFILE:-}" ]] && echo "$$" > "${LOAD_PIDFILE}"
 
 echo "[load] profile=${PROFILE} tree=${TREE} workers=${WORKERS} duration=${DURATION}s  start $(date -u +%FT%TZ)"
 
@@ -97,13 +135,33 @@ done
 # So the script announces READY only once the load has settled, and a caller that wants a
 # comparable measurement must wait for that line before starting its workload.
 SETTLE="${LOAD_SETTLE:-120}"
+# A zero-worker (`quiet`) block has no ramp to settle, so waiting would burn host time for nothing.
+(( WORKERS == 0 )) && SETTLE=0
+
+# INTERRUPTIBLE SLEEP -- measured 2026-09-02, and a plain `sleep` here is a REAL BUG.
+#
+# Bash does not run a trap while it is waiting for a foreground external command to finish. With a
+# bare `sleep ${REMAIN}`, a TERM sent to this script is DEFERRED until that sleep returns -- so the
+# cleanup trap does not fire, the workers keep hashing, and a caller that politely asks the load to
+# stop hangs for the remainder of ${DURATION}. Observed: a caller's `kill -TERM` + `wait` blocked
+# for 13 minutes with all six workers still running.
+#
+# `sleep & wait $!` fixes it: bash DOES interrupt `wait` to run a trap.
+napp() {
+    (( $1 > 0 )) || return 0
+    sleep "$1" &
+    NAP_PID=$!
+    wait "${NAP_PID}" 2>/dev/null || true
+    NAP_PID=""
+}
+
 if (( SETTLE > 0 )); then
     echo "[load] settling for ${SETTLE}s before announcing ready (ramp is real: see header)"
-    sleep "${SETTLE}"
+    napp "${SETTLE}"
     echo "[load] READY $(date -u +%FT%TZ)  load=$(cut -d' ' -f1-3 /proc/loadavg)"
 fi
 
 REMAIN=$(( DURATION - SETTLE ))
 (( REMAIN > 0 )) || REMAIN=0
-sleep "${REMAIN}"
-echo "[load] duration reached"
+napp "${REMAIN}"
+(( STOPPED_EARLY )) || echo "[load] duration reached"
