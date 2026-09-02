@@ -3,8 +3,8 @@
 **Project**: Juniper
 **Sub-Project**: juniper-data
 **Author**: Paul Calnon
-**Status**: Analysis — no decision taken
-**Last Updated**: 2026-09-01
+**Status**: Analysis — no decision taken; measurements added 2026-09-02 (§1.6), recommendation revised (§4)
+**Last Updated**: 2026-09-02
 
 Supports the open defect-register row `APD-DATA-018` ("No async job pattern — generation runs
 inside the request"), primer anchor 3853. Written because the row's one-line summary understates
@@ -108,6 +108,48 @@ does this today; I also did not find anything preventing it, and nothing warns t
 This matters for how the row should be graded. It is not "the service is broken"; it is "a
 supported configuration has no working path", which is the same shape the register has repeatedly
 recorded as *one config change away* (`APD-DATA-007`, `APD-SVCCORE-007`).
+
+### 1.6 Measured, 2026-09-02 — the precondition is met, but not uniformly
+
+Step 1 of §4 below, run with
+`util/ad-hoc/2026-09-02_measure_class_b_generators.py`. Both external services were healthy at
+measurement time (`huggingface.co` 200 in 0.84 s, `sec.gov` 200 in 1.40 s), so the slow numbers are
+work, not a hung socket.
+
+| Generator | Cold | Warm | vs the 30 s budget |
+|---|---|---|---|
+| `equities`, **3 symbols** | **12.03 s** | **0.27 s** | within — but see the default below |
+| `equities`, **default (503 symbols)** | **~2017 s ≈ 34 min** *(extrapolated)* | — | **~67×over** |
+| `arc_agi`, default | **> 600 s** *(timed out; network healthy)* | — | **> 20×over** |
+| `mnist`, default | **26.98 s** *(true cold, 38 MB downloaded)* | **20.54 s** | under — with **no headroom** |
+
+Three findings, and they do not point the same way:
+
+1. **`equities` at its default configuration cannot work, and the cause is a default rather than an
+   architecture.** `EQUITIES_DEFAULT_MAX_SYMBOLS = None`
+   (`generators/equities/defaults.py:38`) means *all* 503 bundled S&P constituents
+   (`sp500_constituents.csv`). At the measured **4.01 s per symbol** that is ~34 minutes. Even the
+   arithmetic floor from SEC throttling alone — 503 × `_SEC_MIN_INTERVAL` 0.12 s = **60.4 s**
+   (`generators/equities/generator.py:73`) — is twice the budget before a single byte moves.
+   **The crossover is ~7 symbols**: 30 s ÷ 4.01 s. A request for eight symbols cannot finish
+   inside the client's default timeout.
+2. **Caching helps `equities` enormously and `mnist` barely.** equities warm is **44× faster**
+   (12.03 → 0.27 s) because its cost is fetching. mnist warm is **1.3×** faster (26.98 → 20.54 s)
+   because its cost is *decoding* 70 000 images, which no fetch cache avoids. Any remedy built
+   around warming must not be assumed to generalise across Class B.
+3. **`mnist` is the dangerous middle case.** It fits the budget — at 68 % of it warm, 90 % cold.
+   That is not headroom, it is a coin flip against network variance, and it will read as an
+   intermittent failure rather than a capacity limit.
+
+**A caveat that matters for reading row 1 of the table.** The ~2017 s figure is *arithmetic*
+(4.01 s × 503), not observed: measuring the default would mean ~1000 SEC requests for a number that
+extrapolates from three, which the SEC fair-access policy the generator already honours
+(`_SEC_UA`, `generators/equities/generator.py:70`) does not invite. The 60.4 s throttle floor,
+by contrast, is exact — it follows from a constant.
+
+**What this does not change:** juniper-data's own content-addressed artifact cache (§1.4) still
+short-circuits every *repeat* POST for the same params, for all generators. These numbers are the
+cost of the **first** call for a given parameter set.
 
 ---
 
@@ -254,31 +296,77 @@ appears or a deadline passes.
   response) rather than reimplementing it client-side. Bound the poll. Treat this as a stopgap that
   makes Option 3 easier later, not as a substitute for it.
 
+### Option 6 — Bound the default fan-out (added 2026-09-02, after measurement)
+
+Give `max_symbols` a finite default instead of `None`, so the out-of-the-box `equities` request
+stops meaning "503 sequential SEC lookups". Callers who want the full index opt in explicitly.
+
+This option did not exist in the 2026-09-01 draft. It is here because the measurement in §1.6
+located the cost in a **default value**, not in the request/response shape.
+
+- **Strengths.** By far the cheapest thing that moves the headline number: one constant, no wire
+  change, no client migration, no new state. Takes the default from ~34 min to a few seconds at,
+  say, 8 symbols — under the crossover computed in §1.6. It also converts an unbounded default into
+  a bounded one, which is the same discipline Class A already enforces through `le=` validation and
+  which the primer treats as the baseline expectation.
+- **Weaknesses.** Changes behaviour for anyone relying on the current default, silently returning a
+  smaller dataset unless the cap is loud. Does nothing for `arc_agi` (> 600 s with no fan-out to
+  cap) or `mnist` (cost is decoding, not breadth).
+- **Risks.** A silent truncation is worse than a slow request: a caller who asked for "the S&P 500"
+  and receives eight symbols has bad data rather than a late answer. This is the failure to design
+  against.
+- **Guardrails.** Never truncate silently — either reject a request whose fan-out exceeds the cap
+  with a message naming `max_symbols`, or return the count in metadata where it cannot be missed.
+  Record the chosen bound against the measured per-symbol cost so the number has a stated basis.
+  Pair with §1.4 idempotency: a capped request is still content-addressed, so the smaller dataset
+  gets its own id and cannot be confused with the full one.
+
 ---
 
 ## 4. Recommendation
 
-**Do not build Option 3 first.** The evidence does not support treating this as a whole-surface
-architecture problem: 12 of 16 generators finish in milliseconds and are bounded by validation, the
-default production path is one of them, and the endpoint is idempotent so a timeout costs an answer
-rather than data.
+**Revised 2026-09-02, after the measurement in §1.6.** Step 1 below is now done, and it moved the
+answer. The original draft recommended deferring the job resource on the grounds that the
+precondition was unproven; it is now proven for two of the three Class B generators, and the
+cheap options no longer cover the whole problem.
 
-A defensible sequence, cheapest-first, each step useful on its own:
+**What the numbers changed:**
 
-1. **Measure the precondition properly.** Time each Class B generator cold and warm, from the
-   deployment, and record it. The primer's test is "does work outlive a sensible request timeout" —
-   §1.2 makes it near-certain for `equities`, but *near-certain* is not measured, and this decision
-   deserves the number. If Class B stays under 30 s warm, the urgency drops sharply.
-2. **Option 1 + Option 2** — a per-call timeout (closing `APD-ECO-003` too) and cache warming for
-   the configured Class B generators. Together these remove the operational sharp edge with no wire
-   change and no client migration.
-3. **Then re-evaluate Option 4** with real numbers. If the measurements show generation routinely
-   exceeding a sane ceiling, the `Prefer: respond-async` hybrid is the right shape — and by then
-   the retention, id-derivation and shared-state questions will have been answered by steps 1–2.
+- **Option 1 (widen the budget) is no longer sufficient on its own.** It was drafted as half the
+  remedy. But no sane timeout makes a **34-minute** `equities` request or a **> 600 s** `arc_agi`
+  request into a synchronous call — you cannot hold a socket, a worker slot and a proxy connection
+  that long. Widening the budget remains worth doing for the `mnist`-shaped middle (20–27 s against
+  a 30 s limit is the case where 60 s genuinely fixes it), and it still closes `APD-ECO-003`, but
+  it is no longer a candidate remedy for the tail.
+- **Option 2 (warming) is stronger than drafted for `equities` and weaker for `mnist`** — 44× versus
+  1.3×. It cannot be described as a Class B remedy; it is an *equities* remedy that happens to
+  generalise to fetch-dominated generators.
+- **Option 6 (bound the default fan-out) did not exist before measuring** and is now the single
+  highest value-per-unit-effort change, because §1.6 located the headline cost in a default value
+  rather than in the request shape.
 
-**Option 3 as a first move is the one I would argue against**, not because it is wrong but because
-it is the most expensive way to learn whether it was needed, and its failure modes (split-brain,
-orphaned jobs, a second way to do the same thing) are each worse than the stall it replaces.
+**Revised sequence:**
+
+1. **Option 6 first.** Give `max_symbols` a finite default, loudly. One constant; takes the default
+   `equities` request from ~34 minutes to seconds; no wire change. Do it with the anti-silent-
+   truncation guardrail, which is the whole risk.
+2. **Option 1 + Option 2.** A per-call timeout (closing `APD-ECO-003`) plus warming for the
+   configured fetch-dominated generators. Together these cover `mnist`'s missing headroom and
+   `equities`' repeat cost.
+3. **Then Option 4** — and this is where the recommendation has genuinely shifted. With `arc_agi`
+   over 600 s and no fan-out to bound, there is a residue that steps 1–2 cannot reach. The
+   `Prefer: respond-async` hybrid is now the expected destination for that residue rather than a
+   contingency, and it should be planned for rather than deferred indefinitely.
+
+**Option 3 as a first move is still the one I would argue against** — its failure modes
+(split-brain across workers, orphaned jobs, two ways to do the same thing) are unchanged and each
+remains worse than the stall it replaces. But the case for *eventually* needing the async path is
+now measured rather than speculative, and `arc_agi` is the generator that makes it.
+
+**What would falsify this recommendation:** if `arc_agi`'s > 600 s turns out to be a one-off
+download rather than a per-call cost — it timed out before completing even once, so its *warm*
+number is still unknown. That single missing measurement is the difference between "the async path
+is required" and "three cheap changes were enough". It should be taken before step 3 is committed.
 
 ---
 
@@ -304,7 +392,10 @@ orphaned jobs, a second way to do the same thing) are each worse than the stall 
 
 - Whether any deployment today actually configures a Class B generator for `auto_dataset`
   (**[inferred]** absent, not verified).
-- Actual cold/warm timings for `mnist`, `equities`, `arc_agi`, `csv_import` — step 1 above.
+- ~~Actual cold/warm timings for `mnist`, `equities`, `arc_agi`~~ — **measured 2026-09-02, §1.6**.
+  Two gaps remain: `arc_agi`'s **warm** cost (it timed out before completing a first run, so only
+  its cold bound is known — and §4 names this as the measurement that would falsify the revised
+  recommendation), and `csv_import`, which needs an import directory and a fixture file to time.
 - Whether canopy's demo-mode path (`juniper-canopy/src/demo_mode.py:918`) shares the 30 s exposure;
   it constructs its own client and was not traced here.
 - `APD-DATA-019` (pagination) is a separate row with a separate remedy; the two are sometimes

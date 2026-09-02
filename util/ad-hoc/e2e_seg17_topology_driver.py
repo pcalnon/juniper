@@ -182,6 +182,53 @@ def dropdown_value(page, el_id: str):
     )
 
 
+def settle_figure(page, container_id: str = None, budget_s: float = 20.0, stable_reads: int = 3) -> dict:
+    """Block until the plotly figure stops changing, then return its final state.
+
+    THE reason M-TOPOLOGY-01 and -06 failed, and neither was a product defect.
+    The topology rebuild takes 1.5-5 s and settles at 4-7 s on a 40-unit network
+    (measured, `util/ad-hoc/e2e_m01_dropdown_probe.py`), while the driver waited
+    1200-1500 ms and read. Everything downstream of that read was a race:
+
+      * layouts appeared to render identically (Spring's figure hash matched
+        Hierarchical's on a fast read and DIFFERED once settled), so
+        ``distinct_sigs`` under-counted non-deterministically -- 3, then 2, then 3
+        across three runs of an unchanged topology;
+      * the next interaction landed while the page was still re-rendering, so the
+        dropdown portal never opened and "Staggered" scored driven=False;
+      * the depth-filter label and stats bar were read before the rebuild that
+        would have updated them.
+
+    Verified by EFFECT (the hash holding steady), never by a fixed sleep -- a
+    fixed sleep is what produced the wrong readings in the first place.
+    """
+    container_id = container_id or f"{NV}-graph"
+    prev, stable, waited = None, 0, 0.0
+    info = {}
+    while waited < budget_s and stable < stable_reads:
+        page.wait_for_timeout(700)
+        waited += 0.7
+        info = fig_info(page, container_id) or {}
+        cur = info.get("fig_hash")
+        stable = stable + 1 if (cur is not None and cur == prev) else 0
+        prev = cur
+    n_traces = len(info.get("traces") or [])
+    # STABLE IS NOT READY. An unpainted graph is perfectly stable -- hash constant,
+    # zero traces -- so this returns "settled" while the page has not loaded its
+    # topology yet. A caller that reads state off that gets all-zero counts and an
+    # empty figure, and any verdict drawn from it is vacuous (observed: a probe
+    # concluded "the widget could not move" when the page simply was not ready).
+    # ``painted`` is reported so a caller cannot silently treat the two as the same.
+    return {
+        "fig_hash": prev,
+        "settled_s": round(waited, 1),
+        "settled": stable >= stable_reads,
+        "painted": n_traces > 0,
+        "traces": n_traces,
+        "info": info,
+    }
+
+
 def set_dropdown(page, el_id: str, label: str) -> bool:
     """Dash 3 native dropdown: the control is a <button>; options render in a portal.
 
@@ -190,22 +237,44 @@ def set_dropdown(page, el_id: str, label: str) -> bool:
     Verified by EFFECT (the -value span changing), never by the click returning true.
     """
     before = dropdown_value(page, el_id)
-    page.evaluate("""(id) => { const b = document.getElementById(id); if (b) b.click(); }""", el_id)
-    page.wait_for_timeout(700)
-    clicked = page.evaluate(
-        """([id, label]) => {
-             const sel = '[role=option], .dash-dropdown-option, [class*=dropdown-option], [role=menuitem]';
-             const opts = [...document.querySelectorAll(sel)];
-             const hit = opts.find(o => (o.textContent || '').trim() === label);
-             if (!hit) return {ok:false, seen: opts.map(o => (o.textContent||'').trim()).slice(0, 12)};
-             hit.click(); return {ok:true}; }""",
-        [el_id, label],
-    )
+
+    # SETTLE FIRST. A click that lands while the previous rebuild is still
+    # re-rendering is swallowed -- the portal never opens, and the option query
+    # then matches OTHER controls' options that are always in the DOM. That is
+    # exactly how "Staggered" scored driven=False on every run while the three
+    # layouts around it committed fine: it was simply the one whose turn came
+    # soonest after a slow rebuild.
+    settle_figure(page)
+
+    clicked = {"ok": False}
+    for attempt in range(3):
+        page.evaluate("""(id) => { const b = document.getElementById(id); if (b) b.click(); }""", el_id)
+        page.wait_for_timeout(700)
+        clicked = page.evaluate(
+            """([id, label]) => {
+                 const sel = '[role=option], .dash-dropdown-option, [class*=dropdown-option], [role=menuitem]';
+                 const opts = [...document.querySelectorAll(sel)];
+                 const hit = opts.find(o => (o.textContent || '').trim() === label);
+                 if (!hit) return {ok:false, seen: opts.map(o => (o.textContent||'').trim()).slice(0, 12)};
+                 hit.click(); return {ok:true}; }""",
+            [el_id, label],
+        )
+        if clicked.get("ok"):
+            break
+        # Not an error yet: the portal may not have opened. Close anything that
+        # did open, let the page quiesce, and try again before declaring failure.
+        log(f"  .. dropdown {el_id}: {label!r} absent on attempt {attempt + 1}; seen {clicked.get('seen')}")
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(900)
+
     if not clicked.get("ok"):
-        log(f"  !! dropdown option {label!r} not found on {el_id}; options seen: {clicked.get('seen')}")
+        log(f"  !! dropdown option {label!r} not found on {el_id} after 3 attempts; options seen: {clicked.get('seen')}")
         page.keyboard.press("Escape")
         return False
-    page.wait_for_timeout(1200)
+
+    # SETTLE AFTER too, so the caller's figure read reflects THIS selection rather
+    # than the previous one still on screen.
+    settle_figure(page)
     after = dropdown_value(page, el_id)
     if after != label:
         log(f"  !! dropdown {el_id} did not commit: {before!r} -> {after!r} (wanted {label!r})")
@@ -243,7 +312,7 @@ def slider_value(page, container_id: str, thumb_index: int = 0):
     return None if st is None else st.get("now")
 
 
-def set_slider(page, container_id: str, target: int, thumb_index: int = 0, budget_s: float = 25) -> dict:
+def set_slider(page, container_id: str, target: int, thumb_index: int = 0, budget_s: float = 25, effect=None) -> dict:
     """Move a Dash-3 slider to ``target``, trying three idioms, verified by EFFECT.
 
     Idioms, in order of reliability on this widget: (1) the companion
@@ -252,7 +321,33 @@ def set_slider(page, container_id: str, target: int, thumb_index: int = 0, budge
     ``[role=slider]`` thumb, which Radix handles natively; (3) a mouse drag of the
     thumb along the track. Each is scored by re-reading the widget, never by the
     dispatch returning true.
+
+    ``effect`` -- OPTIONAL predicate, and the reason M-TOPOLOGY-06 stayed stuck.
+    Re-reading the widget proves the DOM moved; it does NOT prove **Dash** saw the
+    value, and on this slider those come apart. Measured on the live 40-unit
+    network: idiom 1 moved ``now`` 0 -> 20 and ``num_value`` 0 -> 20, so idiom 1
+    "succeeded" and returned early — while the figure stayed byte-identical
+    (``de463bff``, 1891 traces) and the depth label never changed, because
+    ``-depth-slider.value`` never reached ``update_network_graph``. The DOM-only
+    check thus SHORT-CIRCUITED the very fallbacks (keyboard, drag) that might have
+    reached Dash.
+
+    Pass ``effect`` to require an observable downstream change as well; an idiom
+    that satisfies the DOM but not the effect is treated as a FAILURE and the next
+    idiom is tried. Callers that only care about the widget can omit it and keep
+    the old behaviour.
     """
+
+    def _ok(idiom_name):
+        """DOM must show the target, and (if given) the effect must have landed."""
+        if slider_value(page, container_id, thumb_index) != target:
+            return False
+        if effect is None:
+            return True
+        landed = bool(effect())
+        if not landed:
+            log(f"  .. slider {container_id}: {idiom_name} moved the DOM but the effect did not land; trying the next idiom")
+        return landed
     st = slider_state(page, container_id, thumb_index)
     out = {"target": target, "idiom": None, "before": st}
     if st is None:
@@ -267,6 +362,39 @@ def set_slider(page, container_id: str, target: int, thumb_index: int = 0, budge
         return out
     target = int(max(lo, min(hi, target)))
     out["target"] = target
+
+    # DRAG FIRST when the caller demands a downstream effect, because the ORDER is
+    # itself a trap. dcc.Slider here is ``updatemode="mouseup"``: Dash is notified
+    # only by a mouseup concluding a real drag, so the synthetic idioms below CANNOT
+    # deliver the value by design. Worse, running them first moves the DOM to the
+    # target, after which the drag computes a destination the thumb already occupies
+    # and degenerates into a no-op gesture. That sequence made a WORKING control look
+    # dead: measured, drag-first moves the figure de463bff -> ab8c6d50 (1891 -> 551
+    # traces) and the stats bar 40 -> "20 of 40", while drag-after-synthetic changed
+    # nothing at all.
+    if effect is not None:
+        frac0 = (target - lo) / float(hi - lo)
+        box0 = page.evaluate(
+            """(id) => { const r = document.querySelector('#' + id + ' .dash-slider-track');
+                 if (!r) return null; const bb = r.getBoundingClientRect();
+                 return {x: bb.x, y: bb.y, w: bb.width, h: bb.height}; }""",
+            container_id,
+        )
+        thumb0 = page.locator(f"#{container_id} [role=slider]")
+        if box0 and box0["w"] > 0 and thumb0.count() > thumb_index:
+            hb0 = thumb0.nth(thumb_index).bounding_box()
+            if hb0 and (st or {}).get("now") != target:
+                cy0 = hb0["y"] + hb0["height"] / 2
+                page.mouse.move(hb0["x"] + hb0["width"] / 2, cy0)
+                page.mouse.down()
+                page.mouse.move(box0["x"] + box0["w"] * frac0, cy0, steps=25)
+                page.wait_for_timeout(250)
+                page.mouse.up()
+                page.wait_for_timeout(1200)
+                if _ok("drag-first"):
+                    out["idiom"] = "drag"
+                    out["after"] = slider_state(page, container_id, thumb_index)
+                    return out
 
     # Idiom 1 -- the companion number input, via the React native value setter.
     ok = page.evaluate(
@@ -283,7 +411,7 @@ def set_slider(page, container_id: str, target: int, thumb_index: int = 0, budge
     )
     if ok:
         page.wait_for_timeout(1500)
-        if slider_value(page, container_id, thumb_index) == target:
+        if _ok("number-input"):
             out["idiom"] = "number-input"
             out["after"] = slider_state(page, container_id, thumb_index)
             return out
@@ -303,7 +431,7 @@ def set_slider(page, container_id: str, target: int, thumb_index: int = 0, budge
         page.keyboard.press("ArrowRight" if cur < target else "ArrowLeft")
         page.wait_for_timeout(120)
         guard += 1
-    if slider_value(page, container_id, thumb_index) == target:
+    if _ok("keyboard"):
         out["idiom"] = "keyboard"
         out["after"] = slider_state(page, container_id, thumb_index)
         return out
@@ -327,8 +455,14 @@ def set_slider(page, container_id: str, target: int, thumb_index: int = 0, budge
             page.mouse.up()
             page.wait_for_timeout(1200)
     out["after"] = slider_state(page, container_id, thumb_index)
-    if (out["after"] or {}).get("now") == target:
+    if _ok("drag"):
         out["idiom"] = "drag"
+    elif (out["after"] or {}).get("now") == target:
+        # The widget reached the target but no idiom made Dash observe it. Say so
+        # explicitly rather than reporting a bare idiom=None, which reads as "the
+        # slider would not move" and sent this row's diagnosis the wrong way once.
+        out["dom_only"] = True
+        out["error"] = "widget reached the target in the DOM, but no idiom produced the downstream effect (Dash never received the value)"
     return out
 
 
@@ -724,19 +858,32 @@ def step_topo(page, capture):
     lay: dict = {}
     for name in layouts:
         ok = set_dropdown(page, f"{NV}-layout-selector", name)
-        page.wait_for_timeout(2500)
         wait_for(lambda: _painted(page), budget_s=30, every_s=2.0)
+        st = settle_figure(page)  # read only once the figure has stopped changing
         g = _graph(page)
-        lay[name] = {"driven": ok, "sig": g.get("sig"), "traces": len(g.get("traces") or []), "counts": counts(page)}
-        log(f"    layout {name}: driven={ok} sig={g.get('sig')} traces={lay[name]['traces']} counts={lay[name]['counts']}")
-    sigs = [v["sig"] for v in lay.values() if v["driven"]]
-    counts_stable = all(v["counts"] == server for v in lay.values() if v["driven"])
-    relaid = len(set(sigs)) > 1
+        lay[name] = {
+            "driven": ok, "sig": g.get("sig"), "fig_hash": g.get("fig_hash"),
+            "traces": len(g.get("traces") or []), "counts": counts(page),
+            "settled_s": st.get("settled_s"), "settled": st.get("settled"),
+        }
+        log(f"    layout {name}: driven={ok} sig={g.get('sig')} hash={g.get('fig_hash')} settled={st.get('settled_s')}s traces={lay[name]['traces']} counts={lay[name]['counts']}")
+
+    driven = [v for v in lay.values() if v["driven"]]
+    counts_stable = all(v["counts"] == server for v in driven)
+    # Distinctness is judged on the CONTENT HASH, not on ``sig``. ``sig`` is a byte
+    # LENGTH, and two different layouts collided on it — which is what made this
+    # row's distinct count wobble 3 -> 2 -> 3 across runs of an unchanged topology.
+    # Only DRIVEN layouts are compared: an undriven one still shows the previous
+    # layout's figure and would read as a false duplicate.
+    hashes = {v["fig_hash"] for v in driven if v["fig_hash"] is not None}
+    relaid = len(hashes) > 1
     res["M-TOPOLOGY-01"] = {
-        "verdict": "PASS" if (len(sigs) == 4 and relaid and counts_stable) else "FAIL",
-        "driven": len(sigs), "distinct_sigs": len(set(sigs)), "counts_stable": counts_stable, "detail": lay,
+        "verdict": "PASS" if (len(driven) == 4 and relaid and counts_stable) else "FAIL",
+        "driven": len(driven), "distinct_figs": len(hashes),
+        "distinct_sigs": len({v["sig"] for v in driven}),  # kept for continuity with older runs
+        "counts_stable": counts_stable, "detail": lay,
     }
-    log(f"  M-TOPOLOGY-01 layouts: driven={len(sigs)}/4 distinct_sigs={len(set(sigs))} counts_stable={counts_stable}")
+    log(f"  M-TOPOLOGY-01 layouts: driven={len(driven)}/4 distinct_figs={len(hashes)} (sigs={len({v['sig'] for v in driven})}) counts_stable={counts_stable}")
     set_dropdown(page, f"{NV}-layout-selector", "Hierarchical")
     page.wait_for_timeout(2000)
 
@@ -802,20 +949,70 @@ def step_topo(page, capture):
     # M-TOPOLOGY-06 / W4-09 -- filter to k < N.
     n_hidden = int(server["hidden"]) if server["hidden"].isdigit() else 0
     k = max(1, n_hidden // 2)
-    sl = set_slider(page, f"{NV}-depth-slider", k)
-    page.wait_for_timeout(3000)
-    wait_for(lambda: (text_of(page, f"{NV}-depth-label") or "") != "all", budget_s=45, every_s=2.0)
+    want = f"{k} of {n_hidden}"
+    before_hash = (_graph(page) or {}).get("fig_hash")
+
+    # Require the DOWNSTREAM effect, not just the widget. ``-depth-slider.value``
+    # is a real Input of update_network_graph, so a value Dash actually received
+    # must change the figure. Without this the number-input idiom "succeeds" on a
+    # DOM-only move and set_slider returns before trying keyboard or drag — which
+    # is precisely why this row read idiom=number-input while the figure, label and
+    # stats bar were all unchanged.
+    def _depth_landed():
+        st = settle_figure(page, budget_s=12)
+        return bool(st.get("painted")) and st.get("fig_hash") not in (None, before_hash)
+
+    sl = set_slider(page, f"{NV}-depth-slider", k, effect=_depth_landed)
+
+    # The old wait was VACUOUS: it waited for the label to become != "all", but the
+    # label is "0 of N" at rest (the slider sits at 0), so the predicate was already
+    # true on entry and it returned instantly without waiting for anything. It then
+    # read the label and counts inside the 1.5-5 s rebuild window and scored the
+    # stale values -- which is why this row reported label='0 of 40' hidden='40'
+    # even though set_slider had VERIFIED the widget reached the target.
+    #
+    # Wait for the thing that actually signals the change: the label reaching the
+    # wanted text, or the figure settling on a hash different from the pre-drive
+    # one. Either is a real transition; neither is true on entry.
+    wait_for(
+        lambda: (text_of(page, f"{NV}-depth-label") or "") == want
+        or ((_graph(page) or {}).get("fig_hash") not in (None, before_hash)),
+        budget_s=45,
+        every_s=2.0,
+    )
+    settle_figure(page)
     k_label = text_of(page, f"{NV}-depth-label")
     k_counts = counts(page)
-    want = f"{k} of {n_hidden}"
     m06 = sl.get("idiom") is not None and (k_label == want or k_counts["hidden"] == want)
     res["M-TOPOLOGY-06"] = {
         "verdict": "PASS" if m06 else "FAIL",
         "slider": sl, "label": k_label, "hidden_count": k_counts["hidden"], "want": want,
     }
     log(f"  M-TOPOLOGY-06 depth={k}: idiom={sl.get('idiom')} label={k_label!r} hidden={k_counts['hidden']!r} want={want!r}")
-    set_slider(page, f"{NV}-depth-slider", 0)
-    page.wait_for_timeout(2000)
+
+    # RESET THE FILTER, AND VERIFY IT LANDED. This reset already existed but was
+    # called without an ``effect``, so it used the synthetic idioms that cannot
+    # satisfy ``updatemode="mouseup"``: the DOM went back to 0 while Dash kept 20.
+    # That did not matter while M-TOPOLOGY-06 was broken and never applied a filter
+    # in the first place — every earlier PASS of M-TOPOLOGY-17 was only valid
+    # BECAUSE of that. The moment M-06 started working, the filtered state leaked
+    # into M-17, which read hidden="20 of 40" / conn=274 against a server truth of
+    # 40 / 944 and failed. Fixing one row exposed an ordering dependency that had
+    # been there the whole time.
+    filtered_hash = (_graph(page) or {}).get("fig_hash")
+
+    def _reset_landed():
+        s = settle_figure(page, budget_s=12)
+        return bool(s.get("painted")) and s.get("fig_hash") not in (None, filtered_hash)
+
+    reset = set_slider(page, f"{NV}-depth-slider", 0, effect=_reset_landed)
+    settle_figure(page)
+    reset_counts = counts(page)
+    if reset_counts != server:
+        # Say so loudly rather than letting the next row inherit a filtered graph
+        # and report a defect that belongs to this one.
+        log(f"  !! depth filter did NOT reset (idiom={reset.get('idiom')}): counts={reset_counts} vs server={server}")
+        log("     downstream rows in this step will be reading a FILTERED graph")
 
     # M-TOPOLOGY-17 -- the store refreshes on tab re-entry.
     open_tab(page, "Training Metrics")
