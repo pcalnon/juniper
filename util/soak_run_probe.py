@@ -264,22 +264,31 @@ def main() -> int:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     run_dir = RUNS / f"{stamp}-{probe_id}"
 
+    # Resolve LAZILY, after the dry-run branch. Building the command eagerly made
+    # --dry-run require the `claude` binary, so on any machine without it (every
+    # CI runner) the dry run exited 1 with empty stdout instead of describing what
+    # it would do. A dry run must not depend on the thing it is only describing.
+    if args.dry_run:
+        print(f"probe    : {probe_id}")
+        print(f"session  : {session_id}")
+        print(f"run dir  : {run_dir}")
+        print(f"timeout  : {args.timeout}s")
+        try:
+            binary = resolve_claude()
+        except SystemExit:
+            binary = "NOT FOUND on this PATH (fine for a dry run; fatal for a real one)"
+        print(f"claude   : {binary}")
+        print("command  : <claude> -p <task> --output-format stream-json --verbose --session-id <uuid>")
+        print("\nThe task is NOT printed here: this script's own stdout is read by operators,")
+        print("and echoing the task where a scorer can see it is how priming leaks back in.")
+        return 0
+
     cmd = [
         resolve_claude(), "-p", task,
         "--output-format", "stream-json",
         "--verbose",
         "--session-id", session_id,
     ]
-
-    if args.dry_run:
-        print(f"probe    : {probe_id}")
-        print(f"session  : {session_id}")
-        print(f"run dir  : {run_dir}")
-        print(f"timeout  : {args.timeout}s")
-        print("command  : claude -p <task> --output-format stream-json --verbose --session-id <uuid>")
-        print("\nThe task is NOT printed here: this script's own stdout is read by operators,")
-        print("and echoing the task where a scorer can see it is how priming leaks back in.")
-        return 0
 
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "task.txt").write_text(task + "\n", encoding="utf-8")
