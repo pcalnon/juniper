@@ -43,12 +43,12 @@ One cell (`e-n-profile-cap4`, `seed_policy: fixed`, seed 42, cap 4), both arms a
 (`config_sha256 a4fc5746…`). A probe at `fit()` — the single entry point both arms reach — hashed
 its four tensor arguments before the initial output pass.
 
-| tensor | CLI | service |
-| --- | --- | --- |
-| `x_train` | `(800,2)` `raw=341d9dd0cb9ed0ea` | **identical** |
-| `y_train` | `(800,2)` `raw=8d92cbeba78a414e` | **identical** |
-| `x_val` | `None` | `(200,2)` `raw=e0ecd7ffe171d447` |
-| `y_val` | `None` | `(200,2)` `raw=22cd2024464128c0` |
+| tensor    | CLI                              | service                          |
+|-----------|----------------------------------|----------------------------------|
+| `x_train` | `(800,2)` `raw=341d9dd0cb9ed0ea` | **identical**                    |
+| `y_train` | `(800,2)` `raw=8d92cbeba78a414e` | **identical**                    |
+| `x_val`   | `None`                           | `(200,2)` `raw=e0ecd7ffe171d447` |
+| `y_val`   | `None`                           | `(200,2)` `raw=22cd2024464128c0` |
 
 1000 samples → 800 train / 200 test. The service passes those 200 test rows as `x_val`/`y_val`.
 The CLI passes nothing.
@@ -117,18 +117,18 @@ will not fix that, and vice versa. They are independent and both real.
 
 Three partitions, three distinct jobs:
 
-| partition | used for | touched |
-| --- | --- | --- |
-| `train` | gradient updates; candidate correlation | every epoch |
-| `validation` | early stopping, patience, best-checkpoint selection, LR schedules, any in-loop decision | every validation interval |
-| `test` | the final reported score | **exactly once**, after training completes |
+| partition    | used for                                                                                | touched                                    |
+|--------------|-----------------------------------------------------------------------------------------|--------------------------------------------|
+| `train`      | gradient updates; candidate correlation                                                 | every epoch                                |
+| `validation` | early stopping, patience, best-checkpoint selection, LR schedules, any in-loop decision | every validation interval                  |
+| `test`       | the final reported score                                                                | **exactly once**, after training completes |
 
 The invariant that makes it worth doing: **no quantity computed on `test` may influence any
 decision made during training.** If a number is allowed to change what the run does, it is
 `validation` by definition, whatever it is named.
 
 Both arms consume the same three partitions, so the tiers become comparable by construction and
-#578 reduces to a fixed-overhead question rather than a semantics question.
+`#578` reduces to a fixed-overhead question rather than a semantics question.
 
 ## 6. Options considered — **DECIDED 2026-08-29: O-1**
 
@@ -236,14 +236,14 @@ The question was whether generating N+M points yields the *same* first N rows as
 Measured across all six cascor-relevant generators with `seed=42` held fixed
 (`util/ad-hoc/2026-08-30_v1_generator_prefix_check.py`):
 
-| generator | `X_full` | `X_train` |
-| --- | --- | --- |
-| spiral | DIFFERS | **DIFFERS** |
-| moon | DIFFERS | **DIFFERS** |
-| xor | DIFFERS | **DIFFERS** |
-| circles | DIFFERS | **DIFFERS** |
-| checkerboard | DIFFERS | **DIFFERS** |
-| gaussian | DIFFERS | **DIFFERS** |
+| generator    | `X_full` | `X_train`   |
+|--------------|----------|-------------|
+| spiral       | DIFFERS  | **DIFFERS** |
+| moon         | DIFFERS  | **DIFFERS** |
+| xor          | DIFFERS  | **DIFFERS** |
+| circles      | DIFFERS  | **DIFFERS** |
+| checkerboard | DIFFERS  | **DIFFERS** |
+| gaussian     | DIFFERS  | **DIFFERS** |
 
 **6/6 differ, on both keys.** Two mechanisms, and the second is the more general one:
 
@@ -279,12 +279,12 @@ report stability when the two runs produced the same row count.
 
 Explain the problem, then **refuse to continue until the user chooses**:
 
-| # | option | effect |
-| --- | --- | --- |
-| 0 | **Fill synthetically** | Apply §6.2 where possible — generate the missing partition(s) and proceed cleanly. |
+| # | option                             | effect                                                                                                                                                                          |
+|---|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0 | **Fill synthetically**             | Apply §6.2 where possible — generate the missing partition(s) and proceed cleanly.                                                                                              |
 | 1 | **Continue with recorded warning** | Proceed on the `X_test`-as-eval fallback. Warning visible on all tabs for the run's lifetime; metrics carry an explicit caveat; `validation_warnings` recorded on the manifest. |
-| 2 | **Back to dataset selection** | Return control to the dataset page (top tab menu) and its left context menu, config intact. |
-| 3 | **Cancel the run** | Abort with the clean-up / close-out appropriate to the current operating mode. |
+| 2 | **Back to dataset selection**      | Return control to the dataset page (top tab menu) and its left context menu, config intact.                                                                                     |
+| 3 | **Cancel the run**                 | Abort with the clean-up / close-out appropriate to the current operating mode.                                                                                                  |
 
 **Headless runs get a safe default: refuse and shut down.** That default is overridden only by an
 explicit run-with-warnings or add-synthetic-data switch — as a CLI flag, an environment variable, or
@@ -325,7 +325,6 @@ situation went unnoticed.
 > (+0.0400) was the second-highest of eight. **The motivation for this design is methodological, not
 > a measured inflation.** Full result and caveats:
 > [`JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_GATED-MEASUREMENTS-RESULTS.md`](JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_GATED-MEASUREMENTS-RESULTS.md) §2.
-
 
 Cheap and worth doing first: on the current build, run one cell and compute the final metric on
 **both** the promoted `X_test` (as today) and a freshly held-out slice never seen by early
