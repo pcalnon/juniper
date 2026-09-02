@@ -5,18 +5,22 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-09-01
-**Status**: DESIGN — decisions 1–5 settled 2026-08-29; **6–8 settled 2026-08-31 (§9.2)**;
-**9 settled 2026-09-01 (§9.3.2): P-1b, per-partition name-keyed seed substreams**, after P-1a was
-measured BLOCKED (§9.3.1). Prefix stability is abandoned as unobtainable.
-**Two items now gate Chunk 3.** (1) P-1b introduces a leak P-1a did not have (§9.3.2). The full
-class-1 census (§9.3.4) settles the guard: **G-b and G-c are UNSOUND — G-a, de-duplicate at
-assembly, is the only candidate covering the measured leak set.** Still owner-ruled.
-(2) **P-1b applies only to SEED-DEPENDENT generators** (§9.3.3 + §9.3.4) — 5 of 16 draw from a
-finite pool, applying P-1b to the ordered ones (`equities`) would be a **regression**, and
-**`mackey_glass` ignores its seed entirely at default config**, so its partitions come out 100 %
-identical and P-1b is *inapplicable* rather than merely leaky. Class membership there is
-**configuration-dependent**, not a fixed property of the generator.
+**Last Updated**: 2026-09-02
+**Status**: DESIGN — decisions 1–8 settled 2026-08-29/31 (§9.2). **Decisions 9 (P-1b) and 10 (G-a)
+are settled as owner rulings but are RECOMMENDED FOR REVISITING — see §9.4, which refutes the
+premise both rest on.**
+
+> **Read §9.4 before implementing anything from §9.3.** A 2026-09-02 consensus review (2 proposals,
+> 3 Lane A, 2 Lane B) established that **P-1b is not shipped behaviour** — all 16 generators already
+> carve one realisation, and their partitions are index-disjoint by construction, so the duplicate
+> leak §9.3.2–§9.3.4 describe **cannot occur today**. Decision 9 introduces it. Independent
+> generation was measured to buy nothing for i.i.d. generators (KS D = 0.0032 vs 0.0068 critical) and
+> to be *worse* for lattice generators. **G-a does not terminate** on the case §9.3.4 used to justify
+> it, so decision 10's stated reasoning is void. §9.4.9 lists the corrections this forces on §9.3.
+>
+> **Chunk 3 remains gated**, but on a different question than §9.3 supposed: not "how do we resolve
+> per-run class membership" but "should P-1b be adopted at all". **Round 2 of the review is owed and
+> has not been run.**
 **Tracks**: [cascor#582](https://github.com/pcalnon/juniper-cascor/issues/582) (tier parity),
 [cascor#578](https://github.com/pcalnon/juniper-cascor/issues/578) (baseline-tier decision),
 [cascor#530](https://github.com/pcalnon/juniper-cascor/issues/530) (no seed field)
@@ -383,6 +387,7 @@ cross-field validators reject only `train_ratio + test_ratio > 1.0`.
 | 7 | **Normalisation fit scope** (sub-question of D-1) | **Fit on `train` only; apply those statistics unchanged to `val` and `test`.** No quantity derived from the reported partition may reach the training data — the same invariant §5 states for the reported score, applied to the scaler. **Consequence to state in the contract: `X_full` is deliberately NOT uniformly normalised**, because it is a concatenation of three subsets scaled by train's statistics rather than a uniformly-scaled array. Any consumer that treats `X_full` as a homogeneous array must be checked (§7). |
 | 8 | **D-2** — how is additive sizing implemented? | **Dataset-level row counts.** The ratios denote absolute rows of the realised dataset, identically for every generator regardless of its native size knob (`n_points_per_spiral`, `n_points_per_quadrant`, `n_samples_per_class`, `n_samples`). `n_points_per_spiral=500, n_spirals=2` with `100/40/30` means `n_train=1000, n_val=400, n_test=300` — 1700 rows total. This resolves the plan's open question *"what '40 % of train' means for a per-spiral knob"*: it means rows, never per-spiral units. |
 | 9 | **P-1** — how is cross-snapshot comparability obtained? | **P-1b: per-partition, NAME-KEYED seed substreams** (§9.3.2). Prefix stability (P-1a) is abandoned as unobtainable — §9.3.1 measured it blocked, partly for a semantic reason rather than a cost one. Keyed by partition NAME, not by `spawn()` position, so adding or reordering a partition cannot move another's stream. **Introduces one leak that must be guarded before Chunk 3 ships** — see §9.3.2. |
+| 10 | **Which P-1b guard closes the duplicate-row leak?** | **G-a — de-duplicate at assembly.** Drop rows in `val` / `test` that appear in `train`, then top up. Ruled 2026-09-02 after §9.3.4's full class-1 census showed **G-b and G-c are unsound**: `mackey_glass` leaks 100 % and is not `linspace`-parameterised, so a per-partition grid offset addresses mechanism A only and leaves the worst case untouched. G-a is the only candidate covering the measured leak set, and the only generator-independent one. A duplicate-row assertion belongs in the §6a consumer gate regardless. |
 
 ### 9.3 Derived requirement — PREFIX STABILITY (new, opened 2026-08-31)
 
@@ -599,10 +604,11 @@ class-1 generators, no skips.**
 | `gaussian`, `xor`, `circles`, `checkerboard` | 0 | 0 | clean |
 | `ar_p`, `delay_product`, `irregular_sine`, `multi_sine` | 0 | 0 | clean |
 
-**G-b is unsound; G-a is required.** `mackey_glass` leaks **100 %** and is *not*
-linspace-parameterised, so a per-partition grid offset — which addresses mechanism A only — would
-leave the worst case entirely untouched. **G-a (de-duplicate at assembly) is the only candidate that
-covers the measured leak set.** G-c is also insufficient for the same reason.
+**G-b is unsound; G-a is required — and G-a was RULED 2026-09-02 as decision 10.** `mackey_glass`
+leaks **100 %** and is *not* linspace-parameterised, so a per-partition grid offset — which addresses
+mechanism A only — would leave the worst case entirely untouched. **G-a (de-duplicate at assembly) is
+the only candidate that covers the measured leak set**, and the only generator-independent one. G-c
+is insufficient for the same reason. The census did not so much inform the choice as remove it.
 
 **Why `mackey_glass` is total: it ignores its seed.** `MackeyGlassParams.init_noise_std` defaults to
 `0.0` (`params.py:33`), and the seed is consumed **only** inside `if params.init_noise_std > 0`
@@ -636,6 +642,197 @@ the generators expand differently — `spiral` to 2000/800, the sequence generat
 windowing). Duplicate counts are size-dependent, so these are existence proofs, not magnitudes.
 `train` vs `test` and `val` vs `test` were not measured — only `train` vs `val`. The five class-2/3
 generators are out of scope here by construction (§9.3.3).
+
+## 9.4 Per-run class membership — two proposals, and why NEITHER should be built
+
+Requested 2026-09-02: two independently generated proposals for resolving partition-strategy class
+membership per run, validated under
+[`JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md`](JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md).
+
+**The review did not choose between them. It refuted the premise both rest on.** The recommendation
+is to build neither and to revisit decisions 9 and 10. That recommendation is the owner's to accept
+or reject; nothing here is settled.
+
+### 9.4.1 The two proposals
+
+**Proposal A — Seed-Sensitivity Contract (producer side).** Each generator gains an optional
+`partition_capability(params) -> PartitionStrategy` computed from *resolved params*; a
+seed-perturbation probe verifies the declaration before `INDEPENDENT_SUBSTREAM` is honoured; the
+fail-closed default for an undeclared generator is "generate one realisation, carve it disjointly".
+
+**Proposal B — Partition Provenance Block (contract side).** A `partition_provenance` blob **inside
+the NPZ** (not `DatasetMeta`) declaring strategy, seed-sensitivity, per-partition counts and digests,
+normaliser fit scope and assembly order; one ingestion gate re-derives what is derivable and enforces
+a legality table on what is not.
+
+They are complementary rather than competing — A decides, B transmits. Both were briefed with
+deliberately non-overlapping entry points and neither saw the other's work.
+
+### 9.4.2 The finding that reframes everything
+
+**P-1b is not shipped behaviour.** Every one of the 16 generators already produces one realisation
+and carves it — the 9 tabular ones via `shuffle_and_split` (`spiral/generator.py:44-46` and
+siblings), the 7 sequence ones via `temporal_split_index` (`core/split.py:116`). A fleet-wide search
+for `SeedSequence` / `spawn_key` / per-partition seeds in `juniper_data/` returns **nothing**.
+
+Under `shuffle_and_split` the partitions are **index-disjoint by construction**, so the duplicate
+leak §9.3.2 and §9.3.4 characterise **cannot occur today**. It is introduced by decision 9.
+
+So both proposals are machinery to make safe a hazard that only exists if P-1b is adopted first.
+
+### 9.4.3 What independent generation actually buys — measured
+
+- **For i.i.d. generators: nothing.** `gaussian`, 200 replicates per arm, 200k values:
+  KS D = 0.0032 against a 0.0068 critical value. Independent draws and disjoint carving are
+  statistically indistinguishable.
+- **For lattice generators: it is worse than nothing.** Two "independent" `spiral` pools at the
+  **default** `noise=0.1` remain aligned on the deterministic `np.linspace` radius lattice
+  (`spiral/generator.py:138`). Cross-pool nearest-neighbour distance is a fraction of the within-pool
+  spacing, against ~1.0 for an i.i.d. control.
+
+**This exposes an inadequacy in §9.3.4's own instrument.** The class-1 census measured *exact byte
+duplicates* and reported "0 at default noise". That is true and misleading: the pools are
+lattice-aligned at default noise, and exact-equality testing is structurally blind to it. A
+duplicate-row count is not a leak measurement.
+
+### 9.4.4 Lane B — the detection mechanism is unsound
+
+Reproduction rigs: `util/ad-hoc/2026-09-02_laneb_probe_refutation_*.py`.
+
+1. **The probe's discriminator is satisfied by a permutation.** `arc_agi` at `n_tasks >= pool` size
+   (`generator.py:134,166`, `rng.choice(..., replace=False)`) gives probe verdict **`dependent`**
+   while **40/40** rows are duplicated across partitions. The mechanism reads green on the class-2
+   overlap **§9.3.3 itself documents as structural**. `mnist` (`generator.py:127-131`) has the same
+   shape.
+2. **No array choice repairs this.** Probe `X_full` and `arc_agi`/`mnist` pass while leaking; probe
+   `X_train` and `spiral`/`moon` at `noise=0` pass while leaking, because `shuffle_and_split`
+   re-permutes. For those configs the two readings give **opposite verdicts**.
+3. **A schema-valid epsilon defeats the probe and G-a together.** `mackey_glass` at
+   `init_noise_std=1e-8` (`params.py:33` is `ge=0`, no positive floor): probe `dependent`, G-a finds
+   **0** exact duplicates, and **all 568 validation rows sit within 4.2e-5 of a training row** — 0.005 %
+   of the signal span. Both gates green on a numerical carbon copy.
+4. **The verdict is nondeterministic near the boundary.** At `init_noise_std=1e-13`, **19 of 60**
+   random seed pairs read `dependent` and 41 read `invariant` — the same request accepted or refused
+   depending on which two constants the probe hard-codes. `seed_sensitivity` is therefore **not a
+   property of the run**, and cannot be recorded as one or adjudicated against a legality table.
+5. **`seed` is a branch condition, so the probe cannot execute the path the run takes.**
+   `arc_agi/generator.py:129,161` and `mnist/generator.py:127` branch on `seed is None`. Setting a
+   seed is the probe's entire method, so it always takes the `else` branch and stamps `dependent` on
+   a run that in fact took a deterministic prefix.
+6. **`partition_capability(params)` is ill-typed.** Identical `CsvImportParams` yield a different
+   dataset and a different verdict under a different `JUNIPER_DATA_IMPORT_DIR`
+   (`csv_import/generator.py:82-86`); `equities/generator.py:175` defaults `end_date` to
+   `datetime.now(UTC)`. Capability is a function of params **and environment**, so the proposed
+   signature cannot be correct.
+7. **The empty dataset makes every gate vacuous.** `arc_agi` at its default `source="huggingface"`
+   silently returns `X_full` of shape `(0, 900)` (see §9.4.6). Two empty arrays are byte-identical, so
+   the probe says `invariant`; a duplicate check says 0. Neither gate has a row-count precondition,
+   and the operator is told the *partitioning* is wrong.
+
+### 9.4.5 Decision 10's stated justification does not support it
+
+§9.3.4 ruled *"G-b is unsound; G-a is required"* because G-b cannot fix `mackey_glass`. **G-a cannot
+fix it either.**
+
+- At default `init_noise_std=0.0` the seed is inert, so every G-a top-up regenerates the identical
+  trajectory: **568 of 568 rows duplicate, 0 fresh, every round.** G-a either loops forever or emits
+  an **empty** validation partition.
+- **G-a's invariant is unsatisfiable on ordinary tabular data.** Records with coinciding feature
+  vectors are normal for low-cardinality/categorical inputs; on a 6-record `csv_import` pool with 3
+  distinct feature vectors, **5 of 8** partitionings violate "zero exact duplicates across
+  partitions". G-a would delete valid records — biasing the sample — or refuse to assemble.
+
+"G-b fails on X, therefore G-a" is invalid when G-a also fails on X. **Decision 10 stands as an owner
+ruling, but the reasoning §9.3.4 gave for it is void**, and G-a is non-terminating on the case that
+motivated it. It needs re-deciding on different grounds, or withdrawing.
+
+### 9.4.6 Uncommissioned defects surfaced by the review
+
+- **`arc_agi` silently produces an EMPTY dataset at its default configuration.** `source="huggingface"`
+  cannot reach `fchollet/arc-agi`, the handler at `generator.py:106-116` falls back to a cached
+  dataset with an incompatible schema (no `train`/`test`/`task_id` keys), and
+  `_convert_tasks_to_arrays` returns `X_full` of shape **(0, 900)** — HTTP 200, no error, no warning,
+  **511 s**. Any determinism test written against default `arc_agi` compares two empty arrays and
+  passes unconditionally. **Vacuous-pass class; needs its own ticket.**
+- **Nine generators default `seed=None`** and are therefore non-reproducible at their documented
+  defaults. `spiral` is the only 2-D generator with a concrete default seed.
+- **Normaliser fit scope**: `equities`, `equities_seq` and `csv_import` fit on the full set including
+  chronologically-later rows — filed as juniper-data#314, contradicts decision 7.
+- **Postgres `SCHEMA_SQL` declares `n_classes NOT NULL`** while `core/models.py` made it nullable, so
+  wiring the (currently dead) Postgres store would hard-fail on the first regression dataset.
+
+### 9.4.7 Recommendation — not a ruling
+
+**Build neither proposal.** Instead:
+
+1. **Revisit decision 9 (P-1b).** It is unshipped, buys nothing measurable for i.i.d. generators,
+   is actively worse for lattice generators, and is the sole source of the hazard §9.3.2–§9.3.4
+   describe. The existing carve is already index-disjoint and is pinned by tests that exist and pass
+   (`tests/unit/test_split.py:145`, `tests/unit/test_sequence_windowing_leakage.py`).
+2. **Re-decide or withdraw decision 10 (G-a)** — §9.4.5.
+3. Spend the budget on three cheap, artifact-level fixes that the proposals do not deliver:
+   **make `seed` required or defaulted**; **one post-hoc degeneracy assertion** on the produced arrays
+   at the single route site that already calls `compute_checksum`
+   (`api/routes/datasets.py:249`) — rejecting near-degenerate `X_full` and verbatim train/test row
+   reuse; and **fix `arc_agi`'s silent-empty fallback**.
+
+The third item is the only proposal on the table that catches Lane B's `xor(margin=x_range=y_range)`
+case, because it operates on the artifact rather than on a declaration about the artifact.
+
+### 9.4.8 Consensus record
+
+**Sizing** (procedure §3): document of record × novel design with no standing answer → top-right
+cell → 3+ Lane A with distinct entry points, 2+ Lane B with opposing briefs, ≥2 iterations.
+
+**Round 1** — 2 generation agents (producer / contract entry points, mutually blind); 3 Lane A
+(direct generator measurement / ingestion-and-storage code paths / filesystem-and-Docker census);
+2 Lane B (over-engineering lens / detection-correctness lens).
+
+**Reconciler re-derivations** — verified personally before adoption: the 16-generator count (four
+instruments); `spiral` seed-invariance at `noise=0`; the equal-size 100 % `X_full` collision; the
+`spiral`-vs-`gaussian` lattice contrast; the absence of any per-partition seeding in `juniper_data/`;
+and the live/legacy artifact roots.
+
+**A Lane A / Lane B disagreement, reconciled rather than averaged.** Lane A1 reported `gaussian`
+seed-invariant at `class_std<=1e-8`; Lane B2 reported it `dependent` on 60/60 seed pairs from 1e-4 to
+1e-20. **Both are right about different configurations**: A1 supplied explicit non-zero `centers`,
+B2 used auto-centers, where one component is `sin(π) ≈ 0` and a subnormal perturbation survives
+(`gaussian/generator.py:119,124`). Re-derived directly. This *strengthens* the Lane B conclusion —
+the verdict turns on a parameter **interaction**, which no per-generator table can capture.
+
+**Corrections to this document forced by round 1**, applied in §9.4.9 below: the generator count
+(17 → 16, in two places), the artifact census (26 across 5 roots → 39 across 7, and volatile), and
+the "mechanism A grid coincidence" framing, which the lattice measurement shows was the wrong
+abstraction — every duplicate measured anywhere in this arc came from a seed-invariant configuration.
+
+**Termination**: round 1 changed the disposition entirely, so under procedure §4 a round 2 is owed
+and has **not** been run. This section is therefore round-1 output, and §9.4.7 is a recommendation
+awaiting both the owner's ruling and that second round.
+
+### 9.4.9 Corrections to earlier sections of this document
+
+- **§9.3.1 says "2 of 17 generators"; the correct figure is 16.** Confirmed by AST-parsing
+  `GENERATOR_REGISTRY`, by directory listing, by `docker exec` against the running service, and by the
+  live `/v1/generators` endpoint. The "17" came from counting `juniper_data_client`'s 17
+  `GENERATOR_*` constants, whose 17th is `GENERATOR_CIRCLE_LEGACY = "circle"` — a deprecated alias
+  that the registry rejects. §9.3.3's "5 of 16" was already right; the document contradicted itself.
+- **The implementation plan's §9 S-6 census is superseded**: not 26 distinct artifacts across 5
+  roots but **39 across 7**. The prior count was arithmetically exact at its timestamp and had two
+  structural blind spots — `juniper_data/data/datasets/` and `juniper-legacy/` — while the live
+  volume has since grown 10 → 20 (~10 writes/day). **Any figure here is valid only with its
+  timestamp.** A census that does not exclude `.mypy_cache` is meaningless: it uses the same
+  `*.meta.json` extension and contributes >2,000 false hits.
+- **§9.3.2's "mechanism A / mechanism B" framing is the wrong abstraction.** Grid coincidence never
+  produced a duplicate row in a seed-*dependent* configuration; every duplicate measured came from a
+  seed-*invariant* one. The operative property throughout is seed-invariance.
+- **§9.3.4's `spiral` entry needs a qualifier**: `spiral(noise=0)` is seed-invariant only on
+  `algorithm="modern"` (the default). At the schema-valid `algorithm="legacy_cascor"` it is
+  seed-**dependent**, because that path draws radii from the RNG (`generator.py:131`). A one-parameter
+  change flips the class — which is itself decisive evidence against any static per-generator table.
+- **Seed-invariance is a property of `X_full`, not of the partitions.** For `spiral`/`moon`, `X_full`
+  is byte-identical across seeds while `X_train`/`X_test` are not, because `shuffle_and_split(seed=…)`
+  re-permutes before slicing. §9.3.4's equal-size "100 %" figure is an `X_full` measurement; on
+  `X_train` at default `shuffle=True` it is ~49 %, reaching 100 % only at `shuffle=False`.
 
 ## 10. Naming — SETTLED: `X_val` / `y_val`, **not** `X_eval`
 
