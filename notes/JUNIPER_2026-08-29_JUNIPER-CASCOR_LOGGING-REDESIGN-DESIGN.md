@@ -6,9 +6,20 @@
 **License**: MIT License
 **Version**: 0.7.1
 **Last Updated**: 2026-08-29
-**Status**: DESIGN — owner-timed; scope was owner-raised on [cascor#573](https://github.com/pcalnon/juniper-cascor/issues/573)
+**Status**: DESIGN — **SUPERSEDED IN PART 2026-09-02**; owner-timed; scope owner-raised on [cascor#573](https://github.com/pcalnon/juniper-cascor/issues/573)
 **Measured at**: cascor `67d7ea35`, 32 worker profiles per corpus
-**Evidence**: `reports/perf-lane-post-fix-2026-08-26/worker_profile_*`
+**Evidence**: `juniper-ml/reports/perf-lane-post-fix-2026-08-26/worker_profile_*`
+
+> **RECONCILED 2026-09-02.** [cascor#598](https://github.com/pcalnon/juniper-cascor/pull/598) shipped
+> the top two items of §5's revised order, and a re-derivation from the code found several claims here
+> that were wrong when written. **Read
+> [`JUNIPER_2026-09-02_JUNIPER-CASCOR_LOGGING-CURRENT-STATE-RECONCILIATION.md`](JUNIPER_2026-09-02_JUNIPER-CASCOR_LOGGING-CURRENT-STATE-RECONCILIATION.md)
+> before acting on any section below**; the plan of record is now
+> [`JUNIPER_2026-09-02_JUNIPER-CASCOR_LOGGING-REDESIGN-ROADMAP.md`](JUNIPER_2026-09-02_JUNIPER-CASCOR_LOGGING-REDESIGN-ROADMAP.md).
+> Corrections are marked inline as **CORRECTION 2026-09-02**. The load-bearing ones: D-2 reasons about
+> `fork` and the pool is **forkserver**; §6's mirroring constraint is **inverted** for the one file a
+> redesign touches; and D-1's premise — that the level filter is a single consistent gate — is false,
+> because the guard predicate and the emit filter read **disjoint state**.
 
 ---
 
@@ -124,6 +135,17 @@ is where F-1's guard naturally lives.
 
 Two layers, both needed:
 
+> **CORRECTION 2026-09-02 — the predicate exists, and it does not agree with the filter.**
+> `Logger.isEnabledFor` has existed since PR #116 (`logger.py:1027`) and is already used at 8 sites in
+> `candidate_unit.py`. But it reads `_log_level` while `_log_at_level`'s filter reads
+> `_level_logger_config`/`_level_logger_name`, and `set_level()` writes only the former — so a guard
+> can be **open on records the emitter discards**. Measured, not read:
+> `juniper-ml/util/ad-hoc/2026-09-02_logging_doc_refutation_probe.py`. Four of the eight deployed
+> guards also pass wrong integers — two live-wrong (`level=5 # TRACE`, where 5 is VERBOSE) and two
+> wrong-but-inert (`level=8 # VERBOSE`, 8 being unregistered). **The state split must be fixed
+> before this design's guard idiom can be recommended**; symbolic constants alone are not sufficient.
+> See the reconciliation's N-3.
+
 **Cheap gate at the call site.** Expose an `is_enabled_for(level)` predicate and use it for hot-path
 records that interpolate anything expensive:
 
@@ -164,6 +186,15 @@ A sink abstraction with, at minimum, a console sink and a rotating file sink:
 forked from the parent. An inherited open file handle shared across processes gives interleaved and
 potentially torn writes.
 
+> **CORRECTION 2026-09-02 — the premise is wrong.** The candidate pool uses **`forkserver`**, not
+> `fork` (`cascade_correlation.py:1103-1109`; the in-source comment even records the earlier version
+> of this same mistake: *"Issue #569: an earlier comment here said the code used the 'fork' context —
+> it never did on this path"*). A handle held by the **parent** is therefore not inherited by a
+> candidate worker at all. The real hazard is the mirror image: `cascade_correlation` is in the
+> forkserver **preload** list, so the forkserver process imports the logging tree, and a handle opened
+> at import or forkserver time **is** inherited by every child with a shared offset. Laziness stays
+> load-bearing — relative to forkserver start, not to fork. See the reconciliation's N-2.
+
 **Owner decision 3: per-process handle**, opened lazily on first write after fork — the simplest
 option, and the only one that keeps a single log file and so keeps every existing log-reading tool
 working unchanged. Taken as **provisional**: if it proves untenable, the fallbacks are one file per
@@ -190,6 +221,16 @@ honoured) → per-logger config entry → global config → default. Resolve nam
 at configuration time and store the integer on the logger, which retires the per-record
 `_is_valid_level_name` cost in F-4 as a side effect rather than as a separate optimisation.
 
+> **CORRECTION 2026-09-02 — two things.** (1) The canonical variable is
+> **`JUNIPER_CASCOR_LOG_LEVEL`**; `CASCOR_LOG_LEVEL` is deprecated, raises a `DeprecationWarning`, and
+> loses to the prefixed form with a split-config stderr warning (CFG-05, `constants.py:638-658`).
+> (2) **A prerequisite this section does not name**: there are currently **two** configured-level
+> states — `isEnabledFor` reads `_log_level`, `_log_at_level`'s filter reads
+> `_level_logger_config`/`_level_logger_name`, and `set_level()` writes only the first — so a
+> precedence chain built on top of them would move one gate and not the other. And an unknown level
+> name cannot be made to fail loudly while `is_valid_level` returns `True` for every input
+> (`logger.py:341`, the `level == level` typo). See the reconciliation's N-3 and N-3a.
+
 ### D-4 — ELK/Kibana export (scope 4) — design the seam, defer the sink
 
 Structured JSON output is the prerequisite and is worth doing regardless: one JSON object per
@@ -200,6 +241,15 @@ would cost more than the 18 % this design is trying to recover.
 
 **Owner decision 6: the JSON sink goes through `juniper-observability`**, which already owns
 structured-JSON logging for the service tier — one implementation, not a cascor-local second one.
+
+> **CORRECTION 2026-09-02 — a second implementation already exists, deliberately.**
+> `src/api/observability.py:75-119` is a **local fork** of
+> `juniper_observability.configure_logging`, adding a `RotatingFileHandler` and a cascor-aware log
+> directory, with its rationale in-source at `:81-83`. cascor already imports `JuniperJsonFormatter`
+> (`:36`) and already emits JSON on the API tier (`:102`), so the dependency is present today and the
+> "hard dependency in the worker import path" framing below applies only to putting it on **Path A**.
+> The decision to take is therefore not "avoid a fork" but **"reconcile the one we have"** — and note
+> that upstreaming it would delete the only rotator, since the shared library has no file sink.
 Two consequences to plan for: cascor gains a hard dependency on `juniper-observability` in the
 *worker* import path, so the addition must be screened for fork-safety
 (`util/ad-hoc/2026-08-26_fork_safety_import_surface.py`) and for its effect on the worker module
@@ -217,7 +267,6 @@ minimum pin moves, which is a fleet-wide change rather than a cascor-local one.
 > migration, small. **The call-site migration drops from headline to last.** Full decomposition:
 > [`JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_GATED-MEASUREMENTS-RESULTS.md`](JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_GATED-MEASUREMENTS-RESULTS.md) §3.
 
-
 Honest accounting, since #563's number is banked and must not be double-counted:
 
 - **F-1 is the large one and it is not yet sized.** 18 % `logger.py` + ~15 % tensor formatting is
@@ -227,6 +276,15 @@ Honest accounting, since #563's number is banked and must not be double-counted:
 - **F-2 and F-4 are bounded and real** — three syscalls per emitted record, two closures per
   emitted record, and 2.66 % of self time in level-name validation.
 - **F-3 is a correctness/ergonomics fix**, not a performance one.
+
+  > **CORRECTION 2026-09-02 — under the juniper-ml launchers it is a 1.89× write amplification.**
+  > `juniper-ml/util/experiment_stack.bash:685`, `util/isolated_stack.bash:297` and
+  > `util/juniper_plant_all.bash:126` redirect the service's stdout into the log directory, so the
+  > unconditional `print()` puts every record on disk a second time in a second format. Measured in
+  > one run: 77,790 duplicate records / 11.89 MB against a 27.07 MB total — **44 % of the run's log
+  > bytes**. This does **not** apply to the deployed service (systemd inherits `journal`; the Docker
+  > stanza sets no `logging:` override), so the claim holds for the harness, which is where the
+  > evidence corpus is produced. See the reconciliation's N-1.
 
 **Measure before building (§7 Q1).** One profiled cap-4 cell with all logging disabled gives the
 true ceiling; the same cell at production level gives the enabled-record floor. The gap between them
@@ -238,17 +296,47 @@ and it should precede the implementation rather than justify it retroactively.
 - **`log_config` is mirrored into `juniper-cascor-model`.** Edits to `src/log_config/...` must be
   mirrored or `test_drift` fails, and pre-commit's black hook covers only `src/`, so it reformats
   one side of a byte-gated pair — re-sync the model copy after running pre-commit.
+
+  > **CORRECTION 2026-09-02 — inverted for the file that matters.** The gate is **file-level**.
+  > `log_config/logger/logger.py` is on `_INTENTIONAL_DIVERGENCE`
+  > (`juniper-cascor-model/tests/test_drift.py:31`) and must **NOT** be mirrored — a reverse guard,
+  > `test_intentional_divergences_actually_differ` (`:104-117`), **fails if the two copies become
+  > identical**. #598 hit this and reverted. The other three `log_config` files, and all of
+  > `candidate_unit/`, `utils/` and `cascor_constants/`, **are** byte-gated and must be mirrored. The
+  > black-hook half of this bullet is entirely correct and survives. See the reconciliation's N-5.
+
 - **Every log-parsing tool anchors on the current text format.** The `+`-prefix, the
   `[file.py: func:LINE] (timestamp) [LEVEL] message` shape, and the `juniper_cascor.log` filename are
   depended on by the experiment harness, `util/ad-hoc/2026-08-26_g4_post_fix_analysis.py`, the
   census tooling and the snapshot pipeline. **A format change is a breaking change to the evidence
   corpus.** Either hold the human-readable format byte-stable and add JSON as a *second* sink, or
   budget for updating every consumer. Recommended: the former.
+
+  > **CORRECTION 2026-09-02 — narrow this, do not delete it.** The conclusion and the recommendation
+  > are right; the element list is not. **Nothing parses `[file.py: func:LINE]`** — anchoring on it is
+  > a *documented prohibition* ("methodology rule 5") in four juniper-ml scripts after a 2026-08-20
+  > incident, and #573's own body states the rule. What **is** load-bearing: the `+` sentinel (2
+  > scripts split worker from parent on it), Path A's **absence of milliseconds** (the same 2 scripts
+  > use it as the same discriminator — so a "richer sink" adding sub-second precision breaks them
+  > silently), the `(YYYY-MM-DD HH:MM:SS)` timestamp (6 scripts, 3 of which cannot read a `,millis`
+  > form and fail by **silent skip**), anchored **message text** (~17 scripts), and the
+  > `juniper_cascor.log*` filename/rotation scheme. All of this breakage is **cross-repo — cascor's
+  > CI stays green**. See the reconciliation's N-4.
 - **Do not fold this into a hot-path bugfix.** #573 was deliberately kept out of #563 so neither
   justifies the other; keep that separation.
 - **Log rotation already happens** (`juniper_cascor.log.1` exists in service runs) and any analysis
   that reads only `juniper_cascor.log` silently misses records — a rotating file sink must keep that
   behaviour predictable and documented, since it has already caused one truncated analysis.
+
+  > **CORRECTION 2026-09-02 — the mechanism, and it is worse than "predictable".** The rotator is
+  > **Path C**: `api/observability.py:110-115` attaches a `RotatingFileHandler` (10 MB, 5 backups) to
+  > **the same `juniper_cascor.log`** that Path A appends to per record and Path B holds open. Path A
+  > survives a rollover only because it re-opens by name each record; **Path B's held descriptor
+  > follows the renamed inode and keeps writing into `.1`**. Rollover fires only when Path C emits —
+  > ~21 records per run — so it checks the size of a file being inflated out of band, which is why
+  > rotated files run to 15 MB, 41 MB and 129 MB against a 10 MB threshold. See the reconciliation's
+  > N-9. **A persistent-handle redesign acquires this defect for Path A**, so rotation must be given a
+  > single owner *before* the handle is made persistent.
 
 ## 7. Owner decisions — SETTLED 2026-08-29
 
