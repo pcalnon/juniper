@@ -337,7 +337,10 @@ This repo is part of the broader Juniper ecosystem. See the parent directory's `
 - Shell scripts use bash with `shellcheck` compliance
 - Markdown files use `.markdownlint.yaml` configuration
 - `notes/` documents are named `JUNIPER_<YYYY-MM-DD>_JUNIPER-<REPO>_<CONTENTS-DESCRIPTION-PHRASE>.md` (REPO one of ML / CANOPY / RECURRENCE / CASCOR / CASCOR-CLIENT / CASCOR-WORKER / DATA / DATA-CLIENT / DEPLOY / ECOSYSTEM). Exempt: `notes/{templates,releases,requirements,legacy}/` and README files. Full rules + migration record: [`notes/JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md`](notes/JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md)
-- **Name every document a summary REFERENCES or CHANGES** (mandatory, ecosystem-wide, 2026-09-01; widened 2026-09-02): in a step-completion or work-arc summary, (a) every reference to a document carries its filename — whether by section number, by role ("the plan", "the analysis"), or by implication; once on first reference if one document is cited, on **every** reference if two or more; and (b) the summary lists **by filename** every document the step created or modified. Covers summaries, PR bodies, handoffs, issue comments. Examples + rationale: `Juniper/AGENTS.md` § Cross-Project Conventions, which is **unversioned** — this bullet is the versioned record.
+- **Name every document a summary REFERENCES or CHANGES** (mandatory, ecosystem-wide, 2026-09-01; widened 2026-09-02). In a step-completion or work-arc summary:
+  - every **reference** to a document carries its filename — by section number, by role ("the plan", "the analysis"), or by implication. One document cited → name it on first reference; two or more → **every** reference carries its filename.
+  - the summary **lists by filename** every document the step created or modified.
+  - Covers summaries, PR bodies, handoffs, issue comments. Examples + rationale: `Juniper/AGENTS.md` § Cross-Project Conventions, which is **unversioned** — this bullet is the versioned record.
 
 ### Script placement (mandatory)
 
