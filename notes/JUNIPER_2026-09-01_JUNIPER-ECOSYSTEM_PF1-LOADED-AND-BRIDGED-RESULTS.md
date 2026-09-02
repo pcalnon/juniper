@@ -1,5 +1,17 @@
 # PF-1 under load, and with the bridge — the contention floor is duration-scoped, and `metrics_scraped` is vacuous
 
+> **CORRECTED 2026-09-02 — §1's three-row comparison cannot support its conclusions.** All three
+> rows differ in `drive` by **less than 0.06%**, which is inside the blind spot of a metric quantized
+> to the driver's 5-second poll interval; at 20 s all three runs sat in the same poll cycle. On the
+> poll-independent step-duration histogram the same runs differ by **−11.5%** (unbridged → bridged)
+> and **+15.0%** (bridged quiet → modest load). So neither *"the bridge costs nothing"* nor
+> *"a 20-second `drive` phase is effectively immune"* is supported, and with them goes the
+> duration-scoping claim in the title **as evidenced at 20 s**. This does not show the opposite
+> either: two *quiet* runs differ by 11.5%, so load is not separable from run-to-run drift at n=1 per
+> condition. The 0.5% threshold candidate derived in §2 sits far below the real noise floor. See
+> [`JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md`](JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md)
+> §3, §4.2 and §4.3. The `metrics_scraped` finding is unaffected and stands.
+
 **Executes** the two runs the owner approved in the P3 decisions on
 [`JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PF1-VARIANCE-RESULTS.md`](JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PF1-VARIANCE-RESULTS.md) §6:
 the **loaded-repeat test** (decision 2) and the **bridged re-run** (decision 4, which rejected
