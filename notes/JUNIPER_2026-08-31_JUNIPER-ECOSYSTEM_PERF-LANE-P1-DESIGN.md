@@ -199,7 +199,7 @@ The phasing table's P1 is *"done when: a `notes/` design doc exists and is revie
 - [x] What regression *means*, per tier — §2
 - [x] §12.3 scenario matrix, draft → fixed — §3 (PF-4 rescoped, PF-8 deferred, rationale recorded)
 - [x] Q-8 baseline directory: name, layout, retention, who writes it — §4
-- [ ] **Reviewed** — owner
+- [x] **Reviewed** — owner, in session 2026-09-01 ("design reviewed and approved"); the four P3 decisions that followed are recorded in §7 of the loaded-and-bridged results ([`JUNIPER_2026-09-01_JUNIPER-ECOSYSTEM_PF1-LOADED-AND-BRIDGED-RESULTS.md`](JUNIPER_2026-09-01_JUNIPER-ECOSYSTEM_PF1-LOADED-AND-BRIDGED-RESULTS.md))
 
 Review is the remaining half. The two items most worth an owner's attention are **§1** (PF-4's
 instrument does not hold timing data, so the reuse decision behind it is half-true) and **§5's

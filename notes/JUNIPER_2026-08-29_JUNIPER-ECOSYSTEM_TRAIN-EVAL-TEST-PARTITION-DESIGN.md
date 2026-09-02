@@ -6,10 +6,17 @@
 **License**: MIT License
 **Version**: 0.7.1
 **Last Updated**: 2026-09-01
-**Status**: DESIGN — decisions 1–5 settled 2026-08-29; **D-1, D-2 and normalisation fit scope settled
-2026-08-31 as decisions 6–8 (§9.2)**. The derived **prefix-stability** requirement (§9.3) is open but
-no longer undecidable: **P-1a is measured BLOCKED (§9.3.1, 2026-09-01)** — partly semantic, not merely
-expensive — so **P-1b is recommended** and awaits a ruling.
+**Status**: DESIGN — decisions 1–5 settled 2026-08-29; **6–8 settled 2026-08-31 (§9.2)**;
+**9 settled 2026-09-01 (§9.3.2): P-1b, per-partition name-keyed seed substreams**, after P-1a was
+measured BLOCKED (§9.3.1). Prefix stability is abandoned as unobtainable.
+**Two items now gate Chunk 3.** (1) P-1b introduces a leak P-1a did not have (§9.3.2). The full
+class-1 census (§9.3.4) settles the guard: **G-b and G-c are UNSOUND — G-a, de-duplicate at
+assembly, is the only candidate covering the measured leak set.** Still owner-ruled.
+(2) **P-1b applies only to SEED-DEPENDENT generators** (§9.3.3 + §9.3.4) — 5 of 16 draw from a
+finite pool, applying P-1b to the ordered ones (`equities`) would be a **regression**, and
+**`mackey_glass` ignores its seed entirely at default config**, so its partitions come out 100 %
+identical and P-1b is *inapplicable* rather than merely leaky. Class membership there is
+**configuration-dependent**, not a fixed property of the generator.
 **Tracks**: [cascor#582](https://github.com/pcalnon/juniper-cascor/issues/582) (tier parity),
 [cascor#578](https://github.com/pcalnon/juniper-cascor/issues/578) (baseline-tier decision),
 [cascor#530](https://github.com/pcalnon/juniper-cascor/issues/530) (no seed field)
@@ -376,6 +383,7 @@ cross-field validators reject only `train_ratio + test_ratio > 1.0`.
 | 6 | **D-1** — what does `X_full` mean under three partitions? | **`X_full` is ASSEMBLED, not split.** The three subsets are generated first, each given its appropriate shuffling and normalisation, and `X_full` is then produced by concatenating them. This **inverts today's data flow** (generate `X_full` → `shuffle_and_split`) and makes the identity true *by construction* — in the array-equality form, not merely by length. It is stronger than the plan's option (a), which would only have made the length clause normative. Rationale of record: with deterministic pseudorandomness configured properly and a shared seed, this permits **dataset comparison across snapshots**. |
 | 7 | **Normalisation fit scope** (sub-question of D-1) | **Fit on `train` only; apply those statistics unchanged to `val` and `test`.** No quantity derived from the reported partition may reach the training data — the same invariant §5 states for the reported score, applied to the scaler. **Consequence to state in the contract: `X_full` is deliberately NOT uniformly normalised**, because it is a concatenation of three subsets scaled by train's statistics rather than a uniformly-scaled array. Any consumer that treats `X_full` as a homogeneous array must be checked (§7). |
 | 8 | **D-2** — how is additive sizing implemented? | **Dataset-level row counts.** The ratios denote absolute rows of the realised dataset, identically for every generator regardless of its native size knob (`n_points_per_spiral`, `n_points_per_quadrant`, `n_samples_per_class`, `n_samples`). `n_points_per_spiral=500, n_spirals=2` with `100/40/30` means `n_train=1000, n_val=400, n_test=300` — 1700 rows total. This resolves the plan's open question *"what '40 % of train' means for a per-spiral knob"*: it means rows, never per-spiral units. |
+| 9 | **P-1** — how is cross-snapshot comparability obtained? | **P-1b: per-partition, NAME-KEYED seed substreams** (§9.3.2). Prefix stability (P-1a) is abandoned as unobtainable — §9.3.1 measured it blocked, partly for a semantic reason rather than a cost one. Keyed by partition NAME, not by `spawn()` position, so adding or reordering a partition cannot move another's stream. **Introduces one leak that must be guarded before Chunk 3 ships** — see §9.3.2. |
 
 ### 9.3 Derived requirement — PREFIX STABILITY (new, opened 2026-08-31)
 
@@ -451,6 +459,184 @@ already records.
 **What this evidence does not cover.** Only `spiral` was probed in situ (Q2–Q5); `moon` and
 `gaussian` were read from source, not measured. The mechanism-A/B isolations (Q6/Q7) are
 generator-independent and hold regardless. The other 14 generators were not classified.
+
+#### 9.3.2 P-1b ADOPTED — owner ruling 2026-09-01, and the hazard it introduces
+
+**Decision 9: P-1b.** Each partition is drawn from its own named seed substream. Prefix stability is
+abandoned as unobtainable (§9.3.1); the corpus is not preserved, and decision 4's re-measure carries
+that, as it already had to.
+
+**The scheme.** Derive each partition's stream from the dataset seed **by partition NAME**, not by
+position:
+
+```python
+key = int.from_bytes(hashlib.sha256(name.encode()).digest()[:8], "big")
+substream = np.random.SeedSequence(entropy=seed, spawn_key=(key,))
+rng = np.random.default_rng(substream)
+```
+
+Name-keyed rather than `SeedSequence.spawn(k)` positional, because positional keys are assigned in
+call order: adding, removing or reordering a partition would silently move every later partition's
+stream — reintroducing, at the level of the partition list, exactly the coupling P-1b exists to
+remove. A name-keyed stream is invariant to what else exists.
+
+**Verified, not assumed** (`util/ad-hoc/2026-09-01_p1b_substream_check.py`; P-1a was rejected for a
+plausible-sounding RNG claim that proved wrong, so P-1b's premise was probed before being built on):
+
+| probe | result |
+| --- | --- |
+| P1 `spawn(3)[:2]` vs `spawn(2)`, compared as **drawn values** | **stable** |
+| P2 incremental spawn off a reused parent | consistent with a fresh spawn |
+| P2b name-keyed stream invariant to interleaving, and distinct per name | **holds** |
+
+**How it composes with the other rulings.** P-1b is not an extra step — decision 6 already requires
+generating the three subsets separately and assembling `X_full` from them, so per-partition streams
+are the natural way to seed that:
+
+1. derive `seed_train` / `seed_val` / `seed_test` by name;
+2. generate each partition at its own size (decision 8: dataset-level row counts);
+3. fit the normaliser on `train` only, apply to all three (decision 7);
+4. `X_full = concat(train, val, test)`.
+
+**THE HAZARD P-1b INTRODUCES — and P-1a did not have.** Independently generating partitions at
+*different sizes* means, for a mechanism-A generator, **a different grid over the same curve**. Those
+grids can coincide.
+
+Measured at the default `100/40/30` → 1000/400/300:
+
+- `train ∩ val` share **4** grid positions (not the 2 endpoints); `train ∩ test` and `val ∩ test`
+  share 2.
+- At `noise=0.0`: **4 of 400 val rows are byte-identical to a train row.**
+- At `noise=0.1` (the default): 0 duplicates — independent noise is what normally hides it.
+
+`noise=0.0` is **reachable configuration**, not a corner case: `SpiralParams.noise` is `ge=MIN_NOISE`
+with `MIN_NOISE = 0`, and `SpiralParams(noise=0.0)` constructs fine. So a legitimate request can
+produce a dataset whose validation split contains exact copies of training rows — the precise leak
+this arc exists to remove, reintroduced by its own fix.
+
+**Required guard, before Chunk 3 ships.** Not yet ruled which:
+
+- **G-a — de-duplicate at assembly.** After generating the three partitions, drop any row in `val` /
+  `test` that appears in `train`, and top up. Correct for every generator, costs an exact-match pass,
+  and makes the partition sizes approximate rather than exact.
+- **G-b — offset the grid per partition.** Give each partition a half-step phase offset so the grids
+  cannot coincide by construction. Cheap and exact, but is a per-generator change and only addresses
+  mechanism-A generators.
+- **G-c — constrain the sizes.** Require the partition counts to be pairwise coprime so only the
+  endpoints coincide. Cheapest, but pushes a subtle numeric constraint onto the caller and still
+  leaves 2 shared positions.
+
+**G-a is the only one that is generator-independent**, which matters because §9.3.1 classified only
+three of seventeen generators. A duplicate-row assertion belongs in the §6a consumer gate regardless
+of which guard is chosen — it is the check that would have caught this.
+
+**What this evidence does not cover.** Only `spiral` was probed for duplicate rows. `moon` is the
+other known mechanism-A generator and was not measured. Generators whose points are purely
+RNG-drawn should not collide at all under name-keyed streams, but that was not verified.
+
+#### 9.3.3 SCOPE LIMIT — P-1b applies only to the SYNTHESISED class
+
+Everything in §9.3.2 assumes a generator that **synthesises** points, so that asking for a
+partition of size *n* produces *n* fresh points. **Five of the sixteen generators do not.** For those,
+"generate each partition independently from its own substream" is not merely suboptimal — it is
+wrong, and for one class it is *worse* than the defect this arc is removing.
+
+| class | generators | what P-1b means |
+| --- | --- | --- |
+| **1 — synthesised** | `spiral`, `moon`, `gaussian`, `xor`, `checkerboard`, `circles`, `ar_p`, `delay_product`, `irregular_sine`, `mackey_glass`, `multi_sine` | §9.3.2 as written. Mechanism-A grid caveat applies to `spiral` and `moon`. |
+| **2 — finite pool, exchangeable** | `mnist`, `arc_agi`, `csv_import` | **Partition the pool ONCE, disjointly.** Independent per-partition sampling draws from the *same* pool three times and overlaps by construction. |
+| **3 — finite pool, ORDERED** | `equities`, `equities_seq` | **Chronological carve-up, already implemented.** Independent sampling would also destroy the time ordering. |
+
+**Class 2 — the overlap is structural, not incidental.** `mnist` selects via
+`ds.shuffle(seed=params.seed)` then `ds.select(range(n_samples))` (`mnist/generator.py:128-131`) —
+the first *n* of a seeded shuffle over the real dataset. Give `train` and `val` different substream
+seeds and you get two *different* shuffles of the same ~70k pool; expected overlap for 1000 and 400
+is ≈ 6 images, and it grows as the requested sizes approach the pool size. `arc_agi` is worse:
+`rng.choice(len(tasks), min(params.n_tasks, len(tasks)), replace=False)`
+(`arc_agi/generator.py:134,166`) — `replace=False` prevents duplicates **within** a partition and
+does nothing across partitions, so if `n_tasks` is a large fraction of the pool the overlap
+approaches total.
+
+**Class 3 — applying P-1b here would be a REGRESSION.** `equities` carves chronologically:
+`frame.iloc[:n_train]` then `frame.iloc[n_train : n_train + n_test]`
+(`equities/generator.py:206-207`). That ordering is what prevents look-ahead leakage in a time
+series. Drawing partitions from independent substreams would interleave past and future rows across
+`train` / `val` / `test` — a *worse* leak than the selected-on-reporting one being fixed, and one
+that no duplicate-row guard would detect, because the rows are genuinely distinct.
+
+**Consequences.**
+
+- **§9.3.2's guards G-a / G-b / G-c are class-1 remedies only.** G-a (de-duplicate at assembly)
+  would "fix" class 2 by silently distorting the sample, and would not see class 3's failure at all.
+- **Decision 8's additive sizing cannot apply to classes 2 and 3** — you cannot generate additional
+  MNIST digits or additional trading days. §6.3 already anticipates this: additive sizing is
+  overridden *"when no generator or generator specs exist, or the data is not synthesisable."*
+  **Classes 2 and 3 are exactly that carve-up path**, and this is the first place the design names
+  which generators it covers.
+- **Prefix stability is achievable for classes 2 and 3** — partitioning a fixed, ordered pool at
+  index boundaries is prefix-stable by construction. So P-1a was never blocked *here*; §9.3.1's
+  blockage is a class-1 result. The two classes want opposite mechanisms, which is why this scope
+  limit has to be explicit rather than inferred.
+
+**Not verified.** `equities_seq` was classified from its name and its shared lineage with `equities`,
+not read. `csv_import` was classified from its loader, not from its selection logic. The class-1 list
+is by exclusion — only `spiral`, `moon` and `gaussian` were examined directly (§9.3.1).
+*(§9.3.4 now supplies the measured census the last sentence was hedging about.)*
+
+#### 9.3.4 The class-1 census — G-b is UNSOUND, and one generator ignores its seed entirely
+
+§9.3.2 left G-a / G-b / G-c unruled, and the choice turns on **how many class-1 generators actually
+leak** — which had been inferred from `grep linspace`, i.e. from an artifact *adjacent* to the one
+that could falsify it. Measured instead:
+`util/ad-hoc/2026-09-01_class1_duplicate_census.py` generates a `train` and a `val` partition
+independently, each from its own name-keyed substream, and counts byte-identical rows. **All 11
+class-1 generators, no skips.**
+
+| generator | dupes @ `noise=0` | dupes @ default | verdict |
+| --- | --- | --- | --- |
+| `spiral` | 8 / 800 | 0 | **leaks** (mechanism A) |
+| `moon` | 4 / 400 | 0 | **leaks** (mechanism A) |
+| `mackey_glass` | **368 / 368** | **368 / 368** | **leaks TOTALLY — see below** |
+| `gaussian`, `xor`, `circles`, `checkerboard` | 0 | 0 | clean |
+| `ar_p`, `delay_product`, `irregular_sine`, `multi_sine` | 0 | 0 | clean |
+
+**G-b is unsound; G-a is required.** `mackey_glass` leaks **100 %** and is *not*
+linspace-parameterised, so a per-partition grid offset — which addresses mechanism A only — would
+leave the worst case entirely untouched. **G-a (de-duplicate at assembly) is the only candidate that
+covers the measured leak set.** G-c is also insufficient for the same reason.
+
+**Why `mackey_glass` is total: it ignores its seed.** `MackeyGlassParams.init_noise_std` defaults to
+`0.0` (`params.py:33`), and the seed is consumed **only** inside `if params.init_noise_std > 0`
+(`generator.py:64-66`). At the default the trajectory is an exact deterministic Euler integration
+from a constant history, so *every* seed produces byte-identical output — verified directly: seed 1
+and seed 999999 give `max|Δ| == 0.0`.
+
+This is **documented and intentional** — the field's own description says *"0 yields an exact
+deterministic init"* — but it has a consequence the design must record: **no seeding scheme can
+separate `mackey_glass`'s partitions**, because the seed is inert. P-1b is not merely leaky there;
+it is *inapplicable*.
+
+**The taxonomy needs a second axis.** §9.3.3 split generators by *where the data comes from*
+(synthesised vs finite pool). `mackey_glass` shows that is not sufficient: it is fully synthesised
+and still cannot use P-1b. The operative question is **whether the output is seed-dependent at the
+configured parameters**:
+
+- **seed-dependent** → P-1b applies (with G-a for the mechanism-A residue).
+- **seed-invariant** → partitions must be **disjoint segments of one generated trajectory** — the
+  class-3 carve-up, for a class-1 generator. `mackey_glass` at default `init_noise_std` is here.
+  Raising `init_noise_std > 0` moves it to the first row, which is a **configuration-dependent
+  class membership** and needs to be resolved per run, not per generator.
+
+**A non-finding, recorded so it is not re-derived as alarm.** `mackey_glass` is used by
+`util/experiments/suites/p4/e-d-recurrence-d-sweep.yaml`, but that suite runs `seed_policy: fixed`
+with `seed: 0` and sweeps `train.d` (8/16/32). It does **not** rely on seed variance, so its results
+are unaffected by the determinism. No existing measurement is invalidated by this finding.
+
+**What this evidence does not cover.** One size pair only (train 1000 / val 400 as requested, which
+the generators expand differently — `spiral` to 2000/800, the sequence generators to 968/368 after
+windowing). Duplicate counts are size-dependent, so these are existence proofs, not magnitudes.
+`train` vs `test` and `val` vs `test` were not measured — only `train` vs `val`. The five class-2/3
+generators are out of scope here by construction (§9.3.3).
 
 ## 10. Naming — SETTLED: `X_val` / `y_val`, **not** `X_eval`
 
