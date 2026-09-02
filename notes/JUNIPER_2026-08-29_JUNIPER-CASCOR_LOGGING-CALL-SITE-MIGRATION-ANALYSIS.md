@@ -6,9 +6,21 @@
 **License**: MIT License
 **Version**: 0.7.1
 **Last Updated**: 2026-08-29
-**Status**: ANALYSIS — answers Q5 of [`JUNIPER_2026-08-29_JUNIPER-CASCOR_LOGGING-REDESIGN-DESIGN.md`](JUNIPER_2026-08-29_JUNIPER-CASCOR_LOGGING-REDESIGN-DESIGN.md), owner deferred the decision pending this
+**Status**: ANALYSIS — **RECONCILED 2026-09-02**; answers Q5 of [`JUNIPER_2026-08-29_JUNIPER-CASCOR_LOGGING-REDESIGN-DESIGN.md`](JUNIPER_2026-08-29_JUNIPER-CASCOR_LOGGING-REDESIGN-DESIGN.md), **and owner decision 5 is still open**
 **Tracks**: [cascor#573](https://github.com/pcalnon/juniper-cascor/issues/573)
 **Measured at**: cascor `67d7ea35`
+
+> **RECONCILED 2026-09-02.** G-1's measured hot-site list was produced
+> ([`…GATED-MEASUREMENTS-RESULTS.md`](JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_GATED-MEASUREMENTS-RESULTS.md) §3)
+> and, exactly as §6 predicted it might, **it overturned this document's recommendation**: the
+> expensive interpolation was one line at an *enabled* level, which no guard or lazy argument could
+> recover. It shipped in [cascor#598](https://github.com/pcalnon/juniper-cascor/pull/598). Full
+> verdict on every claim here:
+> [`JUNIPER_2026-09-02_JUNIPER-CASCOR_LOGGING-CURRENT-STATE-RECONCILIATION.md`](JUNIPER_2026-09-02_JUNIPER-CASCOR_LOGGING-CURRENT-STATE-RECONCILIATION.md) §5;
+> plan of record: [`…LOGGING-REDESIGN-ROADMAP.md`](JUNIPER_2026-09-02_JUNIPER-CASCOR_LOGGING-REDESIGN-ROADMAP.md).
+> **What survives strongest is §5's hazard list and §7's guardrails** — §5.4 in particular, which has
+> since been realised against the *guard* idiom this document recommends rather than the
+> `%`-conversion it warned about.
 
 ---
 
@@ -73,6 +85,18 @@ magnitude, not a work order; §7 G-1 says how to get the real list.
 The useful conclusion stands regardless of the heuristic's precision: **the expensive sites are
 concentrated in two files**, and a hot-path-only migration is a ~150-site diff rather than an
 879-site one.
+
+> **CORRECTION 2026-09-02 — the arithmetic is wrong and the conclusion is UNDERSTATED.** The 1,885
+> denominator includes **472 sites in `src/cascade_correlation/backups/`** (tracked, imported by
+> nothing, dead) and **250 sites in `src/api/`** which are bound to **stdlib** loggers and never reach
+> this logger at all. On the live tree the two-file concentration is **46.2 %**, and on live Path-A
+> sites it is **55.7 %** — so removing the dead weight makes this section's claim *stronger*, not
+> weaker. The real defect is the **file set**: `src/spiral_problem/spiral_problem.py` carries **264**
+> sites and 45 tensor-ish interpolations and is omitted here; the three-file set reaches **64.2 % /
+> 77.3 %**. Full census, with its method caveats:
+> [`…LOGGING-CURRENT-STATE-RECONCILIATION.md`](JUNIPER_2026-09-02_JUNIPER-CASCOR_LOGGING-CURRENT-STATE-RECONCILIATION.md) §3.1.
+> (Separately, G-1's measurement showed the 146 heuristic overstated the *expensive* set by two orders
+> of magnitude — the answer was one line.)
 
 ## 4. Options
 
@@ -233,12 +257,29 @@ Required regardless of which option is chosen:
   `util/ad-hoc/2026-08-26_g4_post_fix_analysis.py`, the census tooling and the snapshot pipeline all
   parse this format. Identical bytes is the acceptance criterion; a deliberate change needs every
   consumer updated in the same PR.
+
+  > **CORRECTION 2026-09-02 — "identical bytes" is already inconsistent with shipped practice, and
+  > the criterion needs splitting.** #598 deliberately changed message *content*
+  > (`Norm Output: tensor([…])` → `shape=… l2=…`) with review, and was right to. Restate as: the
+  > record **envelope** is byte-stable, and **anchored message text** is protected by a named-marker
+  > inventory — which is the half of this guardrail nothing has ever built, and the half that matters
+  > most, since anchored message text is BREAKING for ~17 juniper-ml scripts while the prefix is
+  > breaking for none. The same-PR consumer requirement stands. Carried into the roadmap as P0.4(c).
 - **G-4 — re-measure, do not assume the win.** Re-run the 32-profile worker corpus after migration
   and report the actual `__format__` call-count delta. The pre-migration number is 1,813,318; a
   migration that does not move it materially did not work, whatever the diff looks like.
 - **G-5 — mirror `log_config` into `juniper-cascor-model`.** Byte-gated by `test_drift`, and
   pre-commit's black hook covers only `src/`, so it reformats one side of the pair. Re-sync after
   every pre-commit run.
+
+  > **CORRECTION 2026-09-02 — clause 1 is wrong for the file a redesign touches; clause 2 is right.**
+  > `log_config/logger/logger.py` is on `_INTENTIONAL_DIVERGENCE` (`test_drift.py:31`) and must
+  > **NOT** be mirrored — `test_intentional_divergences_actually_differ` (`:104-117`) **fails if the
+  > copies become identical**, which is what #598 hit and reverted. The other three `log_config`
+  > files **are** byte-gated, as are `candidate_unit/`, `utils/` and `cascor_constants/` — so the
+  > mirroring obligation is real for everything *except* the logger. **The black-hook trap in the
+  > second sentence is entirely correct and must be retained** — it is carried into the roadmap as
+  > P1-G2. See the reconciliation's N-5.
 - **G-6 — one PR per file, not one PR for the migration.** `cascade_correlation.py` (501 sites) and
   `candidate_unit.py` (171) are separately reviewable; together they are not.
 
@@ -248,12 +289,27 @@ Required regardless of which option is chosen:
    heuristic. This is the one input that could change the recommendation.
 2. **Should `is_enabled_for` be public API on the logger?** Option C requires it; the current class
    exposes no such predicate.
+
+   > **CORRECTION 2026-09-02 — half answered, and the other half got worse.** A predicate *does*
+   > exist: `Logger.isEnabledFor` (`logger.py:1027`), since PR #116, already used at 8 sites in
+   > `candidate_unit.py`. But **it reads different state than the emit filter** — `_log_level` vs
+   > `_level_logger_config`/`_level_logger_name`, with `set_level()` writing only the first — so a
+   > guard can be open on records that are then discarded. The API question this item raises is
+   > therefore still live and now more urgent: an integer-taking predicate reading its own copy of
+   > the level is what let three wrong guard integers ship unnoticed. See the reconciliation's N-3.
 3. **What is the policy for new code?** A migration without a rule is undone by the next author.
    Options: a lint rule banning f-strings in `logger.trace/verbose/debug` calls within the hot
    modules; a docstring convention; or nothing. A lint rule is the only one that actually holds.
 4. **Is `logger.debug` suppressed in production?** 707 sites — the single largest level — and the
    whole cost argument for them depends on the answer. Worth confirming against the deployed config
    rather than assumed.
+
+   > **ANSWERED 2026-09-02 — yes.** With no environment override the level resolves to **INFO**
+   > (`constants.py:663-668`), and `_filter_by_level` requires `level_num >= log_level_num`, so
+   > DEBUG(10) < INFO(20) is discarded. Count correction: **517** live `logger.debug` sites, and
+   > **919** counting `trace` and `verbose` — the 707/1,255 figures include the dead `backups/` tree.
+   > Census and method caveats:
+   > [`…LOGGING-CURRENT-STATE-RECONCILIATION.md`](JUNIPER_2026-09-02_JUNIPER-CASCOR_LOGGING-CURRENT-STATE-RECONCILIATION.md) §3.1.
 
 ## 9. References
 
