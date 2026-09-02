@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import sys
 from collections import deque
-from pathlib import Path
 
 sys.path.insert(0, "/home/pcalnon/Development/python/Juniper/juniper-canopy/src")
 
