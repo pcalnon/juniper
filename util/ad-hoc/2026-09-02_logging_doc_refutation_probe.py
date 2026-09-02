@@ -18,7 +18,6 @@ Answers, empirically, at cascor HEAD 70edfc4:
 Read-only against the cascor tree; writes its log to a scratch dir via
 JUNIPER_CASCOR_LOG_DIR.
 """
-import os
 import sys
 
 CASCOR_SRC = "/home/pcalnon/Development/python/Juniper/juniper-cascor/src"
