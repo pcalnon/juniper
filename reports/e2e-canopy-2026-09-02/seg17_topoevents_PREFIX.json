@@ -1,0 +1,103 @@
+{
+  "topoevents": {
+    "wake": {
+      "already": false,
+      "woke": true,
+      "elapsed_s": 23.8,
+      "attempts": 1
+    },
+    "node_traces": [
+      {
+        "curve": 1888,
+        "name": "Input Units",
+        "n": 2,
+        "is3d": false,
+        "first_text": "Input 0"
+      },
+      {
+        "curve": 1889,
+        "name": "Hidden Units",
+        "n": 40,
+        "is3d": false,
+        "first_text": "Hidden 0"
+      },
+      {
+        "curve": 1890,
+        "name": "Output Units",
+        "n": 2,
+        "is3d": false,
+        "first_text": "Output 0"
+      }
+    ],
+    "M-TOPOLOGY-10": {
+      "verdict": "FAIL",
+      "clicked": {
+        "ok": true,
+        "x": 1027.92,
+        "y": 754.63375,
+        "plot": {
+          "l": 469,
+          "t": 289.59375,
+          "w": 1062,
+          "h": 540
+        }
+      },
+      "want_label": "Hidden 3",
+      "selection": {
+        "present": true,
+        "display": "none",
+        "text": ""
+      },
+      "shown": false,
+      "names_node": false,
+      "layer_ok": false,
+      "effect_observed": false,
+      "effect_wait_s": 25.9,
+      "before": {
+        "present": true,
+        "display": "none",
+        "text": ""
+      }
+    },
+    "M-TOPOLOGY-12": {
+      "verdict": "BLOCKED",
+      "reason": "nothing was selected, so 'cleared' is vacuous",
+      "precondition_selected": false
+    },
+    "M-TOPOLOGY-15": {
+      "verdict": "PASS",
+      "hover_reached_plotly": true,
+      "tooltip": {
+        "present": true,
+        "n": 1,
+        "text": "Weight: 0.199"
+      },
+      "dom_unchanged": true,
+      "api_calls_during_hover": 0,
+      "before": {
+        "present": true,
+        "display": "none",
+        "text": ""
+      },
+      "after": {
+        "present": true,
+        "display": "none",
+        "text": ""
+      }
+    },
+    "M-TOPOLOGY-09": {
+      "verdict": "PASS",
+      "before": {
+        "present": true,
+        "color": "rgb(33, 37, 41)",
+        "bg": "rgb(248, 249, 250)"
+      },
+      "after": {
+        "present": true,
+        "color": "rgb(248, 249, 250)",
+        "bg": "rgb(52, 58, 64)"
+      },
+      "toggle": "dark-mode-toggle"
+    }
+  }
+}

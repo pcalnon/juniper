@@ -1,0 +1,84 @@
+{
+  "node_curves": [
+    1888,
+    1889,
+    1890
+  ],
+  "baseline": {
+    "ok": true,
+    "hit_curve": 248,
+    "hit_text": null,
+    "hit_customdata": null,
+    "before": {
+      "text": "",
+      "display": "none"
+    },
+    "after": {
+      "text": "",
+      "display": "none"
+    }
+  },
+  "candidate_b": {
+    "restyle": {
+      "ok": true,
+      "n_edges": 1888
+    },
+    "click": {
+      "ok": true,
+      "hit_curve": 248,
+      "hit_text": null,
+      "hit_customdata": "edge248:from",
+      "before": {
+        "text": "",
+        "display": "none"
+      },
+      "after": {
+        "text": "",
+        "display": "none"
+      }
+    }
+  },
+  "candidate_b_works": true,
+  "candidate_a": {
+    "move": {
+      "ok": true,
+      "moved": [
+        1888,
+        1889,
+        1890
+      ]
+    },
+    "node_traces_after": [
+      [
+        "Input Units",
+        0,
+        2
+      ],
+      [
+        "Hidden Units",
+        1,
+        40
+      ],
+      [
+        "Output Units",
+        2,
+        2
+      ]
+    ],
+    "click": {
+      "ok": true,
+      "hit_curve": 251,
+      "hit_text": null,
+      "hit_customdata": "edge248:from",
+      "before": {
+        "text": "",
+        "display": "none"
+      },
+      "after": {
+        "text": "",
+        "display": "none"
+      }
+    }
+  },
+  "candidate_a_works": false
+}
