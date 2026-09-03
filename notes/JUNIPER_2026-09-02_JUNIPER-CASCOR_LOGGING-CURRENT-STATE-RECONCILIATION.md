@@ -1,14 +1,14 @@
 # Logging — current state, reconciled against the deferred redesign
 
-**Project**: Juniper
-**Sub-Project**: juniper-cascor (`src/log_config/`), with an ecosystem inventory
-**Author**: Paul Calnon
-**License**: MIT License
-**Version**: 0.7.1
-**Last Updated**: 2026-09-02
-**Status**: RECONCILIATION — supersedes the stale parts of the two 2026-08-29 logging documents
-**Measured at**: cascor `70edfc4` (HEAD, 2026-09-02); prior evidence at `67d7ea35` and `64ff9ab8`
-**Tracks**: [cascor#573](https://github.com/pcalnon/juniper-cascor/issues/573)
+- **Project**: Juniper
+- **Sub-Project**: juniper-cascor (`src/log_config/`), with an ecosystem inventory
+- **Author**: Paul Calnon
+- **License**: MIT License
+- **Version**: 0.7.1
+- **Last Updated**: 2026-09-02
+- **Status**: RECONCILIATION — supersedes the stale parts of the two 2026-08-29 logging documents
+- **Measured at**: cascor `70edfc4` (HEAD, 2026-09-02); prior evidence at `67d7ea35` and `64ff9ab8`
+- **Tracks**: [cascor#573](https://github.com/pcalnon/juniper-cascor/issues/573)
 
 > **Anchoring rule, inherited from the design and restated because this document is line-number
 > dense.** All line numbers are at the revisions named above. **Anchor on the quoted text, not the

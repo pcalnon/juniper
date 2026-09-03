@@ -10,15 +10,15 @@ this document; the corrected claims are what you are reading, and **a third roun
 
 ## Authorities and documents (Juniper/AGENTS.md § Cross-Project Conventions)
 
-| role | path (juniper-ml) |
-|---|---|
-| **ledger** — authority for findings | `notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md` |
-| **matrix** — authority for rows | `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md` |
-| consensus procedure | `notes/JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md` |
-| plan (Phase 3/4 gates) | `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md` |
+| role                                | path (juniper-ml)                                                                     |
+|-------------------------------------|---------------------------------------------------------------------------------------|
+| **ledger** — authority for findings | `notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`                  |
+| **matrix** — authority for rows     | `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`           |
+| consensus procedure                 | `notes/JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md` |
+| plan (Phase 3/4 gates)              | `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md`             |
 
-**Tiebreak, and you will need it:** where the matrix and `/tmp/juniper-e2e/seg17_results.json` disagree,
-**the JSON is the newer measurement** — re-score the matrix from it, never the reverse.
+**Tiebreak, and you will need it:** where the matrix (`JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`) and `/tmp/juniper-e2e/seg17_results.json` disagree,
+**the JSON is the newer measurement** — re-score that matrix file from it, never the reverse.
 
 ## Verify your starting state (run from the juniper-ml worktree root)
 
@@ -30,19 +30,19 @@ gh pr view 561 --repo pcalnon/juniper-canopy --json state   # F-041b fix
 git -C /home/pcalnon/Development/python/Juniper/juniper-canopy worktree list | tail -n +2 | wc -l  # 11
 ```
 
-## Row state: the topo step is UNSTABLE — 5 to 7 PASS depending on the run. The matrix's 9 PASS is STALE, and so is any single run.
+## Row state: the topo step is UNSTABLE — 5 to 7 PASS depending on the run. The matrix's 9 PASS is STALE, and so is any single run
 
-**Do not trust a single `--step topo` run, including the matrix's.** Two consecutive runs on an unchanged
+**Do not trust a single `--step topo` run, including the one recorded in `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`.** Two consecutive runs on an unchanged
 stack gave 7 PASS and then **5 PASS**, and the differences are not independent — they **cascade**.
 
 Newest run (`/tmp/juniper-e2e/seg17_results.json`), 5 PASS / 4 FAIL:
 
-| row | evidence | reading |
-|---|---|---|
+| row           | evidence                                             | reading                                               |
+|---------------|------------------------------------------------------|-------------------------------------------------------|
 | M-TOPOLOGY-02 | `on_hash == off_hash == 26d0f961`, `back = de463bff` | M-01's layout reset still landing during M-02's reads |
-| M-TOPOLOGY-03 | `types=[] n_yaxes=0 plot_area=0` | the weight matrix rendered **nothing** |
-| M-TOPOLOGY-04 | `counts 0/0/0/—` vs server `2/40/2/944` | **inherited M-03's empty graph** |
-| M-TOPOLOGY-05 | `types=[]` | same empty graph |
+| M-TOPOLOGY-03 | `types=[] n_yaxes=0 plot_area=0`                     | the weight matrix rendered **nothing**                |
+| M-TOPOLOGY-04 | `counts 0/0/0/—` vs server `2/40/2/944`              | **inherited M-03's empty graph**                      |
+| M-TOPOLOGY-05 | `types=[]`                                           | same empty graph                                      |
 
 **M-03 leaves the graph empty and nothing recovers it**, so -04 and -05 are reading wreckage rather than
 failing on their own contracts. And M-03's failure mode VARIES between runs — 41 zero-height traces in
@@ -53,13 +53,14 @@ only on the next 5 s tick, and the driver sometimes reads before it. M-03's `wai
 proceeds against a broken view.
 
 **Consequences for how you work these rows:**
+
 - **Fix the cascade before scoring anything downstream of M-03.** Options: make the raw-topology poll
   trigger on `-display-mode` (an `Input`, not `State`) so the switch fetches immediately; and/or have
   M-03 restore the node-graph view before returning, so a failure there cannot poison -04 and -05.
 - **M-02 is a separate, unresolved defect and it is mine.** I added `settle_figure` and it did **not**
   fix it: `settle_figure` settled on a figure that was stable only because the next request had not
   started — **"stable is not ready", one level up.** Done = `on/off/back` are three distinct `fig_hash`es.
-- **Re-score the matrix only from a run where -03 renders**, i.e. after canopy#561 lands AND the cascade
+- **Re-score `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md` only from a run where -03 renders**, i.e. after canopy#561 lands AND the cascade
   is fixed. Scoring from any run before that records other rows' failures against the wrong finding.
 
 ## Do first
@@ -92,7 +93,7 @@ proceeds against a broken view.
 
 ## Remaining work
 
-1. **Nine M-TOPOLOGY rows BLOCKED: 09, 10, 11, 12, 13, 14, 15, 16, 18** — derived from the matrix. None
+1. **Nine M-TOPOLOGY rows BLOCKED: 09, 10, 11, 12, 13, 14, 15, 16, 18** — derived from `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`. None
    has a scorer. The driver's docstring **has been corrected** (it previously advertised `toposel` /
    `w1grow`, which are not in `STEPS`) and now lists exactly what each step scores and which rows have
    none — trust it. **Sizing, which I previously understated:** rows 10-15 drive
@@ -111,11 +112,11 @@ proceeds against a broken view.
    revert`) — patch the checkout the **live 8051 leg** runs from, currently the primary.
 3. **F-CANOPY-037 is the only finding with the literal `P0/P1` label; FIVE P1s are now open**
    (F-035, F-041, F-041b, F-CASCOR-001, F-CASCOR-002). The plan's Phase 3 entry gate ("Phase 2 P0/P1
-   closed", §6.4 of the E2E frontend validation plan) needs all of them. **Do not close F-037** — nine of
+   closed", §6.4 of `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md`) needs all of them. **Do not close F-037** — nine of
    its eighteen rows are still BLOCKED. *(An earlier draft said its blast radius also covers W4-01..17 and
    W1-12..14 "tracked in the plan document". That is false — those ids appear nowhere in the plan; I
-   copied the claim from the matrix without opening the file. They exist only in the matrix and ledger.)*
-4. **F-CANOPY-035 / -038** concern `metrics-panel-metrics-store`. The ledger has **already adjudicated**
+   copied the claim from `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md` without opening the plan. They exist only in that matrix file and in `JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`.)*
+4. **F-CANOPY-035 / -038** concern `metrics-panel-metrics-store`. `JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md` has **already adjudicated**
    the apparent contradiction: GLOWPROBE (`metrics_len` 4 and 23) overrules the older "never advances"
    inference. Open only: whether F-035's 79-sample empty reading is scope-limited to that run.
 5. **F-039 residual.** The rebuild's three per-tick triggers are `tabpoll-topology` (now State),
@@ -168,6 +169,30 @@ called `--down` "safe: zero `.h5` at risk verified"; **no artifact records that 
 Drivers need `LIBTORCH= LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python`. `gh` **2.46.0**:
 `gh pr edit` is broken for every flag — use `gh api -X PATCH …/pulls/N -F body=@file`.
 
+## Files this session created or modified (by filename)
+
+**juniper-ml** — `notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md` (F-039 root cause,
+F-040/-041/-041b/-042/-043, the M-TOPOLOGY re-drive record, the F-CASCOR-002 severity sync);
+`notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md` (nine M-TOPOLOGY verdicts —
+**now stale, see the row-state section**); `util/ad-hoc/e2e_seg17_topology_driver.py` (`settle_figure`,
+`set_dropdown` retry, `set_slider(effect=…)` drag-first, the M-03 `plot_area` predicate, the corrected
+docstring); `util/ad-hoc/e2e_f027_redrive.py` (`fig_hash`, `plot_area`, `n_yaxes`);
+`util/ad-hoc/e2e_f037_render_census.py` (provenance + `topology_conditions`); and new:
+`util/ad-hoc/e2e_m16_glow_instrument.py`, `e2e_m01_dropdown_probe.py`, `e2e_m06_depth_probe.py`,
+`e2e_f039_await_cascade.bash`, `e2e_f039_relaunch_canopy.bash`; plus
+`reports/e2e/20260831T000000Z/f039_pair/*.json` and this handoff.
+
+**juniper-canopy** — `src/frontend/components/network_visualizer.py` (tick Input→State, #537 guard
+removed, whole-window glow scan + `shown_unit`, heatmap spacing); `src/frontend/dashboard_manager.py`
+(topology-store identity suppression, raw-topology gate);
+`src/tests/unit/frontend/test_f037_topology_rebuild_decoupling.py`,
+`test_poller_budget.py`, `test_stage2_global_lane.py`,
+`test_dashboard_manager_gate_coverage_inner1.py`, `test_network_visualizer_callbacks.py`,
+`test_network_visualizer_coverage.py`, `test_f039_tick_short_circuit.py`,
+`src/tests/unit/test_phase_b_bridge.py`.
+
+**juniper-cascor** — none (issue `#602` filed only).
+
 ## Validation record (consensus procedure §7) — and its own shortfall
 
 - **Instrument**: 3 reviewers × 2 rounds, each able to return "no defects"; none did. ~24 accepted defects.
@@ -180,7 +205,7 @@ Drivers need `LIBTORCH= LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin
   procedure, reproduced exactly.
 - **Unresolved dissent**: two reviewers hold that `cascor#602` was the predecessor session's work; I hold
   it was filed within this multi-day session. Recorded unresolved rather than settled by assertion.
-- **This review was UNDER-SIZED and the shortfall is not cured.** §3 puts this in the top-right cell
+- **This review was UNDER-SIZED and the shortfall is not cured.** §3 of `JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md` puts this in the top-right cell
   (a fix hangs on it, it overturns a document of record, single-session sample, many universal
   quantifiers): **3+ Lane A with distinct entry points, 2+ Lane B, ≥2 iterations.** Round 1 ran ≤2 Lane A
   and no true **measurement re-creation** — nobody re-ran `_create_weight_heatmap` in Lane A; the CRITICAL
@@ -189,7 +214,7 @@ Drivers need `LIBTORCH= LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin
 - **What this evidence cannot support**: that the nine BLOCKED rows are drivable — no scorer exists and
   none has been run. That F-039's starvation class is closed (item 5). That M-02's failure is understood.
   That canopy#561 is correct beyond its unit tests — it has not been driven live.
-- **And this document was stale before it was archived.** It first said "9 PASS" (the matrix), was
+- **And this document was stale before it was archived.** It first said "9 PASS" (from `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`), was
   corrected to "7 PASS" from a run, and the NEXT run of the same step on an unchanged stack returned
   **5 PASS** with the extra failures **cascading from M-03**. Every row count in this arc is a
   measurement with a timestamp, not a property of the system. **Re-run before you trust one — including
