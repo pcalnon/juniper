@@ -98,7 +98,9 @@ def test_t7_leaves_a_hung_to_thread():
         try:
             await task
         except asyncio.CancelledError:
-            pass
+            # Expected in this probe: cancellation is observed at the coroutine layer,
+            # while the worker thread created by to_thread may continue running.
+            cancelled = True
         return "cancelled at the loop, thread still running"
 
     print("\n" + asyncio.run(body()))
