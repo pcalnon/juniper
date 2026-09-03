@@ -3,7 +3,7 @@
 - **Project**: Juniper — juniper-canopy
 - **Author**: Paul Calnon
 - **Date**: 2026-09-03
-- **Status**: Revision 2 — validated root cause; first plan refuted (§4); §5 core validated by measurement and its safety layer refuted and rewritten (§10); revision pending re-review
+- **Status**: **Revision 3** — root cause settled; first plan refuted (§4); §5's mechanical core validated by measurement; its safety layer refuted twice and §§5-10 **rewritten** (§10). Pending re-review.
 - **Defect**: X7, first labelled in [`JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md`](JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md) §6.1
 - **Evidence**: `reports/2026-09-02_canopy-selection-deadlock/` (X7 lanes: `x7_laneA{1,2,3}.md`, `x7_fix_F{1,2,3,4}.md`, `x7_laneB{1,2}.md`)
 
@@ -13,11 +13,13 @@
 
 Remove X7: juniper-canopy ceases to answer HTTP — `/v1/health` included — whenever juniper-cascor
 is unreachable. This document specifies the remediation. It does **not** cover the demo-mode
-honesty chain (§9), which is a separate defect discovered during this arc and sequenced after.
+honesty chain, which is a separate defect discovered during this arc and sequenced as PR 2 (§7).
 
-**This is the second design.** The first was refuted in full by adversarial review; §4 records why,
-because every one of its four steps is the change a reasonable engineer would reach for, and three
-of them are actively harmful.
+**This is the third design.** The first was refuted in full (§4). The second had its mechanical core
+validated by measurement and its safety layer refuted on ten counts, then nine more; §§5-10 are a
+rewrite rather than a third patch layer. §4 is retained because each of the first plan's four steps
+is the change a competent engineer reaches for, and three are actively harmful — without that
+record, the next reader re-derives all four.
 
 ---
 
@@ -155,217 +157,205 @@ threshold was never the problem — it measures the wrong thing.
 
 ## 5. The design
 
-> **D1 — cascor leaves the request path.** A single background task owns all periodic cascor
-> polling. Request handlers and health endpoints read an in-memory snapshot and never make an
-> outbound cascor call to serve a read.
+> **Revision 3 (2026-09-03).** §§5-10 are rewritten, not patched. Revision 2 accumulated nine
+> blocking findings plus internal contradictions (§6 forbidding the stub its own tests required;
+> §8.1 filed under "what this does not fix" while claimed in PR 1; a constraint added with no
+> design satisfying it). A third patch layer would have compounded that. §§1-4 are unchanged and
+> remain the stable part: the defect, the measurements, the constraints, and the record of the
+> refuted first plan.
 
-This is the only shape that satisfies C2 and C3 simultaneously: upstream rate becomes
-`1 / refresh_interval` — constant, independent of tabs and pollers — and handler latency becomes a
-memory read.
+> **D1 — cascor leaves the read path.** A single background task owns all periodic cascor polling.
+> Read handlers and health endpoints serve from an in-memory cache and never make an outbound
+> cascor call. Mutating routes keep a bounded, deadline-checked outbound call.
 
-It also dissolves three other constraints **by construction** rather than by discipline:
+D1's mechanical core is **validated by measurement**, not argument: with a hung upstream the
+refresher keeps the loop free (80/80 completions, mean 3.0 ms, max 4.7 ms), **cannot overlap**
+(`starts=1, returns=0, peak_inflight=1`), leaks no executor slot, and exits on SIGTERM in 0.161 s.
+Everything below is the layer that failed twice and has been rebuilt.
 
-- **C4** — one refresher task, one in-flight call: executor occupancy 1, never 20.
-- **C5** — one caller, so the shared `Session` is never used concurrently.
-- single-flight — a sequential loop cannot stampede; no lock or in-flight registry is needed.
+### 5.1 The classifier — the load-bearing component
 
-### 5.1 Components
+Revision 2's classifier keyed on the presence of an `error` field. Measured against the real
+adapter, that is wrong in five directions, so classification is now **positive**: a tick is OK only
+if the payload proves it is.
 
-**`src/backend/status_cache.py` (new).** A small, dependency-free holder:
-
-- `value`: last successful status payload, or `None` if never fetched.
-- `fetched_at`: monotonic timestamp of the last **success**.
-- `state`: `FRESH` | `STALE` | `UNKNOWN` — derived, never stored as a bare boolean.
-- `consecutive_failures`, `last_error`.
-- `age_seconds` property.
-
-**It never stores a failure as a value.** A failed refresh advances `consecutive_failures` and
-leaves `value`/`fetched_at` untouched; the state degrades `FRESH → STALE → UNKNOWN` by age. This is
-the direct inverse of the `:1012-1031` anti-pattern.
-
-> **REVISION (2026-09-03, review finding B1 — this was the design's decisive defect).**
-> **Failure must be detected from the PAYLOAD, not from an exception.** `get_training_status`
-> (`cascor_service_adapter.py:1968-1976`) **does not raise**. It returns
-> `{"is_training": False, "error": "<connect error>"}` on the exception path and
-> `{"is_training": False, "error": "circuit open"}` from the breaker's fallback. Measured against a
-> dead cascor: **8 consecutive ticks, zero raises.**
->
-> So the first draft's `except Exception → record_failure` was **unreachable code**. `record_success()`
-> would have run every tick, the state would never have left `FRESH`, and the cache would have
-> stamped a failure payload as fresh — fabricating "not training" (violating C6) and silently
-> defeating §5.4, §5.5 and tests X7-T3/T4/T5 in one stroke.
->
-> **The refresher must classify a tick as failed when the payload carries an `error` key** (and
-> specifically `"circuit open"`), independently of whether an exception was raised. Exception
-> handling is retained as a backstop, not as the mechanism. This is the single most important
-> correction in the revision, because it is what makes staleness observable at all — and silent
-> staleness is this architecture's known failure mode (§5.6).
-
-**The refresher.** An `asyncio` task started in `lifespan` (`main.py:216`), following the existing
-`ws-keepalive` idiom (`main.py:369`) and cancelled in the shutdown block (`:387-392`). Each tick:
-
-```text
-while not cancelled:
-    try:
-        payload = await asyncio.to_thread(adapter.get_training_status)   # ONE in-flight call
-        cache.record_success(payload)
-    except Exception as exc:
-        cache.record_failure(exc)
-    await asyncio.sleep(REFRESH_INTERVAL)
-```
-
-`REFRESH_INTERVAL` ≈ 1.0 s, matching the fast lane's cadence so the UI is no less current than
-today. The blocking call still costs up to its bounded budget, but it occupies **one** executor
-slot and **zero** request handlers.
-
-**Read paths.** `/api/status`, `/api/network/stats` and the three health endpoints read the cache.
-They become genuinely non-blocking, satisfying C1 and C3.
-
-### 5.2 Mutating paths keep their upstream call — bounded
-
-`POST /api/train/*`, the snapshot mutations, `patch_weights`, `add/remove_hidden_unit` cannot be
-served from cache. They keep an outbound call, but:
-
-- offloaded via `asyncio.to_thread`, **behind an `asyncio.Semaphore`** whose bound is a named
-  constant well under the 20-slot executor (proposed: **4**);
-- with a **bounded timeout** appropriate to a user action;
-- their arrival rate is user-driven, not timer-driven, so C2 is not at risk.
-
-Because the refresher and the mutating path can now both touch the client, C5 requires either a
-`threading.local()` session or a lock at the client boundary. **Proposed: per-thread sessions**, as
-a lock would serialise mutations behind a refresh.
-
-### 5.3 Retry policy (C8)
-
-`JuniperCascorClient.__init__` exposes only `base_url, timeout, retries, api_key` — **not
-`allowed_methods`** — and its `RETRY_ALLOWED_METHODS` is `['GET','POST','DELETE','PUT','PATCH']`.
-The sibling `juniper-data-client` already ships the correct `['HEAD','GET','PUT']`, so cascor-client
-is the outlier.
-
-Canopy therefore **injects a correctly-configured client** through the existing seam
-`CascorServiceAdapter(client=...)` (`cascor_service_adapter.py:494`) rather than tuning `retries=`.
-A separate upstream fix to `juniper-cascor-client` is filed (§9) — that is the real home for it.
-
-### 5.4 Health contract (C6, C7)
-
-> **REVISION (2026-09-03, review findings B2/B3).** The first draft proposed that
-> `/v1/health/ready` return **503** when cascor is unreachable, and cited
-> `juniper-deploy` `values.yaml:222-226` as documenting that contract. **That citation was wrong —
-> the document states the negation**: *"readiness 503s **only when ws_manager is unbound** (upstream
-> juniper-data / juniper-cascor outages remain **200/degraded** so the dashboard stays useful with
-> cached state)."* The proposal is additionally forbidden by an explicit named regression guard,
-> `test_canopy_never_returns_503_on_upstream_down` (`src/tests/unit/test_health.py:300-315`), whose
-> docstring states canopy must not 503 on upstream-down because "it would page on every downstream
-> incident", and by the ratified probe-graph DoR, which prescribes a test-first amendment procedure
-> for any such change.
->
-> Operationally the proposal was also harmful: with `replicaCount: 1` behind a single-backend
-> Ingress, a readiness 503 removes the dashboard from its own ingress ~50-70 s into a cascor outage
-> — exactly when an operator needs it.
->
-> **The 503 is withdrawn.** Note the same sentence names **cached state** as the sanctioned
-> mechanism, so the cache (§5.1) is endorsed by the very policy that forbids the status-code change.
-
-| endpoint | touches upstream | contract |
+| observed return | class | why |
 | --- | --- | --- |
-| `/v1/health/live` | **never** | in-process liveness only; unchanged |
-| `/v1/health/ready` | **never inline** — reads cache | **200** `ready` / **200** `degraded` on a cascor outage (unchanged status policy); 503 remains reserved for `ws_manager` unbound |
-| `/v1/health`, `/health`, `/api/health` | **never inline** — reads cache | **200**; body carries `cascor_reachable`, `cascor_status_age_seconds`, and `stale: true` when not fresh |
+| `None` | `UNREACHABLE` | `_unwrap_response` can return `None`; `"error" in None` raises `TypeError` and would have killed the refresher task |
+| not a `dict` (e.g. `[]`) | `UNREACHABLE` | a list is not a status |
+| `dict` with **truthy** `error` | `UNREACHABLE` | connect/transport failure |
+| `dict`, `error` present but **falsy** (`None`, `""`) | fall through to positive check | a healthy backend must not be classified failed |
+| `dict`, no `error`, **no expected status field** (`{}`, `{"state": "IDLE"}` with nothing else) | `UNREACHABLE` | a half-dead cascor returning a shaped-but-empty 200 must not pin the cache `FRESH` — this is precisely the 2026-07-10 failure |
+| `dict`, no truthy `error`, **carries the expected field(s)** | `OK` | the only success path |
+| `dict` with `error == "circuit open"` from a **shared** breaker | `INDETERMINATE` | see §5.2 — may reflect a *different* method's failures |
 
-The behavioural change is therefore **not** the status code but the **body and the latency**: these
-endpoints stop blocking, and they start telling the truth about staleness (C7, C9).
+**Positive validation is the point.** Absence of an error is not evidence of health; presence of a
+recognisable status is.
 
-### 5.5 Safety interlocks: do not fabricate a negative — but do not fail closed either
+### 5.2 The refresher
 
-> **REVISION (2026-09-03, review finding B4).** The first draft had these interlocks **fail closed**
-> on `STALE`/`UNKNOWN`. That is withdrawn: it protects nothing and breaks recovery.
->
-> - **Protects nothing**: all four snapshot gates are redundant with cascor's own FSM
->   (`juniper-cascor/src/api/routes/snapshots.py:279, 330, 379, 435`), which rejects the same
->   operations server-side; the fifth guards an operation documented as harmless.
-> - **Breaks recovery**: failing closed bricks **Restart even after the run is stopped**, bricks
->   Start through an un-enumerated gate (`service_backend.py:106-107`), and bricks model-swap —
->   precisely the actions an operator takes during an X7 event. Stop and reset survive; the ones
->   that matter do not.
+A single `asyncio` task, started in `lifespan` (`main.py:216`) beside the existing `ws-keepalive`
+idiom (`:369`) and cancelled in the shutdown block (`:387-392`). Each tick calls the adapter via
+`await asyncio.to_thread(...)`, classifies per §5.1, and sleeps. Sequential by construction, so
+single-flight, executor bounding and — for *this* caller — session exclusivity are structural
+rather than disciplinary.
 
-The retained requirement is narrower and is C6: **never present an unknown status as a fresh
-negative.** `is_training_in_progress()` returning `False` on error is the fabrication to remove; the
-correct value for "we do not know" is *unknown*, surfaced as `stale` + age (C9), with the decision
-left to cascor's FSM, which owns it.
+**It uses a dedicated circuit breaker.** `_cb` is one shared instance across five adapter call
+sites (`cascor_service_adapter.py:1970, 1980, 2099, 2117`). Five failing `get_network_data()` calls
+— a route inside PR 1's scope — would otherwise trip it for `get_training_status()`, so the cache
+would read `circuit open` **against a healthy upstream** and freeze for 60 s. With its own breaker,
+circuit-open on the refresher's path is genuine evidence about cascor and is classed `UNREACHABLE`;
+`INDETERMINATE` remains only for reads that still traverse the shared breaker.
 
-Separately, `_swap_backend`'s gate (`main.py:3710`) is inline-blocking **and** fails open, so it
-permits a model swap during a live run when cascor is hung. That is a genuine defect, but it is a
-*different* one; it is recorded in §8 rather than fixed by inverting an interlock here.
+**It uses `retries=0` and a short timeout (proposed 5 s).** A poller does not need retries — it
+retries by definition on the next tick, and urllib3's backoff is pure sleep on a blocked thread.
+This also settles the timeout left unspecified in revision 2.
 
-### 5.6 Canopy has run this architecture before, and it failed — what is different
+### 5.3 Read paths, and preserving the one indicator that works
 
-**This is the most important section of the revision.** Canopy previously served status from a
-relay-fed in-memory global. On **2026-07-10 that global went ~8 hours stale when the WS relay
-silently died**, and the remedy — still in the code, at `main.py:1224-1237` — was to invert the
-posture to **LIVE-FIRST**:
+Read handlers (`/api/status`, `/api/network/stats`, the health endpoints) serve from the cache. The
+cache exposes **two** views, and the distinction is load-bearing:
 
-> *"…served base fields solely from the relay-fed `training_state` global — which went ~8 h stale in
-> the 2026-07-10 session when the WS relay silently died. The base fields now ride the same
-> live-fetch posture … and the relay-fed global is only the fallback on upstream error, explicitly
-> marked `stale: true` with an age."*
+- **`for_ui()` → the last observed payload, error field intact.** `dashboard_manager.py:6436-6438`
+  renders "Unreachable" iff the payload carries `error`, per **PR #340** ("handle the circuit-open
+  200 explicitly instead of as Stopped"). That is currently the **only working outage indicator in
+  the product**. Revision 2's "a failed refresh leaves `value` untouched" would have starved it and
+  made the branch dead code — creating a second dead indicator alongside the `"WS: Demo"` badge this
+  arc already found.
+- **`for_status()` → the last **OK** value, plus `stale: true` and `age_seconds` when the latest
+  class is not `OK`.** This is the non-fabricating read (C6, C9).
 
-**X7 forces the opposite posture.** Live-first is exactly what blocks the loop; §5 is cache-first by
-necessity. So this design must be read as *re-introducing the shape that previously failed*, and it
-is only defensible if it carries the property whose absence caused that failure.
+Withholding the error was the error. The error is **routed**, not suppressed.
 
-That property is **not** live-fetching. It is **staleness that is impossible to miss**:
+### 5.4 Mutating paths — bounded and deadline-checked
 
-| 2026-07-10 failure | this design's answer |
+`POST /api/train/*`, snapshot mutations, `patch_weights`, `add/remove_hidden_unit` cannot be served
+from cache. They keep an outbound call, offloaded, behind an `asyncio.Semaphore` (proposed **4**),
+with each job carrying a **deadline**.
+
+The semaphore alone is insufficient (C10): measured, 30 POSTs abandoned by their caller at 1.25 s
+still produced **all 30** upstream calls over 45 s. `asyncio.to_thread` is uncancellable, so the
+achievable remedy is **admission control, not cancellation** — the worker checks its deadline
+*before* issuing the request and skips if the caller's budget (`API_TIMEOUT_SECONDS = 2`) has
+already elapsed. In-flight work still completes; queued work for an absent caller does not start.
+
+### 5.5 The client boundary
+
+Because §8's paths are folded into PR 1, the refresher is **no longer the only caller** — revision
+2's "one caller, so the shared `Session` is never used concurrently" is false by construction and is
+withdrawn. C5 is met explicitly instead: a `threading.local()` session at the client boundary, so
+each worker thread owns its own connection pool.
+
+Retry verbs are bounded here as a **bridge** until §7's PR 4 lands: `JuniperCascorClient.__init__`
+exposes only `base_url, timeout, retries, api_key` — not `allowed_methods` — and its
+`RETRY_ALLOWED_METHODS` is `['GET','POST','DELETE','PUT','PATCH']`, so a timed-out
+`POST /v1/training/start` reaches the server **4×** (measured). Canopy injects a correctly
+configured client through the existing seam `CascorServiceAdapter(client=...)`
+(`cascor_service_adapter.py:494`). Note this bounds *method* retries only: **connect-level retries
+are unaffected** — measured 3.0 s / 4 attempts in both configurations.
+
+### 5.6 Health contract
+
+Unchanged status codes. `values.yaml:222-226` is **binding, not supporting**: *"upstream …
+outages remain 200/degraded so the dashboard stays useful with cached state"*, guarded by
+`test_canopy_never_returns_503_on_upstream_down` (`src/tests/unit/test_health.py:300-315`).
+Revision 2's 503 is withdrawn and stays withdrawn.
+
+| endpoint | change |
 | --- | --- |
-| the relay died **silently** | the refresher classifies failure from the payload (§5.1 revision), so a dead upstream is *recorded*, not smoothed over |
-| the stale value looked fresh | `stale: true` + `age_seconds` on the wire for every non-fresh read (C9), reusing the idiom `main.py:1224-1237` already established |
-| nothing alerted | `consecutive_failures` and cache age are exported, and staleness beyond a threshold is an alertable condition |
-| it took 8 h to notice | `/v1/health`'s body carries the age, so the existing 15 s/30 s probes observe it continuously |
+| `/v1/health/live` | none |
+| `/v1/health/ready` | **none.** Revision 2 proposed routing it through the cache; that was wrong — `probe_dependency` (`src/health.py:60-90`) is *already* native-async httpx, does not block the loop, and is the only live signal `make health` reads. Downgrading it to cached would remove a working signal to fix a problem it does not have. |
+| `/v1/health`, `/health`, `/api/health` | stop calling `backend.is_training_active()` inline; serve `training_active` from `for_status()`, and add `cascor_reachable`, `cascor_status_age_seconds`, `stale` |
 
-The first draft would have failed this test outright: because its failure detection was unreachable
-(§5.1 revision), its cache would have reported `FRESH` forever against a dead cascor — **reproducing
-the 2026-07-10 incident exactly, with better latency.** That is why B1 is classified as decisive
-rather than as a detail.
+Revision 2 also asserted "503 remains reserved for `ws_manager` unbound". `readiness_probe`
+(`main.py:1093-1141`) does not implement that. It is an aspiration in `values.yaml`, not behaviour,
+and is **not** claimed here.
+
+### 5.7 Staleness must reach a consumer that exists
+
+Revision 2 claimed probes would "observe staleness continuously". **No probe reads the body** —
+Dockerfile `curl --fail --silent`; Compose `urlopen(...)` with the return value discarded
+(`docker-compose.yml:732, 814, 869`); k8s `httpGet`; and `make health` parses `/v1/health/ready`,
+extracting fields the design puts on `/v1/health`. The promise was unfunded in every channel.
+
+Two channels that **do** exist:
+
+1. **Prometheus.** canopy already mounts `PrometheusMiddleware` (`main.py:458`) and depends on
+   `juniper-observability`. Export `juniper_canopy_backend_status_age_seconds` and
+   `juniper_canopy_backend_reachable` via `register_or_reuse` (the ecosystem's mandated idiom), plus
+   an alert on sustained age. This is the operator-facing channel.
+2. **The PR #340 status bar** (§5.3), which is the user-facing channel and already works — provided
+   §5.3's `for_ui()` keeps feeding it.
+
+**If neither is implemented, §5.9's claim is void and the design reproduces 2026-07-10.** That is
+the acceptance condition, not a nicety.
+
+### 5.8 Interlocks: narrow rule, fixed at source
+
+Fail-closed stays withdrawn (it protects nothing — cascor's FSM already rejects the same operations
+at `juniper-cascor/src/api/routes/snapshots.py:279, 330, 379, 435` — and bricks Restart, Start and
+model-swap, the actions taken during an outage).
+
+The retained rule is only C6: **do not present unknown as a fresh negative.**
+
+Revision 2 could not satisfy this at its own gate, because `is_training_in_progress()`
+(`cascor_service_adapter.py:1089-1100`) bypasses both `_unwrap_response` and the breaker and returns
+a **bare `False`** — there is no payload for §5.1 to classify. **So it is fixed at source**: that
+method routes through the same breakered, classified path as its sibling
+`get_training_status()` (`:1968-1976`) and returns a tri-state, not a bool. Without this, the
+classifier cannot see the very call the health endpoints make.
+
+### 5.9 Why this differs from 2026-07-10
+
+Canopy previously served status from a relay-fed global; on **2026-07-10 it went ~8 h silently
+stale** when the WS relay died, and the remedy (still in code at `main.py:1224-1237`) inverted to
+**live-first**, keeping the cached value only as a fallback "explicitly marked `stale: true` with an
+age".
+
+X7 forces the opposite posture — live-first is what blocks the loop. So this design re-introduces
+the shape that failed, and is defensible only by carrying the property whose absence caused that
+failure:
+
+| 2026-07-10 | this design |
+| --- | --- |
+| the relay died silently | §5.1 classifies positively, so a dead or half-dead upstream is recorded rather than smoothed |
+| the stale value looked fresh | `stale` + `age_seconds` on every non-OK read (§5.3), reusing the idiom `main.py:1224-1237` established |
+| nothing alerted | §5.7's gauge + alert — **the acceptance condition** |
+| 8 h to notice | age is exported continuously and rendered in the status bar |
+
+Revision 2 would have failed this test outright: its failure detection was unreachable code, so its
+cache would have read `FRESH` forever against a dead cascor — reproducing 2026-07-10 with better
+latency. That is why the classifier, not the cache, is the load-bearing component.
 
 ---
 
 ## 6. Test plan
 
-Specified to fail on today's code, and specified against the two vacuity traps this arc measured.
+Designed against the four vacuous checks this arc has now measured — the ruff hook, the latency
+percentile, the completion count, and the pair that cancelled each other.
 
-> **REVISION (2026-09-03, review finding B5).** **X7-T1 as first written PASSES on today's broken
-> code** — measured 20/20 completions, max 14 ms. The "0 completions in 40 s" figure in §4.4 came
-> from a scenario with a **concurrent blocking driver**, which the test specification omitted. A
-> guard test that passes on the defect is the third vacuous check this arc has found (after the ruff
-> hook and the latency percentile), so the driver is now part of the specification, not context.
+**The T1/T7 stub is BOUNDED** (harness constraint: `asyncio.to_thread` exposes no shutdown seam, and
+a hung thread blocked `asyncio.run` finalisation past 40 s under pytest). **The assertion is
+LATENCY, not completion** — revision 2 required a driver but asserted completion, and measured
+20/20 completions on the defect while max control latency was **5.813 s**. The signal was present;
+the assertion discarded it.
 
-| id | test | must |
-| --- | --- | --- |
-| **X7-T1** | **completion count** under load: hold **≥3 concurrent in-flight requests to a cascor-touching route** against a hung stub (the driver is mandatory — without it the test passes on the defect), and assert **all N** control requests to `/v1/health/live` complete | fail today, pass after |
-| **X7-T2** | vacuity guard for T1: assert the control sample size is non-zero, the driver actually blocked (its requests did **not** complete), and the route census ≥ 70 | a 0/0 sample, or an absent driver, must not read as success |
-| **X7-T3** | the refresher classifies a **payload-carried** error as a failure: feed `{"is_training": False, "error": "circuit open"}` and assert `state` degrades and `value` is **not** overwritten | fail today — the draft's `except Exception` never fires (§5.1) |
-| **X7-T4** | no fabricated negative: with the cache non-fresh, a status read is marked `stale` with an age and does **not** report a bare `is_training: false` as current | fail today |
-| **X7-T5** | `/v1/health/ready` **stays 200** on a cascor outage while its body reports `cascor_reachable: false` + age — asserted *alongside* the existing `test_canopy_never_returns_503_on_upstream_down`, which must continue to pass | guards the withdrawn 503 from returning |
-| **X7-T6** | injected client does not retry non-idempotent verbs: a timed-out `POST` reaches a counting stub **once** | fail today (**4×**) |
-| **X7-T7** | outbound concurrency never exceeds the semaphore bound under a hung stub | fail today (peak 20/20) |
-| **X7-T8** | **abandonment**: requests whose caller has gone away do not reach upstream (C10) | fail today (30 abandoned POSTs → **30** upstream calls) |
+| id | test | today | after |
+| --- | --- | --- | --- |
+| **X7-T1** | hold **≥3 concurrent requests** to a cascor-touching route against a **2.0 s bounded** stub; assert **max latency of `/v1/health/live` < 500 ms** | **fails** (5.813 s measured) | passes |
+| **X7-T2** | vacuity guards for T1: control sample non-empty, **and** each driver's latency ≥ the stub bound (proving it actually blocked) | — | both must hold or T1 is void |
+| **X7-T3** | classifier table (§5.1) row-by-row, including `None`, `[]`, `{}`, `{"data": {}}`, `error: None` | fails | passes |
+| **X7-T4** | non-OK read carries `stale` + `age_seconds` and does not report a bare `is_training: false` as current | fails | passes |
+| **X7-T5** | `/v1/health/ready` **stays 200** on a cascor outage — asserted alongside the existing `test_canopy_never_returns_503_on_upstream_down`, which must keep passing | passes | passes |
+| **X7-T6** | `for_ui()` still surfaces the `error` field, so `dashboard_manager.py:6436-6438` renders "Unreachable" (PR #340 regression guard) | passes | **must not regress** |
+| **X7-T7** | outbound concurrency never exceeds the semaphore bound | fails (peak 20/20) | passes |
+| **X7-T8** | deadline admission control: jobs whose caller budget elapsed are skipped, not issued | fails (30/30 issued) | passes |
+| **X7-T9** | the refresher's dedicated breaker is not tripped by `get_network_data()` failures | fails | passes |
+| **X7-T10** | staleness reaches a consumer: the gauge is registered and its value tracks cache age | fails | passes |
 
-**Harness hazards, both hit during this arc**: pytest's `timeout_method="signal"` cannot interrupt a
-worker thread, and `ThreadPoolExecutor` joins at interpreter exit — a naive test hangs the session.
-
-> **REVISION**: the first draft's mitigation — "shut the executor down explicitly" — is **not
-> achievable** for `asyncio.to_thread`, which uses the loop's default executor and exposes no
-> shutdown seam to the caller. Measured: a hung `to_thread` blocked `asyncio.run` finalisation past
-> 40 s (bounded only by `THREAD_JOIN_TIMEOUT=300`). **The stubs must therefore be bounded so the
-> thread always returns** — never "hung forever" inside the pytest process. Note this is a
-> *test-harness* constraint only: in the live server uvicorn's `capture_signals` re-raises from
-> inside `serve()`, so `Runner.close()` never runs and SIGTERM exits cleanly in **0.161 s**
-> (measured).
-
-**Placement**: the coverage gate reads only the unit lane (`src/tests/unit/`,
-`src/tests/regression/`, `-m "not slow"`), so these must live there and must not be marked `slow`.
-`status_cache.py` is a new small module and is a genuine ≥90 % per-file coverage risk — it must be
-table-driven tested to the gate.
+**Placement**: the coverage gate reads only `src/tests/unit/` and `src/tests/regression/` with
+`-m "not slow"`, so these live there and are not `slow`. The new cache module is a per-file ≥90 %
+risk and must be table-driven — X7-T3 largely provides that.
 
 ---
 
@@ -373,55 +363,48 @@ table-driven tested to the gate.
 
 | PR | repo | contents |
 | --- | --- | --- |
-| **1** | juniper-canopy | `status_cache.py` + refresher + read paths + health contract + injected client + interlocks + X7-T1…T7 |
-| **2** | juniper-canopy | demo-mode honesty (§9) — **must precede any probe tightening** |
-| **3** | juniper-deploy | probe retargeting + image-tag bump, **only after 1 and 2** |
-| **4** | juniper-cascor-client | **cut a Release and pin the floor** — see below |
+| **1** | juniper-canopy | §5.1-§5.9 **plus the four §8 paths** + X7-T1…T10 |
+| **2** | juniper-canopy | demo-mode honesty |
+| **3** | juniper-deploy | probe/alert wiring + image-tag bump, after 1 and 2 |
+| **4** | juniper-cascor-client | **version bump → Release → floor pin** |
 
-> **REVISION (2026-09-03, review finding B8).** PR 4 as first written is **already done**.
-> `juniper-cascor-client` `main` has carried `["HEAD","GET"]` since commit `ff3df6c` (2026-08-28),
-> but `git tag --contains ff3df6c` is **empty** and `pyproject.toml` still reads `0.7.0` — the fix
-> is **committed, unreleased and unversioned**. The remaining work is therefore a **Release plus a
-> version floor pin in canopy**, not a code change. Per the ecosystem release convention that is a
-> GitHub Release (never a bare tag push) with archived notes.
->
-> Until that floor lands, canopy's injected client (§5.3) is what bounds the verb list — so §5.3 is
-> a *bridge*, not a duplicate of PR 4.
+**PR 4 detail** (revision 2 amputated the version bump): `main` already carries `['HEAD','GET']`
+since `ff3df6c` (2026-08-28), but `pyproject.toml` still reads **0.7.0** and the latest tag is
+**v0.7.0** — a Release now would republish 0.7.0 into an immutable index. The work is **bump to
+0.7.1 → cut a GitHub Release → pin canopy's floor to `>=0.7.1`**, which fits canopy's existing
+`<0.8.0` cap (`pyproject.toml:162`). §5.5's injected client is the bridge until then.
 
-**Sequencing rule (non-negotiable)**: *do not tighten liveness before demo mode is honest.* Doing so
-converts a visible, self-recovering hang into a fast, silent restart into the simulator.
+**Sequencing rule**: do not tighten liveness before demo mode is honest (PR 3 after PR 2). PR 1
+before PR 2 is defensible — the demo fallback fires only in `lifespan`, so a mid-flight outage
+yields the hang and never the fallback; they are mutually exclusive by timing.
 
-Lane B1 refined this: the demo fallback fires **only in `lifespan`**, so a mid-flight outage yields
-the hang and never the fallback — the two are mutually exclusive by timing. Therefore **PR 1 before
-PR 2 is defensible; PR 3 before PR 2 is not.**
+**PR 1 is large** — §8's paths bring the blast radius to roughly **76 of 333** canopy test files. It
+is kept whole rather than split because a partial fix that looks complete is precisely how SEC-F20
+recurred as X7. If it must be split, the split is by *path* with the invariant tests landing first,
+never by "core now, remaining paths later".
 
 ---
 
-## 8. What this does not fix
+## 8. Paths included in PR 1 that are not the polled read path
 
-- **`JuniperDataClient` is unbounded** (`demo_mode.py:918`, `:1829`), reachable via
-  `/api/dataset/generate` and `/api/dataset/import-file` — the same 123 s exposure, same class,
-  outside this design.
-- **~29 handlers remain structurally sync-in-async** after PR 1; they are bounded and off the
-  polled path, but the convention is still wrong. The enforcement problem (§2.2) is not solved by
-  this design — ruff cannot see it, and a naive AST rule emits false positives on the repo's own
-  correct idiom (13 bare-attribute offloads, 8 named closures).
-- **The a2wsgi unbounded `future.result()`** remains; it is an amplifier, not the cause.
+These are **in scope**, not deferred. Each reinstates the full outage on its own.
 
-### 8.1 Four paths that still produce the FULL outage after PR 1 (review findings B6/B7)
-
-PR 1 covers the polled read path. These are not on it, and each reinstates X7 on its own:
-
-| path | anchor | why it still blocks |
+| path | anchor | why it blocks |
 | --- | --- | --- |
-| **the metrics relay** | `cascor_service_adapter.py:755-763` | on `cascade_add` the relay coroutine calls `extract_network_topology()` **synchronously inside `async`**. Measured **123 s blocked per 183 s — with no user present at all.** This is the most serious residue: it recurs during ordinary training. |
-| **WS connect** | `main.py:705` | `get_status()` on the accept path |
-| **`_swap_backend`** | `main.py:3718` | `initialize()` inline — measured **6 × 123 s from one click** |
-| **lifespan auto-discovery** | `main.py:294`, `:322` | runs before the refresher exists; the demo-fallback probe is skipped on this path |
+| **metrics relay** | `cascor_service_adapter.py:755-763` | on `cascade_add` the relay coroutine calls `extract_network_topology()` synchronously inside `async`. Measured **123 s blocked per 183 s with no user present** — the most serious residue, because it recurs during ordinary training |
+| **WS connect** | `main.py:705` | `get_status()` on the accept path, unbounded per browser tab |
+| **`_swap_backend`** | `main.py:3718` | `initialize()` inline — measured **6 × 123 s from one click**. Its gate at `:3710` additionally fails open |
+| **lifespan discovery** | `main.py:294`, `:322` | runs before the refresher exists |
 
-**Consequence for sequencing**: PR 1 alone does **not** close X7. The relay path in particular must
-be included or the defect survives the fix that claims to remove it. It is folded into PR 1 rather
-than deferred, precisely because a partial fix that looks complete is how SEC-F20 recurred as X7.
+### 8.1 What this genuinely does not fix
+
+- **`JuniperDataClient` is unbounded** (`demo_mode.py:918`, `:1829`) — same 123 s exposure via
+  `/api/dataset/generate` and `/api/dataset/import-file`.
+- **~29 handlers remain structurally sync-in-async** outside the polled and mutating sets.
+- **The enforcement gap**: ruff cannot see this class (§2.2) and a naive AST rule false-positives on
+  the repo's own correct idiom (13 bare-attribute offloads, 8 named closures). This is the mechanism
+  by which SEC-F20 became X7, and it remains open.
+- **a2wsgi's unbounded `future.result()`** — an amplifier, not the cause.
 - **`/v1/health/ready` probes its two dependencies sequentially** (10 s worst case), exceeding
   Helm's `timeoutSeconds: 5` independently of X7.
 
@@ -429,17 +412,15 @@ than deferred, precisely because a partial fix that looks complete is how SEC-F2
 
 ## 9. Open questions
 
-- **OQ-X1** — `REFRESH_INTERVAL` and the `STALE`/`UNKNOWN` thresholds. Proposed 1.0 s / 5 s / 30 s;
-  they should be derived from the probe intervals rather than chosen.
-- **OQ-X2** — per-thread sessions vs a client-boundary lock (§5.2).
-- **OQ-X3** — should the refresher back off when cascor is unreachable? A fixed 1 Hz against a hung
-  backend costs one blocked executor slot continuously. Backoff reduces load but delays recovery
-  detection.
-- **OQ-X4** — does PR 1 warrant a canopy `cascor_available` global mirroring `juniper_data_available`?
-  Note that flag is **write-once** (`main.py:122/315`) and never refreshed, so mirroring it naively
-  would clone a stale-forever bug.
-- **OQ-X5** — the enforcement gap (§8). A closure-aware AST test is the only mechanical option
-  identified; it is deferred here deliberately, and deferring it is what produced X7 from SEC-F20.
+- **OQ-X1** — `REFRESH_INTERVAL` (proposed 1.0 s) and the `STALE`/`UNKNOWN` age thresholds, which
+  should be derived from the 15 s/30 s probe intervals rather than chosen.
+- **OQ-X2** — should the refresher back off when cascor is unreachable? Fixed 1 Hz costs one
+  executor slot continuously; backoff reduces load but delays recovery detection.
+- **OQ-X3** — semaphore bound (proposed 4) and deadline source: `API_TIMEOUT_SECONDS` or per-route?
+- **OQ-X4** — does §5.7's alert belong in `juniper-deploy`'s `alert_rules.yml` (PR 3) or ship with
+  PR 1 as a rule file? Splitting it risks PR 1 claiming a channel that is not yet wired.
+- **OQ-X5** — the enforcement gap (§8.1). Deferring it is what turned SEC-F20 into X7; a
+  closure-aware AST test is the only mechanical option identified.
 
 ---
 
@@ -447,28 +428,22 @@ than deferred, precisely because a partial fix that looks complete is how SEC-F2
 
 - **Lane A (3 agents, distinct entry points)** — empirical discrimination with kernel-level
   evidence; static concurrency census; prior art and blast radius. The reconciler's own mechanism
-  hypothesis was **excluded**.
+  hypothesis was **excluded** by measurement.
 - **Fix design (4 agents, different lenses)** — minimal, systemic, operational, architectural.
-- **Lane B (2 agents, opposing briefs)** — **refuted the resulting plan in full** (§4), with
-  measurements.
-- **Reconciler re-derivations** — the 123 s cost (client and end-to-end), the executor size (20),
-  the client defaults, the retry-verb list, the dashboard's own timeouts, the ruff gate's green
-  result, the dead `workers: 4` config, and the `:1012-1031` cache anti-pattern.
-- **Adversarial round on §5 (2026-09-03)** — one reviewer, briefed to prefer measurement over
-  argument. Outcome: **the mechanical core survived; the safety layer did not.**
-  - **Survived, by measurement**: the refresher keeps the loop free under a hung upstream (80/80
-    completions, mean 3.0 ms, max 4.7 ms); it **cannot overlap** (`starts=1, returns=0,
-    peak_inflight=1`), so "one in-flight call" holds; no executor leak; SIGTERM exits in 0.161 s;
-    `Semaphore(4)` caps concurrency as claimed.
-  - **Refuted**: failure detection was unreachable code (B1, decisive); the 503 contract was
-    forbidden and mis-cited (B2/B3); fail-closed interlocks protect nothing and brick recovery (B4);
-    X7-T1 passed on the defect (B5); four outage paths were missed (B6/B7); PR 4 was already written
-    upstream (B8); the semaphore leaves an unaged queue (M1); `allowed_methods` does not stop
-    connect-level retries (M3); and canopy had already run and removed this architecture (M8).
-  - All ten are folded into the revision above, each marked at the section it changes.
-- **Residual uncertainty**: the **revision** has not itself been reviewed. Per the consensus
-  procedure the fix pass is the least trustworthy part of any document, and this arc has now
-  refuted three successive plans — so the next round is briefed on the changed sections only.
-- **Known-unfixed by design**: §8.1's four paths are in PR 1's scope but unmeasured as a set;
-  `JuniperDataClient` remains unbounded; the enforcement gap (§2.2) is untouched and is the
-  mechanism by which SEC-F20 became X7.
+- **Lane B (2 agents, opposing briefs)** — refuted the resulting plan **in full** (§4).
+- **Design review round 1 (1 agent, measurement-first)** — validated D1's mechanical core; refuted
+  its safety layer on ten counts.
+- **Design review round 2 (1 agent, briefed on the corrections only)** — **nine blocking findings**,
+  including a *restored-and-reclosed* instance: corrections 5 and 6 cancelled, producing a test that
+  passes on the defect while its own vacuity guard fails. Also found that the revision would have
+  deleted the product's only working outage indicator (PR #340), that the shared breaker poisons the
+  cache, that no probe reads the body, and that a constraint was added with no design satisfying it.
+- **Reconciler re-derivations**: the 123 s cost (client and end-to-end), executor size (20), client
+  defaults and retry-verb list, the dashboard's own 1.0 s/2.0 s budgets, the ruff gate's green
+  result, the dead `workers: 4` config, the `:1012-1031` cache anti-pattern, the adapter's
+  return-not-raise behaviour, the `values.yaml` negation, the PR #340 indicator, and the shared `_cb`.
+
+**Status of this revision**: §§5-10 are a **rewrite**, not a patch, and have **not** been reviewed.
+Four successive plans in this arc were refuted — every one by measurement, none by reasoning. The
+next round should be measurement-first and should target §5.1's classifier table, §5.7's channels,
+and whether §8's inclusion keeps PR 1 reviewable.
