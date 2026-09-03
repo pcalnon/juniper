@@ -46,7 +46,7 @@ async def _main() -> None:
     try:
         await task
     except asyncio.CancelledError:
-        pass
+        log("refresher task cancellation observed (expected during shutdown)")
     log(f"await task returned after {time.monotonic() - t:.3f}s -> loop-side cancel is CHEAP")
     log("returning from _main; asyncio.run finalisation begins now")
 
