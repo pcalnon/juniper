@@ -144,10 +144,17 @@ Three findings, and they do not point the same way:
 
 **Correction, 2026-09-02 — `arc_agi`'s number was not a generation cost, and the row it
 supported has been withdrawn.** Investigating the > 600 s found the generator **returned an empty
-dataset**: its Hub source `fchollet/arc-agi` no longer exists, and the fallback
+dataset**: its Hub source `fchollet/arc-agi` does not exist — and was never verified to, having
+been hardcoded when the generator was introduced while every test patches the Hub loader — and the
+fallback
 `multimodal-reasoning-lab/ARC-AGI` is a reasoning-trace dataset with no `train`/`test` columns, so
 `item.get("train", [])` yielded nothing for all 2000 rows and `X_full` came back shape `(0, 900)`.
-The > 600 s was almost entirely decoding ~92 000 images that were then discarded. Fixed in
+The > 600 s was **not** "almost entirely" image decoding: a ~1.09 GB parquet download was a
+substantial share of it, and the images decoded numbered **17,232**, not ~92 000 — the larger
+figure is 2000 rows × 46 image columns, i.e. the *cell* count, of which only 18.7% are populated
+(a null cell decodes to `None` at no cost). Corrected 2026-09-03; the original figure was
+arithmetic presented as a count of work done, which is the same error class as the runtime it was
+quoted to explain. Fixed in
 juniper-data#318 (new source, dead fallback removed, schema + non-empty guards): **1.30 s cold,
 0.67 s warm, `(1717, 900)`**.
 
