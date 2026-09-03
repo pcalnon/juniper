@@ -32,28 +32,26 @@ def wait_port(port, deadline=20.0):
 
 def main() -> int:
     log_path = "/tmp/juniper-x7-rev/uvicorn_shutdown.log"
-    fh = open(log_path, "w", encoding="utf-8")
-    p = subprocess.Popen([PY, "-u", APP, str(PORT)], stdout=fh, stderr=subprocess.STDOUT)
-    ok = wait_port(PORT)
-    print(f"app_started={ok} pid={p.pid}")
-    time.sleep(3.0)
-    t0 = time.monotonic()
-    p.send_signal(signal.SIGTERM)
-    rc = None
-    while time.monotonic() - t0 < 45:
-        if p.poll() is not None:
-            rc = p.poll()
-            break
-        time.sleep(0.02)
-    dt = round(time.monotonic() - t0, 3)
-    if rc is None:
-        print(f"STILL ALIVE after {dt}s -> sending SIGKILL")
-        p.kill()
-        p.wait()
-    else:
-        print(f"sigterm_to_exit_s={dt} rc={rc}")
-    fh.flush()
-    fh.close()
+    with open(log_path, "w", encoding="utf-8") as fh:
+        p = subprocess.Popen([PY, "-u", APP, str(PORT)], stdout=fh, stderr=subprocess.STDOUT)
+        ok = wait_port(PORT)
+        print(f"app_started={ok} pid={p.pid}")
+        time.sleep(3.0)
+        t0 = time.monotonic()
+        p.send_signal(signal.SIGTERM)
+        rc = None
+        while time.monotonic() - t0 < 45:
+            if p.poll() is not None:
+                rc = p.poll()
+                break
+            time.sleep(0.02)
+        dt = round(time.monotonic() - t0, 3)
+        if rc is None:
+            print(f"STILL ALIVE after {dt}s -> sending SIGKILL")
+            p.kill()
+            p.wait()
+        else:
+            print(f"sigterm_to_exit_s={dt} rc={rc}")
     with open(log_path, encoding="utf-8") as f:
         print("---- app trace ----")
         print(f.read())
