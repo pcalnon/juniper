@@ -1256,7 +1256,7 @@ stopped satisfying as soon as edges became per-connection traces.
 
 ---
 
-**F-CANOPY-047 — canopy's own CSP blocks plotly's PNG export: the modebar camera button silently produces nothing, for every user in every browser (P2, OPEN; found 2026-09-03 while building M-TOPOLOGY-14's scorer).**
+**F-CANOPY-047 — canopy's own CSP blocks plotly's PNG export: the modebar camera button silently produces nothing, for every user in every browser (P2; found 2026-09-03 while building M-TOPOLOGY-14's scorer; FIXED canopy#565, merged 2026-09-03, squash `c72c0712`).**
 
 `canopy_constants.py` `DEFAULT_CSP_POLICY` serves **`img-src 'self' data:`**. plotly's PNG export
 rasterises the figure as **SVG → Blob → `<img>` → canvas → `toDataURL`**, and `blob:` is not in that
@@ -1295,8 +1295,31 @@ written into the driver's docstring and the row scored BLOCKED. **A control that
 under test is not a control.** Only varying the scheme — `data:` succeeds, `blob:` fails — exposed the
 CSP. Same family as the other instruments in this session that answered an adjacent question fluently.
 
-**Fix direction NOT asserted**, but the shape is narrow: adding `blob:` to `img-src` would restore the
-export. That is a security-header change and belongs to whoever owns the CSP posture, and the
+**FIXED AND VERIFIED LIVE (canopy#565, merged 2026-09-03 as `c72c0712`).** `img-src` becomes `'self' data: blob:`. Two consecutive
+`--step topoexport` runs against the same 2/40/2/944 fixture:
+
+| | result |
+|---|---|
+| before | download timed out at 90 s; raster control `blob:`=FAIL, `data:`=OK |
+| after | `canopy_network_20260903_143947.png` — **2204x1200 (scale 2.0)** → PASS |
+| after | `canopy_network_20260903_144123.png` — **2204x1200 (scale 2.0)** → PASS |
+
+2204x1200 against a 1102x600 graph is scale 2.0 read from the **PNG's own IHDR**, so `scale: 2` is
+verified rather than trusted. The download completes in ~5 s where it previously exhausted a 90 s budget,
+so the CSP was the entire blocker. **This is also the first time M-TOPOLOGY-14's scorer has exercised its
+PASS path** — until now it had only ever been driven against the broken state.
+
+The widening is deliberately minimal: `blob:` URLs are minted by the page's own scripts and are opaque
+origins a third party cannot forge, so allowing them **for images only** admits no external content. It is
+NOT added to `script-src` or `default-src`, and a new regression test fails if a later edit puts it there.
+
+Regression pin: `src/tests/regression/test_csp_plotly_image_export.py` (canopy), five tests, deliberately
+SEPARATE from `test_csp_bootstrap_cdn.py` because the two `img-src` allowances exist for unrelated
+consumers. Against the parent it is **2 failed / 3 passed** — the three that pass are the guards
+(`data:` preserved, widening minimal, no wildcard), which must hold either way.
+
+*Original note, kept because the reasoning still applies to whoever next touches this directive:* the fix
+shape was narrow — adding `blob:` to `img-src` restores the export. That is a security-header change and belongs to whoever owns the CSP posture, and the
 Bootstrap-driven history of this directive suggests it should be widened deliberately rather than
 casually. A regression test pinning `blob:` alongside the existing `data:` assertion is the cheap half.
 

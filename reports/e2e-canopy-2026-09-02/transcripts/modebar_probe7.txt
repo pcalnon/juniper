@@ -1,0 +1,39 @@
+[t=    552ms] navigating to http://127.0.0.1:8051
+[t=  13214ms]   welcome modal dismissed
+[t=  50759ms] wake_topology: {'already': False, 'woke': True, 'elapsed_s': 25.1, 'attempts': 1}
+[t=  63121ms]   graph config: {'toImageButtonOptions': {'format': 'png', 'scale': 2, 'filename': 'canopy_network_20260903_022653'}, 'displayModeBar': True, 'w': 1102, 'h': 600}
+[t=  64329ms]   modebar before hover: bar=True n_btns=9 display=block opacity=1
+[t=  67794ms]   modebar after hover : bar=True n_btns=9 display=block opacity=1
+[t=  67794ms]     BUTTON data-title=Download plot as a PNG               data-attr=None               rect={'x': 1329, 'y': 263, 'w': 24, 'h': 22}
+[t=  67794ms]     BUTTON data-title=Zoom                                 data-attr=dragmode           rect={'x': 1361, 'y': 263, 'w': 24, 'h': 22}
+[t=  67794ms]     BUTTON data-title=Pan                                  data-attr=dragmode           rect={'x': 1385, 'y': 263, 'w': 24, 'h': 22}
+[t=  67794ms]     BUTTON data-title=Box Select                           data-attr=dragmode           rect={'x': 1409, 'y': 263, 'w': 24, 'h': 22}
+[t=  67794ms]     BUTTON data-title=Lasso Select                         data-attr=dragmode           rect={'x': 1433, 'y': 263, 'w': 24, 'h': 22}
+[t=  67794ms]     BUTTON data-title=Zoom in                              data-attr=zoom               rect={'x': 1465, 'y': 263, 'w': 24, 'h': 22}
+[t=  67794ms]     BUTTON data-title=Zoom out                             data-attr=zoom               rect={'x': 1489, 'y': 263, 'w': 24, 'h': 22}
+[t=  67794ms]     BUTTON data-title=Autoscale                            data-attr=zoom               rect={'x': 1513, 'y': 263, 'w': 24, 'h': 22}
+[t=  67794ms]     BUTTON data-title=Reset axes                           data-attr=zoom               rect={'x': 1537, 'y': 263, 'w': 24, 'h': 22}
+[t=  67794ms]   camera button: {'tag': 'BUTTON', 'cls': 'modebar-btn', 'data_title': 'Download plot as a PNG', 'data_attr': None, 'data_val': None, 'rect': {'x': 1329, 'y': 263, 'w': 24, 'h': 22}}
+[t=  71708ms]   CONSOLE[error] Loading the image 'blob:http://127.0.0.1:8051/3b69e90a-5398-46f5-a97d-321256ab416b' violates the following Content Security Policy directive: "img-src 'self' data:". The action has been blocked.
+[t= 189725ms]   download caught: False  page-side: {'objurls': 1, 'anchor_clicks': 0, 'downloads': [], 'errors': []}
+[t= 189725ms]   !! an object URL was created but no <a download> click followed -- the save path aborted
+[t= 189725ms]      why: TimeoutError: Timeout 120000ms exceeded while waiting for event "download"
+=========================== logs ===========================
+waiting for event "download"
+===================================
+[t= 194257ms]   CONSOLE[error] Loading the image 'blob:http://127.0.0.1:8051/ac4aa728-725d-4486-8111-c98080a599dc' violates the following Content Security Policy directive: "img-src 'self' data:". The action has been blocked.
+[t= 195200ms]   Plotly.toImage(scale=2): {'ok': False, 'ms': 4133, 'why': '[object Event]'}
+[t= 198763ms]   CONSOLE[error] Loading the image 'blob:http://127.0.0.1:8051/950573e3-6024-41ac-be5f-afc5d2eede76' violates the following Content Security Policy directive: "img-src 'self' data:". The action has been blocked.
+[t= 204342ms]   CONSOLE[error] Loading the image 'blob:http://127.0.0.1:8051/59204a5a-d5d4-40d7-86a7-acbf2974a767' violates the following Content Security Policy directive: "img-src 'self' data:". The action has been blocked.
+[t= 205077ms]   isolation matrix (topology has 1891 traces; other graph has 0):
+[t= 205077ms]     topology png scale=1       ok=False ms=3877 why=[object Event]
+[t= 205077ms]     topology svg               ok=True  ms=3225 len=1211031
+[t= 205077ms]     OTHER graph png scale=2    ok=False ms=1969 why=[object Event]
+[t= 206178ms]   CONSOLE[error] Loading the image 'blob:http://127.0.0.1:8051/6dc9adfe-fa78-4646-82cd-4c28da3ae00a' violates the following Content Security Policy directive: "img-src 'self' data:". The action has been blocked.
+[t= 208958ms]     10x10 SVG via blob: URL    ok=False img.onerror
+[t= 208958ms]     10x10 SVG via data: URL    ok=True  len=170
+[t= 208958ms]      -> THE SCHEME IS THE DIFFERENCE. data: rasterises, blob: does not. The page's CSP is
+[t= 208958ms]         `img-src 'self' data:` — blob: is OMITTED, so plotly's PNG export is blocked BY CANOPY.
+[t= 208958ms]         This is a PRODUCT defect and affects every user in every browser, not a headless quirk.
+[t= 208958ms]      -> even a small figure fails to export here: this looks like a HEADLESS limitation, NOT a product defect
+[t= 208959ms] probe -> /tmp/juniper-e2e/modebar_download_probe.json

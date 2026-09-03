@@ -1,0 +1,11 @@
+[t=    604ms] navigating to http://127.0.0.1:8051
+[t=  13272ms]   welcome modal dismissed
+[t=  16078ms] STEP topoexport -- M-TOPOLOGY-14 (modebar camera / PNG export)
+[t=  50958ms]   wake_topology: {'already': False, 'woke': True, 'elapsed_s': 23.2, 'attempts': 1}
+[t=  67841ms]   modebar buttons: 9; camera=yes
+[t=  67841ms]   toImageButtonOptions: format='png' scale=2 filename='canopy_network_20260903_143947'
+[t=  67841ms]     format_ok=True scale_ok=True filename_ok=True
+[t=  72645ms]   M-TOPOLOGY-14 download: 'canopy_network_20260903_143947.png' 2204x1200 (scale 2.0) -> PASS
+[t=  80561ms]   screenshot: /tmp/juniper-e2e/shots/seg17_topoexport.png
+[t=  80563ms]   topoexport verdicts: [('M-TOPOLOGY-14', 'PASS')]
+[t=  80563ms] results -> /tmp/juniper-e2e/seg17_topoexport_f047.json
