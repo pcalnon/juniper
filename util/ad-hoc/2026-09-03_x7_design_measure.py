@@ -14,7 +14,6 @@ import signal
 import socket
 import subprocess
 import sys
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
