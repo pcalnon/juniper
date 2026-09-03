@@ -31,14 +31,32 @@ the fourth grouping to do so.
    present these as equally cheap. The unresolved sub-question, deliberately not guessed, is
    recorded in §6 of that file: **rows or bytes** for the `csv_import` cap.
 3. **`APD-DATA-019` (pagination) has no analysis yet** and is the natural next one. Verified facts
-   already in `notes/JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_DEFECT-REGISTER.md` §4.1: `total =
-   len(filtered)` at `storage/base.py:504` materialises the whole filtered set then slices, **and
-   does so on the cursor path too** (`:515`) — so `APD-DATA-011`'s keyset work fixed pagination's
-   *correctness* half and left this *performance* half untouched.
-4. **The other 16 open rows are owner-parked.** Per the recount recorded in this lineage, `ECO-001`
-   (register:959) and `ECO-003` (:960) carry park text; the ten-row juniper-data REST group is
-   owner-routed at register:598; `CASCOR-005` (:674/:679), `ML-001` (:898), `RCLIENT-004`/`ECO-004`
-   (:857) are parked. **There are no unparked rows left.**
+   already in `notes/JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_DEFECT-REGISTER.md` §4.1 — **but its
+   anchors are dead and must be re-read first.** `total = len(filtered)` is `storage/base.py:537`
+   (not `:504`) and the cursor path `:545-548` (not `:515`); data#313 shifted them **ten minutes
+   after** ml#1539 recorded them as "re-verified". The substance holds: the whole filtered set is
+   materialised then sliced, **on the cursor path too** — so `APD-DATA-011`'s keyset work fixed
+   pagination's *correctness* half and left this *performance* half untouched. register:558 and
+   :627-628 carry the same dead anchors and need correcting.
+4. **CORRECTED BY VALIDATION — the split is 14 parked / 4 UNPARKED, and this draft had it wrong.**
+   The claim "no unparked rows left" was false and is withdrawn. Parked (14): the ten-row
+   juniper-data REST group (register:598, "do not action any of them unilaterally"), `CASCOR-005`
+   (:689/:694), `RCLIENT-004` + `ECO-004` (:872), `ML-001` (:913). **Unparked (4): `APD-DATA-018`,
+   `APD-DATA-019`, `APD-ECO-001`, `APD-ECO-003`.**
+5. **`APD-ECO-003` is the cheapest open row in the register, and this draft mis-parked it.** It has
+   **no** park text: it appears twice (register:889 bare table row; :975 inside *another* row's
+   verification cell). Its remedy is a per-call `timeout` kwarg on two clients, and the pattern is
+   already shipped — `APD-RCLIENT-002` (recurrence#130) did the recurrence arm. Remaining:
+   `juniper-data-client/juniper_data_client/client.py:302` and
+   `juniper-cascor-client/juniper_cascor_client/client.py:544`. §4 of
+   `notes/JUNIPER_2026-09-01_JUNIPER-DATA_ASYNC-JOB-PATTERN-DECISION-ANALYSIS.md` **schedules it as
+   step 2** of its own recommendation, which is irreconcilable with parking it. This is the
+   `APD-ECO-002` shape the register records twice as a mis-park (register:611-617, :906): *a bucket
+   label is not a rationale*.
+6. **`APD-ECO-001` needs an owner ASK, not an inherited park.** Its only "owner decision" phrase sits
+   inside `APD-CCLIENT-005`'s verification row (register:974) and refers to `APD-CCLIENT-001` — which
+   is FIXED, and whose dependency direction register:525-528 explicitly corrects as having been
+   *backwards* in the round-27/28 lineage.
 5. Carried unfiled ledger (§6).
 
 ---
@@ -64,7 +82,12 @@ open"; all three must agree.
 
 ## 2. What this session did — every step, completed
 
-Fourteen PRs merged across five repos. All content verified on the relevant `main` after merge.
+**CORRECTED BY VALIDATION.** The table has 15 numbered rows, but rows hold multiple PRs: the true
+total is **28 PRs across six repos** (ml 13, data 5, cascor 3, recurrence 3, cascor-client 2,
+canopy 2). The first draft said "fourteen PRs across five repos" — a *row* count read as a PR count,
+and five only if juniper-ml is excluded, which holds 13 of them. All 28 verified MERGED with their
+squash commits reachable from the relevant `main`; the round-30 pre-squash-tip failure did not
+recur.
 
 | # | PR | Result |
 |---|---|---|
@@ -83,6 +106,7 @@ Fourteen PRs merged across five repos. All content verified on the relevant `mai
 | 13 | data#313 + ml#1539 | `APD-DATA-016` — artifact streaming → 78/18 |
 | 14 | ml#1558, ml#1565, ml#1580, ml#1584 | `APD-DATA-018` analysis, measurements, two revisions |
 | 15 | **data#318** | `arc_agi` empty-dataset fix (536 s → 1.30 s, `(0,900)` → `(1717,900)`) |
+| 16 | **ml#1515** | release-notes archive for 0.7.0 — **omitted from the first draft**; it is the gate-exempt archive half of row 6's Release, so a successor auditing the publish ceremony would have found it apparently missing |
 
 Also merged: data#307, recurrence#147 (a shell-escaping artifact **I shipped** in the ceiling PRs).
 
@@ -108,21 +132,40 @@ overturned a proposed disposition three times.
 - **`APD-DATA-016`** — the media-type sub-finding was **already fixed** before this session, and the
   ETag half belongs to parked `APD-DATA-017`. Only one of the passage's three findings was live.
 
-**A precedent correction worth carrying:** §6 of
-`notes/JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_DEFECT-REGISTER.md` scopes triage to `Low`-confidence
-rows, and `APD-CASCOR-005` is `Low`, on that list, **and** says "owner decision, not a task … do not
-action unilaterally". So §6 membership is *eligibility to triage*, never a licence to dispose.
-That register's own line 984 misstates this.
+**A precedent correction worth carrying, re-anchored after validation.** §6 of
+`notes/JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_DEFECT-REGISTER.md` (at :1034) scopes triage to
+`Low`-confidence rows, and `APD-CASCOR-005` is `Low` and on that list — yet its own row says "owner
+decision, not a task" (:689) and "Do not unify the three copies unilaterally" (:694). **The
+discriminator is the row-level park, not §6**: `APD-SVCCORE-013`/`-016` carried no row-level park;
+`CASCOR-005` does. State it that way rather than as "§6 does not license disposal".
+
+**WARNING — every register line number this lineage inherited is stale by 15.** ml#1539 (this
+session's own register PR) inserted a net +15 lines at register:617, so citations after that point
+shifted. The predecessor's `:674` / `:679` / `:857` / `:898` / `:959` / `:960` / `:984` are now
+`:689` / `:694` / `:872` / `:913` / `:974` / `:975` / `:999`; `:598` is unaffected. Verified by
+reading each. This is register:579's own warning — *refresh anchors after the fix lands, not
+before* — landing on the lineage that wrote it.
 
 ---
 
 ## 4. `arc_agi`, and the lesson that outranks the rest
 
 Measuring Class B generators for `APD-DATA-018` found `arc_agi` **returning an empty dataset**: its
-Hub source `fchollet/arc-agi` no longer exists, the fallback `multimodal-reasoning-lab/ARC-AGI` is a
+Hub source `fchollet/arc-agi` does **not** exist — and, on the evidence, never did for this code:
+it was hardcoded at the generator's introduction and every test mocks the Hub, so no test ever
+exercised it live (say "does not exist and was never verified", not "no longer exists"). The
+fallback `multimodal-reasoning-lab/ARC-AGI` is a
 reasoning-trace dataset with no `train`/`test` columns, and `item.get("train", [])` swallowed the
-mismatch. `X_full` came back `(0, 900)` after ~9 minutes of decoding ~92 000 images that were then
-discarded. Nothing downstream rejects a zero-sample dataset, so it would have been persisted,
+mismatch. `X_full` came back `(0, 900)`.
+
+**Two numbers in this paragraph were wrong, and validation caught them.** (a) The image count was
+first written as "~92 000" — that is 2000 rows × 46 image columns, *arithmetic presented as a
+count of work done*. Only **17,232** cells (18.7%) are populated; null cells decode to `None` at no
+cost. (b) The "~9 minutes" (536.42 s) was a **warm** run; the **> 600 s** that actually drove the
+Option 4 promotion was the cold one and included a 143 s download of a 1.09 GB parquet. `(0, 900)`
+was observed in the later investigation, **not** in the run that timed out. This is the section's
+own lesson recurring inside the section: a real number, measuring something other than it appeared
+to. Nothing downstream rejects a zero-sample dataset, so it would have been persisted,
 content-addressed and served to a trainer as real.
 
 Fixed in data#318: new source, dead fallback removed, schema guard **and** non-empty backstop.
@@ -197,7 +240,13 @@ sessions were active continuously; `git fetch` + `gh pr list` before every push.
 
 ## 7. Validation of this document
 
-**NOT YET VALIDATED.** No round has been run. §8 of the predecessor
+**VALIDATED, one round, 2026-09-03** — three REFUTE lenses (PRs/counts; the `arc_agi` claim and the analysis; routing/parks). Every finding below was re-derived in source before being applied, and the two lenses that disagreed on register line numbers were adjudicated: `:887`/`:889` are the §4 table rows, `:974`/`:975` the §5.1 rows carrying the only park-ish mentions — both were right about different lines.
+
+**Falsified and corrected in this document:** the "~92 000 images" figure (really **17,232** populated of 92,000 cells — arithmetic presented as a count, the section's own lesson recurring inside it); "fourteen PRs across five repos" (really **28 across six**); the omission of **ml#1515**; "no unparked rows left" (really **14 parked / 4 unparked**, with `APD-ECO-003` the cheapest open row); every register line citation except `:598` (stale by ~15 after this session's own ml#1539); and `APD-DATA-019`'s anchors (`:537`/`:545-548`, not `:504`/`:515` — invalidated by this session's own data#313 ten minutes later).
+
+**Survived every attack:** the 74→78 / 22→18 move and all four intermediate counts; all 28 merge SHAs on main; the four-groupings claim and its ordering; §1's expected values; the 0.7.0 release; the `(0, 900)` mechanism, reproduced end-to-end from the pre-fix module; the post-fix `1717 = 1301 + 416`; and the retraction being genuinely recorded in both directions.
+
+**A second round is still owed** — the predecessor needed two, and its round 2 reversed round 1's routing twice. §8 of the predecessor
 (`HANDOFF_2026-08-30_round-30-validated-cochange-fixed-doc-tools-released.md`) records that two
 rounds were needed there and that **round 2 reversed round 1's routing twice** — so a single round
 is not sufficient evidence.
@@ -218,9 +267,12 @@ For the successor validating this document, attack in this order:
 ## 8. Session-close checklist (state at handoff)
 
 - [x] Handoff document generated (this file)
-- [ ] PR opened for this document
-- [ ] Consensus validation begun
-- [ ] Consensus findings applied
+- [x] PR opened for this document — **ml#1590**, auto-merge armed
+- [x] Consensus validation begun — three REFUTE lenses launched 2026-09-03
+- [x] Consensus findings applied — three lenses, corrections in this document
+- [ ] **Round 2 validation** (the predecessor needed one; round 2 reversed round 1 twice)
+- [ ] **Fix "~92 000" in three places outside this file**: §1.6 of `notes/JUNIPER_2026-09-01_JUNIPER-DATA_ASYNC-JOB-PATTERN-DECISION-ANALYSIS.md`, `juniper-data/CHANGELOG.md:17`, and `juniper-data/juniper_data/generators/arc_agi/generator.py:151` — the code comment will outlive the rest
+- [ ] **Correct register:558 and :627-628** — they carry the dead `APD-DATA-019` anchors
 
 **If context ends before a box is ticked, the unticked ones are the successor's first work**, in
 that order, before §0.2.
