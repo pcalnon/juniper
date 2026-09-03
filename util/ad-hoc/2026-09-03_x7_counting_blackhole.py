@@ -68,8 +68,12 @@ def _hold(conn: socket.socket, addr) -> None:
             STATE["open"] -= 1
         try:
             conn.close()
-        except OSError:
-            pass
+        except OSError as exc:
+            print(
+                f"close error from {addr} t={time.monotonic() - T0:.3f}: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
 
 
 def main() -> int:
