@@ -47,7 +47,15 @@ NOT IMPLEMENTED (no step exists; these rows have no scorer anywhere in the repo)
   M-TOPOLOGY-16          -- cascade-add glow; MANUAL/VIS, and needs a cascade ADD, so
                             a saturated fixture (40/40) cannot exercise it
   M-TOPOLOGY-18          -- raw-store refresh
-  W1-12..14, W4-*        -- walkthrough steps, tracked in the plan document
+  W1-12..14, W4-*        -- walkthrough steps. They live in the MATRIX
+                            (JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md)
+                            and the ledger (JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md),
+                            NOT in the plan. An earlier version of this docstring said
+                            "tracked in the plan document"; grep says `W4-` and `W1-1`
+                            appear ZERO times in
+                            JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md.
+                            A reader who went looking there would find nothing and
+                            conclude the ids were retired.
 
 Observation discipline (arc traps): poll for TRANSITIONS with long budgets, read
 figures off the plotly gd object, verify every widget write by its EFFECT (never by
@@ -244,6 +252,49 @@ def settle_figure(page, container_id: str = None, budget_s: float = 20.0, stable
         "traces": n_traces,
         "info": info,
     }
+
+
+def settle_changed(page, prev_hash, container_id: str = None, transition_budget_s: float = 30.0, settle_budget_s: float = 20.0) -> dict:
+    """Wait for the figure to LEAVE ``prev_hash``, then settle. "Stable is not ready", one level up.
+
+    ``settle_figure`` answers "has the figure stopped changing?". That is the wrong
+    question immediately after an action, because a figure whose rebuild HAS NOT
+    STARTED YET is perfectly stable — the hash holds, three reads agree, and it
+    reports ``settled`` while showing the PREVIOUS action's render. ``painted`` does
+    not catch it either: the stale figure is fully painted, just stale.
+
+    That is M-TOPOLOGY-02's failure, and it is a level above the one
+    ``settle_figure`` was written to fix. Measured (`/tmp/juniper-e2e/seg17_results.json`,
+    2026-09-02 06:30): M-01 ends by selecting Hierarchical and waiting a FIXED 2000 ms;
+    M-02 then called ``settle_figure``, which settled on Circular's ``26d0f961`` —
+    M-01's last layout — and scored ``on``. The weights-off toggle then retired that
+    still-pending Hierarchical rebuild (``getUniqueIdentifier`` hashes inputs +
+    outputs + state and NOT the trigger, and BOTH controls are Inputs of the same
+    rebuild), so ``off`` read ``26d0f961`` as well and the row failed on
+    ``on_hash == off_hash`` — two reads of a figure that was neither state.
+
+    The row is a RACE, not a stable defect: the very next run passed it, because a
+    dropdown retry earlier in M-01 happened to add ~12 s and the rebuild landed
+    before the first read. A verdict that depends on how long an unrelated retry took
+    is not a measurement.
+
+    So: wait for the TRANSITION first, then settle. ``changed`` is returned rather
+    than asserted, because a transition that never arrives must be visible in the
+    record — silently comparing two stale hashes is what produced the original
+    wrong reading.
+    """
+    container_id = container_id or f"{NV}-graph"
+    ok, elapsed, _ = wait_for(
+        lambda: (fig_info(page, container_id) or {}).get("fig_hash") not in (None, prev_hash),
+        budget_s=transition_budget_s,
+        every_s=0.5,
+        label=f"{container_id} to leave {prev_hash}",
+    )
+    st = settle_figure(page, container_id=container_id, budget_s=settle_budget_s)
+    st["changed"] = ok
+    st["transition_s"] = elapsed
+    st["from_hash"] = prev_hash
+    return st
 
 
 def set_dropdown(page, el_id: str, label: str) -> bool:
@@ -901,8 +952,15 @@ def step_topo(page, capture):
         "counts_stable": counts_stable, "detail": lay,
     }
     log(f"  M-TOPOLOGY-01 layouts: driven={len(driven)}/4 distinct_figs={len(hashes)} (sigs={len({v['sig'] for v in driven})}) counts_stable={counts_stable}")
+    # Return to Hierarchical for M-02. The read that follows must not begin until
+    # THIS rebuild has landed: a fixed 2000 ms wait here is what let M-02 settle on
+    # the previous layout's figure and score two reads of it (see settle_changed).
+    _pre_home = (_graph(page) or {}).get("fig_hash")
     set_dropdown(page, f"{NV}-layout-selector", "Hierarchical")
-    page.wait_for_timeout(2000)
+    home = settle_changed(page, _pre_home)
+    if not home.get("changed"):
+        log(f"  !! layout never left {_pre_home} on the way back to Hierarchical — M-02 reads may be stale")
+    res["M-TOPOLOGY-02-precondition"] = {"from_hash": _pre_home, "changed": home.get("changed"), "transition_s": home.get("transition_s"), "settled_hash": home.get("fig_hash")}
 
     # M-TOPOLOGY-02 / W4-03 -- show-weights off then on.
     #
@@ -918,24 +976,37 @@ def step_topo(page, capture):
     # LENGTH that can collide, and a wait keyed to "different from the value I read
     # too early" can be satisfied by the render the PREVIOUS action was still
     # completing.
+    # NOTE ON THE CONTRACT. ``back`` is expected to EQUAL ``on``: turning weights off
+    # and on again returns the graph to its previous render, so demanding three
+    # distinct hashes would fail a correctly-behaving toggle. The row asserts the two
+    # TRANSITIONS -- off differs from on, and back differs from off -- plus, now,
+    # that each transition was actually OBSERVED rather than timed out.
     settle_figure(page)
     on_g = _graph(page)
     set_checklist(page, f"{NV}-show-weights", False)
-    wait_for(lambda: (_graph(page).get("fig_hash")) not in (None, on_g.get("fig_hash")), budget_s=30, every_s=2.0)
-    settle_figure(page)
+    off_st = settle_changed(page, on_g.get("fig_hash"))
     off_g = _graph(page)
     set_checklist(page, f"{NV}-show-weights", True)
-    wait_for(lambda: (_graph(page).get("fig_hash")) not in (None, off_g.get("fig_hash")), budget_s=30, every_s=2.0)
-    settle_figure(page)
+    back_st = settle_changed(page, off_g.get("fig_hash"))
     back_g = _graph(page)
-    m02 = off_g.get("fig_hash") != on_g.get("fig_hash") and back_g.get("fig_hash") != off_g.get("fig_hash")
+    hashes_moved = off_g.get("fig_hash") != on_g.get("fig_hash") and back_g.get("fig_hash") != off_g.get("fig_hash")
+    # A timed-out transition means the read below is of a figure the toggle never
+    # produced. Scoring that as either PASS or FAIL asserts something the run did not
+    # measure, so it is called out as its own verdict.
+    observed = bool(off_st.get("changed")) and bool(back_st.get("changed"))
+    m02_verdict = "PASS" if (hashes_moved and observed) else ("FAIL" if observed else "INDETERMINATE")
     res["M-TOPOLOGY-02"] = {
-        "verdict": "PASS" if m02 else "FAIL",
+        "verdict": m02_verdict,
         "on_sig": on_g.get("sig"), "off_sig": off_g.get("sig"), "back_sig": back_g.get("sig"),
         "on_hash": on_g.get("fig_hash"), "off_hash": off_g.get("fig_hash"), "back_hash": back_g.get("fig_hash"),
         "on_ann": len(on_g.get("annotations") or []), "off_ann": len(off_g.get("annotations") or []),
+        "off_transition_observed": off_st.get("changed"), "off_transition_s": off_st.get("transition_s"),
+        "back_transition_observed": back_st.get("changed"), "back_transition_s": back_st.get("transition_s"),
+        "back_equals_on": back_g.get("fig_hash") == on_g.get("fig_hash"),
     }
-    log(f"  M-TOPOLOGY-02 show-weights: on={on_g.get('sig')} off={off_g.get('sig')} back={back_g.get('sig')} -> {m02}")
+    log(f"  M-TOPOLOGY-02 show-weights: on={on_g.get('fig_hash')} off={off_g.get('fig_hash')} back={back_g.get('fig_hash')} transitions_observed={observed} -> {m02_verdict}")
+    if not observed:
+        log("  !! a show-weights transition never landed within budget -- the reads are of a figure the toggle did not produce")
 
     # M-TOPOLOGY-03 / W4-06 -- Weight Matrix heatmap; connection-count reads the em dash.
     set_radio(page, f"{NV}-display-mode", "weight_matrix")

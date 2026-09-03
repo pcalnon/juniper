@@ -483,8 +483,63 @@ no highlight animation is active (`:406-413`).
 > value its READER receives is empty. **Two different values for one store id at the same instant** —
 > the duplicate-store-instance signature. See the evidence doc's F-CANOPY-039 entry.
 > Scope of the block: **M-TOPOLOGY-01..06 and -09..18** (16 rows; **-07 is PASS and -08 is FAIL**, so
-> the "01..18" below is imprecise), plus walkthrough steps W4-01..17 and W1-12..14, which are tracked
-> in the plan document and not as rows here.
+> the "01..18" below is imprecise), plus walkthrough steps W4-01..17 and W1-12..14, which are **not**
+> rows here. *Correction 2026-09-02: those walkthrough ids are NOT "tracked in the plan document" —
+> `W4-` and `W1-1` appear **zero** times in
+> `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md`. They exist only in this matrix
+> and in `JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`. A reader who went looking in
+> the plan would find nothing and could reasonably conclude the ids had been retired.*
+>
+> ---
+>
+> **BLOCK PARTIALLY LIFTED, 2026-09-02 — nine rows are scored, nine remain, and the reason has changed.**
+>
+> **PASS (9):** M-TOPOLOGY-01, -02, -03, -04, -05, -06, -07, -08, -17. Confirmed by **three independent
+> drives** of `--step topo`, all **9 PASS / 0 FAIL** on the same nine rows:
+>
+> | run | build | driver | result |
+> |---|---|---|---|
+> | `seg17_postf561_A.json` | canopy#561 | unmodified | 9 PASS / 0 FAIL |
+> | `seg17_postf561_B.json` | canopy#561 | `settle_changed` | 9 PASS / 0 FAIL |
+> | `seg17_post562_C.json` | canopy#562 | `settle_changed` | 9 PASS / 0 FAIL |
+>
+> All three under `reports/e2e-canopy-2026-09-02/`. Run C also serves as the **regression check on
+> canopy#562**, which changed the raw-topology poll's trigger set.
+>
+> **M-TOPOLOGY-02's transition times are the reason the old row was a coin flip.** The precondition
+> transition (M-01's tail returning to Hierarchical) measured **7.9 s** in run B and **1.1 s** in run C,
+> and the two show-weights transitions ranged **6.9-10.5 s**. The pre-fix driver waited a *fixed 2000 ms*
+> there — inside that spread — so whether the row passed depended on unrelated slowness elsewhere in the
+> run. This spread is **not** attributable to canopy#562: during M-01/M-02 the display mode is
+> `node_graph`, so the raw-topology poll returns `dash.no_update` either way. It is ordinary variance.
+>
+> **Still BLOCKED (9):** M-TOPOLOGY-09, -10, -11, -12, -13, -14, -15, -16, -18 — but **no longer on
+> F-CANOPY-037 or -039**. Those are fixed and the rebuild paints. The nine split into two different
+> reasons, and conflating them would mis-attribute a real product defect to missing tooling:
+>
+> - **-10 and -12 are blocked by a PRODUCT defect, F-CANOPY-044 (P1, new 2026-09-02).** The
+>   plotly-event idiom has now been pinned and it works: `plotly_click` fires and Dash posts `clickData`.
+>   But **0 of 7 clicks across all three node traces resolved to a node** — every one hit a co-located
+>   edge trace whose points carry no `text`, which `handle_node_selection`'s `if text:` guard drops
+>   silently. Node selection is unreachable. **F-CANOPY-045** (the `Layer:` label reads "Output" for
+>   every node) sits behind it, fully masked.
+> - **-09, -11, -13, -14, -15, -18 are blocked because no scorer exists** —
+>   `util/ad-hoc/e2e_seg17_topology_driver.py`'s `STEPS` dict has no step that touches them. The idiom
+>   they need is partly pinned (`util/ad-hoc/2026-09-02_plotly_event_probe.py`). **The CLICK idiom is
+>   pinned and works** — a real mouse click at the marker's own pixel resolves to the node trace and
+>   renders `-selection-info`, once the edges are not stealing the hit. **The DRAG idiom is NOT pinned**:
+>   three attempts at M-11's box select produced **zero `plotly_selected` events**, with `dragmode`
+>   re-confirmed `'select'` at drag time and a box far larger than plotly's minimum. Plotly never fired
+>   the event, so the product code never ran — that is a **driver gap, deliberately not filed as a
+>   finding**. -11's earlier "may be reachable despite F-CANOPY-044" prediction is therefore
+>   **UNRESOLVED, not refuted**.
+> - **-16 additionally needs a fixture with growth headroom**; the live network is saturated at 40/40
+>   and was deliberately left that way on 2026-09-02 to preserve the 2/40/2/944 baseline.
+>
+> **Do not read the earlier "5 PASS / 4 FAIL" run as evidence against these nine.** That drive measured
+> a canopy process started 2026-09-01 15:39 that had never loaded canopy#558 or #561 — see the evidence
+> doc's *"A CHECKOUT IS NOT A DEPLOYMENT"* entry. Its M-03/-04/-05 failures were F-CANOPY-041b and its
+> cascade, not these rows' own contracts.
 >
 > **BLOCKER for this whole section — F-CANOPY-037 (2026-08-26), re-attributed from the closed F-CANOPY-006.**
 > M-TOPOLOGY-01..18, W4-01..17 and W1-12..14 stay **BLOCKED**. The rebuild is chained off
