@@ -542,7 +542,24 @@ no highlight animation is active (`:406-413`).
 > (times out waiting for `-selection-info`), and against the fixed build it PASSES. Two consecutive runs
 > of each. -09 and -15 pass on both builds, correctly — they do not depend on that fix.
 >
-> **Still BLOCKED (3):** M-TOPOLOGY-11, -14, -16 — and **no longer on F-CANOPY-037 or -039**.
+> **UPDATE, 2026-09-03 — M-TOPOLOGY-14 is scored, and it is a FAIL.** The `topoexport` step finds the
+> camera button (9 modebar buttons; they are `<BUTTON class="modebar-btn">`, **not** `<a>` — an earlier
+> probe's `a.modebar-btn` selector is why the modebar once read as present-but-empty) and verifies the
+> export config: `format: png`, `scale: 2`, `filename: canopy_network_<YYYYmmdd>_<HHMMSS>`, all correct.
+>
+> **The export is nonetheless broken, by canopy's own header — F-CANOPY-047.** `DEFAULT_CSP_POLICY`
+> serves `img-src 'self' data:`, and plotly rasterises via SVG → Blob → `<img>` → canvas. `blob:` is not
+> in the directive, so the browser blocks the load, plotly rejects with a bare `[object Event]`, and no
+> file is ever produced. Two consecutive runs; the browser console names the directive outright.
+>
+> **A near-miss worth remembering:** this was first scored **BLOCKED as a headless limitation**, because
+> the control rasterised a hand-made SVG through a **`blob:`** URL — *the same scheme under test* — and
+> so reproduced the failure. `data:` succeeds where `blob:` fails; only varying the scheme exposed the
+> CSP. A control that shares the mechanism under test is not a control.
+>
+> **Section total is now 14 PASS / 2 FAIL / 2 BLOCKED.**
+>
+> **Still BLOCKED (2):** M-TOPOLOGY-11, -16 — and **no longer on F-CANOPY-037 or -039**.
 > Those are fixed and the rebuild paints. The reasons differ, and conflating them would mis-attribute a
 > real product defect to missing tooling:
 >
@@ -556,11 +573,9 @@ no highlight animation is active (`:406-413`).
 >   `clickData` never changes, and the clear path never runs. Measured `plotly_click_events=0` on two
 >   consecutive runs. **Not caused by canopy#564** — the empty-space gesture produced no event on either
 >   build.
-> - **-11 and -14 are blocked because no scorer exists** —
->   `util/ad-hoc/e2e_seg17_topology_driver.py`'s `STEPS` dict has no step that touches them.
->   **The click idiom is pinned and works** (a real mouse click at the marker's own pixel resolves to the
->   node trace and renders `-selection-info`, once the edges are not stealing the hit), and **-14
->   additionally needs a Playwright download intercept**, which nothing in the driver has yet.
+> - **-11 is the only row still blocked on tooling.** `util/ad-hoc/e2e_seg17_topology_driver.py`'s
+>   `STEPS` dict has no step that touches it. (**-14 now has one** — `topoexport` — and the Playwright
+>   download intercept it needed is written; the row fails on F-CANOPY-047, not on missing tooling.)
 >
 >   **What blocks -11 is now MUCH narrower than "drags do not work", and the earlier note here said the
 >   broader thing.** M-TOPOLOGY-13 drives a **zoom drag** through the same
@@ -615,7 +630,7 @@ no highlight animation is active (`:406-413`).
 | M-TOPOLOGY-11 | `network-visualizer-graph`                                                                                       | **box / lasso** select                  | Modebar carries `select2d` + `lasso2d` (:251). Selection lists up to 5 node names + `Selected: N node(s)` (`:581-603`).                                                                                                                                      | —                                 | VIS, DOM       | AUTO                           | B    | FA-2 | BLOCKED |
 | M-TOPOLOGY-12 | `network-visualizer-graph`                                                                                       | click empty space                       | Selection cleared, `-selection-info` hidden (`:637-638`).                                                                                                                                                                                                    | —                                 | DOM            | AUTO                           | B    | FA-2 | FAIL |
 | M-TOPOLOGY-13 | `network-visualizer-graph`                                                                                       | zoom / pan                              | Relayout captured into `-view-state` (:263) incl. `dragmode` and autorange reset (`:292-327`); re-applied on the next 2-D rebuild.                                                                                                                           | —                                 | VIS, DOM       | AUTO                           | B    | FA-2 | PASS |
-| M-TOPOLOGY-14 | `network-visualizer-graph`                                                                                       | modebar **camera** (PNG export)         | Downloads `canopy_network_<YYYYmmdd>_<HHMMSS>.png` at `scale: 2` — the filename is regenerated on every rebuild (`:415-426`).                                                                                                                                | —                                 | VIS (download) | AUTO                           | B    | FA-2 | BLOCKED |
+| M-TOPOLOGY-14 | `network-visualizer-graph`                                                                                       | modebar **camera** (PNG export)         | Downloads `canopy_network_<YYYYmmdd>_<HHMMSS>.png` at `scale: 2` — the filename is regenerated on every rebuild (`:415-426`).                                                                                                                                | —                                 | VIS (download) | AUTO                           | B    | FA-2 | FAIL |
 | M-TOPOLOGY-15 | `network-visualizer-graph`                                                                                       | **hover** a node                        | Plotly-native hover tooltip only. **There is no `hoverData` callback** — the only graph Inputs are `relayoutData` (:294), `clickData` (:552) and `selectedData` (:553). Hover must not fire a request or change the DOM outside the Plotly tooltip.          | none                              | VIS, NET       | **DEAD-EXPECTED** (Dash layer) | B    | FA-2 | PASS |
 | M-TOPOLOGY-16 | cascade-add glow                                                                                                 | new hidden unit installed               | A newly added unit is detected from the metrics delta (`:463-469`) and driven through an active→fading highlight with pulse scale/opacity (`:471-481`, `_update_highlight_state` :1541, `_calculate_highlight_properties` :1608). Purely visual, time-based. | —                                 | VIS            | MANUAL                         | B    | FA-1 | BLOCKED |
 | M-TOPOLOGY-17 | store refresh                                                                                                    | switch to this tab                      | `network-visualizer-topology-store` refetches: the poll is **tab-gated to `topology`** (`:6427-6436`) and `active_tab` is an Input (`:3721`). A WS `cascade_add` push takes priority, but a count-only stub payload falls through to REST (`:3741-3754`).    | `GET /api/topology`               | NET, DOM       | AUTO                           | B    | FA-1 | PASS |
