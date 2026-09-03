@@ -422,16 +422,16 @@ differently"* — turns out to be **not quite right**, in a way that changes the
 Instrument: `util/ad-hoc/2026-09-01_prefix_stability_mechanism.py` (seven probes, each falsifiable
 alone; `small=500 large=850 seed=42`).
 
-| probe | result | what it isolates |
-| --- | --- | --- |
-| Q1 `normal(size=N)` prefix | **STABLE** | numpy itself |
-| Q1b `random(size=N)` prefix | **STABLE** | numpy itself |
-| Q2 one spiral arm, fresh rng | DIFFERS | per-stratum generation, layout excluded |
-| Q3 arm 1 under shared rng | DIFFERS | cross-stratum RNG coupling |
-| Q4 `X_full` under vstack | DIFFERS | stratified layout |
-| Q5 spiral `legacy_cascor` (pure RNG) | DIFFERS | **refuted** the "RNG paths are fine" guess |
-| Q6 bare `np.linspace` | DIFFERS | **mechanism A**, no juniper-data code involved |
-| Q7 2nd of two N-sized draws | DIFFERS | **mechanism B**, no juniper-data code involved |
+| probe                                | result     | what it isolates                               |
+|--------------------------------------|------------|------------------------------------------------|
+| Q1 `normal(size=N)` prefix           | **STABLE** | numpy itself                                   |
+| Q1b `random(size=N)` prefix          | **STABLE** | numpy itself                                   |
+| Q2 one spiral arm, fresh rng         | DIFFERS    | per-stratum generation, layout excluded        |
+| Q3 arm 1 under shared rng            | DIFFERS    | cross-stratum RNG coupling                     |
+| Q4 `X_full` under vstack             | DIFFERS    | stratified layout                              |
+| Q5 spiral `legacy_cascor` (pure RNG) | DIFFERS    | **refuted** the "RNG paths are fine" guess     |
+| Q6 bare `np.linspace`                | DIFFERS    | **mechanism A**, no juniper-data code involved |
+| Q7 2nd of two N-sized draws          | DIFFERS    | **mechanism B**, no juniper-data code involved |
 
 **numpy is not the problem** (Q1/Q1b). Two independent mechanisms are, and both bite:
 

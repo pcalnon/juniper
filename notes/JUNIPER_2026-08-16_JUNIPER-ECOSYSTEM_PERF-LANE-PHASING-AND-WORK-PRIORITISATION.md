@@ -37,14 +37,29 @@ premise strong enough to build from.
 
 ### 1.1 The four gating phases
 
-| phase                  | deliverable                                                                                                                                                                                                                                               | done when                                                  |
-|------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------|
-| **P1 — Design**        | Design-of-record note: what is measured, on which tier, against which baseline, at what budget, & what regression *means*. Must resolve §12.3 scenario matrix, draft -> fixed, & specify Q-8 baseline directory (name, layout, retention, who writes it). | A `notes/` design doc exists and is reviewed.              |
-| **P2 — Planning**      | Work items with repo, size, and dependencies — the §14-style wave table this program uses everywhere else.                                                                                                                                                | Items are enumerated and sequenced.                        |
-| **P3 — Verification**  | The thresholds ratified (owner), and the measurement contract demonstrated end-to-end on a real run before anything is gated on it.                                                                                                                       | PF thresholds ratified; a dry measurement pass reproduces. |
-| **P4 — Documentation** | Operator surface in `docs/REFERENCE.md` + the cheatsheet; the baseline directory documented as a first-class artifact location.                                                                                                                           | Docs merged.                                               |
+| phase                  | deliverable                                                                                                                                                                                                | done when                                                  |
+|------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------|
+| **P1 — Design of Rec** | DoR: "what measured, which tier, which baseline, what budget, & what regression" *means*--§12.3 scenario matrix resolved, draft -> fixed, & pick Q-8 baseline directory (name, layout, retention, author). | `notes/<DOC>` exists & reviewed.                           |
+| **P2 — Planning**      | Work items with repo, size, and dependencies — the §14-style wave table this program uses everywhere else.                                                                                                 | Items are enumerated and sequenced.                        |
+| **P3 — Verification**  | The thresholds ratified (owner), and the measurement contract demonstrated end-to-end on a real run before anything is gated on it.                                                                        | PF thresholds ratified; a dry measurement pass reproduces. |
+| **P4 — Documentation** | Operator surface in `docs/REFERENCE.md` + the cheatsheet; the baseline directory documented as a first-class artifact location.                                                                            | Docs merged.                                               |
 
 Only then: development.
+
+**Deliverables produced against this table** (added 2026-09-02 — this note schedules the phases but
+did not previously name their outputs, so the deliverables were discoverable only by filename
+search):
+
+| phase | deliverable document | state |
+|---|---|---|
+| **P1 — Design** | [`JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md`](JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md) | written; acceptance checklist still shows `[ ] Reviewed — owner` |
+| **P2 — Planning** | [`JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md) | written; awaiting owner review |
+| **P3 — Verification** | [`JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md`](JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md), building on [`JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PF1-VARIANCE-RESULTS.md`](JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PF1-VARIANCE-RESULTS.md), [`JUNIPER_2026-09-01_JUNIPER-ECOSYSTEM_PF1-LOADED-AND-BRIDGED-RESULTS.md`](JUNIPER_2026-09-01_JUNIPER-ECOSYSTEM_PF1-LOADED-AND-BRIDGED-RESULTS.md) and [`JUNIPER_2026-09-01_JUNIPER-ECOSYSTEM_PF1-HEAVY-LOAD-AND-DURATION-RESULTS.md`](JUNIPER_2026-09-01_JUNIPER-ECOSYSTEM_PF1-HEAVY-LOAD-AND-DURATION-RESULTS.md) | measurement done and gate decisions taken; the *"dry measurement pass reproduces end-to-end"* half is Wave 1 of P2 |
+| **P4 — Documentation** | — | not started |
+
+**P3 ran before P2, at the owner's direction.** That inverts Tier 4's ordering below, and it was the
+right call rather than a shortcut: P3 de-ratified `timings.drive`, which is the metric a P2 written
+in August would have planned a comparator around.
 
 ### 1.2 Inputs that already exist
 
@@ -90,8 +105,7 @@ measure the budget rather than the workload. This is the same class of error tha
 
 ## 3. Prioritisation
 
-Ordering rationale, highest first. Three criteria: **correctness before capability**, **unblocked
-before blocked**, and **do not contend for a resource another arc is holding**.
+Ordering rationale, highest first. Three criteria: **correctness before capability**, **unblocked before blocked**, and **do not contend for a resource another arc is holding**.
 
 ### Tier 1 — do now
 
@@ -204,14 +218,10 @@ before blocked**, and **do not contend for a resource another arc is holding**.
 
 ### Tier 4 — the perf lane, in order
 
-7. **F-P1 Design**, then **F-P2 Planning**, then **F-P3 Verification** (owner ratifies thresholds),
-   then **F-P4 Documentation**, then development.
+7. **F-P1 Design**, then **F-P2 Planning**, then **F-P3 Verification** (owner ratifies thresholds), then **F-P4 Documentation**, then development.
 
-**Why §12 sits last among the engineering items** — and this is a scheduling judgement, not a
-demotion: it is the only item whose *first* phase is a design pass, it is the only one with an
-owner-ratification step inside it, and its most valuable input (the PF suites) is already banked and
-does not decay. Meanwhile items A and E-6.3 are live correctness defects. Correctness before
-capability.
+**Why §12 sits last among the engineering items** — and this is a scheduling judgement, not a demotion: it is the only item whose *first* phase is a design pass, it is the only one with an owner-ratification step inside it, and its most valuable input (the PF suites) is already banked and does not decay.
+Meanwhile items A and E-6.3 are live correctness defects. Correctness before capability.
 
 **One dependency worth pulling forward.** F-P1 must specify the Q-8 baseline directory. That is
 cheap and unblocks nothing else — so it can be drafted opportunistically alongside Tier 2 without
