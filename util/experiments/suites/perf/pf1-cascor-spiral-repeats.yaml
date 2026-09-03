@@ -26,9 +26,42 @@ suite:
   base_config: [../../../../../juniper-cascor/conf/experiments/spiral-smoke.yaml]
   seed_policy: fixed
 execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1200}
+#
+# EPOCH BUDGET RE-CALIBRATED 2026-09-02 (P2 item 0.3), and it must stay a MATCHED PAIR.
+#
+# cascor#618 gave `spiral-smoke.yaml` an explicit `output_epochs: 50` to match its `max_epochs: 50`,
+# ending a silent ~125x service/CLI divergence: on the service `max_epochs` bounded only the INITIAL
+# output pass while every later pass used the `output_epochs` default of 10000.
+#
+# That correction dropped this suite's cell from 65-126 s to 15.1 s. So the ~60 s cell length these
+# repeats were calibrated to (owner decision 2, 2026-09-01) was NEVER a property of the config -- it
+# came entirely from the 10000-epoch fallback the config never asked for. The duration requirement
+# belongs HERE, in PF-1's override, not in a smoke config; hence an explicit budget rather than
+# reverting the fix.
+#
+# Calibrated by measurement (util/ad-hoc/2026-09-02_pf1_epoch_calibration_suite.yaml), at (10, 10):
+#
+#   epochs      50     500    2000    5000
+#   step_sum  10.5 s  22.2 s  34.6 s  66.1 s
+#   steps       32     230     890    2210
+#
+# The curve is NOT a single power law: the log-log slope is ~0.32 up to 2000 and ~0.71 from 2000 to
+# 5000, because early stopping binds below ~2000 and stops binding above it. Fitting the low segment
+# alone predicts 46 s at 5000 against 66 s measured -- so interpolate within the upper segment, which
+# gives ~3900 for a ~55 s step_sum (~60 s drive after ~5 s of driver overhead). 4000 is used.
+#
+# BOTH KEYS, ALWAYS. Overriding only `output_epochs` would leave `max_epochs: 50` and re-introduce
+# the split in the opposite direction. They are single-element lists so the matrix cannot pair them
+# with anything but each other.
+#
+# This is NOT the pre-fix workload at a new label: pre-fix was 50-initial + 10000-later, this is 4000
+# uniform. The DURATION is restored; the workload is different, because the old one was incoherent by
+# construction. Figures from before 2026-09-02 are not comparable to figures after it.
 matrix:
   training.params.max_hidden_units: [10]
   training.params.max_iterations: [10]
+  training.params.max_epochs: [4000]
+  training.params.output_epochs: [4000]
   experiment.description:
     - "PF-1 repeat 1"
     - "PF-1 repeat 2"

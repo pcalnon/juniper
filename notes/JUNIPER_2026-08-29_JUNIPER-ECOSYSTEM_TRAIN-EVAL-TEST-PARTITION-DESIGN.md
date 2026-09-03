@@ -5,22 +5,31 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-09-02
-**Status**: DESIGN — decisions 1–8 settled 2026-08-29/31 (§9.2). **Decisions 9 (P-1b) and 10 (G-a)
-are settled as owner rulings but are RECOMMENDED FOR REVISITING — see §9.4, which refutes the
-premise both rest on.**
+**Last Updated**: 2026-09-03
+**Status**: DESIGN — **the partitioning question is CLOSED.** Decisions 1-8 settled 2026-08-29/31
+(§9.2); 11 settled 2026-09-02 (§9.5); **9, 10 and 12 settled 2026-09-03 (§9.6)**.
 
-> **Read §9.4 before implementing anything from §9.3.** A 2026-09-02 consensus review (2 proposals,
-> 3 Lane A, 2 Lane B) established that **P-1b is not shipped behaviour** — all 16 generators already
-> carve one realisation, and their partitions are index-disjoint by construction, so the duplicate
-> leak §9.3.2–§9.3.4 describe **cannot occur today**. Decision 9 introduces it. Independent
-> generation was measured to buy nothing for i.i.d. generators (KS D = 0.0032 vs 0.0068 critical) and
-> to be *worse* for lattice generators. **G-a does not terminate** on the case §9.3.4 used to justify
-> it, so decision 10's stated reasoning is void. §9.4.9 lists the corrections this forces on §9.3.
+> **What the partition design now says, in full:**
 >
-> **Chunk 3 remains gated**, but on a different question than §9.3 supposed: not "how do we resolve
-> per-run class membership" but "should P-1b be adopted at all". **Round 2 of the review is owed and
-> has not been run.**
+> - Partitions are produced by `shuffle_and_split` / `temporal_split_index` and are **index-disjoint
+>   by construction** — decision 9 REVERSED, both P-1a and P-1b abandoned (§9.6.1).
+> - **No duplicate-row guard is needed** — decision 10 COLLAPSED with the leak it guarded (§9.6.2).
+> - **`X_full` and the whole `*_full` family leave the contract** — decision 11 (§9.5), which also
+>   RETIRED decision 6 and mooted decision 7's `X_full` consequence.
+> - Generators emit `train` / `val` / `test` directly, each partitioned correctly for its own data
+>   type, plus a **`partition_provenance` block inside the NPZ** and one ingestion gate — decision 12
+>   (§9.6.3), adopted for auditability, not for the per-run class membership it originally answered.
+> - The normaliser is fit on **`train` only** — decision 7, unaffected throughout.
+>
+> **§§9.3 and 9.4 are now HISTORY.** Their measurements retain their evidential value, but the
+> questions they investigated — prefix stability, per-run class membership, which guard to use — are
+> answered or dissolved. Read §9.6 first; go back to §9.3/§9.4 only for the evidence behind it.
+>
+> **Four required fixes are listed in §9.6.4**, all filed (juniper-data#314, #317, #319, #320),
+> alongside decision 11's own scope. Required-fix 2's companion row-reuse gate was **dropped
+> 2026-09-03** — with partitions index-disjoint by construction it had nothing to catch, and the
+> invariant it encoded is unsatisfiable on ordinary low-cardinality data (§9.6.4).
+
 **Tracks**: [cascor#582](https://github.com/pcalnon/juniper-cascor/issues/582) (tier parity),
 [cascor#578](https://github.com/pcalnon/juniper-cascor/issues/578) (baseline-tier decision),
 [cascor#530](https://github.com/pcalnon/juniper-cascor/issues/530) (no seed field)
@@ -383,11 +392,13 @@ cross-field validators reject only `train_ratio + test_ratio > 1.0`.
 
 | # | question | **decision** |
 | --- | --- | --- |
-| 6 | **D-1** — what does `X_full` mean under three partitions? | **`X_full` is ASSEMBLED, not split.** The three subsets are generated first, each given its appropriate shuffling and normalisation, and `X_full` is then produced by concatenating them. This **inverts today's data flow** (generate `X_full` → `shuffle_and_split`) and makes the identity true *by construction* — in the array-equality form, not merely by length. It is stronger than the plan's option (a), which would only have made the length clause normative. Rationale of record: with deterministic pseudorandomness configured properly and a shared seed, this permits **dataset comparison across snapshots**. |
-| 7 | **Normalisation fit scope** (sub-question of D-1) | **Fit on `train` only; apply those statistics unchanged to `val` and `test`.** No quantity derived from the reported partition may reach the training data — the same invariant §5 states for the reported score, applied to the scaler. **Consequence to state in the contract: `X_full` is deliberately NOT uniformly normalised**, because it is a concatenation of three subsets scaled by train's statistics rather than a uniformly-scaled array. Any consumer that treats `X_full` as a homogeneous array must be checked (§7). |
+| 6 | **D-1** — what does `X_full` mean under three partitions? | ~~**`X_full` is ASSEMBLED, not split.**~~ **RETIRED 2026-09-02 by decision 11.** `X_full` is removed from the contract, so the question it answered no longer exists. Recorded rather than deleted because §9.3's prefix-stability analysis was reasoning *from* it. The ruling's surviving content is the ordering it implied: partitions are produced directly, not carved from a pre-existing whole. |
+| 7 | **Normalisation fit scope** | **STANDS: fit on `train` only; apply those statistics unchanged to `val` and `test`.** No quantity derived from the reported partition may reach the training data — the same invariant §5 states for the reported score, applied to the scaler. ~~Consequence: `X_full` is deliberately NOT uniformly normalised.~~ **That consequence is moot under decision 11** — with no `X_full` there is no mixed-scale array to warn about. The fit-scope ruling itself is unaffected, and juniper-data#314 (three generators fitting on the full set) remains a live defect against it. |
 | 8 | **D-2** — how is additive sizing implemented? | **Dataset-level row counts.** The ratios denote absolute rows of the realised dataset, identically for every generator regardless of its native size knob (`n_points_per_spiral`, `n_points_per_quadrant`, `n_samples_per_class`, `n_samples`). `n_points_per_spiral=500, n_spirals=2` with `100/40/30` means `n_train=1000, n_val=400, n_test=300` — 1700 rows total. This resolves the plan's open question *"what '40 % of train' means for a per-spiral knob"*: it means rows, never per-spiral units. |
-| 9 | **P-1** — how is cross-snapshot comparability obtained? | **P-1b: per-partition, NAME-KEYED seed substreams** (§9.3.2). Prefix stability (P-1a) is abandoned as unobtainable — §9.3.1 measured it blocked, partly for a semantic reason rather than a cost one. Keyed by partition NAME, not by `spawn()` position, so adding or reordering a partition cannot move another's stream. **Introduces one leak that must be guarded before Chunk 3 ships** — see §9.3.2. |
-| 10 | **Which P-1b guard closes the duplicate-row leak?** | **G-a — de-duplicate at assembly.** Drop rows in `val` / `test` that appear in `train`, then top up. Ruled 2026-09-02 after §9.3.4's full class-1 census showed **G-b and G-c are unsound**: `mackey_glass` leaks 100 % and is not `linspace`-parameterised, so a per-partition grid offset addresses mechanism A only and leaves the worst case untouched. G-a is the only candidate covering the measured leak set, and the only generator-independent one. A duplicate-row assertion belongs in the §6a consumer gate regardless. |
+| 9 | **P-1** — how is cross-snapshot comparability obtained? | ~~P-1b: name-keyed seed substreams~~ **REVERSED 2026-09-03. BOTH P-1a AND P-1b ARE ABANDONED.** The current approach stands: partitions are produced by `shuffle_and_split` (tabular) / `temporal_split_index` (sequence), which are **index-disjoint by construction**. Neither prefix stability nor per-partition substreams is pursued. The §9.4 review established that P-1b was never shipped, buys nothing measurable for i.i.d. generators, and is worse for lattice ones; abandoning it removes a hazard rather than leaving one to guard. See §9.6. |
+| 10 | **Which P-1b guard closes the duplicate-row leak?** | ~~G-a — de-duplicate at assembly~~ **COLLAPSED 2026-09-03 — the question no longer exists.** G-a, G-b and G-c all guarded a leak introduced by P-1b; with decision 9 reversed there is no such leak. Disjointness is achieved by construction, not by a guard. **A different and narrower check survives** as required-fix 2 of §9.6: a post-hoc degeneracy assertion on the produced partitions — see §9.6.4 for the caveat that makes it not simply G-a under another name. |
+| 11 | **Does the contract keep `X_full`?** | **NO — `X_full` is DROPPED, and with it the whole `*_full` family.** Ruled 2026-09-02. Generators emit `train` / `val` / `test` directly, each partitioned in the way correct for its own data type, plus queryable metadata. Evidence: no consumer requires `X_full` to be a particular roll-up — every use is "give me the whole dataset" (canopy `demo_mode.py:821-837,965,1858,1958`; cascor `spiral_problem.py:1325-1356` plotting; the data-client preview; ml `snapshot_attribute.py:318`) — and nothing indexes it with partition-derived indices. In the equities artifact all five `*_full` arrays (`X_full`, `y_full`, `date_full`, `ticker_code_full`, `y_reg_full`) **already have `_train`/`_test` siblings**, so the family is provably redundant there. See §9.5. |
+| 12 | **Does the artifact declare how it was partitioned?** | **YES — a `partition_provenance` block inside the NPZ** (not `DatasetMeta`), adapted from §9.4.1's Proposal B. It declares strategy, seed value, the generator configuration values required to reproduce the run, per-partition counts and digests, and normaliser fit scope. **One ingestion gate re-derives everything derivable and enforces a legality table on the rest.** Ruled 2026-09-03. Its original motivation — resolving per-run class membership — is gone with decision 9; it is adopted for the separate and surviving benefit of making an artifact self-describing and its partitioning auditable after the fact. See §9.6.3. |
 
 ### 9.3 Derived requirement — PREFIX STABILITY (new, opened 2026-08-31)
 
@@ -833,6 +844,235 @@ awaiting both the owner's ruling and that second round.
   is byte-identical across seeds while `X_train`/`X_test` are not, because `shuffle_and_split(seed=…)`
   re-permutes before slicing. §9.3.4's equal-size "100 %" figure is an `X_full` measurement; on
   `X_train` at default `shuffle=True` it is ~49 %, reaching 100 % only at `shuffle=False`.
+
+## 9.5 Decision 11 — `X_full` is dropped from the contract
+
+Ruled 2026-09-02. **Generators emit `train` / `val` / `test` directly**, each partitioned in the way
+that is correct for its own data type, accompanied by queryable metadata. The `*_full` family is
+removed from the NPZ contract.
+
+The rationale of record, in the owner's framing: `X_full` is a **dataset-context-invariant structure
+imposed on a heterogeneous set of generators**, and it becomes less tractable as datasets are added.
+Baking a per-generator roll-up algorithm into each generator would be complexity bought for a
+structure no requirement depends on. Removing it lets each generator solve the only problem that
+actually matters — correctly distributed, non-leaking, single-purpose partitions — in the manner
+suited to its own data.
+
+### 9.5.1 The consumer census that supports it
+
+Every functional use of `X_full` across the fleet is *"give me the whole dataset"*, never *"give me
+the array the partitions were cut from"*:
+
+| repo | site | use |
+| --- | --- | --- |
+| canopy | `src/demo_mode.py:821-837`, `:965`, `:1858`, `:1958` | validation ladder; dataset import for demo / visualisation |
+| cascor | `src/spiral_problem/spiral_problem.py:1325-1356` | **plotting only** |
+| cascor | `src/spiral_problem/data_provider.py:193,203` | key-presence and shape checks |
+| data-client | preview path | first *n* rows |
+| juniper-ml | `util/snapshot_attribute.py:318`, attribution scripts | regenerate-and-read |
+
+**Nothing indexes `X_full` with partition-derived indices.** The one indexing pattern in the fleet —
+`X_full[mask][order]` in `util/ad-hoc/verify_*.py` — masks by ticker code and then *explicitly
+re-sorts by date*, so it behaves identically on a concatenation and does not depend on row order.
+
+**In the equities artifact the family is provably redundant.** Its 16 keys include five
+`*_full` arrays — `X_full`, `y_full`, `date_full`, `ticker_code_full`, `y_reg_full` — and **every one
+already has `_train` / `_test` siblings**. Nothing is lost by removing them; the partitioned form is
+already complete.
+
+### 9.5.2 What this retires
+
+Dropping `X_full` **collapses** parts of §9 rather than changing them:
+
+- **Decision 6 (D-1) is retired.** It existed only to define what `X_full` means under three
+  partitions. With no `X_full`, the question does not arise — and neither does the
+  `full == train + test` length identity that generated it, nor the plan's options (a)–(d).
+- **Decision 7's consequence is moot.** The fit-on-`train` ruling stands; the warning that *"`X_full`
+  is deliberately not uniformly normalised"* has no referent. (juniper-data#314 remains a live defect
+  against decision 7 itself.)
+- **§9.4.4's ordering defect dissolves.** Lane B2's objection — that the proposal probes `X_full` to
+  choose the strategy that *produces* `X_full` — cannot arise when nothing produces `X_full`.
+- **The §9.3.1 prefix-stability measurements keep their evidential value but lose their subject.**
+  They were measured on `X_full`; the property they establish (a seed-invariant configuration cannot
+  yield distinct partitions) is a fact about *generation*, not about `X_full`, and survives intact.
+
+### 9.5.3 What this does NOT settle
+
+**Decisions 9 (P-1b) and 10 (G-a) remain open**, and §9.4.7's recommendation to revisit them is
+unaffected. Decision 11 narrows the ground they stand on but does not decide them:
+
+- It **removes the `X_full`-specific confounds** from the P-1b question — no assembly step, no
+  ordering defect, no mixed-scale array.
+- It does **not** answer whether partitions should be independently generated or carved. Lane B's
+  central findings still apply: the existing carve is already index-disjoint, independent generation
+  buys nothing measurable for i.i.d. generators and is worse for lattice ones, and G-a does not
+  terminate on a seed-invariant configuration.
+- Decision 11 is, however, **consistent with** the carve model — "each generator partitions in the
+  way correct for its data type" is what a fail-closed carve already does, and what the 16 generators
+  do today.
+
+### 9.5.4 Implementation surface — scoped, not started
+
+Four items are bookkeeping rather than design, and each needs a deliberate decision:
+
+1. **`DatasetMeta.n_samples`** is currently `len(X_full)`, asserted by
+   `test_e2e_metadata_consistency`. Redefine as the partition sum.
+2. **canopy's only validation ladder validates `X_full`** (`demo_mode.py:821-837`). It must be
+   re-pointed at the partitions or the guard is **silently lost** — which, given how much of this arc
+   has concerned guards that stopped guarding, should be done explicitly and tested.
+3. **The preview endpoint** serves the first *n* rows of `X_full` and needs a new source. Serving
+   `train` is the obvious choice and changes the semantics slightly; that is a product decision.
+4. **`NPZ_SPLITS`** (`juniper-data-client/juniper_data_client/constants.py:421`) is
+   `("train", "test", "full")`. Removing `"full"` and adding `"val"` is now a single coherent edit —
+   which intersects **S-3** in §9 of
+   [`JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_PARTITION-IMPLEMENTATION-PLAN.md`](JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_PARTITION-IMPLEMENTATION-PLAN.md),
+   which flagged that extending the constant was owned by no chunk while Chunk 1 pinned the 3-tuple.
+
+**Backward compatibility.** All 39 stored artifacts carry `X_full`. Consumers must keep *tolerating*
+its presence after producers stop emitting it; only the *requirement* is dropped. cascor's
+`data_provider.py:193` `required_keys` is the one site that would reject an artifact for its absence.
+
+### 9.5.5 What this evidence does not cover
+
+- Whether any notebook, paper workflow, or archived analysis **outside these repos** reads `X_full`.
+  The census covered the eight active repos only.
+- Whether the `date_*` / `ticker_code_*` / `y_reg_*` families need any change beyond dropping their
+  `_full` members — their `_train`/`_test` siblings exist, but a `_val` sibling does not yet.
+- The sequence tier's `t_*` / `dt_*` / `observed_mask_*` families were not inspected for `_full`
+  members.
+
+## 9.6 Decisions 9, 10 and 12 resolved — the partitioning question closes
+
+Ruled 2026-09-03. This section closes the line of inquiry §9.3 opened.
+
+### 9.6.1 Decision 9 REVERSED — both P-1a and P-1b are abandoned
+
+**The current approach stands.** Partitions are produced by `shuffle_and_split` (tabular, `core/split.py:82`)
+and `temporal_split_index` (sequence, `core/split.py:116`), which are **index-disjoint by construction**.
+Neither prefix-stable generation (P-1a) nor per-partition seed substreams (P-1b) is pursued.
+
+This ratifies what all 16 generators already do, and it is the outcome §9.4's review pointed to:
+P-1b was never shipped; independent generation was measured to buy nothing for i.i.d. generators
+(KS D = 0.0032 vs 0.0068 critical) and to be *worse* for lattice generators, whose "independent"
+pools stay aligned on a shared `linspace` lattice.
+
+**Cross-snapshot comparability — the property P-1a and P-1b were competing to deliver — is not
+obtained by either, and is not pursued here.** V-1 established that no sizing model preserves the
+existing corpus; decision 4 (re-measure pre-change results, retaining the originals annotated)
+already carries that and is unaffected.
+
+### 9.6.2 Decision 10 COLLAPSED — no guard is needed
+
+G-a, G-b and G-c existed only to guard a duplicate-row leak that P-1b introduced. With decision 9
+reversed, there is no such leak: **disjointness is achieved by construction, not by a guard.**
+
+This also retires the §9.4.5 finding that decision 10's justification was void — the finding stands
+as a matter of record, but the decision it invalidated no longer exists.
+
+### 9.6.3 Decision 12 — the partition-provenance block is adopted, for a different reason
+
+§9.4.1's **Proposal B** is adopted in modified form. Its original motivation — resolving per-run
+class membership — **is gone**, because with disjointness by construction there is no strategy to
+resolve per run. It is adopted for a separate and surviving benefit: **an artifact that describes how
+it was partitioned can be audited after the fact, by a consumer, without re-running the generator.**
+
+A `partition_provenance` blob lives **inside the NPZ**, not in `DatasetMeta`. The §9.4 review
+confirmed the reason and found it stronger than argued: **all three** cascor ingestion paths retain
+only `dataset_id` and download the NPZ (`api/lifecycle/manager.py:3698-3700`, `api/app.py:512-522`,
+`spiral_problem/data_provider.py:170-174`), and `get_dataset_metadata` has **zero** non-test call
+sites in cascor. A metadata-only declaration is invisible to the primary trainer.
+
+It declares: strategy; seed value; the generator configuration values required to reproduce the run;
+per-partition counts and digests; and normaliser fit scope. **One ingestion gate re-derives
+everything derivable** — counts against array shapes, digests against contents — **and enforces a
+legality table on the rest.**
+
+**What the §9.4 review says this can and cannot do**, carried forward so it is not rediscovered:
+
+- A declaration can be **truthful and the artifact still degenerate**. Lane B demonstrated an
+  `xor(margin=x_range=y_range)` artifact where every provenance field was correct, every derivable
+  check passed, and 40 of 40 test rows were byte-identical to train rows. **Provenance is not a
+  substitute for a check on the arrays** — which is why required-fix 2 below is a separate item.
+- The `seed_sensitivity` trichotomy from the original proposal is **not** adopted: §9.4.4 showed it
+  is not a property of the run at all (19 of 60 seed pairs disagreed at one configuration), and with
+  decision 9 reversed nothing needs it.
+- Fields that are **not derivable from a single artifact** — strategy, seed, fit scope — are
+  declarations the consumer must take on trust or cross-check against a legality table. That is the
+  irreducible limit of the mechanism.
+
+### 9.6.4 Required fixes — the work list
+
+| # | fix | status |
+| --- | --- | --- |
+| 0 | Abandon generation and use of `X_full` entirely | **decision 11 (§9.5)**; implementation scoped in §9.5.4 |
+| 1 | Fix `arc_agi`'s silent-empty fallback | filed **juniper-data#317** |
+| 2 | Make `seed` required or defaulted for **all** generators — default captured in constants, exposed in config file **and** environment variable. `mackey_glass`'s `init_noise_std` gets the same treatment (§9.6.5). ~~plus a post-hoc degeneracy assertion rejecting verbatim train/val/test row reuse~~ — **that half DROPPED 2026-09-03, see below** | filed **juniper-data#319** |
+| 3 | Audit generators for correct partition use — `equities`, `equities_seq`, `csv_import` currently fit the normaliser on the full, unpartitioned set | filed **juniper-data#314** |
+| 4 | Bring the Postgres store online with a correct schema, ideally derived dynamically from the models as a single source of truth | filed **juniper-data#320** |
+
+#### The row-reuse gate is DROPPED — ruled 2026-09-03
+
+The originally-specified companion to required-fix 2 — a post-hoc assertion at
+`api/routes/datasets.py:249` **rejecting verbatim train/val/test row reuse** — is **not built.**
+
+The reason it was raised, and the reason it is dropped, are the same fact. That assertion is, in
+form, the **G-a invariant**, and §9.4.5 measured G-a **unsatisfiable on ordinary low-cardinality
+data**: on a 6-record `csv_import` pool with 3 distinct feature vectors, **5 of 8** partitionings
+violate it. Coinciding feature vectors are the normal case for categorical inputs, not a corner case.
+
+Under decision 9 there is nothing for it to catch. The partitions are **index-disjoint by
+construction**; repeated row *values* are a property of the source data, not evidence of a leak. An
+unconditional rejection would have rejected valid datasets, and every softer shape — a
+distinct-row-ratio threshold, warn-not-reject, exempting declared-categorical generators — buys a
+weaker signal at the cost of a threshold nobody can calibrate from first principles.
+
+**Required-fix 2 therefore reduces to the `seed` work alone**, which stands on its own merits and is
+unaffected by this: nine generators are non-reproducible at their documented defaults regardless of
+how partitions are checked.
+
+**One thing this drops that the objection did not target**, recorded so the choice is visible rather
+than accidental: a *degeneracy-ratio* check — distinct rows relative to row count — would have
+flagged Lane B's `xor(margin=x_range=y_range)` case, which produced 4 distinct rows out of 200. That
+is a different failure (a useless dataset) from the one the gate was specified to catch (a leaked
+one), and it is now uncovered. `arc_agi`'s zero-row case is covered separately by juniper-data#317.
+
+Required-fix 4's "schema derived from the models" would also close the latent defect the review
+found independently: `SCHEMA_SQL` declares `n_classes NOT NULL` while `core/models.py` made it
+nullable, so a wired Postgres store would hard-fail on the first regression dataset.
+
+### 9.6.5 `mackey_glass` — the position of record
+
+`mackey_glass` is **seed-invariant unless `init_noise_std != 0.0`**. This is documented and
+intentional: the field's own description reads *"0 yields an exact deterministic init"*, and the seed
+is consumed only inside `if params.init_noise_std > 0` (`generator.py:64-66`). Verified directly —
+seed 1 and seed 999999 give `max|Δ| == 0.0`.
+
+**Under decision 9 this stops being a problem.** Its partitions are disjoint by construction whether
+`init_noise_std` is `0.0` or not; there is no longer any need to separate them by seed. The 100 %
+partition overlap measured in §9.3.4 was an artifact of simulating P-1b, not a property of the
+shipped generator.
+
+**`init_noise_std` should be initialisable in the same manner as the generators' seed values** —
+i.e. it falls under required-fix 2's constants / config-file / environment-variable treatment.
+
+One consequence survives and is worth keeping visible: at default configuration the `seed` parameter
+has **no effect on any returned array**, so a caller varying `seed` for replicate runs gets identical
+data with no signal that the knob did nothing. That is a reproducibility-reporting concern, not a
+partitioning one.
+
+### 9.6.6 What closes, and what this does not cover
+
+**Closed by this section**: the P-1a/P-1b question; the guard question; per-run class membership as a
+*partitioning* concern; and the §9.4.7 recommendation, which the owner has now ruled on.
+
+**Not covered**:
+
+- Round 2 of the §9.4 consensus review was never run and is now **moot for decisions 9 and 10** — the
+  disposition it would have re-examined has been decided directly. It remains unrun for §9.4's other
+  content.
+- The `partition_provenance` schema is described, not specified. Field names, types and the legality
+  table are implementation work.
+- No code has moved for any of §9.6. Every required fix is filed or to-file, none is started.
 
 ## 10. Naming — SETTLED: `X_val` / `y_val`, **not** `X_eval`
 
