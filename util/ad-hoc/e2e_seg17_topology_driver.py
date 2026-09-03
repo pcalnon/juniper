@@ -1902,7 +1902,7 @@ def step_topoexport(page, capture):
     # ---- the ENVIRONMENT half: can this browser actually produce the PNG? --
     dest = os.path.join(RUN_DIR, "m14_download")
     os.makedirs(dest, exist_ok=True)
-    dl_res = {"caught": False}
+    # dl_res = {"caught": False}
     try:
         with page.expect_download(timeout=90000) as info:
             page.mouse.click(cam["rect"]["x"], cam["rect"]["y"])
