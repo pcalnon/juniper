@@ -72,7 +72,8 @@ async def lifespan(app: FastAPI):
     try:
         await task
     except asyncio.CancelledError:
-        pass
+        # Expected when cancelling the refresher during app shutdown.
+        return
 
 
 app = FastAPI(lifespan=lifespan)
