@@ -238,8 +238,21 @@ def _warn_epoch_budget_split(training_params: Dict[str, Any], config: Dict[str, 
     service at N for the first pass and 10000 for every pass after it. On a run that grows 64-128
     units that is a several-fold per-pass asymmetry, and it makes the service arm both slower and
     better-trained than the config appears to ask for. It cost the wide-budget head-to-head
-    campaign a rerun to notice (juniper-ml#1143 SS2.2); at a 1-2 unit cap there is only the initial
-    pass, so smoke-scale runs cannot surface it.
+    campaign a rerun to notice (juniper-ml#1143 SS2.2).
+
+    **CORRECTED 2026-09-02 -- smoke-scale runs DO surface it.** This docstring previously ended
+    "at a 1-2 unit cap there is only the initial pass, so smoke-scale runs cannot surface it".
+    That is wrong, and it is the kind of claim that stops the next reader from checking. A cap of
+    N units yields the initial pass *plus one pass per added unit*, so even ``max_hidden_units: 2``
+    has two non-initial passes. Measured on ``spiral-smoke.yaml`` at its NATIVE (2, 2) budget:
+    ``output_epoch`` history rows reach epoch **10000** for both -- ``hidden_units=1`` maxing at
+    10000, ``hidden_units=2`` spanning 1-10000. 10000 can only be the ``output_epochs`` fallback,
+    because the candidate budget default is 400
+    (cascor ``constants_candidates.py:130``).
+
+    At PF-1's (10, 10) override the cost is a factor of ~125 in work:
+    ``drive`` 65-126 s / ``step_count`` 4012 without the key, against 15.1 s / 32 with it
+    (cascor#618, which sets both keys in ``spiral-smoke.yaml``).
 
     This WARNS rather than raises: a service-only run may legitimately want the split, and the
     canonical ``spiral-baseline.yaml`` ships that way. The warning is also recorded on the config

@@ -87,14 +87,37 @@ intended as **its own PR** unless noted.
 | #   | Item | Repo | Size | Depends on |
 |-----|------|------|------|------------|
 | 0.1 | This plan, reviewed and ratified by the owner | juniper-ml | S | — |
-| 0.2 | **`spiral-smoke.yaml` must set `output_epochs` alongside `max_epochs: 50`.** The service applies `max_epochs` only to the *initial* output pass; later passes read `output_epochs`, which falls back to 10000, so the service is quietly better-trained and slower than the config asks. Required by §5 of the 60 s variance results ([`JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PF1-VARIANCE-RESULTS.md`](JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PF1-VARIANCE-RESULTS.md)) before **any** figure from it is quoted as a baseline. PF-1 uses it as `base_config`, and item 1.1 turns PF-1 output into the reference. | juniper-cascor | S | 0.1 |
-| 0.3 | Re-run PF-1 (5 repeats) after 0.2 and confirm `total_steps` is still invariant under the corrected budget. **0.2 changes the workload**, so every count and duration measured to date describes the old one. | juniper-ml | S | 0.2 |
+| 0.2 | **SHIPPED — `cascor#618`.** **`spiral-smoke.yaml` must set `output_epochs` alongside `max_epochs: 50`.** The service applies `max_epochs` only to the *initial* output pass; later passes read `output_epochs`, which falls back to 10000, so the service is quietly better-trained and slower than the config asks. Required by §5 of the 60 s variance results ([`JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PF1-VARIANCE-RESULTS.md`](JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PF1-VARIANCE-RESULTS.md)) before **any** figure from it is quoted as a baseline. PF-1 uses it as `base_config`, and item 1.1 turns PF-1 output into the reference. | juniper-cascor | S | 0.1 |
+| 0.3 | **Re-calibrate PF-1's override, then re-run.** 0.2's measured effect is far larger than this row originally assumed: at PF-1's `(10, 10)` budget the corrected config runs **15.1 s / 32 steps** against **65–126 s / 4012 steps** before. That is below the ~40 s scrapeability floor (`scrape_confirmed` false), so **0.2 undoes 2026-09-01 owner decision 2** — cells lengthened to ~60 s. PF-1 must override `max_epochs` **and** `output_epochs` together at a calibrated value to restore ~60 s, then re-run 5 repeats and re-confirm `total_steps` invariance. The duration requirement belongs to PF-1, not to a config whose purpose is a fast smoke run. | juniper-ml | M | 0.2 |
+| 0.5 | **`xor-staged.yaml` carries the same undocumented split** (`max_epochs: 200`, no `output_epochs`). `spiral-baseline.yaml` (2000 / unset) splits *deliberately* and is documented as such; `xor-staged` is not, and no suite consumes it. Decide intent and either set both keys or record the split as intentional. | juniper-cascor | S | — |
+| 0.6 | **Add a drift gate** so this cannot recur silently: extend `tests/test_experiment_config_schemas.py` to fail any cascor experiment config that sets `max_epochs` without `output_epochs`, with an explicit allowlist for the configs that split deliberately. Today the only defence is a driver **warning**, which lands in the manifest and is easy to read past — every PF-1 run carried it and the campaign ran anyway. | juniper-ml | S | 0.5 |
 | 0.4 | Promote `util/ad-hoc/2026-09-02_pf1_drive_extract.py` to `util/experiments/read_run_metrics.py` + `tests/test_read_run_metrics.py`, wired into `ci.yml`. It is now the canonical reader for both gate inputs and the only tool that reads them without going through the de-ratified `wall_seconds` in `aggregate.csv`. | juniper-ml | S | 0.1 |
 
 **Why 0.2 → 0.3 is a hard edge and not a formality.** Every number in the instrument-resolution
 results, including the 804/4012 invariance that justifies the work gate, was measured under the
 uncorrected budget. The invariance is very likely to survive — it follows from the iteration cap,
 not the epoch budget — but "very likely" is not the standard for the one property the gate rests on.
+
+**Measured 2026-09-02, and it is bigger than this plan first assumed.** The correction was probed on
+two live cells before touching the shared config (`util/ad-hoc/2026-09-02_output_epochs_impact_suite.yaml`,
+expressed as a suite override so the primary cascor checkout was not edited mid-measurement):
+
+| at PF-1's `(10, 10)` | `max_epochs: 50` only | `+ output_epochs: 50` |
+|---|---|---|
+| `timings.drive` | 65.2–125.8 s | **15.09 s** |
+| `step_count` | **4012** | **32** |
+| `scrape_confirmed` | true | **false** |
+
+The service was doing **~125x** the work the config requests. Two consequences the original 0.3
+did not carry: the corrected run falls below the scrapeability floor, so PF-1 needs re-calibration
+rather than a bare re-run; and **`step_count` is dominated by output-pass epochs**, which means the
+work gate's *sensitivity* is set by the epoch budget — a fact worth knowing before item 1.2 fixes a
+tolerance of zero.
+
+The split also **surfaces at the native `(2, 2)` budget**, refuting the claim at
+`util/experiments/run_experiment.py:242-243` that smoke-scale runs cannot show it: `output_epoch`
+rows reach 10000 for *both* non-initial passes, and 10000 can only be the `output_epochs` fallback
+since the candidate default is 400.
 
 ### Wave 1 — The gate contract (cascor only; the whole point of the lane)
 

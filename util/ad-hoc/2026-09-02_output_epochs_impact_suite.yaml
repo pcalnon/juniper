@@ -1,0 +1,44 @@
+# Measure what setting `output_epochs` alongside `max_epochs` actually costs, BEFORE changing the
+# shared config that seven suites depend on.
+#
+# Project:     juniper-ml
+# Sub-Project: ad-hoc tooling
+# Author:      Paul Calnon
+# Created:     2026-09-02
+# Status:      ad-hoc -- investigation (perf lane P2 item 0.2)
+# Retire when: RETAINED -- ad-hoc scripts are kept as provenance of record (owner policy 2026-08-25)
+#
+# THE QUESTION
+#
+# `spiral-smoke.yaml` sets `max_epochs: 50` and no `output_epochs`. On the SERVICE path that bounds
+# only the INITIAL output pass; every later pass falls back to `output_epochs`'s default of 10000.
+# Confirmed in the run evidence, not merely from the source: PF-1's (10,10) history carries
+# `output_epoch` rows at epoch 10000, and so does a NATIVE (2,2) run -- which refutes
+# `run_experiment.py:242-243`'s claim that "at a 1-2 unit cap there is only the initial pass, so
+# smoke-scale runs cannot surface it".
+#
+# Setting both keys to 50 is the correctness fix (P2 item 0.2). But it is a 200x cut to every
+# non-initial output pass, and `spiral-smoke.yaml` is `base_config` for SEVEN suites -- PF-1, PF-2,
+# PF-3, p4's E-B / E-C / E-H, and the headroom sweep. If it collapses PF-1's cell duration below the
+# ~40 s Prometheus scrapeability floor, decision 2 of the 2026-09-01 owner set (cells lengthened to
+# ~60 s) is undone by the fix, and PF-1's (10,10) override needs re-calibrating in the same change.
+#
+# So: measure first, on ONE cell, expressed as a suite OVERRIDE rather than by editing the shared
+# config -- the primary cascor checkout is imported by any live stack, and a config edit is visible
+# to a concurrent run mid-flight.
+schema_version: 1
+suite:
+  name: output-epochs-impact
+  description: "P2 0.2: cost of output_epochs=50 at PF-1's (10,10) budget"
+  app: cascor
+  base_config: [/home/pcalnon/Development/python/Juniper/juniper-cascor/conf/experiments/spiral-smoke.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1200}
+matrix:
+  training.params.max_hidden_units: [10]
+  training.params.max_iterations: [10]
+  training.params.output_epochs: [50]
+  experiment.description:
+    - "output_epochs=50 probe 1"
+    - "output_epochs=50 probe 2"
+outputs: {suite_dir: null, aggregate: [csv, markdown]}
