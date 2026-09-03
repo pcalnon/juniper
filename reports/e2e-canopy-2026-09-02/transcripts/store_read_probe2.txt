@@ -1,0 +1,13 @@
+[t=    587ms] navigating to http://127.0.0.1:8051
+[t=  13927ms]   welcome modal dismissed
+[t=  57821ms] wake_topology: {'already': False, 'woke': True, 'elapsed_s': 29.9, 'attempts': 1}
+[t=  71917ms] heatmap rendered=True in 12.5s  plot_area=0.7 n_yaxes=41
+[t=  71917ms]   (a rendered heatmap PROVES -raw-topology-store holds data; anything reading it as empty is broken)
+[t=  74574ms]   network-visualizer-raw-topology-store      el=False dashprivate=<absent>               redux=<not-found-in-layout>    _store->dict truthy=True
+[t=  76675ms]   network-visualizer-topology-store          el=False dashprivate=<absent>               redux=<not-found-in-layout>    _store->dict truthy=True
+[t=  80383ms]   network-visualizer-view-state              el=False dashprivate=<absent>               redux=<not-found-in-layout>    _store->dict truthy=True
+[t=  82501ms]   network-visualizer-selected-nodes          el=False dashprivate=<absent>               redux=<not-found-in-layout>    _store->dict truthy=True
+[t=  85478ms]   metrics-panel-metrics-store                el=False dashprivate=<absent>               redux=<not-found-in-layout>    _store->dict truthy=True
+[t=  85478ms] 
+[t=  85478ms]   VERDICT: _store() returned falsy for 0 of 5 present stores
+[t=  85478ms] probe -> /tmp/juniper-e2e/store_read_probe.json
