@@ -1206,6 +1206,40 @@ stopped satisfying as soon as edges became per-connection traces.
 
 ---
 
+**F-CANOPY-046 — clicking empty space cannot clear the selection: plotly emits `plotly_click` only for POINT hits, so `clickData` never changes and the clear path is unreachable by that gesture (P2, OPEN; found 2026-09-02 by the new `topoevents` scorer).**
+
+`handle_node_selection` ends with `return [], [], hidden_style` — the "no valid selection, clear" path
+the matrix cites for M-TOPOLOGY-12 — and the panel's own text tells the user *"(Click again or elsewhere
+to deselect)"*. But the callback's only click Input is `-graph.clickData`, and **plotly emits
+`plotly_click` only when a POINT is hit.** A click on genuinely empty canvas produces no event, so
+`clickData` does not change, the callback (`prevent_initial_call=True`) never runs, and the selection
+stands.
+
+**MEASURED, and the row diagnoses itself** rather than leaving the reader to guess which half failed:
+
+```
+M-TOPOLOGY-12 click empty space: cleared=False plotly_click_events=0 -> FAIL
+```
+
+Two consecutive runs, identical. `plotly_click_events=0` is the whole finding: this is not "the handler
+ran and failed to clear", it is **no event to clear on**. The distinction matters because the two have
+different fixes — the handler is fine.
+
+**Clicking the same node again DOES deselect** (pinned by `test_clicking_the_same_node_again_deselects`),
+so the feature is reachable; it is the *"or elsewhere"* half of the app's own instruction that is not.
+
+**Not caused by canopy#564, and worth stating because the timing invites the inference.** Before #564 a
+click on an EDGE reached the clear path (edge points have no `text`, so the guard fell through to
+`return [], [], hidden_style`), and #564 makes such a click select instead. But that path was never
+"click empty space" — it was "click an edge", and it only mattered once something could be selected at
+all, which before #564 nothing could. The empty-space gesture has produced no event on either build.
+
+**Fix direction NOT asserted.** A `plotly_relayout`/`plotly_deselect` Input, or a container-level click
+handler, would each reach it; both add a trigger to a callback family this arc has repeatedly starved
+(F-CANOPY-037 / -039 / -043), so the cost needs measuring before choosing.
+
+---
+
 **M-TOPOLOGY re-drive, 2026-09-02 post-#561: 9 PASS / 0 FAIL — and the prior 5 PASS / 4 FAIL was measured against code that was never loaded.**
 
 `/tmp/juniper-e2e/seg17_postf561_A.json` (archived under `reports/e2e-canopy-2026-09-02/`), all nine
