@@ -6,7 +6,6 @@ import os
 import signal
 import socket
 import subprocess
-import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
