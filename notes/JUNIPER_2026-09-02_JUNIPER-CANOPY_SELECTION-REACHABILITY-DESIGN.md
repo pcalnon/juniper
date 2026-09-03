@@ -421,13 +421,35 @@ gap stays visible.
   option in a live DOM, because canopy accepts TCP on 8050 but never responds. Cheapest remaining
   check.
   - Response: in the interest of being thorough, and avoiding the introduction of subtle gaps, let's perform the check.
-  - **Disposition: ACCEPTED, and now worth more than when it was listed.** OQ-N2 and OQ-N6 add two
-    states — `⊥`-dataset and `⊥`-model — whose real-DOM behaviour nobody has observed, so the check
-    should cover those as well as the originally-greyed option. Method constraint: the running
-    canopy on 8050 must **not** be restarted or killed to perform it; bring up an isolated instance
-    on a spare port. That instance needs a run-dir `*.pid` entry or a cmdline referencing a run
-    root, or the orphan reaper will collect it (the reaper treats reparenting to `systemd --user`
-    as its orphan predicate, and the stack scripts launch under `nohup`).
+  - **Disposition: ACCEPTED — and DONE (2026-09-02). Both gates hold.** Executed on an isolated trio
+    (data 8103 / cascor 8204 / canopy 8053) with trusted CDP clicks, leaving the operator's stack
+    and a concurrent session's stack untouched. Clicking the greyed `Equities (sequence)` option
+    left the dropdown on `Spirals`; clicking the disabled `Recurrence (LMU)` Select left the model
+    on CasCor. Record: `reports/2026-09-02_canopy-selection-deadlock/oqn5_browser_falsifier.md`.
+  - Three by-products, all carried into the evaluation document
+    (`JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md`): **X7** (canopy blocks
+    entirely, health included, whenever cascor is unreachable — the environmental blocker turns out
+    to be a canopy defect); a **correction** that the "canopy never responds" condition is transient
+    rather than standing; and a measured refinement of **Y7** — the dataset option carries no
+    `aria-disabled` at all, so its gate is invisible to assistive technology, while the model Select
+    is a correctly-exposed native disabled button.
+  - **Still not observed**: the `⊥`-dataset and `⊥`-model states, because they do not exist until
+    §4.1 and §4.11 ship. Re-run this falsifier as an acceptance step for PR 3 — the traversal in
+    §4.1 is so far established only by executing handlers, never in a DOM.
+  - **Method constraints for the PR-3 re-run** (carried forward from this run): the operator's
+    canopy on 8050 must **not** be restarted or killed; bring up an isolated instance on spare
+    ports, overriding `JUNIPER_E2E_RUN_DIR` as well as the ports so a concurrent session's pid
+    files are not clobbered. Set `JUNIPER_E2E_PROJECT_DIR` explicitly — run from a worktree,
+    `util/isolated_stack.bash` derives the ecosystem root from its own location and resolves to a
+    path that does not exist. The instance needs a run-dir `*.pid` entry or a cmdline referencing a
+    run root, or the orphan reaper will collect it (it treats reparenting to `systemd --user` as
+    its orphan predicate, and the stack scripts launch under `nohup`).
+  - **Driver note for whoever runs it**: canopy never reaches DOM stability (its polling keeps a
+    callback in flight, so `document.title` sits at `"Updating..."`). Both chrome-devtools `click`
+    and Playwright's default `locator.click()` time out on the stability wait, and untrusted
+    synthetic events are ignored outright because the widgets are **Radix**. Use
+    `locator.click({force: true})`; coordinate clicking is unreliable because the coordinates go
+    stale as the page re-renders.
 
 - **OQ-N6** — D4's **second** affordance, the "clear model / show all" reset on the model surface
   (§5.5 of the design of record), is NO ARTIFACT and out of scope here. Ship it, or descope it on

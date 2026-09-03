@@ -384,7 +384,24 @@ does not overturn it, because F2's defect is canopy-side (§5.1): canopy reports
 | **X3** | **The one-shot body bypasses the generator alias.** `_resolve_oneshot_start_body_handler` (`:2681`) sends the **raw** dropdown value as juniper-data's `generator`, skipping `generator_name_for_type`, which both sibling handlers apply (`:2769`, `:2846`). Masked only because `equities_seq` is identity-mapped; `spirals` is not juniper-data's `spiral`. | B2-3, B1 |
 | **X4** | **`clearable=True` needs a guard.** `_apply_dataset_handler:2845` would POST `{"nn_dataset_type": None}`, which `main.py:3994`'s `model_dump(exclude_none=True)` strips into a vacuous 200 plus a false pending-banner. The correct idiom already exists at `_restage_dataset:5629-5631`. | B1 (executed) |
 | **X5** | **Start is not gated on the dataset.** `_update_button_appearance_handler` (`:7187`) takes `(self, button_states, model_key)` — no dataset argument — and `:7206` gates Start solely on `model_is_trainable`. Under F1 this leaves Start live at `⊥`: `(recurrence, ⊥)` fails closed with a 409, but **`(cascor, ⊥)` sends the bare start POST and trains on the last-staged dataset while the sidebar shows none** — the X1 class again. Closing it requires a callback-signature change. | R2-a (executed) |
+| **X7** | **Canopy blocks entirely when cascor is unreachable — `/v1/health` included.** See the note below this table. | OQ-N5 run; causally confirmed |
 | **X6** | **The pair cannot be staged on either branch.** Default deployment: backend stays cascor and `juniper-cascor/src/api/models/training.py:235`'s `Literal` has no `equities_seq` → **502**. Configured deployment: `RecurrenceBackend` lacks `stage_dataset` and `main.py:3995` calls it unguarded → **500** with an opaque error id. Fires on **Apply Dataset**, not on one-shot Start. | B3, B2; §5.5 |
+
+**X7 in full.** Canopy's Dash callbacks fetch canopy's **own** HTTP API (`self._api_url(...)`), and
+those handlers call cascor synchronously **with urllib3 retries** (`Retry(total=2 … 1 … 0)`). When
+cascor refuses connections, every call burns its retry budget while occupying a canopy worker — and
+because the caller *is* canopy, the self-call saturates its own pool (66 threads observed), so the
+server stops answering anything, `/v1/health` included.
+
+It is a **liveness** failure, not a crash. Measured on the isolated stack: cascor up → health
+`200` in 8 ms; cascor stopped → no response at all; cascor restarted → `200` in 6 ms **without
+restarting canopy**.
+
+This is very likely why E2E journey W8 was blocked `N-A`
+(`JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md:1756`) and why §9's falsifier
+appeared impossible for most of this arc: **an environmental blocker that is itself a canopy
+defect.** Full evidence:
+`reports/2026-09-02_canopy-selection-deadlock/oqn5_browser_falsifier.md` §3.
 
 ### 6.2 Larger than the deadlock — the registry is 6 of 16
 
@@ -557,11 +574,20 @@ but the lane is not clean as previously asserted. Figures are n=1, Python 3.13, 
 
 Stated explicitly per procedure §5.4.
 
-- **No browser run.** Canopy accepts TCP on 8050 but never responds (`curl` and a real browser
-  navigation both time out; juniper-data on 8100 refuses immediately). No agent clicked the greyed
-  option in a live DOM. Mitigating evidence: the user's screenshots show the disabled rendering,
-  and A1 confirmed `disabled: true` reaches the wire on both controls via `to_plotly_json()`.
-  **This is the cheapest remaining falsifier and it is still open.**
+- ~~**No browser run.**~~ **CLOSED 2026-09-02 — both gates hold in a live DOM.** Executed against an
+  isolated trio (juniper-data 8103 / juniper-cascor 8204 / juniper-canopy 8053) with trusted
+  CDP-dispatched clicks. The greyed `Equities (sequence)` option was clicked and the dropdown stayed
+  on `Spirals`; the disabled `Recurrence (LMU)` Select was clicked and the model stayed CasCor.
+  Full record: `reports/2026-09-02_canopy-selection-deadlock/oqn5_browser_falsifier.md`.
+  - **Correction to this section as first written**: the claim that canopy "accepts TCP on 8050 but
+    never responds" was true when measured three times, but is **transient, not standing** — both
+    the operator's canopy and the isolated one later answered in under 10 ms. X7 below is the cause.
+  - **Refines Y7 with measurement**: the two gates have *different* accessibility postures. The
+    model Select is a real disabled `<button>` (`pointer-events: none`), correctly exposed. The
+    dataset option is **not** — no `aria-disabled`, the same class as its enabled peers, and
+    `pointer-events: auto`; its only machine-readable signal is `cursor: not-allowed`, which no
+    screen reader announces. The reason text in the label is genuinely the sole accessible channel
+    on that side.
 - **Sizing** (§5.3) is a single-source Lane-B3 estimate, not re-derived.
 - **Y1's method count is disputed** (0 / 9 / 11 depending on the baseline); Y2–Y9 are
   single-source leads.
