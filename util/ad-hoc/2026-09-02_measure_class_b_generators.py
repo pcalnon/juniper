@@ -129,10 +129,90 @@ def measure_mnist() -> dict[str, Any]:
     }
 
 
+def measure_csv_import(row_counts: tuple[int, ...] = (10_000, 100_000, 500_000, 1_000_000), n_features: int = 20) -> dict[str, Any]:
+    """Scaling curve for the Class C generator, and the row count that crosses the budget.
+
+    ``csv_import`` is neither fan-out-bound (Option 6) nor a fixed decode
+    (Option 1): its cost tracks the size of a caller-supplied file, and nothing
+    caps that. ``CsvImportParams`` has no row or byte limit, the only settings-level
+    control is ``import_dir`` (a traversal guard), and ``_load_csv`` materialises
+    the whole file into a ``list[dict]`` before conversion. So the question is not
+    "is it slow" but "where does it cross 30 s, and is that reachable".
+
+    Measured cold only: there is no fetch to warm, and the OS page cache makes a
+    second read of the same file unrepresentative of a real first import.
+    """
+    import csv as _csv
+    import random
+
+    from juniper_data.api.settings import get_settings
+
+    import_dir = Path(tempfile.mkdtemp(prefix="csv-import-"))
+    os.environ["JUNIPER_DATA_IMPORT_DIR"] = str(import_dir)
+    get_settings.cache_clear()  # settings are cached; the env var must take effect
+
+    from juniper_data.generators.csv_import.generator import CsvImportGenerator
+    from juniper_data.generators.csv_import.params import CsvImportParams
+
+    rng = random.Random(7)
+    rows: list[dict[str, Any]] = []
+    header = [f"f{i}" for i in range(n_features)] + ["label"]
+    written = 0
+    results: list[dict[str, Any]] = []
+
+    for target in row_counts:
+        name = f"import_{target}.csv"
+        path = import_dir / name
+        # Append rather than regenerate, so each larger file reuses the prior rows.
+        mode = "a" if path.exists() else "w"
+        with path.open(mode, newline="", encoding="utf-8") as handle:
+            writer = _csv.writer(handle)
+            if mode == "w":
+                writer.writerow(header)
+                for prior in rows:
+                    writer.writerow([prior[c] for c in header])
+            while written < target:
+                row = {c: round(rng.random(), 6) for c in header[:-1]}
+                row["label"] = rng.randint(0, 1)
+                rows.append(row)
+                writer.writerow([row[c] for c in header])
+                written += 1
+
+        size_mb = path.stat().st_size / (1024 * 1024)
+        params = CsvImportParams(file_path=name, label_column="label", seed=42)
+        elapsed, outcome = _timed(lambda p=params: CsvImportGenerator.generate(p))
+        results.append(
+            {
+                "rows": target,
+                "size_mb": round(size_mb, 1),
+                "sec": round(elapsed, 2),
+                "outcome": outcome,
+                "over_budget": elapsed > CLIENT_BUDGET_SEC,
+            }
+        )
+        print("    %9d rows | %7.1f MB | %8.2f s%s" % (target, size_mb, elapsed, "  OVER BUDGET" if elapsed > CLIENT_BUDGET_SEC else ""), flush=True)
+
+    shutil.rmtree(import_dir, ignore_errors=True)
+
+    ok = [r for r in results if r["outcome"] == "ok" and r["sec"] > 0]
+    per_row_ms = (ok[-1]["sec"] / ok[-1]["rows"] * 1000) if ok else float("nan")
+    crossover = int(CLIENT_BUDGET_SEC / (per_row_ms / 1000)) if ok and per_row_ms > 0 else None
+    return {
+        "generator": "csv_import",
+        "n_features": n_features,
+        "points": results,
+        "per_row_ms": round(per_row_ms, 6),
+        "budget_crossover_rows": crossover,
+        "cold_sec": ok[-1]["sec"] if ok else None,
+        "warm_sec": None,
+    }
+
+
 MEASURERS: dict[str, Callable[[], dict[str, Any]]] = {
     "equities": measure_equities,
     "arc_agi": measure_arc_agi,
     "mnist": measure_mnist,
+    "csv_import": measure_csv_import,
 }
 
 
