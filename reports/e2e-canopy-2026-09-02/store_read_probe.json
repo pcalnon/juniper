@@ -1,0 +1,52 @@
+{
+  "heatmap_rendered": true,
+  "plot_area": 0.7,
+  "stores": [
+    {
+      "id": "network-visualizer-raw-topology-store",
+      "el_present": false,
+      "dashprivate": "<absent>",
+      "redux": "<not-found-in-layout>",
+      "redux_has_layout": true,
+      "_store_returned": "dict",
+      "_store_truthy": true
+    },
+    {
+      "id": "network-visualizer-topology-store",
+      "el_present": false,
+      "dashprivate": "<absent>",
+      "redux": "<not-found-in-layout>",
+      "redux_has_layout": true,
+      "_store_returned": "dict",
+      "_store_truthy": true
+    },
+    {
+      "id": "network-visualizer-view-state",
+      "el_present": false,
+      "dashprivate": "<absent>",
+      "redux": "<not-found-in-layout>",
+      "redux_has_layout": true,
+      "_store_returned": "dict",
+      "_store_truthy": true
+    },
+    {
+      "id": "network-visualizer-selected-nodes",
+      "el_present": false,
+      "dashprivate": "<absent>",
+      "redux": "<not-found-in-layout>",
+      "redux_has_layout": true,
+      "_store_returned": "dict",
+      "_store_truthy": true
+    },
+    {
+      "id": "metrics-panel-metrics-store",
+      "el_present": false,
+      "dashprivate": "<absent>",
+      "redux": "<not-found-in-layout>",
+      "redux_has_layout": true,
+      "_store_returned": "dict",
+      "_store_truthy": true
+    }
+  ],
+  "redux_available": true
+}

@@ -914,6 +914,48 @@ stable EMPTY figure is not a ready one** — a first probe run settled on an unp
 `JSON.stringify(gd.data).length`, kept unchanged so historical values stay comparable); `set_dropdown`
 settles before and after and retries the portal 3x.
 
+**THE DRIVER COULD NOT READ ANY `dcc.Store`, AND REPORTED THAT AS "EMPTY" — 2026-09-03.**
+
+`_store()` returned the store's value directly and `None` when it failed, which makes *"the store is
+empty"* and *"I cannot read this store"* the same answer. It was failing for **every store on the app**.
+
+Caught by a contradiction rather than by inspection. M-TOPOLOGY-18's scorer read
+`-raw-topology-store` as empty **while its Weight Matrix heatmap was rendering at `plot_area=0.70`** —
+which is only possible if that store is populated. Both cannot be true. A dedicated probe
+(`util/ad-hoc/2026-09-03_store_read_probe.py`) then put the app in that exact state and read five stores:
+
+| store | element present | `_store()` (before) |
+|---|---|---|
+| `-raw-topology-store` | no | `None` |
+| `-topology-store` | no | `None` |
+| `-view-state` | no | `None` |
+| `-selected-nodes` | no | `None` |
+| `metrics-panel-metrics-store` | no | `None` |
+
+**Five of five**, including one whose contents the arc has argued about at length. Why: a `dcc.Store`
+renders no element, so `getElementById(id)` is null and `_dashprivate_layout` never exists; and the
+recursive walk over `state.layout` does not reach components through the shapes Dash 3 nests them in.
+The supported route is Dash's own id → path index at `state.paths.strs`, which now works — all five read
+back as populated dicts.
+
+**Two consequences, and the second is the reason this is written down:**
+
+1. **M-TOPOLOGY-18 produced a confident FAIL against a working gate**, complete with a diagnostic line
+   blaming F-CANOPY-040's shape. It is a PASS: the store is empty in Node Graph and populated 8.4 s
+   after switching to Weight Matrix, which is the gate working two-sided.
+2. **`step_topodiag` has been logging `topology-store (NoneType): None` for the whole arc.** That line
+   reads as *"the client's copy of the store is empty"* — one inch from F-CANOPY-039's central and
+   most-relitigated claim about that exact store. It was never evidence of anything; the reader could
+   not see any store. `_store()` now returns `{"ok", "value", "via"}` and `store_value()` raises rather
+   than returning a falsy value, so an unreadable store cannot be scored as an empty one again.
+
+**Third instrument in this session to return a confident wrong number**, after M-TOPOLOGY-18's first
+version counted BROWSER requests for `/api/topology/raw` — an endpoint canopy fetches **server-side**,
+so it never crosses the browser and the count was structurally always 0. The pattern is the same each
+time: the instrument answers a question adjacent to the one asked, and answers it fluently.
+
+---
+
 **AND THE SAME TRAP ONE LEVEL UP — "stable" is not "ready", 2026-09-02 (M-TOPOLOGY-02).**
 `settle_figure` answers *"has the figure stopped changing?"*, which is the wrong question immediately
 after an action: **a figure whose rebuild has not STARTED yet is perfectly stable.** The hash holds, three
@@ -1066,7 +1108,7 @@ Falsified rather than asserted: `util/ad-hoc/2026-09-02_f043_suppression_probe.p
 
 ---
 
-**F-CANOPY-044 — clicking a node selects NOTHING: every click resolves to a co-located EDGE trace, whose points carry no `text`, and the handler's `if text:` guard drops it silently (P1, OPEN; found 2026-09-02 by pinning the plotly-event idiom for M-TOPOLOGY-10).**
+**F-CANOPY-044 — clicking a node selects NOTHING: every click resolves to a co-located EDGE trace, whose points carry no `text`, and the handler's `if text:` guard drops it silently (P1; found 2026-09-02 by pinning the plotly-event idiom for M-TOPOLOGY-10; FIXED canopy#564, merged 2026-09-03, squash `af390836`).**
 
 `handle_node_selection` (`network_visualizer.py:630`) reads `points[0]` out of `clickData` and does:
 
@@ -1135,10 +1177,18 @@ merely after the relayout — the rebuild re-applies `-view-state`, which carrie
 already been shown to wipe a runtime `Plotly.restyle`), and drag distance (the box was ~88x106 px,
 well over plotly's ~8 px minimum).
 
-**So M-TOPOLOGY-11 stays "no scorer exists", and its box-select idiom is explicitly NOT pinned.** The
-click idiom is pinned and works; the drag idiom is not. Recording this as a driver gap rather than as a
-product finding is the whole point of splitting emit-vs-receive — the same split turned M-10 into
-F-CANOPY-044 and keeps M-11 out of the findings register until a gesture actually reaches Plotly.
+**So M-TOPOLOGY-11 stays "no scorer exists", and its box-select idiom is explicitly NOT pinned.**
+Recording this as a driver gap rather than a product finding is the whole point of splitting
+emit-vs-receive — the same split turned M-10 into F-CANOPY-044 and keeps M-11 out of the findings
+register until a gesture actually reaches Plotly.
+
+> **NARROWED 2026-09-03, and the earlier wording here was too broad.** This entry said "the click idiom
+> is pinned and works; the drag idiom is not". **Drags work.** M-TOPOLOGY-13's scorer drives a **zoom**
+> drag through the identical `mouse.down / move / move / up` sequence and it lands — `plotly_relayout`
+> fires twice, the axis range changes, and it survives a forced rebuild. What fails is specifically the
+> **select-mode** drag. The open question is therefore *"why does a select drag emit nothing when a zoom
+> drag emits normally"*, not *"can Playwright drag at all"* — a much smaller question, and one the next
+> session should not re-open from scratch.
 
 **MECHANISM CONFIRMED BY EXPERIMENT, not by argument.** The probe now runs the hypothesis: set
 `hoverinfo:'skip'` on all **1888** edge traces at runtime via `Plotly.restyle`, then re-click. The very
@@ -1166,7 +1216,7 @@ cost, and this arc's record on predicted fix directions is poor.
 
 ---
 
-**F-CANOPY-045 — the `Layer:` label reads "Output" for every node, because it indexes a 5-element table with a curve number that is now ~1889 (P2, OPEN; found 2026-09-02, masked by F-CANOPY-044 — and then OBSERVED LIVE the moment that mask was lifted experimentally).**
+**F-CANOPY-045 — the `Layer:` label reads "Output" for every node, because it indexes a 5-element table with a curve number that is now ~1889 (P2; found 2026-09-02, masked by F-CANOPY-044 — and then OBSERVED LIVE the moment that mask was lifted experimentally; FIXED canopy#564, merged 2026-09-03, squash `af390836`).**
 
 Same callback, a few lines on (`network_visualizer.py:687`):
 
