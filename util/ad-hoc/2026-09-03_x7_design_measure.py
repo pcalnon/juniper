@@ -66,8 +66,13 @@ def _threads_of(pid):
 def start_blackhole():
     _mkstate()
     log = open("/tmp/juniper-x7-rev/bh.log", "w", encoding="utf-8")
-    p = subprocess.Popen([PY, BH, str(BH_PORT), STATE], stdout=log, stderr=subprocess.STDOUT)
-    _wait_port(BH_PORT)
+    try:
+        p = subprocess.Popen([PY, BH, str(BH_PORT), STATE], stdout=log, stderr=subprocess.STDOUT)
+        _wait_port(BH_PORT)
+    except Exception:
+        log.close()
+        raise
+    p._x7_log_handle = log
     return p
 
 
@@ -77,8 +82,13 @@ def start_app(env_extra):
     env["X7_PORT"] = str(APP_PORT)
     env["X7_UPSTREAM"] = f"http://127.0.0.1:{BH_PORT}"
     log = open("/tmp/juniper-x7-rev/app.log", "w", encoding="utf-8")
-    p = subprocess.Popen([PY, APP], env=env, stdout=log, stderr=subprocess.STDOUT)
-    ok = _wait_port(APP_PORT, 25.0)
+    try:
+        p = subprocess.Popen([PY, APP], env=env, stdout=log, stderr=subprocess.STDOUT)
+        ok = _wait_port(APP_PORT, 25.0)
+    except Exception:
+        log.close()
+        raise
+    p._x7_log_handle = log
     return p, ok
 
 
