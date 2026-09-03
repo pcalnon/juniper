@@ -46,7 +46,8 @@ Every `OPEN` in this document was confirmed by reading the file **today**. Line 
 round ~25 onward, but it was written down **only in the handoff chain** — each round's document
 restating it for the next. Round 32 dropped the section, and a residency check then found the
 definition in no `notes/` document, no `docs/` page, no `AGENTS.md`, and no agent memory —
-while `:713` below still *cites* it by name ("the fifth touch is necessary but not sufficient").
+while §4.1's correction note dated 2026-08-28 still *cites* it by name ("the fifth touch is
+necessary but not sufficient").
 A rule that lives only in the document that hands off the work stops existing the first time one
 successor omits it, and nothing fails loudly when it does. It lives in the register now.
 
@@ -61,7 +62,8 @@ every count-based check still passes:
 5. The header **`Last Updated`** date.
 
 Then run a whole-file **`grep -n 'APD-<ID>'`** and **read every hit** — ids also live in prose
-notes, cross-references and other rows' cells. `:713` records why reading is required and not
+notes, cross-references and other rows' cells. That same 2026-08-28 note records why reading is
+required and not
 just grepping: a closure once left a sentence standing because it named the ids *inside a
 parenthetical about a different row*, so the grep found it and the author skimmed past it.
 
@@ -70,6 +72,15 @@ parenthetical about a different row*, so the grep found it and the author skimme
 with the qualification *inside* the marker. Inventing a second marker leaves the row counted OPEN.
 
 **A correction-only register PR is legitimate** — closing nothing, fixing what drifted.
+
+**Cite this document by anchor text, not by its own line numbers.** Intra-document `:NNN` citations
+have gone stale in this register on essentially every round that edited it, and the handoff lineage
+has twice had to publish whole remapping tables (a `+15` shift after one PR, a `+16` after another).
+The failure is quicker than that suggests: the session that wrote this very section measured three
+line numbers, then added a note **earlier** in the file, and shipped all three pointing ~19 lines
+short — inside the same PR, in the paragraph warning about stale anchors. **Measuring a line number
+and then editing above it invalidates the measurement**, and nothing in review catches it. Quote the
+section name or a distinctive phrase; those survive edits, and a reader can `grep` them.
 
 ### "Parked" has three shapes, and that is why the count keeps changing
 
@@ -92,7 +103,8 @@ lineage has been arguing about arithmetic when the disagreement was definitional
 unilaterally; where the sentence ended up is an artifact of which round wrote it, not a statement
 about its force. The conservative reading can only ever *prevent* unilateral action, never license
 it, so it is the one that fails safe. That makes the split **16 parked / 2 unparked** at 18 open,
-the unparked two being `APD-DATA-018` and `APD-DATA-019` — which `:698`-`:712` restates as
+the unparked two being `APD-DATA-018` and `APD-DATA-019` — which §4.1's note **"`APD-DATA-018` /
+`-019` — re-verified 2026-09-02"** restates as
 deliberately *not* part of the `juniper-data` REST group.
 
 **A "row-level park only" rule was proposed and is rejected here**, because it reads `APD-DATA-028`
