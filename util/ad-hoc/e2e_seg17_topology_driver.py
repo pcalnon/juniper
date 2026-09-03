@@ -33,6 +33,15 @@ else, so a wrong name fails loudly rather than silently.
               before any row is scored)
   topo     -- scores EXACTLY M-TOPOLOGY-01..08 and -17. Layout cycle, show-weights,
               display-mode, view-mode, depth slider, stats bar, store refresh.
+  topoevents -- scores EXACTLY M-TOPOLOGY-09, -10, -12 and -15: the graph's own
+              event surface (node click, click-empty-space, hover inertness, and
+              the stats bar's theme recolour on the TOPOLOGY tab -- which is a
+              different row from `theme`'s M-DATASET-14 on the Dataset tab).
+              Uses a REAL mouse click at the point's own pixel, never
+              `gd.emit('plotly_click', ...)`: a synthetic emit fabricates the
+              payload and so cannot fail the way a user's click fails.
+              M-TOPOLOGY-10 requires canopy#564 (F-CANOPY-044/-045); before it,
+              the row fails because a click resolves to a co-located edge trace.
   theme    -- scores EXACTLY M-DATASET-14 (dark-mode recolour of the DATASET figures,
               read off ``dataset-plotter-stats-summary`` on the Dataset View tab).
               It does NOT touch M-TOPOLOGY-09, which lives on the Topology tab.
@@ -40,10 +49,15 @@ else, so a wrong name fails loudly rather than silently.
            -- diagnostic instruments, not row scorers.
 
 NOT IMPLEMENTED (no step exists; these rows have no scorer anywhere in the repo):
-  M-TOPOLOGY-09          -- stats-bar theme recolour, needs a Topology-tab theme step
-  M-TOPOLOGY-10..14      -- node click, box select, clear, zoom/pan restore, camera
-  M-TOPOLOGY-15          -- hover; matrix marks it DEAD-EXPECTED (no hoverData
-                            callback exists), so it needs an inertness assertion
+  M-TOPOLOGY-11          -- box / lasso select. Its idiom is NOT pinned: three
+                            attempts produced ZERO `plotly_selected` events with
+                            `dragmode` re-confirmed 'select' AT DRAG TIME and a box
+                            far larger than plotly's ~8 px minimum. plotly never
+                            fired the event, so the product code never ran -- a
+                            DRIVER gap, deliberately not filed as a finding.
+  M-TOPOLOGY-13          -- zoom / pan relayout captured into `-view-state`
+  M-TOPOLOGY-14          -- modebar camera (PNG export); needs a Playwright
+                            download intercept
   M-TOPOLOGY-16          -- cascade-add glow; MANUAL/VIS, and needs a cascade ADD, so
                             a saturated fixture (40/40) cannot exercise it
   M-TOPOLOGY-18          -- raw-store refresh
@@ -295,6 +309,149 @@ def settle_changed(page, prev_hash, container_id: str = None, transition_budget_
     st["transition_s"] = elapsed
     st["from_hash"] = prev_hash
     return st
+
+
+# --------------------------------------------------------------------------
+# Plotly-event idioms (M-TOPOLOGY-10/-12/-15). Pinned against the live app by
+# ``util/ad-hoc/2026-09-02_plotly_event_probe.py`` BEFORE any row used them.
+#
+# A REAL MOUSE CLICK, never ``gd.emit('plotly_click', ...)``. A synthetic emit
+# fabricates the event payload, so it proves the callback works when handed a
+# payload the driver invented -- it cannot fail the way a user's click fails, and
+# it would have been blind to F-CANOPY-044's entire class. A real click at the
+# point's own pixel makes plotly do its own hit-testing and build its own event.
+# --------------------------------------------------------------------------
+_JS_MARKER_TRACES = """(id) => {
+  const root = document.getElementById(id);
+  if (!root) return {present:false};
+  const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+  if (!gd || !gd.data) return {present:true, plotly:false};
+  const out = [];
+  gd.data.forEach((t, ci) => {
+    if (String(t.mode || '').indexOf('markers') < 0) return;
+    out.push({curve: ci, name: t.name || '', n: (t.x && t.x.length) || 0,
+              is3d: String(t.type || '').indexOf('3d') >= 0,
+              first_text: Array.isArray(t.text) ? t.text[0] : (t.text || null)});
+  });
+  return {present:true, plotly:true, n_traces: gd.data.length, marker_traces: out};
+}"""
+
+# data coords -> VIEWPORT pixels. MUST be re-read after any scroll: both this and
+# a marker's bounding box are viewport-relative, and a probe run once "disagreed"
+# with itself by exactly the 279 px the page had scrolled between the two reads.
+_JS_POINT_XY = """([id, curve, index]) => {
+  const root = document.getElementById(id);
+  const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+  if (!gd || !gd._fullLayout) return {ok:false, why:'no _fullLayout'};
+  const fl = gd._fullLayout, xa = fl.xaxis, ya = fl.yaxis;
+  if (!xa || !ya || !xa.l2p || !ya.l2p) return {ok:false, why:'no 2-D cartesian axes'};
+  const t = gd.data[curve];
+  if (!t || t.x[index] === undefined) return {ok:false, why:'no such point'};
+  const r = gd.getBoundingClientRect();
+  return {ok:true, x: r.left + fl._size.l + xa.l2p(t.x[index]),
+                   y: r.top  + fl._size.t + ya.l2p(t.y[index]),
+          plot: {l: r.left + fl._size.l, t: r.top + fl._size.t, w: fl._size.w, h: fl._size.h}};
+}"""
+
+_JS_HOVERTEXT = """(id) => {
+  const root = document.getElementById(id);
+  const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+  if (!gd) return {present:false};
+  const nodes = gd.querySelectorAll('.hoverlayer .hovertext');
+  return {present:true, n: nodes.length,
+          text: nodes.length ? (nodes[0].textContent || '').trim().slice(0,120) : null};
+}"""
+
+
+def scroll_graph_into_view(page, container_id: str = None) -> dict:
+    """Centre the graph in the viewport, then let layout settle.
+
+    NOT cosmetic, and not optional. ``page.mouse`` dispatches at VIEWPORT
+    coordinates, so whatever element happens to sit at that point receives the
+    event -- a pixel can be inside the viewport and inside the plot's bounding box
+    and still be covered. Measured: with the graph left where the tab switch put
+    it, a click computed at y=1033 (viewport 1100, plot area 568-1108) produced
+    NEITHER a selection NOR a hover tooltip; the identical arithmetic after
+    centring produced both.
+
+    Callers must RE-READ any pixel coordinate after this: both ``point_xy`` and a
+    marker's bounding box are viewport-relative, and an earlier probe run
+    "disagreed" with itself by exactly the 279 px the page had scrolled between
+    computing a coordinate and using it.
+    """
+    container_id = container_id or f"{NV}-graph"
+    page.evaluate("(id) => { const el = document.getElementById(id); if (el) el.scrollIntoView({block:'center'}); }", container_id)
+    page.wait_for_timeout(700)
+    return page.evaluate("() => ({vw: window.innerWidth, vh: window.innerHeight, sy: window.scrollY})")
+
+
+def marker_traces(page, container_id: str = None) -> list:
+    """The 2-D node traces (Input / Hidden / Output), with their curve indices."""
+    container_id = container_id or f"{NV}-graph"
+    info = page.evaluate(_JS_MARKER_TRACES, container_id) or {}
+    return [t for t in (info.get("marker_traces") or []) if not t["is3d"] and t["n"] > 0]
+
+
+def point_xy(page, curve: int, index: int = 0, container_id: str = None) -> dict:
+    container_id = container_id or f"{NV}-graph"
+    return page.evaluate(_JS_POINT_XY, [container_id, curve, index])
+
+
+def click_point(page, curve: int, index: int = 0, container_id: str = None, settle_ms: int = 2500) -> dict:
+    """Real mouse click at a data point's own pixel. Returns where it clicked.
+
+    Scrolls the graph into view FIRST and computes the pixel AFTER, because the
+    coordinate is viewport-relative and the gesture is delivered by viewport
+    position (see ``scroll_graph_into_view``).
+    """
+    scroll_graph_into_view(page, container_id)
+    xy = point_xy(page, curve, index, container_id)
+    if not xy.get("ok"):
+        return xy
+    page.mouse.move(xy["x"], xy["y"])
+    page.wait_for_timeout(300)
+    page.mouse.click(xy["x"], xy["y"])
+    page.wait_for_timeout(settle_ms)
+    return xy
+
+
+def selection_info(page) -> dict:
+    """-selection-info's text + whether it is displayed (M-10/-11/-12's oracle)."""
+    return page.evaluate(
+        """(id) => { const el = document.getElementById(id);
+             if (!el) return {present:false};
+             return {present:true, display: getComputedStyle(el).display,
+                     text: (el.innerText || '').trim()}; }""",
+        f"{NV}-selection-info",
+    )
+
+
+def click_empty_space(page, container_id: str = None, settle_ms: int = 2500) -> dict:
+    """Click a spot inside the plot area that holds no node.
+
+    Chosen as the plot area's top-left inset rather than an arbitrary pixel: the
+    hierarchical layout puts every node at x in {input, hidden spread, output}, and
+    the top-left corner is empty in all four layouts. Returns the pixel used so a
+    failure can be told apart from a mis-aimed click.
+    """
+    container_id = container_id or f"{NV}-graph"
+    scroll_graph_into_view(page, container_id)
+    geo = page.evaluate(
+        """(id) => { const root = document.getElementById(id);
+             const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+             if (!gd || !gd._fullLayout) return null;
+             const fl = gd._fullLayout, r = gd.getBoundingClientRect();
+             return {l: r.left + fl._size.l, t: r.top + fl._size.t, w: fl._size.w, h: fl._size.h}; }""",
+        container_id,
+    )
+    if not geo:
+        return {"ok": False, "why": "no plot geometry"}
+    x, y = geo["l"] + geo["w"] * 0.04, geo["t"] + geo["h"] * 0.06
+    page.mouse.move(x, y)
+    page.wait_for_timeout(200)
+    page.mouse.click(x, y)
+    page.wait_for_timeout(settle_ms)
+    return {"ok": True, "x": x, "y": y}
 
 
 def set_dropdown(page, el_id: str, label: str) -> bool:
@@ -567,26 +724,76 @@ def step_probe(page, capture):
 
 
 def _store(page, store_id: str):
-    """Read a dcc.Store's data off the renderer (stores render no DOM)."""
+    """Read a dcc.Store's data off the renderer (stores render no DOM).
+
+    RETURNS ``{"ok": bool, "value": ..., "via": str}`` -- never a bare value.
+
+    The previous version returned the value directly and ``None`` when it could not
+    read, which made "the store is empty" and "I cannot read this store"
+    indistinguishable. That is not a hypothetical: it read ``None`` for EVERY store
+    on this app, including ``-raw-topology-store`` while its heatmap was rendering
+    at ``plot_area=0.70`` -- which is only possible if that store is populated. A
+    row scored off it (M-TOPOLOGY-18) produced a confident FAIL against a working
+    gate, and ``step_topodiag`` has been logging ``topology-store (NoneType): None``
+    for the whole arc, one inch from F-CANOPY-039's central claim about what that
+    store contains. Diagnosed by ``util/ad-hoc/2026-09-03_store_read_probe.py``.
+
+    Why the old paths failed: a ``dcc.Store`` renders no element, so
+    ``document.getElementById(id)`` is null and ``_dashprivate_layout`` never
+    exists; and the recursive walk over ``state.layout`` does not reach components
+    nested through the shapes Dash 3 uses. Dash maintains an id -> path index at
+    ``state.paths.strs``, which is the supported way in, so that is tried first.
+    """
     return page.evaluate(
-        """(id) => { try {
-             const ctx = window.dash_component_api || null;
-             const el = document.getElementById(id);
-             if (el && el._dashprivate_layout) return el._dashprivate_layout.props.data;
-           } catch (e) {}
-           try {
+        """(id) => {
              const st = window.store && window.store.getState ? window.store.getState() : null;
-             if (!st || !st.layout) return '<no redux layout>';
-             const walk = (n) => { if (!n || typeof n !== 'object') return null;
-               if (n.props && n.props.id === id) return n.props.data === undefined ? null : n.props.data;
-               const ch = n.props && n.props.children;
-               const arr = Array.isArray(ch) ? ch : (ch ? [ch] : []);
-               for (const c of arr) { const r = walk(c); if (r !== null && r !== undefined) return r; }
-               return null; };
-             return walk(st.layout);
-           } catch (e) { return '<err ' + e.message + '>'; } }""",
+             if (!st) return {ok:false, value:null, via:'<no redux store>'};
+             if (!st.layout) return {ok:false, value:null, via:'<no redux layout>'};
+             // 1. the id -> path index Dash maintains.
+             try {
+               const strs = st.paths && st.paths.strs ? st.paths.strs : null;
+               if (strs && strs[id]) {
+                 let node = st.layout;
+                 for (const key of strs[id]) { if (node == null) break; node = node[key]; }
+                 if (node && node.props && 'data' in node.props) return {ok:true, value: node.props.data, via:'paths.strs'};
+                 if (node && node.props) return {ok:true, value: null, via:'paths.strs (no data prop)'};
+               }
+             } catch (e) { /* fall through to the walk */ }
+             // 2. exhaustive walk, following children AND any prop that holds
+             //    components (Dash 3 nests through more than `children`).
+             try {
+               const seen = new Set();
+               const walk = (n) => {
+                 if (!n || typeof n !== 'object' || seen.has(n)) return undefined;
+                 seen.add(n);
+                 if (n.props && n.props.id === id) return {ok:true, value: n.props.data === undefined ? null : n.props.data, via:'walk'};
+                 const p = n.props || {};
+                 for (const k of Object.keys(p)) {
+                   const v = p[k];
+                   const arr = Array.isArray(v) ? v : [v];
+                   for (const c of arr) { const r = walk(c); if (r !== undefined) return r; }
+                 }
+                 return undefined;
+               };
+               const r = walk(st.layout);
+               if (r !== undefined) return r;
+             } catch (e) { return {ok:false, value:null, via:'<err ' + e.message + '>'}; }
+             return {ok:false, value:null, via:'<id not found in layout>'};
+           }""",
         store_id,
     )
+
+
+def store_value(page, store_id: str):
+    """The store's value, or raise if it could not be READ.
+
+    Callers that want to score a row on a store's contents must not silently treat
+    an unreadable store as an empty one -- use this and let it fail loudly.
+    """
+    r = _store(page, store_id) or {}
+    if not r.get("ok"):
+        raise RuntimeError(f"cannot read store {store_id!r}: {r.get('via')}")
+    return r.get("value")
 
 
 def step_topodiag(page, capture):
@@ -622,8 +829,13 @@ def step_topodiag(page, capture):
     ok, elapsed, _ = wait_for(painted, budget_s=240, every_s=3.0, label="topology graph to paint")
     c = counts(page)
     g = fig_info(page, f"{NV}-graph")
-    store = _store(page, f"{NV}-topology-store")
-    st_kind = type(store).__name__
+    st_read = _store(page, f"{NV}-topology-store")
+    store = st_read.get("value") if st_read.get("ok") else None
+    # Say WHICH it is. This line logged "topology-store (NoneType): None" for the
+    # whole arc while the reader could not reach any store at all, and that reads as
+    # "the store is empty" -- an inch from F-CANOPY-039's central claim about this
+    # exact store's contents.
+    st_kind = type(store).__name__ if st_read.get("ok") else f"UNREADABLE({st_read.get('via')})"
     st_summary = store if not isinstance(store, dict) else {k: (len(v) if isinstance(v, list) else v) for k, v in store.items()}
     hits = api_hits("/api/topology", t_enter)
     log(f"  painted={ok} after {elapsed}s; counts={c}")
@@ -1320,6 +1532,384 @@ def step_theme(page, capture):
     record("theme", verdict=verdict, before=before, after=after, elapsed_s=elapsed, toggle=toggled)
 
 
+def step_topoevents(page, capture):
+    """M-TOPOLOGY-09, -10, -12 and -15: the graph's own event surface.
+
+    These four were BLOCKED as "no scorer exists" because the driver had no
+    plotly-event idiom at all. The idiom is now pinned
+    (``util/ad-hoc/2026-09-02_plotly_event_probe.py``) and two of the rows turned
+    out to be blocked by a product defect instead -- F-CANOPY-044, fixed in
+    canopy#564. Each row below is written to FAIL on a known bad state, not merely
+    to run:
+
+      -10 fails on the F-CANOPY-044 state (click does nothing) AND on the
+          F-CANOPY-045 state (every node reports ``Layer: Output``);
+      -12 refuses to score at all unless something was actually selected first --
+          "the selection cleared" is vacuously true when there was none;
+      -15 is DEAD-EXPECTED, so it must prove the hover REACHED plotly before it can
+          claim the app stayed inert. An assertion that nothing happened is
+          worthless if nothing was done.
+    """
+    log("STEP topoevents -- M-TOPOLOGY-09/-10/-12/-15 (graph event surface)")
+    attach_captures(page)
+    res: dict = {}
+
+    open_tab(page, "Network Topology")
+    wake = wake_topology(page)
+    log(f"  wake_topology: {wake}")
+    res["wake"] = wake
+    if not wake["woke"]:
+        record("topoevents", verdict="BLOCKED", reason="graph never painted", wake=wake)
+        log("  !! graph never painted -- rows stay BLOCKED")
+        return
+
+    traces = marker_traces(page)
+    log(f"  node traces: {[(t['name'], t['curve'], t['n']) for t in traces]}")
+    res["node_traces"] = traces
+    if not traces:
+        record("topoevents", verdict="BLOCKED", reason="no 2-D marker traces", **res)
+        return
+
+    # SETTLE BEFORE ACTING. The rebuild takes 1.5-31 s and replaces the whole
+    # figure; a gesture computed from one render and delivered into the next lands
+    # on nothing. Measured on this very step: without settling, M-TOPOLOGY-10 scored
+    # PASS then FAIL on an unchanged stack, and M-15 read a selection change that
+    # was really the previous click's response arriving late. Same defect class as
+    # M-TOPOLOGY-02, one step further out.
+    settle_figure(page, budget_s=30)
+
+    # Start from a known-clear selection so every row below reads a transition.
+    click_empty_space(page)
+    baseline = selection_info(page)
+    log(f"  baseline selection: {baseline}")
+
+    # ---- M-TOPOLOGY-10 / W4-11 -- click a node, it is selected ------------
+    # Driven on a HIDDEN unit: it is the only layer with enough members that a
+    # wrong Layer label cannot pass by coincidence (an Input node mislabelled
+    # "Input" would be indistinguishable from correct).
+    hidden = next((t for t in traces if t["name"] == "Hidden Units"), traces[0])
+    want_label = f"Hidden {min(3, hidden['n'] - 1)}"
+    settle_figure(page, budget_s=30)
+    before_click = selection_info(page)
+    where = click_point(page, hidden["curve"], min(3, hidden["n"] - 1), settle_ms=800)
+    # Wait for the EFFECT, never a fixed sleep: the selection callback competes with
+    # the rebuild for renderer slots, so its response can arrive seconds later.
+    got, sel_wait_s, _ = wait_for(
+        lambda: selection_info(page).get("text") != before_click.get("text"),
+        budget_s=25, every_s=0.5, label="-selection-info to change after the node click",
+    )
+    sel = selection_info(page)
+    shown = sel.get("display") not in (None, "none")
+    names_node = want_label in (sel.get("text") or "")
+    # F-CANOPY-045: the layer must match the trace the node came from. This is the
+    # assertion four `test_layer_detection_*` unit tests could not make, because
+    # they re-typed the production expression instead of calling it.
+    layer_ok = "Layer: Hidden" in (sel.get("text") or "")
+    m10 = bool(shown and names_node and layer_ok)
+    res["M-TOPOLOGY-10"] = {
+        "verdict": "PASS" if m10 else "FAIL",
+        "clicked": where, "want_label": want_label, "selection": sel,
+        "shown": shown, "names_node": names_node, "layer_ok": layer_ok,
+        "effect_observed": got, "effect_wait_s": sel_wait_s, "before": before_click,
+    }
+    log(f"  M-TOPOLOGY-10 node click: shown={shown} names_node={names_node} layer_ok={layer_ok} -> {res['M-TOPOLOGY-10']['verdict']}")
+    if shown and names_node and not layer_ok:
+        log("  !! selected the right node but the Layer label is wrong -- F-CANOPY-045")
+
+    # ---- M-TOPOLOGY-12 / W4-13 -- click empty space, selection clears -----
+    # PRECONDITION-GATED. If -10 left nothing selected, "it cleared" says nothing.
+    if not shown:
+        res["M-TOPOLOGY-12"] = {"verdict": "BLOCKED", "reason": "nothing was selected, so 'cleared' is vacuous", "precondition_selected": False}
+        log("  M-TOPOLOGY-12 -> BLOCKED (no selection to clear; the row would pass vacuously)")
+    else:
+        # Count plotly_click events across the gesture. "It did not clear" has two
+        # very different causes and the fix differs: the handler ran and failed to
+        # clear, or NO EVENT FIRED AT ALL because plotly only emits plotly_click
+        # when a POINT is hit -- in which case ``clickData`` never changes, the
+        # callback (prevent_initial_call=True) never runs, and the clear path at the
+        # end of handle_node_selection is unreachable by this gesture. Recording
+        # which one it is keeps the row from being filed against the wrong thing.
+        page.evaluate(
+            """(id) => { const root = document.getElementById(id);
+                 const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+                 window.__jn_empty_clicks = 0;
+                 if (gd && gd.on) gd.on('plotly_click', () => { window.__jn_empty_clicks++; }); }""",
+            f"{NV}-graph",
+        )
+        settle_figure(page, budget_s=25)
+        spot = click_empty_space(page, settle_ms=800)
+        # Give the clear the same effect budget the select got, so a slow-but-working
+        # clear is not scored as a broken one.
+        wait_for(lambda: selection_info(page).get("display") in (None, "none"), budget_s=20, every_s=0.5, label="-selection-info to clear")
+        n_click_ev = page.evaluate("() => window.__jn_empty_clicks || 0")
+        after = selection_info(page)
+        cleared = after.get("display") in (None, "none") or not (after.get("text") or "").strip()
+        res["M-TOPOLOGY-12"] = {
+            "verdict": "PASS" if cleared else "FAIL",
+            "precondition_selected": True, "clicked": spot, "before": sel, "after": after,
+            "plotly_click_events": n_click_ev,
+            "unchanged_text": (after.get("text") == sel.get("text")),
+        }
+        log(f"  M-TOPOLOGY-12 click empty space: cleared={cleared} plotly_click_events={n_click_ev} -> {res['M-TOPOLOGY-12']['verdict']}")
+        if not cleared and n_click_ev == 0:
+            log("  !! no plotly_click fired -- plotly emits it only for POINT hits, so clickData never changed and the")
+            log("     clear path at the end of handle_node_selection is UNREACHABLE by an empty-space click (product, not driver)")
+
+    # ---- M-TOPOLOGY-15 / W4-16 -- hover is INERT (DEAD-EXPECTED) ----------
+    # The matrix marks this dead by design: the graph's only Inputs are
+    # relayoutData / clickData / selectedData, so there is no hoverData callback.
+    # A "nothing happened" verdict is only worth having if the gesture DID happen,
+    # so the plotly tooltip is the proof-of-gesture and the row is INDETERMINATE
+    # without it.
+    # Settle first: a rebuild response landing mid-hover would change the DOM for a
+    # reason that has nothing to do with hovering, and this row would blame the hover.
+    settle_figure(page, budget_s=25)
+    before_hover = selection_info(page)
+    n_api_before = len([r for r in RESP if "/api/" in r["url"]])
+    scroll_graph_into_view(page)
+    hxy = point_xy(page, hidden["curve"], 0)
+    tooltip = {"n": 0}
+    if hxy.get("ok"):
+        page.mouse.move(hxy["x"] - 60, hxy["y"] - 60)
+        page.wait_for_timeout(400)
+        page.mouse.move(hxy["x"], hxy["y"], steps=6)
+        ok_tip, _, _ = wait_for(lambda: (page.evaluate(_JS_HOVERTEXT, f"{NV}-graph") or {}).get("n", 0) > 0, budget_s=12, every_s=0.5, label="plotly hover tooltip")
+        tooltip = page.evaluate(_JS_HOVERTEXT, f"{NV}-graph") or {"n": 0}
+        page.wait_for_timeout(2500)
+    hovered = bool(tooltip.get("n"))
+    after_hover = selection_info(page)
+    n_api_after = len([r for r in RESP if "/api/" in r["url"]])
+    dom_unchanged = (after_hover.get("display") == before_hover.get("display")) and (after_hover.get("text") == before_hover.get("text"))
+    no_requests = n_api_after == n_api_before
+    m15_verdict = "PASS" if (hovered and dom_unchanged and no_requests) else ("FAIL" if hovered else "INDETERMINATE")
+    res["M-TOPOLOGY-15"] = {
+        "verdict": m15_verdict,
+        "hover_reached_plotly": hovered, "tooltip": tooltip,
+        "dom_unchanged": dom_unchanged, "api_calls_during_hover": n_api_after - n_api_before,
+        "before": before_hover, "after": after_hover,
+    }
+    log(f"  M-TOPOLOGY-15 hover inert: hovered={hovered} dom_unchanged={dom_unchanged} api_delta={n_api_after - n_api_before} -> {m15_verdict}")
+    if not hovered:
+        log("  !! the tooltip never appeared, so the hover never reached plotly -- 'nothing happened' would be vacuous")
+
+    # ---- M-TOPOLOGY-09 / W4-17 -- stats bar recolours on a theme flip -----
+    # Scored on the element's COMPUTED colours, not on the toggle's own state:
+    # F-CANOPY-001 (open) is a toggle whose glyph desyncs from the store, so the
+    # toggle reporting "dark" proves nothing about what rendered.
+    def stats_look():
+        return page.evaluate(
+            """(id) => { const el = document.getElementById(id); if (!el) return {present:false};
+                 const cs = getComputedStyle(el);
+                 return {present:true, color: cs.color, bg: cs.backgroundColor}; }""",
+            f"{NV}-stats-bar",
+        )
+
+    sb_before = stats_look()
+    toggled = page.evaluate(
+        """() => { const ids = ['dark-mode-toggle', 'theme-toggle', 'dark-mode-switch'];
+             for (const i of ids) { const el = document.getElementById(i); if (el) { el.click(); return i; } }
+             const cand = [...document.querySelectorAll('input[type=checkbox], button')]
+                 .find(e => /theme|dark/i.test((e.id || '') + ' ' + (e.getAttribute('aria-label') || '')));
+             if (cand) { cand.click(); return cand.id || '<unnamed>'; }
+             return null; }"""
+    )
+    if not sb_before.get("present") or not toggled:
+        res["M-TOPOLOGY-09"] = {"verdict": "BLOCKED", "reason": "stats bar absent" if not sb_before.get("present") else "no theme toggle found", "before": sb_before, "toggle": toggled}
+        log(f"  M-TOPOLOGY-09 -> BLOCKED ({res['M-TOPOLOGY-09']['reason']})")
+    else:
+        wait_for(lambda: stats_look().get("bg") != sb_before.get("bg") or stats_look().get("color") != sb_before.get("color"), budget_s=45, every_s=2.0, label="stats bar recolour")
+        sb_after = stats_look()
+        recoloured = sb_after.get("bg") != sb_before.get("bg") or sb_after.get("color") != sb_before.get("color")
+        res["M-TOPOLOGY-09"] = {"verdict": "PASS" if recoloured else "FAIL", "before": sb_before, "after": sb_after, "toggle": toggled}
+        log(f"  M-TOPOLOGY-09 stats bar theme: {sb_before.get('bg')} -> {sb_after.get('bg')} recoloured={recoloured} -> {res['M-TOPOLOGY-09']['verdict']}")
+        # Put the theme back so a later step in the same run is not read in dark.
+        page.evaluate("""(i) => { const el = document.getElementById(i); if (el) el.click(); }""", toggled)
+        page.wait_for_timeout(2500)
+
+    shot(page, "seg17_topoevents.png")
+    record("topoevents", **res)
+    log(f"  topoevents verdicts: {[(k, v.get('verdict')) for k, v in res.items() if isinstance(v, dict) and 'verdict' in v]}")
+
+
+def step_topostate(page, capture):
+    """M-TOPOLOGY-13 and -18: view-state persistence and the raw-store gate.
+
+      -18 promises the raw-topology poll fires only when the topology tab is active
+          AND the view is Weight Matrix. Scored on the STORE, whose two-sided
+          transition (empty in Node Graph -> populated in Weight Matrix) is the
+          gate's observable effect. It is NOT scored on browser network traffic: the
+          first version of this row did that and read 0 hits in every condition,
+          because ``/api/topology/raw`` is fetched SERVER-SIDE by canopy's own
+          handler and never crosses the browser at all.
+      -13 promises a zoom/pan is captured into ``-view-state`` and RE-APPLIED on the
+          next 2-D rebuild. The re-application is the contract, so the axis range
+          surviving a forced rebuild is the evidence -- reading the store would only
+          prove it was written, not that it was honoured.
+
+    Reading a ``dcc.Store`` at all needs care: a Store renders no DOM, so the value
+    lives only in the renderer's state, and ``_store()`` returns an explicit
+    ``{"ok", "value", "via"}`` precisely so that "unreadable" can never be scored as
+    "empty" -- which is how this row first produced a confident FAIL against a
+    working gate.
+    """
+    log("STEP topostate -- M-TOPOLOGY-13 / -18 (view state, raw-store gate)")
+    attach_captures(page)
+    res: dict = {}
+
+    open_tab(page, "Network Topology")
+    wake = wake_topology(page)
+    res["wake"] = wake
+    log(f"  wake_topology: {wake}")
+    if not wake["woke"]:
+        record("topostate", verdict="BLOCKED", reason="graph never painted", wake=wake)
+        return
+
+    # ---- M-TOPOLOGY-18 / W4-15 -- the raw-topology poll's gate ------------
+    #
+    # SCORED ON THE STORE, NOT ON THE WIRE. The first version of this row counted
+    # browser requests to `/api/topology/raw` and read 0 in every condition,
+    # including Weight Matrix -- which looked exactly like F-CANOPY-040's
+    # never-fires shape and was completely wrong. That endpoint is fetched
+    # SERVER-SIDE by canopy's own handler (`requests.get` inside
+    # `_update_raw_topology_store_handler`), so it never crosses the browser and
+    # Playwright cannot see it. A driver that counts the wrong traffic reports a
+    # confident zero.
+    #
+    # The gate's observable effect is the STORE: empty while the view is Node
+    # Graph, populated once it is Weight Matrix. That is two-sided -- a poll that
+    # never fires fails the second half (F-CANOPY-040's shape) and a poll with no
+    # gate at all fails the first.
+    RAW_STORE = f"{NV}-raw-topology-store"
+    set_radio(page, f"{NV}-display-mode", "node_graph")
+    settle_figure(page, budget_s=25)
+    # Give the 5 s tick several chances to (wrongly) fill it.
+    page.wait_for_timeout(13000)
+    entry_read = _store(page, RAW_STORE)
+    if not entry_read.get("ok"):
+        # Refuse to score rather than read "unreadable" as "empty" -- doing exactly
+        # that produced a confident FAIL against a working gate on the first run.
+        res["M-TOPOLOGY-18"] = {"verdict": "BLOCKED", "reason": f"raw-topology store is unreadable: {entry_read.get('via')}", "read": entry_read}
+        log(f"  M-TOPOLOGY-18 -> BLOCKED (store unreadable: {entry_read.get('via')}) -- NOT scored as empty")
+        empty_in_node_graph = populated_in_weight_matrix = None
+        fill_s = None
+        after_store = None
+    else:
+        empty_in_node_graph = not entry_read.get("value")
+
+        set_radio(page, f"{NV}-display-mode", "weight_matrix")
+        filled, fill_s, _ = wait_for(lambda: bool(store_value(page, RAW_STORE)), budget_s=45, every_s=1.0, label="raw-topology store to fill in Weight Matrix")
+        after_store = store_value(page, RAW_STORE)
+        populated_in_weight_matrix = bool(after_store)
+
+    set_radio(page, f"{NV}-display-mode", "node_graph")
+    settle_figure(page, budget_s=25)
+
+    # Only score when the store was actually READABLE; the BLOCKED entry above
+    # already stands otherwise, and overwriting it here would reinstate exactly the
+    # "unreadable scored as empty" mistake this row was rewritten to avoid.
+    if empty_in_node_graph is not None:
+        # An entry state that was ALREADY populated cannot test the first half, so
+        # say so rather than scoring a half-measured row.
+        if not empty_in_node_graph and populated_in_weight_matrix:
+            m18 = "INDETERMINATE"
+        elif empty_in_node_graph and populated_in_weight_matrix:
+            m18 = "PASS"
+        else:
+            m18 = "FAIL"
+        res["M-TOPOLOGY-18"] = {
+            "verdict": m18,
+            "empty_in_node_graph": empty_in_node_graph,
+            "populated_in_weight_matrix": populated_in_weight_matrix,
+            "fill_seconds": fill_s,
+            "store_keys_after": sorted(after_store.keys()) if isinstance(after_store, dict) else type(after_store).__name__,
+        }
+        log(f"  M-TOPOLOGY-18 raw-store gate: empty_in_node_graph={empty_in_node_graph} populated_in_weight_matrix={populated_in_weight_matrix} (filled in {fill_s}s) -> {m18}")
+        if not populated_in_weight_matrix:
+            log("  !! the store never filled even in Weight Matrix -- that is F-CANOPY-040's shape, not a gate that is too tight")
+        if not empty_in_node_graph:
+            log("  !! the store already held data in Node Graph -- either the gate is gone, or an earlier step filled it (hence INDETERMINATE)")
+
+    # ---- M-TOPOLOGY-13 / W4-14 -- zoom is captured AND re-applied ---------
+    # Instrumented the same way the click rows are: a drag that produces no
+    # `plotly_relayout` is a DRIVER failure, and scoring it as a product FAIL would
+    # file the finding against the wrong thing (M-TOPOLOGY-11's box-select drag
+    # produced zero events and is recorded as an unpinned idiom, not a defect).
+    settle_figure(page, budget_s=30)
+    scroll_graph_into_view(page)
+    page.evaluate(
+        """(id) => { const root = document.getElementById(id);
+             const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+             window.__jn_relayouts = 0;
+             if (gd && gd.on) gd.on('plotly_relayout', () => { window.__jn_relayouts++; });
+             if (gd && window.Plotly) window.Plotly.relayout(gd, {dragmode: 'zoom'}); }""",
+        f"{NV}-graph",
+    )
+    page.wait_for_timeout(1200)
+
+    def axis_ranges():
+        return page.evaluate(
+            """(id) => { const root = document.getElementById(id);
+                 const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+                 if (!gd || !gd._fullLayout) return null;
+                 const xa = gd._fullLayout.xaxis, ya = gd._fullLayout.yaxis;
+                 return {x: xa && xa.range ? xa.range.slice() : null,
+                         y: ya && ya.range ? ya.range.slice() : null,
+                         dragmode: gd._fullLayout.dragmode || null}; }""",
+            f"{NV}-graph",
+        )
+
+    before_zoom = axis_ranges()
+    geo = point_xy(page, (marker_traces(page) or [{"curve": 0}])[0]["curve"], 0)
+    zoomed = {"ok": False}
+    if geo.get("ok") and before_zoom:
+        p = geo["plot"]
+        x0, y0 = p["l"] + p["w"] * 0.30, p["t"] + p["h"] * 0.30
+        x1, y1 = p["l"] + p["w"] * 0.70, p["t"] + p["h"] * 0.70
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, steps=10)
+        page.mouse.move(x1, y1, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(2500)
+        zoomed = {"ok": True, "from": [x0, y0], "to": [x1, y1]}
+    n_relayout = page.evaluate("() => window.__jn_relayouts || 0")
+    after_zoom = axis_ranges()
+    range_changed = bool(before_zoom and after_zoom and after_zoom.get("x") != before_zoom.get("x"))
+
+    # Force a rebuild and check the range SURVIVES -- that is the row's contract.
+    persisted = None
+    if range_changed:
+        set_checklist(page, f"{NV}-show-weights", False)
+        settle_changed(page, (_graph(page) or {}).get("fig_hash"))
+        after_rebuild = axis_ranges()
+        persisted = bool(after_rebuild and after_rebuild.get("x") == after_zoom.get("x"))
+        set_checklist(page, f"{NV}-show-weights", True)
+        settle_figure(page, budget_s=25)
+    else:
+        after_rebuild = None
+
+    if n_relayout == 0:
+        m13 = "INDETERMINATE"
+    elif range_changed and persisted:
+        m13 = "PASS"
+    else:
+        m13 = "FAIL"
+    res["M-TOPOLOGY-13"] = {
+        "verdict": m13,
+        "plotly_relayout_events": n_relayout, "gesture": zoomed,
+        "before": before_zoom, "after_zoom": after_zoom, "after_rebuild": after_rebuild,
+        "range_changed": range_changed, "persisted_across_rebuild": persisted,
+    }
+    log(f"  M-TOPOLOGY-13 zoom/pan: relayout_events={n_relayout} range_changed={range_changed} persisted={persisted} -> {m13}")
+    if n_relayout == 0:
+        log("  !! the drag produced NO plotly_relayout -- the zoom gesture never reached plotly, so this is a DRIVER gap")
+        log("     (same shape as M-TOPOLOGY-11's box select; do NOT file it as a product defect)")
+
+    shot(page, "seg17_topostate.png")
+    record("topostate", **res)
+    log(f"  topostate verdicts: {[(k, v.get('verdict')) for k, v in res.items() if isinstance(v, dict) and 'verdict' in v]}")
+
+
 STEPS = {
     "probe": step_probe,
     "topodiag": step_topodiag,
@@ -1327,6 +1917,8 @@ STEPS = {
     "wirecensus": step_wirecensus,
     "quietread": step_quietread,
     "topo": step_topo,
+    "topoevents": step_topoevents,
+    "topostate": step_topostate,
     "storestorm": step_storestorm,
     "f031": step_f031,
     "theme": step_theme,
