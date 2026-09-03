@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
     try:
         await t
     except asyncio.CancelledError:
-        pass
+        log("lifespan shutdown: refresher task cancellation observed (expected)")
     log("lifespan shutdown: refresher awaited")
 
 
