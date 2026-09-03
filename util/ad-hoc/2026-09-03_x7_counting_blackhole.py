@@ -61,8 +61,8 @@ def _hold(conn: socket.socket, addr) -> None:
             print(f"request #{n_req} {buf.split(chr(13).encode())[0].decode('latin1').strip()} t={time.monotonic() - T0:.3f}", flush=True)
         # never reply; hold until the peer gives up
         threading.Event().wait(600)
-    except OSError:
-        pass
+    except OSError as exc:
+        print(f"socket error from {addr}: {exc} t={time.monotonic() - T0:.3f}", flush=True)
     finally:
         with LOCK:
             STATE["open"] -= 1
