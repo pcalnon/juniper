@@ -25,9 +25,10 @@
 > questions they investigated — prefix stability, per-run class membership, which guard to use — are
 > answered or dissolved. Read §9.6 first; go back to §9.3/§9.4 only for the evidence behind it.
 >
-> **Five required fixes are listed in §9.6.4**, all now filed (juniper-data#314, #317, #319, #320, plus decision 11's own scope). One — required-fix 2's
-> "reject verbatim train/val/test row reuse" — **needs a policy decision before it is built**, or it
-> will reject valid low-cardinality data (§9.6.4).
+> **Four required fixes are listed in §9.6.4**, all filed (juniper-data#314, #317, #319, #320),
+> alongside decision 11's own scope. Required-fix 2's companion row-reuse gate was **dropped
+> 2026-09-03** — with partitions index-disjoint by construction it had nothing to catch, and the
+> invariant it encoded is unsatisfiable on ordinary low-cardinality data (§9.6.4).
 
 **Tracks**: [cascor#582](https://github.com/pcalnon/juniper-cascor/issues/582) (tier parity),
 [cascor#578](https://github.com/pcalnon/juniper-cascor/issues/578) (baseline-tier decision),
@@ -1005,21 +1006,35 @@ legality table on the rest.**
 | --- | --- | --- |
 | 0 | Abandon generation and use of `X_full` entirely | **decision 11 (§9.5)**; implementation scoped in §9.5.4 |
 | 1 | Fix `arc_agi`'s silent-empty fallback | filed **juniper-data#317** |
-| 2 | Make `seed` required or defaulted for **all** generators — default captured in constants, exposed in config file **and** environment variable; plus a post-hoc degeneracy assertion at the single route site already calling `compute_checksum` (`api/routes/datasets.py:249`), rejecting verbatim train/val/test row reuse | filed **juniper-data#319** |
+| 2 | Make `seed` required or defaulted for **all** generators — default captured in constants, exposed in config file **and** environment variable. `mackey_glass`'s `init_noise_std` gets the same treatment (§9.6.5). ~~plus a post-hoc degeneracy assertion rejecting verbatim train/val/test row reuse~~ — **that half DROPPED 2026-09-03, see below** | filed **juniper-data#319** |
 | 3 | Audit generators for correct partition use — `equities`, `equities_seq`, `csv_import` currently fit the normaliser on the full, unpartitioned set | filed **juniper-data#314** |
 | 4 | Bring the Postgres store online with a correct schema, ideally derived dynamically from the models as a single source of truth | filed **juniper-data#320** |
 
-**One interaction to settle before required-fix 2 is built.** "Reject verbatim train/val/test row
-reuse" is, in form, the G-a invariant — and §9.4.5 measured that invariant **unsatisfiable on
-ordinary low-cardinality data**: on a 6-record `csv_import` pool with 3 distinct feature vectors,
-**5 of 8** partitionings violate it. Coinciding feature vectors are the normal case for categorical
-inputs, not a corner case.
+#### The row-reuse gate is DROPPED — ruled 2026-09-03
 
-Under decision 9 this is no longer a *leak* — the partitions are index-disjoint, and repeated row
-*values* are a property of the source data. So the assertion needs a policy, and three shapes are
-available: a **distinct-row-ratio threshold** (flag degeneracy rather than any reuse); **warn rather
-than reject**; or **exempt generators that declare categorical/low-cardinality output**. Building it
-as an unconditional rejection would reject valid datasets. **Not ruled.**
+The originally-specified companion to required-fix 2 — a post-hoc assertion at
+`api/routes/datasets.py:249` **rejecting verbatim train/val/test row reuse** — is **not built.**
+
+The reason it was raised, and the reason it is dropped, are the same fact. That assertion is, in
+form, the **G-a invariant**, and §9.4.5 measured G-a **unsatisfiable on ordinary low-cardinality
+data**: on a 6-record `csv_import` pool with 3 distinct feature vectors, **5 of 8** partitionings
+violate it. Coinciding feature vectors are the normal case for categorical inputs, not a corner case.
+
+Under decision 9 there is nothing for it to catch. The partitions are **index-disjoint by
+construction**; repeated row *values* are a property of the source data, not evidence of a leak. An
+unconditional rejection would have rejected valid datasets, and every softer shape — a
+distinct-row-ratio threshold, warn-not-reject, exempting declared-categorical generators — buys a
+weaker signal at the cost of a threshold nobody can calibrate from first principles.
+
+**Required-fix 2 therefore reduces to the `seed` work alone**, which stands on its own merits and is
+unaffected by this: nine generators are non-reproducible at their documented defaults regardless of
+how partitions are checked.
+
+**One thing this drops that the objection did not target**, recorded so the choice is visible rather
+than accidental: a *degeneracy-ratio* check — distinct rows relative to row count — would have
+flagged Lane B's `xor(margin=x_range=y_range)` case, which produced 4 distinct rows out of 200. That
+is a different failure (a useless dataset) from the one the gate was specified to catch (a leaked
+one), and it is now uncovered. `arc_agi`'s zero-row case is covered separately by juniper-data#317.
 
 Required-fix 4's "schema derived from the models" would also close the latent defect the review
 found independently: `SCHEMA_SQL` declares `n_classes NOT NULL` while `core/models.py` made it
