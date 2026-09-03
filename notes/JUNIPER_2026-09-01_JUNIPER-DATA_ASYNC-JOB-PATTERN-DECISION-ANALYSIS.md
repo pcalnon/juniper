@@ -169,6 +169,34 @@ extrapolates from three, which the SEC fair-access policy the generator already 
 (`_SEC_UA`, `generators/equities/generator.py:70`) does not invite. The 60.4 s throttle floor,
 by contrast, is exact — it follows from a constant.
 
+**Class C measured, 2026-09-03 — `csv_import` is genuinely unbounded, and boundable anyway.**
+§4's previous revision named this as the measurement that could falsify it. Scaling, 20 feature
+columns, cold (there is no fetch to warm, and a re-read would be served by the page cache):
+
+| rows | file | time |
+|---:|---:|---:|
+| 100 000 | 17.2 MB | 1.60 s |
+| 500 000 | 86.2 MB | 10.06 s |
+| 1 000 000 | 172.4 MB | **22.92 s** |
+
+Near-linear at **~0.023 ms/row**, crossing the 30 s budget at **~1.31 million rows (~225 MB)** —
+a large but entirely ordinary ML dataset, so the crossover is reachable rather than theoretical.
+Nothing caps it: `CsvImportParams` has no row or byte limit, the only settings-level control is
+`import_dir` (a traversal guard), and `_load_csv` materialises the whole file into a `list[dict]`
+before conversion — so **memory scales with file size too**, not just time.
+
+**It does not restore the case for Option 4, and the reason is a distinction worth keeping.**
+"Unbounded" and "unboundable" are not the same thing. `csv_import` is unbounded *today* but
+perfectly boundable — a max-rows or max-bytes limit is Option 6's remedy applied to a different
+dimension. What it does show is that Option 6 has **two sub-cases**, and only one of them is a
+one-line change:
+
+- `equities` — the cap **exists** (`max_symbols`) and is merely defaulted to `None`. Option 6 is a
+  change of default.
+- `csv_import` — **no cap parameter exists at all**. Option 6 here means adding one, plus deciding
+  whether the limit is rows, bytes, or both, and whether exceeding it is a 413 or a truncation
+  (it must not be a silent truncation — same guardrail as the `equities` case).
+
 **What this does not change:** juniper-data's own content-addressed artifact cache (§1.4) still
 short-circuits every *repeat* POST for the same params, for all generators. These numbers are the
 cost of the **first** call for a given parameter set.
@@ -397,10 +425,22 @@ on `arc_agi`'s > 600 s; this revision withdraws that promotion because the > 600
 generator producing nothing. **The falsifying measurement named in the previous revision was taken,
 and it falsified.**
 
-**What would falsify *this* revision:** a Class B generator whose cost is neither fan-out (Option 6)
-nor a fixed decode (Option 1) — something genuinely unbounded per call. `csv_import` is the
-untested candidate, since an arbitrarily large local file has no cap; it is the one Class C member
-and remains unmeasured (§6).
+**The falsification test named here was run, and it did not falsify.** `csv_import` — the one
+Class C member, and the candidate for a genuinely unbounded per-call cost — was measured on
+2026-09-03 (§1.6). It *is* unbounded: no row or byte cap exists anywhere, and it crosses the budget
+at ~1.31 million rows. But **unbounded is not unboundable**: a row/byte limit is Option 6's remedy
+on a different dimension, so it extends Option 6 rather than reviving Option 4. Option 4 stays a
+contingency.
+
+**What would falsify this revision now:** a generator whose per-call cost cannot be bounded by any
+input limit — one where the work is genuinely open-ended for a *fixed* request. No current
+generator has that shape. A future one that streams from an external service until exhaustion, or
+polls until a remote job completes, would.
+
+**Option 6 is now the load-bearing recommendation, and it has two sub-cases** (§1.6): `equities`
+needs a *default* changed; `csv_import` needs a cap *added*, together with a decision on rows versus
+bytes and on rejection versus truncation. Only the first is a one-line change, and the analysis
+should not be read as though both were.
 
 ---
 
@@ -426,10 +466,14 @@ and remains unmeasured (§6).
 
 - Whether any deployment today actually configures a Class B generator for `auto_dataset`
   (**[inferred]** absent, not verified).
-- ~~Actual cold/warm timings for `mnist`, `equities`, `arc_agi`~~ — **measured 2026-09-02, §1.6**,
-  including `arc_agi` warm (0.67 s) once juniper-data#318 fixed it. One gap remains: `csv_import`,
-  which needs an import directory and a fixture file to time, and which §4 now names as the
-  candidate that could falsify the current recommendation.
+- ~~Actual cold/warm timings for `mnist`, `equities`, `arc_agi`, `csv_import`~~ — **all measured**
+  (§1.6): Class B on 2026-09-02, `arc_agi` re-measured after juniper-data#318, and `csv_import`
+  scaling on 2026-09-03. No generator timing gap remains.
+- **Not measured, and now the nearest open question:** whether `csv_import`'s cap should be rows or
+  bytes. Rows track the conversion cost more directly; bytes are what an operator can enforce
+  without parsing. The measurement here gives the per-row constant (~0.023 ms) and the bytes-per-row
+  for a 20-column file, but a cap decision needs a view on realistic column counts, which this did
+  not survey.
 - Whether canopy's demo-mode path (`juniper-canopy/src/demo_mode.py:918`) shares the 30 s exposure;
   it constructs its own client and was not traced here.
 - `APD-DATA-019` (pagination) is a separate row with a separate remedy; the two are sometimes
