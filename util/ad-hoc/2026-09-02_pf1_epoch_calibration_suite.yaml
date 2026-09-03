@@ -1,0 +1,70 @@
+# Calibrate PF-1's epoch override so the corrected config still yields a ~60 s cell.
+#
+# Project:     juniper-ml
+# Sub-Project: ad-hoc tooling
+# Author:      Paul Calnon
+# Created:     2026-09-02
+# Status:      ad-hoc -- investigation (perf lane P2 item 0.3)
+# Retire when: RETAINED -- ad-hoc scripts are kept as provenance of record (owner policy 2026-08-25)
+#
+# WHY THIS EXISTS
+#
+# cascor#618 set `output_epochs: 50` alongside `max_epochs: 50` in `spiral-smoke.yaml`, ending a
+# silent ~125x service/CLI divergence. Correct -- and it drops PF-1's (10, 10) cell from 65-126 s to
+# 15.1 s, BELOW the ~40 s Prometheus scrapeability floor, which undoes 2026-09-01 owner decision 2
+# (cells lengthened to ~60 s). The duration requirement belongs to PF-1's override, not to a smoke
+# config, so PF-1 is re-calibrated here rather than the fix being reverted.
+#
+# THE OVERRIDE MUST SET BOTH EPOCH KEYS
+#
+# `spiral-smoke.yaml` now ships 50/50. Overriding only `output_epochs` would leave `max_epochs: 50`
+# and RE-INTRODUCE the split this arc just closed -- in the opposite direction. Every cell below
+# sets both to the same value.
+#
+# WHY `include` AND NOT `matrix`
+#
+# The two epoch keys must CO-VARY. A matrix takes the cross product, so
+# `max_epochs: [500, 2000, 5000]` x `output_epochs: [500, 2000, 5000]` is nine cells of which six are
+# mismatched pairs -- exactly the "cells that are not what they claim" failure PF-1's own header
+# warns about. `include` entries are the right shape, and they carry ONLY their own overrides
+# (`run_suite.py:283` builds each from `item["overrides"]` alone, with no matrix merge), so each cell
+# below restates the unit/iteration caps too.
+#
+# WHY THESE THREE POINTS
+#
+# Two anchors are known at (10, 10): 50 epochs -> step_sum ~10.5 s, and the pre-fix 10000 fallback ->
+# step_sum ~62 s. That is 5.9x the work time for 200x the budget, i.e. strongly sublinear -- early
+# stopping ends most passes well before the cap. Two points cannot fit a curve, and interpolating
+# between them gave answers from ~250 to ~5000 depending on the model assumed, so this measures the
+# shape instead of guessing it.
+schema_version: 1
+suite:
+  name: pf1-epoch-calibration
+  description: "P2 0.3: find the epoch budget that restores a ~60 s PF-1 cell"
+  app: cascor
+  base_config: [/home/pcalnon/Development/python/Juniper/juniper-cascor/conf/experiments/spiral-smoke.yaml]
+  seed_policy: fixed
+execution: {mode: sequential, continue_on_failure: true, per_run_timeout_seconds: 1200}
+include:
+  - name: epochs-500
+    overrides:
+      experiment.description: "PF-1 calibration: 500 epochs"
+      training.params.max_hidden_units: 10
+      training.params.max_iterations: 10
+      training.params.max_epochs: 500
+      training.params.output_epochs: 500
+  - name: epochs-2000
+    overrides:
+      experiment.description: "PF-1 calibration: 2000 epochs"
+      training.params.max_hidden_units: 10
+      training.params.max_iterations: 10
+      training.params.max_epochs: 2000
+      training.params.output_epochs: 2000
+  - name: epochs-5000
+    overrides:
+      experiment.description: "PF-1 calibration: 5000 epochs"
+      training.params.max_hidden_units: 10
+      training.params.max_iterations: 10
+      training.params.max_epochs: 5000
+      training.params.output_epochs: 5000
+outputs: {suite_dir: null, aggregate: [csv, markdown]}

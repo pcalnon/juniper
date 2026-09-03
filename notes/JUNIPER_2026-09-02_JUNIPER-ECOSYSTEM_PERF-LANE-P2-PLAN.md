@@ -88,7 +88,7 @@ intended as **its own PR** unless noted.
 |-----|------|------|------|------------|
 | 0.1 | This plan, reviewed and ratified by the owner | juniper-ml | S | — |
 | 0.2 | **SHIPPED — `cascor#618`.** **`spiral-smoke.yaml` must set `output_epochs` alongside `max_epochs: 50`.** The service applies `max_epochs` only to the *initial* output pass; later passes read `output_epochs`, which falls back to 10000, so the service is quietly better-trained and slower than the config asks. Required by §5 of the 60 s variance results ([`JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PF1-VARIANCE-RESULTS.md`](JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PF1-VARIANCE-RESULTS.md)) before **any** figure from it is quoted as a baseline. PF-1 uses it as `base_config`, and item 1.1 turns PF-1 output into the reference. | juniper-cascor | S | 0.1 |
-| 0.3 | **Re-calibrate PF-1's override, then re-run.** 0.2's measured effect is far larger than this row originally assumed: at PF-1's `(10, 10)` budget the corrected config runs **15.1 s / 32 steps** against **65–126 s / 4012 steps** before. That is below the ~40 s scrapeability floor (`scrape_confirmed` false), so **0.2 undoes 2026-09-01 owner decision 2** — cells lengthened to ~60 s. PF-1 must override `max_epochs` **and** `output_epochs` together at a calibrated value to restore ~60 s, then re-run 5 repeats and re-confirm `total_steps` invariance. The duration requirement belongs to PF-1, not to a config whose purpose is a fast smoke run. | juniper-ml | M | 0.2 |
+| 0.3 | **DONE 2026-09-02 — calibrated to 4000 epochs; `drive` median 65.3 s, `step_count` 1770 invariant across 5 repeats (§2.1 of this document).** **Re-calibrate PF-1's override, then re-run.** 0.2's measured effect is far larger than this row originally assumed: at PF-1's `(10, 10)` budget the corrected config runs **15.1 s / 32 steps** against **65–126 s / 4012 steps** before. That is below the ~40 s scrapeability floor (`scrape_confirmed` false), so **0.2 undoes 2026-09-01 owner decision 2** — cells lengthened to ~60 s. PF-1 must override `max_epochs` **and** `output_epochs` together at a calibrated value to restore ~60 s, then re-run 5 repeats and re-confirm `total_steps` invariance. The duration requirement belongs to PF-1, not to a config whose purpose is a fast smoke run. | juniper-ml | M | 0.2 |
 | 0.5 | **`xor-staged.yaml` carries the same undocumented split** (`max_epochs: 200`, no `output_epochs`). `spiral-baseline.yaml` (2000 / unset) splits *deliberately* and is documented as such; `xor-staged` is not, and no suite consumes it. Decide intent and either set both keys or record the split as intentional. | juniper-cascor | S | — |
 | 0.6 | **Add a drift gate** so this cannot recur silently: extend `tests/test_experiment_config_schemas.py` to fail any cascor experiment config that sets `max_epochs` without `output_epochs`, with an explicit allowlist for the configs that split deliberately. Today the only defence is a driver **warning**, which lands in the manifest and is easy to read past — every PF-1 run carried it and the campaign ran anyway. | juniper-ml | S | 0.5 |
 | 0.4 | Promote `util/ad-hoc/2026-09-02_pf1_drive_extract.py` to `util/experiments/read_run_metrics.py` + `tests/test_read_run_metrics.py`, wired into `ci.yml`. It is now the canonical reader for both gate inputs and the only tool that reads them without going through the de-ratified `wall_seconds` in `aggregate.csv`. | juniper-ml | S | 0.1 |
@@ -118,6 +118,66 @@ The split also **surfaces at the native `(2, 2)` budget**, refuting the claim at
 `util/experiments/run_experiment.py:242-243` that smoke-scale runs cannot show it: `output_epoch`
 rows reach 10000 for *both* non-initial passes, and 10000 can only be the `output_epochs` fallback
 since the candidate default is 400.
+
+### 2.1 Item 0.3 executed — the epoch budget is 4000, and the work invariant survives
+
+**Calibration** (`util/ad-hoc/2026-09-02_pf1_epoch_calibration_suite.yaml`), all at PF-1's `(10, 10)`
+with both epoch keys matched:
+
+| epochs | `step_sum` | `step_count` |
+|---|---|---|
+| 50 | 10.5 s | 32 |
+| 500 | 22.2 s | 230 |
+| 2000 | 34.6 s | 890 |
+| 5000 | 66.1 s | 2210 |
+
+**The curve is not a single power law, and assuming it was produced a wrong answer.** The log-log
+slope is **~0.32** up to 2000 and **~0.71** from 2000 to 5000 — early stopping binds below ~2000 and
+stops binding above it. A fit on the low segment predicts **46 s** at 5000 against **66 s** measured.
+
+That fit looked *validated* before the 5000 point arrived, because it reproduced the pre-fix run's
+~62 s to within 1%. That agreement was spurious: the pre-fix run is **not** a uniform-epoch point at
+all — it was 50 on the initial pass and 10000 on every later one, a mixed configuration with no place
+in the fit. Two errors cancelling is not confirmation, and one extra measured point was enough to
+separate them.
+
+Interpolating **within the upper segment** gives ~3900 for a ~55 s `step_sum`. **4000** is used.
+
+**Re-run result** (5 repeats, `JUNIPER_SUITE_GRAFANA_BRIDGE=1`):
+
+```text
+cell   polls   drive    step_sum   steps   mean_ms
+c000     13    60.239    58.507    1770    33.055
+c001     15    70.263    66.016    1770    37.297
+c002     14    65.234    63.383    1770    35.809
+c003     15    70.259    67.044    1770    37.878
+c004     14    65.272    61.553    1770    34.776
+
+drive     median 65.272   sd 6.327%
+step_sum  median 63.383   sd 5.439%
+step_count IDENTICAL across all 5 cells (1770)
+```
+
+- **Duration restored**: median 65.3 s, inside decision 2's ~60 s target and well under its 120 s
+  ceiling.
+- **The work invariant survives the corrected budget** — 1770 in every cell, matching the 1770 the
+  interpolation predicted. This is the property the whole work-gate rests on, and item 0.3 existed to
+  re-establish it after 0.2 changed the workload.
+- **Sample size improved 55x**, from 32 steps to 1770, so the per-step mean is far better determined
+  than at the corrected config's native budget.
+
+**Scrapeability was NOT re-confirmed, and that is an environment state rather than a result.** The
+bridge was armed and `target_file_written` is true, but Prometheus was down
+(`connection refused` on `127.0.0.1:9090`), so `scrape_confirmed` is **`None`** — the tri-state's
+"could not ask". That is `metrics_scraped` behaving exactly as ml#1550 designed it; the old boolean
+would have recorded a false negative here. At 65 s the run sits far above the ~40 s floor established
+on 2026-09-01 (40.17 s → confirmed, 255 series), so nothing suggests a problem — but it is untested
+since, and should be re-checked the next time the observability stack is up.
+
+**Figures before and after 2026-09-02 are not comparable.** Pre-fix was 50-initial + 10000-later;
+this is 4000 uniform. The duration is restored, the workload is not the same one — necessarily,
+because the old one was incoherent by construction. This bears directly on item 1.1: PF-1 output is
+what becomes the Q-8 baseline, so the baseline must be cut from post-fix runs only.
 
 ### Wave 1 — The gate contract (cascor only; the whole point of the lane)
 
