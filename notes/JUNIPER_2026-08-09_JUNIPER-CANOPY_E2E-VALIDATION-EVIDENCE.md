@@ -1017,7 +1017,7 @@ for `weight_matrix` while reading only controls that can never hold it.
 
 ---
 
-**F-CANOPY-043 — fixing F-CANOPY-040 made a previously-dead 5 s poll LIVE, and it feeds the rebuild with no identity suppression: the same hazard class as F-CANOPY-037 and -039, re-created by the fix for -040 (P2; found 2026-09-02 by adversarial review; FIX OPEN as canopy#562, together with the F-CANOPY-040 residual below).**
+**F-CANOPY-043 — fixing F-CANOPY-040 made a previously-dead 5 s poll LIVE, and it feeds the rebuild with no identity suppression: the same hazard class as F-CANOPY-037 and -039, re-created by the fix for -040 (P2; found 2026-09-02 by adversarial review; FIXED canopy#562, merged 2026-09-02, squash `9fbf4b8`).**
 `network-visualizer-raw-topology-store` is an **Input** of `update_network_graph`
 (`network_visualizer.py:349`). Its writer (`dashboard_manager.py:3983-3984`) is driven by
 `Input("tabpoll-topology", "n_intervals")` — the same 5 s tick F-CANOPY-039 demoted one layer down — and
@@ -1042,7 +1042,7 @@ The suppression to add is the one `update_topology_store` already carries (canop
 
 ---
 
-**F-CANOPY-040b — `network-visualizer-display-mode` rides the raw-topology poll as `State`, so selecting Weight Matrix does not TRIGGER the fetch (P2; found 2026-09-02; FIX OPEN as canopy#562).**
+**F-CANOPY-040b — `network-visualizer-display-mode` rides the raw-topology poll as `State`, so selecting Weight Matrix does not TRIGGER the fetch (P2; found 2026-09-02; FIXED canopy#562, merged 2026-09-02, squash `9fbf4b8`).**
 canopy#557 corrected **which** control the poll reads — it had been `-view-mode`, the 2D/3D toggle, whose
 values `"2d"`/`"3d"` can never equal the handler's `"weight_matrix"` gate — but left the dependency a
 `State` (`dashboard_manager.py:3992`, pre-fix). **A `State` is read when something else fires.** So the
@@ -1077,9 +1077,15 @@ if text:            # edge traces have no per-point text -> falls through, no ou
 ```
 
 The figure is **1888 edge traces + 3 node traces** (`Input Units` curve 1888, `Hidden Units` 1889,
-`Output Units` 1890). Every edge is drawn *to a node centre*, so an edge vertex sits at distance zero
-from the marker a user aims at — and Plotly resolves the tie to the lower curve number, which is always
-an edge.
+`Output Units` 1890). Each edge is `go.Scatter(x=[x0, x1, None], …, mode="lines", hoverinfo="text")`
+(`network_visualizer.py:1098`) drawn *to a node centre*, so an edge vertex sits at distance **zero** from
+the marker a user aims at, and the click resolves to the edge rather than the node.
+
+**The tie-break RULE is not established, and an earlier draft of this entry over-claimed it.** It said
+Plotly "resolves the tie to the lower curve number". The measured hits were curves **82, 166, 248, 1468,
+1884, 1886** — not monotonically low, so that explanation does not survive its own data. What IS
+established is the outcome: **every click resolved to an edge trace and none to a node trace.** Why
+Plotly picks the particular edge it picks is unexplained and does not matter for the finding.
 
 **MEASURED, and it is not a fluke of one marker** (`util/ad-hoc/2026-09-02_plotly_event_probe.py`,
 `reports/e2e-canopy-2026-09-02/plotly_event_probe.json`). Seven clicks spanning all three node traces,

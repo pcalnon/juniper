@@ -340,6 +340,48 @@ def main() -> int:
             out["hit_sweep_summary"] = {"clicks": len(sweep), "resolved_to_node_trace": n_node, "resolved_to_edge": len(sweep) - n_node}
             log(f"  HIT SWEEP: {n_node}/{len(sweep)} clicks resolved to a NODE trace; {len(sweep) - n_node} to an edge")
 
+            # 7. FIX-HYPOTHESIS TEST for F-CANOPY-044, run rather than argued.
+            # Hypothesis: the edge traces are stealing the hit because their
+            # vertices sit exactly on the node centres, and excluding them from
+            # hit-testing is enough to restore node selection. Setting
+            # `hoverinfo:'skip'` on every edge trace at RUNTIME tests exactly that
+            # and nothing else -- it does not tell us the production fix should be
+            # this (edges carry the "Weight: -0.420" tooltip, which `skip` would
+            # kill), only whether the mechanism is what the finding says.
+            node_curves = [t["curve"] for t in (pts.get("marker_traces") or [])]
+            restyled = page.evaluate(
+                """([id, nodeCurves]) => {
+                     const root = document.getElementById(id);
+                     const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+                     if (!gd || !window.Plotly) return {ok:false, why:'no Plotly'};
+                     const edges = [];
+                     for (let i = 0; i < gd.data.length; i++) if (nodeCurves.indexOf(i) < 0) edges.push(i);
+                     window.Plotly.restyle(gd, {hoverinfo: 'skip'}, edges);
+                     return {ok:true, n_edges: edges.length}; }""",
+                [gid, node_curves],
+            )
+            page.wait_for_timeout(2500)
+            log(f"  edges made unhittable: {restyled}")
+            hyp = []
+            for tr in (pts.get("marker_traces") or []):
+                if tr["is3d"] or tr["n"] <= 0:
+                    continue
+                r = page.evaluate(_JS_XY, [gid, tr["curve"], 0])
+                if not r.get("ok"):
+                    continue
+                page.evaluate("() => { window.__jn_last = null; }")
+                before = selection_state(page)
+                page.mouse.click(r["x"], r["y"])
+                page.wait_for_timeout(2500)
+                got = page.evaluate("() => window.__jn_last")
+                hit = (got or [{}])[0] if isinstance(got, list) and got else {}
+                after = selection_state(page)
+                hyp.append({"node_trace": tr["name"], "node_curve": tr["curve"], "hit_curve": hit.get("curve"), "hit_text": hit.get("text"), "is_node_trace": hit.get("curve") == tr["curve"], "selection_changed": before != after, "after": after})
+                log(f"    [edges skipped] click {tr['name']:14s} -> hit curve {hit.get('curve')} text={hit.get('text')!r} selection_changed={before != after} after={after}")
+            out["fix_hypothesis_edges_unhittable"] = hyp
+            out["fix_hypothesis_summary"] = {"clicks": len(hyp), "resolved_to_node_trace": sum(1 for h in hyp if h["is_node_trace"]), "selection_changed": sum(1 for h in hyp if h["selection_changed"])}
+            log(f"  FIX HYPOTHESIS: {out['fix_hypothesis_summary']}")
+
             # 5. view-state store, for M-13
             out["view_state_before"] = store_state(page, f"{NV}-view-state")
 
