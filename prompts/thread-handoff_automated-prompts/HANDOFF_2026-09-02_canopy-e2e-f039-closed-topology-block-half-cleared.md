@@ -10,12 +10,12 @@ this document; the corrected claims are what you are reading, and **a third roun
 
 ## Authorities and documents (Juniper/AGENTS.md § Cross-Project Conventions)
 
-| role | path (juniper-ml) |
-|---|---|
-| **ledger** — authority for findings | `notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md` |
-| **matrix** — authority for rows | `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md` |
-| consensus procedure | `notes/JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md` |
-| plan (Phase 3/4 gates) | `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md` |
+| role                                | path (juniper-ml)                                                                     |
+|-------------------------------------|---------------------------------------------------------------------------------------|
+| **ledger** — authority for findings | `notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`                  |
+| **matrix** — authority for rows     | `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`           |
+| consensus procedure                 | `notes/JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md` |
+| plan (Phase 3/4 gates)              | `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md`             |
 
 **Tiebreak, and you will need it:** where the matrix (`JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`) and `/tmp/juniper-e2e/seg17_results.json` disagree,
 **the JSON is the newer measurement** — re-score that matrix file from it, never the reverse.
@@ -30,19 +30,19 @@ gh pr view 561 --repo pcalnon/juniper-canopy --json state   # F-041b fix
 git -C /home/pcalnon/Development/python/Juniper/juniper-canopy worktree list | tail -n +2 | wc -l  # 11
 ```
 
-## Row state: the topo step is UNSTABLE — 5 to 7 PASS depending on the run. The matrix's 9 PASS is STALE, and so is any single run.
+## Row state: the topo step is UNSTABLE — 5 to 7 PASS depending on the run. The matrix's 9 PASS is STALE, and so is any single run
 
 **Do not trust a single `--step topo` run, including the one recorded in `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`.** Two consecutive runs on an unchanged
 stack gave 7 PASS and then **5 PASS**, and the differences are not independent — they **cascade**.
 
 Newest run (`/tmp/juniper-e2e/seg17_results.json`), 5 PASS / 4 FAIL:
 
-| row | evidence | reading |
-|---|---|---|
+| row           | evidence                                             | reading                                               |
+|---------------|------------------------------------------------------|-------------------------------------------------------|
 | M-TOPOLOGY-02 | `on_hash == off_hash == 26d0f961`, `back = de463bff` | M-01's layout reset still landing during M-02's reads |
-| M-TOPOLOGY-03 | `types=[] n_yaxes=0 plot_area=0` | the weight matrix rendered **nothing** |
-| M-TOPOLOGY-04 | `counts 0/0/0/—` vs server `2/40/2/944` | **inherited M-03's empty graph** |
-| M-TOPOLOGY-05 | `types=[]` | same empty graph |
+| M-TOPOLOGY-03 | `types=[] n_yaxes=0 plot_area=0`                     | the weight matrix rendered **nothing**                |
+| M-TOPOLOGY-04 | `counts 0/0/0/—` vs server `2/40/2/944`              | **inherited M-03's empty graph**                      |
+| M-TOPOLOGY-05 | `types=[]`                                           | same empty graph                                      |
 
 **M-03 leaves the graph empty and nothing recovers it**, so -04 and -05 are reading wreckage rather than
 failing on their own contracts. And M-03's failure mode VARIES between runs — 41 zero-height traces in
@@ -53,6 +53,7 @@ only on the next 5 s tick, and the driver sometimes reads before it. M-03's `wai
 proceeds against a broken view.
 
 **Consequences for how you work these rows:**
+
 - **Fix the cascade before scoring anything downstream of M-03.** Options: make the raw-topology poll
   trigger on `-display-mode` (an `Input`, not `State`) so the switch fetches immediately; and/or have
   M-03 restore the node-graph view before returning, so a failure there cannot poison -04 and -05.
