@@ -1,0 +1,204 @@
+{
+  "topo": {
+    "verdict": "9 PASS",
+    "server": {
+      "input": "2",
+      "hidden": "40",
+      "output": "2",
+      "conn": "944"
+    },
+    "wake": {
+      "already": false,
+      "woke": true,
+      "elapsed_s": 15.7,
+      "attempts": 1
+    },
+    "M-TOPOLOGY-08": {
+      "verdict": "PASS",
+      "dom": {
+        "input": "2",
+        "hidden": "40",
+        "output": "2",
+        "conn": "944"
+      },
+      "server": {
+        "input": "2",
+        "hidden": "40",
+        "output": "2",
+        "conn": "944"
+      }
+    },
+    "M-TOPOLOGY-01": {
+      "verdict": "PASS",
+      "driven": 4,
+      "distinct_figs": 4,
+      "distinct_sigs": 4,
+      "counts_stable": true,
+      "detail": {
+        "Hierarchical": {
+          "driven": true,
+          "sig": 314447,
+          "fig_hash": "de463bff",
+          "traces": 1891,
+          "counts": {
+            "input": "2",
+            "hidden": "40",
+            "output": "2",
+            "conn": "944"
+          },
+          "settled_s": 2.8,
+          "settled": true
+        },
+        "Staggered": {
+          "driven": true,
+          "sig": 345972,
+          "fig_hash": "83fa3650",
+          "traces": 1891,
+          "counts": {
+            "input": "2",
+            "hidden": "40",
+            "output": "2",
+            "conn": "944"
+          },
+          "settled_s": 3.5,
+          "settled": true
+        },
+        "Spring": {
+          "driven": true,
+          "sig": 394312,
+          "fig_hash": "c51ff7a4",
+          "traces": 1891,
+          "counts": {
+            "input": "2",
+            "hidden": "40",
+            "output": "2",
+            "conn": "944"
+          },
+          "settled_s": 2.8,
+          "settled": true
+        },
+        "Circular": {
+          "driven": true,
+          "sig": 394731,
+          "fig_hash": "26d0f961",
+          "traces": 1891,
+          "counts": {
+            "input": "2",
+            "hidden": "40",
+            "output": "2",
+            "conn": "944"
+          },
+          "settled_s": 2.8,
+          "settled": true
+        }
+      }
+    },
+    "M-TOPOLOGY-02-precondition": {
+      "from_hash": "26d0f961",
+      "changed": true,
+      "transition_s": 7.9,
+      "settled_hash": "de463bff"
+    },
+    "M-TOPOLOGY-02": {
+      "verdict": "PASS",
+      "on_sig": 314447,
+      "off_sig": 171703,
+      "back_sig": 314447,
+      "on_hash": "de463bff",
+      "off_hash": "d5d1a4e6",
+      "back_hash": "de463bff",
+      "on_ann": 0,
+      "off_ann": 0,
+      "off_transition_observed": true,
+      "off_transition_s": 6.9,
+      "back_transition_observed": true,
+      "back_transition_s": 10.5,
+      "back_equals_on": true
+    },
+    "M-TOPOLOGY-03": {
+      "verdict": "PASS",
+      "heatmap": true,
+      "types": [
+        "heatmap",
+        "heatmap",
+        "heatmap",
+        "heatmap",
+        "heatmap",
+        "heatmap"
+      ],
+      "plot_area": 0.7,
+      "n_yaxes": 41,
+      "area_measured": true,
+      "connection_count": "\u2014"
+    },
+    "M-TOPOLOGY-04": {
+      "verdict": "PASS",
+      "counts": {
+        "input": "2",
+        "hidden": "40",
+        "output": "2",
+        "conn": "944"
+      },
+      "server": {
+        "input": "2",
+        "hidden": "40",
+        "output": "2",
+        "conn": "944"
+      }
+    },
+    "M-TOPOLOGY-05": {
+      "verdict": "PASS",
+      "types": [
+        "scatter3d",
+        "scatter3d",
+        "scatter3d",
+        "scatter3d",
+        "scatter3d",
+        "scatter3d"
+      ]
+    },
+    "M-TOPOLOGY-07": {
+      "verdict": "PASS",
+      "display": "block",
+      "label": "0 of 40"
+    },
+    "M-TOPOLOGY-06": {
+      "verdict": "PASS",
+      "slider": {
+        "target": 20,
+        "idiom": "drag",
+        "before": {
+          "n_thumbs": 1,
+          "now": 0,
+          "min": 0,
+          "max": 40,
+          "num_value": 0,
+          "num_min": 0,
+          "num_max": 40
+        },
+        "after": {
+          "n_thumbs": 1,
+          "now": 20,
+          "min": 0,
+          "max": 40,
+          "num_value": 20,
+          "num_min": 0,
+          "num_max": 40
+        }
+      },
+      "label": "0 of 40",
+      "hidden_count": "20 of 40",
+      "want": "20 of 40"
+    },
+    "M-TOPOLOGY-17": {
+      "verdict": "PASS",
+      "elapsed_s": 6.6,
+      "counts": {
+        "input": "2",
+        "hidden": "40",
+        "output": "2",
+        "conn": "944"
+      }
+    }
+  }
+}

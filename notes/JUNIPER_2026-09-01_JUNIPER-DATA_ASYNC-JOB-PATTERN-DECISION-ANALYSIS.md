@@ -3,8 +3,8 @@
 **Project**: Juniper
 **Sub-Project**: juniper-data
 **Author**: Paul Calnon
-**Status**: Analysis — no decision taken; measurements added 2026-09-02 (§1.6), recommendation revised (§4)
-**Last Updated**: 2026-09-02
+**Status**: Analysis — no decision taken. Measurements §1.6; recommendation revised twice by measurement, most recently 2026-09-03 withdrawing the Option 4 promotion (§4)
+**Last Updated**: 2026-09-03
 
 Supports the open defect-register row `APD-DATA-018` ("No async job pattern — generation runs
 inside the request"), primer anchor 3853. Written because the row's one-line summary understates
@@ -50,8 +50,9 @@ generators), two classes behave completely differently:
 For this class the synchronous posture is not merely acceptable, it is *correct*: a job resource
 would add a round trip and a polling loop to work that finishes in milliseconds.
 
-**Class B — external data fetch (3).** `mnist`, `equities`, `arc_agi`. These are unbounded by
-anything juniper-data controls:
+**Class B — external data fetch (2, was 3).** `mnist` and `equities`. These are unbounded by
+anything juniper-data controls. `arc_agi` was counted here on its > 600 s runtime; §1.6 records why
+that number was misleading and juniper-data#318 reduced it to 1.30 s, moving it to Class A:
 
 - `equities` (`generators/equities/generator.py`) fetches Yahoo Finance via `yfinance` **and** SEC
   EDGAR (`_SEC_CONCEPT_URL`, `_SEC_TICKERS_URL`), with a **30 s timeout on a single request**
@@ -120,7 +121,7 @@ work, not a hung socket.
 |---|---|---|---|
 | `equities`, **3 symbols** | **12.03 s** | **0.27 s** | within — but see the default below |
 | `equities`, **default (503 symbols)** | **~2017 s ≈ 34 min** *(extrapolated)* | — | **~67×over** |
-| `arc_agi`, default | **> 600 s** *(timed out; network healthy)* | — | **> 20×over** |
+| ~~`arc_agi`, default~~ | ~~**> 600 s**~~ **1.30 s** | **0.67 s** | **within** — see the correction below |
 | `mnist`, default | **26.98 s** *(true cold, 38 MB downloaded)* | **20.54 s** | under — with **no headroom** |
 
 Three findings, and they do not point the same way:
@@ -141,11 +142,60 @@ Three findings, and they do not point the same way:
    That is not headroom, it is a coin flip against network variance, and it will read as an
    intermittent failure rather than a capacity limit.
 
-**A caveat that matters for reading row 1 of the table.** The ~2017 s figure is *arithmetic*
+**Correction, 2026-09-02 — `arc_agi`'s number was not a generation cost, and the row it
+supported has been withdrawn.** Investigating the > 600 s found the generator **returned an empty
+dataset**: its Hub source `fchollet/arc-agi` no longer exists, and the fallback
+`multimodal-reasoning-lab/ARC-AGI` is a reasoning-trace dataset with no `train`/`test` columns, so
+`item.get("train", [])` yielded nothing for all 2000 rows and `X_full` came back shape `(0, 900)`.
+The > 600 s was almost entirely decoding ~92 000 images that were then discarded. Fixed in
+juniper-data#318 (new source, dead fallback removed, schema + non-empty guards): **1.30 s cold,
+0.67 s warm, `(1717, 900)`**.
+
+**This removes `arc_agi` from Class B entirely** — at 1.30 s it behaves like Class A. Two
+consequences, both applied below:
+
+- §3's Option 6 no longer needs the caveat "does nothing for `arc_agi`", because `arc_agi` no
+  longer needs anything.
+- §4's promotion of Option 4 rested on `arc_agi` being an unboundable residue that steps 1–2 could
+  not reach. **That residue does not exist.** The promotion is withdrawn; see §4.
+
+The broader lesson is worth keeping: a timing measurement taken at face value would have justified
+building an async job pattern to accommodate a generator that was producing nothing at all. The
+number was real; what it measured was not what it appeared to measure.
+
+**A caveat that matters for reading the `equities` default row.** The ~2017 s figure is *arithmetic*
 (4.01 s × 503), not observed: measuring the default would mean ~1000 SEC requests for a number that
 extrapolates from three, which the SEC fair-access policy the generator already honours
 (`_SEC_UA`, `generators/equities/generator.py:70`) does not invite. The 60.4 s throttle floor,
 by contrast, is exact — it follows from a constant.
+
+**Class C measured, 2026-09-03 — `csv_import` is genuinely unbounded, and boundable anyway.**
+§4's previous revision named this as the measurement that could falsify it. Scaling, 20 feature
+columns, cold (there is no fetch to warm, and a re-read would be served by the page cache):
+
+| rows | file | time |
+|---:|---:|---:|
+| 100 000 | 17.2 MB | 1.60 s |
+| 500 000 | 86.2 MB | 10.06 s |
+| 1 000 000 | 172.4 MB | **22.92 s** |
+
+Near-linear at **~0.023 ms/row**, crossing the 30 s budget at **~1.31 million rows (~225 MB)** —
+a large but entirely ordinary ML dataset, so the crossover is reachable rather than theoretical.
+Nothing caps it: `CsvImportParams` has no row or byte limit, the only settings-level control is
+`import_dir` (a traversal guard), and `_load_csv` materialises the whole file into a `list[dict]`
+before conversion — so **memory scales with file size too**, not just time.
+
+**It does not restore the case for Option 4, and the reason is a distinction worth keeping.**
+"Unbounded" and "unboundable" are not the same thing. `csv_import` is unbounded *today* but
+perfectly boundable — a max-rows or max-bytes limit is Option 6's remedy applied to a different
+dimension. What it does show is that Option 6 has **two sub-cases**, and only one of them is a
+one-line change:
+
+- `equities` — the cap **exists** (`max_symbols`) and is merely defaulted to `None`. Option 6 is a
+  change of default.
+- `csv_import` — **no cap parameter exists at all**. Option 6 here means adding one, plus deciding
+  whether the limit is rows, bytes, or both, and whether exceeding it is a 413 or a truncation
+  (it must not be a silent truncation — same guardrail as the `equities` case).
 
 **What this does not change:** juniper-data's own content-addressed artifact cache (§1.4) still
 short-circuits every *repeat* POST for the same params, for all generators. These numbers are the
@@ -310,8 +360,9 @@ located the cost in a **default value**, not in the request/response shape.
   a bounded one, which is the same discipline Class A already enforces through `le=` validation and
   which the primer treats as the baseline expectation.
 - **Weaknesses.** Changes behaviour for anyone relying on the current default, silently returning a
-  smaller dataset unless the cap is loud. Does nothing for `arc_agi` (> 600 s with no fan-out to
-  cap) or `mnist` (cost is decoding, not breadth).
+  smaller dataset unless the cap is loud. Does nothing for `mnist`, whose cost is decoding rather
+  than breadth. (It also does nothing for `arc_agi`, but `arc_agi` no longer needs anything — see
+  the correction in §1.6.)
 - **Risks.** A silent truncation is worse than a slow request: a caller who asked for "the S&P 500"
   and receives eight symbols has bad data rather than a late answer. This is the failure to design
   against.
@@ -333,8 +384,8 @@ cheap options no longer cover the whole problem.
 **What the numbers changed:**
 
 - **Option 1 (widen the budget) is no longer sufficient on its own.** It was drafted as half the
-  remedy. But no sane timeout makes a **34-minute** `equities` request or a **> 600 s** `arc_agi`
-  request into a synchronous call — you cannot hold a socket, a worker slot and a proxy connection
+  remedy. But no sane timeout makes a **34-minute** default `equities` request into a synchronous
+  call — you cannot hold a socket, a worker slot and a proxy connection
   that long. Widening the budget remains worth doing for the `mnist`-shaped middle (20–27 s against
   a 30 s limit is the case where 60 s genuinely fixes it), and it still closes `APD-ECO-003`, but
   it is no longer a candidate remedy for the tail.
@@ -353,20 +404,43 @@ cheap options no longer cover the whole problem.
 2. **Option 1 + Option 2.** A per-call timeout (closing `APD-ECO-003`) plus warming for the
    configured fetch-dominated generators. Together these cover `mnist`'s missing headroom and
    `equities`' repeat cost.
-3. **Then Option 4** — and this is where the recommendation has genuinely shifted. With `arc_agi`
-   over 600 s and no fan-out to bound, there is a residue that steps 1–2 cannot reach. The
-   `Prefer: respond-async` hybrid is now the expected destination for that residue rather than a
-   contingency, and it should be planned for rather than deferred indefinitely.
+3. **Option 4 is NOT currently justified — its promotion is withdrawn.** The 2026-09-02 revision
+   promoted the `Prefer: respond-async` hybrid from contingency to expected destination on the
+   strength of one argument: `arc_agi` was over 600 s with no fan-out to bound, so a residue existed
+   that steps 1–2 could not reach. **That residue was an artifact of a broken generator** (§1.6).
+   At 1.30 s `arc_agi` needs nothing. With `equities` boundable by Option 6 and `mnist` inside the
+   budget once Option 1 widens it, **no generator now requires an asynchronous path.** Option 4
+   returns to being a contingency — the right shape *if* a future generator genuinely outlives a
+   sane ceiling, and worth remembering for that, but not work to plan today.
 
-**Option 3 as a first move is still the one I would argue against** — its failure modes
-(split-brain across workers, orphaned jobs, two ways to do the same thing) are unchanged and each
-remains worse than the stall it replaces. But the case for *eventually* needing the async path is
-now measured rather than speculative, and `arc_agi` is the generator that makes it.
+**Option 3 as a first move remains the one I would argue against**, unchanged: split-brain across
+workers, orphaned jobs, and two ways to do the same thing are each worse than the stall they
+replace. What has changed is that the case for *eventually* needing the async path has weakened
+rather than strengthened.
 
-**What would falsify this recommendation:** if `arc_agi`'s > 600 s turns out to be a one-off
-download rather than a per-call cost — it timed out before completing even once, so its *warm*
-number is still unknown. That single missing measurement is the difference between "the async path
-is required" and "three cheap changes were enough". It should be taken before step 3 is committed.
+**This recommendation has now been revised twice by measurement, in opposite directions**, which is
+worth stating plainly rather than presenting the current version as though it were the first. The
+2026-09-01 draft deferred the async path for lack of evidence; the 2026-09-02 revision promoted it
+on `arc_agi`'s > 600 s; this revision withdraws that promotion because the > 600 s measured a
+generator producing nothing. **The falsifying measurement named in the previous revision was taken,
+and it falsified.**
+
+**The falsification test named here was run, and it did not falsify.** `csv_import` — the one
+Class C member, and the candidate for a genuinely unbounded per-call cost — was measured on
+2026-09-03 (§1.6). It *is* unbounded: no row or byte cap exists anywhere, and it crosses the budget
+at ~1.31 million rows. But **unbounded is not unboundable**: a row/byte limit is Option 6's remedy
+on a different dimension, so it extends Option 6 rather than reviving Option 4. Option 4 stays a
+contingency.
+
+**What would falsify this revision now:** a generator whose per-call cost cannot be bounded by any
+input limit — one where the work is genuinely open-ended for a *fixed* request. No current
+generator has that shape. A future one that streams from an external service until exhaustion, or
+polls until a remote job completes, would.
+
+**Option 6 is now the load-bearing recommendation, and it has two sub-cases** (§1.6): `equities`
+needs a *default* changed; `csv_import` needs a cap *added*, together with a decision on rows versus
+bytes and on rejection versus truncation. Only the first is a one-line change, and the analysis
+should not be read as though both were.
 
 ---
 
@@ -392,10 +466,14 @@ is required" and "three cheap changes were enough". It should be taken before st
 
 - Whether any deployment today actually configures a Class B generator for `auto_dataset`
   (**[inferred]** absent, not verified).
-- ~~Actual cold/warm timings for `mnist`, `equities`, `arc_agi`~~ — **measured 2026-09-02, §1.6**.
-  Two gaps remain: `arc_agi`'s **warm** cost (it timed out before completing a first run, so only
-  its cold bound is known — and §4 names this as the measurement that would falsify the revised
-  recommendation), and `csv_import`, which needs an import directory and a fixture file to time.
+- ~~Actual cold/warm timings for `mnist`, `equities`, `arc_agi`, `csv_import`~~ — **all measured**
+  (§1.6): Class B on 2026-09-02, `arc_agi` re-measured after juniper-data#318, and `csv_import`
+  scaling on 2026-09-03. No generator timing gap remains.
+- **Not measured, and now the nearest open question:** whether `csv_import`'s cap should be rows or
+  bytes. Rows track the conversion cost more directly; bytes are what an operator can enforce
+  without parsing. The measurement here gives the per-row constant (~0.023 ms) and the bytes-per-row
+  for a 20-column file, but a cap decision needs a view on realistic column counts, which this did
+  not survey.
 - Whether canopy's demo-mode path (`juniper-canopy/src/demo_mode.py:918`) shares the 30 s exposure;
   it constructs its own client and was not traced here.
 - `APD-DATA-019` (pagination) is a separate row with a separate remedy; the two are sometimes

@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-09-01
+**Last Updated**: 2026-09-03
 
 ---
 
@@ -194,14 +194,7 @@ plan `notes/JUNIPER_2026-08-07_JUNIPER-ECOSYSTEM_SEQUENCE-SAFETY-ROLLOUT-PLAN.md
 
 ## Shared Observability Helpers
 
-`juniper-observability` (this repo's `juniper-observability/` subdirectory, published as a standalone PyPI package) is the canonical home for cross-service observability primitives — middlewares, the build-info `Info` metric helper, structured-JSON logging, and **idempotent `prometheus_client` collector helpers**. Any new `Counter` / `Gauge` / `Histogram` / `Summary` / `Info` / `Enum` registration in any Juniper service should go through:
-
-- `register_or_reuse(factory, name, *args, **kwargs)` — adopt-existing on duplicate (preserves accumulated samples; **default choice for almost every call site**).
-- `register_fresh(factory, name, *args, **kwargs)` — drop-and-recreate (use only when test fixtures or migrations intentionally want different buckets/labels).
-- `register_info_or_update(name, description, **info_labels)` — sugar for the `Info` two-step register-then-`.info({...})` pattern.
-- `lazy_register_or_reuse(factory, name, *args, **kwargs)` — like `register_or_reuse` but caches the result in a module-private dict; for the lazy-init-with-`None`-sentinel pattern.
-
-Tests touching these collectors should use `juniper_observability.testing.reset_prometheus_registry`. Minimum pin: `juniper-observability>=0.2.0`. See [`notes/observability/JUNIPER_2026-05-05_JUNIPER-ML_REGISTER-OR-REUSE-HELPER-DESIGN.md`](notes/observability/JUNIPER_2026-05-05_JUNIPER-ML_REGISTER-OR-REUSE-HELPER-DESIGN.md) for the design rationale and the migration history.
+The four idempotent `prometheus_client` registration helpers, and when to use each. Moved to [`docs/REFERENCE.md` § Shared Observability Helpers Reference](docs/REFERENCE.md#shared-observability-helpers-reference) — read it when working on this area.
 
 ## Shared Service-Core Contracts
 
@@ -337,7 +330,10 @@ This repo is part of the broader Juniper ecosystem. See the parent directory's `
 - Shell scripts use bash with `shellcheck` compliance
 - Markdown files use `.markdownlint.yaml` configuration
 - `notes/` documents are named `JUNIPER_<YYYY-MM-DD>_JUNIPER-<REPO>_<CONTENTS-DESCRIPTION-PHRASE>.md` (REPO one of ML / CANOPY / RECURRENCE / CASCOR / CASCOR-CLIENT / CASCOR-WORKER / DATA / DATA-CLIENT / DEPLOY / ECOSYSTEM). Exempt: `notes/{templates,releases,requirements,legacy}/` and README files. Full rules + migration record: [`notes/JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md`](notes/JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md)
-- **Name the document in every summary reference** (mandatory, ecosystem-wide, 2026-09-01): in a step-completion or work-arc summary, a reference to a numbered section or item must name its document — once on first reference if the summary cites one document, on **every** reference if it cites two or more. Covers summaries, PR bodies, handoffs, issue comments. Examples + rationale: `Juniper/AGENTS.md` § Cross-Project Conventions, which is **unversioned** — this bullet is the versioned record.
+- **Name every document a summary REFERENCES or CHANGES** (mandatory, ecosystem-wide, 2026-09-01; widened 2026-09-02). In a step-completion or work-arc summary:
+  - every **reference** to a document carries its filename — by section number, by role ("the plan", "the analysis"), or by implication. One document cited → name it on first reference; two or more → **every** reference carries its filename.
+  - the summary **lists by filename** every document the step created or modified.
+  - Covers summaries, PR bodies, handoffs, issue comments. Examples + rationale: `Juniper/AGENTS.md` § Cross-Project Conventions, which is **unversioned** — this bullet is the versioned record.
 
 ### Script placement (mandatory)
 

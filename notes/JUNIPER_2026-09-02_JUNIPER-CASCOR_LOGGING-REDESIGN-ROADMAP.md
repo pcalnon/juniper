@@ -1,14 +1,14 @@
 # Logging redesign — development roadmap
 
-**Project**: Juniper
-**Sub-Project**: juniper-cascor (`src/log_config/`), with ecosystem touchpoints
-**Author**: Paul Calnon
-**License**: MIT License
-**Version**: 0.7.1
-**Last Updated**: 2026-09-02
-**Status**: ROADMAP — phases, steps, dependencies, concurrency and guardrails for [cascor#573](https://github.com/pcalnon/juniper-cascor/issues/573)
-**Evidence base**: [`JUNIPER_2026-09-02_JUNIPER-CASCOR_LOGGING-CURRENT-STATE-RECONCILIATION.md`](JUNIPER_2026-09-02_JUNIPER-CASCOR_LOGGING-CURRENT-STATE-RECONCILIATION.md) (below: **RECON**)
-**Measured at**: cascor `70edfc4`
+- **Project**: Juniper
+- **Sub-Project**: juniper-cascor (`src/log_config/`), with ecosystem touchpoints
+- **Author**: Paul Calnon
+- **License**: MIT License
+- **Version**: 0.7.1
+- **Last Updated**: 2026-09-02
+- **Status**: ROADMAP — phases, steps, dependencies, concurrency and guardrails for [cascor#573](https://github.com/pcalnon/juniper-cascor/issues/573)
+- **Evidence base**: [`JUNIPER_2026-09-02_JUNIPER-CASCOR_LOGGING-CURRENT-STATE-RECONCILIATION.md`](JUNIPER_2026-09-02_JUNIPER-CASCOR_LOGGING-CURRENT-STATE-RECONCILIATION.md) (below: **RECON**)
+- **Measured at**: cascor `70edfc4`
 
 > **Path convention.** Scripts live in two repos. Every path below is prefixed:
 > `juniper-ml/util/…` or `juniper-cascor/…`. An unprefixed `util/` path is a defect — three
@@ -610,6 +610,16 @@ allocates a closure per call **even when suppressed**, a new per-call cost at ~8
 | 5 | **P4.1** — per-instance loggers, or named sub-loggers on the class? | Per-instance means de-classmethod-ing `isEnabledFor` and breaking ~1,200 call sites. This decides whether P4 is M or L |
 | 6 | **Owner decision 5 is still open and still yours.** The call-site migration scope was deferred pending the analysis; the analysis was delivered and its recommendation overturned by measurement. **This roadmap schedules P6 but does not take the decision** | The design reserved it explicitly. It must not become planned work by default |
 | 7 | **§7.1's swallowed-pytest investigation** | Still unexplained, and P0.5 has surfaced a candidate mechanism (`conftest.py`'s session-scoped `_log_at_level` no-op). The design's protocol stands: reproduce the disappearance, then distinguish pytest capture, a `capsys`/`-s` interaction, the logger's `print`, and stream buffering — **and only then** propose a fix. **Explicitly not a blocker** on the rest |
+
+### 13.1 Responses and Decisions
+
+1. .
+2. .
+3. .
+4. .
+5. .
+6. .
+7. i concur. let's run the investigation as written.
 
 ---
 

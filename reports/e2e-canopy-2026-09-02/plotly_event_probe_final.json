@@ -1,0 +1,2482 @@
+{
+  "wake": {
+    "already": false,
+    "woke": true,
+    "elapsed_s": 23.1,
+    "attempts": 1
+  },
+  "points": {
+    "present": true,
+    "plotly": true,
+    "n_traces": 1891,
+    "marker_traces": [
+      {
+        "curve": 1888,
+        "name": "Input Units",
+        "mode": "markers+text",
+        "type": "scatter",
+        "n": 2,
+        "is3d": false,
+        "sample": [
+          {
+            "i": 0,
+            "x": 0,
+            "y": -1.5,
+            "text": "Input 0",
+            "hovertext": "Input 0"
+          },
+          {
+            "i": 1,
+            "x": 0,
+            "y": 0,
+            "text": "Input 1",
+            "hovertext": "Input 1"
+          }
+        ]
+      },
+      {
+        "curve": 1889,
+        "name": "Hidden Units",
+        "mode": "markers+text",
+        "type": "scatter",
+        "n": 40,
+        "is3d": false,
+        "sample": [
+          {
+            "i": 0,
+            "x": 5,
+            "y": -30,
+            "text": "Hidden 0",
+            "hovertext": "Hidden 0"
+          },
+          {
+            "i": 1,
+            "x": 5.15,
+            "y": -28.5,
+            "text": "Hidden 1",
+            "hovertext": "Hidden 1"
+          },
+          {
+            "i": 2,
+            "x": 4.85,
+            "y": -27,
+            "text": "Hidden 2",
+            "hovertext": "Hidden 2"
+          },
+          {
+            "i": 3,
+            "x": 5.3,
+            "y": -25.5,
+            "text": "Hidden 3",
+            "hovertext": "Hidden 3"
+          },
+          {
+            "i": 4,
+            "x": 4.7,
+            "y": -24,
+            "text": "Hidden 4",
+            "hovertext": "Hidden 4"
+          },
+          {
+            "i": 5,
+            "x": 5.45,
+            "y": -22.5,
+            "text": "Hidden 5",
+            "hovertext": "Hidden 5"
+          }
+        ]
+      },
+      {
+        "curve": 1890,
+        "name": "Output Units",
+        "mode": "markers+text",
+        "type": "scatter",
+        "n": 2,
+        "is3d": false,
+        "sample": [
+          {
+            "i": 0,
+            "x": 10,
+            "y": -1.5,
+            "text": "Output 0",
+            "hovertext": "Output 0"
+          },
+          {
+            "i": 1,
+            "x": 10,
+            "y": 0,
+            "text": "Output 1",
+            "hovertext": "Output 1"
+          }
+        ]
+      }
+    ]
+  },
+  "xy": {
+    "ok": true,
+    "dataX": 5,
+    "dataY": -30,
+    "x": 1000,
+    "y": 1069.09375,
+    "rect": {
+      "left": 449,
+      "top": 529,
+      "w": 1102,
+      "h": 600
+    },
+    "size": {
+      "l": 20,
+      "t": 40,
+      "w": 1062,
+      "h": 540
+    }
+  },
+  "viewport": {
+    "vw": 1600,
+    "vh": 1100,
+    "sx": 0,
+    "sy": 279
+  },
+  "xy_after_scroll": {
+    "ok": true,
+    "dataX": 5,
+    "dataY": -30,
+    "x": 1000,
+    "y": 790.09375,
+    "rect": {
+      "left": 449,
+      "top": 250,
+      "w": 1102,
+      "h": 600
+    },
+    "size": {
+      "l": 20,
+      "t": 40,
+      "w": 1062,
+      "h": 540
+    }
+  },
+  "marker_rect": {
+    "ok": true,
+    "summary": [
+      {
+        "dom_index": 1888,
+        "n_points": 2
+      },
+      {
+        "dom_index": 1889,
+        "n_points": 40
+      },
+      {
+        "dom_index": 1890,
+        "n_points": 2
+      }
+    ],
+    "n_points": 40,
+    "x": 1000,
+    "y": 790.09375,
+    "rect": {
+      "left": 990,
+      "top": 780,
+      "w": 20,
+      "h": 20
+    }
+  },
+  "modebar": {
+    "present": true,
+    "buttons": []
+  },
+  "dragmode": "pan",
+  "selection_info_present": {
+    "present": true,
+    "tag": "DIV",
+    "display": "none",
+    "html": ""
+  },
+  "click": {
+    "dom_marker": {
+      "at": {
+        "x": 1000,
+        "y": 790.09375
+      },
+      "before": {
+        "text": "",
+        "display": "none"
+      },
+      "after": {
+        "text": "",
+        "display": "none"
+      },
+      "changed": false
+    },
+    "axis_l2p": {
+      "at": {
+        "x": 1000,
+        "y": 790.09375
+      },
+      "before": {
+        "text": "",
+        "display": "none"
+      },
+      "after": {
+        "text": "",
+        "display": "none"
+      },
+      "changed": false
+    }
+  },
+  "hit_sweep": [
+    {
+      "node_trace": "Input Units",
+      "node_curve": 1888,
+      "point": 0,
+      "hit_curve": 82,
+      "hit_text": null,
+      "is_node_trace": false
+    },
+    {
+      "node_trace": "Input Units",
+      "node_curve": 1888,
+      "point": 1,
+      "hit_curve": 166,
+      "hit_text": null,
+      "is_node_trace": false
+    },
+    {
+      "node_trace": "Hidden Units",
+      "node_curve": 1889,
+      "point": 0,
+      "hit_curve": 248,
+      "hit_text": null,
+      "is_node_trace": false
+    },
+    {
+      "node_trace": "Hidden Units",
+      "node_curve": 1889,
+      "point": 20,
+      "hit_curve": 1468,
+      "hit_text": null,
+      "is_node_trace": false
+    },
+    {
+      "node_trace": "Hidden Units",
+      "node_curve": 1889,
+      "point": 39,
+      "hit_curve": 1886,
+      "hit_text": null,
+      "is_node_trace": false
+    },
+    {
+      "node_trace": "Output Units",
+      "node_curve": 1890,
+      "point": 0,
+      "hit_curve": 1884,
+      "hit_text": null,
+      "is_node_trace": false
+    },
+    {
+      "node_trace": "Output Units",
+      "node_curve": 1890,
+      "point": 1,
+      "hit_curve": 1886,
+      "hit_text": null,
+      "is_node_trace": false
+    }
+  ],
+  "hit_sweep_summary": {
+    "clicks": 7,
+    "resolved_to_node_trace": 0,
+    "resolved_to_edge": 7
+  },
+  "fix_hypothesis_edges_unhittable": [
+    {
+      "node_trace": "Input Units",
+      "node_curve": 1888,
+      "hit_curve": 1888,
+      "hit_text": "Input 0",
+      "is_node_trace": true,
+      "selection_changed": true,
+      "after": {
+        "text": "Selected: Input 0\nLayer: Output\n(Click again or elsewhere to deselect)",
+        "display": "block"
+      }
+    },
+    {
+      "node_trace": "Hidden Units",
+      "node_curve": 1889,
+      "hit_curve": 1889,
+      "hit_text": "Hidden 0",
+      "is_node_trace": true,
+      "selection_changed": false,
+      "after": {
+        "text": "Selected: Input 0\nLayer: Output\n(Click again or elsewhere to deselect)",
+        "display": "block"
+      }
+    },
+    {
+      "node_trace": "Output Units",
+      "node_curve": 1890,
+      "hit_curve": 1884,
+      "hit_text": null,
+      "is_node_trace": false,
+      "selection_changed": true,
+      "after": {
+        "text": "Selected: Hidden 0\nLayer: Output\n(Click again or elsewhere to deselect)",
+        "display": "none"
+      }
+    }
+  ],
+  "fix_hypothesis_summary": {
+    "clicks": 3,
+    "resolved_to_node_trace": 2,
+    "selection_changed": 2
+  },
+  "dragmode_after_relayout": "select",
+  "dragmode_at_drag_time": "select",
+  "box_select": {
+    "ok": true,
+    "from": {
+      "x": 947.04,
+      "y": 712.81375
+    },
+    "to": {
+      "x": 1034.69,
+      "y": 820.09375
+    },
+    "before": {
+      "text": "",
+      "display": "none"
+    },
+    "after": {
+      "text": "",
+      "display": "none"
+    },
+    "changed": false,
+    "plotly_selected": {
+      "n": 0,
+      "last": null
+    }
+  },
+  "view_state_before": {
+    "present": false
+  },
+  "plotly_click_events": {
+    "n": 12,
+    "last": [
+      {
+        "curve": 1884,
+        "i": 1,
+        "x": 10,
+        "y": -1.5,
+        "text": null
+      }
+    ]
+  },
+  "dash_posts_during_click": [
+    {
+      "t_ms": 67386,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 67386,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":32},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 67387,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 68449,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 68450,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":12}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 68667,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":8},{\"id\":\"ws-topology-buffer\","
+    },
+    {
+      "t_ms": 68668,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":8},{\"id\":\"visualizatio"
+    },
+    {
+      "t_ms": 69467,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 69467,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":33},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 69468,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 69670,
+      "has_clickData": true,
+      "body_head": "{\"output\":\"..network-visualizer-selected-nodes.data...network-visualizer-selection-info.children...network-visualizer-selection-info.style..\",\"outputs\":[{\"id\":\"network-visualizer-selected-nodes\",\"property\":\"data\"},{\"id\":"
+    },
+    {
+      "t_ms": 71054,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 71054,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":34},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 71055,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 72129,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 72130,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":35},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 72130,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 74086,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 74087,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":36},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 74087,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 74087,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 74088,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":13}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 74437,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":9},{\"id\":\"ws-topology-buffer\","
+    },
+    {
+      "t_ms": 74438,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":9},{\"id\":\"visualizatio"
+    },
+    {
+      "t_ms": 75513,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 75514,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":37},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 75514,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 77000,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 77000,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":38},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 77001,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 78164,
+      "has_clickData": true,
+      "body_head": "{\"output\":\"..network-visualizer-selected-nodes.data...network-visualizer-selection-info.children...network-visualizer-selection-info.style..\",\"outputs\":[{\"id\":\"network-visualizer-selected-nodes\",\"property\":\"data\"},{\"id\":"
+    },
+    {
+      "t_ms": 78978,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 78979,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":39},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 78979,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 78979,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 78980,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":14}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 79383,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":10},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 79384,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":10},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 80566,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 80566,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":40},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 80567,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 82055,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 82056,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":41},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 82057,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 83435,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 83436,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":42},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 83436,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 83436,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 83437,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":15}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 84192,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":11},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 84192,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":11},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 85252,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 85252,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":43},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 85252,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 85838,
+      "has_clickData": true,
+      "body_head": "{\"output\":\"..network-visualizer-selected-nodes.data...network-visualizer-selection-info.children...network-visualizer-selection-info.style..\",\"outputs\":[{\"id\":\"network-visualizer-selected-nodes\",\"property\":\"data\"},{\"id\":"
+    },
+    {
+      "t_ms": 86997,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 86998,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":44},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 86999,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 88309,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 88310,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":45},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 88310,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 88310,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 88311,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":16}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 89080,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":12},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 89080,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":12},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 90138,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 90139,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":46},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 90139,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 91028,
+      "has_clickData": true,
+      "body_head": "{\"output\":\"..network-visualizer-selected-nodes.data...network-visualizer-selection-info.children...network-visualizer-selection-info.style..\",\"outputs\":[{\"id\":\"network-visualizer-selected-nodes\",\"property\":\"data\"},{\"id\":"
+    },
+    {
+      "t_ms": 91719,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 91719,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":47},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 91720,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 93844,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 93845,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":48},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 93846,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 93847,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 93847,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":17}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 93847,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":13},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 94078,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":13},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 95411,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 95412,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":49},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 95412,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 96174,
+      "has_clickData": true,
+      "body_head": "{\"output\":\"..network-visualizer-selected-nodes.data...network-visualizer-selection-info.children...network-visualizer-selection-info.style..\",\"outputs\":[{\"id\":\"network-visualizer-selected-nodes\",\"property\":\"data\"},{\"id\":"
+    },
+    {
+      "t_ms": 97138,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 97138,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":50},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 97139,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 98272,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 98273,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":51},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 98273,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 98273,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 98274,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":18}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 98660,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":14},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 98660,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":14},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 99739,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 99740,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":52},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 99740,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 101285,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 101285,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":53},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 101285,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 101594,
+      "has_clickData": true,
+      "body_head": "{\"output\":\"..network-visualizer-selected-nodes.data...network-visualizer-selection-info.children...network-visualizer-selection-info.style..\",\"outputs\":[{\"id\":\"network-visualizer-selected-nodes\",\"property\":\"data\"},{\"id\":"
+    },
+    {
+      "t_ms": 103960,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 103961,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":54},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 103961,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 103962,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 103962,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":19}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 104422,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":15},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 104423,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":15},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 105258,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 105258,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":55},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 105259,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 107054,
+      "has_clickData": true,
+      "body_head": "{\"output\":\"..network-visualizer-selected-nodes.data...network-visualizer-selection-info.children...network-visualizer-selection-info.style..\",\"outputs\":[{\"id\":\"network-visualizer-selected-nodes\",\"property\":\"data\"},{\"id\":"
+    },
+    {
+      "t_ms": 107054,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 107055,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":56},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 107055,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 108781,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 108782,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":57},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 108782,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 108782,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 108783,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":20}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 109394,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":16},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 109395,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":16},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 110903,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 110903,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":58},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 110904,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 112143,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 112143,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":59},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 112144,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 112613,
+      "has_clickData": true,
+      "body_head": "{\"output\":\"..network-visualizer-selected-nodes.data...network-visualizer-selection-info.children...network-visualizer-selection-info.style..\",\"outputs\":[{\"id\":\"network-visualizer-selected-nodes\",\"property\":\"data\"},{\"id\":"
+    },
+    {
+      "t_ms": 113922,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 113923,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":60},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 113923,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 113924,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 113924,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":21}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 113925,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":17},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 114101,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":17},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 115524,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 115525,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":61},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 115525,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 117135,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 117136,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":62},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 117136,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 117412,
+      "has_clickData": true,
+      "body_head": "{\"output\":\"..network-visualizer-selected-nodes.data...network-visualizer-selection-info.children...network-visualizer-selection-info.style..\",\"outputs\":[{\"id\":\"network-visualizer-selected-nodes\",\"property\":\"data\"},{\"id\":"
+    },
+    {
+      "t_ms": 119351,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 119352,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":63},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 119352,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 119352,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 119352,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":22}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 119713,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":18},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 119713,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":18},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 121065,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 121066,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":64},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 121066,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 123629,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 123629,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":65},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 123629,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 124632,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 124632,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":23}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 124637,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":19},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 124638,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":19},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 125842,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 125843,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":66},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 125843,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 127277,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 127278,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":67},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 127278,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 128631,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 128631,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":68},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 128632,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 128632,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 128633,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":24}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 128633,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":20},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 128803,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":20},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 130415,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 130415,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":69},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 130416,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 130632,
+      "has_clickData": true,
+      "body_head": "{\"output\":\"..network-visualizer-selected-nodes.data...network-visualizer-selection-info.children...network-visualizer-selection-info.style..\",\"outputs\":[{\"id\":\"network-visualizer-selected-nodes\",\"property\":\"data\"},{\"id\":"
+    },
+    {
+      "t_ms": 132097,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 132098,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":70},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 132098,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 134134,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 134134,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":71},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 134135,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 134135,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 134135,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":25}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 134512,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":21},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 134512,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":21},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 135744,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 135745,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":72},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 135745,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 137384,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 137384,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":73},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 137385,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 138075,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 138075,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":26}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 138284,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":22},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 138284,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":22},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 139434,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 139434,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":74},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 139434,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 140920,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 140920,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":75},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 140920,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 141971,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-visualizer-graph.figure...network-visualizer-graph.config...network-visualizer-input-count.children...network-visualizer-hidden-count.children...network-visualizer-output-count.children...network-vis"
+    },
+    {
+      "t_ms": 142184,
+      "has_clickData": true,
+      "body_head": "{\"output\":\"..network-visualizer-selected-nodes.data...network-visualizer-selection-info.children...network-visualizer-selection-info.style..\",\"outputs\":[{\"id\":\"network-visualizer-selected-nodes\",\"property\":\"data\"},{\"id\":"
+    },
+    {
+      "t_ms": 142902,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 142902,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":76},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 142902,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 144010,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 144011,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":27}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 144246,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":23},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 144247,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":23},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 144915,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 144915,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":77},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 144916,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 146372,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 146372,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":78},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 146373,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 151807,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 151808,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":79},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 151808,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 151808,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 151808,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":28}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 151809,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":24},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 151987,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":24},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 153575,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 153575,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":80},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 153576,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 153576,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 153577,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":29}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 153897,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":25},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 153897,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":25},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 155176,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 155177,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":81},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 155177,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 156215,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 156216,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":82},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 156216,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 156743,
+      "has_clickData": true,
+      "body_head": "{\"output\":\"..network-visualizer-selected-nodes.data...network-visualizer-selection-info.children...network-visualizer-selection-info.style..\",\"outputs\":[{\"id\":\"network-visualizer-selected-nodes\",\"property\":\"data\"},{\"id\":"
+    },
+    {
+      "t_ms": 157534,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 157535,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":83},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 157535,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 158949,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 158950,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":30}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 159354,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":26},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 159355,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":26},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 160250,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 160250,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":84},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 160251,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 161864,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 161864,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":85},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 161865,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 163264,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 163265,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":86},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 163265,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 163266,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 163266,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":31}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 163661,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":27},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 163662,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":27},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 165200,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-view-state.data\",\"outputs\":{\"id\":\"network-visualizer-view-state\",\"property\":\"data\"},\"inputs\":[{\"id\":\"network-visualizer-graph\",\"property\":\"relayoutData\",\"value\":{\"dragmode\":\"select\"}}],\"chan"
+    },
+    {
+      "t_ms": 165945,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 165946,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":87},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 165946,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 167298,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 167299,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":88},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 167300,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 168109,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 168109,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":32}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 168322,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":28},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 168322,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":28},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 169451,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 169452,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":89},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 169452,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 171056,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 171056,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":90},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 171057,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 172112,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-visualizer-graph.figure...network-visualizer-graph.config...network-visualizer-input-count.children...network-visualizer-hidden-count.children...network-visualizer-output-count.children...network-vis"
+    },
+    {
+      "t_ms": 172818,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 172818,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":91},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 172823,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 173951,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 173951,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":33}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 174155,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":29},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 174155,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":29},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 174821,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 174821,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":92},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 174821,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 176402,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 176402,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":93},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 176402,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 181374,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 181374,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":94},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 181375,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 181375,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 181376,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":34}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 182087,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":30},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 182088,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":30},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 182965,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 182965,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":95},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 182966,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 183633,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 183634,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":35}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 184728,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 184729,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":96},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 184729,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 186684,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 186684,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":97},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 186684,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 188683,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 188683,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":98},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 188684,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 188684,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 188685,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":36}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 189010,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":31},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 189010,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":31},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 190221,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 190221,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":99},{\"id\":\"metrics-panel-display-mode-"
+    },
+    {
+      "t_ms": 190222,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 192323,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 192323,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":100},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 192323,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 193871,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 193871,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":101},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 193872,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 193872,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 193873,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":37}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 193873,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":32},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 194036,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":32},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 195184,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 195184,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":102},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 195184,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 196286,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 196287,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":103},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 196287,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 197307,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 197307,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":104},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 197308,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 198735,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 198736,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":38}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 198957,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":33},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 198957,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":33},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 199815,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 199816,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":105},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 199816,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 201149,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 201150,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":106},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 201150,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 202120,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 202120,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":107},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 202120,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 204162,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 204163,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":108},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 204163,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 204163,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 204163,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":39}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 204164,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":34},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 204343,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":34},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 205655,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 205655,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":109},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 205656,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 207161,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 207162,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":110},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 207162,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 209193,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 209193,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":111},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 209194,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 209194,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 209195,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":40}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 209195,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":35},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 209366,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":35},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 210852,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 210852,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":112},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 210853,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 212243,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 212243,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":113},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 212244,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 213876,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 213876,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":114},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 213877,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 213877,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 213879,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":41}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 213879,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":36},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 214073,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":36},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 215478,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 215479,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":115},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 215480,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 216943,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 216943,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":116},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 216943,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 218695,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 218696,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":117},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 218696,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 218697,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 218697,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":42}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 219148,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":37},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 219148,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":37},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 220486,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 220487,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":118},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 220488,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 222708,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 222709,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":119},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 222709,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 223219,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 223220,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":43}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 223692,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":38},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 223693,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":38},{\"id\":\"visualizati"
+    },
+    {
+      "t_ms": 224740,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 224741,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":120},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 224741,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 226062,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 226062,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":121},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 226062,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 227085,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 227086,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":122},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 227086,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 229191,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..status-indicator.style...connection-status.children...latency-display.children...top-status-display.children...top-status-display.style...top-phase-display.children...top-phase-display.style...top-epoch-disp"
+    },
+    {
+      "t_ms": 229191,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"metrics-panel-metrics-store.data\",\"outputs\":{\"id\":\"metrics-panel-metrics-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"fast-update-interval\",\"property\":\"n_intervals\",\"value\":123},{\"id\":\"metrics-panel-display-mode"
+    },
+    {
+      "t_ms": 229192,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"button-states.data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\",\"outputs\":{\"id\":\"button-states\",\"property\":\"data@e9ac75821785c897a072728798de6b4e35bd731e55212c7535db3d2f306fc491\"},\"inputs\""
+    },
+    {
+      "t_ms": 229192,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"..network-info-panel.children...network-info-details-panel.children...stream-health-store.data...pending-dataset-banner.is_open@44870bcb4e362d7d00b182a2f54d22fc943b152e9ffab528d79e809b79210b5c..\",\"outputs\":[{\""
+    },
+    {
+      "t_ms": 229193,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"dataset-swap-events-store.data\",\"outputs\":{\"id\":\"dataset-swap-events-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"slow-update-interval\",\"property\":\"n_intervals\",\"value\":44}],\"changedPropIds\":[\"slow-update-interv"
+    },
+    {
+      "t_ms": 229464,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":39},{\"id\":\"ws-topology-buffer\""
+    },
+    {
+      "t_ms": 229465,
+      "has_clickData": false,
+      "body_head": "{\"output\":\"network-visualizer-raw-topology-store.data\",\"outputs\":{\"id\":\"network-visualizer-raw-topology-store\",\"property\":\"data\"},\"inputs\":[{\"id\":\"tabpoll-topology\",\"property\":\"n_intervals\",\"value\":39},{\"id\":\"visualizati"
+    }
+  ]
+}

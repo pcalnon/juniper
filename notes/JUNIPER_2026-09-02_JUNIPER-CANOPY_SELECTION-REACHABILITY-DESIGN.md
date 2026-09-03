@@ -436,6 +436,14 @@ gap stays visible.
   - **Still not observed**: the `⊥`-dataset and `⊥`-model states, because they do not exist until
     §4.1 and §4.11 ship. Re-run this falsifier as an acceptance step for PR 3 — the traversal in
     §4.1 is so far established only by executing handlers, never in a DOM.
+  - **Method constraints for the PR-3 re-run** (carried forward from this run): the operator's
+    canopy on 8050 must **not** be restarted or killed; bring up an isolated instance on spare
+    ports, overriding `JUNIPER_E2E_RUN_DIR` as well as the ports so a concurrent session's pid
+    files are not clobbered. Set `JUNIPER_E2E_PROJECT_DIR` explicitly — run from a worktree,
+    `util/isolated_stack.bash` derives the ecosystem root from its own location and resolves to a
+    path that does not exist. The instance needs a run-dir `*.pid` entry or a cmdline referencing a
+    run root, or the orphan reaper will collect it (it treats reparenting to `systemd --user` as
+    its orphan predicate, and the stack scripts launch under `nohup`).
   - **Driver note for whoever runs it**: canopy never reaches DOM stability (its polling keeps a
     callback in flight, so `document.title` sits at `"Updating..."`). Both chrome-devtools `click`
     and Playwright's default `locator.click()` time out on the stability wait, and untrusted
