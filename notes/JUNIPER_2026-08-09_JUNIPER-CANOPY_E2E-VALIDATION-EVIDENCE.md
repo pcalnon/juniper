@@ -1117,9 +1117,28 @@ coordinates, so a scroll invalidates them. Recorded because it is the same class
 here: a stale reading that looked like a substantive disagreement.)*
 
 **Consequence for the matrix:** M-TOPOLOGY-10 and -12 are blocked by THIS, not by "no scorer exists".
-M-TOPOLOGY-11 (box/lasso) may still be reachable — it rides `selectedData`, which returns the points
-inside the region across all traces, and node-trace points **do** carry `text` (`"Hidden 0"` etc.). That
-is a prediction from the code, not a measurement; it has not been driven.
+
+**M-TOPOLOGY-11 (box/lasso) — the prediction was TESTED and is UNRESOLVED, which is not the same as
+refuted.** The prediction was that -11 might be reachable anyway, since it rides `selectedData`, which
+returns every point inside the region across all traces, and node-trace points **do** carry `text`.
+Driven three times, it produced **zero selections** — but the instrument shows the reason is on the
+DRIVER side, not the product's:
+
+```
+dragmode at drag time : 'select'      (re-checked immediately before the gesture)
+plotly_selected emitted: 0
+```
+
+**Plotly never fired the selection event at all**, so nothing was ever handed to Dash and the product
+code under test never ran. Ruled out along the way: `dragmode` (confirmed `'select'` at drag time, not
+merely after the relayout — the rebuild re-applies `-view-state`, which carries dragmode, and it had
+already been shown to wipe a runtime `Plotly.restyle`), and drag distance (the box was ~88x106 px,
+well over plotly's ~8 px minimum).
+
+**So M-TOPOLOGY-11 stays "no scorer exists", and its box-select idiom is explicitly NOT pinned.** The
+click idiom is pinned and works; the drag idiom is not. Recording this as a driver gap rather than as a
+product finding is the whole point of splitting emit-vs-receive — the same split turned M-10 into
+F-CANOPY-044 and keeps M-11 out of the findings register until a gesture actually reaches Plotly.
 
 **MECHANISM CONFIRMED BY EXPERIMENT, not by argument.** The probe now runs the hypothesis: set
 `hoverinfo:'skip'` on all **1888** edge traces at runtime via `Plotly.restyle`, then re-click. The very
