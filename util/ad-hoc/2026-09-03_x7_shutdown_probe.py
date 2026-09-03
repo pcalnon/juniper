@@ -10,7 +10,6 @@ Prints a millisecond-stamped trace so the driver can attribute the wall time.
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import threading
 import time
