@@ -158,8 +158,9 @@ def phase_a():
         out["sigterm_to_exit_s"] = ">200 (SIGKILLed)"
     try:
         with open("/tmp/juniper-x7-rev/app.log", encoding="utf-8") as fh:
-            out["app_log_tail"] = fh.read()[-1500:]
-    except OSError:
+    except OSError as e:
+        out["app_log_tail"] = None
+        out["app_log_tail_error"] = repr(e)
         pass
     bh.kill()
     return out
