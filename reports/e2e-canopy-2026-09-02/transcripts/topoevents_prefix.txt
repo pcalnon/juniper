@@ -1,0 +1,14 @@
+[t=    582ms] navigating to http://127.0.0.1:8051
+[t=  13854ms]   welcome modal dismissed
+[t=  16659ms] STEP topoevents -- M-TOPOLOGY-09/-10/-12/-15 (graph event surface)
+[t=  53529ms]   wake_topology: {'already': False, 'woke': True, 'elapsed_s': 23.8, 'attempts': 1}
+[t=  54800ms]   node traces: [('Input Units', 1888, 2), ('Hidden Units', 1889, 40), ('Output Units', 1890, 2)]
+[t=  69566ms]   baseline selection: {'present': True, 'display': 'none', 'text': ''}
+[t= 111035ms]   !! timed out after 25s waiting for -selection-info to change after the node click (last=False)
+[t= 112371ms]   M-TOPOLOGY-10 node click: shown=False names_node=False layer_ok=False -> FAIL
+[t= 112371ms]   M-TOPOLOGY-12 -> BLOCKED (no selection to clear; the row would pass vacuously)
+[t= 132203ms]   M-TOPOLOGY-15 hover inert: hovered=True dom_unchanged=True api_delta=0 -> PASS
+[t= 151348ms]   M-TOPOLOGY-09 stats bar theme: rgb(248, 249, 250) -> rgb(52, 58, 64) recoloured=True -> PASS
+[t= 162320ms]   screenshot: /tmp/juniper-e2e/shots/seg17_topoevents.png
+[t= 162322ms]   topoevents verdicts: [('M-TOPOLOGY-10', 'FAIL'), ('M-TOPOLOGY-12', 'BLOCKED'), ('M-TOPOLOGY-15', 'PASS'), ('M-TOPOLOGY-09', 'PASS')]
+[t= 162322ms] results -> /tmp/juniper-e2e/seg17_topoevents_PREFIX.json

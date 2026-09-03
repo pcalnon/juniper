@@ -1,0 +1,16 @@
+[t=    548ms] navigating to http://127.0.0.1:8051
+[t=  13531ms]   welcome modal dismissed
+[t=  16336ms] STEP topoevents -- M-TOPOLOGY-09/-10/-12/-15 (graph event surface)
+[t=  47378ms]   wake_topology: {'already': False, 'woke': True, 'elapsed_s': 20.2, 'attempts': 1}
+[t=  48269ms]   node traces: [('Input Units', 1888, 2), ('Hidden Units', 1889, 40), ('Output Units', 1890, 2)]
+[t=  64471ms]   baseline selection: {'present': True, 'display': 'none', 'text': ''}
+[t=  83647ms]   M-TOPOLOGY-10 node click: shown=True names_node=True layer_ok=True -> PASS
+[t= 121673ms]   !! timed out after 20s waiting for -selection-info to clear (last=False)
+[t= 124527ms]   M-TOPOLOGY-12 click empty space: cleared=False plotly_click_events=0 -> FAIL
+[t= 124527ms]   !! no plotly_click fired -- plotly emits it only for POINT hits, so clickData never changed and the
+[t= 124527ms]      clear path at the end of handle_node_selection is UNREACHABLE by an empty-space click (product, not driver)
+[t= 147434ms]   M-TOPOLOGY-15 hover inert: hovered=True dom_unchanged=True api_delta=0 -> PASS
+[t= 171502ms]   M-TOPOLOGY-09 stats bar theme: rgb(248, 249, 250) -> rgb(52, 58, 64) recoloured=True -> PASS
+[t= 182198ms]   screenshot: /tmp/juniper-e2e/shots/seg17_topoevents.png
+[t= 182199ms]   topoevents verdicts: [('M-TOPOLOGY-10', 'PASS'), ('M-TOPOLOGY-12', 'FAIL'), ('M-TOPOLOGY-15', 'PASS'), ('M-TOPOLOGY-09', 'PASS')]
+[t= 182199ms] results -> /tmp/juniper-e2e/seg17_topoevents_E.json
