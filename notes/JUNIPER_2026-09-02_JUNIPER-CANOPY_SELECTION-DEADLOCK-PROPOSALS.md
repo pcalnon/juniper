@@ -33,14 +33,14 @@ Four Lane A instruments agree — three agents with distinct entry points plus t
 own probe (`util/ad-hoc/2026-09-02_canopy_selection_reachability.py`) — and all four proposal
 authors plus the round-2 citation audit independently reproduced the same numbers:
 
-| quantity | value |
-| --- | --- |
-| total `(model, dataset)` pairs | 12 |
-| **compatible** per the registry predicate | 6 |
-| **reachable** from `(cascor, spirals)` | **5** |
-| **compatible but unreachable** | **1** — `(recurrence, equities_seq)` |
-| edges in the reachable graph | 20 |
-| of those, `pick-model` edges | **0** |
+| quantity                                  | value                                |
+|-------------------------------------------|--------------------------------------|
+| total `(model, dataset)` pairs            | 12                                   |
+| **compatible** per the registry predicate | 6                                    |
+| **reachable** from `(cascor, spirals)`    | **5**                                |
+| **compatible but unreachable**            | **1** — `(recurrence, equities_seq)` |
+| edges in the reachable graph              | 20                                   |
+| of those, `pick-model` edges              | **0**                                |
 
 **Instrument adequacy**: 20 edges were found, so the probe demonstrably *can* report
 reachability; a uniformly-disabled result is not a harness artifact.
@@ -121,14 +121,14 @@ file are live wiring.)
 
 The chain, dated from git:
 
-| when (local) | PR | effect |
-| --- | --- | --- |
-| 2026-04-05 | `31d458f` | the repo's first `clearable=False` |
-| 2026-05-10 | `13a5856` | the sidebar dataset dropdown's `clearable=False` — **38 days before** the design that specifies D4 |
-| 06-24 15:40:59 | **#393** | sidebar model dropdown ships **ungated** |
-| 06-24 17:41:29 | **#394** | forward gate ships; PR body defers D4's ✕, reasoning that only the model→dataset direction is needed because the model is selected first — **true when written** |
-| 06-25 07:29 | **#397** | ungated dropdown replaced by the gated table. Loop closes **13 h 48 m** after the deferral. Its body claims it swaps only the input side and every downstream gate follows for free — it audits what the input side **writes**, never what it is now **conditioned on** |
-| 06-25 | **#400** (`a96a114`) | flips `recurrence` `coming_soon`→`live` |
+| when (local)   | PR                   | effect                                                                                                                                                                                                                                             |
+|----------------|----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 2026-04-05     | `31d458f`            | the repo's first `clearable=False`                                                                                                                                                                                                                 |
+| 2026-05-10     | `13a5856`            | the sidebar dataset dropdown's `clearable=False` — **38 days before** the design that specifies D4                                                                                                                                                 |
+| 06-24 15:40:59 | **#393**             | sidebar model dropdown ships **ungated**                                                                                                                                                                                                           |
+| 06-24 17:41:29 | **#394**             | forward gate ships; PR body defers D4's ✕, reasoning that only the model→dataset direction is needed because the model is selected first — **true when written**                                                                                   |
+| 06-25 07:29    | **#397**             | ungated dropdown replaced by gated table. Loop closes **13 h 48 m** after deferral. Its body claims it swaps only input side & every downstream gate follows for free — audits what input side **writes**, never what it is now **conditioned on** |
+| 06-25          | **#400** (`a96a114`) | flips `recurrence` `coming_soon`→`live`                                                                                                                                                                                                            |
 
 (PR-body wording above is paraphrased; the verbatim quotes are in
 `reports/2026-09-02_canopy-selection-deadlock/laneA3.md`.)
@@ -189,21 +189,21 @@ Sized per [`JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PRO
 it** — two escalators — placing this in the top-right cell: **3+ Lane A with distinct entry
 points, 2+ Lane B with opposing briefs, ≥2 iterations.**
 
-| lane | agent | entry point / brief |
-| --- | --- | --- |
-| A | A1 | execute the shipped code; enumerate writers from `app.callback_map` |
-| A | A2 | the **test suite read as a specification**; derive the contract from assertions alone |
-| A | A3 | the **design of record + git history**; specified-vs-shipped delta |
-| A | reconciler | own BFS probe (`util/ad-hoc/2026-09-02_canopy_selection_reachability.py`) |
-| P | P1 | proposals — interaction design / accessibility lens |
-| P | P2 | proposals — state machines, invariants, reachability |
-| P | P3 | proposals — minimal-diff pragmatic engineering |
-| P | P4 | proposals — architecture and scale |
-| B | B1 | **refute**; opposing brief: *D4's ✕ is right and the consensus is wrong* |
-| B | B2 | **refute by omission**; what did all seven miss? |
-| B | B3 | **refute**; false authority, convenient conclusions, mis-sizing |
-| R2 | R2-a | **round 2**, briefed only on the corrections: *find what they broke* |
-| R2 | R2-b | **round 2**, citation and numeric audit against the repos |
+| lane | agent      | entry point / brief                                                                   |
+|------|------------|---------------------------------------------------------------------------------------|
+| A    | A1         | execute the shipped code; enumerate writers from `app.callback_map`                   |
+| A    | A2         | the **test suite read as a specification**; derive the contract from assertions alone |
+| A    | A3         | the **design of record + git history**; specified-vs-shipped delta                    |
+| A    | reconciler | own BFS probe (`util/ad-hoc/2026-09-02_canopy_selection_reachability.py`)             |
+| P    | P1         | proposals — interaction design / accessibility lens                                   |
+| P    | P2         | proposals — state machines, invariants, reachability                                  |
+| P    | P3         | proposals — minimal-diff pragmatic engineering                                        |
+| P    | P4         | proposals — architecture and scale                                                    |
+| B    | B1         | **refute**; opposing brief: *D4's ✕ is right and the consensus is wrong*              |
+| B    | B2         | **refute by omission**; what did all seven miss?                                      |
+| B    | B3         | **refute**; false authority, convenient conclusions, mis-sizing                       |
+| R2   | R2-a       | **round 2**, briefed only on the corrections: *find what they broke*                  |
+| R2   | R2-b       | **round 2**, citation and numeric audit against the repos                             |
 
 Proposal authors were given the same verified evidence bundle and **no candidate direction**,
 with different lenses to force genuine divergence rather than seven seats for one agent.
@@ -215,13 +215,13 @@ with different lenses to force genuine divergence rather than seven seats for on
 Sixteen proposals were generated across four authors. They collapse into **five distinct
 mechanisms**; the table gives each author's variant and rank.
 
-| family | mechanism | P1 | P2 | P3 | P4 |
-| --- | --- | --- | --- | --- | --- |
-| **F1 — Restore the unset state** | Ship D4's ✕: `clearable=True` + a "clear model / show all" reset. Introduces the unconstrained state; `⊥` is a universal cut vertex | A (2nd) | P2-2 (3rd) | P-2 (2nd) | — |
-| **F2 — Unary guard + peer repair** | The Select guard depends only on the model's own axis; the existing snap repairs the dataset | B (4th) | **P2-1 (1st)** | **P-1 (1st)** | **P4-A (1st)** |
-| **F3 — Pair as the unit** | Row offers `Select with… ▾` naming the dataset it will switch to; both coordinates move atomically; nothing is disabled | **C (1st)** | P2-4 (2nd) | — | — |
-| **F4 — Never disable; resolve on activation** | Nothing disabled; activating an incompatible item opens a resolution dialog | D (3rd) | P2-3 (4th) | P-3 (3rd) | — |
-| **F5 — Relocate the capability model** | Source compatibility facts from the producing services rather than a hand-edited local registry | — | — | — | P4-B/C/D |
+| family                                        | mechanism                                                                                                                           | P1          | P2             | P3            | P4             |
+|-----------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|-------------|----------------|---------------|----------------|
+| **F1 — Restore the unset state**              | Ship D4's ✕: `clearable=True` + a "clear model / show all" reset. Introduces the unconstrained state; `⊥` is a universal cut vertex | A (2nd)     | P2-2 (3rd)     | P-2 (2nd)     | —              |
+| **F2 — Unary guard + peer repair**            | The Select guard depends only on the model's own axis; the existing snap repairs the dataset                                        | B (4th)     | **P2-1 (1st)** | **P-1 (1st)** | **P4-A (1st)** |
+| **F3 — Pair as the unit**                     | Row offers `Select with… ▾` naming the dataset it will switch to; both coordinates move atomically; nothing is disabled             | **C (1st)** | P2-4 (2nd)     | —             | —              |
+| **F4 — Never disable; resolve on activation** | Nothing disabled; activating an incompatible item opens a resolution dialog                                                         | D (3rd)     | P2-3 (4th)     | P-3 (3rd)     | —              |
+| **F5 — Relocate the capability model**        | Source compatibility facts from the producing services rather than a hand-edited local registry                                     | —           | —              | —             | P4-B/C/D       |
 
 Full per-proposal strengths, weaknesses, risks and guardrails are in the preserved reports
 (`reports/2026-09-02_canopy-selection-deadlock/proposal_P{1..4}_*.md`). §5 records what the
@@ -261,13 +261,13 @@ disabled**, leaving the user unable to repair it.
 The reconciler simulated the candidate independently
 (`util/ad-hoc/2026-09-02_canopy_unary_guard_simulation.py`), **before** B1 reported:
 
-| scenario | reachable | compatible | compatible-but-unreachable | **reachable-but-INVALID** |
-| --- | --- | --- | --- | --- |
-| S1 today (joint guard) | 5 | 6 | `(recurrence, equities_seq)` | none |
-| S2 unary guard, all available | 6 | 6 | none | none |
-| **S3 unary guard, `equities_seq` unavailable** | 10 | 6 | `(recurrence, equities_seq)` | **5 states** |
-| S4 3-component registry, today | 5 | 7 | 2 pairs | none |
-| S5 3-component registry, unary guard | 7 | 7 | none | none |
+| scenario                                       | reachable | compatible | compatible-but-unreachable   | **reachable-but-INVALID** |
+|------------------------------------------------|-----------|------------|------------------------------|---------------------------|
+| S1 today (joint guard)                         | 5         | 6          | `(recurrence, equities_seq)` | none                      |
+| S2 unary guard, all available                  | 6         | 6          | none                         | none                      |
+| **S3 unary guard, `equities_seq` unavailable** | 10        | 6          | `(recurrence, equities_seq)` | **5 states**              |
+| S4 3-component registry, today                 | 5         | 7          | 2 pairs                      | none                      |
+| S5 3-component registry, unary guard           | 7         | 7          | none                         | none                      |
 
 S3 is the container case (§6.3). The proposed fix **creates the product's first five
 reachable-but-invalid states and still fails to reach the target pair.** Two instruments, no
@@ -311,19 +311,19 @@ Two structural reasons it cannot be written naively:
 
 ### 5.3 Claims the adversarial rounds corrected
 
-| claim | verdict | basis |
-| --- | --- | --- |
-| Deadlock; 5 of 6 pairs reachable | **CONFIRMED** | 4 Lane A instruments + 4 authors + R2-b |
-| Root cause = D4's ✕ "never shipped" | **REFUTED** | regression at #397; reachable at `f464272` |
-| "Regression" implies a lost working capability | **OVERSTATED** | never simultaneously reachable *and* trainable (§2.2) |
-| §5.6 of the design of record is falsified | **REFUTED → restated** | vacuously true, so inert |
-| "Let the existing snap repair it" | **REFUTED** | `no_update` when `enabled == []` |
-| "~20 lines / 2–3 assertions / 1–2 PRs" | **REFUTED** | 50–80 src + 150–250 test, three PRs |
-| The reachability guardrail | **VACUOUS as specified** | passes on today's code |
-| `task_type` conflict is live | **REFUTED → restated** | see below |
-| FR9 does not hold | **REFUTED in round 2** | §5.4 |
-| "5× larger loss" (hidden generators) | **OVERSTATED** | count confirmed; end-to-end usability unvalidated |
-| 6 of 16 generators; 5 rank-3 hidden | **CONFIRMED** | §6.2 |
+| claim                                          | verdict                  | basis                                                 |
+|------------------------------------------------|--------------------------|-------------------------------------------------------|
+| Deadlock; 5 of 6 pairs reachable               | **CONFIRMED**            | 4 Lane A instruments + 4 authors + R2-b               |
+| Root cause = D4's ✕ "never shipped"            | **REFUTED**              | regression at #397; reachable at `f464272`            |
+| "Regression" implies a lost working capability | **OVERSTATED**           | never simultaneously reachable *and* trainable (§2.2) |
+| §5.6 of the design of record is falsified      | **REFUTED → restated**   | vacuously true, so inert                              |
+| "Let the existing snap repair it"              | **REFUTED**              | `no_update` when `enabled == []`                      |
+| "~20 lines / 2–3 assertions / 1–2 PRs"         | **REFUTED**              | 50–80 src + 150–250 test, three PRs                   |
+| The reachability guardrail                     | **VACUOUS as specified** | passes on today's code                                |
+| `task_type` conflict is live                   | **REFUTED → restated**   | see below                                             |
+| FR9 does not hold                              | **REFUTED in round 2**   | §5.4                                                  |
+| "5× larger loss" (hidden generators)           | **OVERSTATED**           | count confirmed; end-to-end usability unvalidated     |
+| 6 of 16 generators; 5 rank-3 hidden            | **CONFIRMED**            | §6.2                                                  |
 
 On `task_type`, precisely: canopy **does** read `task_type` — its own registry's, in the
 `compatible()` predicate (`model_registry.py:318`, `:347`, `:367`). What it does not read is
@@ -411,11 +411,11 @@ a measured loss. Exposing them may surface five more broken paths.
 `requirements.lock`; the Dockerfile's own comment confirms the lock is compiled with
 `--extra api --extra observability --extra mnist`.
 
-| stack | `yfinance` | `equities_seq` availability | F2 outcome |
-| --- | --- | --- | --- |
-| local conda (`JuniperData`) | 1.4.1 installed | `available=true` | works |
-| juniper-data down (fail-open) | n/a | treated available | works |
-| **Docker / juniper-deploy** | **absent from lock** | **`available=false`** | **parks on an invalid pair** |
+| stack                         | `yfinance`           | `equities_seq` availability | F2 outcome                   |
+|-------------------------------|----------------------|-----------------------------|------------------------------|
+| local conda (`JuniperData`)   | 1.4.1 installed      | `available=true`            | works                        |
+| juniper-data down (fail-open) | n/a                  | treated available           | works                        |
+| **Docker / juniper-deploy**   | **absent from lock** | **`available=false`**       | **parks on an invalid pair** |
 
 So in the deployed container the LMU has **zero available datasets**, independent of any UI fix.
 This is what makes S3 the realistic case rather than a hypothetical.
@@ -424,17 +424,17 @@ This is what makes S3 the realistic case rather than a hypothetical.
 
 Reported once each and **not** re-derived by the reconciler — leads, not facts:
 
-| id | finding | source |
-| --- | --- | --- |
-| Y1 | Further `RecurrenceBackend` methods missing beyond `stage_dataset` (count disputed: 0 against `BackendProtocol`, 9 against the Demo∩Service common surface, 11 against either concrete backend); `GET /api/admin/experimental_functions` runs on every page mount → 500 + a false "Could not reach backend" alert | B2-6 |
-| Y2 | Snapshot save/restore on recurrence writes cascor meta-params and zero LMU state, reporting success at both ends (vacuous-pass class) | B2-7 |
-| Y3 | FR15 unimplemented on the model axis: `current_nn_model` is write-only, no `GET /api/model`, `/api/train/status` omits `nn_model`; reload shows "Active: CasCor" over a recurrence backend | P1, P4, B2-4 |
-| Y4 | Model swap strands `active_tab` on a deleted tab; `layout-state-store` restores it unvalidated | B2-8 |
-| Y5 | The generators proxy sends no `X-API-Key` while `/v1/generators` is not exempt → schema-less 4-entry fallback → the LMU's only dataset renders "No adjustable parameters" | B2-9 |
-| Y6 | No drift test between canopy's `DATASET_TYPES` and juniper-data's registry | B2-13 |
-| Y7 | `title=` at `:3051` is a dead accessibility channel (the button has text content, so `title` never becomes its accessible name); zero `aria-*` attributes in `dashboard_manager.py`; dash 4.2.0's dropdown emits no `aria-disabled`, so D2's reason-in-the-label is by accident the only surviving accessible channel | P1 |
-| Y8 | The `disabled` decision is computed through the *reason-string* helpers rather than through `compatible()` — a load-bearing predicate reached via presentation code | P2 |
-| Y9 | At `⊥` the model table renders "✓ compatible" for **every** model — a positive falsehood, not merely a missing reason | R2-a (executed) |
+| id | finding                                                                                                                                                                                                                                                                                                       | source          |
+|----|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------|
+| Y1 | Further `RecurrenceBackend` methods missing beyond `stage_dataset` (count disputed: 0 against `BackendProtocol`, 9 against Demo∩Service common surface, 11 against either concrete backend); `GET /api/admin/experimental_functions` runs on every page mount → 500 + a false "Could not reach backend" alert | B2-6            |
+| Y2 | Snapshot save/restore on recurrence writes cascor meta-params and zero LMU state, reporting success at both ends (vacuous-pass class)                                                                                                                                                                         | B2-7            |
+| Y3 | FR15 unimplemented on the model axis: `current_nn_model` is write-only, no `GET /api/model`, `/api/train/status` omits `nn_model`; reload shows "Active: CasCor" over a recurrence backend                                                                                                                    | P1, P4, B2-4    |
+| Y4 | Model swap strands `active_tab` on a deleted tab; `layout-state-store` restores it unvalidated                                                                                                                                                                                                                | B2-8            |
+| Y5 | The generators proxy sends no `X-API-Key` while `/v1/generators` is not exempt → schema-less 4-entry fallback → the LMU's only dataset renders "No adjustable parameters"                                                                                                                                     | B2-9            |
+| Y6 | No drift test between canopy's `DATASET_TYPES` and juniper-data's registry                                                                                                                                                                                                                                    | B2-13           |
+| Y7 | `title=` at `:3051` is dead accessibility channel (button has text content, so `title` never becomes its accessible name); zero `aria-*` attributes in `dashboard_manager.py`; dash 4.2.0's dropdown emits no `aria-disabled`, D2's reason-in-the-label is accidentally only surviving accessible channel     | P1              |
+| Y8 | The `disabled` decision is computed through the *reason-string* helpers rather than through `compatible()` — a load-bearing predicate reached via presentation code                                                                                                                                           | P2              |
+| Y9 | At `⊥` the model table renders "✓ compatible" for **every** model — a positive falsehood, not merely a missing reason                                                                                                                                                                                         | R2-a (executed) |
 
 Explicitly **refuted** by B2, so the arc need not re-spend on them: `regression_target` is not
 inert; the deleted poll-gate output id is harmless; demo mode is not a one-way door;
@@ -467,15 +467,15 @@ Ratified against both adversarial rounds rather than the proposal round:
 
 Why this and not F2, given three of four authors preferred F2:
 
-| | F1 (✕) | F2 (unary guard) |
-| --- | --- | --- |
-| Reaches the target pair | yes (3 clicks) **where the dataset is available**; not in the container case | same availability limit, and creates invalid states besides |
-| Behaviour when `enabled == []` | user holds an explicit null — **incomplete**, nothing invalid entered | **parks on a complete-but-invalid pair**, all options disabled, unrecoverable |
-| Failure mode | fails **closed**: 409, visible alert | fails **open**: "Training started successfully", nothing rendered |
-| Design decisions | **implements** ratified D4/FR6 (in part — see below) | **amends** ratified D2/FR5 and settles deferred OQ-6 inside a bugfix |
-| Existing test delta | **0 assertions** changed | 3 minimum (8 on the broad reading) — and those three *are* D2/FR5 |
-| Expresses | user intent | system inference over registry order |
-| New hazard introduced | **X5** — Start live at `⊥` | 5 reachable-invalid states |
+|                                | F1 (✕)                                                                       | F2 (unary guard)                                                              |
+|--------------------------------|------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
+| Reaches the target pair        | yes (3 clicks) **where the dataset is available**; not in the container case | same availability limit, and creates invalid states besides                   |
+| Behaviour when `enabled == []` | user holds an explicit null — **incomplete**, nothing invalid entered        | **parks on a complete-but-invalid pair**, all options disabled, unrecoverable |
+| Failure mode                   | fails **closed**: 409, visible alert                                         | fails **open**: "Training started successfully", nothing rendered             |
+| Design decisions               | **implements** ratified D4/FR6 (in part — see below)                         | **amends** ratified D2/FR5 and settles deferred OQ-6 inside a bugfix          |
+| Existing test delta            | **0 assertions** changed                                                     | 3 minimum (8 on the broad reading) — and those three *are* D2/FR5             |
+| Expresses                      | user intent                                                                  | system inference over registry order                                          |
+| New hazard introduced          | **X5** — Start live at `⊥`                                                   | 5 reachable-invalid states                                                    |
 
 Neither candidate reaches the target pair in the container (§6.3); that is a juniper-data
 packaging problem, not a UI one. What separates them is what happens when they cannot: F1 leaves
@@ -501,7 +501,10 @@ design (its OQ-N6).
 - **F5 (relocating the capability model)** is correctly scoped as the end-state the defect
   revealed, not the fix for it. P4 named its own over-scoping: a perfect capability feed still
   yields a disconnected graph without a connectivity fix. Note the §5.3 landmine.
-- **§6.2's five hidden generators** — real, counted, unvalidated end-to-end.
+- ~~**§6.2's five hidden generators**~~ — **superseded 2026-09-02**: the ten unseeded generators
+  were moved **into** the arc as iteration 2 (companion design §11–§12). The caveat that made them
+  "deferred" here still holds and is carried forward — they are counted, not validated end-to-end —
+  so the companion treats per-generator validation as part of the work rather than an assumption.
 
 ---
 

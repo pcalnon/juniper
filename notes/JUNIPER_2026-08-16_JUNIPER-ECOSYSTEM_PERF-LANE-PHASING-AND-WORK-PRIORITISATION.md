@@ -46,6 +46,21 @@ premise strong enough to build from.
 
 Only then: development.
 
+**Deliverables produced against this table** (added 2026-09-02 — this note schedules the phases but
+did not previously name their outputs, so the deliverables were discoverable only by filename
+search):
+
+| phase | deliverable document | state |
+|---|---|---|
+| **P1 — Design** | [`JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md`](JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md) | written; acceptance checklist still shows `[ ] Reviewed — owner` |
+| **P2 — Planning** | [`JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md) | written; awaiting owner review |
+| **P3 — Verification** | [`JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md`](JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md), building on [`JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PF1-VARIANCE-RESULTS.md`](JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PF1-VARIANCE-RESULTS.md), [`JUNIPER_2026-09-01_JUNIPER-ECOSYSTEM_PF1-LOADED-AND-BRIDGED-RESULTS.md`](JUNIPER_2026-09-01_JUNIPER-ECOSYSTEM_PF1-LOADED-AND-BRIDGED-RESULTS.md) and [`JUNIPER_2026-09-01_JUNIPER-ECOSYSTEM_PF1-HEAVY-LOAD-AND-DURATION-RESULTS.md`](JUNIPER_2026-09-01_JUNIPER-ECOSYSTEM_PF1-HEAVY-LOAD-AND-DURATION-RESULTS.md) | measurement done and gate decisions taken; the *"dry measurement pass reproduces end-to-end"* half is Wave 1 of P2 |
+| **P4 — Documentation** | — | not started |
+
+**P3 ran before P2, at the owner's direction.** That inverts Tier 4's ordering below, and it was the
+right call rather than a shortcut: P3 de-ratified `timings.drive`, which is the metric a P2 written
+in August would have planned a comparator around.
+
 ### 1.2 Inputs that already exist
 
 - **PF suites** — six runnable §12.3 suites, 31 cells, all driver-validated (ml#1033).
