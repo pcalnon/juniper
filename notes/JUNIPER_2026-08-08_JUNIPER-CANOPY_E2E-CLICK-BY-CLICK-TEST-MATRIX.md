@@ -483,8 +483,32 @@ no highlight animation is active (`:406-413`).
 > value its READER receives is empty. **Two different values for one store id at the same instant** —
 > the duplicate-store-instance signature. See the evidence doc's F-CANOPY-039 entry.
 > Scope of the block: **M-TOPOLOGY-01..06 and -09..18** (16 rows; **-07 is PASS and -08 is FAIL**, so
-> the "01..18" below is imprecise), plus walkthrough steps W4-01..17 and W1-12..14, which are tracked
-> in the plan document and not as rows here.
+> the "01..18" below is imprecise), plus walkthrough steps W4-01..17 and W1-12..14, which are **not**
+> rows here. *Correction 2026-09-02: those walkthrough ids are NOT "tracked in the plan document" —
+> `W4-` and `W1-1` appear **zero** times in
+> `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md`. They exist only in this matrix
+> and in `JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`. A reader who went looking in
+> the plan would find nothing and could reasonably conclude the ids had been retired.*
+>
+> ---
+>
+> **BLOCK PARTIALLY LIFTED, 2026-09-02 — nine rows are scored, nine remain, and the reason has changed.**
+>
+> **PASS (9):** M-TOPOLOGY-01, -02, -03, -04, -05, -06, -07, -08, -17. Confirmed by **two independent
+> post-canopy#561 drives** of `--step topo` (`reports/e2e-canopy-2026-09-02/seg17_postf561_A.json`, old
+> driver; `…_B.json`, fixed driver), both **9 PASS / 0 FAIL** on the same nine rows.
+>
+> **Still BLOCKED (9):** M-TOPOLOGY-09, -10, -11, -12, -13, -14, -15, -16, -18 — but **no longer on
+> F-CANOPY-037 or -039**. Those are fixed and the rebuild paints. These nine are blocked because
+> **no scorer exists for them**: `util/ad-hoc/e2e_seg17_topology_driver.py`'s `STEPS` dict has no step
+> that touches them, and -10..-15 drive `network-visualizer-graph` itself (click, box-select, zoom/pan,
+> camera, hover), for which the driver has **no plotly-event idiom at all**. -16 additionally needs a
+> fixture with growth headroom; the live network is saturated at 40/40.
+>
+> **Do not read the earlier "5 PASS / 4 FAIL" run as evidence against these nine.** That drive measured
+> a canopy process started 2026-09-01 15:39 that had never loaded canopy#558 or #561 — see the evidence
+> doc's *"A CHECKOUT IS NOT A DEPLOYMENT"* entry. Its M-03/-04/-05 failures were F-CANOPY-041b and its
+> cascade, not these rows' own contracts.
 >
 > **BLOCKER for this whole section — F-CANOPY-037 (2026-08-26), re-attributed from the closed F-CANOPY-006.**
 > M-TOPOLOGY-01..18, W4-01..17 and W1-12..14 stay **BLOCKED**. The rebuild is chained off
