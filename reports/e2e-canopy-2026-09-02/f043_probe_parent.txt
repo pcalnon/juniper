@@ -1,0 +1,7 @@
+checkout : /home/pcalnon/Development/python/Juniper/juniper-canopy/src
+  inputs : ['tabpoll-topology', 'visualization-tabs']
+  state  : ['network-visualizer-display-mode']
+Q1 display-mode is an Input (switch triggers the fetch) : NO -- F-CANOPY-040 residual
+Q2 identical payload suppressed                        : NO -- handler has no `current` parameter ('self', 'n', 'active_tab', 'display_mode')
+
+VERDICT: DEFECTIVE

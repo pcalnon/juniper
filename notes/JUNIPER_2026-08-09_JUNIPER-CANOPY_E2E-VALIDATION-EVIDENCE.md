@@ -914,6 +914,50 @@ stable EMPTY figure is not a ready one** — a first probe run settled on an unp
 `JSON.stringify(gd.data).length`, kept unchanged so historical values stay comparable); `set_dropdown`
 settles before and after and retries the portal 3x.
 
+**AND THE SAME TRAP ONE LEVEL UP — "stable" is not "ready", 2026-09-02 (M-TOPOLOGY-02).**
+`settle_figure` answers *"has the figure stopped changing?"*, which is the wrong question immediately
+after an action: **a figure whose rebuild has not STARTED yet is perfectly stable.** The hash holds, three
+reads agree, and it reports `settled` while showing the *previous* action's render. `painted` does not
+catch this either — the stale figure is fully painted, just stale.
+
+Measured (`/tmp/juniper-e2e/seg17_results.json`, 06:30): M-01 ended by selecting Hierarchical and waiting
+a **fixed 2000 ms**; M-02 then called `settle_figure`, which settled on **Circular's `26d0f961`** — M-01's
+*last* layout — and scored it as `on`. The weights-off toggle then retired that still-pending Hierarchical
+rebuild (`getUniqueIdentifier` hashes inputs + outputs + state and **not** the trigger, and both controls
+are Inputs of the same rebuild), so `off` read `26d0f961` as well and the row failed on
+`on_hash == off_hash` — two reads of a figure that was neither state.
+
+The fix is `settle_changed(page, prev_hash)`: wait for the **transition** away from a known previous hash,
+*then* settle, and return whether the transition was actually observed. A transition that never lands now
+scores **INDETERMINATE** rather than silently comparing two stale hashes.
+
+**THE WINDOW, MEASURED** (`seg17_postf561_B.json`, `M-TOPOLOGY-02-precondition`). The new instrumentation
+reports how long each transition actually took, which turns the mechanism from an inference into a number:
+
+| transition | from → to | landed at |
+|---|---|---|
+| M-01 tail → Hierarchical (the precondition) | `26d0f961` → `de463bff` | **7.9 s** |
+| show-weights OFF | `de463bff` → `d5d1a4e6` | 6.9 s |
+| show-weights back ON | `d5d1a4e6` → `de463bff` | 10.5 s |
+
+**The old code waited a fixed 2000 ms for the first of those.** The rebuild landed at 7.9 s, so there was
+a **5.9 s window** in which `settle_figure` would settle on Circular and score it as `on` — and the
+weights toggle fired inside that window, retiring the pending rebuild. The two later transitions at 6.9 s
+and 10.5 s also exceed every fixed wait the old block used. Nothing about this was marginal; the row
+passed at all only when unrelated slowness pushed the read past the window.
+
+**TWO CORRECTIONS THIS PRODUCED, both to claims this arc had already written down:**
+
+1. **The row is a RACE, not a stable defect.** The 06:30 run failed it; the very next run passed it
+   unchanged, because a dropdown retry earlier in M-01 happened to add ~12 s and the rebuild landed
+   before the first read. *A verdict that depends on how long an unrelated retry took is not a
+   measurement.* Both post-#561 runs (A, old driver; B, fixed driver) score PASS.
+2. **"Done = `on`/`off`/`back` are three distinct `fig_hash`es" is WRONG**, and that criterion would fail
+   a correctly-behaving toggle. Turning weights off and on again *returns the graph to its previous
+   render*, so `back` **must** equal `on`. Measured identically in both runs:
+   `on=de463bff  off=d5d1a4e6  back=de463bff`. The contract is the two **transitions** — `off != on` and
+   `back != off` — which is what the driver has always asserted and what it still asserts.
+
 **M-TOPOLOGY-06 was an IDIOM-ORDERING defect, and the ordering made a WORKING control look dead.** The
 slider is `updatemode="mouseup"`: Dash is notified only by a mouseup concluding a real drag, so the
 synthetic idioms (React native-value-setter, keyboard arrows) cannot deliver the value **by design**.
@@ -973,7 +1017,7 @@ for `weight_matrix` while reading only controls that can never hold it.
 
 ---
 
-**F-CANOPY-043 — fixing F-CANOPY-040 made a previously-dead 5 s poll LIVE, and it feeds the rebuild with no identity suppression: the same hazard class as F-CANOPY-037 and -039, re-created by the fix for -040 (P2, OPEN; found 2026-09-02 by adversarial review).**
+**F-CANOPY-043 — fixing F-CANOPY-040 made a previously-dead 5 s poll LIVE, and it feeds the rebuild with no identity suppression: the same hazard class as F-CANOPY-037 and -039, re-created by the fix for -040 (P2; found 2026-09-02 by adversarial review; FIXED canopy#562, merged 2026-09-02, squash `9fbf4b8`).**
 `network-visualizer-raw-topology-store` is an **Input** of `update_network_graph`
 (`network_visualizer.py:349`). Its writer (`dashboard_manager.py:3983-3984`) is driven by
 `Input("tabpoll-topology", "n_intervals")` — the same 5 s tick F-CANOPY-039 demoted one layer down — and
@@ -998,7 +1042,184 @@ The suppression to add is the one `update_topology_store` already carries (canop
 
 ---
 
-**F-CANOPY-041 — the Weight Matrix heatmap raised ValueError -> HTTP 500 from 26 hidden units upward (P1; found 2026-09-01 by fixing F-CANOPY-040 first; canopy#558 did NOT fix it — see F-CANOPY-041b below; OPEN pending canopy#561).**
+**F-CANOPY-040b — `network-visualizer-display-mode` rides the raw-topology poll as `State`, so selecting Weight Matrix does not TRIGGER the fetch (P2; found 2026-09-02; FIXED canopy#562, merged 2026-09-02, squash `9fbf4b8`).**
+canopy#557 corrected **which** control the poll reads — it had been `-view-mode`, the 2D/3D toggle, whose
+values `"2d"`/`"3d"` can never equal the handler's `"weight_matrix"` gate — but left the dependency a
+`State` (`dashboard_manager.py:3992`, pre-fix). **A `State` is read when something else fires.** So the
+switch to Weight Matrix still did not fetch: the store filled only on the next `tabpoll-topology` tick,
+up to 5 s later.
+
+This is the second half of M-TOPOLOGY-03's run-to-run variance. The row produced **41 zero-height traces**
+in one drive and **zero traces** in the next, against an unchanged stack. The zero-height half was
+F-CANOPY-041b; **the zero-traces half is this** — the driver read inside the up-to-5 s window before the
+store filled.
+
+**Reading the right control is not the same as reacting to it**, and the existing regression test could
+not see the difference: `test_it_reads_display_mode_and_not_the_2d_3d_toggle` deliberately unions
+`state` + `inputs`, because the question it was written to answer is *which control is read*. That union
+is exactly why it stayed green across this defect. canopy#562 adds a separate assertion for the second
+question — does that control make it run.
+
+Falsified rather than asserted: `util/ad-hoc/2026-09-02_f043_suppression_probe.py` runs the real
+`DashboardManager` out of an arbitrary checkout and reports both properties. Parent `b78bbbb` →
+`Q1 NO / Q2 NO`, `VERDICT: DEFECTIVE` (exit 1); canopy#562 → `Q1 YES / Q2 YES`, `VERDICT: FIXED` (exit 0).
+
+---
+
+**F-CANOPY-044 — clicking a node selects NOTHING: every click resolves to a co-located EDGE trace, whose points carry no `text`, and the handler's `if text:` guard drops it silently (P1, OPEN; found 2026-09-02 by pinning the plotly-event idiom for M-TOPOLOGY-10).**
+
+`handle_node_selection` (`network_visualizer.py:630`) reads `points[0]` out of `clickData` and does:
+
+```python
+point = points[0]
+text = point.get("text", "")
+if text:            # edge traces have no per-point text -> falls through, no output
+```
+
+The figure is **1888 edge traces + 3 node traces** (`Input Units` curve 1888, `Hidden Units` 1889,
+`Output Units` 1890). Each edge is `go.Scatter(x=[x0, x1, None], …, mode="lines", hoverinfo="text")`
+(`network_visualizer.py:1098`) drawn *to a node centre*, so an edge vertex sits at distance **zero** from
+the marker a user aims at, and the click resolves to the edge rather than the node.
+
+**The tie-break RULE is not established, and an earlier draft of this entry over-claimed it.** It said
+Plotly "resolves the tie to the lower curve number". The measured hits were curves **82, 166, 248, 1468,
+1884, 1886** — not monotonically low, so that explanation does not survive its own data. What IS
+established is the outcome: **every click resolved to an edge trace and none to a node trace.** Why
+Plotly picks the particular edge it picks is unexplained and does not matter for the finding.
+
+**MEASURED, and it is not a fluke of one marker** (`util/ad-hoc/2026-09-02_plotly_event_probe.py`,
+`reports/e2e-canopy-2026-09-02/plotly_event_probe.json`). Seven clicks spanning all three node traces,
+at the first / middle / last point of each:
+
+| clicked | node trace | Plotly reported | `text` |
+|---|---|---|---|
+| Input Units[0] | 1888 | curve **82** | `None` |
+| Input Units[1] | 1888 | curve **166** | `None` |
+| Hidden Units[0] | 1889 | curve **248** | `None` |
+| Hidden Units[20] | 1889 | curve **1468** | `None` |
+| Hidden Units[39] | 1889 | curve **1886** | `None` |
+| Output Units[0] | 1890 | curve **1884** | `None` |
+| Output Units[1] | 1890 | curve **1886** | `None` |
+
+**0 of 7 resolved to a node trace.** `-selection-info` stayed `display:none` with empty `innerHTML`
+throughout.
+
+**THE IDIOM IS NOT THE PROBLEM, AND THAT IS THE POINT OF THE INSTRUMENT.** The probe split the question
+before drawing a conclusion, because "the click did nothing" has two very different causes. Both halves
+were measured: `plotly_click` **fired 9 times** on the graph's own emitter, and **9 `_dash-update-component`
+posts carried `clickData`**. Plotly emitted, Dash received, the server was told — and the DOM still never
+changed. Two independent idioms (axis `l2p` arithmetic, and the marker's own rendered `<path>` bounding
+box) agreed on the same pixel to within a fraction of one, so this is a product defect, not a driver gap.
+
+*(A first probe run had the two idioms "disagreeing" by 279 px. That was the probe's own bug — the
+axis-math coordinates were captured BEFORE a `scrollIntoView` and used after it. Both return VIEWPORT
+coordinates, so a scroll invalidates them. Recorded because it is the same class as everything else
+here: a stale reading that looked like a substantive disagreement.)*
+
+**Consequence for the matrix:** M-TOPOLOGY-10 and -12 are blocked by THIS, not by "no scorer exists".
+M-TOPOLOGY-11 (box/lasso) may still be reachable — it rides `selectedData`, which returns the points
+inside the region across all traces, and node-trace points **do** carry `text` (`"Hidden 0"` etc.). That
+is a prediction from the code, not a measurement; it has not been driven.
+
+**MECHANISM CONFIRMED BY EXPERIMENT, not by argument.** The probe now runs the hypothesis: set
+`hoverinfo:'skip'` on all **1888** edge traces at runtime via `Plotly.restyle`, then re-click. The very
+first click flipped:
+
+```
+[edges skipped] click Input Units -> hit curve 1888  text='Input 0'  display: block
+```
+
+Curve **1888 is the `Input Units` node trace** — the click resolved to a node, carried its `text`, and
+`-selection-info` rendered. So "the edges are stealing the hit" is sufficient to explain the whole
+finding.
+
+**Why only the first click flipped, which is itself informative:** `-selected-nodes` is an `Input` of the
+topology rebuild, so a successful selection *triggers a rebuild*, which re-renders the figure from the
+server and **wipes the runtime restyle**. Clicks 2 and 3 hit edges again (curves 248, 1884). The restyle
+is a probe device with a lifetime of one rebuild — it is not a candidate fix.
+
+**Fix direction is still NOT asserted.** Candidates: make edge traces unhittable (kills the
+`"Weight: -0.420"` tooltip, which is a real feature); resolve the node from the click's `x`/`y` against
+the node traces (the handler would need the topology as `State` — it currently receives only `clickData`,
+`selectedData`, `-selected-nodes` and `theme-state`); or reorder traces so nodes win the tie (costs
+z-order unless plotly's `zorder` is used — the env is plotly **6.8.0**, which supports it). Each has a
+cost, and this arc's record on predicted fix directions is poor.
+
+---
+
+**F-CANOPY-045 — the `Layer:` label reads "Output" for every node, because it indexes a 5-element table with a curve number that is now ~1889 (P2, OPEN; found 2026-09-02, masked by F-CANOPY-044 — and then OBSERVED LIVE the moment that mask was lifted experimentally).**
+
+Same callback, a few lines on (`network_visualizer.py:687`):
+
+```python
+curve_number = point.get("curveNumber", 0)
+layer_names = ["", "", "Input", "Hidden", "Output"]
+layer = layer_names[min(curve_number, 4)] if curve_number >= 2 else "Unknown"
+```
+
+This is correct only if the node traces are curves **2, 3, 4** — i.e. if exactly two traces precede them.
+They are curves **1888, 1889, 1890**, and `min(1888, 4)`, `min(1889, 4)` and `min(1890, 4)` are all `4`,
+so *every* node — input, hidden and output alike — is labelled `Layer: Output`.
+
+**This is the "a broken thing masks the next one" pattern again, and it is worth naming because the
+masking is total**: F-CANOPY-044 means the `if text:` guard never passes, so this line never executes and
+the wrong label had never been seen by anyone. Fixing -044 will expose -045 immediately, and the symptom
+will look like the -044 fix was wrong. It is not. Registered before the fix, so that inference was
+already on the record.
+
+**AND THE PREDICTION WAS THEN CONFIRMED, in the same probe run that confirmed -044's mechanism.** With
+the 1888 edge traces made unhittable, the first click landed on the `Input Units` node trace and
+`-selection-info` rendered:
+
+```
+Selected: Input 0
+Layer: Output
+(Click again or elsewhere to deselect)
+```
+
+**`Input 0` is labelled `Layer: Output`.** So this is no longer an inference from the source — it is
+observed behaviour, and it appeared within seconds of the mask being lifted, exactly as written above.
+The masking prediction and the defect were both confirmed by one experiment.
+
+The trace ordering that breaks it is not exotic — it is one trace per connection, which is how the
+rebuild has always drawn edges. The table encodes an assumption about figure composition that the figure
+stopped satisfying as soon as edges became per-connection traces.
+
+---
+
+**M-TOPOLOGY re-drive, 2026-09-02 post-#561: 9 PASS / 0 FAIL — and the prior 5 PASS / 4 FAIL was measured against code that was never loaded.**
+
+`/tmp/juniper-e2e/seg17_postf561_A.json` (archived under `reports/e2e-canopy-2026-09-02/`), all nine
+scored rows PASS: M-TOPOLOGY-01, -02, -03, -04, -05, -06, -07, -08, -17.
+
+**Why the earlier run disagreed, which is the durable part.** The canopy leg serving `:8051` had been
+running since **2026-09-01 15:39:34**. canopy#558 merged into the primary checkout at 12:42 that day and
+**canopy#561 at 2026-09-02 16:14** — but *Python reads the source at import*. The process kept serving
+its 2026-09-01 image for another day. Every measurement taken in between was attributed to the checkout's
+HEAD and actually came from code up to 28 hours older.
+
+That accounts for the whole 5-vs-9 gap without any product change: M-03 failed on F-CANOPY-041b (not
+resident yet), -04 and -05 cascaded from M-03's empty graph, and M-02 lost its race. Relaunching the leg
+from the up-to-date primary and re-driving the same step returned 9 PASS.
+
+**A CHECKOUT IS NOT A DEPLOYMENT.** This is a distinct vacuous-measurement class from the ones already
+registered here: nothing was broken, no check was tautological, and the run was honest about what it
+saw — it simply measured a *different build* than the one being reasoned about. The two guards now in
+`util/ad-hoc/e2e_f039_relaunch_canopy.bash`:
+
+1. it **stops the previous leg by pid** before launching. Without that, the newcomer fails to bind, the
+   health probe is answered by the OLD process, and the script prints `canopy healthy` and exits 0 while
+   the change under test is not loaded — a vacuous pass that is invisible downstream;
+2. after the health probe returns 200 it **confirms the pid it launched is still alive**, so "something
+   serves :8051" can never be mistaken for "the thing I started serves :8051".
+
+**Consequence for the arc:** every row verdict carries not only a timestamp but a *build*. When a run's
+result is surprising, check the serving process's start time against the merge time of the fix it is
+supposed to exercise before re-opening the finding.
+
+---
+
+**F-CANOPY-041 — the Weight Matrix heatmap raised ValueError -> HTTP 500 from 26 hidden units upward (P1; found 2026-09-01 by fixing F-CANOPY-040 first; canopy#558 did NOT fix it — see F-CANOPY-041b below; FIXED canopy#561, merged 2026-09-02T19:22Z, and CONFIRMED LIVE 2026-09-02 — see F-CANOPY-041b).**
 
 > **DISPOSITION CORRECTED 2026-09-02. This entry said FIXED for a day and was wrong.**
 > canopy#558 removed the HTTP 500 and replaced it with a **silent blank canvas**, which is worse: the
@@ -1020,7 +1241,19 @@ The suppression to add is the one `update_topology_store` already carries (canop
 
 ---
 
-**F-CANOPY-041b — canopy#558's clamp renders every heatmap subplot at ZERO height from 25 hidden units up (P1; found 2026-09-02 by adversarial review of the F-041 fix; FIX OPEN as canopy#561).**
+**F-CANOPY-041b — canopy#558's clamp renders every heatmap subplot at ZERO height from 25 hidden units up (P1; found 2026-09-02 by adversarial review of the F-041 fix; FIXED canopy#561, merged 2026-09-02T19:22Z; CONFIRMED LIVE 2026-09-02).**
+
+> **LIVE CONFIRMATION, 2026-09-02** (`/tmp/juniper-e2e/seg17_postf561_A.json`, archived under
+> `reports/e2e-canopy-2026-09-02/`). canopy#561's arithmetic had only ever been checked by unit test;
+> the handoff recorded "canopy#561 is correct beyond its unit tests — it has not been driven live" as an
+> explicit evidence gap. It has now been driven:
+>
+> ```
+> M-TOPOLOGY-03 weight matrix: heatmap=True plot_area=0.7 n_yaxes=41 types=[6x heatmap] conn='—'
+> ```
+>
+> `plot_area = 0.70` at 40 hidden units is exactly the figure canopy#561 predicted, measured through the
+> browser against the live 2/40/2/944 fixture rather than by calling the function. **Gap closed.**
 `min(desired, 1/(n_rows-1))` returns exactly the limit for every `n_rows >= 26`. canopy#561 reserves plot
 area instead (`GAP_BUDGET = 0.30`), giving a **floor** of 70% plot area on tall cascades:
 

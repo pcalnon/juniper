@@ -1,0 +1,8 @@
+checkout : /home/pcalnon/Development/python/Juniper/worktrees/juniper-canopy--fix--raw-topology-poll--20260902-1815--b78bbbbf/src
+  inputs : ['network-visualizer-display-mode', 'tabpoll-topology', 'visualization-tabs']
+  state  : ['network-visualizer-raw-topology-store']
+Q1 display-mode is an Input (switch triggers the fetch) : YES
+Q2 identical payload suppressed                        : YES
+   (changed payload still writes: OK)
+
+VERDICT: FIXED
