@@ -1121,14 +1121,33 @@ M-TOPOLOGY-11 (box/lasso) may still be reachable — it rides `selectedData`, wh
 inside the region across all traces, and node-trace points **do** carry `text` (`"Hidden 0"` etc.). That
 is a prediction from the code, not a measurement; it has not been driven.
 
-**Fix direction is NOT asserted.** Candidates: make edge traces unhittable; resolve the node from the
-click's `x`/`y` against the node traces; or reorder traces so nodes win the tie. Each has a cost
-(edge-weight tooltips, or z-order), and this arc's record on predicted fix directions is poor — the
-symptom above is what is established.
+**MECHANISM CONFIRMED BY EXPERIMENT, not by argument.** The probe now runs the hypothesis: set
+`hoverinfo:'skip'` on all **1888** edge traces at runtime via `Plotly.restyle`, then re-click. The very
+first click flipped:
+
+```
+[edges skipped] click Input Units -> hit curve 1888  text='Input 0'  display: block
+```
+
+Curve **1888 is the `Input Units` node trace** — the click resolved to a node, carried its `text`, and
+`-selection-info` rendered. So "the edges are stealing the hit" is sufficient to explain the whole
+finding.
+
+**Why only the first click flipped, which is itself informative:** `-selected-nodes` is an `Input` of the
+topology rebuild, so a successful selection *triggers a rebuild*, which re-renders the figure from the
+server and **wipes the runtime restyle**. Clicks 2 and 3 hit edges again (curves 248, 1884). The restyle
+is a probe device with a lifetime of one rebuild — it is not a candidate fix.
+
+**Fix direction is still NOT asserted.** Candidates: make edge traces unhittable (kills the
+`"Weight: -0.420"` tooltip, which is a real feature); resolve the node from the click's `x`/`y` against
+the node traces (the handler would need the topology as `State` — it currently receives only `clickData`,
+`selectedData`, `-selected-nodes` and `theme-state`); or reorder traces so nodes win the tie (costs
+z-order unless plotly's `zorder` is used — the env is plotly **6.8.0**, which supports it). Each has a
+cost, and this arc's record on predicted fix directions is poor.
 
 ---
 
-**F-CANOPY-045 — the `Layer:` label reads "Output" for every node, because it indexes a 5-element table with a curve number that is now ~1889 (P2, OPEN; found 2026-09-02, MASKED by F-CANOPY-044).**
+**F-CANOPY-045 — the `Layer:` label reads "Output" for every node, because it indexes a 5-element table with a curve number that is now ~1889 (P2, OPEN; found 2026-09-02, masked by F-CANOPY-044 — and then OBSERVED LIVE the moment that mask was lifted experimentally).**
 
 Same callback, a few lines on (`network_visualizer.py:687`):
 
@@ -1144,9 +1163,23 @@ so *every* node — input, hidden and output alike — is labelled `Layer: Outpu
 
 **This is the "a broken thing masks the next one" pattern again, and it is worth naming because the
 masking is total**: F-CANOPY-044 means the `if text:` guard never passes, so this line never executes and
-the wrong label has never been seen by anyone. Fixing -044 will expose -045 immediately, and the symptom
-will look like the -044 fix was wrong. It was not. Registered now, before the fix, so that inference is
+the wrong label had never been seen by anyone. Fixing -044 will expose -045 immediately, and the symptom
+will look like the -044 fix was wrong. It is not. Registered before the fix, so that inference was
 already on the record.
+
+**AND THE PREDICTION WAS THEN CONFIRMED, in the same probe run that confirmed -044's mechanism.** With
+the 1888 edge traces made unhittable, the first click landed on the `Input Units` node trace and
+`-selection-info` rendered:
+
+```
+Selected: Input 0
+Layer: Output
+(Click again or elsewhere to deselect)
+```
+
+**`Input 0` is labelled `Layer: Output`.** So this is no longer an inference from the source — it is
+observed behaviour, and it appeared within seconds of the mask being lifted, exactly as written above.
+The masking prediction and the defect were both confirmed by one experiment.
 
 The trace ordering that breaks it is not exotic — it is one trace per connection, which is how the
 rebuild has always drawn edges. The table encodes an assumption about figure composition that the figure

@@ -494,9 +494,24 @@ no highlight animation is active (`:406-413`).
 >
 > **BLOCK PARTIALLY LIFTED, 2026-09-02 — nine rows are scored, nine remain, and the reason has changed.**
 >
-> **PASS (9):** M-TOPOLOGY-01, -02, -03, -04, -05, -06, -07, -08, -17. Confirmed by **two independent
-> post-canopy#561 drives** of `--step topo` (`reports/e2e-canopy-2026-09-02/seg17_postf561_A.json`, old
-> driver; `…_B.json`, fixed driver), both **9 PASS / 0 FAIL** on the same nine rows.
+> **PASS (9):** M-TOPOLOGY-01, -02, -03, -04, -05, -06, -07, -08, -17. Confirmed by **three independent
+> drives** of `--step topo`, all **9 PASS / 0 FAIL** on the same nine rows:
+>
+> | run | build | driver | result |
+> |---|---|---|---|
+> | `seg17_postf561_A.json` | canopy#561 | unmodified | 9 PASS / 0 FAIL |
+> | `seg17_postf561_B.json` | canopy#561 | `settle_changed` | 9 PASS / 0 FAIL |
+> | `seg17_post562_C.json` | canopy#562 | `settle_changed` | 9 PASS / 0 FAIL |
+>
+> All three under `reports/e2e-canopy-2026-09-02/`. Run C also serves as the **regression check on
+> canopy#562**, which changed the raw-topology poll's trigger set.
+>
+> **M-TOPOLOGY-02's transition times are the reason the old row was a coin flip.** The precondition
+> transition (M-01's tail returning to Hierarchical) measured **7.9 s** in run B and **1.1 s** in run C,
+> and the two show-weights transitions ranged **6.9-10.5 s**. The pre-fix driver waited a *fixed 2000 ms*
+> there — inside that spread — so whether the row passed depended on unrelated slowness elsewhere in the
+> run. This spread is **not** attributable to canopy#562: during M-01/M-02 the display mode is
+> `node_graph`, so the raw-topology poll returns `dash.no_update` either way. It is ordinary variance.
 >
 > **Still BLOCKED (9):** M-TOPOLOGY-09, -10, -11, -12, -13, -14, -15, -16, -18 — but **no longer on
 > F-CANOPY-037 or -039**. Those are fixed and the rebuild paints. The nine split into two different
