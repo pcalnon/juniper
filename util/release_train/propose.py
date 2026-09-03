@@ -668,6 +668,14 @@ _AGENTS_EXTRAS_HEADING = re.compile(r"^#{2,4}\s+Dependency extras reference\s*$"
 # same editor re-anchored. ``docs/REFERENCE.md`` is the odd one out and needs its own (see
 # :func:`apply_pin_edits_reference_table`). Each heading was verified unique in its file: README's
 # ``### Extras`` does not also match REFERENCE's ``## Extras Reference``, and vice versa.
+# DO NOT drop a file from this tuple to shrink an AGENTS.md under the memory budget. The
+# obvious move -- replace AGENTS.md's table with a pointer to docs/REFERENCE.md, which holds
+# a strictly better copy -- is a THREE-FILE change through the PyPI-publish path, not a docs
+# edit: this tuple, ``tests/test_pyproject_extras._DOCS_INLINE_TABLES``, and the two suites
+# that assert the generator's surface and the gate's surface are the SAME set
+# (``test_release_train_propose.test_editors_change_the_real_repo_files`` fails first, as a
+# no-op editor, which does not look like a docs problem). Attempted and reverted 2026-09-03;
+# the headroom was found elsewhere instead.
 _INLINE_EXTRAS_TABLES = (
     ("AGENTS.md", _AGENTS_EXTRAS_HEADING),
     ("README.md", re.compile(r"^#{2,4}\s+Extras\s*$", re.IGNORECASE)),
