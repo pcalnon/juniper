@@ -1,0 +1,270 @@
+# What should trigger a soak? — a design conversation
+
+**Project**: Juniper
+**Sub-Project**: juniper-ml
+**Author**: Paul Calnon
+**Status**: Blue-sky design conversation — nothing here is a decision or a commitment
+**Created**: 2026-09-03
+**Protocol of record**: `notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md`
+**Related**: `notes/JUNIPER_2026-09-02_JUNIPER-ML_SOAK-SESSION-ROLE-AUTOMATION-ANALYSIS.md`,
+`util/soak_run_probe.py`, `util/systemd/juniper-soak-probe.{service,timer,path}`
+
+---
+
+## 0. How to read this
+
+This is deliberately a conversation, not a specification. Ideas are ranked by how
+much they'd teach us per session spent, and several are recorded specifically
+because they are probably wrong in an interesting way. Nothing here should be
+built without the usual scrutiny; the point is to widen the option set before
+narrowing it.
+
+One framing runs through all of it:
+
+> **A probe costs a real session. The question is not "when is it convenient to
+> run one" but "when would running one change what we believe?"**
+
+Time-based triggers score badly on that question, and they are what we shipped
+first — because they were easy, not because they were informative.
+
+---
+
+## 1. The reframe: triggers are a sampling strategy
+
+The soak estimates a rate. Every trigger is a rule for *when to sample*, and
+sampling rules have a property the current design never states: **they determine
+what the estimate is an estimate OF.**
+
+- Sample on a **timer** → you estimate the rate *averaged over calendar time*,
+  which nobody has a decision riding on.
+- Sample when the **index changes** → you estimate the rate *conditional on
+  recent memory churn* — closer to interesting, still not a decision variable.
+- Sample when someone is **about to make a relocation decision** → you estimate
+  the rate *at the moment it is load-bearing*. That is the quantity the whole
+  arc exists to inform.
+
+That last one reframes the problem entirely: **the best trigger may not be a file
+event at all, but a decision event.**
+
+---
+
+## 2. Candidate trigger classes
+
+### A. The memory index changed
+
+The obvious family, and what `util/systemd/juniper-soak-probe.path` currently
+watches.
+
+| Event | Informative? |
+|---|---|
+| any write to `MEMORY.md` | weak — peers rewrite it constantly; mostly noise |
+| a row **added** for a probed fact | strong — a direct intervention on the thing under test |
+| a row **removed** for a probed fact | strong, and currently invisible |
+| the index **crossed a size threshold** | interesting — see below |
+| the index actually **TRUNCATED** | **urgent**, and nothing watches for it |
+
+**The truncation trigger deserves its own line.** The index has a hard cap and
+truncation is silent and drops the NEWEST rows. If it fires, resident facts
+vanish without any edit event — a state change no `PathChanged` watch would
+characterise correctly, because the file *did* change, just not in the way the
+watcher assumes. That is simultaneously a hazard alarm and the single most
+interesting moment to probe: the population under test just changed underneath
+the experiment.
+
+### B. The pointed-to document changed
+
+`docs/REFERENCE.md` is where all 15 pointers land.
+
+- **Anchor moved or renamed** → `verify-probes` already catches this, CI-gated.
+- **Prose under a stable anchor rewritten** → *nothing catches this.* The
+  role-analysis document (`notes/JUNIPER_2026-09-02_JUNIPER-ML_SOAK-SESSION-ROLE-AUTOMATION-ANALYSIS.md`)
+  records it as an unowned gap: `_slugs()` checks a heading exists, never that
+  the fact still lives under it. A doc edit that keeps the heading and rewrites
+  the sentence silently invalidates the probe.
+
+So: **a content-hash change under a probe's anchor** is a trigger for
+*re-validation*, not for measurement. Different purpose, same watcher.
+
+- **The fact returns to `AGENTS.md`** → the probe becomes invalid by
+  construction (it no longer tests a *relocated* fact). Worth an alarm, not a
+  probe.
+
+### C. The instrument changed
+
+Easy to forget that the subject is software with a version.
+
+- Claude Code version bump — context assembly is the mechanism under test.
+- The launcher's default model switches (this project has a standing note that it
+  does, periodically).
+- A new memory feature ships.
+
+**These are the events most likely to move the rate and least likely to be
+noticed**, because nothing in the repo changes when they happen. A probe run
+before and after a version bump is a genuinely controlled comparison.
+
+### D. The registry changed
+
+A probe added, retired, or its discriminator edited. Mostly a *re-baseline*
+trigger: prior runs of that probe may not be comparable.
+
+### E. Reality supplied a miss — the highest-value class
+
+**Someone, somewhere, failed to retrieve a relocated fact and it cost something.**
+
+- a defect filed whose root cause is a documented-but-unretrieved fact
+- a PR review comment amounting to "you should have known X"
+- a session asking the owner something answerable from a relocated fact
+- a postmortem citing a fact that was written down and not followed
+
+This is ground truth from the world rather than a synthetic task, and it lands
+exactly where the corpus is weakest: `notes/JUNIPER_2026-09-02_JUNIPER-ML_SOAK-SESSION-ROLE-AUTOMATION-ANALYSIS.md`
+§6b established that the ledger contains **two** misses, both the same probe, so
+every claim about *failure* shapes rests on one probe's behaviour. Organic misses
+are the only cheap source of miss diversity.
+
+The catch is the one the protocol already knows: the organic arm can't bear a
+verdict because its **denominator is unknown** — you see the misses that hurt,
+not the occasions that passed silently. See §4 for an idea that might recover it.
+
+### F. A decision is pending that the answer serves
+
+The reframe from §1, made concrete:
+
+- **a relocation PR is opened** — someone proposes moving more resident content
+  out; the follow rate is precisely the input to whether that is safe
+- a memory-budget ceiling raise is proposed
+- an `AGENTS.md` cut is planned in any fleet repo
+
+**This is the trigger with the clearest claim to being *right*.** It samples the
+rate when a human is about to act on it, and it makes the measurement's purpose
+legible instead of ambient.
+
+### G. Absence-of-event triggers
+
+Trigger on a *gap*: "the index changed 40 times and no probe has run in two
+weeks." Accumulated unmeasured drift is itself a state worth sampling. This is
+the honest version of a timer — a timer with a reason.
+
+---
+
+## 3. Three out-of-the-box ideas
+
+### 3.1 Paired probes — stop measuring a rate, start measuring a difference
+
+Today the design estimates one rate across sessions and compares its interval to
+a boundary. But the *intervention* is per-fact: an index row exists or it
+doesn't. So run the same probe twice — once with the row present, once with it
+absent — and measure the **within-fact difference**.
+
+- Controls for task difficulty, model tier, and session-to-session variance, all
+  of which currently sit in the noise term.
+- Turns "is the rate above 0.75?" into "does the row change behaviour?", which is
+  the question the rung-1 intervention actually asks.
+- Trigger becomes: **whenever an index row is about to be added or removed**,
+  probe immediately before and immediately after.
+
+Cost: two sessions per data point instead of one. Probably worth it — the current
+design needs ~35 runs to say anything, and has spent 36 to reach INCONCLUSIVE.
+
+**Risk worth naming:** deliberately removing a row to create the control arm is
+an intervention on live memory that other sessions are reading. That is not free
+and might be unacceptable.
+
+### 3.2 Retrospective scoring — probe zero sessions
+
+The organic arm is descriptive-only because the denominator is unknown. But the
+denominator is only unknown because nobody looks for it.
+
+Every session leaves a tool log. If you can mechanically detect *"this session
+worked in the subject area of probe P"* — it touched the files the fact is about,
+or ran the command the fact governs — then you have an **occasion**. Whether it
+also read the pointer document is already mechanically decidable (that is exactly
+what `retrieval_channel()` in `util/soak_run_probe.py` computes).
+
+Occasion + retrieval channel = an observation, at **zero marginal session cost**,
+from work that was happening anyway.
+
+This would be the single biggest change to the economics of the whole arc. It
+also converts the trigger question into a *detector* question: not "when should I
+spend a session" but "how do I notice one already happened".
+
+**Why it might fail:** "worked in the subject area" is a fuzzy predicate, and a
+loose one manufactures occasions that were never really occasions — inflating the
+denominator and deflating the rate. It would need the same instrument-adequacy
+scrutiny as everything else here, and it is exactly the shape that reads
+plausible while being wrong.
+
+### 3.3 Negative controls as a first-class trigger
+
+Probe a fact that was **never relocated** — one still resident in `AGENTS.md`.
+If the "follow" rate on those looks like the rate on relocated facts, the probe
+suite is not measuring relocation; it is measuring something else (task shape,
+tool habits, how the question is phrased).
+
+Trigger: run one negative control for every N real probes, automatically.
+
+The 2026-08-21 pilot is the argument for this: **9 of 15 probes turned out to
+test facts that had never been relocated**, and that was discovered by hand.
+A standing negative-control arm makes that class of error self-announcing rather
+than dependent on someone thinking to check.
+
+---
+
+## 4. Anti-triggers — when NOT to run
+
+Worth designing as deliberately as the triggers, because each of these turns a
+spent session into a worthless or misleading row.
+
+- **Terminal verdict reached** — implemented; the wrapper refuses on
+  `BET-FAILING` / `HOLDS-AT-*` unless `--force`.
+- **`verify-probes` failing** — a broken pointer means the run measures the
+  pointer, not the agent. Cheap to check, currently not checked at dispatch.
+- **The index is mid-edit or over cap** — sampling a transient state.
+- **A probe is already in flight** — systemd handles this for the unit path only.
+- **The host is busy with an experiment stack** — a probe competing with a live
+  campaign is bad for both.
+- **The same probe ran very recently** — the least-covered selection rule mostly
+  handles this, but not against a burst trigger.
+
+---
+
+## 5. Ranking by information per session
+
+Rough, and the ordering is the argument, not the numbers.
+
+| Rank | Trigger | Why |
+|---|---|---|
+| 1 | **Organic miss observed** (§2E) | ground truth; fixes the miss-diversity gap; near-zero cost |
+| 2 | **Relocation decision pending** (§2F) | samples the rate when it is load-bearing |
+| 3 | **Index row added/removed for a probed fact** (§2A) | direct intervention on the thing under test |
+| 4 | **Instrument version changed** (§2C) | most likely to move the rate; currently invisible |
+| 5 | **Index truncation** (§2A) | hazard + population change in one event |
+| 6 | **Accumulated drift with no recent probe** (§2G) | the honest timer |
+| 7 | any write to `MEMORY.md` (§2A) | mostly noise; what we shipped |
+| 8 | pure calendar timer | measures nothing in particular; a floor, not a plan |
+
+The two things currently wired are ranked 7 and 8.
+
+---
+
+## 6. Questions this conversation should put to the owner
+
+1. **Is the soak's purpose to produce a verdict, or to inform relocation
+   decisions?** If the latter, §2F should probably be the primary trigger and the
+   timer becomes a fallback.
+2. **Is deliberately removing an index row acceptable** to create a paired
+   control (§3.1)? It is an intervention on live shared memory.
+3. **Is retrospective scoring (§3.2) worth prototyping**, given it could make
+   probes nearly free but risks a fuzzy denominator?
+4. **Should negative controls be a standing arm** (§3.3) rather than a one-off
+   audit?
+5. **What is a probe worth?** Everything above is a ranking by information per
+   session, and none of it can be traded off properly without a rough sense of
+   what one session costs relative to a wrong relocation decision.
+
+## 7. What this document is not
+
+Not a plan, not a recommendation, and not costed. Several ideas here — §3.2
+especially — would need the full instrument-adequacy treatment before anyone
+built them, and §3.1 has an ethical-ish question about mutating shared memory
+that a design note cannot settle.
