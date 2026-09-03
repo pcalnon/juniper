@@ -525,9 +525,14 @@ no highlight animation is active (`:406-413`).
 >   every node) sits behind it, fully masked.
 > - **-09, -11, -13, -14, -15, -18 are blocked because no scorer exists** —
 >   `util/ad-hoc/e2e_seg17_topology_driver.py`'s `STEPS` dict has no step that touches them. The idiom
->   they need is now pinned (`util/ad-hoc/2026-09-02_plotly_event_probe.py`), so this is ordinary work,
->   not an unknown. **-11 may be reachable despite F-CANOPY-044** — it rides `selectedData`, and
->   node-trace points *do* carry `text`; that is a prediction from the code, not a measurement.
+>   they need is partly pinned (`util/ad-hoc/2026-09-02_plotly_event_probe.py`). **The CLICK idiom is
+>   pinned and works** — a real mouse click at the marker's own pixel resolves to the node trace and
+>   renders `-selection-info`, once the edges are not stealing the hit. **The DRAG idiom is NOT pinned**:
+>   three attempts at M-11's box select produced **zero `plotly_selected` events**, with `dragmode`
+>   re-confirmed `'select'` at drag time and a box far larger than plotly's minimum. Plotly never fired
+>   the event, so the product code never ran — that is a **driver gap, deliberately not filed as a
+>   finding**. -11's earlier "may be reachable despite F-CANOPY-044" prediction is therefore
+>   **UNRESOLVED, not refuted**.
 > - **-16 additionally needs a fixture with growth headroom**; the live network is saturated at 40/40
 >   and was deliberately left that way on 2026-09-02 to preserve the 2/40/2/944 baseline.
 >

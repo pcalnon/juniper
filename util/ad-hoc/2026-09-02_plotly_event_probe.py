@@ -273,11 +273,25 @@ def main() -> int:
                 """(id) => { const root = document.getElementById(id);
                      const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
                      window.__jn_clicks = 0; window.__jn_last = null;
+                     window.__jn_selects = 0; window.__jn_sel_last = null;
                      if (gd && gd.on) gd.on('plotly_click', (ev) => {
                         window.__jn_clicks++;
                         try { window.__jn_last = (ev.points||[]).map(p => ({curve:p.curveNumber, i:p.pointNumber,
                                                                             x:p.x, y:p.y, text:p.text})); }
                         catch (e) { window.__jn_last = 'unreadable'; }
+                     });
+                     // Same split for box/lasso select (M-TOPOLOGY-11): did Plotly
+                     // emit `plotly_selected` at all, and if so how many of the
+                     // points it returned carry `text` (i.e. are NODES)?
+                     if (gd && gd.on) gd.on('plotly_selected', (ev) => {
+                        window.__jn_selects++;
+                        try {
+                          const pts = (ev && ev.points) || [];
+                          window.__jn_sel_last = {
+                            n: pts.length,
+                            n_with_text: pts.filter(p => p.text).length,
+                            sample: pts.slice(0, 5).map(p => ({curve:p.curveNumber, text:p.text}))};
+                        } catch (e) { window.__jn_sel_last = 'unreadable'; }
                      });
                      return !!(gd && gd.on); }""",
                 gid,
@@ -381,6 +395,76 @@ def main() -> int:
             out["fix_hypothesis_edges_unhittable"] = hyp
             out["fix_hypothesis_summary"] = {"clicks": len(hyp), "resolved_to_node_trace": sum(1 for h in hyp if h["is_node_trace"]), "selection_changed": sum(1 for h in hyp if h["selection_changed"])}
             log(f"  FIX HYPOTHESIS: {out['fix_hypothesis_summary']}")
+
+            # 8. M-TOPOLOGY-11 (box select) -- TEST THE PREDICTION, do not ship it.
+            # The ledger records a prediction that -11 may be reachable even though
+            # -10 is not: box select rides `selectedData`, which returns every point
+            # inside the region across ALL traces, and node-trace points DO carry
+            # `text` -- so the handler's `if text:` equivalent has something to work
+            # with even when edge points are also in the box. An unverified
+            # prediction in a findings document is exactly the thing this arc keeps
+            # getting burned by, so it is measured here.
+            #
+            # `dragmode` is 'pan' by default, so a bare drag would pan the axes
+            # rather than select. Relayout to 'select' first, then drag a rectangle
+            # around a cluster of hidden units.
+            page.evaluate(
+                """(id) => { const root = document.getElementById(id);
+                     const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+                     if (gd && window.Plotly) window.Plotly.relayout(gd, {dragmode: 'select'}); }""",
+                gid,
+            )
+            page.wait_for_timeout(1500)
+            out["dragmode_after_relayout"] = page.evaluate(_JS_DRAGMODE, gid)
+            # The click sweep above may have left a node selected, in which case
+            # "-selection-info did not change" would be ambiguous: an unchanged
+            # panel could mean the box select did nothing, OR that it produced the
+            # same text. Reset the counter so the box gesture is read on its own.
+            page.evaluate("() => { window.__jn_selects = 0; window.__jn_sel_last = null; }")
+            hid = next((t for t in (pts.get("marker_traces") or []) if t["name"] == "Hidden Units"), None)
+            box = {"ok": False}
+            if hid and out["dragmode_after_relayout"] == "select":
+                a = page.evaluate(_JS_XY, [gid, hid["curve"], 0])
+                b = page.evaluate(_JS_XY, [gid, hid["curve"], min(4, hid["n"] - 1)])
+                if a.get("ok") and b.get("ok"):
+                    x0, y0 = min(a["x"], b["x"]) - 30, min(a["y"], b["y"]) - 30
+                    x1, y1 = max(a["x"], b["x"]) + 30, max(a["y"], b["y"]) + 30
+                    before = selection_state(page)
+                    # RE-CHECK dragmode immediately before the gesture. The topology
+                    # rebuild re-applies `-view-state` (which carries dragmode), and
+                    # it already demonstrated in this same probe that it wipes a
+                    # runtime `Plotly.restyle`. A relayout that was verified seconds
+                    # earlier is not evidence about the state at drag time, and a
+                    # drag under dragmode 'pan' pans instead of selecting -- which
+                    # would look exactly like "box select is broken".
+                    dm_now = page.evaluate(_JS_DRAGMODE, gid)
+                    if dm_now != "select":
+                        page.evaluate(
+                            """(id) => { const root = document.getElementById(id);
+                                 const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+                                 if (gd && window.Plotly) window.Plotly.relayout(gd, {dragmode: 'select'}); }""",
+                            gid,
+                        )
+                        page.wait_for_timeout(800)
+                        dm_now = page.evaluate(_JS_DRAGMODE, gid)
+                    out["dragmode_at_drag_time"] = dm_now
+                    log(f"  M-11 dragmode at drag time: {dm_now!r}")
+                    page.mouse.move(x0, y0)
+                    page.mouse.down()
+                    page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, steps=8)
+                    page.mouse.move(x1, y1, steps=8)
+                    page.mouse.up()
+                    page.wait_for_timeout(3500)
+                    after = selection_state(page)
+                    sel_ev = page.evaluate("() => ({n: window.__jn_selects || 0, last: window.__jn_sel_last})")
+                    box = {"ok": True, "from": {"x": x0, "y": y0}, "to": {"x": x1, "y": y1}, "before": before, "after": after, "changed": before != after, "plotly_selected": sel_ev}
+                    log(f"  M-11 box select: selection-info changed={before != after}")
+                    log(f"  M-11 plotly_selected emitted: {sel_ev}")
+                    log(f"     before={before}")
+                    log(f"     after ={after}")
+            else:
+                log(f"  M-11 box select SKIPPED: dragmode={out['dragmode_after_relayout']!r} hidden_trace={bool(hid)}")
+            out["box_select"] = box
 
             # 5. view-state store, for M-13
             out["view_state_before"] = store_state(page, f"{NV}-view-state")
