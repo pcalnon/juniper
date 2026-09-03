@@ -724,26 +724,76 @@ def step_probe(page, capture):
 
 
 def _store(page, store_id: str):
-    """Read a dcc.Store's data off the renderer (stores render no DOM)."""
+    """Read a dcc.Store's data off the renderer (stores render no DOM).
+
+    RETURNS ``{"ok": bool, "value": ..., "via": str}`` -- never a bare value.
+
+    The previous version returned the value directly and ``None`` when it could not
+    read, which made "the store is empty" and "I cannot read this store"
+    indistinguishable. That is not a hypothetical: it read ``None`` for EVERY store
+    on this app, including ``-raw-topology-store`` while its heatmap was rendering
+    at ``plot_area=0.70`` -- which is only possible if that store is populated. A
+    row scored off it (M-TOPOLOGY-18) produced a confident FAIL against a working
+    gate, and ``step_topodiag`` has been logging ``topology-store (NoneType): None``
+    for the whole arc, one inch from F-CANOPY-039's central claim about what that
+    store contains. Diagnosed by ``util/ad-hoc/2026-09-03_store_read_probe.py``.
+
+    Why the old paths failed: a ``dcc.Store`` renders no element, so
+    ``document.getElementById(id)`` is null and ``_dashprivate_layout`` never
+    exists; and the recursive walk over ``state.layout`` does not reach components
+    nested through the shapes Dash 3 uses. Dash maintains an id -> path index at
+    ``state.paths.strs``, which is the supported way in, so that is tried first.
+    """
     return page.evaluate(
-        """(id) => { try {
-             const ctx = window.dash_component_api || null;
-             const el = document.getElementById(id);
-             if (el && el._dashprivate_layout) return el._dashprivate_layout.props.data;
-           } catch (e) {}
-           try {
+        """(id) => {
              const st = window.store && window.store.getState ? window.store.getState() : null;
-             if (!st || !st.layout) return '<no redux layout>';
-             const walk = (n) => { if (!n || typeof n !== 'object') return null;
-               if (n.props && n.props.id === id) return n.props.data === undefined ? null : n.props.data;
-               const ch = n.props && n.props.children;
-               const arr = Array.isArray(ch) ? ch : (ch ? [ch] : []);
-               for (const c of arr) { const r = walk(c); if (r !== null && r !== undefined) return r; }
-               return null; };
-             return walk(st.layout);
-           } catch (e) { return '<err ' + e.message + '>'; } }""",
+             if (!st) return {ok:false, value:null, via:'<no redux store>'};
+             if (!st.layout) return {ok:false, value:null, via:'<no redux layout>'};
+             // 1. the id -> path index Dash maintains.
+             try {
+               const strs = st.paths && st.paths.strs ? st.paths.strs : null;
+               if (strs && strs[id]) {
+                 let node = st.layout;
+                 for (const key of strs[id]) { if (node == null) break; node = node[key]; }
+                 if (node && node.props && 'data' in node.props) return {ok:true, value: node.props.data, via:'paths.strs'};
+                 if (node && node.props) return {ok:true, value: null, via:'paths.strs (no data prop)'};
+               }
+             } catch (e) { /* fall through to the walk */ }
+             // 2. exhaustive walk, following children AND any prop that holds
+             //    components (Dash 3 nests through more than `children`).
+             try {
+               const seen = new Set();
+               const walk = (n) => {
+                 if (!n || typeof n !== 'object' || seen.has(n)) return undefined;
+                 seen.add(n);
+                 if (n.props && n.props.id === id) return {ok:true, value: n.props.data === undefined ? null : n.props.data, via:'walk'};
+                 const p = n.props || {};
+                 for (const k of Object.keys(p)) {
+                   const v = p[k];
+                   const arr = Array.isArray(v) ? v : [v];
+                   for (const c of arr) { const r = walk(c); if (r !== undefined) return r; }
+                 }
+                 return undefined;
+               };
+               const r = walk(st.layout);
+               if (r !== undefined) return r;
+             } catch (e) { return {ok:false, value:null, via:'<err ' + e.message + '>'}; }
+             return {ok:false, value:null, via:'<id not found in layout>'};
+           }""",
         store_id,
     )
+
+
+def store_value(page, store_id: str):
+    """The store's value, or raise if it could not be READ.
+
+    Callers that want to score a row on a store's contents must not silently treat
+    an unreadable store as an empty one -- use this and let it fail loudly.
+    """
+    r = _store(page, store_id) or {}
+    if not r.get("ok"):
+        raise RuntimeError(f"cannot read store {store_id!r}: {r.get('via')}")
+    return r.get("value")
 
 
 def step_topodiag(page, capture):
@@ -779,8 +829,13 @@ def step_topodiag(page, capture):
     ok, elapsed, _ = wait_for(painted, budget_s=240, every_s=3.0, label="topology graph to paint")
     c = counts(page)
     g = fig_info(page, f"{NV}-graph")
-    store = _store(page, f"{NV}-topology-store")
-    st_kind = type(store).__name__
+    st_read = _store(page, f"{NV}-topology-store")
+    store = st_read.get("value") if st_read.get("ok") else None
+    # Say WHICH it is. This line logged "topology-store (NoneType): None" for the
+    # whole arc while the reader could not reach any store at all, and that reads as
+    # "the store is empty" -- an inch from F-CANOPY-039's central claim about this
+    # exact store's contents.
+    st_kind = type(store).__name__ if st_read.get("ok") else f"UNREADABLE({st_read.get('via')})"
     st_summary = store if not isinstance(store, dict) else {k: (len(v) if isinstance(v, list) else v) for k, v in store.items()}
     hits = api_hits("/api/topology", t_enter)
     log(f"  painted={ok} after {elapsed}s; counts={c}")
@@ -1676,6 +1731,185 @@ def step_topoevents(page, capture):
     log(f"  topoevents verdicts: {[(k, v.get('verdict')) for k, v in res.items() if isinstance(v, dict) and 'verdict' in v]}")
 
 
+def step_topostate(page, capture):
+    """M-TOPOLOGY-13 and -18: view-state persistence and the raw-store gate.
+
+      -18 promises the raw-topology poll fires only when the topology tab is active
+          AND the view is Weight Matrix. Scored on the STORE, whose two-sided
+          transition (empty in Node Graph -> populated in Weight Matrix) is the
+          gate's observable effect. It is NOT scored on browser network traffic: the
+          first version of this row did that and read 0 hits in every condition,
+          because ``/api/topology/raw`` is fetched SERVER-SIDE by canopy's own
+          handler and never crosses the browser at all.
+      -13 promises a zoom/pan is captured into ``-view-state`` and RE-APPLIED on the
+          next 2-D rebuild. The re-application is the contract, so the axis range
+          surviving a forced rebuild is the evidence -- reading the store would only
+          prove it was written, not that it was honoured.
+
+    Reading a ``dcc.Store`` at all needs care: a Store renders no DOM, so the value
+    lives only in the renderer's state, and ``_store()`` returns an explicit
+    ``{"ok", "value", "via"}`` precisely so that "unreadable" can never be scored as
+    "empty" -- which is how this row first produced a confident FAIL against a
+    working gate.
+    """
+    log("STEP topostate -- M-TOPOLOGY-13 / -18 (view state, raw-store gate)")
+    attach_captures(page)
+    res: dict = {}
+
+    open_tab(page, "Network Topology")
+    wake = wake_topology(page)
+    res["wake"] = wake
+    log(f"  wake_topology: {wake}")
+    if not wake["woke"]:
+        record("topostate", verdict="BLOCKED", reason="graph never painted", wake=wake)
+        return
+
+    # ---- M-TOPOLOGY-18 / W4-15 -- the raw-topology poll's gate ------------
+    #
+    # SCORED ON THE STORE, NOT ON THE WIRE. The first version of this row counted
+    # browser requests to `/api/topology/raw` and read 0 in every condition,
+    # including Weight Matrix -- which looked exactly like F-CANOPY-040's
+    # never-fires shape and was completely wrong. That endpoint is fetched
+    # SERVER-SIDE by canopy's own handler (`requests.get` inside
+    # `_update_raw_topology_store_handler`), so it never crosses the browser and
+    # Playwright cannot see it. A driver that counts the wrong traffic reports a
+    # confident zero.
+    #
+    # The gate's observable effect is the STORE: empty while the view is Node
+    # Graph, populated once it is Weight Matrix. That is two-sided -- a poll that
+    # never fires fails the second half (F-CANOPY-040's shape) and a poll with no
+    # gate at all fails the first.
+    RAW_STORE = f"{NV}-raw-topology-store"
+    set_radio(page, f"{NV}-display-mode", "node_graph")
+    settle_figure(page, budget_s=25)
+    # Give the 5 s tick several chances to (wrongly) fill it.
+    page.wait_for_timeout(13000)
+    entry_read = _store(page, RAW_STORE)
+    if not entry_read.get("ok"):
+        # Refuse to score rather than read "unreadable" as "empty" -- doing exactly
+        # that produced a confident FAIL against a working gate on the first run.
+        res["M-TOPOLOGY-18"] = {"verdict": "BLOCKED", "reason": f"raw-topology store is unreadable: {entry_read.get('via')}", "read": entry_read}
+        log(f"  M-TOPOLOGY-18 -> BLOCKED (store unreadable: {entry_read.get('via')}) -- NOT scored as empty")
+        empty_in_node_graph = populated_in_weight_matrix = None
+        fill_s = None
+        after_store = None
+    else:
+        empty_in_node_graph = not entry_read.get("value")
+
+        set_radio(page, f"{NV}-display-mode", "weight_matrix")
+        filled, fill_s, _ = wait_for(lambda: bool(store_value(page, RAW_STORE)), budget_s=45, every_s=1.0, label="raw-topology store to fill in Weight Matrix")
+        after_store = store_value(page, RAW_STORE)
+        populated_in_weight_matrix = bool(after_store)
+
+    set_radio(page, f"{NV}-display-mode", "node_graph")
+    settle_figure(page, budget_s=25)
+
+    # Only score when the store was actually READABLE; the BLOCKED entry above
+    # already stands otherwise, and overwriting it here would reinstate exactly the
+    # "unreadable scored as empty" mistake this row was rewritten to avoid.
+    if empty_in_node_graph is not None:
+        # An entry state that was ALREADY populated cannot test the first half, so
+        # say so rather than scoring a half-measured row.
+        if not empty_in_node_graph and populated_in_weight_matrix:
+            m18 = "INDETERMINATE"
+        elif empty_in_node_graph and populated_in_weight_matrix:
+            m18 = "PASS"
+        else:
+            m18 = "FAIL"
+        res["M-TOPOLOGY-18"] = {
+            "verdict": m18,
+            "empty_in_node_graph": empty_in_node_graph,
+            "populated_in_weight_matrix": populated_in_weight_matrix,
+            "fill_seconds": fill_s,
+            "store_keys_after": sorted(after_store.keys()) if isinstance(after_store, dict) else type(after_store).__name__,
+        }
+        log(f"  M-TOPOLOGY-18 raw-store gate: empty_in_node_graph={empty_in_node_graph} populated_in_weight_matrix={populated_in_weight_matrix} (filled in {fill_s}s) -> {m18}")
+        if not populated_in_weight_matrix:
+            log("  !! the store never filled even in Weight Matrix -- that is F-CANOPY-040's shape, not a gate that is too tight")
+        if not empty_in_node_graph:
+            log("  !! the store already held data in Node Graph -- either the gate is gone, or an earlier step filled it (hence INDETERMINATE)")
+
+    # ---- M-TOPOLOGY-13 / W4-14 -- zoom is captured AND re-applied ---------
+    # Instrumented the same way the click rows are: a drag that produces no
+    # `plotly_relayout` is a DRIVER failure, and scoring it as a product FAIL would
+    # file the finding against the wrong thing (M-TOPOLOGY-11's box-select drag
+    # produced zero events and is recorded as an unpinned idiom, not a defect).
+    settle_figure(page, budget_s=30)
+    scroll_graph_into_view(page)
+    page.evaluate(
+        """(id) => { const root = document.getElementById(id);
+             const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+             window.__jn_relayouts = 0;
+             if (gd && gd.on) gd.on('plotly_relayout', () => { window.__jn_relayouts++; });
+             if (gd && window.Plotly) window.Plotly.relayout(gd, {dragmode: 'zoom'}); }""",
+        f"{NV}-graph",
+    )
+    page.wait_for_timeout(1200)
+
+    def axis_ranges():
+        return page.evaluate(
+            """(id) => { const root = document.getElementById(id);
+                 const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+                 if (!gd || !gd._fullLayout) return null;
+                 const xa = gd._fullLayout.xaxis, ya = gd._fullLayout.yaxis;
+                 return {x: xa && xa.range ? xa.range.slice() : null,
+                         y: ya && ya.range ? ya.range.slice() : null,
+                         dragmode: gd._fullLayout.dragmode || null}; }""",
+            f"{NV}-graph",
+        )
+
+    before_zoom = axis_ranges()
+    geo = point_xy(page, (marker_traces(page) or [{"curve": 0}])[0]["curve"], 0)
+    zoomed = {"ok": False}
+    if geo.get("ok") and before_zoom:
+        p = geo["plot"]
+        x0, y0 = p["l"] + p["w"] * 0.30, p["t"] + p["h"] * 0.30
+        x1, y1 = p["l"] + p["w"] * 0.70, p["t"] + p["h"] * 0.70
+        page.mouse.move(x0, y0)
+        page.mouse.down()
+        page.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, steps=10)
+        page.mouse.move(x1, y1, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(2500)
+        zoomed = {"ok": True, "from": [x0, y0], "to": [x1, y1]}
+    n_relayout = page.evaluate("() => window.__jn_relayouts || 0")
+    after_zoom = axis_ranges()
+    range_changed = bool(before_zoom and after_zoom and after_zoom.get("x") != before_zoom.get("x"))
+
+    # Force a rebuild and check the range SURVIVES -- that is the row's contract.
+    persisted = None
+    if range_changed:
+        set_checklist(page, f"{NV}-show-weights", False)
+        settle_changed(page, (_graph(page) or {}).get("fig_hash"))
+        after_rebuild = axis_ranges()
+        persisted = bool(after_rebuild and after_rebuild.get("x") == after_zoom.get("x"))
+        set_checklist(page, f"{NV}-show-weights", True)
+        settle_figure(page, budget_s=25)
+    else:
+        after_rebuild = None
+
+    if n_relayout == 0:
+        m13 = "INDETERMINATE"
+    elif range_changed and persisted:
+        m13 = "PASS"
+    else:
+        m13 = "FAIL"
+    res["M-TOPOLOGY-13"] = {
+        "verdict": m13,
+        "plotly_relayout_events": n_relayout, "gesture": zoomed,
+        "before": before_zoom, "after_zoom": after_zoom, "after_rebuild": after_rebuild,
+        "range_changed": range_changed, "persisted_across_rebuild": persisted,
+    }
+    log(f"  M-TOPOLOGY-13 zoom/pan: relayout_events={n_relayout} range_changed={range_changed} persisted={persisted} -> {m13}")
+    if n_relayout == 0:
+        log("  !! the drag produced NO plotly_relayout -- the zoom gesture never reached plotly, so this is a DRIVER gap")
+        log("     (same shape as M-TOPOLOGY-11's box select; do NOT file it as a product defect)")
+
+    shot(page, "seg17_topostate.png")
+    record("topostate", **res)
+    log(f"  topostate verdicts: {[(k, v.get('verdict')) for k, v in res.items() if isinstance(v, dict) and 'verdict' in v]}")
+
+
 STEPS = {
     "probe": step_probe,
     "topodiag": step_topodiag,
@@ -1684,6 +1918,7 @@ STEPS = {
     "quietread": step_quietread,
     "topo": step_topo,
     "topoevents": step_topoevents,
+    "topostate": step_topostate,
     "storestorm": step_storestorm,
     "f031": step_f031,
     "theme": step_theme,
