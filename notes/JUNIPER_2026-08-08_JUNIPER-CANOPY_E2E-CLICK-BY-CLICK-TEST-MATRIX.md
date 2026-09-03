@@ -499,11 +499,22 @@ no highlight animation is active (`:406-413`).
 > driver; `…_B.json`, fixed driver), both **9 PASS / 0 FAIL** on the same nine rows.
 >
 > **Still BLOCKED (9):** M-TOPOLOGY-09, -10, -11, -12, -13, -14, -15, -16, -18 — but **no longer on
-> F-CANOPY-037 or -039**. Those are fixed and the rebuild paints. These nine are blocked because
-> **no scorer exists for them**: `util/ad-hoc/e2e_seg17_topology_driver.py`'s `STEPS` dict has no step
-> that touches them, and -10..-15 drive `network-visualizer-graph` itself (click, box-select, zoom/pan,
-> camera, hover), for which the driver has **no plotly-event idiom at all**. -16 additionally needs a
-> fixture with growth headroom; the live network is saturated at 40/40.
+> F-CANOPY-037 or -039**. Those are fixed and the rebuild paints. The nine split into two different
+> reasons, and conflating them would mis-attribute a real product defect to missing tooling:
+>
+> - **-10 and -12 are blocked by a PRODUCT defect, F-CANOPY-044 (P1, new 2026-09-02).** The
+>   plotly-event idiom has now been pinned and it works: `plotly_click` fires and Dash posts `clickData`.
+>   But **0 of 7 clicks across all three node traces resolved to a node** — every one hit a co-located
+>   edge trace whose points carry no `text`, which `handle_node_selection`'s `if text:` guard drops
+>   silently. Node selection is unreachable. **F-CANOPY-045** (the `Layer:` label reads "Output" for
+>   every node) sits behind it, fully masked.
+> - **-09, -11, -13, -14, -15, -18 are blocked because no scorer exists** —
+>   `util/ad-hoc/e2e_seg17_topology_driver.py`'s `STEPS` dict has no step that touches them. The idiom
+>   they need is now pinned (`util/ad-hoc/2026-09-02_plotly_event_probe.py`), so this is ordinary work,
+>   not an unknown. **-11 may be reachable despite F-CANOPY-044** — it rides `selectedData`, and
+>   node-trace points *do* carry `text`; that is a prediction from the code, not a measurement.
+> - **-16 additionally needs a fixture with growth headroom**; the live network is saturated at 40/40
+>   and was deliberately left that way on 2026-09-02 to preserve the 2/40/2/944 baseline.
 >
 > **Do not read the earlier "5 PASS / 4 FAIL" run as evidence against these nine.** That drive measured
 > a canopy process started 2026-09-01 15:39 that had never loaded canopy#558 or #561 — see the evidence

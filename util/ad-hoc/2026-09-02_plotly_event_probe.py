@@ -133,6 +133,41 @@ _JS_MODEBAR = """(id) => {
             .map(b => b.getAttribute('data-title') || b.getAttribute('data-attr') || '')};
 }"""
 
+# The SECOND idiom: find the marker's own rendered SVG element and click ITS
+# centre. Plotly draws scatter markers as <path> inside `g.points` within the
+# trace's <g>, so this clicks exactly what a user would click and needs no axis
+# arithmetic at all -- no `l2p`, no `_size` margins, no assumptions about which
+# axis a trace is bound to. If the two idioms disagree, THIS one is right,
+# because it is reading the geometry the browser actually laid out.
+_JS_MARKER_RECT = """([id, curveName, index]) => {
+  const root = document.getElementById(id);
+  const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+  if (!gd) return {ok:false, why:'no gd'};
+  // Trace <g> order follows gd.data order within the scatter layer.
+  const layer = gd.querySelector('.scatterlayer');
+  if (!layer) return {ok:false, why:'no .scatterlayer'};
+  const traces = [...layer.querySelectorAll('g.trace')];
+  // Match by the rendered point count, since only the three node traces carry
+  // markers (every edge trace is mode:"lines" and renders no g.points).
+  const withPoints = traces
+      .map((t, i) => ({i: i, g: t, pts: [...t.querySelectorAll('g.points > path')]}))
+      .filter(t => t.pts.length > 0);
+  if (!withPoints.length) return {ok:false, why:'no rendered marker paths', n_traces_dom: traces.length};
+  const summary = withPoints.map(t => ({dom_index: t.i, n_points: t.pts.length}));
+  // Pick the trace with the most points (Hidden Units, n=40).
+  const target = withPoints.reduce((a, b) => (b.pts.length > a.pts.length ? b : a));
+  const p = target.pts[Math.min(index, target.pts.length - 1)];
+  if (!p) return {ok:false, why:'no such marker path', summary: summary};
+  const r = p.getBoundingClientRect();
+  return {ok:true, summary: summary, n_points: target.pts.length,
+          x: r.left + r.width / 2, y: r.top + r.height / 2,
+          rect: {left: Math.round(r.left), top: Math.round(r.top),
+                 w: Math.round(r.width), h: Math.round(r.height)}};
+}"""
+
+_JS_VIEWPORT = """() => ({vw: window.innerWidth, vh: window.innerHeight,
+                          sx: window.scrollX, sy: window.scrollY})"""
+
 _JS_DRAGMODE = """(id) => {
   const root = document.getElementById(id);
   const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
@@ -200,27 +235,123 @@ def main() -> int:
                 out["error"] = f"pixel mapping failed: {xy.get('why')}"
                 return 1
 
-            # 3. modebar + dragmode, for M-11 (box select) and M-14 (camera)
+            # 2b. the DOM idiom -- click the marker's own rendered <path>.
+            page.evaluate("(id) => document.getElementById(id).scrollIntoView({block:'center'})", gid)
+            page.wait_for_timeout(600)
+            out["viewport"] = page.evaluate(_JS_VIEWPORT)
+            # RECOMPUTE the axis-math coords after the scroll. Both idioms return
+            # VIEWPORT coordinates from a bounding rect, so a scroll invalidates any
+            # value captured before it -- the first probe run clicked 279 px low for
+            # exactly this reason, and the two idioms then "disagreed" for a reason
+            # that had nothing to do with either.
+            xy = page.evaluate(_JS_XY, [gid, target["curve"], 0])
+            out["xy_after_scroll"] = xy
+            log(f"  pixel mapping AFTER scroll: x={xy.get('x')} y={xy.get('y')}")
+            mrect = page.evaluate(_JS_MARKER_RECT, [gid, target["name"], 0])
+            out["marker_rect"] = mrect
+            log(f"  viewport: {out['viewport']}")
+            log(f"  marker rect (DOM idiom): {mrect}")
+
+            # 3. modebar + dragmode, for M-11 (box select) and M-14 (camera).
+            # The modebar only mounts its buttons once the graph is hovered.
+            page.mouse.move(xy["x"], max(10, xy["y"] - 200))
+            page.wait_for_timeout(800)
             out["modebar"] = page.evaluate(_JS_MODEBAR, gid)
             out["dragmode"] = page.evaluate(_JS_DRAGMODE, gid)
-            log(f"  modebar: {out['modebar']}")
+            log(f"  modebar (after hover): {out['modebar']}")
             log(f"  dragmode: {out['dragmode']!r}")
 
+            # 3b. SPLIT THE QUESTION before scoring anything. "The click did
+            # nothing" has two very different causes, and the fix differs:
+            #   (a) Plotly never emitted `plotly_click` -> the IDIOM is wrong;
+            #   (b) Plotly emitted it and Dash posted it, but the DOM never
+            #       changed -> the idiom is right and this is a PRODUCT defect
+            #       (or callback starvation), which is a finding, not a driver bug.
+            # A counter on the graph's own emitter answers (a); the captured
+            # `_dash-update-component` bodies answer (b).
+            page.evaluate(
+                """(id) => { const root = document.getElementById(id);
+                     const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+                     window.__jn_clicks = 0; window.__jn_last = null;
+                     if (gd && gd.on) gd.on('plotly_click', (ev) => {
+                        window.__jn_clicks++;
+                        try { window.__jn_last = (ev.points||[]).map(p => ({curve:p.curveNumber, i:p.pointNumber,
+                                                                            x:p.x, y:p.y, text:p.text})); }
+                        catch (e) { window.__jn_last = 'unreadable'; }
+                     });
+                     return !!(gd && gd.on); }""",
+                gid,
+            )
+            out["selection_info_present"] = page.evaluate(
+                """(sid) => { const el = document.getElementById(sid);
+                     return el ? {present:true, tag:el.tagName, display:getComputedStyle(el).display,
+                                  html:(el.innerHTML||'').slice(0,200)} : {present:false}; }""",
+                f"{NV}-selection-info",
+            )
+            log(f"  -selection-info element: {out['selection_info_present']}")
+            _cap_before = len(capture)
+
             # 4. does a REAL click select the node? (M-10's contract)
-            before = selection_state(page)
-            log(f"  selection BEFORE: {before}")
-            page.mouse.move(xy["x"], xy["y"])
-            page.wait_for_timeout(400)
-            page.mouse.click(xy["x"], xy["y"])
-            page.wait_for_timeout(2500)
-            after = selection_state(page)
-            log(f"  selection AFTER : {after}")
-            out["click"] = {"before": before, "after": after, "changed": before != after}
+            # Try the DOM-element idiom first -- it needs no axis arithmetic, so a
+            # disagreement between the two is itself the answer about which to use.
+            out["click"] = {}
+            for label, pt in (("dom_marker", mrect if mrect.get("ok") else None), ("axis_l2p", xy)):
+                if not pt:
+                    continue
+                # Re-read the oracle each time: a previous click may have selected a
+                # node, and M-10's contract is that clicking the SAME node again
+                # clears it -- so a stale "before" would invert the reading.
+                before = selection_state(page)
+                page.mouse.move(pt["x"], pt["y"])
+                page.wait_for_timeout(400)
+                page.mouse.click(pt["x"], pt["y"])
+                page.wait_for_timeout(3000)
+                after = selection_state(page)
+                out["click"][label] = {"at": {"x": pt["x"], "y": pt["y"]}, "before": before, "after": after, "changed": before != after}
+                log(f"  click via {label:11s} at ({pt['x']:.0f},{pt['y']:.0f}): {before} -> {after}  changed={before != after}")
+
+            # 6. IS IT ROBUST? One click resolving to an edge could be a fluke of
+            # where that marker sits. Click several nodes across all three node
+            # traces and record which curve Plotly actually reports, so the finding
+            # rests on a distribution rather than a single sample.
+            sweep = []
+            for tr in (pts.get("marker_traces") or []):
+                if tr["is3d"] or tr["n"] <= 0:
+                    continue
+                for idx in {0, tr["n"] // 2, tr["n"] - 1}:
+                    r = page.evaluate(_JS_XY, [gid, tr["curve"], idx])
+                    if not r.get("ok"):
+                        continue
+                    page.evaluate("() => { window.__jn_last = null; }")
+                    page.mouse.click(r["x"], r["y"])
+                    page.wait_for_timeout(1200)
+                    got = page.evaluate("() => window.__jn_last")
+                    hit = (got or [{}])[0] if isinstance(got, list) and got else {}
+                    sweep.append(
+                        {
+                            "node_trace": tr["name"], "node_curve": tr["curve"], "point": idx,
+                            "hit_curve": hit.get("curve"), "hit_text": hit.get("text"),
+                            "is_node_trace": hit.get("curve") == tr["curve"],
+                        }
+                    )
+                    log(f"    click {tr['name']:14s}[{idx:3d}] (curve {tr['curve']}) -> hit curve {hit.get('curve')} text={hit.get('text')!r} node_trace={hit.get('curve') == tr['curve']}")
+            out["hit_sweep"] = sweep
+            n_node = sum(1 for s in sweep if s["is_node_trace"])
+            out["hit_sweep_summary"] = {"clicks": len(sweep), "resolved_to_node_trace": n_node, "resolved_to_edge": len(sweep) - n_node}
+            log(f"  HIT SWEEP: {n_node}/{len(sweep)} clicks resolved to a NODE trace; {len(sweep) - n_node} to an edge")
 
             # 5. view-state store, for M-13
             out["view_state_before"] = store_state(page, f"{NV}-view-state")
 
-            log(f"  click changed selection-info: {out['click']['changed']}")
+            # The split: did Plotly emit, and did Dash receive?
+            out["plotly_click_events"] = page.evaluate("() => ({n: window.__jn_clicks || 0, last: window.__jn_last})")
+            posts = [c for c in capture[_cap_before:] if "_dash-update-component" in c.get("url", "")]
+            out["dash_posts_during_click"] = [{"t_ms": p["t_ms"], "has_clickData": "clickData" in (p.get("body") or ""), "body_head": (p.get("body") or "")[:220]} for p in posts]
+            log(f"  plotly_click emitted: {out['plotly_click_events']}")
+            log(f"  dash posts during clicks: {len(posts)}, carrying clickData: {sum(1 for p in out['dash_posts_during_click'] if p['has_clickData'])}")
+
+            worked = [k for k, v in out["click"].items() if v["changed"]]
+            log(f"  idioms that moved the oracle: {worked or 'NONE'}")
         finally:
             os.makedirs(RUN_DIR, exist_ok=True)
             with open(OUT, "w", encoding="utf-8") as fh:

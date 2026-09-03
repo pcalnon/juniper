@@ -1066,6 +1066,88 @@ Falsified rather than asserted: `util/ad-hoc/2026-09-02_f043_suppression_probe.p
 
 ---
 
+**F-CANOPY-044 — clicking a node selects NOTHING: every click resolves to a co-located EDGE trace, whose points carry no `text`, and the handler's `if text:` guard drops it silently (P1, OPEN; found 2026-09-02 by pinning the plotly-event idiom for M-TOPOLOGY-10).**
+
+`handle_node_selection` (`network_visualizer.py:630`) reads `points[0]` out of `clickData` and does:
+
+```python
+point = points[0]
+text = point.get("text", "")
+if text:            # edge traces have no per-point text -> falls through, no output
+```
+
+The figure is **1888 edge traces + 3 node traces** (`Input Units` curve 1888, `Hidden Units` 1889,
+`Output Units` 1890). Every edge is drawn *to a node centre*, so an edge vertex sits at distance zero
+from the marker a user aims at — and Plotly resolves the tie to the lower curve number, which is always
+an edge.
+
+**MEASURED, and it is not a fluke of one marker** (`util/ad-hoc/2026-09-02_plotly_event_probe.py`,
+`reports/e2e-canopy-2026-09-02/plotly_event_probe.json`). Seven clicks spanning all three node traces,
+at the first / middle / last point of each:
+
+| clicked | node trace | Plotly reported | `text` |
+|---|---|---|---|
+| Input Units[0] | 1888 | curve **82** | `None` |
+| Input Units[1] | 1888 | curve **166** | `None` |
+| Hidden Units[0] | 1889 | curve **248** | `None` |
+| Hidden Units[20] | 1889 | curve **1468** | `None` |
+| Hidden Units[39] | 1889 | curve **1886** | `None` |
+| Output Units[0] | 1890 | curve **1884** | `None` |
+| Output Units[1] | 1890 | curve **1886** | `None` |
+
+**0 of 7 resolved to a node trace.** `-selection-info` stayed `display:none` with empty `innerHTML`
+throughout.
+
+**THE IDIOM IS NOT THE PROBLEM, AND THAT IS THE POINT OF THE INSTRUMENT.** The probe split the question
+before drawing a conclusion, because "the click did nothing" has two very different causes. Both halves
+were measured: `plotly_click` **fired 9 times** on the graph's own emitter, and **9 `_dash-update-component`
+posts carried `clickData`**. Plotly emitted, Dash received, the server was told — and the DOM still never
+changed. Two independent idioms (axis `l2p` arithmetic, and the marker's own rendered `<path>` bounding
+box) agreed on the same pixel to within a fraction of one, so this is a product defect, not a driver gap.
+
+*(A first probe run had the two idioms "disagreeing" by 279 px. That was the probe's own bug — the
+axis-math coordinates were captured BEFORE a `scrollIntoView` and used after it. Both return VIEWPORT
+coordinates, so a scroll invalidates them. Recorded because it is the same class as everything else
+here: a stale reading that looked like a substantive disagreement.)*
+
+**Consequence for the matrix:** M-TOPOLOGY-10 and -12 are blocked by THIS, not by "no scorer exists".
+M-TOPOLOGY-11 (box/lasso) may still be reachable — it rides `selectedData`, which returns the points
+inside the region across all traces, and node-trace points **do** carry `text` (`"Hidden 0"` etc.). That
+is a prediction from the code, not a measurement; it has not been driven.
+
+**Fix direction is NOT asserted.** Candidates: make edge traces unhittable; resolve the node from the
+click's `x`/`y` against the node traces; or reorder traces so nodes win the tie. Each has a cost
+(edge-weight tooltips, or z-order), and this arc's record on predicted fix directions is poor — the
+symptom above is what is established.
+
+---
+
+**F-CANOPY-045 — the `Layer:` label reads "Output" for every node, because it indexes a 5-element table with a curve number that is now ~1889 (P2, OPEN; found 2026-09-02, MASKED by F-CANOPY-044).**
+
+Same callback, a few lines on (`network_visualizer.py:687`):
+
+```python
+curve_number = point.get("curveNumber", 0)
+layer_names = ["", "", "Input", "Hidden", "Output"]
+layer = layer_names[min(curve_number, 4)] if curve_number >= 2 else "Unknown"
+```
+
+This is correct only if the node traces are curves **2, 3, 4** — i.e. if exactly two traces precede them.
+They are curves **1888, 1889, 1890**, and `min(1888, 4)`, `min(1889, 4)` and `min(1890, 4)` are all `4`,
+so *every* node — input, hidden and output alike — is labelled `Layer: Output`.
+
+**This is the "a broken thing masks the next one" pattern again, and it is worth naming because the
+masking is total**: F-CANOPY-044 means the `if text:` guard never passes, so this line never executes and
+the wrong label has never been seen by anyone. Fixing -044 will expose -045 immediately, and the symptom
+will look like the -044 fix was wrong. It was not. Registered now, before the fix, so that inference is
+already on the record.
+
+The trace ordering that breaks it is not exotic — it is one trace per connection, which is how the
+rebuild has always drawn edges. The table encodes an assumption about figure composition that the figure
+stopped satisfying as soon as edges became per-connection traces.
+
+---
+
 **M-TOPOLOGY re-drive, 2026-09-02 post-#561: 9 PASS / 0 FAIL — and the prior 5 PASS / 4 FAIL was measured against code that was never loaded.**
 
 `/tmp/juniper-e2e/seg17_postf561_A.json` (archived under `reports/e2e-canopy-2026-09-02/`), all nine
