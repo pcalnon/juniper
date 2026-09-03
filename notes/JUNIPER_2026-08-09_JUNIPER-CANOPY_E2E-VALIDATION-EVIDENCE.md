@@ -1256,6 +1256,52 @@ stopped satisfying as soon as edges became per-connection traces.
 
 ---
 
+**F-CANOPY-047 — canopy's own CSP blocks plotly's PNG export: the modebar camera button silently produces nothing, for every user in every browser (P2, OPEN; found 2026-09-03 while building M-TOPOLOGY-14's scorer).**
+
+`canopy_constants.py` `DEFAULT_CSP_POLICY` serves **`img-src 'self' data:`**. plotly's PNG export
+rasterises the figure as **SVG → Blob → `<img>` → canvas → `toDataURL`**, and `blob:` is not in that
+directive. The browser blocks the image load; plotly's promise rejects with a bare `[object Event]`; no
+`<a download>` is ever clicked; the user gets a console error and no file.
+
+The comment above the constant says *"`data:` in img-src is needed for Bootstrap inline SVG data URIs"* —
+`data:` was added for Bootstrap and `blob:` was never added for plotly. `test_csp_bootstrap_cdn.py` pins
+`data:` in `img-src`; **nothing pins `blob:`**, so nothing failed when the export broke.
+
+**MEASURED** (`util/ad-hoc/2026-09-03_modebar_download_probe.py`):
+
+| test | result |
+|---|---|
+| topology PNG, scale 2 | FAIL `[object Event]` (4.4 s) |
+| topology PNG, scale 1 | FAIL `[object Event]` — not scale-specific |
+| topology **SVG** export | **OK**, 1,211,031 bytes — serialisation is fine |
+| 10×10 SVG via **`blob:`** | FAIL `img.onerror` |
+| 10×10 SVG via **`data:`** | **OK**, len 170 |
+
+and the console says it outright:
+
+```
+Loading the image 'blob:http://127.0.0.1:8051/…' violates the following
+Content Security Policy directive: "img-src 'self' data:". The action has been blocked.
+```
+
+The camera button exists (9 modebar buttons) and its config is correct —
+`format: png`, `scale: 2`, `filename: canopy_network_<YYYYmmdd>_<HHMMSS>`. **Everything the product
+declares is right; the header silently disables it.**
+
+**I NEARLY FILED THIS AS AN ENVIRONMENT LIMITATION, and the near-miss is the durable part.** The first
+control rasterised a hand-made 10×10 SVG through a **`blob:`** URL — *the same scheme under test* — so it
+reproduced the failure and "proved" that headless chromium cannot rasterise SVG. That conclusion was
+written into the driver's docstring and the row scored BLOCKED. **A control that shares the mechanism
+under test is not a control.** Only varying the scheme — `data:` succeeds, `blob:` fails — exposed the
+CSP. Same family as the other instruments in this session that answered an adjacent question fluently.
+
+**Fix direction NOT asserted**, but the shape is narrow: adding `blob:` to `img-src` would restore the
+export. That is a security-header change and belongs to whoever owns the CSP posture, and the
+Bootstrap-driven history of this directive suggests it should be widened deliberately rather than
+casually. A regression test pinning `blob:` alongside the existing `data:` assertion is the cheap half.
+
+---
+
 **F-CANOPY-046 — clicking empty space cannot clear the selection: plotly emits `plotly_click` only for POINT hits, so `clickData` never changes and the clear path is unreachable by that gesture (P2, OPEN; found 2026-09-02 by the new `topoevents` scorer).**
 
 `handle_node_selection` ends with `return [], [], hidden_style` — the "no valid selection, clear" path

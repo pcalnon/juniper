@@ -86,6 +86,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import sys
 import time
 
@@ -383,6 +384,16 @@ def scroll_graph_into_view(page, container_id: str = None) -> dict:
     page.evaluate("(id) => { const el = document.getElementById(id); if (el) el.scrollIntoView({block:'center'}); }", container_id)
     page.wait_for_timeout(700)
     return page.evaluate("() => ({vw: window.innerWidth, vh: window.innerHeight, sy: window.scrollY})")
+
+
+def _graph_centre(page, container_id: str = None):
+    """(x, y) of the graph's centre in VIEWPORT coords -- used to hover the modebar in."""
+    container_id = container_id or f"{NV}-graph"
+    r = page.evaluate(
+        "(id) => { const b = document.getElementById(id).getBoundingClientRect();" " return {x: b.left + b.width / 2, y: b.top + b.height / 2}; }",
+        container_id,
+    )
+    return r["x"], r["y"]
 
 
 def marker_traces(page, container_id: str = None) -> list:
@@ -1731,6 +1742,224 @@ def step_topoevents(page, capture):
     log(f"  topoevents verdicts: {[(k, v.get('verdict')) for k, v in res.items() if isinstance(v, dict) and 'verdict' in v]}")
 
 
+_JS_MODEBAR_BTNS = """(id) => {
+  const root = document.getElementById(id);
+  if (!root) return [];
+  const bar = root.querySelector('.modebar');
+  if (!bar) return [];
+  // The buttons are <BUTTON class="modebar-btn"> in this plotly build, NOT <a>.
+  // An earlier probe used `a.modebar-btn`, found nothing, and reported the modebar
+  // as present-but-empty -- a selector answering an adjacent question.
+  return [...bar.querySelectorAll('*')]
+    .filter(e => (e.className || '').toString().indexOf('modebar-btn') >= 0)
+    .map(b => ({tag: b.tagName, data_title: b.getAttribute('data-title'),
+                rect: (r => ({x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)}))(b.getBoundingClientRect())}));
+}"""
+
+_JS_TOIMAGE_CONFIG = """(id) => {
+  const root = document.getElementById(id);
+  const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
+  if (!gd || !gd._context) return null;
+  const r = gd.getBoundingClientRect();
+  return {opts: gd._context.toImageButtonOptions || null,
+          displayModeBar: gd._context.displayModeBar, w: r.width, h: r.height};
+}"""
+
+# plotly's PNG path is SVG -> Blob -> <img> -> canvas -> toDataURL. This runs that
+# path on a 10x10 rectangle TWICE, differing ONLY in the URL scheme.
+#
+# THE FIRST VERSION OF THIS CONTROL USED ONLY blob: -- the same scheme plotly uses --
+# so it shared the mechanism under test and "proved" a browser limitation that does
+# not exist. It nearly filed a real product defect as an environment note. Varying
+# the scheme is what separates "this browser cannot rasterise SVG" from "this PAGE
+# forbids blob: images", and here it is emphatically the latter: canopy serves
+# `img-src 'self' data:` (canopy_constants.py DEFAULT_CSP_POLICY), which omits
+# blob:, and the browser console says so outright.
+_JS_SVG_RASTER_CONTROL = """async () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+            + '<rect width="10" height="10" fill="red"/></svg>';
+  const load = async (url) => {
+    const img = new Image();
+    await new Promise((res, rej) => {
+      img.onload = res;
+      img.onerror = () => rej(new Error('img.onerror'));
+      setTimeout(() => rej(new Error('img load timeout')), 8000);
+      img.src = url;
+    });
+    const c = document.createElement('canvas');
+    c.width = 10; c.height = 10;
+    c.getContext('2d').drawImage(img, 0, 0);
+    return c.toDataURL('image/png').length;
+  };
+  const out = {};
+  const burl = URL.createObjectURL(new Blob([svg], {type: 'image/svg+xml'}));
+  try { out.blob = {ok: true, len: await load(burl)}; }
+  catch (e) { out.blob = {ok: false, why: String(e.message).slice(0, 80)}; }
+  finally { URL.revokeObjectURL(burl); }
+  try { out.data = {ok: true, len: await load('data:image/svg+xml;base64,' + btoa(svg))}; }
+  catch (e) { out.data = {ok: false, why: String(e.message).slice(0, 80)}; }
+  // ok = "this browser can rasterise SVG at all", which is the data: answer.
+  out.ok = !!(out.data && out.data.ok);
+  out.blob_blocked = !!(out.data && out.data.ok) && !(out.blob && out.blob.ok);
+  return out;
+}"""
+
+
+def _png_dims(path: str):
+    """(width, height) straight out of the PNG IHDR -- no image library needed."""
+    import struct
+
+    with open(path, "rb") as fh:
+        head = fh.read(33)
+    if head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
+        return None
+    return struct.unpack(">II", head[16:24])
+
+
+def step_topoexport(page, capture):
+    """M-TOPOLOGY-14: the modebar camera exports a scale-2 PNG named canopy_network_<ts>.
+
+    THE ROW SPLITS INTO A PRODUCT HALF AND AN ENVIRONMENT HALF, and conflating them
+    would file a defect against canopy for something no product change could fix.
+
+    Product-owned and fully testable here: the camera button exists, and the graph's
+    ``toImageButtonOptions`` carry ``format: png``, ``scale: 2`` and a
+    ``canopy_network_<YYYYmmdd>_<HHMMSS>`` filename. A regression in any of those --
+    a broken filename template, a dropped scale -- scores FAIL.
+
+    THE EXPORT ITSELF IS BROKEN, AND IT IS CANOPY'S DOING (F-CANOPY-047). plotly
+    rasterises via SVG -> Blob -> <img> -> canvas, and canopy serves
+    ``img-src 'self' data:`` (``canopy_constants.py`` ``DEFAULT_CSP_POLICY``), which
+    OMITS ``blob:``. The browser blocks the image load, plotly's promise rejects with
+    a bare ``[object Event]``, no anchor is ever clicked, and the user gets nothing
+    but a console error. Measured 2026-09-03
+    (``util/ad-hoc/2026-09-03_modebar_download_probe.py``):
+
+        topology png scale=2      FAIL  [object Event]   (4.4 s)
+        topology png scale=1      FAIL  [object Event]   -> not scale-specific
+        topology svg              OK    1,211,031 bytes  -> serialisation is fine
+        10x10 SVG via blob: URL   FAIL  img.onerror
+        10x10 SVG via data: URL   OK    len=170          -> the SCHEME is the difference
+
+        console: Loading the image 'blob:http://127.0.0.1:8051/...' violates the
+        following Content Security Policy directive: "img-src 'self' data:".
+
+    **An earlier version of this docstring said the opposite** -- that headless
+    chromium cannot rasterise SVG, so the row was environment-BLOCKED rather than a
+    defect. That was wrong, and wrong for an instructive reason: the control used a
+    ``blob:`` URL, the very scheme under test, so it reproduced the failure and
+    "confirmed" a browser limitation. Only varying the scheme exposed the CSP. The
+    control now tests both, and the row scores FAIL when ``data:`` works and
+    ``blob:`` does not, reserving BLOCKED for a browser that can rasterise neither.
+    """
+    log("STEP topoexport -- M-TOPOLOGY-14 (modebar camera / PNG export)")
+    attach_captures(page)
+    res: dict = {}
+
+    open_tab(page, "Network Topology")
+    wake = wake_topology(page)
+    res["wake"] = wake
+    log(f"  wake_topology: {wake}")
+    if not wake["woke"]:
+        record("topoexport", verdict="BLOCKED", reason="graph never painted", wake=wake)
+        return
+
+    settle_figure(page, budget_s=30)
+    scroll_graph_into_view(page)
+    gid = f"{NV}-graph"
+
+    # ---- the PRODUCT half: config + button --------------------------------
+    cfg = page.evaluate(_JS_TOIMAGE_CONFIG, gid) or {}
+    opts = (cfg.get("opts") or {}) if isinstance(cfg, dict) else {}
+    fmt_ok = opts.get("format") == "png"
+    scale_ok = opts.get("scale") == 2
+    fname = str(opts.get("filename") or "")
+    fname_ok = bool(re.fullmatch(r"canopy_network_\d{8}_\d{6}", fname))
+
+    page.mouse.move(*_graph_centre(page, gid))
+    page.wait_for_timeout(1000)
+    btns = page.evaluate(_JS_MODEBAR_BTNS, gid) or []
+    cam = next((b for b in btns if "png" in str(b.get("data_title", "")).lower()), None)
+    log(f"  modebar buttons: {len(btns)}; camera={'yes' if cam else 'NO'}")
+    log(f"  toImageButtonOptions: format={opts.get('format')!r} scale={opts.get('scale')!r} filename={fname!r}")
+    log(f"    format_ok={fmt_ok} scale_ok={scale_ok} filename_ok={fname_ok}")
+
+    config_ok = bool(cam and fmt_ok and scale_ok and fname_ok)
+    res["config"] = {
+        "camera_button_present": bool(cam), "n_modebar_buttons": len(btns),
+        "format": opts.get("format"), "scale": opts.get("scale"), "filename": fname,
+        "format_ok": fmt_ok, "scale_ok": scale_ok, "filename_ok": fname_ok,
+        "graph_css": {"w": cfg.get("w"), "h": cfg.get("h")},
+    }
+
+    if not config_ok:
+        res["M-TOPOLOGY-14"] = {"verdict": "FAIL", "reason": "the export CONFIG is wrong — this is product-owned and needs no download to see", **res["config"]}
+        log("  M-TOPOLOGY-14 -> FAIL (export config is wrong; not an environment issue)")
+        shot(page, "seg17_topoexport.png")
+        record("topoexport", **res)
+        return
+
+    # ---- the ENVIRONMENT half: can this browser actually produce the PNG? --
+    dest = os.path.join(RUN_DIR, "m14_download")
+    os.makedirs(dest, exist_ok=True)
+    dl_res = {"caught": False}
+    try:
+        with page.expect_download(timeout=90000) as info:
+            page.mouse.click(cam["rect"]["x"], cam["rect"]["y"])
+        dl = info.value
+        saved = os.path.join(dest, dl.suggested_filename)
+        dl.save_as(saved)
+        dims = _png_dims(saved)
+        dl_res = {"caught": True, "suggested_filename": dl.suggested_filename, "saved": saved, "bytes": os.path.getsize(saved), "png": dims}
+    except Exception as e:  # noqa: BLE001
+        dl_res = {"caught": False, "why": f"{type(e).__name__}: {str(e)[:120]}"}
+    res["download"] = dl_res
+
+    if dl_res.get("caught"):
+        name_ok = bool(re.fullmatch(r"canopy_network_\d{8}_\d{6}\.png", dl_res.get("suggested_filename") or ""))
+        w, h = dl_res.get("png") or (0, 0)
+        cw = cfg.get("w") or 0
+        # scale: 2 VERIFIED against the real raster, not trusted from the config.
+        scale_seen = round(w / cw, 2) if cw else 0
+        raster_ok = bool(w and cw and abs(scale_seen - 2.0) <= 0.15)
+        verdict = "PASS" if (name_ok and raster_ok) else "FAIL"
+        res["M-TOPOLOGY-14"] = {"verdict": verdict, "filename_ok": name_ok, "png_w": w, "png_h": h, "scale_seen": scale_seen, "raster_ok": raster_ok, **res["config"]}
+        log(f"  M-TOPOLOGY-14 download: {dl_res.get('suggested_filename')!r} {w}x{h} (scale {scale_seen}) -> {verdict}")
+    else:
+        control = page.evaluate(_JS_SVG_RASTER_CONTROL)
+        res["svg_raster_control"] = control
+        log(f"  SVG raster control: blob:={control.get('blob')} data:={control.get('data')}")
+        if control.get("blob_blocked"):
+            # data: rasterises and blob: does not -> the page's CSP is the blocker,
+            # which is canopy's own header. A product defect, not an environment one.
+            res["M-TOPOLOGY-14"] = {
+                "verdict": "FAIL",
+                "reason": "canopy's CSP `img-src 'self' data:` omits blob:, so plotly's SVG->img->canvas raster is blocked and the camera button silently produces nothing (F-CANOPY-047)",
+                "svg_raster_control": control, "download": dl_res, **res["config"],
+            }
+            log("  M-TOPOLOGY-14 -> FAIL (F-CANOPY-047): data: rasterises, blob: is CSP-blocked.")
+            log("     The camera button and its config are correct; canopy's own `img-src` header breaks the export")
+            log("     for every user in every browser — this is NOT a headless quirk.")
+        elif not control.get("ok"):
+            res["M-TOPOLOGY-14"] = {
+                "verdict": "BLOCKED",
+                "reason": "this browser cannot rasterise SVG by ANY scheme (data: fails too), so the row cannot be scored here",
+                "svg_raster_control": control, "download": dl_res, **res["config"],
+            }
+            log("  M-TOPOLOGY-14 -> BLOCKED (environment): neither data: nor blob: rasterises in this browser")
+        else:
+            res["M-TOPOLOGY-14"] = {
+                "verdict": "FAIL",
+                "reason": "the browser rasterises SVG by both schemes, yet the camera button produced no download — product-owned, cause unidentified",
+                "svg_raster_control": control, "download": dl_res, **res["config"],
+            }
+            log("  M-TOPOLOGY-14 -> FAIL: the browser rasterises fine, so the missing download is the app's")
+
+    shot(page, "seg17_topoexport.png")
+    record("topoexport", **res)
+    log(f"  topoexport verdicts: {[(k, v.get('verdict')) for k, v in res.items() if isinstance(v, dict) and 'verdict' in v]}")
+
+
 def step_topostate(page, capture):
     """M-TOPOLOGY-13 and -18: view-state persistence and the raw-store gate.
 
@@ -1919,6 +2148,7 @@ STEPS = {
     "topo": step_topo,
     "topoevents": step_topoevents,
     "topostate": step_topostate,
+    "topoexport": step_topoexport,
     "storestorm": step_storestorm,
     "f031": step_f031,
     "theme": step_theme,

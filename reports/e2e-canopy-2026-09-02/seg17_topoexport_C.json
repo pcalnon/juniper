@@ -1,0 +1,72 @@
+{
+  "topoexport": {
+    "wake": {
+      "already": false,
+      "woke": true,
+      "elapsed_s": 27.8,
+      "attempts": 1
+    },
+    "config": {
+      "camera_button_present": true,
+      "n_modebar_buttons": 9,
+      "format": "png",
+      "scale": 2,
+      "filename": "canopy_network_20260903_023439",
+      "format_ok": true,
+      "scale_ok": true,
+      "filename_ok": true,
+      "graph_css": {
+        "w": 1102,
+        "h": 600
+      }
+    },
+    "download": {
+      "caught": false,
+      "why": "TimeoutError: Timeout 90000ms exceeded while waiting for event \"download\"\n=========================== logs ==========================="
+    },
+    "svg_raster_control": {
+      "blob": {
+        "ok": false,
+        "why": "img.onerror"
+      },
+      "data": {
+        "ok": true,
+        "len": 170
+      },
+      "ok": true,
+      "blob_blocked": true
+    },
+    "M-TOPOLOGY-14": {
+      "verdict": "FAIL",
+      "reason": "canopy's CSP `img-src 'self' data:` omits blob:, so plotly's SVG->img->canvas raster is blocked and the camera button silently produces nothing (F-CANOPY-047)",
+      "svg_raster_control": {
+        "blob": {
+          "ok": false,
+          "why": "img.onerror"
+        },
+        "data": {
+          "ok": true,
+          "len": 170
+        },
+        "ok": true,
+        "blob_blocked": true
+      },
+      "download": {
+        "caught": false,
+        "why": "TimeoutError: Timeout 90000ms exceeded while waiting for event \"download\"\n=========================== logs ==========================="
+      },
+      "camera_button_present": true,
+      "n_modebar_buttons": 9,
+      "format": "png",
+      "scale": 2,
+      "filename": "canopy_network_20260903_023439",
+      "format_ok": true,
+      "scale_ok": true,
+      "filename_ok": true,
+      "graph_css": {
+        "w": 1102,
+        "h": 600
+      }
+    }
+  }
+}

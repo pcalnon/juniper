@@ -1,0 +1,334 @@
+{
+  "config": {
+    "toImageButtonOptions": {
+      "format": "png",
+      "scale": 2,
+      "filename": "canopy_network_20260903_022653"
+    },
+    "displayModeBar": true,
+    "w": 1102,
+    "h": 600
+  },
+  "modebar_before_hover": {
+    "present": true,
+    "bar": true,
+    "bar_class": "modebar modebar--custom",
+    "bar_display": "block",
+    "bar_opacity": "1",
+    "n_groups": 3,
+    "n_btns": 9,
+    "btns": [
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Download plot as a PNG",
+        "data_attr": null,
+        "data_val": null,
+        "rect": {
+          "x": 1329,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Zoom",
+        "data_attr": "dragmode",
+        "data_val": "zoom",
+        "rect": {
+          "x": 1361,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn active",
+        "data_title": "Pan",
+        "data_attr": "dragmode",
+        "data_val": "pan",
+        "rect": {
+          "x": 1385,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Box Select",
+        "data_attr": "dragmode",
+        "data_val": "select",
+        "rect": {
+          "x": 1409,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Lasso Select",
+        "data_attr": "dragmode",
+        "data_val": "lasso",
+        "rect": {
+          "x": 1433,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Zoom in",
+        "data_attr": "zoom",
+        "data_val": "in",
+        "rect": {
+          "x": 1465,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Zoom out",
+        "data_attr": "zoom",
+        "data_val": "out",
+        "rect": {
+          "x": 1489,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Autoscale",
+        "data_attr": "zoom",
+        "data_val": "auto",
+        "rect": {
+          "x": 1513,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Reset axes",
+        "data_attr": "zoom",
+        "data_val": "reset",
+        "rect": {
+          "x": 1537,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      }
+    ],
+    "html_head": "<div class=\"modebar-group\" style=\"background-color: rgba(255, 255, 255, 0.5);\"><button type=\"button\" rel=\"tooltip\" class=\"modebar-btn\" data-title=\"Download plot as a PNG\" aria-label=\"Download plot as a PNG\" data-toggle=\"false\" data-gravity=\"n\" data-btn-style-event-added=\"true\"><svg viewBox=\"0 0 1000 1000\" class=\"icon\" height=\"1em\" width=\"1em\"><path d=\"m500 450c-83 0-150-67-150-150 0-83 67-150 150-"
+  },
+  "modebar_after_hover": {
+    "present": true,
+    "bar": true,
+    "bar_class": "modebar modebar--custom",
+    "bar_display": "block",
+    "bar_opacity": "1",
+    "n_groups": 3,
+    "n_btns": 9,
+    "btns": [
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Download plot as a PNG",
+        "data_attr": null,
+        "data_val": null,
+        "rect": {
+          "x": 1329,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Zoom",
+        "data_attr": "dragmode",
+        "data_val": "zoom",
+        "rect": {
+          "x": 1361,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn active",
+        "data_title": "Pan",
+        "data_attr": "dragmode",
+        "data_val": "pan",
+        "rect": {
+          "x": 1385,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Box Select",
+        "data_attr": "dragmode",
+        "data_val": "select",
+        "rect": {
+          "x": 1409,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Lasso Select",
+        "data_attr": "dragmode",
+        "data_val": "lasso",
+        "rect": {
+          "x": 1433,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Zoom in",
+        "data_attr": "zoom",
+        "data_val": "in",
+        "rect": {
+          "x": 1465,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Zoom out",
+        "data_attr": "zoom",
+        "data_val": "out",
+        "rect": {
+          "x": 1489,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Autoscale",
+        "data_attr": "zoom",
+        "data_val": "auto",
+        "rect": {
+          "x": 1513,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      },
+      {
+        "tag": "BUTTON",
+        "cls": "modebar-btn",
+        "data_title": "Reset axes",
+        "data_attr": "zoom",
+        "data_val": "reset",
+        "rect": {
+          "x": 1537,
+          "y": 263,
+          "w": 24,
+          "h": 22
+        }
+      }
+    ],
+    "html_head": "<div class=\"modebar-group\" style=\"background-color: rgba(255, 255, 255, 0.5);\"><button type=\"button\" rel=\"tooltip\" class=\"modebar-btn\" data-title=\"Download plot as a PNG\" aria-label=\"Download plot as a PNG\" data-toggle=\"false\" data-gravity=\"n\" data-btn-style-event-added=\"true\"><svg viewBox=\"0 0 1000 1000\" class=\"icon\" height=\"1em\" width=\"1em\"><path d=\"m500 450c-83 0-150-67-150-150 0-83 67-150 150-"
+  },
+  "camera_button": {
+    "tag": "BUTTON",
+    "cls": "modebar-btn",
+    "data_title": "Download plot as a PNG",
+    "data_attr": null,
+    "data_val": null,
+    "rect": {
+      "x": 1329,
+      "y": 263,
+      "w": 24,
+      "h": 22
+    }
+  },
+  "download": {
+    "caught": false,
+    "why": "TimeoutError: Timeout 120000ms exceeded while waiting for event \"download\"\n=========================== logs ===========================\nwaiting for event \"download\"\n===================================",
+    "page_side": {
+      "objurls": 1,
+      "anchor_clicks": 0,
+      "downloads": [],
+      "errors": []
+    }
+  },
+  "toImage": {
+    "ok": false,
+    "ms": 4133,
+    "why": "[object Event]"
+  },
+  "toImage_matrix": {
+    "n_other_graphs": 13,
+    "other_traces": 0,
+    "topo_traces": 1891,
+    "results": [
+      {
+        "label": "topology png scale=1",
+        "ok": false,
+        "ms": 3877,
+        "why": "[object Event]"
+      },
+      {
+        "label": "topology svg",
+        "ok": true,
+        "ms": 3225,
+        "len": 1211031
+      },
+      {
+        "label": "OTHER graph png scale=2",
+        "ok": false,
+        "ms": 1969,
+        "why": "[object Event]"
+      }
+    ]
+  },
+  "svg_raster_control": {
+    "blob": {
+      "ok": false,
+      "why": "img.onerror"
+    },
+    "data": {
+      "ok": true,
+      "len": 170
+    },
+    "csp": "<header-only>"
+  }
+}
