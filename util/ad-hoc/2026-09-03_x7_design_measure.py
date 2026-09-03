@@ -48,6 +48,8 @@ def _wait_port(port, deadline=15.0):
                 s.close()
             except OSError:
                 pass
+                # Best-effort cleanup: ignore close errors from an already-closed
+                # or otherwise invalid socket state during retry loop teardown.
     return False
 
 
