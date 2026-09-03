@@ -816,6 +816,15 @@ jobs:
           # manifest, and the 0/1/2/3/4 exit matrix. No live services;
           # util/ is not pre-commit-lint-gated, so this unittest is the gate.
           python3 -m unittest -v tests/test_run_experiment.py
+          # tests/test_read_run_metrics.py: hermetic tests for
+          # util/experiments/read_run_metrics.py, the canonical reader for the perf
+          # lane's two ratified gate inputs (P2 item 0.4). Pins that the LAST sampled
+          # histogram row wins (step_count is gated at ZERO tolerance, so a mid-run
+          # sample would fail a correct run), that the scrape tri-state keeps None
+          # ("could not ask") distinct from False, and -- as a negative control -- that
+          # work_invariant actually FAILS when step_counts differ and when nothing was
+          # measured at all. util/ is not pre-commit-lint-gated, so this is the gate.
+          python3 -m unittest -v tests/test_read_run_metrics.py
           # tests/test_experiment_config_schemas.py: Wave 3.5 drift gate over the
           # sibling repos' conf/experiments/*.yaml (auto-skips here -- siblings are
           # not cloned in this job; the always-on AST-extractor self-check still
