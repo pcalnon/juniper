@@ -17,6 +17,10 @@ Wave 1 below wrong. A P2 authored before P3 would have been a plan to build the 
 the instrument-resolution results records the decisions already taken) and writes no operator docs
 (P4's job).
 
+**Operator surface (item 3.1).** Recurrence work is **not countable**: `n_epochs` is degenerate
+(1-or-200 by readout type), `n_windows` is input size, and the tooling refuses to baseline or gate
+on speed alone. Runbook: [`docs/REFERENCE.md` § Recurrence Work Is Not Countable](../docs/REFERENCE.md#recurrence-work-is-not-countable).
+
 ---
 
 ## 1. What P3 already settled, and what it costs this plan
