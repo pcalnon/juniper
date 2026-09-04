@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.41
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -23,6 +23,7 @@
 - [Agent Suite Doctor](#agent-suite-doctor)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
+- [Resident-Hazard Gap Triage](#resident-hazard-gap-triage)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
@@ -1325,6 +1326,101 @@ machinery.
 
 ---
 
+## Resident-Hazard Gap Triage
+
+The P5 cut gave every governed repo a resident `## Hazards` block. Three
+ad-hoc tools ask complementary questions. Using only the first one is a
+structural miss: it cannot surface a directive that was never in
+`AGENTS.md`.
+
+Fleet record:
+[`notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_RESIDENT-HAZARD-GAP-TRIAGE.md`](../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_RESIDENT-HAZARD-GAP-TRIAGE.md).
+
+### The three tools
+
+| Tool | Reads | Question | Default print threshold |
+|------|-------|----------|-------------------------|
+| `util/ad-hoc/2026-08-28_hazard_triage.py` | `AGENTS.md` via `gh api` on **GitHub `main`** (not the local tree) | Which *already-resident* blocks look like hazards? | `--min-score 2` |
+| `util/ad-hoc/2026-08-28_resident_gap_scan.py` | Local checkout, read-only | Which source comments are hazard-shaped and resident *nowhere*? | ranked by **identifier count**; `--max 30` |
+| `util/ad-hoc/2026-08-31_resident_gap_triage.py` | Local checkout; loads the two siblings by path | Gap finding, scored with the four severity signals | `--min-score 3`, `--top 12` |
+
+### Scoring
+
+Four signals, one point each: **prohibition** / **silent-failure** /
+**irreversible** / **hazard-noun**. Score the **block**, not a line and
+not a 2-sentence window. A window-scored build put cascor's known-real
+`max_epochs` / `output_epochs` split (`cascade_correlation.py:1927`) at
+score 2 and buried it; block scoring puts it at 3, rank 1. The sentence
+window survives only to pick the printed snippet.
+
+`WARNING` / `CRITICAL` / `IMPORTANT` used as a **log level** lose the
+`hazard-noun` point only. The demotion is recorded in `demoted`; nothing
+is silently dropped. `--json` writes **every** scored row, including
+those below `--min-score`.
+
+Sort: score desc, then silence-marker present, then identifier count.
+
+### Usage
+
+```bash
+# Already-resident ranking (needs `gh`; hits GitHub main)
+python3 util/ad-hoc/2026-08-28_hazard_triage.py juniper-canopy --min-score 2
+
+# Source-only gap list (local tree; ranks by identifier count, not danger)
+python3 util/ad-hoc/2026-08-28_resident_gap_scan.py . --max 40
+
+# Joined triage — the one to re-run after a cut
+python3 util/ad-hoc/2026-08-31_resident_gap_triage.py \
+    ../juniper-cascor ../juniper-canopy ../juniper-data \
+    --min-score 3 --json /tmp/fleet_triage.json
+
+# Positive control (cascor pre-#609 AGENTS.md)
+git -C ../juniper-cascor show e1b4988c:AGENTS.md > /tmp/pre609.md
+python3 util/ad-hoc/2026-08-31_resident_gap_triage.py \
+    ../juniper-cascor --self-check --agents /tmp/pre609.md
+```
+
+A normal scan always exits **0** (including zero candidates).
+`--self-check` exits **1** if `cascade_correlation.py:1927` is missing,
+scores below 3, or ranks outside the top 5.
+
+### The candidate count is not a health metric
+
+Relocation moves facts *out* of `AGENTS.md`, so source identifiers that
+used to have a resident counterpart no longer do. The gap predicate then
+matches them. **Cutting widens the gap by construction.**
+
+Recorded on the 2026-08-31 fleet pass (notes §3 / §7a / §8):
+
+| Pass | Scored rows | What changed |
+|------|------------:|--------------|
+| First fleet pass | 285 | eight sibling repos; juniper-ml was the scanner, not a row |
+| After the first promotions landed | 281 | each promotion removes itself — expected |
+| Canopy after its cut | 90 (was 63 on 2026-08-28) | ten sections left `AGENTS.md`; the rise is correct |
+
+The health signal is the **score ≥ 3 count** (and whether anything
+*new* appears there), not the total. Re-run after every cut, not only
+before.
+
+### Operator pitfalls
+
+| Symptom | Cause |
+|---------|-------|
+| Total went up after a successful relocation | Expected. Read score ≥ 3 / new rows, not the total. |
+| Using `hazard_triage` alone | Can only rank text already in `AGENTS.md`. Both cascor promotions were invisible to it. |
+| Trusting `resident_gap_scan` top rows | Identifier-count ranking. Fleet-wide first run: ~630 raw; tops were long docstrings. |
+| Huge file / candidate counts on juniper-ml | Pre-[#1519](https://github.com/pcalnon/juniper-ml/pull/1519) the default glob walked in-repo worktrees. `SKIP_DIRS` now drops `.claude`, `worktrees`, `.venv`, and other copy trees. |
+| `hazard_triage` ignores local edits | It fetches `repos/pcalnon/<repo>/contents/AGENTS.md?ref=main` via `gh api`. |
+| Dual-tree repos (juniper-data) | Every hit appears twice (`juniper_data/` and `src/`). Halve before quoting. |
+| Top score is noise | Fleet-highest was recurrence `bench/plots.py` at 4 — presentational. Human review; do not raise the threshold to hide it (that also drops `max_epochs`). |
+| Promoting on severity alone | The residency test is whether **reading the code recovers the fact**. Adjacent rationale stays in the comment. |
+
+Related: [Relocation Completeness (G3)](#relocation-completeness-g3),
+[Memory File Size Budget](#memory-file-size-budget),
+[`AGENTS.md` § Hazards](../AGENTS.md#hazards-resident--do-not-relocate).
+
+---
+
 ## Test Suite Reference
 
 Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it is read on demand rather than loaded into every session.
@@ -1592,6 +1688,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - A `gh` non-zero exit is a `ProbeError` → exit 3, never a silently-empty result; that conflation is the same class as trap 1. A missing `required_status_checks` rule is likewise a hard error rather than a quiet downgrade.
   - Probes retry up to `PROBE_RETRIES` (3) times with backoff. The retry is **delay-only** and never classifies errors as transient vs. permanent — a genuinely broken probe fails every attempt and still raises, so the honesty property holds. It exists because two of the first three live runs died due to a transient `TLS handshake timeout` / `unexpected EOF`, discarding a wait that was minutes away from finishing.
   - `mergeStateStatus` is reported but never gated on. `BEHIND` is branch freshness, not check completion — all 9 repos set `strict_required_status_checks_policy: true` ("Require branches to be up to date before merging"), which is a **different** setting from the removed `update` rule ("Restrict updates"); the signing-safe fix is `gh api repos/<owner>/<repo>/pulls/<n>/update-branch -X PUT` (server-side, therefore GitHub-signed). Tests: `tests/test_wait_for_checks.py`.
+- `util/ad-hoc/2026-08-28_hazard_triage.py` / `2026-08-28_resident_gap_scan.py` / `2026-08-31_resident_gap_triage.py` -- Complementary P5 hazard finders. The first ranks *already-resident* `AGENTS.md` blocks via `gh api` on GitHub `main` (default `--min-score 2`). The second finds hazard-shaped source comments whose identifiers are absent from `AGENTS.md` (local, read-only; ranks by identifier count). The third joins them: gap finding scored with four severity signals on the **block** (default `--min-score 3`; `--json` writes every scored row; `--self-check` pins cascor `cascade_correlation.py:1927`). `SKIP_DIRS` excludes in-repo worktrees (#1519). The candidate **total is not a health metric** — cutting widens the gap by construction. Operator surface: [Resident-Hazard Gap Triage](#resident-hazard-gap-triage).
 - `util/ad-hoc/` -- Home for single-use / temporary / unfinished scripts. See `util/ad-hoc/README.md` for file-header conventions and graduation lifecycle. `/tmp/` is prohibited for script source files per the [Script placement](../AGENTS.md#script-placement-mandatory) rule.
 - Dependency-documentation generator now lives in [`juniper-ci-tools/`](juniper-ci-tools/) and is published to PyPI as `juniper-ci-tools` (Wave 4 of the dep-docs migration plan; install with `pip install juniper-ci-tools` and invoke via `juniper-generate-dep-docs`). The legacy `util/generate_dep_docs.sh` was deleted in juniper-ml#298.
 - `util/juniper_plant_all.bash` -- Starts all Juniper ecosystem services. `JUNIPER_CASCOR_HOST` defaults to `localhost` and `JUNIPER_CASCOR_PORT` defaults to `8201`; both can be overridden via the environment (e.g. `JUNIPER_CASCOR_HOST=remote.example.com JUNIPER_CASCOR_PORT=8201 util/juniper_plant_all.bash`).
@@ -3001,6 +3098,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
+| 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |

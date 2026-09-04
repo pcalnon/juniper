@@ -4,7 +4,9 @@
 **Sub-Project**: juniper-ecosystem
 **Author**: Paul Calnon
 **License**: MIT License
-**Last Updated**: 2026-08-31
+**Last Updated**: 2026-09-04
+
+Operator surface (how to re-run, how to read the score, why the candidate count grows after a cut): [`docs/REFERENCE.md` § Resident-Hazard Gap Triage](../docs/REFERENCE.md#resident-hazard-gap-triage).
 
 ---
 
