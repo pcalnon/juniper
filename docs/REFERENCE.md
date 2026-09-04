@@ -2602,13 +2602,18 @@ Slice **1a** (off-loop discipline) closes X7 **alone**. Slices 1c/1d are load re
 
 ### Authority vs exploratory sibling
 
-| Surface | Role | Count (2026-09-04) |
+| Surface | Role | Pre-fix count |
 |---------|------|--------------------|
-| Canopy gate `src/tests/regression/test_x7_off_loop_discipline.py` (branch `fix/x7-1a-off-loop-discipline` @ `d33ab0a`) | **Authority.** Decide when 1a is done. | **52** blocking, `UNRESOLVED 0` |
-| `util/ad-hoc/2026-09-04_x7_offload_census_v2.py` (lands with juniper-ml#1631; v0.3.0) | Exploratory sibling. Same classification; does **not** carry the gate's `VERIFIED_NO_IO_CALLS` exclusions. | **54** |
+| Canopy gate `src/tests/regression/test_x7_off_loop_discipline.py` | **Authority for `main.py` — and only for `main.py`.** | **52** blocking, `UNRESOLVED 0` |
+| Canopy `util/ad-hoc/2026-09-04_async_blocking_callgraph.py` | **Authority everywhere else.** Transitive taint over canopy + both client libraries; sees calls that block *through a helper*. | the **6** the gate cannot |
+| `util/ad-hoc/2026-09-04_x7_offload_census_v2.py` (juniper-ml; v0.3.0) | Exploratory sibling. Same classification as the gate; does **not** carry its `VERIFIED_NO_IO_CALLS` exclusions. | **54** |
 | `util/ad-hoc/2026-09-04_x7_offload_census.py` (v1) | **Negative example. Do not quote its counts.** | unsound (name-matching) |
 
-The 54 vs 52 delta is exactly two `backend._demo` accessors (`get_network`, `get_current_state`) that were read and confirmed in-process. The design's §5.2 "**36** sites" is **superseded** — it moved 40 → 39 → 37 → **52** after the gate's own unsoundness was found (below). Update §5.2 when you next touch the design.
+**The count is 58, and slice 1a shipped it** (juniper-canopy#567, squashed at `e6c27e92`). The history is 40 → 39 → 37 → **52** → **58**; design §5.2 carries it in full, so "36" and "52" are both superseded.
+
+The 54-vs-52 delta is exactly two `backend._demo` accessors (`get_network`, `get_current_state`), read and confirmed in-process. **The 52-vs-58 delta is the one that matters**: six sites the gate is *structurally* unable to see, not six it happened to miss. `_extract_meta_params()` and `_seed_training_state()` are bare module functions in `main.py` whose **bodies** hold `backend.get_status()` — at their call sites there is no receiver to resolve, so a receiver-resolving scan reports a clean 0 over calls that block identically; `create_snapshot` called the first one twice. Four more live outside `main.py`, which the gate does not read at all: adapter `connect()` and `_relay_loop()`, and `service_backend.initialize()`'s two calls — the latter on a **request** path, since `_swap_backend` awaits `initialize()` for a runtime model change.
+
+The gate has since been extended to resolve module-level sync helpers transitively (`HELPER` bucket) and now reads 0 legitimately for `main.py`; the four sites outside it are guarded by the call-graph instrument instead. **Run that instrument when touching the adapter** — a green gate is not by itself proof that 1a is intact.
 
 ### Why `ruff --select ASYNC` is green on the bug
 
@@ -2679,9 +2684,9 @@ Bare `to_thread` is intentional for slice 1a (slice 1b already bounds per-call c
 | Census / gate count dropped after offloading one site, twin still blocking | Module-global expression exemption — exemption must be site-local |
 | `ruff --select ASYNC` is green | Expected. Opaque `backend.*` calls are invisible. Trust the gate. |
 | v1 reports an awaited `httpx` call as blocking | Name-matching: `client` is overloaded. Use v2 or the gate. |
-| v2 is 54, gate is 52 | Two `backend._demo` accessors excluded by exact expression in the gate only |
-| Gate is 0, relay still blocks ~123 s | Scope is `main.py` only. Inspect `extract_network_topology()` by hand |
-| Design still says 36 | Superseded. Authority is the gate (52 as of `d33ab0a`) |
+| v2 is 54, gate is 52 | Pre-fix figures. Two `backend._demo` accessors excluded by exact expression in the gate only |
+| Gate is 0 — is 1a intact? | Not on its own. The gate reads `main.py`. Run `juniper-canopy/util/ad-hoc/2026-09-04_async_blocking_callgraph.py` for the adapter and `service_backend` |
+| A doc says 36, or 52 | Both superseded. The count is **58** (juniper-canopy#567); design §5.2 carries the history |
 | `FileNotFoundError` on `CANOPY_MAIN` | Hardcoded host path. Point it at your juniper-canopy `src/main.py` |
 | Health still hangs after offloading "the hot handlers" | One un-offloaded handler reinstates the full outage. Exhaustive over the mechanism. |
 | Passing `timeout=30, retries=3` "to bound it" | Those **are** the library defaults — a literal no-op. Slice 1b is `retries=0`. |
@@ -3099,7 +3104,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0.6.22  | 2026-09-04 | X7 off-loop census: canopy gate is authority (52), v2 is exploratory (54), v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
+| 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
