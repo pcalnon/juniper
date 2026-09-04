@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.27
-**Date**: 2026-08-24
+**Version**: 1.0.40
+**Date**: 2026-09-04
 **Project**: juniper-ml
 
 ---
@@ -224,9 +224,11 @@ dataset_id = client.create_dataset("spiral", {"n_points": 200, "noise": 0.1})
 npz = client.download_artifact_npz(dataset_id)
 ```
 
-Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`, `mnist`, `arc_agi`
+Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import` (128 MiB cap; 422 until `allow_truncation`; **not** a cascor staging target), `mnist`, `arc_agi`, `equities` (`max_symbols` still silent-slices). Cap contract: [REFERENCE — CSV Import Byte Cap](REFERENCE.md#csv-import-byte-cap).
 
 REST `base_url` (data / cascor / recurrence HTTP clients on GitHub main): strip, case-insensitive `http(s)://` default, require `hostname` (not `netloc`), drop trailing `/` and `/v1`. Hostless values raise `Juniper*ConfigurationError` at init. Cascor WS streams (`CascorTrainingStream` / `CascorControlStream`) and `FakeCascorClient` stay `rstrip("/")` only. Extras floors do not yet require the new wheels — see [REFERENCE — HTTP Client Base-URL](REFERENCE.md#http-client-base-url-contract).
+
+Tip: `csv_import` refuses sources over 128 MiB with HTTP **422** until `dataset.params.allow_truncation` or `JUNIPER_DATA_CSV_IMPORT_ALLOW_TRUNCATION`. `file_path` is relative to `JUNIPER_DATA_IMPORT_DIR` (default `/data/imports` — export a real directory before `experiment_stack --up`). Cascor cannot stage it. `equities` `max_symbols` still silent-slices (`generator.py:286`). [CSV Import Byte Cap](REFERENCE.md#csv-import-byte-cap).
 
 ---
 
@@ -481,6 +483,9 @@ Pointer: [REFERENCE — YubiKey GPG Provisioning](REFERENCE.md#yubikey-gpg-provi
 | `JUNIPER_CASCOR_SNAPSHOTS_DIR` | `~/Development/python/Juniper/juniper-cascor/cascor-snapshots` | Dual-use: cascor write dir **and** snapshot-tool `--root` default. Do **not** redirect for the sidecar chain — pass `--root`. |
 | `JUNIPER_CASCOR_SRC`           | `~/Development/python/Juniper/juniper-cascor/src` | Override cascor source tree for `snapshot_attribute.py` |
 | `JUNIPER_DATA_ROOT`            | `~/Development/python/Juniper/juniper-data` | Override juniper-data tree for generator imports |
+| `JUNIPER_DATA_IMPORT_DIR`      | `/data/imports`    | Prefix `csv_import` `file_path` is resolved against. `experiment_stack` `data_up` does not set this. |
+| `JUNIPER_DATA_CSV_IMPORT_MAX_BYTES` | `134217728` (128 MiB) | Deployment ceiling; a request `max_bytes` may only lower it (`gt=0`). |
+| `JUNIPER_DATA_CSV_IMPORT_ALLOW_TRUNCATION` | `false`     | Deployment-wide opt-in to a partial csv_import (logical OR with the request). |
 | `JUNIPER_FLEET_SKIP_PRECOMMIT` | unset              | When set, `predict_merge` skips the pre-commit battery (screens still run) |
 
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
@@ -606,6 +611,8 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Experiment `--up` misuse / exit `2` | Need one action + `--cascor` and/or `--recurrence`. |
 | Experiment health timeout | Check `$RUN_DIR/logs/`; default wait is `90s` (cold recurrence). Set `JUNIPER_EXP_PROJECT_DIR` in worktrees. |
 | Experiment `bring-up failed` / partial stack | `do_up` already ran `teardown_run` — read `teardown.json` + logs; confirm lockdirs gone before retry. |
+| Driver exit `2` csv_import `422` | Source over 128 MiB without opt-in, or cascor tried to stage csv_import. [CSV Import Byte Cap](REFERENCE.md#csv-import-byte-cap). |
+| csv_import `FileNotFoundError` on `--up` | `JUNIPER_DATA_IMPORT_DIR` default is `/data/imports`. Export a real on-host directory; `file_path` is relative to it. |
 | Experiment `pidfile path refused` | Pid-reuse refuse → kill-by-port on the recorded port only; WARNING means inspect `ss` before reuse (open #923). |
 | Experiment teardown left listeners / wrong kill | Confirm F-6 pidfiles (`record_listener_pid` after health); `--down` keeps `artifacts/`. |
 | Driver exit `1` stalled/timed_out | Cascor stall detector / wall budget; recurrence `timed_out` = train socket budget. See `manifest.json`. |
@@ -705,6 +712,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 - [Ecosystem Guide](../AGENTS.md) -- project map, dependency graph, conventions
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
+- [CSV Import Byte Cap](REFERENCE.md#csv-import-byte-cap) -- 128 MiB, 422 until opt-in, experiment-stack `IMPORT_DIR` pitfall
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
@@ -713,6 +721,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 1.0.27
+**Last Updated:** 2026-09-04
+**Version:** 1.0.40
 **Maintainer:** Paul Calnon

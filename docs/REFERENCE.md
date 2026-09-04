@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.28
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -25,6 +25,7 @@
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
+- [CSV Import Byte Cap](#csv-import-byte-cap)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
@@ -1672,7 +1673,8 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
     The direct CLI instead **aliases** `max_epochs → output_epochs` (`main.py:238-249`) so it bounds every pass, and an explicit `output_epochs` wins over the alias (`:291-292`). A config carrying only `max_epochs: N` therefore runs the CLI at N per pass and the service at N then 10000 — several-fold per-pass divergence over a 64-128-unit run, which makes the service both slower and better-trained than the config appears to ask for.
     **Any CLI-vs-service comparison must set both, to the same value.** `load_config` emits a `validation_warnings` entry (carried on the manifest) but never raises — a service-only run may want the split, and `spiral-baseline.yaml` ships that way. Found by juniper-ml#1143 §2.2; gate: `ConfigValidationTest.test_max_epochs_without_output_epochs_warns`.
   - Drive: generator preflight (`GET /v1/generators` must report `available: true`), `POST /v1/datasets` (content-addressed `dataset_id` recorded), then `POST /v1/training/start` and poll `GET /v1/training/status` to `COMPLETED`/`FAILED` under the Q-2 wall-clock budget (`outputs.max_wall_seconds`, CLI `--max-wall-seconds` wins) + stall detector (no `current_epoch` progress for `--stall-seconds`, default 120 -> `outcome: "stalled"`).
-  - Every cascor-path generator stages through `POST /v1/training/dataset` (alias map incl. gaussian/checkerboard since W-3, juniper-cascor#490) with a post-run G-6 input-width assert (mismatch = acceptance failure).
+  - csv_import over the 128 MiB cap without `allow_truncation` 422s at `POST /v1/datasets` (driver exit 2). `csv_import` is not in `STAGEABLE_GENERATOR_ALIASES`. [CSV Import Byte Cap](#csv-import-byte-cap).
+  - Every cascor-path generator stages through `POST /v1/training/dataset` (alias map incl. gaussian/checkerboard since W-3, juniper-cascor#490) with a post-run G-6 input-width assert (mismatch = acceptance failure). `csv_import` / `arc_agi` / the 3-D sequence family are **not** in `STAGEABLE_GENERATOR_ALIASES` and fail here before any byte cap applies.
     - Spiral joined the staged path with F-P4-1: the old spiral-only inline `dataset` source made cascor materialize its in-process fallback (unit-radius, params silently ignored) instead of the configured juniper-data dataset, terminating every service spiral run below_threshold with zero hidden units.
     - Root-cause note: [`notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_F-P4-1-SERVICE-SPIRAL-ROOT-CAUSE.md`](../notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_F-P4-1-SERVICE-SPIRAL-ROOT-CAUSE.md); cascor-side fidelity fix cascor#504; candidate-param plumbing gap cascor#505.
   - Each poll samples the loopback `/metrics` allowlist (`candidate_correlation` / `hidden_units_total` / `training_loss` / `training_accuracy_ratio` / step-duration sum+count) into `artifacts/results/metrics_series.csv` -- correlation exists ONLY there, never in `/v1/metrics/history` rows; a 404 (metrics disabled, G-3) degrades sampling, not the run.
@@ -2449,6 +2451,7 @@ Do not read a SKIP-only `ValueError` as a blank PNG or acceptance regression.
 | Log says `pidfile path refused — falling back to the recorded port` | Pid reuse / cmdline mismatch refused the pidfile kill; port fallback should still stop **this run's** listener. If WARNING persists, inspect `ss -tlnpH "sport = :<port>"` before reuse. |
 | `--status` says UNSCRAPED | Expected without `--grafana-bridge`; opt in only when `socat` + deploy `prometheus/targets/` are available. |
 | Driver exit `2` on YAML | Unknown block/key, missing `experiment.seed`, or rule-6 infra key — see stderr. |
+| Driver exit `2` `POST /v1/datasets rejected (422)` on csv_import | Source over the 128 MiB cap without opt-in — [CSV Import Byte Cap](#csv-import-byte-cap). |
 | Driver exit `1` `stalled` / `timed_out` | Cascor: raise `--stall-seconds` / `--max-wall-seconds` only after confirming the run is still progressing; recurrence `timed_out` is the train socket budget. |
 | Missing correlation / empty plot | Correlation is only in the driver's `metrics_series.csv` (not `/v1/metrics/history`). A `/metrics` 404 degrades sampling (G-3), not the run. |
 | `--down` deleted results | It must not — `artifacts/` is preserved; if results are gone, check you pointed at the wrong `RUN_ROOT` or cleaned the durable home dir manually. |
@@ -2497,6 +2500,62 @@ print(sorted(n for n, i in GENERATOR_REGISTRY.items() if not generator_available
 Against a **running** data service, the same facts come from the API: `GET /v1/generators/{name}/schema` includes `"available"`, and unavailable generators return `501` at dataset-creation time.
 
 The six numpy-only 2-D classification generators (`spiral`, `xor`, `gaussian`, `circles`, `moon`, `checkerboard`) are also the attribution roster in `util/snapshot_attribute.py`. Their `seed` fields are **not** interchangeable — five declare `None` and redraw every call unless pinned. Operator contract: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
+
+`csv_import` stays in the "no optional-dep gate" row above: it is always *registered*. The I/O bound that shipped with juniper-data#326 is a **runtime** refusal, not an availability hook — [CSV Import Byte Cap](#csv-import-byte-cap).
+
+---
+
+## CSV Import Byte Cap
+
+`csv_import` generation still runs inside the request (`APD-DATA-018`). The owner chose Option 6 of [`notes/JUNIPER_2026-09-01_JUNIPER-DATA_ASYNC-JOB-PATTERN-DECISION-ANALYSIS.md`](../notes/JUNIPER_2026-09-01_JUNIPER-DATA_ASYNC-JOB-PATTERN-DECISION-ANALYSIS.md) — **bound the inputs**, not an async job store. The csv_import half shipped in [juniper-data#326](https://github.com/pcalnon/juniper-data/pull/326) (`cf387a82`). The register row stays **OPEN** for the `equities` half.
+
+Canonical constants live in juniper-data `juniper_data/core/limits.py` (imported by both `api.settings` and the generator; putting them in the generator package is circular).
+
+### Contract (verified against juniper-data `main`)
+
+| Knob | Value | Why it is that way |
+|------|-------|--------------------|
+| Cap | **128 MiB** (`CSV_IMPORT_DEFAULT_MAX_BYTES`) | Whole `generate()` path measured at median **14.4 MB/s** (`util/ad-hoc/2026-09-04_measure_csv_import_throughput.py`) → ~8.9 s parse, inside the ~30 s client budget. Above this the binding constraint is memory: `_parse_csv_stream` materialises one dict per row. |
+| Default | **Refusal** (`InputTooLargeError` → HTTP **422** with a **string** `detail`) | Truncation is opt-in, never a default. Schema 422s stay a list; this one is a string so a generated client cannot mistake it for field errors. 422 is already on the API surface — `APD-DATA-022` (new status code in `responses={}`) stays parked. |
+| Opt-in | request `allow_truncation`, `JUNIPER_DATA_CSV_IMPORT_ALLOW_TRUNCATION`, or the matching `.env` entry | Logical **OR**: a client cannot opt *out* of a deployment-wide opt-in. |
+| Effective cap | `min(requested, settings.csv_import_max_bytes)` | A request may only **lower** the ceiling. The first draft let `max_bytes` win outright, which made the DoS bound caller-controlled; a generated client serialising schema defaults also sends `max_bytes=134217728` on every request and would have raised a *lower* operator ceiling. |
+| Enforcement | `stat` is a cheap pre-check; **the read is the bound** (`_read_capped_bytes(path, cap+1)`) | Trusting `stat` let a FIFO (`st_size == 0`) or a file that grew between stat and open be ingested without limit. `Settings.csv_import_max_bytes` carries `gt=0` because Python `read(-1)` is unbounded. |
+| Annotation | `DatasetMeta.truncation` (`truncated`, `reason=source_exceeded_byte_cap`, `bytes_read`, `bytes_total`, `cap_bytes`, `records_imported`) | Permanent, popped from the generate dict before checksum + NPZ persist (`TRUNCATION_META_KEY`, mirroring `core/scaling.py`). `None`/absent means complete — a caller must never distinguish "not truncated" from "the generator forgot to say". |
+| Path | `file_path` is relative to `JUNIPER_DATA_IMPORT_DIR` (default `/data/imports`) | Traversal outside that prefix is `ValueError`. This is **not** the 10 MB HTTP body limit. |
+
+`InputTooLargeError` subclasses `ValueError` so a missed 422 mapping still lands 400, not 500.
+
+### What this means on a juniper-ml experiment stack
+
+`util/experiments/run_experiment.py` `create_dataset` already maps `POST /v1/datasets` **422** to `ConfigError` (driver exit **2**) — an oversized csv_import without opt-in fails closed at dataset creation, not as a 5xx.
+
+`csv_import` is **not** in `STAGEABLE_GENERATOR_ALIASES`. A cascor-path YAML with `dataset.generator: csv_import` is refused *before* the byte cap matters (`stage_dataset` ConfigError: not a cascade-correlation staging target, plan SS10.3). The recurrence path *can* create a csv_import dataset and train against the `dataset_id`.
+
+`experiment_stack.bash` `data_up` does **not** set `JUNIPER_DATA_IMPORT_DIR` or the two cap env vars. They inherit from the parent shell. The service default `/data/imports` is a container path — on-host `--up` will raise `FileNotFoundError` unless you export a real directory first:
+
+```bash
+export JUNIPER_DATA_IMPORT_DIR="$PWD/imports"   # file_path is relative to this
+mkdir -p "$JUNIPER_DATA_IMPORT_DIR"
+# optional: export JUNIPER_DATA_CSV_IMPORT_ALLOW_TRUNCATION=true
+util/experiment_stack.bash --up --recurrence --config path/to/csv-import.yaml
+```
+
+In the YAML, put `allow_truncation` / `max_bytes` under `dataset.params`. `max_bytes` can only lower the deployment ceiling.
+
+### Still open: `equities` silent truncation
+
+The csv_import ruling (truncation acceptable, **silence** not) has **not** been applied to `equities`. On juniper-data `main`, `EquitiesGenerator._resolve_symbols` does `ordered = ordered[: params.max_symbols]` at `generators/equities/generator.py:286` — a bare slice, no 422, no `DatasetMeta.truncation`. Defect-register `APD-DATA-018` still cites `:264`; that anchor drifted (line 264 is now CIK parsing). The cap *value* for equities is a separate owner call.
+
+The E-H suite YAML (`util/experiments/suites/p4/e-h-real-data.yaml`) uses `symbols: [AAPL]` and does **not** set `max_symbols`, so that cell is unaffected. A run that *does* set `max_symbols` is the trap: the dataset looks complete.
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Driver exit `2` `POST /v1/datasets rejected (422)` on csv_import | Source over 128 MiB without opt-in. Set `dataset.params.allow_truncation: true`, or export `JUNIPER_DATA_CSV_IMPORT_ALLOW_TRUNCATION=true` before `--up`. Read `DatasetMeta.truncation` on the result — a truncated import is permanently annotated. |
+| `FileNotFoundError` / path-traversal `ValueError` | `file_path` is not under `JUNIPER_DATA_IMPORT_DIR`. Export a real on-host directory; do not assume `/data/imports` exists. |
+| Cascor YAML with `generator: csv_import` | Expected ConfigError — not in `STAGEABLE_GENERATOR_ALIASES`. Use a stageable generator, or the recurrence path. |
+| Equities run silently shorter than `symbols` / the S&P universe | `max_symbols` sliced the ticker list (`:286`). Not the csv_import 422 class. |
+
+Do **not** raise `JUNIPER_DATA_CSV_IMPORT_MAX_BYTES` without a streaming loader — 128 MiB of 20-feature rows is ~700k dicts and several GB of peak objects.
 
 ---
 
@@ -3001,6 +3060,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
+| 0.6.28  | 2026-09-04 | CSV import byte cap (APD-DATA-018 csv_import half, juniper-data#326): 128 MiB, 422 until opt-in, read-enforced bound; experiment-stack `IMPORT_DIR` pitfall; equities `max_symbols` still silent |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
@@ -3327,6 +3387,9 @@ These variables are consumed by Juniper packages documented in this repository. 
 |--------------------------|-----------------------|-------------------------|-------------------------------------------|
 | `JUNIPER_DATA_URL`       | juniper-data-client   | `http://localhost:8100` | juniper-data service URL                  |
 | `JUNIPER_DATA_API_KEY`   | juniper-data-client   | *(none)*                | API key for juniper-data authentication   |
+| `JUNIPER_DATA_IMPORT_DIR` | juniper-data         | `/data/imports`         | Prefix `csv_import` `file_path` is resolved against. `experiment_stack` `data_up` does not set this — export a real on-host directory before `--up`. |
+| `JUNIPER_DATA_CSV_IMPORT_MAX_BYTES` | juniper-data | `134217728` (128 MiB) | Deployment ceiling for csv_import. A request `max_bytes` may only lower it. `gt=0` — a negative value would make `read()` unbounded. |
+| `JUNIPER_DATA_CSV_IMPORT_ALLOW_TRUNCATION` | juniper-data | `false`            | Deployment-wide opt-in to a partial csv_import. Logical OR with the request field; a client cannot opt out. |
 | `CASCOR_SERVICE_URL`     | juniper-cascor-client | `http://localhost:8200` | juniper-cascor service URL                |
 | `JUNIPER_CASCOR_API_KEY` | juniper-cascor-client | *(none)*                | API key for juniper-cascor authentication |
 | `CASCOR_MANAGER_HOST`    | juniper-cascor-worker | `127.0.0.1`             | Worker manager host                       |
@@ -3346,6 +3409,6 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.6.15
+**Last Updated:** 2026-09-04
+**Version:** 0.6.28
 **Maintainer:** Paul Calnon
