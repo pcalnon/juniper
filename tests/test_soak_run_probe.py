@@ -162,5 +162,51 @@ class EventParsing(unittest.TestCase):
         self.assertEqual(out["tool_calls"], [])
 
 
+class TerminalVerdictDoesNotGateADryRun(unittest.TestCase):
+    """The stopping rule rations billed sessions, so it must not fire on a dry run.
+
+    Regression pin for the ordering hazard that broke CI on ml#1644 with NO code
+    change: the guard ran before the --dry-run branch, so the moment three
+    non-follow rows pushed the Wilson upper bound under 0.75 the dry run began
+    exiting 2 with empty stdout. Driven against the predicate rather than the
+    live ledger, so the pin does not itself depend on the corpus's verdict.
+    """
+
+    def test_a_terminal_verdict_refuses_a_real_run(self) -> None:
+        for verdict in ("BET-FAILING", "HOLDS-AT-0.75"):
+            with self.subTest(verdict=verdict):
+                self.assertTrue(mod.refuses_terminal_verdict(verdict, force=False, dry_run=False))
+
+    def test_a_terminal_verdict_does_not_refuse_a_dry_run(self) -> None:
+        for verdict in ("BET-FAILING", "HOLDS-AT-0.75"):
+            with self.subTest(verdict=verdict):
+                self.assertFalse(mod.refuses_terminal_verdict(verdict, force=False, dry_run=True))
+
+    def test_force_still_overrides_a_real_run(self) -> None:
+        self.assertFalse(mod.refuses_terminal_verdict("BET-FAILING", force=True, dry_run=False))
+
+    def test_a_non_terminal_verdict_never_refuses(self) -> None:
+        for verdict in ("INCONCLUSIVE", "IN-PROGRESS", ""):
+            with self.subTest(verdict=verdict):
+                self.assertFalse(mod.refuses_terminal_verdict(verdict, force=False, dry_run=False))
+
+    def test_dry_run_survives_a_terminal_verdict_end_to_end(self) -> None:
+        """The assertion the two broken tests were making, stated directly.
+
+        They failed on rc and on the withholding text; both are symptoms of the
+        dry run never reaching its own branch. This states the invariant so a
+        future reordering fails HERE, naming the cause.
+        """
+        r = subprocess.run(  # nosec B603
+            [sys.executable, str(SCRIPT), "--dry-run"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(r.returncode, 0, f"dry run refused; stderr={r.stderr!r}")
+        self.assertIn("priming", r.stdout.lower())
+
+
 if __name__ == "__main__":
     unittest.main()
