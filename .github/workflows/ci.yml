@@ -909,6 +909,14 @@ jobs:
           # figures, insert-job lands before required-checks and outside its needs:, and adapt-test
           # rewrites depth + adds SPACE-separated nosec codes. util/ is not pre-commit-lint-gated.
           python3 -m unittest -v tests/test_p5_port_memory_budget.py
+          # tests/test_resident_gap_scan.py: the gate for the P5 resident-gap FINDER
+          # (util/ad-hoc/2026-08-28_resident_gap_scan.py). util/ is outside every
+          # pre-commit Python hook, so this suite is the gate. #1663 pins the
+          # AGENTS.md finder; #1697 pins triage severity. This pins the leftover
+          # those cannot see -- IDENT prose-in-backticks, .claude/worktrees
+          # multiplication (23,120 files / 15,285 candidates), contiguous # join,
+          # and missing-AGENTS.md exit 2. Hermetic TemporaryDirectory only.
+          python3 -m unittest -v tests/test_resident_gap_scan.py
 
           # tests/test_require_context_safely.py: the ruleset writer that promotes a context to
           # REQUIRED (util/ad-hoc/2026-08-20_require_context_safely.py). find_ruleset must report a
