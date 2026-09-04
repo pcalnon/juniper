@@ -917,6 +917,12 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_canopy_poller_inventory.py: hermetic AST-census pins for
+          # util/ad-hoc/canopy_poller_inventory.py -- the F-CANOPY-027 interval-callback
+          # inventory that sizes the 12-slot starvation budget. A miss under-states
+          # concurrent load (the same class as the X7 gate that certified a partial
+          # fix). Synthetic .py fixtures only; no canopy checkout.
+          python3 -m unittest -v tests/test_canopy_poller_inventory.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
