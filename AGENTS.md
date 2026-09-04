@@ -71,6 +71,7 @@ python3 -m unittest -v tests/test_wake_the_claude.py
 python3 -m unittest -v tests/test_env_repr_safety.py
 python3 -m unittest -v tests/test_worktree_cleanup.py
 python3 -m unittest -v tests/test_worktree_sweep_scripts.py
+python3 -m unittest -v tests/test_p5_worktree_cleanup.py
 python3 -m unittest -v tests/test_cleanup_session_worktrees.py
 python3 -m unittest -v tests/test_reap_pytest_orphans.py
 python3 -m unittest -v tests/test_kill_helpers.py
