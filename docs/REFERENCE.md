@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.22
+**Version:** 0.6.47
 **Status:** Active
 **Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -25,6 +25,7 @@
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
+- [PF Scenario Suites](#pf-scenario-suites)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [X7 Off-Loop Census](#x7-off-loop-census)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
@@ -1451,6 +1452,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `tests/test_experiment_config_schemas.py` -- Wave 3.5 drift gate (§10.6 row 3): walks the sibling checkouts' `conf/experiments/*.yaml` (cascor Wave 3.2, recurrence Wave 3.4) and asserts each loads through the driver's §5.6 `load_config` AND that every `service:` key names a real app `Settings` field --
   extracted statically via AST (cascor `Settings`; recurrence `Settings` + the in-repo service-core `SettingsBase`), so no torch-heavy app import is needed. Cross-repo walk gated like `test_doc_tools_drift.py` (`GITHUB_ACTIONS=true` or `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`; sibling-absent skips loudly); the AST-extractor self-check always runs.
 - `tests/test_experiment_suite_yamls.py` -- Drift gate (R-6) over the shipped suites in `util/experiments/suites/**`, which no test loaded before it: every suite must pass `run_suite.load_suite` (catching the unknown-`execution:`-key / `stall_second` typo class that otherwise surfaces hours into a GPU campaign), and any oversize `app: cascor` suite must declare an `execution.stall_seconds` above the driver's `DEFAULT_STALL_SECONDS` (read from the driver source, not hardcoded).
+  Fourth contract: `execution.per_run_timeout_seconds` must sit **above** the wall budget (`>` not `>=`) so the driver writes the honest manifest — `perf/pf5` shipped 900/900 and was raised to 1800. Operator surface for the PF instruments: [§ PF Scenario Suites](#pf-scenario-suites).
 - `tests/test_p5_port_memory_budget.py` -- Hermetic gate for the P5 fleet-rollout porting helper `util/ad-hoc/2026-08-25_p5_port_memory_budget.py` (`util/` is outside every pre-commit Python hook): growth statistics from a temp git repo measured in CHARS with a nearest-rank `p90` (the floor form returned the *smallest* growth at n=2, so four of the 2026-08-25 fleet measurements printed p90 < median); `render-job` / `render-workflow` / `render-config` output parses and carries the figures MEASURED in the target (the first two ports found every transcribed figure stale); `insert-job` lands before `required-checks` and outside its `needs:` (C9); `adapt-test` rewrites the repo-root depth and adds SPACE-separated `# nosec` codes (the comma form under-suppresses on bandit 1.9.4 and reads as applied).
   - **Oversize is pool OR cap.** The original gate triggered on `candidate_pool_size >= 16` only, so a wide-**cap** suite at a modest pool shipped and then lost its widest cells to a false `stalled` hours in — the candidate phase slows every iteration as the cascade widens each candidate's input, i.e. "the ml#1069 class, arriving through width instead of through pool size" (`suites/p4/e-i-cascor-cap-ceiling.yaml:46-50`). `max_hidden_units >= 64` now triggers too.
   - **Third contract — wide-cap suites must pin a wall budget**, via either `execution.max_wall_seconds` or a dotted `outputs.max_wall_seconds` override (E-I uses the latter, so accepting only the former would fail a correctly-budgeted suite). Thresholds are measured, not guessed: E-I at fixed pool 8 ran cap 32 → 1497.4 s, cap 64 → 2907.1 s, cap 128 → **4243.6 s** against a 3600 s inherited default, so 128 would have been truncated and 64 clears by only 693 s.
@@ -1687,6 +1689,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - The driver is the sole place both Q-2 knobs are resolved, so it is the only layer that can see their interaction — the suite gate structurally cannot, since a budget may be inherited from `base_config` (`pf3-cascor-pool-scaling` shipped exactly this shape: a 1200 s window against a 600 s inherited budget).
   - Exit codes: 0 success / 1 acceptance (stalled, timed_out, G-6 mismatch, missing essential artifact) / 2 misuse-validation / 3 unreachable / 4 FAILED-5xx. Tests: `tests/test_run_experiment.py`.
 - `util/experiments/run_suite.py` -- Suite driver. `EXECUTION_KEYS` forwards **both** Q-2 budget knobs to the driver: `execution.stall_seconds` → `--stall-seconds` (ml#1069) and `execution.max_wall_seconds` → `--max-wall-seconds`. Absent key ⇒ flag omitted entirely, so the driver keeps owning its default.
+  Wave 7.3 instruments: [§ PF Scenario Suites](#pf-scenario-suites). `include` cells carry only their own overrides and do **not** inherit `matrix` (`expand_cells`) — PF-1's repeats are a matrix axis for that reason.
   - Do not confuse `execution.max_wall_seconds` with `execution.per_run_timeout_seconds`: the latter is only the **subprocess** timeout, which kills the driver from the OUTSIDE and records `timed_out` where the driver would otherwise write an honest `timed_out` manifest (§13.4). Size `per_run_timeout_seconds` ABOVE the wall budget so the driver is the one that stops.
   - A suite could always reach the budget through a dotted `outputs.max_wall_seconds` override (`suites/p4/e-i-cascor-cap-ceiling.yaml:71` does exactly that), but before this key, an un-overridden cell silently inherited `base_config`'s value — 3600 s for `spiral-baseline` — with no signal. Both mechanisms are accepted by the R-6 gate. Tests: `tests/test_run_suite.py`.
 - `util/snapshot_attribute.py` -- Read-only dataset attribution over the classification sidecar (handoff §3.2). Scores each loadable snapshot against the six 2-D generators with permutation-corrected accuracy, gated on the untrained-null **max** plus a schema-v2 cross-dataset floor.
@@ -1830,7 +1833,7 @@ juniper-ml/
 │   ├── test_open_signed_pr.py            # Behavioural: util/open_signed_pr.py signed cross-repo PR opener (hermetic gh stub; dry-run/dup-guard/refs-ref=/deletions)
 │   ├── test_wait_for_checks.py           # Behavioural: util/wait_for_checks.py required-context CI waiter (hermetic scripted-gh stub; positive-terminal, growing-rollup + observed-anchor negative control, absent-vs-running, hard-error, read-only)
 │   ├── test_experiment_stack_script.py   # Contract + behavioural: util/experiment_stack.bash per-run launcher (§6.1 recipes, §6.4 RUN_DIR, §7.2 target file, §9.3 ranges, F-6 listener pid, dry-run + teardown; hermetic)
-│   ├── test_run_suite.py                 # Behavioral: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume, both Q-2 budget flags; hermetic)
+│   ├── test_run_suite.py                 # Behavioral: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume, both Q-2 budget flags, JUNIPER_SUITE_GRAFANA_BRIDGE env toggle; hermetic). PF instruments: § PF Scenario Suites
 │   ├── test_list_runs.py                 # Behavioral: util/experiments/list_runs.py lister/pruner (state classification, --older-than, prune safety gates; hermetic RUN_ROOT fixtures)
 │   ├── test_snapshot_index.py            # Behavioral: util/snapshot_index.py snapshot index/query (design §6.2) — bytes-attr decode, append-only rescan, --limit deferred-vs-present counting, D-C provenance filters, and an AST anti-resurrection guard that the tool stays READ-ONLY (retention is §6.4 and gated)
 │   ├── test_snapshot_classify.py         # Behavioral: util/snapshot_classify.py owner-scheme classifier (handoff 2026-08-22 §2.4) — the two-axis category/health rule (incl. the attributed zero-node row that made category 5 read empty), `readable`-is-not-loadable, iterations-not-epochs (inert meta.current_epoch), replace-not-append sidecar, fd-level stdout muffling, the train-stage scratch-root refusal, and an AST anti-resurrection guard that the tool stays READ-ONLY
@@ -1838,7 +1841,7 @@ juniper-ml/
 │   ├── test_snapshot_backfill.py           # Behavioural: util/snapshot_backfill.py consolidated recovered-metadata record (handoff §3.4) — the caveats ARE the feature. Pins that a SAMPLED cohort result (380 of 15,927 zero-node snapshots trained) stays quarantined in the `population` bucket rather than being written onto 15,547 files nobody trained, that an inferred dataset never reads as observed/measured, that run identity is never invented (zero run dirs survive from before 2026-07-30), that every failing snapshot gets a named root cause, and an AST read-only guard
 │   ├── test_run_experiment.py              # Behavioural: util/experiments/run_experiment.py cascor + recurrence driver (§6.3 drive loops, Q-2 stall/budget, F-1 redirect sampling, G-6 staging, §5.5 blocks + G-18 save_model, §8.1/§8.2 plot sets, §8.3 stats/summary, §13.4 manifest, exit matrix 0-4; hermetic stub HTTP)
 │   ├── test_experiment_config_schemas.py   # Drift gate (Wave 3.5): sibling conf/experiments/*.yaml ↔ driver load_config + AST-extracted app Settings fields (CI/force-local gated; always-on extractor self-check)
-│   ├── test_experiment_suite_yamls.py      # Drift gate (R-6): every util/experiments/suites/**/*.yaml passes run_suite.load_suite + oversize cascor suites (pool >= 16 OR cap >= 64) declare execution.stall_seconds (ml#1069) + wide-cap suites pin a wall budget; anti-resurrection for the ad-hoc stall shim
+│   ├── test_experiment_suite_yamls.py      # Drift gate (R-6): every util/experiments/suites/**/*.yaml passes run_suite.load_suite + oversize cascor suites (pool >= 16 OR cap >= 64) declare execution.stall_seconds (ml#1069) + wide-cap suites pin a wall budget + per_run_timeout > wall (pf5 was 900/900); PF instruments: § PF Scenario Suites
 │   ├── test_prompt_validator_contract.py   # Lint: prompt-validator subagent frontmatter + pinned verdict schema/fixtures
 │   ├── test_template_agent_skill_lint.py   # Lint: template-agent Skill frontmatter + wiring to real artifacts (PR 5)
 │   ├── test_service_smoke_skill_lint.py    # Lint: service-smoke Skill frontmatter (declared browser MCP for opt-in --ui, NO Agent) + teardown wiring (E-1 Stage 1/2)
@@ -1894,7 +1897,7 @@ juniper-ml/
     ├── snapshot_backfill.py             # Consolidates the index + classification + attribution sidecars into ONE record per snapshot (handoff §3.4 'backfill'), with every field labelled by HOW it was obtained. Four derivation levels that differ in KIND, not degree: `observed` (read from the .h5), `measured` (obtained by running the artifact — load status, per-dataset accuracy), `inferred` (a judgement from those measurements — dataset attribution, always carrying confidence/meaning/evidence/caveat), and `population` (true of the COHORT, NOT verified for this snapshot). That fourth level is the point: item 3 trained 380 of 15,927 zero-node snapshots, so writing `formerly_broken` onto all of them as fact would fabricate a per-snapshot result for 15,547 files — a confidence SCORE would have licensed exactly that. Names a root cause for all 273 failing snapshots (cohort B, truncated writes). Run identity is never invented: no run dir survives from before 2026-07-30, so absence stays absence. `--explain NAME` prints one snapshot's full provenance. READ-ONLY — writes only snapshots_backfill.jsonl beside the index and never touches a .h5 (it does not import h5py at all); no prune path, because retention is §6.4
     ├── isolated_stack.bash               # Isolated training-runtime E2E trio (data 8101 / cascor 8202 / canopy 8051): --up/--down/--status/--dry-run
     ├── experiment_stack.bash             # Per-run experiment launcher (data 8110-8139 / cascor 8230-8259 / recurrence 8260-8289): --up/--down/--status/--dry-run
-    ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py single-run cascor + recurrence driver (§6.3) + plots_cascor.py / plots_recurrence.py (§8.1 + §8.2 plot sets; 2.5 closes G-5) + stats_summary.py (§8.3 stats.json + summary.md) + list_runs.py (Wave 7.2: safety-gated lister/pruner) + run_suite.py + suites/ (Waves 7.1+7.5: suite driver — matrix expansion, per-cell up→drive→down, registry/index/aggregate; parallel + H-11 split, cascor refused per Q-6)
+    ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py + plots_cascor.py / plots_recurrence.py + stats_summary.py + list_runs.py + run_suite.py + suites/ (7.1+7.5) + suites/perf/ (Wave 7.3 PF instruments; PF-4/PF-8 are not driver suites — § PF Scenario Suites)
     ├── get_cascor_status.bash            # GET /v1/training/status
     ├── get_cascor_metrics.bash           # GET /v1/metrics
     ├── get_cascor_history.bash           # GET /v1/metrics/history?count=10
@@ -2258,7 +2261,7 @@ Related: per-PR advisory screens live in `ci.yml`'s standalone `sequence-safety`
 
 ## Experiment Stack Utilities
 
-`util/experiment_stack.bash` + `util/experiments/run_experiment.py` are the **per-run** CLI experimentation tooling (plan Wave 2.1–2.6; this section is Wave 2.7). They bring up a throwaway juniper-data instance plus **cascor and/or recurrence** (never canopy), drive a single experiment YAML against that stack, and write plots/stats/manifest under a durable `RUN_DIR`.
+`util/experiment_stack.bash` + `util/experiments/run_experiment.py` are the **per-run** CLI experimentation tooling (plan Wave 2.1–2.6; this section is Wave 2.7). They bring up a throwaway juniper-data instance plus **cascor and/or recurrence** (never canopy), drive a single experiment YAML against that stack, and write plots/stats/manifest under a durable `RUN_DIR`. The Wave 7.3 PF scenario instruments that drive them as a matrix are [§ PF Scenario Suites](#pf-scenario-suites).
 
 Primary design: [`notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md`](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md). Preflight evidence: [`notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md`](../notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md).
 
@@ -2462,6 +2465,97 @@ Do not read a SKIP-only `ValueError` as a blank PNG or acceptance regression.
 | `residuals.png` has only 2 panels | Optional `target_dt_*` missing or length-mismatched — pred/truth still plotted; not a SKIP. |
 
 Do **not** point experiment ports at `plant_all` / isolated-stack ports, and do not use this launcher when you need canopy (use `isolated_stack.bash` or the host stack instead).
+
+---
+
+## PF Scenario Suites
+
+Wave 7.3 instruments for the plan §12.3 performance-scenario matrix. They live under `util/experiments/suites/perf/` and run through `util/experiments/run_suite.py`. **Thresholds are unratified** — each file is the instrument, not the verdict. P3 ratifies numbers; a green suite is not a pass/fail gate.
+
+In-tree table: [`util/experiments/suites/perf/README.md`](../util/experiments/suites/perf/README.md). Design of record: [`notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md`](../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md). P2 work items: [`notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md).
+
+### Inventory
+
+| ID | File | Measures | Notes |
+|----|------|----------|-------|
+| PF-1 | `pf1-cascor-spiral-repeats.yaml` | step-duration p50/p95 + wall variance over 5 identical cells | Load-bearing cell length; repeats are a **matrix axis** |
+| PF-2 | `pf2-cascor-dataset-scaling.yaml` | wall vs `n_points_per_spiral` `{250, 500, 1000, 2000}` | RSS from the experiments dashboard Process RSS panel |
+| PF-3 | `pf3-cascor-pool-scaling.yaml` | speedup vs `candidate_pool_size` × `runtime.num_processes` | Must declare stall **and** wall (below) |
+| PF-4 | — | cascor in-repo pytest vs `baseline_20260526.json` | **Not a driver suite.** That baseline has memory keys and **no timing data** (P1 §1) |
+| PF-5 | `pf5-recurrence-d-scaling.yaml` | fit time vs `train.d` `{8, 16, 32, 64}` | Thresholds unratified; instrument only |
+| PF-6 | `pf6-recurrence-nsteps-scaling.yaml` | fit time vs `dataset.params.n_steps` `{1000, 4000, 16000}` | same |
+| PF-7 | `pf7-recurrence-readout-rungs.yaml` | fit time + r² per `train.readout` `{linear, rff, mlp}` | same |
+| PF-8 | — | two simultaneous pinned-budget runs | **Not a sequential suite.** Wave 7.5 parallel / two-terminal |
+
+### How to run
+
+```bash
+# Inspect first — write nothing
+python util/experiments/run_suite.py --suite util/experiments/suites/perf/pf1-cascor-spiral-repeats.yaml --dry-run
+
+# Live PF-1 (needs the Grafana bridge for the p50/p95 histogram)
+JUNIPER_SUITE_GRAFANA_BRIDGE=1 python util/experiments/run_suite.py --suite util/experiments/suites/perf/pf1-cascor-spiral-repeats.yaml
+```
+
+`--dry-run` prints the expanded cell list and every command. For PF-1, expect **5 cells**, every one carrying `max_hidden_units: 10`, `max_iterations: 10`, and the matched `max_epochs` / `output_epochs` pair of `4000`. If the dry-run shows fewer than 5 cells, or cells with differing overrides, **stop** — the repeats are not repeats.
+
+Exit `0` = every executed cell succeeded; `1` = suite completed with failed cells (or aggregation found none succeeded); `2` = misuse / suite-validation.
+
+`JUNIPER_SUITE_GRAFANA_BRIDGE` is an **env toggle, not a suite key**. A suite key would change every cell's `config_sha256` between a bridged and an unbridged run of the same scenario — destroying the comparability PF-1 exists to provide (`run_suite.execute_cell`). Off by default: without it the run is UNSCRAPED and `metrics_scraped.scrape_confirmed` is `false`.
+
+### PF-1 load-bearing contracts
+
+Three traps sit between a reader and a usable PF-1 number.
+
+**1. Repeats are a matrix axis, not `include` entries.** `expand_cells` builds the cartesian product of `matrix`, then appends `include` cells that carry **only their own overrides** and do **not** inherit the matrix (`run_suite.py`). Putting the workload in `matrix` and the five repeats in `include` would run one cell at `(10, 10)` and four at the inherited smoke `(2, 2)` — five cells that are not repeats.
+
+PF-1 therefore puts `experiment.description: ["PF-1 repeat 1", …, "PF-1 repeat 5"]` on the matrix next to the budget keys.
+
+**2. `max_epochs` and `output_epochs` must be a matched pair.** The service applies `max_epochs` only to the *initial* output pass; later passes read `output_epochs`, which falls back to 10000. The direct CLI aliases the two. cascor#618 gave `spiral-smoke.yaml` `output_epochs: 50` to match `max_epochs: 50`, which dropped PF-1's cell from 65–126 s / 4012 steps to **15.1 s / 32 steps** — below the scrapeability floor.
+
+The duration requirement belongs in PF-1's override, not in a smoke config. Calibrated 2026-09-02 at `(10, 10)` (`util/ad-hoc/2026-09-02_pf1_epoch_calibration_suite.yaml`):
+
+| epochs   | 50     | 500    | 2000   | 5000   |
+|----------|--------|--------|--------|--------|
+| step_sum | 10.5 s | 22.2 s | 34.6 s | 66.1 s |
+| steps    | 32     | 230    | 890    | 2210   |
+
+4000 is used (interpolated in the upper segment for ~55 s `step_sum` / ~60 s drive). Both keys are single-element lists so the matrix cannot pair them with anything but each other. Overriding only `output_epochs` would leave `max_epochs: 50` and re-introduce the split in the opposite direction. Figures from before 2026-09-02 are **not comparable**: pre-fix was 50-initial + 10000-later; this is 4000 uniform.
+
+**3. Cell duration is load-bearing for scrapeability.** The host-experiments Prometheus job discovers targets by `file_sd` every 15 s and scrapes every 15 s. The target file is written at bring-up and deleted at teardown. A ~20 s smoke-length cell is **never scraped**. Calibrated 2026-09-01: `(6, 6)` → 40.17 s drive, 255 series including `juniper_cascor_training_step_duration_seconds`. `(10, 10)` targets ~60 s (owner ceiling ~120 s).
+
+`metrics_scraped` used to mean `prometheus_target.json` existed. Five bridged PF-1 runs on 2026-09-01 all reported `present: true` while Prometheus held **zero** series. The driver now reports two facts (`run_experiment._metrics_scraped`):
+
+| Field | Meaning |
+|-------|---------|
+| `target_file_written` | Local act — the JSON file exists |
+| `scrape_confirmed` | Prometheus returned at least one `juniper_*` series with this `run_id`. `false` when the bridge is off or the series count is zero. `null` when Prometheus is unreachable — "could not check" is not "nothing was scraped" |
+
+Default Prometheus URL: `JUNIPER_EXP_PROMETHEUS_URL` = `http://127.0.0.1:9090`.
+
+### PF-3 stall and wall
+
+`spiral-smoke` caps `max_epochs` but **not** `candidate_epochs`, so the CANDIDATE phase is full-length. The Q-2 detector watches `current_epoch`, which does not advance during candidate training. Pool-16 cells (and the `num_processes: 1` serialisation of that pool) would be recorded `stalled` at the 120 s driver default while healthy.
+
+`execution.stall_seconds: 1200` alone was inert until `execution.max_wall_seconds: 2000` existed: `spiral-smoke` pins `outputs.max_wall_seconds: 600`, and without the suite forwarding `--max-wall-seconds` every cell ended at 600 s — a healthy long candidate phase labeled `timed_out` instead of `stalled`.
+
+2000 sits above the stall window and below `per_run_timeout_seconds: 2400`, so the **driver** stops the run and writes a manifest. A subprocess kill at or below the wall budget records `timed_out` with `exit_code: null` and no manifest (R-6: `per_run_timeout_seconds` must be `>` the wall budget, not `>=`).
+
+### Operator pitfalls
+
+| Symptom | Check |
+|---------|-------|
+| `--dry-run` shows fewer than 5 PF-1 cells, or cells with differing hidden/iteration/epoch overrides | Repeats leaked into `include`, or the matched epoch pair was split. Stop. |
+| PF-1 `scrape_confirmed: false` with `target_file_written: true` | Cell died before `file_sd` + scrape (15 s + 15 s). Confirm `(10, 10)` + 4000/4000 and `JUNIPER_SUITE_GRAFANA_BRIDGE=1`. |
+| `scrape_confirmed: null` | Prometheus unreachable at `JUNIPER_EXP_PROMETHEUS_URL`. Not a negative scrape. |
+| PF-1 `drive` ~15 s / 32 steps | Only `output_epochs` (or neither) was overridden — the smoke pair is 50/50. Set both to 4000. |
+| Comparing PF-1 figures across 2026-09-02 | Pre-fix workload is 50-initial + 10000-later. Not the same experiment. |
+| PF-3 cells `stalled` at ~120 s while the candidate pool is still training | Missing `execution.stall_seconds` above the driver default, or `max_wall_seconds` still inherited 600. |
+| PF-3 `timed_out` with `exit_code: null` and no manifest | `per_run_timeout_seconds` ≤ wall budget. The suite subprocess killed the driver. |
+| Treating a green PF-5 / PF-6 / PF-7 suite as a work-gate | Thresholds are unratified. These files measure fit time vs `d` / `n_steps` / readout. They are instruments. |
+| Editing a suite key (or adding `execution.grafana_bridge`) to turn scraping on | That changes `config_sha256`. Use `JUNIPER_SUITE_GRAFANA_BRIDGE=1`. |
+
+Coverage: `tests/test_experiment_suite_yamls.py` (R-6 load + oversize stall + wide-cap wall + timeout-above-budget). Driver scrape split: `tests/test_run_experiment.py`. Suite expansion / Grafana env: `tests/test_run_suite.py`.
 
 ---
 
@@ -3104,6 +3198,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.47  | 2026-09-04 | PF scenario suites (Wave 7.3): operator surface for the six `util/experiments/suites/perf/` instruments — PF-1 matched epoch pair + matrix-axis repeats + scrapeability, `scrape_confirmed` vs `target_file_written`, PF-3 stall/wall, PF-4/PF-8 not driver suites |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
@@ -3450,8 +3545,10 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 `JUNIPER_CASCOR_SRC` / `JUNIPER_DATA_ROOT` override the trees `snapshot_attribute.py` imports when the fallbacks
 (`~/Development/python/Juniper/juniper-cascor/src` and `.../juniper-data`) are wrong.
 
+`JUNIPER_SUITE_GRAFANA_BRIDGE` (`1`/`true`/`yes`/`on`) adds `--grafana-bridge` to every suite `--up`. It is an env toggle, not a suite key — a suite key would change PF-1's `config_sha256` between bridged and unbridged repeats. `JUNIPER_EXP_PROMETHEUS_URL` (default `http://127.0.0.1:9090`) is where `_metrics_scraped` asks `scrape_confirmed`. See [PF Scenario Suites](#pf-scenario-suites).
+
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 0.6.22
+**Version:** 0.6.47
 **Maintainer:** Paul Calnon

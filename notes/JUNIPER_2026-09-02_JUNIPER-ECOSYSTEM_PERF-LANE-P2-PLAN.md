@@ -1,5 +1,7 @@
 # Performance lane — P2 Planning: work items, sized and sequenced
 
+Operator surface for the shipped PF-1…PF-7 instruments (how to run, PF-1 traps, PF-3 stall/wall, PF-4/PF-8 not driver suites): [`docs/REFERENCE.md` § PF Scenario Suites](../docs/REFERENCE.md#pf-scenario-suites).
+
 **Closes P2** of the four-phase gate in §1.1 of the phasing note
 ([`JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md`](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md)),
 whose deliverable is *"work items with repo, size, and dependencies — the §14-style wave table this

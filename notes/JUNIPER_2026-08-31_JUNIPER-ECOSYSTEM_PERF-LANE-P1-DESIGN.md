@@ -1,5 +1,7 @@
 # Performance lane — P1 Design of record
 
+Operator surface for the shipped PF-1…PF-7 instruments (how to run, PF-1 matched epoch pair + matrix-axis repeats, scrapeability, PF-3 stall/wall, PF-4/PF-8 not driver suites): [`docs/REFERENCE.md` § PF Scenario Suites](../docs/REFERENCE.md#pf-scenario-suites).
+
 **Closes**: phase **P1** of the four-phase gate in
 [`JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md` §1.1](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md).
 That table's P1 deliverable: *"Design-of-record note: what is measured, on which tier, against which

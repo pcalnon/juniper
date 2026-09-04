@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.34
+**Version**: 1.0.59
 **Date**: 2026-09-04
 **Project**: juniper-ml
 
@@ -35,6 +35,8 @@
 | `util/experiment_stack.bash --dry-run --up --cascor`   | Preview a per-run experiment stack (ports 8110–8289; no side effects) |
 | `util/experiment_stack.bash --up --cascor --config PATH` | Bring up data+cascor for one experiment run (`--recurrence` for LMU) |
 | `python util/experiments/run_experiment.py --config PATH --run-dir RUN_DIR` | Drive one YAML against the run's `ports.json` (plots + stats + manifest) |
+| `python util/experiments/run_suite.py --suite util/experiments/suites/perf/pf1-cascor-spiral-repeats.yaml --dry-run` | Expand a PF suite; inspect cells before a live run |
+| `JUNIPER_SUITE_GRAFANA_BRIDGE=1 python util/experiments/run_suite.py --suite util/experiments/suites/perf/pf1-cascor-spiral-repeats.yaml` | Live PF-1 (bridge required for p50/p95 scrape) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
@@ -486,6 +488,8 @@ Hardcoded canopy path. Full contract: [REFERENCE — X7 Off-Loop Census](REFEREN
 | `JUNIPER_EXP_PROJECT_DIR`      | parent of juniper-ml | Ecosystem root — **set in git worktrees** |
 | `JUNIPER_EXP_HEALTH_TIMEOUT`   | `90`               | Per-service health wait for experiment `--up` (cold-start sized) |
 | `JUNIPER_EXP_CONDA_DIR`        | `/opt/miniforge3`  | Conda root for experiment direct env-bin launch |
+| `JUNIPER_SUITE_GRAFANA_BRIDGE` | unset (off)        | `1`/`true`/`yes`/`on` adds `--grafana-bridge` to every suite `--up` (not a suite key — PF-1 `config_sha256`) |
+| `JUNIPER_EXP_PROMETHEUS_URL`   | `http://127.0.0.1:9090` | Where `_metrics_scraped` asks `scrape_confirmed` |
 | `JUNIPER_REAP_PROC_ROOT`       | `/proc`            | Proc root for `util/reap_pytest_orphans.bash` (tests override) |
 | `JUNIPER_REAP_KILL_CMD`        | `kill`             | Kill binary for `util/reap_pytest_orphans.bash` (tests override) |
 | `JUNIPER_CASCOR_SNAPSHOTS_DIR` | `~/Development/python/Juniper/juniper-cascor/cascor-snapshots` | Dual-use: cascor write dir **and** snapshot-tool `--root` default. Do **not** redirect for the sidecar chain — pass `--root`. |
@@ -574,6 +578,8 @@ Tip: on a failed `*_up` leg, isolated-stack `do_up` auto-calls `do_down` — exp
 Tip: `experiment_stack.bash` legs are OR-listed (`*_up || failed=1`), which disables `set -e` inside each body — critical steps need `|| return 1` or a health timeout with a live listener false-greens `--up` and skips teardown. A `--grafana-bridge` failure after healthy services tears the run down; a **staging** failure (missing `--config`) still exits between `allocate_port` and `ports.json`, so clear stale `*.lock` dirs under `JUNIPER_EXP_LOCK_ROOT` by hand (open #979).
 
 Tip: a renderer `ValueError` is a per-plot SKIP (exit `0`, no PNG); missing matplotlib, a failed payload fetch, or any other render exception is SKIP **and** acceptance failure (exit `1`). Inspect `jq '.driver.plots' $RUN_DIR/manifest.json`. See [REFERENCE — Plot SKIP vs acceptance](REFERENCE.md#plot-skip-vs-acceptance-valueerror-contract).
+
+Tip: PF-1 repeats are a **matrix axis**, not `include` entries (`include` does not inherit `matrix`). `max_epochs` and `output_epochs` must both be `4000`. `scrape_confirmed` is not `target_file_written` — five bridged PF-1 runs wrote the file while Prometheus held zero series. Thresholds are unratified; PF-4/PF-8 are not driver suites. See [REFERENCE — PF Scenario Suites](REFERENCE.md#pf-scenario-suites).
 
 Tip: juniper-service-core invariants — `RequestBodyLimitMiddleware` always stream-caps POST/PUT/PATCH (`Content-Length` is a hint only); auth runs before rate limiting and 429s must pass `exc.headers` through; control-WS reject logs stay single-line via `_sanitize_for_log`; `ws_control_rate_limit_per_sec=0` yields `retry_after=3600` instead of dividing by zero; `/ws/workers` closes **4001** on bad auth and **4008** on a bad registration shape. See [REFERENCE — juniper-service-core](REFERENCE.md#juniper-service-core).
 
@@ -670,6 +676,12 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Plot `skipped` with a `ValueError` reason, exit `0` | No-renderable-data SKIP, not an acceptance failure — see `jq '.driver.plots' $RUN_DIR/manifest.json`. |
 | Driver exit `1` `matplotlib unavailable` | Install matplotlib or drop `outputs.plots`; other render exceptions and fetch failures also fail acceptance. |
 | `residuals.png` has only 2 panels | Optional `target_dt_*` missing or length-mismatched — pred/truth still plotted; not a SKIP. |
+| PF-1 `--dry-run` shows ≠5 cells or mixed budgets | Repeats leaked into `include`, or the 4000/4000 epoch pair was split. Stop. |
+| PF-1 `scrape_confirmed: false`, file present | Cell died before file_sd + scrape (15 s + 15 s). Need `(10, 10)` + 4000/4000 and `JUNIPER_SUITE_GRAFANA_BRIDGE=1`. |
+| PF-1 `drive` ~15 s / 32 steps | Smoke pair (50/50) won — set **both** `max_epochs` and `output_epochs` to 4000. |
+| PF-3 `stalled` at ~120 s while candidates train | Missing `execution.stall_seconds` > 120, or wall still inherited 600 from `spiral-smoke`. |
+| PF-3 `timed_out` / `exit_code: null` / no manifest | `per_run_timeout_seconds` ≤ wall budget — suite killed the driver. |
+| Green PF-5/6/7 treated as a work-gate | Thresholds unratified. Those files measure fit time. Instruments, not verdicts. |
 | HTTP 429 missing `Retry-After` | `SecurityMiddleware` must pass `exc.headers` into the `JSONResponse`. |
 | `Juniper*ConfigurationError: base_url must include a host` | Hostless constructor URL (`""`, `http://`, `http://user:secret@`) — fix the URL, not the service. |
 | `HTTPS://host` talks HTTP / hostname `https` | Wheel predates case-insensitive scheme matching; install client GitHub main or wait for the next PyPI cut. |
@@ -723,6 +735,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
+- [PF Scenario Suites](REFERENCE.md#pf-scenario-suites) -- Wave 7.3 instruments; PF-1 matched epoch pair + matrix-axis repeats; PF-4/PF-8 are not driver suites
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
@@ -730,5 +743,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 1.0.34
+**Version:** 1.0.59
 **Maintainer:** Paul Calnon
