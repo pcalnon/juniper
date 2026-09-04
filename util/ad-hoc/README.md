@@ -79,6 +79,23 @@ Operator contract: [`docs/REFERENCE.md` § Snapshot Attribution Dataset Pin](../
 
 ---
 
+## X7 off-loop census (operational)
+
+`2026-09-04_x7_offload_census.py` (v1) and `2026-09-04_x7_offload_census_v2.py` (v2, v0.3.0) landed with juniper-ml#1631. They are **not** CI and **not** the slice-1a authority — that is `juniper-canopy/src/tests/regression/test_x7_off_loop_discipline.py` after canopy#567.
+
+- **The shipped count is 58**, not the 52 the pre-#567 gate reported and not the 36 in design §5.2. Breakdown: 52 direct + 2 `HELPER` (`_extract_meta_params`, `_seed_training_state`) + 4 outside `main.py`.
+- **v1 is retained unfixed as the negative example.** It matches receiver *names*. The bare name `client` is bound in canopy `main.py` to cascor, redis, cassandra, **and** an `httpx.AsyncClient`, so it reports an awaited async call as blocking. That is the same flaw that makes `ruff --select ASYNC` report "All checks passed!" against these sites.
+- **v2 resolves assignment provenance** and reports an `UNRESOLVED` bucket rather than guessing. Use it to explore. It cannot see `HELPER` or the adapter — a green v2 is not proof of completeness.
+- **Exemption must be site-local.** A module-global expression match hides every twin of an offloaded call — including the three health endpoints X7 is defined by — and the miss grows as work proceeds. v2 v0.3.0 and the canopy gate at `d33ab0a` are site-local only. Do not reintroduce cross-site matching.
+- **The gate was extended** (bucket `HELPER`, transitive over module-level sync helpers), not merely satisfied. A receiver-resolving scan reported 0 over the two helpers because the I/O lives in the function body.
+- **Four sites stay outside the gate**, which reads `main.py` only: adapter `connect()` / `_relay_loop()` (the 123 s-per-183 s site) and `service_backend.initialize()`'s two calls (request path via `_swap_backend`). Guarded by `juniper-canopy/util/ad-hoc/2026-09-04_async_blocking_callgraph.py` — run it when touching the adapter.
+- **C5's `threading.local()` remedy is refuted.** The client mutates session state only in `__init__`; T-A4 pins the restated invariant (no per-request mutation). No juniper-cascor-client change ships.
+- Both ml censuses hardcode `CANOPY_MAIN` to `/home/pcalnon/Development/python/Juniper/juniper-canopy/src/main.py`. Retarget before running on any other host.
+
+Operator contract: [`docs/REFERENCE.md` § X7 Off-Loop Census](../../docs/REFERENCE.md#x7-off-loop-census).
+
+---
+
 ## What does NOT belong here
 
 - Scripts that are part of a documented build / test / release flow → `util/` proper or `scripts/`.
