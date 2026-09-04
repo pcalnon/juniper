@@ -908,6 +908,13 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_matrix_set_verdicts.py: hermetic gate for
+          # util/ad-hoc/2026-09-02_matrix_set_verdicts.py -- the only guarded write
+          # into the 298-row canopy E2E matrix. Pins --from mismatch / missing-id /
+          # atomic refuse (one bad --set writes nothing) / exact-id near-miss /
+          # later-cell id is not the row / bad --set syntax / status is the LAST
+          # data cell. util/ is not pre-commit-lint-gated; tempfile fixtures only.
+          python3 -m unittest -v tests/test_matrix_set_verdicts.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
