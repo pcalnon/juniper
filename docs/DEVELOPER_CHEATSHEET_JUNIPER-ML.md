@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.27
-**Date**: 2026-08-24
+**Version**: 1.0.31
+**Date**: 2026-09-04
 **Project**: juniper-ml
 
 ---
@@ -35,6 +35,7 @@
 | `util/experiment_stack.bash --dry-run --up --cascor`   | Preview a per-run experiment stack (ports 8110–8289; no side effects) |
 | `util/experiment_stack.bash --up --cascor --config PATH` | Bring up data+cascor for one experiment run (`--recurrence` for LMU) |
 | `python util/experiments/run_experiment.py --config PATH --run-dir RUN_DIR` | Drive one YAML against the run's `ports.json` (plots + stats + manifest) |
+| `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split-compare a suite to a Q-8 baseline (exit 0 PASS/WAIVED, 1 FAIL, 2 REFUSED) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
@@ -496,6 +497,11 @@ Full contract: [REFERENCE — Isolated Stack E2E](REFERENCE.md#isolated-stack-e2
 
 Tip: `util/experiment_stack.bash` is the **per-run** launcher (data `8110–8139` / cascor `8230–8259` / recurrence `8260–8289`) — not isolated-stack and not `plant_all`. Never canopy; never `JuniperProject.pid`; never repo `.env`. Pidfiles come from post-health `ss` (F-6), not `$!`. From a worktree set `JUNIPER_EXP_PROJECT_DIR`. Drive with `python util/experiments/run_experiment.py --config … --run-dir …` (exit `0`–`4`). Full contract: [REFERENCE — Experiment Stack](REFERENCE.md#experiment-stack-utilities).
 
+Tip: `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` is the split comparator (#1622).
+Identity (`workload_fingerprint`) first — a config edit is REFUSED (exit `2`), not a work FAIL (exit `1`). Speed cannot fail the gate.
+`--accept-work-change` blesses a work change only (cannot override a refusal; whitespace-only is exit `2`). Prefer a new baseline tag.
+Full contract: [REFERENCE — Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator).
+
 Tip: on a failed `*_up` leg, `do_up` auto-calls `teardown_run` (because `ports.json` is written before launches). Expect `bring-up failed — tearing the partial run back down`, then inspect `$RUN_DIR/logs/` + `teardown.json` before retrying. Pidfile refuse → kill-by-port on the recorded port only (open #923).
 
 Tip: orphaned cascor workers outside `JuniperProject.pid` need `KILL_WORKERS=1 util/juniper_chop_all.bash` (default `0`). Strict filter keeps `juniper-cascor-worker` / `juniper_cascor_worker` only — not the old over-greedy `cascor.*worker`. Timeout hard-coded `5s`. Full contract: [REFERENCE — Host Orchestration](REFERENCE.md#host-orchestration-utilities).
@@ -609,6 +615,10 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Experiment `pidfile path refused` | Pid-reuse refuse → kill-by-port on the recorded port only; WARNING means inspect `ss` before reuse (open #923). |
 | Experiment teardown left listeners / wrong kill | Confirm F-6 pidfiles (`record_listener_pid` after health); `--down` keeps `artifacts/`. |
 | Driver exit `1` stalled/timed_out | Cascor stall detector / wall budget; recurrence `timed_out` = train socket budget. See `manifest.json`. |
+| `compare_baseline` exit `2` / `REFUSED` | Identity or host mismatch, not a work regression. Do not treat as FAIL. Cut a new baseline for a config edit. |
+| `compare_baseline` exit `1` / `FAIL` | Same workload, `step_count` moved — the gate firing. A one-step difference is enough. |
+| `--accept-work-change` printed but exit is `2` | Waiver had no effect (cannot mask a refusal). Prefer a new baseline tag. |
+| Speed "regression" with matching `step_count` | Expected PASS — speed is never gated (13–20.5% host drift floor). |
 | `chop_all` logs `ERROR: PID file is empty` | Zero-byte pidfile is the empty arm of the same early wire (cleanup then `exit 1`). Re-plant; do not hand-create an empty file. |
 | Missing/empty pidfile but workers still up | Early wire already invoked cleanup; set `KILL_WORKERS=1` on that chop to opt into the pgrep reap before abort. |
 | Chop WARNING `cmdline does not match … skipping` | Stale/reused PID — `validate_pid` refused the kill; not a stop failure. Pidfile still truncates when `STOP_FAILURES == 0`. |
@@ -705,6 +715,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 - [Ecosystem Guide](../AGENTS.md) -- project map, dependency graph, conventions
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
+- [Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator) -- identity first, work exact / speed reported, exit 0/1/2, waiver cannot mask REFUSED
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
@@ -713,6 +724,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 1.0.27
+**Last Updated:** 2026-09-04
+**Version:** 1.0.31
 **Maintainer:** Paul Calnon
