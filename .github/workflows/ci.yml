@@ -565,6 +565,17 @@ jobs:
           # fence-blind regression and a silent bad cut, so it also pins the four-backtick
           # fence (canopy wraps ```-examples in ````) and the info-string closing rule.
           python3 -m unittest -v tests/test_p3_relocate_section.py
+          # tests/test_hazard_triage.py: the gate for the pre-cut HAZARD FINDER
+          # (util/ad-hoc/2026-08-28_hazard_triage.py). util/ is outside every
+          # pre-commit Python hook, so this suite is the gate. A first version
+          # scored per LINE and found ZERO of four real hazards in this repo's
+          # own AGENTS.md -- wrapped prose never reaches two signals on one
+          # line. That is the vacuous-pass class: the instrument that is
+          # supposed to be the test can hide the remainder and still print
+          # success (the same class as an X7 census that certified 36 where
+          # 58 is true). Pins block scoring, fence exclusion, and the
+          # AGENTS.md positive control.
+          python3 -m unittest -v tests/test_hazard_triage.py
           # tests/test_soak_ledger.py: the gate for util/soak_ledger.py (plan §6, the
           # pointer-follow soak). util/ is outside every pre-commit Python hook's scope,
           # so this suite IS the gate. It pins the properties that let the soak FALSIFY
