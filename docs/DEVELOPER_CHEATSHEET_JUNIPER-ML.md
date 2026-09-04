@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.34
+**Version**: 1.0.59
 **Date**: 2026-09-04
 **Project**: juniper-ml
 
@@ -41,6 +41,10 @@
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + heal-first merge order |
 | `juniper-symbol-loss-check --base ORIGIN --head HEAD` | AST symbol-loss screen (same CLI as `main-verify`) |
 | `util/reap_pytest_orphans.bash --dry-run`              | List orphaned Juniper pytest multiprocessing children (no kill) |
+| `python3 util/soak_run_probe.py --dry-run`             | Preview next pointer-follow soak probe (no `claude`; no task text) |
+| `python3 util/soak_run_probe.py --probe-id FULL-SLUG`  | Run a named soak probe (full slug; do not `--force`) |
+| `python3 util/soak_ledger.py status`                   | Soak verdict (exit 1 = `BET-FAILING` or open escalation) |
+| `python3 -m unittest -v tests/test_soak_run_probe.py`  | Soak wrapper regressions (`util/` is not pre-commit-gated) |
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + merge order |
@@ -517,6 +521,8 @@ Tip: `python util/env_floor_drift_check.py --repo-root PATH [--env NAME|--site-p
 
 Tip: after a crashed Juniper pytest session, run `util/reap_pytest_orphans.bash --dry-run` first. The awk gate keeps only current-user python whose cmdline has `JuniperC*` or `Juniper/worktrees/`; `skipped` is a ps→gone / missing-`PPid:` race, not a kill. See [REFERENCE.md § Pytest Orphan Reaper](REFERENCE.md#pytest-orphan-reaper).
 
+Tip: pointer-follow soak — `python3 util/soak_run_probe.py --dry-run` then run; score with `--reveal` only after. Use the full slug (`P19-port-check-fail-opens`, not `P19`). `--outcome miss` needs `--class`. Do not drive n≈8–10 (P21/P23 at 1/3 first resolve at n=31). `--force` is an open owner decision. A terminal verdict refuses even `--dry-run` on this tree (fix open #1690). [REFERENCE — Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak).
+
 Tip: `python util/editable_install_drift_check.py --fix --json` is the live mutation path (`action=FIXED` on success). `ERROR` (pip/`OSError`) truncates detail to 500 chars and continues the plan — re-scan still exits `1` while orphans remain. Preview with `--dry-run` first. Coverage: [#802](https://github.com/pcalnon/juniper-ml/pull/802). Full contract: [REFERENCE — Editable Install Drift](REFERENCE.md#editable-install-drift-check).
 
 Tip: `FRESH` does **not** mean up to date. An editable's `*.dist-info/METADATA` is frozen at the last `pip install -e`, so `import` follows the live tree while `importlib.metadata.version()` reports the old number — that is what fails a repo's own `version == pyproject` self-check and makes a host-launched service export a wrong build-info version. The `STALE` column catches it (soft by default; `--strict-version` to fail, `--fix --fix-stale` to re-stamp). Scope with `--env NAME` when a long-lived service is running from an env.
@@ -629,6 +635,13 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Duplicati timer silent after logout | Linger was `no` — the original failure class. Confirm `list-timers duplicati-backup.timer` |
 | Duplicati `FATAL` unmounted dest / tmpfs tempdir | Mount the backup volume; point `DUPLICATI_TEMP_DIR` at any disk-backed path (the runner refuses a RAM-backed one outright, and `/tmp` is tmpfs here) |
 | Duplicati skip then next run escalates | Expected — skip overwrites `result=OK`. Inspect `~/.local/state/duplicati/{last-run.status,failures.log}` |
+| Soak `--probe-id P19` → `no such probe` | Bare ids do not resolve. Use the full slug (`P19-port-check-fail-opens`). |
+| Soak `probe-run --outcome miss` rejected | Missing `--class` (`discoverability` / `hazard` / `pointer-defect`). |
+| Soak `--dry-run` exits 2 with no preview | Ledger verdict is `BET-FAILING` / `HOLDS-AT-*`. Do not `--force` to preview; that flag is an open owner decision. Open #1690 exempts dry-run. |
+| Soak `parse_events` AttributeError after a spent session | `message` was a string, not a dict. Re-parse saved `stream.jsonl`; do not re-run. Type guard is in-tree (#1616). |
+| Soak channel says follow but the task names the pointer path | Mechanical match searches tool inputs **and** the answer (P06 `--dest docs/REFERENCE.md`). The instrument does not see `tool_result`. |
+| Soak `status` exits 1 with an otherwise healthy rate | Open escalation or `BET-FAILING` — do **not** `resolve` to green the exit code. |
+| Soak probe reaped / no `status.json` | Pidfile was under `reports/soak/runs/` (unscanned) or interpreter was `JuniperC*`. Use `/usr/bin/python3`. |
 | `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch ref — not a damage finding. |
 | Fleet `DAMAGED` on intentional docs rewrite | Add `Allow-Docs-Rewrite: <path>` or `*` in BASE..RESULT (#926); wrong-path trailers do not waive. |
 | Mixed `--systemd` / pidfile modes | Match plant and chop modes; systemd never writes `JuniperProject.pid`. |
@@ -723,6 +736,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
+- [Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) -- unprimed probe loop; do not run n≈8–10; `--force` is an open owner decision; full slugs; `--class` on miss
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
@@ -730,5 +744,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 1.0.34
+**Version:** 1.0.59
 **Maintainer:** Paul Calnon
