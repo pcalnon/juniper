@@ -867,6 +867,11 @@ jobs:
           # anti-resurrection guard that the tool stays READ-ONLY (retention is §6.4 and gated).
           # Shipped unwired in ml#1238; wired here with the h5py dependency it needs.
           python3 -m unittest -v tests/test_snapshot_index.py
+          # tests/test_snapshot_index_root_resolution.py: complementary leftover the --root-always
+          # snapshot suites cannot see. Pins default_root() / default_run_root() blank-is-unset,
+          # that --root wins over JUNIPER_CASCOR_SNAPSHOTS_DIR, and that all four chain tools
+          # still call the shared resolver (hardcoding the fallback in one tool retargets a stage).
+          python3 -m unittest -v tests/test_snapshot_index_root_resolution.py
           # tests/test_snapshot_classify.py: hermetic tests for util/snapshot_classify.py, the
           # owner-scheme classifier over that index. Pins the two-axis category/health rule, that
           # the index's `readable` flag is NOT loadability (7/300 measured refusals), that the

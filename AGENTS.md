@@ -125,6 +125,7 @@ python3 -m unittest -v tests/test_experiment_stack_script.py
 python3 -m unittest -v tests/test_run_experiment.py
 python3 -m unittest -v tests/test_list_runs.py
 python3 -m unittest -v tests/test_snapshot_index.py
+python3 -m unittest -v tests/test_snapshot_index_root_resolution.py
 python3 -m unittest -v tests/test_snapshot_classify.py
 python3 -m unittest -v tests/test_snapshot_attribute.py
 python3 -m unittest -v tests/test_snapshot_backfill.py
