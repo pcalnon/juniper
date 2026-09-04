@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.23
+**Version:** 0.6.24
 **Status:** Active
 **Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -3042,7 +3042,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
-| 0.6.23  | 2026-09-04 | Worktree in-use probe: cwd-only liveness is not enough (open fd is STRONG); WEAK cmdline must not set the exit code (self/parent argv); sibling prefix; empty argv exits 2 |
+| 0.6.24  | 2026-09-04 | Worktree in-use probe: cwd-only liveness is not enough (open fd is STRONG); WEAK cmdline must not set the exit code (self/parent argv); sibling prefix; empty argv exits 2 |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
