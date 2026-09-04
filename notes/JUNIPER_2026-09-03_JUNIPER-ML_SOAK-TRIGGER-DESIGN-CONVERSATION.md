@@ -55,13 +55,13 @@ event at all, but a decision event.**
 The obvious family, and what `util/systemd/juniper-soak-probe.path` currently
 watches.
 
-| Event | Informative? |
-|---|---|
-| any write to `MEMORY.md` | weak — peers rewrite it constantly; mostly noise |
-| a row **added** for a probed fact | strong — a direct intervention on the thing under test |
-| a row **removed** for a probed fact | strong, and currently invisible |
-| the index **crossed a size threshold** | interesting — see below |
-| the index actually **TRUNCATED** | **urgent**, and nothing watches for it |
+| Event                                  | Informative?                                           |
+|----------------------------------------|--------------------------------------------------------|
+| any write to `MEMORY.md`               | weak — peers rewrite it constantly; mostly noise       |
+| a row **added** for a probed fact      | strong — a direct intervention on the thing under test |
+| a row **removed** for a probed fact    | strong, and currently invisible                        |
+| the index **crossed a size threshold** | interesting — see below                                |
+| the index actually **TRUNCATED**       | **urgent**, and nothing watches for it                 |
 
 **The truncation trigger deserves its own line.** The index has a hard cap and
 truncation is silent and drops the NEWEST rows. If it fires, resident facts
@@ -232,16 +232,16 @@ spent session into a worthless or misleading row.
 
 Rough, and the ordering is the argument, not the numbers.
 
-| Rank | Trigger | Why |
-|---|---|---|
-| 1 | **Organic miss observed** (§2E) | ground truth; fixes the miss-diversity gap; near-zero cost |
-| 2 | **Relocation decision pending** (§2F) | samples the rate when it is load-bearing |
-| 3 | **Index row added/removed for a probed fact** (§2A) | direct intervention on the thing under test |
-| 4 | **Instrument version changed** (§2C) | most likely to move the rate; currently invisible |
-| 5 | **Index truncation** (§2A) | hazard + population change in one event |
-| 6 | **Accumulated drift with no recent probe** (§2G) | the honest timer |
-| 7 | any write to `MEMORY.md` (§2A) | mostly noise; what we shipped |
-| 8 | pure calendar timer | measures nothing in particular; a floor, not a plan |
+| Rank | Trigger                                             | Why                                                        |
+|------|-----------------------------------------------------|------------------------------------------------------------|
+| 1    | **Organic miss observed** (§2E)                     | ground truth; fixes the miss-diversity gap; near-zero cost |
+| 2    | **Relocation decision pending** (§2F)               | samples the rate when it is load-bearing                   |
+| 3    | **Index row added/removed for a probed fact** (§2A) | direct intervention on the thing under test                |
+| 4    | **Instrument version changed** (§2C)                | most likely to move the rate; currently invisible          |
+| 5    | **Index truncation** (§2A)                          | hazard + population change in one event                    |
+| 6    | **Accumulated drift with no recent probe** (§2G)    | the honest timer                                           |
+| 7    | any write to `MEMORY.md` (§2A)                      | mostly noise; what we shipped                              |
+| 8    | pure calendar timer                                 | measures nothing in particular; a floor, not a plan        |
 
 The two things currently wired are ranked 7 and 8.
 
@@ -249,18 +249,16 @@ The two things currently wired are ranked 7 and 8.
 
 ## 6. Questions this conversation should put to the owner
 
-1. **Is the soak's purpose to produce a verdict, or to inform relocation
-   decisions?** If the latter, §2F should probably be the primary trigger and the
-   timer becomes a fallback.
-2. **Is deliberately removing an index row acceptable** to create a paired
-   control (§3.1)? It is an intervention on live shared memory.
-3. **Is retrospective scoring (§3.2) worth prototyping**, given it could make
-   probes nearly free but risks a fuzzy denominator?
-4. **Should negative controls be a standing arm** (§3.3) rather than a one-off
-   audit?
-5. **What is a probe worth?** Everything above is a ranking by information per
-   session, and none of it can be traded off properly without a rough sense of
-   what one session costs relative to a wrong relocation decision.
+1. **Is the soak's purpose to produce a verdict, or to inform relocation decisions?**
+If the latter, §2F should probably be the primary trigger and the timer becomes a fallback.
+2. **Is deliberately removing an index row acceptable?**
+To create a paired control (§3.1)? It is an intervention on live shared memory.
+3. **Is retrospective scoring (§3.2) worth prototyping**
+Given it could make probes nearly free but risks a fuzzy denominator?
+4. **Should negative controls be a standing arm?**
+(§3.3) And not just a one-off audit?
+5. **What is a probe worth?**
+Everything above is a ranking by information per session, and none of it can be traded off properly without a rough sense of what one session costs relative to a wrong relocation decision.
 
 ## 7. What this document is not
 
