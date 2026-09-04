@@ -542,6 +542,17 @@ no highlight animation is active (`:406-413`).
 > (times out waiting for `-selection-info`), and against the fixed build it PASSES. Two consecutive runs
 > of each. -09 and -15 pass on both builds, correctly — they do not depend on that fix.
 >
+> **UPDATE, 2026-09-03 (later) — M-TOPOLOGY-14 is now PASS: F-CANOPY-047 is FIXED (canopy#565,
+> `c72c0712`).** `img-src` becomes `'self' data: blob:`. Driven twice against the same 2/40/2/944
+> fixture: `canopy_network_20260903_143947.png` and `…_144123.png`, both **2204×1200 = scale 2.0** read
+> from the PNG's own IHDR, downloading in ~5 s where the gesture previously exhausted a 90 s budget.
+> **This is also the first time the row's scorer has exercised its PASS path** — until then it had only
+> ever been driven against the broken state. Regression pin:
+> `src/tests/regression/test_csp_plotly_image_export.py` (canopy), 2 failed / 3 passed on the parent.
+>
+> **Section total is now 15 PASS / 1 FAIL / 2 BLOCKED.** The record of the FAIL is kept below, because
+> the near-miss that produced it is the part worth re-reading.
+>
 > **UPDATE, 2026-09-03 — M-TOPOLOGY-14 is scored, and it is a FAIL.** The `topoexport` step finds the
 > camera button (9 modebar buttons; they are `<BUTTON class="modebar-btn">`, **not** `<a>` — an earlier
 > probe's `a.modebar-btn` selector is why the modebar once read as present-but-empty) and verifies the
@@ -557,7 +568,7 @@ no highlight animation is active (`:406-413`).
 > so reproduced the failure. `data:` succeeds where `blob:` fails; only varying the scheme exposed the
 > CSP. A control that shares the mechanism under test is not a control.
 >
-> **Section total is now 14 PASS / 2 FAIL / 2 BLOCKED.**
+> *(Section total at the time of that FAIL was 14 PASS / 2 FAIL / 2 BLOCKED; it is 15 / 1 / 2 now.)*
 >
 > **Still BLOCKED (2):** M-TOPOLOGY-11, -16 — and **no longer on F-CANOPY-037 or -039**.
 > Those are fixed and the rebuild paints. The reasons differ, and conflating them would mis-attribute a
@@ -630,7 +641,7 @@ no highlight animation is active (`:406-413`).
 | M-TOPOLOGY-11 | `network-visualizer-graph`                                                                                       | **box / lasso** select                  | Modebar carries `select2d` + `lasso2d` (:251). Selection lists up to 5 node names + `Selected: N node(s)` (`:581-603`).                                                                                                                                      | —                                 | VIS, DOM       | AUTO                           | B    | FA-2 | BLOCKED |
 | M-TOPOLOGY-12 | `network-visualizer-graph`                                                                                       | click empty space                       | Selection cleared, `-selection-info` hidden (`:637-638`).                                                                                                                                                                                                    | —                                 | DOM            | AUTO                           | B    | FA-2 | FAIL |
 | M-TOPOLOGY-13 | `network-visualizer-graph`                                                                                       | zoom / pan                              | Relayout captured into `-view-state` (:263) incl. `dragmode` and autorange reset (`:292-327`); re-applied on the next 2-D rebuild.                                                                                                                           | —                                 | VIS, DOM       | AUTO                           | B    | FA-2 | PASS |
-| M-TOPOLOGY-14 | `network-visualizer-graph`                                                                                       | modebar **camera** (PNG export)         | Downloads `canopy_network_<YYYYmmdd>_<HHMMSS>.png` at `scale: 2` — the filename is regenerated on every rebuild (`:415-426`).                                                                                                                                | —                                 | VIS (download) | AUTO                           | B    | FA-2 | FAIL |
+| M-TOPOLOGY-14 | `network-visualizer-graph`                                                                                       | modebar **camera** (PNG export)         | Downloads `canopy_network_<YYYYmmdd>_<HHMMSS>.png` at `scale: 2` — the filename is regenerated on every rebuild (`:415-426`).                                                                                                                                | —                                 | VIS (download) | AUTO                           | B    | FA-2 | PASS |
 | M-TOPOLOGY-15 | `network-visualizer-graph`                                                                                       | **hover** a node                        | Plotly-native hover tooltip only. **There is no `hoverData` callback** — the only graph Inputs are `relayoutData` (:294), `clickData` (:552) and `selectedData` (:553). Hover must not fire a request or change the DOM outside the Plotly tooltip.          | none                              | VIS, NET       | **DEAD-EXPECTED** (Dash layer) | B    | FA-2 | PASS |
 | M-TOPOLOGY-16 | cascade-add glow                                                                                                 | new hidden unit installed               | A newly added unit is detected from the metrics delta (`:463-469`) and driven through an active→fading highlight with pulse scale/opacity (`:471-481`, `_update_highlight_state` :1541, `_calculate_highlight_properties` :1608). Purely visual, time-based. | —                                 | VIS            | MANUAL                         | B    | FA-1 | BLOCKED |
 | M-TOPOLOGY-17 | store refresh                                                                                                    | switch to this tab                      | `network-visualizer-topology-store` refetches: the poll is **tab-gated to `topology`** (`:6427-6436`) and `active_tab` is an Input (`:3721`). A WS `cascade_add` push takes priority, but a count-only stub payload falls through to REST (`:3741-3754`).    | `GET /api/topology`               | NET, DOM       | AUTO                           | B    | FA-1 | PASS |

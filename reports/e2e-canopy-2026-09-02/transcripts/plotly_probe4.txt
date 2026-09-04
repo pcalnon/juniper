@@ -1,0 +1,29 @@
+[t=    601ms] navigating to http://127.0.0.1:8051
+[t=  13912ms]   welcome modal dismissed
+[t=  79865ms] wake_topology: {'already': False, 'woke': True, 'elapsed_s': 52.6, 'attempts': 2}
+[t=  82158ms] traces total=1891 marker_traces=3
+[t=  82158ms]   curve= 1888 name='Input Units'                mode='markers+text'     n=   2 sample0={'i': 0, 'x': 0, 'y': -1.5, 'text': 'Input 0', 'hovertext': 'Input 0'}
+[t=  82158ms]   curve= 1889 name='Hidden Units'               mode='markers+text'     n=  40 sample0={'i': 0, 'x': 5, 'y': -30, 'text': 'Hidden 0', 'hovertext': 'Hidden 0'}
+[t=  82158ms]   curve= 1890 name='Output Units'               mode='markers+text'     n=   2 sample0={'i': 0, 'x': 10, 'y': -1.5, 'text': 'Output 0', 'hovertext': 'Output 0'}
+[t=  83420ms] target curve=1889 name='Hidden Units' n=40
+[t=  83420ms]   pixel mapping: {'ok': True, 'dataX': 5, 'dataY': -30, 'x': 1000, 'y': 1069.09375, 'rect': {'left': 449, 'top': 529, 'w': 1102, 'h': 600}, 'size': {'l': 20, 't': 40, 'w': 1062, 'h': 540}}
+[t=  87704ms]   pixel mapping AFTER scroll: x=1000 y=790.09375
+[t=  89885ms]   viewport: {'vw': 1600, 'vh': 1100, 'sx': 0, 'sy': 279}
+[t=  89885ms]   marker rect (DOM idiom): {'ok': True, 'summary': [{'dom_index': 1888, 'n_points': 2}, {'dom_index': 1889, 'n_points': 40}, {'dom_index': 1890, 'n_points': 2}], 'n_points': 40, 'x': 1000, 'y': 790.09375, 'rect': {'left': 990, 'top': 780, 'w': 20, 'h': 20}}
+[t=  92468ms]   modebar (after hover): {'present': True, 'buttons': []}
+[t=  92468ms]   dragmode: 'pan'
+[t=  95046ms]   -selection-info element: {'present': True, 'tag': 'DIV', 'display': 'none', 'html': ''}
+[t= 104547ms]   click via dom_marker  at (1000,790): {'text': '', 'display': 'none'} -> {'text': '', 'display': 'none'}  changed=False
+[t= 116848ms]   click via axis_l2p    at (1000,790): {'text': '', 'display': 'none'} -> {'text': '', 'display': 'none'}  changed=False
+[t= 122763ms]     click Input Units   [  0] (curve 1888) -> hit curve 82 text=None node_trace=False
+[t= 127400ms]     click Input Units   [  1] (curve 1888) -> hit curve 166 text=None node_trace=False
+[t= 133475ms]     click Hidden Units  [  0] (curve 1889) -> hit curve 248 text=None node_trace=False
+[t= 139209ms]     click Hidden Units  [ 20] (curve 1889) -> hit curve 1468 text=None node_trace=False
+[t= 144636ms]     click Hidden Units  [ 39] (curve 1889) -> hit curve 1886 text=None node_trace=False
+[t= 152858ms]     click Output Units  [  0] (curve 1890) -> hit curve 1884 text=None node_trace=False
+[t= 158386ms]     click Output Units  [  1] (curve 1890) -> hit curve 1886 text=None node_trace=False
+[t= 158386ms]   HIT SWEEP: 0/7 clicks resolved to a NODE trace; 7 to an edge
+[t= 160892ms]   plotly_click emitted: {'n': 9, 'last': [{'curve': 1886, 'i': 1, 'x': 10, 'y': 0, 'text': None}]}
+[t= 160892ms]   dash posts during clicks: 160, carrying clickData: 9
+[t= 160892ms]   idioms that moved the oracle: NONE
+[t= 160897ms] probe -> /tmp/juniper-e2e/plotly_event_probe.json

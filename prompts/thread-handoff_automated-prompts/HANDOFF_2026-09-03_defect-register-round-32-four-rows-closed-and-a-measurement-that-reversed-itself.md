@@ -284,11 +284,121 @@ For the successor validating this document, attack in this order:
 - [x] PR opened for this document — **ml#1590**, auto-merge armed
 - [x] Consensus validation begun — three REFUTE lenses launched 2026-09-03
 - [x] Consensus findings applied — three lenses, corrections in this document
-- [ ] **Round 2 validation** (the predecessor needed one; round 2 reversed round 1 twice)
-- [ ] **Fix "~92 000" in three places outside this file**: §1.6 of `notes/JUNIPER_2026-09-01_JUNIPER-DATA_ASYNC-JOB-PATTERN-DECISION-ANALYSIS.md`, `juniper-data/CHANGELOG.md:17`, and `juniper-data/juniper_data/generators/arc_agi/generator.py:151` — the code comment will outlive the rest
-- [ ] **Correct register:558 and :627-628** — they carry the dead `APD-DATA-019` anchors
+- [x] **Round 2 validation** — three fresh REFUTE lenses, 2026-09-03. Results in §9 below.
+- [x] **Fix "~92 000" in three places outside this file** — done in **data#321** and this repo's
+  `notes/JUNIPER_2026-09-01_JUNIPER-DATA_ASYNC-JOB-PATTERN-DECISION-ANALYSIS.md`. The box
+  **under-scoped its own remediation**; see §9 F-3.
+- [x] **Correct register:558 and :627-628** — done, plus a third dead anchor the box did not name.
 
 **If context ends before a box is ticked, the unticked ones are the successor's first work**, in
 that order, before §0.2.
 
 ---
+
+## 9. Round 2 validation — results (2026-09-03)
+
+Three lenses, deliberately **not** round 1's (which attacked PRs/counts, the `arc_agi` claim, and
+routing/parks): **amputation** — work dropped between handoffs; **the corrections themselves** —
+round 1 applied six, and a correction pass is not self-validating; and **forward routing** — §0's
+next-work claims, where a wrong claim costs a session rather than a re-read.
+
+Round 2 was worth running. It falsified **both** of §0's "cheap next row" claims, and found one
+amputation that outranks everything else in this document.
+
+### F-1 — the five-touch close protocol was amputated, and had no residency anywhere. **FIXED**
+
+The predecessor's §4 was the **only written definition** of the protocol governing this entire
+mandate. Round 32 dropped the section, and a residency check then found it in no `notes/` document,
+no `docs/` page, no `AGENTS.md`, and no agent memory — while
+`notes/JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_DEFECT-REGISTER.md` still *cited* it by name. It
+survived only in the handoff chain, and this document broke the chain. The session complied in
+practice, so nothing failed loudly.
+
+**Now resident** in that register as § "Closing a row — the five touches", marked do-not-relocate.
+A rule that lives only in the document that hands off the work stops existing the first time one
+successor omits it.
+
+### F-2 — "parked" has three shapes, which is why the count keeps changing. **FIXED**
+
+The split has been counted **14/8**, then **16/6**, then **14/4**, each round concluding its
+predecessor miscounted. Nobody miscounted: park text is written in three structurally different
+places — **row-level**, **group-level** (`APD-DATA-028`'s *only* protection), and **foreign-cell**
+(park language for row X inside row Y's §5.1 cell — how `APD-ECO-001` and `APD-ECO-003` are
+parked). Count one shape → 4 parked; two → 14; all three → 16. All three numbers are right; the
+disagreement was definitional and nobody had noticed.
+
+The register now defines it: **all three shapes park a row**, because the conservative reading can
+only prevent unilateral action, never license it. **16 parked / 2 unparked.** §0.5's "row-level
+park only" framing is rejected there — it reads `APD-DATA-028` as disposable.
+
+### F-3 — §0.5 and §0.2 both understate their remedy. **FALSIFIED**
+
+- **`APD-ECO-003` is not "the cheapest open row"** and its remedy is not "a per-call `timeout`
+  kwarg on two clients". The primer at `:378` of
+  `notes/JUNIPER_2026-08-13_JUNIPER-ECOSYSTEM_API-DESIGN-AND-IMPLEMENTATION-PRIMER.md` prescribes
+  **"set a timeout, and split it"** — connect/read/write/pool — a half this document never mentions
+  and which is untouched in *all three* clients, the "already shipped" recurrence arm included. And
+  cascor-client has **no `**kwargs` anywhere in its chain** (`_get`/`_post`/`_delete`/`_patch`/
+  `_request`): five signatures to thread before any public method can take the kwarg. The row was
+  never compared against the other 17.
+- **`APD-DATA-018` is not "a clean owner decision" with one open sub-question.** The equities
+  sub-case is not "one constant" — `generators/equities/generator.py:264` is a bare slice that
+  **silently truncates**, so a finite default needs a reject-or-report path beside it. And §4 of
+  `notes/JUNIPER_2026-09-01_JUNIPER-DATA_ASYNC-JOB-PATTERN-DECISION-ANALYSIS.md` names a *second*
+  undecided question — rejection versus truncation — beside the rows-versus-bytes one.
+
+**Consequence: the set of rows a session may action without asking the owner first is empty.** Both
+unparked rows need a decision before code. That is now recorded in the register, not just here.
+
+### F-4 — §8's remediation boxes under-scoped their own files. **FIXED**
+
+Box 2 named the "~92 000" figure and three sites. The same sentences carry **two further errors
+this document itself derived** and did not schedule: the retracted **"~9 minutes"** (a warm run,
+presented as the run that timed out), and **"no longer exists"** — which §4 explicitly corrects to
+*"does not exist and was never verified"*. All three classes fixed across five sites in **data#321**
+plus the analysis document. `17,232` was independently re-derived from parquet column statistics
+(7,540 + 9,692 non-null of 92,000 cells, 18.7%).
+
+Box 3 named `:558` and `:627-628`; `:558`'s Source column carried a **third** dead anchor
+(`storage/base.py:348-378`, now `_meta_write_lock`) the box did not name. `filter_datasets` is
+`:462`.
+
+### F-5 — a fork-drift finding was living in one squashed commit body. **FIXED**
+
+cascor#604 (`3af59bd`) recorded that cascor's fork implements service-core's
+`release_worker_tasks` under a different public name (`handle_worker_disconnect`,
+`src/api/workers/coordinator.py:185`). It appeared in **no** register row, **no** handoff, and
+`tests/test_service_fork_drift.py` covers neither symbol (`grep -c` → 0). Recorded in the
+register's §2.3 as an explicitly unnumbered observation, with the reason it is invisible to the
+guard registry: the registry keys on named guards, and this drift is **same behaviour, different
+public API**.
+
+### Carried forward — not actioned, and each needs a decision or a session of its own
+
+- **`juniper-observability` PATCH bump owed** — the predecessor's §0.4 second half ("let the
+  documented content pick the bump") was dropped. `pyproject.toml:7` = `0.4.0`, last tag
+  `juniper-observability-v0.4.0`, `[Unreleased]` populated with four `### Fixed` bullets.
+- **Two §5.6 CARRIED items dropped with no outcome**, both verified still live: cascor-client's
+  fake-vs-server divergence (`testing/fake_client.py:376-378`) and the stale 2026-08-21
+  cascor-client worktree (still on disk, branch extant locally and on origin).
+- **Two §5.6 carries are themselves stale.** `recurrence app/model py.typed` has been **fixed since
+  2026-06-25** — both markers on disk *and* declared in `[tool.setuptools.package-data]` — and has
+  been carried as missing for ~10 weeks. The MEMORY.md compaction carry does not mention that
+  ml#1532 ran one on 2026-08-31.
+- **§5.6 NEW is partly false**: `juniper-data` has **no `cascor-protocol` dependency at all**.
+- **`juniper-data#317` is an OPEN duplicate** of §4's `arc_agi` finding, filed by a concurrent
+  session ~54 minutes before data#318 was created. data#318 does not reference it; §4 presents the
+  discovery as solely this session's.
+- **`ml#1591` is named nowhere in this document** — the PR that applied every §7 correction, unnamed
+  in a document whose opening rule is reference discipline.
+
+### Internal defects in this document, left in place as a record
+
+§0's items are numbered `1,2,3,4,5,6,5`, and the duplicate `5` cross-references **§6** (Git status)
+for the ledger, which is **§5.6**. §7's attack list was written pre-correction and never re-swept:
+it sends the successor to "§2's **fourteen**-PR table" (now 28), to "§0.4's *'no unparked rows
+left'*" (a claim §0.4 no longer makes), and to `register:674, :679, :984` — the exact line numbers
+§3 retires four sections earlier. §2's "the table has 15 numbered rows" is also stale; it renders
+16. §7's parenthetical *"(14/8 was really 16/6)"* has no source in any handoff or in the register —
+it came from an agent-memory census of the 22-open state, and F-2 above explains why it and 14/4
+are both right.
