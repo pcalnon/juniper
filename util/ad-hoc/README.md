@@ -93,6 +93,25 @@ Operator contract: [`docs/REFERENCE.md` § X7 Off-Loop Census](../../docs/REFERE
 
 ---
 
+## Memory-budget slack (operational)
+
+`2026-08-25_p5_port_memory_budget.py measure-growth`, `2026-08-26_p5_fleet_state.py`,
+`2026-08-26_p5_promote_ready.py`, and `2026-08-28_p5_cut.py` size a ceiling's working room.
+They are **not** the `Memory Budget` CI gate (`util/memory_budget_check.py`).
+
+- **Headroom is not slack.** The checker prints `headroom = ceiling_chars - chars` and fails only
+  on over-ceiling growth or an undeclared ceiling raise. It never reads `measure-growth`.
+- **`measure-growth` prints `median` / nearest-rank `p90` / `max`.** There is no required-slack
+  field and no exclusion flag. Planning slack is `max(max, 2000)` in the cut / promote helpers.
+  Size from `max`, never from p90. Default `--ref` is `HEAD` — pass `origin/main` after a fetch.
+- **`--ratchet` seeds, it does not leave working room.** After a cut, hand-edit slack.
+- **`p5_fleet_state.py` counts chars** (`len()` of UTF-8 text from the GitHub API). The API
+  `size` field is bytes.
+
+Operator contract: [`docs/REFERENCE.md` § Memory-Budget Slack (Planning)](../../docs/REFERENCE.md#memory-budget-slack-planning).
+
+---
+
 ## What does NOT belong here
 
 - Scripts that are part of a documented build / test / release flow → `util/` proper or `scripts/`.

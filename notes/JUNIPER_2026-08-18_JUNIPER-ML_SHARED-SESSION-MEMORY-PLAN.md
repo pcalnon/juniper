@@ -320,6 +320,9 @@ first, everywhere; cut afterwards.
 
 #### Current sizes and rates — RE-MEASURE, never transcribe
 
+Operator surface (how to read `measure-growth` vs the CI gate, and why headroom below planning
+slack is not a red check): [`docs/REFERENCE.md` § Memory-Budget Slack (Planning)](../docs/REFERENCE.md#memory-budget-slack-planning).
+
 Measured 2026-08-25 with
 `python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py measure-growth <repo-path> --days 30`
 (`AGENTS.md` in **chars**, the unit the ceiling uses; `docs/REFERENCE.md` in bytes from the API

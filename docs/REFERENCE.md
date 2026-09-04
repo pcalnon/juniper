@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.22
+**Version:** 0.6.52
 **Status:** Active
 **Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -41,6 +41,8 @@
 - [Flood-Remediation CI Gates](#flood-remediation-ci-gates)
 - [YubiKey GPG Provisioning](#yubikey-gpg-provisioning)
 - [Open-PR Budget Alarm](#open-pr-budget-alarm)
+- [Memory File Size Budget](#memory-file-size-budget)
+- [Memory-Budget Slack (Planning)](#memory-budget-slack-planning)
 
 ---
 
@@ -1236,6 +1238,102 @@ them, so the classifier stays pure.
 
 Exit **0** pass or advisory / **1** over budget / **2** misuse or broken machinery.
 
+`headroom` in this output is `ceiling_chars - current chars`. It is **not** "required slack".
+Sizing slack after a cut is a planning step on a different tool — see
+[Memory-Budget Slack (Planning)](#memory-budget-slack-planning).
+
+---
+
+## Memory-Budget Slack (Planning)
+
+The CI gate above answers "may this PR grow `AGENTS.md`?" The planning tools answer "how much
+working room should the *ceiling* keep after a cut?" Mixing the two is how a green `Memory Budget`
+check gets read as an emergency relocation.
+
+Plan: [`notes/JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md`](../notes/JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md) §P5.
+Cut / promote helpers: `util/ad-hoc/2026-08-28_p5_cut.py`, `util/ad-hoc/2026-08-26_p5_promote_ready.py`
+(`SLACK_FLOOR = 2000`). Growth instrument: `util/ad-hoc/2026-08-25_p5_port_memory_budget.py measure-growth`.
+Fleet census: `util/ad-hoc/2026-08-26_p5_fleet_state.py`.
+
+### Two numbers, two tools
+
+| Number | Who computes it | Formula | Gates a PR? |
+|--------|-----------------|---------|-------------|
+| **headroom** | `memory_budget_check.py` (`evaluate`, printed as `headroom=`) and `p5_fleet_state.py` | `ceiling_chars - chars` | No. The gate fails only when the file is **over ceiling and grew**, or the ceiling was **raised** without `Allow-Ceiling-Raise:`. |
+| **planning slack** | `p5_cut.py` / `p5_promote_ready.py` after they shell `measure-growth` | `max(largest 30-day growing commit, 2000)` | No. Used only to *set* a ceiling after a cut. |
+
+`util/memory_budget_check.py` never reads growth stats, never computes slack, and has no
+`--exclude` / required-slack flag. A checkout can be CI-green with headroom well below the
+planning figure.
+
+The 2,000 floor is the fleet-wide fan-out class: one 2026-08-21 docs sweep added 1,982 chars to
+six repos' `AGENTS.md` at once (`p5_promote_ready.py` docstring). A zero-slack ceiling fails
+that class by construction.
+
+### How to measure
+
+`measure-growth` defaults `--ref` to the checkout's `HEAD`. A primary that has not been pulled
+reports yesterday's `main`. After a fetch, pass `--ref origin/main`. The helper's own docstring:
+run it, do not quote it.
+
+```bash
+git fetch origin
+python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py measure-growth . --days 30 --ref origin/main
+python3 util/ad-hoc/2026-08-26_p5_fleet_state.py          # nine-repo census from GitHub API (chars, not bytes)
+python util/memory_budget_check.py --json                 # this checkout's headroom only
+```
+
+`measure-growth` prints `median`, nearest-rank `p90` (`ceil(n * 0.9)`-th growing commit;
+`tests/test_p5_port_memory_budget.py` pins the floor form that printed p90 < median), and `max`,
+then:
+
+```text
+=> slack must absorb a single growing commit: >= <max> covers the largest seen.
+```
+
+There is **no** `required slack` field. A number that is neither `max` nor the 2,000 floor was
+not produced by this instrument — it was hand-picked. Size slack from `max` (then the 2,000
+floor), **never from p90**. The helper reports p90 because a reader will size from it anyway;
+`p5_promote_ready.py` states p90 is unreliable below ~10 growing commits.
+
+Worked example, re-measured on `origin/main` `06e81d3a` (2026-09-04), 30-day window: this repo
+printed `median 498  p90 2838  max 61435` and `headroom=3216` against ceiling 38,000. Against
+p90 the file looks loose; against `max` it looks starved. Both readings are the same instrument
+pair. The 61,435 `max` is a pre-cut growing commit still inside the window — the tool has **no
+exclusion flag** for cuts or relocations. Do not invent a third "required slack" between those
+two figures, and do not start a relocation because headroom < `max`.
+
+### After a cut, do not `--ratchet`
+
+`--ratchet` rewrites every ceiling **down to the exact current size** (`memory_budget_check.py`).
+That leaves **zero** headroom, so the next author who adds one character fails. After a real cut,
+hand-edit `conf/memory_budget.json` to `current + slack` with slack re-measured in *that* repo.
+`render-config` seeds at exact size on purpose (the soak); promotion is a later hand-edit.
+
+Order the fleet by **rate**, not file size. The 2026-08-25 measurement in the helper docstring:
+cascor ~730 chars/day vs canopy ~81/day — nine times faster, smaller file. Re-measure; do not
+reuse that pair.
+
+`p5_fleet_state.py` reads origin `main` through `gh api` and counts `len()` of UTF-8 text. The
+API `size` field is **bytes**; a census that compared bytes to a char ceiling reported two repos
+over when both sat exactly at ceiling (2026-08-26). It prints `headroom`, not planning slack.
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| `Memory Budget` green, but headroom < planning slack | Expected. Slack is not a CI input. Do not relocate on that comparison. |
+| A note quotes "required slack" that is neither `max` nor 2,000 | Not an instrument output. Re-run `measure-growth --ref origin/main`. |
+| Slack sized from `p90` | The helper warns against this. Use `max`, then the 2,000 floor. |
+| `% of slack` disagrees with a sibling note | Different denominators (headroom / ceiling / `max` / 2,000). Name the inputs. |
+| `measure-growth` looks stale vs GitHub | Default `--ref` is `HEAD`. Fetch and pass `--ref origin/main`. |
+| `--ratchet` right after a cut | Next growing PR fails. Hand-edit slack. |
+| Ordered the cut by file size | Rate axis. Re-run `measure-growth` per repo. |
+| Fleet census says over-ceiling, local check says OK | Bytes vs chars, or a stale local checkout. Trust `len()` / `--json`. |
+| `only N commit(s) touched AGENTS.md` | Widen `--days`; fewer than two commits is "no growth", not zero slack. |
+
+Ad-hoc inventory: [`util/ad-hoc/README.md`](../util/ad-hoc/README.md) § Memory-budget slack.
+
 ---
 
 ## Relocation Completeness (G3)
@@ -1579,7 +1677,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
     What pinning buys: the net cannot be armed over a **stale read**. What it still does not buy: once armed, the net merges whatever head is current when the checks pass. So the net carries *"merges only when required checks are green"* but not *"merges only the SHA this run vouched for"* — callers needing the stronger property use `--no-auto-fallback`.
     Note the flag needs the **full 40-char OID** (`headRefOid`); an abbreviated SHA is rejected with `Could not coerce value ... to GitObjectID`.
   - **No enforcement** A script can be skipped; the owner's `always` ruleset bypass is what makes required checks advisory for that actor. `python util/safe_merge.py --pr N [--repo R] [--execute]`; **`--dry-run` is the default**. Exit 0 merged / 1 refused / 2 misuse / 3 hard error / **4 interrupted**. Tests: `tests/test_safe_merge.py`.
-- `util/memory_budget_check.py` + `util/relocation_check.py` -- Memory-size gates (`Memory Budget` job — BLOCKING and a required context since 2026-08-20 (P4); only its G3 step stays advisory). **Don't grow `AGENTS.md`: relocate to `docs/REFERENCE.md`, leaving a pointer that keeps an accurate open/closed status.** G3 proves a relocation moved the *prose*, not just the identifiers — the docs screen cannot see that shape. `Allow-Budget-Overrun:` is a loan, not a pass. [Budget](#memory-file-size-budget) / [G3](#relocation-completeness-g3).
+- `util/memory_budget_check.py` + `util/relocation_check.py` -- Memory-size gates (`Memory Budget` job — BLOCKING and a required context since 2026-08-20 (P4); only its G3 step stays advisory). **Don't grow `AGENTS.md`: relocate to `docs/REFERENCE.md`, leaving a pointer that keeps an accurate open/closed status.** G3 proves a relocation moved the *prose*, not just the identifiers — the docs screen cannot see that shape. `Allow-Budget-Overrun:` is a loan, not a pass. The checker reports `headroom = ceiling - chars` and never reads planning slack. [Budget](#memory-file-size-budget) / [Slack](#memory-budget-slack-planning) / [G3](#relocation-completeness-g3).
+- `util/ad-hoc/2026-08-25_p5_port_memory_budget.py measure-growth` -- 30-day `AGENTS.md` burn in **chars** (`median` / nearest-rank `p90` / `max`). Planning only; default `--ref` is `HEAD` (pass `origin/main` after a fetch). No required-slack field, no exclusion flag. Slack for a cut is `max(max, 2000)` in `p5_cut.py` / `p5_promote_ready.py`. Operator surface: [§ Memory-Budget Slack (Planning)](#memory-budget-slack-planning).
+- `util/ad-hoc/2026-08-26_p5_fleet_state.py` -- Read-only nine-repo census from the GitHub API (chars via `len()`, never the API byte `size`). Prints `headroom`, advisory, required — not planning slack.
 - `util/open_signed_pr.py` -- Opens a PR on any Juniper repo whose commit is **GitHub-signed**, by creating branch + commit + PR through the API (`createCommitOnBranch`) instead of a local checkout. Promoted from `util/ad-hoc/` after it landed the ml#1099 signing fan-out across 8 repos.
   - Why it exists: `required_signatures` (2026-08-12) rejects unsigned commits fleet-wide, GPG/YubiKey signing is unavailable to a runner, and an unsigned commit **anywhere** in a branch's history blocks the merge (squash does not rescue it). GitHub signs API-authored commits, so this is the portable way to land a signed change. It needs no working tree, which also makes it the path of choice when a session is confined to one worktree and cannot commit in sibling checkouts.
   - `python util/open_signed_pr.py --repo R --branch B --add LOCAL:REPOPATH [--delete REPOPATH] --message M --title T --body-file F [--base main] [--owner pcalnon] [--dry-run]`. `--add` / `--delete` are repeatable and together express a file move; at least one is required. Exit 0 opened / 1 refused / 2 hard error.
@@ -3104,6 +3204,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.52  | 2026-09-04 | Memory-budget slack (planning): headroom is `ceiling - chars` and is not a CI input; `measure-growth` prints median / nearest-rank p90 / max and has no required-slack field; size slack as `max(largest 30-day growing commit, 2000)`; `--ratchet` after a cut leaves zero headroom |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
@@ -3453,5 +3554,5 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 0.6.22
+**Version:** 0.6.52
 **Maintainer:** Paul Calnon
