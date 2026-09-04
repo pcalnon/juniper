@@ -917,6 +917,14 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_e2e_finding_triage.py: the mechanical P0/P1 open-count for the
+          # canopy E2E Phase 2 exit criterion (util/ad-hoc/e2e_finding_triage.py).
+          # ACCEPTED is a third disposition -- counting it as FIXED overstates what
+          # shipped; counting it as OPEN keeps an owner-settled exit criterion red.
+          # First heading wins; HEALED is FIXED; P0/P1 is not P0; status tokens come
+          # from the last 170 characters of the header body. Hermetic temp ledgers;
+          # the real evidence note is never read. util/ is not pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_e2e_finding_triage.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
