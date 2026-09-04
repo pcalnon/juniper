@@ -427,6 +427,8 @@ kill-by-port `--down`, hard-coded 2s health poll / `JUNIPER_E2E_HEALTH_TIMEOUT`)
 [`docs/REFERENCE.md` Isolated Stack E2E Utilities](../docs/REFERENCE.md#isolated-stack-e2e-utilities).
 `--status` probes `http://127.0.0.1:<port>/v1/health` for all three services (not a separate canopy `/api/health`).
 
+If an isolated canopy is live but Candidate Metrics / Decision Boundary / Topology stay at mount defaults, that is **F-CANOPY-027** (12-slot dash-renderer starvation, **FIXED** canopy#507/#509/#511) — not missing wiring. Do not add a new Interval. Operator probes: [`docs/REFERENCE.md` F-CANOPY-027 Poller Starvation Probes](../docs/REFERENCE.md#f-canopy-027-poller-starvation-probes).
+
 ---
 
 *Derived from [`JUNIPER_2026-07-11_JUNIPER-CANOPY_TRAINING-RUNTIME-DEFECTS-PLAN.md`](JUNIPER_2026-07-11_JUNIPER-CANOPY_TRAINING-RUNTIME-DEFECTS-PLAN.md)
