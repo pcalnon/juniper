@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.27
-**Date**: 2026-08-24
+**Version**: 1.0.30
+**Date**: 2026-09-04
 **Project**: juniper-ml
 
 ---
@@ -647,6 +647,7 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | `AGENTS.md` date not auto-bumped | Fork PR (skipped by design), missing `**Last Updated**:` field (warning only), or the date is already today. |
 | A shared-package workflow edit never runs its CI | `paths:` must still list the workflow file itself. |
 | Coverage gap map "passes" on a hollow module | Look for a dropped `--enforce` or a newly broad `--omit`. |
+| `python3 tests/<file>.py` reports fewer cases than `-m unittest` | A `TestCase` class sits after `if __name__ == "__main__": unittest.main()` — direct execution never loads it. #1612: 8 vs 12 on `test_require_context_safely.py`. Move `__main__` to EOF. |
 | Isolated `bring-up failed` / partial trio | `do_up` already ran `do_down` — read the logs, confirm the ports are free, then retry. |
 | Isolated `--up` logs `ERROR: conda activate '…' failed` | Expected fail-closed path — fix the env name or `JUNIPER_E2E_CONDA_DIR`, then retry. |
 | Experiment `--up` green but ports/locks stuck | OR-list false-green — confirm the `\|\| return 1` pins; `--down <RUN_ID>`, then clear stale `*.lock`. |
@@ -713,6 +714,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 1.0.27
+**Last Updated:** 2026-09-04
+**Version:** 1.0.30
 **Maintainer:** Paul Calnon
