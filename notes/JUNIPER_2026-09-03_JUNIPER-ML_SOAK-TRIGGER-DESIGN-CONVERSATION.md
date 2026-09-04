@@ -55,13 +55,13 @@ event at all, but a decision event.**
 The obvious family, and what `util/systemd/juniper-soak-probe.path` currently
 watches.
 
-| Event | Informative? |
-|---|---|
-| any write to `MEMORY.md` | weak — peers rewrite it constantly; mostly noise |
-| a row **added** for a probed fact | strong — a direct intervention on the thing under test |
-| a row **removed** for a probed fact | strong, and currently invisible |
-| the index **crossed a size threshold** | interesting — see below |
-| the index actually **TRUNCATED** | **urgent**, and nothing watches for it |
+| Event                                  | Informative?                                           |
+|----------------------------------------|--------------------------------------------------------|
+| any write to `MEMORY.md`               | weak — peers rewrite it constantly; mostly noise       |
+| a row **added** for a probed fact      | strong — a direct intervention on the thing under test |
+| a row **removed** for a probed fact    | strong, and currently invisible                        |
+| the index **crossed a size threshold** | interesting — see below                                |
+| the index actually **TRUNCATED**       | **urgent**, and nothing watches for it                 |
 
 **The truncation trigger deserves its own line.** The index has a hard cap and
 truncation is silent and drops the NEWEST rows. If it fires, resident facts
@@ -232,16 +232,16 @@ spent session into a worthless or misleading row.
 
 Rough, and the ordering is the argument, not the numbers.
 
-| Rank | Trigger | Why |
-|---|---|---|
-| 1 | **Organic miss observed** (§2E) | ground truth; fixes the miss-diversity gap; near-zero cost |
-| 2 | **Relocation decision pending** (§2F) | samples the rate when it is load-bearing |
-| 3 | **Index row added/removed for a probed fact** (§2A) | direct intervention on the thing under test |
-| 4 | **Instrument version changed** (§2C) | most likely to move the rate; currently invisible |
-| 5 | **Index truncation** (§2A) | hazard + population change in one event |
-| 6 | **Accumulated drift with no recent probe** (§2G) | the honest timer |
-| 7 | any write to `MEMORY.md` (§2A) | mostly noise; what we shipped |
-| 8 | pure calendar timer | measures nothing in particular; a floor, not a plan |
+| Rank | Trigger                                             | Why                                                        |
+|------|-----------------------------------------------------|------------------------------------------------------------|
+| 1    | **Organic miss observed** (§2E)                     | ground truth; fixes the miss-diversity gap; near-zero cost |
+| 2    | **Relocation decision pending** (§2F)               | samples the rate when it is load-bearing                   |
+| 3    | **Index row added/removed for a probed fact** (§2A) | direct intervention on the thing under test                |
+| 4    | **Instrument version changed** (§2C)                | most likely to move the rate; currently invisible          |
+| 5    | **Index truncation** (§2A)                          | hazard + population change in one event                    |
+| 6    | **Accumulated drift with no recent probe** (§2G)    | the honest timer                                           |
+| 7    | any write to `MEMORY.md` (§2A)                      | mostly noise; what we shipped                              |
+| 8    | pure calendar timer                                 | measures nothing in particular; a floor, not a plan        |
 
 The two things currently wired are ranked 7 and 8.
 
@@ -249,18 +249,16 @@ The two things currently wired are ranked 7 and 8.
 
 ## 6. Questions this conversation should put to the owner
 
-1. **Is the soak's purpose to produce a verdict, or to inform relocation
-   decisions?** If the latter, §2F should probably be the primary trigger and the
-   timer becomes a fallback.
-2. **Is deliberately removing an index row acceptable** to create a paired
-   control (§3.1)? It is an intervention on live shared memory.
-3. **Is retrospective scoring (§3.2) worth prototyping**, given it could make
-   probes nearly free but risks a fuzzy denominator?
-4. **Should negative controls be a standing arm** (§3.3) rather than a one-off
-   audit?
-5. **What is a probe worth?** Everything above is a ranking by information per
-   session, and none of it can be traded off properly without a rough sense of
-   what one session costs relative to a wrong relocation decision.
+1. **Is the soak's purpose to produce a verdict, or to inform relocation decisions?**
+If the latter, §2F should probably be the primary trigger and the timer becomes a fallback.
+2. **Is deliberately removing an index row acceptable?**
+To create a paired control (§3.1)? It is an intervention on live shared memory.
+3. **Is retrospective scoring (§3.2) worth prototyping**
+Given it could make probes nearly free but risks a fuzzy denominator?
+4. **Should negative controls be a standing arm?**
+(§3.3) And not just a one-off audit?
+5. **What is a probe worth?**
+Everything above is a ranking by information per session, and none of it can be traded off properly without a rough sense of what one session costs relative to a wrong relocation decision.
 
 ## 7. What this document is not
 
@@ -268,3 +266,107 @@ Not a plan, not a recommendation, and not costed. Several ideas here — §3.2
 especially — would need the full instrument-adequacy treatment before anyone
 built them, and §3.1 has an ethical-ish question about mutating shared memory
 that a design note cannot settle.
+
+---
+
+## 8. Question 1, answered — and it reorders the product, not just the triggers
+
+**Owner, 2026-09-03: "the soak exists, most importantly, to inform relocation
+decisions."**
+
+§6 flagged this as the question that governs the rest. It does, and it reaches
+further than the trigger ranking.
+
+### 8.1 The pooled rate is close to useless for the stated purpose
+
+Per-probe outcomes, after the 2026-08-31 re-score:
+
+| Group | Probes | Runs | Follows | Rate |
+|---|---|---|---|---|
+| **never follow** | 4 — P14, P15, P19, P23 | 10 | 0 | **0%** |
+| **follow-dominant** | 11 — the rest | 26 | 24 | **92%** |
+| pooled | 15 | 36 | 24 | **66.7%** |
+
+The distribution is **bimodal**, and the headline 66.7% describes **neither**
+group. As a verdict about "relocation in general" it is a defensible summary. As
+an input to *"should I relocate this section?"* it is close to meaningless: the
+honest answer is either ~0% or ~92% depending on which stratum the fact lands in,
+and 66.7% is never the right estimate for any actual decision.
+
+**This is the single largest consequence of the answer.** Under a verdict
+purpose, the pooled rate with its interval is the product. Under a
+decision-support purpose, the pooled rate is a mixture statistic and the
+*stratum* is the product.
+
+### 8.2 The blocker is not more runs — it is that nothing predicts stratum membership
+
+If a decision needs to know which stratum a candidate fact falls into, something
+must predict membership *before* the fact is relocated. Every obvious candidate
+fails against the existing data:
+
+- **`severity`** — hazards sit in both groups (P14, P23 never follow; P02, P16,
+  P20, P21, P25 are follow-dominant).
+- **`area`** — `ports` splits **across both groups**: P19 never follows, P24
+  always does. Same area, opposite behaviour. This is the sharpest single
+  refutation available.
+- **"has a nearby test or owning script"** — the ledger's own proposed
+  explanation (`JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md` §14).
+  Refuted: P21 has a test (`tests/test_juniper_chop_all.py:662`) and follows;
+  P02 has `tests/test_assert_release_tag.py` and follows 3 of 4.
+
+So the arc has established, at real cost, that **two sharply separated strata
+exist** — and has not established what puts a fact in one rather than the other.
+That is the actual blocker to decision support, and no number of additional runs
+at the pooled level removes it. More runs sharpen an interval nobody needs.
+
+**The next question is therefore a characterisation question, not a sampling
+one:** what distinguishes P14/P15/P19/P23 from the other eleven? Candidate
+angles worth examining — none tested yet — include how *findable* the fact is by
+a plausible grep of the task's own vocabulary, whether the task can be completed
+correctly *without* the fact (making retrieval optional rather than necessary),
+and whether the fact contradicts a plausible default the agent already holds.
+
+### 8.3 The stopping rule now keys on the wrong signal
+
+`util/soak_run_probe.py` refuses to run when the verdict is terminal
+(`BET-FAILING` / `HOLDS-AT-*`) unless `--force`. That rule was written under the
+verdict model, where a terminal verdict means the question is answered and
+further spend cannot change it.
+
+Under decision support the premise fails: **relocation decisions keep arriving,
+and each one needs current evidence about its own stratum.** A pooled verdict
+being terminal says nothing about whether the next candidate section is safe to
+move. The guard is not harmful — it still prevents unattended runaway spend — but
+it is keyed on a signal that is no longer the product. A decision-support
+stopping rule would key on something like *no pending relocation decision AND
+adequate recent coverage of the relevant stratum*.
+
+Left in place for now; flagged so it is changed deliberately rather than
+discovered later.
+
+### 8.4 The trigger ranking, re-sorted under the answer
+
+§5 ranked by information per session in the abstract. Re-sorted for decision
+support, the top of the list changes character:
+
+| Rank | Trigger | Why it moved |
+|---|---|---|
+| 1 | **relocation decision pending** (§2F) | was 2nd; now the *definition* of when the answer is needed |
+| 2 | **organic miss** (§2E) | unchanged — still the only cheap source of miss diversity |
+| 3 | **characterisation probes** (new) | deliberately probing to separate the strata, not to sharpen the pooled rate |
+| 4 | index row added/removed for a probed fact (§2A) | unchanged |
+| … | timer, any-write | still a floor, now explicitly *only* a floor |
+
+Rank 3 is new and follows directly from §8.2: if membership is unpredictable, the
+highest-value probes are the ones chosen to *discriminate between competing
+explanations of membership* — not the least-covered probe, which is what the
+dispatcher currently picks. **Least-covered selection optimises for an even
+pooled estimate, which is the statistic the answer just demoted.**
+
+### 8.5 What this does not change
+
+- The subject is still irreducible; automating it away still deletes the
+  experiment.
+- Scoring is still a judgement, and the calibration set still cannot validate its
+  own safety property (two misses, one probe).
+- `verify-probes` still is not checked at dispatch.
