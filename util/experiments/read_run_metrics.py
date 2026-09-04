@@ -206,15 +206,19 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     means = [r["mean_step_seconds"] for r in rows if isinstance(r.get("mean_step_seconds"), (int, float))]
 
     fingerprints = sorted({r["workload_fingerprint"] for r in rows if r.get("workload_fingerprint")})
+    # Dropping None/missing BEFORE the uniqueness test would treat "1 known + 1 unknown" as a
+    # single workload, and "1 measured + 1 unmeasured" as work-invariant. Both are vacuous
+    # passes of the identity/work preconditions the split gate depends on.
+    identified = sum(1 for r in rows if r.get("workload_fingerprint"))
     out: Dict[str, Any] = {
         "cells": len(rows),
         "step_counts": sorted(set(counts)),
-        "work_invariant": len(set(counts)) == 1 and bool(counts),
+        "work_invariant": len(counts) == len(rows) and len(set(counts)) == 1 and bool(counts),
         # A suite whose cells ran DIFFERENT workloads is not a set of repeats either, and its
         # step_count spread would be a fact about the configs rather than about the host or the
         # code. Recorded separately from work_invariant so the two failures stay distinguishable.
         "workload_fingerprints": fingerprints,
-        "single_workload": len(fingerprints) == 1,
+        "single_workload": identified == len(rows) and len(fingerprints) == 1,
     }
     if drives:
         out["drive"] = _spread(drives)

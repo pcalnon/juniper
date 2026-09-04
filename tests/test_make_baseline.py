@@ -114,6 +114,15 @@ class BuildRefusalTest(unittest.TestCase):
                 mb.build_baseline("t", [suite])
             self.assertIn("cannot baseline an unmeasured run", str(ctx.exception))
 
+    def test_refuses_when_some_cell_identities_are_unknown(self):
+        # Mixed known + missing YAML must not bless the known fingerprint as the scenario identity.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [{}, {}])
+            (suite / "cells" / "c001" / "experiment.yaml").unlink()
+            with self.assertRaises(mb.BaselineError) as ctx:
+                mb.build_baseline("t", [suite])
+            self.assertIn("workload", str(ctx.exception).lower())
+
     def test_refuses_cells_that_ran_different_workloads(self):
         # Distinct from the work invariant: a step_count spread across DIFFERENT configs is a fact
         # about the configs, not about the host or the code. A baseline scenario must be ONE

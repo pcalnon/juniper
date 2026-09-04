@@ -149,6 +149,19 @@ class SummariseTest(unittest.TestCase):
             suite = _write_suite(Path(tmp), [("c000", {"with_series": False}), ("c001", {"with_series": False})])
             self.assertFalse(rrm.summarise(rrm.read_suite(suite))["work_invariant"])
 
+    def test_work_invariant_is_false_when_one_cell_is_unmeasured(self):
+        # The same vacuity on a PARTIAL miss: dropping None before uniqueness would report True
+        # from the one measured cell.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(
+                Path(tmp),
+                [("c000", {"samples": ((63.0, 1770),)}), ("c001", {"with_series": False})],
+            )
+            summary = rrm.summarise(rrm.read_suite(suite))
+            self.assertEqual(summary["cells"], 2)
+            self.assertEqual(summary["step_counts"], [1770.0])
+            self.assertFalse(summary["work_invariant"])
+
     def test_spread_statistics(self):
         with tempfile.TemporaryDirectory() as tmp:
             suite = _write_suite(
@@ -229,6 +242,16 @@ class WorkloadFingerprintTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             suite = _write_suite(Path(tmp), [("c000", {}), ("c001", {})])
             self.assertFalse(rrm.summarise(rrm.read_suite(suite))["single_workload"])
+
+    def test_single_workload_false_when_some_identities_unknown(self):
+        # 1 known fingerprint + 1 missing YAML is not "the same workload".
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [("c000", {}), ("c001", {})])
+            (suite / "cells" / "c000").mkdir(parents=True, exist_ok=True)
+            (suite / "cells" / "c000" / "experiment.yaml").write_text("experiment:\n  seed: 42\n", encoding="utf-8")
+            summary = rrm.summarise(rrm.read_suite(suite))
+            self.assertEqual(len(summary["workload_fingerprints"]), 1)
+            self.assertFalse(summary["single_workload"])
 
 
 class CliTest(unittest.TestCase):

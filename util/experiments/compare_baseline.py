@@ -117,11 +117,28 @@ def compare(
         candidate_manifests.extend(rrm._load_json(Path(r["run_dir"]) / "manifest.json") for r in rows)
 
         # An incoherent CANDIDATE cannot be compared to anything -- its own spread would not be a
-        # property of the code. Refuse rather than pick a cell arbitrarily.
+        # property of the code. Refuse rather than pick a cell arbitrarily. Unknown identity and
+        # unmeasured cells are checked on the ROWS, not on the summary's uniqueness flags: those
+        # flags used to drop None before testing uniqueness, which would PASS a suite that mixed
+        # one known/measured cell with one unknown/unmeasured cell.
+        unknown = [str(r.get("cell_id") or r.get("run_id") or "?") for r in rows if not r.get("workload_fingerprint")]
+        if unknown:
+            reasons.append(
+                f"{Path(suite_dir).name}: candidate identity unknown for cells {unknown} -- "
+                f"cannot compare what cannot be identified"
+            )
+            continue
+        unmeasured = [str(r.get("cell_id") or r.get("run_id") or "?") for r in rows if not isinstance(r.get("step_count"), (int, float))]
+        if unmeasured:
+            reasons.append(
+                f"{Path(suite_dir).name}: no step-duration data for {unmeasured} -- "
+                f"cannot compare an unmeasured run"
+            )
+            continue
         if not summary["single_workload"]:
             reasons.append(
                 f"{Path(suite_dir).name}: candidate cells ran {len(summary['workload_fingerprints'])} different workloads "
-                f"(or their identity is unknown) -- cannot compare"
+                f"-- cannot compare"
             )
             continue
         if not summary["work_invariant"]:
@@ -169,17 +186,21 @@ def compare(
             "would silently be cross-hardware"
         )
 
-    if reasons:
+    # FAIL must not be swallowed by a sibling suite's REFUSED. `--suite` is repeatable and a
+    # baseline holds one scenario per suite: work that moved on a comparable suite is still a
+    # FAIL even if another suite could not be identified. Host mismatch stays a REFUSAL -- the
+    # work delta cannot be attributed to the code. A clean PASS still requires every given
+    # suite to have been compared (leftover reasons -> REFUSED, not a green overall).
+    work_moved = bool(scenario_results) and not all(s["work"]["match"] for s in scenario_results)
+    host_blocked = not host["match"]
+    if work_moved and not host_blocked:
+        verdict = WAIVED if accept_work_change else FAIL
+    elif reasons or not scenario_results:
         verdict = REFUSED
-    elif not scenario_results:
-        verdict = REFUSED
-        reasons.append("no scenarios compared -- nothing to judge")
-    elif all(s["work"]["match"] for s in scenario_results):
-        verdict = PASS
-    elif accept_work_change:
-        verdict = WAIVED
+        if not scenario_results and not reasons:
+            reasons.append("no scenarios compared -- nothing to judge")
     else:
-        verdict = FAIL
+        verdict = PASS
 
     return {
         "verdict": verdict,
