@@ -917,6 +917,12 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_register_open_set.py: the defect-register open/fixed counter
+          # (util/ad-hoc/register_open_set.py). **FIXED is the only token; lookalikes
+          # stay OPEN; letter-suffix ids are distinct; ANY row **FIXED marks the id
+          # (union, not last-row-wins); dagger rows still match; prefix grouping
+          # uses rsplit; the headline counts unique ids. util/ is not lint-gated.
+          python3 -m unittest -v tests/test_register_open_set.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
