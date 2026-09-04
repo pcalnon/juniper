@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.36
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -29,6 +29,7 @@
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
 - [Scheduled Security Scan and Lockfile Update](#scheduled-security-scan-and-lockfile-update)
+- [Equities Symbol Cap](#equities-symbol-cap)
 - [Release-Train Detect Summary and Slack](#release-train-detect-summary-and-slack)
 - [AGENTS.md Date Check](#agentsmd-date-check)
 - [Claude.yml Access Validation](#claudeyml-access-validation)
@@ -2689,6 +2690,87 @@ Regenerates `conf/requirements_ci.txt` and `conf/conda_environment_ci.yaml` via 
 
 ---
 
+## Equities Symbol Cap
+
+`equities` / `equities_seq` generation still runs inside the request (`APD-DATA-018`). The csv_import half of that row shipped a **byte** cap ([juniper-data#326](https://github.com/pcalnon/juniper-data/pull/326)). The same unit does **not** transfer: cost is per **request** (one Yahoo chart call + 1–2 SEC `companyconcept` calls per ticker), not per byte.
+
+The register row stays **OPEN**. This section is the **shipped** operator contract on juniper-data `main`, plus the sizing measurement that tells you why a default request misses the 30 s client budget. It does **not** ship a finite default or a 422-on-overflow contract — those remain an owner call.
+
+Bound-the-inputs decision: [`notes/JUNIPER_2026-09-01_JUNIPER-DATA_ASYNC-JOB-PATTERN-DECISION-ANALYSIS.md`](../notes/JUNIPER_2026-09-01_JUNIPER-DATA_ASYNC-JOB-PATTERN-DECISION-ANALYSIS.md) §1.6 / Option 6. Follow-up measurement (bytes vs wall time): [juniper-ml#1669](https://github.com/pcalnon/juniper-ml/pull/1669).
+
+### Why a byte cap is the wrong unit
+
+Measured 2026-09-04 (`juniper-data/util/ad-hoc/2026-09-04_measure_equities_payloads.py` and `…_equities_sizing_matrix.py`). Holding the symbol fixed and varying only the horizon, Yahoo chart payload scales **163×** while wall time moves **1.16×**.
+
+| Request | Wire bytes | Wall time |
+|---|---:|---:|
+| 1 symbol × 26 years (`since 2000`) | **210 KB** | **~2 s** |
+| Russell 3000 × **1 day** | **92 KB** | **1.7–3.2 h** |
+
+The *smaller* payload takes thousands of times longer. A byte threshold that admits the first rejects the second — the **wrong direction** on the axis that matters.
+
+Unit cost (two measurements; the ~2× gap is conditioning + network, and does not change the conclusion):
+
+- Yahoo chart via `yfinance`: ~1.85 s/request (direct HTTP ~0.34–0.58 s). `_download_ohlcv` calls `yf.download(..., threads=False)` — serial on purpose.
+- SEC EDGAR `companyconcept`: ~0.20 s, 1–2 calls/symbol (`dei:EntityCommonStockSharesOutstanding`, then `us-gaap:CommonStockSharesOutstanding`). Throttle: `_SEC_MIN_INTERVAL = 0.12`.
+- Per-symbol total: **~2.1 s** (2026-09-04) / **4.01 s** (2026-09-02, async-job analysis §1.6). Use **4.0 s** when a single figure is needed.
+
+The data-client default timeout is **30 s**. Generation that outlives it looks like a hung `create_dataset`, not a 422.
+
+### Shipped contract (verified against juniper-data `main`)
+
+| Knob | Value | What it actually does |
+|------|-------|------------------------|
+| Default universe | bundled `sp500_constituents.csv` (**503** tickers) when `symbols` is omitted | `_resolve_symbols` sorts the CSV keys. Index *titles* over-claim (Russell 3000 published 2,923; Wilshire 5000 published 3,414 as of the 2026-09-04 count). |
+| `EQUITIES_DEFAULT_MAX_SYMBOLS` | **`None`** (`generators/equities/defaults.py`) | Means *all* 503. `EquitiesParams.max_symbols` is `ge=1` or `None`. |
+| Boundary | `ordered = ordered[: params.max_symbols]` at `generators/equities/generator.py:286` | Bare slice. **No 422**, no `DatasetMeta.truncation`, no record of dropped tickers. Register `APD-DATA-018` still cites `:264` — that line is now CIK parsing in `_load_constituents`. |
+| Features | 10 `float32` columns in `EQUITIES_FEATURE_COLUMNS` | `open, high, low, close, volume, week52_high, week52_low, total_shares, market_cap, cost_basis`. `Adj Close` is downloaded (`auto_adjust=False`) and kept as `adj_close` for optional `basis_price_field`, then **dropped** from `X`. |
+| Cache | `JUNIPER_DATA_EQUITIES_CACHE_DIR` (default `~/.cache/juniper_data/equities`) | OHLCV CSVs + SEC shares JSON. `experiment_stack.bash` `data_up` sets this to `$RUN_DIR/equities-cache`. |
+| `seed` | defaulted (`DEFAULT_GENERATOR_SEED`) | Unused for the temporal split. Real non-reproducibility: `end_date` defaults to the wall clock. |
+| Shares fill | `fundamentals_fill` default `"zero"` | Missing SEC facts → `total_shares` / `market_cap` become **0.0**. The rows stay. |
+
+**Default request is ~67× over the 30 s budget.** 503 × 4.01 s ≈ **34 min** (any horizon; async-job analysis §1.6). What fits: 30 / 4.01 ≈ **7.5** symbols (conservative) or 30 / 2.1 ≈ **14.1** (optimistic). The analysis's independently-derived crossover was "~7". `threads=False` is explicit; even perfectly parallel Yahoo, no full index fits 30 s (SEC throttle floor for Russell 3000 is already ~8 min).
+
+### What this means on a juniper-ml experiment stack
+
+`equities` **is** in `STAGEABLE_GENERATOR_ALIASES` (`util/experiments/run_experiment.py`). `equities_seq` is **not** (3-D sequence family, plan SS10.3) — a cascor-path YAML with `dataset.generator: equities_seq` is `ConfigError` before any download.
+
+The E-H suite (`util/experiments/suites/p4/e-h-real-data.yaml` and `e-h-recurrence-real-data.yaml`) sets `symbols: [AAPL]` and does **not** set `max_symbols`, so those cells stay inside the budget. A YAML that omits `symbols` asks for all 503 and will sit in `create_dataset` for tens of minutes (or hit the 30 s client timeout).
+
+`JuniperCascor1` does **not** have `[equities]` — see [Generator Availability Matrix](#generator-availability-matrix-on-host). In-process `bench/` generation of the equities pair fails `is_available()` there. The experiment-stack `JuniperData` env does have the extra.
+
+```yaml
+# stay inside the ~30 s request budget — pick an explicit list:
+dataset:
+  generator: equities
+  params:
+    symbols: [AAPL, MSFT, GOOGL]
+    # max_symbols: 10              # silent prefix of the resolved list; no annotation
+    start_date: "2015-01-01"
+    end_date: "2022-01-01"         # pin this; default is today
+    regression_target: log_return  # recurrence E-H; default next_close is non-stationary
+```
+
+### Operator pitfalls (shipped)
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Dataset create hangs / client timeout on default `equities` | You asked for the full S&P 500. Set `symbols` to a short list. `max_symbols` also bounds the list but **truncates silently**. |
+| Equities run silently shorter than `symbols` / the S&P universe | `max_symbols` sliced at `:286`. The NPZ looks complete. Count `ticker_vocab`. |
+| `total_shares` / `market_cap` are all zeros | SEC returned no facts for that CIK, then `fundamentals_fill: zero`. Use `nan` or `drop` if zeros would train. |
+| Cascor YAML with `generator: equities_seq` | Expected `ConfigError` — not in `STAGEABLE_GENERATOR_ALIASES`. Use the recurrence path, or flat `equities`. |
+| `501` / `equities` unavailable | Install `juniper-data[equities]` into the **serving** env (`JuniperData` for the experiment stack; `JuniperCascor1` for in-process bench). |
+| Assumed Yahoo `.info` fields (`trailingPE`, `floatShares`, …) | The generator never calls `Ticker.info`. It uses `yf.download` (chart) + SEC XBRL. |
+| Expected splits / dividends / 52-week **dates** / reporting date in `X` | Not in `EQUITIES_FEATURE_COLUMNS`. Splits/dividends need `actions=True` (not passed). 52-week **values** are already features; dates and SEC `filed` are computed/downloaded and discarded. |
+
+### Still an owner call
+
+A finite `EQUITIES_DEFAULT_MAX_SYMBOLS` (single-digit to low teens) plus the csv_import loud-truncation contract (`InputTooLargeError` → 422 unless opt-in, then `DatasetMeta.truncation`) is the analysis recommendation, **not** current behavior. Do not treat it as shipped. `APD-DATA-018` stays OPEN until that lands.
+
+Do **not** add a tight byte cap as the binding bound — it is anti-correlated with wall time. A generous byte backstop (tens of MB) would only catch a pathological single-symbol payload; it is not implemented.
+
+---
+
 ## Release-Train Detect Summary and Slack
 
 Operator contract for the detect job's **Render step summary** and **Slack notification** heredocs in [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml). The full mode / Gate / HALT surface stays in the [release-train operator runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1. Hermetic YAML-extraction pins: `DetectSummaryRehearsalTest` / `DetectSlackPayloadRehearsalTest` in `tests/test_release_train_workflow_guard.py`.
@@ -2999,6 +3081,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.36  | 2026-09-04 | Equities symbol-cap operator surface (`APD-DATA-018` equities half): per-request cost, silent `max_symbols` slice at `generator.py:286`, default 503-ticker universe is ~67× over the 30 s budget |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
@@ -3343,6 +3426,9 @@ Experiment `--up` may redirect it to `$RUN_DIR/snapshots` (W-6). The attribution
 See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 `JUNIPER_CASCOR_SRC` / `JUNIPER_DATA_ROOT` override the trees `snapshot_attribute.py` imports when the fallbacks
 (`~/Development/python/Juniper/juniper-cascor/src` and `.../juniper-data`) are wrong.
+
+`JUNIPER_DATA_EQUITIES_CACHE_DIR` (default `~/.cache/juniper_data/equities`) is the equities generator's OHLCV + SEC shares cache.
+Experiment `--up` redirects it to `$RUN_DIR/equities-cache`. A default (no-`symbols`) request is still ~34 min even when warm helps a *repeat*. See [Equities Symbol Cap](#equities-symbol-cap).
 
 ---
 
