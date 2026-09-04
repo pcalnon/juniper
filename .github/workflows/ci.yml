@@ -816,6 +816,11 @@ jobs:
           # manifest, and the 0/1/2/3/4 exit matrix. No live services;
           # util/ is not pre-commit-lint-gated, so this unittest is the gate.
           python3 -m unittest -v tests/test_run_experiment.py
+          # tests/test_stats_summary_render.py: leftover the StatsSummaryUnitTest / MetricsScrapedTest
+          # cannot see — the #1550 summary.md honesty line (target_file_written must not stand in for
+          # scrape_confirmed; present None is not False; missing key is n/a). util/ is not
+          # pre-commit-lint-gated, so this unittest is the gate for the renderer.
+          python3 -m unittest -v tests/test_stats_summary_render.py
           # tests/test_read_run_metrics.py: hermetic tests for
           # util/experiments/read_run_metrics.py, the canonical reader for the perf
           # lane's two ratified gate inputs (P2 item 0.4). Pins that the LAST sampled
