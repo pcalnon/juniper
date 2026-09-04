@@ -158,10 +158,6 @@ class TargetRosterTest(unittest.TestCase):
         self.assertEqual(len(mod.TARGETS), len(set(mod.TARGETS)))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ObservedContextAppsTest(unittest.TestCase):
     """The amend path's pre-flight: WHICH app publishes this exact context name.
 
@@ -257,3 +253,7 @@ class ObservedContextAppsTest(unittest.TestCase):
         publishers = mod.observed_context_apps("o", "r", "Memory Budget")
         self.assertIn(15368, publishers)
         self.assertNotIn(57789, publishers)
+
+
+if __name__ == "__main__":
+    unittest.main()
