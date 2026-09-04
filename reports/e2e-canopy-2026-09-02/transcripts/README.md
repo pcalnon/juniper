@@ -29,3 +29,25 @@ Contents pair with the JSON result files one level up:
 | `modebar_probe7.txt` | the blob:-vs-data: control that exposed the CSP |
 | `store_read_probe*.txt` | the `dcc.Store` reader diagnosis (5 of 5 unreadable, then fixed) |
 | `f044_live_verify.txt` | F-CANOPY-044/-045 fix driven live |
+
+## 2026-09-04 — the F-CANOPY-042 / F-CANOPY-046 A/B pairs
+
+These eight files come in **pairs by port**, and the pairing is the method. Rather
+than restarting the shared `:8051` instance against a fix branch and hoping — the
+mistake behind this arc's "a checkout is not a deployment" entry — a **second
+canopy was launched on `:8052`** from the fix worktree, beside the running one,
+both pointed at the same cascor (`:8202`) and juniper-data (`:8101`). The 2/40/2/944
+fixture was never touched, and the only thing differing between the two runs of a
+pair is which code the process imported.
+(`util/ad-hoc/2026-09-04_canopy_verify_instance.bash` does the launching.)
+
+| pair | parent `:8051` | fix `:8052` |
+|---|---|---|
+| `--step topo` (F-CANOPY-042, canopy#570) | `2026-09-04_f042_topo_parent_8051.{txt,json}` — 7 PASS / 2 FAIL | `2026-09-04_f042_topo_fix_8052.{txt,json}` — 9 PASS / 0 FAIL |
+| `--step topoevents` (F-CANOPY-046, canopy#573) | `2026-09-04_f046_topoevents_parent_8051.{txt,json}` — 3 PASS / 1 BLOCKED | `2026-09-04_f046_topoevents_fix_8052.{txt,json}` — 4 PASS / 0 BLOCKED |
+
+Read the parent halves first: they carry `label='0 of 40'` on both M-TOPOLOGY-06
+and -07, and `control={'present': False, ...}` with `plotly_click_events=0` on
+M-TOPOLOGY-12. The parent `topo` transcript is the grep-filtered stdout of that
+run rather than the full log — the pipeline was written that way before the value
+of the whole log was obvious; its result JSON beside it is complete.
