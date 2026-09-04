@@ -917,6 +917,12 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_e2e_matrix_fill.py: hermetic coverage for the canopy E2E matrix
+          # bulk-fill writer (util/ad-hoc/e2e_matrix_fill.py). Pins escaped-pipe split
+          # (C2.2-04 FA-column incident), status-by-header-name on C2.4 vs M-* shapes,
+          # dry-run / no-overwrite, first-source-wins, pending-is-not-a-verdict, and
+          # prefix near-miss. util/ is not pre-commit-lint-gated; this unittest is the gate.
+          python3 -m unittest -v tests/test_e2e_matrix_fill.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
