@@ -917,6 +917,14 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_e2e_unfilled_rows.py: the AUTHORITATIVE ledger reader for
+          # remaining canopy E2E matrix rows (util/ad-hoc/e2e_unfilled_rows.py).
+          # Distinct from e2e_row_coverage.py (an estimator that over-credits TSV
+          # pending) and from the matrix writers. Pins PLACEHOLDERS vs verdicts,
+          # pending-is-already-written, status-by-header, escaped \|, C2./M-
+          # namespaces, prefix near-miss, and section grouping. Hermetic temp
+          # matrices; the real click-by-click matrix is never read.
+          python3 -m unittest -v tests/test_e2e_unfilled_rows.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
